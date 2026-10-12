@@ -1,10 +1,16 @@
+import { DESIGN_OWNED_STATEFUL_DEFINITIONS } from "@shared/native-effect-owned-dynamics";
+import { OWNED_FEEDBACK_TEST_KERNEL } from "@shared/native-effect-owned-test-fixtures";
 import { describe, expect, it } from "vitest";
 
-import { OWNED_FEEDBACK_TEST_KERNEL } from "./native-effect-owned-test-fixtures";
+import { validateEffectDocument } from "./native-effects";
 import {
+  adaptNativeFeedbackDefinition,
+  nativeFeedbackResetValuesChanged,
   planNativeFeedback,
   planNativeFeedbackAdvance,
 } from "./native-feedback-plan";
+
+const OWNED_FEEDBACK_TEST_DEFINITION = DESIGN_OWNED_STATEFUL_DEFINITIONS[0];
 
 const limits = {
   maxTextureDimension2D: 8192,
@@ -12,6 +18,66 @@ const limits = {
 };
 
 describe("fixed-grid feedback planning", () => {
+  it("reinitializes only when an explicitly declared reset value changes", () => {
+    expect(nativeFeedbackResetValuesChanged([], [])).toBe(false);
+    expect(
+      nativeFeedbackResetValuesChanged(
+        [["seeding", 0.25]],
+        [["seeding", 0.25]],
+      ),
+    ).toBe(false);
+    expect(
+      nativeFeedbackResetValuesChanged([["seeding", 0.25]], [["seeding", 0.5]]),
+    ).toBe(true);
+    expect(
+      nativeFeedbackResetValuesChanged(
+        [["seeding", 0.25]],
+        [
+          ["seeding", 0.25],
+          ["patternSeed", 4],
+        ],
+      ),
+    ).toBe(true);
+  });
+
+  it("preserves optional reset-property metadata and rejects absent or nonnumeric properties", () => {
+    const definition = {
+      ...OWNED_FEEDBACK_TEST_DEFINITION,
+      feedback: {
+        ...OWNED_FEEDBACK_TEST_DEFINITION.feedback!,
+        resetProperties: ["injection"],
+      },
+    };
+    const adapted = adaptNativeFeedbackDefinition(definition);
+    expect(
+      validateEffectDocument({
+        schemaVersion: 2,
+        definitions: [definition],
+        instances: [],
+      }).errors,
+    ).toEqual([]);
+    expect(adapted).toMatchObject({
+      ok: true,
+      definition: { resetProperties: ["injection"] },
+    });
+    expect(
+      adaptNativeFeedbackDefinition({
+        ...definition,
+        feedback: { ...definition.feedback, resetProperties: ["missing"] },
+      }),
+    ).toEqual({ ok: false, code: "feedback-definition-invalid" });
+    expect(
+      adaptNativeFeedbackDefinition({
+        ...definition,
+        properties: {
+          ...definition.properties,
+          resetToggle: { type: "bool", label: "Reset toggle", default: false },
+        },
+        feedback: { ...definition.feedback, resetProperties: ["resetToggle"] },
+      }),
+    ).toEqual({ ok: false, code: "feedback-definition-invalid" });
+  });
+
   it("accounts for both state sides and the separate display output", () => {
     const result = planNativeFeedback(OWNED_FEEDBACK_TEST_KERNEL, limits);
     expect(result).toEqual({

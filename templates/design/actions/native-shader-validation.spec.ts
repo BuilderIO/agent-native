@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { NativeMountedBenchmarkWindowCollector } from "../app/components/design/bridge/native-mounted-benchmark.js";
+import { NATIVE_BENCHMARK_SOURCE_READ_SCOPE } from "../shared/native-benchmark-contract.js";
 import { editNativeEffectHtml } from "../shared/native-effect-edits.js";
+import { OWNED_FEEDBACK_TEST_DEFINITION } from "../shared/native-effect-owned-test-fixtures.js";
 import { PARTICLE_FLOW_EFFECT } from "../shared/native-effect-particle-flow.js";
 import {
   FROSTED_REFRACTION_EFFECT,
   GRAIN_GRADIENT_EFFECT,
 } from "../shared/native-effect-presets.js";
 import { hashEffectDefinition } from "../shared/native-effect-trust.js";
+import { parseEffectsFromHtml } from "../shared/native-effects.js";
 import { nativeShaderMountedMeasurementSchema } from "../shared/native-shader-validation.js";
 
 const mocks = vi.hoisted(() => ({
@@ -135,6 +139,883 @@ describe("foreground native shader GPU validation actions", () => {
     expect(mocks.state).not.toHaveProperty("pixels");
   });
 
+  it("queues same-session feedback sequences only for declared bounded numeric properties", async () => {
+    const feedbackDefinition = {
+      ...OWNED_FEEDBACK_TEST_DEFINITION,
+      resources: OWNED_FEEDBACK_TEST_DEFINITION.resources?.map((resource) =>
+        resource.name === "feedbackState" || resource.name === "feedbackDisplay"
+          ? { ...resource, width: 16, height: 2 }
+          : resource,
+      ),
+      feedback: {
+        ...OWNED_FEEDBACK_TEST_DEFINITION.feedback!,
+        grid: {
+          ...OWNED_FEEDBACK_TEST_DEFINITION.feedback!.grid,
+          width: 16,
+          height: 2,
+        },
+      },
+    };
+    const editedFeedback = editNativeEffectHtml(
+      '<html><body><div data-agent-native-node-id="hero">Text</div></body></html>',
+      {
+        kind: "apply",
+        nodeId: "hero",
+        placement: "layer",
+        definition: feedbackDefinition,
+        params: { phase: 12 },
+      },
+    );
+    if (editedFeedback.errors.length)
+      throw new Error(editedFeedback.errors.join("; "));
+    mocks.content = editedFeedback.html;
+    const parsedFeedback = (
+      await import("../shared/native-effects.js")
+    ).parseEffectsFromHtml(mocks.content);
+    if (!parsedFeedback.document)
+      throw new Error(
+        parsedFeedback.errors.join("; ") || "no feedback manifest",
+      );
+    const instance = parsedFeedback.document.instances[0];
+    const sequence = [
+      { kind: "advance" as const, stepId: "start" },
+      {
+        kind: "set-params" as const,
+        stepId: "seed",
+        params: { phase: 30 },
+      },
+      {
+        kind: "capture" as const,
+        stepId: "seeded",
+        compare: {
+          referenceStepId: "start",
+          feedbackState: "different" as const,
+        },
+      },
+    ];
+    const item = {
+      caseId: "feedback_sequence",
+      instanceId: instance.id,
+      nodeId: instance.nodeId,
+      definitionId: feedbackDefinition.id,
+      definitionVersion: feedbackDefinition.version,
+      executionHash: await hashEffectDefinition(feedbackDefinition),
+      timeSeconds: 0,
+      mountedFrame: { viewport: { width: 64, height: 64 }, pixelRatio: 1 },
+      captureFeedbackState: true as const,
+      statefulSequence: sequence,
+    };
+    const valid = await request.run({
+      designId: "design-1",
+      fileId: "screen-1",
+      expectedVersionHash: "v1",
+      cases: [item],
+    });
+    expect(valid.caseCount).toBe(1);
+    await expect(
+      request.run({
+        designId: "design-1",
+        fileId: "screen-1",
+        expectedVersionHash: "v1",
+        cases: [
+          {
+            ...item,
+            statefulSequence: [
+              sequence[0],
+              {
+                kind: "set-params",
+                stepId: "bad_property",
+                params: { unknown: 1 },
+              },
+              sequence[2],
+            ],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "native_validation_sequence_property_invalid",
+    });
+    const editedGrain = editNativeEffectHtml(
+      '<html><body><div data-agent-native-node-id="hero">Text</div></body></html>',
+      {
+        kind: "apply",
+        nodeId: "hero",
+        placement: "fill",
+        definition: GRAIN_GRADIENT_EFFECT,
+      },
+    );
+    if (editedGrain.errors.length)
+      throw new Error(editedGrain.errors.join("; "));
+    mocks.content = editedGrain.html;
+    mocks.state = null;
+    const parsedGrain = parseEffectsFromHtml(mocks.content);
+    const grainInstance = parsedGrain.document!.instances[0];
+    const numeric = await request.run({
+      designId: "design-1",
+      fileId: "screen-1",
+      expectedVersionHash: "v1",
+      cases: [
+        {
+          caseId: "grain_control_samples",
+          instanceId: grainInstance.id,
+          nodeId: grainInstance.nodeId,
+          definitionId: GRAIN_GRADIENT_EFFECT.id,
+          definitionVersion: GRAIN_GRADIENT_EFFECT.version,
+          executionHash: await hashEffectDefinition(GRAIN_GRADIENT_EFFECT),
+          timeSeconds: 0,
+          mountedFrame: {
+            viewport: { width: 64, height: 64 },
+            pixelRatio: 1,
+          },
+          statefulSequence: [
+            { kind: "advance", stepId: "initial" },
+            {
+              kind: "set-params",
+              stepId: "scale_up",
+              params: { scale: 2 },
+            },
+            {
+              kind: "capture",
+              stepId: "scale_capture",
+              expectedLinearSamples: [
+                {
+                  x: 8,
+                  y: 8,
+                  expected: [0, 0, 0, 1],
+                  tolerance: 0.01,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    expect(numeric.caseCount).toBe(1);
+    await claim.run({ designId: "design-1", requestId: numeric.requestId });
+    const mountOutput = {
+      scope: "exact-mount-output-linear-premultiplied" as const,
+      instanceId: grainInstance.id,
+      nodeId: grainInstance.nodeId,
+      definitionId: GRAIN_GRADIENT_EFFECT.id,
+      definitionVersion: GRAIN_GRADIENT_EFFECT.version,
+      executionHash: await hashEffectDefinition(GRAIN_GRADIENT_EFFECT),
+      width: 64,
+      height: 64,
+      pixelSha256: "b".repeat(64),
+      nonTransparentPixels: 64 * 64,
+      partialAlphaPixels: 0,
+      nonZeroRgbaPixels: 64 * 64,
+    };
+    await expect(
+      finish.run({
+        designId: "design-1",
+        requestId: numeric.requestId,
+        result: {
+          status: "validation-complete",
+          results: [
+            {
+              caseId: "grain_control_samples",
+              definitionId: GRAIN_GRADIENT_EFFECT.id,
+              definitionVersion: GRAIN_GRADIENT_EFFECT.version,
+              executionHash: await hashEffectDefinition(GRAIN_GRADIENT_EFFECT),
+              backend: "webgpu",
+              status: "ready",
+              frames: 1,
+              sourceCaptures: 0,
+              estimatedResourceBytes: 16_384,
+              pixelSha256: "c".repeat(64),
+              pixelWidth: 64,
+              pixelHeight: 64,
+              nonTransparentPixels: 64 * 64,
+              partialAlphaPixels: 0,
+              mountOutput,
+              statefulRenderMode: "same-held-session-sequence",
+              statefulSequence: [
+                {
+                  kind: "advance",
+                  stepId: "initial",
+                  frameIndex: 0,
+                  timeSeconds: 0,
+                  pixelSha256: "d".repeat(64),
+                  pixelWidth: 64,
+                  pixelHeight: 64,
+                  mountOutput,
+                  comparisons: [],
+                },
+                {
+                  kind: "set-params",
+                  stepId: "scale_up",
+                  updatedProperties: ["scale"],
+                },
+                {
+                  kind: "capture",
+                  stepId: "scale_capture",
+                  frameIndex: 0,
+                  timeSeconds: 0,
+                  pixelSha256: "e".repeat(64),
+                  pixelWidth: 64,
+                  pixelHeight: 64,
+                  mountOutput,
+                  comparisons: [],
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "native_validation_results_mismatch",
+    });
+  });
+
+  it("binds requested sequence comparisons to the returned receipts", async () => {
+    const edited = editNativeEffectHtml(
+      '<html><body><div data-agent-native-node-id="hero">Text</div></body></html>',
+      {
+        kind: "apply",
+        nodeId: "hero",
+        placement: "fill",
+        definition: GRAIN_GRADIENT_EFFECT,
+      },
+    );
+    if (edited.errors.length) throw new Error(edited.errors.join("; "));
+    mocks.content = edited.html;
+    const instance = parseEffectsFromHtml(mocks.content).document!.instances[0];
+    const executionHash = await hashEffectDefinition(GRAIN_GRADIENT_EFFECT);
+    const oneSample = {
+      x: 0,
+      y: 0,
+      expected: [0, 0, 0, 1] as [number, number, number, number],
+      tolerance: 0.01,
+    };
+    const common = {
+      caseId: "comparison_sequence",
+      instanceId: instance.id,
+      nodeId: instance.nodeId,
+      definitionId: GRAIN_GRADIENT_EFFECT.id,
+      definitionVersion: GRAIN_GRADIENT_EFFECT.version,
+      executionHash,
+      timeSeconds: 0,
+      mountedFrame: { viewport: { width: 16, height: 16 }, pixelRatio: 1 },
+    };
+    const comparisonSequence = [
+      { kind: "advance" as const, stepId: "first" },
+      {
+        kind: "capture" as const,
+        stepId: "compare",
+        expectedLinearSamples: [oneSample],
+        compare: { referenceStepId: "first", pixels: "different" as const },
+      },
+    ];
+    const comparisonRequest = await request.run({
+      designId: "design-1",
+      fileId: "screen-1",
+      expectedVersionHash: "v1",
+      cases: [{ ...common, statefulSequence: comparisonSequence }],
+    });
+    await claim.run({
+      designId: "design-1",
+      requestId: comparisonRequest.requestId,
+    });
+    const output = {
+      scope: "exact-mount-output-linear-premultiplied" as const,
+      instanceId: instance.id,
+      nodeId: instance.nodeId,
+      definitionId: GRAIN_GRADIENT_EFFECT.id,
+      definitionVersion: GRAIN_GRADIENT_EFFECT.version,
+      executionHash,
+      width: 16,
+      height: 16,
+      pixelSha256: "a".repeat(64),
+      nonTransparentPixels: 256,
+      partialAlphaPixels: 0,
+      nonZeroRgbaPixels: 256,
+    };
+    const advanceReceipt = {
+      kind: "advance" as const,
+      stepId: "first",
+      frameIndex: 0,
+      timeSeconds: 0,
+      pixelSha256: "b".repeat(64),
+      pixelWidth: 16,
+      pixelHeight: 16,
+      mountOutput: output,
+      comparisons: [],
+    };
+    const captureReceipt = {
+      kind: "capture" as const,
+      stepId: "compare",
+      frameIndex: 0,
+      timeSeconds: 0,
+      pixelSha256: "c".repeat(64),
+      pixelWidth: 16,
+      pixelHeight: 16,
+      mountOutput: output,
+      linearGolden: { sampleCount: 1, maxAbsError: 0, passed: true },
+      comparisons: [] as Array<{
+        referenceStepId: string;
+        subject: "feedback-state" | "pixels";
+        expected: "same" | "different";
+        observed: "same" | "different" | "unavailable";
+        passed: boolean;
+      }>,
+    };
+    const finishComparison = (requestId = comparisonRequest.requestId) =>
+      finish.run({
+        designId: "design-1",
+        requestId,
+        result: {
+          status: "validation-complete",
+          results: [
+            {
+              caseId: common.caseId,
+              definitionId: common.definitionId,
+              definitionVersion: common.definitionVersion,
+              executionHash,
+              backend: "webgpu",
+              status: "ready",
+              frames: 1,
+              sourceCaptures: 0,
+              estimatedResourceBytes: 1024,
+              pixelSha256: captureReceipt.pixelSha256,
+              pixelWidth: 16,
+              pixelHeight: 16,
+              nonTransparentPixels: 256,
+              partialAlphaPixels: 0,
+              mountOutput: captureReceipt.mountOutput,
+              statefulRenderMode: "same-held-session-sequence",
+              statefulSequence: [advanceReceipt, captureReceipt],
+            },
+          ],
+        },
+      });
+    await expect(finishComparison()).rejects.toMatchObject({
+      errorCode: "native_validation_results_mismatch",
+    });
+    captureReceipt.comparisons = [
+      {
+        referenceStepId: "wrong_reference",
+        subject: "pixels",
+        expected: "different",
+        observed: "different",
+        passed: true,
+      },
+    ];
+    await expect(finishComparison()).rejects.toMatchObject({
+      errorCode: "native_validation_results_mismatch",
+    });
+    captureReceipt.comparisons = [
+      {
+        referenceStepId: "first",
+        subject: "pixels",
+        expected: "same",
+        observed: "same",
+        passed: true,
+      },
+    ];
+    await expect(finishComparison()).rejects.toMatchObject({
+      errorCode: "native_validation_results_mismatch",
+    });
+    captureReceipt.comparisons = [
+      {
+        referenceStepId: "first",
+        subject: "pixels",
+        expected: "different",
+        observed: "different",
+        passed: true,
+      },
+      {
+        referenceStepId: "first",
+        subject: "feedback-state",
+        expected: "same",
+        observed: "same",
+        passed: true,
+      },
+    ];
+    await expect(finishComparison()).rejects.toMatchObject({
+      errorCode: "native_validation_results_mismatch",
+    });
+    captureReceipt.comparisons = [
+      {
+        referenceStepId: "first",
+        subject: "pixels",
+        expected: "different",
+        observed: "different",
+        passed: true,
+      },
+    ];
+    await expect(finishComparison()).rejects.toMatchObject({
+      errorCode: "native_validation_results_mismatch",
+    });
+    captureReceipt.mountOutput = { ...output, pixelSha256: "b".repeat(64) };
+    captureReceipt.linearGolden = {
+      sampleCount: 1,
+      maxAbsError: 0.5,
+      passed: true,
+    };
+    await expect(finishComparison()).rejects.toMatchObject({
+      errorCode: "native_validation_results_mismatch",
+    });
+    captureReceipt.linearGolden = {
+      sampleCount: 1,
+      maxAbsError: 0,
+      passed: true,
+    };
+    captureReceipt.mountOutput = {
+      ...output,
+      nodeId: "wrong_node",
+      pixelSha256: "b".repeat(64),
+    };
+    await expect(finishComparison()).rejects.toMatchObject({
+      errorCode: "native_validation_results_mismatch",
+    });
+    captureReceipt.mountOutput = { ...output, pixelSha256: "b".repeat(64) };
+    advanceReceipt.frameIndex = 1;
+    advanceReceipt.timeSeconds = 1 / 60;
+    await expect(finishComparison()).rejects.toMatchObject({
+      errorCode: "native_validation_results_mismatch",
+    });
+    advanceReceipt.frameIndex = 0;
+    advanceReceipt.timeSeconds = 0;
+    captureReceipt.frameIndex = 1;
+    captureReceipt.timeSeconds = 1 / 60;
+    await expect(finishComparison()).rejects.toMatchObject({
+      errorCode: "native_validation_results_mismatch",
+    });
+    captureReceipt.frameIndex = 0;
+    captureReceipt.timeSeconds = 0;
+    await finishComparison();
+
+    mocks.state = null;
+    const sameRequest = await request.run({
+      designId: "design-1",
+      fileId: "screen-1",
+      expectedVersionHash: "v1",
+      cases: [
+        {
+          ...common,
+          statefulSequence: [
+            comparisonSequence[0],
+            {
+              kind: "capture" as const,
+              stepId: "compare",
+              expectedLinearSamples: [oneSample],
+              compare: { referenceStepId: "first", pixels: "same" as const },
+            },
+          ],
+        },
+      ],
+    });
+    await claim.run({ designId: "design-1", requestId: sameRequest.requestId });
+    captureReceipt.comparisons = [
+      {
+        referenceStepId: "first",
+        subject: "pixels",
+        expected: "same",
+        observed: "same",
+        passed: true,
+      },
+    ];
+    await expect(finishComparison(sameRequest.requestId)).rejects.toMatchObject(
+      {
+        errorCode: "native_validation_results_mismatch",
+      },
+    );
+  });
+
+  it("derives feedback comparisons from the held state receipts and rejects missing state", async () => {
+    const feedbackDefinition = {
+      ...OWNED_FEEDBACK_TEST_DEFINITION,
+      resources: OWNED_FEEDBACK_TEST_DEFINITION.resources?.map((resource) =>
+        resource.name === "feedbackState" || resource.name === "feedbackDisplay"
+          ? { ...resource, width: 16, height: 2 }
+          : resource,
+      ),
+      feedback: {
+        ...OWNED_FEEDBACK_TEST_DEFINITION.feedback!,
+        grid: {
+          ...OWNED_FEEDBACK_TEST_DEFINITION.feedback!.grid,
+          width: 16,
+          height: 2,
+        },
+      },
+    };
+    const edited = editNativeEffectHtml(
+      '<html><body><div data-agent-native-node-id="hero">Text</div></body></html>',
+      {
+        kind: "apply",
+        nodeId: "hero",
+        placement: "layer",
+        definition: feedbackDefinition,
+      },
+    );
+    if (edited.errors.length) throw new Error(edited.errors.join("; "));
+    mocks.content = edited.html;
+    mocks.state = null;
+    const instance = parseEffectsFromHtml(mocks.content).document!.instances[0];
+    const executionHash = await hashEffectDefinition(feedbackDefinition);
+    const requestCase = {
+      caseId: "feedback_receipts",
+      instanceId: instance.id,
+      nodeId: instance.nodeId,
+      definitionId: feedbackDefinition.id,
+      definitionVersion: feedbackDefinition.version,
+      executionHash,
+      timeSeconds: 0,
+      mountedFrame: { viewport: { width: 64, height: 64 }, pixelRatio: 1 },
+      captureFeedbackState: true as const,
+      statefulSequence: [
+        { kind: "advance" as const, stepId: "first" },
+        {
+          kind: "capture" as const,
+          stepId: "compare",
+          compare: {
+            referenceStepId: "first",
+            feedbackState: "different" as const,
+          },
+        },
+      ],
+    };
+    const queued = await request.run({
+      designId: "design-1",
+      fileId: "screen-1",
+      expectedVersionHash: "v1",
+      cases: [requestCase],
+    });
+    await claim.run({ designId: "design-1", requestId: queued.requestId });
+    const followups = {
+      sourceTransition: {
+        availability: "unavailable" as const,
+        code: "second-source-fixture-required" as const,
+      },
+      lifecycleReplay: {
+        availability: "unavailable" as const,
+        code: "multi-action-editor-sequence-required" as const,
+      },
+    };
+    const state = {
+      availability: "available" as const,
+      scope: "exact-feedback-state-linear-rgba16f" as const,
+      width: 16,
+      height: 2,
+      completedStep: 0,
+      byteLength: 256,
+      sha256: "a".repeat(64),
+      followups,
+    };
+    const output = {
+      scope: "exact-mount-output-linear-premultiplied" as const,
+      instanceId: instance.id,
+      nodeId: instance.nodeId,
+      definitionId: feedbackDefinition.id,
+      definitionVersion: feedbackDefinition.version,
+      executionHash,
+      width: 16,
+      height: 2,
+      pixelSha256: "b".repeat(64),
+      nonTransparentPixels: 32,
+      partialAlphaPixels: 0,
+      nonZeroRgbaPixels: 32,
+      feedbackState: state,
+    };
+    const capture = {
+      kind: "capture" as const,
+      stepId: "compare",
+      frameIndex: 0,
+      timeSeconds: 0,
+      pixelSha256: "c".repeat(64),
+      pixelWidth: 64,
+      pixelHeight: 64,
+      mountOutput: output,
+      comparisons: [
+        {
+          referenceStepId: "first",
+          subject: "feedback-state" as const,
+          expected: "different" as const,
+          observed: "different" as const,
+          passed: true,
+        },
+      ],
+    };
+    const finishFeedback = (requestId = queued.requestId) =>
+      finish.run({
+        designId: "design-1",
+        requestId,
+        result: {
+          status: "validation-complete",
+          results: [
+            {
+              caseId: "feedback_receipts",
+              definitionId: feedbackDefinition.id,
+              definitionVersion: feedbackDefinition.version,
+              executionHash,
+              backend: "webgpu",
+              status: "ready",
+              frames: 1,
+              sourceCaptures: 0,
+              estimatedResourceBytes: 1024,
+              pixelSha256: capture.pixelSha256,
+              pixelWidth: 64,
+              pixelHeight: 64,
+              nonTransparentPixels: 32,
+              partialAlphaPixels: 0,
+              mountOutput: capture.mountOutput,
+              statefulRenderMode: "same-held-session-sequence",
+              statefulSequence: [
+                {
+                  kind: "advance" as const,
+                  stepId: "first",
+                  frameIndex: 0,
+                  timeSeconds: 0,
+                  pixelSha256: "d".repeat(64),
+                  pixelWidth: 64,
+                  pixelHeight: 64,
+                  mountOutput: output,
+                  comparisons: [],
+                },
+                capture,
+              ],
+            },
+          ],
+        },
+      });
+    await expect(finishFeedback()).rejects.toMatchObject({
+      errorCode: "native_validation_results_mismatch",
+    });
+    capture.mountOutput = {
+      ...output,
+      feedbackState: undefined,
+    } as typeof output;
+    await expect(finishFeedback()).rejects.toMatchObject({
+      errorCode: "native_validation_results_mismatch",
+    });
+    capture.mountOutput = {
+      ...output,
+      feedbackState: { ...state, width: 8, byteLength: 128 },
+    };
+    await finishFeedback();
+    mocks.state = null;
+    const hashRequest = await request.run({
+      designId: "design-1",
+      fileId: "screen-1",
+      expectedVersionHash: "v1",
+      cases: [requestCase],
+    });
+    await claim.run({ designId: "design-1", requestId: hashRequest.requestId });
+    capture.mountOutput = {
+      ...output,
+      feedbackState: { ...state, sha256: "e".repeat(64) },
+    };
+    await finishFeedback(hashRequest.requestId);
+  });
+
+  it("accepts mixed per-capture golden outcomes when one requested sample fails", async () => {
+    const edited = editNativeEffectHtml(
+      '<html><body><div data-agent-native-node-id="hero">Text</div></body></html>',
+      {
+        kind: "apply",
+        nodeId: "hero",
+        placement: "fill",
+        definition: GRAIN_GRADIENT_EFFECT,
+      },
+    );
+    if (edited.errors.length) throw new Error(edited.errors.join("; "));
+    mocks.content = edited.html;
+    const instance = parseEffectsFromHtml(mocks.content).document!.instances[0];
+    const executionHash = await hashEffectDefinition(GRAIN_GRADIENT_EFFECT);
+    const common = {
+      instanceId: instance.id,
+      nodeId: instance.nodeId,
+      definitionId: GRAIN_GRADIENT_EFFECT.id,
+      definitionVersion: GRAIN_GRADIENT_EFFECT.version,
+      executionHash,
+      timeSeconds: 0,
+      mountedFrame: { viewport: { width: 16, height: 16 }, pixelRatio: 1 },
+    };
+    const output = {
+      scope: "exact-mount-output-linear-premultiplied" as const,
+      instanceId: instance.id,
+      nodeId: instance.nodeId,
+      definitionId: GRAIN_GRADIENT_EFFECT.id,
+      definitionVersion: GRAIN_GRADIENT_EFFECT.version,
+      executionHash,
+      width: 16,
+      height: 16,
+      pixelSha256: "a".repeat(64),
+      nonTransparentPixels: 256,
+      partialAlphaPixels: 0,
+      nonZeroRgbaPixels: 256,
+    };
+    mocks.state = null;
+    const sample = (x: number) => ({
+      x,
+      y: 0,
+      expected: [0, 0, 0, 1] as [number, number, number, number],
+      tolerance: 0.01,
+    });
+    const mixedRequest = await request.run({
+      designId: "design-1",
+      fileId: "screen-1",
+      expectedVersionHash: "v1",
+      cases: [
+        {
+          ...common,
+          caseId: "mixed_goldens",
+          statefulSequence: [
+            { kind: "advance", stepId: "initial" },
+            {
+              kind: "capture",
+              stepId: "first_sample",
+              expectedLinearSamples: [sample(0)],
+            },
+            {
+              kind: "capture",
+              stepId: "second_sample",
+              expectedLinearSamples: [sample(1)],
+            },
+          ],
+        },
+      ],
+    });
+    await claim.run({
+      designId: "design-1",
+      requestId: mixedRequest.requestId,
+    });
+    await finish.run({
+      designId: "design-1",
+      requestId: mixedRequest.requestId,
+      result: {
+        status: "validation-complete",
+        results: [
+          {
+            caseId: "mixed_goldens",
+            definitionId: GRAIN_GRADIENT_EFFECT.id,
+            definitionVersion: GRAIN_GRADIENT_EFFECT.version,
+            executionHash,
+            backend: "webgpu",
+            status: "error",
+            code: "linear-golden-failed",
+            frames: 1,
+            sourceCaptures: 0,
+            estimatedResourceBytes: 1024,
+            pixelSha256: "f".repeat(64),
+            pixelWidth: 16,
+            pixelHeight: 16,
+            nonTransparentPixels: 256,
+            partialAlphaPixels: 0,
+            mountOutput: output,
+            statefulRenderMode: "same-held-session-sequence",
+            statefulSequence: [
+              {
+                kind: "advance",
+                stepId: "initial",
+                frameIndex: 0,
+                timeSeconds: 0,
+                pixelSha256: "d".repeat(64),
+                pixelWidth: 16,
+                pixelHeight: 16,
+                mountOutput: output,
+                comparisons: [],
+              },
+              {
+                kind: "capture",
+                stepId: "first_sample",
+                frameIndex: 0,
+                timeSeconds: 0,
+                pixelSha256: "e".repeat(64),
+                pixelWidth: 16,
+                pixelHeight: 16,
+                mountOutput: output,
+                linearGolden: { sampleCount: 1, maxAbsError: 0, passed: true },
+                comparisons: [],
+              },
+              {
+                kind: "capture",
+                stepId: "second_sample",
+                frameIndex: 0,
+                timeSeconds: 0,
+                pixelSha256: "f".repeat(64),
+                pixelWidth: 16,
+                pixelHeight: 16,
+                mountOutput: output,
+                linearGolden: {
+                  sampleCount: 1,
+                  maxAbsError: 0.5,
+                  passed: false,
+                },
+                comparisons: [],
+              },
+            ],
+          },
+        ],
+      },
+    });
+  });
+
+  it("rejects held-sequence results after the pinned source revision changes", async () => {
+    const instance = parseEffectsFromHtml(mocks.content).document!.instances[0];
+    const item = {
+      caseId: "stale_sequence",
+      instanceId: instance.id,
+      nodeId: instance.nodeId,
+      definitionId: GRAIN_GRADIENT_EFFECT.id,
+      definitionVersion: GRAIN_GRADIENT_EFFECT.version,
+      executionHash: await hashEffectDefinition(GRAIN_GRADIENT_EFFECT),
+      timeSeconds: 0,
+    };
+    const queued = await request.run({
+      designId: "design-1",
+      fileId: "screen-1",
+      expectedVersionHash: "v1",
+      cases: [
+        {
+          ...item,
+          mountedFrame: { viewport: { width: 16, height: 16 }, pixelRatio: 1 },
+          statefulSequence: [
+            { kind: "advance", stepId: "initial" },
+            {
+              kind: "capture",
+              stepId: "final",
+              expectedLinearSamples: [
+                {
+                  x: 0,
+                  y: 0,
+                  expected: [0, 0, 0, 1],
+                  tolerance: 0.01,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    await claim.run({ designId: "design-1", requestId: queued.requestId });
+    mocks.versionHash = "v2";
+    await expect(
+      finish.run({
+        designId: "design-1",
+        requestId: queued.requestId,
+        result: {
+          status: "validation-complete",
+          results: [
+            {
+              caseId: item.caseId,
+              definitionId: item.definitionId,
+              definitionVersion: item.definitionVersion,
+              executionHash: item.executionHash,
+              backend: "unavailable",
+              status: "unavailable",
+              code: "mounted-output-target-unready",
+              sourceCaptures: 0,
+              frames: 0,
+              estimatedResourceBytes: 0,
+            },
+          ],
+        },
+      }),
+    ).rejects.toMatchObject({ errorCode: "native_validation_source_stale" });
+  });
+
   it("cannot finish a requested live measurement as ordinary mounted status", async () => {
     const { item } = await queuedCase();
     mocks.state = null;
@@ -204,6 +1085,64 @@ describe("foreground native shader GPU validation actions", () => {
       p99: 1,
       max: 1,
     });
+    const sourceCountStats = {
+      count: 840,
+      p50: 2,
+      p95: 4,
+      p99: 4,
+      max: 4,
+    };
+    const sourceCallsStats = {
+      count: 840,
+      p50: 6,
+      p95: 6,
+      p99: 6,
+      max: 6,
+    };
+    const sourceReadDetail = {
+      scope: NATIVE_BENCHMARK_SOURCE_READ_SCOPE,
+      stats: {
+        calls: sourceCallsStats,
+        scenePresentationCalls: sourceCountStats,
+        mountSourceCalls: sourceCountStats,
+        dependencyRefreshCalls: sourceCountStats,
+        otherCalls: sourceCountStats,
+        wallMs: stats(840),
+        walkWallMs: stats(840),
+        validationWallMs: stats(840),
+        leafWaitWallMs: stats(840),
+        walkNodeVisits: sourceCountStats,
+        walkDirectStyleReads: sourceCountStats,
+        walkDirectLayoutSizeReads: sourceCountStats,
+        walkDirectAffineReads: sourceCountStats,
+        recordDirectStyleReads: sourceCountStats,
+        recordDirectLayoutSizeReads: sourceCountStats,
+        recordDirectAffineReads: sourceCountStats,
+        recordDirectRectReads: sourceCountStats,
+      },
+    };
+    const fullFrameWallPhases = {
+      scope: "full-render-internal-wall-intervals-not-CPU-or-GPU-time",
+      stats: {
+        renderInternalWallMs: stats(840),
+        deviceWallMs: stats(840),
+        mountAwaitWallMs: stats(840),
+        scenePresentationWallMs: stats(840),
+        retirementWallMs: stats(840),
+      },
+      scenePresentation: {
+        scope:
+          "nested-in-scene-presentation-wall-intervals-not-CPU-or-GPU-time",
+        stats: {
+          sourceReadWallMs: stats(840),
+          composeWallMs: stats(840),
+          encodeWallMs: stats(840),
+          submitWallMs: stats(840),
+          errorScopeWallMs: stats(840),
+          publicationWallMs: stats(840),
+        },
+      },
+    };
     const measured = (target: string) =>
       nativeShaderMountedMeasurementSchema.parse({
         scope: "live-mounted-scene",
@@ -214,6 +1153,8 @@ describe("foreground native shader GPU validation actions", () => {
         renderWallMs: stats(840),
         sourceWallMs: stats(840),
         composeWallMs: stats(840),
+        fullFrameWallPhases,
+        sourceReadDetail,
         deadlines: { over60Hz: 0, over120Hz: 0 },
         sourceCaptureDelta: 1,
         gpuScope: "target-mount-command-encoder-not-full-scene",
@@ -262,6 +1203,66 @@ describe("foreground native shader GPU validation actions", () => {
         },
       });
     const valid = measured(item.instanceId);
+    const collector = new NativeMountedBenchmarkWindowCollector({
+      warmupRafIntervals: 120,
+      measuredRafIntervals: 840,
+    });
+    const sourceReadSample = {
+      calls: 6,
+      scenePresentationCalls: 2,
+      mountSourceCalls: 2,
+      dependencyRefreshCalls: 1,
+      otherCalls: 1,
+      wallMs: 3,
+      walkWallMs: 2,
+      validationWallMs: 1,
+      leafWaitWallMs: 1,
+      walkNodeVisits: 5,
+      walkDirectStyleReads: 2,
+      walkDirectLayoutSizeReads: 1,
+      walkDirectAffineReads: 1,
+      recordDirectStyleReads: 2,
+      recordDirectLayoutSizeReads: 1,
+      recordDirectAffineReads: 1,
+      recordDirectRectReads: 1,
+    };
+    const fullFrameSample = {
+      frame: {
+        renderInternalWallMs: 8,
+        deviceWallMs: 1,
+        mountAwaitWallMs: 1,
+        scenePresentationWallMs: 5,
+        retirementWallMs: 1,
+      },
+      scene: {
+        sourceReadWallMs: 3,
+        composeWallMs: 1,
+        encodeWallMs: 0.25,
+        submitWallMs: 0.25,
+        errorScopeWallMs: 0.25,
+        publicationWallMs: 0.25,
+      },
+    };
+    for (let frame = 0; frame <= 960; frame += 1) {
+      collector.onRaf(frame * 10, "visible");
+      if (collector.isMeasuring)
+        collector.onRender({
+          renderWallMs: 8,
+          sourceWallMs: 3,
+          composeWallMs: 1,
+          fullFrameWallPhases: fullFrameSample,
+          sourceReadDetail: sourceReadSample,
+          failureCount: 0,
+        });
+    }
+    const collectedMeasurement = nativeShaderMountedMeasurementSchema.parse({
+      ...valid,
+      ...collector.result(),
+    });
+    expect(collectedMeasurement.sourceReadDetail).toMatchObject({
+      scope: NATIVE_BENCHMARK_SOURCE_READ_SCOPE,
+      stats: { calls: { count: 840 } },
+    });
     const historical = nativeShaderMountedMeasurementSchema.parse({
       ...valid,
       gpuThroughFrameIndex: undefined,
@@ -301,6 +1302,12 @@ describe("foreground native shader GPU validation actions", () => {
           mountedMeasurement: {
             gpuTargetInstanceId: item.instanceId,
             gpuThroughFrameIndex: 11,
+            sourceReadDetail: {
+              scope: NATIVE_BENCHMARK_SOURCE_READ_SCOPE,
+              stats: {
+                walkDirectLayoutSizeReads: sourceCountStats,
+              },
+            },
           },
         },
       ],
@@ -755,6 +1762,145 @@ describe("foreground native shader GPU validation actions", () => {
       ],
     });
     expect(JSON.stringify(mocks.state)).not.toContain("rgba");
+  });
+
+  it("binds full-scene sample receipts to the requested source, frame, request, and coordinates", async () => {
+    const instance = parseEffectsFromHtml(mocks.content).document!.instances[0];
+    const coordinates = [
+      { x: 7, y: 8 },
+      { x: 12, y: 9 },
+    ];
+    const item = {
+      caseId: "sceneSamples",
+      instanceId: instance.id,
+      nodeId: instance.nodeId,
+      definitionId: GRAIN_GRADIENT_EFFECT.id,
+      definitionVersion: GRAIN_GRADIENT_EFFECT.version,
+      executionHash: await hashEffectDefinition(GRAIN_GRADIENT_EFFECT),
+      timeSeconds: 0.5,
+      mountedFrame: { viewport: { width: 20, height: 10 }, pixelRatio: 1 },
+      scenePixelSampleCoordinates: coordinates,
+    };
+    const queued = await request.run({
+      designId: "design-1",
+      fileId: "screen-1",
+      expectedVersionHash: "v1",
+      cases: [item],
+    });
+    await claim.run({ designId: "design-1", requestId: queued.requestId });
+    const result = {
+      caseId: item.caseId,
+      definitionId: item.definitionId,
+      definitionVersion: item.definitionVersion,
+      executionHash: item.executionHash,
+      backend: "webgpu" as const,
+      status: "ready" as const,
+      frames: 1,
+      sourceCaptures: 0,
+      estimatedResourceBytes: 4096,
+      pixelSha256: "b".repeat(64),
+      pixelWidth: 20,
+      pixelHeight: 10,
+      nonTransparentPixels: 100,
+      partialAlphaPixels: 10,
+      mountOutput: {
+        scope: "exact-mount-output-linear-premultiplied" as const,
+        instanceId: item.instanceId,
+        nodeId: item.nodeId,
+        definitionId: item.definitionId,
+        definitionVersion: item.definitionVersion,
+        executionHash: item.executionHash,
+        width: 2,
+        height: 2,
+        pixelSha256: "c".repeat(64),
+        nonTransparentPixels: 4,
+        partialAlphaPixels: 0,
+        nonZeroRgbaPixels: 4,
+      },
+      fullScenePixelSamples: {
+        scope: "full-scene-composition-srgb-straight-u8" as const,
+        requestId: queued.requestId,
+        sourceVersionHash: "v1",
+        frameIndex: 30,
+        timeSeconds: 0.5,
+        width: 20,
+        height: 10,
+        pixelRatio: 1,
+        colorSpace: "srgb" as const,
+        alpha: "straight" as const,
+        samples: [
+          {
+            x: 7,
+            y: 8,
+            rgba8: [12, 34, 56, 255] as [number, number, number, number],
+          },
+          {
+            x: 12,
+            y: 9,
+            rgba8: [1, 2, 3, 0] as [number, number, number, number],
+          },
+        ],
+      },
+    };
+    for (const invalid of [
+      {
+        ...result,
+        fullScenePixelSamples: {
+          ...result.fullScenePixelSamples,
+          requestId: "00000000-0000-4000-8000-000000000002",
+        },
+      },
+      {
+        ...result,
+        fullScenePixelSamples: {
+          ...result.fullScenePixelSamples,
+          sourceVersionHash: "stale",
+        },
+      },
+      {
+        ...result,
+        fullScenePixelSamples: {
+          ...result.fullScenePixelSamples,
+          frameIndex: 29,
+        },
+      },
+      {
+        ...result,
+        fullScenePixelSamples: {
+          ...result.fullScenePixelSamples,
+          samples: [...result.fullScenePixelSamples.samples].reverse(),
+        },
+      },
+      { ...result, fullScenePixelSamples: undefined },
+    ])
+      await expect(
+        finish.run({
+          designId: "design-1",
+          requestId: queued.requestId,
+          result: { status: "validation-complete", results: [invalid] },
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "native_validation_results_mismatch",
+      });
+    await finish.run({
+      designId: "design-1",
+      requestId: queued.requestId,
+      result: { status: "validation-complete", results: [result] },
+    });
+    expect(mocks.state).toMatchObject({
+      results: [
+        {
+          fullScenePixelSamples: {
+            requestId: queued.requestId,
+            samples: coordinates.map((point, index) => ({
+              ...point,
+              rgba8: result.fullScenePixelSamples.samples[index].rgba8,
+            })),
+          },
+        },
+      ],
+    });
+    expect(JSON.stringify(mocks.state)).not.toContain('"rgba":');
   });
 
   it("requires a bounded held frame for a persistent mounted effect", async () => {

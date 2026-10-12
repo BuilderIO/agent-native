@@ -53,7 +53,7 @@ export function catalogFloat(
   min: number,
   max: number,
   step = 0.01,
-): EffectProperty {
+): Extract<EffectProperty, { type: "float" | "int" }> & { type: "float" } {
   return { type: "float", label, default: value, min, max, step };
 }
 
@@ -119,7 +119,7 @@ export interface CatalogShaderSpec {
   fragment: (property: (name: string) => string) => string;
   helpers?: (property: (name: string) => string) => string;
   backdrop?: boolean;
-  edgeSampling?: "repeat-mirror-bilinear-v2";
+  edgeSampling?: "repeat-mirror-bilinear-v2" | "fixed-clamp";
 }
 
 export function catalogShader(spec: CatalogShaderSpec): EffectDefinition {
@@ -161,11 +161,20 @@ fn paletteAt(position: f32) -> vec4f {
     throw new Error("Edge sampling is only available for processors");
   let sampling = "";
   if (spec.kind === "processor") {
-    if (!slots.has("edge"))
-      throw new Error(`Processor ${spec.id} must declare edge behavior`);
-    sampling =
-      spec.edgeSampling === "repeat-mirror-bilinear-v2"
-        ? `${EDGE_SAMPLING_WGSL}
+    if (spec.edgeSampling === "fixed-clamp") {
+      if (Object.prototype.hasOwnProperty.call(spec.properties, "edge"))
+        throw new Error(`Processor ${spec.id} has an unused edge control`);
+      sampling = `
+fn sampleSource(uv: vec2f) -> vec4f {
+  return textureSampleLevel(sourceTexture, effectSampler, clamp(uv, vec2f(0.0), vec2f(1.0)), 0.0);
+}
+`;
+    } else {
+      if (!slots.has("edge"))
+        throw new Error(`Processor ${spec.id} must declare edge behavior`);
+      sampling =
+        spec.edgeSampling === "repeat-mirror-bilinear-v2"
+          ? `${EDGE_SAMPLING_WGSL}
 fn sampleSource(uv: vec2f) -> vec4f {
   let edge = u32(${property("edge")}.x);
   if (edge == 2u || edge == 3u) { return sampleEdgeTexture(sourceTexture, uv, edge); }
@@ -173,7 +182,7 @@ fn sampleSource(uv: vec2f) -> vec4f {
   return textureSampleLevel(sourceTexture, effectSampler, clamp(uv, vec2f(0.0), vec2f(1.0)), 0.0);
 }
 `
-        : `
+          : `
 fn sampleSource(uv: vec2f) -> vec4f {
   let edge = u32(${property("edge")}.x);
   if (edge == 0u && (any(uv < vec2f(0.0)) || any(uv > vec2f(1.0)))) { return vec4f(0.0); }
@@ -183,6 +192,7 @@ fn sampleSource(uv: vec2f) -> vec4f {
   return textureSampleLevel(sourceTexture, effectSampler, q, 0.0);
 }
 `;
+    }
   }
   return {
     id: `an-native-${spec.id}`,

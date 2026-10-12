@@ -8085,9 +8085,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (
       root.nodeType === 1 &&
       ((root as Element).hasAttribute("data-agent-native-edit-overlay") ||
-        // The shader runtime inserts this before the snapshot; claiming it
-        // lets the next morph delete it as stale source.
-        (root as Element).hasAttribute("data-an-shader-canvas"))
+        // These nodes belong to the live shader runtime and are absent from
+        // sanitized source replacements.
+        (root as Element).hasAttribute("data-an-shader-canvas") ||
+        (root as Element).matches(
+          "script[data-agent-native-shader-runtime]," +
+            "script[data-agent-native-native-shader-runtime]," +
+            "script[data-agent-native-shader-fill-preview-bridge]",
+        ))
     ) {
       return;
     }

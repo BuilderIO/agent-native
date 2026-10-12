@@ -561,6 +561,12 @@ export function NativeShaderLibraryBrowser({
               key={entry.itemKey}
               data-native-library-item-key={entry.itemKey}
               data-native-thumbnail-status={thumbnail?.status ?? "pending"}
+              data-native-thumbnail-error={
+                thumbnail?.status === "error" ? thumbnail.code : undefined
+              }
+              data-native-thumbnail-error-message={
+                thumbnail?.status === "error" ? thumbnail.message : undefined
+              }
               className="min-w-0 rounded border border-border/60 p-1"
             >
               <button

@@ -64,28 +64,39 @@ afterEach(async () => {
   container.remove();
 });
 
-async function mountBoard(enabled: boolean) {
-  await act(async () =>
-    root.render(
-      <QueryClientProvider client={new QueryClient()}>
-        <MultiScreenCanvas
-          screens={[]}
-          zoom={100}
-          activeTool="move"
-          geometryById={{}}
-          onPick={() => {}}
-          reviewResourceId="design-1"
-          nativeApprovalsEnabled={enabled}
-          boardFileId="board-file"
-          boardIsActive
-          boardFrameGeometry={{ x: 0, y: 0, width: 1200, height: 800 }}
-          boardFileContent={
-            '<!doctype html><html><body><div data-agent-native-node-id="board-frame">Frame</div><script type="application/x-agent-native-effects">{"schemaVersion":2,"definitions":[],"instances":[]}</script></body></html>'
-          }
-        />
-      </QueryClientProvider>,
-    ),
+function boardTree(
+  enabled: boolean,
+  editorNativePreviewPolicy?: {
+    quality: "auto" | "performance" | "quality";
+    frameRateTarget: 60 | 120;
+    colorMode?: "srgb" | "display-p3";
+    dynamicRange?: "sdr" | "hdr";
+  } | null,
+) {
+  return (
+    <QueryClientProvider client={new QueryClient()}>
+      <MultiScreenCanvas
+        screens={[]}
+        zoom={100}
+        activeTool="move"
+        geometryById={{}}
+        onPick={() => {}}
+        reviewResourceId="design-1"
+        nativeApprovalsEnabled={enabled}
+        editorNativePreviewPolicy={editorNativePreviewPolicy}
+        boardFileId="board-file"
+        boardIsActive
+        boardFrameGeometry={{ x: 0, y: 0, width: 1200, height: 800 }}
+        boardFileContent={
+          '<!doctype html><html><body><div data-agent-native-node-id="board-frame">Frame</div><script type="application/x-agent-native-effects">{"schemaVersion":2,"definitions":[],"instances":[]}</script></body></html>'
+        }
+      />
+    </QueryClientProvider>
   );
+}
+
+async function mountBoard(enabled: boolean) {
+  await act(async () => root.render(boardTree(enabled)));
   const iframe = container.querySelector<HTMLIFrameElement>(
     "[data-board-surface-layer] iframe[data-design-preview-iframe]",
   );
@@ -106,6 +117,42 @@ function requestStatus(requestId: string) {
     }),
   );
 }
+
+it("replays the user editor policy into the persistent board frame when it changes", async () => {
+  const firstPolicy = {
+    quality: "performance",
+    frameRateTarget: 120,
+    colorMode: "display-p3",
+    dynamicRange: "hdr",
+  } as const;
+  const nextPolicy = {
+    quality: "quality",
+    frameRateTarget: 60,
+    colorMode: "srgb",
+    dynamicRange: "sdr",
+  } as const;
+  await act(async () => root.render(boardTree(true, firstPolicy)));
+  const iframe = container.querySelector<HTMLIFrameElement>(
+    "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+  );
+  expect(iframe?.contentWindow).toBeTruthy();
+  const sent = vi.spyOn(iframe!.contentWindow!, "postMessage");
+  await act(async () => iframe!.dispatchEvent(new Event("load")));
+  const message = (policy: typeof firstPolicy | typeof nextPolicy) => ({
+    type: "native-shader-editor-preview-policy",
+    schemaVersion: 1,
+    policy,
+  });
+  expect(sent).toHaveBeenCalledWith(message(firstPolicy), "*");
+
+  await act(async () => root.render(boardTree(true, nextPolicy)));
+  expect(
+    container.querySelector(
+      "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+    ),
+  ).toBe(iframe);
+  expect(sent).toHaveBeenCalledWith(message(nextPolicy), "*");
+});
 
 it("delivers selected board status requests to the exact board frame and forwards its reply", async () => {
   const iframe = await mountBoard(true);

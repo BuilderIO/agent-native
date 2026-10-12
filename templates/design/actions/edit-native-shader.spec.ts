@@ -129,6 +129,52 @@ describe("edit-native-shader", () => {
     });
   });
 
+  it("approves a thirty-third exact definition hash without changing the source", async () => {
+    const applied = editNativeEffectHtml(html, {
+      kind: "apply",
+      nodeId: "hero",
+      placement: "fill",
+      definitionId: GRAIN_GRADIENT_EFFECT.id,
+      definitionVersion: 2,
+    });
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content: applied.html,
+      versionHash: "hash-1",
+    });
+    const existing = Array.from({ length: 32 }, (_, index) =>
+      (index + 1).toString(16).padStart(64, "0"),
+    );
+    mocks.readAppState.mockResolvedValue({
+      schemaVersion: 1,
+      hashes: existing,
+    });
+    const executionHash = await hashEffectDefinition(GRAIN_GRADIENT_EFFECT);
+
+    const result = await action.run({
+      designId: "design-1",
+      fileId: "file-1",
+      expectedVersionHash: "hash-1",
+      operation: {
+        kind: "approve-definition",
+        definitionId: GRAIN_GRADIENT_EFFECT.id,
+        definitionVersion: 2,
+        expectedExecutionHash: executionHash,
+      },
+    });
+
+    expect(result.approvedDefinitionHashes).toEqual([
+      ...existing,
+      executionHash,
+    ]);
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
+      "design-native-effect-approvals:design-1",
+      { schemaVersion: 1, hashes: existing },
+      { schemaVersion: 1, hashes: [...existing, executionHash] },
+    );
+    expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+  });
+
   it("surfaces malformed approval state and a concurrent approval change", async () => {
     const applied = editNativeEffectHtml(html, {
       kind: "apply",

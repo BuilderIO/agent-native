@@ -54,6 +54,11 @@ vi.mock("h3", async (importOriginal) => ({
 }));
 
 import { editNativeEffectHtml } from "../shared/native-effect-edits.js";
+import { OWNED_NEXT_SIX_R_DEFINITIONS } from "../shared/native-effect-owned-next-six-r.js";
+import { OWNED_NEXT_TWELVE_S_DEFINITIONS } from "../shared/native-effect-owned-next-twelve-s";
+import { OWNED_NEXT_TWELVE_T_DEFINITIONS } from "../shared/native-effect-owned-next-twelve-t";
+import { OWNED_NEXT_TWELVE_U_DEFINITIONS } from "../shared/native-effect-owned-next-twelve-u";
+import { STATEFUL_NINE_DEFINITIONS } from "../shared/native-effect-owned-stateful-nine";
 import {
   GRAIN_GRADIENT_EFFECT,
   NATIVE_EFFECT_PRESETS,
@@ -90,7 +95,62 @@ describe("get-shader native-v2", () => {
         expect.objectContaining({ id: GRAIN_GRADIENT_EFFECT.id, version: 2 }),
       ]),
     );
-    expect(result.definitions).toHaveLength(232);
+    expect(result.definitions).toHaveLength(337);
+    expect(result.definitions).toEqual(
+      expect.arrayContaining(
+        [
+          ...OWNED_NEXT_SIX_R_DEFINITIONS,
+          ...OWNED_NEXT_TWELVE_S_DEFINITIONS,
+          ...OWNED_NEXT_TWELVE_T_DEFINITIONS,
+          ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
+          ...STATEFUL_NINE_DEFINITIONS,
+        ].map((definition) =>
+          expect.objectContaining({
+            id: definition.id,
+            version: definition.version,
+          }),
+        ),
+      ),
+    );
+    expect(result.definitions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "an-native-owned-q-alpha-cast-shadow",
+          version: 2,
+          animationCapability: "static",
+          placements: ["layer"],
+        }),
+        expect.objectContaining({
+          id: "an-native-owned-q-block-transform",
+          version: 2,
+          animationCapability: "static",
+          placements: ["layer", "backdrop"],
+        }),
+        ...[
+          "gabor-packets",
+          "haar-detail-field",
+          "star-cutout",
+          "checker-phase",
+        ].map((name) =>
+          expect.objectContaining({
+            id: `an-native-owned-q-${name}`,
+            version: 1,
+            animationCapability: "static",
+            placements: ["fill"],
+          }),
+        ),
+      ]),
+    );
+    expect(result.definitions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "an-native-highlight-streaks",
+          version: 1,
+          animationCapability: "static",
+          placements: ["layer"],
+        }),
+      ]),
+    );
     expect(result.definitions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -357,7 +417,7 @@ describe("get-shader native-v2", () => {
         }),
       ]),
     );
-    expect(result.presets).toHaveLength(463);
+    expect(result.presets).toHaveLength(676);
     expect(result.presets).toEqual(NATIVE_EFFECT_PRESETS);
     expect(result.definitions).toEqual(
       expect.arrayContaining([

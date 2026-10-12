@@ -1,6 +1,7 @@
 import type { EffectDefinition, EffectDocument } from "./native-effects";
 
-export const MAX_APPROVED_NATIVE_DEFINITION_HASHES = 32;
+export const MAX_APPROVED_NATIVE_DEFINITION_HASHES = 512;
+export const MAX_NATIVE_SCENE_EXECUTABLE_HASHES = 32;
 export const NATIVE_EFFECT_APPROVALS_SCHEMA_VERSION = 1;
 const SHA256_RE = /^[a-f0-9]{64}$/;
 
@@ -126,7 +127,7 @@ export async function nativeSceneExecutableHashes(
     if (seen.has(hash)) continue;
     seen.add(hash);
     result.push(hash);
-    if (result.length > MAX_APPROVED_NATIVE_DEFINITION_HASHES)
+    if (result.length > MAX_NATIVE_SCENE_EXECUTABLE_HASHES)
       throw new NativeSceneAuthorizationError("limit");
   }
   return result;

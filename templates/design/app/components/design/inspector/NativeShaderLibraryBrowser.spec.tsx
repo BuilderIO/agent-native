@@ -1,4 +1,20 @@
 import {
+  OWNED_NEXT_SIX_R_DEFINITIONS,
+  OWNED_NEXT_SIX_R_PRESETS,
+} from "@shared/native-effect-owned-next-six-r";
+import { OWNED_NEXT_TWELVE_S_DEFINITIONS } from "@shared/native-effect-owned-next-twelve-s";
+import { OWNED_NEXT_TWELVE_T_DEFINITIONS } from "@shared/native-effect-owned-next-twelve-t";
+import { OWNED_NEXT_TWELVE_U_DEFINITIONS } from "@shared/native-effect-owned-next-twelve-u";
+import {
+  OWNED_P2_DEFINITIONS,
+  OWNED_P2_PRESETS,
+} from "@shared/native-effect-owned-p2";
+import {
+  OWNED_Q_DEFINITIONS,
+  OWNED_Q_PRESETS,
+} from "@shared/native-effect-owned-q";
+import { STATEFUL_NINE_DEFINITIONS } from "@shared/native-effect-owned-stateful-nine";
+import {
   GRAIN_GRADIENT_EFFECT,
   NATIVE_EFFECT_LATEST_DEFINITIONS,
   NATIVE_EFFECT_PRESETS,
@@ -224,6 +240,44 @@ describe("NativeShaderLibraryBrowser", () => {
     ).not.toBeNull();
   });
 
+  it("starts with every latest processor in the normal Effects picker", async () => {
+    callAction.mockImplementation(() => new Promise(() => {}));
+    await act(async () => {
+      root.render(
+        <NativeShaderLibraryBrowser
+          mode="effect"
+          search=""
+          disabled={false}
+          nodeId="target"
+          onApplyBuiltin={vi.fn()}
+          onApplySaved={vi.fn()}
+        />,
+      );
+    });
+    expect(
+      host.querySelectorAll("[data-native-library-item-key]"),
+    ).toHaveLength(
+      NATIVE_EFFECT_LATEST_DEFINITIONS.filter((definition) =>
+        definition.placements.some((placement) => placement !== "fill"),
+      ).length,
+    );
+    for (const definition of [
+      ...OWNED_NEXT_TWELVE_S_DEFINITIONS,
+      ...OWNED_NEXT_TWELVE_T_DEFINITIONS,
+      ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
+      ...STATEFUL_NINE_DEFINITIONS,
+    ].filter((candidate) =>
+      candidate.placements.some((placement) => placement !== "fill"),
+    )) {
+      expect(
+        host.querySelector(
+          `[data-native-library-item-key="builtin:${definition.id}@${definition.version}"]`,
+        ),
+        definition.id,
+      ).not.toBeNull();
+    }
+  });
+
   it.each(["an-native-luminous-perimeter", "an-native-focal-color-field"])(
     "discovers and applies %s in the normal Fill picker",
     async (id) => {
@@ -240,7 +294,17 @@ describe("NativeShaderLibraryBrowser", () => {
           ? Promise.resolve({
               approvedDefinitionHashes: [],
               library: {
-                builtins: [],
+                builtins: [
+                  {
+                    id: definition.id,
+                    name: definition.name,
+                    version: definition.version,
+                    placements: definition.placements,
+                    itemKey: `builtin:${definition.id}@${definition.version}`,
+                    favorite: false,
+                    lastUsedAt: null,
+                  },
+                ],
                 items: [],
                 hasMore: false,
                 nextCursor: null,
@@ -429,6 +493,221 @@ describe("NativeShaderLibraryBrowser", () => {
     await act(async () => option!.click());
     expect(onApplyBuiltin).toHaveBeenCalledWith(grain.id, 4, "fill", recipe);
   });
+
+  it.each(OWNED_P2_DEFINITIONS)(
+    "offers exact reviewed P recipes for $name in normal Effects",
+    async (definition) => {
+      const apply = vi.fn().mockResolvedValue(true);
+      callAction.mockImplementation(
+        (name: string, args: Record<string, unknown>) => {
+          if (name !== "get-shader") return Promise.resolve({});
+          const selected = definition;
+          return Promise.resolve({
+            approvedDefinitionHashes: [],
+            library: {
+              builtins: [
+                {
+                  id: selected.id,
+                  name: selected.name,
+                  version: selected.version,
+                  placements: selected.placements,
+                  itemKey: `builtin:${selected.id}@${selected.version}`,
+                  favorite: false,
+                  lastUsedAt: null,
+                },
+              ],
+              items: [],
+              hasMore: false,
+              nextCursor: null,
+              selectedEntry: null,
+            },
+          });
+        },
+      );
+      await act(async () =>
+        root.render(
+          <NativeShaderLibraryBrowser
+            mode="effect"
+            search=""
+            disabled={false}
+            nodeId="target"
+            onApplyBuiltin={apply}
+            onApplySaved={vi.fn()}
+          />,
+        ),
+      );
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 230));
+      });
+      const variants = host.querySelector<HTMLButtonElement>(
+        '[aria-label="editPanel.shaders.presets"]',
+      );
+      expect(variants).not.toBeNull();
+      await act(async () => variants!.click());
+      const options = [
+        ...host.querySelectorAll<HTMLButtonElement>("[role=menuitem]"),
+      ];
+      expect(options).toHaveLength(2);
+      expect(
+        options.every((option) =>
+          option.textContent?.endsWith(` · v${definition.version}`),
+        ),
+      ).toBe(true);
+      await act(async () => options[0]!.click());
+      expect(apply).toHaveBeenCalledWith(
+        definition.id,
+        definition.version,
+        "layer",
+        OWNED_P2_PRESETS.find(
+          (p) =>
+            p.definitionId === definition.id &&
+            p.definitionVersion === definition.version,
+        ),
+      );
+    },
+  );
+
+  it.each(OWNED_Q_DEFINITIONS)(
+    "offers exact reviewed Q recipes for $name in normal Effects",
+    async (definition) => {
+      const apply = vi.fn().mockResolvedValue(true);
+      callAction.mockImplementation(
+        (name: string, args: Record<string, unknown>) => {
+          if (name !== "get-shader") return Promise.resolve({});
+          return Promise.resolve({
+            approvedDefinitionHashes: [],
+            library: {
+              builtins: [
+                {
+                  id: definition.id,
+                  name: definition.name,
+                  version: definition.version,
+                  placements: definition.placements,
+                  itemKey: `builtin:${definition.id}@${definition.version}`,
+                  favorite: false,
+                  lastUsedAt: null,
+                },
+              ],
+              items: [],
+              hasMore: false,
+              nextCursor: null,
+              selectedEntry: null,
+            },
+          });
+        },
+      );
+      await act(async () =>
+        root.render(
+          <NativeShaderLibraryBrowser
+            mode={definition.placements[0] === "fill" ? "fill" : "effect"}
+            search=""
+            disabled={false}
+            nodeId="target"
+            onApplyBuiltin={apply}
+            onApplySaved={vi.fn()}
+          />,
+        ),
+      );
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 230)));
+      const variants = host.querySelector<HTMLButtonElement>(
+        '[aria-label="editPanel.shaders.presets"]',
+      );
+      expect(variants).not.toBeNull();
+      await act(async () => variants!.click());
+      const options = [
+        ...host.querySelectorAll<HTMLButtonElement>("[role=menuitem]"),
+      ];
+      expect(options).toHaveLength(2);
+      expect(
+        options.every((option) =>
+          option.textContent?.endsWith(` · v${definition.version}`),
+        ),
+      ).toBe(true);
+      await act(async () => options[0]!.click());
+      const preset = OWNED_Q_PRESETS.find(
+        (p) =>
+          p.definitionId === definition.id &&
+          p.definitionVersion === definition.version,
+      );
+      expect(apply).toHaveBeenCalledWith(
+        definition.id,
+        definition.version,
+        preset?.placement,
+        preset,
+      );
+    },
+  );
+
+  it.each(OWNED_NEXT_SIX_R_DEFINITIONS)(
+    "offers exact reviewed R recipes for $name in normal Effects",
+    async (definition) => {
+      const apply = vi.fn().mockResolvedValue(true);
+      callAction.mockImplementation(
+        (name: string, args: Record<string, unknown>) => {
+          if (name !== "get-shader") return Promise.resolve({});
+          return Promise.resolve({
+            approvedDefinitionHashes: [],
+            library: {
+              builtins: [
+                {
+                  id: definition.id,
+                  name: definition.name,
+                  version: definition.version,
+                  placements: definition.placements,
+                  itemKey: `builtin:${definition.id}@${definition.version}`,
+                  favorite: false,
+                  lastUsedAt: null,
+                },
+              ],
+              items: [],
+              hasMore: false,
+              nextCursor: null,
+              selectedEntry: null,
+            },
+          });
+        },
+      );
+      await act(async () =>
+        root.render(
+          <NativeShaderLibraryBrowser
+            mode={definition.placements[0] === "fill" ? "fill" : "effect"}
+            search=""
+            disabled={false}
+            nodeId="target"
+            onApplyBuiltin={apply}
+            onApplySaved={vi.fn()}
+          />,
+        ),
+      );
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 230)));
+      const variants = host.querySelector<HTMLButtonElement>(
+        '[aria-label="editPanel.shaders.presets"]',
+      );
+      expect(variants).not.toBeNull();
+      await act(async () => variants!.click());
+      const options = [
+        ...host.querySelectorAll<HTMLButtonElement>("[role=menuitem]"),
+      ];
+      expect(options).toHaveLength(2);
+      expect(
+        options.every((option) =>
+          option.textContent?.endsWith(` · v${definition.version}`),
+        ),
+      ).toBe(true);
+      await act(async () => options[0]!.click());
+      const preset = OWNED_NEXT_SIX_R_PRESETS.find(
+        (p) =>
+          p.definitionId === definition.id &&
+          p.definitionVersion === definition.version,
+      );
+      expect(apply).toHaveBeenCalledWith(
+        definition.id,
+        definition.version,
+        preset?.placement,
+        preset,
+      );
+    },
+  );
 
   it("finds a localized builtin while retaining server search for saved names", async () => {
     locale.grainName = "Farbverlauf";

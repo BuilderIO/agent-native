@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { NATIVE_BENCHMARK_SOURCE_READ_SCOPE } from "./native-benchmark-contract.js";
+
 export const NATIVE_SHADER_VALIDATION_PENDING_MS = 90_000;
 export const NATIVE_SHADER_VALIDATION_RUNNING_MS = 45_000;
 
@@ -33,6 +35,70 @@ export const nativeExpectedLinearSamplesSchema = z
 
 export type NativeExpectedLinearSamples = z.infer<
   typeof nativeExpectedLinearSamplesSchema
+>;
+
+const scenePixelCoordinate = z
+  .object({
+    x: z.number().int().min(0).max(4095),
+    y: z.number().int().min(0).max(4095),
+  })
+  .strict();
+
+export const nativeFullScenePixelSampleCoordinatesSchema = z
+  .array(scenePixelCoordinate)
+  .min(1)
+  .max(20)
+  .refine(
+    (samples) =>
+      new Set(samples.map((sample) => `${sample.x}:${sample.y}`)).size ===
+      samples.length,
+    "full-scene pixel sample coordinates must be unique",
+  );
+
+const nativeFullScenePixelSamplesSchema = z
+  .object({
+    scope: z.literal("full-scene-composition-srgb-straight-u8"),
+    requestId: z.string().uuid(),
+    sourceVersionHash: z.string().min(1).max(256),
+    frameIndex: z.number().int().min(0).max(120),
+    timeSeconds: z.number().finite().min(0).max(2),
+    width: z.number().int().positive().max(4096),
+    height: z.number().int().positive().max(4096),
+    pixelRatio: z.number().finite().min(1).max(2),
+    colorSpace: z.literal("srgb"),
+    alpha: z.literal("straight"),
+    samples: z
+      .array(
+        z
+          .object({
+            x: z.number().int().min(0).max(4095),
+            y: z.number().int().min(0).max(4095),
+            rgba8: z.tuple([
+              z.number().int().min(0).max(255),
+              z.number().int().min(0).max(255),
+              z.number().int().min(0).max(255),
+              z.number().int().min(0).max(255),
+            ]),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(20),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.width * value.height <= 4_194_304 &&
+      value.samples.every(
+        (sample) => sample.x < value.width && sample.y < value.height,
+      ) &&
+      new Set(value.samples.map((sample) => `${sample.x}:${sample.y}`)).size ===
+        value.samples.length,
+    "full-scene pixel samples must fit their exact unique frame coordinates",
+  );
+
+export type NativeFullScenePixelSamples = z.infer<
+  typeof nativeFullScenePixelSamplesSchema
 >;
 
 export const nativeLinearGoldenSummarySchema = z
@@ -91,6 +157,124 @@ export const nativeShaderValidationMountedFrameSchema = z
     return width <= 4096 && height <= 4096 && width * height <= 4_194_304;
   }, "mounted frame exceeds the sixteen-megabyte pixel budget");
 
+const nativeShaderValidationSequenceStepId = z
+  .string()
+  .regex(/^[A-Za-z][A-Za-z0-9_-]{0,31}$/);
+
+const nativeShaderValidationSequenceParams = z
+  .record(
+    z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/),
+    z.number().finite().min(-1_000_000).max(1_000_000),
+  )
+  .refine(
+    (params) =>
+      Object.keys(params).length > 0 && Object.keys(params).length <= 16,
+  )
+  .refine((params) => {
+    const serialized = JSON.stringify(params);
+    return new TextEncoder().encode(serialized).byteLength <= 4096;
+  });
+
+export const nativeShaderValidationSequenceStepSchema = z.discriminatedUnion(
+  "kind",
+  [
+    z
+      .object({
+        kind: z.literal("advance"),
+        stepId: nativeShaderValidationSequenceStepId,
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.literal("set-params"),
+        stepId: nativeShaderValidationSequenceStepId,
+        params: nativeShaderValidationSequenceParams,
+      })
+      .strict(),
+    z
+      .object({
+        kind: z.literal("capture"),
+        stepId: nativeShaderValidationSequenceStepId,
+        expectedLinearSamples: nativeExpectedLinearSamplesSchema.optional(),
+        compare: z
+          .object({
+            referenceStepId: nativeShaderValidationSequenceStepId,
+            feedbackState: z.enum(["same", "different"]).optional(),
+            pixels: z.enum(["same", "different"]).optional(),
+          })
+          .strict()
+          .refine(
+            (value) =>
+              value.feedbackState !== undefined || value.pixels !== undefined,
+          )
+          .optional(),
+      })
+      .strict(),
+  ],
+);
+
+export const nativeShaderValidationStatefulSequenceSchema = z
+  .array(nativeShaderValidationSequenceStepSchema)
+  .min(2)
+  .max(40)
+  .refine(
+    (steps) => new Set(steps.map((step) => step.stepId)).size === steps.length,
+  )
+  .refine((steps) => steps[0]?.kind === "advance")
+  .refine((steps) => steps[steps.length - 1]?.kind === "capture")
+  .refine(
+    (steps) => steps.filter((step) => step.kind === "advance").length >= 1,
+  )
+  .refine(
+    (steps) => steps.filter((step) => step.kind === "advance").length <= 4,
+  )
+  .refine(
+    (steps) => steps.filter((step) => step.kind === "capture").length <= 17,
+  )
+  .refine(
+    (steps) =>
+      steps.reduce(
+        (count, step) =>
+          count +
+          (step.kind === "capture"
+            ? (step.expectedLinearSamples?.length ?? 0)
+            : 0),
+        0,
+      ) <= 32,
+  )
+  .refine((steps) => {
+    let writes = 0;
+    for (const step of steps) {
+      if (step.kind !== "set-params") continue;
+      writes += Object.keys(step.params).length;
+    }
+    return writes <= 64;
+  })
+  .refine((steps) => {
+    const serialized = JSON.stringify(steps);
+    return new TextEncoder().encode(serialized).byteLength <= 32_768;
+  })
+  .refine((steps) => {
+    const rendered = new Set<string>();
+    let hasFrame = false;
+    for (const step of steps) {
+      if (step.kind === "advance") {
+        rendered.add(step.stepId);
+        hasFrame = true;
+      } else if (step.kind === "capture") {
+        if (!hasFrame) return false;
+        if (step.compare && !rendered.has(step.compare.referenceStepId))
+          return false;
+        rendered.add(step.stepId);
+      } else if (!hasFrame) return false;
+    }
+    return true;
+  });
+
+export type NativeShaderValidationStatefulSequence = z.infer<
+  typeof nativeShaderValidationStatefulSequenceSchema
+>;
+
 export const nativeShaderValidationCaseSchema = z
   .object({
     caseId: z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/),
@@ -102,6 +286,8 @@ export const nativeShaderValidationCaseSchema = z
     timeSeconds: z.number().finite().min(0).max(3600),
     fixture: nativeShaderValidationFixtureSchema.optional(),
     mountedFrame: nativeShaderValidationMountedFrameSchema.optional(),
+    captureFeedbackState: z.literal(true).optional(),
+    statefulSequence: nativeShaderValidationStatefulSequenceSchema.optional(),
     presentationFault: z.literal("simulated-gpu-validation").optional(),
     mountedMeasurement: z
       .object({
@@ -111,6 +297,11 @@ export const nativeShaderValidationCaseSchema = z
       .strict()
       .optional(),
     expectedLinearSamples: nativeExpectedLinearSamplesSchema.optional(),
+    scenePixelSampleCoordinates: nativeFullScenePixelSampleCoordinatesSchema
+      .describe(
+        "Physical pixel coordinates in the full-scene composition; at most twenty across the request, separate from mount-local linear golden samples",
+      )
+      .optional(),
   })
   .strict()
   .refine(
@@ -120,13 +311,53 @@ export const nativeShaderValidationCaseSchema = z
         !value.fixture &&
         !value.mountedFrame &&
         !value.mountedMeasurement &&
-        !value.expectedLinearSamples),
+        !value.expectedLinearSamples &&
+        !value.scenePixelSampleCoordinates),
     "a presentation fault requires one ordinary live frame at time zero",
   )
   .refine(
     (value) =>
       !value.expectedLinearSamples || !!value.fixture || !!value.mountedFrame,
     "linear samples require a clean fixture or bounded mounted frame",
+  )
+  .refine(
+    (value) => !value.captureFeedbackState || !!value.mountedFrame,
+    "feedback state capture requires a bounded mounted frame",
+  )
+  .refine(
+    (value) =>
+      !value.statefulSequence ||
+      (!!value.mountedFrame &&
+        !value.fixture &&
+        !value.expectedLinearSamples &&
+        !value.presentationFault &&
+        !value.mountedMeasurement &&
+        value.statefulSequence.some((step) => step.kind === "capture") &&
+        ((value.captureFeedbackState === true &&
+          value.statefulSequence.every(
+            (step) => step.kind !== "capture" || !step.expectedLinearSamples,
+          )) ||
+          (value.captureFeedbackState !== true &&
+            value.statefulSequence.some(
+              (step) => step.kind === "capture" && !!step.expectedLinearSamples,
+            ))) &&
+        Math.abs(
+          value.timeSeconds -
+            (value.statefulSequence.filter((step) => step.kind === "advance")
+              .length -
+              1) /
+              60,
+        ) <= 0.000001),
+    "a same-session sequence needs bounded frames, numeric capture samples or feedback snapshots, and exact final frame time",
+  )
+  .refine(
+    (value) =>
+      !value.statefulSequence ||
+      value.captureFeedbackState !== true ||
+      (value.statefulSequence.length <= 12 &&
+        value.statefulSequence.filter((step) => step.kind === "capture")
+          .length <= 8),
+    "feedback sequences retain their existing step and capture bounds",
   )
   .refine(
     (value) =>
@@ -140,6 +371,16 @@ export const nativeShaderValidationCaseSchema = z
   .refine(
     (value) => !value.mountedFrame || !value.fixture,
     "a mounted frame cannot use a clean fixture",
+  )
+  .refine(
+    (value) =>
+      !value.scenePixelSampleCoordinates ||
+      (!!value.mountedFrame &&
+        !value.fixture &&
+        !value.statefulSequence &&
+        !value.mountedMeasurement &&
+        !value.presentationFault),
+    "full-scene pixel samples require one ordinary bounded mounted frame",
   )
   .refine(
     (value) =>
@@ -158,16 +399,21 @@ export const nativeShaderValidationCaseSchema = z
     "mounted golden time must align to a 0–2 second 60 fps frame",
   )
   .refine((value) => {
-    if (!value.mountedFrame || !value.expectedLinearSamples) return true;
+    if (!value.mountedFrame) return true;
     const width = Math.ceil(
       value.mountedFrame.viewport.width * value.mountedFrame.pixelRatio,
     );
     const height = Math.ceil(
       value.mountedFrame.viewport.height * value.mountedFrame.pixelRatio,
     );
-    return value.expectedLinearSamples.every(
-      (sample) => sample.x < width && sample.y < height,
-    );
+    const samples = [
+      ...(value.expectedLinearSamples ?? []),
+      ...(value.scenePixelSampleCoordinates ?? []),
+      ...(value.statefulSequence?.flatMap((step) =>
+        step.kind === "capture" ? (step.expectedLinearSamples ?? []) : [],
+      ) ?? []),
+    ];
+    return samples.every((sample) => sample.x < width && sample.y < height);
   }, "mounted golden samples must fit the held physical frame");
 
 export const nativeShaderValidationRequestSchema = z
@@ -192,9 +438,24 @@ export const nativeShaderValidationRequestSchema = z
   )
   .refine(
     (value) =>
+      !value.cases.some((item) => item.statefulSequence) ||
+      value.cases.length === 1,
+    "a same-session feedback sequence must be the sole validation case",
+  )
+  .refine(
+    (value) =>
       new Set(value.cases.map((item) => item.caseId)).size ===
       value.cases.length,
     "case IDs must be unique",
+  )
+  .refine(
+    (value) =>
+      value.cases.reduce(
+        (count, item) =>
+          count + (item.scenePixelSampleCoordinates?.length ?? 0),
+        0,
+      ) <= 20,
+    "a request may sample at most twenty full-scene pixels",
   );
 
 const profileStats = z
@@ -265,6 +526,46 @@ const benchmarkFullFrameWallPhases = z
             publicationWallMs: benchmarkRenderStats,
           })
           .strict(),
+      })
+      .strict(),
+  })
+  .strict();
+
+const benchmarkSourceReadCallsStats = benchmarkRenderStats.safeExtend({
+  p50: z.number().int().min(0).max(1024),
+  p95: z.number().int().min(0).max(1024),
+  p99: z.number().int().min(0).max(1024),
+  max: z.number().int().min(0).max(1024),
+});
+const benchmarkSourceReadCountStats = benchmarkRenderStats.safeExtend({
+  p50: z.number().int().min(0).max(1_000_000),
+  p95: z.number().int().min(0).max(1_000_000),
+  p99: z.number().int().min(0).max(1_000_000),
+  max: z.number().int().min(0).max(1_000_000),
+});
+
+const benchmarkSourceReadDetail = z
+  .object({
+    scope: z.literal(NATIVE_BENCHMARK_SOURCE_READ_SCOPE),
+    stats: z
+      .object({
+        calls: benchmarkSourceReadCallsStats,
+        scenePresentationCalls: benchmarkSourceReadCallsStats,
+        mountSourceCalls: benchmarkSourceReadCallsStats,
+        dependencyRefreshCalls: benchmarkSourceReadCallsStats,
+        otherCalls: benchmarkSourceReadCallsStats,
+        wallMs: benchmarkRenderStats,
+        walkWallMs: benchmarkRenderStats,
+        validationWallMs: benchmarkRenderStats,
+        leafWaitWallMs: benchmarkRenderStats,
+        walkNodeVisits: benchmarkSourceReadCountStats,
+        walkDirectStyleReads: benchmarkSourceReadCountStats,
+        walkDirectLayoutSizeReads: benchmarkSourceReadCountStats,
+        walkDirectAffineReads: benchmarkSourceReadCountStats,
+        recordDirectStyleReads: benchmarkSourceReadCountStats,
+        recordDirectLayoutSizeReads: benchmarkSourceReadCountStats,
+        recordDirectAffineReads: benchmarkSourceReadCountStats,
+        recordDirectRectReads: benchmarkSourceReadCountStats,
       })
       .strict(),
   })
@@ -583,6 +884,7 @@ export const nativeShaderMountedMeasurementSchema = z
     composeWallMs: benchmarkRenderStats,
     hostWallPhases: benchmarkHostWallPhases.optional(),
     fullFrameWallPhases: benchmarkFullFrameWallPhases.optional(),
+    sourceReadDetail: benchmarkSourceReadDetail.optional(),
     deadlines: z
       .object({
         over60Hz: z.number().int().min(0).max(840),
@@ -635,6 +937,21 @@ export const nativeShaderMountedMeasurementSchema = z
           ...Object.values(value.fullFrameWallPhases.stats),
           ...Object.values(value.fullFrameWallPhases.scenePresentation.stats),
         ].every((stats) => stats.count === value.measuredRenderFrames)) &&
+      (!value.sourceReadDetail ||
+        Object.values(value.sourceReadDetail.stats).every(
+          (stats) => stats.count === value.measuredRenderFrames,
+        )) &&
+      (!value.sourceReadDetail || value.fullFrameWallPhases !== undefined) &&
+      (!value.sourceReadDetail ||
+        value.sourceReadDetail.stats.calls.max !== 0 ||
+        (
+          [
+            "wallMs",
+            "walkWallMs",
+            "validationWallMs",
+            "leafWaitWallMs",
+          ] as const
+        ).every((key) => value.sourceReadDetail!.stats[key].max === 0)) &&
       value.deadlines.over120Hz >= value.deadlines.over60Hz,
     "mounted measurement counts must agree",
   )
@@ -657,6 +974,20 @@ export const nativeShaderMountedMeasurementSchema = z
           ),
       ),
     "full frame wall phases must fit their enclosing intervals",
+  )
+  .refine(
+    (value) =>
+      !value.sourceReadDetail ||
+      (["p50", "p95", "p99", "max"] as const).every((key) => {
+        const stats = value.sourceReadDetail!.stats;
+        return (
+          stats.wallMs[key] <= value.renderWallMs[key] &&
+          stats.walkWallMs[key] <= stats.wallMs[key] &&
+          stats.validationWallMs[key] <= stats.wallMs[key] &&
+          stats.leafWaitWallMs[key] <= stats.walkWallMs[key]
+        );
+      }),
+    "source read wall phases must fit their enclosing intervals",
   )
   .refine(
     (value) =>
@@ -693,6 +1024,67 @@ export const nativeMountedOutputSummarySchema = z
     nonTransparentPixels: z.number().int().nonnegative().max(4_194_304),
     partialAlphaPixels: z.number().int().nonnegative().max(4_194_304),
     nonZeroRgbaPixels: z.number().int().nonnegative().max(4_194_304),
+    feedbackState: z
+      .discriminatedUnion("availability", [
+        z
+          .object({
+            availability: z.literal("available"),
+            scope: z.literal("exact-feedback-state-linear-rgba16f"),
+            width: z.number().int().min(1).max(512),
+            height: z.number().int().min(1).max(512),
+            completedStep: z.number().int().nonnegative().max(36_000),
+            byteLength: z.number().int().positive().max(2_097_152),
+            sha256: executionHash,
+            followups: z
+              .object({
+                sourceTransition: z
+                  .object({
+                    availability: z.literal("unavailable"),
+                    code: z.literal("second-source-fixture-required"),
+                  })
+                  .strict(),
+                lifecycleReplay: z
+                  .object({
+                    availability: z.literal("unavailable"),
+                    code: z.literal("multi-action-editor-sequence-required"),
+                  })
+                  .strict(),
+              })
+              .strict(),
+          })
+          .strict()
+          .refine(
+            (state) => state.byteLength === state.width * state.height * 8,
+            "feedback state byte length must match its exact RGBA16F extent",
+          ),
+        z
+          .object({
+            availability: z.literal("unavailable"),
+            code: z.enum([
+              "state-uninitialized",
+              "state-snapshot-limit",
+              "state-snapshot-budget",
+            ]),
+            followups: z
+              .object({
+                sourceTransition: z
+                  .object({
+                    availability: z.literal("unavailable"),
+                    code: z.literal("second-source-fixture-required"),
+                  })
+                  .strict(),
+                lifecycleReplay: z
+                  .object({
+                    availability: z.literal("unavailable"),
+                    code: z.literal("multi-action-editor-sequence-required"),
+                  })
+                  .strict(),
+              })
+              .strict(),
+          })
+          .strict(),
+      ])
+      .optional(),
   })
   .strict()
   .refine(
@@ -743,6 +1135,54 @@ export const nativeShaderValidationCaseResultSchema = z
       .optional(),
     mountOutput: nativeMountedOutputSummarySchema.optional(),
     linearGolden: nativeLinearGoldenSummarySchema.optional(),
+    fullScenePixelSamples: nativeFullScenePixelSamplesSchema.optional(),
+    statefulRenderMode: z
+      .enum(["fresh-held-replay", "same-held-session-sequence"])
+      .optional(),
+    statefulSequence: z
+      .array(
+        z.discriminatedUnion("kind", [
+          z
+            .object({
+              kind: z.enum(["advance", "capture"]),
+              stepId: nativeShaderValidationSequenceStepId,
+              frameIndex: z.number().int().nonnegative().max(120),
+              timeSeconds: z.number().finite().min(0).max(2),
+              pixelSha256: executionHash,
+              pixelWidth: z.number().int().positive().max(4096),
+              pixelHeight: z.number().int().positive().max(4096),
+              mountOutput: nativeMountedOutputSummarySchema,
+              linearGolden: nativeLinearGoldenSummarySchema.optional(),
+              comparisons: z
+                .array(
+                  z
+                    .object({
+                      referenceStepId: nativeShaderValidationSequenceStepId,
+                      subject: z.enum(["feedback-state", "pixels"]),
+                      expected: z.enum(["same", "different"]),
+                      observed: z.enum(["same", "different", "unavailable"]),
+                      passed: z.boolean(),
+                    })
+                    .strict(),
+                )
+                .max(2),
+            })
+            .strict(),
+          z
+            .object({
+              kind: z.literal("set-params"),
+              stepId: nativeShaderValidationSequenceStepId,
+              updatedProperties: z
+                .array(z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/))
+                .min(1)
+                .max(16),
+            })
+            .strict(),
+        ]),
+      )
+      .min(2)
+      .max(40)
+      .optional(),
     presentationFault: z
       .object({
         kind: z.literal("simulated-gpu-validation"),
@@ -802,6 +1242,31 @@ export const nativeShaderValidationCaseResultSchema = z
       !result.presentationFault ||
       result.frames === result.presentationFault.afterFrameCount,
     "fault result frames must match the retained presentation",
+  )
+  .refine(
+    (result) =>
+      (result.statefulRenderMode !== "same-held-session-sequence") ===
+      (result.statefulSequence === undefined),
+    "same-session sequence mode requires its bounded step receipts",
+  )
+  .refine(
+    (result) =>
+      !result.statefulSequence ||
+      result.statefulRenderMode === "same-held-session-sequence",
+    "sequence step receipts require same-session mode",
+  )
+  .refine(
+    (result) =>
+      result.status !== "ready" ||
+      !result.statefulSequence?.some(
+        (step) =>
+          step.kind !== "set-params" &&
+          (step.comparisons.some((comparison) => !comparison.passed) ||
+            (step.kind === "capture" &&
+              step.linearGolden !== undefined &&
+              !step.linearGolden.passed)),
+      ),
+    "a ready sequence requires passing comparisons",
   );
 
 export const nativePresentationFaultFailureCodes = [

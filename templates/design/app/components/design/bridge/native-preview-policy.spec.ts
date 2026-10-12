@@ -1,8 +1,55 @@
 import { describe, expect, it } from "vitest";
 
-import { NativePreviewPolicyController } from "./native-preview-policy";
+import {
+  NativePreviewPolicyController,
+  resolveNativePreviewPolicy,
+} from "./native-preview-policy";
 
 describe("native preview policy", () => {
+  it("prefers the editor policy, then the saved document policy, then defaults", () => {
+    const editor = {
+      quality: "performance",
+      frameRateTarget: 120,
+      colorMode: "display-p3",
+      dynamicRange: "hdr",
+    } as const;
+    const legacy = {
+      quality: "quality",
+      frameRateTarget: 60,
+      colorMode: "srgb",
+      dynamicRange: "sdr",
+    } as const;
+
+    expect(resolveNativePreviewPolicy(editor, legacy)).toEqual(editor);
+    expect(resolveNativePreviewPolicy(null, legacy)).toEqual(legacy);
+    expect(resolveNativePreviewPolicy(null, undefined)).toEqual({
+      quality: "auto",
+      frameRateTarget: 60,
+      colorMode: "srgb",
+      dynamicRange: "sdr",
+    });
+  });
+
+  it("keeps an editor override separate from the saved document policy", () => {
+    const saved = {
+      quality: "quality",
+      frameRateTarget: 60,
+      colorMode: "display-p3",
+      dynamicRange: "hdr",
+    } as const;
+    const before = { ...saved };
+    const editor = {
+      quality: "performance",
+      frameRateTarget: 120,
+      colorMode: "srgb",
+      dynamicRange: "sdr",
+    } as const;
+
+    expect(resolveNativePreviewPolicy(editor, saved)).toEqual(editor);
+    expect(saved).toEqual(before);
+    expect(resolveNativePreviewPolicy(null, saved)).toEqual(saved);
+  });
+
   it("defaults to Auto/60 and distinguishes requested from effective density", () => {
     const policy = new NativePreviewPolicyController();
     expect(policy.status(1.6)).toMatchObject({

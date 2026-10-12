@@ -6,7 +6,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { nativeEffectAnimationCapability } from "@shared/native-effect-animation-capability";
 import type { NativeEffectEdit } from "@shared/native-effect-edits";
 import {
@@ -18,7 +18,6 @@ import {
   parseEffectsFromHtml,
   type EffectDefinition,
   type EffectInstance,
-  type EffectPreviewPolicy,
   type EffectPreset,
   type EffectTransform2D,
   type EffectValue,
@@ -78,11 +77,6 @@ import {
 import { designShaderFocusStateKeyForTab } from "@/hooks/use-navigation-state";
 import { cn } from "@/lib/utils";
 
-import type {
-  NativeColorCapability,
-  NativeColorMode,
-  NativeDynamicRangeMode,
-} from "../bridge/native-color-mode";
 import {
   readNativeShaderRuntimeStatus,
   type NativeShaderRuntimeStatus,
@@ -97,7 +91,6 @@ import {
   InspectorControlPopoverContent,
 } from "./InspectorControlPopover";
 import { nativeCatalogDefinitionKey } from "./native-catalog-display";
-import { readNativeColorCapability } from "./native-color-preview-client";
 import { sendNativeInstancePreviewMessage } from "./native-instance-preview-client";
 import { NativeInstanceScrubSession } from "./native-instance-scrub-session";
 import {
@@ -106,10 +99,6 @@ import {
   NativeIntrinsicSourceClientError,
 } from "./native-intrinsic-source-client";
 import { readNativeInstancePlaybackState } from "./native-playback-client";
-import {
-  readSelectedNativePreviewStatus,
-  type NativePreviewStatus,
-} from "./native-preview-policy-client";
 import { nativeRuntimeDiagnosticKey } from "./native-runtime-diagnostic";
 import { findNativeDraftFrame } from "./native-shader-draft-client";
 import {
@@ -686,7 +675,6 @@ export function GlslShaderPanel({
   const t = useT();
   const tRef = useRef(t);
   tRef.current = t;
-  const { formatNumber } = useFormatters();
   const [search, setSearch] = useState("");
   const [browsing, setBrowsing] = useState(initialView === "browser");
   const [justAppliedNativeId, setJustAppliedNativeId] = useState<string | null>(
@@ -707,16 +695,6 @@ export function GlslShaderPanel({
   draftNativeInstanceRef.current = draftNativeInstance;
   const scrubSessionRef = useRef<NativeInstanceScrubSession | null>(null);
   const [librarySaving, setLibrarySaving] = useState(false);
-  const [colorCapability, setColorCapability] =
-    useState<NativeColorCapability | null>(null);
-  const [colorCapabilityUnreadable, setColorCapabilityUnreadable] =
-    useState(false);
-  const [colorChanging, setColorChanging] = useState(false);
-  const [previewStatus, setPreviewStatus] =
-    useState<NativePreviewStatus | null>(null);
-  const [previewStatusUnreadable, setPreviewStatusUnreadable] = useState(false);
-  const [optimisticPreview, setOptimisticPreview] =
-    useState<EffectPreviewPolicy | null>(null);
   const [nativeRuntimeStatus, setNativeRuntimeStatus] = useState<{
     status: NativeShaderRuntimeStatus["status"] | "pending";
     backend: NativeShaderRuntimeStatus["backend"];
@@ -729,15 +707,6 @@ export function GlslShaderPanel({
   const { persistNative, busy: nativeBusy } =
     usePersistNativeShaderEdit(context);
   const busy = legacyBusy || nativeBusy;
-  const storedPreview = screen.nativeEffects.document?.preview;
-  const previewPolicy = optimisticPreview ??
-    storedPreview ?? {
-      quality: "auto" as const,
-      frameRateTarget: 60 as const,
-    };
-
-  useEffect(() => setOptimisticPreview(null), [screen.content]);
-
   const nodeId = context.nodeId;
   const selectedNodeIds = context.nodeIds?.length
     ? context.nodeIds
@@ -1138,95 +1107,6 @@ export function GlslShaderPanel({
     context.fileId,
     nodeId,
   ]);
-
-  useEffect(() => {
-    if (
-      !activeNativeInstance ||
-      !activeNativeInstance.enabled ||
-      !context.fileId ||
-      nativeRuntimeStatus.status !== "ready"
-    ) {
-      setColorCapability(null);
-      setColorCapabilityUnreadable(false);
-      return;
-    }
-    try {
-      setColorCapability(
-        readNativeColorCapability(
-          findNativeDraftFrame(context.fileId, context.boardFile),
-        ),
-      );
-      setColorCapabilityUnreadable(false);
-    } catch {
-      setColorCapability(null);
-      setColorCapabilityUnreadable(true);
-    }
-  }, [
-    activeNativeInstance?.id,
-    activeNativeInstance?.enabled,
-    context.fileId,
-    context.boardFile,
-    nativeRuntimeStatus.runtimeEpoch,
-    nativeRuntimeStatus.status,
-  ]);
-
-  useEffect(() => {
-    if (
-      !activeNativeInstance ||
-      !activeNativeInstance.enabled ||
-      !context.fileId ||
-      nativeRuntimeStatus.status !== "ready"
-    ) {
-      setPreviewStatus(null);
-      setPreviewStatusUnreadable(false);
-      return;
-    }
-    const fileId = context.fileId;
-    const read = () => {
-      try {
-        setPreviewStatus(readSelectedNativePreviewStatus(fileId));
-        setPreviewStatusUnreadable(false);
-      } catch {
-        setPreviewStatus(null);
-        setPreviewStatusUnreadable(true);
-      }
-    };
-    read();
-    const timer = window.setInterval(read, 2_000);
-    return () => window.clearInterval(timer);
-  }, [
-    activeNativeInstance?.id,
-    activeNativeInstance?.enabled,
-    context.fileId,
-    nativeRuntimeStatus.runtimeEpoch,
-    nativeRuntimeStatus.status,
-  ]);
-
-  const changePreviewPolicy = async (next: EffectPreviewPolicy) => {
-    setOptimisticPreview(next);
-    if (!(await persistNative({ kind: "set-preview", preview: next })))
-      setOptimisticPreview(null);
-  };
-
-  const changeNativeColorMode = async (mode: NativeColorMode) => {
-    if (!context.fileId) return;
-    setColorChanging(true);
-    try {
-      await changePreviewPolicy({ ...previewPolicy, colorMode: mode });
-    } finally {
-      setColorChanging(false);
-    }
-  };
-
-  const changeNativeDynamicRange = async (mode: NativeDynamicRangeMode) => {
-    if (!context.fileId) return;
-    setColorChanging(true);
-    try {
-      await changePreviewPolicy({ ...previewPolicy, dynamicRange: mode });
-    } finally {
-      setColorChanging(false);
-    }
-  };
 
   const applyNativeCatalog = async (
     definitionId: string,
@@ -1754,47 +1634,49 @@ export function GlslShaderPanel({
               definition={activeNativeDef}
             />
           )}
-          {!multiTarget && (
-            <p
-              role={
-                nativeRuntimeDisplayStatus === "error" ||
-                nativeRuntimeDisplayStatus === "last-good"
-                  ? "alert"
-                  : "status"
-              }
-              data-native-runtime-status={nativeRuntimeDisplayStatus}
-              className={cn(
-                "text-xs",
-                nativeRuntimeDisplayStatus === "error" ||
+          {!multiTarget &&
+            (nativeRuntimeDisplayStatus === "disabled" ||
+              nativeRuntimeDisplayStatus === "error" ||
+              nativeRuntimeDisplayStatus === "last-good" ||
+              nativeRuntimeDisplayStatus === "unavailable") && (
+              <p
+                role={
+                  nativeRuntimeDisplayStatus === "error" ||
                   nativeRuntimeDisplayStatus === "last-good"
-                  ? "text-destructive"
-                  : "text-muted-foreground",
-              )}
-            >
-              {t(
-                nativeRuntimeDisplayStatus === "disabled"
-                  ? "editPanel.interactionStates.disabled"
-                  : nativeRuntimeDisplayStatus === "ready"
-                    ? "editPanel.shaders.nativeRuntimeReady"
+                    ? "alert"
+                    : "status"
+                }
+                data-native-runtime-status={nativeRuntimeDisplayStatus}
+                className={cn(
+                  "text-xs",
+                  nativeRuntimeDisplayStatus === "error" ||
+                    nativeRuntimeDisplayStatus === "last-good"
+                    ? "text-destructive"
+                    : "text-muted-foreground",
+                )}
+              >
+                {t(
+                  nativeRuntimeDisplayStatus === "disabled"
+                    ? "editPanel.interactionStates.disabled"
                     : nativeRuntimeDisplayStatus === "last-good"
                       ? "editPanel.shaders.nativeRuntimeLastGood"
-                      : nativeRuntimeDisplayStatus === "error"
-                        ? "editPanel.shaders.nativeRuntimeError"
-                        : nativeRuntimeDisplayStatus === "unavailable"
-                          ? "editPanel.shaders.nativeRuntimeUnavailable"
-                          : "editPanel.shaders.nativeRuntimePending",
-              )}
-              {nativeRuntimeDisplayCode ? ` · ${nativeRuntimeDisplayCode}` : ""}
-              {nativeRuntimeDisplayStatus !== "disabled" &&
-              nativeRuntimeDetailKey
-                ? ` — ${t(nativeRuntimeDetailKey)}`
-                : nativeRuntimeDisplayStatus !== "disabled" &&
-                    nativeRuntimeStatus.message &&
-                    nativeRuntimeStatus.message !== nativeRuntimeStatus.code
-                  ? ` — ${nativeRuntimeStatus.message}`
+                      : nativeRuntimeDisplayStatus === "unavailable"
+                        ? "editPanel.shaders.nativeRuntimeUnavailable"
+                        : "editPanel.shaders.nativeRuntimeError",
+                )}
+                {nativeRuntimeDisplayCode
+                  ? ` · ${nativeRuntimeDisplayCode}`
                   : ""}
-            </p>
-          )}
+                {nativeRuntimeDisplayStatus !== "disabled" &&
+                nativeRuntimeDetailKey
+                  ? ` — ${t(nativeRuntimeDetailKey)}`
+                  : nativeRuntimeDisplayStatus !== "disabled" &&
+                      nativeRuntimeStatus.message &&
+                      nativeRuntimeStatus.message !== nativeRuntimeStatus.code
+                    ? ` — ${nativeRuntimeStatus.message}`
+                    : ""}
+              </p>
+            )}
           {!multiTarget && activeNativeDef.placements.length > 1 && (
             <label className="flex items-center justify-between gap-2 text-xs">
               <span>{t("editPanel.shaders.placement")}</span>
@@ -1822,197 +1704,6 @@ export function GlslShaderPanel({
               </Select>
             </label>
           )}
-          {!multiTarget && (
-            <div className="grid gap-1 text-xs">
-              <label className="flex items-center justify-between gap-2">
-                <span>{t("editPanel.shaders.nativeOutputColor")}</span>
-                <Select
-                  value={previewPolicy.colorMode ?? "srgb"}
-                  disabled={
-                    disabled || busy || colorChanging || !colorCapability
-                  }
-                  onValueChange={(value) =>
-                    void changeNativeColorMode(value as NativeColorMode)
-                  }
-                >
-                  <SelectTrigger className="h-6 w-28 !text-[11px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="srgb">sRGB</SelectItem>
-                    <SelectItem value="display-p3">
-                      {t("editPanel.shaders.nativeColorP3")}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </label>
-              {colorCapability?.requestedDynamicRange !== undefined && (
-                <label className="flex items-center justify-between gap-2">
-                  <span>{t("editPanel.shaders.nativeDynamicRange")}</span>
-                  <Select
-                    value={previewPolicy.dynamicRange ?? "sdr"}
-                    disabled={disabled || busy || colorChanging}
-                    onValueChange={(value) =>
-                      void changeNativeDynamicRange(
-                        value as NativeDynamicRangeMode,
-                      )
-                    }
-                  >
-                    <SelectTrigger className="h-6 w-28 !text-[11px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="sdr">
-                        {t("editPanel.shaders.nativeDynamicRangeSdr")}
-                      </SelectItem>
-                      <SelectItem value="hdr">
-                        {t("editPanel.shaders.nativeDynamicRangeHdr")}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </label>
-              )}
-              {colorCapability && (
-                <p className="text-[11px] text-muted-foreground">
-                  {colorCapability.requested !== colorCapability.presented
-                    ? t("editPanel.shaders.nativeColorFallback")
-                    : t("editPanel.shaders.nativeColorSourceLimit")}
-                  {" · "}
-                  {colorCapability.presentedDynamicRange === "hdr"
-                    ? t("editPanel.shaders.nativeHdrConfigured")
-                    : colorCapability.requestedDynamicRange === "hdr"
-                      ? t("editPanel.shaders.nativeHdrFallback")
-                      : colorCapability.requestedDynamicRange === "sdr"
-                        ? t("editPanel.shaders.nativeSdrOutput")
-                        : t("editPanel.shaders.nativeHdrUnavailable")}
-                  {" · "}
-                  {colorCapability.displayDynamicRangeCapability ===
-                  "high-capable"
-                    ? colorCapability.presentedDynamicRange === "hdr"
-                      ? t("editPanel.shaders.nativeDisplayHighCapableHdr")
-                      : t("editPanel.shaders.nativeDisplayHighCapable")
-                    : colorCapability.displayDynamicRangeCapability ===
-                        "standard-only"
-                      ? t("editPanel.shaders.nativeDisplayStandardOnly")
-                      : t("editPanel.shaders.nativeDisplayRangeUnreadable")}
-                  {colorCapability.presentedDynamicRange !== "hdr" && (
-                    <>
-                      {" · "}
-                      {colorCapability.canvasToneMappingStandard === "observed"
-                        ? t(
-                            "editPanel.shaders.nativeStandardToneMappingObserved",
-                          )
-                        : t("editPanel.shaders.nativeToneMappingUnreadable")}
-                    </>
-                  )}
-                </p>
-              )}
-              {colorCapabilityUnreadable && (
-                <p className="text-[11px] text-destructive">
-                  {t("editPanel.shaders.nativeColorModeUnavailable")}
-                </p>
-              )}
-            </div>
-          )}
-          <div className="grid gap-1 text-xs">
-            <label className="flex items-center justify-between gap-2">
-              <span>{t("editPanel.shaders.nativePreviewPolicy")}</span>
-              <Select
-                value={previewPolicy.quality}
-                disabled={disabled || busy}
-                onValueChange={(quality) => {
-                  if (
-                    quality !== "auto" &&
-                    quality !== "performance" &&
-                    quality !== "quality"
-                  ) {
-                    toast.error(
-                      t("editPanel.shaders.nativePreviewStatusUnreadable"),
-                    );
-                    return;
-                  }
-                  void changePreviewPolicy({ ...previewPolicy, quality });
-                }}
-              >
-                <SelectTrigger className="h-6 w-28 !text-[11px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="auto">
-                    {t("editPanel.shaders.nativePreviewAuto")}
-                  </SelectItem>
-                  <SelectItem value="performance">
-                    {t("editPanel.shaders.nativePreviewPerformance")}
-                  </SelectItem>
-                  <SelectItem value="quality">
-                    {t("editPanel.shaders.nativePreviewQuality")}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </label>
-            <label className="flex items-center justify-between gap-2">
-              <span>{t("editPanel.shaders.nativePreviewTarget")}</span>
-              <Select
-                value={String(previewPolicy.frameRateTarget)}
-                disabled={disabled || busy}
-                onValueChange={(value) => {
-                  if (value !== "60" && value !== "120") {
-                    toast.error(
-                      t("editPanel.shaders.nativePreviewStatusUnreadable"),
-                    );
-                    return;
-                  }
-                  void changePreviewPolicy({
-                    ...previewPolicy,
-                    frameRateTarget: value === "120" ? 120 : 60,
-                  });
-                }}
-              >
-                <SelectTrigger className="h-6 w-28 !text-[11px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="60">60</SelectItem>
-                  <SelectItem value="120">120</SelectItem>
-                </SelectContent>
-              </Select>
-            </label>
-            {previewStatus && (
-              <p className="text-[11px] text-muted-foreground">
-                {t("editPanel.shaders.nativePreviewActualResolution", {
-                  ratio: formatNumber(
-                    Math.round(previewStatus.effectivePixelRatio * 10) / 10,
-                  ),
-                  dpr: formatNumber(previewStatus.devicePixelRatio),
-                })}
-                {previewStatus.rafIntervalMs !== undefined && (
-                  <>
-                    {" · "}
-                    {t("editPanel.shaders.nativePreviewObservedCadence", {
-                      ms: formatNumber(
-                        Math.round(previewStatus.rafIntervalMs * 10) / 10,
-                      ),
-                    })}
-                  </>
-                )}
-                {previewStatus.renderWallMs !== undefined && (
-                  <>
-                    {" · "}
-                    {t("editPanel.shaders.nativePreviewRenderWall", {
-                      ms: formatNumber(
-                        Math.round(previewStatus.renderWallMs * 10) / 10,
-                      ),
-                    })}
-                  </>
-                )}
-              </p>
-            )}
-            {previewStatusUnreadable && (
-              <p className="text-[11px] text-destructive">
-                {t("editPanel.shaders.nativePreviewStatusUnreadable")}
-              </p>
-            )}
-          </div>
           {!multiTarget && (
             <>
               <label className="flex h-7 items-center justify-between gap-2 text-xs">

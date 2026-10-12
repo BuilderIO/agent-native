@@ -63,6 +63,12 @@ export function readSelectedNativePreviewStatus(
   } catch {
     frame = findNativeDraftFrame(fileId, true);
   }
+  return readNativePreviewStatusFromFrame(frame);
+}
+
+export function readNativePreviewStatusFromFrame(
+  frame: HTMLIFrameElement,
+): NativePreviewStatus {
   try {
     const runtime = (
       frame.contentWindow as

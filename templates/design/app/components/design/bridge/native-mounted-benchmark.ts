@@ -3,6 +3,9 @@ export type NativeMountedBenchmarkRequest = {
   measuredRafIntervals: 840;
 };
 
+import { NATIVE_BENCHMARK_SOURCE_READ_SCOPE } from "../../../../shared/native-benchmark-contract";
+import type { NativeSourceReadSceneMetrics } from "./native-source-provider";
+
 export type NativeBenchmarkStats = {
   count: number;
   p50: number;
@@ -99,6 +102,79 @@ export type NativeBenchmarkFullFrameWallPhases = {
   };
 };
 
+export const NATIVE_BENCHMARK_SOURCE_READ_KEYS = [
+  "calls",
+  "scenePresentationCalls",
+  "mountSourceCalls",
+  "dependencyRefreshCalls",
+  "otherCalls",
+  "wallMs",
+  "walkWallMs",
+  "validationWallMs",
+  "leafWaitWallMs",
+  "walkNodeVisits",
+  "walkDirectStyleReads",
+  "walkDirectLayoutSizeReads",
+  "walkDirectAffineReads",
+  "recordDirectStyleReads",
+  "recordDirectLayoutSizeReads",
+  "recordDirectAffineReads",
+  "recordDirectRectReads",
+] as const;
+
+const NATIVE_BENCHMARK_SOURCE_READ_WALL_KEYS = [
+  "wallMs",
+  "walkWallMs",
+  "validationWallMs",
+  "leafWaitWallMs",
+] as const;
+
+const NATIVE_BENCHMARK_SOURCE_READ_COUNT_KEYS = [
+  "calls",
+  "scenePresentationCalls",
+  "mountSourceCalls",
+  "dependencyRefreshCalls",
+  "otherCalls",
+  "walkNodeVisits",
+  "walkDirectStyleReads",
+  "walkDirectLayoutSizeReads",
+  "walkDirectAffineReads",
+  "recordDirectStyleReads",
+  "recordDirectLayoutSizeReads",
+  "recordDirectAffineReads",
+  "recordDirectRectReads",
+] as const;
+
+export function emptyNativeSourceReadSceneMetrics(): NativeSourceReadSceneMetrics {
+  return {
+    calls: 0,
+    scenePresentationCalls: 0,
+    mountSourceCalls: 0,
+    dependencyRefreshCalls: 0,
+    otherCalls: 0,
+    wallMs: 0,
+    walkWallMs: 0,
+    validationWallMs: 0,
+    leafWaitWallMs: 0,
+    walkNodeVisits: 0,
+    walkDirectStyleReads: 0,
+    walkDirectLayoutSizeReads: 0,
+    walkDirectAffineReads: 0,
+    recordDirectStyleReads: 0,
+    recordDirectLayoutSizeReads: 0,
+    recordDirectAffineReads: 0,
+    recordDirectRectReads: 0,
+  };
+}
+
+export type NativeBenchmarkSourceReadDetail = {
+  scope: typeof NATIVE_BENCHMARK_SOURCE_READ_SCOPE;
+  stats: Record<
+    (typeof NATIVE_BENCHMARK_SOURCE_READ_KEYS)[number],
+    NativeBenchmarkStats
+  >;
+};
+
 export type NativeMountedBenchmarkWindow = {
   warmupRafIntervals: 120;
   measuredRafIntervals: 840;
@@ -108,6 +184,7 @@ export type NativeMountedBenchmarkWindow = {
   sourceWallMs: NativeBenchmarkStats;
   composeWallMs: NativeBenchmarkStats;
   fullFrameWallPhases?: NativeBenchmarkFullFrameWallPhases;
+  sourceReadDetail?: NativeBenchmarkSourceReadDetail;
   hostWallPhases?: {
     scope: "wall-intervals-not-CPU-or-GPU-time";
     stats: Record<NativeBenchmarkPhaseKey, NativeBenchmarkStats>;
@@ -235,6 +312,11 @@ export class NativeMountedBenchmarkWindowCollector {
     (typeof NATIVE_BENCHMARK_SCENE_PHASE_KEYS)[number],
     number[]
   > | null = null;
+  private sourceReadDetailWalls: Record<
+    (typeof NATIVE_BENCHMARK_SOURCE_READ_KEYS)[number],
+    number[]
+  > | null = null;
+  private sourceReadDetailPresence: boolean | null = null;
   private finished = false;
 
   readonly request: NativeMountedBenchmarkRequest;
@@ -289,6 +371,7 @@ export class NativeMountedBenchmarkWindowCollector {
     composeWallMs: number;
     hostWallPhases?: NativeBenchmarkPhaseValues;
     fullFrameWallPhases?: NativeBenchmarkFullFrameValues;
+    sourceReadDetail?: NativeSourceReadSceneMetrics;
     failureCount: number;
   }): void {
     if (!this.isMeasuring) return;
@@ -296,6 +379,53 @@ export class NativeMountedBenchmarkWindowCollector {
       throw new NativeMountedBenchmarkError("benchmark-render-failed");
     const fullFrame = sample.fullFrameWallPhases;
     const hasFullFrame = fullFrame !== undefined;
+    const sourceReadDetail = sample.sourceReadDetail;
+    const hasSourceReadDetail = sourceReadDetail !== undefined;
+    if (
+      (this.sourceReadDetailPresence !== null &&
+        this.sourceReadDetailPresence !== hasSourceReadDetail) ||
+      (hasSourceReadDetail && !hasFullFrame) ||
+      (hasSourceReadDetail &&
+        (!sourceReadDetail ||
+          Object.keys(sourceReadDetail).length !==
+            NATIVE_BENCHMARK_SOURCE_READ_KEYS.length ||
+          NATIVE_BENCHMARK_SOURCE_READ_KEYS.some(
+            (key) =>
+              !Object.prototype.hasOwnProperty.call(sourceReadDetail, key),
+          ) ||
+          !Number.isSafeInteger(sourceReadDetail.calls) ||
+          sourceReadDetail.calls < 0 ||
+          sourceReadDetail.calls > 1024 ||
+          sourceReadDetail.scenePresentationCalls +
+            sourceReadDetail.mountSourceCalls +
+            sourceReadDetail.dependencyRefreshCalls +
+            sourceReadDetail.otherCalls !==
+            sourceReadDetail.calls ||
+          (sourceReadDetail.calls === 0 &&
+            NATIVE_BENCHMARK_SOURCE_READ_KEYS.filter(
+              (key) => key !== "calls",
+            ).some((key) => sourceReadDetail[key] !== 0)) ||
+          NATIVE_BENCHMARK_SOURCE_READ_WALL_KEYS.some(
+            (key) =>
+              !Number.isFinite(sourceReadDetail[key]) ||
+              sourceReadDetail[key] < 0 ||
+              sourceReadDetail[key] > sample.renderWallMs,
+          ) ||
+          NATIVE_BENCHMARK_SOURCE_READ_COUNT_KEYS.some(
+            (key) =>
+              !Number.isSafeInteger(sourceReadDetail[key]) ||
+              sourceReadDetail[key] < 0 ||
+              sourceReadDetail[key] > 1_000_000,
+          ) ||
+          !nativeBenchmarkWallSumFits(sourceReadDetail.walkWallMs, [
+            sourceReadDetail.leafWaitWallMs,
+          ]) ||
+          !nativeBenchmarkWallSumFits(sourceReadDetail.wallMs, [
+            sourceReadDetail.walkWallMs,
+            sourceReadDetail.validationWallMs,
+          ])))
+    )
+      throw new NativeMountedBenchmarkError("benchmark-unavailable");
     if (
       (this.fullFramePresence !== null &&
         this.fullFramePresence !== hasFullFrame) ||
@@ -340,6 +470,14 @@ export class NativeMountedBenchmarkWindowCollector {
     this.composeWalls.push(sample.composeWallMs);
     this.phasePresence = hasPhases;
     this.fullFramePresence = hasFullFrame;
+    this.sourceReadDetailPresence = hasSourceReadDetail;
+    if (sourceReadDetail) {
+      this.sourceReadDetailWalls ??= Object.fromEntries(
+        NATIVE_BENCHMARK_SOURCE_READ_KEYS.map((key) => [key, []]),
+      ) as NonNullable<typeof this.sourceReadDetailWalls>;
+      for (const key of NATIVE_BENCHMARK_SOURCE_READ_KEYS)
+        this.sourceReadDetailWalls[key].push(sourceReadDetail[key]);
+    }
     if (fullFrame) {
       this.fullFrameWalls ??= Object.fromEntries(
         NATIVE_BENCHMARK_FRAME_PHASE_KEYS.map((key) => [key, []]),
@@ -402,6 +540,19 @@ export class NativeMountedBenchmarkWindowCollector {
                   ]),
                 ) as NativeBenchmarkFullFrameWallPhases["scenePresentation"]["stats"],
               },
+            },
+          }
+        : {}),
+      ...(this.sourceReadDetailWalls
+        ? {
+            sourceReadDetail: {
+              scope: NATIVE_BENCHMARK_SOURCE_READ_SCOPE,
+              stats: Object.fromEntries(
+                NATIVE_BENCHMARK_SOURCE_READ_KEYS.map((key) => [
+                  key,
+                  nativeBenchmarkStats(this.sourceReadDetailWalls![key]),
+                ]),
+              ) as NativeBenchmarkSourceReadDetail["stats"],
             },
           }
         : {}),
@@ -527,6 +678,7 @@ export class NativeMountedBenchmarkRun {
     composeWallMs: number;
     hostWallPhases?: NativeBenchmarkPhaseValues;
     fullFrameWallPhases?: NativeBenchmarkFullFrameValues;
+    sourceReadDetail?: NativeSourceReadSceneMetrics;
     failureCount: number;
   }): void {
     if (this.settled) return;

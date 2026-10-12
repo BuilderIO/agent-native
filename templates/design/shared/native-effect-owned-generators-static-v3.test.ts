@@ -30,9 +30,9 @@ describe("additive static generator v3 correction", () => {
     ).toBe("ec8f53ab0a9bf64b6f7c976a3530af2573ab0695f70a99e7ba5ac7327638256a");
   });
   it("retains exact v2/v3 history while selecting the integer-noise successor versions", () => {
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(223);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(268);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(538);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(291);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(337);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(676);
     for (const id of STATIC_V3_IDS) {
       expect(
         NATIVE_EFFECT_LATEST_DEFINITIONS.filter(

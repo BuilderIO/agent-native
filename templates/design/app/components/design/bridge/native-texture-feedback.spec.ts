@@ -2,18 +2,30 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { OWNED_FEEDBACK_TEST_KERNEL } from "../../../../shared/native-effect-owned-test-fixtures";
 
+const MAP_READ = 1;
+
 let NativeTextureFeedbackExecutor: typeof import("./native-texture-feedback").NativeTextureFeedbackExecutor;
 let NativeFeedbackFailure: typeof import("./native-texture-feedback").NativeFeedbackFailure;
+let trackNativeFeedbackRetirement: typeof import("./native-texture-feedback").trackNativeFeedbackRetirement;
 
 beforeAll(async () => {
   vi.stubGlobal("GPUTextureUsage", {
     STORAGE_BINDING: 8,
     TEXTURE_BINDING: 4,
     COPY_DST: 2,
+    COPY_SRC: 1,
   });
-  vi.stubGlobal("GPUBufferUsage", { UNIFORM: 64, COPY_DST: 8 });
-  ({ NativeTextureFeedbackExecutor, NativeFeedbackFailure } =
-    await import("./native-texture-feedback"));
+  vi.stubGlobal("GPUBufferUsage", {
+    UNIFORM: 64,
+    COPY_DST: 8,
+    MAP_READ: 1,
+  });
+  vi.stubGlobal("GPUMapMode", { READ: 1 });
+  ({
+    NativeTextureFeedbackExecutor,
+    NativeFeedbackFailure,
+    trackNativeFeedbackRetirement,
+  } = await import("./native-texture-feedback"));
 });
 
 function mockGpu() {
@@ -47,7 +59,6 @@ function mockGpu() {
       maxTextureDimension2D: 8192,
       maxComputeWorkgroupsPerDimension: 65535,
     },
-    queue,
     createShaderModule: () => ({
       getCompilationInfo: async () => ({ messages: [] }),
     }),
@@ -58,12 +69,32 @@ function mockGpu() {
       getBindGroupLayout: () => ({}),
     }),
     createSampler: () => ({}),
-    createBuffer: () => ({
-      destroy: () => {
-        const item = uniforms.find((entry) => !entry.destroyed);
-        if (item) item.destroyed = true;
-      },
+    createBuffer: (descriptor: GPUBufferDescriptor) => {
+      if (descriptor.usage & MAP_READ) {
+        const readbackBytes = new Uint8Array(descriptor.size);
+        readbackBytes.fill(37);
+        return {
+          mapAsync: async () => undefined,
+          getMappedRange: () => readbackBytes.buffer,
+          unmap: () => undefined,
+          destroy: () => undefined,
+        };
+      }
+      return {
+        destroy: () => {
+          const item = uniforms.find((entry) => !entry.destroyed);
+          if (item) item.destroyed = true;
+        },
+      };
+    },
+    createCommandEncoder: () => ({
+      copyTextureToBuffer: () => undefined,
+      finish: () => ({}),
     }),
+    queue: {
+      ...queue,
+      submit: () => undefined,
+    },
     createBindGroup: (descriptor: GPUBindGroupDescriptor) => {
       groups.push(descriptor);
       return {};
@@ -251,6 +282,174 @@ describe("bounded texture feedback executor", () => {
     expect(gpu.dispatches).toHaveLength(3);
     expect(gpu.draws).toEqual([3]);
     frame.abandon();
+    executor.dispose();
+  });
+
+  it("returns a bounded SHA-256 of the committed state texture, excluding row padding", async () => {
+    const gpu = mockGpu();
+    const definition = {
+      ...OWNED_FEEDBACK_TEST_KERNEL,
+      grid: {
+        ...OWNED_FEEDBACK_TEST_KERNEL.grid,
+        width: 16,
+        height: 2,
+      },
+    };
+    const executor = await NativeTextureFeedbackExecutor.create(
+      gpu.device,
+      gpu.allocator,
+      definition,
+    );
+    const frame = executor.encode({
+      encoder: gpu.encoder,
+      source: gpu.source(),
+      target: gpu.target(),
+      timeSeconds: 0,
+      params,
+    });
+    const committed = frame.commit();
+    gpu.settle();
+    await committed;
+    const pending = executor.snapshotState();
+    gpu.settle();
+    const snapshot = await pending;
+    expect(snapshot).toMatchObject({
+      scope: "exact-feedback-state-linear-rgba16f",
+      width: 16,
+      height: 2,
+      completedStep: 0,
+      byteLength: 16 * 2 * 8,
+    });
+    const expected = await crypto.subtle.digest(
+      "SHA-256",
+      new Uint8Array(16 * 2 * 8).fill(37),
+    );
+    expect(snapshot.sha256).toBe(
+      [...new Uint8Array(expected)]
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join(""),
+    );
+    executor.dispose();
+  });
+
+  it("waits for a state snapshot before retiring its feedback textures", async () => {
+    const gpu = mockGpu();
+    const definition = {
+      ...OWNED_FEEDBACK_TEST_KERNEL,
+      grid: { ...OWNED_FEEDBACK_TEST_KERNEL.grid, width: 16, height: 2 },
+    };
+    const executor = await NativeTextureFeedbackExecutor.create(
+      gpu.device,
+      gpu.allocator,
+      definition,
+    );
+    const frame = executor.encode({
+      encoder: gpu.encoder,
+      source: gpu.source(),
+      target: gpu.target(),
+      timeSeconds: 0,
+      params,
+    });
+    const committed = frame.commit();
+    gpu.settle();
+    await committed;
+
+    const retirements = new Set<Promise<void>>();
+    const snapshot = trackNativeFeedbackRetirement(
+      retirements,
+      executor.snapshotState(),
+    );
+    let disposed = false;
+    const disposal = Promise.allSettled([...retirements]).then(() => {
+      executor.dispose();
+      disposed = true;
+    });
+    await Promise.resolve();
+    expect(disposed).toBe(false);
+    expect(gpu.released).toEqual([]);
+
+    gpu.settle();
+    await snapshot;
+    await disposal;
+    expect(disposed).toBe(true);
+    expect(retirements.size).toBe(0);
+    expect(gpu.released).toHaveLength(3);
+  });
+
+  it("distinguishes uninitialized state from a readback budget refusal", async () => {
+    const gpu = mockGpu();
+    const definition = {
+      ...OWNED_FEEDBACK_TEST_KERNEL,
+      grid: { ...OWNED_FEEDBACK_TEST_KERNEL.grid, width: 16, height: 2 },
+    };
+    const executor = await NativeTextureFeedbackExecutor.create(
+      gpu.device,
+      gpu.allocator,
+      definition,
+    );
+    await expect(executor.snapshotState()).rejects.toMatchObject({
+      code: "feedback-state-uninitialized",
+    });
+    const frame = executor.encode({
+      encoder: gpu.encoder,
+      source: gpu.source(),
+      target: gpu.target(),
+      timeSeconds: 0,
+      params,
+    });
+    const committed = frame.commit();
+    gpu.settle();
+    await committed;
+    await expect(executor.snapshotState(0)).rejects.toMatchObject({
+      code: "feedback-state-snapshot-budget",
+    });
+    executor.dispose();
+  });
+
+  it("rejects a snapshot canceled while its digest is pending", async () => {
+    const gpu = mockGpu();
+    const definition = {
+      ...OWNED_FEEDBACK_TEST_KERNEL,
+      grid: { ...OWNED_FEEDBACK_TEST_KERNEL.grid, width: 16, height: 2 },
+    };
+    const executor = await NativeTextureFeedbackExecutor.create(
+      gpu.device,
+      gpu.allocator,
+      definition,
+    );
+    const frame = executor.encode({
+      encoder: gpu.encoder,
+      source: gpu.source(),
+      target: gpu.target(),
+      timeSeconds: 0,
+      params,
+    });
+    const committed = frame.commit();
+    gpu.settle();
+    await committed;
+
+    let digestStarted!: () => void;
+    let resolveDigest!: (value: ArrayBuffer) => void;
+    const started = new Promise<void>((resolve) => {
+      digestStarted = resolve;
+    });
+    vi.spyOn(crypto.subtle, "digest").mockImplementation(
+      () =>
+        new Promise<ArrayBuffer>((resolve) => {
+          resolveDigest = resolve;
+          digestStarted();
+        }),
+    );
+    const controller = new AbortController();
+    const snapshot = executor.snapshotState(2_097_152, controller.signal);
+    gpu.settle();
+    await started;
+    controller.abort(new Error("validation canceled"));
+    resolveDigest(new Uint8Array(32).buffer);
+
+    await expect(snapshot).rejects.toMatchObject({
+      code: "feedback-aborted",
+    });
     executor.dispose();
   });
 

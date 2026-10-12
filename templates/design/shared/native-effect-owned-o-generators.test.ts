@@ -41,13 +41,13 @@ describe("original O generator catalog", () => {
   it("appends four distinct fills and eight recipes without changing prior records", () => {
     expect(OWNED_O_GENERATOR_DEFINITIONS).toHaveLength(4);
     expect(OWNED_O_GENERATOR_PRESETS).toHaveLength(8);
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(223);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(268);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(538);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(291);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(337);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(676);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((d) => d.id)).size,
-    ).toBe(223);
-    expect(new Set(NATIVE_EFFECT_PRESETS.map((p) => p.id)).size).toBe(538);
+    ).toBe(291);
+    expect(new Set(NATIVE_EFFECT_PRESETS.map((p) => p.id)).size).toBe(676);
     expect(digest(NATIVE_EFFECT_LATEST_DEFINITIONS.slice(0, 215))).toBe(
       "2c93939854420fe8c30d67d7bb938219631c2178be97fa451324ce891a091ea7",
     );

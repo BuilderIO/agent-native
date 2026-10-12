@@ -2,11 +2,13 @@ import { createHash } from "node:crypto";
 import { runInNewContext } from "node:vm";
 
 import { editNativeEffectHtml } from "@shared/native-effect-edits";
+import { OWNED_FEEDBACK_TEST_DEFINITION } from "@shared/native-effect-owned-test-fixtures";
 import { PARTICLE_FLOW_EFFECT } from "@shared/native-effect-particle-flow";
 import { GRAIN_GRADIENT_EFFECT } from "@shared/native-effect-presets";
 import { hashEffectDefinition } from "@shared/native-effect-trust";
 import { parseEffectsFromHtml } from "@shared/native-effects";
 import { nativeShaderValidationCaseResultSchema } from "@shared/native-shader-validation";
+import type { NativeShaderValidationStatefulSequence } from "@shared/native-shader-validation";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const frameMock = vi.hoisted(() => ({
@@ -26,12 +28,17 @@ describe("foreground native shader GPU result", () => {
   ) =>
     validateCaseInEditor({
       ...args,
-      ...(args.item.mountedFrame && !args.preparedScene
+      ...(!args.item.mountedMeasurement && !args.preparedScene
         ? {
             preparedScene: {
               html: frameMock.current!.contentDocument!.documentElement
                 .outerHTML,
               approvedDefinitionHashes: [item.executionHash],
+              viewport: args.item.mountedFrame?.viewport ?? {
+                width: 200,
+                height: 180,
+              },
+              initialPixelRatio: args.item.mountedFrame?.pixelRatio ?? 1,
             },
           }
         : {}),
@@ -47,6 +54,8 @@ describe("foreground native shader GPU result", () => {
   };
   let listener: ((event: unknown) => void) | null;
   let renderAt: ReturnType<typeof vi.fn>;
+  let liveRenderAtWithPixelRatio: ReturnType<typeof vi.fn>;
+  let dedicatedRenderAtWithPixelRatio: ReturnType<typeof vi.fn>;
   let primeHeldViewport: ReturnType<typeof vi.fn>;
   let dedicatedReady: boolean;
   let asyncApproval: boolean;
@@ -58,6 +67,7 @@ describe("foreground native shader GPU result", () => {
   let renderPixels: ReturnType<typeof vi.fn>;
   let beginSession: ReturnType<typeof vi.fn>;
   let endSession: ReturnType<typeof vi.fn>;
+  let setSessionParams: ReturnType<typeof vi.fn>;
   let dedicatedFrame: {
     srcdoc: string;
     contentWindow: Window & { __anNativeShaders: Record<string, unknown> };
@@ -65,6 +75,14 @@ describe("foreground native shader GPU result", () => {
   };
   let dedicatedWidth: number;
   let changeSourceDuringClone: boolean;
+  let detachLiveFrameOnStatus: boolean;
+  let liveStatusOverride: {
+    backend: "webgpu" | "unavailable";
+    status: "error" | "last-good" | "unavailable";
+    frames: number;
+    code: string;
+    message: string;
+  } | null;
 
   beforeEach(async () => {
     const applied = editNativeEffectHtml(
@@ -90,6 +108,8 @@ describe("foreground native shader GPU result", () => {
     listener = null;
     dedicatedWidth = 200;
     changeSourceDuringClone = false;
+    detachLiveFrameOnStatus = false;
+    liveStatusOverride = null;
     dedicatedReady = true;
     asyncApproval = false;
     approvalProcessed = false;
@@ -105,6 +125,20 @@ describe("foreground native shader GPU result", () => {
       failures: [],
       renderWallMs: 2,
     });
+    liveRenderAtWithPixelRatio = vi.fn().mockResolvedValue({
+      time: 0,
+      rendered: 1,
+      failures: [],
+      renderWallMs: 2,
+    });
+    dedicatedRenderAtWithPixelRatio = vi
+      .fn()
+      .mockImplementation(async (time: number) => ({
+        time,
+        rendered: 1,
+        failures: [],
+        renderWallMs: 2,
+      }));
     renderGolden = vi.fn().mockImplementation(async () => {
       dedicatedReady = true;
       return {
@@ -166,18 +200,58 @@ describe("foreground native shader GPU result", () => {
               },
             }
           : {}),
+        ...(target.captureFeedbackState
+          ? {
+              mountOutput: {
+                scope: "exact-mount-output-linear-premultiplied",
+                instanceId: item.instanceId,
+                nodeId: item.nodeId,
+                definitionId: item.definitionId,
+                definitionVersion: item.definitionVersion,
+                executionHash: item.executionHash,
+                width: 2,
+                height: 2,
+                pixelSha256: item.executionHash,
+                nonTransparentPixels: 0,
+                partialAlphaPixels: 0,
+                nonZeroRgbaPixels: 0,
+                feedbackState: {
+                  availability: "unavailable",
+                  code: "state-uninitialized",
+                  followups: {
+                    sourceTransition: {
+                      availability: "unavailable",
+                      code: "second-source-fixture-required",
+                    },
+                    lifecycleReplay: {
+                      availability: "unavailable",
+                      code: "multi-action-editor-sequence-required",
+                    },
+                  },
+                },
+              },
+            }
+          : {}),
       };
     });
     beginSession = vi.fn().mockResolvedValue({ sessionId: "session-1" });
     endSession = vi.fn().mockResolvedValue(undefined);
+    setSessionParams = vi.fn().mockImplementation(({ params }) => ({
+      instanceId: item.instanceId,
+      updatedProperties: Object.keys(params),
+    }));
     const target = {
+      innerWidth: 200,
+      innerHeight: 180,
       __anNativeShaders: {
         renderAt,
+        renderAtWithPixelRatio: liveRenderAtWithPixelRatio,
         renderCompositionFrameGolden: renderGolden,
         renderCompositionFrameValidated: renderValidated,
         renderCompositionFramePixels: renderPixels,
         beginSimulationExportSession: beginSession,
         endSimulationExportSession: endSession,
+        setSimulationExportParameters: setSessionParams,
         profile: (options?: { instanceId: string }) => ({
           ...(options
             ? {
@@ -205,6 +279,8 @@ describe("foreground native shader GPU result", () => {
         }),
       },
       postMessage: (request: { requestId: string }) => {
+        if (detachLiveFrameOnStatus)
+          Object.assign(frameMock.current!, { isConnected: false });
         listener?.({
           source: target,
           origin: "http://localhost",
@@ -215,9 +291,15 @@ describe("foreground native shader GPU result", () => {
             requestId: request.requestId,
             instanceId: instance.id,
             nodeId: "hero",
-            backend: "webgpu",
-            status: "ready",
-            frames: 1,
+            backend: liveStatusOverride?.backend ?? "webgpu",
+            status: liveStatusOverride?.status ?? "ready",
+            frames: liveStatusOverride?.frames ?? 1,
+            ...(liveStatusOverride
+              ? {
+                  code: liveStatusOverride.code,
+                  message: liveStatusOverride.message,
+                }
+              : {}),
             sourceCaptures: 0,
             estimatedResourceBytes: 4096,
             renderWallMs: 2,
@@ -251,6 +333,7 @@ describe("foreground native shader GPU result", () => {
               }
             }),
             renderAt: primeHeldViewport,
+            renderAtWithPixelRatio: dedicatedRenderAtWithPixelRatio,
             dispose: vi.fn(),
           },
           postMessage: vi.fn(
@@ -350,7 +433,31 @@ describe("foreground native shader GPU result", () => {
         gpu: { kind: "unavailable", code: "timestamp-query-unavailable" },
       },
     });
-    expect(renderAt).toHaveBeenCalledWith(0);
+    expect(dedicatedRenderAtWithPixelRatio).toHaveBeenCalledWith(0, 1);
+    expect(liveRenderAtWithPixelRatio).not.toHaveBeenCalled();
+    expect(renderAt).not.toHaveBeenCalled();
+    expect(
+      dedicatedFrame.contentWindow.postMessage as ReturnType<typeof vi.fn>,
+    ).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "native-shader-editor-preview-policy" }),
+      expect.anything(),
+    );
+  });
+
+  it("returns a typed unavailable result when ordinary validation lacks prepared source", async () => {
+    const result = await validateCaseInEditor({
+      fileId: "screen-1",
+      item,
+      signal: new AbortController().signal,
+    });
+
+    expect(result).toMatchObject({
+      status: "unavailable",
+      code: "validation-source-unavailable",
+    });
+    expect(dedicatedRenderAtWithPixelRatio).not.toHaveBeenCalled();
+    expect(liveRenderAtWithPixelRatio).not.toHaveBeenCalled();
+    expect(renderAt).not.toHaveBeenCalled();
   });
 
   it("rejects a stale executable hash without calling WebGPU", async () => {
@@ -376,6 +483,115 @@ describe("foreground native shader GPU result", () => {
       tolerance: 0.005,
     },
   ];
+
+  it("returns requested full-scene RGBA8 samples with request and frame provenance", async () => {
+    const rgba = new Uint8Array(400 * 360 * 4);
+    const put = (
+      x: number,
+      y: number,
+      value: [number, number, number, number],
+    ) => {
+      rgba.set(value, (y * 400 + x) * 4);
+    };
+    put(2, 3, [18, 91, 203, 255]);
+    put(399, 359, [7, 8, 9, 0]);
+    renderValidated.mockResolvedValueOnce({
+      pixels: {
+        width: 400,
+        height: 360,
+        colorSpace: "srgb",
+        alpha: "straight",
+        rgba,
+      },
+      mountOutput: {
+        scope: "exact-mount-output-linear-premultiplied",
+        instanceId: item.instanceId,
+        nodeId: item.nodeId,
+        definitionId: item.definitionId,
+        definitionVersion: item.definitionVersion,
+        executionHash: item.executionHash,
+        width: 2,
+        height: 2,
+        pixelSha256: item.executionHash,
+        nonTransparentPixels: 0,
+        partialAlphaPixels: 0,
+        nonZeroRgbaPixels: 0,
+      },
+    });
+    const requestId = "00000000-0000-4000-8000-000000000001";
+    const result = await validateNativeShaderCaseInEditor({
+      fileId: "screen-1",
+      item: {
+        ...item,
+        mountedFrame,
+        scenePixelSampleCoordinates: [
+          { x: 2, y: 3 },
+          { x: 399, y: 359 },
+        ],
+      },
+      requestId,
+      expectedVersionHash: "source-v1",
+      signal: new AbortController().signal,
+    });
+    expect(result.status).toBe("ready");
+    expect(result.fullScenePixelSamples).toEqual({
+      scope: "full-scene-composition-srgb-straight-u8",
+      requestId,
+      sourceVersionHash: "source-v1",
+      frameIndex: 0,
+      timeSeconds: 0,
+      width: 400,
+      height: 360,
+      pixelRatio: 2,
+      colorSpace: "srgb",
+      alpha: "straight",
+      samples: [
+        { x: 2, y: 3, rgba8: [18, 91, 203, 255] },
+        { x: 399, y: 359, rgba8: [7, 8, 9, 0] },
+      ],
+    });
+    expect(result.linearGolden).toBeUndefined();
+  });
+
+  it("fails the full-scene sample request instead of returning a partial set", async () => {
+    renderValidated.mockResolvedValueOnce({
+      pixels: {
+        width: 400,
+        height: 360,
+        colorSpace: "srgb",
+        alpha: "straight",
+        rgba: new Uint8Array(400 * 360 * 4 - 1),
+      },
+      mountOutput: {
+        scope: "exact-mount-output-linear-premultiplied",
+        instanceId: item.instanceId,
+        nodeId: item.nodeId,
+        definitionId: item.definitionId,
+        definitionVersion: item.definitionVersion,
+        executionHash: item.executionHash,
+        width: 2,
+        height: 2,
+        pixelSha256: item.executionHash,
+        nonTransparentPixels: 0,
+        partialAlphaPixels: 0,
+        nonZeroRgbaPixels: 0,
+      },
+    });
+    const result = await validateNativeShaderCaseInEditor({
+      fileId: "screen-1",
+      item: {
+        ...item,
+        mountedFrame,
+        scenePixelSampleCoordinates: [{ x: 2, y: 3 }],
+      },
+      requestId: "00000000-0000-4000-8000-000000000001",
+      expectedVersionHash: "source-v1",
+      signal: new AbortController().signal,
+    });
+    expect(result.status).toBe("error");
+    expect(result.fullScenePixelSamples).toBeUndefined();
+    expect(result.code).toBe("mounted-frame-pixels-unreadable");
+  });
 
   async function selectParticleFlow(): Promise<void> {
     const applied = editNativeEffectHtml(
@@ -423,6 +639,82 @@ describe("foreground native shader GPU result", () => {
     };
     frameMock.current = {
       isConnected: true,
+      srcdoc: applied.html,
+      getAttribute: (name: string) => (name === "srcdoc" ? applied.html : null),
+      contentDocument: { documentElement: { outerHTML: applied.html } },
+      contentWindow: target,
+    } as unknown as HTMLIFrameElement;
+  }
+
+  async function selectFeedbackDefinition(): Promise<void> {
+    const feedbackDefinition = {
+      ...OWNED_FEEDBACK_TEST_DEFINITION,
+      resources: OWNED_FEEDBACK_TEST_DEFINITION.resources?.map((resource) =>
+        resource.name === "feedbackState" || resource.name === "feedbackDisplay"
+          ? { ...resource, width: 16, height: 2 }
+          : resource,
+      ),
+      feedback: {
+        ...OWNED_FEEDBACK_TEST_DEFINITION.feedback!,
+        grid: {
+          ...OWNED_FEEDBACK_TEST_DEFINITION.feedback!.grid,
+          width: 16,
+          height: 2,
+        },
+      },
+    };
+    const applied = editNativeEffectHtml(
+      '<html><body><div data-agent-native-node-id="hero">Text</div></body></html>',
+      {
+        kind: "apply",
+        nodeId: "hero",
+        placement: "layer",
+        definition: feedbackDefinition,
+        params: { phase: 12, pigment: 0.8 },
+      },
+    );
+    if (applied.errors.length) throw new Error(applied.errors.join("; "));
+    const parsedFeedback = parseEffectsFromHtml(applied.html);
+    if (!parsedFeedback.document)
+      throw new Error(
+        parsedFeedback.errors.join("; ") || "no feedback manifest",
+      );
+    const instance = parsedFeedback.document.instances[0];
+    item = {
+      ...item,
+      instanceId: instance.id,
+      definitionId: instance.definitionId,
+      definitionVersion: instance.definitionVersion,
+      executionHash: await hashEffectDefinition(feedbackDefinition),
+    };
+    const originalTarget = frameMock.current!.contentWindow as unknown as {
+      __anNativeShaders: Record<string, unknown>;
+    };
+    const target = {
+      ...originalTarget,
+      postMessage: (request: { requestId: string }) => {
+        listener?.({
+          source: target,
+          origin: "http://localhost",
+          data: {
+            type: "native-shader-status",
+            schemaVersion: 1,
+            runtimeEpoch: "epoch-feedback",
+            requestId: request.requestId,
+            instanceId: instance.id,
+            nodeId: "hero",
+            backend: "webgpu",
+            status: "ready",
+            frames: 1,
+            sourceCaptures: 0,
+            estimatedResourceBytes: 4096,
+            renderWallMs: 2,
+          },
+        });
+      },
+    };
+    frameMock.current = {
+      ...frameMock.current,
       srcdoc: applied.html,
       getAttribute: (name: string) => (name === "srcdoc" ? applied.html : null),
       contentDocument: { documentElement: { outerHTML: applied.html } },
@@ -574,6 +866,339 @@ describe("foreground native shader GPU result", () => {
     expect(renderGolden.mock.calls[0][0].simulationSessionId).toBe("session-1");
   });
 
+  it("runs fixed advances, parameter edits, and zero-dt captures in one held feedback session", async () => {
+    await selectFeedbackDefinition();
+    const sequence: NativeShaderValidationStatefulSequence = [
+      { kind: "advance", stepId: "initial" },
+      {
+        kind: "capture",
+        stepId: "initial_identity",
+        compare: {
+          referenceStepId: "initial",
+          feedbackState: "same",
+          pixels: "same",
+        },
+      },
+      { kind: "advance", stepId: "at_one" },
+      {
+        kind: "capture",
+        stepId: "advance_same_state",
+        compare: { referenceStepId: "initial", feedbackState: "same" },
+      },
+      { kind: "set-params", stepId: "pigment", params: { pigment: 0.4 } },
+      {
+        kind: "capture",
+        stepId: "control_response",
+        compare: {
+          referenceStepId: "at_one",
+          feedbackState: "same",
+          pixels: "different",
+        },
+      },
+      {
+        kind: "capture",
+        stepId: "control_identity",
+        compare: {
+          referenceStepId: "control_response",
+          feedbackState: "same",
+          pixels: "same",
+        },
+      },
+      { kind: "set-params", stepId: "seed_change", params: { phase: 42 } },
+      {
+        kind: "capture",
+        stepId: "seed_reset",
+        compare: { referenceStepId: "at_one", feedbackState: "different" },
+      },
+      { kind: "set-params", stepId: "seed_replay", params: { phase: 12 } },
+      {
+        kind: "capture",
+        stepId: "seed_replay_state",
+        compare: { referenceStepId: "at_one", feedbackState: "same" },
+      },
+    ];
+    const stateHashes = ["1", "1", "1", "1", "1", "1", "3", "1"];
+    const targetPixelHashes = ["1", "1", "1", "1", "2", "2", "3", "1"];
+    const pixelMarkers = [0, 0, 0, 0, 1, 1, 2, 0];
+    let renderedIndex = 0;
+    renderValidated.mockImplementation(async (options) => {
+      const index = renderedIndex++;
+      const rgba = new Uint8Array(400 * 360 * 4);
+      rgba[0] = pixelMarkers[index] ?? 0;
+      const stepIndex = [0, 0, 1, 1, 1, 1, 1, 1][index] ?? 1;
+      return {
+        pixels: {
+          width: 400,
+          height: 360,
+          colorSpace: "srgb",
+          alpha: "straight",
+          rgba,
+        },
+        mountOutput: {
+          scope: "exact-mount-output-linear-premultiplied",
+          instanceId: item.instanceId,
+          nodeId: item.nodeId,
+          definitionId: item.definitionId,
+          definitionVersion: item.definitionVersion,
+          executionHash: item.executionHash,
+          width: 2,
+          height: 2,
+          pixelSha256: (targetPixelHashes[index] ?? "1").repeat(64),
+          nonTransparentPixels: 0,
+          partialAlphaPixels: 0,
+          nonZeroRgbaPixels: 0,
+          feedbackState: {
+            availability: "available",
+            scope: "exact-feedback-state-linear-rgba16f",
+            width: 16,
+            height: 2,
+            completedStep: stepIndex,
+            byteLength: 16 * 2 * 8,
+            sha256: (stateHashes[index] ?? "1").repeat(64),
+            followups: {
+              sourceTransition: {
+                availability: "unavailable",
+                code: "second-source-fixture-required",
+              },
+              lifecycleReplay: {
+                availability: "unavailable",
+                code: "multi-action-editor-sequence-required",
+              },
+            },
+          },
+        },
+      };
+    });
+    const result = await validateNativeShaderCaseInEditor({
+      fileId: "screen-1",
+      item: {
+        ...item,
+        timeSeconds: 1 / 60,
+        mountedFrame,
+        captureFeedbackState: true,
+        statefulSequence: sequence,
+      },
+      signal: new AbortController().signal,
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.statefulRenderMode).toBe("same-held-session-sequence");
+    expect(result.statefulSequence).toHaveLength(11);
+    expect(result.statefulSequence?.[0]).toMatchObject({
+      stepId: "initial",
+      mountOutput: {
+        feedbackState: { completedStep: 0, sha256: "1".repeat(64) },
+      },
+    });
+    expect(result.statefulSequence?.[3]).toMatchObject({
+      stepId: "advance_same_state",
+      mountOutput: {
+        feedbackState: { completedStep: 1, sha256: "1".repeat(64) },
+      },
+      comparisons: [{ expected: "same", observed: "same", passed: true }],
+    });
+    expect(beginSession).toHaveBeenCalledWith(
+      expect.objectContaining({ fps: 60, totalFrames: 2, startTimeSeconds: 0 }),
+    );
+    expect(
+      renderValidated.mock.calls.map(([options]) => [
+        options.frameIndex,
+        options.repeatCurrentSimulationFrame === true,
+      ]),
+    ).toEqual([
+      [0, false],
+      [0, true],
+      [1, false],
+      [1, true],
+      [1, true],
+      [1, true],
+      [1, true],
+      [1, true],
+    ]);
+    expect(setSessionParams.mock.calls.map(([args]) => args.params)).toEqual([
+      { pigment: 0.4 },
+      { phase: 42 },
+      { phase: 12 },
+    ]);
+    expect(
+      result.statefulSequence
+        ?.filter((step) => step.kind !== "set-params")
+        .flatMap((step) => step.comparisons)
+        .every((comparison) => comparison.passed),
+    ).toBe(true);
+    expect(endSession).toHaveBeenCalledWith("session-1", { timeoutMs: 30_000 });
+  });
+
+  it("captures numeric goldens at stateless controls and reports typed mismatches", async () => {
+    const sequence: NativeShaderValidationStatefulSequence = [
+      { kind: "advance", stepId: "initial" },
+      { kind: "set-params", stepId: "scale", params: { scale: 2 } },
+      {
+        kind: "capture",
+        stepId: "scale_capture",
+        expectedLinearSamples: expectedLinearSamples,
+      },
+    ];
+    const requestItem = {
+      ...item,
+      mountedFrame,
+      statefulSequence: sequence,
+      timeSeconds: 0,
+    };
+    const passed = await validateNativeShaderCaseInEditor({
+      fileId: "screen-1",
+      item: requestItem,
+      signal: new AbortController().signal,
+    });
+    expect(passed.status).toBe("ready");
+    expect(passed.statefulSequence?.[2]).toMatchObject({
+      kind: "capture",
+      linearGolden: { sampleCount: 1, passed: true },
+    });
+    expect(beginSession).toHaveBeenCalledWith(
+      expect.objectContaining({ targetInstanceIds: [item.instanceId] }),
+    );
+    expect(
+      renderValidated.mock.calls[renderValidated.mock.calls.length - 1]?.[1],
+    ).toMatchObject({
+      expectedLinearSamples,
+    });
+    expect(endSession).toHaveBeenCalledOnce();
+
+    renderGolden.mockResolvedValueOnce({
+      pixels: {
+        width: 400,
+        height: 360,
+        colorSpace: "srgb",
+        alpha: "straight",
+        rgba: new Uint8Array(400 * 360 * 4),
+      },
+      linearGolden: { sampleCount: 1, maxAbsError: 2, passed: false },
+      mountOutput: {
+        scope: "exact-mount-output-linear-premultiplied",
+        instanceId: item.instanceId,
+        nodeId: item.nodeId,
+        definitionId: item.definitionId,
+        definitionVersion: item.definitionVersion,
+        executionHash: item.executionHash,
+        width: 2,
+        height: 2,
+        pixelSha256: item.executionHash,
+        nonTransparentPixels: 0,
+        partialAlphaPixels: 0,
+        nonZeroRgbaPixels: 0,
+      },
+    });
+    const failed = await validateNativeShaderCaseInEditor({
+      fileId: "screen-1",
+      item: requestItem,
+      signal: new AbortController().signal,
+    });
+    expect(failed).toMatchObject({
+      status: "error",
+      code: "linear-golden-failed",
+    });
+    expect(endSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("compares stateful pixel changes against the exact mounted output", async () => {
+    await selectFeedbackDefinition();
+    const sequence: NativeShaderValidationStatefulSequence = [
+      { kind: "advance", stepId: "reference" },
+      {
+        kind: "capture",
+        stepId: "unrelated-composition-change",
+        compare: { referenceStepId: "reference", pixels: "same" },
+      },
+      {
+        kind: "capture",
+        stepId: "target-output-change",
+        compare: { referenceStepId: "reference", pixels: "different" },
+      },
+      {
+        kind: "capture",
+        stepId: "target-dimension-change",
+        compare: { referenceStepId: "reference", pixels: "different" },
+      },
+    ];
+    const compositionMarkers = [0, 1, 0, 0];
+    const outputHashes = ["a", "a", "b", "a"];
+    const outputWidths = [2, 2, 2, 3];
+    let renderedIndex = 0;
+    renderValidated.mockImplementation(async () => {
+      const index = renderedIndex++;
+      const rgba = new Uint8Array(400 * 360 * 4);
+      rgba[0] = compositionMarkers[index] ?? 0;
+      return {
+        pixels: {
+          width: 400,
+          height: 360,
+          colorSpace: "srgb",
+          alpha: "straight",
+          rgba,
+        },
+        mountOutput: {
+          scope: "exact-mount-output-linear-premultiplied",
+          instanceId: item.instanceId,
+          nodeId: item.nodeId,
+          definitionId: item.definitionId,
+          definitionVersion: item.definitionVersion,
+          executionHash: item.executionHash,
+          width: outputWidths[index] ?? 2,
+          height: 2,
+          pixelSha256: (outputHashes[index] ?? "a").repeat(64),
+          nonTransparentPixels: 1,
+          partialAlphaPixels: 0,
+          nonZeroRgbaPixels: 1,
+          feedbackState: {
+            availability: "available",
+            scope: "exact-feedback-state-linear-rgba16f",
+            width: 2,
+            height: 2,
+            completedStep: 0,
+            byteLength: 2 * 2 * 8,
+            sha256: "c".repeat(64),
+            followups: {
+              sourceTransition: {
+                availability: "unavailable",
+                code: "second-source-fixture-required",
+              },
+              lifecycleReplay: {
+                availability: "unavailable",
+                code: "multi-action-editor-sequence-required",
+              },
+            },
+          },
+        },
+      };
+    });
+
+    const result = await validateNativeShaderCaseInEditor({
+      fileId: "screen-1",
+      item: {
+        ...item,
+        timeSeconds: 0,
+        mountedFrame,
+        captureFeedbackState: true,
+        statefulSequence: sequence,
+      },
+      signal: new AbortController().signal,
+    });
+
+    expect(result.statefulSequence?.[1]).toMatchObject({
+      stepId: "unrelated-composition-change",
+      comparisons: [{ subject: "pixels", observed: "same", passed: true }],
+    });
+    expect(result.statefulSequence?.[2]).toMatchObject({
+      stepId: "target-output-change",
+      comparisons: [{ subject: "pixels", observed: "different", passed: true }],
+    });
+    expect(result.statefulSequence?.[3]).toMatchObject({
+      stepId: "target-dimension-change",
+      comparisons: [{ subject: "pixels", observed: "different", passed: true }],
+    });
+  });
+
   it("keeps scene coverage distinct from exact mounted zero output", async () => {
     const result = await validateNativeShaderCaseInEditor({
       fileId: "screen-1",
@@ -596,6 +1221,95 @@ describe("foreground native shader GPU result", () => {
       expect.anything(),
       expect.objectContaining({ executionHash: item.executionHash }),
     );
+  });
+
+  it("requires and preserves the typed feedback-state readback result", async () => {
+    const result = await validateNativeShaderCaseInEditor({
+      fileId: "screen-1",
+      item: { ...item, mountedFrame, captureFeedbackState: true },
+      signal: new AbortController().signal,
+    });
+    expect(result).toMatchObject({
+      status: "ready",
+      mountOutput: {
+        feedbackState: {
+          availability: "unavailable",
+          code: "state-uninitialized",
+          followups: {
+            sourceTransition: {
+              availability: "unavailable",
+              code: "second-source-fixture-required",
+            },
+            lifecycleReplay: {
+              availability: "unavailable",
+              code: "multi-action-editor-sequence-required",
+            },
+          },
+        },
+      },
+    });
+    expect(renderValidated).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        executionHash: item.executionHash,
+        captureFeedbackState: true,
+      }),
+    );
+  });
+
+  it("reads feedback state from the exact held mount output", async () => {
+    const feedbackState = {
+      availability: "available" as const,
+      scope: "exact-feedback-state-linear-rgba16f" as const,
+      width: 16,
+      height: 2,
+      completedStep: 0,
+      byteLength: 256,
+      sha256: item.executionHash,
+      followups: {
+        sourceTransition: {
+          availability: "unavailable" as const,
+          code: "second-source-fixture-required" as const,
+        },
+        lifecycleReplay: {
+          availability: "unavailable" as const,
+          code: "multi-action-editor-sequence-required" as const,
+        },
+      },
+    };
+    renderValidated.mockResolvedValueOnce({
+      pixels: {
+        width: 400,
+        height: 360,
+        colorSpace: "srgb",
+        alpha: "straight",
+        rgba: new Uint8Array(400 * 360 * 4),
+      },
+      mountOutput: {
+        scope: "exact-mount-output-linear-premultiplied",
+        instanceId: item.instanceId,
+        nodeId: item.nodeId,
+        definitionId: item.definitionId,
+        definitionVersion: item.definitionVersion,
+        executionHash: item.executionHash,
+        width: 2,
+        height: 2,
+        pixelSha256: item.executionHash,
+        nonTransparentPixels: 0,
+        partialAlphaPixels: 0,
+        nonZeroRgbaPixels: 0,
+        feedbackState,
+      },
+    });
+
+    const result = await validateNativeShaderCaseInEditor({
+      fileId: "screen-1",
+      item: { ...item, mountedFrame, captureFeedbackState: true },
+      signal: new AbortController().signal,
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.mountOutput?.feedbackState).toEqual(feedbackState);
   });
 
   it("refuses missing or wrong-identity mounted output summaries", async () => {
@@ -722,6 +1436,8 @@ describe("foreground native shader GPU result", () => {
       preparedScene: {
         html: frameMock.current!.contentDocument!.documentElement.outerHTML,
         approvedDefinitionHashes: [],
+        viewport: mountedFrame.viewport,
+        initialPixelRatio: mountedFrame.pixelRatio,
       },
       signal: new AbortController().signal,
     });
@@ -758,6 +1474,64 @@ describe("foreground native shader GPU result", () => {
       cleanupMessage: "The requested frame did not complete.",
     });
     expect(endSession).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["error", "input-resource-missing", "error"],
+    ["last-good", "gpu-validation", "unavailable"],
+    ["unavailable", "render-pending", "unavailable"],
+  ] as const)(
+    "keeps an exact live target %s diagnostic %s without claiming mounted pixels",
+    async (status, code, expectedStatus) => {
+      liveStatusOverride = {
+        backend: status === "unavailable" ? "unavailable" : "webgpu",
+        status,
+        frames: 0,
+        code,
+        message: `Exact target: ${code}`,
+      };
+      const result = await validateNativeShaderCaseInEditor({
+        fileId: "screen-1",
+        item: { ...item, mountedFrame, expectedLinearSamples },
+        signal: new AbortController().signal,
+      });
+      expect(result).toMatchObject({
+        status: expectedStatus,
+        backend: "unavailable",
+        code,
+        message: `Exact target: ${code}`,
+        frames: 0,
+      });
+      expect(result.mountOutput).toBeUndefined();
+      expect(result.linearGolden).toBeUndefined();
+      expect(result.pixelSha256).toBeUndefined();
+      expect(renderGolden).not.toHaveBeenCalled();
+      expect(renderPixels).not.toHaveBeenCalled();
+      expect(
+        nativeShaderValidationCaseResultSchema.safeParse(result).success,
+      ).toBe(true);
+    },
+  );
+
+  it("refuses a typed live error if the source frame detaches during status lookup", async () => {
+    liveStatusOverride = {
+      backend: "webgpu",
+      status: "error",
+      frames: 0,
+      code: "input-resource-missing",
+      message: "Required incoming input is missing.",
+    };
+    detachLiveFrameOnStatus = true;
+    const result = await validateNativeShaderCaseInEditor({
+      fileId: "screen-1",
+      item: { ...item, mountedFrame },
+      signal: new AbortController().signal,
+    });
+    expect(result).toMatchObject({
+      status: "unavailable",
+      code: "frame-source-stale",
+    });
+    expect(renderPixels).not.toHaveBeenCalled();
   });
 
   it("renders an offscreen held target in the held capture before checking readiness", async () => {

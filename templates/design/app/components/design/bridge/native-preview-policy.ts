@@ -13,7 +13,16 @@ export interface NativePreviewStatus {
 export const DEFAULT_NATIVE_PREVIEW_POLICY: EffectPreviewPolicy = {
   quality: "auto",
   frameRateTarget: 60,
+  colorMode: "srgb",
+  dynamicRange: "sdr",
 };
+
+export function resolveNativePreviewPolicy(
+  editorPolicy: EffectPreviewPolicy | null,
+  documentPolicy: EffectPreviewPolicy | undefined,
+): EffectPreviewPolicy {
+  return editorPolicy ?? documentPolicy ?? DEFAULT_NATIVE_PREVIEW_POLICY;
+}
 
 export class NativePreviewPolicyController {
   private policy: EffectPreviewPolicy = DEFAULT_NATIVE_PREVIEW_POLICY;

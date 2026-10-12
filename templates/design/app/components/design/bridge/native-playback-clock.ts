@@ -19,9 +19,10 @@ export function updateNativePlaybackClock(
     : clock.local + (now - clock.global) * clock.speed;
   assertNativeUniformTiming(next.time, "initial-time");
   assertNativeUniformTiming(next.speed, "speed");
-  const local =
-    seek || clock.paused !== next.paused
-      ? next.time
+  const local = seek
+    ? next.time
+    : clock.paused !== next.paused
+      ? prior
       : prior + next.time - previousTime;
   assertNativeUniformTiming(local, "time");
   return { global: now, local, speed: next.speed, paused: next.paused };

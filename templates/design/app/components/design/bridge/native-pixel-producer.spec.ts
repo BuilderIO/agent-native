@@ -14,6 +14,7 @@ type PixelRuntime = {
   scan(): Promise<void>;
   pause(): void;
   renderAt(time: number): Promise<unknown>;
+  renderAtWithPixelRatio(time: number, pixelRatio: number): Promise<unknown>;
   setParameters(
     instanceId: string,
     params: Record<string, unknown>,
@@ -2573,6 +2574,30 @@ describe("atomic backdrop scene presentation", () => {
     await active.renderAt(0);
     expect(target.hasAttribute("data-an-native-scene-suppressed")).toBe(true);
     expect(target.getAttribute("data-an-native-authored-opacity")).toBe("0.4");
+    const sceneAttributeWrites = vi.spyOn(target, "setAttribute");
+    await active.renderAt(0);
+    expect(
+      sceneAttributeWrites.mock.calls.filter(
+        ([name]) => name === "data-an-native-scene-suppressed",
+      ),
+    ).toHaveLength(1);
+    expect(
+      sceneAttributeWrites.mock.calls.filter(
+        ([name]) => name === "data-an-native-authored-opacity",
+      ),
+    ).toHaveLength(0);
+    target.style.opacity = "0.6";
+    sceneAttributeWrites.mockClear();
+    await active.renderAt(0);
+    expect(target.getAttribute("data-an-native-authored-opacity")).toBe("0.6");
+    expect(
+      sceneAttributeWrites.mock.calls.filter(
+        ([name]) => name === "data-an-native-authored-opacity",
+      ),
+    ).toHaveLength(1);
+    sceneAttributeWrites.mockRestore();
+    target.style.opacity = "0.4";
+    await active.renderAt(0);
     await expect(
       active.renderCompositionFramePixels(frame),
     ).resolves.toMatchObject({ width: 2, height: 2 });
@@ -3788,6 +3813,113 @@ describe("native full-scene GPU pixel producer lifecycle", () => {
         "data-an-native-preview-pixel-ratio",
       ),
     ).toBe("1.5");
+  });
+  it("uses explicit validation density without inheriting editor preview quality", async () => {
+    const { state } = fakeGpu();
+    Object.defineProperty(window, "devicePixelRatio", {
+      configurable: true,
+      value: 2,
+    });
+    const active = await startRuntime(true, {
+      quality: "performance",
+      frameRateTarget: 120,
+    });
+    active.pause();
+    const engine = active as PixelRuntime & {
+      compositionPixelRatio: number | null;
+      compositionPixelBusy: boolean;
+      compositionAbort: AbortController | null;
+      playing: boolean;
+      currentTime(): number;
+      renderInternal(time: number, strict: boolean): Promise<unknown>;
+    };
+    await active.setTime(0.25);
+    const originalRender = engine.renderInternal.bind(engine);
+    const renderRatios: Array<number | null> = [];
+    engine.renderInternal = async (time, strict) => {
+      renderRatios.push(engine.compositionPixelRatio);
+      return originalRender(time, strict);
+    };
+
+    await active.renderAtWithPixelRatio(0, 1);
+
+    expect(renderRatios).toEqual([1, null]);
+    expect(state.canvasWidths).toContain(2);
+    expect(state.canvasWidths[state.canvasWidths.length - 1]).toBe(3);
+    expect(
+      document.querySelector<HTMLCanvasElement>("canvas[data-an-native-canvas]")
+        ?.width,
+    ).toBe(3);
+    expect(state.canvasWidths).toContain(2);
+    expect(active.previewStatus()).toMatchObject({
+      requestedQuality: "performance",
+      frameRateTarget: 120,
+      effectivePixelRatio: 1.5,
+    });
+    expect(engine.compositionPixelRatio).toBeNull();
+    expect(engine.compositionAbort).toBeNull();
+    expect(engine.compositionPixelBusy).toBe(false);
+    expect(engine.playing).toBe(false);
+    expect(engine.currentTime()).toBe(0.25);
+  });
+  it("restores the clock and density owner after an explicit validation render throws", async () => {
+    const { state } = fakeGpu();
+    Object.defineProperty(window, "devicePixelRatio", {
+      configurable: true,
+      value: 2,
+    });
+    const active = await startRuntime(true, {
+      quality: "performance",
+      frameRateTarget: 120,
+    });
+    await active.setTime(0.75);
+    const engine = active as PixelRuntime & {
+      compositionPixelRatio: number | null;
+      compositionPixelBusy: boolean;
+      compositionAbort: AbortController | null;
+      playing: boolean;
+      currentTime(): number;
+      renderInternal(time: number, strict: boolean): Promise<unknown>;
+    };
+    const renderFailure = new Error("Validation render failed.");
+    const originalRender = engine.renderInternal.bind(engine);
+    let failNextRender = true;
+    engine.renderInternal = async (time, strict) => {
+      if (failNextRender) {
+        failNextRender = false;
+        throw renderFailure;
+      }
+      return originalRender(time, strict);
+    };
+
+    await expect(active.renderAtWithPixelRatio(0, 1)).rejects.toBe(
+      renderFailure,
+    );
+
+    expect(engine.compositionPixelRatio).toBeNull();
+    expect(engine.compositionAbort).toBeNull();
+    expect(engine.compositionPixelBusy).toBe(false);
+    expect(engine.playing).toBe(false);
+    expect(engine.currentTime()).toBe(0.75);
+    expect(state.canvasWidths[state.canvasWidths.length - 1]).toBe(3);
+  });
+  it("rejects malformed explicit validation density before taking composition ownership", async () => {
+    fakeGpu();
+    const active = await startRuntime(true);
+    const engine = active as PixelRuntime & {
+      compositionPixelRatio: number | null;
+      compositionAbort: AbortController | null;
+      renderInternal(time: number, strict: boolean): Promise<unknown>;
+    };
+    const render = vi.spyOn(engine, "renderInternal");
+
+    await expect(active.renderAtWithPixelRatio(0, 0)).rejects.toMatchObject({
+      code: "composition-size-unsupported",
+    });
+
+    expect(engine.compositionPixelRatio).toBeNull();
+    expect(engine.compositionAbort).toBeNull();
+    expect(render).not.toHaveBeenCalled();
   });
   it("uses the trusted export ratio for its first mount and keeps exact density after a held frame", async () => {
     fakeGpu();

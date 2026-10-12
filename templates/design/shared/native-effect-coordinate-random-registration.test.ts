@@ -7,15 +7,21 @@ import {
   createCoordinateRandomCatalog,
   createCoordinateRandomRecipes,
 } from "./native-effect-coordinate-random-catalog";
-import {
-  OWNED_O_GENERATOR_DEFINITIONS,
-  OWNED_O_GENERATOR_PRESETS,
-} from "./native-effect-owned-o-generators";
-import { OWNED_P_DEFINITIONS, OWNED_P_PRESETS } from "./native-effect-owned-p";
-import {
-  NATIVE_PERIMETER_FOCAL_DEFINITIONS,
-  NATIVE_PERIMETER_FOCAL_PRESETS,
-} from "./native-effect-perimeter-focal";
+import { HIGHLIGHT_STREAKS_EFFECT } from "./native-effect-highlight-streaks";
+import { OWNED_NEXT_SIX_R_DEFINITIONS } from "./native-effect-owned-next-six-r";
+import { OWNED_NEXT_TWELVE_S_DEFINITIONS } from "./native-effect-owned-next-twelve-s";
+import { OWNED_NEXT_TWELVE_T_DEFINITIONS } from "./native-effect-owned-next-twelve-t";
+import { OWNED_NEXT_TWELVE_U_DEFINITIONS } from "./native-effect-owned-next-twelve-u";
+import { OWNED_O_EDGE_GLASS_DEFINITIONS } from "./native-effect-owned-o-edge-glass";
+import { OWNED_O_EDGE_LIGHT_LEAK_V2 } from "./native-effect-owned-o-edge-light-leak-v2";
+import { OWNED_O_GENERATOR_DEFINITIONS } from "./native-effect-owned-o-generators";
+import { OWNED_P_DEFINITIONS } from "./native-effect-owned-p";
+import { OWNED_P2_DEFINITIONS } from "./native-effect-owned-p2";
+import { OWNED_Q_DEFINITIONS } from "./native-effect-owned-q";
+import { STATEFUL_NINE_DEFINITIONS } from "./native-effect-owned-stateful-nine";
+import { OWNED_V_FIELD_DEFINITIONS } from "./native-effect-owned-v-fields";
+import { LUMA_DCT_EIGHT_EFFECT } from "./native-effect-owned-v-luma-dct";
+import { NATIVE_PERIMETER_FOCAL_DEFINITIONS } from "./native-effect-perimeter-focal";
 import {
   NATIVE_COORDINATE_RANDOM_DEFINITIONS,
   NATIVE_COORDINATE_RANDOM_PRESETS,
@@ -36,24 +42,9 @@ import {
   type EffectDocument,
 } from "./native-effects";
 
-const newKeys = new Set(
-  NATIVE_COORDINATE_RANDOM_DEFINITIONS.map((d) => `${d.id}@${d.version}`),
-);
-const historical = NATIVE_EFFECT_DEFINITION_CATALOG.filter(
-  (d) =>
-    !newKeys.has(`${d.id}@${d.version}`) &&
-    !NATIVE_PERIMETER_FOCAL_DEFINITIONS.some((field) => field.id === d.id) &&
-    !OWNED_O_GENERATOR_DEFINITIONS.some((field) => field.id === d.id) &&
-    !OWNED_P_DEFINITIONS.some((field) => field.id === d.id),
-);
-const newPresetIds = new Set(NATIVE_COORDINATE_RANDOM_PRESETS.map((p) => p.id));
-const oldRecipes = NATIVE_EFFECT_PRESETS.filter(
-  (p) =>
-    !newPresetIds.has(p.id) &&
-    !NATIVE_PERIMETER_FOCAL_PRESETS.some((field) => field.id === p.id) &&
-    !OWNED_O_GENERATOR_PRESETS.some((field) => field.id === p.id) &&
-    !OWNED_P_PRESETS.some((field) => field.id === p.id),
-);
+// Later additions follow these pinned historical prefixes.
+const historical = NATIVE_EFFECT_DEFINITION_CATALOG.slice(0, 232);
+const oldRecipes = NATIVE_EFFECT_PRESETS.slice(0, 463);
 const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 
@@ -72,21 +63,36 @@ describe("additive coordinate noise version integration", () => {
     expect(digest(JSON.stringify(oldRecipes))).toBe(
       "195ae5af8cc98c0b524e9ada39bf2ffd914dff555640fb95b05c7037c6ff46b7",
     );
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(268);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(538);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(337);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(676);
     expect(NATIVE_COORDINATE_RANDOM_DEFINITIONS).toHaveLength(26);
     expect(NATIVE_COORDINATE_RANDOM_PRESETS).toHaveLength(53);
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(223);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(291);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((d) => d.id)).size,
-    ).toBe(223);
+    ).toBe(291);
     expect(new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((d) => d.id))).toEqual(
       new Set(
         [
           ...historical,
           ...NATIVE_PERIMETER_FOCAL_DEFINITIONS,
           ...OWNED_O_GENERATOR_DEFINITIONS,
+          ...OWNED_O_EDGE_GLASS_DEFINITIONS.filter(
+            (definition) =>
+              definition.id !== "an-native-owned-o-edge-light-leak",
+          ),
+          OWNED_O_EDGE_LIGHT_LEAK_V2,
           ...OWNED_P_DEFINITIONS,
+          ...OWNED_P2_DEFINITIONS,
+          ...OWNED_Q_DEFINITIONS,
+          ...OWNED_NEXT_SIX_R_DEFINITIONS,
+          ...OWNED_NEXT_TWELVE_S_DEFINITIONS,
+          ...OWNED_NEXT_TWELVE_T_DEFINITIONS,
+          ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
+          LUMA_DCT_EIGHT_EFFECT,
+          ...OWNED_V_FIELD_DEFINITIONS,
+          ...STATEFUL_NINE_DEFINITIONS,
+          HIGHLIGHT_STREAKS_EFFECT,
         ].map((d) => d.id),
       ),
     );

@@ -31,6 +31,7 @@ export interface NativeFeedbackDefinition {
     maxStepIndex: number;
   };
   uniformProperties?: Record<FeedbackUniformSlot, string>;
+  resetProperties?: readonly string[];
   computeWgsl: string;
   resolveWgsl: string;
 }
@@ -59,11 +60,27 @@ export interface NativeFeedbackClockState {
   completedStep: number;
 }
 
+export type NativeFeedbackResetValues = readonly (readonly [string, number])[];
+
+export function nativeFeedbackResetValuesChanged(
+  previous: NativeFeedbackResetValues,
+  next: NativeFeedbackResetValues,
+): boolean {
+  return (
+    previous.length !== next.length ||
+    previous.some(
+      ([name, value], index) =>
+        next[index]?.[0] !== name || next[index]?.[1] !== value,
+    )
+  );
+}
+
 export type NativeFeedbackAdapterResult =
   | {
       ok: true;
       definition: NativeFeedbackDefinition & {
         uniformProperties: Record<FeedbackUniformSlot, string>;
+        resetProperties: readonly string[];
       };
     }
   | { ok: false; code: "feedback-definition-invalid" };
@@ -82,6 +99,18 @@ export function adaptNativeFeedbackDefinition(
     }).errors.length ||
     compute?.kind !== "compute" ||
     resolve?.kind !== "render"
+  )
+    return { ok: false, code: "feedback-definition-invalid" };
+  const resetProperties = feedback.resetProperties ?? [];
+  if (
+    resetProperties.some((name) => {
+      const property = definition.properties[name];
+      return (
+        !property ||
+        typeof property.default !== "number" ||
+        !Number.isFinite(property.default)
+      );
+    })
   )
     return { ok: false, code: "feedback-definition-invalid" };
   const upstream = definition.provenance.upstream;
@@ -104,6 +133,7 @@ export function adaptNativeFeedbackDefinition(
       grid: feedback.grid,
       timing: feedback.timing,
       uniformProperties: feedbackUniformProperties(feedback),
+      resetProperties,
       computeWgsl: compute.wgsl,
       resolveWgsl: resolve.wgsl,
     },

@@ -21,6 +21,7 @@ import {
 import { IconActivity } from "@tabler/icons-react";
 import { useMemo } from "react";
 
+import { EditorShaderPreferencesTab } from "@/components/settings/EditorShaderPreferencesTab";
 import enUSMessages from "@/i18n/en-US";
 
 import changelog from "../../CHANGELOG.md?raw";
@@ -70,7 +71,18 @@ export default function SettingsRoute() {
         },
       ]
     : [];
-  const settingsTabs = [...agentSettingsTabs, ...observabilityTabs];
+  const editorPreferencesTab: SettingsTabItem = {
+    id: "design-editor-preferences",
+    label: t("settings.editorPreferences"),
+    group: "app",
+    keywords: "design editor shader preview quality frame rate color",
+    content: <EditorShaderPreferencesTab />,
+  };
+  const settingsTabs = [
+    editorPreferencesTab,
+    ...agentSettingsTabs,
+    ...observabilityTabs,
+  ];
   const labs = useMemo(
     () => [
       {

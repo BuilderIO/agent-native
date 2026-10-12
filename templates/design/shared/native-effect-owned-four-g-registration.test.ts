@@ -61,9 +61,9 @@ describe("Design-owned G processor registration", () => {
   });
 
   it("registers four distinct static processors and eight applicable authored recipes", async () => {
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(223);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(268);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(538);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(291);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(337);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(676);
     expect(OWNED_NEXT_FOUR_DEFINITIONS).toHaveLength(4);
     expect(OWNED_NEXT_FOUR_PRESETS).toHaveLength(8);
     for (const definition of OWNED_NEXT_FOUR_DEFINITIONS) {

@@ -93,13 +93,13 @@ describe("four independently authored P registrations", () => {
     expect(digest(OWNED_P_PRESETS)).toBe(
       "77a0c67148e7cbc6a8cf5726683c923a0018620d23fce76f33781fc8596e5012",
     );
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(223);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(268);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(538);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(291);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(337);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(676);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((d) => d.id)).size,
-    ).toBe(223);
-    expect(new Set(NATIVE_EFFECT_PRESETS.map((p) => p.id)).size).toBe(538);
+    ).toBe(291);
+    expect(new Set(NATIVE_EFFECT_PRESETS.map((p) => p.id)).size).toBe(676);
     expect(digest(NATIVE_EFFECT_LATEST_DEFINITIONS.slice(0, 219))).toBe(
       "7b87042c46cc23e7c852897575eea824d6863701d1f10dc9bf4d8731574092dd",
     );
@@ -117,7 +117,7 @@ describe("four independently authored P registrations", () => {
     expect(
       createHash("sha256").update(entries.sort().join("\n")).digest("hex"),
     ).toBe("631d37260b14ba2758ee8972c22860d77c4bc7d965b09fb64ba94c1f5f3f0832");
-    expect(Object.keys(NATIVE_PRESET_LABEL_SOURCE_IDS)).toHaveLength(62);
+    expect(Object.keys(NATIVE_PRESET_LABEL_SOURCE_IDS)).toHaveLength(82);
     expect(OWNED_P_DEFINITIONS.some((d) => /shutter|sort/.test(d.id))).toBe(
       false,
     );

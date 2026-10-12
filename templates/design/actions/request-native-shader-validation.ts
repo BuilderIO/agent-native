@@ -30,7 +30,7 @@ import {
 
 export default defineAction({
   description:
-    "Queue source-pinned native WebGPU cases in an open Design editor: mounted status, bounded held-frame golden, clean fixture, or one live mounted-scene measurement (120 warmup and 840 measured RAF intervals). Discover targetTabId with get-native-render-contexts, then poll get-native-shader-validation. Pixels stay in the editor; results contain bounded hashes and metrics.",
+    "Queue source-pinned native WebGPU cases in an open Design editor: mounted status, bounded held-frame golden, clean fixture, a bounded same-held-session sequence, or one live mounted-scene measurement (120 warmup and 840 measured RAF intervals). A statefulSequence supports fixed-step advances, numeric property patches, repeated zero-dt captures, feedback-state comparisons, and bounded numeric pixel samples at control captures. A mounted frame can also return at most twenty caller-selected full-scene sRGB straight-alpha RGBA8 pixels across the request. Discover targetTabId with get-native-render-contexts, then poll get-native-shader-validation. Pixels stay in the editor; results contain only selected pixel values, hashes, and metrics.",
   schema: nativeShaderValidationRequestSchema.safeExtend({
     targetTabId: nativeRenderContextSchema.shape.tabId.optional(),
   }),

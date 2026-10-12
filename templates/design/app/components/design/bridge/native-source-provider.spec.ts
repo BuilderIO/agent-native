@@ -7,6 +7,7 @@ import {
   planNativeCaptureRoi,
   setNativeCaptureRoi,
 } from "./native-capture-roi";
+import { emptyNativeSourceReadSceneMetrics } from "./native-mounted-benchmark";
 import {
   assertDomSiblingOrder,
   applyNativeCaptureOverflowClip,
@@ -15,6 +16,7 @@ import {
   cloneNativeTextFlow,
   createNativeSceneProvider,
   nativePresentationVisible,
+  nativeRasterComputedStyleValues,
   nativeTargetOverflowInsets,
   paintNativeTextFlow,
   sourceClipPlan,
@@ -25,11 +27,323 @@ import { planNativeImageSampling } from "./native-source-sampling";
 
 const previousResizeObserver = globalThis.ResizeObserver;
 
+function computedStyleSnapshot(
+  values: Record<string, string>,
+): CSSStyleDeclaration {
+  const names = Object.keys(values);
+  const style = { ...values };
+  Object.defineProperties(style, {
+    length: { value: names.length },
+    item: { value: (index: number) => names[index] ?? "" },
+    getPropertyValue: { value: (name: string) => values[name] ?? "" },
+  });
+  return style as unknown as CSSStyleDeclaration;
+}
+
 afterEach(() => {
   document.body.replaceChildren();
   document.documentElement.style.overflow = "";
   globalThis.ResizeObserver = previousResizeObserver;
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+describe("native raster style snapshots", () => {
+  it("reads only the source properties needed by record geometry and validation", async () => {
+    const target = document.createElement("div");
+    document.body.append(target);
+    const values = {
+      display: "block",
+      visibility: "visible",
+      opacity: "1",
+      position: "static",
+      zIndex: "auto",
+      order: "0",
+      isolation: "auto",
+      mixBlendMode: "normal",
+      filter: "none",
+      backdropFilter: "none",
+      transform: "none",
+      transformOrigin: "0px 0px",
+      translate: "none",
+      rotate: "none",
+      scale: "none",
+      perspective: "none",
+      transformStyle: "flat",
+      overflowX: "visible",
+      overflowY: "visible",
+      clipPath: "none",
+      backgroundImage: "none",
+      backgroundColor: "rgba(0, 0, 0, 0)",
+      backgroundClip: "border-box",
+      boxShadow: "none",
+      outlineStyle: "none",
+      maskImage: "none",
+      borderTopWidth: "0px",
+      borderRightWidth: "0px",
+      borderBottomWidth: "0px",
+      borderLeftWidth: "0px",
+      borderTopLeftRadius: "0px",
+      borderTopRightRadius: "0px",
+      borderBottomRightRadius: "0px",
+      borderBottomLeftRadius: "0px",
+      paddingTop: "0px",
+      paddingRight: "0px",
+      paddingBottom: "0px",
+      paddingLeft: "0px",
+      imageRendering: "auto",
+      objectFit: "fill",
+      objectPosition: "50% 50%",
+    };
+    const names = Object.keys(values).map((name) =>
+      name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`),
+    );
+    const item = vi.fn((index: number) => names[index] ?? `unused-${index}`);
+    const getPropertyValue = vi.fn((name: string) => {
+      const camelName = name.replace(/-([a-z])/g, (_match, letter: string) =>
+        letter.toUpperCase(),
+      );
+      return values[camelName as keyof typeof values] ?? "";
+    });
+    const style = {
+      ...values,
+      item,
+      getPropertyValue,
+    } as unknown as CSSStyleDeclaration;
+    Object.defineProperty(style, "length", { configurable: true, value: 500 });
+    vi.spyOn(window, "getComputedStyle").mockReturnValue(style);
+    const provider = createNativeSceneProvider(target, "layer");
+    expect(provider).not.toBeNull();
+    try {
+      await expect(provider!.readScene()).resolves.toEqual([]);
+      expect(item).not.toHaveBeenCalled();
+      expect(getPropertyValue.mock.calls.map(([name]) => name)).toEqual([
+        "overflow-clip-margin",
+        "-webkit-mask-image",
+        "mask-border-source",
+        "-webkit-mask-box-image-source",
+      ]);
+    } finally {
+      provider!.dispose();
+    }
+  });
+
+  it("keeps painted root changes but ignores properties normalized by the clone", () => {
+    const initial = computedStyleSnapshot({
+      transform: "matrix(1, 0, 0, 1, 0, 0)",
+      "transform-origin": "50% 50%",
+      translate: "none",
+      rotate: "none",
+      scale: "none",
+      opacity: "0.5",
+      position: "relative",
+      left: "4px",
+      top: "2px",
+      "margin-left": "8px",
+      "background-color": "rgb(10, 20, 30)",
+      color: "rgb(40, 50, 60)",
+    });
+    const moved = computedStyleSnapshot({
+      ...(initial as unknown as Record<string, string>),
+      transform: "matrix(1, 0, 0, 1, 20, 0)",
+      opacity: "0.8",
+      left: "24px",
+    });
+
+    expect(
+      nativeRasterComputedStyleValues(initial, {
+        isRoot: true,
+        phase: "all",
+      }),
+    ).toEqual(
+      nativeRasterComputedStyleValues(moved, {
+        isRoot: true,
+        phase: "all",
+      }),
+    );
+    const painted = computedStyleSnapshot({
+      ...(moved as unknown as Record<string, string>),
+      "background-color": "rgb(90, 80, 70)",
+    });
+    expect(
+      nativeRasterComputedStyleValues(painted, {
+        isRoot: true,
+        phase: "all",
+      }),
+    ).not.toEqual(
+      nativeRasterComputedStyleValues(initial, {
+        isRoot: true,
+        phase: "all",
+      }),
+    );
+  });
+
+  it("retains transforms and opacity on raster-owned text descendants", () => {
+    const initial = computedStyleSnapshot({
+      transform: "none",
+      opacity: "1",
+      color: "rgb(10, 20, 30)",
+    });
+    const moved = computedStyleSnapshot({
+      transform: "matrix(1, 0, 0, 1, 8, 0)",
+      opacity: "0.5",
+      color: "rgb(10, 20, 30)",
+    });
+
+    expect(
+      nativeRasterComputedStyleValues(initial, {
+        isRoot: false,
+        phase: "all",
+      }),
+    ).not.toEqual(
+      nativeRasterComputedStyleValues(moved, {
+        isRoot: false,
+        phase: "all",
+      }),
+    );
+  });
+
+  it("normalizes root property names when a CSS declaration has no item API", () => {
+    const style = {
+      transform: "matrix(1, 0, 0, 1, 0, 0)",
+      opacity: "0.5",
+      backgroundColor: "rgb(10, 20, 30)",
+    } as unknown as CSSStyleDeclaration;
+
+    expect(
+      nativeRasterComputedStyleValues(style, {
+        isRoot: true,
+        phase: "all",
+      }),
+    ).toEqual([["backgroundColor", "rgb(10, 20, 30)"]]);
+  });
+
+  it("ignores Fill-owned colors only for box-phase roots", () => {
+    const initial = computedStyleSnapshot({
+      "background-color": "rgb(10, 20, 30)",
+      "background-image": "none",
+      "border-top-color": "rgb(40, 50, 60)",
+      "border-image-source": "none",
+      "box-shadow": "none",
+      "outline-color": "rgb(70, 80, 90)",
+    });
+    const changed = computedStyleSnapshot({
+      "background-color": "rgb(90, 80, 70)",
+      "background-image": "linear-gradient(red, blue)",
+      "border-top-color": "rgb(60, 50, 40)",
+      "border-image-source": "url(https://example.test/border.png)",
+      "box-shadow": "0px 0px 4px black",
+      "outline-color": "rgb(30, 20, 10)",
+    });
+
+    expect(
+      nativeRasterComputedStyleValues(initial, {
+        isRoot: true,
+        phase: "background",
+      }),
+    ).toEqual(
+      nativeRasterComputedStyleValues(changed, {
+        isRoot: true,
+        phase: "background",
+      }),
+    );
+    expect(
+      nativeRasterComputedStyleValues(initial, {
+        isRoot: true,
+        phase: "all",
+      }),
+    ).not.toEqual(
+      nativeRasterComputedStyleValues(changed, {
+        isRoot: true,
+        phase: "all",
+      }),
+    );
+  });
+
+  it("rejects animated paint while allowing transform-only source motion", async () => {
+    const target = document.createElement("div");
+    document.body.append(target);
+    let frames: PropertyIndexedKeyframes[] = [
+      { backgroundColor: "rgb(0, 0, 0)" },
+      { backgroundColor: "rgb(255, 255, 255)" },
+    ];
+    class TestKeyframeEffect {
+      getKeyframes() {
+        return frames;
+      }
+    }
+    vi.stubGlobal("KeyframeEffect", TestKeyframeEffect);
+    const style = {
+      display: "block",
+      visibility: "visible",
+      opacity: "1",
+      position: "static",
+      zIndex: "auto",
+      order: "0",
+      isolation: "auto",
+      mixBlendMode: "normal",
+      filter: "none",
+      backdropFilter: "none",
+      transform: "none",
+      transformOrigin: "0px 0px",
+      translate: "none",
+      rotate: "none",
+      scale: "none",
+      perspective: "none",
+      transformStyle: "flat",
+      overflowX: "visible",
+      overflowY: "visible",
+      clipPath: "none",
+      backgroundImage: "none",
+      backgroundColor: "rgba(0, 0, 0, 0)",
+      backgroundClip: "border-box",
+      boxShadow: "none",
+      outlineStyle: "none",
+      maskImage: "none",
+      borderTopWidth: "0px",
+      borderRightWidth: "0px",
+      borderBottomWidth: "0px",
+      borderLeftWidth: "0px",
+      borderTopLeftRadius: "0px",
+      borderTopRightRadius: "0px",
+      borderBottomRightRadius: "0px",
+      borderBottomLeftRadius: "0px",
+      paddingTop: "0px",
+      paddingRight: "0px",
+      paddingBottom: "0px",
+      paddingLeft: "0px",
+      imageRendering: "auto",
+      objectFit: "fill",
+      objectPosition: "50% 50%",
+      getPropertyValue: () => "",
+    } as unknown as CSSStyleDeclaration;
+    vi.spyOn(window, "getComputedStyle").mockReturnValue(style);
+    Object.defineProperty(target, "getAnimations", {
+      configurable: true,
+      value: () => [
+        {
+          playState: "running",
+          effect: new TestKeyframeEffect(),
+        } as unknown as Animation,
+      ],
+    });
+    const provider = createNativeSceneProvider(target, "layer");
+    expect(provider).not.toBeNull();
+    try {
+      await expect(provider!.readScene()).rejects.toMatchObject({
+        code: "source-animation",
+      });
+
+      frames = [
+        { transform: "translateX(0px)" },
+        { transform: "translateX(12px)" },
+      ];
+      await expect(provider!.readScene()).resolves.toEqual([]);
+      expect(provider!.needsContinuousFrames()).toBe(true);
+    } finally {
+      provider!.dispose();
+    }
+  });
 });
 
 const mutationTurn = () =>
@@ -132,12 +446,24 @@ describe("same-target Fill and Layer source ownership", () => {
       [fill, new DOMRect(10, 20, 100, 80)],
       [layer, new DOMRect(5, 10, 120, 100)],
     ]);
-    for (const [element, box] of boxes) {
+    for (const [element] of boxes) {
       Object.defineProperties(element, {
-        offsetWidth: { configurable: true, value: box.width },
-        offsetHeight: { configurable: true, value: box.height },
-        offsetLeft: { configurable: true, value: box.x },
-        offsetTop: { configurable: true, value: box.y },
+        offsetWidth: {
+          configurable: true,
+          get: () => boxes.get(element)?.width ?? 0,
+        },
+        offsetHeight: {
+          configurable: true,
+          get: () => boxes.get(element)?.height ?? 0,
+        },
+        offsetLeft: {
+          configurable: true,
+          get: () => boxes.get(element)?.x ?? 0,
+        },
+        offsetTop: {
+          configurable: true,
+          get: () => boxes.get(element)?.y ?? 0,
+        },
       });
     }
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
@@ -308,12 +634,24 @@ describe("backdrop presentation sources", () => {
       [secondReceiver, new DOMRect(30, 20, 100, 80)],
       [second, new DOMRect(30, 20, 100, 80)],
     ]);
-    for (const [element, box] of boxes) {
+    for (const [element] of boxes) {
       Object.defineProperties(element, {
-        offsetWidth: { configurable: true, value: box.width },
-        offsetHeight: { configurable: true, value: box.height },
-        offsetLeft: { configurable: true, value: box.x },
-        offsetTop: { configurable: true, value: box.y },
+        offsetWidth: {
+          configurable: true,
+          get: () => boxes.get(element)?.width ?? 0,
+        },
+        offsetHeight: {
+          configurable: true,
+          get: () => boxes.get(element)?.height ?? 0,
+        },
+        offsetLeft: {
+          configurable: true,
+          get: () => boxes.get(element)?.x ?? 0,
+        },
+        offsetTop: {
+          configurable: true,
+          get: () => boxes.get(element)?.y ?? 0,
+        },
       });
     }
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
@@ -403,6 +741,27 @@ describe("backdrop presentation sources", () => {
           .filter((record) => record.kind === "native")
           .map((record) => record.nativeInstanceId),
       ).toEqual(["first-glass", "second-glass"]);
+      const originalSecond = fullRecords.find(
+        (record) => record.nativeInstanceId === "second-glass",
+      );
+      expect(originalSecond?.rect).toEqual({
+        x: 30,
+        y: 20,
+        width: 100,
+        height: 80,
+      });
+      boxes.set(secondReceiver, new DOMRect(54, 36, 112, 76));
+      boxes.set(second, new DOMRect(54, 36, 112, 76));
+      const movedRecords = await full!.readScene();
+      const movedSecond = movedRecords.find(
+        (record) => record.nativeInstanceId === "second-glass",
+      );
+      expect(movedSecond?.rect).toEqual({
+        x: 54,
+        y: 36,
+        width: 112,
+        height: 76,
+      });
       expect(await firstSource!.readScene()).toEqual([]);
       firstReceiver.setAttribute("data-an-native-authored-opacity", "1");
       firstReceiver.setAttribute("data-an-native-scene-suppressed", "");
@@ -443,6 +802,39 @@ describe("backdrop presentation sources", () => {
 });
 
 describe("native cached source captures", () => {
+  it("returns a committed capture synchronously until invalidated", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    Object.defineProperties(host, {
+      offsetWidth: { configurable: true, value: 8 },
+      offsetHeight: { configurable: true, value: 8 },
+    });
+    const leaf = new CachedLeaf(
+      host,
+      () => {},
+      () => 1,
+      async (_element, canvas) => {
+        canvas.width = 8;
+        canvas.height = 8;
+      },
+    );
+    try {
+      const initial = leaf.read();
+      expect(initial).toBeInstanceOf(Promise);
+      await initial;
+      const cached = leaf.read();
+      expect(cached).toBeInstanceOf(HTMLCanvasElement);
+      expect(cached).toBe(await initial);
+      leaf.invalidate("attributes");
+      const invalidated = leaf.read();
+      expect(invalidated).toBeInstanceOf(Promise);
+      await invalidated;
+    } finally {
+      leaf.dispose();
+      host.remove();
+    }
+  });
+
   it("attributes capture invalidations without charging native canvas motion", async () => {
     const callbacks: { resize?: ResizeObserverCallback } = {};
     globalThis.ResizeObserver = class {
@@ -2254,9 +2646,11 @@ describe("legacy shader source boundary", () => {
     const layer = createNativeSceneProvider(group, "layer");
     const backdrop = createNativeSceneProvider(receiver, "backdrop");
     try {
-      await expect(layer!.readScene()).rejects.toMatchObject({
+      const layerMetrics = emptyNativeSourceReadSceneMetrics();
+      await expect(layer!.readScene(layerMetrics)).rejects.toMatchObject({
         code: "source-legacy-shader-unsupported",
       });
+      expect(layerMetrics.recordDirectStyleReads).toBe(2);
       await expect(backdrop!.readScene()).rejects.toMatchObject({
         code: "source-legacy-shader-unsupported",
       });
@@ -3402,6 +3796,40 @@ describe("native replacement image sampling metadata", () => {
     if (!provider) throw new Error("Source provider unavailable");
     return { parent, receiver, presentation, provider };
   }
+  it("reuses synchronous walk geometry only within one read and refreshes on the next read", async () => {
+    const f = fixture("layer");
+    let cursor: HTMLElement = f.parent;
+    const wrapperCount = 12;
+    for (let index = 0; index < wrapperCount; index += 1) {
+      const wrapper = document.createElement("div");
+      cursor.append(wrapper);
+      cursor = wrapper;
+    }
+
+    try {
+      const firstMetrics = emptyNativeSourceReadSceneMetrics();
+      const first = await f.provider.readScene(firstMetrics);
+      const firstPresentation = first.find(
+        (entry) => entry.nativeInstanceId === "sampling-output",
+      );
+      expect(firstPresentation?.imageRendering?.value).toBe("auto");
+      expect(firstMetrics.walkNodeVisits).toBe(wrapperCount + 2);
+      expect(firstMetrics.walkDirectLayoutSizeReads).toBe(wrapperCount + 2);
+
+      f.parent.className = "sharp";
+      await mutationTurn();
+      const secondMetrics = emptyNativeSourceReadSceneMetrics();
+      const second = await f.provider.readScene(secondMetrics);
+      const secondPresentation = second.find(
+        (entry) => entry.nativeInstanceId === "sampling-output",
+      );
+      expect(secondPresentation?.imageRendering?.value).toBe("pixelated");
+    } finally {
+      f.provider.dispose();
+      f.parent.remove();
+    }
+  });
+
   it.each(["fill", "layer"] as const)(
     "reads inherited %s presentation policy again after an ancestor class change",
     async (placement) => {

@@ -92,23 +92,23 @@ describe("Design-owned F generator registration", () => {
   });
 
   it("registers six unique static fills and two original recipes each", async () => {
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(223);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(268);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(538);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(291);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(337);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(676);
     expect(
       NATIVE_EFFECT_LATEST_DEFINITIONS.filter((d) =>
         d.placements.includes("fill"),
       ),
-    ).toHaveLength(119);
+    ).toHaveLength(147);
     expect(
       NATIVE_EFFECT_LATEST_DEFINITIONS.filter((d) =>
         d.placements.includes("layer"),
       ),
-    ).toHaveLength(104);
+    ).toHaveLength(144);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((d) => d.id)).size,
-    ).toBe(223);
-    expect(new Set(NATIVE_EFFECT_PRESETS.map((p) => p.id)).size).toBe(538);
+    ).toBe(291);
+    expect(new Set(NATIVE_EFFECT_PRESETS.map((p) => p.id)).size).toBe(676);
     expect(OWNED_NEXT_SIX_F_DEFINITIONS).toHaveLength(6);
     expect(OWNED_NEXT_SIX_F_PRESETS).toHaveLength(12);
     for (const definition of OWNED_NEXT_SIX_F_DEFINITIONS) {

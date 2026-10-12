@@ -147,8 +147,37 @@ export interface NativeFillBackgroundPaint {
   borderImageSource: string;
 }
 
+export type NativeSourceReadSceneMetrics = {
+  calls: number;
+  scenePresentationCalls: number;
+  mountSourceCalls: number;
+  dependencyRefreshCalls: number;
+  otherCalls: number;
+  wallMs: number;
+  walkWallMs: number;
+  validationWallMs: number;
+  leafWaitWallMs: number;
+  walkNodeVisits: number;
+  walkDirectStyleReads: number;
+  walkDirectLayoutSizeReads: number;
+  walkDirectAffineReads: number;
+  recordDirectStyleReads: number;
+  recordDirectLayoutSizeReads: number;
+  recordDirectAffineReads: number;
+  recordDirectRectReads: number;
+};
+
+export type NativeSourceReadSceneCallSite =
+  | "scene-presentation"
+  | "mount-source"
+  | "dependency-refresh"
+  | "other";
+
 export interface NativeSceneProvider {
-  readScene(): Promise<NativeSourceRecord[]>;
+  readScene(
+    metrics?: NativeSourceReadSceneMetrics,
+    callSite?: NativeSourceReadSceneCallSite,
+  ): Promise<NativeSourceRecord[]>;
   setGroupLocalBackdropSource(enabled: boolean): void;
   groupLocalBackdropClipState(canvas: HTMLCanvasElement): "empty" | "nonempty";
   readFillBackground(
@@ -242,9 +271,12 @@ function countSourceReason(
 const OMIT =
   "[data-agent-native-edit-overlay],[data-agent-native-editor-chrome],[data-agent-native-editor-chrome-host],[data-an-native-presentation],[data-an-native-scene-presentation]";
 
-function authoredOpacity(element: Element): number {
+function authoredOpacity(
+  element: Element,
+  readStyle: SourceStyleReader = getComputedStyle,
+): number {
   const saved = element.getAttribute("data-an-native-authored-opacity");
-  const opacity = Number(saved ?? getComputedStyle(element).opacity);
+  const opacity = Number(saved ?? readStyle(element).opacity);
   if (!Number.isFinite(opacity)) {
     throw new NativeSourceError(
       "source-opacity-invalid",
@@ -282,7 +314,11 @@ function assertLocalAsset(raw: string): void {
   }
 }
 
-function assertLeafSupported(element: Element, target?: Element): void {
+function assertLeafSupported(
+  element: Element,
+  target?: Element,
+  readStyle: SourceStyleReader = getComputedStyle,
+): void {
   if (element.shadowRoot) {
     throw new NativeSourceError(
       "source-shadow-dom",
@@ -295,7 +331,7 @@ function assertLeafSupported(element: Element, target?: Element): void {
       "Iframe source content is unsupported.",
     );
   }
-  const style = getComputedStyle(element);
+  const style = readStyle(element);
   if (
     style.mixBlendMode !== "normal" ||
     style.filter !== "none" ||
@@ -313,7 +349,7 @@ function assertLeafSupported(element: Element, target?: Element): void {
         "The selected source target has a 3D or perspective transform.",
       );
   } else if (element instanceof HTMLElement) {
-    nodeGlobalTransform(element);
+    nodeGlobalTransform(element, readStyle);
   }
   for (const animation of element.getAnimations({ subtree: false })) {
     if (animation.playState !== "running") continue;
@@ -674,11 +710,12 @@ function mediaPlacement(
   rect: NativeSourceRecord["rect"],
   sourceWidth: number,
   sourceHeight: number,
+  suppliedStyle?: CSSStyleDeclaration,
 ): {
   rect: NativeSourceRecord["rect"];
   uv: NonNullable<NativeSourceRecord["uv"]>;
 } {
-  const style = getComputedStyle(element);
+  const style = suppliedStyle ?? getComputedStyle(element);
   const fit = style.objectFit;
   if (!["fill", "contain", "cover"].includes(fit))
     throw new NativeSourceError(
@@ -728,8 +765,11 @@ function mediaPlacement(
   return { rect, uv };
 }
 
-function mediaHasSolidBackground(element: HTMLElement): boolean {
-  const style = getComputedStyle(element);
+function mediaHasSolidBackground(
+  element: HTMLElement,
+  suppliedStyle?: CSSStyleDeclaration,
+): boolean {
+  const style = suppliedStyle ?? getComputedStyle(element);
   const background = style.backgroundColor.replace(/\s+/g, "").toLowerCase();
   const transparent =
     background === "transparent" ||
@@ -937,7 +977,12 @@ function viewportRelativeRect(
   };
 }
 
-function layoutPosition(element: HTMLElement): { x: number; y: number } {
+function layoutPosition(
+  element: HTMLElement,
+  memo?: SourceGeometryMemo,
+): { x: number; y: number } {
+  const cached = memo?.positions.get(element);
+  if (cached) return cached;
   let x = 0;
   let y = 0;
   let node: HTMLElement | null = element;
@@ -960,7 +1005,9 @@ function layoutPosition(element: HTMLElement): { x: number; y: number } {
     x -= ancestor.scrollLeft;
     y -= ancestor.scrollTop;
   }
-  return { x, y };
+  const position = { x, y };
+  memo?.positions.set(element, position);
+  return position;
 }
 
 function axisLength(raw: string, size: number): number | null {
@@ -1015,8 +1062,14 @@ function rotateRadians(value: string): number {
       : amount;
 }
 
-function nodeGlobalTransform(element: HTMLElement): NativeAffine2D {
-  const style = getComputedStyle(element);
+function nodeGlobalTransform(
+  element: HTMLElement,
+  readStyle: SourceStyleReader = getComputedStyle,
+  memo?: SourceGeometryMemo,
+): NativeAffine2D {
+  const cached = memo?.transforms.get(element);
+  if (cached) return cached;
+  const style = readStyle(element);
   if (
     (style.perspective && style.perspective !== "none") ||
     style.transformStyle === "preserve-3d"
@@ -1103,20 +1156,26 @@ function nodeGlobalTransform(element: HTMLElement): NativeAffine2D {
       "A descendant source transform length is unreadable.",
     );
   css = composeAffine(translated(translateX, translateY), css);
-  const anchor = layoutPosition(element);
+  const anchor = layoutPosition(element, memo);
   const pivotX = anchor.x + originX;
   const pivotY = anchor.y + originY;
-  return composeAffine(
+  const transform = composeAffine(
     translated(pivotX, pivotY),
     composeAffine(css, translated(-pivotX, -pivotY)),
   );
+  memo?.transforms.set(element, transform);
+  return transform;
 }
 
 function sourceLayoutSize(
   element: HTMLElement,
   target: Element,
   space: NativeSourceRecord["coordinateSpace"],
+  memo?: SourceGeometryMemo,
 ): { width: number; height: number } {
+  const cache = memo?.matches(target, space) ? memo.sizes : undefined;
+  const cached = cache?.get(element);
+  if (cached) return cached;
   if (
     space !== "target-viewport-axis-aligned" &&
     element === target &&
@@ -1128,7 +1187,9 @@ function sourceLayoutSize(
     (element.offsetWidth === 0 || element.offsetHeight === 0)
   )
     return { width: innerWidth, height: innerHeight };
-  return { width: element.offsetWidth, height: element.offsetHeight };
+  const size = { width: element.offsetWidth, height: element.offsetHeight };
+  cache?.set(element, size);
+  return size;
 }
 
 function hasEmptySourceLayout(size: {
@@ -1148,11 +1209,17 @@ function hasEmptySourceLayout(size: {
   return size.width === 0 || size.height === 0;
 }
 
-function viewportSourceAffine(element: HTMLElement): NativeAffine2D {
-  const position = layoutPosition(element);
+function viewportSourceAffine(
+  element: HTMLElement,
+  readStyle: SourceStyleReader = getComputedStyle,
+  memo?: SourceGeometryMemo,
+): NativeAffine2D {
+  const cached = memo?.viewportAffines.get(element);
+  if (cached) return cached;
+  const position = layoutPosition(element, memo);
   let matrix = translated(position.x, position.y);
   for (let node: HTMLElement | null = element; node; node = node.parentElement)
-    matrix = composeAffine(nodeGlobalTransform(node), matrix);
+    matrix = composeAffine(nodeGlobalTransform(node, readStyle, memo), matrix);
   const measured = element.getBoundingClientRect();
   const projected = planNativeSourceAffine({
     localBox: {
@@ -1172,15 +1239,23 @@ function viewportSourceAffine(element: HTMLElement): NativeAffine2D {
       Math.max(0.5, measured.height * 0.02)
   )
     throw new NativeSourceError("source-transform", "source-transform");
-  return {
+  const affine = {
     ...matrix,
     e: matrix.e + measured.left - projected.physicalBounds.x,
     f: matrix.f + measured.top - projected.physicalBounds.y,
   };
+  memo?.viewportAffines.set(element, affine);
+  return affine;
 }
 
-function viewportToTargetAffine(target: HTMLElement): NativeAffine2D {
-  const inverted = invertNativeSourceAffine(viewportSourceAffine(target));
+function viewportToTargetAffine(
+  target: HTMLElement,
+  readStyle: SourceStyleReader = getComputedStyle,
+  memo?: SourceGeometryMemo,
+): NativeAffine2D {
+  const inverted = invertNativeSourceAffine(
+    viewportSourceAffine(target, readStyle, memo),
+  );
   if (!inverted.ok)
     throw new NativeSourceError("source-transform", "source-transform");
   return inverted.matrix;
@@ -1191,6 +1266,9 @@ function relativeAffine(
   target: Element,
   space: NativeSourceRecord["coordinateSpace"],
   localBox?: NativeAffineBox,
+  readStyle: SourceStyleReader = getComputedStyle,
+  measuredSize?: { width: number; height: number },
+  memo?: SourceGeometryMemo,
 ): {
   localBox: NativeAffineBox;
   localToTarget: NativeAffine2D;
@@ -1201,15 +1279,21 @@ function relativeAffine(
       "source-transform",
       "A source has no HTML layout box.",
     );
-  const size = sourceLayoutSize(element, target, space);
+  const activeMemo = memo?.matches(target, space) ? memo : undefined;
+  const cache = activeMemo?.matrices;
+  const size =
+    measuredSize ?? sourceLayoutSize(element, target, space, activeMemo);
   const box = localBox ?? { x: 0, y: 0, ...size };
-  let matrix: NativeAffine2D;
-  if (space === "target-local") {
-    const position = layoutPosition(element);
+  let matrix = cache?.get(element);
+  if (!matrix && space === "target-local") {
+    const position = layoutPosition(element, activeMemo);
     matrix = translated(position.x, position.y);
     let node: HTMLElement | null = element;
     while (node && node !== target) {
-      matrix = composeAffine(nodeGlobalTransform(node), matrix);
+      matrix = composeAffine(
+        nodeGlobalTransform(node, readStyle, activeMemo),
+        matrix,
+      );
       node = node.parentElement;
     }
     if (node !== target)
@@ -1217,23 +1301,24 @@ function relativeAffine(
         "source-transform",
         "The source is outside the selected target.",
       );
-    const targetPosition = layoutPosition(target);
+    const targetPosition = layoutPosition(target, activeMemo);
     matrix = composeAffine(
       translated(-targetPosition.x, -targetPosition.y),
       matrix,
     );
-  } else if (space === "target-local-global") {
+  } else if (!matrix && space === "target-local-global") {
     matrix = composeAffine(
-      viewportToTargetAffine(target),
-      viewportSourceAffine(element),
+      viewportToTargetAffine(target, readStyle, activeMemo),
+      viewportSourceAffine(element, readStyle, activeMemo),
     );
-  } else {
+  } else if (!matrix) {
     const targetRect = target.getBoundingClientRect();
     matrix = composeAffine(
       translated(-targetRect.left, -targetRect.top),
-      viewportSourceAffine(element),
+      viewportSourceAffine(element, readStyle, activeMemo),
     );
   }
+  cache?.set(element, matrix);
   const result = planNativeSourceAffine({
     localBox: box,
     localToTarget: matrix,
@@ -1292,16 +1377,37 @@ export function sourceClipPlan(
   ownTextClipEdge: NativeSourceClipCandidate["edge"] | null = null,
   ownTextClipOutset = 0,
   ownMediaClipEdge: NativeSourceClipCandidate["edge"] = "content",
+  suppliedReadStyle?: SourceStyleReader,
+  memo?: SourceGeometryMemo,
 ): {
   clip: NativeSourceRecord["clip"];
   ancestorClip: NativeSourceRecord["clip"];
   clips: NativeSourceClip[];
   groupClips: { node: Element; clip: NativeSourceClip }[];
 } {
+  const styles = new Map<Element, CSSStyleDeclaration>();
+  const readStyle: SourceStyleReader =
+    suppliedReadStyle ??
+    ((element) => {
+      let style = styles.get(element);
+      if (!style) {
+        style = getComputedStyle(element);
+        styles.set(element, style);
+      }
+      return style;
+    });
   const targetBox =
     space === "target-viewport-axis-aligned"
       ? viewportRelativeRect(target, target)
-      : relativeAffine(target, target, space).rect;
+      : relativeAffine(
+          target,
+          target,
+          space,
+          undefined,
+          readStyle,
+          undefined,
+          memo,
+        ).rect;
   let targetClip = {
     x: 0,
     y: 0,
@@ -1321,17 +1427,22 @@ export function sourceClipPlan(
         "source-clip-too-many-clips",
         `A source requires more than ${MAX_NATIVE_SOURCE_CLIPS} rounded clips.`,
       );
-    assertLeafSupported(node, space === "target-local" ? target : undefined);
+    assertLeafSupported(
+      node,
+      space === "target-local" ? target : undefined,
+      readStyle,
+    );
     if (!(node instanceof HTMLElement))
       throw new NativeSourceError(
         "source-clip-unreadable",
         "A source clip has no HTML border box.",
       );
-    const style = getComputedStyle(node);
+    const style = readStyle(node);
     const { width: localWidth, height: localHeight } = sourceLayoutSize(
       node,
       target,
       space,
+      memo,
     );
     const radii = resolveNativeClipRadii({
       width: localWidth,
@@ -1381,7 +1492,15 @@ export function sourceClipPlan(
     if (!plan.ok)
       throw new NativeSourceError(`source-clip-${plan.reason}`, plan.detail);
     const localClip = plan.clips[0];
-    const geometry = relativeAffine(node, target, space, localClip.rect);
+    const geometry = relativeAffine(
+      node,
+      target,
+      space,
+      localClip.rect,
+      readStyle,
+      { width: localWidth, height: localHeight },
+      memo,
+    );
     allClips.push({
       rect: geometry.rect,
       localBox: localClip.rect,
@@ -1394,7 +1513,7 @@ export function sourceClipPlan(
   if (ownTextClipEdge)
     append(element, ownTextClipEdge, true, ownTextClipOutset);
   for (const ancestor of sourceClipAncestors(element, target, space)) {
-    const style = getComputedStyle(ancestor);
+    const style = readStyle(ancestor);
     const overflow = classifyNativeComputedOverflowClip(style);
     if (!overflow.ok)
       throw new NativeSourceError(`source-${overflow.reason}`, overflow.detail);
@@ -1415,7 +1534,7 @@ export function sourceClipPlan(
       expandTargetClip(allClips[ownCount + targetIndex].rect);
     } else {
       const targetOverflow = classifyNativeComputedOverflowClip(
-        getComputedStyle(target),
+        readStyle(target),
       );
       if (!targetOverflow.ok)
         throw new NativeSourceError(
@@ -1625,6 +1744,72 @@ export function assertDomSiblingOrder(
             );
 }
 
+type SourceStyleReader = (element: Element) => CSSStyleDeclaration;
+
+class SourceGeometryMemo {
+  readonly styles = new Map<Element, CSSStyleDeclaration>();
+  readonly positions = new Map<HTMLElement, { x: number; y: number }>();
+  readonly sizes = new Map<HTMLElement, { width: number; height: number }>();
+  readonly transforms = new Map<HTMLElement, NativeAffine2D>();
+  readonly viewportAffines = new Map<HTMLElement, NativeAffine2D>();
+  readonly matrices = new Map<HTMLElement, NativeAffine2D>();
+
+  constructor(
+    private readonly target: Element,
+    private readonly space: NativeSourceRecord["coordinateSpace"],
+  ) {}
+
+  matches(
+    target: Element,
+    space: NativeSourceRecord["coordinateSpace"],
+  ): boolean {
+    return this.target === target && this.space === space;
+  }
+
+  clear(): void {
+    this.styles.clear();
+    this.positions.clear();
+    this.sizes.clear();
+    this.transforms.clear();
+    this.viewportAffines.clear();
+    this.matrices.clear();
+  }
+}
+
+type SourceWalkStep = void | Promise<void>;
+
+function runSourceWalkSteps<T>(
+  steps: Generator<SourceWalkStep, T, boolean>,
+  memo?: SourceGeometryMemo,
+): T | Promise<T> {
+  return runSourceWalkStepsFrom(steps, memo, false);
+}
+
+function runSourceWalkStepsAfterAsync<T>(
+  steps: Generator<SourceWalkStep, T, boolean>,
+  memo?: SourceGeometryMemo,
+): T | Promise<T> {
+  return runSourceWalkStepsFrom(steps, memo, true);
+}
+
+function runSourceWalkStepsFrom<T>(
+  steps: Generator<SourceWalkStep, T, boolean>,
+  memo: SourceGeometryMemo | undefined,
+  resumedAfterAsync: boolean,
+): T | Promise<T> {
+  for (;;) {
+    const next = steps.next(resumedAfterAsync);
+    resumedAfterAsync = false;
+    if (next.done) return next.value;
+    const step = next.value;
+    if (step && typeof step.then === "function")
+      return step.then(() => {
+        memo?.clear();
+        return runSourceWalkStepsAfterAsync(steps, memo);
+      });
+  }
+}
+
 interface SourceStackingOrder {
   rank: number;
   phase: NativeStackingFootprint["phase"];
@@ -1654,13 +1839,16 @@ function hasSourceTransform(style: CSSStyleDeclaration): boolean {
   );
 }
 
-function sourceStackingContext(element: Element): {
+function sourceStackingContext(
+  element: Element,
+  readStyle: SourceStyleReader = getComputedStyle,
+): {
   order: SourceStackingOrder;
   isolates: boolean;
 } {
-  const style = getComputedStyle(element);
+  const style = readStyle(element);
   const parentDisplay = element.parentElement
-    ? getComputedStyle(element.parentElement).display
+    ? readStyle(element.parentElement).display
     : "block";
   const positioned = style.position !== "static";
   const flexOrGridItem = isFlexOrGridDisplay(parentDisplay);
@@ -1675,7 +1863,7 @@ function sourceStackingContext(element: Element): {
     (explicit && flexOrGridItem) ||
     transformed ||
     style.isolation === "isolate" ||
-    authoredOpacity(element) < 1
+    authoredOpacity(element, readStyle) < 1
       ? "positioned"
       : "flow";
   return {
@@ -1686,13 +1874,14 @@ function sourceStackingContext(element: Element): {
       style.position === "sticky" ||
       transformed ||
       style.isolation === "isolate" ||
-      authoredOpacity(element) < 1,
+      authoredOpacity(element, readStyle) < 1,
   };
 }
 
 function sourceStackingOrder(
   receiver: Element,
   parent: Element,
+  readStyle: SourceStyleReader = getComputedStyle,
 ): SourceStackingOrder {
   const path: Element[] = [];
   for (
@@ -1703,7 +1892,7 @@ function sourceStackingOrder(
     path.unshift(node);
   let phase: SourceStackingOrder["phase"] = "flow";
   for (const element of path) {
-    const context = sourceStackingContext(element);
+    const context = sourceStackingContext(element, readStyle);
     if (context.order.phase === "positioned") phase = "positioned";
     if (context.isolates) return { ...context.order, phase };
   }
@@ -1772,21 +1961,25 @@ export function transformedSourcePaintIsContiguous(
   return true;
 }
 
-function sourcePaintScope(leaf: Element, stop: Element): Element {
-  if (leaf !== stop && getComputedStyle(leaf).isolation === "isolate")
-    return leaf;
+function sourcePaintScope(
+  leaf: Element,
+  stop: Element,
+  readStyle: SourceStyleReader = getComputedStyle,
+): Element {
+  if (leaf !== stop && readStyle(leaf).isolation === "isolate") return leaf;
   for (
     let current = leaf.parentElement;
     current && current !== stop;
     current = current.parentElement
   )
-    if (sourceStackingContext(current).isolates) return current;
+    if (sourceStackingContext(current, readStyle).isolates) return current;
   return stop;
 }
 
 function sourceLeafPaintOrder(
   leaf: Element,
   scope: Element,
+  readStyle: SourceStyleReader = getComputedStyle,
 ): SourceStackingOrder {
   if (leaf === scope) return { rank: 0, phase: "context-own" };
   let phase: SourceStackingOrder["phase"] = "flow";
@@ -1795,7 +1988,7 @@ function sourceLeafPaintOrder(
     current && current !== scope;
     current = current.parentElement
   ) {
-    const context = sourceStackingContext(current);
+    const context = sourceStackingContext(current, readStyle);
     if (context.order.phase === "positioned") phase = "positioned";
     if (context.isolates) return { ...context.order, phase };
   }
@@ -1878,6 +2071,184 @@ type NativeOwnPaintPhase =
   | "inner-coverage"
   | "foreground"
   | "glyph";
+
+function rasterOwnedStyleNodes(
+  element: HTMLElement | SVGSVGElement,
+  phase: NativeOwnPaintPhase,
+): Element[] {
+  if (element instanceof SVGSVGElement)
+    return [element, ...element.querySelectorAll("*")];
+  if (
+    phase === "background" ||
+    phase === "border" ||
+    phase === "coverage" ||
+    phase === "inner-coverage"
+  )
+    return [element];
+  if (phase === "foreground" || phase === "glyph" || isSourceTextFlow(element))
+    return [element, ...element.querySelectorAll("*")];
+  const nodes: Element[] = [element];
+  if (hasDirectText(element))
+    for (const child of element.children)
+      if (isInlineFlowChild(child)) nodes.push(child);
+  return nodes;
+}
+
+const NORMALIZED_ROOT_PAINT_PROPERTIES = new Set([
+  "position",
+  "left",
+  "top",
+  "margin",
+  "margin-top",
+  "margin-right",
+  "margin-bottom",
+  "margin-left",
+  "transform",
+  "transform-origin",
+  "translate",
+  "rotate",
+  "scale",
+  "opacity",
+]);
+
+const BOX_PHASE_ROOT_PAINT_PROPERTIES = new Set([
+  "background-color",
+  "background-image",
+  "border-top-color",
+  "border-right-color",
+  "border-bottom-color",
+  "border-left-color",
+  "border-image-source",
+  "box-shadow",
+  "outline-color",
+]);
+
+export function nativeRasterComputedStyleValues(
+  style: CSSStyleDeclaration,
+  options: { isRoot: boolean; phase: NativeOwnPaintPhase },
+): unknown[] {
+  const omittedProperties = new Set<string>();
+  if (options.isRoot) {
+    for (const property of NORMALIZED_ROOT_PAINT_PROPERTIES)
+      omittedProperties.add(property);
+    const boxPhase =
+      options.phase === "background" ||
+      options.phase === "border" ||
+      options.phase === "coverage" ||
+      options.phase === "inner-coverage";
+    if (boxPhase)
+      for (const property of BOX_PHASE_ROOT_PAINT_PROPERTIES)
+        omittedProperties.add(property);
+    if (options.phase === "coverage" || options.phase === "inner-coverage")
+      omittedProperties.add("background-clip");
+  }
+  if (typeof style.item === "function" && Number.isInteger(style.length)) {
+    const values: unknown[] = [];
+    for (let index = 0; index < style.length; index += 1) {
+      const name = style.item(index);
+      if (omittedProperties.has(name)) continue;
+      values.push([name, style.getPropertyValue(name)]);
+    }
+    return values;
+  }
+  return Object.keys(style)
+    .filter((name) => {
+      const cssName = name.replace(
+        /[A-Z]/g,
+        (letter) => `-${letter.toLowerCase()}`,
+      );
+      return (
+        !omittedProperties.has(cssName) &&
+        typeof style[name as keyof CSSStyleDeclaration] !== "function"
+      );
+    })
+    .sort()
+    .map((name) => [name, style[name as keyof CSSStyleDeclaration]]);
+}
+
+function snapshotComputedStyle(element: Element): CSSStyleDeclaration {
+  const live = getComputedStyle(element);
+  const snapshot: Record<string, unknown> = {};
+  const properties: string[] = [];
+  const values = new Map<string, string>();
+  const add = (name: string, value: string) => {
+    properties.push(name);
+    values.set(name, value);
+    const camelName = name.replace(/-([a-z])/g, (_match, letter: string) =>
+      letter.toUpperCase(),
+    );
+    if (/^[a-z]/.test(camelName)) snapshot[camelName] = value;
+  };
+  for (const name of [
+    "display",
+    "visibility",
+    "opacity",
+    "position",
+    "z-index",
+    "order",
+    "isolation",
+    "mix-blend-mode",
+    "filter",
+    "backdrop-filter",
+    "transform",
+    "transform-origin",
+    "translate",
+    "rotate",
+    "scale",
+    "perspective",
+    "transform-style",
+    "overflow-x",
+    "overflow-y",
+    "clip-path",
+    "background-image",
+    "background-color",
+    "background-clip",
+    "box-shadow",
+    "outline-style",
+    "mask-image",
+    "image-rendering",
+    "object-fit",
+    "object-position",
+    "border-top-width",
+    "border-right-width",
+    "border-bottom-width",
+    "border-left-width",
+    "border-top-left-radius",
+    "border-top-right-radius",
+    "border-bottom-right-radius",
+    "border-bottom-left-radius",
+    "padding-top",
+    "padding-right",
+    "padding-bottom",
+    "padding-left",
+  ]) {
+    const camelName = name.replace(/-([a-z])/g, (_match, letter: string) =>
+      letter.toUpperCase(),
+    );
+    const direct = live[camelName as keyof CSSStyleDeclaration];
+    const canReadCssomProperty =
+      typeof live.item === "function" && Number.isInteger(live.length);
+    const value =
+      typeof direct === "string"
+        ? direct
+        : canReadCssomProperty
+          ? live.getPropertyValue(name)
+          : undefined;
+    if (typeof value !== "string") continue;
+    add(name, value);
+  }
+  for (const name of [
+    "overflow-clip-margin",
+    "-webkit-mask-image",
+    "mask-border-source",
+    "-webkit-mask-box-image-source",
+  ])
+    values.set(name, live.getPropertyValue(name));
+  snapshot.length = properties.length;
+  snapshot.item = (index: number) => properties[index] ?? "";
+  snapshot.getPropertyValue = (name: string) => values.get(name) ?? "";
+  return snapshot as unknown as CSSStyleDeclaration;
+}
 
 function cloneOwnPaint(
   element: HTMLElement,
@@ -2472,6 +2843,25 @@ function omittedSourceMutation(record: MutationRecord): boolean {
 export class CachedLeaf<T extends HTMLElement | SVGSVGElement = HTMLElement> {
   private canvas = document.createElement("canvas");
   private readonly capture = new NativeCaptureCache<HTMLCanvasElement>();
+  private readonly captureSceneSnapshots = new WeakMap<
+    HTMLCanvasElement,
+    string
+  >();
+  private readonly capturePaintSnapshots = new WeakMap<
+    HTMLCanvasElement,
+    string
+  >();
+  private captureSceneSnapshot: string | null = null;
+  private capturePaintSnapshot: string | null = null;
+  private hasCommittedCapture = false;
+  private invalidationGeneration = 0;
+
+  get capturedSceneSnapshot(): string | null {
+    return this.captureSceneSnapshot;
+  }
+  get capturedPaintSnapshot(): string | null {
+    return this.capturePaintSnapshot;
+  }
   revision = 0;
   private requestedWidth = -1;
   private requestedHeight = -1;
@@ -2580,89 +2970,125 @@ export class CachedLeaf<T extends HTMLElement | SVGSVGElement = HTMLElement> {
     this.resizeObserver.observe(element);
   }
 
-  async read(): Promise<HTMLCanvasElement> {
-    const size = sizeOf(this.element);
-    const density = this.density();
-    const width = Math.ceil(size.width * density);
-    const height = Math.ceil(size.height * density);
-    const rasterChanged =
-      width !== this.requestedWidth ||
-      height !== this.requestedHeight ||
-      density !== this.requestedDensity;
-    const content =
-      this.contentMeasurementDirty || rasterChanged
-        ? contentBoxOf(this.element)
-        : {
-            width: this.requestedContentWidth,
-            height: this.requestedContentHeight,
-          };
-    if (
-      rasterChanged ||
-      content.width !== this.requestedContentWidth ||
-      content.height !== this.requestedContentHeight
-    ) {
-      const reason =
-        this.requestedWidth < 0
-          ? "initial"
-          : density !== this.requestedDensity
-            ? "density"
-            : "dimensions";
-      this.requestedWidth = width;
-      this.requestedHeight = height;
-      this.requestedContentWidth = content.width;
-      this.requestedContentHeight = content.height;
-      this.requestedDensity = density;
-      this.invalidate(reason);
-    }
-    this.contentMeasurementDirty = false;
+  read(
+    sceneSnapshot?: () => string,
+    paintSnapshot?: () => string,
+  ): HTMLCanvasElement | Promise<HTMLCanvasElement> {
     try {
-      return await this.capture.read(
-        async () => {
-          const candidate = document.createElement("canvas");
-          try {
-            await this.raster(this.element, candidate, density);
-            return candidate;
-          } catch (error) {
+      const size = sizeOf(this.element);
+      const density = this.density();
+      const width = Math.ceil(size.width * density);
+      const height = Math.ceil(size.height * density);
+      const rasterChanged =
+        width !== this.requestedWidth ||
+        height !== this.requestedHeight ||
+        density !== this.requestedDensity;
+      const content =
+        this.contentMeasurementDirty || rasterChanged
+          ? contentBoxOf(this.element)
+          : {
+              width: this.requestedContentWidth,
+              height: this.requestedContentHeight,
+            };
+      if (
+        rasterChanged ||
+        content.width !== this.requestedContentWidth ||
+        content.height !== this.requestedContentHeight
+      ) {
+        const reason =
+          this.requestedWidth < 0
+            ? "initial"
+            : density !== this.requestedDensity
+              ? "density"
+              : "dimensions";
+        this.requestedWidth = width;
+        this.requestedHeight = height;
+        this.requestedContentWidth = content.width;
+        this.requestedContentHeight = content.height;
+        this.requestedDensity = density;
+        this.invalidate(reason);
+      }
+      this.contentMeasurementDirty = false;
+      if (this.hasCommittedCapture) return this.canvas;
+      return this.capture
+        .read(
+          async () => {
+            const snapshot = sceneSnapshot?.() ?? null;
+            const paint = paintSnapshot?.() ?? null;
+            const candidate = document.createElement("canvas");
+            try {
+              await this.raster(this.element, candidate, density);
+              if (snapshot !== null)
+                this.captureSceneSnapshots.set(candidate, snapshot);
+              if (paint !== null)
+                this.capturePaintSnapshots.set(candidate, paint);
+              return candidate;
+            } catch (error) {
+              candidate.width = 0;
+              candidate.height = 0;
+              throw error;
+            }
+          },
+          (candidate) => {
+            const previous = this.canvas;
+            const invalidationGeneration = this.invalidationGeneration;
+            this.canvas = candidate;
+            this.captureSceneSnapshot =
+              this.captureSceneSnapshots.get(candidate) ?? null;
+            this.capturePaintSnapshot =
+              this.capturePaintSnapshots.get(candidate) ?? null;
+            this.revision += 1;
+            this.onCapture();
+            if (this.invalidationGeneration === invalidationGeneration)
+              this.hasCommittedCapture = true;
+            previous.width = 0;
+            previous.height = 0;
+          },
+          (candidate) => {
             candidate.width = 0;
             candidate.height = 0;
-            throw error;
-          }
-        },
-        (candidate) => {
-          const previous = this.canvas;
-          this.canvas = candidate;
-          this.revision += 1;
-          this.onCapture();
-          previous.width = 0;
-          previous.height = 0;
-        },
-        (candidate) => {
-          candidate.width = 0;
-          candidate.height = 0;
-        },
-      );
+          },
+        )
+        .catch((error) => {
+          throw normalizeCachedLeafError(error);
+        });
     } catch (error) {
-      if (error instanceof NativeCaptureCacheError)
-        throw new NativeSourceError(error.code, error.message);
-      if (error instanceof NativeSvgSourceError)
-        throw new NativeSourceError(error.code, error.message);
-      throw error;
+      return Promise.reject(normalizeCachedLeafError(error));
     }
   }
 
   invalidate(reason: NativeSourceInvalidationReason = "explicit"): void {
+    this.invalidationGeneration += 1;
+    this.hasCommittedCapture = false;
     this.contentMeasurementDirty = true;
     this.capture.invalidate();
     this.onInvalidationReason(reason);
     this.onInvalidate();
   }
   dispose(): void {
+    this.hasCommittedCapture = false;
     this.observer.disconnect();
     this.resizeObserver.disconnect();
     this.capture.dispose();
     this.canvas.width = 0;
     this.canvas.height = 0;
   }
+}
+
+function afterMaybePromise<T>(
+  value: T | Promise<T>,
+  continuation: (resolved: T) => void,
+): void | Promise<void> {
+  if (value instanceof Promise) return value.then(continuation);
+  continuation(value);
+}
+
+function normalizeCachedLeafError(error: unknown): unknown {
+  if (error instanceof NativeCaptureCacheError)
+    return new NativeSourceError(error.code, error.message);
+  if (error instanceof NativeSvgSourceError)
+    return new NativeSourceError(error.code, error.message);
+  return error;
 }
 
 class SceneProvider implements NativeSceneProvider {
@@ -3094,7 +3520,135 @@ class SceneProvider implements NativeSceneProvider {
     return id;
   }
 
-  private async recordMediaBackground(
+  private readSceneLeaf<T extends HTMLElement | SVGSVGElement>(
+    leaf: CachedLeaf<T>,
+    metrics?: NativeSourceReadSceneMetrics,
+    phase: NativeOwnPaintPhase = "all",
+    memo?: SourceGeometryMemo,
+  ): HTMLCanvasElement | Promise<HTMLCanvasElement> {
+    const started = metrics ? performance.now() : 0;
+    const finish = () => {
+      if (metrics) metrics.leafWaitWallMs += performance.now() - started;
+    };
+    let revision = leaf.revision;
+    let plannedSnapshot = "";
+    let plannedPaint = "";
+    let result: HTMLCanvasElement | Promise<HTMLCanvasElement>;
+    try {
+      plannedSnapshot = this.sceneFrameSnapshot(leaf.element, metrics);
+      plannedPaint = this.rasterPaintSnapshot(leaf.element, phase, metrics);
+      if (
+        leaf.capturedPaintSnapshot !== null &&
+        leaf.capturedPaintSnapshot !== plannedPaint
+      )
+        leaf.invalidate("explicit");
+      revision = leaf.revision;
+      result = leaf.read(
+        () => this.sceneFrameSnapshot(leaf.element, metrics),
+        () => this.rasterPaintSnapshot(leaf.element, phase, metrics),
+      );
+    } catch (error) {
+      finish();
+      throw normalizeCachedLeafError(error);
+    }
+    const validate = (source: HTMLCanvasElement) => {
+      if (
+        leaf.revision !== revision &&
+        (leaf.capturedSceneSnapshot !== plannedSnapshot ||
+          leaf.capturedPaintSnapshot !== plannedPaint)
+      )
+        throw new NativeSourceError(
+          "source-scene-stale",
+          "The source geometry changed before its raster snapshot began.",
+        );
+      return source;
+    };
+    if (result instanceof Promise)
+      return result
+        .then(validate)
+        .catch((error) => {
+          throw normalizeCachedLeafError(error);
+        })
+        .finally(() => {
+          memo?.clear();
+          finish();
+        });
+    try {
+      return validate(result);
+    } catch (error) {
+      throw normalizeCachedLeafError(error);
+    } finally {
+      finish();
+    }
+  }
+
+  private sceneFrameSnapshot(
+    element: Element,
+    metrics?: NativeSourceReadSceneMetrics,
+  ): string {
+    const stop =
+      this.placement === "backdrop" ? document.documentElement : this.target;
+    const entries: unknown[] = [];
+    for (
+      let current: Element | null = element;
+      current;
+      current = current.parentElement
+    ) {
+      if (metrics) {
+        metrics.recordDirectRectReads += 1;
+        metrics.recordDirectStyleReads += 1;
+      }
+      const rect = current.getBoundingClientRect();
+      const style = getComputedStyle(current);
+      entries.push([
+        rect.left,
+        rect.top,
+        rect.width,
+        rect.height,
+        style.transform,
+        style.translate,
+        style.rotate,
+        style.scale,
+        style.overflowX,
+        style.overflowY,
+        style.clipPath,
+        style.borderTopLeftRadius,
+        style.borderTopRightRadius,
+        style.borderBottomRightRadius,
+        style.borderBottomLeftRadius,
+      ]);
+      if (current === stop) break;
+    }
+    return JSON.stringify(entries);
+  }
+
+  private rasterPaintSnapshot(
+    element: HTMLElement | SVGSVGElement,
+    phase: NativeOwnPaintPhase,
+    metrics?: NativeSourceReadSceneMetrics,
+  ): string {
+    const nodes = rasterOwnedStyleNodes(element, phase);
+    return JSON.stringify(
+      nodes.map((node) => {
+        if (metrics) metrics.recordDirectStyleReads += 1;
+        const style = getComputedStyle(node);
+        let size: ReturnType<typeof sizeOf> | null = null;
+        if (node === element) {
+          if (metrics) metrics.recordDirectLayoutSizeReads += 1;
+          size = sizeOf(element);
+        }
+        return [
+          size,
+          nativeRasterComputedStyleValues(style, {
+            isRoot: node === element,
+            phase,
+          }),
+        ];
+      }),
+    );
+  }
+
+  private recordMediaBackground(
     element: HTMLElement,
     common: Omit<
       NativeSourceRecord,
@@ -3102,7 +3656,9 @@ class SceneProvider implements NativeSceneProvider {
     >,
     ancestorClip: NativeSourceRecord["clip"],
     out: NativeSourceRecord[],
-  ): Promise<void> {
+    metrics?: NativeSourceReadSceneMetrics,
+    memo?: SourceGeometryMemo,
+  ): void | Promise<void> {
     let leaf = this.mediaBackgrounds.get(element);
     if (!leaf) {
       const key = this.backgroundId(element);
@@ -3118,18 +3674,22 @@ class SceneProvider implements NativeSceneProvider {
       );
       this.mediaBackgrounds.set(element, leaf);
     }
-    const source = await leaf.read();
-    out.push({
-      ...common,
-      key: this.backgroundId(element),
-      kind: "dom",
-      source,
-      width: source.width,
-      height: source.height,
-      revision: leaf.revision,
-      clip: ancestorClip,
-      clips: [],
-    });
+    return afterMaybePromise(
+      this.readSceneLeaf(leaf, metrics, "background", memo),
+      (source) => {
+        out.push({
+          ...common,
+          key: this.backgroundId(element),
+          kind: "dom",
+          source,
+          width: source.width,
+          height: source.height,
+          revision: leaf.revision,
+          clip: ancestorClip,
+          clips: [],
+        });
+      },
+    );
   }
 
   private isolationPath(
@@ -3137,6 +3697,7 @@ class SceneProvider implements NativeSceneProvider {
     groupClips: { node: Element; clip: NativeSourceClip }[],
     ownOpacityBaked: boolean,
     layerOutputOpacityDeferred = false,
+    readStyle: SourceStyleReader = getComputedStyle,
   ): NativeSourceIsolation[] | null {
     const isBackdropCanvas = (node: Element): node is HTMLCanvasElement =>
       node instanceof HTMLCanvasElement &&
@@ -3169,7 +3730,7 @@ class SceneProvider implements NativeSceneProvider {
     const clipped = new Set(groupClips.map(({ node }) => node));
     const path: NativeSourceIsolation[] = [];
     for (const node of nodes.reverse()) {
-      const opacity = authoredOpacity(node);
+      const opacity = authoredOpacity(node, readStyle);
       const receiver = isBackdropCanvas(node)
         ? receiverForCanvas(node)
         : precedingBackdropCanvas(node)
@@ -3189,7 +3750,7 @@ class SceneProvider implements NativeSceneProvider {
           ownOpacityBaked &&
           node.hasAttribute("data-an-native-layer-instance") &&
           !layerOutputOpacityDeferred &&
-          authoredOpacity(receiver) < 1
+          authoredOpacity(receiver, readStyle) < 1
         )
           throw new NativeSourceError(
             "source-composition-unsupported",
@@ -3198,7 +3759,7 @@ class SceneProvider implements NativeSceneProvider {
         path.push({
           id: `receiver:${this.id(receiver)}`,
           kind: "opacity",
-          opacity: authoredOpacity(receiver),
+          opacity: authoredOpacity(receiver, readStyle),
         });
       }
       const deferTargetOpacity =
@@ -3227,6 +3788,16 @@ class SceneProvider implements NativeSceneProvider {
   }
 
   private assertSourceComposition(records: NativeSourceRecord[]): void {
+    // Keep this cache synchronous: raster epochs do not track live CSS animation or layout.
+    const styles = new Map<Element, CSSStyleDeclaration>();
+    const readStyle: SourceStyleReader = (element) => {
+      let style = styles.get(element);
+      if (!style) {
+        style = getComputedStyle(element);
+        styles.set(element, style);
+      }
+      return style;
+    };
     const stop =
       this.placement === "backdrop" ? document.documentElement : this.target;
     const stackingPaints = new Map<Element, NativeStackingFootprint[]>();
@@ -3243,7 +3814,7 @@ class SceneProvider implements NativeSceneProvider {
         current;
         current = current.parentElement
       ) {
-        const style = getComputedStyle(current);
+        const style = readStyle(current);
         if (current !== stop && !transformOwner && hasSourceTransform(style))
           transformOwner = current;
         if (
@@ -3256,8 +3827,8 @@ class SceneProvider implements NativeSceneProvider {
           );
         if (current === stop) break;
       }
-      const scope = sourcePaintScope(record.node, stop);
-      const order = sourceLeafPaintOrder(record.node, scope);
+      const scope = sourcePaintScope(record.node, stop, readStyle);
+      const order = sourceLeafPaintOrder(record.node, scope, readStyle);
       const footprints = stackingPaints.get(scope) ?? [];
       footprints.push({
         box: visible,
@@ -3292,8 +3863,16 @@ class SceneProvider implements NativeSceneProvider {
           stackingNodes[second],
           stop,
         );
-        const firstOrder = sourceStackingOrder(stackingNodes[first], common);
-        const secondOrder = sourceStackingOrder(stackingNodes[second], common);
+        const firstOrder = sourceStackingOrder(
+          stackingNodes[first],
+          common,
+          readStyle,
+        );
+        const secondOrder = sourceStackingOrder(
+          stackingNodes[second],
+          common,
+          readStyle,
+        );
         if (
           hasUnsupportedStackingOrder([
             {
@@ -3320,14 +3899,17 @@ class SceneProvider implements NativeSceneProvider {
       );
   }
 
-  private async recordSvg(
+  private recordSvg(
     element: SVGSVGElement,
     out: NativeSourceRecord[],
-  ): Promise<void> {
+    metrics?: NativeSourceReadSceneMetrics,
+    memo?: SourceGeometryMemo,
+  ): void | Promise<void> {
     assertLeafSupported(
       element,
       this.coordinateSpace === "target-local" ? this.target : undefined,
     );
+    if (metrics) metrics.recordDirectStyleReads += 1;
     const style = getComputedStyle(element);
     if (style.display === "none" || style.visibility === "hidden") return;
     if (element.hasAttribute("transform"))
@@ -3344,6 +3926,7 @@ class SceneProvider implements NativeSceneProvider {
       ancestor;
       ancestor = ancestor.parentElement
     ) {
+      if (metrics) metrics.recordDirectStyleReads += 1;
       if (hasSourceTransform(getComputedStyle(ancestor)))
         throw new NativeSourceError(
           "source-svg-transform-unsupported",
@@ -3351,6 +3934,7 @@ class SceneProvider implements NativeSceneProvider {
         );
       if (ancestor === stop) break;
     }
+    if (metrics) metrics.recordDirectRectReads += 2;
     const box = element.getBoundingClientRect();
     const target = this.target.getBoundingClientRect();
     if (
@@ -3387,6 +3971,11 @@ class SceneProvider implements NativeSceneProvider {
       this.target,
       this.coordinateSpace,
       false,
+      null,
+      0,
+      "content",
+      undefined,
+      memo,
     );
     const isolationPath = this.isolationPath(
       element,
@@ -3414,93 +4003,116 @@ class SceneProvider implements NativeSceneProvider {
       );
       this.svgLeaves.set(element, leaf);
     }
-    const source = await leaf.read();
-    const capture = nativeCaptureRoi(source);
-    const computedOverflow = classifyNativeComputedOverflowClip(style);
-    if (!computedOverflow.ok)
-      throw new NativeSourceError(
-        `source-${computedOverflow.reason}`,
-        computedOverflow.detail,
-      );
-    if (!capture && computedOverflow.outset > 0)
-      throw new NativeSourceError(
-        "source-capture-geometry-missing",
-        "The SVG raster has no committed source origin.",
-      );
-    const expectedCapture = planNativeCaptureRoi({
-      ownBox: { x: 0, y: 0, width: box.width, height: box.height },
-      clipBox: {
-        x: -computedOverflow.outset,
-        y: -computedOverflow.outset,
-        width: box.width + 2 * computedOverflow.outset,
-        height: box.height + 2 * computedOverflow.outset,
+    return afterMaybePromise(
+      this.readSceneLeaf(leaf, metrics, "all", memo),
+      (source) => {
+        const capture = nativeCaptureRoi(source);
+        const computedOverflow = classifyNativeComputedOverflowClip(style);
+        if (!computedOverflow.ok)
+          throw new NativeSourceError(
+            `source-${computedOverflow.reason}`,
+            computedOverflow.detail,
+          );
+        if (!capture && computedOverflow.outset > 0)
+          throw new NativeSourceError(
+            "source-capture-geometry-missing",
+            "The SVG raster has no committed source origin.",
+          );
+        const expectedCapture = planNativeCaptureRoi({
+          ownBox: { x: 0, y: 0, width: box.width, height: box.height },
+          clipBox: {
+            x: -computedOverflow.outset,
+            y: -computedOverflow.outset,
+            width: box.width + 2 * computedOverflow.outset,
+            height: box.height + 2 * computedOverflow.outset,
+          },
+          density: this.density,
+          maxDimension: 4096,
+          maxPixels: 8_388_608,
+        });
+        if (!expectedCapture.ok)
+          throw new NativeSourceError(
+            `source-${expectedCapture.reason}`,
+            "The current SVG capture geometry cannot be represented.",
+          );
+        assertCurrentCaptureRoi(
+          capture,
+          expectedCapture.plan,
+          computedOverflow.outset > 0,
+        );
+        const capturedLocalBox = capture?.cssBox ?? localBox;
+        const captured = planNativeSourceAffine({
+          localBox: capturedLocalBox,
+          localToTarget: svgToTarget,
+          physicalScale: { x: 1, y: 1 },
+        });
+        if (!captured.ok)
+          throw new NativeSourceError("source-transform", "source-transform");
+        const capturedRect = captured.physicalBounds;
+        out.push({
+          key: this.id(element),
+          node: element,
+          kind: "dom",
+          source,
+          width: source.width,
+          height: source.height,
+          revision: leaf.revision,
+          coordinateSpace: this.coordinateSpace,
+          localBox: capturedLocalBox,
+          localToTarget: svgToTarget,
+          rect: capturedRect,
+          clip: sourceClip.clip,
+          clips: [],
+          groupClips: sourceClip.groupClips.map(({ node, clip }) => ({
+            id: `clip:${this.id(node)}`,
+            clip,
+          })),
+          isolationPath,
+          opacity: 1,
+        });
       },
-      density: this.density,
-      maxDimension: 4096,
-      maxPixels: 8_388_608,
-    });
-    if (!expectedCapture.ok)
-      throw new NativeSourceError(
-        `source-${expectedCapture.reason}`,
-        "The current SVG capture geometry cannot be represented.",
-      );
-    assertCurrentCaptureRoi(
-      capture,
-      expectedCapture.plan,
-      computedOverflow.outset > 0,
     );
-    const capturedLocalBox = capture?.cssBox ?? localBox;
-    const captured = planNativeSourceAffine({
-      localBox: capturedLocalBox,
-      localToTarget: svgToTarget,
-      physicalScale: { x: 1, y: 1 },
-    });
-    if (!captured.ok)
-      throw new NativeSourceError("source-transform", "source-transform");
-    const capturedRect = captured.physicalBounds;
-    out.push({
-      key: this.id(element),
-      node: element,
-      kind: "dom",
-      source,
-      width: source.width,
-      height: source.height,
-      revision: leaf.revision,
-      coordinateSpace: this.coordinateSpace,
-      localBox: capturedLocalBox,
-      localToTarget: svgToTarget,
-      rect: capturedRect,
-      clip: sourceClip.clip,
-      clips: [],
-      groupClips: sourceClip.groupClips.map(({ node, clip }) => ({
-        id: `clip:${this.id(node)}`,
-        clip,
-      })),
-      isolationPath,
-      opacity: 1,
-    });
   }
 
-  private async record(
+  private record(
     element: Element,
     out: NativeSourceRecord[],
     paintPhase: NativeOwnPaintPhase = "all",
-  ): Promise<void> {
+    metrics?: NativeSourceReadSceneMetrics,
+    memo?: SourceGeometryMemo,
+  ): void | Promise<void> {
     if (!element.isConnected || this.omit(element)) return;
-    if (element instanceof SVGSVGElement) {
-      await this.recordSvg(element, out);
-      return;
-    }
+    if (element instanceof SVGSVGElement)
+      return this.recordSvg(element, out, metrics, memo);
     if (element instanceof SVGElement)
       throw new NativeSourceError(
         "source-inline-svg",
         "An SVG fragment outside an SVG root cannot be captured.",
       );
     if (!(element instanceof HTMLElement)) return;
-    const style = getComputedStyle(element);
+    const recordStyles =
+      memo?.styles ?? new Map<Element, CSSStyleDeclaration>();
+    const readRecordStyle: SourceStyleReader = (node) => {
+      let style = recordStyles.get(node);
+      if (!style) {
+        style = snapshotComputedStyle(node);
+        recordStyles.set(node, style);
+      }
+      return style;
+    };
+    const readCountedRecordStyle = (node: Element) => {
+      if (!recordStyles.has(node) && metrics)
+        metrics.recordDirectStyleReads += 1;
+      return readRecordStyle(node);
+    };
+    const readFreshRecordStyle = (node: Element) => {
+      if (metrics) metrics.recordDirectStyleReads += 1;
+      return snapshotComputedStyle(node);
+    };
+    const style = readCountedRecordStyle(element);
     const groupLocalReceiver = this.groupLocalBackdropReceiver(element);
     const visibility = groupLocalReceiver
-      ? getComputedStyle(groupLocalReceiver)
+      ? readCountedRecordStyle(groupLocalReceiver)
       : style;
     if (
       visibility.display === "none" ||
@@ -3517,16 +4129,19 @@ class SceneProvider implements NativeSceneProvider {
         node;
         node = node.parentElement
       ) {
-        const ancestorStyle = getComputedStyle(node);
+        const ancestorStyle = readCountedRecordStyle(node);
         if (
           ancestorStyle.display === "none" ||
           ancestorStyle.visibility !== "visible" ||
-          authoredOpacity(node) <= 0
+          authoredOpacity(node, readRecordStyle) <= 0
         )
           return;
         if (node === this.target) break;
       }
+      if (metrics) metrics.recordDirectAffineReads += 1;
       const box = relativeRect(element, this.target, this.coordinateSpace);
+      if (metrics && this.coordinateSpace !== "target-viewport-axis-aligned")
+        metrics.recordDirectAffineReads += 1;
       const targetBox =
         this.coordinateSpace === "target-viewport-axis-aligned"
           ? viewportRelativeRect(this.target, this.target)
@@ -3554,11 +4169,14 @@ class SceneProvider implements NativeSceneProvider {
     assertLeafSupported(
       element,
       this.coordinateSpace === "target-local" ? this.target : undefined,
+      readRecordStyle,
     );
+    if (metrics) metrics.recordDirectLayoutSizeReads += 1;
     const ownSize = sourceLayoutSize(
       element,
       this.target,
       this.coordinateSpace,
+      memo,
     );
     const missingRootBox =
       element === document.documentElement &&
@@ -3574,7 +4192,16 @@ class SceneProvider implements NativeSceneProvider {
         );
       return;
     }
-    const geometry = relativeAffine(element, this.target, this.coordinateSpace);
+    if (metrics) metrics.recordDirectAffineReads += 1;
+    const geometry = relativeAffine(
+      element,
+      this.target,
+      this.coordinateSpace,
+      undefined,
+      readRecordStyle,
+      ownSize,
+      memo,
+    );
     const box = geometry.rect;
     if (box.width <= 0 || box.height <= 0) return;
     const nativeInstanceId =
@@ -3610,10 +4237,12 @@ class SceneProvider implements NativeSceneProvider {
       null,
       0,
       backdropReceiver ? "border" : "content",
+      readRecordStyle,
+      memo,
     );
     const contentVisible =
       sourceClip.clip.width > 0 && sourceClip.clip.height > 0;
-    const hasMediaBackground = media && mediaHasSolidBackground(element);
+    const hasMediaBackground = media && mediaHasSolidBackground(element, style);
     const backgroundBounds = intersect(box, sourceClip.ancestorClip);
     const backgroundVisible =
       hasMediaBackground &&
@@ -3624,6 +4253,8 @@ class SceneProvider implements NativeSceneProvider {
       element,
       sourceClip.groupClips,
       !!nativeInstanceId || boxPhase,
+      false,
+      readRecordStyle,
     );
     if (!isolationPath) return;
     const key = boxPhase
@@ -3650,18 +4281,23 @@ class SceneProvider implements NativeSceneProvider {
       opacity: 1,
     };
     if (!contentVisible && backgroundVisible) {
-      await this.recordMediaBackground(
+      recordStyles.clear();
+      return this.recordMediaBackground(
         element,
         common,
         sourceClip.ancestorClip,
         out,
+        metrics,
+        memo,
       );
-      return;
     }
     const mediaBox = sourceClip.clips[0]?.localBox ?? geometry.localBox;
     if (element instanceof HTMLImageElement) {
       assertLocalAsset(element.currentSrc || element.src);
-      if (!element.complete || element.naturalWidth <= 0)
+      const imageWidth = element.naturalWidth;
+      const imageHeight = element.naturalHeight;
+      const imageRendering = style.imageRendering;
+      if (!element.complete || imageWidth <= 0)
         throw new NativeSourceError(
           "source-image-pending",
           "An image source has not finished loading.",
@@ -3669,33 +4305,49 @@ class SceneProvider implements NativeSceneProvider {
       const image = mediaPlacement(
         element,
         mediaBox,
-        element.naturalWidth,
-        element.naturalHeight,
+        imageWidth,
+        imageHeight,
+        style,
       );
-      if (hasMediaBackground)
-        await this.recordMediaBackground(
-          element,
-          common,
-          sourceClip.ancestorClip,
-          out,
+      const imageRect = relativeAffine(
+        element,
+        this.target,
+        this.coordinateSpace,
+        image.rect,
+        readRecordStyle,
+        undefined,
+        memo,
+      ).rect;
+      const appendImage = () => {
+        if (metrics) metrics.recordDirectAffineReads += 1;
+        out.push({
+          ...common,
+          rect: imageRect,
+          localBox: image.rect,
+          uv: image.uv,
+          kind: "image",
+          imageRendering: { value: imageRendering },
+          source: element,
+          width: imageWidth,
+          height: imageHeight,
+          revision: this.assetRevision,
+        });
+      };
+      if (hasMediaBackground) {
+        recordStyles.clear();
+        return afterMaybePromise(
+          this.recordMediaBackground(
+            element,
+            common,
+            sourceClip.ancestorClip,
+            out,
+            metrics,
+            memo,
+          ),
+          appendImage,
         );
-      out.push({
-        ...common,
-        rect: relativeAffine(
-          element,
-          this.target,
-          this.coordinateSpace,
-          image.rect,
-        ).rect,
-        localBox: image.rect,
-        uv: image.uv,
-        kind: "image",
-        imageRendering: { value: style.imageRendering },
-        source: element,
-        width: element.naturalWidth,
-        height: element.naturalHeight,
-        revision: this.assetRevision,
-      });
+      }
+      appendImage();
       return;
     }
     if (element instanceof HTMLVideoElement) {
@@ -3709,36 +4361,55 @@ class SceneProvider implements NativeSceneProvider {
           "source-video-pending",
           "A video frame is not decoded yet.",
         );
+      const videoWidth = element.videoWidth;
+      const videoHeight = element.videoHeight;
+      const imageRendering = style.imageRendering;
       const video = mediaPlacement(
         element,
         mediaBox,
-        element.videoWidth,
-        element.videoHeight,
+        videoWidth,
+        videoHeight,
+        style,
       );
-      if (hasMediaBackground)
-        await this.recordMediaBackground(
-          element,
-          common,
-          sourceClip.ancestorClip,
-          out,
+      const videoRect = relativeAffine(
+        element,
+        this.target,
+        this.coordinateSpace,
+        video.rect,
+        readRecordStyle,
+        undefined,
+        memo,
+      ).rect;
+      const appendVideo = () => {
+        if (metrics) metrics.recordDirectAffineReads += 1;
+        out.push({
+          ...common,
+          rect: videoRect,
+          localBox: video.rect,
+          uv: video.uv,
+          kind: "video",
+          imageRendering: { value: imageRendering },
+          source: element,
+          width: videoWidth,
+          height: videoHeight,
+          revision: ++this.assetRevision,
+        });
+      };
+      if (hasMediaBackground) {
+        recordStyles.clear();
+        return afterMaybePromise(
+          this.recordMediaBackground(
+            element,
+            common,
+            sourceClip.ancestorClip,
+            out,
+            metrics,
+            memo,
+          ),
+          appendVideo,
         );
-      out.push({
-        ...common,
-        rect: relativeAffine(
-          element,
-          this.target,
-          this.coordinateSpace,
-          video.rect,
-        ).rect,
-        localBox: video.rect,
-        uv: video.uv,
-        kind: "video",
-        imageRendering: { value: style.imageRendering },
-        source: element,
-        width: element.videoWidth,
-        height: element.videoHeight,
-        revision: ++this.assetRevision,
-      });
+      }
+      appendVideo();
       return;
     }
     if (element instanceof HTMLCanvasElement) {
@@ -3746,14 +4417,19 @@ class SceneProvider implements NativeSceneProvider {
         out.push({
           ...common,
           kind: "native",
-          imageRendering: { value: style.imageRendering },
+          imageRendering: {
+            value: readFreshRecordStyle(element).imageRendering,
+          },
           nativeInstanceId,
           width: element.width,
           height: element.height,
           revision: this.assetRevision,
         });
       } else {
-        if (element.width <= 0 || element.height <= 0)
+        const canvasWidth = element.width;
+        const canvasHeight = element.height;
+        const imageRendering = style.imageRendering;
+        if (canvasWidth <= 0 || canvasHeight <= 0)
           throw new NativeSourceError(
             "source-canvas-empty",
             "A canvas source has no drawable pixels.",
@@ -3761,33 +4437,49 @@ class SceneProvider implements NativeSceneProvider {
         const canvas = mediaPlacement(
           element,
           mediaBox,
-          element.width,
-          element.height,
+          canvasWidth,
+          canvasHeight,
+          style,
         );
-        if (hasMediaBackground)
-          await this.recordMediaBackground(
-            element,
-            common,
-            sourceClip.ancestorClip,
-            out,
+        const canvasRect = relativeAffine(
+          element,
+          this.target,
+          this.coordinateSpace,
+          canvas.rect,
+          readRecordStyle,
+          undefined,
+          memo,
+        ).rect;
+        const appendCanvas = () => {
+          if (metrics) metrics.recordDirectAffineReads += 1;
+          out.push({
+            ...common,
+            rect: canvasRect,
+            localBox: canvas.rect,
+            uv: canvas.uv,
+            kind: "canvas",
+            imageRendering: { value: imageRendering },
+            source: element,
+            width: canvasWidth,
+            height: canvasHeight,
+            revision: ++this.assetRevision,
+          });
+        };
+        if (hasMediaBackground) {
+          recordStyles.clear();
+          return afterMaybePromise(
+            this.recordMediaBackground(
+              element,
+              common,
+              sourceClip.ancestorClip,
+              out,
+              metrics,
+              memo,
+            ),
+            appendCanvas,
           );
-        out.push({
-          ...common,
-          rect: relativeAffine(
-            element,
-            this.target,
-            this.coordinateSpace,
-            canvas.rect,
-          ).rect,
-          localBox: canvas.rect,
-          uv: canvas.uv,
-          kind: "canvas",
-          imageRendering: { value: style.imageRendering },
-          source: element,
-          width: element.width,
-          height: element.height,
-          revision: ++this.assetRevision,
-        });
+        }
+        appendCanvas();
       }
       return;
     }
@@ -3833,13 +4525,7 @@ class SceneProvider implements NativeSceneProvider {
         else if (paintPhase === "glyph") this.fillGlyphLeaf = leaf;
         else this.leaves.set(element, leaf);
       }
-      const source = await leaf.read();
-      const capture = nativeCaptureRoi(source);
-      if (!capture && ownOverflow.outset > 0)
-        throw new NativeSourceError(
-          "source-capture-geometry-missing",
-          "The DOM raster has no committed source origin.",
-        );
+      recordStyles.clear();
       const size = sizeOf(element);
       const ownClip =
         ownOverflow.edge === "none"
@@ -3869,41 +4555,83 @@ class SceneProvider implements NativeSceneProvider {
           `source-${expectedCapture.reason}`,
           "The current DOM capture geometry cannot be represented.",
         );
-      assertCurrentCaptureRoi(
-        capture,
-        expectedCapture.plan,
-        ownOverflow.outset > 0,
+      return afterMaybePromise(
+        this.readSceneLeaf(leaf, metrics, paintPhase, memo),
+        (source) => {
+          const capture = nativeCaptureRoi(source);
+          if (!capture && ownOverflow.outset > 0)
+            throw new NativeSourceError(
+              "source-capture-geometry-missing",
+              "The DOM raster has no committed source origin.",
+            );
+          assertCurrentCaptureRoi(
+            capture,
+            expectedCapture.plan,
+            ownOverflow.outset > 0,
+          );
+          if (capture && metrics) metrics.recordDirectAffineReads += 1;
+          const capturedGeometryResult = planNativeSourceAffine({
+            localBox: capture?.cssBox ?? geometry.localBox,
+            localToTarget: geometry.localToTarget,
+            physicalScale: { x: 1, y: 1 },
+          });
+          if (!capturedGeometryResult.ok)
+            throw new NativeSourceError("source-transform", "source-transform");
+          const capturedGeometry = {
+            localBox: capture?.cssBox ?? geometry.localBox,
+            localToTarget: geometry.localToTarget,
+            rect: capturedGeometryResult.physicalBounds,
+          };
+          out.push({
+            ...common,
+            rect: capturedGeometry.rect,
+            localBox: capture?.cssBox ?? capturedGeometry.localBox,
+            localToTarget: capturedGeometry.localToTarget,
+            kind: "dom",
+            source,
+            width: source.width,
+            height: source.height,
+            revision: leaf.revision,
+          });
+        },
       );
-      const capturedGeometry = capture
-        ? relativeAffine(
-            element,
-            this.target,
-            this.coordinateSpace,
-            capture.cssBox,
-          )
-        : geometry;
-      out.push({
-        ...common,
-        rect: capturedGeometry.rect,
-        localBox: capture?.cssBox ?? capturedGeometry.localBox,
-        localToTarget: capturedGeometry.localToTarget,
-        kind: "dom",
-        source,
-        width: source.width,
-        height: source.height,
-        revision: leaf.revision,
-      });
     }
   }
 
-  private async walk(
+  private walk(
     element: Element,
     out: NativeSourceRecord[],
-  ): Promise<void> {
-    if (this.omit(element)) return;
+    metrics?: NativeSourceReadSceneMetrics,
+    memo?: SourceGeometryMemo,
+  ): void | Promise<void> {
+    const result = runSourceWalkSteps(
+      this.walkSteps(element, out, metrics, memo),
+      memo,
+    );
+    if (result && typeof (result as Promise<boolean>).then === "function")
+      return (result as Promise<boolean>).then(() => undefined);
+  }
+
+  private *walkSteps(
+    element: Element,
+    out: NativeSourceRecord[],
+    metrics?: NativeSourceReadSceneMetrics,
+    memo?: SourceGeometryMemo,
+  ): Generator<SourceWalkStep, boolean, boolean> {
+    let crossedAsyncBoundary = false;
+    let initialSize: { width: number; height: number } | undefined;
+    if (this.omit(element)) return false;
+    if (metrics) metrics.walkNodeVisits += 1;
     if (element instanceof HTMLElement && element !== this.target) {
-      const size = sourceLayoutSize(element, this.target, this.coordinateSpace);
-      if (hasEmptySourceLayout(size)) {
+      if (metrics) metrics.walkDirectLayoutSizeReads += 1;
+      initialSize = sourceLayoutSize(
+        element,
+        this.target,
+        this.coordinateSpace,
+        memo,
+      );
+      if (hasEmptySourceLayout(initialSize)) {
+        if (metrics) metrics.walkDirectStyleReads += 1;
         const style = getComputedStyle(element);
         if (style.display !== "contents") {
           const overflow = classifyNativeComputedOverflowClip(style);
@@ -3918,7 +4646,7 @@ class SceneProvider implements NativeSceneProvider {
                 "source-empty-own-paint-unsupported",
                 "A zero-size clipped source has own paint that cannot be captured faithfully.",
               );
-            return;
+            return false;
           }
         }
       }
@@ -3952,13 +4680,19 @@ class SceneProvider implements NativeSceneProvider {
           "source-image-rendering-geometry",
           "source-image-rendering-geometry",
         );
+      if (metrics) metrics.walkDirectStyleReads += 1;
       const imageRendering = {
         value: getComputedStyle(presentation).imageRendering,
       };
+      if (metrics) metrics.walkDirectAffineReads += 1;
       const presentationGeometry = relativeAffine(
         layerInstance ? presentation : element,
         this.target,
         this.coordinateSpace,
+        undefined,
+        getComputedStyle,
+        undefined,
+        memo,
       );
       const rect = presentationGeometry.rect;
       const sourceClip = sourceClipPlan(
@@ -3966,6 +4700,11 @@ class SceneProvider implements NativeSceneProvider {
         this.target,
         this.coordinateSpace,
         false,
+        null,
+        0,
+        "content",
+        undefined,
+        memo,
       );
       const isolationPath = this.isolationPath(
         element,
@@ -4007,7 +4746,7 @@ class SceneProvider implements NativeSceneProvider {
           opacity: 1,
         });
       }
-      return;
+      return false;
     }
     const fillCanvases = [...element.children].filter((child) =>
       child.matches(
@@ -4018,13 +4757,32 @@ class SceneProvider implements NativeSceneProvider {
       fillCanvases.length > 0 &&
       element instanceof HTMLElement &&
       !hasDirectText(element);
-    if (boxBeforeNativeFill) await this.record(element, out);
-    for (const fill of fillCanvases) await this.walk(fill, out);
-    if (!boxBeforeNativeFill) await this.record(element, out);
-    if (element instanceof SVGSVGElement) return;
+    if (boxBeforeNativeFill) {
+      if (yield this.record(element, out, "all", metrics, memo))
+        crossedAsyncBoundary = true;
+    }
+    for (const fill of fillCanvases) {
+      if (yield* this.walkSteps(fill, out, metrics, memo))
+        crossedAsyncBoundary = true;
+    }
+    if (!boxBeforeNativeFill) {
+      if (yield this.record(element, out, "all", metrics, memo))
+        crossedAsyncBoundary = true;
+    }
+    if (element instanceof SVGSVGElement) return crossedAsyncBoundary;
     if (element instanceof HTMLElement) {
-      const size = sourceLayoutSize(element, this.target, this.coordinateSpace);
-      if (!hasEmptySourceLayout(size) && isSourceTextFlow(element)) return;
+      let size = initialSize;
+      if (crossedAsyncBoundary || !size) {
+        if (metrics) metrics.walkDirectLayoutSizeReads += 1;
+        size = sourceLayoutSize(
+          element,
+          this.target,
+          this.coordinateSpace,
+          memo,
+        );
+      }
+      if (!hasEmptySourceLayout(size) && isSourceTextFlow(element))
+        return crossedAsyncBoundary;
     }
     const childGroups: NativeSourceRecord[][] = [];
     for (const child of element.children)
@@ -4033,13 +4791,34 @@ class SceneProvider implements NativeSceneProvider {
         !(hasDirectText(element) && isInlineFlowChild(child))
       ) {
         const records: NativeSourceRecord[] = [];
-        await this.walk(child, records);
+        if (yield* this.walkSteps(child, records, metrics, memo))
+          crossedAsyncBoundary = true;
         if (records.length) childGroups.push(records);
       }
     for (const records of orderAutoStackingSiblingPaint(element, childGroups))
       out.push(...records);
     if (element.lastElementChild)
       assertDomSiblingOrder(element, element.lastElementChild, element, out);
+    return crossedAsyncBoundary;
+  }
+
+  private *readSceneWalkSteps(
+    path: Element[],
+    out: NativeSourceRecord[],
+    metrics: NativeSourceReadSceneMetrics | undefined,
+    memo: SourceGeometryMemo,
+  ): Generator<SourceWalkStep, void, boolean> {
+    if (this.placement === "layer") {
+      yield* this.walkSteps(this.target, out, metrics, memo);
+      return;
+    }
+    for (let index = 0; index < path.length - 1; index += 1) {
+      yield this.record(path[index]!, out, "all", metrics, memo);
+      for (const sibling of path[index]!.children) {
+        if (sibling === path[index + 1]) break;
+        yield* this.walkSteps(sibling, out, metrics, memo);
+      }
+    }
   }
 
   private viewportBackground(): NativeSourceRecord | null {
@@ -4310,60 +5089,85 @@ class SceneProvider implements NativeSceneProvider {
     return out;
   }
 
-  async readScene(): Promise<NativeSourceRecord[]> {
+  async readScene(
+    metrics?: NativeSourceReadSceneMetrics,
+    callSite: NativeSourceReadSceneCallSite = "other",
+  ): Promise<NativeSourceRecord[]> {
     if (this.disposed)
       throw new NativeSourceError(
         "source-disposed",
         "The source provider was disposed.",
       );
     this.readSceneCalls += 1;
-    const background = this.viewportBackground();
-    const out: NativeSourceRecord[] = background ? [background] : [];
-    if (this.placement === "layer") {
-      await this.walk(this.target, out);
-    } else {
+    if (metrics) {
+      metrics.calls += 1;
+      if (callSite === "scene-presentation")
+        metrics.scenePresentationCalls += 1;
+      else if (callSite === "mount-source") metrics.mountSourceCalls += 1;
+      else if (callSite === "dependency-refresh")
+        metrics.dependencyRefreshCalls += 1;
+      else metrics.otherCalls += 1;
+    }
+    const readStarted = metrics ? performance.now() : 0;
+    const memo = new SourceGeometryMemo(this.target, this.coordinateSpace);
+    try {
+      const background = this.viewportBackground();
+      const out: NativeSourceRecord[] = background ? [background] : [];
+      const walkStarted = metrics ? performance.now() : 0;
       const path: Element[] = [];
-      for (
-        let node: Element | null = this.target;
-        node;
-        node = node.parentElement
-      )
-        path.unshift(node);
-      for (let index = 0; index < path.length - 1; index += 1) {
-        const parent = path[index];
-        await this.record(parent, out);
-        for (const sibling of parent.children) {
-          if (sibling === path[index + 1]) break;
-          await this.walk(sibling, out);
+      if (this.placement !== "layer")
+        for (
+          let node: Element | null = this.target;
+          node;
+          node = node.parentElement
+        )
+          path.unshift(node);
+      try {
+        const traversal = runSourceWalkSteps(
+          this.readSceneWalkSteps(path, out, metrics, memo),
+          memo,
+        );
+        if (traversal) await traversal;
+        memo.clear();
+      } finally {
+        if (metrics) metrics.walkWallMs += performance.now() - walkStarted;
+      }
+      const validationStarted = metrics ? performance.now() : 0;
+      try {
+        for (let index = 0; index < path.length - 1; index += 1)
+          assertDomSiblingOrder(path[index], path[index + 1], this.target, out);
+        this.assertSourceComposition(out);
+      } finally {
+        if (metrics)
+          metrics.validationWallMs += performance.now() - validationStarted;
+      }
+      const live = new Set(out.map((record) => record.node));
+      for (const [element, leaf] of this.leaves) {
+        if (!live.has(element)) {
+          leaf.dispose();
+          this.leaves.delete(element);
+          this.retiredLeaves += 1;
         }
       }
-      for (let index = 0; index < path.length - 1; index += 1)
-        assertDomSiblingOrder(path[index], path[index + 1], this.target, out);
-    }
-    this.assertSourceComposition(out);
-    const live = new Set(out.map((record) => record.node));
-    for (const [element, leaf] of this.leaves) {
-      if (!live.has(element)) {
-        leaf.dispose();
-        this.leaves.delete(element);
-        this.retiredLeaves += 1;
+      for (const [element, leaf] of this.mediaBackgrounds) {
+        if (!live.has(element)) {
+          leaf.dispose();
+          this.mediaBackgrounds.delete(element);
+          this.retiredLeaves += 1;
+        }
       }
-    }
-    for (const [element, leaf] of this.mediaBackgrounds) {
-      if (!live.has(element)) {
-        leaf.dispose();
-        this.mediaBackgrounds.delete(element);
-        this.retiredLeaves += 1;
+      for (const [element, leaf] of this.svgLeaves) {
+        if (!live.has(element)) {
+          leaf.dispose();
+          this.svgLeaves.delete(element);
+          this.retiredLeaves += 1;
+        }
       }
+      return out;
+    } finally {
+      memo.clear();
+      if (metrics) metrics.wallMs += performance.now() - readStarted;
     }
-    for (const [element, leaf] of this.svgLeaves) {
-      if (!live.has(element)) {
-        leaf.dispose();
-        this.svgLeaves.delete(element);
-        this.retiredLeaves += 1;
-      }
-    }
-    return out;
   }
 
   captureCount(): number {

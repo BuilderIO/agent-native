@@ -32,8 +32,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     const [compute, resolve] = passes;
     const source3 = resources.get("source");
     const buffer = resources.get(spec.bufferResource);
-    const color7 = output ? resources.get(output) : void 0;
-    if (resources.size !== 3 || passes.length !== 2 || source3?.kind !== "texture-2d" || source3.external !== true || source3.size !== "viewport" || source3.persistent === true || source3.preprocess !== void 0 || source3.mipmap !== void 0 || source3.sampleEncoding !== void 0 || source3.usage?.length !== 1 || !source3.usage.includes("sampled") || buffer?.kind !== "buffer" || buffer.size !== "source" || buffer.byteLength !== void 0 || ![1, 4, 8, 16].includes(buffer.sourceBytesPerPixel) || buffer.external === true || buffer.persistent === true || buffer.format !== void 0 || buffer.usage?.length !== 2 || !buffer.usage.includes("storage") || !buffer.usage.includes("copy-dst") || color7?.kind !== "texture-2d" || color7.size !== "viewport" || color7.format !== "rgba16float" || color7.external === true || color7.persistent === true || !color7.usage?.includes("render") || !color7.usage.includes("sampled") || compute?.kind !== "compute" || compute.reads.length !== 1 || compute.reads[0] !== "source" || compute.output !== spec.bufferResource || !isStatelessComputeDispatch(compute.dispatch) || resolve?.kind !== "render" || resolve.reads.length !== 2 || resolve.reads[0] !== "source" || resolve.reads[1] !== spec.bufferResource || resolve.output !== output || passes.some(
+    const color9 = output ? resources.get(output) : void 0;
+    if (resources.size !== 3 || passes.length !== 2 || source3?.kind !== "texture-2d" || source3.external !== true || source3.size !== "viewport" || source3.persistent === true || source3.preprocess !== void 0 || source3.mipmap !== void 0 || source3.sampleEncoding !== void 0 || source3.usage?.length !== 1 || !source3.usage.includes("sampled") || buffer?.kind !== "buffer" || buffer.size !== "source" || buffer.byteLength !== void 0 || ![1, 4, 8, 16].includes(buffer.sourceBytesPerPixel) || buffer.external === true || buffer.persistent === true || buffer.format !== void 0 || buffer.usage?.length !== 2 || !buffer.usage.includes("storage") || !buffer.usage.includes("copy-dst") || color9?.kind !== "texture-2d" || color9.size !== "viewport" || color9.format !== "rgba16float" || color9.external === true || color9.persistent === true || !color9.usage?.includes("render") || !color9.usage.includes("sampled") || compute?.kind !== "compute" || compute.reads.length !== 1 || compute.reads[0] !== "source" || compute.output !== spec.bufferResource || !isStatelessComputeDispatch(compute.dispatch) || resolve?.kind !== "render" || resolve.reads.length !== 2 || resolve.reads[0] !== "source" || resolve.reads[1] !== spec.bufferResource || resolve.output !== output || passes.some(
       (pass) => pass.previousFrameReads !== void 0 || pass.additionalOutputs !== void 0 || pass.persistent === true || pass.draw !== void 0 || pass.original !== void 0
     ) || resolve.dispatch !== void 0)
       return invalid;
@@ -179,7 +179,9 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       (slot) => !FEEDBACK_UNIFORM_SLOTS.includes(slot) || !RESOURCE_NAME.test(
         feedback.uniformProperties?.[slot] ?? ""
       )
-    ) || new Set(Object.values(feedbackUniformProperties(feedback))).size !== FEEDBACK_UNIFORM_SLOTS.length))
+    ) || new Set(Object.values(feedbackUniformProperties(feedback))).size !== FEEDBACK_UNIFORM_SLOTS.length) || feedback.resetProperties !== void 0 && (!Array.isArray(feedback.resetProperties) || feedback.resetProperties.length > 16 || new Set(feedback.resetProperties).size !== feedback.resetProperties.length || feedback.resetProperties.some(
+      (property) => typeof property !== "string" || !RESOURCE_NAME.test(property)
+    )))
       return ["feedback specification is malformed or unbounded"];
     const errors = [];
     const [compute, resolve] = passes;
@@ -326,10 +328,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       );
     else if (passes.some((pass) => isStatelessComputeDispatch(pass.dispatch)) || [...declarations.values()].some((resource) => resource.size === "source"))
       errors.push("stateless-compute-definition-invalid");
-    const edges = /* @__PURE__ */ new Map();
+    const edges2 = /* @__PURE__ */ new Map();
     const indegree = /* @__PURE__ */ new Map();
     for (const pass of passes) {
-      edges.set(pass.id, /* @__PURE__ */ new Set());
+      edges2.set(pass.id, /* @__PURE__ */ new Set());
       indegree.set(pass.id, 0);
     }
     for (const pass of passes) {
@@ -352,8 +354,8 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         if (!producer && !declaration?.external && !EXTERNAL_RESOURCES.has(resource)) {
           errors.push(\`pass "\${pass.id}" reads unknown resource "\${resource}"\`);
         }
-        if (producer && producer.id !== pass.id && !edges.get(producer.id)?.has(pass.id)) {
-          edges.get(producer.id)?.add(pass.id);
+        if (producer && producer.id !== pass.id && !edges2.get(producer.id)?.has(pass.id)) {
+          edges2.get(producer.id)?.add(pass.id);
           indegree.set(pass.id, (indegree.get(pass.id) ?? 0) + 1);
         }
       }
@@ -380,7 +382,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     while (ready.length) {
       const next = ready.shift();
       ordered.push(next);
-      for (const dependent of edges.get(next.id) ?? []) {
+      for (const dependent of edges2.get(next.id) ?? []) {
         const remaining = (indegree.get(dependent) ?? 0) - 1;
         indegree.set(dependent, remaining);
         if (remaining === 0) {
@@ -480,9 +482,9 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     if (!Number.isFinite(number) || number < 0) {
       return { ok: false, reason: "unreadable" };
     }
-    const unit3 = match[2];
-    if (unit3 === "px" || unit3 === "%") {
-      return { ok: true, length: { value: number, unit: unit3 } };
+    const unit4 = match[2];
+    if (unit4 === "px" || unit4 === "%") {
+      return { ok: true, length: { value: number, unit: unit4 } };
     }
     return number === 0 ? { ok: true, length: { value: 0, unit: "px" } } : { ok: false, reason: "unreadable" };
   }
@@ -598,6 +600,21 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         }
       }
     };
+  }
+
+  // shared/native-editor-preferences.ts
+  function isEffectPreviewPolicy(value) {
+    if (typeof value !== "object" || value === null || Array.isArray(value))
+      return false;
+    const policy = value;
+    const allowedKeys = /* @__PURE__ */ new Set([
+      "quality",
+      "frameRateTarget",
+      "colorMode",
+      "dynamicRange"
+    ]);
+    if (Object.keys(policy).some((key) => !allowedKeys.has(key))) return false;
+    return (policy.quality === "auto" || policy.quality === "performance" || policy.quality === "quality") && (policy.frameRateTarget === 60 || policy.frameRateTarget === 120) && (policy.colorMode === void 0 || policy.colorMode === "srgb" || policy.colorMode === "display-p3") && (policy.dynamicRange === void 0 || policy.dynamicRange === "sdr" || policy.dynamicRange === "hdr");
   }
 
   // shared/native-effect-owned-next-edge-sampling.ts
@@ -1711,10 +1728,10 @@ struct VertexOutput {
   function exactKeys(value, keys) {
     return Object.keys(value).length === keys.length && keys.every((key) => own(value, key));
   }
-  function boundedProperty(properties3, key, type) {
-    if (typeof key !== "string" || !PROPERTY_NAME_RE.test(key) || !own(properties3, key))
+  function boundedProperty(properties4, key, type) {
+    if (typeof key !== "string" || !PROPERTY_NAME_RE.test(key) || !own(properties4, key))
       return false;
-    const property = properties3[key];
+    const property = properties4[key];
     if (!object(property) || property.type !== type) return false;
     const { min, max } = property;
     if (!finite(min) || !finite(max) || min >= max || Math.abs(min) > 1e6 || Math.abs(max) > 1e6)
@@ -1762,11 +1779,11 @@ struct VertexOutput {
     }, 0);
     return Math.abs(doubleArea) / 2 >= constraint.minArea ? null : "quad-degenerate";
   }
-  function validateParameterConstraintDefinitions(raw, properties3) {
+  function validateParameterConstraintDefinitions(raw, properties4) {
     if (raw === void 0) return [];
     if (!Array.isArray(raw) || raw.length < 1 || raw.length > MAX_CONSTRAINTS)
       return [\`parameterConstraints needs 1\\u2013\${MAX_CONSTRAINTS} entries\`];
-    if (!object(properties3))
+    if (!object(properties4))
       return ["parameterConstraints needs declared properties"];
     const errors = [];
     const seen = /* @__PURE__ */ new Set();
@@ -1779,7 +1796,7 @@ struct VertexOutput {
       let constraint;
       if (candidate.kind === "float-sum") {
         if (!exactKeys(candidate, ["kind", "properties", "maxSum"]) || !Array.isArray(candidate.properties) || candidate.properties.length < 2 || candidate.properties.length > 8 || new Set(candidate.properties).size !== candidate.properties.length || !candidate.properties.every(
-          (key) => boundedProperty(properties3, key, "float")
+          (key) => boundedProperty(properties4, key, "float")
         ) || !finite(candidate.maxSum) || candidate.maxSum <= 0 || candidate.maxSum > 1e6) {
           errors.push(
             \`\${prefix} needs two to eight distinct bounded float properties and a positive finite sum limit\`
@@ -1788,7 +1805,7 @@ struct VertexOutput {
         }
         constraint = candidate;
       } else if (candidate.kind === "ordered-floats") {
-        if (!exactKeys(candidate, ["kind", "lesser", "greater", "minGap"]) || !boundedProperty(properties3, candidate.lesser, "float") || !boundedProperty(properties3, candidate.greater, "float") || candidate.lesser === candidate.greater || !finite(candidate.minGap) || candidate.minGap <= 0 || candidate.minGap > 1e3) {
+        if (!exactKeys(candidate, ["kind", "lesser", "greater", "minGap"]) || !boundedProperty(properties4, candidate.lesser, "float") || !boundedProperty(properties4, candidate.greater, "float") || candidate.lesser === candidate.greater || !finite(candidate.minGap) || candidate.minGap <= 0 || candidate.minGap > 1e3) {
           errors.push(
             \`\${prefix} needs two distinct bounded float properties and a positive finite gap\`
           );
@@ -1797,7 +1814,7 @@ struct VertexOutput {
         constraint = candidate;
       } else if (candidate.kind === "convex-quad") {
         if (!exactKeys(candidate, ["kind", "corners", "minArea", "minCross"]) || !Array.isArray(candidate.corners) || candidate.corners.length !== 4 || new Set(candidate.corners).size !== 4 || !candidate.corners.every(
-          (key) => boundedProperty(properties3, key, "vec2")
+          (key) => boundedProperty(properties4, key, "vec2")
         ) || !finite(candidate.minArea) || candidate.minArea <= 0 || candidate.minArea > 1 || !finite(candidate.minCross) || candidate.minCross <= 0 || candidate.minCross > 1) {
           errors.push(
             \`\${prefix} needs four distinct normalized vec2 properties and bounded positive area/cross limits\`
@@ -1816,7 +1833,7 @@ struct VertexOutput {
       const defaults = Object.fromEntries(
         constraintPropertyKeys(constraint).map((key) => [
           key,
-          properties3[key].default
+          properties4[key].default
         ])
       );
       const issue = evaluateParameterConstraint(constraint, defaults);
@@ -1824,13 +1841,13 @@ struct VertexOutput {
     }
     return errors;
   }
-  function validateResolvedParameterConstraints(constraints, properties3, params) {
+  function validateResolvedParameterConstraints(constraints, properties4, params) {
     if (!constraints) return [];
     const values = {};
     for (const constraint of constraints) {
       const keys = constraintPropertyKeys(constraint);
       for (const key of keys) {
-        values[key] = own(params, key) ? params[key] : properties3[key]?.default;
+        values[key] = own(params, key) ? params[key] : properties4[key]?.default;
       }
     }
     return constraints.flatMap((constraint, index) => {
@@ -2081,10 +2098,10 @@ struct VertexOutput {
         if (typeof binding.nodeId !== "string" || !ID_RE.test(binding.nodeId) || !["content", "appearance"].includes(String(binding.capture)))
           errors.push(\`\${prefix}.bindings.\${name} authored node is invalid\`);
       } else if (binding.kind === "asset") {
-        const asset = checkEffectAssetUrl(binding.url);
-        if (!asset.ok)
+        const asset2 = checkEffectAssetUrl(binding.url);
+        if (!asset2.ok)
           errors.push(
-            \`\${prefix}.bindings.\${name} asset needs a same-origin root path (\${asset.reason})\`
+            \`\${prefix}.bindings.\${name} asset needs a same-origin root path (\${asset2.reason})\`
           );
       } else {
         errors.push(\`\${prefix}.bindings.\${name} kind is invalid\`);
@@ -2150,10 +2167,10 @@ struct VertexOutput {
               \`property "\${name}" needs a same-origin texture asset or null\`
             );
           } else {
-            const asset = checkEffectAssetUrl(value.url);
-            if (!asset.ok)
+            const asset2 = checkEffectAssetUrl(value.url);
+            if (!asset2.ok)
               errors.push(
-                \`property "\${name}" needs a same-origin texture asset or null (\${asset.reason})\`
+                \`property "\${name}" needs a same-origin texture asset or null (\${asset2.reason})\`
               );
           }
         }
@@ -2209,15 +2226,15 @@ struct VertexOutput {
         errors.push(\`\${prefix}.\${name} has an unsupported input fallback\`);
     }
   }
-  function validateProperties(properties3, prefix, errors) {
-    if (!record2(properties3)) {
+  function validateProperties(properties4, prefix, errors) {
+    if (!record2(properties4)) {
       errors.push(\`\${prefix}.properties must be an object\`);
       return;
     }
-    if (Object.keys(properties3).length > 64)
+    if (Object.keys(properties4).length > 64)
       errors.push(\`\${prefix}.properties must contain at most 64 entries\`);
-    let slots = 0;
-    for (const [name, unknownProp] of Object.entries(properties3)) {
+    let slots2 = 0;
+    for (const [name, unknownProp] of Object.entries(properties4)) {
       if (!PROPERTY_RE.test(name))
         errors.push(\`\${prefix} property name "\${name}" is invalid\`);
       if (!record2(unknownProp)) {
@@ -2282,31 +2299,31 @@ struct VertexOutput {
         errors.push(\`\${prefix} property "\${name}" needs a named texture input\`);
       if (prop.type !== "enum" || Array.isArray(prop.options))
         validateValue(prop, prop.default, name, errors);
-      slots += propertySlots(prop);
+      slots2 += propertySlots(prop);
     }
-    for (const [name, candidate] of Object.entries(properties3)) {
+    for (const [name, candidate] of Object.entries(properties4)) {
       if (!record2(candidate) || candidate.visibleWhen === void 0) continue;
       const condition = candidate.visibleWhen;
-      if (!record2(condition) || typeof condition.property !== "string" || condition.property === name || !Object.prototype.hasOwnProperty.call(properties3, condition.property)) {
+      if (!record2(condition) || typeof condition.property !== "string" || condition.property === name || !Object.prototype.hasOwnProperty.call(properties4, condition.property)) {
         errors.push(
           \`\${prefix} property "\${name}" has an invalid visibility condition\`
         );
         continue;
       }
-      const dependency = properties3[condition.property];
+      const dependency = properties4[condition.property];
       if (!record2(dependency) || !["bool", "enum", "int", "float"].includes(String(dependency.type)) || !["boolean", "string", "number"].includes(typeof condition.equals) || dependency.type === "bool" && typeof condition.equals !== "boolean" || dependency.type === "enum" && (!Array.isArray(dependency.options) || !dependency.options.includes(condition.equals)) || ["int", "float"].includes(String(dependency.type)) && (!finite2(condition.equals) || dependency.type === "int" && !Number.isInteger(condition.equals)))
         errors.push(
           \`\${prefix} property "\${name}" visibility condition mismatches its dependency\`
         );
     }
-    for (const name of Object.keys(properties3)) {
+    for (const name of Object.keys(properties4)) {
       const seen = /* @__PURE__ */ new Set();
       let current = name;
       while (true) {
-        const property = properties3[current];
+        const property = properties4[current];
         if (!record2(property) || !record2(property.visibleWhen)) break;
         const next = property.visibleWhen.property;
-        if (typeof next !== "string" || !Object.prototype.hasOwnProperty.call(properties3, next))
+        if (typeof next !== "string" || !Object.prototype.hasOwnProperty.call(properties4, next))
           break;
         if (seen.has(next) || next === name) {
           errors.push(\`\${prefix} property "\${name}" has a visibility cycle\`);
@@ -2316,9 +2333,9 @@ struct VertexOutput {
         current = next;
       }
     }
-    if (slots > MAX_PROPERTY_SLOTS)
+    if (slots2 > MAX_PROPERTY_SLOTS)
       errors.push(
-        \`\${prefix} properties need \${slots} vec4 slots; max is \${MAX_PROPERTY_SLOTS}\`
+        \`\${prefix} properties need \${slots2} vec4 slots; max is \${MAX_PROPERTY_SLOTS}\`
       );
   }
   function validateDefinition(value, index, errors) {
@@ -2429,13 +2446,13 @@ struct VertexOutput {
     }
     if (value.simulation !== void 0) {
       const simulation = value.simulation;
-      const count = record2(simulation) ? simulation.count : void 0;
-      const tiers = record2(count) ? count.tiers : void 0;
+      const count2 = record2(simulation) ? simulation.count : void 0;
+      const tiers = record2(count2) ? count2.tiers : void 0;
       const idlePointer = record2(simulation) ? simulation.idlePointer : void 0;
       const stateResource = record2(simulation) && Array.isArray(value.resources) ? value.resources?.find(
         (resource) => record2(resource) && resource.name === simulation.stateResource
       ) : void 0;
-      const countProperty = record2(simulation) && record2(count) && record2(value.properties) ? value.properties[String(count.property)] : void 0;
+      const countProperty = record2(simulation) && record2(count2) && record2(value.properties) ? value.properties[String(count2.property)] : void 0;
       if (value.kind !== "simulation" || !record2(simulation) || Object.keys(simulation).some(
         (key) => ![
           "fixedDt",
@@ -2446,7 +2463,7 @@ struct VertexOutput {
           "maxDeterministicSteps",
           "idlePointer"
         ].includes(key)
-      ) || simulation.fixedDt !== 1 / 120 || simulation.bytesPerParticle !== 32 || simulation.maxInteractiveSteps !== 8 || simulation.maxDeterministicSteps !== 512 || !record2(count) || Object.keys(count).some((key) => key !== "property" && key !== "tiers") || !record2(tiers) || Object.keys(tiers).length !== 3 || tiers.low !== 1e4 || tiers.medium !== 25e3 || tiers.high !== 5e4 || !record2(countProperty) || countProperty.type !== "enum" || !Array.isArray(countProperty.options) || !["low", "medium", "high"].every(
+      ) || simulation.fixedDt !== 1 / 120 || simulation.bytesPerParticle !== 32 || simulation.maxInteractiveSteps !== 8 || simulation.maxDeterministicSteps !== 512 || !record2(count2) || Object.keys(count2).some((key) => key !== "property" && key !== "tiers") || !record2(tiers) || Object.keys(tiers).length !== 3 || tiers.low !== 1e4 || tiers.medium !== 25e3 || tiers.high !== 5e4 || !record2(countProperty) || countProperty.type !== "enum" || !Array.isArray(countProperty.options) || !["low", "medium", "high"].every(
         (tier) => countProperty.options.includes(tier)
       ) || !record2(idlePointer) || Object.keys(idlePointer).length !== 2 || ![idlePointer.x, idlePointer.y].every(
         (coordinate2) => typeof coordinate2 === "number" && Number.isFinite(coordinate2) && coordinate2 >= 0 && coordinate2 <= 1
@@ -2459,9 +2476,9 @@ struct VertexOutput {
       const feedback = value.feedback;
       const grid = record2(feedback) ? feedback.grid : void 0;
       const timing = record2(feedback) ? feedback.timing : void 0;
-      const properties3 = record2(value.properties) ? value.properties : {};
+      const properties4 = record2(value.properties) ? value.properties : {};
       const boundedFloat = (name, min, max) => {
-        const property = properties3[name];
+        const property = properties4[name];
         return record2(property) && property.type === "float" && property.min === min && property.max === max && finite2(property.default) && property.default >= min && property.default <= max;
       };
       const uniformProperties = record2(feedback) && record2(feedback.uniformProperties) ? feedback.uniformProperties : void 0;
@@ -2473,9 +2490,29 @@ struct VertexOutput {
         FEEDBACK_UNIFORM_SLOTS.map((slot) => uniformProperties[slot] ?? slot)
       ).size === FEEDBACK_UNIFORM_SLOTS.length;
       const resolvedProperties = aliasesValid && record2(feedback) ? feedbackUniformProperties(feedback) : void 0;
+      const resetProperties = record2(feedback) && feedback.resetProperties !== void 0 ? feedback.resetProperties : void 0;
+      const resetPropertiesValid = resetProperties === void 0 || Array.isArray(resetProperties) && resetProperties.length <= 16 && new Set(resetProperties).size === resetProperties.length && resetProperties.every((name) => {
+        if (typeof name !== "string" || !PROPERTY_RE.test(name) || !record2(value.properties) || !Object.prototype.hasOwnProperty.call(value.properties, name))
+          return false;
+        const property = value.properties[name];
+        return record2(property) && ["float", "int"].includes(String(property.type)) && finite2(property.default);
+      });
+      const feedbackKeysValid = !record2(feedback) || Object.keys(feedback).every(
+        (key) => [
+          "abi",
+          "grid",
+          "timing",
+          "stateResource",
+          "displayResource",
+          "uniformProperties",
+          "resetProperties"
+        ].includes(key)
+      ) && ["abi", "grid", "timing", "stateResource", "displayResource"].every(
+        (key) => Object.prototype.hasOwnProperty.call(feedback, key)
+      );
       if (value.kind !== "processor" || !Array.isArray(value.placements) || !value.placements.every(
         (placement) => ["layer", "backdrop"].includes(String(placement))
-      ) || value.simulation !== void 0 || value.optionalImage !== void 0 || value.sourceSizing !== void 0 || !record2(feedback) || Object.keys(feedback).length !== (uniformProperties === void 0 ? 5 : 6) || !aliasesValid || feedback.abi !== "texture-feedback-v1" || !record2(grid) || Object.keys(grid).length !== 4 || !Number.isSafeInteger(grid.width) || !Number.isSafeInteger(grid.height) || grid.width < 1 || grid.height < 1 || grid.width > 2048 || grid.height > 2048 || grid.width * grid.height > 2097152 || grid.format !== "rgba16float" || !Array.isArray(grid.workgroup) || grid.workgroup.length !== 2 || grid.workgroup[0] !== 8 || grid.workgroup[1] !== 8 || !record2(timing) || Object.keys(timing).length !== 3 || !finite2(timing.fixedDt) || timing.fixedDt < 1 / 240 || timing.fixedDt > 1 / 15 || !Number.isSafeInteger(timing.maxStepsPerCall) || timing.maxStepsPerCall < 1 || timing.maxStepsPerCall > 512 || !Number.isSafeInteger(timing.maxStepIndex) || timing.maxStepIndex < 0 || timing.maxStepIndex > 36e3 || typeof feedback.stateResource !== "string" || !PROPERTY_RE.test(feedback.stateResource) || typeof feedback.displayResource !== "string" || !PROPERTY_RE.test(feedback.displayResource) || feedback.stateResource === feedback.displayResource || !boundedFloat(resolvedProperties?.intensity ?? "intensity", 0, 1) || !boundedFloat(resolvedProperties?.blockSize ?? "blockSize", 30, 150) || !boundedFloat(resolvedProperties?.drift ?? "drift", 0, 1) || !boundedFloat(resolvedProperties?.churn ?? "churn", 0, 1) || !boundedFloat(resolvedProperties?.blend ?? "blend", 0, 1) || uniformProperties !== void 0 && !boundedFloat(resolvedProperties?.seed ?? "seed", 0, 100))
+      ) || value.simulation !== void 0 || value.optionalImage !== void 0 || value.sourceSizing !== void 0 || !record2(feedback) || !feedbackKeysValid || Object.keys(feedback).length !== (uniformProperties === void 0 ? 5 : 6) + (resetProperties === void 0 ? 0 : 1) || !resetPropertiesValid || !aliasesValid || feedback.abi !== "texture-feedback-v1" || !record2(grid) || Object.keys(grid).length !== 4 || !Number.isSafeInteger(grid.width) || !Number.isSafeInteger(grid.height) || grid.width < 1 || grid.height < 1 || grid.width > 2048 || grid.height > 2048 || grid.width * grid.height > 2097152 || grid.format !== "rgba16float" || !Array.isArray(grid.workgroup) || grid.workgroup.length !== 2 || grid.workgroup[0] !== 8 || grid.workgroup[1] !== 8 || !record2(timing) || Object.keys(timing).length !== 3 || !finite2(timing.fixedDt) || timing.fixedDt < 1 / 240 || timing.fixedDt > 1 / 15 || !Number.isSafeInteger(timing.maxStepsPerCall) || timing.maxStepsPerCall < 1 || timing.maxStepsPerCall > 512 || !Number.isSafeInteger(timing.maxStepIndex) || timing.maxStepIndex < 0 || timing.maxStepIndex > 36e3 || typeof feedback.stateResource !== "string" || !PROPERTY_RE.test(feedback.stateResource) || typeof feedback.displayResource !== "string" || !PROPERTY_RE.test(feedback.displayResource) || feedback.stateResource === feedback.displayResource || !boundedFloat(resolvedProperties?.intensity ?? "intensity", 0, 1) || !boundedFloat(resolvedProperties?.blockSize ?? "blockSize", 30, 150) || !boundedFloat(resolvedProperties?.drift ?? "drift", 0, 1) || !boundedFloat(resolvedProperties?.churn ?? "churn", 0, 1) || !boundedFloat(resolvedProperties?.blend ?? "blend", 0, 1) || uniformProperties !== void 0 && !boundedFloat(resolvedProperties?.seed ?? "seed", 0, 100))
         errors.push(\`\${prefix}.feedback is invalid or unbounded\`);
     }
     validateProperties(value.properties, prefix, errors);
@@ -2840,14 +2877,14 @@ struct VertexOutput {
       else if (prop.type === "position")
         packed.set(packNativePosition(value), offset);
       else if (prop.type === "color") {
-        const color7 = value;
-        packed.set([...linearSrgb(color7), color7.alpha], offset);
+        const color9 = value;
+        packed.set([...linearSrgb(color9), color9.alpha], offset);
       } else {
         const colors = value;
         packed[offset] = colors.length;
-        for (const [index, color7] of colors.entries())
+        for (const [index, color9] of colors.entries())
           packed.set(
-            [...linearSrgb(color7), color7.alpha],
+            [...linearSrgb(color9), color9.alpha],
             offset + (index + 1) * 4
           );
       }
@@ -2855,11 +2892,11 @@ struct VertexOutput {
     }
     return packed;
   }
-  function linearSrgb(color7) {
-    const [r, g, b] = color7.components.map(
+  function linearSrgb(color9) {
+    const [r, g, b] = color9.components.map(
       (component) => component <= 0.04045 ? component / 12.92 : ((component + 0.055) / 1.055) ** 2.4
     );
-    if (color7.space === "srgb") return [r, g, b];
+    if (color9.space === "srgb") return [r, g, b];
     return [
       1.2249401 * r - 0.2249401 * g,
       -0.0420569 * r + 1.0420569 * g,
@@ -2940,11 +2977,11 @@ fn premultiply(rgb: vec3f, alpha: f32) -> vec4f { return vec4f(clamp(rgb, vec3f(
 fn luminance(rgb: vec3f) -> f32 { return dot(rgb, vec3f(0.2126, 0.7152, 0.0722)); }
 \`;
   function catalogShader(spec) {
-    const slots = /* @__PURE__ */ new Map();
+    const slots2 = /* @__PURE__ */ new Map();
     let next = 0;
     for (const [name, property2] of Object.entries(spec.properties)) {
       const width = propertySlots(property2);
-      if (width > 0) slots.set(name, next);
+      if (width > 0) slots2.set(name, next);
       next += width;
     }
     if (next > 32) throw new Error(\`Uniform budget exceeded by \${spec.id}\`);
@@ -2953,14 +2990,14 @@ fn luminance(rgb: vec3f) -> f32 { return dot(rgb, vec3f(0.2126, 0.7152, 0.0722))
         throw new Error(
           \`Texture property \${name} has no uniform slot in \${spec.id}\`
         );
-      const slot = slots.get(name);
+      const slot = slots2.get(name);
       if (slot === void 0)
         throw new Error(\`Unknown property \${name} in \${spec.id}\`);
       return \`globals.params[\${slot}]\`;
     };
     let palette = "";
-    if (slots.has("palette")) {
-      const start = slots.get("palette");
+    if (slots2.has("palette")) {
+      const start = slots2.get("palette");
       palette = \`
 fn paletteAt(position: f32) -> vec4f {
   let count = min(u32(\${property("palette")}.x), 8u);
@@ -2978,9 +3015,18 @@ fn paletteAt(position: f32) -> vec4f {
       throw new Error("Edge sampling is only available for processors");
     let sampling3 = "";
     if (spec.kind === "processor") {
-      if (!slots.has("edge"))
-        throw new Error(\`Processor \${spec.id} must declare edge behavior\`);
-      sampling3 = spec.edgeSampling === "repeat-mirror-bilinear-v2" ? \`\${EDGE_SAMPLING_WGSL}
+      if (spec.edgeSampling === "fixed-clamp") {
+        if (Object.prototype.hasOwnProperty.call(spec.properties, "edge"))
+          throw new Error(\`Processor \${spec.id} has an unused edge control\`);
+        sampling3 = \`
+fn sampleSource(uv: vec2f) -> vec4f {
+  return textureSampleLevel(sourceTexture, effectSampler, clamp(uv, vec2f(0.0), vec2f(1.0)), 0.0);
+}
+\`;
+      } else {
+        if (!slots2.has("edge"))
+          throw new Error(\`Processor \${spec.id} must declare edge behavior\`);
+        sampling3 = spec.edgeSampling === "repeat-mirror-bilinear-v2" ? \`\${EDGE_SAMPLING_WGSL}
 fn sampleSource(uv: vec2f) -> vec4f {
   let edge = u32(\${property("edge")}.x);
   if (edge == 2u || edge == 3u) { return sampleEdgeTexture(sourceTexture, uv, edge); }
@@ -2997,6 +3043,7 @@ fn sampleSource(uv: vec2f) -> vec4f {
   return textureSampleLevel(sourceTexture, effectSampler, q, 0.0);
 }
 \`;
+      }
     }
     return {
       id: \`an-native-\${spec.id}\`,
@@ -3064,12 +3111,12 @@ fn sampleSource(uv: vec2f) -> vec4f {
       rotation: catalogFloat("Rotation", 0, -3.14159, 3.14159)
     };
   }
-  var point2 = (p) => \`
+  var point2 = (p2) => \`
   let uv = input.uv;
-  let q = rotate((uv - 0.5) * vec2f(globals.viewport.x / max(globals.viewport.y, 1.0), 1.0), \${p("rotation")}.x) * \${p("scale")}.x;
-  let phase = globals.clock.x * \${p("movement")}.x;
-  let detail = \${p("detail")}.x;
-  let soft = \${p("softness")}.x;
+  let q = rotate((uv - 0.5) * vec2f(globals.viewport.x / max(globals.viewport.y, 1.0), 1.0), \${p2("rotation")}.x) * \${p2("scale")}.x;
+  let phase = globals.clock.x * \${p2("movement")}.x;
+  let detail = \${p2("detail")}.x;
+  let soft = \${p2("softness")}.x;
 \`;
   var specs = [
     {
@@ -3085,8 +3132,8 @@ fn sampleSource(uv: vec2f) -> vec4f {
           options: ["linear", "radial", "conic", "diamond"]
         }
       },
-      fragment: (p) => point2(p) + \`
-  let mode = u32(\${p("mode")}.x);
+      fragment: (p2) => point2(p2) + \`
+  let mode = u32(\${p2("mode")}.x);
   var value = q.x + 0.5 + sin(phase) * soft;
   if (mode == 1u) { value = length(q) * 1.8 + sin(phase) * soft; }
   if (mode == 2u) { value = fract(atan2(q.y, q.x) / TAU + 0.5 + phase * 0.05); }
@@ -3100,7 +3147,7 @@ fn sampleSource(uv: vec2f) -> vec4f {
       name: "Mesh Gradient",
       kind: "generator",
       properties: properties(4),
-      fragment: (p) => point2(p) + \`
+      fragment: (p2) => point2(p2) + \`
   var color = vec4f(0.0); var total = 0.0;
   for (var i = 0u; i < 8u; i += 1u) {
     let anchor = vec2f(random(vec2i(i32(i), 91)), random(vec2i(i32(i), 107))) - 0.5;
@@ -3118,7 +3165,7 @@ fn sampleSource(uv: vec2f) -> vec4f {
       name: "Voronoi Cells",
       kind: "generator",
       properties: properties(7),
-      fragment: (p) => point2(p) + \`
+      fragment: (p2) => point2(p2) + \`
   let cell = vec2i(floor(q * detail)); let local = fract(q * detail);
   var nearest = 10.0; var second = 10.0; var value = 0.0;
   for (var y = -1; y <= 1; y += 1) { for (var x = -1; x <= 1; x += 1) {
@@ -3138,7 +3185,7 @@ fn sampleSource(uv: vec2f) -> vec4f {
       name: "Truchet Arcs",
       kind: "generator",
       properties: properties(8),
-      fragment: (p) => point2(p) + \`
+      fragment: (p2) => point2(p2) + \`
   let cell = vec2i(floor(q * detail + phase * 0.08)); var local = fract(q * detail + phase * 0.08);
   if (random(cell) > 0.5) { local.x = 1.0 - local.x; }
   let distance = min(abs(length(local) - 0.5), abs(length(local - 1.0) - 0.5));
@@ -3151,7 +3198,7 @@ fn sampleSource(uv: vec2f) -> vec4f {
       name: "Water Caustics",
       kind: "generator",
       properties: properties(5),
-      fragment: (p) => point2(p) + \`
+      fragment: (p2) => point2(p2) + \`
   var accumulated = 0.0;
   for (var i = 0u; i < 4u; i += 1u) {
     let angle = f32(i) * 1.570796 + 0.35;
@@ -3167,7 +3214,7 @@ fn sampleSource(uv: vec2f) -> vec4f {
       name: "Mandelbrot",
       kind: "generator",
       properties: properties(12),
-      fragment: (p) => point2(p) + \`
+      fragment: (p2) => point2(p2) + \`
   let c = q * (2.6 / max(detail * 0.12, 1.0)) + vec2f(-0.55, 0.08 * sin(phase));
   var z = vec2f(0.0); var escape = 0.0;
   for (var i = 0u; i < 96u; i += 1u) {
@@ -3183,7 +3230,7 @@ fn sampleSource(uv: vec2f) -> vec4f {
       name: "Starfield",
       kind: "generator",
       properties: properties(18),
-      fragment: (p) => point2(p) + \`
+      fragment: (p2) => point2(p2) + \`
   var light = 0.0;
   let basePixelFootprint = max(length(dpdx(q)), length(dpdy(q))) * detail;
   for (var layer = 0u; layer < 3u; layer += 1u) {
@@ -3207,7 +3254,7 @@ fn sampleSource(uv: vec2f) -> vec4f {
       name: "Hex Tiles",
       kind: "generator",
       properties: properties(6),
-      fragment: (p) => point2(p) + \`
+      fragment: (p2) => point2(p2) + \`
   let world = q * detail + vec2f(phase * 0.1, 0.0);
   let grid = vec2f(1.7320508, 3.0);
   let a = world - grid * floor(world / grid + 0.5);
@@ -3224,7 +3271,7 @@ fn sampleSource(uv: vec2f) -> vec4f {
       name: "Wave Interference",
       kind: "generator",
       properties: properties(12),
-      fragment: (p) => point2(p) + \`
+      fragment: (p2) => point2(p2) + \`
   let a = length(q - vec2f(-0.25, 0.0)); let b = length(q - vec2f(0.25, 0.0));
   let field = sin(a * detail * TAU - phase) + sin(b * detail * TAU + phase * 0.7);
   return paletteAt(smoothstep(-2.0 + soft, 2.0 - soft, field));
@@ -3235,7 +3282,7 @@ fn sampleSource(uv: vec2f) -> vec4f {
       name: "Iridescent Surface",
       kind: "generator",
       properties: properties(6),
-      fragment: (p) => point2(p) + \`
+      fragment: (p2) => point2(p2) + \`
   let normal = normalize(vec3f(sin(q.x * detail + phase) * 0.45, cos(q.y * detail - phase * 0.7) * 0.45, 1.0));
   let incidence = dot(normal, normalize(vec3f(-0.4, 0.55, 1.0)));
   let thickness = (0.45 + 0.12 * sin(q.x * 2.0 + q.y * 3.0 + phase)) * detail;
@@ -3250,7 +3297,7 @@ fn sampleSource(uv: vec2f) -> vec4f {
       name: "Metaball Field",
       kind: "generator",
       properties: properties(6),
-      fragment: (p) => point2(p) + \`
+      fragment: (p2) => point2(p2) + \`
   var field = 0.0;
   for (var i = 0u; i < 8u; i += 1u) {
     let angle = f32(i) * 2.399963;
@@ -3268,7 +3315,7 @@ fn sampleSource(uv: vec2f) -> vec4f {
       name: "Fractal Cloud",
       kind: "generator",
       properties: properties(5),
-      fragment: (p) => point2(p) + \`
+      fragment: (p2) => point2(p2) + \`
   let drift = vec2f(phase * 0.17, phase * 0.11);
   let warp = vec2f(fractalNoise(q * detail + drift), fractalNoise(q * detail + vec2f(37.0, 13.0) - drift));
   let density = fractalNoise(q * detail + warp * 2.0 + drift);
@@ -3280,7 +3327,7 @@ fn sampleSource(uv: vec2f) -> vec4f {
       name: "Brushed Metal",
       kind: "generator",
       properties: properties(10),
-      fragment: (p) => point2(p) + \`
+      fragment: (p2) => point2(p2) + \`
   let brushing = valueNoise(vec2f(q.x * 3.0, q.y * detail * 85.0));
   let tangent = sin(q.x * 3.0 + phase) * 0.5 + 0.5;
   let highlight = pow(max(1.0 - abs(tangent - q.y * 0.3 - 0.5) * 2.0, 0.0), 2.0 + soft * 30.0);
@@ -3292,7 +3339,7 @@ fn sampleSource(uv: vec2f) -> vec4f {
       name: "Plasma Field",
       kind: "generator",
       properties: properties(7),
-      fragment: (p) => point2(p) + \`
+      fragment: (p2) => point2(p2) + \`
   let waves = sin(q.x * detail + phase) + sin(q.y * detail - phase * 0.8) + sin((q.x + q.y) * detail * 0.7 + phase * 0.4) + sin(length(q + vec2f(0.2 * sin(phase))) * detail * 1.3);
   return paletteAt(0.5 + waves * (0.125 - soft * 0.08));
 \`
@@ -3302,7 +3349,7 @@ fn sampleSource(uv: vec2f) -> vec4f {
       name: "Woven Fabric",
       kind: "generator",
       properties: properties(18),
-      fragment: (p) => point2(p) + \`
+      fragment: (p2) => point2(p2) + \`
   let world = q * detail + vec2f(phase * 0.01); let tile = vec2i(floor(world)); let local = fract(world);
   let warp = sin(local.x * PI); let weft = sin(local.y * PI);
   let top = ((tile.x + tile.y) & 1) == 0;
@@ -3918,8 +3965,8 @@ fn sampleSource(uv: vec2f) -> vec4f {
   if (globals.params[0].x == 0.0) { return original; }
   let rgb = straight(original);
 \`;
-  var blend = (p, result) => \`
-  return mix(original, \${result}, \${p("amount")}.x);
+  var blend = (p2, result) => \`
+  return mix(original, \${result}, \${p2("amount")}.x);
 \`;
   var specs2 = [
     {
@@ -3933,12 +3980,12 @@ fn sampleSource(uv: vec2f) -> vec4f {
         saturation: catalogFloat("Saturation", 1.1, 0, 3),
         warmth: catalogFloat("Warmth", 0.08, -1, 1)
       }),
-      fragment: (p) => source + \`
-  let exposed = rgb * exp2(\${p("exposure")}.x);
-  let contrasted = (exposed - 0.18) * \${p("contrast")}.x + 0.18;
-  let saturated = mix(vec3f(luminance(contrasted)), contrasted, \${p("saturation")}.x);
-  let graded = saturated * vec3f(1.0 + \${p("warmth")}.x * 0.2, 1.0, 1.0 - \${p("warmth")}.x * 0.2);
-\` + blend(p, "premultiply(graded, original.a)")
+      fragment: (p2) => source + \`
+  let exposed = rgb * exp2(\${p2("exposure")}.x);
+  let contrasted = (exposed - 0.18) * \${p2("contrast")}.x + 0.18;
+  let saturated = mix(vec3f(luminance(contrasted)), contrasted, \${p2("saturation")}.x);
+  let graded = saturated * vec3f(1.0 + \${p2("warmth")}.x * 0.2, 1.0, 1.0 - \${p2("warmth")}.x * 0.2);
+\` + blend(p2, "premultiply(graded, original.a)")
     },
     {
       id: "palette-map",
@@ -3949,10 +3996,10 @@ fn sampleSource(uv: vec2f) -> vec4f {
         palette: catalogPalette(),
         contrast: catalogFloat("Contrast", 1, 0.1, 3)
       }),
-      fragment: (p) => source + \`
-  let value = clamp((luminance(rgb) - 0.5) * \${p("contrast")}.x + 0.5, 0.0, 1.0);
+      fragment: (p2) => source + \`
+  let value = clamp((luminance(rgb) - 0.5) * \${p2("contrast")}.x + 0.5, 0.0, 1.0);
   let mapped = paletteAt(value) * original.a;
-\` + blend(p, "mapped")
+\` + blend(p2, "mapped")
     },
     {
       id: "posterize",
@@ -3969,10 +4016,10 @@ fn sampleSource(uv: vec2f) -> vec4f {
           step: 1
         }
       }),
-      fragment: (p) => source + \`
-  let levels = \${p("levels")}.x - 1.0;
+      fragment: (p2) => source + \`
+  let levels = \${p2("levels")}.x - 1.0;
   let quantized = floor(clamp(rgb, vec3f(0.0), vec3f(1.0)) * levels + 0.5) / levels;
-\` + blend(p, "premultiply(quantized, original.a)")
+\` + blend(p2, "premultiply(quantized, original.a)")
     },
     {
       id: "threshold",
@@ -3984,9 +4031,9 @@ fn sampleSource(uv: vec2f) -> vec4f {
         threshold: catalogFloat("Threshold", 0.4, 0, 1),
         softness: catalogFloat("Softness", 0.015, 1e-3, 0.3)
       }),
-      fragment: (p) => source + \`
-  let value = smoothstep(\${p("threshold")}.x - \${p("softness")}.x, \${p("threshold")}.x + \${p("softness")}.x, luminance(rgb));
-\` + blend(p, "paletteAt(value) * original.a")
+      fragment: (p2) => source + \`
+  let value = smoothstep(\${p2("threshold")}.x - \${p2("softness")}.x, \${p2("threshold")}.x + \${p2("softness")}.x, luminance(rgb));
+\` + blend(p2, "paletteAt(value) * original.a")
     },
     {
       id: "ordered-dither",
@@ -4000,11 +4047,11 @@ fn sampleSource(uv: vec2f) -> vec4f {
       helpers: () => \`
 const BAYER: array<f32, 16> = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
 \`,
-      fragment: (p) => source + \`
-  let cell = vec2u(floor(uv * globals.viewport.xy / max(\${p("cellSize")}.x * globals.clock.z, 1.0))) % vec2u(4u);
+      fragment: (p2) => source + \`
+  let cell = vec2u(floor(uv * globals.viewport.xy / max(\${p2("cellSize")}.x * globals.clock.z, 1.0))) % vec2u(4u);
   let threshold = (BAYER[cell.y * 4u + cell.x] + 0.5) / 16.0;
   let value = select(0.0, 1.0, luminance(rgb) >= threshold);
-\` + blend(p, "paletteAt(value) * original.a")
+\` + blend(p2, "paletteAt(value) * original.a")
     },
     {
       id: "sobel-edges",
@@ -4016,8 +4063,8 @@ const BAYER: array<f32, 16> = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.
         radius: catalogFloat("Radius", 1, 0.25, 4),
         strength: catalogFloat("Strength", 2, 0, 8)
       }),
-      fragment: (p) => source + \`
-  let step = globals.viewport.zw * \${p("radius")}.x * globals.clock.z;
+      fragment: (p2) => source + \`
+  let step = globals.viewport.zw * \${p2("radius")}.x * globals.clock.z;
   let a = luminance(straight(sampleSource(uv + step * vec2f(-1.0, -1.0))));
   let b = luminance(straight(sampleSource(uv + step * vec2f(0.0, -1.0))));
   let c = luminance(straight(sampleSource(uv + step * vec2f(1.0, -1.0))));
@@ -4028,8 +4075,8 @@ const BAYER: array<f32, 16> = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.
   let h = luminance(straight(sampleSource(uv + step * vec2f(1.0, 1.0))));
   let gradient = vec2f(-a - 2.0 * d - f + c + 2.0 * e + h, -a - 2.0 * b - c + f + 2.0 * g + h);
 \` + blend(
-        p,
-        \`paletteAt(clamp(length(gradient) * \${p("strength")}.x, 0.0, 1.0)) * original.a\`
+        p2,
+        \`paletteAt(clamp(length(gradient) * \${p2("strength")}.x, 0.0, 1.0)) * original.a\`
       )
     },
     {
@@ -4042,11 +4089,11 @@ const BAYER: array<f32, 16> = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.
         angle: catalogFloat("Angle", 0.7, -3.14159, 3.14159),
         strength: catalogFloat("Strength", 2, 0, 8)
       }),
-      fragment: (p) => source + \`
-  let direction = vec2f(cos(\${p("angle")}.x), sin(\${p("angle")}.x)) * \${p("radius")}.x * globals.clock.z * globals.viewport.zw;
+      fragment: (p2) => source + \`
+  let direction = vec2f(cos(\${p2("angle")}.x), sin(\${p2("angle")}.x)) * \${p2("radius")}.x * globals.clock.z * globals.viewport.zw;
   let light = luminance(straight(sampleSource(uv + direction))) - luminance(straight(sampleSource(uv - direction)));
-  let embossed = vec3f(0.5 + light * \${p("strength")}.x);
-\` + blend(p, "premultiply(embossed, original.a)")
+  let embossed = vec3f(0.5 + light * \${p2("strength")}.x);
+\` + blend(p2, "premultiply(embossed, original.a)")
     },
     {
       id: "sharpen",
@@ -4057,11 +4104,11 @@ const BAYER: array<f32, 16> = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.
         radius: catalogFloat("Radius", 1, 0.25, 4),
         strength: catalogFloat("Strength", 0.8, 0, 3)
       }),
-      fragment: (p) => source + \`
-  let step = globals.viewport.zw * \${p("radius")}.x * globals.clock.z;
+      fragment: (p2) => source + \`
+  let step = globals.viewport.zw * \${p2("radius")}.x * globals.clock.z;
   let blurred = (sampleSource(uv + vec2f(step.x, 0.0)) + sampleSource(uv - vec2f(step.x, 0.0)) + sampleSource(uv + vec2f(0.0, step.y)) + sampleSource(uv - vec2f(0.0, step.y))) * 0.25;
-  let sharpened = rgb + (rgb - straight(blurred)) * \${p("strength")}.x;
-\` + blend(p, "premultiply(sharpened, original.a)")
+  let sharpened = rgb + (rgb - straight(blurred)) * \${p2("strength")}.x;
+\` + blend(p2, "premultiply(sharpened, original.a)")
     },
     {
       id: "pixelate",
@@ -4069,11 +4116,11 @@ const BAYER: array<f32, 16> = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.
       kind: "processor",
       backdrop: true,
       properties: properties2({ cellSize: catalogFloat("Cell size", 12, 1, 80, 0.1) }),
-      fragment: (p) => source + \`
-  let cell = \${p("cellSize")}.x * globals.clock.z;
+      fragment: (p2) => source + \`
+  let cell = \${p2("cellSize")}.x * globals.clock.z;
   let center = (floor(uv * globals.viewport.xy / cell) + 0.5) * cell * globals.viewport.zw;
   let pixelated = sampleSource(center);
-\` + blend(p, "pixelated")
+\` + blend(p2, "pixelated")
     },
     {
       id: "crt-display",
@@ -4085,15 +4132,15 @@ const BAYER: array<f32, 16> = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.
         scanlines: catalogFloat("Scanlines", 0.22, 0, 0.8),
         pitch: catalogFloat("Pitch", 3, 1, 12, 0.1)
       }),
-      fragment: (p) => source + \`
+      fragment: (p2) => source + \`
   let centered = uv * 2.0 - 1.0;
-  let warped = (centered * (1.0 + dot(centered, centered) * \${p("curvature")}.x) + 1.0) * 0.5;
+  let warped = (centered * (1.0 + dot(centered, centered) * \${p2("curvature")}.x) + 1.0) * 0.5;
   let sampled = sampleSource(warped);
   let pixel = uv * globals.viewport.xy / globals.clock.z;
-  let scan = 1.0 - \${p("scanlines")}.x * (0.5 + 0.5 * cos(pixel.y * TAU / \${p("pitch")}.x));
+  let scan = 1.0 - \${p2("scanlines")}.x * (0.5 + 0.5 * cos(pixel.y * TAU / \${p2("pitch")}.x));
   let channel = u32(floor(pixel.x)) % 3u;
   var phosphor = vec3f(0.82); phosphor[channel] = 1.0;
-\` + blend(p, "vec4f(sampled.rgb * phosphor * scan, sampled.a)")
+\` + blend(p2, "vec4f(sampled.rgb * phosphor * scan, sampled.a)")
     },
     {
       id: "chromatic-aberration",
@@ -4104,12 +4151,12 @@ const BAYER: array<f32, 16> = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.
         distance: catalogFloat("Distance", 4, 0, 30),
         angle: catalogFloat("Angle", 0, -3.14159, 3.14159)
       }),
-      fragment: (p) => source + \`
-  let offset = vec2f(cos(\${p("angle")}.x), sin(\${p("angle")}.x)) * \${p("distance")}.x * globals.clock.z * globals.viewport.zw;
+      fragment: (p2) => source + \`
+  let offset = vec2f(cos(\${p2("angle")}.x), sin(\${p2("angle")}.x)) * \${p2("distance")}.x * globals.clock.z * globals.viewport.zw;
   let red = sampleSource(uv + offset); let blue = sampleSource(uv - offset);
   let alpha = max(original.a, max(red.a, blue.a));
   let separated = vec3f(red.r, original.g, blue.b);
-\` + blend(p, "vec4f(min(separated, vec3f(alpha)), alpha)")
+\` + blend(p2, "vec4f(min(separated, vec3f(alpha)), alpha)")
     },
     {
       id: "barrel-distortion",
@@ -4120,10 +4167,10 @@ const BAYER: array<f32, 16> = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.
         distortion: catalogFloat("Distortion", 0.4, -0.8, 1.5),
         zoom: catalogFloat("Zoom", 1, 0.5, 2)
       }),
-      fragment: (p) => source + \`
-  let centered = (uv - 0.5) / \${p("zoom")}.x;
-  let displaced = centered * (1.0 + dot(centered, centered) * \${p("distortion")}.x * 4.0) + 0.5;
-\` + blend(p, "sampleSource(displaced)")
+      fragment: (p2) => source + \`
+  let centered = (uv - 0.5) / \${p2("zoom")}.x;
+  let displaced = centered * (1.0 + dot(centered, centered) * \${p2("distortion")}.x * 4.0) + 0.5;
+\` + blend(p2, "sampleSource(displaced)")
     },
     {
       id: "swirl",
@@ -4134,12 +4181,12 @@ const BAYER: array<f32, 16> = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.
         angle: catalogFloat("Angle", 1.6, -6.28318, 6.28318),
         radius: catalogFloat("Radius", 0.6, 0.05, 1.5)
       }),
-      fragment: (p) => source + \`
+      fragment: (p2) => source + \`
   let aspect = vec2f(globals.viewport.x / max(globals.viewport.y, 1.0), 1.0);
   let centered = (uv - 0.5) * aspect;
-  let falloff = max(1.0 - length(centered) / \${p("radius")}.x, 0.0);
-  let displaced = rotate(centered, \${p("angle")}.x * falloff * falloff) / aspect + 0.5;
-\` + blend(p, "sampleSource(displaced)")
+  let falloff = max(1.0 - length(centered) / \${p2("radius")}.x, 0.0);
+  let displaced = rotate(centered, \${p2("angle")}.x * falloff * falloff) / aspect + 0.5;
+\` + blend(p2, "sampleSource(displaced)")
     },
     {
       id: "kaleidoscope",
@@ -4158,13 +4205,13 @@ const BAYER: array<f32, 16> = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.
         angle: catalogFloat("Angle", 0.2, -3.14159, 3.14159),
         zoom: catalogFloat("Zoom", 1, 0.25, 3)
       }),
-      fragment: (p) => source + \`
-  let centered = (uv - 0.5) / \${p("zoom")}.x;
-  let wedge = TAU / \${p("segments")}.x;
-  let angle = atan2(centered.y, centered.x) + \${p("angle")}.x;
+      fragment: (p2) => source + \`
+  let centered = (uv - 0.5) / \${p2("zoom")}.x;
+  let wedge = TAU / \${p2("segments")}.x;
+  let angle = atan2(centered.y, centered.x) + \${p2("angle")}.x;
   let folded = abs((angle - floor(angle / wedge) * wedge) - wedge * 0.5);
   let radius = length(centered);
-\` + blend(p, "sampleSource(vec2f(cos(folded), sin(folded)) * radius + 0.5)")
+\` + blend(p2, "sampleSource(vec2f(cos(folded), sin(folded)) * radius + 0.5)")
     },
     {
       id: "ripple-distortion",
@@ -4176,12 +4223,12 @@ const BAYER: array<f32, 16> = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.
         frequency: catalogFloat("Frequency", 30, 1, 100),
         movement: catalogFloat("Movement", 0.5, 0, 3)
       }),
-      fragment: (p) => source + \`
+      fragment: (p2) => source + \`
   let centered = uv - 0.5; let radius = length(centered);
   let direction = centered / max(radius, 0.00001);
-  let wave = sin(radius * \${p("frequency")}.x - globals.clock.x * \${p("movement")}.x * TAU);
-  let offset = direction * wave * \${p("distance")}.x * globals.clock.z * globals.viewport.zw;
-\` + blend(p, "sampleSource(uv + offset)")
+  let wave = sin(radius * \${p2("frequency")}.x - globals.clock.x * \${p2("movement")}.x * TAU);
+  let offset = direction * wave * \${p2("distance")}.x * globals.clock.z * globals.viewport.zw;
+\` + blend(p2, "sampleSource(uv + offset)")
     },
     {
       id: "noise-displacement",
@@ -4193,11 +4240,11 @@ const BAYER: array<f32, 16> = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.
         scale: catalogFloat("Scale", 6, 0.5, 32),
         movement: catalogFloat("Movement", 0.3, 0, 3)
       }),
-      fragment: (p) => source + \`
-  let position = uv * \${p("scale")}.x + vec2f(globals.clock.x * \${p("movement")}.x);
+      fragment: (p2) => source + \`
+  let position = uv * \${p2("scale")}.x + vec2f(globals.clock.x * \${p2("movement")}.x);
   let noise = vec2f(fractalNoise(position), fractalNoise(position + vec2f(37.0, 17.0))) * 2.0 - 1.0;
-  let offset = noise * \${p("distance")}.x * globals.clock.z * globals.viewport.zw;
-\` + blend(p, "sampleSource(uv + offset)")
+  let offset = noise * \${p2("distance")}.x * globals.clock.z * globals.viewport.zw;
+\` + blend(p2, "sampleSource(uv + offset)")
     },
     {
       id: "vignette",
@@ -4208,10 +4255,10 @@ const BAYER: array<f32, 16> = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.
         radius: catalogFloat("Radius", 0.7, 0.1, 1.5),
         softness: catalogFloat("Softness", 0.45, 0.01, 1)
       }),
-      fragment: (p) => source + \`
+      fragment: (p2) => source + \`
   let distance = length((uv - 0.5) * 1.4142136);
-  let darkness = smoothstep(\${p("radius")}.x - \${p("softness")}.x, \${p("radius")}.x, distance);
-\` + blend(p, "vec4f(original.rgb * (1.0 - darkness * 0.85), original.a)")
+  let darkness = smoothstep(\${p2("radius")}.x - \${p2("softness")}.x, \${p2("radius")}.x, distance);
+\` + blend(p2, "vec4f(original.rgb * (1.0 - darkness * 0.85), original.a)")
     },
     {
       id: "film-grain",
@@ -4223,12 +4270,12 @@ const BAYER: array<f32, 16> = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.
         size: catalogFloat("Size", 1, 0.5, 8),
         movement: catalogFloat("Movement", 1, 0, 3)
       }),
-      fragment: (p) => source + \`
-  let cell = vec2i(floor(uv * globals.viewport.xy / (\${p("size")}.x * globals.clock.z)));
-  let frame = i32(floor(globals.clock.x * \${p("movement")}.x * 24.0));
+      fragment: (p2) => source + \`
+  let cell = vec2i(floor(uv * globals.viewport.xy / (\${p2("size")}.x * globals.clock.z)));
+  let frame = i32(floor(globals.clock.x * \${p2("movement")}.x * 24.0));
   let grain = random(cell + vec2i(frame * 101, frame * 313)) - 0.5;
-  let response = sqrt(max(luminance(rgb), 0.0)) * \${p("strength")}.x;
-\` + blend(p, "premultiply(rgb + grain * response, original.a)")
+  let response = sqrt(max(luminance(rgb), 0.0)) * \${p2("strength")}.x;
+\` + blend(p2, "premultiply(rgb + grain * response, original.a)")
     },
     {
       id: "crosshatch",
@@ -4241,13 +4288,13 @@ const BAYER: array<f32, 16> = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.
         angle: catalogFloat("Angle", 0.785398, -3.14159, 3.14159),
         thickness: catalogFloat("Thickness", 0.15, 0.02, 0.45)
       }),
-      fragment: (p) => source + \`
-  let point = rotate(uv * globals.viewport.xy / globals.clock.z, \${p("angle")}.x) / \${p("cellSize")}.x;
+      fragment: (p2) => source + \`
+  let point = rotate(uv * globals.viewport.xy / globals.clock.z, \${p2("angle")}.x) / \${p2("cellSize")}.x;
   let light = luminance(rgb);
-  let lineA = 1.0 - smoothstep(\${p("thickness")}.x, \${p("thickness")}.x + 0.08, abs(fract(point.x) - 0.5));
-  let lineB = 1.0 - smoothstep(\${p("thickness")}.x, \${p("thickness")}.x + 0.08, abs(fract(point.y) - 0.5));
+  let lineA = 1.0 - smoothstep(\${p2("thickness")}.x, \${p2("thickness")}.x + 0.08, abs(fract(point.x) - 0.5));
+  let lineB = 1.0 - smoothstep(\${p2("thickness")}.x, \${p2("thickness")}.x + 0.08, abs(fract(point.y) - 0.5));
   let ink = max(lineA * (1.0 - smoothstep(0.6, 0.85, light)), lineB * (1.0 - smoothstep(0.2, 0.55, light)));
-\` + blend(p, "paletteAt(1.0 - ink) * original.a")
+\` + blend(p2, "paletteAt(1.0 - ink) * original.a")
     },
     {
       id: "ascii-print",
@@ -4261,8 +4308,8 @@ const BAYER: array<f32, 16> = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.
       helpers: () => \`
 const GLYPHS: array<u32, 8> = array<u32, 8>(0u, 4096u, 2113668u, 10648714u, 15255086u, 11512810u, 33080895u, 33554431u);
 \`,
-      fragment: (p) => source + \`
-  let cell = \${p("cellSize")}.x * globals.clock.z;
+      fragment: (p2) => source + \`
+  let cell = \${p2("cellSize")}.x * globals.clock.z;
   let position = uv * globals.viewport.xy / cell;
   let center = (floor(position) + 0.5) * cell * globals.viewport.zw;
   let sampled = sampleSource(center);
@@ -4270,7 +4317,7 @@ const GLYPHS: array<u32, 8> = array<u32, 8>(0u, 4096u, 2113668u, 10648714u, 1525
   let glyph = GLYPHS[min(u32(darkness * 8.0), 7u)];
   let local = min(vec2u(fract(position) * 5.0), vec2u(4u));
   let bit = (glyph >> (local.y * 5u + local.x)) & 1u;
-\` + blend(p, "paletteAt(1.0 - f32(bit)) * sampled.a")
+\` + blend(p2, "paletteAt(1.0 - f32(bit)) * sampled.a")
     }
   ];
   var CATALOG_PROCESSOR_CANDIDATES = specs2.map(catalogShader);
@@ -4884,6 +4931,200 @@ fn \${functionName}(point: vec2f) -> f32 {
       ]
     };
   }
+
+  // shared/native-effect-highlight-streaks.ts
+  var computeWgsl = \`\${NATIVE_GLOBAL_BINDINGS}
+@group(0) @binding(4) var<storage, read_write> anchors: array<u32>;
+var<workgroup> scores: array<f32, 192>;
+
+fn streakBoundary(bucket: u32, scale: u32, shift: u32, width: u32) -> u32 {
+  // The host bounds bucket to 4096, so both 16-bit partial products fit u32.
+  let lowProduct = bucket * (scale & 65535u);
+  let highProduct = bucket * (scale >> 16u);
+  let low = lowProduct + ((highProduct & 65535u) << 16u);
+  let high = (highProduct >> 16u) + select(0u, 1u, low < lowProduct);
+  let roundedLow = low + ((1u << (shift - 1u)) - 1u);
+  let roundedHigh = high + select(0u, 1u, roundedLow < low);
+  return min((roundedLow >> shift) | (roundedHigh << (32u - shift)), width);
+}
+
+@compute @workgroup_size(64)
+fn cs(@builtin(workgroup_id) tile: vec3u, @builtin(local_invocation_index) lane: u32) {
+  let extent = textureDimensions(sourceTexture, 0);
+  let density = bitcast<u32>(globals.clock.z);
+  let exponent = (density >> 23u) & 255u;
+  var shift = 0u;
+  var scale = 0u;
+  var identity = exponent < 123u;
+  if (!identity) {
+    shift = 150u - exponent;
+    scale = ((density & 8388607u) | 8388608u) * u32(globals.params[0].x);
+    identity = scale < (1u << shift);
+  }
+  let origin = i32(tile.x * 64u) - 64;
+  // A <=64-pixel run can cross either edge of the 64-pixel output tile.
+  for (var stage = lane; stage < 192u; stage += 64u) {
+    scores[stage] = -1.0;
+    let sourceX = origin + i32(stage);
+    if (!identity && sourceX >= 0 && sourceX < i32(extent.x)) {
+      let sample = textureLoad(sourceTexture, vec2i(sourceX, i32(tile.y)), 0);
+      if (sample.a > 0.00001) {
+        let intensity = dot(sample.rgb / sample.a, vec3f(0.2126, 0.7152, 0.0722));
+        if (intensity >= globals.params[1].x) {
+          scores[stage] = intensity;
+        }
+      }
+    }
+  }
+  workgroupBarrier();
+  let pixelX = tile.x * 64u + lane;
+  if (identity || pixelX >= extent.x) { return; }
+  var low = 0u;
+  var high = extent.x + 1u;
+  while (low + 1u < high) {
+    let middle = low + (high - low) / 2u;
+    if (streakBoundary(middle, scale, shift, extent.x) <= pixelX) { low = middle; }
+    else { high = middle; }
+  }
+  let start = streakBoundary(low, scale, shift, extent.x);
+  let end = streakBoundary(low + 1u, scale, shift, extent.x);
+  var bestScore = -1.0;
+  var anchor = 0u;
+  for (var sourceX = start; sourceX < end; sourceX += 1u) {
+    let intensity = scores[u32(i32(sourceX) - origin)];
+    if (intensity > bestScore) {
+      bestScore = intensity;
+      anchor = sourceX + 1u;
+    }
+  }
+  let linear = tile.y * extent.x + pixelX;
+  anchors[linear] = anchor;
+}
+\`;
+  var resolveWgsl = \`\${NATIVE_RENDER_GLOBALS}
+@group(0) @binding(4) var<storage, read> anchors: array<u32>;
+@fragment fn fs(input: VertexOutput) -> @location(0) vec4f {
+  let extent = vec2i(textureDimensions(sourceTexture, 0));
+  let pixel = clamp(vec2i(floor(input.uv * vec2f(extent))), vec2i(0), extent - vec2i(1));
+  let original = textureLoad(sourceTexture, pixel, 0);
+  let amount = globals.params[2].x;
+  if (amount <= 0.0 || original.a <= 0.00001) { return original; }
+  let linear = u32(pixel.y) * u32(extent.x) + u32(pixel.x);
+  let anchor = anchors[linear];
+  if (anchor == 0u) { return original; }
+  let chosen = textureLoad(sourceTexture, vec2i(i32(anchor - 1u), pixel.y), 0);
+  let highlight = (chosen.rgb / chosen.a) * original.a;
+  return vec4f(mix(original.rgb, highlight, amount), original.a);
+}
+\`;
+  var HIGHLIGHT_STREAKS_EFFECT = {
+    id: "an-native-highlight-streaks",
+    name: "Highlight Streaks",
+    version: 1,
+    kind: "processor",
+    placements: ["layer"],
+    properties: {
+      runWidth: {
+        type: "int",
+        label: "Run width",
+        default: 8,
+        min: 1,
+        max: 16,
+        step: 1,
+        unit: "px"
+      },
+      threshold: {
+        type: "float",
+        label: "Threshold",
+        default: 0.65,
+        min: 0,
+        max: 1,
+        step: 0.01
+      },
+      amount: {
+        type: "float",
+        label: "Amount",
+        default: 0.75,
+        min: 0,
+        max: 1,
+        step: 0.01
+      }
+    },
+    inputs: { source: { kind: "texture-2d", resource: "source" } },
+    outputs: { color: { kind: "texture-2d", resource: "color" } },
+    resources: [
+      {
+        name: "source",
+        kind: "texture-2d",
+        external: true,
+        usage: ["sampled"],
+        size: "viewport"
+      },
+      {
+        name: "anchors",
+        kind: "buffer",
+        size: "source",
+        sourceBytesPerPixel: 4,
+        usage: ["storage", "copy-dst"]
+      },
+      {
+        name: "color",
+        kind: "texture-2d",
+        size: "viewport",
+        format: "rgba16float",
+        usage: ["render", "sampled"]
+      }
+    ],
+    statelessCompute: {
+      abi: "source-buffer-v1",
+      bufferResource: "anchors",
+      sharedBytes: 768
+    },
+    passes: [
+      {
+        id: "select-highlights",
+        kind: "compute",
+        reads: ["source"],
+        output: "anchors",
+        dispatch: {
+          elements: "source-grid",
+          workgroupSize: [64, 1, 1]
+        },
+        wgsl: computeWgsl
+      },
+      {
+        id: "resolve-streaks",
+        kind: "render",
+        reads: ["source", "anchors"],
+        output: "color",
+        wgsl: resolveWgsl
+      }
+    ],
+    output: "color",
+    provenance: { origin: "design-original" }
+  };
+  var HIGHLIGHT_STREAKS_PRESETS = [
+    {
+      id: "an-preset-highlight-streaks-short-glints",
+      name: "Short glints",
+      definitionId: HIGHLIGHT_STREAKS_EFFECT.id,
+      definitionVersion: 1,
+      placement: "layer",
+      params: { runWidth: 4, threshold: 0.75, amount: 0.45 },
+      clip: "bounds",
+      provenance: { origin: "design-original" }
+    },
+    {
+      id: "an-preset-highlight-streaks-long-trails",
+      name: "Long trails",
+      definitionId: HIGHLIGHT_STREAKS_EFFECT.id,
+      definitionVersion: 1,
+      placement: "layer",
+      params: { runWidth: 16, threshold: 0.45, amount: 1 },
+      clip: "bounds",
+      provenance: { origin: "design-original" }
+    }
+  ];
 
   // shared/native-effect-multipass.ts
   var SUPPORT = 24;
@@ -5609,12 +5850,12 @@ return colorOver(colorOver(base,first),second);\`,
     density: catalogFloat("Density", 7, 1, 24),
     softness: catalogFloat("Softness", 0.1, 5e-3, 0.5)
   });
-  var field = (p) => \`
+  var field = (p2) => \`
   let aspect = globals.viewport.x / max(globals.viewport.y, 1.0);
-  let q = (input.uv - 0.5) * vec2f(aspect, 1.0) * \${p("scale")}.x;
-  let t = globals.clock.x * \${p("speed")}.x;
-  let density = \${p("density")}.x;
-  let soft = \${p("softness")}.x;
+  let q = (input.uv - 0.5) * vec2f(aspect, 1.0) * \${p2("scale")}.x;
+  let t = globals.clock.x * \${p2("speed")}.x;
+  let density = \${p2("density")}.x;
+  let soft = \${p2("softness")}.x;
 \`;
   var visualSpecs = [
     {
@@ -5622,7 +5863,7 @@ return colorOver(colorOver(base,first),second);\`,
       name: "Curl Streamlines",
       kind: "generator",
       properties: motion(),
-      fragment: (p) => field(p) + \`
+      fragment: (p2) => field(p2) + \`
   var position = q;
   var ink = 0.0;
   for (var step = 0u; step < 12u; step += 1u) {
@@ -5639,7 +5880,7 @@ return colorOver(colorOver(base,first),second);\`,
       name: "Eddy Rings",
       kind: "generator",
       properties: motion(0.22),
-      fragment: (p) => field(p) + \`
+      fragment: (p2) => field(p2) + \`
   var ring = 0.0;
   for (var i = 0u; i < 5u; i += 1u) {
     let angle = f32(i) * 2.399963 + t * (0.2 + f32(i) * 0.06);
@@ -5657,7 +5898,7 @@ return colorOver(colorOver(base,first),second);\`,
       name: "Reaction Islands",
       kind: "generator",
       properties: motion(0.1),
-      fragment: (p) => field(p) + \`
+      fragment: (p2) => field(p2) + \`
   let cell = vec2i(floor(q * density * 2.0));
   let local = fract(q * density * 2.0) - 0.5;
   var activator = 0.0;
@@ -5680,7 +5921,7 @@ return colorOver(colorOver(base,first),second);\`,
       version: 2,
       kind: "generator",
       properties: motion(0.45),
-      fragment: (p) => field(p) + \`
+      fragment: (p2) => field(p2) + \`
   let world = q * density;
   let cell = vec2i(floor(world));
   let local = fract(world);
@@ -5702,7 +5943,7 @@ return colorOver(colorOver(base,first),second);\`,
       name: "Ink Advection",
       kind: "generator",
       properties: motion(0.2),
-      fragment: (p) => field(p) + \`
+      fragment: (p2) => field(p2) + \`
   var position = q;
   for (var i = 0u; i < 8u; i += 1u) {
     let spin = vec2f(-position.y, position.x) / (0.15 + dot(position, position));
@@ -5719,7 +5960,7 @@ return colorOver(colorOver(base,first),second);\`,
       name: "Magnetic Filaments",
       kind: "generator",
       properties: motion(0.18),
-      fragment: (p) => field(p) + \`
+      fragment: (p2) => field(p2) + \`
   let poleA = vec2f(-0.22, 0.12 * sin(t));
   let poleB = vec2f(0.25, -0.12 * cos(t));
   let da = q - poleA;
@@ -5735,7 +5976,7 @@ return colorOver(colorOver(base,first),second);\`,
       name: "Cellular Bloom",
       kind: "generator",
       properties: motion(0.16),
-      fragment: (p) => field(p) + \`
+      fragment: (p2) => field(p2) + \`
   let world = q * density;
   let cell = vec2i(floor(world));
   let local = fract(world);
@@ -5756,7 +5997,7 @@ return colorOver(colorOver(base,first),second);\`,
       name: "Plasma Sheets",
       kind: "generator",
       properties: motion(0.38),
-      fragment: (p) => field(p) + \`
+      fragment: (p2) => field(p2) + \`
   var sheet = 0.0;
   for (var i = 0u; i < 6u; i += 1u) {
     let depth = 1.0 + f32(i) * 0.34;
@@ -6045,7 +6286,7 @@ fn cs(@builtin(global_invocation_id) invocation: vec3u) {
 }
 \`
   };
-  function ownedFeedbackDefinition(id, name, computeWgsl2, controls) {
+  function ownedFeedbackDefinition(id, name, computeWgsl4, controls) {
     const uniformProperties = Object.fromEntries(
       Object.entries(controls).map(([slot, control]) => [slot, control.name])
     );
@@ -6057,7 +6298,7 @@ fn cs(@builtin(global_invocation_id) invocation: vec3u) {
       blend: [0, 1],
       seed: [0, 100]
     };
-    const properties3 = Object.fromEntries(
+    const properties4 = Object.fromEntries(
       Object.keys(controls).map((slot) => {
         const control = controls[slot];
         const [min, max] = bounds[slot];
@@ -6079,7 +6320,7 @@ fn cs(@builtin(global_invocation_id) invocation: vec3u) {
       version: 1,
       kind: "processor",
       placements: ["layer", "backdrop"],
-      properties: properties3,
+      properties: properties4,
       inputs: { source: { kind: "texture-2d", resource: "source" } },
       outputs: { color: { kind: "texture-2d", resource: "feedbackOutput" } },
       resources: [
@@ -6123,7 +6364,7 @@ fn cs(@builtin(global_invocation_id) invocation: vec3u) {
         {
           id: "advance",
           kind: "compute",
-          wgsl: computeWgsl2,
+          wgsl: computeWgsl4,
           reads: ["source"],
           previousFrameReads: ["feedbackState"],
           output: "feedbackState",
@@ -7632,14 +7873,14 @@ return paletteAt(clamp(field,0.0,1.0));
     );
     if (/\\bt\\b/.test(wgsl))
       throw new Error(\`Static generator still reads time: \${definition3.id}\`);
-    const properties3 = Object.fromEntries(
+    const properties4 = Object.fromEntries(
       Object.entries(definition3.properties).filter(([name]) => name !== "motion")
     );
     return {
       ...definition3,
       name: STATIC_V3_DEFINITION_DISPLAY_NAMES.get(definition3.id) ?? definition3.name,
       version: 3,
-      properties: properties3,
+      properties: properties4,
       passes: [{ ...definition3.passes[0], wgsl }]
     };
   }
@@ -7701,17 +7942,17 @@ fn sourceGradient(uv: vec2f, stepUv: vec2f) -> vec2f {
 }
 \`;
   function definition(draft) {
-    const properties3 = { edge: structuredClone(CATALOG_EDGE), ...draft.controls };
-    const slots = /* @__PURE__ */ new Map();
+    const properties4 = { edge: structuredClone(CATALOG_EDGE), ...draft.controls };
+    const slots2 = /* @__PURE__ */ new Map();
     let index = 0;
-    for (const [name, property] of Object.entries(properties3)) {
-      slots.set(name, index);
+    for (const [name, property] of Object.entries(properties4)) {
+      slots2.set(name, index);
       index += propertySlots(property);
     }
     if (index > 32)
       throw new RangeError(\`\${draft.id} exceeds native property slots\`);
-    const p = (name) => {
-      const slot = slots.get(name);
+    const p2 = (name) => {
+      const slot = slots2.get(name);
       if (slot === void 0)
         throw new Error(\`\${draft.id} has no \${name} property\`);
       return \`globals.params[\${slot}]\`;
@@ -7725,7 +7966,7 @@ fn sourceGradient(uv: vec2f, stepUv: vec2f) -> vec2f {
       version: 1,
       kind: "processor",
       placements: ["layer", "backdrop"],
-      properties: properties3,
+      properties: properties4,
       inputs: { source: { kind: "texture-2d", resource: "source" } },
       outputs: { color: { kind: "texture-2d", resource: "color" } },
       resources: [
@@ -7766,17 +8007,17 @@ fn sourceGradient(uv: vec2f, stepUv: vec2f) -> vec2f {
         output: pass.output,
         wgsl: \`\${NATIVE_RENDER_GLOBALS}\${sampling}\${sobel}
 @fragment fn fs(input: VertexOutput) -> @location(0) vec4f {
-\${pass.fragment(p)}
+\${pass.fragment(p2)}
 }
 \`
       }))
     };
   }
-  var diffusion2 = (passIndex) => (p) => \`
+  var diffusion2 = (passIndex) => (p2) => \`
 let center = sampleAt(input.uv);
-if (\${passIndex}u >= u32(\${p("iterations")}.x) || \${p("timeStep")}.x <= 0.0) { return center; }
+if (\${passIndex}u >= u32(\${p2("iterations")}.x) || \${p2("timeStep")}.x <= 0.0) { return center; }
 let stepUv = globals.clock.z * globals.viewport.zw;
-let conductance = max(\${p("conductance")}.x, 0.001);
+let conductance = max(\${p2("conductance")}.x, 0.001);
 var flow = vec4f(0.0);
 for (var i = 0u; i < 4u; i += 1u) {
   let axes = array<vec2f, 4>(vec2f(1.0, 0.0), vec2f(-1.0, 0.0), vec2f(0.0, 1.0), vec2f(0.0, -1.0));
@@ -7786,13 +8027,13 @@ for (var i = 0u; i < 4u; i += 1u) {
   let weight = exp(-difference * difference / (conductance * conductance));
   flow += (neighbor - center) * weight;
 }
-return center + \${p("timeStep")}.x * flow;\`;
-  var blur5 = (axis2, radiusName) => (p) => \`
-let stepUv = vec2f(\${axis2[0]}.0, \${axis2[1]}.0) * \${p(radiusName)}.x * globals.clock.z * globals.viewport.zw / 2.0;
+return center + \${p2("timeStep")}.x * flow;\`;
+  var blur5 = (axis2, radiusName) => (p2) => \`
+let stepUv = vec2f(\${axis2[0]}.0, \${axis2[1]}.0) * \${p2(radiusName)}.x * globals.clock.z * globals.viewport.zw / 2.0;
 return (sampleAt(input.uv - 2.0 * stepUv) + 4.0 * sampleAt(input.uv - stepUv) + 6.0 * sampleAt(input.uv) + 4.0 * sampleAt(input.uv + stepUv) + sampleAt(input.uv + 2.0 * stepUv)) / 16.0;\`;
-  var morphology = (dilate, axis2) => (p) => \`
+  var morphology = (dilate, axis2) => (p2) => \`
 let center = sampleAt(input.uv);
-let radius = i32(ceil(\${p("radius")}.x * globals.clock.z));
+let radius = i32(ceil(\${p2("radius")}.x * globals.clock.z));
 if (radius <= 0) { return center; }
 var chosen = center;
 var selectedAlpha = center.a;
@@ -7813,14 +8054,14 @@ for (var offset = -16; offset <= 16; offset += 1) {
           "median",
           ["source"],
           "color",
-          (p) => \`
-if (\${p("radius")}.x <= 0.0 || \${p("mix")}.x <= 0.0) { return sampleAt(input.uv); }
+          (p2) => \`
+if (\${p2("radius")}.x <= 0.0 || \${p2("mix")}.x <= 0.0) { return sampleAt(input.uv); }
 var samples: array<vec4f, 9>;
-let delta = \${p("radius")}.x * globals.clock.z * globals.viewport.zw;
+let delta = \${p2("radius")}.x * globals.clock.z * globals.viewport.zw;
 var index = 0u;
 for (var y = -1; y <= 1; y += 1) { for (var x = -1; x <= 1; x += 1) { samples[index] = sampleAt(input.uv + vec2f(f32(x), f32(y)) * delta); index += 1u; } }
 for (var i = 1u; i < 9u; i += 1u) { var j = i; loop { if (j == 0u || luma(samples[j - 1u]) <= luma(samples[j])) { break; } let previous = samples[j - 1u]; samples[j - 1u] = samples[j]; samples[j] = previous; j -= 1u; } }
-return mix(sampleAt(input.uv), samples[4], \${p("mix")}.x);\`
+return mix(sampleAt(input.uv), samples[4], \${p2("mix")}.x);\`
         )
       ],
       looks: [
@@ -7864,18 +8105,18 @@ return mix(sampleAt(input.uv), samples[4], \${p("mix")}.x);\`
           "aperture",
           ["source"],
           "color",
-          (p) => \`
+          (p2) => \`
 let center = sampleAt(input.uv);
-let sides = max(\${p("blades")}.x, 4.0);
-let radius = \${p("radius")}.x * globals.clock.z * globals.viewport.zw;
-if (\${p("radius")}.x <= 0.0) { return center; }
+let sides = max(\${p2("blades")}.x, 4.0);
+let radius = \${p2("radius")}.x * globals.clock.z * globals.viewport.zw;
+if (\${p2("radius")}.x <= 0.0) { return center; }
 var accum = center; var total = 1.0;
 for (var i = 0u; i < 16u; i += 1u) {
   let angle = 6.28318530718 * f32(i % 8u) / 8.0;
   let radial = select(0.5, 1.0, i >= 8u);
   let corner = cos(3.14159265359 / sides) / max(cos(fract(angle * sides / 6.28318530718 + 0.5) * 6.28318530718 / sides - 3.14159265359 / sides), 0.25);
   let neighbor = sampleAt(input.uv + vec2f(cos(angle), sin(angle)) * radius * radial * corner);
-  let weight = 1.0 + \${p("highlightBias")}.x * max(luma(neighbor), 0.0);
+  let weight = 1.0 + \${p2("highlightBias")}.x * max(luma(neighbor), 0.0);
   accum += neighbor * weight; total += weight;
 }
 return accum / total;\`
@@ -7920,15 +8161,15 @@ return vec4f(vec3f(darkest * alpha), alpha);\`
           "recover",
           ["source", "dark"],
           "color",
-          (p) => \`
+          (p2) => \`
 let source = sampleAt(input.uv);
 if (source.a <= 0.00001) { return vec4f(0.0); }
-if (\${p("amount")}.x <= 0.0) { return source; }
+if (\${p2("amount")}.x <= 0.0) { return source; }
 let maskedDark = sampleSecond(input.uv);
 let dark = maskedDark.x / max(maskedDark.a, 0.00001);
-let atmosphere = \${p("atmosphere")}.rgb;
+let atmosphere = \${p2("atmosphere")}.rgb;
 let atmosphereFloor = max(min(atmosphere.x, min(atmosphere.y, atmosphere.z)), 0.01);
-let transmission = max(\${p("minimumTransmission")}.x, 1.0 - \${p("amount")}.x * dark / atmosphereFloor);
+let transmission = max(\${p2("minimumTransmission")}.x, 1.0 - \${p2("amount")}.x * dark / atmosphereFloor);
 let restored = (straight(source) - atmosphere) / transmission + atmosphere;
 return vec4f(restored * source.a, source.a);\`
         )
@@ -7959,7 +8200,7 @@ return vec4f(restored * source.a, source.a);\`
           "nonmaximum",
           ["smoothV"],
           "classified",
-          (p) => \`
+          (p2) => \`
 let stepUv = globals.clock.z * globals.viewport.zw;
 let gradient = sourceGradient(input.uv, stepUv);
 let magnitude = length(gradient);
@@ -7967,8 +8208,8 @@ var direction = vec2f(0.0); if (magnitude > 0.00001) { direction = gradient / ma
 let before = length(sourceGradient(input.uv - direction * stepUv, stepUv));
 let after = length(sourceGradient(input.uv + direction * stepUv, stepUv));
 let retained = magnitude >= before && magnitude >= after;
-let strong = retained && magnitude >= \${p("highThreshold")}.x;
-let weak = retained && magnitude >= \${p("highThreshold")}.x * \${p("lowRatio")}.x;
+let strong = retained && magnitude >= \${p2("highThreshold")}.x;
+let weak = retained && magnitude >= \${p2("highThreshold")}.x * \${p2("lowRatio")}.x;
 return vec4f(select(0.0, 1.0, strong), select(0.0, 1.0, weak), 0.0, 1.0);\`
         ),
         ...Array.from(
@@ -7977,9 +8218,9 @@ return vec4f(select(0.0, 1.0, strong), select(0.0, 1.0, weak), 0.0, 1.0);\`
             \`link-\${i + 1}\`,
             [i ? \`link\${i}\` : "classified"],
             \`link\${i + 1}\`,
-            (p) => \`
+            (p2) => \`
 let current = sampleAt(input.uv);
-if (\${i}u >= u32(\${p("linkHops")}.x) || current.g < 0.5 || current.r > 0.5) { return current; }
+if (\${i}u >= u32(\${p2("linkHops")}.x) || current.g < 0.5 || current.r > 0.5) { return current; }
 var connected = 0.0;
 for (var y = -1; y <= 1; y += 1) { for (var x = -1; x <= 1; x += 1) {
   connected = max(connected, sampleAt(input.uv + vec2f(f32(x), f32(y)) * globals.viewport.zw).r);
@@ -7991,9 +8232,9 @@ return vec4f(connected, current.g, 0.0, 1.0);\`
           "ink",
           ["source", "link8"],
           "color",
-          (p) => \`
+          (p2) => \`
 let source = sampleAt(input.uv);
-let edge = sampleSecond(input.uv).r * \${p("ink")}.x;
+let edge = sampleSecond(input.uv).r * \${p2("ink")}.x;
 return vec4f(source.rgb * (1.0 - edge), source.a);\`
         )
       ],
@@ -8029,18 +8270,18 @@ return vec4f(source.rgb * (1.0 - edge), source.a);\`
           "difference",
           ["fineV", "broadV"],
           "difference",
-          (p) => \`
+          (p2) => \`
 let response = abs(luma(sampleAt(input.uv)) - luma(sampleSecond(input.uv)));
-let weight = smoothstep(\${p("threshold")}.x, \${p("threshold")}.x + \${p("softness")}.x, response);
+let weight = smoothstep(\${p2("threshold")}.x, \${p2("threshold")}.x + \${p2("softness")}.x, response);
 return vec4f(vec3f(weight), 1.0);\`
         ),
         stage(
           "ink",
           ["source", "difference"],
           "color",
-          (p) => \`
+          (p2) => \`
 let source = sampleAt(input.uv);
-let ink = sampleSecond(input.uv).r * \${p("amount")}.x;
+let ink = sampleSecond(input.uv).r * \${p2("amount")}.x;
 return vec4f(source.rgb * (1.0 - ink), source.a);\`
         )
       ],
@@ -8129,9 +8370,9 @@ return vec4f(source.rgb * (1.0 - ink), source.a);\`
         bottomRight: corner("Bottom right", 0.96, 0.94),
         bottomLeft: corner("Bottom left", 0.04, 0.9)
       },
-      fragment: (p) => \`
-  let p0 = \${p("topLeft")}.xy; let p1 = \${p("topRight")}.xy;
-  let p2 = \${p("bottomRight")}.xy; let p3 = \${p("bottomLeft")}.xy;
+      fragment: (p2) => \`
+  let p0 = \${p2("topLeft")}.xy; let p1 = \${p2("topRight")}.xy;
+  let p2 = \${p2("bottomRight")}.xy; let p3 = \${p2("bottomLeft")}.xy;
   let d1 = p1 - p2; let d2 = p3 - p2;
   let d3 = p0 - p1 + p2 - p3;
   let perspectiveDet = d1.x * d2.y - d2.x * d1.y;
@@ -8175,20 +8416,20 @@ return vec4f(source.rgb * (1.0 - ink), source.a);\`
         softness: amount("Softness", 0.07, 0.5),
         spill: amount("Spill", 0.4)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let c = sampleSource(input.uv); if (c.a <= 0.0) { return c; }
   let rgb = c.rgb / c.a;
   let maxChannel = max(rgb.r, max(rgb.g, rgb.b));
   let minChannel = min(rgb.r, min(rgb.g, rgb.b));
   let chroma = maxChannel - minChannel;
   let hue = select(select((rgb.g - rgb.b) / max(chroma, 0.00001), 2.0 + (rgb.b - rgb.r) / max(chroma, 0.00001), maxChannel == rgb.g), 4.0 + (rgb.r - rgb.g) / max(chroma, 0.00001), maxChannel == rgb.b) / 6.0;
-  let hueDistance = abs(fract(hue - \${p("keyHue")}.x + 0.5) - 0.5);
-  var hueWeight = select(0.0, 1.0, hueDistance <= \${p("tolerance")}.x);
-  if (\${p("softness")}.x > 0.0) { hueWeight = 1.0 - smoothstep(\${p("tolerance")}.x, \${p("tolerance")}.x + \${p("softness")}.x, hueDistance); }
+  let hueDistance = abs(fract(hue - \${p2("keyHue")}.x + 0.5) - 0.5);
+  var hueWeight = select(0.0, 1.0, hueDistance <= \${p2("tolerance")}.x);
+  if (\${p2("softness")}.x > 0.0) { hueWeight = 1.0 - smoothstep(\${p2("tolerance")}.x, \${p2("tolerance")}.x + \${p2("softness")}.x, hueDistance); }
   let keyed = hueWeight * smoothstep(0.05, 0.25, chroma);
   let alpha = c.a * (1.0 - keyed);
   let neutral = vec3f(dot(rgb, vec3f(0.2126, 0.7152, 0.0722)));
-  let despilled = mix(rgb, neutral, keyed * \${p("spill")}.x);
+  let despilled = mix(rgb, neutral, keyed * \${p2("spill")}.x);
   return vec4f(despilled * alpha, alpha);\`,
       looks: [
         "Green screen",
@@ -8205,14 +8446,14 @@ return vec4f(source.rgb * (1.0 - ink), source.a);\`
         brush: amount("Brush size", 0.7),
         jitter: amount("Jitter", 0.45)
       },
-      fragment: (p) => \`
-  if (\${p("spacing")}.x <= 0.0 || \${p("brush")}.x <= 0.0) { return sampleSource(input.uv); }
-  let cellSize = \${p("spacing")}.x * globals.clock.z;
+      fragment: (p2) => \`
+  if (\${p2("spacing")}.x <= 0.0 || \${p2("brush")}.x <= 0.0) { return sampleSource(input.uv); }
+  let cellSize = \${p2("spacing")}.x * globals.clock.z;
   let physical = input.uv * globals.viewport.xy;
   let cell = vec2i(floor(physical / cellSize));
   let randomOffset = vec2f(random(cell), random(cell + vec2i(17, 41))) - 0.5;
-  let center = (vec2f(cell) + 0.5 + randomOffset * \${p("jitter")}.x) * cellSize;
-  let radius = cellSize * \${p("brush")}.x * 0.5;
+  let center = (vec2f(cell) + 0.5 + randomOffset * \${p2("jitter")}.x) * cellSize;
+  let radius = cellSize * \${p2("brush")}.x * 0.5;
   let coverage = 1.0 - smoothstep(radius - 1.0, radius + 1.0, distance(physical, center));
   let pigment = sampleSource(center * globals.viewport.zw);
   return vec4f(pigment.rgb * coverage, pigment.a * coverage);\`,
@@ -8231,9 +8472,9 @@ return vec4f(source.rgb * (1.0 - ink), source.a);\`
         bias: catalogFloat("Bias", 0, -0.5, 0.5),
         softness: amount("Softness", 0.05, 0.5)
       },
-      fragment: (p) => \`
-  let c = sampleSource(input.uv); if (c.a <= 0.0 || \${p("radius")}.x <= 0.0) { return c; }
-  let offset = \${p("radius")}.x * globals.clock.z * globals.viewport.zw;
+      fragment: (p2) => \`
+  let c = sampleSource(input.uv); if (c.a <= 0.0 || \${p2("radius")}.x <= 0.0) { return c; }
+  let offset = \${p2("radius")}.x * globals.clock.z * globals.viewport.zw;
   var mean = 0.0; var weight = 0.0;
   for (var y = -2; y <= 2; y += 1) { for (var x = -2; x <= 2; x += 1) {
     let sample = sampleSource(input.uv + vec2f(f32(x), f32(y)) * offset * 0.5);
@@ -8241,9 +8482,9 @@ return vec4f(source.rgb * (1.0 - ink), source.a);\`
   }}
   let localMean = mean / max(weight, 0.00001);
   let selfLuma = dot(c.rgb / c.a, vec3f(0.2126, 0.7152, 0.0722));
-  var threshold = select(0.0, 1.0, selfLuma >= localMean + \${p("bias")}.x);
-  if (\${p("softness")}.x > 0.0) { threshold = smoothstep(localMean + \${p("bias")}.x - \${p("softness")}.x,
-    localMean + \${p("bias")}.x + \${p("softness")}.x, selfLuma); }
+  var threshold = select(0.0, 1.0, selfLuma >= localMean + \${p2("bias")}.x);
+  if (\${p2("softness")}.x > 0.0) { threshold = smoothstep(localMean + \${p2("bias")}.x - \${p2("softness")}.x,
+    localMean + \${p2("bias")}.x + \${p2("softness")}.x, selfLuma); }
   return vec4f(vec3f(threshold) * c.a, c.a);\`,
       looks: [
         "Soft print",
@@ -8441,10 +8682,10 @@ fn coneToXyz(v: vec3f) -> vec3f {
     dot(v, vec3f(-0.0085287, 0.0400428, 0.9684867)));
 }
 \`,
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let source = sampleSource(input.uv);
-  let shift = \${p("whiteShift")}.x;
-  let strength = \${p("amount")}.x;
+  let shift = \${p2("whiteShift")}.x;
+  let strength = \${p2("amount")}.x;
   if (source.a <= 0.00001 || strength <= 0.0 || abs(shift) <= 0.00001) { return source; }
   let sourceWhite = xyzToCone(vec3f(0.95047, 1.0, 1.08883));
   let warmWhite = xyzToCone(vec3f(0.96422, 1.0, 0.82521));
@@ -8474,25 +8715,25 @@ fn coneToXyz(v: vec3f) -> vec3f {
         chromaGain: catalogFloat("Chroma gain", 1.2, 0, 2),
         amount: fraction("Amount", 0.8)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let source = sampleSource(input.uv);
-  if (source.a <= 0.00001 || \${p("amount")}.x <= 0.0) { return source; }
+  if (source.a <= 0.00001 || \${p2("amount")}.x <= 0.0) { return source; }
   let rgb = source.rgb / source.a;
   let y = luminance(rgb);
   let axis = vec2f(rgb.r - rgb.g, rgb.b - rgb.g);
   if (dot(axis, axis) <= 0.00000001) { return source; }
   let hue = atan2(axis.y, axis.x);
-  let sector = \${p("sector")}.x * PI / 180.0;
+  let sector = \${p2("sector")}.x * PI / 180.0;
   let distance = abs(atan2(sin(hue - sector), cos(hue - sector)));
-  let halfWidth = \${p("width")}.x * PI / 360.0;
-  let feather = max(\${p("feather")}.x * PI / 180.0, 0.00001);
+  let halfWidth = \${p2("width")}.x * PI / 360.0;
+  let feather = max(\${p2("feather")}.x * PI / 180.0, 0.00001);
   let selected = 1.0 - smoothstep(halfWidth, halfWidth + feather, distance);
-  let radians = \${p("rotation")}.x * PI / 180.0;
+  let radians = \${p2("rotation")}.x * PI / 180.0;
   let rotated = vec2f(axis.x * cos(radians) - axis.y * sin(radians),
-    axis.x * sin(radians) + axis.y * cos(radians)) * \${p("chromaGain")}.x;
+    axis.x * sin(radians) + axis.y * cos(radians)) * \${p2("chromaGain")}.x;
   let newG = y - 0.2126 * rotated.x - 0.0722 * rotated.y;
   let relit = vec3f(newG + rotated.x, newG, newG + rotated.y);
-  let result = mix(rgb, relit, selected * \${p("amount")}.x);
+  let result = mix(rgb, relit, selected * \${p2("amount")}.x);
   return vec4f(clamp(result, vec3f(0.0), vec3f(1.0)) * source.a, source.a);\`,
       looks: [
         [
@@ -8529,12 +8770,12 @@ fn coneToXyz(v: vec3f) -> vec3f {
         regularization: catalogFloat("Regularization", 0.08, 5e-3, 0.4),
         amount: fraction("Amount", 0.9)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let center = sampleSource(input.uv);
-  if (center.a <= 0.00001 || \${p("radius")}.x <= 0.0 || \${p("amount")}.x <= 0.0) { return center; }
+  if (center.a <= 0.00001 || \${p2("radius")}.x <= 0.0 || \${p2("amount")}.x <= 0.0) { return center; }
   let straightColor = center.rgb / center.a;
   let centerY = luminance(straightColor);
-  let stepUv = 0.5 * \${p("radius")}.x * globals.clock.z * globals.viewport.zw;
+  let stepUv = 0.5 * \${p2("radius")}.x * globals.clock.z * globals.viewport.zw;
   var sum = 0.0;
   var squareSum = 0.0;
   var weight = 0.0;
@@ -8551,10 +8792,10 @@ fn coneToXyz(v: vec3f) -> vec3f {
   }
   let mean = sum / max(weight, 0.00001);
   let variance = max(0.0, squareSum / max(weight, 0.00001) - mean * mean);
-  let epsilon = \${p("regularization")}.x * \${p("regularization")}.x;
+  let epsilon = \${p2("regularization")}.x * \${p2("regularization")}.x;
   let slope = variance / (variance + epsilon);
   let predicted = mean + slope * (centerY - mean);
-  let targetY = mix(centerY, predicted, \${p("amount")}.x);
+  let targetY = mix(centerY, predicted, \${p2("amount")}.x);
   let ratio = select(1.0, targetY / centerY, centerY > 0.00001);
   let result = clamp(straightColor * ratio, vec3f(0.0), vec3f(1.0));
   return vec4f(result * center.a, center.a);\`,
@@ -8574,16 +8815,16 @@ fn coneToXyz(v: vec3f) -> vec3f {
         verticalBend: catalogFloat("Vertical curvature", 0.12, 0, 0.5),
         amount: fraction("Amount", 1)
       },
-      fragment: (p) => \`
-  if (\${p("amount")}.x <= 0.0) { return sampleSource(input.uv); }
-  let arc = \${p("arc")}.x * PI / 180.0;
-  let yaw = \${p("yaw")}.x * PI / 180.0;
+      fragment: (p2) => \`
+  if (\${p2("amount")}.x <= 0.0) { return sampleSource(input.uv); }
+  let arc = \${p2("arc")}.x * PI / 180.0;
+  let yaw = \${p2("yaw")}.x * PI / 180.0;
   let x = (input.uv.x - 0.5) * 2.0;
   let theta = asin(clamp(x * sin(arc), -0.99999, 0.99999));
   let projectedX = 0.5 + (theta + yaw) / (2.0 * arc);
-  let bend = 1.0 - \${p("verticalBend")}.x * x * x;
+  let bend = 1.0 - \${p2("verticalBend")}.x * x * x;
   let projectedY = 0.5 + (input.uv.y - 0.5) * bend;
-  let q = mix(input.uv, vec2f(projectedX, projectedY), \${p("amount")}.x);
+  let q = mix(input.uv, vec2f(projectedX, projectedY), \${p2("amount")}.x);
   return sampleSource(q);\`,
       looks: [
         ["Curved label", { arc: 42, yaw: 0, verticalBend: 0.08, amount: 0.75 }],
@@ -8631,14 +8872,14 @@ fn coneToXyz(v: vec3f) -> vec3f {
         rotation: catalogFloat("Rotation", 0, -3.14159, 3.14159),
         amount: fraction2("Amount", 1)
       },
-      fragment: (p) => \`
-  let amount = \${p("amount")}.x;
+      fragment: (p2) => \`
+  let amount = \${p2("amount")}.x;
   if (amount <= 0.0) { return sampleSource(input.uv); }
-  let inner = \${p("innerRadius")}.x;
-  let outer = max(\${p("outerRadius")}.x, inner + 0.001);
-  let angle = input.uv.x * TAU + \${p("rotation")}.x;
+  let inner = \${p2("innerRadius")}.x;
+  let outer = max(\${p2("outerRadius")}.x, inner + 0.001);
+  let angle = input.uv.x * TAU + \${p2("rotation")}.x;
   let radius = inner * pow(outer / inner, input.uv.y);
-  let mapped = vec2f(\${p("centerX")}.x, \${p("centerY")}.x) + radius * vec2f(cos(angle), sin(angle));
+  let mapped = vec2f(\${p2("centerX")}.x, \${p2("centerY")}.x) + radius * vec2f(cos(angle), sin(angle));
   return sampleSource(mix(input.uv, mapped, amount));\`,
       looks: [
         ["Circular reveal", { innerRadius: 0.02, outerRadius: 0.58, amount: 1 }],
@@ -8672,13 +8913,13 @@ fn coneToXyz(v: vec3f) -> vec3f {
         trapRadius: catalogFloat("Trap radius", 0.34, 0.03, 1.3),
         iterations: catalogFloat("Iterations", 72, 16, 96, 1)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let aspect = globals.viewport.x / max(globals.viewport.y, 1.0);
-  var z = (input.uv - 0.5) * vec2f(aspect, 1.0) * (3.0 / \${p("zoom")}.x) + vec2f(\${p("centerX")}.x, \${p("centerY")}.x);
-  let c = vec2f(\${p("constantReal")}.x, \${p("constantImaginary")}.x);
-  let trapCenter = vec2f(\${p("trapX")}.x, \${p("trapY")}.x);
-  let trapRadius = \${p("trapRadius")}.x;
-  let iterationLimit = \${p("iterations")}.x;
+  var z = (input.uv - 0.5) * vec2f(aspect, 1.0) * (3.0 / \${p2("zoom")}.x) + vec2f(\${p2("centerX")}.x, \${p2("centerY")}.x);
+  let c = vec2f(\${p2("constantReal")}.x, \${p2("constantImaginary")}.x);
+  let trapCenter = vec2f(\${p2("trapX")}.x, \${p2("trapY")}.x);
+  let trapRadius = \${p2("trapRadius")}.x;
+  let iterationLimit = \${p2("iterations")}.x;
   var minimumTrap = 4.0;
   var escape = iterationLimit;
   for (var i = 0u; i < 96u; i += 1u) {
@@ -8739,14 +8980,14 @@ fn torusSdf(p: vec3f, major: f32, tube: f32, tilt: f32) -> f32 {
   return length(vec2f(length(q.xz) - major, q.y)) - tube;
 }
 \`,
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let aspect = globals.viewport.x / max(globals.viewport.y, 1.0);
-  let screen = (input.uv - 0.5) * vec2f(aspect, 1.0) * (2.0 / \${p("zoom")}.x);
+  let screen = (input.uv - 0.5) * vec2f(aspect, 1.0) * (2.0 / \${p2("zoom")}.x);
   let rayOrigin = vec3f(0.0, 0.0, 3.2);
   let rayDirection = normalize(vec3f(screen, -2.1));
-  let major = \${p("majorRadius")}.x;
-  let tube = \${p("tubeRadius")}.x;
-  let tilt = \${p("tilt")}.x;
+  let major = \${p2("majorRadius")}.x;
+  let tube = \${p2("tubeRadius")}.x;
+  let tilt = \${p2("tilt")}.x;
   var distanceAlong = 0.0;
   var hit = false;
   for (var i = 0u; i < 72u; i += 1u) {
@@ -8764,7 +9005,7 @@ fn torusSdf(p: vec3f, major: f32, tube: f32, tilt: f32) -> f32 {
     torusSdf(position + vec3f(0.0, e, 0.0), major, tube, tilt) - torusSdf(position - vec3f(0.0, e, 0.0), major, tube, tilt),
     torusSdf(position + vec3f(0.0, 0.0, e), major, tube, tilt) - torusSdf(position - vec3f(0.0, 0.0, e), major, tube, tilt)
   ));
-  let direction = normalize(vec3f(cos(\${p("lightAngle")}.x), 0.65, sin(\${p("lightAngle")}.x) + 0.7));
+  let direction = normalize(vec3f(cos(\${p2("lightAngle")}.x), 0.65, sin(\${p2("lightAngle")}.x) + 0.7));
   let diffuse = max(dot(normal, direction), 0.0);
   let viewDirection = -rayDirection;
   let halfDirection = normalize(direction + viewDirection);
@@ -8800,15 +9041,15 @@ fn torusSdf(p: vec3f, major: f32, tube: f32, tilt: f32) -> f32 {
         irregularity: catalogFloat("Irregularity", 0.45, 0, 0.9),
         jointWidth: catalogFloat("Joint width", 2, 0, 8, 0.1)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   var lower = vec2f(0.0);
   var upper = vec2f(1.0);
   var address = vec2i(19, 7);
   for (var level = 0u; level < 8u; level += 1u) {
-    if (f32(level) >= \${p("depth")}.x) { break; }
+    if (f32(level) >= \${p2("depth")}.x) { break; }
     let span = upper - lower;
     let alongX = span.x * globals.viewport.x >= span.y * globals.viewport.y;
-    let cut = 0.5 + (random(address + vec2i(i32(level) * 13, 31)) - 0.5) * \${p("irregularity")}.x;
+    let cut = 0.5 + (random(address + vec2i(i32(level) * 13, 31)) - 0.5) * \${p2("irregularity")}.x;
     if (alongX) {
       let split = mix(lower.x, upper.x, cut);
       if (input.uv.x < split) { upper.x = split; address = address * 2 + vec2i(1, 0); }
@@ -8820,7 +9061,7 @@ fn torusSdf(p: vec3f, major: f32, tube: f32, tilt: f32) -> f32 {
     }
   }
   let pigment = paletteAt(random(address + vec2i(37, 71)));
-  let joint = \${p("jointWidth")}.x;
+  let joint = \${p2("jointWidth")}.x;
   if (joint <= 0.0) { return pigment; }
   let edgePixels = min(min((input.uv.x - lower.x) * globals.viewport.x, (upper.x - input.uv.x) * globals.viewport.x),
     min((input.uv.y - lower.y) * globals.viewport.y, (upper.y - input.uv.y) * globals.viewport.y));
@@ -8879,13 +9120,13 @@ fn torusSdf(p: vec3f, major: f32, tube: f32, tilt: f32) -> f32 {
         similarity: catalogFloat("Patch similarity", 0.17, 0.02, 0.6),
         blend: fraction3("Blend", 0.85)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let center = sampleSource(input.uv);
   let pixel = globals.clock.z * globals.viewport.zw;
-  let reach = \${p("radius")}.x * pixel;
+  let reach = \${p2("radius")}.x * pixel;
   let centerLeft = sampleSource(input.uv - vec2f(pixel.x, 0.0));
   let centerRight = sampleSource(input.uv + vec2f(pixel.x, 0.0));
-  let threshold = \${p("similarity")}.x * \${p("similarity")}.x;
+  let threshold = \${p2("similarity")}.x * \${p2("similarity")}.x;
   var sum = vec4f(0.0);
   var total = 0.0;
   for (var y = -1i; y <= 1i; y += 1i) {
@@ -8903,7 +9144,7 @@ fn torusSdf(p: vec3f, major: f32, tube: f32, tilt: f32) -> f32 {
       total += weight;
     }
   }
-  return mix(center, sum / max(total, 0.000001), \${p("blend")}.x);\`,
+  return mix(center, sum / max(total, 0.000001), \${p2("blend")}.x);\`,
       looks: [
         "Fine texture relief",
         { radius: 2, similarity: 0.12, blend: 0.75 },
@@ -8923,9 +9164,9 @@ fn torusSdf(p: vec3f, major: f32, tube: f32, tilt: f32) -> f32 {
         colorWeight: catalogFloat("Color preference", 0.6, 0, 2),
         blend: fraction3("Blend", 0.9)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let center = sampleSource(input.uv);
-  let stepUv = \${p("radius")}.x * globals.clock.z * globals.viewport.zw;
+  let stepUv = \${p2("radius")}.x * globals.clock.z * globals.viewport.zw;
   var bestScore = 1000000.0;
   var bestMean = center;
   for (var quadrant = 0u; quadrant < 4u; quadrant += 1u) {
@@ -8948,10 +9189,10 @@ fn torusSdf(p: vec3f, major: f32, tube: f32, tilt: f32) -> f32 {
     let meanLuma = dot(mean.rgb, vec3f(0.2126, 0.7152, 0.0722));
     let lumaVariance = max(lumaSquare * 0.25 - meanLuma * meanLuma, 0.0);
     let colorVariance = max(colorSquare * 0.25 - dot(mean, mean), 0.0);
-    let score = lumaVariance + \${p("colorWeight")}.x * colorVariance;
+    let score = lumaVariance + \${p2("colorWeight")}.x * colorVariance;
     if (score < bestScore) { bestScore = score; bestMean = mean; }
   }
-  return mix(center, bestMean, \${p("blend")}.x);\`,
+  return mix(center, bestMean, \${p2("blend")}.x);\`,
       looks: [
         "Quiet brush",
         { radius: 3, colorWeight: 0.35, blend: 0.7 },
@@ -8971,9 +9212,9 @@ fn torusSdf(p: vec3f, major: f32, tube: f32, tilt: f32) -> f32 {
         cellHeight: cssPixels("Chroma height", 4, 64),
         blend: fraction3("Blend", 0.85)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let center = sampleSource(input.uv);
-  let cell = max(vec2f(\${p("cellWidth")}.x, \${p("cellHeight")}.x) * globals.clock.z, vec2f(1.0));
+  let cell = max(vec2f(\${p2("cellWidth")}.x, \${p2("cellHeight")}.x) * globals.clock.z, vec2f(1.0));
   let cellCenter = (floor(input.uv * globals.viewport.xy / cell) + vec2f(0.5)) * cell * globals.viewport.zw;
   let held = sampleSource(cellCenter);
   let currentRgb = straight(center);
@@ -8989,7 +9230,7 @@ fn torusSdf(p: vec3f, major: f32, tube: f32, tilt: f32) -> f32 {
   let limits = select(towardBlack, towardWhite, delta >= vec3f(0.0));
   let gamutScale = clamp(min(limits.x, min(limits.y, limits.z)), 0.0, 1.0);
   let reconstructed = vec3f(luma) + delta * gamutScale;
-  return mix(center, vec4f(reconstructed * center.a, center.a), \${p("blend")}.x);\`,
+  return mix(center, vec4f(reconstructed * center.a, center.a), \${p2("blend")}.x);\`,
       looks: [
         "Soft chroma grid",
         { cellWidth: 5, cellHeight: 4, blend: 0.65 },
@@ -9014,12 +9255,12 @@ fn torusSdf(p: vec3f, major: f32, tube: f32, tilt: f32) -> f32 {
         },
         blend: fraction3("Blend", 0.9)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let center = sampleSource(input.uv);
-  let cell = max(\${p("cell")}.x * globals.clock.z, 1.0);
+  let cell = max(\${p2("cell")}.x * globals.clock.z, 1.0);
   let pixel = input.uv * globals.viewport.xy;
   let tile = vec2i(floor(pixel / cell));
-  let phase = i32(\${p("phase")}.x);
+  let phase = i32(\${p2("phase")}.x);
   var sum = vec3f(0.0);
   var weightSum = vec3f(0.0);
   for (var y = -1i; y <= 1i; y += 1i) {
@@ -9038,7 +9279,7 @@ fn torusSdf(p: vec3f, major: f32, tube: f32, tilt: f32) -> f32 {
     }
   }
   let reconstructed = sum / max(weightSum, vec3f(0.00001));
-  return mix(center, vec4f(reconstructed * center.a, center.a), \${p("blend")}.x);\`,
+  return mix(center, vec4f(reconstructed * center.a, center.a), \${p2("blend")}.x);\`,
       looks: [
         "Fine color array",
         { cell: 2, phase: "RGGB", blend: 0.8 },
@@ -9060,9 +9301,9 @@ fn torusSdf(p: vec3f, major: f32, tube: f32, tilt: f32) -> f32 {
         diagonal: catalogFloat("Diagonal band", 1, 0, 2),
         blend: fraction3("Blend", 1)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let center = sampleSource(input.uv);
-  let block = max(\${p("block")}.x * globals.clock.z, 1.0);
+  let block = max(\${p2("block")}.x * globals.clock.z, 1.0);
   let local = input.uv * globals.viewport.xy / block;
   let origin = floor(local) * block;
   let a = sampleSource((origin + vec2f(0.25, 0.25) * block) * globals.viewport.zw);
@@ -9070,9 +9311,9 @@ fn torusSdf(p: vec3f, major: f32, tube: f32, tilt: f32) -> f32 {
   let c = sampleSource((origin + vec2f(0.25, 0.75) * block) * globals.viewport.zw);
   let d = sampleSource((origin + vec2f(0.75, 0.75) * block) * globals.viewport.zw);
   let low = (a + b + c + d) * 0.25;
-  let horizontal = (a - b + c - d) * 0.25 * \${p("horizontal")}.x;
-  let vertical = (a + b - c - d) * 0.25 * \${p("vertical")}.x;
-  let diagonal = (a - b - c + d) * 0.25 * \${p("diagonal")}.x;
+  let horizontal = (a - b + c - d) * 0.25 * \${p2("horizontal")}.x;
+  let vertical = (a + b - c - d) * 0.25 * \${p2("vertical")}.x;
+  let diagonal = (a - b - c + d) * 0.25 * \${p2("diagonal")}.x;
   let side = select(-1.0, 1.0, fract(local.x) < 0.5);
   let row = select(-1.0, 1.0, fract(local.y) < 0.5);
   let originalHorizontal = (a - b + c - d) * 0.25;
@@ -9081,7 +9322,7 @@ fn torusSdf(p: vec3f, major: f32, tube: f32, tilt: f32) -> f32 {
   let reconstructed = center + side * (horizontal - originalHorizontal) + row * (vertical - originalVertical) + side * row * (diagonal - originalDiagonal);
   let alpha = clamp(reconstructed.a, 0.0, 1.0);
   let bounded = vec4f(clamp(reconstructed.rgb, vec3f(0.0), vec3f(alpha)), alpha);
-  return mix(center, bounded, \${p("blend")}.x);\`,
+  return mix(center, bounded, \${p2("blend")}.x);\`,
       looks: [
         "Directional softening",
         { block: 4, horizontal: 0.2, vertical: 1, diagonal: 0.2 },
@@ -9101,16 +9342,16 @@ fn torusSdf(p: vec3f, major: f32, tube: f32, tilt: f32) -> f32 {
         lineWidth: catalogFloat("Contour width", 0.18, 0.02, 0.48),
         spread: catalogFloat("Palette spread", 0.8, 0.2, 2)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let aspect = globals.viewport.x / max(globals.viewport.y, 1.0);
   let q = (input.uv - vec2f(0.5)) * vec2f(aspect, 1.0);
-  let focus = vec2f(\${p("focusGap")}.x * 0.5, 0.0);
+  let focus = vec2f(\${p2("focusGap")}.x * 0.5, 0.0);
   let field = sqrt(length(q - focus) * length(q + focus));
-  let bands = field * \${p("levels")}.x;
+  let bands = field * \${p2("levels")}.x;
   let gap = abs(fract(bands + 0.5) - 0.5);
-  let line = 1.0 - smoothstep(\${p("lineWidth")}.x, \${p("lineWidth")}.x + max(fwidth(bands), 0.001), gap);
-  let base = paletteAt(clamp(field * \${p("spread")}.x, 0.0, 1.0));
-  let accent = paletteAt(clamp(field * \${p("spread")}.x + 0.22, 0.0, 1.0));
+  let line = 1.0 - smoothstep(\${p2("lineWidth")}.x, \${p2("lineWidth")}.x + max(fwidth(bands), 0.001), gap);
+  let base = paletteAt(clamp(field * \${p2("spread")}.x, 0.0, 1.0));
+  let accent = paletteAt(clamp(field * \${p2("spread")}.x + 0.22, 0.0, 1.0));
   return mix(base, accent, line);\`,
       looks: [
         "Joined ovals",
@@ -9530,10 +9771,10 @@ return mixPigment(globals.params[0],shell,cover);\`,
   return luminance(straight(pixel)) * pixel.a;
 }
 \`,
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let original = sampleSource(input.uv);
-  if (original.a <= 0.00001 || \${p("radius")}.x <= 0.0 || \${p("strength")}.x <= 0.0) { return original; }
-  let d = \${p("radius")}.x * globals.clock.z * globals.viewport.zw;
+  if (original.a <= 0.00001 || \${p2("radius")}.x <= 0.0 || \${p2("strength")}.x <= 0.0) { return original; }
+  let d = \${p2("radius")}.x * globals.clock.z * globals.viewport.zw;
   let a = tensorTone(input.uv + vec2f(-d.x, -d.y));
   let b = tensorTone(input.uv + vec2f(0.0, -d.y));
   let c = tensorTone(input.uv + vec2f(d.x, -d.y));
@@ -9554,8 +9795,8 @@ return mixPigment(globals.params[0],shell,cover);\`,
   let direction = 0.5 * atan2(2.0 * xy, xx - yy);
   let phase = vec3f(0.0, 2.0943951, 4.1887902);
   let tint = vec3f(0.5) + 0.5 * cos(vec3f(2.0 * direction) + phase);
-  let floor = \${p("coherenceFloor")}.x;
-  let gain = \${p("strength")}.x * clamp((coherence - floor) / max(1.0 - floor, 0.00001), 0.0, 1.0);
+  let floor = \${p2("coherenceFloor")}.x;
+  let gain = \${p2("strength")}.x * clamp((coherence - floor) / max(1.0 - floor, 0.00001), 0.0, 1.0);
   return premultiply(mix(straight(original), tint, gain), original.a);\`,
       looks: [
         ["Fine Direction", { radius: 1.5, coherenceFloor: 0.24, strength: 0.7 }],
@@ -9582,10 +9823,10 @@ return mixPigment(globals.params[0],shell,cover);\`,
         contrast: catalogFloat("Entropy contrast", 1.4, 0.25, 4),
         amount: fraction4("Tint amount", 0.85)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let original = sampleSource(input.uv);
-  if (original.a <= 0.00001 || \${p("amount")}.x <= 0.0) { return original; }
-  let stepUv = \${p("radius")}.x * globals.clock.z * globals.viewport.zw;
+  if (original.a <= 0.00001 || \${p2("amount")}.x <= 0.0) { return original; }
+  let stepUv = \${p2("radius")}.x * globals.clock.z * globals.viewport.zw;
   var bins: array<f32, 8>;
   var count = 0.0;
   for (var row = 0; row < 4; row += 1) {
@@ -9604,10 +9845,10 @@ return mixPigment(globals.params[0],shell,cover);\`,
   for (var i = 0u; i < 8u; i += 1u) {
     if (bins[i] > 0.0) { let probability = bins[i] / count; entropy -= probability * log2(probability) / 3.0; }
   }
-  let level = clamp((entropy - 0.5) * \${p("contrast")}.x + 0.5, 0.0, 1.0);
-  let tint = mix(\${p("lowColor")}.rgb, \${p("highColor")}.rgb, level);
-  let tintAlpha = mix(\${p("lowColor")}.a, \${p("highColor")}.a, level);
-  return premultiply(mix(straight(original), tint, \${p("amount")}.x * tintAlpha), original.a);\`,
+  let level = clamp((entropy - 0.5) * \${p2("contrast")}.x + 0.5, 0.0, 1.0);
+  let tint = mix(\${p2("lowColor")}.rgb, \${p2("highColor")}.rgb, level);
+  let tintAlpha = mix(\${p2("lowColor")}.a, \${p2("highColor")}.a, level);
+  return premultiply(mix(straight(original), tint, \${p2("amount")}.x * tintAlpha), original.a);\`,
       looks: [
         ["Order Map", { radius: 2, contrast: 1.1, amount: 0.7 }],
         ["Texture Heat", { radius: 6, contrast: 2.2, amount: 1 }]
@@ -9625,12 +9866,12 @@ return mixPigment(globals.params[0],shell,cover);\`,
         shade: fraction4("Relief shading", 0.35),
         amount: fraction4("Parallax amount", 0.9)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let original = sampleSource(input.uv);
-  if (\${p("depth")}.x <= 0.0 || \${p("amount")}.x <= 0.0) { return original; }
-  let angle = \${p("azimuth")}.x * PI / 180.0;
-  let elevation = \${p("elevation")}.x * PI / 180.0;
-  let view = vec2f(cos(angle), sin(angle)) * \${p("depth")}.x * cos(elevation) * globals.clock.z * globals.viewport.zw;
+  if (\${p2("depth")}.x <= 0.0 || \${p2("amount")}.x <= 0.0) { return original; }
+  let angle = \${p2("azimuth")}.x * PI / 180.0;
+  let elevation = \${p2("elevation")}.x * PI / 180.0;
+  let view = vec2f(cos(angle), sin(angle)) * \${p2("depth")}.x * cos(elevation) * globals.clock.z * globals.viewport.zw;
   var hit = original;
   var hitUv = input.uv;
   for (var step = 0; step < 8; step += 1) {
@@ -9646,9 +9887,9 @@ return mixPigment(globals.params[0],shell,cover);\`,
   let yd = sampleSource(hitUv + vec2f(0.0, delta.y));
   let dx = luminance(straight(xr)) * xr.a - luminance(straight(xl)) * xl.a;
   let dy = luminance(straight(yd)) * yd.a - luminance(straight(yu)) * yu.a;
-  let directionalShade = clamp(1.0 - \${p("shade")}.x * dot(vec2f(dx, dy), vec2f(cos(angle), sin(angle))), 0.3, 1.5);
+  let directionalShade = clamp(1.0 - \${p2("shade")}.x * dot(vec2f(dx, dy), vec2f(cos(angle), sin(angle))), 0.3, 1.5);
   let lifted = premultiply(straight(hit) * directionalShade, hit.a);
-  return mix(original, lifted, \${p("amount")}.x);\`,
+  return mix(original, lifted, \${p2("amount")}.x);\`,
       looks: [
         [
           "Low Relief",
@@ -9672,22 +9913,22 @@ return mixPigment(globals.params[0],shell,cover);\`,
         ambient: fraction4("Ambient light", 0.28),
         amount: fraction4("Sphere amount", 1)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let original = sampleSource(input.uv);
-  let radius = \${p("radius")}.x * globals.clock.z;
-  if (radius <= 0.0 || \${p("amount")}.x <= 0.0) { return original; }
+  let radius = \${p2("radius")}.x * globals.clock.z;
+  if (radius <= 0.0 || \${p2("amount")}.x <= 0.0) { return original; }
   let q = (input.uv - vec2f(0.5)) * globals.viewport.xy / radius;
   let distanceSquared = dot(q, q);
   if (distanceSquared >= 1.0) { return original; }
   let normal = normalize(vec3f(q, sqrt(max(1.0 - distanceSquared, 0.0))));
-  let longitude = atan2(normal.x, normal.z) / TAU + 0.5 + \${p("longitude")}.x / 360.0;
+  let longitude = atan2(normal.x, normal.z) / TAU + 0.5 + \${p2("longitude")}.x / 360.0;
   let latitude = asin(clamp(normal.y, -1.0, 1.0)) / PI + 0.5;
   let mapped = sampleSource(vec2f(fract(longitude), latitude));
-  let lightAngle = \${p("lightAzimuth")}.x * PI / 180.0;
+  let lightAngle = \${p2("lightAzimuth")}.x * PI / 180.0;
   let light = normalize(vec3f(sin(lightAngle), -0.35, cos(lightAngle)));
-  let illumination = \${p("ambient")}.x + (1.0 - \${p("ambient")}.x) * max(dot(normal, light), 0.0);
+  let illumination = \${p2("ambient")}.x + (1.0 - \${p2("ambient")}.x) * max(dot(normal, light), 0.0);
   let feather = clamp((1.0 - sqrt(distanceSquared)) * radius, 0.0, 1.0);
-  return mix(original, vec4f(mapped.rgb * illumination, mapped.a), feather * \${p("amount")}.x);\`,
+  return mix(original, vec4f(mapped.rgb * illumination, mapped.a), feather * \${p2("amount")}.x);\`,
       looks: [
         [
           "Day Hemisphere",
@@ -9715,11 +9956,11 @@ return mixPigment(globals.params[0],shell,cover);\`,
         },
         amount: fraction4("Facet amount", 0.9)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let original = sampleSource(input.uv);
-  let tile = max(\${p("tileSize")}.x * globals.clock.z, 1.0);
-  if (\${p("amount")}.x <= 0.0) { return original; }
-  let angle = \${p("rotation")}.x * PI / 180.0;
+  let tile = max(\${p2("tileSize")}.x * globals.clock.z, 1.0);
+  if (\${p2("amount")}.x <= 0.0) { return original; }
+  let angle = \${p2("rotation")}.x * PI / 180.0;
   let centered = input.uv * globals.viewport.xy - globals.viewport.xy * 0.5;
   let lattice = rotate(centered / tile, angle);
   let cell = floor(lattice);
@@ -9733,11 +9974,11 @@ return mixPigment(globals.params[0],shell,cover);\`,
   let diagonal = abs(1.0 - local.x - local.y) * 0.70710678;
   let boundary = select(min(local.x, local.y), min(1.0 - local.x, 1.0 - local.y), upper);
   let seamDistance = min(boundary, diagonal);
-  let seamWidth = \${p("seam")}.x * globals.clock.z / tile;
+  let seamWidth = \${p2("seam")}.x * globals.clock.z / tile;
   let edgeCoverage = 1.0 - smoothstep(0.0, max(seamWidth, 0.00001), seamDistance);
-  let tintWeight = \${p("grout")}.a * edgeCoverage;
-  let painted = premultiply(mix(straight(facet), \${p("grout")}.rgb, tintWeight), facet.a);
-  return mix(original, painted, \${p("amount")}.x);\`,
+  let tintWeight = \${p2("grout")}.a * edgeCoverage;
+  let painted = premultiply(mix(straight(facet), \${p2("grout")}.rgb, tintWeight), facet.a);
+  return mix(original, painted, \${p2("amount")}.x);\`,
       looks: [
         ["Fine Shards", { tileSize: 16, rotation: 0, seam: 0.5, amount: 0.85 }],
         ["Broad Tesserae", { tileSize: 58, rotation: 26, seam: 2, amount: 1 }]
@@ -9762,23 +10003,23 @@ fn plateScreen(position: vec2f, angle: f32, cellSize: f32, threshold: f32) -> f3
   return 1.0 - smoothstep(threshold - 0.07, threshold + 0.07, radius);
 }
 \`,
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let original = sampleSource(input.uv);
-  if (original.a <= 0.00001 || \${p("amount")}.x <= 0.0) { return original; }
+  if (original.a <= 0.00001 || \${p2("amount")}.x <= 0.0) { return original; }
   let rgb = clamp(straight(original), vec3f(0.0), vec3f(1.0));
   let raw = vec3f(1.0) - rgb;
-  let black = min(raw.x, min(raw.y, raw.z)) * \${p("blackGeneration")}.x;
+  let black = min(raw.x, min(raw.y, raw.z)) * \${p2("blackGeneration")}.x;
   let process = clamp(raw - vec3f(black), vec3f(0.0), vec3f(1.0));
   let position = input.uv * globals.viewport.xy / max(globals.clock.z, 0.01);
-  let cell = max(\${p("cellSize")}.x, 0.1);
-  let shift = \${p("registration")}.x;
-  let spread = \${p("spread")}.x;
+  let cell = max(\${p2("cellSize")}.x, 0.1);
+  let shift = \${p2("registration")}.x;
+  let spread = \${p2("spread")}.x;
   let cyan = process.x * plateScreen(position + vec2f(-shift, 0.0), 0.2617994, cell, sqrt(process.x) * spread);
   let magenta = process.y * plateScreen(position + vec2f(shift, 0.0), 1.3089969, cell, sqrt(process.y) * spread);
   let yellow = process.z * plateScreen(position + vec2f(0.0, shift), 0.0, cell, sqrt(process.z) * spread);
   let key = black * plateScreen(position, 0.7853982, cell, sqrt(black) * spread);
   let reflectance = vec3f((1.0 - cyan) * (1.0 - key), (1.0 - magenta) * (1.0 - key), (1.0 - yellow) * (1.0 - key));
-  return premultiply(mix(rgb, reflectance, \${p("amount")}.x), original.a);\`,
+  return premultiply(mix(rgb, reflectance, \${p2("amount")}.x), original.a);\`,
       looks: [
         [
           "Fine Process",
@@ -9856,12 +10097,12 @@ fn plateScreen(position: vec2f, angle: f32, cellSize: f32, threshold: f32) -> f3
         lightAzimuth: catalogFloat("Light azimuth", -35, -180, 180, 1),
         amount: fraction5("Photo relief", 1)
       },
-      helpers: (p) => \`
+      helpers: (p2) => \`
 fn imageUv(uv: vec2f) -> vec2f {
   let imageSize = vec2f(textureDimensions(sourceTexture));
   let imageAspect = imageSize.x / max(imageSize.y, 1.0);
   let frameAspect = globals.viewport.x / max(globals.viewport.y, 1.0);
-  let fit = u32(\${p("fit")}.x);
+  let fit = u32(\${p2("fit")}.x);
   if (fit == 2u) { return uv; }
   var scale = vec2f(1.0);
   if (fit == 0u) {
@@ -9879,7 +10120,7 @@ fn imageTone(uv: vec2f) -> f32 {
   return dot(sampled.rgb, vec3f(0.2126, 0.7152, 0.0722));
 }
 \`,
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let uv = imageUv(input.uv);
   if (any(uv < vec2f(0.0)) || any(uv > vec2f(1.0))) { return vec4f(0.0); }
   let image = textureSampleLevel(sourceTexture, effectSampler, uv, 0.0);
@@ -9889,15 +10130,15 @@ fn imageTone(uv: vec2f) -> f32 {
   let dv = vec2f(0.0, unit.y);
   let dx = imageTone(uv + du) - imageTone(uv - du);
   let dy = imageTone(uv + dv) - imageTone(uv - dv);
-  let angle = \${p("lightAzimuth")}.x * 0.01745329252;
-  let illumination = clamp(0.72 + \${p("relief")}.x * (dx * cos(angle) + dy * sin(angle)) * 2.5, 0.25, 1.25);
-  let level = clamp(imageTone(uv), 0.0, 1.0) * \${p("bands")}.x;
+  let angle = \${p2("lightAzimuth")}.x * 0.01745329252;
+  let illumination = clamp(0.72 + \${p2("relief")}.x * (dx * cos(angle) + dy * sin(angle)) * 2.5, 0.25, 1.25);
+  let level = clamp(imageTone(uv), 0.0, 1.0) * \${p2("bands")}.x;
   let line = 1.0 - smoothstep(0.0, 0.08, min(fract(level), 1.0 - fract(level)));
-  let terrace = floor(level) / max(\${p("bands")}.x - 1.0, 1.0);
+  let terrace = floor(level) / max(\${p2("bands")}.x - 1.0, 1.0);
   let straightImage = image.rgb / max(image.a, 0.00001);
-  let sculpted = straightImage * illumination * mix(1.0, 0.65 + 0.35 * terrace, \${p("relief")}.x);
-  let inked = sculpted * (1.0 - line * \${p("contour")}.x);
-  return vec4f(mix(image.rgb, inked * image.a, \${p("amount")}.x), image.a);\`,
+  let sculpted = straightImage * illumination * mix(1.0, 0.65 + 0.35 * terrace, \${p2("relief")}.x);
+  let inked = sculpted * (1.0 - line * \${p2("contour")}.x);
+  return vec4f(mix(image.rgb, inked * image.a, \${p2("amount")}.x), image.a);\`,
       looks: [
         [
           "Soft Topography",
@@ -9934,15 +10175,15 @@ fn surround(uv: vec2f, radius: f32, center: f32) -> f32 {
   return select(center, sum.x / max(sum.y, 0.00001), sum.y > 0.00001);
 }
 \`,
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let original = sampleSource(input.uv);
-  if (original.a <= 0.00001 || \${p("amount")}.x <= 0.0) { return original; }
+  if (original.a <= 0.00001 || \${p2("amount")}.x <= 0.0) { return original; }
   let center = log(max(luminance(straight(original)), 0.0001));
-  let near = surround(input.uv, \${p("nearRadius")}.x, center);
-  let far = surround(input.uv, \${p("farRadius")}.x, center);
-  let illumination = mix(near, far, \${p("surroundMix")}.x);
-  let factor = clamp(exp((center - illumination) * \${p("compression")}.x), 0.25, 4.0);
-  return premultiply(straight(original) * mix(1.0, factor, \${p("amount")}.x), original.a);\`,
+  let near = surround(input.uv, \${p2("nearRadius")}.x, center);
+  let far = surround(input.uv, \${p2("farRadius")}.x, center);
+  let illumination = mix(near, far, \${p2("surroundMix")}.x);
+  let factor = clamp(exp((center - illumination) * \${p2("compression")}.x), 0.25, 4.0);
+  return premultiply(straight(original) * mix(1.0, factor, \${p2("amount")}.x), original.a);\`,
       looks: [
         [
           "Open Shadows",
@@ -9990,18 +10231,18 @@ fn crossErosion(uv: vec2f, d: vec2f) -> f32 {
   return lowest;
 }
 \`,
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let original = sampleSource(input.uv);
-  if (original.a <= 0.00001 || \${p("amount")}.x <= 0.0) { return original; }
-  let d = \${p("radius")}.x * globals.clock.z * globals.viewport.zw;
+  if (original.a <= 0.00001 || \${p2("amount")}.x <= 0.0) { return original; }
+  let d = \${p2("radius")}.x * globals.clock.z * globals.viewport.zw;
   var opening = crossErosion(input.uv, d);
   opening = max(opening, crossErosion(input.uv + vec2f(d.x, 0.0), d));
   opening = max(opening, crossErosion(input.uv - vec2f(d.x, 0.0), d));
   opening = max(opening, crossErosion(input.uv + vec2f(0.0, d.y), d));
   opening = max(opening, crossErosion(input.uv - vec2f(0.0, d.y), d));
-  let residual = max(featureTone(input.uv) - opening - \${p("threshold")}.x, 0.0);
-  let weight = clamp(residual * 3.0, 0.0, 1.0) * \${p("amount")}.x * \${p("tint")}.a;
-  return premultiply(mix(straight(original), \${p("tint")}.rgb, weight), original.a);\`,
+  let residual = max(featureTone(input.uv) - opening - \${p2("threshold")}.x, 0.0);
+  let weight = clamp(residual * 3.0, 0.0, 1.0) * \${p2("amount")}.x * \${p2("tint")}.a;
+  return premultiply(mix(straight(original), \${p2("tint")}.rgb, weight), original.a);\`,
       looks: [
         ["Small Highlights", { radius: 1.5, threshold: 0.08, amount: 0.65 }],
         ["Glint Extraction", { radius: 5, threshold: 0.03, amount: 1 }]
@@ -10033,10 +10274,10 @@ fn cornerGradient(uv: vec2f, d: vec2f) -> vec2f {
     cornerTone(uv + vec2f(0.0, d.y)) - cornerTone(uv - vec2f(0.0, d.y))) * 0.5;
 }
 \`,
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let original = sampleSource(input.uv);
-  if (original.a <= 0.00001 || \${p("amount")}.x <= 0.0) { return original; }
-  let d = \${p("radius")}.x * globals.clock.z * globals.viewport.zw;
+  if (original.a <= 0.00001 || \${p2("amount")}.x <= 0.0) { return original; }
+  let d = \${p2("radius")}.x * globals.clock.z * globals.viewport.zw;
   let a = cornerGradient(input.uv + vec2f(-d.x, -d.y), d);
   let b = cornerGradient(input.uv + vec2f(d.x, -d.y), d);
   let c = cornerGradient(input.uv + vec2f(-d.x, d.y), d);
@@ -10046,12 +10287,12 @@ fn cornerGradient(uv: vec2f, d: vec2f) -> vec2f {
   let yy = (a.y*a.y + b.y*b.y + c.y*c.y + e.y*e.y) * 0.25;
   let trace = xx + yy;
   let response = max((xx * yy - xy * xy) - 0.04 * trace * trace, 0.0);
-  let strength = clamp(response * 48.0 - \${p("response")}.x, 0.0, 1.0);
+  let strength = clamp(response * 48.0 - \${p2("response")}.x, 0.0, 1.0);
   let pixel = input.uv * globals.viewport.xy / max(globals.clock.z, 0.01);
-  let grid = max(\${p("markSize")}.x * 3.0, 1.0);
+  let grid = max(\${p2("markSize")}.x * 3.0, 1.0);
   let marker = 1.0 - smoothstep(0.12, 0.38, length(fract(pixel / grid) - vec2f(0.5)));
-  let weight = strength * marker * \${p("amount")}.x * \${p("tint")}.a;
-  return premultiply(mix(straight(original), \${p("tint")}.rgb, weight), original.a);\`,
+  let weight = strength * marker * \${p2("amount")}.x * \${p2("tint")}.a;
+  return premultiply(mix(straight(original), \${p2("tint")}.rgb, weight), original.a);\`,
       looks: [
         [
           "Architectural Points",
@@ -10074,21 +10315,21 @@ fn cornerGradient(uv: vec2f, d: vec2f) -> vec2f {
         rim: fraction5("Rim shading", 0.28),
         amount: fraction5("Lens amount", 0.85)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let original = sampleSource(input.uv);
-  if (\${p("amount")}.x <= 0.0) { return original; }
-  let pitch = max(\${p("pitch")}.x * globals.clock.z, 1.0);
+  if (\${p2("amount")}.x <= 0.0) { return original; }
+  let pitch = max(\${p2("pitch")}.x * globals.clock.z, 1.0);
   let pixel = input.uv * globals.viewport.xy;
   let cell = floor(pixel / pitch) + vec2f(0.5);
   let local = (pixel / pitch - cell) * 2.0;
   let radius2 = dot(local, local);
   if (radius2 >= 1.0) { return original; }
-  let compression = 1.0 - \${p("curvature")}.x * (1.0 - radius2) * 0.45;
+  let compression = 1.0 - \${p2("curvature")}.x * (1.0 - radius2) * 0.45;
   let mapped = (cell * pitch + local * 0.5 * pitch * compression) * globals.viewport.zw;
   let refracted = sampleSource(mapped);
-  let illumination = 1.0 - \${p("rim")}.x * smoothstep(0.55, 1.0, sqrt(radius2));
+  let illumination = 1.0 - \${p2("rim")}.x * smoothstep(0.55, 1.0, sqrt(radius2));
   let lens = vec4f(refracted.rgb * illumination, refracted.a);
-  return mix(original, lens, \${p("amount")}.x);\`,
+  return mix(original, lens, \${p2("amount")}.x);\`,
       looks: [
         [
           "Fine Lenslets",
@@ -10110,17 +10351,17 @@ fn cornerGradient(uv: vec2f, d: vec2f) -> vec2f {
         phase: catalogFloat("Wave phase", 0, -6.28, 6.28),
         amount: fraction5("Reflection amount", 1)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let original = sampleSource(input.uv);
-  let depth = input.uv.y - \${p("horizon")}.x;
-  if (depth <= 0.0 || \${p("amount")}.x <= 0.0) { return original; }
-  let wavelength = max(\${p("wavelength")}.x * globals.clock.z, 1.0);
-  let phase = input.uv.x * globals.viewport.x / wavelength * TAU + depth * 14.0 + \${p("phase")}.x;
-  let wave = sin(phase) * \${p("amplitude")}.x * globals.clock.z * globals.viewport.z;
-  let mapped = vec2f(input.uv.x + wave * clamp(depth * 3.0, 0.0, 1.0), 2.0 * \${p("horizon")}.x - input.uv.y);
+  let depth = input.uv.y - \${p2("horizon")}.x;
+  if (depth <= 0.0 || \${p2("amount")}.x <= 0.0) { return original; }
+  let wavelength = max(\${p2("wavelength")}.x * globals.clock.z, 1.0);
+  let phase = input.uv.x * globals.viewport.x / wavelength * TAU + depth * 14.0 + \${p2("phase")}.x;
+  let wave = sin(phase) * \${p2("amplitude")}.x * globals.clock.z * globals.viewport.z;
+  let mapped = vec2f(input.uv.x + wave * clamp(depth * 3.0, 0.0, 1.0), 2.0 * \${p2("horizon")}.x - input.uv.y);
   let reflected = sampleSource(mapped);
-  let fade = 1.0 - \${p("attenuation")}.x * clamp(depth / max(1.0 - \${p("horizon")}.x, 0.0001), 0.0, 1.0);
-  return mix(original, vec4f(reflected.rgb * fade, reflected.a), \${p("amount")}.x);\`,
+  let fade = 1.0 - \${p2("attenuation")}.x * clamp(depth / max(1.0 - \${p2("horizon")}.x, 0.0001), 0.0, 1.0);
+  return mix(original, vec4f(reflected.rgb * fade, reflected.a), \${p2("amount")}.x);\`,
       looks: [
         [
           "Still Shore",
@@ -10240,16 +10481,16 @@ fn kochSegment(p: vec2f, a: vec2f, b: vec2f, depth: u32) -> f32 {
   return best;
 }
 \`,
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let aspect = globals.viewport.x / max(globals.viewport.y, 1.0);
-  let q = (input.uv - vec2f(0.5)) * vec2f(aspect, 1.0) / \${p("scale")}.x;
+  let q = (input.uv - vec2f(0.5)) * vec2f(aspect, 1.0) / \${p2("scale")}.x;
   let a = vec2f(0.0, -0.38);
   let b = vec2f(0.32909, 0.19);
   let c = vec2f(-0.32909, 0.19);
-  let depth = u32(\${p("depth")}.x);
+  let depth = u32(\${p2("depth")}.x);
   let d = min(kochSegment(q, a, b, depth), min(kochSegment(q, b, c, depth), kochSegment(q, c, a, depth)));
-  let feather = max(globals.clock.z / \${p("scale")}.x / globals.viewport.y, 0.00001);
-  let stroke = \${p("stroke")}.x * feather;
+  let feather = max(globals.clock.z / \${p2("scale")}.x / globals.viewport.y, 0.00001);
+  let stroke = \${p2("stroke")}.x * feather;
   let coverage = 1.0 - smoothstep(stroke - feather, stroke + feather, d);
   return mix(paletteAt(0.0), paletteAt(1.0), coverage);\`,
       looks: [
@@ -10314,9 +10555,9 @@ fn hilbertDistance(p: vec2f, a: vec2f, b: vec2f) -> f32 {
   return length(p - a - v * clamp(dot(p - a, v) / max(dot(v, v), 0.000001), 0.0, 1.0));
 }
 \`,
-      fragment: (p) => \`
-  let side = 1u << u32(\${p("order")}.x);
-  let normalized = (input.uv - vec2f(\${p("margin")}.x)) / max(1.0 - 2.0 * \${p("margin")}.x, 0.01);
+      fragment: (p2) => \`
+  let side = 1u << u32(\${p2("order")}.x);
+  let normalized = (input.uv - vec2f(\${p2("margin")}.x)) / max(1.0 - 2.0 * \${p2("margin")}.x, 0.01);
   if (any(normalized < vec2f(0.0)) || any(normalized > vec2f(1.0))) { return paletteAt(0.0); }
   let q = normalized * f32(side) - vec2f(0.5);
   let cell = vec2u(clamp(floor(q + vec2f(0.5)), vec2f(0.0), vec2f(f32(side - 1u))));
@@ -10325,10 +10566,10 @@ fn hilbertDistance(p: vec2f, a: vec2f, b: vec2f) -> f32 {
   let a = vec2f(hilbertPoint(index, side));
   let before = vec2f(hilbertPoint(select(index, index - 1u, index > 0u), side));
   let after = vec2f(hilbertPoint(min(index + 1u, count - 1u), side));
-  let cellCss = globals.viewport.xy * (1.0 - 2.0 * \${p("margin")}.x) / max(globals.clock.z * f32(side), 1.0);
+  let cellCss = globals.viewport.xy * (1.0 - 2.0 * \${p2("margin")}.x) / max(globals.clock.z * f32(side), 1.0);
   let d = min(hilbertDistance(q * cellCss, before * cellCss, a * cellCss),
               hilbertDistance(q * cellCss, a * cellCss, after * cellCss));
-  let width = \${p("stroke")}.x;
+  let width = \${p2("stroke")}.x;
   return mix(paletteAt(0.0), paletteAt(1.0), 1.0 - smoothstep(width - 1.0, width + 1.0, d));\`,
       looks: [
         ["Copper Route", { order: 4, stroke: 1.5, margin: 0.1 }],
@@ -10353,23 +10594,23 @@ fn hilbertDistance(p: vec2f, a: vec2f, b: vec2f) -> f32 {
           catalogColor(1, 0.75, 0.35)
         ])
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let aspect = globals.viewport.x / max(globals.viewport.y, 1.0);
   let pixel = input.uv * vec2f(aspect, 1.0);
-  let lamp = vec2f(\${p("lightX")}.x * aspect, \${p("lightY")}.x);
-  let circle = vec2f(\${p("obstacleX")}.x * aspect, \${p("obstacleY")}.x);
+  let lamp = vec2f(\${p2("lightX")}.x * aspect, \${p2("lightY")}.x);
+  let circle = vec2f(\${p2("obstacleX")}.x * aspect, \${p2("obstacleY")}.x);
   let ray = pixel - lamp;
   let distance = max(length(ray), 0.00001);
   let direction = ray / distance;
   var visibility = 1.0;
   for (var step = 1u; step <= 12u; step += 1u) {
     let travelled = distance * f32(step) / 13.0;
-    let signedDistance = length(lamp + direction * travelled - circle) - \${p("radius")}.x;
-    visibility = min(visibility, clamp(signedDistance / max(\${p("softness")}.x * travelled, 0.0001), 0.0, 1.0));
+    let signedDistance = length(lamp + direction * travelled - circle) - \${p2("radius")}.x;
+    visibility = min(visibility, clamp(signedDistance / max(\${p2("softness")}.x * travelled, 0.0001), 0.0, 1.0));
   }
-  let body = length(pixel - circle) - \${p("radius")}.x;
+  let body = length(pixel - circle) - \${p2("radius")}.x;
   visibility *= smoothstep(-0.005, 0.005, body);
-  let attenuation = \${p("exposure")}.x / (1.0 + 8.0 * distance * distance);
+  let attenuation = \${p2("exposure")}.x / (1.0 + 8.0 * distance * distance);
   return mix(paletteAt(0.0), paletteAt(1.0), clamp(visibility * attenuation, 0.0, 1.0));\`,
       looks: [
         [
@@ -10421,8 +10662,8 @@ fn rimPoint(index: u32) -> vec2f {
   }
 }
 \`,
-      fragment: (p) => \`
-  let displacement = vec2f(\${p("centerX")}.x, \${p("centerY")}.x) * \${p("amount")}.x;
+      fragment: (p2) => \`
+  let displacement = vec2f(\${p2("centerX")}.x, \${p2("centerY")}.x) * \${p2("amount")}.x;
   if (dot(displacement, displacement) <= 0.00000001) { return sampleSource(input.uv); }
   let center = vec2f(0.5) + displacement;
   var mapped = input.uv;
@@ -10448,18 +10689,18 @@ fn rimPoint(index: u32) -> vec2f {
         width: catalogFloat("Ridge width", 0.6, 0.05, 2),
         amount: unit("Ridge amount", 1)
       },
-      helpers: (p) => \`
+      helpers: (p2) => \`
 fn alphaDistance(uv: vec2f) -> f32 {
   let center = sampleSource(uv);
-  if (center.a <= \${p("threshold")}.x) { return 0.0; }
-  var nearest = \${p("radius")}.x + 1.0;
+  if (center.a <= \${p2("threshold")}.x) { return 0.0; }
+  var nearest = \${p2("radius")}.x + 1.0;
   let texel = globals.clock.z * globals.viewport.zw;
   for (var step = 1u; step <= 6u; step += 1u) {
-    if (f32(step) > \${p("radius")}.x) { break; }
+    if (f32(step) > \${p2("radius")}.x) { break; }
     for (var direction = 0u; direction < 8u; direction += 1u) {
       let angle = f32(direction) * 0.7853981634;
       let delta = vec2f(cos(angle), sin(angle)) * texel * f32(step);
-      if (sampleSource(uv + delta).a <= \${p("threshold")}.x) {
+      if (sampleSource(uv + delta).a <= \${p2("threshold")}.x) {
         nearest = min(nearest, f32(step));
       }
     }
@@ -10467,9 +10708,9 @@ fn alphaDistance(uv: vec2f) -> f32 {
   return nearest;
 }
 \`,
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let original = sampleSource(input.uv);
-  if (original.a <= 0.00001 || \${p("amount")}.x <= 0.0) { return original; }
+  if (original.a <= 0.00001 || \${p2("amount")}.x <= 0.0) { return original; }
   let center = alphaDistance(input.uv);
   let texel = globals.clock.z * globals.viewport.zw;
   let right = alphaDistance(input.uv + vec2f(texel.x, 0.0));
@@ -10479,8 +10720,8 @@ fn alphaDistance(uv: vec2f) -> f32 {
   let tallestNeighbor = max(max(right, left), max(down, up));
   let shortestNeighbor = min(min(right, left), min(down, up));
   let ridge = step(tallestNeighbor - 0.001, center) *
-    smoothstep(0.0, \${p("width")}.x, center - shortestNeighbor);
-  return original * mix(1.0, ridge, \${p("amount")}.x);\`,
+    smoothstep(0.0, \${p2("width")}.x, center - shortestNeighbor);
+  return original * mix(1.0, ridge, \${p2("amount")}.x);\`,
       looks: [
         ["Fine Medial", { radius: 3, threshold: 0.45, width: 0.3, amount: 1 }],
         ["Broad Skeleton", { radius: 6, threshold: 0.6, width: 1.1, amount: 1 }]
@@ -10497,9 +10738,9 @@ fn alphaDistance(uv: vec2f) -> f32 {
         softness: unit("Shoulder softness", 0.75),
         amount: unit("Amount", 1)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let original = sampleSource(input.uv);
-  if (original.a <= 0.00001 || \${p("amount")}.x <= 0.0) { return original; }
+  if (original.a <= 0.00001 || \${p2("amount")}.x <= 0.0) { return original; }
   let color = straight(original);
   let grey = luminance(color);
   let chroma = color - vec3f(grey);
@@ -10509,11 +10750,11 @@ fn alphaDistance(uv: vec2f) -> f32 {
     if (delta > 0.000001) { limit = min(limit, (1.0 - grey) / delta); }
     if (delta < -0.000001) { limit = min(limit, grey / -delta); }
   }
-  let target = min(\${p("gain")}.x, max(limit, 1.0));
+  let target = min(\${p2("gain")}.x, max(limit, 1.0));
   let span = max(limit - 1.0, 0.000001);
-  let soft = 1.0 + span * (1.0 - exp(-(\${p("gain")}.x - 1.0) / span));
-  let expansion = mix(target, min(soft, limit), \${p("softness")}.x);
-  let result = vec3f(grey) + chroma * mix(1.0, expansion, \${p("amount")}.x);
+  let soft = 1.0 + span * (1.0 - exp(-(\${p2("gain")}.x - 1.0) / span));
+  let expansion = mix(target, min(soft, limit), \${p2("softness")}.x);
+  let result = vec3f(grey) + chroma * mix(1.0, expansion, \${p2("amount")}.x);
   return premultiply(result, original.a);\`,
       looks: [
         ["Soft Saturation", { gain: 1.8, softness: 0.9, amount: 0.75 }],
@@ -10747,18 +10988,18 @@ fn distanceAt(pixel: vec2i) -> f32 {
         neutralRange: amount2("Neutral range", 0.38),
         warmPreference: amount2("Warm preference", 0.35)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let source = sampleSource(input.uv);
-  if (source.a <= 0.00001 || \${p("gain")}.x <= 0.0) { return source; }
+  if (source.a <= 0.00001 || \${p2("gain")}.x <= 0.0) { return source; }
   let rgb = source.rgb / source.a;
   let luma = luminance(rgb);
   let chroma = max(max(rgb.r, rgb.g), rgb.b) - min(min(rgb.r, rgb.g), rgb.b);
-  let neutral = 1.0 - smoothstep(0.0, max(\${p("neutralRange")}.x, 0.00001), chroma);
+  let neutral = 1.0 - smoothstep(0.0, max(\${p2("neutralRange")}.x, 0.00001), chroma);
   let warm = smoothstep(-0.15, 0.35, rgb.r - rgb.b);
-  let influence = neutral * mix(1.0, warm, \${p("warmPreference")}.x);
+  let influence = neutral * mix(1.0, warm, \${p2("warmPreference")}.x);
   let minChannel = min(min(rgb.r, rgb.g), rgb.b);
   let chromaHeadroom = luma / max(luma - minChannel, 0.00001);
-  let factor = min(1.0 + \${p("gain")}.x * influence, max(chromaHeadroom, 1.0));
+  let factor = min(1.0 + \${p2("gain")}.x * influence, max(chromaHeadroom, 1.0));
   let colored = vec3f(luma) + (rgb - vec3f(luma)) * factor;
   return vec4f(colored * source.a, source.a);\`,
       looks: [
@@ -10779,15 +11020,15 @@ fn distanceAt(pixel: vec2i) -> f32 {
         softness: catalogFloat("Shoulder", 0.09, 5e-3, 0.3),
         amount: amount2("Amount", 0.8)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let source = sampleSource(input.uv);
-  if (source.a <= 0.00001 || \${p("amount")}.x <= 0.0) { return source; }
+  if (source.a <= 0.00001 || \${p2("amount")}.x <= 0.0) { return source; }
   let rgb = source.rgb / source.a;
-  let pivot = \${p("threshold")}.x;
-  let softness = \${p("softness")}.x;
+  let pivot = \${p2("threshold")}.x;
+  let softness = \${p2("softness")}.x;
   let shoulder = smoothstep(pivot - softness, pivot + softness, luminance(rgb));
   let inverted = max(vec3f(1.0) - rgb, vec3f(0.0));
-  let result = mix(rgb, inverted, shoulder * \${p("amount")}.x);
+  let result = mix(rgb, inverted, shoulder * \${p2("amount")}.x);
   return vec4f(result * source.a, source.a);\`,
       looks: [
         ["Silver shoulder", { threshold: 0.74, softness: 0.045, amount: 0.65 }],
@@ -10805,10 +11046,10 @@ fn distanceAt(pixel: vec2i) -> f32 {
         blueRadius: distance("Blue radius", 5, 18),
         amount: amount2("Mix", 0.8)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let center = sampleSource(input.uv);
-  if (center.a <= 0.00001 || \${p("amount")}.x <= 0.0) { return center; }
-  let radii = vec3f(\${p("redRadius")}.x, \${p("greenRadius")}.x, \${p("blueRadius")}.x);
+  if (center.a <= 0.00001 || \${p2("amount")}.x <= 0.0) { return center; }
+  let radii = vec3f(\${p2("redRadius")}.x, \${p2("greenRadius")}.x, \${p2("blueRadius")}.x);
   var sums = vec3f(0.0);
   var weights = vec3f(0.0);
   for (var channel = 0; channel < 3; channel += 1) {
@@ -10828,7 +11069,7 @@ fn distanceAt(pixel: vec2i) -> f32 {
     }
   }
   let blurred = sums / max(weights, vec3f(0.00001));
-  let result = mix(center.rgb / center.a, blurred, \${p("amount")}.x);
+  let result = mix(center.rgb / center.a, blurred, \${p2("amount")}.x);
   return vec4f(max(result, vec3f(0.0)) * center.a, center.a);\`,
       looks: [
         [
@@ -10866,17 +11107,17 @@ fn distanceAt(pixel: vec2i) -> f32 {
         detail: amount2("Detail retention", 0.55),
         amount: amount2("Amount", 0.75)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let source = sampleSource(input.uv);
-  if (source.a <= 0.00001 || \${p("amount")}.x <= 0.0) { return source; }
+  if (source.a <= 0.00001 || \${p2("amount")}.x <= 0.0) { return source; }
   let rgb = source.rgb / source.a;
   let tone = clamp(luminance(rgb), 0.0, 1.0);
-  let pivot = \${p("pivot")}.x;
-  let low = mix(\${p("shadow")}, \${p("midtone")}, smoothstep(0.0, pivot, tone));
-  let high = mix(\${p("midtone")}, \${p("highlight")}, smoothstep(pivot, 1.0, tone));
+  let pivot = \${p2("pivot")}.x;
+  let low = mix(\${p2("shadow")}, \${p2("midtone")}, smoothstep(0.0, pivot, tone));
+  let high = mix(\${p2("midtone")}, \${p2("highlight")}, smoothstep(pivot, 1.0, tone));
   let mapped = select(high, low, tone <= pivot);
-  let colored = mapped.rgb + (rgb - vec3f(tone)) * \${p("detail")}.x;
-  let result = mix(rgb, max(colored, vec3f(0.0)), \${p("amount")}.x * mapped.a);
+  let colored = mapped.rgb + (rgb - vec3f(tone)) * \${p2("detail")}.x;
+  let result = mix(rgb, max(colored, vec3f(0.0)), \${p2("amount")}.x * mapped.a);
   return vec4f(result * source.a, source.a);\`,
       looks: [
         ["Evening print", { amount: 0.7, pivot: 0.42, detail: 0.7 }],
@@ -10902,25 +11143,25 @@ fn distanceAt(pixel: vec2i) -> f32 {
         strength: amount2("Halo strength", 0.45, 2),
         warmth: amount2("Warmth", 0.72)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let center = sampleSource(input.uv);
-  if (center.a <= 0.00001 || \${p("strength")}.x <= 0.0 || \${p("radius")}.x <= 0.0) { return center; }
+  if (center.a <= 0.00001 || \${p2("strength")}.x <= 0.0 || \${p2("radius")}.x <= 0.0) { return center; }
   var energy = 0.0;
   var weightSum = 0.0;
   for (var tap = 0; tap < 12; tap += 1) {
     let angle = f32(tap) * 2.39996323;
     let shell = sqrt((f32(tap) + 1.0) / 12.0);
-    let displacement = vec2f(cos(angle), sin(angle)) * shell * \${p("radius")}.x * globals.clock.z * globals.viewport.zw;
+    let displacement = vec2f(cos(angle), sin(angle)) * shell * \${p2("radius")}.x * globals.clock.z * globals.viewport.zw;
     let pixel = sampleSource(input.uv + displacement);
     if (pixel.a > 0.00001) {
-      let highlight = smoothstep(\${p("threshold")}.x, 1.0, luminance(pixel.rgb / pixel.a));
+      let highlight = smoothstep(\${p2("threshold")}.x, 1.0, luminance(pixel.rgb / pixel.a));
       let weight = 1.0 - shell * 0.5;
       energy += highlight * pixel.a * weight;
       weightSum += weight;
     }
   }
-  let bleed = energy / max(weightSum, 0.00001) * \${p("strength")}.x;
-  let tint = mix(vec3f(1.0), vec3f(1.0, 0.35, 0.08), \${p("warmth")}.x);
+  let bleed = energy / max(weightSum, 0.00001) * \${p2("strength")}.x;
+  let tint = mix(vec3f(1.0), vec3f(1.0, 0.35, 0.08), \${p2("warmth")}.x);
   return vec4f((center.rgb / center.a + tint * bleed) * center.a, center.a);\`,
       looks: [
         [
@@ -10951,15 +11192,15 @@ fn distanceAt(pixel: vec2i) -> f32 {
         depth: distance("Refraction depth", 8, 28),
         ridge: amount2("Ridge light", 0.16)
       },
-      fragment: (p) => \`
-  let pitch = max(\${p("pitch")}.x * globals.clock.z, 1.0);
+      fragment: (p2) => \`
+  let pitch = max(\${p2("pitch")}.x * globals.clock.z, 1.0);
   let position = input.uv.x * globals.viewport.x / pitch;
   let local = fract(position) - 0.5;
   let slope = sin(local * 3.14159265);
-  let shift = slope * \${p("depth")}.x * globals.clock.z * globals.viewport.z;
+  let shift = slope * \${p2("depth")}.x * globals.clock.z * globals.viewport.z;
   let refracted = sampleSource(input.uv + vec2f(shift, 0.0));
   if (refracted.a <= 0.00001) { return refracted; }
-  let ridge = pow(1.0 - abs(slope), 8.0) * \${p("ridge")}.x;
+  let ridge = pow(1.0 - abs(slope), 8.0) * \${p2("ridge")}.x;
   return vec4f(refracted.rgb + vec3f(ridge * refracted.a), refracted.a);\`,
       looks: [
         ["Fine flutes", { pitch: 12, depth: 4, ridge: 0.1 }],
@@ -11026,15 +11267,15 @@ fn distanceAt(pixel: vec2i) -> f32 {
         cellSize: pixels3("Cell size", 20, 2, 96),
         feather: amount3("Cell feather", 0.025, 0.2)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let source = sampleSource(input.uv);
-  let progress = \${p("progress")}.x;
+  let progress = \${p2("progress")}.x;
   if (source.a <= 0.00001 || progress <= 0.0) { return source; }
   if (progress >= 1.0) { return vec4f(0.0); }
-  let size = \${p("cellSize")}.x * globals.clock.z;
+  let size = \${p2("cellSize")}.x * globals.clock.z;
   let cell = vec2i(floor(input.uv * globals.viewport.xy / size));
   let threshold = random(cell);
-  let feather = \${p("feather")}.x;
+  let feather = \${p2("feather")}.x;
   let t = clamp((progress - threshold) / max(feather, 0.00001) + 0.5, 0.0, 1.0);
   let coverage = 1.0 - t * t * (3.0 - 2.0 * t);
   return source * coverage;\`,
@@ -11055,19 +11296,19 @@ fn distanceAt(pixel: vec2i) -> f32 {
         ellipse: catalogFloat("Ellipse ratio", 1, 0.25, 4),
         feather: pixels3("Edge feather", 3, 0, 48)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let source = sampleSource(input.uv);
-  let progress = \${p("progress")}.x;
+  let progress = \${p2("progress")}.x;
   if (source.a <= 0.00001 || progress <= 0.0) { return source; }
   if (progress >= 1.0) { return vec4f(0.0); }
-  let center = vec2f(\${p("centerX")}.x, \${p("centerY")}.x);
+  let center = vec2f(\${p2("centerX")}.x, \${p2("centerY")}.x);
   let physical = globals.viewport.xy / min(globals.viewport.x, globals.viewport.y);
-  let metric = vec2f(physical.x / \${p("ellipse")}.x, physical.y);
+  let metric = vec2f(physical.x / \${p2("ellipse")}.x, physical.y);
   let extent = max(center, vec2f(1.0) - center) * metric;
   let maximum = length(extent);
   let radius = maximum * (1.0 - progress);
   let distance = length((input.uv - center) * metric);
-  let feather = \${p("feather")}.x * globals.clock.z / min(globals.viewport.x, globals.viewport.y);
+  let feather = \${p2("feather")}.x * globals.clock.z / min(globals.viewport.x, globals.viewport.y);
   let t = clamp((distance - radius) / max(feather, 0.00001) + 0.5, 0.0, 1.0);
   let coverage = 1.0 - t * t * (3.0 - 2.0 * t);
   return source * coverage;\`,
@@ -11095,22 +11336,22 @@ fn distanceAt(pixel: vec2i) -> f32 {
         curlWidth: pixels3("Curl width", 54, 4, 140),
         backShade: amount3("Back shade", 0.48)
       },
-      fragment: (p) => \`
-  let progress = \${p("progress")}.x;
+      fragment: (p2) => \`
+  let progress = \${p2("progress")}.x;
   if (progress <= 0.0) { return sampleSource(input.uv); }
   if (progress >= 1.0) { return vec4f(0.0); }
   let fold = 1.0 - progress;
-  let width = \${p("curlWidth")}.x * globals.clock.z * globals.viewport.z;
+  let width = \${p2("curlWidth")}.x * globals.clock.z * globals.viewport.z;
   if (input.uv.x <= fold) {
     let source = sampleSource(input.uv);
-    let shade = 1.0 - \${p("backShade")}.x * 0.25 * smoothstep(fold - width, fold, input.uv.x);
+    let shade = 1.0 - \${p2("backShade")}.x * 0.25 * smoothstep(fold - width, fold, input.uv.x);
     return vec4f(source.rgb * shade, source.a);
   }
   let backDistance = input.uv.x - fold;
   if (backDistance >= width) { return vec4f(0.0); }
   let bent = sampleSource(vec2f(fold - backDistance, input.uv.y));
   let roll = sin(3.14159265 * backDistance / width);
-  let shade = (1.0 - \${p("backShade")}.x) * (1.0 - 0.35 * roll);
+  let shade = (1.0 - \${p2("backShade")}.x) * (1.0 - 0.35 * roll);
   return vec4f(bent.rgb * shade * (1.0 - progress), bent.a * (1.0 - progress));\`,
       looks: [
         ["Soft turn", { progress: 0.3, curlWidth: 34, backShade: 0.3 }],
@@ -11129,13 +11370,13 @@ fn distanceAt(pixel: vec2i) -> f32 {
         pushX: pixels3("Horizontal push", 22, -100, 100),
         pushY: pixels3("Vertical push", -12, -100, 100)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let source = sampleSource(input.uv);
-  let push = vec2f(\${p("pushX")}.x, \${p("pushY")}.x);
+  let push = vec2f(\${p2("pushX")}.x, \${p2("pushY")}.x);
   if (all(push == vec2f(0.0))) { return source; }
-  let center = vec2f(\${p("centerX")}.x, \${p("centerY")}.x);
+  let center = vec2f(\${p2("centerX")}.x, \${p2("centerY")}.x);
   let deltaPx = (input.uv - center) * globals.viewport.xy / globals.clock.z;
-  let t = clamp(length(deltaPx) / \${p("radius")}.x, 0.0, 1.0);
+  let t = clamp(length(deltaPx) / \${p2("radius")}.x, 0.0, 1.0);
   let weight = (1.0 - t * t) * (1.0 - t * t);
   let displaced = input.uv - push * weight * globals.clock.z * globals.viewport.zw;
   return sampleSource(displaced);\`,
@@ -11158,14 +11399,14 @@ fn distanceAt(pixel: vec2i) -> f32 {
         pooling: amount3("Pigment pooling", 0.55),
         grain: amount3("Granulation", 0.06, 0.3)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let center = sampleSource(input.uv);
   if (center.a <= 0.00001) { return center; }
-  let diffusion = \${p("diffusion")}.x;
-  let pooling = \${p("pooling")}.x;
-  let grain = \${p("grain")}.x;
+  let diffusion = \${p2("diffusion")}.x;
+  let pooling = \${p2("pooling")}.x;
+  let grain = \${p2("grain")}.x;
   if (diffusion <= 0.0 && pooling <= 0.0 && grain <= 0.0) { return center; }
-  let stepUv = \${p("radius")}.x * globals.clock.z * globals.viewport.zw;
+  let stepUv = \${p2("radius")}.x * globals.clock.z * globals.viewport.zw;
   var premultSum = vec3f(0.0);
   var alphaSum = 0.0;
   var toneSum = 0.0;
@@ -11204,9 +11445,9 @@ fn distanceAt(pixel: vec2i) -> f32 {
         sensitivity: catalogFloat("Edge sensitivity", 0.08, 5e-3, 0.4),
         amount: amount3("Fringe amount", 0.55)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let center = sampleSource(input.uv);
-  if (center.a <= 0.00001 || \${p("amount")}.x <= 0.0) { return center; }
+  if (center.a <= 0.00001 || \${p2("amount")}.x <= 0.0) { return center; }
   let delta = globals.clock.z * globals.viewport.zw;
   let left = sampleSource(input.uv - vec2f(delta.x, 0.0));
   let right = sampleSource(input.uv + vec2f(delta.x, 0.0));
@@ -11215,11 +11456,11 @@ fn distanceAt(pixel: vec2i) -> f32 {
   let gx = luminance(straight(right)) - luminance(straight(left));
   let gy = luminance(straight(down)) - luminance(straight(up));
   let slope = length(vec2f(gx, gy));
-  let edgeWeight = smoothstep(\${p("sensitivity")}.x, \${p("sensitivity")}.x * 2.0, slope);
-  let phase = (\${p("thickness")}.x + slope * \${p("bands")}.x) * 6.2831853;
+  let edgeWeight = smoothstep(\${p2("sensitivity")}.x, \${p2("sensitivity")}.x * 2.0, slope);
+  let phase = (\${p2("thickness")}.x + slope * \${p2("bands")}.x) * 6.2831853;
   let fringe = vec3f(cos(phase), cos(phase * 1.31), cos(phase * 1.66)) * 0.5 + vec3f(0.5);
   let original = center.rgb / center.a;
-  let result = mix(original, fringe, edgeWeight * \${p("amount")}.x);
+  let result = mix(original, fringe, edgeWeight * \${p2("amount")}.x);
   return vec4f(result * center.a, center.a);\`,
       looks: [
         [
@@ -11306,15 +11547,15 @@ fn coverageAt(distance: f32, halfWidth: f32, aa: f32) -> f32 {
         ink: color5("Ink", 0.85, 0.43, 0.18),
         background: color5("Background", 0.04, 0.08, 0.16)
       },
-      fragment: (p) => \`
-  let point = (input.uv - vec2f(\${p("centerX")}.x, \${p("centerY")}.x)) * globals.viewport.xy / globals.clock.z;
+      fragment: (p2) => \`
+  let point = (input.uv - vec2f(\${p2("centerX")}.x, \${p2("centerY")}.x)) * globals.viewport.xy / globals.clock.z;
   let radius = length(point);
-  let angle = fract((atan2(point.y, point.x) - \${p("start")}.x) / TAU + 2.0) * TAU;
-  let sweep = \${p("sweep")}.x;
-  let angularWidth = max(1.0 / max(\${p("radius")}.x, 1.0), 0.003);
+  let angle = fract((atan2(point.y, point.x) - \${p2("start")}.x) / TAU + 2.0) * TAU;
+  let sweep = \${p2("sweep")}.x;
+  let angularWidth = max(1.0 / max(\${p2("radius")}.x, 1.0), 0.003);
   let arc = select(1.0 - smoothstep(sweep - angularWidth, sweep + angularWidth, angle), 1.0, sweep >= TAU - 0.0001);
-  let stroke = coverageAt(radius - \${p("radius")}.x, \${p("thickness")}.x * 0.5, 0.7);
-  return sourceOver(painted(\${p("ink")}, arc * stroke), painted(\${p("background")}, 1.0));\`,
+  let stroke = coverageAt(radius - \${p2("radius")}.x, \${p2("thickness")}.x * 0.5, 0.7);
+  return sourceOver(painted(\${p2("ink")}, arc * stroke), painted(\${p2("background")}, 1.0));\`,
       looks: [
         ["Open copper", { radius: 116, thickness: 10, start: 0.5, sweep: 4.3 }],
         [
@@ -11352,25 +11593,25 @@ fn coverageAt(distance: f32, halfWidth: f32, aa: f32) -> f32 {
         far: color5("Small circles", 0.3, 0.7, 0.85),
         background: color5("Background", 0.035, 0.065, 0.12)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let width = globals.viewport.x / globals.clock.z;
   let height = globals.viewport.y / globals.clock.z;
   let point = input.uv * vec2f(width, height);
   var nearest = 1e9;
   var level = 1.0;
   for (var q = 1; q <= 6; q += 1) {
-    if (f32(q) > \${p("denominators")}.x) { break; }
+    if (f32(q) > \${p2("denominators")}.x) { break; }
     for (var numerator = 0; numerator <= q; numerator += 1) {
       let denominator = f32(q);
-      let radius = \${p("baseRadius")}.x / (denominator * denominator);
-      let center = vec2f(width * f32(numerator) / denominator, height * \${p("baseline")}.x - radius);
+      let radius = \${p2("baseRadius")}.x / (denominator * denominator);
+      let center = vec2f(width * f32(numerator) / denominator, height * \${p2("baseline")}.x - radius);
       let distance = abs(length(point - center) - radius);
       if (distance < nearest) { nearest = distance; level = denominator; }
     }
   }
-  let line = coverageAt(nearest, \${p("stroke")}.x * 0.5, 0.7);
-  let tint = mix(\${p("near")}, \${p("far")}, (level - 1.0) / max(\${p("denominators")}.x - 1.0, 1.0));
-  return sourceOver(painted(tint, line), painted(\${p("background")}, 1.0));\`,
+  let line = coverageAt(nearest, \${p2("stroke")}.x * 0.5, 0.7);
+  let tint = mix(\${p2("near")}, \${p2("far")}, (level - 1.0) / max(\${p2("denominators")}.x - 1.0, 1.0));
+  return sourceOver(painted(tint, line), painted(\${p2("background")}, 1.0));\`,
       looks: [
         ["Copper fractions", { denominators: 4, baseRadius: 175, stroke: 2.4 }],
         [
@@ -11401,16 +11642,16 @@ fn coverageAt(distance: f32, halfWidth: f32, aa: f32) -> f32 {
         light: color5("Open transmission", 0.8, 0.9, 0.85),
         dark: color5("Closed transmission", 0.045, 0.09, 0.16)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let point = (input.uv - vec2f(0.5)) * globals.viewport.xy / globals.clock.z;
-  let angleA = \${p("angleA")}.x;
-  let angleB = angleA + \${p("detune")}.x;
+  let angleA = \${p2("angleA")}.x;
+  let angleB = angleA + \${p2("detune")}.x;
   let axisA = vec2f(cos(angleA), sin(angleA));
   let axisB = vec2f(cos(angleB), sin(angleB));
-  let first = 0.5 + 0.5 * cos(TAU * dot(point, axisA) / \${p("pitchA")}.x);
-  let second = 0.5 + 0.5 * cos(TAU * (dot(point, axisB) / \${p("pitchB")}.x + globals.clock.x * \${p("drift")}.x));
-  let transmission = pow(first * second, \${p("contrast")}.x);
-  return painted(mix(\${p("dark")}, \${p("light")}, transmission), 1.0);\`,
+  let first = 0.5 + 0.5 * cos(TAU * dot(point, axisA) / \${p2("pitchA")}.x);
+  let second = 0.5 + 0.5 * cos(TAU * (dot(point, axisB) / \${p2("pitchB")}.x + globals.clock.x * \${p2("drift")}.x));
+  let transmission = pow(first * second, \${p2("contrast")}.x);
+  return painted(mix(\${p2("dark")}, \${p2("light")}, transmission), 1.0);\`,
       looks: [
         [
           "Fine beat",
@@ -11443,14 +11684,14 @@ fn coverageAt(distance: f32, halfWidth: f32, aa: f32) -> f32 {
         bright: color5("Bright deflection", 0.91, 0.84, 0.68),
         dark: color5("Dark deflection", 0.04, 0.07, 0.16)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let ratio = globals.viewport.xy / min(globals.viewport.x, globals.viewport.y);
-  let field = input.uv * ratio * \${p("fieldScale")}.x + vec2f(globals.clock.x * \${p("drift")}.x, 0.0);
-  let axis = vec2f(cos(\${p("analyzerAngle")}.x), sin(\${p("analyzerAngle")}.x));
-  let delta = axis * \${p("probe")}.x;
-  let deflection = (valueNoise(field + delta) - valueNoise(field - delta)) / (2.0 * \${p("probe")}.x);
-  let transmission = clamp(0.5 + deflection * \${p("contrast")}.x, 0.0, 1.0);
-  return painted(mix(\${p("dark")}, \${p("bright")}, transmission), 1.0);\`,
+  let field = input.uv * ratio * \${p2("fieldScale")}.x + vec2f(globals.clock.x * \${p2("drift")}.x, 0.0);
+  let axis = vec2f(cos(\${p2("analyzerAngle")}.x), sin(\${p2("analyzerAngle")}.x));
+  let delta = axis * \${p2("probe")}.x;
+  let deflection = (valueNoise(field + delta) - valueNoise(field - delta)) / (2.0 * \${p2("probe")}.x);
+  let transmission = clamp(0.5 + deflection * \${p2("contrast")}.x, 0.0, 1.0);
+  return painted(mix(\${p2("dark")}, \${p2("bright")}, transmission), 1.0);\`,
       looks: [
         [
           "Quiet glass",
@@ -11484,21 +11725,21 @@ fn coverageAt(distance: f32, halfWidth: f32, aa: f32) -> f32 {
         wave: color5("Wavefront", 0.74, 0.9, 1),
         background: color5("Background", 0.035, 0.08, 0.16)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let extent = globals.viewport.xy / globals.clock.z;
   let point = input.uv * extent;
-  let origin = vec2f(\${p("centerX")}.x, \${p("centerY")}.x) * extent;
-  let spacing = \${p("spacing")}.x;
-  let delay = spacing / \${p("propagation")}.x;
+  let origin = vec2f(\${p2("centerX")}.x, \${p2("centerY")}.x) * extent;
+  let spacing = \${p2("spacing")}.x;
+  let delay = spacing / \${p2("propagation")}.x;
   var energy = 0.0;
   for (var index = 0; index < 12; index += 1) {
     let age = f32(index) * delay;
-    let emittedX = origin.x + \${p("travel")}.x * sin((globals.clock.x - age) * \${p("angularSpeed")}.x);
+    let emittedX = origin.x + \${p2("travel")}.x * sin((globals.clock.x - age) * \${p2("angularSpeed")}.x);
     let distance = length(point - vec2f(emittedX, origin.y));
-    let ring = coverageAt(distance - f32(index) * spacing, \${p("width")}.x * 0.5, 0.8);
+    let ring = coverageAt(distance - f32(index) * spacing, \${p2("width")}.x * 0.5, 0.8);
     energy = max(energy, ring * exp(-f32(index) * 0.1));
   }
-  return sourceOver(painted(\${p("wave")}, energy), painted(\${p("background")}, 1.0));\`,
+  return sourceOver(painted(\${p2("wave")}, energy), painted(\${p2("background")}, 1.0));\`,
       looks: [
         [
           "Slow wake",
@@ -11540,26 +11781,26 @@ fn coverageAt(distance: f32, halfWidth: f32, aa: f32) -> f32 {
         body: color5("Orbiting body", 1, 0.76, 0.32),
         background: color5("Background", 0.035, 0.065, 0.12)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let extent = globals.viewport.xy / globals.clock.z;
-  let point = rotate((input.uv - vec2f(0.5)) * extent, -\${p("rotation")}.x);
-  let major = \${p("semimajor")}.x;
-  let eccentricity = \${p("eccentricity")}.x;
+  let point = rotate((input.uv - vec2f(0.5)) * extent, -\${p2("rotation")}.x);
+  let major = \${p2("semimajor")}.x;
+  let eccentricity = \${p2("eccentricity")}.x;
   let minor = major * sqrt(1.0 - eccentricity * eccentricity);
   let eccentricPoint = vec2f(point.x / major + eccentricity, point.y / minor);
   let implicit = dot(eccentricPoint, eccentricPoint) - 1.0;
   let normalGradient = 2.0 * length(vec2f((point.x + major * eccentricity) / (major * major), point.y / (minor * minor)));
   let orbitDistance = abs(implicit) / max(normalGradient, 0.00001);
-  let orbitalCoverage = coverageAt(orbitDistance, \${p("orbitWidth")}.x * 0.5, 0.7);
-  let mean = \${p("phase")}.x + globals.clock.x * \${p("speed")}.x;
+  let orbitalCoverage = coverageAt(orbitDistance, \${p2("orbitWidth")}.x * 0.5, 0.7);
+  let mean = \${p2("phase")}.x + globals.clock.x * \${p2("speed")}.x;
   var anomaly = mean;
   for (var iteration = 0; iteration < 5; iteration += 1) {
     anomaly -= (anomaly - eccentricity * sin(anomaly) - mean) / (1.0 - eccentricity * cos(anomaly));
   }
   let orbiting = vec2f(major * (cos(anomaly) - eccentricity), minor * sin(anomaly));
-  let bodyCoverage = 1.0 - smoothstep(\${p("bodyRadius")}.x - 0.7, \${p("bodyRadius")}.x + 0.7, length(point - orbiting));
-  let base = sourceOver(painted(\${p("orbit")}, orbitalCoverage), painted(\${p("background")}, 1.0));
-  return sourceOver(painted(\${p("body")}, bodyCoverage), base);\`,
+  let bodyCoverage = 1.0 - smoothstep(\${p2("bodyRadius")}.x - 0.7, \${p2("bodyRadius")}.x + 0.7, length(point - orbiting));
+  let base = sourceOver(painted(\${p2("orbit")}, orbitalCoverage), painted(\${p2("background")}, 1.0));
+  return sourceOver(painted(\${p2("body")}, bodyCoverage), base);\`,
       looks: [
         [
           "Wide ellipse",
@@ -11615,9 +11856,2075 @@ fn coverageAt(distance: f32, halfWidth: f32, aa: f32) -> f32 {
     }))
   );
 
+  // shared/native-effect-owned-next-six-r.ts
+  var px2 = (label, value, min, max) => ({
+    type: "float",
+    label,
+    default: value,
+    min,
+    max,
+    step: 0.1,
+    unit: "px"
+  });
+  var tint = (label, r, g, b) => ({ type: "color", label, default: catalogColor(r, g, b) });
+  var edge4 = {
+    type: "enum",
+    label: "Outside source",
+    default: "clamp",
+    options: ["transparent", "clamp"],
+    advanced: true
+  };
+  var OWNED_NEXT_SIX_R_DRAFTS = [
+    {
+      id: "owned-r-scanline-gap-repair",
+      name: "Scanline Gap Repair",
+      kind: "processor",
+      mechanism: "Detects narrow low-coverage horizontal dropout rows using intact samples above and below, then interpolates premultiplied color only where a bounded coverage gap is present. Unlike two-dimensional pinhole repair, a gap must be supported in the vertical direction and is reconstructed across a row.",
+      cost: "Five source reads per pixel: center and two vertical pairs, no state or asset.",
+      properties: {
+        edge: structuredClone(edge4),
+        radius: px2("Gap radius", 2, 1, 6),
+        threshold: catalogFloat("Gap threshold", 0.25, 0.05, 0.8),
+        strength: catalogFloat("Repair strength", 0.9, 0, 1)
+      },
+      fragment: (p2) => \`
+  let center = sampleSource(input.uv);
+  let stepUv = vec2f(0.0, \${p2("radius")}.x * globals.clock.z * globals.viewport.w);
+  let upper = sampleSource(input.uv - stepUv);
+  let lower = sampleSource(input.uv + stepUv);
+  let nearUpper = sampleSource(input.uv - stepUv * 0.5);
+  let nearLower = sampleSource(input.uv + stepUv * 0.5);
+  let supported = min(min(upper.a, lower.a), min(nearUpper.a, nearLower.a));
+  let missing = clamp((supported - center.a - \${p2("threshold")}.x) / max(1.0 - \${p2("threshold")}.x, 0.0001), 0.0, 1.0);
+  let repaired = (upper + lower + nearUpper + nearLower) * 0.25;
+  return mix(center, repaired, missing * \${p2("strength")}.x);\`,
+      looks: [
+        ["Fine scratches", { radius: 1.5, threshold: 0.18, strength: 0.85 }],
+        ["Wide tape loss", { radius: 4, threshold: 0.12, strength: 1 }]
+      ]
+    },
+    {
+      id: "owned-r-periodic-stripe-notch",
+      name: "Periodic Stripe Notch",
+      kind: "processor",
+      mechanism: "Samples at opposing phases of a known horizontal or vertical periodic contamination, estimates the local alternating carrier, and subtracts that component from the premultiplied signal. It targets periodic interference rather than indiscriminately blurring edges.",
+      cost: "Five source reads per pixel with explicit CSS-pixel frequency and direction; no state or asset.",
+      properties: {
+        edge: structuredClone(edge4),
+        period: px2("Stripe period", 8, 3, 32),
+        direction: {
+          type: "enum",
+          label: "Stripe direction",
+          default: "horizontal",
+          options: ["horizontal", "vertical"]
+        },
+        amount: catalogFloat("Suppression", 0.8, 0, 1)
+      },
+      fragment: (p2) => \`
+  let center = sampleSource(input.uv);
+  let across = select(vec2f(1.0, 0.0), vec2f(0.0, 1.0), u32(\${p2("direction")}.x) == 0u);
+  let halfPeriod = across * \${p2("period")}.x * 0.5 * globals.clock.z * globals.viewport.zw;
+  let fullPeriod = halfPeriod * 2.0;
+  let opposite = (sampleSource(input.uv - halfPeriod) + sampleSource(input.uv + halfPeriod)) * 0.5;
+  let samePhase = (sampleSource(input.uv - fullPeriod) + sampleSource(input.uv + fullPeriod)) * 0.5;
+  let carrier = (center + samePhase) * 0.5 - opposite;
+  let corrected = center - carrier * (0.5 * \${p2("amount")}.x);
+  let coverage = clamp(corrected.a, 0.0, 1.0);
+  return vec4f(clamp(corrected.rgb, vec3f(0.0), vec3f(coverage)), coverage);\`,
+      looks: [
+        ["Fine horizontal", { period: 6, direction: "horizontal", amount: 0.75 }],
+        ["Broad vertical", { period: 18, direction: "vertical", amount: 1 }]
+      ]
+    },
+    {
+      id: "owned-r-octagon-square-tiling",
+      version: 2,
+      name: "Octagon Square Tiling",
+      kind: "generator",
+      mechanism: "A clipped-square lattice constructs a semiregular four-eight-eight topology from an octagonal center region and four diagonal corner squares. Join width and facet inset alter actual polygon coverage, not merely color.",
+      cost: "One analytic polygon classification per output pixel; no source reads.",
+      properties: {
+        tile: px2("Cell size", 74, 24, 150),
+        clipping: catalogFloat("Corner cut", 0.28, 0.14, 0.36),
+        joint: px2("Joint", 2, 0, 8),
+        inset: catalogFloat("Facet inset", 0.14, 0, 0.4),
+        octagon: tint("Octagon", 0.16, 0.55, 0.62),
+        square: tint("Square", 0.84, 0.47, 0.23),
+        grout: tint("Grout", 0.035, 0.06, 0.08)
+      },
+      fragment: (p2) => \`
+  let position = input.uv * globals.viewport.xy / globals.clock.z;
+  let local = abs(fract(position / \${p2("tile")}.x) - vec2f(0.5));
+  let cut = \${p2("clipping")}.x;
+  let diagonal = local.x + local.y - (1.0 - cut);
+  let inner = max(local.x, local.y);
+  let width = \${p2("joint")}.x / \${p2("tile")}.x;
+  let isSquare = step(0.0, diagonal);
+  let edgeDistance = min(abs(diagonal), 0.5 - inner);
+  let facet = clamp((0.5 - inner) / max(\${p2("inset")}.x + 0.0001, 0.0001), 0.0, 1.0);
+  let body = mix(\${p2("octagon")}, \${p2("square")}, isSquare);
+  let shaded = body.rgb * mix(0.7, 1.0, facet);
+  let line = step(edgeDistance, width);
+  let mortar = \${p2("grout")};
+  return mix(vec4f(shaded * body.a, body.a), vec4f(mortar.rgb * mortar.a, mortar.a), line);\`,
+      looks: [
+        ["Ceramic hall", { tile: 84, clipping: 0.28, joint: 2, inset: 0.16 }],
+        [
+          "Inlaid brass",
+          {
+            tile: 52,
+            clipping: 0.34,
+            joint: 4,
+            inset: 0.28,
+            octagon: catalogColor(0.13, 0.21, 0.26),
+            square: catalogColor(0.92, 0.7, 0.35)
+          }
+        ]
+      ]
+    },
+    {
+      id: "owned-r-schwarz-p-cavern",
+      version: 2,
+      name: "Schwarz P Cavern",
+      kind: "generator",
+      mechanism: "Raymarches a bounded trigonometric implicit surface whose zero set is cos(x)+cos(y)+cos(z)=iso, then shades the first crossing with an analytic normal and depth attenuation. Its three-axis connected cavities differ from a two-dimensional gyroid slice and solid primitive raymarches.",
+      cost: "At most 48 field evaluations plus one analytic normal per pixel, fixed march; no texture source.",
+      properties: {
+        scale: px2("Cavity scale", 70, 35, 150),
+        iso: catalogFloat("Surface level", 0.2, -1.2, 1.2),
+        depth: catalogFloat("Depth", 2.5, 1, 5),
+        light: catalogFloat("Light angle", 0.55, -3.14, 3.14),
+        base: tint("Base", 0.1, 0.38, 0.48),
+        highlight: tint("Highlight", 0.83, 0.88, 0.68)
+      },
+      fragment: (p2) => \`
+  let point = (input.uv - vec2f(0.5)) * globals.viewport.xy / (\${p2("scale")}.x * globals.clock.z);
+  var hit = false;
+  var hitDepth = 0.0;
+  var previous = cos(point.x) + cos(point.y) + cos(-\${p2("depth")}.x) - \${p2("iso")}.x;
+  for (var index = 1u; index <= 48u; index += 1u) {
+    let currentDepth = -\${p2("depth")}.x + 2.0 * \${p2("depth")}.x * f32(index) / 48.0;
+    let field = cos(point.x) + cos(point.y) + cos(currentDepth) - \${p2("iso")}.x;
+    if (!hit && previous * field <= 0.0) { hit = true; hitDepth = currentDepth; }
+    previous = field;
+  }
+  let baseColor = \${p2("base")};
+  if (!hit) { return vec4f(baseColor.rgb * baseColor.a * 0.07, baseColor.a); }
+  let normal = normalize(vec3f(-sin(point.x), -sin(point.y), -sin(hitDepth)) + vec3f(0.0001));
+  let beam = normalize(vec3f(cos(\${p2("light")}.x), sin(\${p2("light")}.x), 0.8));
+  let illumination = 0.17 + 0.83 * max(dot(normal, beam), 0.0);
+  let fade = clamp((hitDepth + \${p2("depth")}.x) / (2.0 * \${p2("depth")}.x), 0.0, 1.0);
+  let highlightColor = \${p2("highlight")};
+  let alpha = mix(baseColor.a, highlightColor.a, illumination);
+  let premultRgb = mix(baseColor.rgb * baseColor.a, highlightColor.rgb * highlightColor.a, illumination) * mix(0.45, 1.0, fade);
+  return vec4f(premultRgb, alpha);\`,
+      looks: [
+        ["Open lattice", { scale: 82, iso: 0.25, depth: 2.5, light: 0.45 }],
+        [
+          "Dense ceramic",
+          {
+            scale: 48,
+            iso: -0.75,
+            depth: 4,
+            light: -0.8,
+            base: catalogColor(0.18, 0.18, 0.25)
+          }
+        ]
+      ]
+    },
+    {
+      id: "owned-r-steiner-circle-chain",
+      version: 2,
+      name: "Steiner Circle Chain",
+      kind: "generator",
+      mechanism: "Constructs a ring of equal tangent circles inside an outer circle around an inner circle. Circle radius follows the chord tangent constraint, so count changes the geometry and packing rather than tiling a dot texture.",
+      cost: "One polar-angle sector lookup and three analytic circle distances per pixel; no source reads.",
+      properties: {
+        outerRadius: px2("Outer radius", 70, 35, 160),
+        count: {
+          type: "int",
+          label: "Circle count",
+          default: 10,
+          min: 5,
+          max: 24,
+          step: 1
+        },
+        stroke: px2("Stroke", 2.5, 0.5, 10),
+        gap: catalogFloat("Ring gap", 0.05, 0, 0.25),
+        background: tint("Background", 0.03, 0.045, 0.09),
+        ring: tint("Ring", 0.92, 0.7, 0.31)
+      },
+      fragment: (p2) => \`
+  let position = (input.uv - vec2f(0.5)) * globals.viewport.xy / globals.clock.z;
+  let count = \${p2("count")}.x;
+  let sine = sin(3.141592653589793 / count);
+  let outer = \${p2("outerRadius")}.x;
+  let small = outer * sine / (1.0 + sine);
+  let centerDistance = outer - small;
+  let phase = atan2(position.y, position.x);
+  let sector = floor(phase * count / 6.283185307179586 + 0.5);
+  let angle = sector * 6.283185307179586 / count;
+  let satellite = vec2f(cos(angle), sin(angle)) * centerDistance;
+  let inner = max(outer - 2.0 * small, 0.0);
+  let smallDistance = abs(length(position - satellite) - small * (1.0 - \${p2("gap")}.x));
+  let innerDistance = abs(length(position) - inner);
+  let outerDistance = abs(length(position) - outer);
+  let ink = 1.0 - step(\${p2("stroke")}.x * 0.5, min(smallDistance, min(innerDistance, outerDistance)));
+  let backgroundColor = \${p2("background")};
+  let ringColor = \${p2("ring")};
+  return mix(vec4f(backgroundColor.rgb * backgroundColor.a, backgroundColor.a), vec4f(ringColor.rgb * ringColor.a, ringColor.a), ink);\`,
+      looks: [
+        ["Ten links", { count: 10, outerRadius: 68, stroke: 2.5, gap: 0.03 }],
+        ["Fine chain", { count: 20, outerRadius: 74, stroke: 1.3, gap: 0.09 }]
+      ]
+    },
+    {
+      id: "owned-r-bezier-hatch",
+      version: 2,
+      name: "Bezier Hatch",
+      kind: "generator",
+      mechanism: "Measures distance to connected piecewise-cubic arch segments with independent rise and shoulder controls, producing continuous engraved curves rather than circles, sinusoids, or a recolored straight hatch.",
+      cost: "At most six candidate rows with 24 connected cubic segments each; vertical range culling avoids distant rows.",
+      properties: {
+        spacing: px2("Arch spacing", 54, 22, 110),
+        rise: px2("Rise", 36, 8, 90),
+        shoulder: catalogFloat("Shoulder", 0.38, 0.05, 0.95),
+        stroke: px2("Stroke", 2.4, 0.5, 9),
+        background: tint("Background", 0.06, 0.09, 0.12),
+        ink: tint("Ink", 0.83, 0.78, 0.64)
+      },
+      fragment: (p2) => \`
+  let position = input.uv * globals.viewport.xy / globals.clock.z;
+  let spacing = \${p2("spacing")}.x;
+  let rise = \${p2("rise")}.x;
+  let row = floor(position.y / spacing);
+  let localPoint = vec2f(fract(position.x / spacing) * spacing, position.y);
+  let aa = 1.0 / globals.clock.z;
+  let support = \${p2("stroke")}.x * 0.5 + aa;
+  let archHeight = rise * 0.75;
+  let maxRowsBack = i32(clamp(ceil((archHeight + support) / spacing), 0.0, 4.0));
+  var nearest = 1.0e6;
+  for (var offset = -maxRowsBack; offset <= 1; offset += 1) {
+    let baseline = (row + f32(offset)) * spacing;
+    if (position.y + support >= baseline && position.y - support <= baseline + archHeight) {
+      var prior = vec2f(0.0, baseline);
+      for (var segment = 1u; segment <= 24u; segment += 1u) {
+        let t = f32(segment) / 24.0;
+        let u = 1.0 - t;
+        let next = vec2f(
+          (3.0 * u * u * t * \${p2("shoulder")}.x + 3.0 * u * t * t * (1.0 - \${p2("shoulder")}.x) + t * t * t) * spacing,
+          baseline + 3.0 * u * t * rise
+        );
+        let axis = next - prior;
+        let fraction = clamp(dot(localPoint - prior, axis) / max(dot(axis, axis), 0.000001), 0.0, 1.0);
+        nearest = min(nearest, length(localPoint - (prior + axis * fraction)));
+        prior = next;
+      }
+    }
+  }
+  let inkWeight = 1.0 - smoothstep(\${p2("stroke")}.x * 0.5, \${p2("stroke")}.x * 0.5 + aa, nearest);
+  let backgroundColor = \${p2("background")};
+  let inkColor = \${p2("ink")};
+  return mix(vec4f(backgroundColor.rgb * backgroundColor.a, backgroundColor.a), vec4f(inkColor.rgb * inkColor.a, inkColor.a), inkWeight);\`,
+      looks: [
+        [
+          "Bookplate arches",
+          { spacing: 54, rise: 40, shoulder: 0.38, stroke: 2.4 }
+        ],
+        ["High vault", { spacing: 88, rise: 72, shoulder: 0.16, stroke: 1.1 }]
+      ]
+    }
+  ];
+  var OWNED_NEXT_SIX_R_DEFINITIONS = OWNED_NEXT_SIX_R_DRAFTS.map((draft) => {
+    const base = catalogShader(draft);
+    return {
+      ...base,
+      resources: base.resources?.map(
+        (resource) => resource.name === "color" ? { ...resource, format: "rgba16float" } : resource
+      ),
+      provenance: {
+        origin: "design-original",
+        note: draft.mechanism.slice(0, 240)
+      }
+    };
+  });
+  var OWNED_NEXT_SIX_R_PRESETS = OWNED_NEXT_SIX_R_DRAFTS.flatMap(
+    (draft) => draft.looks.map(([name, params], index) => ({
+      id: \`an-preset-\${draft.id}-\${index + 1}\`,
+      name,
+      definitionId: \`an-native-\${draft.id}\`,
+      definitionVersion: draft.version ?? 1,
+      placement: draft.kind === "generator" ? "fill" : "layer",
+      params,
+      clip: "bounds",
+      provenance: { origin: "design-original" }
+    }))
+  );
+
+  // shared/native-effect-owned-next-twelve-s.ts
+  var distance2 = (label, value, min, max) => ({
+    type: "float",
+    label,
+    default: value,
+    min,
+    max,
+    step: 0.1,
+    unit: "px"
+  });
+  var pigment = (label, r, g, b) => ({
+    type: "color",
+    label,
+    default: catalogColor(r, g, b)
+  });
+  var edge5 = () => ({
+    type: "enum",
+    label: "Outside source",
+    default: "clamp",
+    options: ["transparent", "clamp"],
+    advanced: true
+  });
+  var OWNED_NEXT_TWELVE_S_DRAFTS = [
+    {
+      id: "owned-s-angular-path-blur",
+      name: "Angular Path Blur",
+      kind: "processor",
+      mechanism: "Integrates nine source positions along a circular arc around an authored pivot. Radius-dependent arc motion preserves the center and differs from a uniform directional smear or radial zoom echo.",
+      closest: "Directional Smear; Radial Echo; Gaussian Blur",
+      cost: "Ten source reads per pixel: nine arc taps and one original.",
+      properties: {
+        edge: edge5(),
+        centerX: catalogFloat("Pivot X", 0.5, 0, 1),
+        centerY: catalogFloat("Pivot Y", 0.5, 0, 1),
+        sweep: catalogFloat("Arc angle", 0.12, 0, 0.8),
+        mixAmount: catalogFloat("Blend", 0.9, 0, 1)
+      },
+      fragment: (p2) => \`
+  let extent = globals.viewport.xy / globals.clock.z;
+  let center = vec2f(\${p2("centerX")}.x, \${p2("centerY")}.x) * extent;
+  let ray = input.uv * extent - center;
+  var integrated = vec4f(0.0);
+  for (var tap = 0u; tap < 9u; tap += 1u) {
+    let angle = (f32(tap) / 8.0 - 0.5) * \${p2("sweep")}.x;
+    integrated += sampleSource((center + rotate(ray, angle)) / extent);
+  }
+  return mix(sampleSource(input.uv), integrated / 9.0, \${p2("mixAmount")}.x);\`,
+      looks: [
+        ["Short orbit", { sweep: 0.09, mixAmount: 0.75 }],
+        [
+          "Swept arc",
+          { centerX: 0.36, centerY: 0.62, sweep: 0.42, mixAmount: 1 }
+        ]
+      ]
+    },
+    {
+      id: "owned-s-parabolic-bend",
+      name: "Parabolic Bend",
+      kind: "processor",
+      mechanism: "Inverse-samples a source after a signed quadratic horizontal displacement whose curvature grows with squared distance from an anchor row; straight vertical edges become parabolas without global perspective remapping.",
+      closest: "Corner Perspective; Triangle Mesh Warp; Brush Liquify",
+      cost: "One source read per pixel.",
+      properties: {
+        edge: edge5(),
+        curvature: catalogFloat("Curvature", 0.18, -0.8, 0.8),
+        anchor: catalogFloat("Anchor row", 0.5, 0, 1),
+        taper: catalogFloat("Lower taper", 0.3, 0, 1)
+      },
+      fragment: (p2) => \`
+  let dy = input.uv.y - \${p2("anchor")}.x;
+  let bend = \${p2("curvature")}.x * dy * abs(dy) * (1.0 + \${p2("taper")}.x * dy);
+  return sampleSource(vec2f(input.uv.x - bend, input.uv.y));\`,
+      looks: [
+        ["Page bow", { curvature: 0.22, anchor: 0.5, taper: 0.1 }],
+        ["Reverse arch", { curvature: -0.55, anchor: 0.36, taper: 0.7 }]
+      ]
+    },
+    {
+      id: "owned-s-sphere-surface-refract",
+      name: "Sphere Surface Refract",
+      kind: "processor",
+      mechanism: "Uses a hemispherical normal and Snell-like tangent displacement inside a circular aperture; the boundary fades to an unchanged source, unlike a global polynomial barrel or point pinch warp.",
+      closest: "Barrel Distortion; Lens Pinch; Fluted Refraction",
+      cost: "Two source reads per pixel, one square root inside the aperture.",
+      properties: {
+        edge: edge5(),
+        radius: catalogFloat("Aperture radius", 0.36, 0.08, 0.48),
+        refraction: catalogFloat("Refraction", 0.18, -0.45, 0.45),
+        centerX: catalogFloat("Center X", 0.5, 0, 1),
+        centerY: catalogFloat("Center Y", 0.5, 0, 1),
+        feather: catalogFloat("Feather", 0.025, 2e-3, 0.12)
+      },
+      fragment: (p2) => \`
+  let original = sampleSource(input.uv);
+  let extent = globals.viewport.xy / globals.clock.z;
+  let offset = (input.uv - vec2f(\${p2("centerX")}.x, \${p2("centerY")}.x)) * extent;
+  let radius = \${p2("radius")}.x * min(extent.x, extent.y);
+  let r2 = dot(offset, offset) / (radius * radius);
+  if (r2 >= 1.0) { return original; }
+  let normalZ = sqrt(max(1.0 - r2, 0.0001));
+  let shift = offset * \${p2("refraction")}.x * (1.0 / normalZ - 1.0);
+  let weight = 1.0 - smoothstep(1.0 - \${p2("feather")}.x, 1.0, sqrt(r2));
+  return mix(original, sampleSource(input.uv - shift / extent), weight);\`,
+      looks: [
+        ["Glass dome", { radius: 0.38, refraction: 0.18, feather: 0.03 }],
+        [
+          "Concave lens",
+          { radius: 0.27, refraction: -0.3, centerX: 0.62, feather: 0.06 }
+        ]
+      ]
+    },
+    {
+      id: "owned-s-block-seam-restoration",
+      name: "Block Seam Restoration",
+      kind: "processor",
+      mechanism: "Detects discontinuity between adjacent sides of a known compression-block grid and replaces only near-grid pixels with a bounded cross-boundary premultiplied estimate; interiors remain unchanged.",
+      closest: "Block Transform; Bilateral Surface; Scanline Gap Repair",
+      cost: "Five source reads per pixel near seams; one otherwise.",
+      properties: {
+        edge: edge5(),
+        block: distance2("Block width", 8, 4, 32),
+        reach: distance2("Seam reach", 1.5, 0.5, 3),
+        threshold: catalogFloat("Jump threshold", 0.08, 0, 0.5),
+        strength: catalogFloat("Repair", 0.7, 0, 1)
+      },
+      fragment: (p2) => \`
+  let center = sampleSource(input.uv);
+  let pixel = input.uv * globals.viewport.xy / globals.clock.z;
+  let period = \${p2("block")}.x;
+  let phase = fract(pixel / period) * period;
+  let near = min(phase, vec2f(period) - phase);
+  let stepUv = globals.viewport.zw * globals.clock.z * \${p2("reach")}.x;
+  var result = center;
+  if (near.x < \${p2("reach")}.x) {
+    let left = sampleSource(input.uv - vec2f(stepUv.x, 0.0));
+    let right = sampleSource(input.uv + vec2f(stepUv.x, 0.0));
+    let jump = length(left.rgb - right.rgb) + abs(left.a - right.a);
+    let weight = \${p2("strength")}.x * smoothstep(\${p2("threshold")}.x, \${p2("threshold")}.x + 0.1, jump);
+    result = mix(result, (left + right) * 0.5, weight * 0.5);
+  }
+  if (near.y < \${p2("reach")}.x) {
+    let above = sampleSource(input.uv - vec2f(0.0, stepUv.y));
+    let below = sampleSource(input.uv + vec2f(0.0, stepUv.y));
+    let jump = length(above.rgb - below.rgb) + abs(above.a - below.a);
+    let weight = \${p2("strength")}.x * smoothstep(\${p2("threshold")}.x, \${p2("threshold")}.x + 0.1, jump);
+    result = mix(result, (above + below) * 0.5, weight * 0.5);
+  }
+  return result;\`,
+      looks: [
+        ["Fine blocks", { block: 8, reach: 1, threshold: 0.05, strength: 0.95 }],
+        [
+          "Coarse blocks",
+          { block: 16, reach: 2.5, threshold: 0.12, strength: 0.9 }
+        ]
+      ]
+    },
+    {
+      id: "owned-s-chalk-transfer",
+      name: "Chalk Transfer",
+      kind: "processor",
+      edgeSampling: "fixed-clamp",
+      mechanism: "Deposits directional chalk pigment only where a source already has alpha, using luminance and coordinate-hashed short stroke coverage; it changes surface deposition, not simply additive film grain.",
+      closest: "Film Grain; Pointillist Brush; Crosshatch",
+      cost: "One source read and one deterministic integer cell hash per pixel.",
+      properties: {
+        spacing: distance2("Grain spacing", 3, 1, 10),
+        pressure: catalogFloat("Pressure", 0.5, 0, 1),
+        slant: catalogFloat("Stroke slant", 0.24, -0.8, 0.8),
+        chalk: pigment("Pigment", 0.92, 0.89, 0.75)
+      },
+      helpers: () => \`
+fn sStraightExact(color: vec4f) -> vec3f {
+  if (color.a <= 0.0) { return vec3f(0.0); }
+  return color.rgb / color.a;
+}\`,
+      fragment: (p2) => \`
+  let source = sampleSource(input.uv);
+  let point = input.uv * globals.viewport.xy / globals.clock.z;
+  let shear = vec2f(point.x + point.y * \${p2("slant")}.x, point.y);
+  let cell = vec2i(floor(shear / \${p2("spacing")}.x));
+  let local = fract(shear / \${p2("spacing")}.x);
+  let chance = random(cell);
+  let stroke = 1.0 - smoothstep(0.1, 0.28, abs(local.y - 0.5 + (chance - 0.5) * 0.35));
+  let deposit = stroke * \${p2("pressure")}.x * clamp(1.0 - luminance(sStraightExact(source)), 0.0, 1.0) * source.a;
+  let chalkColor = \${p2("chalk")};
+  return vec4f(mix(source.rgb, chalkColor.rgb * source.a, deposit * chalkColor.a), source.a);\`,
+      looks: [
+        ["Soft graphite", { spacing: 2.5, pressure: 0.35, slant: 0.15 }],
+        [
+          "Heavy pastel",
+          {
+            spacing: 5,
+            pressure: 0.85,
+            slant: -0.38,
+            chalk: catalogColor(0.95, 0.55, 0.35)
+          }
+        ]
+      ]
+    },
+    {
+      id: "owned-s-haar-shrink",
+      name: "Haar Detail Shrink",
+      kind: "processor",
+      mechanism: "Applies a true 2\\xD72 physical-texel Haar transform, soft-thresholds its horizontal, vertical and diagonal detail coefficients, and reconstructs with the untouched lowpass coefficient. Source alpha remains premultiplied.",
+      closest: "Haar Band Remix; Gaussian Blur; Guided Local Regression",
+      cost: "Four source reads per pixel with fixed 2\\xD72 support.",
+      properties: {
+        edge: edge5(),
+        threshold: catalogFloat("Detail threshold", 0.06, 0, 0.3),
+        strength: catalogFloat("Shrink", 0.8, 0, 1)
+      },
+      fragment: (p2) => \`
+  let pixel = vec2i(floor(input.uv * globals.viewport.xy));
+  let origin = vec2i(floor(vec2f(pixel) * 0.5)) * 2;
+  let a = sampleSource((vec2f(origin) + vec2f(0.5, 0.5)) * globals.viewport.zw);
+  let b = sampleSource((vec2f(origin) + vec2f(1.5, 0.5)) * globals.viewport.zw);
+  let c = sampleSource((vec2f(origin) + vec2f(0.5, 1.5)) * globals.viewport.zw);
+  let d = sampleSource((vec2f(origin) + vec2f(1.5, 1.5)) * globals.viewport.zw);
+  let low = (a + b + c + d) * 0.25;
+  let horizontal = (a - b + c - d) * 0.25;
+  let vertical = (a + b - c - d) * 0.25;
+  let diagonal = (a - b - c + d) * 0.25;
+  let sh = sign(horizontal) * max(abs(horizontal) - vec4f(\${p2("threshold")}.x), vec4f(0.0));
+  let sv = sign(vertical) * max(abs(vertical) - vec4f(\${p2("threshold")}.x), vec4f(0.0));
+  let sd = sign(diagonal) * max(abs(diagonal) - vec4f(\${p2("threshold")}.x), vec4f(0.0));
+  let local = pixel - origin;
+  var original = a;
+  var rebuilt = low + sh + sv + sd;
+  if (local.x == 1 && local.y == 0) { original = b; rebuilt = low - sh + sv - sd; }
+  if (local.x == 0 && local.y == 1) { original = c; rebuilt = low + sh - sv - sd; }
+  if (local.x == 1 && local.y == 1) { original = d; rebuilt = low - sh - sv + sd; }
+  let output = mix(original, rebuilt, \${p2("strength")}.x);
+  let alpha = clamp(output.a, 0.0, 1.0);
+  return vec4f(clamp(output.rgb, vec3f(0.0), vec3f(alpha)), alpha);\`,
+      looks: [
+        ["Fine coefficients", { threshold: 0.035, strength: 0.55 }],
+        ["Strong cleanup", { threshold: 0.15, strength: 1 }]
+      ]
+    },
+    {
+      id: "owned-s-triangular-beam-lattice",
+      name: "Triangular Beam Lattice",
+      kind: "generator",
+      mechanism: "Intersects three 60-degree line families into equilateral triangular faces with explicit vertex joints and independent beam width; not a rectangular or perspective grid recolor.",
+      closest: "Perspective Floor Grid; Triangular Lacunae; Hex Tiles",
+      cost: "Three analytic line-family distances and one joint test per pixel.",
+      properties: {
+        pitch: distance2("Pitch", 48, 16, 120),
+        stroke: distance2("Beam", 2, 0.5, 12),
+        joint: distance2("Joint radius", 3, 0, 15),
+        beam: pigment("Beam", 0.8, 0.72, 0.54),
+        ground: pigment("Ground", 0.07, 0.12, 0.16)
+      },
+      helpers: () => \`
+fn triJointDistance(delta: vec2f) -> f32 {
+  return length(vec2f(delta.x, (delta.y - 0.5 * delta.x) / 0.8660254));
+}\`,
+      fragment: (p2) => \`
+  let point = input.uv * globals.viewport.xy / globals.clock.z;
+  let pitch = \${p2("pitch")}.x;
+  let a = point.x / pitch;
+  let b = (0.5 * point.x + 0.8660254 * point.y) / pitch;
+  let c = b - a;
+  let distanceLine = min(abs(fract(a + 0.5) - 0.5), min(abs(fract(b + 0.5) - 0.5), abs(fract(c + 0.5) - 0.5))) * pitch;
+  let localA = fract(a); let localB = fract(b);
+  let v00 = triJointDistance(vec2f(localA, localB));
+  let v10 = triJointDistance(vec2f(localA - 1.0, localB));
+  let v01 = triJointDistance(vec2f(localA, localB - 1.0));
+  let v11 = triJointDistance(vec2f(localA - 1.0, localB - 1.0));
+  let vertex = min(min(v00, v10), min(v01, v11)) * pitch;
+  let coverage = 1.0 - smoothstep(\${p2("stroke")}.x * 0.5, \${p2("stroke")}.x * 0.5 + 1.0 / globals.clock.z, min(distanceLine, vertex - \${p2("joint")}.x));
+  let foreground = \${p2("beam")}; let background = \${p2("ground")};
+  return mix(vec4f(background.rgb * background.a, background.a), vec4f(foreground.rgb * foreground.a, foreground.a), coverage);\`,
+      looks: [
+        ["Fine truss", { pitch: 42, stroke: 1.5, joint: 2 }],
+        ["Heavy joints", { pitch: 78, stroke: 5, joint: 9 }]
+      ]
+    },
+    {
+      id: "owned-s-chevron-interlock",
+      name: "Chevron Interlock",
+      kind: "generator",
+      mechanism: "Creates alternating connected V-shaped bands with staggered rows and an explicit crossing seam; the V-junction topology differs from parallel stripes, masonry bonds, and woven warp/weft.",
+      closest: "Masonry Bond; Woven Fabric; Ikat Warp",
+      cost: "One periodic V-distance and a row-parity branch per pixel.",
+      properties: {
+        width: distance2("Chevron width", 58, 18, 150),
+        height: distance2("Chevron rise", 36, 12, 100),
+        band: distance2("Band", 8, 2, 28),
+        seam: distance2("Seam", 1.5, 0, 6),
+        thread: pigment("Thread", 0.73, 0.32, 0.18),
+        ground: pigment("Ground", 0.08, 0.11, 0.15)
+      },
+      fragment: (p2) => \`
+  let point = input.uv * globals.viewport.xy / globals.clock.z;
+  let row = floor(point.y / \${p2("height")}.x);
+  let x = fract(point.x / \${p2("width")}.x + 0.5 * (row - 2.0 * floor(row * 0.5)));
+  let y = fract(point.y / \${p2("height")}.x);
+  let ridge = abs(x - 0.5) * 2.0;
+  let signedDistance = abs((y - ridge) * \${p2("height")}.x);
+  let body = 1.0 - smoothstep(\${p2("band")}.x * 0.5, \${p2("band")}.x * 0.5 + 1.0 / globals.clock.z, signedDistance);
+  let gap = smoothstep(\${p2("seam")}.x, \${p2("seam")}.x + 1.0 / globals.clock.z, abs(x - 0.5) * \${p2("width")}.x);
+  let coverage = body * gap;
+  let foreground = \${p2("thread")}; let background = \${p2("ground")};
+  return mix(vec4f(background.rgb * background.a, background.a), vec4f(foreground.rgb * foreground.a, foreground.a), coverage);\`,
+      looks: [
+        ["Narrow chevrons", { width: 44, height: 24, band: 5, seam: 1 }],
+        ["Broad joinery", { width: 88, height: 54, band: 14, seam: 3 }]
+      ]
+    },
+    {
+      id: "owned-s-power-cell-relief",
+      name: "Power Cell Relief",
+      kind: "generator",
+      mechanism: "Partitions a jittered lattice by additive weighted squared distance and shades the nearest-vs-second-nearest power margin. Site weight changes cell ownership, not only a Voronoi edge color.",
+      closest: "Voronoi Cells; Crystal Lattice; Octagon Square Tiling",
+      cost: "Fixed 25-site weighted distance comparisons per pixel.",
+      properties: {
+        cell: distance2("Cell scale", 58, 20, 140),
+        jitter: catalogFloat("Site offset", 0.32, 0, 0.45),
+        weight: catalogFloat("Power contrast", 0.28, 0, 0.7),
+        edgeWidth: distance2("Boundary", 2, 0.5, 9),
+        face: pigment("Face", 0.29, 0.54, 0.59),
+        boundary: pigment("Boundary", 0.06, 0.12, 0.17)
+      },
+      fragment: (p2) => \`
+  let point = input.uv * globals.viewport.xy / (\${p2("cell")}.x * globals.clock.z);
+  let cell = vec2i(floor(point));
+  var first = 1.0e6; var second = 1.0e6;
+  var siteTone = 0.0;
+  for (var yy = -2; yy <= 2; yy += 1) {
+    for (var xx = -2; xx <= 2; xx += 1) {
+      let siteId = cell + vec2i(xx, yy);
+      let offset = vec2f(random(siteId), random(siteId + vec2i(71, 19)));
+      let site = vec2f(siteId) + 0.5 + (offset - 0.5) * \${p2("jitter")}.x * 2.0;
+      let radiusWeight = (random(siteId + vec2i(13, 97)) - 0.5) * \${p2("weight")}.x;
+      let power = dot(point - site, point - site) - radiusWeight;
+      if (power < first) { second = first; first = power; siteTone = offset.x; }
+      else if (power < second) { second = power; }
+    }
+  }
+  let margin = max(second - first, 0.0) * \${p2("cell")}.x;
+  let faceColor = \${p2("face")}; let edgeColor = \${p2("boundary")};
+  let shade = 0.7 + 0.3 * siteTone;
+  let core = vec4f(faceColor.rgb * faceColor.a * shade, faceColor.a);
+  let rim = vec4f(edgeColor.rgb * edgeColor.a, edgeColor.a);
+  return mix(rim, core, smoothstep(0.0, \${p2("edgeWidth")}.x, margin));\`,
+      looks: [
+        ["Even mineral", { cell: 52, jitter: 0.1, weight: 0.12, edgeWidth: 1.5 }],
+        [
+          "Weighted plates",
+          { cell: 92, jitter: 0.42, weight: 0.6, edgeWidth: 5 }
+        ]
+      ]
+    },
+    {
+      id: "owned-s-catenary-cables",
+      name: "Catenary Cables",
+      kind: "generator",
+      mechanism: "Draws suspended curves from the catenary cosh profile between equal-height anchors, with an independent gravity sag parameter; this is not a Bezier arch or linear hatch with renamed spacing.",
+      closest: "Bezier Hatch; Braided Ribbons; Wire Dome",
+      cost: "One bounded exponential catenary profile and periodic cable distance per pixel.",
+      properties: {
+        span: distance2("Anchor span", 90, 28, 180),
+        sag: distance2("Sag", 18, 3, 60),
+        vertical: distance2("Row spacing", 72, 24, 150),
+        cable: distance2("Cable thickness", 2, 0.5, 9),
+        wire: pigment("Cable", 0.81, 0.75, 0.6),
+        ground: pigment("Ground", 0.04, 0.08, 0.12)
+      },
+      fragment: (p2) => \`
+  let point = input.uv * globals.viewport.xy / globals.clock.z;
+  let span = \${p2("span")}.x;
+  let localX = fract(point.x / span) * span;
+  let u = (localX / span - 0.5) * 2.0;
+  let upper = 0.5 * (exp(u * 1.2) + exp(-u * 1.2));
+  let denominator = 0.5 * (exp(1.2) + exp(-1.2)) - 1.0;
+  let profile = (upper - 1.0) / denominator;
+  let rowY = fract(point.y / \${p2("vertical")}.x) * \${p2("vertical")}.x;
+  let cableY = \${p2("sag")}.x * (1.0 - profile);
+  let delta = abs(fract((rowY - cableY) / \${p2("vertical")}.x + 0.5) - 0.5) * \${p2("vertical")}.x;
+  let coverage = 1.0 - smoothstep(\${p2("cable")}.x * 0.5, \${p2("cable")}.x * 0.5 + 1.0 / globals.clock.z, delta);
+  let foreground = \${p2("wire")}; let background = \${p2("ground")};
+  return mix(vec4f(background.rgb * background.a, background.a), vec4f(foreground.rgb * foreground.a, foreground.a), coverage);\`,
+      looks: [
+        ["Slack suspension", { span: 88, sag: 28, vertical: 76, cable: 2 }],
+        ["Taut lattice", { span: 52, sag: 6, vertical: 40, cable: 1.2 }]
+      ]
+    },
+    {
+      id: "owned-s-limacon-contours",
+      name: "Lima\\xE7on Contours",
+      kind: "generator",
+      mechanism: "Traces the polar curve r=a+b cos(theta) by a fixed 64-segment nearest-edge search. An inner loop appears only when b>a; it is distinct from Superformula silhouettes and Cassini implicit products.",
+      closest: "Superformula Bloom; Cassini Field Atlas; Hypotrochoid Ink",
+      cost: "64 line-segment distance evaluations per pixel; performance gate required.",
+      properties: {
+        baseRadius: distance2("Base radius", 64, 20, 140),
+        loop: catalogFloat("Loop ratio", 0.72, 0, 1.6),
+        stroke: distance2("Stroke", 2.5, 0.5, 9),
+        ink: pigment("Contour", 0.92, 0.58, 0.22),
+        ground: pigment("Ground", 0.05, 0.08, 0.11)
+      },
+      fragment: (p2) => \`
+  let point = (input.uv - vec2f(0.5)) * globals.viewport.xy / globals.clock.z;
+  let base = \${p2("baseRadius")}.x;
+  var previous = vec2f((1.0 + \${p2("loop")}.x) * base, 0.0);
+  var nearest = 1.0e6;
+  for (var segment = 1u; segment <= 64u; segment += 1u) {
+    let angle = TAU * f32(segment) / 64.0;
+    let radius = base * (1.0 + \${p2("loop")}.x * cos(angle));
+    let next = vec2f(cos(angle), sin(angle)) * radius;
+    let side = next - previous;
+    let fraction = clamp(dot(point - previous, side) / max(dot(side, side), 0.00001), 0.0, 1.0);
+    nearest = min(nearest, length(point - (previous + side * fraction)));
+    previous = next;
+  }
+  let coverage = 1.0 - smoothstep(\${p2("stroke")}.x * 0.5, \${p2("stroke")}.x * 0.5 + 1.0 / globals.clock.z, nearest);
+  let foreground = \${p2("ink")}; let background = \${p2("ground")};
+  return mix(vec4f(background.rgb * background.a, background.a), vec4f(foreground.rgb * foreground.a, foreground.a), coverage);\`,
+      looks: [
+        ["Dimpled oval", { baseRadius: 62, loop: 0.45, stroke: 3 }],
+        ["Inner loop", { baseRadius: 72, loop: 1.3, stroke: 2 }]
+      ]
+    },
+    {
+      id: "owned-s-rain-plume-field",
+      name: "Rain Plume Field",
+      kind: "generator",
+      mechanism: "Renders finite slanted rain filaments from sparse seeded cells, each with a distinct length and lateral drift; a finite segment distance and depth attenuation distinguish it from infinite stripes, dust particles, and snow noise.",
+      closest: "Snow Squall; Dust Storm; Sashiko Stitches",
+      cost: "At most fifteen neighboring segment-distance checks per pixel.",
+      properties: {
+        cell: distance2("Drop spacing", 26, 24, 70),
+        length: distance2("Length", 38, 8, 72),
+        slant: catalogFloat("Wind", 0.28, -0.5, 0.5),
+        width: distance2("Filament", 1.2, 0.4, 5),
+        density: catalogFloat("Density", 0.72, 0.1, 1),
+        rain: pigment("Rain", 0.63, 0.79, 0.92),
+        ground: pigment("Atmosphere", 0.04, 0.09, 0.15)
+      },
+      fragment: (p2) => \`
+  let point = input.uv * globals.viewport.xy / globals.clock.z;
+  let cellSize = \${p2("cell")}.x;
+  let rowHeight = cellSize + \${p2("length")}.x;
+  let cell = vec2i(floor(vec2f(point.x / cellSize, point.y / rowHeight)));
+  var nearest = 1.0e6;
+  var depth = 0.0;
+  for (var yy = -1; yy <= 1; yy += 1) {
+    for (var xx = -2; xx <= 2; xx += 1) {
+      let id = cell + vec2i(xx, yy);
+      let chance = random(id);
+      if (chance < \${p2("density")}.x) {
+        let anchor = vec2f((f32(id.x) + random(id + vec2i(19, 37))) * cellSize, (f32(id.y) + random(id + vec2i(53, 11))) * rowHeight);
+        let span = \${p2("length")}.x * (0.35 + 0.65 * random(id + vec2i(79, 29)));
+        let axis = vec2f(\${p2("slant")}.x * span, span);
+        let fraction = clamp(dot(point - anchor, axis) / max(dot(axis, axis), 0.00001), 0.0, 1.0);
+        let d = length(point - (anchor + axis * fraction));
+        if (d < nearest) { nearest = d; depth = 0.4 + 0.6 * chance; }
+      }
+    }
+  }
+  let coverage = (1.0 - smoothstep(\${p2("width")}.x * 0.5, \${p2("width")}.x * 0.5 + 1.0 / globals.clock.z, nearest)) * depth;
+  let foreground = \${p2("rain")}; let background = \${p2("ground")};
+  return mix(vec4f(background.rgb * background.a, background.a), vec4f(foreground.rgb * foreground.a, foreground.a), coverage);\`,
+      looks: [
+        [
+          "Fine shower",
+          { cell: 24, length: 32, slant: 0.13, width: 0.8, density: 0.8 }
+        ],
+        [
+          "Wind streaks",
+          { cell: 38, length: 68, slant: 0.5, width: 2, density: 0.55 }
+        ]
+      ]
+    }
+  ];
+  var OWNED_NEXT_TWELVE_S_DEFINITIONS = OWNED_NEXT_TWELVE_S_DRAFTS.map((draft) => {
+    const base = catalogShader(draft);
+    return {
+      ...base,
+      resources: base.resources?.map(
+        (resource) => resource.name === "color" ? { ...resource, format: "rgba16float" } : resource
+      ),
+      provenance: {
+        origin: "design-original",
+        note: draft.mechanism.slice(0, 240)
+      }
+    };
+  });
+  var OWNED_NEXT_TWELVE_S_PRESETS = OWNED_NEXT_TWELVE_S_DRAFTS.flatMap(
+    (draft) => draft.looks.map(([name, params], index) => ({
+      id: \`an-preset-\${draft.id}-\${index + 1}\`,
+      name,
+      definitionId: \`an-native-\${draft.id}\`,
+      definitionVersion: draft.version ?? 1,
+      placement: draft.kind === "generator" ? "fill" : "layer",
+      params,
+      clip: "bounds",
+      provenance: { origin: "design-original" }
+    }))
+  );
+
+  // shared/native-effect-owned-next-twelve-t.ts
+  var px3 = (label, value, min, max) => ({
+    type: "float",
+    label,
+    default: value,
+    min,
+    max,
+    step: 0.1,
+    unit: "px"
+  });
+  var integer2 = (label, value, min, max) => ({
+    type: "int",
+    label,
+    default: value,
+    min,
+    max,
+    step: 1
+  });
+  var pigment2 = (label, r, g, b) => ({
+    type: "color",
+    label,
+    default: catalogColor(r, g, b)
+  });
+  var edge6 = () => ({
+    type: "enum",
+    label: "Outside source",
+    default: "clamp",
+    options: ["transparent", "clamp"],
+    advanced: true
+  });
+  var OWNED_NEXT_TWELVE_T_DRAFTS = [
+    {
+      id: "owned-t-paired-band-exchange",
+      name: "Paired Band Exchange",
+      kind: "processor",
+      mechanism: "Pairs adjacent horizontal source bands and exchanges their sampled positions by a controllable fraction; the mapping is a bandwise permutation, not a noisy displacement.",
+      closest: "Pixel Shift; Tape Tracking; Bar Shift source candidate",
+      cost: "One source read per pixel.",
+      properties: {
+        edge: edge6(),
+        height: px3("Band height", 36, 8, 100),
+        exchange: catalogFloat("Exchange", 0.8, 0, 1)
+      },
+      fragment: (p2) => \`
+  let point = input.uv * globals.viewport.xy / globals.clock.z;
+  let h = \${p2("height")}.x;
+  let band = i32(floor(point.y / h));
+  let direction = select(-1.0, 1.0, (band % 2) == 0);
+  let sourceY = point.y + direction * h * \${p2("exchange")}.x;
+  return sampleSource(vec2f(point.x, sourceY) * globals.viewport.zw * globals.clock.z);\`,
+      looks: [
+        ["Short exchanges", { height: 20, exchange: 0.55 }],
+        ["Wide swap", { height: 64, exchange: 1 }]
+      ]
+    },
+    {
+      id: "owned-t-concentric-rotor",
+      name: "Concentric Rotor",
+      kind: "processor",
+      mechanism: "Inverse-samples alternating annular zones after opposite rotations around a chosen center; boundaries rotate but radial distance stays fixed.",
+      closest: "Swirl; Kaleidoscope; Concentric Spin source candidate",
+      cost: "One source read per pixel.",
+      properties: {
+        edge: edge6(),
+        centerX: catalogFloat("Center X", 0.5, 0, 1),
+        centerY: catalogFloat("Center Y", 0.5, 0, 1),
+        ring: px3("Ring width", 34, 12, 90),
+        angle: catalogFloat("Zone angle", 0.38, -1.5, 1.5)
+      },
+      fragment: (p2) => \`
+  let extent = globals.viewport.xy / globals.clock.z;
+  let center = vec2f(\${p2("centerX")}.x, \${p2("centerY")}.x) * extent;
+  let ray = input.uv * extent - center;
+  let zone = i32(floor(length(ray) / \${p2("ring")}.x));
+  let direction = select(-1.0, 1.0, (zone % 2) == 0);
+  let source = center + rotate(ray, -direction * \${p2("angle")}.x);
+  return sampleSource(source / extent);\`,
+      looks: [
+        ["Subtle rings", { ring: 48, angle: 0.16 }],
+        ["Counter orbit", { centerX: 0.38, ring: 24, angle: 0.85 }]
+      ]
+    },
+    {
+      id: "owned-t-node-grid-warp",
+      version: 2,
+      name: "Node Grid Warp",
+      kind: "processor",
+      mechanism: "Displaces each source point by bilinearly interpolating four reproducible vertex offsets of its containing rectangular cell; displacement is continuous across grid edges.",
+      closest: "Noise Displacement; Vector Field Displacement; Grid Distortion source candidate",
+      cost: "Eight integer component hashes and one source read per pixel.",
+      properties: {
+        edge: edge6(),
+        cell: px3("Cell size", 60, 20, 120),
+        amplitude: px3("Vertex offset", 9, 0, 24),
+        seed: integer2("Seed", 11, 0, 1e3)
+      },
+      fragment: (p2) => \`
+  let point = input.uv * globals.viewport.xy / globals.clock.z;
+  let grid = point / \${p2("cell")}.x;
+  let base = vec2i(floor(grid)); let f = fract(grid); let u = f * f * (vec2f(3.0) - 2.0 * f);
+  let seed = i32(\${p2("seed")}.x);
+  let a = vec2f(random(base + vec2i(seed, 19)), random(base + vec2i(37, seed)));
+  let b = vec2f(random(base + vec2i(1 + seed, 19)), random(base + vec2i(38, seed)));
+  let c = vec2f(random(base + vec2i(seed, 20)), random(base + vec2i(37, 1 + seed)));
+  let d = vec2f(random(base + vec2i(1 + seed, 20)), random(base + vec2i(38, 1 + seed)));
+  let offset = mix(mix(a, b, u.x), mix(c, d, u.x), u.y) * 2.0 - vec2f(1.0);
+  return sampleSource((point + offset * \${p2("amplitude")}.x) / (globals.viewport.xy / globals.clock.z));\`,
+      looks: [
+        ["Gentle mesh", { cell: 78, amplitude: 5 }],
+        ["Bent tiles", { cell: 32, amplitude: 18, seed: 71 }]
+      ]
+    },
+    {
+      id: "owned-t-luma-tail-integrator",
+      name: "Luma Tail Integrator",
+      kind: "processor",
+      mechanism: "A one-sided seven-tap exposure trail whose ray length is driven by the current source luminance, so bright features drag farther while dark regions retain detail.",
+      closest: "Directional Smear; Radial Echo; Progressive Blur source candidate",
+      cost: "Eight source reads per pixel, fixed.",
+      properties: {
+        edge: edge6(),
+        reach: px3("Bright reach", 26, 0, 72),
+        floorReach: px3("Dark reach", 2, 0, 18),
+        angle: catalogFloat("Direction", 0.3, -3.14, 3.14),
+        amount: catalogFloat("Trail blend", 0.8, 0, 1)
+      },
+      helpers: () => \`
+fn tStraightExact(color: vec4f) -> vec3f {
+  if (color.a <= 0.0) { return vec3f(0.0); }
+  return color.rgb / color.a;
+}\`,
+      fragment: (p2) => \`
+  let center = sampleSource(input.uv);
+  let straight = tStraightExact(center);
+  let light = clamp(dot(straight, vec3f(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+  let lengthPx = mix(\${p2("floorReach")}.x, \${p2("reach")}.x, light);
+  let axis = vec2f(cos(\${p2("angle")}.x), sin(\${p2("angle")}.x)) * lengthPx * globals.viewport.zw * globals.clock.z;
+  var integral = vec4f(0.0);
+  for (var tap = 0u; tap < 7u; tap += 1u) { integral += sampleSource(input.uv - axis * (f32(tap) / 6.0)); }
+  return mix(center, integral / 7.0, \${p2("amount")}.x);\`,
+      looks: [
+        ["Bright drawing", { reach: 36, floorReach: 0, amount: 0.9 }],
+        [
+          "Diagonal exposure",
+          { reach: 54, floorReach: 6, angle: 1.15, amount: 1 }
+        ]
+      ]
+    },
+    {
+      id: "owned-t-chalkboard-rubbing",
+      name: "Chalkboard Rubbing",
+      kind: "processor",
+      mechanism: "Uses directional source luminance gradient to raise chalk pigment on transitions, then combines it with low-opacity periodic rubbing lines while preserving source alpha.",
+      closest: "Edge Ink; Crosshatch; Chalkboard source candidate",
+      cost: "Three source reads and one analytic hatch per pixel.",
+      properties: {
+        edge: edge6(),
+        chalk: pigment2("Chalk", 0.87, 0.88, 0.8),
+        sensitivity: catalogFloat("Edge response", 4, 0, 10),
+        spacing: px3("Rubbing spacing", 8, 3, 24),
+        strength: catalogFloat("Deposit", 0.75, 0, 1)
+      },
+      helpers: () => \`
+fn tStraightExact(color: vec4f) -> vec3f {
+  if (color.a <= 0.0) { return vec3f(0.0); }
+  return color.rgb / color.a;
+}\`,
+      fragment: (p2) => \`
+  let center = sampleSource(input.uv);
+  let stepUv = globals.viewport.zw * globals.clock.z;
+  let right = sampleSource(input.uv + vec2f(stepUv.x, 0.0));
+  let down = sampleSource(input.uv + vec2f(0.0, stepUv.y));
+  let c = dot(tStraightExact(center), vec3f(0.2126, 0.7152, 0.0722));
+  let r = dot(tStraightExact(right), vec3f(0.2126, 0.7152, 0.0722));
+  let d = dot(tStraightExact(down), vec3f(0.2126, 0.7152, 0.0722));
+  let edgeAmount = clamp(length(vec2f(r-c,d-c)) * \${p2("sensitivity")}.x, 0.0, 1.0);
+  let point = input.uv * globals.viewport.xy / globals.clock.z;
+  let hatch = 1.0 - smoothstep(0.05, 0.28, abs(fract((point.x + point.y * 0.35) / \${p2("spacing")}.x) - 0.5));
+  let weight = \${p2("strength")}.x * max(edgeAmount, hatch * 0.18) * center.a;
+  let pigment = \${p2("chalk")};
+  return vec4f(mix(center.rgb, pigment.rgb * center.a, weight * pigment.a), center.a);\`,
+      looks: [
+        ["Soft rubbing", { sensitivity: 2, spacing: 12, strength: 0.55 }],
+        ["Hard contours", { sensitivity: 8, spacing: 5, strength: 1 }]
+      ]
+    },
+    {
+      id: "owned-t-door-reveal",
+      version: 2,
+      name: "Opposed Door Reveal",
+      kind: "processor",
+      mechanism: "Two continuous panels open from the vertical center with independent feather; the source is retained only in the opened aperture, unlike periodic slats or checker phases.",
+      closest: "Slat Shutter; Checker Phase; Barn Doors source candidate",
+      cost: "One source read per pixel.",
+      edgeSampling: "fixed-clamp",
+      properties: {
+        progress: catalogFloat("Opening", 0.62, 0, 1),
+        feather: catalogFloat("Feather", 0.02, 0, 0.2),
+        invert: integer2("Invert", 0, 0, 1)
+      },
+      fragment: (p2) => \`
+  let source = sampleSource(input.uv);
+  let progress = \${p2("progress")}.x;
+  let invert = \${p2("invert")}.x;
+  if (progress <= 0.0) { return source * invert; }
+  if (progress >= 1.0) { return source * (1.0 - invert); }
+  let halfOpen = progress * 0.5;
+  let distance = abs(input.uv.x - 0.5);
+  let feather = max(\${p2("feather")}.x, 0.00001);
+  let opening = 1.0 - smoothstep(halfOpen - feather, halfOpen + feather, distance);
+  let coverage = mix(opening, 1.0 - opening, invert);
+  return source * coverage;\`,
+      looks: [
+        ["Narrow opening", { progress: 0.25, feather: 5e-3 }],
+        ["Soft reverse", { progress: 0.72, feather: 0.08, invert: 1 }]
+      ]
+    },
+    {
+      id: "owned-t-stochastic-block-field",
+      version: 2,
+      name: "Stochastic Block Field",
+      kind: "generator",
+      mechanism: "Assigns each integer cell an independent seeded height and shades the discontinuity at its four borders; this is a piecewise-constant random field rather than a DCT block transform.",
+      closest: "Block Transform; Voronoi Cells; BlockNoise source candidate",
+      cost: "One integer cell hash and four analytic border tests.",
+      properties: {
+        cell: px3("Block size", 30, 8, 90),
+        seed: integer2("Seed", 7, 0, 1e3),
+        contrast: catalogFloat("Height contrast", 0.75, 0, 1),
+        seam: px3("Seam", 1, 0, 6),
+        light: pigment2("High", 0.82, 0.7, 0.53),
+        dark: pigment2("Low", 0.06, 0.11, 0.19)
+      },
+      fragment: (p2) => \`
+  let point = input.uv * globals.viewport.xy / globals.clock.z;
+  let cell = point / \${p2("cell")}.x;
+  let value = random(vec2i(floor(cell)) + vec2i(i32(\${p2("seed")}.x), 17));
+  let local = fract(cell) * \${p2("cell")}.x;
+  let border = min(min(local.x, local.y), min(\${p2("cell")}.x-local.x, \${p2("cell")}.x-local.y));
+  let height = mix(0.5, value, \${p2("contrast")}.x) * smoothstep(0.0, \${p2("seam")}.x + 1.0 / globals.clock.z, border);
+  let high = \${p2("light")}; let low = \${p2("dark")};
+  return mix(vec4f(low.rgb*low.a,low.a),vec4f(high.rgb*high.a,high.a),height);\`,
+      looks: [
+        ["Small aggregate", { cell: 14, seam: 0.4, contrast: 0.55 }],
+        ["Large blocks", { cell: 68, seam: 3, contrast: 1, seed: 53 }]
+      ]
+    },
+    {
+      id: "owned-t-offset-dot-matrix",
+      name: "Offset Dot Matrix",
+      kind: "generator",
+      mechanism: "Renders equal-radius circles on a staggered row lattice with independently controlled odd-row offset and elliptical dot aspect; deterministic topology differs from inhibited random stippling.",
+      closest: "Inhibited Stipple; Phyllotaxis Seeds; DotGrid source candidate",
+      cost: "Three adjacent-row nearest-dot distances per pixel.",
+      properties: {
+        pitch: px3("Dot spacing", 24, 8, 72),
+        radius: px3("Dot radius", 4, 0.5, 20),
+        offset: catalogFloat("Odd-row offset", 0.5, 0, 1),
+        aspect: catalogFloat("Dot aspect", 1, 0.4, 2),
+        dot: pigment2("Dots", 0.86, 0.52, 0.23),
+        ground: pigment2("Ground", 0.06, 0.08, 0.12)
+      },
+      fragment: (p2) => \`
+  let point = input.uv * globals.viewport.xy / globals.clock.z;
+  let row = i32(floor(point.y / \${p2("pitch")}.x));
+  var nearest = 1.0e6;
+  for (var offsetRow = -1; offsetRow <= 1; offsetRow += 1) {
+    let candidate = row + offsetRow;
+    let shift = select(0.0, \${p2("offset")}.x, (candidate % 2) != 0);
+    let dx = (fract(point.x / \${p2("pitch")}.x - shift) - 0.5) * \${p2("pitch")}.x / \${p2("aspect")}.x;
+    let dy = point.y - (f32(candidate) + 0.5) * \${p2("pitch")}.x;
+    nearest = min(nearest, length(vec2f(dx, dy)));
+  }
+  let coverage = 1.0 - smoothstep(\${p2("radius")}.x-0.5/globals.clock.z,\${p2("radius")}.x+0.5/globals.clock.z,nearest);
+  let ink=\${p2("dot")};let ground=\${p2("ground")};
+  return mix(vec4f(ground.rgb*ground.a,ground.a),vec4f(ink.rgb*ink.a,ink.a),coverage);\`,
+      looks: [
+        ["Small offset", { pitch: 17, radius: 2.1, offset: 0.5 }],
+        ["Elongated array", { pitch: 38, radius: 8, offset: 0.25, aspect: 1.6 }]
+      ]
+    },
+    {
+      id: "owned-t-pinned-strand-array",
+      version: 2,
+      name: "Pinned Strand Array",
+      kind: "generator",
+      mechanism: "Between fixed upper and lower pins, each strand follows a sine displacement multiplied by a zero-at-endpoint envelope; line count and resonance are independent.",
+      closest: "Braided Ribbons; Bezier Hatch; Strands source candidate",
+      cost: "Eight bounded strand-distance comparisons.",
+      properties: {
+        count: integer2("Strands", 6, 2, 8),
+        swing: px3("Swing", 12, 0, 35),
+        cycles: catalogFloat("Oscillations", 1.5, 0.5, 4),
+        width: px3("Thread", 1.5, 0.4, 8),
+        thread: pigment2("Thread", 0.82, 0.72, 0.59),
+        ground: pigment2("Ground", 0.08, 0.11, 0.16)
+      },
+      fragment: (p2) => \`
+  let point = input.uv * globals.viewport.xy / globals.clock.z;
+  let height = globals.viewport.y / globals.clock.z;
+  let t = clamp(point.y / height,0.0,1.0);
+  let envelope = sin(3.14159265*t);
+  let count = floor(\${p2("count")}.x);
+  var nearest = 1.0e6;
+  for (var strand=0u;strand<8u;strand+=1u) {
+    if (f32(strand)<count) {
+      let pin = (f32(strand)+0.5)*globals.viewport.x/globals.clock.z/count;
+      let curve = pin + \${p2("swing")}.x*envelope*sin(6.2831853*\${p2("cycles")}.x*t + f32(strand)*0.71);
+      nearest=min(nearest,abs(point.x-curve));
+    }
+  }
+  let coverage=1.0-smoothstep(\${p2("width")}.x*0.5,\${p2("width")}.x*0.5+1.0/globals.clock.z,nearest);
+  let ink=\${p2("thread")};let ground=\${p2("ground")};
+  return mix(vec4f(ground.rgb*ground.a,ground.a),vec4f(ink.rgb*ink.a,ink.a),coverage);\`,
+      looks: [
+        ["Taut strings", { count: 8, swing: 4, cycles: 2, width: 1 }],
+        ["Resonant threads", { count: 4, swing: 28, cycles: 3.5, width: 2.5 }]
+      ]
+    },
+    {
+      id: "owned-t-rational-conic-ribbon",
+      name: "Rational Conic Ribbon",
+      kind: "generator",
+      mechanism: "Samples a rational quadratic B\\xE9zier with a variable central weight; changing the weight moves the locus through conic sections while endpoints remain pinned.",
+      closest: "Bezier Hatch; Catenary Cables; Line source candidate",
+      cost: "Forty-eight fixed rational-segment distance comparisons per pixel; performance gate required.",
+      properties: {
+        bend: catalogFloat("Conic weight", 0.7, 0.2, 3),
+        lift: px3("Control lift", 58, 10, 130),
+        width: px3("Ribbon", 2.5, 0.5, 12),
+        ink: pigment2("Ink", 0.86, 0.47, 0.31),
+        ground: pigment2("Ground", 0.05, 0.08, 0.13)
+      },
+      fragment: (p2) => \`
+  let point=input.uv*globals.viewport.xy/globals.clock.z;
+  let size=globals.viewport.xy/globals.clock.z;
+  let start=vec2f(size.x*0.12,size.y*0.72);
+  let control=vec2f(size.x*0.5,size.y*0.72-\${p2("lift")}.x);
+  let end=vec2f(size.x*0.88,size.y*0.72);
+  var previous=start;var nearest=1.0e6;
+  for(var segment=1u;segment<=48u;segment+=1u){
+    let t=f32(segment)/48.0;let a=(1.0-t)*(1.0-t);let b=2.0*\${p2("bend")}.x*t*(1.0-t);let c=t*t;
+    let next=(start*a+control*b+end*c)/(a+b+c);
+    let side=next-previous;let f=clamp(dot(point-previous,side)/max(dot(side,side),0.00001),0.0,1.0);
+    nearest=min(nearest,length(point-previous-side*f));previous=next;
+  }
+  let coverage=1.0-smoothstep(\${p2("width")}.x*0.5,\${p2("width")}.x*0.5+1.0/globals.clock.z,nearest);
+  let ink=\${p2("ink")};let ground=\${p2("ground")};
+  return mix(vec4f(ground.rgb*ground.a,ground.a),vec4f(ink.rgb*ink.a,ink.a),coverage);\`,
+      looks: [
+        ["Open conic", { bend: 0.25, lift: 82, width: 2 }],
+        ["Tight arch", { bend: 2.4, lift: 105, width: 4 }]
+      ]
+    },
+    {
+      id: "owned-t-crescent-boolean",
+      name: "Crescent Boolean",
+      kind: "generator",
+      mechanism: "Subtracts an offset disk from a primary disk in signed-distance space; the exposed lune has controllable thickness and antialiased topology, not a recolored star or circular ring.",
+      closest: "Star Cutout; Vesica/Crescent source candidates",
+      cost: "Two analytic disk distances per pixel.",
+      properties: {
+        radius: px3("Outer radius", 58, 20, 120),
+        cut: px3("Cut radius", 52, 8, 120),
+        shift: px3("Cut shift", 24, -90, 90),
+        softness: px3("Edge softness", 1, 0.5, 12),
+        moon: pigment2("Lune", 0.9, 0.75, 0.46),
+        ground: pigment2("Ground", 0.05, 0.06, 0.12)
+      },
+      fragment: (p2) => \`
+  let point=(input.uv-vec2f(0.5))*globals.viewport.xy/globals.clock.z;
+  let outer=length(point)-\${p2("radius")}.x;
+  let removed=\${p2("cut")}.x-length(point-vec2f(\${p2("shift")}.x,0.0));
+  let signed=max(outer,removed);
+  let coverage=1.0-smoothstep(-\${p2("softness")}.x*0.5,\${p2("softness")}.x*0.5,signed);
+  let ink=\${p2("moon")};let ground=\${p2("ground")};
+  return mix(vec4f(ground.rgb*ground.a,ground.a),vec4f(ink.rgb*ink.a,ink.a),coverage);\`,
+      looks: [
+        ["Thin lune", { radius: 62, cut: 58, shift: 18 }],
+        ["Open moon", { radius: 72, cut: 48, shift: 42, softness: 2 }]
+      ]
+    },
+    {
+      id: "owned-t-rose-locus",
+      version: 2,
+      name: "Rose Locus",
+      kind: "generator",
+      mechanism: "Measures distance to a sampled polar rhodonea locus r=a cos(k\\u03B8), retaining its signed-radius loops; petal count changes the curve's topology rather than tinting a generic rosette.",
+      closest: "Hypotrochoid Ink; Guilloche Rosettes; Flower source candidate",
+      cost: "Sixty-four polar segment distance comparisons per pixel; performance gate required.",
+      properties: {
+        radius: px3("Petal reach", 62, 20, 110),
+        petals: integer2("Frequency", 4, 2, 9),
+        width: px3("Stroke", 2, 0.5, 10),
+        ink: pigment2("Trace", 0.91, 0.55, 0.22),
+        ground: pigment2("Ground", 0.06, 0.09, 0.13)
+      },
+      fragment: (p2) => \`
+  let point=(input.uv-vec2f(0.5))*globals.viewport.xy/globals.clock.z;
+  var previous=vec2f(\${p2("radius")}.x,0.0);var nearest=1.0e6;
+  let petals = floor(\${p2("petals")}.x);
+  for(var segment=1u;segment<=64u;segment+=1u){
+    let angle=6.2831853*f32(segment)/64.0;
+    let r=\${p2("radius")}.x*cos(petals*angle);
+    let next=vec2f(cos(angle),sin(angle))*r;
+    let side=next-previous;let f=clamp(dot(point-previous,side)/max(dot(side,side),0.00001),0.0,1.0);
+    nearest=min(nearest,length(point-previous-side*f));previous=next;
+  }
+  let coverage=1.0-smoothstep(\${p2("width")}.x*0.5,\${p2("width")}.x*0.5+1.0/globals.clock.z,nearest);
+  let ink=\${p2("ink")};let ground=\${p2("ground")};
+  return mix(vec4f(ground.rgb*ground.a,ground.a),vec4f(ink.rgb*ink.a,ink.a),coverage);\`,
+      looks: [
+        ["Four petals", { petals: 4, radius: 52, width: 1.4 }],
+        ["Dense rosette", { petals: 7, radius: 78, width: 3 }]
+      ]
+    }
+  ];
+  var OWNED_NEXT_TWELVE_T_DEFINITIONS = OWNED_NEXT_TWELVE_T_DRAFTS.map((draft) => {
+    const base = catalogShader(draft);
+    return {
+      ...base,
+      resources: base.resources?.map(
+        (resource) => resource.name === "color" ? { ...resource, format: "rgba16float" } : resource
+      ),
+      provenance: {
+        origin: "design-original",
+        note: draft.mechanism.slice(0, 240)
+      }
+    };
+  });
+  var OWNED_NEXT_TWELVE_T_PRESETS = OWNED_NEXT_TWELVE_T_DRAFTS.flatMap(
+    (draft) => draft.looks.map(([name, params], index) => ({
+      id: \`an-preset-\${draft.id}-\${index + 1}\`,
+      name,
+      definitionId: \`an-native-\${draft.id}\`,
+      definitionVersion: draft.version ?? 1,
+      placement: draft.kind === "generator" ? "fill" : "layer",
+      params,
+      clip: "bounds",
+      provenance: { origin: "design-original" }
+    }))
+  );
+
+  // shared/native-effect-owned-next-twelve-u.ts
+  var px4 = (label, value, min, max) => ({
+    type: "float",
+    label,
+    default: value,
+    min,
+    max,
+    step: 0.1,
+    unit: "px"
+  });
+  var pigment3 = (label, r, g, b) => ({ type: "color", label, default: catalogColor(r, g, b) });
+  var edge7 = () => ({
+    type: "enum",
+    label: "Outside source",
+    default: "clamp",
+    options: ["transparent", "clamp"],
+    advanced: true
+  });
+  var OWNED_NEXT_TWELVE_U_DRAFTS = [
+    {
+      id: "owned-u-mobius-reprojection",
+      name: "M\\xF6bius Reprojection",
+      kind: "processor",
+      mechanism: "Applies a bounded complex fractional-linear inverse map (z+a)/(bz+1) in centered source coordinates; straight lines can become circular arcs without a corner-perspective matrix.",
+      closest: "Corner Perspective; Circle Inversion Web; Log-Polar Reprojection",
+      cost: "One source read and one complex division per pixel.",
+      properties: {
+        edge: edge7(),
+        offsetX: catalogFloat("Numerator X", 0.13, -0.35, 0.35),
+        offsetY: catalogFloat("Numerator Y", 0.04, -0.35, 0.35),
+        bendX: catalogFloat("Denominator X", 0.22, -0.5, 0.5),
+        bendY: catalogFloat("Denominator Y", 0, -0.5, 0.5)
+      },
+      fragment: (p2) => \`
+  let z=(input.uv-vec2f(0.5))*2.0;
+  let numerator=z+vec2f(\${p2("offsetX")}.x,\${p2("offsetY")}.x);
+  let b=vec2f(\${p2("bendX")}.x,\${p2("bendY")}.x);
+  let denominator=vec2f(1.0+b.x*z.x-b.y*z.y,b.x*z.y+b.y*z.x);
+  let scale=max(dot(denominator,denominator),0.0001);
+  let q=vec2f(dot(numerator,denominator),numerator.y*denominator.x-numerator.x*denominator.y)/scale;
+  return sampleSource(q*0.5+vec2f(0.5));\`,
+      looks: [
+        ["Arc lens", { offsetX: 0.1, bendX: 0.34 }],
+        ["Cross bend", { offsetY: 0.2, bendX: -0.25, bendY: 0.3 }]
+      ]
+    },
+    {
+      id: "owned-u-vector-median",
+      name: "Vector Median",
+      kind: "processor",
+      mechanism: "Chooses one actual premultiplied RGBA sample from a five-pixel cross by minimum summed four-channel distance, preserving sampled hues rather than synthesizing per-channel medians.",
+      closest: "Median Speckle Removal; Bilateral Surface; Local Rank Contrast",
+      cost: "Five source reads and 25 bounded vector-distance evaluations per pixel.",
+      properties: {
+        edge: edge7(),
+        reach: px4("Cross radius", 2, 1, 5),
+        amount: catalogFloat("Denoise blend", 0.9, 0, 1)
+      },
+      fragment: (p2) => \`
+  let stepUv=globals.viewport.zw*\${p2("reach")}.x*globals.clock.z;
+  let samples=array<vec4f,5>(sampleSource(input.uv),sampleSource(input.uv+vec2f(stepUv.x,0.0)),sampleSource(input.uv-vec2f(stepUv.x,0.0)),sampleSource(input.uv+vec2f(0.0,stepUv.y)),sampleSource(input.uv-vec2f(0.0,stepUv.y)));
+  var best=1.0e6;var chosen=samples[0];
+  for(var i=0u;i<5u;i+=1u){var score=0.0;for(var j=0u;j<5u;j+=1u){let d=samples[i]-samples[j];score+=dot(abs(d),vec4f(1.0));}
+    if(score<best){best=score;chosen=samples[i];}}
+  return mix(samples[0],chosen,\${p2("amount")}.x);\`,
+      looks: [
+        ["Gentle cross", { reach: 1, amount: 0.55 }],
+        ["Salt-pixel cleanup", { reach: 4, amount: 1 }]
+      ]
+    },
+    {
+      id: "owned-u-isophote-integration",
+      name: "Isophote Integration",
+      kind: "processor",
+      mechanism: "Estimates the current luminance gradient, then averages five source taps along its perpendicular tangent; boundaries are followed locally rather than blurred across their normal.",
+      closest: "Anisotropic Diffusion; Structure Orientation; Directional Smear",
+      cost: "Nine source reads: four gradient, one center and four tangent taps.",
+      properties: {
+        edge: edge7(),
+        length: px4("Tangent span", 6, 0, 16),
+        amount: catalogFloat("Integration", 0.75, 0, 1)
+      },
+      helpers: () => \`
+fn uStraightExact(color: vec4f) -> vec3f {
+  if (color.a <= 0.0) { return vec3f(0.0); }
+  return color.rgb / color.a;
+}\`,
+      fragment: (p2) => \`
+  let stepUv=globals.viewport.zw*globals.clock.z;
+  let left=sampleSource(input.uv-vec2f(stepUv.x,0.0));let right=sampleSource(input.uv+vec2f(stepUv.x,0.0));
+  let up=sampleSource(input.uv-vec2f(0.0,stepUv.y));let down=sampleSource(input.uv+vec2f(0.0,stepUv.y));
+  let gx=dot(uStraightExact(right)-uStraightExact(left),vec3f(0.2126,0.7152,0.0722));
+  let gy=dot(uStraightExact(down)-uStraightExact(up),vec3f(0.2126,0.7152,0.0722));
+  let axis=vec2f(-gy,gx)/max(length(vec2f(gx,gy)),0.00001)*\${p2("length")}.x*globals.viewport.zw*globals.clock.z;
+  let center=sampleSource(input.uv);
+  let integrated=center+sampleSource(input.uv+axis*0.5)+sampleSource(input.uv-axis*0.5)+sampleSource(input.uv+axis)+sampleSource(input.uv-axis);
+  return mix(center,integrated/5.0,\${p2("amount")}.x);\`,
+      looks: [
+        ["Fine contours", { length: 3, amount: 0.5 }],
+        ["Long contours", { length: 12, amount: 1 }]
+      ]
+    },
+    {
+      id: "owned-u-local-range-compression",
+      name: "Local Range Compression",
+      kind: "processor",
+      mechanism: "Measures a 3\\xD73 luminance minimum and maximum, then compresses only deviations from their midpoint while preserving hue and source alpha; unlike global curves it adapts to local dynamic range.",
+      closest: "Local Rank Contrast; Tone Ripple; Three-Point Tonal Map",
+      cost: "Ten source reads per pixel: the 3\\xD73 neighborhood and a separate center read.",
+      properties: {
+        edge: edge7(),
+        reach: px4("Neighborhood", 2, 1, 6),
+        compression: catalogFloat("Compression", 0.55, 0, 1)
+      },
+      helpers: () => \`
+fn uStraightExact(color: vec4f) -> vec3f {
+  if (color.a <= 0.0) { return vec3f(0.0); }
+  return color.rgb / color.a;
+}\`,
+      fragment: (p2) => \`
+  let stepUv=globals.viewport.zw*\${p2("reach")}.x*globals.clock.z;
+  var low=1.0e9;var high=-1.0e9;
+  for(var yy=-1;yy<=1;yy+=1){for(var xx=-1;xx<=1;xx+=1){
+    let c=sampleSource(input.uv+vec2f(f32(xx),f32(yy))*stepUv);
+    let l=dot(uStraightExact(c),vec3f(0.2126,0.7152,0.0722));low=min(low,l);high=max(high,l);}}
+  let center=sampleSource(input.uv);let l=dot(uStraightExact(center),vec3f(0.2126,0.7152,0.0722));
+  let mid=(low+high)*0.5;
+  let adjusted=mix(l,mid+(l-mid)/(1.0+\${p2("compression")}.x*(high-low)*4.0),\${p2("compression")}.x);
+  if (l <= 0.00001) { return center; }
+  return vec4f(center.rgb * (adjusted / l), center.a);\`,
+      looks: [
+        ["Soft scene", { reach: 1, compression: 0.35 }],
+        ["Narrow highlight", { reach: 5, compression: 0.95 }]
+      ]
+    },
+    {
+      id: "owned-u-alpha-curvature-tint",
+      name: "Alpha Curvature Tint",
+      kind: "processor",
+      mechanism: "Uses a signed five-point Laplacian of source coverage to tint convex and concave alpha edges differently without creating coverage outside the original silhouette.",
+      closest: "Bevel Light; Alpha Medial Ridge; Edge Neon",
+      cost: "Five alpha samples per pixel.",
+      properties: {
+        edge: edge7(),
+        reach: px4("Curvature radius", 2, 1, 6),
+        intensity: catalogFloat("Surface tint", 0.65, 0, 1),
+        convex: pigment3("Convex tint", 0.88, 0.77, 0.52),
+        concave: pigment3("Concave tint", 0.13, 0.26, 0.47)
+      },
+      fragment: (p2) => \`
+  let stepUv=globals.viewport.zw*\${p2("reach")}.x*globals.clock.z;
+  let center=sampleSource(input.uv);
+  let lap=sampleSource(input.uv+vec2f(stepUv.x,0.0)).a+sampleSource(input.uv-vec2f(stepUv.x,0.0)).a+sampleSource(input.uv+vec2f(0.0,stepUv.y)).a+sampleSource(input.uv-vec2f(0.0,stepUv.y)).a-4.0*center.a;
+  let positive=max(lap,0.0);let negative=max(-lap,0.0);
+  let convex=\${p2("convex")};let concave=\${p2("concave")};
+  let tint=mix(convex.rgb,concave.rgb,step(0.0,lap));
+  let weight=clamp((positive+negative)*\${p2("intensity")}.x*mix(convex.a,concave.a,step(0.0,lap)),0.0,1.0);
+  return vec4f(mix(center.rgb,tint*center.a,weight),center.a);\`,
+      looks: [
+        ["Soft curvature", { reach: 1, intensity: 0.35 }],
+        ["Deep relief", { reach: 5, intensity: 1 }]
+      ]
+    },
+    {
+      id: "owned-u-luma-flow-remap",
+      name: "Luma Flow Remap",
+      kind: "processor",
+      mechanism: "A single inverse-transport sample moves source coordinates along the source's own finite-difference luminance gradient, distinct from integration along isophotes or an external vector-map input.",
+      closest: "Vector Field Displacement; Brush Liquify; Isophote Integration",
+      cost: "Five source reads, including four local gradient taps.",
+      properties: {
+        edge: edge7(),
+        reach: px4("Gradient radius", 2, 1, 6),
+        drift: px4("Gradient drift", 9, -25, 25)
+      },
+      helpers: () => \`
+fn uStraightExact(color: vec4f) -> vec3f {
+  if (color.a <= 0.0) { return vec3f(0.0); }
+  return color.rgb / color.a;
+}\`,
+      fragment: (p2) => \`
+  let stepUv=globals.viewport.zw*\${p2("reach")}.x*globals.clock.z;
+  let left=sampleSource(input.uv-vec2f(stepUv.x,0.0));let right=sampleSource(input.uv+vec2f(stepUv.x,0.0));
+  let up=sampleSource(input.uv-vec2f(0.0,stepUv.y));let down=sampleSource(input.uv+vec2f(0.0,stepUv.y));
+  let grad=vec2f(dot(uStraightExact(right)-uStraightExact(left),vec3f(0.2126,0.7152,0.0722)),dot(uStraightExact(down)-uStraightExact(up),vec3f(0.2126,0.7152,0.0722)));
+  return sampleSource(input.uv-grad*\${p2("drift")}.x*globals.viewport.zw*globals.clock.z);\`,
+      looks: [
+        ["Gentle run", { reach: 1, drift: 5 }],
+        ["Reverse transport", { reach: 4, drift: -19 }]
+      ]
+    },
+    {
+      id: "owned-u-rule-thirty",
+      name: "Rule Thirty Spacetime",
+      kind: "generator",
+      mechanism: "Evaluates a bounded elementary cellular automaton from a single seeded bit across fifteen prior rows; horizontal neighborhoods combine by XOR/OR, giving a causal spacetime texture rather than spatial noise.",
+      closest: "Triangular Lacunae; Reaction Field; Life Mosaic compute draft",
+      cost: "Fifteen integer neighborhood updates per pixel, no mutable history.",
+      properties: {
+        cell: px4("Cell size", 8, 4, 24),
+        seed: {
+          type: "int",
+          label: "Seed",
+          default: 17,
+          min: 0,
+          max: 30,
+          step: 1
+        },
+        live: pigment3("Live", 0.82, 0.62, 0.29),
+        dead: pigment3("Dead", 0.06, 0.1, 0.15)
+      },
+      fragment: (p2) => \`
+  let point=input.uv*globals.viewport.xy/globals.clock.z;
+  let column=i32(floor(point.x/\${p2("cell")}.x));
+  let row=i32(floor(point.y/\${p2("cell")}.x));
+  let cycle=((row%15)+15)%15;
+  var bits=1u<<15u;
+  for(var stepIndex=0;stepIndex<15;stepIndex+=1){
+    if(stepIndex<cycle){let left=bits<<1u;let right=bits>>1u;bits=left^(bits|right);}
+  }
+  let shift=u32(((column+i32(\${p2("seed")}.x))%31+31)%31);
+  let on=f32((bits>>shift)&1u);
+  let a=\${p2("dead")};let b=\${p2("live")};
+  return mix(vec4f(a.rgb*a.a,a.a),vec4f(b.rgb*b.a,b.a),on);\`,
+      looks: [
+        ["Small cells", { cell: 5, seed: 9 }],
+        ["Large field", { cell: 16, seed: 26 }]
+      ]
+    },
+    {
+      id: "owned-u-thue-morse-weave",
+      name: "Thue\\u2013Morse Weave",
+      kind: "generator",
+      mechanism: "Uses parity of set bits in integer row and column indices to form a deterministic aperiodic substitution fabric; crossings are encoded by XOR, not a repeated checker or random stipple.",
+      closest: "Checker Phase; Tartan Interlace; Quilted Diamonds",
+      cost: "Two bounded bit-parity reductions per pixel.",
+      properties: {
+        cell: px4("Thread cell", 12, 4, 40),
+        seam: px4("Thread gap", 1, 0, 5),
+        front: pigment3("Front", 0.75, 0.55, 0.37),
+        back: pigment3("Back", 0.08, 0.13, 0.2)
+      },
+      fragment: (p2) => \`
+  let point=input.uv*globals.viewport.xy/globals.clock.z;
+  let grid=vec2u(floor(point/\${p2("cell")}.x));
+  var a=grid.x;var b=grid.y;var parityA=0u;var parityB=0u;
+  for(var bitIndex=0u;bitIndex<12u;bitIndex+=1u){parityA^=(a&1u);parityB^=(b&1u);a>>=1u;b>>=1u;}
+  let phase=f32(parityA^parityB);
+  let local=fract(point/\${p2("cell")}.x)*\${p2("cell")}.x;
+  let edge=min(min(local.x,local.y),min(\${p2("cell")}.x-local.x,\${p2("cell")}.x-local.y));
+  let mask=smoothstep(0.0,\${p2("seam")}.x+1.0/globals.clock.z,edge);
+  let front=\${p2("front")};let back=\${p2("back")};
+  return mix(vec4f(back.rgb*back.a,back.a),vec4f(front.rgb*front.a,front.a),phase*mask);\`,
+      looks: [
+        ["Fine substitution", { cell: 6, seam: 0.4 }],
+        ["Open weave", { cell: 26, seam: 3 }]
+      ]
+    },
+    {
+      id: "owned-u-weierstrass-ridges",
+      name: "Weierstrass Ridges",
+      kind: "generator",
+      mechanism: "Sums bounded lacunary cosine frequencies along an octave-rotated coordinate frame with geometrically decaying amplitudes and thresholded signed ridges; unlike fractal noise it has deterministic phase and ridge geometry.",
+      closest: "Fractal Cloud; Harmonic Band Map; Wave Interference",
+      cost: "Six cosine evaluations per pixel.",
+      properties: {
+        scale: px4("Base wavelength", 70, 20, 160),
+        growth: catalogFloat("Frequency growth", 2.1, 1.6, 2.8),
+        decay: catalogFloat("Amplitude decay", 0.53, 0.3, 0.75),
+        contour: catalogFloat("Ridge threshold", 0.2, 0, 0.8),
+        ridge: pigment3("Ridge", 0.76, 0.72, 0.5),
+        ground: pigment3("Ground", 0.06, 0.1, 0.17)
+      },
+      fragment: (p2) => \`
+  var point=input.uv*globals.viewport.xy/globals.clock.z/\${p2("scale")}.x;
+  var wave=0.0;var amplitude=0.5;var total=0.0;
+  for(var octave=0u;octave<6u;octave+=1u){
+    wave+=cos(6.2831853*point.x)*amplitude;
+    total+=amplitude;point=vec2f(point.x*0.86-point.y*0.51,point.x*0.51+point.y*0.86)*\${p2("growth")}.x;amplitude*=\${p2("decay")}.x;}
+  let height=abs(wave/max(total,0.00001));
+  let coverage=smoothstep(\${p2("contour")}.x,\${p2("contour")}.x+0.08,height);
+  let ridge=\${p2("ridge")};let ground=\${p2("ground")};
+  return mix(vec4f(ground.rgb*ground.a,ground.a),vec4f(ridge.rgb*ridge.a,ridge.a),coverage);\`,
+      looks: [
+        ["Broad bands", { scale: 110, growth: 1.7, contour: 0.35 }],
+        ["Fine ridges", { scale: 30, growth: 2.6, decay: 0.68, contour: 0.1 }]
+      ]
+    },
+    {
+      id: "owned-u-staggered-pentagon",
+      name: "Staggered Pentagon Mosaic",
+      kind: "generator",
+      mechanism: "Splits each staggered square cell into two complementary five-edge pentagons with a two-segment kinked seam; only the controlled grout separates the tiles.",
+      closest: "Hex Tiles; Octagon Square Tiling; Quilted Diamonds",
+      cost: "Two bounded segment projections and four exterior-edge distances per pixel.",
+      properties: {
+        scale: px4("Tile scale", 44, 18, 90),
+        grout: px4("Grout", 2, 0.5, 9),
+        face: pigment3("Face", 0.77, 0.6, 0.43),
+        mortar: pigment3("Mortar", 0.07, 0.11, 0.17)
+      },
+      fragment: (p2) => \`
+  let point=input.uv*globals.viewport.xy/globals.clock.z/\${p2("scale")}.x;
+  let row=i32(floor(point.y));
+  let odd=(row%2)!=0;
+  let q=vec2f(fract(point.x-select(0.0,0.5,odd)),fract(point.y));
+  let top=vec2f(0.5,0.0);
+  let middle=vec2f(select(0.72,0.28,odd),0.5);
+  let bottom=vec2f(0.5,1.0);
+  let first=middle-top;let second=bottom-middle;
+  let firstT=clamp(dot(q-top,first)/dot(first,first),0.0,1.0);
+  let secondT=clamp(dot(q-middle,second)/dot(second,second),0.0,1.0);
+  let seam=min(length(q-top-first*firstT),length(q-middle-second*secondT));
+  let outer=min(min(q.x,1.0-q.x),min(q.y,1.0-q.y));
+  let boundary=min(seam,outer)*\${p2("scale")}.x;
+  let coverage=smoothstep(\${p2("grout")}.x*0.5,\${p2("grout")}.x*0.5+1.0/globals.clock.z,boundary);
+  let face=\${p2("face")};let mortar=\${p2("mortar")};
+  return mix(vec4f(mortar.rgb*mortar.a,mortar.a),vec4f(face.rgb*face.a,face.a),coverage);\`,
+      looks: [
+        ["Small masonry", { scale: 25, grout: 1 }],
+        ["Wide joints", { scale: 70, grout: 6 }]
+      ]
+    },
+    {
+      id: "owned-u-plastic-disc-light",
+      name: "Plastic Disc Light",
+      kind: "generator",
+      mechanism: "Analytic disc normal and roughness-controlled Blinn halfway specular highlight over a diffuse body, without an environment texture or metal Fresnel response.",
+      closest: "Environment Metal; Photo Sphere; Plastic source candidate",
+      cost: "One disc normal, one diffuse and one specular lobe per pixel.",
+      properties: {
+        radius: px4("Disc radius", 64, 20, 110),
+        roughness: catalogFloat("Roughness", 0.35, 0.08, 0.9),
+        lightX: catalogFloat("Light X", -0.35, -1, 1),
+        lightY: catalogFloat("Light Y", -0.5, -1, 1),
+        body: pigment3("Body", 0.42, 0.16, 0.35),
+        shine: pigment3("Highlight", 0.95, 0.88, 0.79),
+        ground: pigment3("Ground", 0.05, 0.07, 0.11)
+      },
+      fragment: (p2) => \`
+  let point=(input.uv-vec2f(0.5))*globals.viewport.xy/globals.clock.z;
+  let radial=length(point)/\${p2("radius")}.x;
+  let coverage=1.0-smoothstep(0.98,1.0+1.0/(\${p2("radius")}.x*globals.clock.z),radial);
+  let z=sqrt(max(1.0-radial*radial,0.0));
+  let normal=normalize(vec3f(point/\${p2("radius")}.x,z));
+  let light=normalize(vec3f(\${p2("lightX")}.x,\${p2("lightY")}.x,0.8));
+  let halfVector=normalize(light+vec3f(0.0,0.0,1.0));
+  let diffuse=max(dot(normal,light),0.0);
+  let gloss=pow(max(dot(normal,halfVector),0.0),mix(80.0,3.0,\${p2("roughness")}.x));
+  let body=\${p2("body")};let shine=\${p2("shine")};let ground=\${p2("ground")};
+  let lit=premultiply(body.rgb*(0.18+0.82*diffuse)+shine.rgb*gloss*shine.a,body.a);
+  return mix(vec4f(ground.rgb*ground.a,ground.a),lit,coverage);\`,
+      looks: [
+        ["Soft polymer", { roughness: 0.7, lightX: -0.6 }],
+        ["Hard glaze", { roughness: 0.1, lightX: 0.3, lightY: -0.8 }]
+      ]
+    },
+    {
+      id: "owned-u-viscous-union",
+      name: "Viscous Union",
+      kind: "generator",
+      mechanism: "Smooth-min union of three independent moving-free signed circles with gradient-derived normals and a wet specular lobe; differs from simple sum-threshold metaballs.",
+      closest: "Metaball Field; Goo source candidate; Coral Polyps",
+      cost: "Five field evaluations (15 circle distances), four finite-difference gradient taps and one specular lobe per pixel.",
+      properties: {
+        radius: px4("Lobe radius", 38, 12, 70),
+        blend: px4("Merge width", 22, 2, 45),
+        gloss: catalogFloat("Wet gloss", 0.7, 0, 1),
+        body: pigment3("Body", 0.21, 0.57, 0.43),
+        shine: pigment3("Glint", 0.85, 0.98, 0.78),
+        ground: pigment3("Ground", 0.04, 0.07, 0.1)
+      },
+      helpers: (p2) => \`
+fn uField(q:vec2f)->f32{
+  let a=length(q-vec2f(-32.0,13.0))-\${p2("radius")}.x;
+  let b=length(q-vec2f(28.0,-15.0))-\${p2("radius")}.x*0.8;
+  let c=length(q-vec2f(8.0,32.0))-\${p2("radius")}.x*0.64;
+  let k=\${p2("blend")}.x;
+  let h=clamp(0.5+0.5*(b-a)/k,0.0,1.0);
+  let first=mix(b,a,h)-k*h*(1.0-h);
+  let j=clamp(0.5+0.5*(c-first)/k,0.0,1.0);
+  return mix(c,first,j)-k*j*(1.0-j);
+}\`,
+      fragment: (p2) => \`
+  let point=(input.uv-vec2f(0.5))*globals.viewport.xy/globals.clock.z;
+  let d=uField(point);
+  let coverage=1.0-smoothstep(-0.5/globals.clock.z,0.5/globals.clock.z,d);
+  let gx=uField(point+vec2f(1.0,0.0))-uField(point-vec2f(1.0,0.0));
+  let gy=uField(point+vec2f(0.0,1.0))-uField(point-vec2f(0.0,1.0));
+  let normal=normalize(vec3f(gx,gy,2.5));
+  let glint=pow(max(dot(normal,normalize(vec3f(-0.4,-0.5,1.0))),0.0),24.0)*\${p2("gloss")}.x;
+  let body=\${p2("body")};let shine=\${p2("shine")};let ground=\${p2("ground")};
+  let lit=premultiply(body.rgb*(0.45+0.55*max(normal.z,0.0))+shine.rgb*glint*shine.a,body.a);
+  return mix(vec4f(ground.rgb*ground.a,ground.a),lit,coverage);\`,
+      looks: [
+        ["Compact gel", { radius: 25, blend: 12, gloss: 0.4 }],
+        ["Merged drops", { radius: 58, blend: 38, gloss: 1 }]
+      ]
+    }
+  ];
+  var OWNED_NEXT_TWELVE_U_DEFINITIONS = OWNED_NEXT_TWELVE_U_DRAFTS.map((draft) => {
+    const base = catalogShader(draft);
+    return {
+      ...base,
+      resources: base.resources?.map(
+        (resource) => resource.name === "color" ? { ...resource, format: "rgba16float" } : resource
+      ),
+      provenance: {
+        origin: "design-original",
+        note: draft.mechanism.slice(0, 240)
+      }
+    };
+  });
+  var OWNED_NEXT_TWELVE_U_PRESETS = OWNED_NEXT_TWELVE_U_DRAFTS.flatMap(
+    (draft) => draft.looks.map(([name, params], index) => ({
+      id: \`an-preset-\${draft.id}-\${index + 1}\`,
+      name,
+      definitionId: \`an-native-\${draft.id}\`,
+      definitionVersion: draft.version ?? 1,
+      placement: draft.kind === "generator" ? "fill" : "layer",
+      params,
+      clip: "bounds",
+      provenance: { origin: "design-original" }
+    }))
+  );
+
+  // shared/native-effect-owned-o-edge-glass.ts
+  var OWNED_O_EDGE_GLASS_DEFINITIONS = [
+    {
+      id: "an-native-owned-o-edge-light-leak",
+      name: "Edge Light Leak",
+      version: 1,
+      kind: "processor",
+      placements: ["layer"],
+      properties: {
+        edge: {
+          type: "enum",
+          label: "Edges",
+          default: "clamp",
+          options: ["transparent", "clamp", "repeat", "mirror"],
+          advanced: true
+        },
+        side: {
+          type: "enum",
+          label: "Origin edge",
+          default: "left",
+          options: ["left", "right", "top", "bottom"]
+        },
+        reach: {
+          type: "float",
+          label: "Reach",
+          default: 0.42,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        width: {
+          type: "float",
+          label: "Beam width",
+          default: 0.55,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        strength: {
+          type: "float",
+          label: "Strength",
+          default: 0.5,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        flicker: {
+          type: "float",
+          label: "Flicker",
+          default: 0.12,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        speed: {
+          type: "float",
+          label: "Pulse speed",
+          default: 0.6,
+          min: 0,
+          max: 4,
+          step: 0.01
+        },
+        light: {
+          type: "color",
+          label: "Leak color",
+          default: {
+            space: "srgb",
+            components: [1, 0.46, 0.16],
+            alpha: 1
+          }
+        }
+      },
+      inputs: {
+        source: {
+          kind: "texture-2d",
+          resource: "source"
+        }
+      },
+      outputs: {
+        color: {
+          kind: "texture-2d",
+          resource: "color"
+        }
+      },
+      resources: [
+        {
+          name: "source",
+          kind: "texture-2d",
+          usage: ["sampled"],
+          external: true,
+          size: "viewport"
+        },
+        {
+          name: "color",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["render", "sampled"],
+          size: "viewport"
+        }
+      ],
+      output: "color",
+      passes: [
+        {
+          id: "render",
+          kind: "render",
+          reads: ["source"],
+          output: "color",
+          wgsl: "\\nstruct Globals {\\n  viewport: vec4f,\\n  clock: vec4f,\\n  params: array<vec4f, 32>,\\n};\\n@group(0) @binding(0) var<uniform> globals: Globals;\\n@group(0) @binding(1) var effectSampler: sampler;\\n@group(0) @binding(2) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(3) var maskTexture: texture_2d<f32>;\\nstruct VertexOutput {\\n  @builtin(position) position: vec4f,\\n  @location(0) uv: vec2f,\\n};\\n@vertex fn vs(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {\\n  let coordinates = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));\\n  var output: VertexOutput;\\n  output.position = vec4f(coordinates[vertexIndex], 0.0, 1.0);\\n  output.uv = coordinates[vertexIndex] * vec2f(0.5, -0.5) + vec2f(0.5, 0.5);\\n  return output;\\n}\\n\\nconst PI: f32 = 3.141592653589793;\\nconst TAU: f32 = 6.283185307179586;\\nfn hashBits(p: vec2i) -> u32 {\\n  var state = bitcast<u32>(p.x) * 747796405u + bitcast<u32>(p.y) * 2891336453u + u32(globals.clock.y);\\n  state = state * 747796405u + 2891336453u;\\n  let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;\\n  return (word >> 22u) ^ word;\\n}\\nfn random(p: vec2i) -> f32 { return f32(hashBits(p) >> 8u) / 16777216.0; }\\nfn valueNoise(p: vec2f) -> f32 {\\n  let cell = vec2i(floor(p));\\n  let f = fract(p);\\n  let s = f * f * (3.0 - 2.0 * f);\\n  return mix(mix(random(cell), random(cell + vec2i(1, 0)), s.x), mix(random(cell + vec2i(0, 1)), random(cell + vec2i(1, 1)), s.x), s.y);\\n}\\nfn fractalNoise(p: vec2f) -> f32 {\\n  var sum = 0.0; var weight = 0.5; var q = p;\\n  for (var octave = 0u; octave < 5u; octave += 1u) {\\n    sum += valueNoise(q) * weight;\\n    q = vec2f(q.x * 1.6 - q.y * 1.2, q.x * 1.2 + q.y * 1.6) + vec2f(7.3, 12.1);\\n    weight *= 0.5;\\n  }\\n  return sum / 0.96875;\\n}\\nfn rotate(p: vec2f, angle: f32) -> vec2f { return vec2f(cos(angle) * p.x - sin(angle) * p.y, sin(angle) * p.x + cos(angle) * p.y); }\\nfn straight(color: vec4f) -> vec3f { return color.rgb / max(color.a, 0.00001); }\\nfn premultiply(rgb: vec3f, alpha: f32) -> vec4f { return vec4f(clamp(rgb, vec3f(0.0), vec3f(1.0)) * alpha, alpha); }\\nfn luminance(rgb: vec3f) -> f32 { return dot(rgb, vec3f(0.2126, 0.7152, 0.0722)); }\\n\\nfn sampleSource(uv: vec2f) -> vec4f {\\n  let edge = u32(globals.params[0].x);\\n  if (edge == 0u && (any(uv < vec2f(0.0)) || any(uv > vec2f(1.0)))) { return vec4f(0.0); }\\n  var q = clamp(uv, vec2f(0.0), vec2f(1.0));\\n  if (edge == 2u) { q = fract(uv); }\\n  if (edge == 3u) { q = 1.0 - abs(1.0 - (uv - floor(uv / 2.0) * 2.0)); }\\n  return textureSampleLevel(sourceTexture, effectSampler, q, 0.0);\\n}\\nfn painted(c:vec4f,v:f32)->vec4f{let a=c.a*clamp(v,0.0,1.0);return vec4f(c.rgb*a,a);} fn over(a:vec4f,b:vec4f)->vec4f{return vec4f(a.rgb+b.rgb*(1.0-a.a),a.a+b.a*(1.0-a.a));}\\n@fragment fn fs(input: VertexOutput) -> @location(0) vec4f {\\nlet src=sampleSource(input.uv);if(src.a<=0.00001){return vec4f(0.0);}let side=u32(globals.params[1].x);var inward=input.uv.x;var transverse=input.uv.y;if(side==1u){inward=1.0-input.uv.x;}if(side==2u){inward=input.uv.y;transverse=input.uv.x;}if(side==3u){inward=1.0-input.uv.y;transverse=input.uv.x;}let beam=exp(-pow((transverse-0.5)/max(globals.params[3].x*0.5,0.01),2.0)*1.4);let falloff=exp(-inward/max(globals.params[2].x,0.005)*3.0);let pulse=1.0-globals.params[5].x*(0.5+0.5*sin(globals.clock.x*globals.params[6].x*TAU+transverse*11.0));let amount=clamp(beam*falloff*pulse*globals.params[4].x,0.0,1.0);let straight=src.rgb/src.a;return vec4f(mix(straight,globals.params[7].rgb,amount*globals.params[7].a)*src.a,src.a);\\n}\\n"
+        }
+      ],
+      provenance: {
+        origin: "design-original",
+        note: "A positioned edge emitter veils captured source color with a directional, time-varying falloff. It is independent of source brightness; output coverage equals source coverage."
+      }
+    },
+    {
+      id: "an-native-owned-o-thickness-glass",
+      name: "Thickness Glass",
+      version: 1,
+      kind: "processor",
+      placements: ["layer", "backdrop"],
+      properties: {
+        edge: {
+          type: "enum",
+          label: "Edges",
+          default: "clamp",
+          options: ["transparent", "clamp", "repeat", "mirror"],
+          advanced: true
+        },
+        centerX: {
+          type: "float",
+          label: "Center X",
+          default: 0.5,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        centerY: {
+          type: "float",
+          label: "Center Y",
+          default: 0.5,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        radius: {
+          type: "float",
+          label: "Lens radius",
+          default: 0.4,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        bulge: {
+          type: "float",
+          label: "Thickness",
+          default: 0.7,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        bend: {
+          type: "float",
+          label: "Bend",
+          default: 12,
+          min: 0,
+          max: 40,
+          step: 0.1,
+          unit: "px"
+        },
+        dispersion: {
+          type: "float",
+          label: "Dispersion",
+          default: 2,
+          min: 0,
+          max: 10,
+          step: 0.1,
+          unit: "px"
+        },
+        fresnel: {
+          type: "float",
+          label: "Reflection",
+          default: 0.22,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        glassTint: {
+          type: "color",
+          label: "Glass tint",
+          default: {
+            space: "srgb",
+            components: [0.78, 0.9, 0.97],
+            alpha: 0.3
+          }
+        }
+      },
+      inputs: {
+        source: {
+          kind: "texture-2d",
+          resource: "source"
+        }
+      },
+      outputs: {
+        color: {
+          kind: "texture-2d",
+          resource: "color"
+        }
+      },
+      resources: [
+        {
+          name: "source",
+          kind: "texture-2d",
+          usage: ["sampled"],
+          external: true,
+          size: "viewport"
+        },
+        {
+          name: "color",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["render", "sampled"],
+          size: "viewport"
+        }
+      ],
+      output: "color",
+      passes: [
+        {
+          id: "render",
+          kind: "render",
+          reads: ["source"],
+          output: "color",
+          wgsl: "\\nstruct Globals {\\n  viewport: vec4f,\\n  clock: vec4f,\\n  params: array<vec4f, 32>,\\n};\\n@group(0) @binding(0) var<uniform> globals: Globals;\\n@group(0) @binding(1) var effectSampler: sampler;\\n@group(0) @binding(2) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(3) var maskTexture: texture_2d<f32>;\\nstruct VertexOutput {\\n  @builtin(position) position: vec4f,\\n  @location(0) uv: vec2f,\\n};\\n@vertex fn vs(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {\\n  let coordinates = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));\\n  var output: VertexOutput;\\n  output.position = vec4f(coordinates[vertexIndex], 0.0, 1.0);\\n  output.uv = coordinates[vertexIndex] * vec2f(0.5, -0.5) + vec2f(0.5, 0.5);\\n  return output;\\n}\\n\\nconst PI: f32 = 3.141592653589793;\\nconst TAU: f32 = 6.283185307179586;\\nfn hashBits(p: vec2i) -> u32 {\\n  var state = bitcast<u32>(p.x) * 747796405u + bitcast<u32>(p.y) * 2891336453u + u32(globals.clock.y);\\n  state = state * 747796405u + 2891336453u;\\n  let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;\\n  return (word >> 22u) ^ word;\\n}\\nfn random(p: vec2i) -> f32 { return f32(hashBits(p) >> 8u) / 16777216.0; }\\nfn valueNoise(p: vec2f) -> f32 {\\n  let cell = vec2i(floor(p));\\n  let f = fract(p);\\n  let s = f * f * (3.0 - 2.0 * f);\\n  return mix(mix(random(cell), random(cell + vec2i(1, 0)), s.x), mix(random(cell + vec2i(0, 1)), random(cell + vec2i(1, 1)), s.x), s.y);\\n}\\nfn fractalNoise(p: vec2f) -> f32 {\\n  var sum = 0.0; var weight = 0.5; var q = p;\\n  for (var octave = 0u; octave < 5u; octave += 1u) {\\n    sum += valueNoise(q) * weight;\\n    q = vec2f(q.x * 1.6 - q.y * 1.2, q.x * 1.2 + q.y * 1.6) + vec2f(7.3, 12.1);\\n    weight *= 0.5;\\n  }\\n  return sum / 0.96875;\\n}\\nfn rotate(p: vec2f, angle: f32) -> vec2f { return vec2f(cos(angle) * p.x - sin(angle) * p.y, sin(angle) * p.x + cos(angle) * p.y); }\\nfn straight(color: vec4f) -> vec3f { return color.rgb / max(color.a, 0.00001); }\\nfn premultiply(rgb: vec3f, alpha: f32) -> vec4f { return vec4f(clamp(rgb, vec3f(0.0), vec3f(1.0)) * alpha, alpha); }\\nfn luminance(rgb: vec3f) -> f32 { return dot(rgb, vec3f(0.2126, 0.7152, 0.0722)); }\\n\\nfn sampleSource(uv: vec2f) -> vec4f {\\n  let edge = u32(globals.params[0].x);\\n  if (edge == 0u && (any(uv < vec2f(0.0)) || any(uv > vec2f(1.0)))) { return vec4f(0.0); }\\n  var q = clamp(uv, vec2f(0.0), vec2f(1.0));\\n  if (edge == 2u) { q = fract(uv); }\\n  if (edge == 3u) { q = 1.0 - abs(1.0 - (uv - floor(uv / 2.0) * 2.0)); }\\n  return textureSampleLevel(sourceTexture, effectSampler, q, 0.0);\\n}\\nfn painted(c:vec4f,v:f32)->vec4f{let a=c.a*clamp(v,0.0,1.0);return vec4f(c.rgb*a,a);} fn over(a:vec4f,b:vec4f)->vec4f{return vec4f(a.rgb+b.rgb*(1.0-a.a),a.a+b.a*(1.0-a.a));}fn thickness(q:vec2f,r:f32)->f32{let d=length(q)/max(r,0.01);return pow(max(1.0-d*d,0.0),1.5);}\\n@fragment fn fs(input: VertexOutput) -> @location(0) vec4f {\\nlet aspect=globals.viewport.x/max(globals.viewport.y,1.0);let q=(input.uv-vec2f(globals.params[1].x,globals.params[2].x))*vec2f(aspect,1.0);let t=thickness(q,globals.params[3].x);let step=1.0/max(globals.viewport.y/globals.clock.z,1.0);let gx=(thickness(q+vec2f(step,0.0),globals.params[3].x)-thickness(q-vec2f(step,0.0),globals.params[3].x))/(2.0*step);let gy=(thickness(q+vec2f(0.0,step),globals.params[3].x)-thickness(q-vec2f(0.0,step),globals.params[3].x))/(2.0*step);let slope=vec2f(gx,gy)*globals.params[4].x;let normal=normalize(vec3f(-slope,1.0));let uv=input.uv+slope*globals.params[5].x*globals.clock.z*globals.viewport.zw;let shift=slope*globals.params[6].x*globals.clock.z*globals.viewport.zw;let middle=sampleSource(uv);let red=sampleSource(uv+shift);let blue=sampleSource(uv-shift);let rgb=vec3f(red.r/max(red.a,0.00001),middle.g/max(middle.a,0.00001),blue.b/max(blue.a,0.00001));let reflection=pow(1.0-clamp(normal.z,0.0,1.0),5.0)*globals.params[7].x;let tinted=mix(rgb,globals.params[8].rgb,globals.params[8].a*t)+vec3f(reflection);let result=vec4f(tinted*middle.a,middle.a);let original=sampleSource(input.uv);return mix(original,result,smoothstep(0.0,0.025,t));\\n}\\n"
+        }
+      ],
+      provenance: {
+        origin: "design-original",
+        note: "An analytic lens-thickness field produces a finite-difference normal. Its gradient refracts the live backdrop, separates red and blue rays, and sets angle-dependent Fresnel light, unlike periodic flutes or blockwise distortion."
+      }
+    }
+  ];
+  var OWNED_O_EDGE_GLASS_PRESETS = [
+    {
+      id: "an-preset-owned-o-edge-light-leak-1",
+      name: "Amber ingress",
+      definitionId: "an-native-owned-o-edge-light-leak",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        side: "left",
+        reach: 0.31,
+        width: 0.7,
+        strength: 0.45
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-o-edge-light-leak-2",
+      name: "Toplight bleed",
+      definitionId: "an-native-owned-o-edge-light-leak",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        side: "top",
+        reach: 0.66,
+        width: 0.36,
+        strength: 0.82,
+        flicker: 0.24,
+        speed: 1.1,
+        light: {
+          space: "srgb",
+          components: [0.86, 0.27, 0.39],
+          alpha: 1
+        }
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-o-thickness-glass-1",
+      name: "Soft lens",
+      definitionId: "an-native-owned-o-thickness-glass",
+      definitionVersion: 1,
+      placement: "backdrop",
+      params: {
+        radius: 0.34,
+        bulge: 0.42,
+        bend: 6,
+        dispersion: 1,
+        fresnel: 0.12
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-o-thickness-glass-2",
+      name: "Prismatic dome",
+      definitionId: "an-native-owned-o-thickness-glass",
+      definitionVersion: 1,
+      placement: "backdrop",
+      params: {
+        centerX: 0.6,
+        centerY: 0.46,
+        radius: 0.47,
+        bulge: 0.94,
+        bend: 24,
+        dispersion: 5,
+        fresnel: 0.62,
+        glassTint: {
+          space: "srgb",
+          components: [0.7, 0.88, 1],
+          alpha: 0.22
+        }
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    }
+  ];
+
+  // shared/native-effect-owned-o-edge-light-leak-v2.ts
+  var edgeId = "an-native-owned-o-edge-light-leak";
+  var edgeLightLeakV1 = OWNED_O_EDGE_GLASS_DEFINITIONS.find(
+    (definition3) => definition3.id === edgeId && definition3.version === 1
+  );
+  if (!edgeLightLeakV1)
+    throw new Error("The frozen Edge Light Leak v1 definition is unavailable.");
+  function withoutUnusedEdgePolicy(wgsl) {
+    const withoutSamplerPolicy = wgsl.replace(
+      /\\nfn sampleSource\\(uv: vec2f\\) -> vec4f \\{[\\s\\S]*?\\n\\}\\n/,
+      "\\n"
+    );
+    if (withoutSamplerPolicy === wgsl)
+      throw new Error(
+        "The frozen Edge Light Leak sampler policy is unavailable."
+      );
+    const withDirectSample = withoutSamplerPolicy.replace(
+      "let src=sampleSource(input.uv);",
+      "let src=textureSampleLevel(sourceTexture, effectSampler, input.uv, 0.0);"
+    );
+    if (withDirectSample === withoutSamplerPolicy)
+      throw new Error("The frozen Edge Light Leak source sample is unavailable.");
+    return withDirectSample.replace(
+      /globals\\.params\\[(\\d+)\\]/g,
+      (_match, rawIndex) => {
+        const index = Number(rawIndex);
+        if (index === 0)
+          throw new Error("The obsolete Edge Light Leak edge parameter remains.");
+        return \`globals.params[\${index - 1}]\`;
+      }
+    );
+  }
+  var liveProperties = Object.fromEntries(
+    Object.entries(edgeLightLeakV1.properties).filter(
+      ([name]) => name !== "edge"
+    )
+  );
+  var OWNED_O_EDGE_LIGHT_LEAK_V2 = {
+    ...edgeLightLeakV1,
+    version: 2,
+    properties: liveProperties,
+    passes: edgeLightLeakV1.passes.map((pass) => ({
+      ...pass,
+      wgsl: withoutUnusedEdgePolicy(pass.wgsl)
+    }))
+  };
+  var edgeLightLeakV1Presets = OWNED_O_EDGE_GLASS_PRESETS.filter(
+    (preset) => preset.definitionId === edgeId
+  );
+  var OWNED_O_EDGE_LIGHT_LEAK_V2_PRESETS = edgeLightLeakV1Presets.map((preset, index) => ({
+    ...structuredClone(preset),
+    id: \`an-preset-owned-o-edge-light-leak-v2-\${index + 1}\`,
+    definitionVersion: OWNED_O_EDGE_LIGHT_LEAK_V2.version
+  }));
+  var OWNED_O_EDGE_LIGHT_LEAK_V2_PRESET_LABEL_SOURCE_IDS = Object.fromEntries(
+    OWNED_O_EDGE_LIGHT_LEAK_V2_PRESETS.map((preset, index) => [
+      preset.id,
+      edgeLightLeakV1Presets[index].id
+    ])
+  );
+
   // shared/native-effect-owned-o-generators.ts
   var fraction6 = (label, value) => catalogFloat(label, value, 0, 1);
-  var distance2 = (label, value, max) => ({
+  var distance3 = (label, value, max) => ({
     type: "float",
     label,
     default: value,
@@ -11758,7 +14065,7 @@ fn coverageAt(distance: f32, halfWidth: f32, aa: f32) -> f32 {
       properties: {
         lightX: fraction6("Emitter X", 0.22),
         lightY: fraction6("Emitter Y", 0.2),
-        size: distance2("Aperture size", 54, 160),
+        size: distance3("Aperture size", 54, 160),
         spread: fraction6("Ghost spread", 0.82),
         ghosts: catalogFloat("Ghost count", 5, 1, 6, 1),
         intensity: fraction6("Intensity", 0.75),
@@ -11833,7 +14140,7 @@ fn coverageAt(distance: f32, halfWidth: f32, aa: f32) -> f32 {
     step: 0.1,
     unit: "px"
   });
-  var tint = (label, r, g, b) => ({
+  var tint2 = (label, r, g, b) => ({
     type: "color",
     label,
     default: catalogColor(r, g, b)
@@ -11860,14 +14167,14 @@ fn coverageAt(distance: f32, halfWidth: f32, aa: f32) -> f32 {
       },
       properties: {
         environment: image("Environment image", "environment"),
-        tint: tint("Metal tint", 0.83, 0.88, 0.94),
+        tint: tint2("Metal tint", 0.83, 0.88, 0.94),
         curvature: catalogFloat("Curvature", 1.1, 0.2, 2.5),
         roughness: unit2("Reflection softness", 0.14),
         fresnel: unit2("Grazing light", 0.55),
         azimuth: catalogFloat("Reflection angle", 0, -180, 180, 1),
         opacity: unit2("Surface opacity", 1)
       },
-      helpers: (p) => \`
+      helpers: (p2) => \`
 fn reflectedEnvironment(uv: vec2f, spread: f32) -> vec4f {
   var sum = vec4f(0.0);
   for (var j = -1; j <= 1; j += 1) {
@@ -11879,21 +14186,21 @@ fn reflectedEnvironment(uv: vec2f, spread: f32) -> vec4f {
   return sum / 9.0;
 }
 \`,
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let q = input.uv * 2.0 - vec2f(1.0);
   let radial = min(dot(q, q), 1.0);
-  let normal = normalize(vec3f(q * \${p("curvature")}.x, sqrt(max(1.0 - radial, 0.002))));
-  let angle = \${p("azimuth")}.x * 0.017453292519943295;
+  let normal = normalize(vec3f(q * \${p2("curvature")}.x, sqrt(max(1.0 - radial, 0.002))));
+  let angle = \${p2("azimuth")}.x * 0.017453292519943295;
   let reflection = vec2f(
     normal.x * cos(angle) - normal.y * sin(angle),
     normal.x * sin(angle) + normal.y * cos(angle)
   ) * 0.5 + vec2f(0.5);
-  let env = reflectedEnvironment(reflection, \${p("roughness")}.x * 0.08);
-  let grazing = pow(1.0 - clamp(normal.z, 0.0, 1.0), 5.0) * \${p("fresnel")}.x;
-  let surface = \${p("tint")};
-  let alpha = env.a * surface.a * \${p("opacity")}.x;
+  let env = reflectedEnvironment(reflection, \${p2("roughness")}.x * 0.08);
+  let grazing = pow(1.0 - clamp(normal.z, 0.0, 1.0), 5.0) * \${p2("fresnel")}.x;
+  let surface = \${p2("tint")};
+  let alpha = env.a * surface.a * \${p2("opacity")}.x;
   let pigment = mix(surface.rgb, vec3f(1.0), grazing);
-  return vec4f(env.rgb * pigment * surface.a * \${p("opacity")}.x, alpha);\`,
+  return vec4f(env.rgb * pigment * surface.a * \${p2("opacity")}.x, alpha);\`,
       looks: [
         ["Soft chrome", { curvature: 0.8, roughness: 0.2, fresnel: 0.5 }],
         [
@@ -11919,8 +14226,8 @@ fn reflectedEnvironment(uv: vec2f, spread: f32) -> vec4f {
         radius: pixels5("Density radius", 10, 64),
         low: unit2("Low density", 0.18),
         high: unit2("High density", 0.75),
-        cold: tint("Low color", 0.05, 0.24, 0.84),
-        hot: tint("High color", 1, 0.28, 0.04),
+        cold: tint2("Low color", 0.05, 0.24, 0.84),
+        hot: tint2("High color", 1, 0.28, 0.04),
         amount: unit2("Heatmap amount", 1)
       },
       helpers: () => \`
@@ -11929,10 +14236,10 @@ fn densityAt(uv: vec2f) -> vec2f {
   return vec2f(luminance(value.rgb), value.a);
 }
 \`,
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let original = sampleSource(input.uv);
-  if (original.a <= 0.00001 || \${p("amount")}.x <= 0.0) { return original; }
-  let stepUv = \${p("radius")}.x * globals.clock.z * globals.viewport.zw;
+  if (original.a <= 0.00001 || \${p2("amount")}.x <= 0.0) { return original; }
+  let stepUv = \${p2("radius")}.x * globals.clock.z * globals.viewport.zw;
   var collected = vec2f(0.0);
   for (var row = -1; row <= 1; row += 1) {
     for (var col = -1; col <= 1; col += 1) {
@@ -11940,11 +14247,11 @@ fn densityAt(uv: vec2f) -> vec2f {
     }
   }
   let density = clamp(collected.x / max(collected.y, 0.00001), 0.0, 1.0);
-  let transfer = smoothstep(\${p("low")}.x, max(\${p("high")}.x, \${p("low")}.x + 0.001), density);
-  let thermal = mix(\${p("cold")}, \${p("hot")}, transfer);
+  let transfer = smoothstep(\${p2("low")}.x, max(\${p2("high")}.x, \${p2("low")}.x + 0.001), density);
+  let thermal = mix(\${p2("cold")}, \${p2("hot")}, transfer);
   let alpha = original.a * thermal.a;
   let heat = vec4f(thermal.rgb * alpha, alpha);
-  return mix(original, heat, \${p("amount")}.x);\`,
+  return mix(original, heat, \${p2("amount")}.x);\`,
       looks: [
         ["Blue to ember", { radius: 8, low: 0.15, high: 0.72 }],
         ["Tight thermal", { radius: 3, low: 0.32, high: 0.58, amount: 0.85 }]
@@ -11972,15 +14279,15 @@ fn densityAt(uv: vec2f) -> vec2f {
         direction: catalogFloat("Vector angle", 0, -180, 180, 1),
         amount: unit2("Displacement amount", 1)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let original = sampleSource(input.uv);
-  if (\${p("amount")}.x <= 0.0) { return original; }
+  if (\${p2("amount")}.x <= 0.0) { return original; }
   let field = textureSampleLevel(maskTexture, effectSampler, input.uv, 0.0);
   let vector = (field.rg - vec2f(0.5)) * 2.0 * field.b;
-  let angle = \${p("direction")}.x * 0.017453292519943295;
+  let angle = \${p2("direction")}.x * 0.017453292519943295;
   let rotated = vec2f(vector.x * cos(angle) - vector.y * sin(angle), vector.x * sin(angle) + vector.y * cos(angle));
-  let uv = input.uv + rotated * \${p("reach")}.x * globals.clock.z * globals.viewport.zw;
-  return mix(original, sampleSource(uv), \${p("amount")}.x);\`,
+  let uv = input.uv + rotated * \${p2("reach")}.x * globals.clock.z * globals.viewport.zw;
+  return mix(original, sampleSource(uv), \${p2("amount")}.x);\`,
       looks: [
         ["Gentle current", { reach: 8, amount: 0.7 }],
         ["Hard field", { reach: 56, direction: 90, amount: 1 }]
@@ -12040,25 +14347,25 @@ fn densityAt(uv: vec2f) -> vec2f {
       }
     };
   }
-  var float3 = (label, value, min, max, unit3) => ({
+  var float3 = (label, value, min, max, unit4) => ({
     type: "float",
     label,
     default: value,
     min,
     max,
     step: 0.01,
-    ...unit3 ? { unit: unit3 } : {}
+    ...unit4 ? { unit: unit4 } : {}
   });
-  function processor(id, name, version, properties3, code, note) {
-    const slots = /* @__PURE__ */ new Map();
-    let count = 0;
-    for (const [key, property2] of Object.entries(properties3)) {
-      slots.set(key, count);
-      count += propertySlots(property2);
+  function processor(id, name, version, properties4, code, note) {
+    const slots2 = /* @__PURE__ */ new Map();
+    let count2 = 0;
+    for (const [key, property2] of Object.entries(properties4)) {
+      slots2.set(key, count2);
+      count2 += propertySlots(property2);
     }
-    if (count > 32) throw new Error(\`Uniform budget exceeded by \${id}\`);
+    if (count2 > 32) throw new Error(\`Uniform budget exceeded by \${id}\`);
     const property = (key) => {
-      const slot = slots.get(key);
+      const slot = slots2.get(key);
       if (slot === void 0) throw new Error(\`Unknown uniform \${key}\`);
       return \`globals.params[\${slot}]\`;
     };
@@ -12068,7 +14375,7 @@ fn densityAt(uv: vec2f) -> vec2f {
       version,
       kind: "processor",
       placements: ["layer", "backdrop"],
-      properties: properties3,
+      properties: properties4,
       inputs: { source: { kind: "texture-2d", resource: "source" } },
       outputs: { color: { kind: "texture-2d", resource: "color" } },
       resources: [
@@ -12118,31 +14425,31 @@ fn densityAt(uv: vec2f) -> vec2f {
       chromaDelay: float3("Chroma delay", 2, 0, 12, "px"),
       amount: float3("Amount", 0.8, 0, 1)
     },
-    (p) => \`\${DESIGN_COORDINATE_RANDOM_WGSL}\${EDGE_SAMPLING_WGSL}
+    (p2) => \`\${DESIGN_COORDINATE_RANDOM_WGSL}\${EDGE_SAMPLING_WGSL}
 fn trackingTick() -> f32 {
   let phase = fract(globals.clock.x / 256.0) * 256.0;
-  return floor(phase * \${p("rate")}.x);
+  return floor(phase * \${p2("rate")}.x);
 }
 @fragment fn fs(input: VertexOutput) -> @location(0) vec4f {
   let extent = vec2i(textureDimensions(sourceTexture, 0));
   let pixel = clamp(vec2i(floor(input.uv * vec2f(extent))), vec2i(0), extent - vec2i(1));
   let original = textureLoad(sourceTexture, pixel, 0);
-  if (original.a <= 0.00001 || \${p("amount")}.x <= 0.0) { return original; }
+  if (original.a <= 0.00001 || \${p2("amount")}.x <= 0.0) { return original; }
   let row = floor((f32(pixel.y) + 0.5) / globals.clock.z);
   let band = floor(row / 5.0);
   let tick = trackingTick();
   let impulse = designCoordinateRandom(vec2f(band, tick), globals.clock.y);
-  let shifted = select(0.0, (impulse - 0.5) * 2.0 * \${p("drift")}.x, impulse > 0.74);
+  let shifted = select(0.0, (impulse - 0.5) * 2.0 * \${p2("drift")}.x, impulse > 0.74);
   let offset = vec2f(shifted * globals.clock.z / f32(extent.x), 0.0);
-  let edge = u32(\${p("edge")}.x);
+  let edge = u32(\${p2("edge")}.x);
   let sampled = sampleEdgeTexture(sourceTexture, input.uv + offset, edge);
-  let delay = vec2f(\${p("chromaDelay")}.x * globals.clock.z / f32(extent.x), 0.0);
+  let delay = vec2f(\${p2("chromaDelay")}.x * globals.clock.z / f32(extent.x), 0.0);
   let delayed = sampleEdgeTexture(sourceTexture, input.uv + offset + delay, edge);
   let rgb = vec3f(sampled.r, delayed.g, sampled.b);
   let dropoutSample = designCoordinateRandom(vec2f(band, tick + 8192.0), globals.clock.y);
-  let level = select(1.0, 0.12, dropoutSample < \${p("dropout")}.x);
+  let level = select(1.0, 0.12, dropoutSample < \${p2("dropout")}.x);
   let altered = vec4f(clamp(rgb, vec3f(0.0), vec3f(sampled.a)) * level, sampled.a);
-  return mix(original, altered, \${p("amount")}.x);
+  return mix(original, altered, \${p2("amount")}.x);
 }
 \`,
     "Five-CSS-pixel tracking bands and CSS channel delay. Seeded 256-second periodic f32 local-time clock; rate zero holds tick zero. Dropout darkens premultiplied color without reducing sampled alpha."
@@ -12201,6 +14508,395 @@ fn trackingTick() -> f32 {
     }
   ];
 
+  // shared/native-effect-owned-p-shutter.ts
+  var unit3 = (label, value) => ({
+    type: "float",
+    label,
+    default: value,
+    min: 0,
+    max: 1,
+    step: 0.01
+  });
+  var properties3 = {
+    incoming: {
+      type: "texture",
+      label: "Incoming image",
+      default: null,
+      input: "incoming"
+    },
+    progress: unit3("Progress", 0.5),
+    slats: { type: "int", label: "Slats", default: 12, min: 2, max: 24, step: 1 },
+    stagger: unit3("Stagger", 0.4),
+    feather: unit3("Feather", 0.04),
+    direction: {
+      type: "enum",
+      label: "Direction",
+      default: "left",
+      options: ["left", "right"]
+    },
+    order: {
+      type: "enum",
+      label: "Exchange order",
+      default: "slats",
+      options: ["slats", "linear", "diamond", "checker", "ripple", "random-bars"]
+    },
+    divisions: {
+      type: "int",
+      label: "Divisions",
+      default: 8,
+      min: 2,
+      max: 32,
+      step: 1
+    },
+    ripple: {
+      type: "float",
+      label: "Ripple depth",
+      default: 0.1,
+      min: 0,
+      max: 0.22,
+      step: 0.01
+    },
+    patternSeed: {
+      type: "int",
+      label: "Pattern seed",
+      default: 17,
+      min: 0,
+      max: 65535,
+      step: 1
+    }
+  };
+  var slots = /* @__PURE__ */ new Map();
+  var count = 0;
+  for (const [key, property] of Object.entries(properties3))
+    if (property.type !== "texture") {
+      slots.set(key, count);
+      count += propertySlots(property);
+    }
+  var p = (key) => {
+    const slot = slots.get(key);
+    if (slot === void 0) throw new Error(\`Unknown shutter uniform \${key}\`);
+    return \`globals.params[\${slot}]\`;
+  };
+  var SLAT_SHUTTER_CONTROL_EFFECT = {
+    id: "an-native-owned-p-slat-shutter",
+    name: "Slat Shutter",
+    version: 5,
+    kind: "processor",
+    placements: ["layer", "backdrop"],
+    properties: properties3,
+    inputs: {
+      source: { kind: "texture-2d", resource: "source" },
+      incoming: { kind: "texture-2d", resource: "incoming" }
+    },
+    outputs: { color: { kind: "texture-2d", resource: "color" } },
+    resources: [
+      {
+        name: "source",
+        kind: "texture-2d",
+        usage: ["sampled"],
+        external: true,
+        size: "viewport"
+      },
+      {
+        name: "incoming",
+        kind: "texture-2d",
+        usage: ["sampled"],
+        external: true,
+        size: "viewport",
+        sampleEncoding: "srgb-color-premultiplied"
+      },
+      {
+        name: "color",
+        kind: "texture-2d",
+        format: "rgba16float",
+        usage: ["render", "sampled"],
+        size: "viewport"
+      }
+    ],
+    output: "color",
+    passes: [
+      {
+        id: "render",
+        kind: "render",
+        reads: ["source", "incoming"],
+        output: "color",
+        wgsl: NATIVE_RENDER_GLOBALS + DESIGN_COORDINATE_RANDOM_WGSL + \`
+fn exchangeRank(q: vec2f) -> f32 {
+ let mode = u32(\${p("order")}.x);
+ if (mode == 2u) { return abs(q.x - 0.5) + abs(q.y - 0.5); }
+ if (mode == 3u) {
+  let grid = q * \${p("divisions")}.x;
+  let cell = vec2i(floor(grid));
+  return (f32((cell.x + cell.y) & 1) + fract(grid.x)) * 0.5;
+ }
+ if (mode == 4u) {
+  let radius = length(q - vec2f(0.5)) * 1.4142135623730951;
+  return clamp(radius + \${p("ripple")}.x * sin(6.283185307179586 * \${p("divisions")}.x * radius), 0.0, 1.0);
+ }
+ if (mode == 5u) {
+  let band = floor(q.y * \${p("divisions")}.x);
+  let rank = designCoordinateRandom(vec2f(band, \${p("patternSeed")}.x), globals.clock.y);
+  return rank * 0.65 + q.x * 0.35;
+ }
+ return q.x;
+}
+@fragment fn fs(input: VertexOutput) -> @location(0) vec4f {
+ let progress = \${p("progress")}.x;
+ let original = textureSampleLevel(sourceTexture, effectSampler, input.uv, 0.0);
+ if (progress <= 0.0) { return original; }
+ let incoming = textureSampleLevel(maskTexture, effectSampler, input.uv, 0.0);
+ if (progress >= 1.0) { return incoming; }
+ let q = vec2f(select(input.uv.x, 1.0 - input.uv.x, u32(\${p("direction")}.x) == 1u), input.uv.y);
+ var rank = exchangeRank(q);
+ var threshold = progress;
+ var width = max(\${p("feather")}.x, 1.0 / min(globals.viewport.x, globals.viewport.y));
+ if (u32(\${p("order")}.x) == 0u) {
+  let row = floor(q.y * \${p("slats")}.x);
+  let delay = fract(row * 0.61803398875) * \${p("stagger")}.x * 0.5;
+  threshold = clamp((progress - delay) / (1.0 - \${p("stagger")}.x * 0.5), 0.0, 1.0);
+  rank = q.x;
+  width = max(\${p("feather")}.x, fwidth(q.x));
+ }
+ let reveal = 1.0 - smoothstep(threshold - width, threshold + width, rank);
+ return mix(original, incoming, reveal);
+}
+\`
+      }
+    ],
+    provenance: {
+      origin: "design-original",
+      note: "Stationary two-image threshold exchange with six rank modes. Input-UV sampling has no edge parameter. Former v3/v4 execution identities are separately frozen."
+    }
+  };
+
+  // shared/native-effect-owned-p2-sort.ts
+  var float4 = (label, value, min, max, unit4) => ({
+    type: "float",
+    label,
+    default: value,
+    min,
+    max,
+    step: 0.01,
+    ...unit4 ? { unit: unit4 } : {}
+  });
+  function processor2(id, name, version, properties4, code, note) {
+    const slots2 = /* @__PURE__ */ new Map();
+    let count2 = 0;
+    for (const [key, property2] of Object.entries(properties4)) {
+      slots2.set(key, count2);
+      count2 += propertySlots(property2);
+    }
+    if (count2 > 32) throw new Error(\`Uniform budget exceeded by \${id}\`);
+    const property = (key) => {
+      const slot = slots2.get(key);
+      if (slot === void 0) throw new Error(\`Unknown uniform \${key}\`);
+      return \`globals.params[\${slot}]\`;
+    };
+    return {
+      id,
+      name,
+      version,
+      kind: "processor",
+      placements: ["layer", "backdrop"],
+      properties: properties4,
+      inputs: { source: { kind: "texture-2d", resource: "source" } },
+      outputs: { color: { kind: "texture-2d", resource: "color" } },
+      resources: [
+        {
+          name: "source",
+          kind: "texture-2d",
+          usage: ["sampled"],
+          external: true,
+          size: "viewport"
+        },
+        {
+          name: "color",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["render", "sampled"],
+          size: "viewport"
+        }
+      ],
+      output: "color",
+      passes: [
+        {
+          id: "render",
+          kind: "render",
+          reads: ["source"],
+          output: "color",
+          wgsl: NATIVE_RENDER_GLOBALS + code(property)
+        }
+      ],
+      provenance: { origin: "design-original", note }
+    };
+  }
+  var INTENSITY_RUN_SORT_EFFECT = processor2(
+    "an-native-owned-p-intensity-run-sort",
+    "Intensity Run Sort",
+    5,
+    {
+      threshold: float4("Threshold", 0.35, 0, 1),
+      blockLength: {
+        type: "int",
+        label: "Run width",
+        default: 8,
+        min: 2,
+        max: 16,
+        step: 1,
+        unit: "px"
+      },
+      order: {
+        type: "enum",
+        label: "Order",
+        default: "ascending",
+        options: ["ascending", "descending"]
+      },
+      amount: float4("Amount", 1, 0, 1)
+    },
+    (p2) => \`
+fn sortMultiplyWords(a: u32, b: u32) -> vec2u {
+  let aLow = a & 65535u;
+  let aHigh = a >> 16u;
+  let bLow = b & 65535u;
+  let bHigh = b >> 16u;
+  let lowProduct = aLow * bLow;
+  let crossProduct = aLow * bHigh;
+  let middle = (lowProduct >> 16u) + aHigh * bLow + (crossProduct & 65535u);
+  return vec2u((lowProduct & 65535u) | (middle << 16u), aHigh * bHigh + (crossProduct >> 16u) + (middle >> 16u));
+}
+fn sortBoundary(bucket: u32, scale: u32, shift: u32, extent: u32) -> u32 {
+  let product = sortMultiplyWords(bucket, scale);
+  let rounded = product.x + ((1u << (shift - 1u)) - 1u);
+  let high = product.y + select(0u, 1u, rounded < product.x);
+  return min((rounded >> shift) | (high << (32u - shift)), extent);
+}
+fn sortBucket(pixel: u32, scale: u32, shift: u32, extent: u32) -> u32 {
+  var low = 0u;
+  var high = extent + 1u;
+  loop {
+    if (low + 1u >= high) { break; }
+    let middle = low + (high - low) / 2u;
+    if (sortBoundary(middle, scale, shift, extent) <= pixel) { low = middle; }
+    else { high = middle; }
+  }
+  return low;
+}
+fn sortLuminance(color: vec4f) -> f32 {
+  return dot(color.rgb / color.a, vec3f(0.2126, 0.7152, 0.0722));
+}
+@fragment fn fs(input: VertexOutput) -> @location(0) vec4f {
+  let extent = vec2i(textureDimensions(sourceTexture, 0));
+  let pixel = clamp(vec2i(floor(input.uv * vec2f(extent))), vec2i(0), extent - vec2i(1));
+  let original = textureLoad(sourceTexture, pixel, 0);
+  if (\${p2("amount")}.x <= 0.0) { return original; }
+  let densityBits = bitcast<u32>(globals.clock.z);
+  let exponent = (densityBits >> 23u) & 255u;
+  if (exponent < 123u) { return original; }
+  let shift = 150u - exponent;
+  let scale = ((densityBits & 8388607u) | 8388608u) * u32(\${p2("blockLength")}.x);
+  if (scale < (1u << shift)) { return original; }
+  let bucket = sortBucket(u32(pixel.x), scale, shift, u32(extent.x));
+  let start = i32(sortBoundary(bucket, scale, shift, u32(extent.x)));
+  let end = i32(sortBoundary(bucket + 1u, scale, shift, u32(extent.x)));
+  let count = end - start;
+  let localIndex = pixel.x - start;
+  var colors: array<vec4f, 64>;
+  var intensities: array<f32, 64>;
+  var eligible: array<bool, 64>;
+  for (var i = 0; i < 64; i += 1) {
+    if (i >= count) { break; }
+    let color = textureLoad(sourceTexture, vec2i(start + i, pixel.y), 0);
+    colors[i] = color;
+    eligible[i] = color.a > 0.00001;
+    if (eligible[i]) { intensities[i] = sortLuminance(color); }
+    eligible[i] = eligible[i] && intensities[i] >= \${p2("threshold")}.x;
+  }
+  if (!eligible[localIndex]) { return original; }
+  var first = localIndex;
+  var last = localIndex;
+  for (var distance = 1; distance < 64; distance += 1) {
+    let candidate = localIndex - distance;
+    if (candidate < 0) { break; }
+    if (!eligible[candidate]) { break; }
+    first = candidate;
+  }
+  for (var distance = 1; distance < 64; distance += 1) {
+    let candidate = localIndex + distance;
+    if (candidate >= count) { break; }
+    if (!eligible[candidate]) { break; }
+    last = candidate;
+  }
+  let requestedRank = localIndex - first;
+  let descending = u32(\${p2("order")}.x) == 1u;
+  var chosen = original;
+  for (var candidate = first; candidate <= last; candidate += 1) {
+    var rank = 0;
+    for (var other = first; other <= last; other += 1) {
+      let before = select(intensities[other] < intensities[candidate], intensities[other] > intensities[candidate], descending);
+      let tieBefore = intensities[other] == intensities[candidate] && other < candidate;
+      if (before || tieBefore) { rank += 1; }
+    }
+    if (rank == requestedRank) { chosen = colors[candidate]; break; }
+  }
+  return mix(original, chosen, \${p2("amount")}.x);
+}
+\`,
+    "CSS blocks use exact integer endpoints from encoded f32 layout density. Stable RGBA ranks preserve contiguous runs; physical spans below one texel are identity. At DPR 4 the maximum run has 64 texels."
+  );
+
+  // shared/native-effect-owned-p2.ts
+  var OWNED_P2_DEFINITIONS = [
+    INTENSITY_RUN_SORT_EFFECT,
+    SLAT_SHUTTER_CONTROL_EFFECT
+  ];
+  var OWNED_P2_PRESETS = [
+    {
+      id: "an-preset-owned-p-intensity-run-sort-1",
+      name: "Short bright runs",
+      definitionId: INTENSITY_RUN_SORT_EFFECT.id,
+      definitionVersion: INTENSITY_RUN_SORT_EFFECT.version,
+      placement: "layer",
+      params: { threshold: 0.45, blockLength: 6, order: "ascending" },
+      clip: "bounds",
+      provenance: { origin: "design-original" }
+    },
+    {
+      id: "an-preset-owned-p-intensity-run-sort-2",
+      name: "Descending bands",
+      definitionId: INTENSITY_RUN_SORT_EFFECT.id,
+      definitionVersion: INTENSITY_RUN_SORT_EFFECT.version,
+      placement: "layer",
+      params: {
+        threshold: 0.22,
+        blockLength: 16,
+        order: "descending",
+        amount: 0.85
+      },
+      clip: "bounds",
+      provenance: { origin: "design-original" }
+    },
+    {
+      id: "an-preset-owned-p-slat-shutter-1",
+      name: "Even shutter",
+      definitionId: SLAT_SHUTTER_CONTROL_EFFECT.id,
+      definitionVersion: SLAT_SHUTTER_CONTROL_EFFECT.version,
+      placement: "layer",
+      params: { progress: 0.4, slats: 8, stagger: 0, feather: 0.015 },
+      clip: "bounds",
+      provenance: { origin: "design-original" }
+    },
+    {
+      id: "an-preset-owned-p-slat-shutter-2",
+      name: "Staggered reveal",
+      definitionId: SLAT_SHUTTER_CONTROL_EFFECT.id,
+      definitionVersion: SLAT_SHUTTER_CONTROL_EFFECT.version,
+      placement: "layer",
+      params: { progress: 0.68, slats: 18, stagger: 0.8, direction: "right" },
+      clip: "bounds",
+      provenance: { origin: "design-original" }
+    }
+  ];
+
   // shared/native-effect-owned-processors.ts
   var amount5 = (label, value, max = 2) => ({
     type: "float",
@@ -12210,7 +14906,7 @@ fn trackingTick() -> f32 {
     max,
     step: 0.01
   });
-  var distance3 = (label, value, max = 32) => ({
+  var distance4 = (label, value, max = 32) => ({
     type: "float",
     label,
     default: value,
@@ -12232,13 +14928,13 @@ fn trackingTick() -> f32 {
       id: "directional-smear",
       name: "Directional Smear",
       controls: {
-        reach: distance3("Reach", 9, 36),
+        reach: distance4("Reach", 9, 36),
         angle: amount5("Angle", 0.15, 6.28),
         mix: amount5("Blend", 0.7, 1)
       },
-      fragment: (p) => \`let direction = vec2f(cos(\${p("angle")}.x), sin(\${p("angle")}.x)) * \${p("reach")}.x * globals.clock.z * globals.viewport.zw;
+      fragment: (p2) => \`let direction = vec2f(cos(\${p2("angle")}.x), sin(\${p2("angle")}.x)) * \${p2("reach")}.x * globals.clock.z * globals.viewport.zw;
 var sum = vec4f(0.0); for (var i = 0u; i < 13u; i += 1u) { let t = f32(i) / 12.0 - 0.5; sum += sampleSource(input.uv + direction * t); }
-return mix(sampleSource(input.uv), sum / 13.0, \${p("mix")}.x);\`,
+return mix(sampleSource(input.uv), sum / 13.0, \${p2("mix")}.x);\`,
       looks: [
         "Soft motion",
         { reach: 7, mix: 0.65 },
@@ -12250,12 +14946,12 @@ return mix(sampleSource(input.uv), sum / 13.0, \${p("mix")}.x);\`,
       id: "radial-echo",
       name: "Radial Echo",
       controls: {
-        reach: distance3("Reach", 13, 48),
+        reach: distance4("Reach", 13, 48),
         mix: amount5("Blend", 0.7, 1)
       },
-      fragment: (p) => \`let center = vec2f(0.5); let ray = input.uv - center; var sum = vec4f(0.0);
-for (var i = 0u; i < 11u; i += 1u) { let t = f32(i) / 10.0; let displacement = \${p("reach")}.x * globals.clock.z * globals.viewport.zw * t; sum += sampleSource(input.uv - ray * displacement * 3.0); }
-return mix(sampleSource(input.uv), sum / 11.0, \${p("mix")}.x);\`,
+      fragment: (p2) => \`let center = vec2f(0.5); let ray = input.uv - center; var sum = vec4f(0.0);
+for (var i = 0u; i < 11u; i += 1u) { let t = f32(i) / 10.0; let displacement = \${p2("reach")}.x * globals.clock.z * globals.viewport.zw * t; sum += sampleSource(input.uv - ray * displacement * 3.0); }
+return mix(sampleSource(input.uv), sum / 11.0, \${p2("mix")}.x);\`,
       looks: [
         "Near echo",
         { reach: 9, mix: 0.5 },
@@ -12267,12 +14963,12 @@ return mix(sampleSource(input.uv), sum / 11.0, \${p("mix")}.x);\`,
       id: "tilt-focus",
       name: "Tilt Focus",
       controls: {
-        radius: distance3("Blur", 10, 24),
+        radius: distance4("Blur", 10, 24),
         focus: amount5("Focus line", 0.5, 1),
         width: amount5("Focus width", 0.2, 1)
       },
-      fragment: (p) => \`let away = abs(input.uv.y - \${p("focus")}.x); let weight = smoothstep(\${p("width")}.x * 0.5, \${p("width")}.x * 0.5 + 0.25, away);
-let stepUv = vec2f(\${p("radius")}.x * globals.clock.z * globals.viewport.z, 0.0); var sum = vec4f(0.0);
+      fragment: (p2) => \`let away = abs(input.uv.y - \${p2("focus")}.x); let weight = smoothstep(\${p2("width")}.x * 0.5, \${p2("width")}.x * 0.5 + 0.25, away);
+let stepUv = vec2f(\${p2("radius")}.x * globals.clock.z * globals.viewport.z, 0.0); var sum = vec4f(0.0);
 for (var i = 0u; i < 9u; i += 1u) { sum += sampleSource(input.uv + stepUv * (f32(i) - 4.0) * 0.25); }
 return mix(sampleSource(input.uv), sum / 9.0, weight);\`,
       looks: [
@@ -12286,13 +14982,13 @@ return mix(sampleSource(input.uv), sum / 9.0, weight);\`,
       id: "edge-ink",
       name: "Edge Ink",
       controls: {
-        width: distance3("Width", 1.5, 6),
+        width: distance4("Width", 1.5, 6),
         strength: amount5("Strength", 0.8, 2)
       },
-      fragment: (p) => \`let d = \${p("width")}.x * globals.clock.z * globals.viewport.zw; let c = sampleSource(input.uv);
+      fragment: (p2) => \`let d = \${p2("width")}.x * globals.clock.z * globals.viewport.zw; let c = sampleSource(input.uv);
 let gx = luminance(straight(sampleSource(input.uv + vec2f(d.x, 0.0)))) - luminance(straight(sampleSource(input.uv - vec2f(d.x, 0.0))));
 let gy = luminance(straight(sampleSource(input.uv + vec2f(0.0, d.y)))) - luminance(straight(sampleSource(input.uv - vec2f(0.0, d.y))));
-let ink = clamp(length(vec2f(gx, gy)) * \${p("strength")}.x, 0.0, 1.0); return vec4f(c.rgb * (1.0 - ink), c.a);\`,
+let ink = clamp(length(vec2f(gx, gy)) * \${p2("strength")}.x, 0.0, 1.0); return vec4f(c.rgb * (1.0 - ink), c.a);\`,
       looks: [
         "Fine outline",
         { width: 0.8, strength: 0.55 },
@@ -12303,11 +14999,11 @@ let ink = clamp(length(vec2f(gx, gy)) * \${p("strength")}.x, 0.0, 1.0); return v
     {
       id: "edge-neon",
       name: "Edge Neon",
-      controls: { width: distance3("Width", 2, 8), glow: amount5("Glow", 0.8, 3) },
-      fragment: (p) => \`let d = \${p("width")}.x * globals.clock.z * globals.viewport.zw; let c = sampleSource(input.uv);
+      controls: { width: distance4("Width", 2, 8), glow: amount5("Glow", 0.8, 3) },
+      fragment: (p2) => \`let d = \${p2("width")}.x * globals.clock.z * globals.viewport.zw; let c = sampleSource(input.uv);
 let gx = sampleSource(input.uv + vec2f(d.x, 0.0)).rgb - sampleSource(input.uv - vec2f(d.x, 0.0)).rgb;
 let gy = sampleSource(input.uv + vec2f(0.0, d.y)).rgb - sampleSource(input.uv - vec2f(0.0, d.y)).rgb;
-let rim = length(gx) + length(gy); return vec4f(min(c.rgb + vec3f(rim * \${p("glow")}.x * c.a), vec3f(c.a)), c.a);\`,
+let rim = length(gx) + length(gy); return vec4f(min(c.rgb + vec3f(rim * \${p2("glow")}.x * c.a), vec3f(c.a)), c.a);\`,
       looks: [
         "Quiet glow",
         { glow: 0.45, width: 1 },
@@ -12322,9 +15018,9 @@ let rim = length(gx) + length(gy); return vec4f(min(c.rgb + vec3f(rim * \${p("gl
         depth: amount5("Depth", 0.5, 2),
         angle: amount5("Light angle", 0.6, 6.28)
       },
-      fragment: (p) => \`let d = vec2f(cos(\${p("angle")}.x), sin(\${p("angle")}.x)) * globals.viewport.zw * globals.clock.z;
+      fragment: (p2) => \`let d = vec2f(cos(\${p2("angle")}.x), sin(\${p2("angle")}.x)) * globals.viewport.zw * globals.clock.z;
 let hi = luminance(straight(sampleSource(input.uv + d))); let lo = luminance(straight(sampleSource(input.uv - d)));
-let c = sampleSource(input.uv); return vec4f(clamp(c.rgb + vec3f((hi - lo) * \${p("depth")}.x * c.a), vec3f(0.0), vec3f(c.a)), c.a);\`,
+let c = sampleSource(input.uv); return vec4f(clamp(c.rgb + vec3f((hi - lo) * \${p2("depth")}.x * c.a), vec3f(0.0), vec3f(c.a)), c.a);\`,
       looks: [
         "Pressed",
         { depth: 0.4, angle: 0.7 },
@@ -12336,12 +15032,12 @@ let c = sampleSource(input.uv); return vec4f(clamp(c.rgb + vec3f((hi - lo) * \${
       id: "bevel-light",
       name: "Bevel Light",
       controls: {
-        width: distance3("Width", 3, 12),
+        width: distance4("Width", 3, 12),
         shine: amount5("Shine", 0.6, 2)
       },
-      fragment: (p) => \`let d = \${p("width")}.x * globals.clock.z * globals.viewport.zw; let c = sampleSource(input.uv);
+      fragment: (p2) => \`let d = \${p2("width")}.x * globals.clock.z * globals.viewport.zw; let c = sampleSource(input.uv);
 let diagonal = sampleSource(input.uv + d).a - sampleSource(input.uv - d).a;
-return vec4f(clamp(c.rgb + vec3f(diagonal * \${p("shine")}.x * c.a), vec3f(0.0), vec3f(c.a)), c.a);\`,
+return vec4f(clamp(c.rgb + vec3f(diagonal * \${p2("shine")}.x * c.a), vec3f(0.0), vec3f(c.a)), c.a);\`,
       looks: [
         "Soft bevel",
         { width: 2, shine: 0.4 },
@@ -12353,12 +15049,12 @@ return vec4f(clamp(c.rgb + vec3f(diagonal * \${p("shine")}.x * c.a), vec3f(0.0),
       id: "heat-haze",
       name: "Heat Haze",
       controls: {
-        amplitude: distance3("Amplitude", 4, 18),
+        amplitude: distance4("Amplitude", 4, 18),
         frequency: amount5("Frequency", 11, 40),
         speed: speed()
       },
-      fragment: (p) => \`let phase = input.uv.y * \${p("frequency")}.x + globals.clock.x * \${p("speed")}.x;
-let offset = sin(phase * 6.2831853) * \${p("amplitude")}.x * globals.clock.z * globals.viewport.z;
+      fragment: (p2) => \`let phase = input.uv.y * \${p2("frequency")}.x + globals.clock.x * \${p2("speed")}.x;
+let offset = sin(phase * 6.2831853) * \${p2("amplitude")}.x * globals.clock.z * globals.viewport.z;
 return sampleSource(input.uv + vec2f(offset, 0.0));\`,
       looks: [
         "Warm air",
@@ -12371,13 +15067,13 @@ return sampleSource(input.uv + vec2f(offset, 0.0));\`,
       id: "water-ring",
       name: "Water Ring",
       controls: {
-        amplitude: distance3("Amplitude", 5, 20),
+        amplitude: distance4("Amplitude", 5, 20),
         frequency: amount5("Rings", 15, 45),
         speed: speed()
       },
-      fragment: (p) => \`let centered = input.uv - vec2f(0.5); let r = length(centered * globals.viewport.xy / min(globals.viewport.x, globals.viewport.y));
-let wave = sin(r * \${p("frequency")}.x * 6.2831853 - globals.clock.x * \${p("speed")}.x * 5.0);
-let displacement = normalize(centered + vec2f(0.00001)) * wave * \${p("amplitude")}.x * globals.clock.z * globals.viewport.zw;
+      fragment: (p2) => \`let centered = input.uv - vec2f(0.5); let r = length(centered * globals.viewport.xy / min(globals.viewport.x, globals.viewport.y));
+let wave = sin(r * \${p2("frequency")}.x * 6.2831853 - globals.clock.x * \${p2("speed")}.x * 5.0);
+let displacement = normalize(centered + vec2f(0.00001)) * wave * \${p2("amplitude")}.x * globals.clock.z * globals.viewport.zw;
 return sampleSource(input.uv + displacement);\`,
       looks: [
         "Gentle rings",
@@ -12393,8 +15089,8 @@ return sampleSource(input.uv + displacement);\`,
         cells: amount5("Cells", 12, 64),
         refraction: amount5("Refraction", 0.5, 2)
       },
-      fragment: (p) => \`let count = max(\${p("cells")}.x, 1.0); let local = fract(input.uv * count) - vec2f(0.5);
-let curve = local * dot(local, local) * \${p("refraction")}.x / count;
+      fragment: (p2) => \`let count = max(\${p2("cells")}.x, 1.0); let local = fract(input.uv * count) - vec2f(0.5);
+let curve = local * dot(local, local) * \${p2("refraction")}.x / count;
 return sampleSource(input.uv + curve);\`,
       looks: [
         "Small panes",
@@ -12407,10 +15103,10 @@ return sampleSource(input.uv + curve);\`,
       id: "chromatic-drift",
       name: "Chromatic Drift",
       controls: {
-        separation: distance3("Separation", 4, 24),
+        separation: distance4("Separation", 4, 24),
         angle: amount5("Angle", 0, 6.28)
       },
-      fragment: (p) => \`let d = vec2f(cos(\${p("angle")}.x), sin(\${p("angle")}.x)) * \${p("separation")}.x * globals.clock.z * globals.viewport.zw;
+      fragment: (p2) => \`let d = vec2f(cos(\${p2("angle")}.x), sin(\${p2("angle")}.x)) * \${p2("separation")}.x * globals.clock.z * globals.viewport.zw;
 let a = sampleSource(input.uv - d); let b = sampleSource(input.uv); let c = sampleSource(input.uv + d);
 return vec4f(a.r, b.g, c.b, max(a.a, max(b.a, c.a)));\`,
       looks: [
@@ -12424,10 +15120,10 @@ return vec4f(a.r, b.g, c.b, max(a.a, max(b.a, c.a)));\`,
       id: "prism-split",
       name: "Prism Split",
       controls: {
-        separation: distance3("Separation", 6, 25),
+        separation: distance4("Separation", 6, 25),
         rotation: amount5("Rotation", 0.5, 6.28)
       },
-      fragment: (p) => \`let r = \${p("separation")}.x * globals.clock.z * globals.viewport.zw; let angle = \${p("rotation")}.x;
+      fragment: (p2) => \`let r = \${p2("separation")}.x * globals.clock.z * globals.viewport.zw; let angle = \${p2("rotation")}.x;
 let a = sampleSource(input.uv + r * vec2f(cos(angle), sin(angle)));
 let b = sampleSource(input.uv + r * vec2f(cos(angle + 2.094395), sin(angle + 2.094395)));
 let c = sampleSource(input.uv + r * vec2f(cos(angle + 4.18879), sin(angle + 4.18879)));
@@ -12441,8 +15137,8 @@ return vec4f(a.r, b.g, c.b, max(a.a, max(b.a, c.a)));\`,
         strength: amount5("Strength", 0.6, 2),
         radius: amount5("Radius", 0.42, 1)
       },
-      fragment: (p) => \`let q = input.uv - vec2f(0.5); let r = length(q * globals.viewport.xy / min(globals.viewport.x, globals.viewport.y));
-let influence = 1.0 - smoothstep(0.0, max(\${p("radius")}.x, 0.0001), r); let scale = 1.0 + \${p("strength")}.x * influence * influence;
+      fragment: (p2) => \`let q = input.uv - vec2f(0.5); let r = length(q * globals.viewport.xy / min(globals.viewport.x, globals.viewport.y));
+let influence = 1.0 - smoothstep(0.0, max(\${p2("radius")}.x, 0.0001), r); let scale = 1.0 + \${p2("strength")}.x * influence * influence;
 return sampleSource(vec2f(0.5) + q / scale);\`,
       looks: [
         "Subtle lens",
@@ -12455,12 +15151,12 @@ return sampleSource(vec2f(0.5) + q / scale);\`,
       id: "ribbon-warp",
       name: "Ribbon Warp",
       controls: {
-        amplitude: distance3("Amplitude", 10, 35),
+        amplitude: distance4("Amplitude", 10, 35),
         folds: amount5("Folds", 5, 20),
         speed: speed()
       },
-      fragment: (p) => \`let phase = input.uv.x * \${p("folds")}.x * 6.2831853 + globals.clock.x * \${p("speed")}.x;
-let y = sin(phase) * sin(phase * 0.37 + 1.2) * \${p("amplitude")}.x * globals.clock.z * globals.viewport.w;
+      fragment: (p2) => \`let phase = input.uv.x * \${p2("folds")}.x * 6.2831853 + globals.clock.x * \${p2("speed")}.x;
+let y = sin(phase) * sin(phase * 0.37 + 1.2) * \${p2("amplitude")}.x * globals.clock.z * globals.viewport.w;
 return sampleSource(input.uv + vec2f(0.0, y));\`,
       looks: [
         "Silk fold",
@@ -12473,13 +15169,13 @@ return sampleSource(input.uv + vec2f(0.0, y));\`,
       id: "pixel-shift",
       name: "Pixel Shift",
       controls: {
-        rowHeight: distance3("Row height", 8, 48),
-        shift: distance3("Shift", 9, 40),
+        rowHeight: distance4("Row height", 8, 48),
+        shift: distance4("Shift", 9, 40),
         rate: speed()
       },
-      fragment: (p) => \`let row = floor(input.uv.y * globals.viewport.y / max(\${p("rowHeight")}.x * globals.clock.z, 1.0));
-let beat = floor(globals.clock.x * \${p("rate")}.x * 8.0); let n = random(vec2i(i32(row), i32(beat)));
-let x = (n - 0.5) * 2.0 * \${p("shift")}.x * globals.clock.z * globals.viewport.z;
+      fragment: (p2) => \`let row = floor(input.uv.y * globals.viewport.y / max(\${p2("rowHeight")}.x * globals.clock.z, 1.0));
+let beat = floor(globals.clock.x * \${p2("rate")}.x * 8.0); let n = random(vec2i(i32(row), i32(beat)));
+let x = (n - 0.5) * 2.0 * \${p2("shift")}.x * globals.clock.z * globals.viewport.z;
 return sampleSource(input.uv + vec2f(x, 0.0));\`,
       looks: [
         "Quiet skip",
@@ -12492,12 +15188,12 @@ return sampleSource(input.uv + vec2f(x, 0.0));\`,
       id: "ink-bleed",
       name: "Ink Bleed",
       controls: {
-        radius: distance3("Spread", 3, 12),
+        radius: distance4("Spread", 3, 12),
         strength: amount5("Strength", 0.6, 1)
       },
-      fragment: (p) => \`let d = \${p("radius")}.x * globals.clock.z * globals.viewport.zw; let c = sampleSource(input.uv);
+      fragment: (p2) => \`let d = \${p2("radius")}.x * globals.clock.z * globals.viewport.zw; let c = sampleSource(input.uv);
 var neighbor = vec4f(0.0); for (var i = 0u; i < 8u; i += 1u) { let a = f32(i) * 0.785398163; let s = sampleSource(input.uv + vec2f(cos(a), sin(a)) * d); if (s.a > neighbor.a) { neighbor = s; } }
-return mix(c, neighbor, \${p("strength")}.x * (1.0 - c.a));\`,
+return mix(c, neighbor, \${p2("strength")}.x * (1.0 - c.a));\`,
       looks: [
         "Light bleed",
         { radius: 2, strength: 0.35 },
@@ -12512,8 +15208,8 @@ return mix(c, neighbor, \${p("strength")}.x * (1.0 - c.a));\`,
         threshold: amount5("Threshold", 0.5, 1),
         softness: amount5("Softness", 0.18, 0.5)
       },
-      fragment: (p) => \`let c = sampleSource(input.uv); let light = luminance(straight(c));
-let amount = smoothstep(\${p("threshold")}.x - \${p("softness")}.x, \${p("threshold")}.x + \${p("softness")}.x + 0.0001, light);
+      fragment: (p2) => \`let c = sampleSource(input.uv); let light = luminance(straight(c));
+let amount = smoothstep(\${p2("threshold")}.x - \${p2("softness")}.x, \${p2("threshold")}.x + \${p2("softness")}.x + 0.0001, light);
 return vec4f(vec3f(amount) * c.a, c.a);\`,
       looks: [
         "Soft cut",
@@ -12530,9 +15226,9 @@ return vec4f(vec3f(amount) * c.a, c.a);\`,
         strength: amount5("Strength", 0.25, 1),
         speed: speed()
       },
-      fragment: (p) => \`let c = sampleSource(input.uv); let light = luminance(straight(c));
-let phase = light * \${p("bands")}.x * 6.2831853 + globals.clock.x * \${p("speed")}.x;
-let gain = 1.0 + sin(phase) * \${p("strength")}.x;
+      fragment: (p2) => \`let c = sampleSource(input.uv); let light = luminance(straight(c));
+let phase = light * \${p2("bands")}.x * 6.2831853 + globals.clock.x * \${p2("speed")}.x;
+let gain = 1.0 + sin(phase) * \${p2("strength")}.x;
 return vec4f(clamp(c.rgb * gain, vec3f(0.0), vec3f(c.a)), c.a);\`,
       looks: [
         "Low tide",
@@ -12545,12 +15241,12 @@ return vec4f(clamp(c.rgb * gain, vec3f(0.0), vec3f(c.a)), c.a);\`,
       id: "detail-boost",
       name: "Detail Boost",
       controls: {
-        radius: distance3("Radius", 2, 8),
+        radius: distance4("Radius", 2, 8),
         amount: amount5("Amount", 0.7, 3)
       },
-      fragment: (p) => \`let d = \${p("radius")}.x * globals.clock.z * globals.viewport.zw; let c = sampleSource(input.uv);
+      fragment: (p2) => \`let d = \${p2("radius")}.x * globals.clock.z * globals.viewport.zw; let c = sampleSource(input.uv);
 let blur = (sampleSource(input.uv + vec2f(d.x, 0.0)) + sampleSource(input.uv - vec2f(d.x, 0.0)) + sampleSource(input.uv + vec2f(0.0, d.y)) + sampleSource(input.uv - vec2f(0.0, d.y))) * 0.25;
-return vec4f(clamp(c.rgb + (c.rgb - blur.rgb) * \${p("amount")}.x, vec3f(0.0), vec3f(c.a)), c.a);\`,
+return vec4f(clamp(c.rgb + (c.rgb - blur.rgb) * \${p2("amount")}.x, vec3f(0.0), vec3f(c.a)), c.a);\`,
       looks: [
         "Fine detail",
         { radius: 1, amount: 0.4 },
@@ -12562,9 +15258,9 @@ return vec4f(clamp(c.rgb + (c.rgb - blur.rgb) * \${p("amount")}.x, vec3f(0.0), v
       id: "shadow-lift",
       name: "Shadow Lift",
       controls: { lift: amount5("Lift", 0.25, 1), pivot: amount5("Pivot", 0.4, 1) },
-      fragment: (p) => \`let c = sampleSource(input.uv); let light = luminance(straight(c));
-let shadow = 1.0 - smoothstep(0.0, max(\${p("pivot")}.x, 0.0001), light);
-return vec4f(min(c.rgb + vec3f(shadow * \${p("lift")}.x * c.a), vec3f(c.a)), c.a);\`,
+      fragment: (p2) => \`let c = sampleSource(input.uv); let light = luminance(straight(c));
+let shadow = 1.0 - smoothstep(0.0, max(\${p2("pivot")}.x, 0.0001), light);
+return vec4f(min(c.rgb + vec3f(shadow * \${p2("lift")}.x * c.a), vec3f(c.a)), c.a);\`,
       looks: [
         "Open shadows",
         { lift: 0.16, pivot: 0.5 },
@@ -12630,12 +15326,12 @@ return vec4f(min(c.rgb + vec3f(shadow * \${p("lift")}.x * c.a), vec3f(c.a)), c.a
         colorSeparation: catalogFloat("Color separation", 0.14, 0.015, 1.5),
         amount: catalogFloat("Amount", 0.8, 0, 1)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let center = sampleSource(input.uv);
-  if (center.a <= 0.00001 || \${p("amount")}.x <= 0.0 || \${p("radius")}.x <= 0.0) { return center; }
+  if (center.a <= 0.00001 || \${p2("amount")}.x <= 0.0 || \${p2("radius")}.x <= 0.0) { return center; }
   let centerStraight = center.rgb / center.a;
-  let stepUv = \${p("radius")}.x * globals.clock.z * globals.viewport.zw * 0.5;
-  let colorScale = max(\${p("colorSeparation")}.x, 0.015);
+  let stepUv = \${p2("radius")}.x * globals.clock.z * globals.viewport.zw * 0.5;
+  let colorScale = max(\${p2("colorSeparation")}.x, 0.015);
   var sumColor = vec3f(0.0);
   var sumWeight = 0.0;
   for (var y = -2; y <= 2; y += 1) {
@@ -12652,7 +15348,7 @@ return vec4f(min(c.rgb + vec3f(shadow * \${p("lift")}.x * c.a), vec3f(c.a)), c.a
     }
   }
   let smoothed = sumColor / max(sumWeight, 0.00001);
-  let outColor = mix(centerStraight, smoothed, \${p("amount")}.x);
+  let outColor = mix(centerStraight, smoothed, \${p2("amount")}.x);
   return vec4f(max(outColor, vec3f(0.0)) * center.a, center.a);\`,
       looks: [
         ["Portrait surface", { radius: 2.5, colorSeparation: 0.1, amount: 0.65 }],
@@ -12667,12 +15363,12 @@ return vec4f(min(c.rgb + vec3f(shadow * \${p("lift")}.x * c.a), vec3f(c.a)), c.a
         radius: pixelRadius("Neighborhood", 2, 10),
         strength: catalogFloat("Rank contrast", 0.85, 0, 2)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let center = sampleSource(input.uv);
-  if (center.a <= 0.00001 || \${p("strength")}.x <= 0.0 || \${p("radius")}.x <= 0.0) { return center; }
+  if (center.a <= 0.00001 || \${p2("strength")}.x <= 0.0 || \${p2("radius")}.x <= 0.0) { return center; }
   let straightColor = center.rgb / center.a;
   let centerLuma = luminance(straightColor);
-  let stepUv = \${p("radius")}.x * globals.clock.z * globals.viewport.zw * 0.5;
+  let stepUv = \${p2("radius")}.x * globals.clock.z * globals.viewport.zw * 0.5;
   var rankSum = 0.0;
   var count = 0.0;
   var low = centerLuma;
@@ -12693,7 +15389,7 @@ return vec4f(min(c.rgb + vec3f(shadow * \${p("lift")}.x * c.a), vec3f(c.a)), c.a
   let localRange = high - low;
   if (count <= 1.0 || localRange <= 0.0001) { return center; }
   let percentile = rankSum / count;
-  let targetLuma = max(0.0, centerLuma + (percentile - 0.5) * localRange * \${p("strength")}.x);
+  let targetLuma = max(0.0, centerLuma + (percentile - 0.5) * localRange * \${p2("strength")}.x);
   let adjusted = straightColor * (targetLuma / max(centerLuma, 0.00001));
   return vec4f(max(adjusted, vec3f(0.0)) * center.a, center.a);\`,
       looks: [
@@ -12710,11 +15406,11 @@ return vec4f(min(c.rgb + vec3f(shadow * \${p("lift")}.x * c.a), vec3f(c.a)), c.a
         threshold: catalogFloat("Coverage threshold", 0.5, 0.05, 0.95),
         strength: catalogFloat("Repair strength", 1, 0, 1)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let center = sampleSource(input.uv);
-  let threshold = \${p("threshold")}.x;
-  if (center.a >= threshold || \${p("radius")}.x <= 0.0 || \${p("strength")}.x <= 0.0) { return center; }
-  let d = \${p("radius")}.x * globals.clock.z * globals.viewport.zw;
+  let threshold = \${p2("threshold")}.x;
+  if (center.a >= threshold || \${p2("radius")}.x <= 0.0 || \${p2("strength")}.x <= 0.0) { return center; }
+  let d = \${p2("radius")}.x * globals.clock.z * globals.viewport.zw;
   let left = sampleSource(input.uv - vec2f(d.x, 0.0));
   let right = sampleSource(input.uv + vec2f(d.x, 0.0));
   let top = sampleSource(input.uv - vec2f(0.0, d.y));
@@ -12730,7 +15426,7 @@ return vec4f(min(c.rgb + vec3f(shadow * \${p("lift")}.x * c.a), vec3f(c.a)), c.a
     (diagonalA.a + diagonalB.a + diagonalC.a + diagonalD.a) * 0.5;
   let repairedColor = colorSum / max(alphaSum, 0.00001);
   let repairedAlpha = alphaSum / 6.0;
-  let blend = \${p("strength")}.x * (1.0 - center.a / threshold);
+  let blend = \${p2("strength")}.x * (1.0 - center.a / threshold);
   let outAlpha = mix(center.a, repairedAlpha, blend);
   let originalColor = select(vec3f(0.0), center.rgb / max(center.a, 0.00001), center.a > 0.00001);
   let outColor = mix(originalColor, repairedColor, blend);
@@ -12759,17 +15455,17 @@ return vec4f(min(c.rgb + vec3f(shadow * \${p("lift")}.x * c.a), vec3f(c.a)), c.a
         spread: catalogFloat("Transition width", 0.25, 0.02, 0.5),
         amount: catalogFloat("Tint amount", 0.65, 0, 1)
       },
-      fragment: (p) => \`
+      fragment: (p2) => \`
   let source = sampleSource(input.uv);
-  if (source.a <= 0.00001 || \${p("amount")}.x <= 0.0) { return source; }
+  if (source.a <= 0.00001 || \${p2("amount")}.x <= 0.0) { return source; }
   let rgb = source.rgb / source.a;
   let sourceLuma = luminance(rgb);
-  let low = 1.0 - smoothstep(\${p("midpoint")}.x - \${p("spread")}.x, \${p("midpoint")}.x, sourceLuma);
-  let high = smoothstep(\${p("midpoint")}.x, \${p("midpoint")}.x + \${p("spread")}.x, sourceLuma);
-  let tint = vec3f(1.0) * (1.0 - low - high) + \${p("shadowTint")}.rgb * low + \${p("highlightTint")}.rgb * high;
+  let low = 1.0 - smoothstep(\${p2("midpoint")}.x - \${p2("spread")}.x, \${p2("midpoint")}.x, sourceLuma);
+  let high = smoothstep(\${p2("midpoint")}.x, \${p2("midpoint")}.x + \${p2("spread")}.x, sourceLuma);
+  let tint = vec3f(1.0) * (1.0 - low - high) + \${p2("shadowTint")}.rgb * low + \${p2("highlightTint")}.rgb * high;
   let colored = rgb * tint;
   let normalized = colored * (sourceLuma / max(luminance(colored), 0.00001));
-  let weight = \${p("amount")}.x * (low * \${p("shadowTint")}.a + high * \${p("highlightTint")}.a);
+  let weight = \${p2("amount")}.x * (low * \${p2("shadowTint")}.a + high * \${p2("highlightTint")}.a);
   let result = mix(rgb, normalized, weight);
   return vec4f(max(result, vec3f(0.0)) * source.a, source.a);\`,
       looks: [
@@ -12814,6 +15510,2705 @@ return vec4f(min(c.rgb + vec3f(shadow * \${p("lift")}.x * c.a), vec3f(c.a)), c.a
     }))
   );
 
+  // shared/native-effect-owned-q.ts
+  var float5 = (label, value, min, max, step = 0.01) => catalogFloat(label, value, min, max, step);
+  var pixels6 = (label, value, min, max) => ({
+    ...float5(label, value, min, max, 0.1),
+    unit: "px"
+  });
+  var color7 = (label, r, g, b, alpha = 1) => ({
+    type: "color",
+    label,
+    default: catalogColor(r, g, b, alpha)
+  });
+  var edges = {
+    type: "enum",
+    label: "Outside source",
+    default: "transparent",
+    options: ["transparent", "clamp"],
+    advanced: true
+  };
+  var drafts8 = [
+    {
+      id: "owned-q-alpha-cast-shadow",
+      name: "Alpha Cast Shadow",
+      version: 2,
+      kind: "processor",
+      backdrop: false,
+      mechanism: "A bounded two-dimensional Gaussian gathers source coverage at an offset, then composites a colored shadow behind the untouched premultiplied source. It follows the source silhouette rather than a synthetic geometric occluder.",
+      cost: "26 source reads per physical output pixel, fixed five-by-five support; maximum declared expansion 42 CSS px on each side.",
+      properties: {
+        edge: structuredClone(edges),
+        shadowColor: color7("Shadow color", 0.02, 0.035, 0.075, 0.8),
+        radius: pixels6("Softness", 7, 0, 18),
+        offsetX: pixels6("Horizontal offset", 8, -24, 24),
+        offsetY: pixels6("Vertical offset", 10, -24, 24),
+        strength: float5("Strength", 0.85, 0, 1)
+      },
+      fragment: (p2) => \`
+  let base = sampleSource(input.uv);
+  if (\${p2("strength")}.x <= 0.0 || \${p2("shadowColor")}.a <= 0.0) { return base; }
+  let offsetUv = vec2f(\${p2("offsetX")}.x, \${p2("offsetY")}.x) * globals.clock.z * globals.viewport.zw;
+  let radiusUv = \${p2("radius")}.x * globals.clock.z * globals.viewport.zw;
+  var alphaSum = 0.0;
+  var weightSum = 0.0;
+  for (var row = -2; row <= 2; row += 1) {
+    for (var column = -2; column <= 2; column += 1) {
+      let distanceSquared = f32(row * row + column * column);
+      let weight = exp(-distanceSquared * 0.5);
+      let displaced = input.uv - offsetUv + vec2f(f32(column), f32(row)) * radiusUv * 0.5;
+      alphaSum += sampleSource(displaced).a * weight;
+      weightSum += weight;
+    }
+  }
+  let shadowAlpha = clamp(alphaSum / weightSum * \${p2("shadowColor")}.a * \${p2("strength")}.x, 0.0, 1.0);
+  let behind = shadowAlpha * (1.0 - base.a);
+  return vec4f(base.rgb + \${p2("shadowColor")}.rgb * behind, base.a + behind);\`,
+      looks: [
+        ["Soft lift", { radius: 7, offsetX: 5, offsetY: 9, strength: 0.65 }],
+        [
+          "Long violet",
+          {
+            radius: 15,
+            offsetX: -18,
+            offsetY: 17,
+            strength: 1,
+            shadowColor: catalogColor(0.16, 0.06, 0.3, 0.9)
+          }
+        ]
+      ]
+    },
+    {
+      id: "owned-q-gabor-packets",
+      name: "Gabor Packets",
+      kind: "generator",
+      mechanism: "Overlapping finite Gaussian envelopes carry oriented sinusoidal waves. A deterministic per-cell phase and angular perturbation creates anisotropic local texture rather than isotropic value/fractal noise.",
+      cost: "Nine Gaussian wave packets per physical output pixel, with fixed three-by-three neighboring-cell support.",
+      properties: {
+        cellSize: pixels6("Packet spacing", 58, 24, 96),
+        wavelength: pixels6("Wavelength", 18, 7, 45),
+        direction: float5("Direction", 0.2, -3.14159, 3.14159),
+        scatter: float5("Angular scatter", 0.35, 0, 1),
+        contrast: float5("Contrast", 1.2, 0, 2),
+        dark: color7("Dark", 0.055, 0.11, 0.16),
+        light: color7("Light", 0.72, 0.86, 0.8)
+      },
+      fragment: (p2) => \`
+  let position = input.uv * globals.viewport.xy / globals.clock.z;
+  let spacing = \${p2("cellSize")}.x;
+  let cell = floor(position / spacing);
+  let sigma = spacing * 0.38;
+  var signal = 0.0;
+  var energy = 0.0;
+  for (var row = -1; row <= 1; row += 1) {
+    for (var column = -1; column <= 1; column += 1) {
+      let site = cell + vec2f(f32(column), f32(row));
+      let delta = position - (site + vec2f(0.5)) * spacing;
+      let envelope = exp(-dot(delta, delta) / (2.0 * sigma * sigma));
+      let orientation = \${p2("direction")}.x + \${p2("scatter")}.x * sin(dot(site, vec2f(1.173, 2.091)) + globals.clock.y * 0.173);
+      let axis = vec2f(cos(orientation), sin(orientation));
+      let phase = 6.28318530718 * fract(sin(dot(site, vec2f(3.713, 5.291)) + globals.clock.y * 0.117) * 173.3187);
+      signal += envelope * cos(6.28318530718 * dot(delta, axis) / \${p2("wavelength")}.x + phase);
+      energy += envelope;
+    }
+  }
+  let tone = clamp(0.5 + 0.5 * signal / max(energy, 0.00001) * \${p2("contrast")}.x, 0.0, 1.0);
+  let low = \${p2("dark")};
+  let high = \${p2("light")};
+  return mix(vec4f(low.rgb * low.a, low.a), vec4f(high.rgb * high.a, high.a), tone);\`,
+      looks: [
+        [
+          "Directional silk",
+          {
+            cellSize: 62,
+            wavelength: 16,
+            direction: 0.1,
+            scatter: 0.12,
+            contrast: 1.1
+          }
+        ],
+        [
+          "Crosswind grain",
+          {
+            cellSize: 34,
+            wavelength: 9,
+            direction: 1.5,
+            scatter: 0.8,
+            contrast: 1.8,
+            dark: catalogColor(0.09, 0.045, 0.12),
+            light: catalogColor(0.9, 0.58, 0.7)
+          }
+        ]
+      ]
+    },
+    {
+      id: "owned-q-haar-detail-field",
+      name: "Haar Detail Field",
+      kind: "generator",
+      mechanism: "Four dyadic scales of signed, localized Haar-like quadrant functions form a zero-mean multiresolution field. Per-cell coefficients, compact support, and footprint-softened internal seams distinguish it from interpolated fractal noise.",
+      cost: "Four fixed dyadic bands per pixel, no neighbor taps or mutable state.",
+      properties: {
+        coarseSize: pixels6("Coarse cell", 96, 24, 192),
+        persistence: float5("Detail persistence", 0.52, 0.2, 0.85),
+        contrast: float5("Contrast", 1.3, 0, 2),
+        phaseX: pixels6("Horizontal phase", 0, -128, 128),
+        phaseY: pixels6("Vertical phase", 0, -128, 128),
+        low: color7("Low", 0.04, 0.09, 0.14),
+        high: color7("High", 0.85, 0.83, 0.68)
+      },
+      fragment: (p2) => \`
+  let position = input.uv * globals.viewport.xy / globals.clock.z + vec2f(\${p2("phaseX")}.x, \${p2("phaseY")}.x);
+  var wave = 0.0;
+  var amplitude = 1.0;
+  var normalization = 0.0;
+  for (var octave = 0; octave < 4; octave += 1) {
+    let size = \${p2("coarseSize")}.x / exp2(f32(octave));
+    let q = position / size;
+    let cell = floor(q);
+    let local = fract(q);
+    let feather = min(0.12, 1.0 / max(size * globals.clock.z, 1.0));
+    let signX = 1.0 - 2.0 * smoothstep(0.5 - feather, 0.5 + feather, local.x);
+    let signY = 1.0 - 2.0 * smoothstep(0.5 - feather, 0.5 + feather, local.y);
+    let envelope = sin(3.14159265 * local.x) * sin(3.14159265 * local.y);
+    let coefficient = 2.0 * random(vec2i(cell) + vec2i(octave * 401, octave * 719)) - 1.0;
+    wave += coefficient * signX * signY * envelope * envelope * amplitude;
+    normalization += amplitude;
+    amplitude *= \${p2("persistence")}.x;
+  }
+  let tone = clamp(0.5 + wave / max(normalization, 0.00001) * \${p2("contrast")}.x, 0.0, 1.0);
+  let low = \${p2("low")};
+  let high = \${p2("high")};
+  return mix(vec4f(low.rgb * low.a, low.a), vec4f(high.rgb * high.a, high.a), tone);\`,
+      looks: [
+        ["Large fibers", { coarseSize: 150, persistence: 0.35, contrast: 1.15 }],
+        [
+          "Fine relief",
+          {
+            coarseSize: 62,
+            persistence: 0.72,
+            contrast: 1.75,
+            low: catalogColor(0.08, 0.06, 0.16),
+            high: catalogColor(0.85, 0.72, 0.92)
+          }
+        ]
+      ]
+    },
+    {
+      id: "owned-q-star-cutout",
+      name: "Star Cutout",
+      kind: "generator",
+      mechanism: "The signed distance to an alternating-radius simple polygon is obtained from the nearest of up to 32 line segments and a winding crossing test, then used for independent fill, outline, and antialias coverage.",
+      cost: "Up to 32 bounded polygon segments per output pixel; no textures or live media.",
+      properties: {
+        tips: {
+          type: "int",
+          label: "Points",
+          default: 6,
+          min: 4,
+          max: 16,
+          step: 1
+        },
+        radius: pixels6("Outer radius", 92, 8, 280),
+        innerRatio: float5("Inner radius", 0.48, 0.15, 0.85),
+        rotation: float5("Rotation", -1.5708, -3.14159, 3.14159),
+        centerX: float5("Center X", 0.5, 0, 1),
+        centerY: float5("Center Y", 0.5, 0, 1),
+        outline: pixels6("Outline", 2, 0, 24),
+        fillColor: color7("Fill", 0.96, 0.72, 0.24),
+        outlineColor: color7("Outline color", 0.12, 0.08, 0.18),
+        background: color7("Background", 0, 0, 0, 0)
+      },
+      fragment: (p2) => \`
+  let physical = globals.viewport.xy / globals.clock.z;
+  let point = input.uv * physical - vec2f(\${p2("centerX")}.x, \${p2("centerY")}.x) * physical;
+  let total = i32(\${p2("tips")}.x) * 2;
+  var distanceToEdge = 1e9;
+  var inside = false;
+  for (var index = 0; index < 32; index += 1) {
+    if (index >= total) { break; }
+    let next = (index + 1) % total;
+    let angleA = \${p2("rotation")}.x + 3.14159265 * f32(index) / f32(\${p2("tips")}.x);
+    let angleB = \${p2("rotation")}.x + 3.14159265 * f32(next) / f32(\${p2("tips")}.x);
+    let radiusA = select(\${p2("radius")}.x * \${p2("innerRatio")}.x, \${p2("radius")}.x, index % 2 == 0);
+    let radiusB = select(\${p2("radius")}.x * \${p2("innerRatio")}.x, \${p2("radius")}.x, next % 2 == 0);
+    let a = vec2f(cos(angleA), sin(angleA)) * radiusA;
+    let b = vec2f(cos(angleB), sin(angleB)) * radiusB;
+    let segment = b - a;
+    let fraction = clamp(dot(point - a, segment) / max(dot(segment, segment), 0.00001), 0.0, 1.0);
+    distanceToEdge = min(distanceToEdge, length(point - a - segment * fraction));
+    if ((a.y > point.y) != (b.y > point.y)) {
+      let crossing = a.x + (point.y - a.y) * (b.x - a.x) / (b.y - a.y);
+      if (crossing > point.x) { inside = !inside; }
+    }
+  }
+  let signedDistance = select(distanceToEdge, -distanceToEdge, inside);
+  let antialias = 0.75 / globals.clock.z;
+  let fillCoverage = 1.0 - smoothstep(-antialias, antialias, signedDistance);
+  let outlineCoverage = select(0.0, 1.0 - smoothstep(\${p2("outline")}.x - antialias, \${p2("outline")}.x + antialias, abs(signedDistance)), \${p2("outline")}.x > 0.0);
+  let background = \${p2("background")};
+  let fill = \${p2("fillColor")};
+  let line = \${p2("outlineColor")};
+  let fillAlpha = fill.a * fillCoverage;
+  let base = vec4f(fill.rgb * fillAlpha + background.rgb * background.a * (1.0 - fillAlpha), fillAlpha + background.a * (1.0 - fillAlpha));
+  let lineAlpha = line.a * outlineCoverage;
+  return vec4f(line.rgb * lineAlpha + base.rgb * (1.0 - lineAlpha), lineAlpha + base.a * (1.0 - lineAlpha));\`,
+      looks: [
+        ["Gold emblem", { tips: 6, innerRatio: 0.48, outline: 3, radius: 100 }],
+        [
+          "Narrow sparks",
+          {
+            tips: 11,
+            innerRatio: 0.22,
+            outline: 0,
+            radius: 76,
+            fillColor: catalogColor(0.55, 0.84, 1, 0.82)
+          }
+        ]
+      ]
+    },
+    {
+      id: "owned-q-checker-phase",
+      name: "Checker Phase",
+      kind: "generator",
+      mechanism: "The parity of two orthogonal lattice coordinates produces a two-color checker field; rotation, independent phase, physical cell size, and analytically softened crossing lines retain exact tile identity without noise or moire interference.",
+      cost: "Constant arithmetic per pixel, no texture reads.",
+      properties: {
+        tileSize: pixels6("Tile size", 34, 4, 160),
+        rotation: float5("Rotation", 0, -3.14159, 3.14159),
+        phaseX: pixels6("Horizontal phase", 0, -160, 160),
+        phaseY: pixels6("Vertical phase", 0, -160, 160),
+        softness: pixels6("Boundary softness", 0.8, 0, 10),
+        first: color7("First tile", 0.08, 0.12, 0.16),
+        second: color7("Second tile", 0.88, 0.81, 0.66)
+      },
+      fragment: (p2) => \`
+  let physical = input.uv * globals.viewport.xy / globals.clock.z;
+  let point = physical + vec2f(\${p2("phaseX")}.x, \${p2("phaseY")}.x);
+  let angle = \${p2("rotation")}.x;
+  let rotated = vec2f(cos(angle) * point.x - sin(angle) * point.y, sin(angle) * point.x + cos(angle) * point.y);
+  let cell = rotated / \${p2("tileSize")}.x;
+  let checker = sin(3.14159265 * cell.x) * sin(3.14159265 * cell.y);
+  let footprint = 1.5 / max(\${p2("tileSize")}.x * globals.clock.z, 1.0);
+  let edgeWidth = max(footprint, \${p2("softness")}.x / \${p2("tileSize")}.x);
+  let blend = smoothstep(-edgeWidth, edgeWidth, checker);
+  let first = \${p2("first")};
+  let second = \${p2("second")};
+  return mix(vec4f(first.rgb * first.a, first.a), vec4f(second.rgb * second.a, second.a), blend);\`,
+      looks: [
+        [
+          "Quiet checks",
+          {
+            tileSize: 42,
+            softness: 1.2,
+            first: catalogColor(0.08, 0.12, 0.16),
+            second: catalogColor(0.84, 0.82, 0.71)
+          }
+        ],
+        [
+          "Tilted acetate",
+          {
+            tileSize: 16,
+            rotation: 0.38,
+            phaseX: 9,
+            phaseY: -6,
+            softness: 2.5,
+            first: catalogColor(0.1, 0.48, 0.7, 0.7),
+            second: catalogColor(0.82, 0.16, 0.42, 0.55)
+          }
+        ]
+      ]
+    }
+  ];
+  function blockTransformDefinition() {
+    const properties4 = {
+      quantization: float5("Coefficient step", 0.045, 0, 0.25, 1e-3),
+      frequencyBias: float5("Fine detail loss", 0.7, 0, 2),
+      amount: float5("Mix", 0.85, 0, 1)
+    };
+    const basis = \`
+fn dctBasis(sampleIndex: f32, frequency: f32) -> f32 {
+  let normalization = select(0.70710678118, 0.5, frequency == 0.0);
+  return normalization * cos((2.0 * sampleIndex + 1.0) * frequency * 3.14159265359 / 8.0);
+}
+fn sourceAt(pixel: vec2f) -> vec4f {
+  let clamped = clamp(pixel, vec2f(0.0), globals.viewport.xy - vec2f(1.0));
+  return textureSampleLevel(sourceTexture, effectSampler, (clamped + vec2f(0.5)) * globals.viewport.zw, 0.0);
+}
+\`;
+    const analyze = \`\${NATIVE_RENDER_GLOBALS}\${basis}
+@fragment fn fs(input: VertexOutput) -> @location(0) vec4f {
+  let pixel = floor(input.uv * globals.viewport.xy);
+  let origin = floor(pixel / 4.0) * 4.0;
+  let frequency = pixel - origin;
+  var coefficient = vec4f(0.0);
+  for (var row = 0; row < 4; row += 1) {
+    for (var column = 0; column < 4; column += 1) {
+      let sample = sourceAt(origin + vec2f(f32(column), f32(row)));
+      let weight = dctBasis(f32(column), frequency.x) * dctBasis(f32(row), frequency.y);
+      coefficient += sample * weight;
+    }
+  }
+  return coefficient;
+}
+\`;
+    const reconstruct = \`\${NATIVE_RENDER_GLOBALS}\${basis}
+@fragment fn fs(input: VertexOutput) -> @location(0) vec4f {
+  let pixel = floor(input.uv * globals.viewport.xy);
+  let original = sourceAt(pixel);
+  if (original.a <= 0.00001 || globals.params[2].x <= 0.0 || globals.params[0].x <= 0.0) { return original; }
+  let origin = floor(pixel / 4.0) * 4.0;
+  if (any(origin + vec2f(4.0) > globals.viewport.xy)) { return original; }
+  let local = pixel - origin;
+  var decoded = vec4f(0.0);
+  for (var row = 0; row < 4; row += 1) {
+    for (var column = 0; column < 4; column += 1) {
+      let location = origin + vec2f(f32(column), f32(row));
+      if (any(location >= globals.viewport.xy)) { continue; }
+      let coefficient = textureSampleLevel(maskTexture, effectSampler, (location + vec2f(0.5)) * globals.viewport.zw, 0.0);
+      let frequency = f32(column + row);
+      let stepSize = globals.params[0].x * (1.0 + globals.params[1].x * frequency);
+      let stepped = round(coefficient / stepSize) * stepSize;
+      decoded += stepped * dctBasis(local.x, f32(column)) * dctBasis(local.y, f32(row));
+    }
+  }
+  let straight = select(original.rgb / original.a, max(decoded.rgb / max(decoded.a, 0.00001), vec3f(0.0)), decoded.a > 0.00001);
+  let altered = vec4f(straight * original.a, original.a);
+  return mix(original, altered, globals.params[2].x);
+}
+\`;
+    return {
+      id: "an-native-owned-q-block-transform",
+      name: "Block Transform",
+      version: 2,
+      kind: "processor",
+      placements: ["layer", "backdrop"],
+      properties: properties4,
+      inputs: { source: { kind: "texture-2d", resource: "source" } },
+      outputs: { color: { kind: "texture-2d", resource: "color" } },
+      output: "color",
+      resources: [
+        {
+          name: "source",
+          kind: "texture-2d",
+          usage: ["sampled"],
+          external: true,
+          size: "viewport"
+        },
+        {
+          name: "coefficients",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["render", "sampled"],
+          size: "viewport"
+        },
+        {
+          name: "color",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["render", "sampled"],
+          size: "viewport"
+        }
+      ],
+      passes: [
+        {
+          id: "analyze",
+          kind: "render",
+          reads: ["source"],
+          output: "coefficients",
+          wgsl: analyze
+        },
+        {
+          id: "reconstruct",
+          kind: "render",
+          reads: ["source", "coefficients"],
+          output: "color",
+          wgsl: reconstruct
+        }
+      ],
+      provenance: {
+        origin: "design-original",
+        note: "Original four-by-four orthonormal spatial transform and coefficient quantization in linear-premultiplied working color. Incomplete edge blocks preserve the source exactly."
+      }
+    };
+  }
+  function definitionFor9(draft) {
+    const base = catalogShader(draft);
+    return {
+      ...base,
+      resources: base.resources?.map(
+        (resource) => resource.name === "color" ? { ...resource, format: "rgba16float" } : resource
+      ),
+      extent: draft.id === "owned-q-alpha-cast-shadow" ? { output: { top: 42, right: 42, bottom: 42, left: 42 } } : void 0,
+      provenance: { origin: "design-original", note: draft.mechanism }
+    };
+  }
+  var OWNED_Q_DEFINITIONS = [
+    definitionFor9(drafts8[0]),
+    blockTransformDefinition(),
+    ...drafts8.slice(1).map(definitionFor9)
+  ];
+  var OWNED_Q_PRESETS = [
+    ...drafts8.flatMap(
+      (draft) => draft.looks.map(([name, params], index) => ({
+        id: \`an-preset-\${draft.id}-\${index + 1}\`,
+        name,
+        definitionId: \`an-native-\${draft.id}\`,
+        definitionVersion: draft.version ?? 1,
+        placement: draft.kind === "generator" ? "fill" : "layer",
+        params,
+        clip: "bounds",
+        provenance: { origin: "design-original" }
+      }))
+    ),
+    {
+      id: "an-preset-owned-q-block-transform-1",
+      name: "Gentle quantization",
+      definitionId: "an-native-owned-q-block-transform",
+      definitionVersion: 2,
+      placement: "layer",
+      params: { quantization: 0.025, frequencyBias: 0.25, amount: 0.55 },
+      clip: "bounds",
+      provenance: { origin: "design-original" }
+    },
+    {
+      id: "an-preset-owned-q-block-transform-2",
+      name: "Hard blocks",
+      definitionId: "an-native-owned-q-block-transform",
+      definitionVersion: 2,
+      placement: "layer",
+      params: { quantization: 0.14, frequencyBias: 1.6, amount: 1 },
+      clip: "bounds",
+      provenance: { origin: "design-original" }
+    }
+  ];
+
+  // shared/native-effect-owned-stateful-nine.ts
+  var STATEFUL_NINE_DEFINITIONS = [
+    {
+      id: "an-native-owned-life-mosaic",
+      name: "Life Mosaic",
+      version: 1,
+      kind: "processor",
+      placements: ["layer", "backdrop"],
+      properties: {
+        contrast: {
+          type: "float",
+          label: "Cell contrast",
+          default: 0.9,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        cellPitch: {
+          type: "float",
+          label: "Cell pitch",
+          default: 36,
+          min: 30,
+          max: 150,
+          step: 1
+        },
+        tempo: {
+          type: "float",
+          label: "Update tempo",
+          default: 0.35,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        seeding: {
+          type: "float",
+          label: "Seed chance",
+          default: 0.28,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        mix: {
+          type: "float",
+          label: "Source mix",
+          default: 0.95,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        patternSeed: {
+          type: "float",
+          label: "Pattern seed",
+          default: 17,
+          min: 0,
+          max: 100,
+          step: 1
+        }
+      },
+      inputs: {
+        source: {
+          kind: "texture-2d",
+          resource: "source"
+        }
+      },
+      outputs: {
+        color: {
+          kind: "texture-2d",
+          resource: "color"
+        }
+      },
+      resources: [
+        {
+          name: "source",
+          kind: "texture-2d",
+          usage: ["sampled"],
+          external: true,
+          size: "viewport"
+        },
+        {
+          name: "state",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["sampled", "storage"],
+          persistent: true,
+          size: "fixed",
+          width: 512,
+          height: 512
+        },
+        {
+          name: "display",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["sampled", "storage"],
+          size: "fixed",
+          width: 512,
+          height: 512
+        },
+        {
+          name: "color",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["render", "sampled"],
+          size: "viewport"
+        }
+      ],
+      output: "color",
+      feedback: {
+        abi: "texture-feedback-v1",
+        grid: {
+          width: 512,
+          height: 512,
+          format: "rgba16float",
+          workgroup: [8, 8]
+        },
+        timing: {
+          fixedDt: 0.016666666666666666,
+          maxStepsPerCall: 512,
+          maxStepIndex: 36e3
+        },
+        stateResource: "state",
+        displayResource: "display",
+        uniformProperties: {
+          intensity: "contrast",
+          blockSize: "cellPitch",
+          drift: "tempo",
+          churn: "seeding",
+          blend: "mix",
+          seed: "patternSeed"
+        },
+        resetProperties: ["seeding"]
+      },
+      passes: [
+        {
+          id: "advance",
+          kind: "compute",
+          reads: ["source"],
+          previousFrameReads: ["state"],
+          output: "state",
+          additionalOutputs: ["display"],
+          persistent: true,
+          dispatch: {
+            workgroupSize: [8, 8],
+            elements: "fixed-grid"
+          },
+          wgsl: "\\nstruct Params {\\n  time: f32, dt: f32, seed: f32, intensity: f32,\\n  blockSize: f32, drift: f32, churn: f32, padding: f32,\\n};\\n@group(0) @binding(0) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(1) var priorTexture: texture_2d<f32>;\\n@group(0) @binding(2) var nextTexture: texture_storage_2d<rgba16float, write>;\\n@group(0) @binding(3) var displayTexture: texture_storage_2d<rgba16float, write>;\\n@group(0) @binding(4) var<uniform> params: Params;\\nfn bounded(cell: vec2i) -> vec2i { return clamp(cell, vec2i(0), vec2i(511)); }\\nfn priorAt(cell: vec2i) -> vec4f { return textureLoad(priorTexture, bounded(cell), 0); }\\nfn sourceAt(cell: vec2i) -> vec4f {\\n  let dimensions = vec2f(textureDimensions(sourceTexture));\\n  let uv = (vec2f(bounded(cell)) + 0.5) / 512.0;\\n  return textureLoad(sourceTexture, vec2i(clamp(floor(uv * dimensions), vec2f(0.0), dimensions - 1.0)), 0);\\n}\\nfn hashCell(cell: vec2i) -> f32 {\\n  var x = bitcast<u32>(cell.x) * 1664525u + bitcast<u32>(cell.y) * 1013904223u + u32(params.seed) * 747796405u;\\n  x = ((x >> 16u) ^ x) * 2246822519u;\\n  return f32((x >> 8u) & 16777215u) / 16777216.0;\\n}\\nfn sourceLight(cell: vec2i) -> f32 {\\n  let color = sourceAt(cell);\\n  return clamp(dot(color.rgb, vec3f(0.2126, 0.7152, 0.0722)), 0.0, 1.0);\\n}\\nfn outputColor(cell: vec2i, rgb: vec3f) -> vec4f {\\n  let source = sourceAt(cell);\\n  return vec4f(mix(source.rgb, clamp(rgb, vec3f(0.0), vec3f(1.0)) * source.a, params.intensity), source.a);\\n}\\nfn aliveAt(cell: vec2i) -> f32 {\\n  let prior = priorAt(cell);\\n  let gridCell = vec2i(floor(vec2f(bounded(cell)) / params.blockSize));\\n  return select(step(hashCell(gridCell), params.churn), step(0.5, prior.r), prior.a > 0.0);\\n}\\n@compute @workgroup_size(8, 8)\\nfn cs(@builtin(global_invocation_id) invocation: vec3u) {\\n  if (invocation.x >= 512u || invocation.y >= 512u) { return; }\\n  let cell = vec2i(invocation.xy);\\n  let previous = priorAt(cell);\\n  if (previous.a > 0.0 && params.dt <= 0.0) {\\n    textureStore(nextTexture, cell, previous);\\n    textureStore(displayTexture, cell, outputColor(cell, vec3f(step(0.5, previous.r), step(0.5, previous.r) * 0.85, step(0.5, previous.r) * 0.25)));\\n    return;\\n  }\\n  let pitch = i32(round(params.blockSize));\\n  let prior = aliveAt(cell);\\n  var neighbors = 0.0;\\n  for (var y = -1; y <= 1; y += 1) {\\n    for (var x = -1; x <= 1; x += 1) {\\n      if (x != 0 || y != 0) { neighbors += aliveAt(cell + vec2i(x, y) * pitch); }\\n    }\\n  }\\n  let next = select(select(0.0, 1.0, neighbors == 3.0), select(0.0, 1.0, neighbors >= 2.0 && neighbors <= 3.0), prior > 0.5);\\n  let cadence = max(1u, u32(round(16.0 - params.drift * 15.0)));\\n  let alive = select(prior, next, u32(round(params.time * 60.0)) % cadence == 0u);\\n  textureStore(nextTexture, cell, vec4f(alive, 0.0, 0.0, 1.0));\\n  textureStore(displayTexture, cell, outputColor(cell, vec3f(alive, alive * 0.85, alive * 0.25)));\\n}"
+        },
+        {
+          id: "resolve",
+          kind: "render",
+          reads: ["source", "display"],
+          output: "color",
+          wgsl: "\\nstruct Resolve { blend: f32, padding: vec3f };\\n@group(0) @binding(0) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(1) var displayTexture: texture_2d<f32>;\\n@group(0) @binding(2) var linearClamp: sampler;\\n@group(0) @binding(3) var<uniform> resolve: Resolve;\\nstruct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };\\n@vertex fn vs(@builtin(vertex_index) index: u32) -> VertexOut {\\n  let xy = vec2f(f32((index << 1u) & 2u), f32(index & 2u));\\n  var result: VertexOut;\\n  result.position = vec4f(xy * 2.0 - 1.0, 0.0, 1.0);\\n  result.uv = vec2f(xy.x, 1.0 - xy.y);\\n  return result;\\n}\\n@fragment fn fs(input: VertexOut) -> @location(0) vec4f {\\n  let source = textureSampleLevel(sourceTexture, linearClamp, input.uv, 0.0);\\n  let memory = textureSampleLevel(displayTexture, linearClamp, input.uv, 0.0);\\n  return mix(source, memory, resolve.blend);\\n}\\n"
+        }
+      ],
+      provenance: {
+        origin: "design-original",
+        note: "Original Design cellular feedback simulation."
+      }
+    },
+    {
+      id: "an-native-owned-cyclic-chase",
+      name: "Cyclic Chase",
+      version: 1,
+      kind: "processor",
+      placements: ["layer", "backdrop"],
+      properties: {
+        visibility: {
+          type: "float",
+          label: "Phase visibility",
+          default: 0.9,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        cellPitch: {
+          type: "float",
+          label: "Cell pitch",
+          default: 42,
+          min: 30,
+          max: 150,
+          step: 1
+        },
+        tempo: {
+          type: "float",
+          label: "Update tempo",
+          default: 0.45,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        mutation: {
+          type: "float",
+          label: "Phase mutation",
+          default: 0.04,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        mix: {
+          type: "float",
+          label: "Source mix",
+          default: 1,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        patternSeed: {
+          type: "float",
+          label: "Pattern seed",
+          default: 27,
+          min: 0,
+          max: 100,
+          step: 1
+        }
+      },
+      inputs: {
+        source: {
+          kind: "texture-2d",
+          resource: "source"
+        }
+      },
+      outputs: {
+        color: {
+          kind: "texture-2d",
+          resource: "color"
+        }
+      },
+      resources: [
+        {
+          name: "source",
+          kind: "texture-2d",
+          usage: ["sampled"],
+          external: true,
+          size: "viewport"
+        },
+        {
+          name: "state",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["sampled", "storage"],
+          persistent: true,
+          size: "fixed",
+          width: 512,
+          height: 512
+        },
+        {
+          name: "display",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["sampled", "storage"],
+          size: "fixed",
+          width: 512,
+          height: 512
+        },
+        {
+          name: "color",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["render", "sampled"],
+          size: "viewport"
+        }
+      ],
+      output: "color",
+      feedback: {
+        abi: "texture-feedback-v1",
+        grid: {
+          width: 512,
+          height: 512,
+          format: "rgba16float",
+          workgroup: [8, 8]
+        },
+        timing: {
+          fixedDt: 0.016666666666666666,
+          maxStepsPerCall: 512,
+          maxStepIndex: 36e3
+        },
+        stateResource: "state",
+        displayResource: "display",
+        uniformProperties: {
+          intensity: "visibility",
+          blockSize: "cellPitch",
+          drift: "tempo",
+          churn: "mutation",
+          blend: "mix",
+          seed: "patternSeed"
+        }
+      },
+      passes: [
+        {
+          id: "advance",
+          kind: "compute",
+          reads: ["source"],
+          previousFrameReads: ["state"],
+          output: "state",
+          additionalOutputs: ["display"],
+          persistent: true,
+          dispatch: {
+            workgroupSize: [8, 8],
+            elements: "fixed-grid"
+          },
+          wgsl: "\\nstruct Params {\\n  time: f32, dt: f32, seed: f32, intensity: f32,\\n  blockSize: f32, drift: f32, churn: f32, padding: f32,\\n};\\n@group(0) @binding(0) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(1) var priorTexture: texture_2d<f32>;\\n@group(0) @binding(2) var nextTexture: texture_storage_2d<rgba16float, write>;\\n@group(0) @binding(3) var displayTexture: texture_storage_2d<rgba16float, write>;\\n@group(0) @binding(4) var<uniform> params: Params;\\nfn bounded(cell: vec2i) -> vec2i { return clamp(cell, vec2i(0), vec2i(511)); }\\nfn priorAt(cell: vec2i) -> vec4f { return textureLoad(priorTexture, bounded(cell), 0); }\\nfn sourceAt(cell: vec2i) -> vec4f {\\n  let dimensions = vec2f(textureDimensions(sourceTexture));\\n  let uv = (vec2f(bounded(cell)) + 0.5) / 512.0;\\n  return textureLoad(sourceTexture, vec2i(clamp(floor(uv * dimensions), vec2f(0.0), dimensions - 1.0)), 0);\\n}\\nfn hashCell(cell: vec2i) -> f32 {\\n  var x = bitcast<u32>(cell.x) * 1664525u + bitcast<u32>(cell.y) * 1013904223u + u32(params.seed) * 747796405u;\\n  x = ((x >> 16u) ^ x) * 2246822519u;\\n  return f32((x >> 8u) & 16777215u) / 16777216.0;\\n}\\nfn sourceLight(cell: vec2i) -> f32 {\\n  let color = sourceAt(cell);\\n  return clamp(dot(color.rgb, vec3f(0.2126, 0.7152, 0.0722)), 0.0, 1.0);\\n}\\nfn outputColor(cell: vec2i, rgb: vec3f) -> vec4f {\\n  let source = sourceAt(cell);\\n  return vec4f(mix(source.rgb, clamp(rgb, vec3f(0.0), vec3f(1.0)) * source.a, params.intensity), source.a);\\n}\\nfn phaseAt(cell: vec2i) -> u32 {\\n  let prior = priorAt(cell);\\n  let gridCell = vec2i(floor(vec2f(bounded(cell)) / params.blockSize));\\n  return select(u32(floor(hashCell(gridCell) * 4.0)), u32(round(prior.r * 3.0)), prior.a > 0.0);\\n}\\n@compute @workgroup_size(8, 8)\\nfn cs(@builtin(global_invocation_id) invocation: vec3u) {\\n  if (invocation.x >= 512u || invocation.y >= 512u) { return; }\\n  let cell = vec2i(invocation.xy);\\n  let previous = priorAt(cell);\\n  if (previous.a > 0.0 && params.dt <= 0.0) {\\n    textureStore(nextTexture, cell, previous);\\n    textureStore(displayTexture, cell, outputColor(cell, vec3f(round(previous.r * 3.0) / 3.0, 1.0 - abs(round(previous.r * 3.0) / 3.0 - 0.5) * 2.0, 1.0 - round(previous.r * 3.0) / 3.0)));\\n    return;\\n  }\\n  let pitch = i32(round(params.blockSize));\\n  let current = phaseAt(cell);\\n  let successor = (current + 1u) % 4u;\\n  var follows = false;\\n  for (var y = -1; y <= 1; y += 1) {\\n    for (var x = -1; x <= 1; x += 1) {\\n      if (x != 0 || y != 0) { follows = follows || phaseAt(cell + vec2i(x, y) * pitch) == successor; }\\n    }\\n  }\\n  let gridCell = vec2i(floor(vec2f(cell) / params.blockSize));\\n  let mutation = hashCell(gridCell + vec2i(i32(round(params.time * 60.0)), 61)) < params.churn * 0.02;\\n  let cadence = max(1u, u32(round(16.0 - params.drift * 15.0)));\\n  let next = select(current, successor, (follows || mutation) && u32(round(params.time * 60.0)) % cadence == 0u);\\n  let fraction = f32(next) / 3.0;\\n  textureStore(nextTexture, cell, vec4f(fraction, 0.0, 0.0, 1.0));\\n  textureStore(displayTexture, cell, outputColor(cell, vec3f(fraction, 1.0 - abs(fraction - 0.5) * 2.0, 1.0 - fraction)));\\n}"
+        },
+        {
+          id: "resolve",
+          kind: "render",
+          reads: ["source", "display"],
+          output: "color",
+          wgsl: "\\nstruct Resolve { blend: f32, padding: vec3f };\\n@group(0) @binding(0) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(1) var displayTexture: texture_2d<f32>;\\n@group(0) @binding(2) var linearClamp: sampler;\\n@group(0) @binding(3) var<uniform> resolve: Resolve;\\nstruct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };\\n@vertex fn vs(@builtin(vertex_index) index: u32) -> VertexOut {\\n  let xy = vec2f(f32((index << 1u) & 2u), f32(index & 2u));\\n  var result: VertexOut;\\n  result.position = vec4f(xy * 2.0 - 1.0, 0.0, 1.0);\\n  result.uv = vec2f(xy.x, 1.0 - xy.y);\\n  return result;\\n}\\n@fragment fn fs(input: VertexOut) -> @location(0) vec4f {\\n  let source = textureSampleLevel(sourceTexture, linearClamp, input.uv, 0.0);\\n  let memory = textureSampleLevel(displayTexture, linearClamp, input.uv, 0.0);\\n  return mix(source, memory, resolve.blend);\\n}\\n"
+        }
+      ],
+      provenance: {
+        origin: "design-original",
+        note: "Original Design cellular feedback simulation."
+      }
+    },
+    {
+      id: "an-native-owned-nerve-recovery",
+      name: "Nerve Recovery",
+      version: 1,
+      kind: "processor",
+      placements: ["layer", "backdrop"],
+      properties: {
+        signal: {
+          type: "float",
+          label: "Signal strength",
+          default: 0.85,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        spread: {
+          type: "float",
+          label: "Signal spread",
+          default: 75,
+          min: 30,
+          max: 150,
+          step: 1
+        },
+        coupling: {
+          type: "float",
+          label: "Neighbor coupling",
+          default: 0.58,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        stimulus: {
+          type: "float",
+          label: "Stimulus",
+          default: 0.18,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        mix: {
+          type: "float",
+          label: "Source mix",
+          default: 0.95,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        patternSeed: {
+          type: "float",
+          label: "Pattern seed",
+          default: 32,
+          min: 0,
+          max: 100,
+          step: 1
+        }
+      },
+      inputs: {
+        source: {
+          kind: "texture-2d",
+          resource: "source"
+        }
+      },
+      outputs: {
+        color: {
+          kind: "texture-2d",
+          resource: "color"
+        }
+      },
+      resources: [
+        {
+          name: "source",
+          kind: "texture-2d",
+          usage: ["sampled"],
+          external: true,
+          size: "viewport"
+        },
+        {
+          name: "state",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["sampled", "storage"],
+          persistent: true,
+          size: "fixed",
+          width: 512,
+          height: 512
+        },
+        {
+          name: "display",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["sampled", "storage"],
+          size: "fixed",
+          width: 512,
+          height: 512
+        },
+        {
+          name: "color",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["render", "sampled"],
+          size: "viewport"
+        }
+      ],
+      output: "color",
+      feedback: {
+        abi: "texture-feedback-v1",
+        grid: {
+          width: 512,
+          height: 512,
+          format: "rgba16float",
+          workgroup: [8, 8]
+        },
+        timing: {
+          fixedDt: 0.016666666666666666,
+          maxStepsPerCall: 512,
+          maxStepIndex: 36e3
+        },
+        stateResource: "state",
+        displayResource: "display",
+        uniformProperties: {
+          intensity: "signal",
+          blockSize: "spread",
+          drift: "coupling",
+          churn: "stimulus",
+          blend: "mix",
+          seed: "patternSeed"
+        }
+      },
+      passes: [
+        {
+          id: "advance",
+          kind: "compute",
+          reads: ["source"],
+          previousFrameReads: ["state"],
+          output: "state",
+          additionalOutputs: ["display"],
+          persistent: true,
+          dispatch: {
+            workgroupSize: [8, 8],
+            elements: "fixed-grid"
+          },
+          wgsl: "\\nstruct Params {\\n  time: f32, dt: f32, seed: f32, intensity: f32,\\n  blockSize: f32, drift: f32, churn: f32, padding: f32,\\n};\\n@group(0) @binding(0) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(1) var priorTexture: texture_2d<f32>;\\n@group(0) @binding(2) var nextTexture: texture_storage_2d<rgba16float, write>;\\n@group(0) @binding(3) var displayTexture: texture_storage_2d<rgba16float, write>;\\n@group(0) @binding(4) var<uniform> params: Params;\\nfn bounded(cell: vec2i) -> vec2i { return clamp(cell, vec2i(0), vec2i(511)); }\\nfn priorAt(cell: vec2i) -> vec4f { return textureLoad(priorTexture, bounded(cell), 0); }\\nfn sourceAt(cell: vec2i) -> vec4f {\\n  let dimensions = vec2f(textureDimensions(sourceTexture));\\n  let uv = (vec2f(bounded(cell)) + 0.5) / 512.0;\\n  return textureLoad(sourceTexture, vec2i(clamp(floor(uv * dimensions), vec2f(0.0), dimensions - 1.0)), 0);\\n}\\nfn hashCell(cell: vec2i) -> f32 {\\n  var x = bitcast<u32>(cell.x) * 1664525u + bitcast<u32>(cell.y) * 1013904223u + u32(params.seed) * 747796405u;\\n  x = ((x >> 16u) ^ x) * 2246822519u;\\n  return f32((x >> 8u) & 16777215u) / 16777216.0;\\n}\\nfn sourceLight(cell: vec2i) -> f32 {\\n  let color = sourceAt(cell);\\n  return clamp(dot(color.rgb, vec3f(0.2126, 0.7152, 0.0722)), 0.0, 1.0);\\n}\\nfn outputColor(cell: vec2i, rgb: vec3f) -> vec4f {\\n  let source = sourceAt(cell);\\n  return vec4f(mix(source.rgb, clamp(rgb, vec3f(0.0), vec3f(1.0)) * source.a, params.intensity), source.a);\\n}\\nfn excitationAt(cell: vec2i) -> f32 {\\n  let old = priorAt(cell);\\n  return select(step(0.91, hashCell(cell / 12)) * 0.8, old.r, old.a > 0.0);\\n}\\n@compute @workgroup_size(8, 8)\\nfn cs(@builtin(global_invocation_id) invocation: vec3u) {\\n  if (invocation.x >= 512u || invocation.y >= 512u) { return; }\\n  let cell = vec2i(invocation.xy);\\n  let previous = priorAt(cell);\\n  if (previous.a > 0.0 && params.dt <= 0.0) {\\n    textureStore(nextTexture, cell, previous);\\n    textureStore(displayTexture, cell, outputColor(cell, vec3f(previous.r, previous.r * previous.r * 0.5, 1.0 - previous.g)));\\n    return;\\n  }\\n  let old = priorAt(cell);\\n  let excitation = excitationAt(cell);\\n  let reserve = select(1.0, old.g, old.a > 0.0);\\n  let stride = max(1, i32(round(params.blockSize / 30.0)));\\n  let adjacent = (excitationAt(cell + vec2i(stride, 0)) + excitationAt(cell + vec2i(-stride, 0)) + excitationAt(cell + vec2i(0, stride)) + excitationAt(cell + vec2i(0, -stride))) * 0.25;\\n  let stimulus = sourceLight(cell) * params.churn * 0.012 + adjacent * params.drift * 0.16;\\n  let nextExcitation = clamp(excitation + params.dt * 35.0 * (excitation * (1.0 - excitation) * (excitation - 0.24) - reserve * 0.19 + stimulus), 0.0, 1.0);\\n  let nextReserve = clamp(reserve + params.dt * 8.0 * (nextExcitation - reserve * 0.35), 0.0, 1.0);\\n  textureStore(nextTexture, cell, vec4f(nextExcitation, nextReserve, 0.0, 1.0));\\n  textureStore(displayTexture, cell, outputColor(cell, vec3f(nextExcitation, nextExcitation * nextExcitation * 0.5, 1.0 - nextReserve)));\\n}"
+        },
+        {
+          id: "resolve",
+          kind: "render",
+          reads: ["source", "display"],
+          output: "color",
+          wgsl: "\\nstruct Resolve { blend: f32, padding: vec3f };\\n@group(0) @binding(0) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(1) var displayTexture: texture_2d<f32>;\\n@group(0) @binding(2) var linearClamp: sampler;\\n@group(0) @binding(3) var<uniform> resolve: Resolve;\\nstruct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };\\n@vertex fn vs(@builtin(vertex_index) index: u32) -> VertexOut {\\n  let xy = vec2f(f32((index << 1u) & 2u), f32(index & 2u));\\n  var result: VertexOut;\\n  result.position = vec4f(xy * 2.0 - 1.0, 0.0, 1.0);\\n  result.uv = vec2f(xy.x, 1.0 - xy.y);\\n  return result;\\n}\\n@fragment fn fs(input: VertexOut) -> @location(0) vec4f {\\n  let source = textureSampleLevel(sourceTexture, linearClamp, input.uv, 0.0);\\n  let memory = textureSampleLevel(displayTexture, linearClamp, input.uv, 0.0);\\n  return mix(source, memory, resolve.blend);\\n}\\n"
+        }
+      ],
+      provenance: {
+        origin: "design-original",
+        note: "Original Design reaction feedback simulation."
+      }
+    },
+    {
+      id: "an-native-owned-sand-avalanche",
+      name: "Sand Avalanche",
+      version: 1,
+      kind: "processor",
+      placements: ["layer", "backdrop"],
+      properties: {
+        visibility: {
+          type: "float",
+          label: "Grain visibility",
+          default: 0.9,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        grainPitch: {
+          type: "float",
+          label: "Grain pitch",
+          default: 30,
+          min: 30,
+          max: 150,
+          step: 1
+        },
+        mobility: {
+          type: "float",
+          label: "Grain mobility",
+          default: 0.35,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        deposition: {
+          type: "float",
+          label: "Deposition",
+          default: 0.16,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        mix: {
+          type: "float",
+          label: "Source mix",
+          default: 0.9,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        patternSeed: {
+          type: "float",
+          label: "Pattern seed",
+          default: 43,
+          min: 0,
+          max: 100,
+          step: 1
+        }
+      },
+      inputs: {
+        source: {
+          kind: "texture-2d",
+          resource: "source"
+        }
+      },
+      outputs: {
+        color: {
+          kind: "texture-2d",
+          resource: "color"
+        }
+      },
+      resources: [
+        {
+          name: "source",
+          kind: "texture-2d",
+          usage: ["sampled"],
+          external: true,
+          size: "viewport"
+        },
+        {
+          name: "state",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["sampled", "storage"],
+          persistent: true,
+          size: "fixed",
+          width: 512,
+          height: 512
+        },
+        {
+          name: "display",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["sampled", "storage"],
+          size: "fixed",
+          width: 512,
+          height: 512
+        },
+        {
+          name: "color",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["render", "sampled"],
+          size: "viewport"
+        }
+      ],
+      output: "color",
+      feedback: {
+        abi: "texture-feedback-v1",
+        grid: {
+          width: 512,
+          height: 512,
+          format: "rgba16float",
+          workgroup: [8, 8]
+        },
+        timing: {
+          fixedDt: 0.016666666666666666,
+          maxStepsPerCall: 512,
+          maxStepIndex: 36e3
+        },
+        stateResource: "state",
+        displayResource: "display",
+        uniformProperties: {
+          intensity: "visibility",
+          blockSize: "grainPitch",
+          drift: "mobility",
+          churn: "deposition",
+          blend: "mix",
+          seed: "patternSeed"
+        }
+      },
+      passes: [
+        {
+          id: "advance",
+          kind: "compute",
+          reads: ["source"],
+          previousFrameReads: ["state"],
+          output: "state",
+          additionalOutputs: ["display"],
+          persistent: true,
+          dispatch: {
+            workgroupSize: [8, 8],
+            elements: "fixed-grid"
+          },
+          wgsl: "\\nstruct Params {\\n  time: f32, dt: f32, seed: f32, intensity: f32,\\n  blockSize: f32, drift: f32, churn: f32, padding: f32,\\n};\\n@group(0) @binding(0) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(1) var priorTexture: texture_2d<f32>;\\n@group(0) @binding(2) var nextTexture: texture_storage_2d<rgba16float, write>;\\n@group(0) @binding(3) var displayTexture: texture_storage_2d<rgba16float, write>;\\n@group(0) @binding(4) var<uniform> params: Params;\\nfn bounded(cell: vec2i) -> vec2i { return clamp(cell, vec2i(0), vec2i(511)); }\\nfn priorAt(cell: vec2i) -> vec4f { return textureLoad(priorTexture, bounded(cell), 0); }\\nfn sourceAt(cell: vec2i) -> vec4f {\\n  let dimensions = vec2f(textureDimensions(sourceTexture));\\n  let uv = (vec2f(bounded(cell)) + 0.5) / 512.0;\\n  return textureLoad(sourceTexture, vec2i(clamp(floor(uv * dimensions), vec2f(0.0), dimensions - 1.0)), 0);\\n}\\nfn hashCell(cell: vec2i) -> f32 {\\n  var x = bitcast<u32>(cell.x) * 1664525u + bitcast<u32>(cell.y) * 1013904223u + u32(params.seed) * 747796405u;\\n  x = ((x >> 16u) ^ x) * 2246822519u;\\n  return f32((x >> 8u) & 16777215u) / 16777216.0;\\n}\\nfn sourceLight(cell: vec2i) -> f32 {\\n  let color = sourceAt(cell);\\n  return clamp(dot(color.rgb, vec3f(0.2126, 0.7152, 0.0722)), 0.0, 1.0);\\n}\\nfn outputColor(cell: vec2i, rgb: vec3f) -> vec4f {\\n  let source = sourceAt(cell);\\n  return vec4f(mix(source.rgb, clamp(rgb, vec3f(0.0), vec3f(1.0)) * source.a, params.intensity), source.a);\\n}\\nfn massAt(cell: vec2i) -> f32 {\\n  let old = priorAt(cell);\\n  return select(hashCell(cell / 3) * 0.4, old.r, old.a > 0.0);\\n}\\nfn flux(origin: vec2i, destination: vec2i) -> f32 {\\n  let difference = massAt(origin) - massAt(destination);\\n  let slope = select(0.09, 0.025, destination.y > origin.y);\\n  return max(difference - slope, 0.0) * params.drift * params.dt * 2.0;\\n}\\n@compute @workgroup_size(8, 8)\\nfn cs(@builtin(global_invocation_id) invocation: vec3u) {\\n  if (invocation.x >= 512u || invocation.y >= 512u) { return; }\\n  let cell = vec2i(invocation.xy);\\n  let previous = priorAt(cell);\\n  if (previous.a > 0.0 && params.dt <= 0.0) {\\n    textureStore(nextTexture, cell, previous);\\n    textureStore(displayTexture, cell, outputColor(cell, vec3f(previous.r, previous.r * 0.72, previous.r * 0.38)));\\n    return;\\n  }\\n  let stride = max(1, i32(round(params.blockSize / 30.0)));\\n  let up = bounded(cell + vec2i(0, -stride));\\n  let down = bounded(cell + vec2i(0, stride));\\n  let left = bounded(cell + vec2i(-stride, 0));\\n  let right = bounded(cell + vec2i(stride, 0));\\n  let outgoing = flux(cell, up) + flux(cell, down) + flux(cell, left) + flux(cell, right);\\n  let incoming = flux(up, cell) + flux(down, cell) + flux(left, cell) + flux(right, cell);\\n  let deposited = sourceLight(cell) * params.churn * params.dt * 0.08;\\n  let mass = clamp(massAt(cell) + incoming - outgoing + deposited, 0.0, 1.0);\\n  textureStore(nextTexture, cell, vec4f(mass, 0.0, 0.0, 1.0));\\n  textureStore(displayTexture, cell, outputColor(cell, vec3f(mass, mass * 0.72, mass * 0.38)));\\n}"
+        },
+        {
+          id: "resolve",
+          kind: "render",
+          reads: ["source", "display"],
+          output: "color",
+          wgsl: "\\nstruct Resolve { blend: f32, padding: vec3f };\\n@group(0) @binding(0) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(1) var displayTexture: texture_2d<f32>;\\n@group(0) @binding(2) var linearClamp: sampler;\\n@group(0) @binding(3) var<uniform> resolve: Resolve;\\nstruct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };\\n@vertex fn vs(@builtin(vertex_index) index: u32) -> VertexOut {\\n  let xy = vec2f(f32((index << 1u) & 2u), f32(index & 2u));\\n  var result: VertexOut;\\n  result.position = vec4f(xy * 2.0 - 1.0, 0.0, 1.0);\\n  result.uv = vec2f(xy.x, 1.0 - xy.y);\\n  return result;\\n}\\n@fragment fn fs(input: VertexOut) -> @location(0) vec4f {\\n  let source = textureSampleLevel(sourceTexture, linearClamp, input.uv, 0.0);\\n  let memory = textureSampleLevel(displayTexture, linearClamp, input.uv, 0.0);\\n  return mix(source, memory, resolve.blend);\\n}\\n"
+        }
+      ],
+      provenance: {
+        origin: "design-original",
+        note: "Original Design material feedback simulation."
+      }
+    },
+    {
+      id: "an-native-owned-ember-front",
+      name: "Ember Front",
+      version: 1,
+      kind: "processor",
+      placements: ["layer", "backdrop"],
+      properties: {
+        glow: {
+          type: "float",
+          label: "Heat glow",
+          default: 0.92,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        spread: {
+          type: "float",
+          label: "Spread length",
+          default: 55,
+          min: 30,
+          max: 150,
+          step: 1
+        },
+        conduction: {
+          type: "float",
+          label: "Heat conduction",
+          default: 0.6,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        ignition: {
+          type: "float",
+          label: "Ignition rate",
+          default: 0.22,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        mix: {
+          type: "float",
+          label: "Source mix",
+          default: 1,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        patternSeed: {
+          type: "float",
+          label: "Pattern seed",
+          default: 51,
+          min: 0,
+          max: 100,
+          step: 1
+        }
+      },
+      inputs: {
+        source: {
+          kind: "texture-2d",
+          resource: "source"
+        }
+      },
+      outputs: {
+        color: {
+          kind: "texture-2d",
+          resource: "color"
+        }
+      },
+      resources: [
+        {
+          name: "source",
+          kind: "texture-2d",
+          usage: ["sampled"],
+          external: true,
+          size: "viewport"
+        },
+        {
+          name: "state",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["sampled", "storage"],
+          persistent: true,
+          size: "fixed",
+          width: 512,
+          height: 512
+        },
+        {
+          name: "display",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["sampled", "storage"],
+          size: "fixed",
+          width: 512,
+          height: 512
+        },
+        {
+          name: "color",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["render", "sampled"],
+          size: "viewport"
+        }
+      ],
+      output: "color",
+      feedback: {
+        abi: "texture-feedback-v1",
+        grid: {
+          width: 512,
+          height: 512,
+          format: "rgba16float",
+          workgroup: [8, 8]
+        },
+        timing: {
+          fixedDt: 0.016666666666666666,
+          maxStepsPerCall: 512,
+          maxStepIndex: 36e3
+        },
+        stateResource: "state",
+        displayResource: "display",
+        uniformProperties: {
+          intensity: "glow",
+          blockSize: "spread",
+          drift: "conduction",
+          churn: "ignition",
+          blend: "mix",
+          seed: "patternSeed"
+        }
+      },
+      passes: [
+        {
+          id: "advance",
+          kind: "compute",
+          reads: ["source"],
+          previousFrameReads: ["state"],
+          output: "state",
+          additionalOutputs: ["display"],
+          persistent: true,
+          dispatch: {
+            workgroupSize: [8, 8],
+            elements: "fixed-grid"
+          },
+          wgsl: "\\nstruct Params {\\n  time: f32, dt: f32, seed: f32, intensity: f32,\\n  blockSize: f32, drift: f32, churn: f32, padding: f32,\\n};\\n@group(0) @binding(0) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(1) var priorTexture: texture_2d<f32>;\\n@group(0) @binding(2) var nextTexture: texture_storage_2d<rgba16float, write>;\\n@group(0) @binding(3) var displayTexture: texture_storage_2d<rgba16float, write>;\\n@group(0) @binding(4) var<uniform> params: Params;\\nfn bounded(cell: vec2i) -> vec2i { return clamp(cell, vec2i(0), vec2i(511)); }\\nfn priorAt(cell: vec2i) -> vec4f { return textureLoad(priorTexture, bounded(cell), 0); }\\nfn sourceAt(cell: vec2i) -> vec4f {\\n  let dimensions = vec2f(textureDimensions(sourceTexture));\\n  let uv = (vec2f(bounded(cell)) + 0.5) / 512.0;\\n  return textureLoad(sourceTexture, vec2i(clamp(floor(uv * dimensions), vec2f(0.0), dimensions - 1.0)), 0);\\n}\\nfn hashCell(cell: vec2i) -> f32 {\\n  var x = bitcast<u32>(cell.x) * 1664525u + bitcast<u32>(cell.y) * 1013904223u + u32(params.seed) * 747796405u;\\n  x = ((x >> 16u) ^ x) * 2246822519u;\\n  return f32((x >> 8u) & 16777215u) / 16777216.0;\\n}\\nfn sourceLight(cell: vec2i) -> f32 {\\n  let color = sourceAt(cell);\\n  return clamp(dot(color.rgb, vec3f(0.2126, 0.7152, 0.0722)), 0.0, 1.0);\\n}\\nfn outputColor(cell: vec2i, rgb: vec3f) -> vec4f {\\n  let source = sourceAt(cell);\\n  return vec4f(mix(source.rgb, clamp(rgb, vec3f(0.0), vec3f(1.0)) * source.a, params.intensity), source.a);\\n}\\nfn heatAt(cell: vec2i) -> f32 {\\n  let old = priorAt(cell);\\n  return select(step(0.994, hashCell(cell / 11)), old.r, old.a > 0.0);\\n}\\n@compute @workgroup_size(8, 8)\\nfn cs(@builtin(global_invocation_id) invocation: vec3u) {\\n  if (invocation.x >= 512u || invocation.y >= 512u) { return; }\\n  let cell = vec2i(invocation.xy);\\n  let previous = priorAt(cell);\\n  if (previous.a > 0.0 && params.dt <= 0.0) {\\n    textureStore(nextTexture, cell, previous);\\n    textureStore(displayTexture, cell, outputColor(cell, vec3f(previous.r, previous.r * previous.r * 0.45, 0.03 + previous.g * 0.08)));\\n    return;\\n  }\\n  let old = priorAt(cell);\\n  let heat = heatAt(cell);\\n  let fuel = select(0.55 + sourceLight(cell) * 0.45, old.g, old.a > 0.0);\\n  let stride = max(1, i32(round(params.blockSize / 35.0)));\\n  let neighborhood = (heatAt(cell + vec2i(stride, 0)) + heatAt(cell + vec2i(-stride, 0)) + heatAt(cell + vec2i(0, stride)) + heatAt(cell + vec2i(0, -stride))) * 0.25;\\n  let ignition = max(0.0, neighborhood - 0.35) * fuel * params.churn;\\n  let nextHeat = clamp(heat + params.dt * (params.drift * (neighborhood - heat) * 18.0 + ignition * 22.0 - heat * 1.2), 0.0, 1.0);\\n  let nextFuel = clamp(fuel - nextHeat * params.dt * 0.1, 0.0, 1.0);\\n  textureStore(nextTexture, cell, vec4f(nextHeat, nextFuel, 0.0, 1.0));\\n  textureStore(displayTexture, cell, outputColor(cell, vec3f(nextHeat, nextHeat * nextHeat * 0.45, 0.03 + nextFuel * 0.08)));\\n}"
+        },
+        {
+          id: "resolve",
+          kind: "render",
+          reads: ["source", "display"],
+          output: "color",
+          wgsl: "\\nstruct Resolve { blend: f32, padding: vec3f };\\n@group(0) @binding(0) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(1) var displayTexture: texture_2d<f32>;\\n@group(0) @binding(2) var linearClamp: sampler;\\n@group(0) @binding(3) var<uniform> resolve: Resolve;\\nstruct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };\\n@vertex fn vs(@builtin(vertex_index) index: u32) -> VertexOut {\\n  let xy = vec2f(f32((index << 1u) & 2u), f32(index & 2u));\\n  var result: VertexOut;\\n  result.position = vec4f(xy * 2.0 - 1.0, 0.0, 1.0);\\n  result.uv = vec2f(xy.x, 1.0 - xy.y);\\n  return result;\\n}\\n@fragment fn fs(input: VertexOut) -> @location(0) vec4f {\\n  let source = textureSampleLevel(sourceTexture, linearClamp, input.uv, 0.0);\\n  let memory = textureSampleLevel(displayTexture, linearClamp, input.uv, 0.0);\\n  return mix(source, memory, resolve.blend);\\n}\\n"
+        }
+      ],
+      provenance: {
+        origin: "design-original",
+        note: "Original Design reaction feedback simulation."
+      }
+    },
+    {
+      id: "an-native-owned-frost-lattice",
+      name: "Frost Lattice",
+      version: 1,
+      kind: "processor",
+      placements: ["layer", "backdrop"],
+      properties: {
+        visibility: {
+          type: "float",
+          label: "Ice visibility",
+          default: 0.87,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        branchScale: {
+          type: "float",
+          label: "Branch scale",
+          default: 70,
+          min: 30,
+          max: 150,
+          step: 1
+        },
+        growth: {
+          type: "float",
+          label: "Growth speed",
+          default: 0.47,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        moisture: {
+          type: "float",
+          label: "Moisture supply",
+          default: 0.4,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        mix: {
+          type: "float",
+          label: "Source mix",
+          default: 0.95,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        patternSeed: {
+          type: "float",
+          label: "Pattern seed",
+          default: 64,
+          min: 0,
+          max: 100,
+          step: 1
+        }
+      },
+      inputs: {
+        source: {
+          kind: "texture-2d",
+          resource: "source"
+        }
+      },
+      outputs: {
+        color: {
+          kind: "texture-2d",
+          resource: "color"
+        }
+      },
+      resources: [
+        {
+          name: "source",
+          kind: "texture-2d",
+          usage: ["sampled"],
+          external: true,
+          size: "viewport"
+        },
+        {
+          name: "state",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["sampled", "storage"],
+          persistent: true,
+          size: "fixed",
+          width: 512,
+          height: 512
+        },
+        {
+          name: "display",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["sampled", "storage"],
+          size: "fixed",
+          width: 512,
+          height: 512
+        },
+        {
+          name: "color",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["render", "sampled"],
+          size: "viewport"
+        }
+      ],
+      output: "color",
+      feedback: {
+        abi: "texture-feedback-v1",
+        grid: {
+          width: 512,
+          height: 512,
+          format: "rgba16float",
+          workgroup: [8, 8]
+        },
+        timing: {
+          fixedDt: 0.016666666666666666,
+          maxStepsPerCall: 512,
+          maxStepIndex: 36e3
+        },
+        stateResource: "state",
+        displayResource: "display",
+        uniformProperties: {
+          intensity: "visibility",
+          blockSize: "branchScale",
+          drift: "growth",
+          churn: "moisture",
+          blend: "mix",
+          seed: "patternSeed"
+        }
+      },
+      passes: [
+        {
+          id: "advance",
+          kind: "compute",
+          reads: ["source"],
+          previousFrameReads: ["state"],
+          output: "state",
+          additionalOutputs: ["display"],
+          persistent: true,
+          dispatch: {
+            workgroupSize: [8, 8],
+            elements: "fixed-grid"
+          },
+          wgsl: "\\nstruct Params {\\n  time: f32, dt: f32, seed: f32, intensity: f32,\\n  blockSize: f32, drift: f32, churn: f32, padding: f32,\\n};\\n@group(0) @binding(0) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(1) var priorTexture: texture_2d<f32>;\\n@group(0) @binding(2) var nextTexture: texture_storage_2d<rgba16float, write>;\\n@group(0) @binding(3) var displayTexture: texture_storage_2d<rgba16float, write>;\\n@group(0) @binding(4) var<uniform> params: Params;\\nfn bounded(cell: vec2i) -> vec2i { return clamp(cell, vec2i(0), vec2i(511)); }\\nfn priorAt(cell: vec2i) -> vec4f { return textureLoad(priorTexture, bounded(cell), 0); }\\nfn sourceAt(cell: vec2i) -> vec4f {\\n  let dimensions = vec2f(textureDimensions(sourceTexture));\\n  let uv = (vec2f(bounded(cell)) + 0.5) / 512.0;\\n  return textureLoad(sourceTexture, vec2i(clamp(floor(uv * dimensions), vec2f(0.0), dimensions - 1.0)), 0);\\n}\\nfn hashCell(cell: vec2i) -> f32 {\\n  var x = bitcast<u32>(cell.x) * 1664525u + bitcast<u32>(cell.y) * 1013904223u + u32(params.seed) * 747796405u;\\n  x = ((x >> 16u) ^ x) * 2246822519u;\\n  return f32((x >> 8u) & 16777215u) / 16777216.0;\\n}\\nfn sourceLight(cell: vec2i) -> f32 {\\n  let color = sourceAt(cell);\\n  return clamp(dot(color.rgb, vec3f(0.2126, 0.7152, 0.0722)), 0.0, 1.0);\\n}\\nfn outputColor(cell: vec2i, rgb: vec3f) -> vec4f {\\n  let source = sourceAt(cell);\\n  return vec4f(mix(source.rgb, clamp(rgb, vec3f(0.0), vec3f(1.0)) * source.a, params.intensity), source.a);\\n}\\nfn iceAt(cell: vec2i) -> f32 {\\n  let old = priorAt(cell);\\n  let radial = length(vec2f(cell) - vec2f(256.0));\\n  return select(select(0.0, 1.0, radial < 6.0 || hashCell(cell / 17) > 0.999), old.r, old.a > 0.0);\\n}\\n@compute @workgroup_size(8, 8)\\nfn cs(@builtin(global_invocation_id) invocation: vec3u) {\\n  if (invocation.x >= 512u || invocation.y >= 512u) { return; }\\n  let cell = vec2i(invocation.xy);\\n  let previous = priorAt(cell);\\n  if (previous.a > 0.0 && params.dt <= 0.0) {\\n    textureStore(nextTexture, cell, previous);\\n    textureStore(displayTexture, cell, outputColor(cell, vec3f(previous.r * 0.73, previous.r * 0.9, previous.r)));\\n    return;\\n  }\\n  if (params.dt <= 0.0) {\\n    let frozen = iceAt(cell);\\n    textureStore(nextTexture, cell, vec4f(frozen, params.churn, 0.0, 1.0));\\n    textureStore(displayTexture, cell, outputColor(cell, vec3f(frozen * 0.73, frozen * 0.9, frozen)));\\n    return;\\n  }\\n  let old = priorAt(cell);\\n  let frozen = iceAt(cell);\\n  let moisture = select(params.churn, old.g, old.a > 0.0);\\n  let stride = max(1, i32(round(params.blockSize / 40.0)));\\n  var neighbors = 0.0;\\n  for (var y = -1; y <= 1; y += 1) {\\n    for (var x = -1; x <= 1; x += 1) {\\n      if (x != 0 || y != 0) { neighbors += iceAt(cell + vec2i(x, y) * stride); }\\n    }\\n  }\\n  let crystallize = step(1.0, neighbors) * step(hashCell(cell + vec2i(i32(round(params.time * 60.0)), 29)), params.drift * moisture * 0.07);\\n  let nextIce = max(frozen, crystallize);\\n  let nextMoisture = clamp(moisture + params.dt * (params.churn * 0.1 - nextIce * 0.04), 0.0, 1.0);\\n  textureStore(nextTexture, cell, vec4f(nextIce, nextMoisture, 0.0, 1.0));\\n  textureStore(displayTexture, cell, outputColor(cell, vec3f(nextIce * 0.73, nextIce * 0.9, nextIce)));\\n}"
+        },
+        {
+          id: "resolve",
+          kind: "render",
+          reads: ["source", "display"],
+          output: "color",
+          wgsl: "\\nstruct Resolve { blend: f32, padding: vec3f };\\n@group(0) @binding(0) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(1) var displayTexture: texture_2d<f32>;\\n@group(0) @binding(2) var linearClamp: sampler;\\n@group(0) @binding(3) var<uniform> resolve: Resolve;\\nstruct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };\\n@vertex fn vs(@builtin(vertex_index) index: u32) -> VertexOut {\\n  let xy = vec2f(f32((index << 1u) & 2u), f32(index & 2u));\\n  var result: VertexOut;\\n  result.position = vec4f(xy * 2.0 - 1.0, 0.0, 1.0);\\n  result.uv = vec2f(xy.x, 1.0 - xy.y);\\n  return result;\\n}\\n@fragment fn fs(input: VertexOut) -> @location(0) vec4f {\\n  let source = textureSampleLevel(sourceTexture, linearClamp, input.uv, 0.0);\\n  let memory = textureSampleLevel(displayTexture, linearClamp, input.uv, 0.0);\\n  return mix(source, memory, resolve.blend);\\n}\\n"
+        }
+      ],
+      provenance: {
+        origin: "design-original",
+        note: "Original Design cellular feedback simulation."
+      }
+    },
+    {
+      id: "an-native-owned-buoyant-plumes",
+      name: "Buoyant Plumes",
+      version: 1,
+      kind: "processor",
+      placements: ["layer", "backdrop"],
+      properties: {
+        visibility: {
+          type: "float",
+          label: "Plume visibility",
+          default: 0.88,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        plumeScale: {
+          type: "float",
+          label: "Plume scale",
+          default: 75,
+          min: 30,
+          max: 150,
+          step: 1
+        },
+        buoyancy: {
+          type: "float",
+          label: "Buoyancy",
+          default: 0.6,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        injection: {
+          type: "float",
+          label: "Injection",
+          default: 0.2,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        mix: {
+          type: "float",
+          label: "Source mix",
+          default: 0.95,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        patternSeed: {
+          type: "float",
+          label: "Pattern seed",
+          default: 75,
+          min: 0,
+          max: 100,
+          step: 1
+        }
+      },
+      inputs: {
+        source: {
+          kind: "texture-2d",
+          resource: "source"
+        }
+      },
+      outputs: {
+        color: {
+          kind: "texture-2d",
+          resource: "color"
+        }
+      },
+      resources: [
+        {
+          name: "source",
+          kind: "texture-2d",
+          usage: ["sampled"],
+          external: true,
+          size: "viewport"
+        },
+        {
+          name: "state",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["sampled", "storage"],
+          persistent: true,
+          size: "fixed",
+          width: 512,
+          height: 512
+        },
+        {
+          name: "display",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["sampled", "storage"],
+          size: "fixed",
+          width: 512,
+          height: 512
+        },
+        {
+          name: "color",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["render", "sampled"],
+          size: "viewport"
+        }
+      ],
+      output: "color",
+      feedback: {
+        abi: "texture-feedback-v1",
+        grid: {
+          width: 512,
+          height: 512,
+          format: "rgba16float",
+          workgroup: [8, 8]
+        },
+        timing: {
+          fixedDt: 0.016666666666666666,
+          maxStepsPerCall: 512,
+          maxStepIndex: 36e3
+        },
+        stateResource: "state",
+        displayResource: "display",
+        uniformProperties: {
+          intensity: "visibility",
+          blockSize: "plumeScale",
+          drift: "buoyancy",
+          churn: "injection",
+          blend: "mix",
+          seed: "patternSeed"
+        }
+      },
+      passes: [
+        {
+          id: "advance",
+          kind: "compute",
+          reads: ["source"],
+          previousFrameReads: ["state"],
+          output: "state",
+          additionalOutputs: ["display"],
+          persistent: true,
+          dispatch: {
+            workgroupSize: [8, 8],
+            elements: "fixed-grid"
+          },
+          wgsl: "\\nstruct Params {\\n  time: f32, dt: f32, seed: f32, intensity: f32,\\n  blockSize: f32, drift: f32, churn: f32, padding: f32,\\n};\\n@group(0) @binding(0) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(1) var priorTexture: texture_2d<f32>;\\n@group(0) @binding(2) var nextTexture: texture_storage_2d<rgba16float, write>;\\n@group(0) @binding(3) var displayTexture: texture_storage_2d<rgba16float, write>;\\n@group(0) @binding(4) var<uniform> params: Params;\\nfn bounded(cell: vec2i) -> vec2i { return clamp(cell, vec2i(0), vec2i(511)); }\\nfn priorAt(cell: vec2i) -> vec4f { return textureLoad(priorTexture, bounded(cell), 0); }\\nfn sourceAt(cell: vec2i) -> vec4f {\\n  let dimensions = vec2f(textureDimensions(sourceTexture));\\n  let uv = (vec2f(bounded(cell)) + 0.5) / 512.0;\\n  return textureLoad(sourceTexture, vec2i(clamp(floor(uv * dimensions), vec2f(0.0), dimensions - 1.0)), 0);\\n}\\nfn hashCell(cell: vec2i) -> f32 {\\n  var x = bitcast<u32>(cell.x) * 1664525u + bitcast<u32>(cell.y) * 1013904223u + u32(params.seed) * 747796405u;\\n  x = ((x >> 16u) ^ x) * 2246822519u;\\n  return f32((x >> 8u) & 16777215u) / 16777216.0;\\n}\\nfn sourceLight(cell: vec2i) -> f32 {\\n  let color = sourceAt(cell);\\n  return clamp(dot(color.rgb, vec3f(0.2126, 0.7152, 0.0722)), 0.0, 1.0);\\n}\\nfn outputColor(cell: vec2i, rgb: vec3f) -> vec4f {\\n  let source = sourceAt(cell);\\n  return vec4f(mix(source.rgb, clamp(rgb, vec3f(0.0), vec3f(1.0)) * source.a, params.intensity), source.a);\\n}\\n@compute @workgroup_size(8, 8)\\nfn cs(@builtin(global_invocation_id) invocation: vec3u) {\\n  if (invocation.x >= 512u || invocation.y >= 512u) { return; }\\n  let cell = vec2i(invocation.xy);\\n  let previous = priorAt(cell);\\n  if (previous.a > 0.0 && params.dt <= 0.0) {\\n    textureStore(nextTexture, cell, previous);\\n    textureStore(displayTexture, cell, outputColor(cell, vec3f(previous.r * 0.65, previous.r * 0.8, previous.r + previous.g * 0.17)));\\n    return;\\n  }\\n  let old = priorAt(cell);\\n  let prior = select(vec4f(0.0, 0.0, 0.0, 1.0), old, old.a > 0.0);\\n  let lift = i32(round(params.drift * prior.g * params.blockSize * 0.03));\\n  let origin = bounded(cell + vec2i(i32(round(sin(f32(cell.y) * 0.027 + params.time) * 2.0)), lift));\\n  let carried = priorAt(origin);\\n  let initialDensity = sourceLight(cell) * hashCell(cell) * params.churn * 0.05;\\n  let density = select(initialDensity, carried.r, carried.a > 0.0);\\n  let initialTemperature = sourceLight(cell) * hashCell(cell) * params.churn * 0.08;\\n  let temperature = select(initialTemperature, carried.g, carried.a > 0.0);\\n  let injection = sourceLight(cell) * params.churn * params.dt * 0.7 * smoothstep(0.0, 0.3, f32(cell.y) / 512.0);\\n  let nextDensity = clamp(density * 0.995 + injection, 0.0, 1.0);\\n  let nextTemperature = clamp(temperature * 0.992 + injection * 2.0, 0.0, 1.0);\\n  textureStore(nextTexture, cell, vec4f(nextDensity, nextTemperature, 0.0, 1.0));\\n  textureStore(displayTexture, cell, outputColor(cell, vec3f(nextDensity * 0.65, nextDensity * 0.8, nextDensity + nextTemperature * 0.17)));\\n}"
+        },
+        {
+          id: "resolve",
+          kind: "render",
+          reads: ["source", "display"],
+          output: "color",
+          wgsl: "\\nstruct Resolve { blend: f32, padding: vec3f };\\n@group(0) @binding(0) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(1) var displayTexture: texture_2d<f32>;\\n@group(0) @binding(2) var linearClamp: sampler;\\n@group(0) @binding(3) var<uniform> resolve: Resolve;\\nstruct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };\\n@vertex fn vs(@builtin(vertex_index) index: u32) -> VertexOut {\\n  let xy = vec2f(f32((index << 1u) & 2u), f32(index & 2u));\\n  var result: VertexOut;\\n  result.position = vec4f(xy * 2.0 - 1.0, 0.0, 1.0);\\n  result.uv = vec2f(xy.x, 1.0 - xy.y);\\n  return result;\\n}\\n@fragment fn fs(input: VertexOut) -> @location(0) vec4f {\\n  let source = textureSampleLevel(sourceTexture, linearClamp, input.uv, 0.0);\\n  let memory = textureSampleLevel(displayTexture, linearClamp, input.uv, 0.0);\\n  return mix(source, memory, resolve.blend);\\n}\\n"
+        }
+      ],
+      provenance: {
+        origin: "design-original",
+        note: "Original Design transport feedback simulation."
+      }
+    },
+    {
+      id: "an-native-owned-predator-prey",
+      name: "Predator Prey",
+      version: 1,
+      kind: "processor",
+      placements: ["layer", "backdrop"],
+      properties: {
+        visibility: {
+          type: "float",
+          label: "Population visibility",
+          default: 0.88,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        migration: {
+          type: "float",
+          label: "Migration span",
+          default: 75,
+          min: 30,
+          max: 150,
+          step: 1
+        },
+        mobility: {
+          type: "float",
+          label: "Mobility",
+          default: 0.42,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        feeding: {
+          type: "float",
+          label: "Feeding",
+          default: 0.35,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        mix: {
+          type: "float",
+          label: "Source mix",
+          default: 0.95,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        patternSeed: {
+          type: "float",
+          label: "Pattern seed",
+          default: 86,
+          min: 0,
+          max: 100,
+          step: 1
+        }
+      },
+      inputs: {
+        source: {
+          kind: "texture-2d",
+          resource: "source"
+        }
+      },
+      outputs: {
+        color: {
+          kind: "texture-2d",
+          resource: "color"
+        }
+      },
+      resources: [
+        {
+          name: "source",
+          kind: "texture-2d",
+          usage: ["sampled"],
+          external: true,
+          size: "viewport"
+        },
+        {
+          name: "state",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["sampled", "storage"],
+          persistent: true,
+          size: "fixed",
+          width: 512,
+          height: 512
+        },
+        {
+          name: "display",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["sampled", "storage"],
+          size: "fixed",
+          width: 512,
+          height: 512
+        },
+        {
+          name: "color",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["render", "sampled"],
+          size: "viewport"
+        }
+      ],
+      output: "color",
+      feedback: {
+        abi: "texture-feedback-v1",
+        grid: {
+          width: 512,
+          height: 512,
+          format: "rgba16float",
+          workgroup: [8, 8]
+        },
+        timing: {
+          fixedDt: 0.016666666666666666,
+          maxStepsPerCall: 512,
+          maxStepIndex: 36e3
+        },
+        stateResource: "state",
+        displayResource: "display",
+        uniformProperties: {
+          intensity: "visibility",
+          blockSize: "migration",
+          drift: "mobility",
+          churn: "feeding",
+          blend: "mix",
+          seed: "patternSeed"
+        }
+      },
+      passes: [
+        {
+          id: "advance",
+          kind: "compute",
+          reads: ["source"],
+          previousFrameReads: ["state"],
+          output: "state",
+          additionalOutputs: ["display"],
+          persistent: true,
+          dispatch: {
+            workgroupSize: [8, 8],
+            elements: "fixed-grid"
+          },
+          wgsl: "\\nstruct Params {\\n  time: f32, dt: f32, seed: f32, intensity: f32,\\n  blockSize: f32, drift: f32, churn: f32, padding: f32,\\n};\\n@group(0) @binding(0) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(1) var priorTexture: texture_2d<f32>;\\n@group(0) @binding(2) var nextTexture: texture_storage_2d<rgba16float, write>;\\n@group(0) @binding(3) var displayTexture: texture_storage_2d<rgba16float, write>;\\n@group(0) @binding(4) var<uniform> params: Params;\\nfn bounded(cell: vec2i) -> vec2i { return clamp(cell, vec2i(0), vec2i(511)); }\\nfn priorAt(cell: vec2i) -> vec4f { return textureLoad(priorTexture, bounded(cell), 0); }\\nfn sourceAt(cell: vec2i) -> vec4f {\\n  let dimensions = vec2f(textureDimensions(sourceTexture));\\n  let uv = (vec2f(bounded(cell)) + 0.5) / 512.0;\\n  return textureLoad(sourceTexture, vec2i(clamp(floor(uv * dimensions), vec2f(0.0), dimensions - 1.0)), 0);\\n}\\nfn hashCell(cell: vec2i) -> f32 {\\n  var x = bitcast<u32>(cell.x) * 1664525u + bitcast<u32>(cell.y) * 1013904223u + u32(params.seed) * 747796405u;\\n  x = ((x >> 16u) ^ x) * 2246822519u;\\n  return f32((x >> 8u) & 16777215u) / 16777216.0;\\n}\\nfn sourceLight(cell: vec2i) -> f32 {\\n  let color = sourceAt(cell);\\n  return clamp(dot(color.rgb, vec3f(0.2126, 0.7152, 0.0722)), 0.0, 1.0);\\n}\\nfn outputColor(cell: vec2i, rgb: vec3f) -> vec4f {\\n  let source = sourceAt(cell);\\n  return vec4f(mix(source.rgb, clamp(rgb, vec3f(0.0), vec3f(1.0)) * source.a, params.intensity), source.a);\\n}\\nfn populationAt(cell: vec2i) -> vec2f {\\n  let old = priorAt(cell);\\n  let seed = hashCell(cell / 9);\\n  return select(vec2f(0.32 + seed * 0.5, 0.12 + hashCell(cell / 13) * 0.18), old.rg, old.a > 0.0);\\n}\\n@compute @workgroup_size(8, 8)\\nfn cs(@builtin(global_invocation_id) invocation: vec3u) {\\n  if (invocation.x >= 512u || invocation.y >= 512u) { return; }\\n  let cell = vec2i(invocation.xy);\\n  let previous = priorAt(cell);\\n  if (previous.a > 0.0 && params.dt <= 0.0) {\\n    textureStore(nextTexture, cell, previous);\\n    textureStore(displayTexture, cell, outputColor(cell, vec3f(previous.g, previous.r * 0.66, previous.r)));\\n    return;\\n  }\\n  let population = populationAt(cell);\\n  let stride = max(1, i32(round(params.blockSize / 40.0)));\\n  let around = (populationAt(cell + vec2i(stride, 0)) + populationAt(cell + vec2i(-stride, 0)) + populationAt(cell + vec2i(0, stride)) + populationAt(cell + vec2i(0, -stride))) * 0.25;\\n  let prey = clamp(population.x + params.dt * (population.x * (0.55 - population.x * 0.4) - params.churn * population.x * population.y + params.drift * (around.x - population.x) * 6.0), 0.0, 1.0);\\n  let predator = clamp(population.y + params.dt * (params.churn * population.x * population.y * 1.3 - population.y * 0.19 + params.drift * (around.y - population.y) * 4.0), 0.0, 1.0);\\n  textureStore(nextTexture, cell, vec4f(prey, predator, 0.0, 1.0));\\n  textureStore(displayTexture, cell, outputColor(cell, vec3f(predator, prey * 0.66, prey)));\\n}"
+        },
+        {
+          id: "resolve",
+          kind: "render",
+          reads: ["source", "display"],
+          output: "color",
+          wgsl: "\\nstruct Resolve { blend: f32, padding: vec3f };\\n@group(0) @binding(0) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(1) var displayTexture: texture_2d<f32>;\\n@group(0) @binding(2) var linearClamp: sampler;\\n@group(0) @binding(3) var<uniform> resolve: Resolve;\\nstruct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };\\n@vertex fn vs(@builtin(vertex_index) index: u32) -> VertexOut {\\n  let xy = vec2f(f32((index << 1u) & 2u), f32(index & 2u));\\n  var result: VertexOut;\\n  result.position = vec4f(xy * 2.0 - 1.0, 0.0, 1.0);\\n  result.uv = vec2f(xy.x, 1.0 - xy.y);\\n  return result;\\n}\\n@fragment fn fs(input: VertexOut) -> @location(0) vec4f {\\n  let source = textureSampleLevel(sourceTexture, linearClamp, input.uv, 0.0);\\n  let memory = textureSampleLevel(displayTexture, linearClamp, input.uv, 0.0);\\n  return mix(source, memory, resolve.blend);\\n}\\n"
+        }
+      ],
+      provenance: {
+        origin: "design-original",
+        note: "Original Design reaction feedback simulation."
+      }
+    },
+    {
+      id: "an-native-owned-magnetic-domains",
+      name: "Magnetic Domains",
+      version: 1,
+      kind: "processor",
+      placements: ["layer", "backdrop"],
+      properties: {
+        visibility: {
+          type: "float",
+          label: "Domain visibility",
+          default: 0.88,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        domainPitch: {
+          type: "float",
+          label: "Domain pitch",
+          default: 45,
+          min: 30,
+          max: 150,
+          step: 1
+        },
+        coupling: {
+          type: "float",
+          label: "Spin coupling",
+          default: 0.7,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        thermal: {
+          type: "float",
+          label: "Thermal noise",
+          default: 0.12,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        mix: {
+          type: "float",
+          label: "Source mix",
+          default: 0.95,
+          min: 0,
+          max: 1,
+          step: 0.01
+        },
+        patternSeed: {
+          type: "float",
+          label: "Pattern seed",
+          default: 97,
+          min: 0,
+          max: 100,
+          step: 1
+        }
+      },
+      inputs: {
+        source: {
+          kind: "texture-2d",
+          resource: "source"
+        }
+      },
+      outputs: {
+        color: {
+          kind: "texture-2d",
+          resource: "color"
+        }
+      },
+      resources: [
+        {
+          name: "source",
+          kind: "texture-2d",
+          usage: ["sampled"],
+          external: true,
+          size: "viewport"
+        },
+        {
+          name: "state",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["sampled", "storage"],
+          persistent: true,
+          size: "fixed",
+          width: 512,
+          height: 512
+        },
+        {
+          name: "display",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["sampled", "storage"],
+          size: "fixed",
+          width: 512,
+          height: 512
+        },
+        {
+          name: "color",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["render", "sampled"],
+          size: "viewport"
+        }
+      ],
+      output: "color",
+      feedback: {
+        abi: "texture-feedback-v1",
+        grid: {
+          width: 512,
+          height: 512,
+          format: "rgba16float",
+          workgroup: [8, 8]
+        },
+        timing: {
+          fixedDt: 0.016666666666666666,
+          maxStepsPerCall: 512,
+          maxStepIndex: 36e3
+        },
+        stateResource: "state",
+        displayResource: "display",
+        uniformProperties: {
+          intensity: "visibility",
+          blockSize: "domainPitch",
+          drift: "coupling",
+          churn: "thermal",
+          blend: "mix",
+          seed: "patternSeed"
+        }
+      },
+      passes: [
+        {
+          id: "advance",
+          kind: "compute",
+          reads: ["source"],
+          previousFrameReads: ["state"],
+          output: "state",
+          additionalOutputs: ["display"],
+          persistent: true,
+          dispatch: {
+            workgroupSize: [8, 8],
+            elements: "fixed-grid"
+          },
+          wgsl: "\\nstruct Params {\\n  time: f32, dt: f32, seed: f32, intensity: f32,\\n  blockSize: f32, drift: f32, churn: f32, padding: f32,\\n};\\n@group(0) @binding(0) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(1) var priorTexture: texture_2d<f32>;\\n@group(0) @binding(2) var nextTexture: texture_storage_2d<rgba16float, write>;\\n@group(0) @binding(3) var displayTexture: texture_storage_2d<rgba16float, write>;\\n@group(0) @binding(4) var<uniform> params: Params;\\nfn bounded(cell: vec2i) -> vec2i { return clamp(cell, vec2i(0), vec2i(511)); }\\nfn priorAt(cell: vec2i) -> vec4f { return textureLoad(priorTexture, bounded(cell), 0); }\\nfn sourceAt(cell: vec2i) -> vec4f {\\n  let dimensions = vec2f(textureDimensions(sourceTexture));\\n  let uv = (vec2f(bounded(cell)) + 0.5) / 512.0;\\n  return textureLoad(sourceTexture, vec2i(clamp(floor(uv * dimensions), vec2f(0.0), dimensions - 1.0)), 0);\\n}\\nfn hashCell(cell: vec2i) -> f32 {\\n  var x = bitcast<u32>(cell.x) * 1664525u + bitcast<u32>(cell.y) * 1013904223u + u32(params.seed) * 747796405u;\\n  x = ((x >> 16u) ^ x) * 2246822519u;\\n  return f32((x >> 8u) & 16777215u) / 16777216.0;\\n}\\nfn sourceLight(cell: vec2i) -> f32 {\\n  let color = sourceAt(cell);\\n  return clamp(dot(color.rgb, vec3f(0.2126, 0.7152, 0.0722)), 0.0, 1.0);\\n}\\nfn outputColor(cell: vec2i, rgb: vec3f) -> vec4f {\\n  let source = sourceAt(cell);\\n  return vec4f(mix(source.rgb, clamp(rgb, vec3f(0.0), vec3f(1.0)) * source.a, params.intensity), source.a);\\n}\\nfn spinAt(cell: vec2i) -> f32 {\\n  let old = priorAt(cell);\\n  return select(step(0.5, hashCell(cell / 7)), old.r, old.a > 0.0);\\n}\\n@compute @workgroup_size(8, 8)\\nfn cs(@builtin(global_invocation_id) invocation: vec3u) {\\n  if (invocation.x >= 512u || invocation.y >= 512u) { return; }\\n  let cell = vec2i(invocation.xy);\\n  let previous = priorAt(cell);\\n  if (previous.a > 0.0 && params.dt <= 0.0) {\\n    textureStore(nextTexture, cell, previous);\\n    textureStore(displayTexture, cell, outputColor(cell, vec3f(previous.r * 0.82, previous.r * 0.4, 1.0 - previous.r * 0.83)));\\n    return;\\n  }\\n  if (params.dt <= 0.0) {\\n    let spin = spinAt(cell);\\n    textureStore(nextTexture, cell, vec4f(spin, 0.0, 0.0, 1.0));\\n    textureStore(displayTexture, cell, outputColor(cell, vec3f(spin * 0.82, spin * 0.4, 1.0 - spin * 0.83)));\\n    return;\\n  }\\n  let current = spinAt(cell);\\n  let stride = max(1, i32(round(params.blockSize / 30.0)));\\n  let neighborhood = spinAt(cell + vec2i(stride, 0)) + spinAt(cell + vec2i(-stride, 0)) + spinAt(cell + vec2i(0, stride)) + spinAt(cell + vec2i(0, -stride));\\n  let light = sourceLight(cell);\\n  let field = neighborhood - 2.0 + (light - 0.5) * 0.7;\\n  let aligned = select(0.0, 1.0, field > 0.0);\\n  let alignmentChance = clamp(params.drift * abs(field) * 0.5, 0.0, 1.0);\\n  let alignmentDraw = hashCell(cell + vec2i(71, 137));\\n  var nextSpin = select(current, aligned, alignmentDraw < alignmentChance);\\n  let stepIndex = i32(round(params.time * 60.0));\\n  let thermalDraw = hashCell(cell + vec2i(stepIndex + 417, 257));\\n  if (thermalDraw < params.churn * 0.03) { nextSpin = 1.0 - nextSpin; }\\n  textureStore(nextTexture, cell, vec4f(nextSpin, 0.0, 0.0, 1.0));\\n  textureStore(displayTexture, cell, outputColor(cell, vec3f(nextSpin * 0.82, nextSpin * 0.4, 1.0 - nextSpin * 0.83)));\\n}"
+        },
+        {
+          id: "resolve",
+          kind: "render",
+          reads: ["source", "display"],
+          output: "color",
+          wgsl: "\\nstruct Resolve { blend: f32, padding: vec3f };\\n@group(0) @binding(0) var sourceTexture: texture_2d<f32>;\\n@group(0) @binding(1) var displayTexture: texture_2d<f32>;\\n@group(0) @binding(2) var linearClamp: sampler;\\n@group(0) @binding(3) var<uniform> resolve: Resolve;\\nstruct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };\\n@vertex fn vs(@builtin(vertex_index) index: u32) -> VertexOut {\\n  let xy = vec2f(f32((index << 1u) & 2u), f32(index & 2u));\\n  var result: VertexOut;\\n  result.position = vec4f(xy * 2.0 - 1.0, 0.0, 1.0);\\n  result.uv = vec2f(xy.x, 1.0 - xy.y);\\n  return result;\\n}\\n@fragment fn fs(input: VertexOut) -> @location(0) vec4f {\\n  let source = textureSampleLevel(sourceTexture, linearClamp, input.uv, 0.0);\\n  let memory = textureSampleLevel(displayTexture, linearClamp, input.uv, 0.0);\\n  return mix(source, memory, resolve.blend);\\n}\\n"
+        }
+      ],
+      provenance: {
+        origin: "design-original",
+        note: "Original Design neighbor-coupled spin domains with retained prior state and bounded thermal flips."
+      }
+    }
+  ];
+  var STATEFUL_NINE_PRESETS = [
+    {
+      id: "an-preset-owned-life-mosaic-calm",
+      name: "Life Mosaic Calm",
+      definitionId: "an-native-owned-life-mosaic",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        contrast: 0.9,
+        cellPitch: 36,
+        tempo: 0.35,
+        seeding: 0.28,
+        mix: 0.95,
+        patternSeed: 17
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-life-mosaic-active",
+      name: "Life Mosaic Active",
+      definitionId: "an-native-owned-life-mosaic",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        contrast: 1,
+        cellPitch: 51,
+        tempo: 0.45499999999999996,
+        seeding: 0.36400000000000005,
+        mix: 1,
+        patternSeed: 18
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-cyclic-chase-calm",
+      name: "Cyclic Chase Calm",
+      definitionId: "an-native-owned-cyclic-chase",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        visibility: 0.9,
+        cellPitch: 42,
+        tempo: 0.45,
+        mutation: 0.04,
+        mix: 1,
+        patternSeed: 27
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-cyclic-chase-active",
+      name: "Cyclic Chase Active",
+      definitionId: "an-native-owned-cyclic-chase",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        visibility: 1,
+        cellPitch: 57,
+        tempo: 0.5850000000000001,
+        mutation: 0.052000000000000005,
+        mix: 1,
+        patternSeed: 28
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-nerve-recovery-calm",
+      name: "Nerve Recovery Calm",
+      definitionId: "an-native-owned-nerve-recovery",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        signal: 0.85,
+        spread: 75,
+        coupling: 0.58,
+        stimulus: 0.18,
+        mix: 0.95,
+        patternSeed: 32
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-nerve-recovery-active",
+      name: "Nerve Recovery Active",
+      definitionId: "an-native-owned-nerve-recovery",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        signal: 1,
+        spread: 90,
+        coupling: 0.754,
+        stimulus: 0.23399999999999999,
+        mix: 1,
+        patternSeed: 33
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-sand-avalanche-calm",
+      name: "Sand Avalanche Calm",
+      definitionId: "an-native-owned-sand-avalanche",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        visibility: 0.9,
+        grainPitch: 30,
+        mobility: 0.35,
+        deposition: 0.16,
+        mix: 0.9,
+        patternSeed: 43
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-sand-avalanche-active",
+      name: "Sand Avalanche Active",
+      definitionId: "an-native-owned-sand-avalanche",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        visibility: 1,
+        grainPitch: 45,
+        mobility: 0.45499999999999996,
+        deposition: 0.20800000000000002,
+        mix: 1,
+        patternSeed: 44
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-ember-front-calm",
+      name: "Ember Front Calm",
+      definitionId: "an-native-owned-ember-front",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        glow: 0.92,
+        spread: 55,
+        conduction: 0.6,
+        ignition: 0.22,
+        mix: 1,
+        patternSeed: 51
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-ember-front-active",
+      name: "Ember Front Active",
+      definitionId: "an-native-owned-ember-front",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        glow: 1,
+        spread: 70,
+        conduction: 0.78,
+        ignition: 0.28600000000000003,
+        mix: 1,
+        patternSeed: 52
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-frost-lattice-calm",
+      name: "Frost Lattice Calm",
+      definitionId: "an-native-owned-frost-lattice",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        visibility: 0.87,
+        branchScale: 70,
+        growth: 0.47,
+        moisture: 0.4,
+        mix: 0.95,
+        patternSeed: 64
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-frost-lattice-active",
+      name: "Frost Lattice Active",
+      definitionId: "an-native-owned-frost-lattice",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        visibility: 1,
+        branchScale: 85,
+        growth: 0.611,
+        moisture: 0.52,
+        mix: 1,
+        patternSeed: 65
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-buoyant-plumes-calm",
+      name: "Buoyant Plumes Calm",
+      definitionId: "an-native-owned-buoyant-plumes",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        visibility: 0.88,
+        plumeScale: 75,
+        buoyancy: 0.6,
+        injection: 0.2,
+        mix: 0.95,
+        patternSeed: 75
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-buoyant-plumes-active",
+      name: "Buoyant Plumes Active",
+      definitionId: "an-native-owned-buoyant-plumes",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        visibility: 1,
+        plumeScale: 90,
+        buoyancy: 0.78,
+        injection: 0.26,
+        mix: 1,
+        patternSeed: 76
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-predator-prey-calm",
+      name: "Predator Prey Calm",
+      definitionId: "an-native-owned-predator-prey",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        visibility: 0.88,
+        migration: 75,
+        mobility: 0.42,
+        feeding: 0.35,
+        mix: 0.95,
+        patternSeed: 86
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-predator-prey-active",
+      name: "Predator Prey Active",
+      definitionId: "an-native-owned-predator-prey",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        visibility: 1,
+        migration: 90,
+        mobility: 0.546,
+        feeding: 0.45499999999999996,
+        mix: 1,
+        patternSeed: 87
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-magnetic-domains-calm",
+      name: "Magnetic Domains Calm",
+      definitionId: "an-native-owned-magnetic-domains",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        visibility: 0.88,
+        domainPitch: 45,
+        coupling: 0.7,
+        thermal: 0.12,
+        mix: 0.95,
+        patternSeed: 97
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    },
+    {
+      id: "an-preset-owned-magnetic-domains-active",
+      name: "Magnetic Domains Active",
+      definitionId: "an-native-owned-magnetic-domains",
+      definitionVersion: 1,
+      placement: "layer",
+      params: {
+        visibility: 1,
+        domainPitch: 60,
+        coupling: 0.9099999999999999,
+        thermal: 0.156,
+        mix: 1,
+        patternSeed: 98
+      },
+      clip: "bounds",
+      provenance: {
+        origin: "design-original"
+      }
+    }
+  ];
+  var STATEFUL_NINE_PRESET_LABEL_SOURCE_IDS = Object.fromEntries(
+    STATEFUL_NINE_PRESETS.map((preset) => [preset.id, preset.id])
+  );
+
+  // shared/native-effect-owned-v-fields.ts
+  var cssPixels2 = (label, value, max) => ({
+    type: "float",
+    label,
+    default: value,
+    min: 0,
+    max,
+    step: 0.1,
+    unit: "px"
+  });
+  var color8 = (label, r, g, b) => ({
+    type: "color",
+    label,
+    default: catalogColor(r, g, b)
+  });
+  var asset = (label, input) => ({
+    type: "texture",
+    label,
+    default: null,
+    input
+  });
+  var drafts9 = [
+    {
+      id: "owned-v-thermal-mask-contour",
+      name: "Thermal Mask Contour",
+      kind: "generator",
+      mechanism: "A required image alpha mask gates an animated two-axis thermal wave field and repeated isotherm contour lines. It paints a thermal material rather than estimating source luminance density.",
+      inputAsset: {
+        port: "maskImage",
+        resource: "maskImage",
+        property: "maskImage",
+        encoding: "srgb-color-premultiplied"
+      },
+      properties: {
+        maskImage: asset("Image", "maskImage"),
+        scale: catalogFloat("Scale", 7, 1, 20),
+        speed: catalogFloat("Speed", 0.35, 0, 2),
+        contour: catalogFloat("Contour", 0.6, 0, 1),
+        lowColor: color8("Low color", 0.03, 0.13, 0.55),
+        highColor: color8("High color", 1, 0.35, 0.04)
+      },
+      fragment: (p2) => \`
+  let mask = textureSampleLevel(sourceTexture, effectSampler, input.uv, 0.0);
+  if (mask.a <= 0.0) { return vec4f(0.0); }
+  let aspect = globals.viewport.x / max(globals.viewport.y, 1.0);
+  let point = input.uv * vec2f(aspect, 1.0) * \${p2("scale")}.x;
+  let time = globals.clock.x * \${p2("speed")}.x;
+  let field = clamp(0.5 + 0.26 * sin(point.x + time) + 0.24 * cos(point.y * 0.83 - time * 0.71), 0.0, 1.0);
+  let transfer = smoothstep(0.17, 0.83, field);
+  let bands = field * 6.0;
+  let contourDistance = min(fract(bands), 1.0 - fract(bands));
+  let line = (1.0 - smoothstep(0.0, 0.08, contourDistance)) * \${p2("contour")}.x;
+  let low = \${p2("lowColor")};
+  let high = \${p2("highColor")};
+  let alpha = mask.a * mix(low.a, high.a, transfer);
+  let pigment = clamp(mix(low.rgb, high.rgb, transfer) + vec3f(line * 0.12), vec3f(0.0), vec3f(1.0));
+  return vec4f(pigment * alpha, alpha);\`
+    },
+    {
+      id: "owned-v-scalar-map-drift",
+      name: "Scalar Map Drift",
+      kind: "processor",
+      mechanism: "A required raw data image provides a selectable scalar channel; the signed deviation from 0.5 pushes source samples along one independently authored angle. This is distinct from RG vector-field rotation with blue confidence weighting.",
+      inputAsset: {
+        port: "heightMap",
+        resource: "heightMap",
+        property: "heightMap",
+        encoding: "linear-data"
+      },
+      edgeSampling: "repeat-mirror-bilinear-v2",
+      properties: {
+        edge: structuredClone(CATALOG_EDGE),
+        heightMap: asset("Image", "heightMap"),
+        channelMode: {
+          type: "enum",
+          label: "Channel",
+          default: "luminance",
+          options: ["luminance", "red", "green", "blue", "alpha"]
+        },
+        angle: catalogFloat("Angle", 0, -180, 180, 1),
+        reach: cssPixels2("Reach", 24, 200),
+        amount: catalogFloat("Amount", 1, 0, 1)
+      },
+      fragment: (p2) => \`
+  let original = sampleSource(input.uv);
+  if (\${p2("amount")}.x <= 0.0) { return original; }
+  let field = textureSampleLevel(maskTexture, effectSampler, input.uv, 0.0);
+  let mode = u32(\${p2("channelMode")}.x);
+  var value = dot(field.rgb, vec3f(0.2126, 0.7152, 0.0722));
+  if (mode == 1u) { value = field.r; }
+  if (mode == 2u) { value = field.g; }
+  if (mode == 3u) { value = field.b; }
+  if (mode == 4u) { value = field.a; }
+  let radians = \${p2("angle")}.x * 0.017453292519943295;
+  let direction = vec2f(cos(radians), sin(radians));
+  let offset = direction * (value - 0.5) * 2.0 * \${p2("reach")}.x * globals.clock.z * globals.viewport.zw;
+  return mix(original, sampleSource(input.uv + offset), \${p2("amount")}.x);\`
+    },
+    {
+      id: "owned-v-one-sided-blur",
+      name: "One-Sided Progressive Blur",
+      kind: "processor",
+      mechanism: "A direction-oriented half-plane ramps an isotropic nine-tap blur radius from a chosen center. Unlike tilt focus, one side remains exactly sharp while the far side grows blurrier.",
+      edgeSampling: "repeat-mirror-bilinear-v2",
+      properties: {
+        edge: structuredClone(CATALOG_EDGE),
+        centerX: catalogFloat("Center X", 0.5, 0, 1),
+        centerY: catalogFloat("Center Y", 0.5, 0, 1),
+        angle: catalogFloat("Angle", 0, -180, 180, 1),
+        falloff: cssPixels2("Falloff", 160, 1e3),
+        radius: cssPixels2("Radius", 8, 32)
+      },
+      fragment: (p2) => \`
+  let original = sampleSource(input.uv);
+  let center = vec2f(\${p2("centerX")}.x, \${p2("centerY")}.x);
+  let radians = \${p2("angle")}.x * 0.017453292519943295;
+  let direction = vec2f(cos(radians), sin(radians));
+  let cssPoint = (input.uv - center) * globals.viewport.xy / globals.clock.z;
+  let distance = max(dot(cssPoint, direction), 0.0);
+  let radius = \${p2("radius")}.x * clamp(distance / max(\${p2("falloff")}.x, 0.001), 0.0, 1.0);
+  if (radius <= 0.0) { return original; }
+  let stepUv = radius * globals.clock.z * globals.viewport.zw;
+  var total = vec4f(0.0);
+  for (var y = -1; y <= 1; y += 1) {
+    for (var x = -1; x <= 1; x += 1) {
+      let weight = select(1.0, 2.0, x == 0) * select(1.0, 2.0, y == 0);
+      total += sampleSource(input.uv + vec2f(f32(x), f32(y)) * stepUv) * weight;
+    }
+  }
+  return total * 0.0625;\`
+    },
+    {
+      id: "owned-v-checker-alpha-wipe",
+      name: "Checker Alpha Wipe",
+      kind: "processor",
+      mechanism: "Two checker parity classes fade source premultiplied color and coverage to transparency in ordered half-intervals. It is a one-source alpha wipe, not a two-image checker transition or color checker generator.",
+      edgeSampling: "fixed-clamp",
+      properties: {
+        cellSize: cssPixels2("Cell size", 48, 256),
+        progress: catalogFloat("Progress", 0.5, 0, 1),
+        softness: catalogFloat("Softness", 0.15, 0, 1),
+        invert: { type: "bool", label: "Invert", default: false }
+      },
+      fragment: (p2) => \`
+  let source = sampleSource(input.uv);
+  let progress = \${p2("progress")}.x;
+  if (progress <= 0.0) { return source; }
+  if (progress >= 1.0) { return vec4f(0.0); }
+  let point = input.uv * globals.viewport.xy / globals.clock.z;
+  let tile = vec2i(floor(point / max(\${p2("cellSize")}.x, 1.0)));
+  let parity = (u32(tile.x + tile.y) & 1u) ^ u32(\${p2("invert")}.x);
+  let threshold = 0.25 + 0.5 * f32(parity);
+  let halfWidth = min(0.24, \${p2("softness")}.x * 0.24);
+  let coverage = 1.0 - smoothstep(threshold - max(halfWidth, 0.00001), threshold + max(halfWidth, 0.00001), progress);
+  return source * coverage;\`
+    },
+    {
+      id: "owned-v-soft-cell-noise",
+      name: "Morphing Soft-Cell Noise",
+      kind: "generator",
+      mechanism: "Corner-seeded value noise is bilinearly interpolated with a cubic easing curve, and successive noise states morph in time. This makes soft evolving cells rather than the native stochastic block field's constant cell values.",
+      properties: {
+        scale: catalogFloat("Scale", 8, 1, 32),
+        speed: catalogFloat("Speed", 0.35, 0, 2),
+        contrast: catalogFloat("Contrast", 1.2, 0.1, 3),
+        seed: {
+          type: "int",
+          label: "Seed",
+          default: 17,
+          min: 0,
+          max: 65535,
+          step: 1
+        },
+        colorA: color8("Color A", 0.07, 0.13, 0.3),
+        colorB: color8("Color B", 0.92, 0.68, 0.42)
+      },
+      helpers: () => \`
+fn softHash(cell: vec2i, seed: u32) -> f32 {
+  var value = bitcast<u32>(cell.x) * 0x9e3779b9u ^ bitcast<u32>(cell.y) * 0x85ebca6bu ^ seed;
+  value = (value ^ (value >> 16u)) * 0x7feb352du;
+  value = (value ^ (value >> 15u)) * 0x846ca68bu;
+  return f32((value ^ (value >> 16u)) >> 8u) / 16777216.0;
+}
+fn softValue(point: vec2f, seed: u32) -> f32 {
+  let cell = vec2i(floor(point));
+  let local = fract(point);
+  let eased = local * local * (3.0 - 2.0 * local);
+  let low = mix(softHash(cell, seed), softHash(cell + vec2i(1, 0), seed), eased.x);
+  let high = mix(softHash(cell + vec2i(0, 1), seed), softHash(cell + vec2i(1, 1), seed), eased.x);
+  return mix(low, high, eased.y);
+}
+\`,
+      fragment: (p2) => \`
+  let aspect = globals.viewport.x / max(globals.viewport.y, 1.0);
+  let point = input.uv * vec2f(aspect, 1.0) * \${p2("scale")}.x;
+  let time = max(globals.clock.x * \${p2("speed")}.x, 0.0);
+  let epoch = u32(floor(time));
+  let phase = fract(time);
+  let eased = phase * phase * (3.0 - 2.0 * phase);
+  let seed = u32(\${p2("seed")}.x);
+  let value = mix(softValue(point, seed + epoch), softValue(point, seed + epoch + 1u), eased);
+  let blend = clamp((value - 0.5) * \${p2("contrast")}.x + 0.5, 0.0, 1.0);
+  let first = \${p2("colorA")};
+  let second = \${p2("colorB")};
+  return mix(vec4f(first.rgb * first.a, first.a), vec4f(second.rgb * second.a, second.a), blend);\`
+    }
+  ];
+  function definitionFor10(draft) {
+    const base = catalogShader(draft);
+    const extra = draft.inputAsset;
+    return {
+      ...base,
+      ...extra ? {
+        inputs: {
+          ...base.inputs ?? {},
+          [extra.port]: { kind: "texture-2d", resource: extra.resource }
+        }
+      } : {},
+      resources: [
+        ...(base.resources ?? []).filter((resource) => resource.name !== "color"),
+        ...extra ? [
+          {
+            name: extra.resource,
+            kind: "texture-2d",
+            external: true,
+            usage: ["sampled"],
+            size: "viewport",
+            sampleEncoding: extra.encoding
+          }
+        ] : [],
+        {
+          name: "color",
+          kind: "texture-2d",
+          format: "rgba16float",
+          usage: ["render", "sampled"],
+          size: "viewport"
+        }
+      ],
+      passes: base.passes.map((pass) => ({
+        ...pass,
+        reads: extra ? draft.kind === "generator" ? [extra.resource] : ["source", extra.resource] : pass.reads
+      })),
+      provenance: { origin: "design-original", note: draft.mechanism }
+    };
+  }
+  var OWNED_V_FIELD_DEFINITIONS = drafts9.map(definitionFor10);
+  var looks = {
+    "owned-v-thermal-mask-contour": [
+      ["Warm isotherms", { scale: 6, contour: 0.45 }],
+      ["Tight thermal bands", { scale: 13, contour: 0.95, speed: 0.7 }]
+    ],
+    "owned-v-scalar-map-drift": [
+      [
+        "Height-map current",
+        { channelMode: "luminance", angle: 0, reach: 12, amount: 0.7 }
+      ],
+      [
+        "Alpha-map vertical pull",
+        { channelMode: "alpha", angle: 90, reach: 48, amount: 1 }
+      ]
+    ],
+    "owned-v-one-sided-blur": [
+      ["Rightward falloff", { angle: 0, falloff: 180, radius: 8 }],
+      ["Diagonal depth blur", { angle: 45, falloff: 260, radius: 18 }]
+    ],
+    "owned-v-checker-alpha-wipe": [
+      ["Broad checker fade", { cellSize: 72, progress: 0.3, softness: 0.3 }],
+      [
+        "Fine inverted fade",
+        { cellSize: 24, progress: 0.7, softness: 0.08, invert: true }
+      ]
+    ],
+    "owned-v-soft-cell-noise": [
+      ["Clouded indigo", { scale: 6, speed: 0.18, contrast: 0.8 }],
+      ["Rapid amber cells", { scale: 19, speed: 0.9, contrast: 2.2, seed: 83 }]
+    ]
+  };
+  var OWNED_V_FIELD_PRESETS = OWNED_V_FIELD_DEFINITIONS.flatMap((definition3) => {
+    const slug = definition3.id.slice("an-native-".length);
+    const candidates = looks[slug];
+    if (!candidates || candidates.length !== 2)
+      throw new Error(\`Missing owned V looks for \${slug}\`);
+    return candidates.map(([name, params], index) => ({
+      id: \`an-preset-\${slug}-\${index + 1}\`,
+      name,
+      definitionId: definition3.id,
+      definitionVersion: definition3.version,
+      placement: definition3.kind === "generator" ? "fill" : "layer",
+      params,
+      clip: "bounds",
+      provenance: { origin: "design-original" }
+    }));
+  });
+
+  // shared/native-effect-owned-v-luma-dct.ts
+  var computeWgsl2 = \`\${NATIVE_GLOBAL_BINDINGS}
+@group(0) @binding(4) var<storage, read_write> rebuiltLuma: array<f32>;
+var<workgroup> tileLuma: array<f32, 64>;
+var<workgroup> coefficients: array<f32, 64>;
+
+fn basis(frequency: u32, coordinate: u32) -> f32 {
+  let normalization = select(0.5, 0.3535533905932738, frequency == 0u);
+  return normalization * cos((2.0 * f32(coordinate) + 1.0) * f32(frequency) * 0.19634954084936207);
+}
+
+@compute @workgroup_size(8, 8, 1)
+fn cs(
+  @builtin(workgroup_id) tile: vec3u,
+  @builtin(local_invocation_id) lane: vec3u,
+) {
+  let extent = textureDimensions(sourceTexture, 0);
+  let origin = tile.xy * 8u;
+  let pixel = origin + lane.xy;
+  let inside = pixel.x < extent.x && pixel.y < extent.y;
+  let complete = origin.x + 8u <= extent.x && origin.y + 8u <= extent.y;
+  if (!complete || globals.params[0].x <= 0.0) {
+    if (inside) {
+      let source = textureLoad(sourceTexture, vec2i(pixel), 0);
+      rebuiltLuma[pixel.y * extent.x + pixel.x] = dot(source.rgb, vec3f(0.2126, 0.7152, 0.0722));
+    }
+    return;
+  }
+  let localIndex = lane.y * 8u + lane.x;
+  let ownPixel = textureLoad(sourceTexture, vec2i(pixel), 0);
+  tileLuma[localIndex] = dot(ownPixel.rgb, vec3f(0.2126, 0.7152, 0.0722));
+  workgroupBarrier();
+
+  let frequency = lane.xy;
+  var coefficient = 0.0;
+  for (var y = 0u; y < 8u; y += 1u) {
+    for (var x = 0u; x < 8u; x += 1u) {
+      let luminance = tileLuma[y * 8u + x];
+      coefficient += luminance * basis(frequency.x, x) * basis(frequency.y, y);
+    }
+  }
+  let frequencyWeight = 1.0 + globals.params[1].x * f32(frequency.x + frequency.y) / 14.0;
+  let step = max(globals.params[0].x * frequencyWeight, 0.000001);
+  coefficients[localIndex] = floor(coefficient / step + 0.5) * step;
+  workgroupBarrier();
+
+  var luminance = 0.0;
+  for (var ky = 0u; ky < 8u; ky += 1u) {
+    for (var kx = 0u; kx < 8u; kx += 1u) {
+      luminance += coefficients[ky * 8u + kx] * basis(kx, lane.x) * basis(ky, lane.y);
+    }
+  }
+  rebuiltLuma[pixel.y * extent.x + pixel.x] = luminance;
+}
+\`;
+  var resolveWgsl2 = \`\${NATIVE_RENDER_GLOBALS}
+@group(0) @binding(4) var<storage, read> rebuiltLuma: array<f32>;
+@fragment fn fs(input: VertexOutput) -> @location(0) vec4f {
+  let extent = vec2i(textureDimensions(sourceTexture, 0));
+  let pixel = clamp(vec2i(floor(input.uv * vec2f(extent))), vec2i(0), extent - vec2i(1));
+  let source = textureLoad(sourceTexture, pixel, 0);
+  if (globals.params[0].x <= 0.0 || globals.params[2].x <= 0.0 || source.a <= 0.0) { return source; }
+  let index = u32(pixel.y) * u32(extent.x) + u32(pixel.x);
+  let originalLuma = dot(source.rgb, vec3f(0.2126, 0.7152, 0.0722));
+  let adjustment = rebuiltLuma[index] - originalLuma;
+  let crushed = clamp(source.rgb + vec3f(adjustment), vec3f(0.0), vec3f(source.a));
+  return vec4f(mix(source.rgb, crushed, globals.params[2].x), source.a);
+}
+\`;
+  var LUMA_DCT_EIGHT_EFFECT = {
+    id: "an-native-owned-v-luma-dct-eight",
+    name: "8\\xD78 Luma DCT",
+    version: 1,
+    kind: "processor",
+    placements: ["layer"],
+    properties: {
+      quantization: {
+        type: "float",
+        label: "Coefficient step",
+        default: 0.06,
+        min: 0,
+        max: 0.3,
+        step: 5e-3
+      },
+      frequencyBias: {
+        type: "float",
+        label: "Fine detail loss",
+        default: 1,
+        min: 0,
+        max: 3,
+        step: 0.01
+      },
+      amount: {
+        type: "float",
+        label: "Amount",
+        default: 1,
+        min: 0,
+        max: 1,
+        step: 0.01
+      }
+    },
+    inputs: { source: { kind: "texture-2d", resource: "source" } },
+    outputs: { color: { kind: "texture-2d", resource: "color" } },
+    resources: [
+      {
+        name: "source",
+        kind: "texture-2d",
+        external: true,
+        usage: ["sampled"],
+        size: "viewport"
+      },
+      {
+        name: "rebuiltLuma",
+        kind: "buffer",
+        size: "source",
+        sourceBytesPerPixel: 4,
+        usage: ["storage", "copy-dst"]
+      },
+      {
+        name: "color",
+        kind: "texture-2d",
+        size: "viewport",
+        format: "rgba16float",
+        usage: ["render", "sampled"]
+      }
+    ],
+    statelessCompute: {
+      abi: "source-buffer-v1",
+      bufferResource: "rebuiltLuma",
+      sharedBytes: 512
+    },
+    passes: [
+      {
+        id: "dct-eight",
+        kind: "compute",
+        reads: ["source"],
+        output: "rebuiltLuma",
+        dispatch: { elements: "source-grid", workgroupSize: [8, 8, 1] },
+        wgsl: computeWgsl2
+      },
+      {
+        id: "resolve-luma",
+        kind: "render",
+        reads: ["source", "rebuiltLuma"],
+        output: "color",
+        wgsl: resolveWgsl2
+      }
+    ],
+    output: "color",
+    provenance: {
+      origin: "design-original",
+      note: "Original 8\\xD78 luminance DCT with frequency-weighted quantization and premultiplied RGB reconstruction. Source alpha is preserved; no chroma subsampling or temporal lag."
+    }
+  };
+  var LUMA_DCT_EIGHT_PRESETS = [
+    {
+      id: "an-preset-owned-v-luma-dct-eight-fine",
+      name: "Fine luma blocks",
+      definitionId: LUMA_DCT_EIGHT_EFFECT.id,
+      definitionVersion: 1,
+      placement: "layer",
+      params: { quantization: 0.035, frequencyBias: 0.5, amount: 0.7 },
+      clip: "bounds",
+      provenance: { origin: "design-original" }
+    },
+    {
+      id: "an-preset-owned-v-luma-dct-eight-crushed",
+      name: "Crushed luma blocks",
+      definitionId: LUMA_DCT_EIGHT_EFFECT.id,
+      definitionVersion: 1,
+      placement: "layer",
+      params: { quantization: 0.14, frequencyBias: 2, amount: 1 },
+      clip: "bounds",
+      provenance: { origin: "design-original" }
+    }
+  ];
+
   // shared/native-effect-particle-flow.ts
   var stateBindings = \`
 struct Particle {
@@ -12840,7 +18235,7 @@ fn random(input: u32) -> f32 {
   return f32(hash32(input)) / 4294967295.0;
 }
 \`;
-  var computeWgsl = \`\${NATIVE_GLOBAL_BINDINGS}\${stateBindings}
+  var computeWgsl3 = \`\${NATIVE_GLOBAL_BINDINGS}\${stateBindings}
 @group(0) @binding(5) var<storage, read_write> nextParticles: array<Particle>;
 @compute @workgroup_size(256)
 fn cs(@builtin(global_invocation_id) invocation: vec3u) {
@@ -13054,7 +18449,7 @@ struct ParticleVertex {
       {
         id: "advance",
         kind: "compute",
-        wgsl: computeWgsl,
+        wgsl: computeWgsl3,
         reads: [],
         previousFrameReads: ["state"],
         output: "state",
@@ -13191,16 +18586,16 @@ struct ParticleVertex {
     grainOverlay: f("Color grain", 0.015, 0, 1),
     ...coordinateProperties()
   };
-  function uniforms(properties3) {
-    const slots = /* @__PURE__ */ new Map();
+  function uniforms(properties4) {
+    const slots2 = /* @__PURE__ */ new Map();
     let next = 0;
-    for (const [key, property] of Object.entries(properties3)) {
-      slots.set(key, next);
+    for (const [key, property] of Object.entries(properties4)) {
+      slots2.set(key, next);
       next += propertySlots(property);
     }
     if (next > 32) throw new Error("Perimeter/focal uniform budget exceeded");
     const slot = (key) => {
-      const value = slots.get(key);
+      const value = slots2.get(key);
       if (value === void 0)
         throw new Error(\`Unknown perimeter/focal property: \${key}\`);
       return value;
@@ -13209,31 +18604,31 @@ struct ParticleVertex {
       slot
     });
   }
-  function common2(p) {
+  function common2(p2) {
     return \`
 const DESIGN_FIELD_PI: f32 = 3.141592653589793;
 const DESIGN_FIELD_TAU: f32 = 6.283185307179586;
 \${DESIGN_COORDINATE_RANDOM_WGSL}
 fn fieldCoordinates(uv: vec2f) -> vec4f {
   let viewport = globals.viewport.xy / globals.clock.z;
-  let world = vec2f(select(viewport.x, \${p("worldWidth")}.x, \${p("worldWidth")}.x > 0.0), select(viewport.y, \${p("worldHeight")}.x, \${p("worldHeight")}.x > 0.0));
-  let fit = u32(\${p("fit")}.x);
+  let world = vec2f(select(viewport.x, \${p2("worldWidth")}.x, \${p2("worldWidth")}.x > 0.0), select(viewport.y, \${p2("worldHeight")}.x, \${p2("worldHeight")}.x > 0.0));
+  let fit = u32(\${p2("fit")}.x);
   let ratios = viewport / world;
   var fitScale = 1.0;
   if (fit == 1u) { fitScale = min(ratios.x, ratios.y); }
   if (fit == 2u) { fitScale = max(ratios.x, ratios.y); }
-  let anchor = vec2f(\${p("originX")}.x, \${p("originY")}.x) + vec2f(\${p("offsetX")}.x, \${p("offsetY")}.x);
-  let local = (uv * viewport - anchor * viewport) / (fitScale * \${p("scale")}.x);
-  let angle = \${p("rotation")}.x * DESIGN_FIELD_PI / 180.0;
+  let anchor = vec2f(\${p2("originX")}.x, \${p2("originY")}.x) + vec2f(\${p2("offsetX")}.x, \${p2("offsetY")}.x);
+  let local = (uv * viewport - anchor * viewport) / (fitScale * \${p2("scale")}.x);
+  let angle = \${p2("rotation")}.x * DESIGN_FIELD_PI / 180.0;
   let point = vec2f(cos(angle)*local.x + sin(angle)*local.y, -sin(angle)*local.x + cos(angle)*local.y) + world * 0.5;
   return vec4f(point, world);
 }
 fn fieldColor(index: u32) -> vec4f {
-  let color = globals.params[\${p.slot("colors")}u + 1u + index];
+  let color = globals.params[\${p2.slot("colors")}u + 1u + index];
   return vec4f(color.rgb * color.a, color.a);
 }
 fn fieldBackground() -> vec4f {
-  let color = \${p("colorBack")};
+  let color = \${p2("colorBack")};
   return vec4f(color.rgb * color.a, color.a);
 }
 fn fieldOver(foreground: vec4f, background: vec4f) -> vec4f { return foreground + background * (1.0-foreground.a); }
@@ -13250,7 +18645,7 @@ fn fieldNoise(point: vec2f) -> f32 {
 }
 \`;
   }
-  function perimeterBody(p) {
+  function perimeterBody(p2) {
     return \`
 fn perimeterPoint(distance: f32, halfExtent: vec2f, radius: f32) -> vec2f {
   let horizontal = 2.0*(halfExtent.x-radius);
@@ -13280,24 +18675,24 @@ fn perimeterPoint(distance: f32, halfExtent: vec2f, radius: f32) -> vec2f {
   let point = coordinates.xy;
   let world = coordinates.zw;
   let pixelSpan = max(length(dpdx(point)),length(dpdy(point)));
-  let minimum = vec2f(\${p("marginLeft")}.x,\${p("marginTop")}.x)*world;
-  let maximum = (vec2f(1.0)-vec2f(\${p("marginRight")}.x,\${p("marginBottom")}.x))*world;
+  let minimum = vec2f(\${p2("marginLeft")}.x,\${p2("marginTop")}.x)*world;
+  let maximum = (vec2f(1.0)-vec2f(\${p2("marginRight")}.x,\${p2("marginBottom")}.x))*world;
   let center = (minimum+maximum)*0.5;
   var halfExtent = (maximum-minimum)*0.5;
-  if (u32(\${p("aspectRatio")}.x) == 1u) { halfExtent = vec2f(min(halfExtent.x,halfExtent.y)); }
-  let radius = min(halfExtent.x,halfExtent.y)*\${p("roundness")}.x;
+  if (u32(\${p2("aspectRatio")}.x) == 1u) { halfExtent = vec2f(min(halfExtent.x,halfExtent.y)); }
+  let radius = min(halfExtent.x,halfExtent.y)*\${p2("roundness")}.x;
   let delta = abs(point-center)-halfExtent+vec2f(radius);
   let signedDistance = length(max(delta,vec2f(0.0)))+min(max(delta.x,delta.y),0.0)-radius;
   let span = 2.0*min(halfExtent.x,halfExtent.y);
-  let bandWidth = \${p("thickness")}.x*span;
-  let feather = max(pixelSpan*0.75,0.0001)+\${p("softness")}.x*span*0.02;
+  let bandWidth = \${p2("thickness")}.x*span;
+  let feather = max(pixelSpan*0.75,0.0001)+\${p2("softness")}.x*span*0.02;
   let core = 1.0-smoothstep(bandWidth*0.5-feather,bandWidth*0.5+feather,abs(signedDistance));
-  let haloWidth = max(pixelSpan,span*(0.01+0.12*\${p("bloom")}.x));
-  let halo = exp(-pow(abs(signedDistance)/haloWidth,2.0))*\${p("bloom")}.x;
-  let count = u32(\${p("colors")}.x);
-  let spots = u32(\${p("spots")}.x);
+  let haloWidth = max(pixelSpan,span*(0.01+0.12*\${p2("bloom")}.x));
+  let halo = exp(-pow(abs(signedDistance)/haloWidth,2.0))*\${p2("bloom")}.x;
+  let count = u32(\${p2("colors")}.x);
+  let spots = u32(\${p2("spots")}.x);
   let perimeter = 4.0*(halfExtent.x+halfExtent.y-2.0*radius)+DESIGN_FIELD_TAU*radius;
-  let reach = max(pixelSpan,perimeter*(0.003+\${p("spotSize")}.x*0.12));
+  let reach = max(pixelSpan,perimeter*(0.003+\${p2("spotSize")}.x*0.12));
   let time = globals.clock.x;
   var weightedColor = vec4f(0.0);
   var totalWeight = 0.0;
@@ -13309,7 +18704,7 @@ fn perimeterPoint(distance: f32, halfExtent: vec2f, radius: f32) -> vec2f {
           let phase = designCoordinateRandom(identity,globals.clock.y);
           let location = fract((f32(spot)+phase)/f32(spots)+time*(0.025+0.007*f32(color)));
           let light = perimeterPoint(location*perimeter,halfExtent,radius)+center;
-          let envelope = mix(1.0,0.7+0.3*sin(DESIGN_FIELD_TAU*(time*0.4+phase)),\${p("pulse")}.x);
+          let envelope = mix(1.0,0.7+0.3*sin(DESIGN_FIELD_TAU*(time*0.4+phase)),\${p2("pulse")}.x);
           let distance = length(point-light)/reach;
           let weight = exp(-distance*distance)*envelope;
           weightedColor += fieldColor(color)*weight;
@@ -13320,27 +18715,27 @@ fn perimeterPoint(distance: f32, halfExtent: vec2f, radius: f32) -> vec2f {
   }
   var lightColor = fieldColor(0u);
   if (totalWeight > 0.00001) { lightColor = weightedColor/totalWeight; }
-  let mistWavelength = max(pixelSpan,span*\${p("smokeSize")}.x*0.5);
+  let mistWavelength = max(pixelSpan,span*\${p2("smokeSize")}.x*0.5);
   let mist = fieldNoise(point/mistWavelength+vec2f(time*0.07,-time*0.035));
-  let modulation = mix(1.0,0.3+0.7*mist,\${p("smoke")}.x);
-  let dynamicEnergy = \${p("intensity")}.x*min(totalWeight,1.0);
+  let modulation = mix(1.0,0.3+0.7*mist,\${p2("smoke")}.x);
+  let dynamicEnergy = \${p2("intensity")}.x*min(totalWeight,1.0);
   let coverage = clamp(core+halo*(0.3+dynamicEnergy),0.0,1.0)*modulation;
-  let color = mix(fieldColor(0u),lightColor,clamp(\${p("intensity")}.x+\${p("bloom")}.x,0.0,1.0));
+  let color = mix(fieldColor(0u),lightColor,clamp(\${p2("intensity")}.x+\${p2("bloom")}.x,0.0,1.0));
   return fieldOver(color*coverage,fieldBackground());
 }
 \`;
   }
-  function focalBody(p) {
+  function focalBody(p2) {
     return \`
 fn focalPalette(position: f32) -> vec4f {
-  let count = u32(\${p("colors")}.x);
+  let count = u32(\${p2("colors")}.x);
   let scaled = clamp(position,0.0,1.0)*f32(count-1u);
   let low = min(u32(floor(scaled)),count-1u);
   let high = min(low+1u,count-1u);
   let fraction = fract(scaled);
   let smoothColor = mix(fieldColor(low),fieldColor(high),fraction);
   let hardColor = fieldColor(min(u32(floor(scaled+0.5)),count-1u));
-  return mix(hardColor,smoothColor,\${p("mixing")}.x);
+  return mix(hardColor,smoothColor,\${p2("mixing")}.x);
 }
 @fragment fn fs(input: VertexOutput) -> @location(0) vec4f {
   let coordinates = fieldCoordinates(input.uv);
@@ -13348,35 +18743,35 @@ fn focalPalette(position: f32) -> vec4f {
   let world = coordinates.zw;
   let pixelSpan = max(length(dpdx(point)),length(dpdy(point)));
   let span = min(world.x,world.y);
-  let focusAngle = \${p("focalAngle")}.x*DESIGN_FIELD_PI/180.0;
-  let focus = world*0.5+span*\${p("focalDistance")}.x*vec2f(cos(focusAngle),sin(focusAngle));
+  let focusAngle = \${p2("focalAngle")}.x*DESIGN_FIELD_PI/180.0;
+  let focus = world*0.5+span*\${p2("focalDistance")}.x*vec2f(cos(focusAngle),sin(focusAngle));
   let relative = (point-focus)/span;
   var angle = 0.0;
   if (any(relative != vec2f(0.0))) { angle = atan2(relative.y,relative.x); }
-  let radius = \${p("radius")}.x;
+  let radius = \${p2("radius")}.x;
   if (radius == 0.0) { return fieldBackground(); }
-  let deformation = \${p("distortion")}.x*0.25*radius*sin(\${p("distortionFreq")}.x*angle+DESIGN_FIELD_TAU*\${p("distortionShift")}.x);
-  let fieldDither = (designCoordinateRandom(floor(point),globals.clock.y)-0.5)*\${p("grainMixer")}.x*0.16;
+  let deformation = \${p2("distortion")}.x*0.25*radius*sin(\${p2("distortionFreq")}.x*angle+DESIGN_FIELD_TAU*\${p2("distortionShift")}.x);
+  let fieldDither = (designCoordinateRandom(floor(point),globals.clock.y)-0.5)*\${p2("grainMixer")}.x*0.16;
   let distance = max(length(relative)+deformation+fieldDither,0.0);
   let normalized = clamp(distance/max(radius,pixelSpan/span),0.0,1.0);
-  let shaped = pow(normalized,exp2(2.0*\${p("falloff")}.x));
+  let shaped = pow(normalized,exp2(2.0*\${p2("falloff")}.x));
   let color = focalPalette(shaped);
   let edge = 1.0-smoothstep(radius-pixelSpan/span,radius+pixelSpan/span,distance);
-  let grain = (designCoordinateRandom(floor(point)+vec2f(37.0,19.0),globals.clock.y)-0.5)*\${p("grainOverlay")}.x*0.25;
+  let grain = (designCoordinateRandom(floor(point)+vec2f(37.0,19.0),globals.clock.y)-0.5)*\${p2("grainOverlay")}.x*0.25;
   let foreground = vec4f(color.rgb*(1.0+grain),color.a)*edge;
   return fieldOver(foreground,fieldBackground());
 }
 \`;
   }
-  function definition2(id, name, properties3, body) {
-    const p = uniforms(properties3);
+  function definition2(id, name, properties4, body) {
+    const p2 = uniforms(properties4);
     return {
       id,
       name,
       version: 1,
       kind: "generator",
       placements: ["fill"],
-      properties: properties3,
+      properties: properties4,
       outputs: { color: { kind: "texture-2d", resource: "color" } },
       resources: [
         {
@@ -13394,7 +18789,7 @@ fn focalPalette(position: f32) -> vec4f {
           kind: "render",
           reads: [],
           output: "color",
-          wgsl: NATIVE_RENDER_GLOBALS + common2(p) + body(p)
+          wgsl: NATIVE_RENDER_GLOBALS + common2(p2) + body(p2)
         }
       ],
       provenance: {
@@ -13942,7 +19337,21 @@ fn hash(pixel: vec2f) -> f32 {
     ...coordinateRandomCatalog.latest,
     ...NATIVE_PERIMETER_FOCAL_DEFINITIONS,
     ...OWNED_O_GENERATOR_DEFINITIONS,
-    ...OWNED_P_DEFINITIONS
+    ...OWNED_O_EDGE_GLASS_DEFINITIONS.filter(
+      (definition3) => definition3.id !== "an-native-owned-o-edge-light-leak"
+    ),
+    OWNED_O_EDGE_LIGHT_LEAK_V2,
+    ...OWNED_P_DEFINITIONS,
+    ...OWNED_P2_DEFINITIONS,
+    ...OWNED_Q_DEFINITIONS,
+    ...OWNED_NEXT_SIX_R_DEFINITIONS,
+    ...STATEFUL_NINE_DEFINITIONS,
+    HIGHLIGHT_STREAKS_EFFECT,
+    ...OWNED_NEXT_TWELVE_S_DEFINITIONS,
+    ...OWNED_NEXT_TWELVE_T_DEFINITIONS,
+    ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
+    LUMA_DCT_EIGHT_EFFECT,
+    ...OWNED_V_FIELD_DEFINITIONS
   ];
   var NATIVE_EFFECT_DEFINITION_CATALOG = [
     ...NATIVE_EFFECT_DEFINITIONS_V1,
@@ -13954,7 +19363,19 @@ fn hash(pixel: vec2f) -> f32 {
     ...NATIVE_COORDINATE_RANDOM_DEFINITIONS,
     ...NATIVE_PERIMETER_FOCAL_DEFINITIONS,
     ...OWNED_O_GENERATOR_DEFINITIONS,
-    ...OWNED_P_DEFINITIONS
+    ...OWNED_O_EDGE_GLASS_DEFINITIONS,
+    OWNED_O_EDGE_LIGHT_LEAK_V2,
+    ...OWNED_P_DEFINITIONS,
+    ...OWNED_P2_DEFINITIONS,
+    ...OWNED_Q_DEFINITIONS,
+    ...OWNED_NEXT_SIX_R_DEFINITIONS,
+    ...STATEFUL_NINE_DEFINITIONS,
+    HIGHLIGHT_STREAKS_EFFECT,
+    ...OWNED_NEXT_TWELVE_S_DEFINITIONS,
+    ...OWNED_NEXT_TWELVE_T_DEFINITIONS,
+    ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
+    LUMA_DCT_EIGHT_EFFECT,
+    ...OWNED_V_FIELD_DEFINITIONS
   ];
   var PINNED_V2_PRESETS = [
     {
@@ -14044,18 +19465,32 @@ fn hash(pixel: vec2f) -> f32 {
   var NATIVE_COORDINATE_RANDOM_PRESET_SOURCE_IDS = coordinateRandomRecipes.presetSources;
   var NATIVE_PRESET_LABEL_SOURCE_IDS = {
     ...NATIVE_V3_PRESET_LABEL_SOURCE_IDS,
-    ...coordinateRandomRecipes.labelSources
+    ...coordinateRandomRecipes.labelSources,
+    ...OWNED_O_EDGE_LIGHT_LEAK_V2_PRESET_LABEL_SOURCE_IDS,
+    ...STATEFUL_NINE_PRESET_LABEL_SOURCE_IDS
   };
   var NATIVE_EFFECT_PRESETS = [
     ...PRE_COORDINATE_RANDOM_PRESETS,
     ...NATIVE_COORDINATE_RANDOM_PRESETS,
     ...NATIVE_PERIMETER_FOCAL_PRESETS,
     ...OWNED_O_GENERATOR_PRESETS,
-    ...OWNED_P_PRESETS
+    ...OWNED_O_EDGE_GLASS_PRESETS,
+    ...OWNED_O_EDGE_LIGHT_LEAK_V2_PRESETS,
+    ...OWNED_P_PRESETS,
+    ...OWNED_P2_PRESETS,
+    ...OWNED_Q_PRESETS,
+    ...OWNED_NEXT_SIX_R_PRESETS,
+    ...STATEFUL_NINE_PRESETS,
+    ...HIGHLIGHT_STREAKS_PRESETS,
+    ...OWNED_NEXT_TWELVE_S_PRESETS,
+    ...OWNED_NEXT_TWELVE_T_PRESETS,
+    ...OWNED_NEXT_TWELVE_U_PRESETS,
+    ...LUMA_DCT_EIGHT_PRESETS,
+    ...OWNED_V_FIELD_PRESETS
   ];
 
   // shared/native-effect-trust.ts
-  var MAX_APPROVED_NATIVE_DEFINITION_HASHES = 32;
+  var MAX_APPROVED_NATIVE_DEFINITION_HASHES = 512;
   var NATIVE_EFFECT_APPROVALS_SCHEMA_VERSION = 1;
   var SHA256_RE = /^[a-f0-9]{64}$/;
   var NativeEffectApprovalStateError = class extends TypeError {
@@ -14108,6 +19543,61 @@ fn hash(pixel: vec2f) -> f32 {
 
   // shared/native-effect-animation-capability.ts
   var STATIC_BUILTIN_VERSIONS = /* @__PURE__ */ new Set([
+    "an-native-owned-v-luma-dct-eight@1",
+    "an-native-owned-v-scalar-map-drift@1",
+    "an-native-owned-v-one-sided-blur@1",
+    "an-native-owned-v-checker-alpha-wipe@1",
+    "an-native-owned-q-alpha-cast-shadow@2",
+    "an-native-owned-q-block-transform@2",
+    "an-native-owned-q-gabor-packets@1",
+    "an-native-owned-q-haar-detail-field@1",
+    "an-native-owned-q-star-cutout@1",
+    "an-native-owned-q-checker-phase@1",
+    "an-native-owned-r-scanline-gap-repair@1",
+    "an-native-owned-r-periodic-stripe-notch@1",
+    "an-native-owned-r-octagon-square-tiling@2",
+    "an-native-owned-r-schwarz-p-cavern@2",
+    "an-native-owned-r-steiner-circle-chain@2",
+    "an-native-owned-r-bezier-hatch@2",
+    "an-native-owned-s-angular-path-blur@1",
+    "an-native-owned-s-parabolic-bend@1",
+    "an-native-owned-s-sphere-surface-refract@1",
+    "an-native-owned-s-block-seam-restoration@1",
+    "an-native-owned-s-chalk-transfer@1",
+    "an-native-owned-s-haar-shrink@1",
+    "an-native-owned-s-triangular-beam-lattice@1",
+    "an-native-owned-s-chevron-interlock@1",
+    "an-native-owned-s-power-cell-relief@1",
+    "an-native-owned-s-catenary-cables@1",
+    "an-native-owned-s-limacon-contours@1",
+    "an-native-owned-s-rain-plume-field@1",
+    "an-native-owned-t-paired-band-exchange@1",
+    "an-native-owned-t-concentric-rotor@1",
+    "an-native-owned-t-node-grid-warp@2",
+    "an-native-owned-t-luma-tail-integrator@1",
+    "an-native-owned-t-chalkboard-rubbing@1",
+    "an-native-owned-t-door-reveal@2",
+    "an-native-owned-t-stochastic-block-field@2",
+    "an-native-owned-t-offset-dot-matrix@1",
+    "an-native-owned-t-pinned-strand-array@2",
+    "an-native-owned-t-rational-conic-ribbon@1",
+    "an-native-owned-t-crescent-boolean@1",
+    "an-native-owned-t-rose-locus@2",
+    "an-native-owned-u-mobius-reprojection@1",
+    "an-native-owned-u-vector-median@1",
+    "an-native-owned-u-isophote-integration@1",
+    "an-native-owned-u-local-range-compression@1",
+    "an-native-owned-u-alpha-curvature-tint@1",
+    "an-native-owned-u-luma-flow-remap@1",
+    "an-native-owned-u-rule-thirty@1",
+    "an-native-owned-u-thue-morse-weave@1",
+    "an-native-owned-u-weierstrass-ridges@1",
+    "an-native-owned-u-staggered-pentagon@1",
+    "an-native-owned-u-plastic-disc-light@1",
+    "an-native-owned-u-viscous-union@1",
+    "an-native-owned-p-intensity-run-sort@5",
+    "an-native-owned-p-slat-shutter@5",
+    "an-native-highlight-streaks@1",
     "an-native-owned-p-environment-metal@1",
     "an-native-owned-p-density-heatmap@3",
     "an-native-owned-p-vector-field-displacement@2",
@@ -14115,6 +19605,7 @@ fn hash(pixel: vec2f) -> f32 {
     "an-native-owned-o-studio-light-rig@1",
     "an-native-owned-o-inhibited-stipple@3",
     "an-native-owned-o-ghost-chain@1",
+    "an-native-owned-o-thickness-glass@1",
     "an-native-halftone@1",
     "an-native-halftone@2",
     "an-native-halftone@3",
@@ -14278,9 +19769,36 @@ fn hash(pixel: vec2f) -> f32 {
     "an-native-owned-breadth-sierpinski-gasket@1",
     "an-native-owned-breadth-polarized-light-sheets@1",
     "an-native-owned-newton-basins@1",
-    "an-native-owned-plate-nodal-lines@1"
+    "an-native-owned-plate-nodal-lines@1",
+    "an-native-owned-leaf-venation@4",
+    "an-native-owned-coral-polyps@4",
+    "an-native-owned-knit-loops@4",
+    "an-native-owned-quilted-diamonds@4",
+    "an-native-owned-lace-rosettes@4",
+    "an-native-owned-sashiko-stitches@4",
+    "an-native-owned-prism-facets@4",
+    "an-native-owned-lenticular-ribs@4",
+    "an-native-owned-anamorphic-streaks@4",
+    "an-native-owned-horizon-haze@4",
+    "an-native-owned-wire-dome@4",
+    "an-native-owned-folded-paper@4",
+    "an-native-owned-crystal-lattice@4",
+    "an-native-focal-color-field@1"
   ]);
   var ANIMATED_BUILTIN_VERSIONS = /* @__PURE__ */ new Set([
+    "an-native-owned-v-thermal-mask-contour@1",
+    "an-native-owned-v-soft-cell-noise@1",
+    "an-native-owned-life-mosaic@1",
+    "an-native-owned-cyclic-chase@1",
+    "an-native-owned-nerve-recovery@1",
+    "an-native-owned-sand-avalanche@1",
+    "an-native-owned-ember-front@1",
+    "an-native-owned-frost-lattice@1",
+    "an-native-owned-buoyant-plumes@1",
+    "an-native-owned-predator-prey@1",
+    "an-native-owned-magnetic-domains@1",
+    "an-native-owned-o-edge-light-leak@1",
+    "an-native-owned-o-edge-light-leak@2",
     "an-native-owned-p-tape-tracking@3",
     "an-native-grain-gradient@1",
     "an-native-frosted-refraction@1",
@@ -14349,7 +19867,21 @@ fn hash(pixel: vec2f) -> f32 {
     "an-native-owned-n-double-grating-moire@1",
     "an-native-owned-n-schlieren-knife-edge@1",
     "an-native-owned-n-doppler-wavefronts@1",
-    "an-native-owned-n-kepler-area-sweep@2"
+    "an-native-owned-n-kepler-area-sweep@2",
+    "an-native-owned-mycelium-trails@3",
+    "an-native-owned-ink-blooms@3",
+    "an-native-owned-tide-pool-contours@3",
+    "an-native-owned-braided-ribbons@3",
+    "an-native-owned-fresnel-shells@3",
+    "an-native-owned-etched-diffraction@3",
+    "an-native-owned-aurora-curtains@3",
+    "an-native-owned-fog-banks@3",
+    "an-native-owned-ember-drift@3",
+    "an-native-owned-volumetric-cones@3",
+    "an-native-owned-contour-terrain@3",
+    "an-native-owned-gyroid-slice@3",
+    "an-native-grain-gradient@4",
+    "an-native-luminous-perimeter@1"
   ]);
   var canonicalPayloadByVersion = new Map(
     NATIVE_EFFECT_DEFINITION_CATALOG.map((definition3) => [
@@ -14545,6 +20077,11 @@ fn hash(pixel: vec2f) -> f32 {
   }
 
   // shared/native-feedback-plan.ts
+  function nativeFeedbackResetValuesChanged(previous, next) {
+    return previous.length !== next.length || previous.some(
+      ([name, value], index) => next[index]?.[0] !== name || next[index]?.[1] !== value
+    );
+  }
   function adaptNativeFeedbackDefinition(definition3) {
     const feedback = definition3.feedback;
     const [compute, resolve] = definition3.passes;
@@ -14553,6 +20090,12 @@ fn hash(pixel: vec2f) -> f32 {
       definitions: [definition3],
       instances: []
     }).errors.length || compute?.kind !== "compute" || resolve?.kind !== "render")
+      return { ok: false, code: "feedback-definition-invalid" };
+    const resetProperties = feedback.resetProperties ?? [];
+    if (resetProperties.some((name) => {
+      const property = definition3.properties[name];
+      return !property || typeof property.default !== "number" || !Number.isFinite(property.default);
+    }))
       return { ok: false, code: "feedback-definition-invalid" };
     const upstream = definition3.provenance.upstream;
     return {
@@ -14572,6 +20115,7 @@ fn hash(pixel: vec2f) -> f32 {
         grid: feedback.grid,
         timing: feedback.timing,
         uniformProperties: feedbackUniformProperties(feedback),
+        resetProperties,
         computeWgsl: compute.wgsl,
         resolveWgsl: resolve.wgsl
       }
@@ -14618,8 +20162,8 @@ fn hash(pixel: vec2f) -> f32 {
       return { ok: false, code: "feedback-step-limit" };
     if (targetStep < state.completedStep)
       return { ok: false, code: "feedback-seek-backward" };
-    const count = targetStep - state.completedStep;
-    if (count > definition3.timing.maxStepsPerCall)
+    const count2 = targetStep - state.completedStep;
+    if (count2 > definition3.timing.maxStepsPerCall)
       return { ok: false, code: "feedback-step-limit" };
     const steps = [];
     for (let index = state.completedStep + 1; index <= targetStep; index += 1)
@@ -15962,7 +21506,7 @@ fn hash(pixel: vec2f) -> f32 {
   function assertLocalResourceGraph(root) {
     const elements = [root, ...root.querySelectorAll("*")];
     const byId = /* @__PURE__ */ new Map();
-    const edges = /* @__PURE__ */ new Map();
+    const edges2 = /* @__PURE__ */ new Map();
     const painted = /* @__PURE__ */ new Set([
       "path",
       "rect",
@@ -15978,7 +21522,7 @@ fn hash(pixel: vec2f) -> f32 {
     for (const element of elements) {
       const id = element.getAttribute("id");
       if (id) byId.set(id, element);
-      edges.set(element, [...element.children]);
+      edges2.set(element, [...element.children]);
     }
     for (const element of elements) {
       for (const property of ["fill", "stroke", "clip-path"]) {
@@ -15992,7 +21536,7 @@ fn hash(pixel: vec2f) -> f32 {
               "source-svg-reference-kind-unsupported",
               "source-svg-reference-kind-unsupported"
             );
-          edges.get(element).push(resource);
+          edges2.get(element).push(resource);
         }
       }
     }
@@ -16006,12 +21550,12 @@ fn hash(pixel: vec2f) -> f32 {
         );
       if (visited.has(element)) return;
       visiting.add(element);
-      for (const dependency of edges.get(element)) visit(dependency);
+      for (const dependency of edges2.get(element)) visit(dependency);
       visiting.delete(element);
       visited.add(element);
     };
     for (const element of elements) visit(element);
-    return { byId, edges };
+    return { byId, edges: edges2 };
   }
   function patternWorkLimit() {
     throw new NativeSvgSourceError(
@@ -16420,9 +21964,9 @@ fn hash(pixel: vec2f) -> f32 {
     counts[reason] = (counts[reason] ?? 0) + 1;
   }
   var OMIT = "[data-agent-native-edit-overlay],[data-agent-native-editor-chrome],[data-agent-native-editor-chrome-host],[data-an-native-presentation],[data-an-native-scene-presentation]";
-  function authoredOpacity(element) {
+  function authoredOpacity(element, readStyle = getComputedStyle) {
     const saved = element.getAttribute("data-an-native-authored-opacity");
-    const opacity = Number(saved ?? getComputedStyle(element).opacity);
+    const opacity = Number(saved ?? readStyle(element).opacity);
     if (!Number.isFinite(opacity)) {
       throw new NativeSourceError(
         "source-opacity-invalid",
@@ -16457,7 +22001,7 @@ fn hash(pixel: vec2f) -> f32 {
       );
     }
   }
-  function assertLeafSupported(element, target) {
+  function assertLeafSupported(element, target, readStyle = getComputedStyle) {
     if (element.shadowRoot) {
       throw new NativeSourceError(
         "source-shadow-dom",
@@ -16470,7 +22014,7 @@ fn hash(pixel: vec2f) -> f32 {
         "Iframe source content is unsupported."
       );
     }
-    const style = getComputedStyle(element);
+    const style = readStyle(element);
     if (style.mixBlendMode !== "normal" || style.filter !== "none" || style.backdropFilter !== "none") {
       throw new NativeSourceError(
         "source-css-composite",
@@ -16484,7 +22028,7 @@ fn hash(pixel: vec2f) -> f32 {
           "The selected source target has a 3D or perspective transform."
         );
     } else if (element instanceof HTMLElement) {
-      nodeGlobalTransform(element);
+      nodeGlobalTransform(element, readStyle);
     }
     for (const animation of element.getAnimations({ subtree: false })) {
       if (animation.playState !== "running") continue;
@@ -16736,8 +22280,8 @@ fn hash(pixel: vec2f) -> f32 {
       style.borderLeftWidth
     ].every((width) => Number.parseFloat(width) === 0);
   }
-  function mediaPlacement(element, rect, sourceWidth, sourceHeight) {
-    const style = getComputedStyle(element);
+  function mediaPlacement(element, rect, sourceWidth, sourceHeight, suppliedStyle) {
+    const style = suppliedStyle ?? getComputedStyle(element);
     const fit = style.objectFit;
     if (!["fill", "contain", "cover"].includes(fit))
       throw new NativeSourceError(
@@ -16755,9 +22299,9 @@ fn hash(pixel: vec2f) -> f32 {
         \`Media object-position \${style.objectPosition} is unsupported.\`
       );
     };
-    const px2 = position(parts[0], "x");
+    const px5 = position(parts[0], "x");
     const py = position(parts[1], "y");
-    if (![px2, py].every(Number.isFinite))
+    if (![px5, py].every(Number.isFinite))
       throw new NativeSourceError(
         "source-object-position",
         "Media object-position is invalid."
@@ -16772,7 +22316,7 @@ fn hash(pixel: vec2f) -> f32 {
     if (fit === "contain") {
       return {
         rect: {
-          x: rect.x + (rect.width - width) * px2,
+          x: rect.x + (rect.width - width) * px5,
           y: rect.y + (rect.height - height) * py,
           width,
           height
@@ -16780,14 +22324,14 @@ fn hash(pixel: vec2f) -> f32 {
         uv
       };
     }
-    uv.x = (width - rect.width) * px2 / width;
+    uv.x = (width - rect.width) * px5 / width;
     uv.y = (height - rect.height) * py / height;
     uv.width = rect.width / width;
     uv.height = rect.height / height;
     return { rect, uv };
   }
-  function mediaHasSolidBackground(element) {
-    const style = getComputedStyle(element);
+  function mediaHasSolidBackground(element, suppliedStyle) {
+    const style = suppliedStyle ?? getComputedStyle(element);
     const background2 = style.backgroundColor.replace(/\\s+/g, "").toLowerCase();
     const transparent = background2 === "transparent" || /^rgba\\([^)]*,0(?:\\.0+)?\\)$/.test(background2);
     if (style.backgroundImage !== "none" || style.boxShadow !== "none" || style.outlineStyle !== "none" || !transparent && style.backgroundClip !== "border-box" && style.backgroundClip !== "padding-box" || [
@@ -16850,7 +22394,7 @@ fn hash(pixel: vec2f) -> f32 {
       return { width: rect.width, height: rect.height };
     }
     const style = getComputedStyle(element);
-    const px2 = (value) => {
+    const px5 = (value) => {
       const normalized = value.trim();
       if (normalized === "" || normalized === "0") return 0;
       if (!/^(?:\\d+(?:\\.\\d*)?|\\.\\d+)px$/.test(normalized))
@@ -16866,8 +22410,8 @@ fn hash(pixel: vec2f) -> f32 {
         );
       return parsed;
     };
-    const horizontal = px2(style.paddingLeft) + px2(style.paddingRight) + px2(style.borderLeftWidth) + px2(style.borderRightWidth);
-    const vertical = px2(style.paddingTop) + px2(style.paddingBottom) + px2(style.borderTopWidth) + px2(style.borderBottomWidth);
+    const horizontal = px5(style.paddingLeft) + px5(style.paddingRight) + px5(style.borderLeftWidth) + px5(style.borderRightWidth);
+    const vertical = px5(style.paddingTop) + px5(style.paddingBottom) + px5(style.borderTopWidth) + px5(style.borderBottomWidth);
     const dimension = (value) => {
       const normalized = value.trim();
       if (!/^(?:\\d+(?:\\.\\d*)?|\\.\\d+)px$/.test(normalized))
@@ -16883,8 +22427,8 @@ fn hash(pixel: vec2f) -> f32 {
         );
       return parsed;
     };
-    const fallbackWidth = element.clientWidth > 0 ? element.clientWidth - px2(style.paddingLeft) - px2(style.paddingRight) : element.offsetWidth - horizontal;
-    const fallbackHeight = element.clientHeight > 0 ? element.clientHeight - px2(style.paddingTop) - px2(style.paddingBottom) : element.offsetHeight - vertical;
+    const fallbackWidth = element.clientWidth > 0 ? element.clientWidth - px5(style.paddingLeft) - px5(style.paddingRight) : element.offsetWidth - horizontal;
+    const fallbackHeight = element.clientHeight > 0 ? element.clientHeight - px5(style.paddingTop) - px5(style.paddingBottom) : element.offsetHeight - vertical;
     const width = style.width.trim() === "" || style.width.trim() === "auto" ? fallbackWidth : dimension(style.width) - (style.boxSizing === "border-box" ? horizontal : 0);
     const height = style.height.trim() === "" || style.height.trim() === "auto" ? fallbackHeight : dimension(style.height) - (style.boxSizing === "border-box" ? vertical : 0);
     if (!Number.isFinite(width) || !Number.isFinite(height) || width < 0 || height < 0)
@@ -16894,9 +22438,9 @@ fn hash(pixel: vec2f) -> f32 {
       );
     return { width, height };
   }
-  function solidBackgroundAlpha(color7) {
-    if (color7.trim().toLowerCase() === "transparent") return 0;
-    const rgb = /^rgba?\\(([^)]*)\\)$/i.exec(color7.trim());
+  function solidBackgroundAlpha(color9) {
+    if (color9.trim().toLowerCase() === "transparent") return 0;
+    const rgb = /^rgba?\\(([^)]*)\\)$/i.exec(color9.trim());
     if (!rgb) return null;
     const channels = rgb[1].replace(/[,/]/g, " ").trim().split(/\\s+/).map(Number);
     if (channels.length !== 3 && channels.length !== 4 || channels.slice(0, 3).some(
@@ -16926,13 +22470,15 @@ fn hash(pixel: vec2f) -> f32 {
       height: a.height
     };
   }
-  function layoutPosition(element) {
+  function layoutPosition(element, memo) {
+    const cached = memo?.positions.get(element);
+    if (cached) return cached;
     let x = 0;
     let y = 0;
     let node = element;
-    let count = 0;
+    let count2 = 0;
     while (node) {
-      if (++count > 64)
+      if (++count2 > 64)
         throw new NativeSourceError(
           "source-transform",
           "The source offset chain is too deep."
@@ -16945,7 +22491,9 @@ fn hash(pixel: vec2f) -> f32 {
       x -= ancestor.scrollLeft;
       y -= ancestor.scrollTop;
     }
-    return { x, y };
+    const position = { x, y };
+    memo?.positions.set(element, position);
+    return position;
   }
   function axisLength(raw, size) {
     const value = raw.trim();
@@ -16987,8 +22535,10 @@ fn hash(pixel: vec2f) -> f32 {
     const amount6 = Number(match[1]);
     return match[2] === "deg" ? amount6 * Math.PI / 180 : match[2] === "turn" ? amount6 * Math.PI * 2 : amount6;
   }
-  function nodeGlobalTransform(element) {
-    const style = getComputedStyle(element);
+  function nodeGlobalTransform(element, readStyle = getComputedStyle, memo) {
+    const cached = memo?.transforms.get(element);
+    if (cached) return cached;
+    const style = readStyle(element);
     if (style.perspective && style.perspective !== "none" || style.transformStyle === "preserve-3d")
       throw new NativeSourceError(
         "source-transform",
@@ -17052,18 +22602,25 @@ fn hash(pixel: vec2f) -> f32 {
         "A descendant source transform length is unreadable."
       );
     css = composeAffine(translated(translateX, translateY), css);
-    const anchor = layoutPosition(element);
+    const anchor = layoutPosition(element, memo);
     const pivotX = anchor.x + originX;
     const pivotY = anchor.y + originY;
-    return composeAffine(
+    const transform = composeAffine(
       translated(pivotX, pivotY),
       composeAffine(css, translated(-pivotX, -pivotY))
     );
+    memo?.transforms.set(element, transform);
+    return transform;
   }
-  function sourceLayoutSize(element, target, space) {
+  function sourceLayoutSize(element, target, space, memo) {
+    const cache = memo?.matches(target, space) ? memo.sizes : void 0;
+    const cached = cache?.get(element);
+    if (cached) return cached;
     if (space !== "target-viewport-axis-aligned" && element === target && element === document.documentElement && Number.isFinite(element.offsetWidth) && Number.isFinite(element.offsetHeight) && element.offsetWidth >= 0 && element.offsetHeight >= 0 && (element.offsetWidth === 0 || element.offsetHeight === 0))
       return { width: innerWidth, height: innerHeight };
-    return { width: element.offsetWidth, height: element.offsetHeight };
+    const size = { width: element.offsetWidth, height: element.offsetHeight };
+    cache?.set(element, size);
+    return size;
   }
   function hasEmptySourceLayout(size) {
     if (!Number.isFinite(size.width) || !Number.isFinite(size.height) || size.width < 0 || size.height < 0)
@@ -17073,11 +22630,13 @@ fn hash(pixel: vec2f) -> f32 {
       );
     return size.width === 0 || size.height === 0;
   }
-  function viewportSourceAffine(element) {
-    const position = layoutPosition(element);
+  function viewportSourceAffine(element, readStyle = getComputedStyle, memo) {
+    const cached = memo?.viewportAffines.get(element);
+    if (cached) return cached;
+    const position = layoutPosition(element, memo);
     let matrix = translated(position.x, position.y);
     for (let node = element; node; node = node.parentElement)
-      matrix = composeAffine(nodeGlobalTransform(node), matrix);
+      matrix = composeAffine(nodeGlobalTransform(node, readStyle, memo), matrix);
     const measured = element.getBoundingClientRect();
     const projected = planNativeSourceAffine({
       localBox: {
@@ -17091,33 +22650,42 @@ fn hash(pixel: vec2f) -> f32 {
     });
     if (!projected.ok || Math.abs(projected.physicalBounds.width - measured.width) > Math.max(0.5, measured.width * 0.02) || Math.abs(projected.physicalBounds.height - measured.height) > Math.max(0.5, measured.height * 0.02))
       throw new NativeSourceError("source-transform", "source-transform");
-    return {
+    const affine = {
       ...matrix,
       e: matrix.e + measured.left - projected.physicalBounds.x,
       f: matrix.f + measured.top - projected.physicalBounds.y
     };
+    memo?.viewportAffines.set(element, affine);
+    return affine;
   }
-  function viewportToTargetAffine(target) {
-    const inverted = invertNativeSourceAffine(viewportSourceAffine(target));
+  function viewportToTargetAffine(target, readStyle = getComputedStyle, memo) {
+    const inverted = invertNativeSourceAffine(
+      viewportSourceAffine(target, readStyle, memo)
+    );
     if (!inverted.ok)
       throw new NativeSourceError("source-transform", "source-transform");
     return inverted.matrix;
   }
-  function relativeAffine(element, target, space, localBox) {
+  function relativeAffine(element, target, space, localBox, readStyle = getComputedStyle, measuredSize, memo) {
     if (!(element instanceof HTMLElement) || !(target instanceof HTMLElement))
       throw new NativeSourceError(
         "source-transform",
         "A source has no HTML layout box."
       );
-    const size = sourceLayoutSize(element, target, space);
+    const activeMemo = memo?.matches(target, space) ? memo : void 0;
+    const cache = activeMemo?.matrices;
+    const size = measuredSize ?? sourceLayoutSize(element, target, space, activeMemo);
     const box = localBox ?? { x: 0, y: 0, ...size };
-    let matrix;
-    if (space === "target-local") {
-      const position = layoutPosition(element);
+    let matrix = cache?.get(element);
+    if (!matrix && space === "target-local") {
+      const position = layoutPosition(element, activeMemo);
       matrix = translated(position.x, position.y);
       let node = element;
       while (node && node !== target) {
-        matrix = composeAffine(nodeGlobalTransform(node), matrix);
+        matrix = composeAffine(
+          nodeGlobalTransform(node, readStyle, activeMemo),
+          matrix
+        );
         node = node.parentElement;
       }
       if (node !== target)
@@ -17125,23 +22693,24 @@ fn hash(pixel: vec2f) -> f32 {
           "source-transform",
           "The source is outside the selected target."
         );
-      const targetPosition = layoutPosition(target);
+      const targetPosition = layoutPosition(target, activeMemo);
       matrix = composeAffine(
         translated(-targetPosition.x, -targetPosition.y),
         matrix
       );
-    } else if (space === "target-local-global") {
+    } else if (!matrix && space === "target-local-global") {
       matrix = composeAffine(
-        viewportToTargetAffine(target),
-        viewportSourceAffine(element)
+        viewportToTargetAffine(target, readStyle, activeMemo),
+        viewportSourceAffine(element, readStyle, activeMemo)
       );
-    } else {
+    } else if (!matrix) {
       const targetRect = target.getBoundingClientRect();
       matrix = composeAffine(
         translated(-targetRect.left, -targetRect.top),
-        viewportSourceAffine(element)
+        viewportSourceAffine(element, readStyle, activeMemo)
       );
     }
+    cache?.set(element, matrix);
     const result = planNativeSourceAffine({
       localBox: box,
       localToTarget: matrix,
@@ -17170,8 +22739,25 @@ fn hash(pixel: vec2f) -> f32 {
     }
     return ancestors;
   }
-  function sourceClipPlan(element, target, space, includeOwnMedia, ownTextClipEdge = null, ownTextClipOutset = 0, ownMediaClipEdge = "content") {
-    const targetBox = space === "target-viewport-axis-aligned" ? viewportRelativeRect(target, target) : relativeAffine(target, target, space).rect;
+  function sourceClipPlan(element, target, space, includeOwnMedia, ownTextClipEdge = null, ownTextClipOutset = 0, ownMediaClipEdge = "content", suppliedReadStyle, memo) {
+    const styles = /* @__PURE__ */ new Map();
+    const readStyle = suppliedReadStyle ?? ((element2) => {
+      let style = styles.get(element2);
+      if (!style) {
+        style = getComputedStyle(element2);
+        styles.set(element2, style);
+      }
+      return style;
+    });
+    const targetBox = space === "target-viewport-axis-aligned" ? viewportRelativeRect(target, target) : relativeAffine(
+      target,
+      target,
+      space,
+      void 0,
+      readStyle,
+      void 0,
+      memo
+    ).rect;
     let targetClip = {
       x: 0,
       y: 0,
@@ -17180,23 +22766,28 @@ fn hash(pixel: vec2f) -> f32 {
     };
     const allClips = [];
     const groups = [];
-    const append = (node, edge4, group, outset = 0) => {
+    const append = (node, edge8, group, outset = 0) => {
       if (allClips.length >= MAX_NATIVE_SOURCE_CLIPS)
         throw new NativeSourceError(
           "source-clip-too-many-clips",
           \`A source requires more than \${MAX_NATIVE_SOURCE_CLIPS} rounded clips.\`
         );
-      assertLeafSupported(node, space === "target-local" ? target : void 0);
+      assertLeafSupported(
+        node,
+        space === "target-local" ? target : void 0,
+        readStyle
+      );
       if (!(node instanceof HTMLElement))
         throw new NativeSourceError(
           "source-clip-unreadable",
           "A source clip has no HTML border box."
         );
-      const style = getComputedStyle(node);
+      const style = readStyle(node);
       const { width: localWidth, height: localHeight } = sourceLayoutSize(
         node,
         target,
-        space
+        space,
+        memo
       );
       const radii = resolveNativeClipRadii({
         width: localWidth,
@@ -17239,14 +22830,22 @@ fn hash(pixel: vec2f) -> f32 {
             left: inset(style.paddingLeft)
           },
           outerRadii: radii.radii,
-          edge: edge4,
+          edge: edge8,
           outset
         }
       ]);
       if (!plan.ok)
         throw new NativeSourceError(\`source-clip-\${plan.reason}\`, plan.detail);
       const localClip = plan.clips[0];
-      const geometry = relativeAffine(node, target, space, localClip.rect);
+      const geometry = relativeAffine(
+        node,
+        target,
+        space,
+        localClip.rect,
+        readStyle,
+        { width: localWidth, height: localHeight },
+        memo
+      );
       allClips.push({
         rect: geometry.rect,
         localBox: localClip.rect,
@@ -17259,7 +22858,7 @@ fn hash(pixel: vec2f) -> f32 {
     if (ownTextClipEdge)
       append(element, ownTextClipEdge, true, ownTextClipOutset);
     for (const ancestor of sourceClipAncestors(element, target, space)) {
-      const style = getComputedStyle(ancestor);
+      const style = readStyle(ancestor);
       const overflow = classifyNativeComputedOverflowClip(style);
       if (!overflow.ok)
         throw new NativeSourceError(\`source-\${overflow.reason}\`, overflow.detail);
@@ -17280,7 +22879,7 @@ fn hash(pixel: vec2f) -> f32 {
         expandTargetClip(allClips[ownCount + targetIndex].rect);
       } else {
         const targetOverflow = classifyNativeComputedOverflowClip(
-          getComputedStyle(target)
+          readStyle(target)
         );
         if (!targetOverflow.ok)
           throw new NativeSourceError(
@@ -17437,6 +23036,48 @@ fn hash(pixel: vec2f) -> f32 {
                 "Overlapping CSS stacking order differs from this source compositor's DOM order."
               );
   }
+  var SourceGeometryMemo = class {
+    constructor(target, space) {
+      this.target = target;
+      this.space = space;
+      this.styles = /* @__PURE__ */ new Map();
+      this.positions = /* @__PURE__ */ new Map();
+      this.sizes = /* @__PURE__ */ new Map();
+      this.transforms = /* @__PURE__ */ new Map();
+      this.viewportAffines = /* @__PURE__ */ new Map();
+      this.matrices = /* @__PURE__ */ new Map();
+    }
+    matches(target, space) {
+      return this.target === target && this.space === space;
+    }
+    clear() {
+      this.styles.clear();
+      this.positions.clear();
+      this.sizes.clear();
+      this.transforms.clear();
+      this.viewportAffines.clear();
+      this.matrices.clear();
+    }
+  };
+  function runSourceWalkSteps(steps, memo) {
+    return runSourceWalkStepsFrom(steps, memo, false);
+  }
+  function runSourceWalkStepsAfterAsync(steps, memo) {
+    return runSourceWalkStepsFrom(steps, memo, true);
+  }
+  function runSourceWalkStepsFrom(steps, memo, resumedAfterAsync) {
+    for (; ; ) {
+      const next = steps.next(resumedAfterAsync);
+      resumedAfterAsync = false;
+      if (next.done) return next.value;
+      const step = next.value;
+      if (step && typeof step.then === "function")
+        return step.then(() => {
+          memo?.clear();
+          return runSourceWalkStepsAfterAsync(steps, memo);
+        });
+    }
+  }
   function isFlexOrGridDisplay(display) {
     return /^(inline-)?(flex|grid)$/.test(display);
   }
@@ -17448,27 +23089,27 @@ fn hash(pixel: vec2f) -> f32 {
   function hasSourceTransform(style) {
     return !!style.transform && style.transform !== "none" || !!style.translate && style.translate !== "none" || !!style.rotate && style.rotate !== "none" || !!style.scale && style.scale !== "none";
   }
-  function sourceStackingContext(element) {
-    const style = getComputedStyle(element);
-    const parentDisplay = element.parentElement ? getComputedStyle(element.parentElement).display : "block";
+  function sourceStackingContext(element, readStyle = getComputedStyle) {
+    const style = readStyle(element);
+    const parentDisplay = element.parentElement ? readStyle(element.parentElement).display : "block";
     const positioned = style.position !== "static";
     const flexOrGridItem = isFlexOrGridDisplay(parentDisplay);
     const transformed = hasSourceTransform(style);
     const zIndex = Number(style.zIndex);
     const explicit = /^[-+]?\\d+$/.test(style.zIndex ?? "") && Number.isSafeInteger(zIndex) && (positioned || flexOrGridItem);
-    const phase = positioned || explicit && flexOrGridItem || transformed || style.isolation === "isolate" || authoredOpacity(element) < 1 ? "positioned" : "flow";
+    const phase = positioned || explicit && flexOrGridItem || transformed || style.isolation === "isolate" || authoredOpacity(element, readStyle) < 1 ? "positioned" : "flow";
     return {
       order: { rank: explicit ? zIndex : 0, phase },
-      isolates: explicit || style.position === "fixed" || style.position === "sticky" || transformed || style.isolation === "isolate" || authoredOpacity(element) < 1
+      isolates: explicit || style.position === "fixed" || style.position === "sticky" || transformed || style.isolation === "isolate" || authoredOpacity(element, readStyle) < 1
     };
   }
-  function sourceStackingOrder(receiver, parent) {
+  function sourceStackingOrder(receiver, parent, readStyle = getComputedStyle) {
     const path = [];
     for (let node = receiver; node && node !== parent; node = node.parentElement)
       path.unshift(node);
     let phase = "flow";
     for (const element of path) {
-      const context = sourceStackingContext(element);
+      const context = sourceStackingContext(element, readStyle);
       if (context.order.phase === "positioned") phase = "positioned";
       if (context.isolates) return { ...context.order, phase };
     }
@@ -17520,18 +23161,17 @@ fn hash(pixel: vec2f) -> f32 {
         if (!owner.contains(nodes[index])) return false;
     return true;
   }
-  function sourcePaintScope(leaf, stop) {
-    if (leaf !== stop && getComputedStyle(leaf).isolation === "isolate")
-      return leaf;
+  function sourcePaintScope(leaf, stop, readStyle = getComputedStyle) {
+    if (leaf !== stop && readStyle(leaf).isolation === "isolate") return leaf;
     for (let current = leaf.parentElement; current && current !== stop; current = current.parentElement)
-      if (sourceStackingContext(current).isolates) return current;
+      if (sourceStackingContext(current, readStyle).isolates) return current;
     return stop;
   }
-  function sourceLeafPaintOrder(leaf, scope) {
+  function sourceLeafPaintOrder(leaf, scope, readStyle = getComputedStyle) {
     if (leaf === scope) return { rank: 0, phase: "context-own" };
     let phase = "flow";
     for (let current = leaf; current && current !== scope; current = current.parentElement) {
-      const context = sourceStackingContext(current);
+      const context = sourceStackingContext(current, readStyle);
       if (context.order.phase === "positioned") phase = "positioned";
       if (context.isolates) return { ...context.order, phase };
     }
@@ -17572,6 +23212,155 @@ fn hash(pixel: vec2f) -> f32 {
         pending.push({ element: child, context: nextContext });
     }
     return false;
+  }
+  function rasterOwnedStyleNodes(element, phase) {
+    if (element instanceof SVGSVGElement)
+      return [element, ...element.querySelectorAll("*")];
+    if (phase === "background" || phase === "border" || phase === "coverage" || phase === "inner-coverage")
+      return [element];
+    if (phase === "foreground" || phase === "glyph" || isSourceTextFlow(element))
+      return [element, ...element.querySelectorAll("*")];
+    const nodes = [element];
+    if (hasDirectText(element)) {
+      for (const child of element.children)
+        if (isInlineFlowChild(child)) nodes.push(child);
+    }
+    return nodes;
+  }
+  var NORMALIZED_ROOT_PAINT_PROPERTIES = /* @__PURE__ */ new Set([
+    "position",
+    "left",
+    "top",
+    "margin",
+    "margin-top",
+    "margin-right",
+    "margin-bottom",
+    "margin-left",
+    "transform",
+    "transform-origin",
+    "translate",
+    "rotate",
+    "scale",
+    "opacity"
+  ]);
+  var BOX_PHASE_ROOT_PAINT_PROPERTIES = /* @__PURE__ */ new Set([
+    "background-color",
+    "background-image",
+    "border-top-color",
+    "border-right-color",
+    "border-bottom-color",
+    "border-left-color",
+    "border-image-source",
+    "box-shadow",
+    "outline-color"
+  ]);
+  function nativeRasterComputedStyleValues(style, options) {
+    const omittedProperties = /* @__PURE__ */ new Set();
+    if (options.isRoot) {
+      for (const property of NORMALIZED_ROOT_PAINT_PROPERTIES)
+        omittedProperties.add(property);
+      const boxPhase = options.phase === "background" || options.phase === "border" || options.phase === "coverage" || options.phase === "inner-coverage";
+      if (boxPhase)
+        for (const property of BOX_PHASE_ROOT_PAINT_PROPERTIES)
+          omittedProperties.add(property);
+      if (options.phase === "coverage" || options.phase === "inner-coverage")
+        omittedProperties.add("background-clip");
+    }
+    if (typeof style.item === "function" && Number.isInteger(style.length)) {
+      const values = [];
+      for (let index = 0; index < style.length; index += 1) {
+        const name = style.item(index);
+        if (omittedProperties.has(name)) continue;
+        values.push([name, style.getPropertyValue(name)]);
+      }
+      return values;
+    }
+    return Object.keys(style).filter((name) => {
+      const cssName = name.replace(
+        /[A-Z]/g,
+        (letter) => \`-\${letter.toLowerCase()}\`
+      );
+      return !omittedProperties.has(cssName) && typeof style[name] !== "function";
+    }).sort().map((name) => [name, style[name]]);
+  }
+  function snapshotComputedStyle(element) {
+    const live = getComputedStyle(element);
+    const snapshot = {};
+    const properties4 = [];
+    const values = /* @__PURE__ */ new Map();
+    const add2 = (name, value) => {
+      properties4.push(name);
+      values.set(name, value);
+      const camelName = name.replace(
+        /-([a-z])/g,
+        (_match, letter) => letter.toUpperCase()
+      );
+      if (/^[a-z]/.test(camelName)) snapshot[camelName] = value;
+    };
+    for (const name of [
+      "display",
+      "visibility",
+      "opacity",
+      "position",
+      "z-index",
+      "order",
+      "isolation",
+      "mix-blend-mode",
+      "filter",
+      "backdrop-filter",
+      "transform",
+      "transform-origin",
+      "translate",
+      "rotate",
+      "scale",
+      "perspective",
+      "transform-style",
+      "overflow-x",
+      "overflow-y",
+      "clip-path",
+      "background-image",
+      "background-color",
+      "background-clip",
+      "box-shadow",
+      "outline-style",
+      "mask-image",
+      "image-rendering",
+      "object-fit",
+      "object-position",
+      "border-top-width",
+      "border-right-width",
+      "border-bottom-width",
+      "border-left-width",
+      "border-top-left-radius",
+      "border-top-right-radius",
+      "border-bottom-right-radius",
+      "border-bottom-left-radius",
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left"
+    ]) {
+      const camelName = name.replace(
+        /-([a-z])/g,
+        (_match, letter) => letter.toUpperCase()
+      );
+      const direct = live[camelName];
+      const canReadCssomProperty = typeof live.item === "function" && Number.isInteger(live.length);
+      const value = typeof direct === "string" ? direct : canReadCssomProperty ? live.getPropertyValue(name) : void 0;
+      if (typeof value !== "string") continue;
+      add2(name, value);
+    }
+    for (const name of [
+      "overflow-clip-margin",
+      "-webkit-mask-image",
+      "mask-border-source",
+      "-webkit-mask-box-image-source"
+    ])
+      values.set(name, live.getPropertyValue(name));
+    snapshot.length = properties4.length;
+    snapshot.item = (index) => properties4[index] ?? "";
+    snapshot.getPropertyValue = (name) => values.get(name) ?? "";
+    return snapshot;
   }
   function cloneOwnPaint(element, preserveNativeTextFlow = false, phase = "all", fillPaint) {
     const boxPhase = phase === "background" || phase === "border" || phase === "coverage" || phase === "inner-coverage";
@@ -18041,6 +23830,12 @@ fn hash(pixel: vec2f) -> f32 {
       this.onObservedAttribute = onObservedAttribute;
       this.canvas = document.createElement("canvas");
       this.capture = new NativeCaptureCache();
+      this.captureSceneSnapshots = /* @__PURE__ */ new WeakMap();
+      this.capturePaintSnapshots = /* @__PURE__ */ new WeakMap();
+      this.captureSceneSnapshot = null;
+      this.capturePaintSnapshot = null;
+      this.hasCommittedCapture = false;
+      this.invalidationGeneration = 0;
       this.revision = 0;
       this.requestedWidth = -1;
       this.requestedHeight = -1;
@@ -18106,32 +23901,45 @@ fn hash(pixel: vec2f) -> f32 {
       });
       this.resizeObserver.observe(element);
     }
-    async read() {
-      const size = sizeOf(this.element);
-      const density = this.density();
-      const width = Math.ceil(size.width * density);
-      const height = Math.ceil(size.height * density);
-      const rasterChanged = width !== this.requestedWidth || height !== this.requestedHeight || density !== this.requestedDensity;
-      const content = this.contentMeasurementDirty || rasterChanged ? contentBoxOf(this.element) : {
-        width: this.requestedContentWidth,
-        height: this.requestedContentHeight
-      };
-      if (rasterChanged || content.width !== this.requestedContentWidth || content.height !== this.requestedContentHeight) {
-        const reason = this.requestedWidth < 0 ? "initial" : density !== this.requestedDensity ? "density" : "dimensions";
-        this.requestedWidth = width;
-        this.requestedHeight = height;
-        this.requestedContentWidth = content.width;
-        this.requestedContentHeight = content.height;
-        this.requestedDensity = density;
-        this.invalidate(reason);
-      }
-      this.contentMeasurementDirty = false;
+    get capturedSceneSnapshot() {
+      return this.captureSceneSnapshot;
+    }
+    get capturedPaintSnapshot() {
+      return this.capturePaintSnapshot;
+    }
+    read(sceneSnapshot, paintSnapshot) {
       try {
-        return await this.capture.read(
+        const size = sizeOf(this.element);
+        const density = this.density();
+        const width = Math.ceil(size.width * density);
+        const height = Math.ceil(size.height * density);
+        const rasterChanged = width !== this.requestedWidth || height !== this.requestedHeight || density !== this.requestedDensity;
+        const content = this.contentMeasurementDirty || rasterChanged ? contentBoxOf(this.element) : {
+          width: this.requestedContentWidth,
+          height: this.requestedContentHeight
+        };
+        if (rasterChanged || content.width !== this.requestedContentWidth || content.height !== this.requestedContentHeight) {
+          const reason = this.requestedWidth < 0 ? "initial" : density !== this.requestedDensity ? "density" : "dimensions";
+          this.requestedWidth = width;
+          this.requestedHeight = height;
+          this.requestedContentWidth = content.width;
+          this.requestedContentHeight = content.height;
+          this.requestedDensity = density;
+          this.invalidate(reason);
+        }
+        this.contentMeasurementDirty = false;
+        if (this.hasCommittedCapture) return this.canvas;
+        return this.capture.read(
           async () => {
+            const snapshot = sceneSnapshot?.() ?? null;
+            const paint = paintSnapshot?.() ?? null;
             const candidate = document.createElement("canvas");
             try {
               await this.raster(this.element, candidate, density);
+              if (snapshot !== null)
+                this.captureSceneSnapshots.set(candidate, snapshot);
+              if (paint !== null)
+                this.capturePaintSnapshots.set(candidate, paint);
               return candidate;
             } catch (error) {
               candidate.width = 0;
@@ -18141,9 +23949,14 @@ fn hash(pixel: vec2f) -> f32 {
           },
           (candidate) => {
             const previous = this.canvas;
+            const invalidationGeneration = this.invalidationGeneration;
             this.canvas = candidate;
+            this.captureSceneSnapshot = this.captureSceneSnapshots.get(candidate) ?? null;
+            this.capturePaintSnapshot = this.capturePaintSnapshots.get(candidate) ?? null;
             this.revision += 1;
             this.onCapture();
+            if (this.invalidationGeneration === invalidationGeneration)
+              this.hasCommittedCapture = true;
             previous.width = 0;
             previous.height = 0;
           },
@@ -18151,22 +23964,23 @@ fn hash(pixel: vec2f) -> f32 {
             candidate.width = 0;
             candidate.height = 0;
           }
-        );
+        ).catch((error) => {
+          throw normalizeCachedLeafError(error);
+        });
       } catch (error) {
-        if (error instanceof NativeCaptureCacheError)
-          throw new NativeSourceError(error.code, error.message);
-        if (error instanceof NativeSvgSourceError)
-          throw new NativeSourceError(error.code, error.message);
-        throw error;
+        return Promise.reject(normalizeCachedLeafError(error));
       }
     }
     invalidate(reason = "explicit") {
+      this.invalidationGeneration += 1;
+      this.hasCommittedCapture = false;
       this.contentMeasurementDirty = true;
       this.capture.invalidate();
       this.onInvalidationReason(reason);
       this.onInvalidate();
     }
     dispose() {
+      this.hasCommittedCapture = false;
       this.observer.disconnect();
       this.resizeObserver.disconnect();
       this.capture.dispose();
@@ -18174,6 +23988,17 @@ fn hash(pixel: vec2f) -> f32 {
       this.canvas.height = 0;
     }
   };
+  function afterMaybePromise(value, continuation) {
+    if (value instanceof Promise) return value.then(continuation);
+    continuation(value);
+  }
+  function normalizeCachedLeafError(error) {
+    if (error instanceof NativeCaptureCacheError)
+      return new NativeSourceError(error.code, error.message);
+    if (error instanceof NativeSvgSourceError)
+      return new NativeSourceError(error.code, error.message);
+    return error;
+  }
   var SceneProvider = class {
     constructor(target, placement, onDirty = () => {
     }, backdropPresentation) {
@@ -18484,7 +24309,105 @@ fn hash(pixel: vec2f) -> f32 {
       }
       return id;
     }
-    async recordMediaBackground(element, common3, ancestorClip, out) {
+    readSceneLeaf(leaf, metrics, phase = "all", memo) {
+      const started = metrics ? performance.now() : 0;
+      const finish2 = () => {
+        if (metrics) metrics.leafWaitWallMs += performance.now() - started;
+      };
+      let revision = leaf.revision;
+      let plannedSnapshot = "";
+      let plannedPaint = "";
+      let result;
+      try {
+        plannedSnapshot = this.sceneFrameSnapshot(leaf.element, metrics);
+        plannedPaint = this.rasterPaintSnapshot(leaf.element, phase, metrics);
+        if (leaf.capturedPaintSnapshot !== null && leaf.capturedPaintSnapshot !== plannedPaint)
+          leaf.invalidate("explicit");
+        revision = leaf.revision;
+        result = leaf.read(
+          () => this.sceneFrameSnapshot(leaf.element, metrics),
+          () => this.rasterPaintSnapshot(leaf.element, phase, metrics)
+        );
+      } catch (error) {
+        finish2();
+        throw normalizeCachedLeafError(error);
+      }
+      const validate = (source3) => {
+        if (leaf.revision !== revision && (leaf.capturedSceneSnapshot !== plannedSnapshot || leaf.capturedPaintSnapshot !== plannedPaint))
+          throw new NativeSourceError(
+            "source-scene-stale",
+            "The source geometry changed before its raster snapshot began."
+          );
+        return source3;
+      };
+      if (result instanceof Promise)
+        return result.then(validate).catch((error) => {
+          throw normalizeCachedLeafError(error);
+        }).finally(() => {
+          memo?.clear();
+          finish2();
+        });
+      try {
+        return validate(result);
+      } catch (error) {
+        throw normalizeCachedLeafError(error);
+      } finally {
+        finish2();
+      }
+    }
+    sceneFrameSnapshot(element, metrics) {
+      const stop = this.placement === "backdrop" ? document.documentElement : this.target;
+      const entries = [];
+      for (let current = element; current; current = current.parentElement) {
+        if (metrics) {
+          metrics.recordDirectRectReads += 1;
+          metrics.recordDirectStyleReads += 1;
+        }
+        const rect = current.getBoundingClientRect();
+        const style = getComputedStyle(current);
+        entries.push([
+          rect.left,
+          rect.top,
+          rect.width,
+          rect.height,
+          style.transform,
+          style.translate,
+          style.rotate,
+          style.scale,
+          style.overflowX,
+          style.overflowY,
+          style.clipPath,
+          style.borderTopLeftRadius,
+          style.borderTopRightRadius,
+          style.borderBottomRightRadius,
+          style.borderBottomLeftRadius
+        ]);
+        if (current === stop) break;
+      }
+      return JSON.stringify(entries);
+    }
+    rasterPaintSnapshot(element, phase, metrics) {
+      const nodes = rasterOwnedStyleNodes(element, phase);
+      return JSON.stringify(
+        nodes.map((node) => {
+          if (metrics) metrics.recordDirectStyleReads += 1;
+          const style = getComputedStyle(node);
+          let size = null;
+          if (node === element) {
+            if (metrics) metrics.recordDirectLayoutSizeReads += 1;
+            size = sizeOf(element);
+          }
+          return [
+            size,
+            nativeRasterComputedStyleValues(style, {
+              isRoot: node === element,
+              phase
+            })
+          ];
+        })
+      );
+    }
+    recordMediaBackground(element, common3, ancestorClip, out, metrics, memo) {
       let leaf = this.mediaBackgrounds.get(element);
       if (!leaf) {
         const key = this.backgroundId(element);
@@ -18500,20 +24423,24 @@ fn hash(pixel: vec2f) -> f32 {
         );
         this.mediaBackgrounds.set(element, leaf);
       }
-      const source3 = await leaf.read();
-      out.push({
-        ...common3,
-        key: this.backgroundId(element),
-        kind: "dom",
-        source: source3,
-        width: source3.width,
-        height: source3.height,
-        revision: leaf.revision,
-        clip: ancestorClip,
-        clips: []
-      });
+      return afterMaybePromise(
+        this.readSceneLeaf(leaf, metrics, "background", memo),
+        (source3) => {
+          out.push({
+            ...common3,
+            key: this.backgroundId(element),
+            kind: "dom",
+            source: source3,
+            width: source3.width,
+            height: source3.height,
+            revision: leaf.revision,
+            clip: ancestorClip,
+            clips: []
+          });
+        }
+      );
     }
-    isolationPath(element, groupClips, ownOpacityBaked, layerOutputOpacityDeferred = false) {
+    isolationPath(element, groupClips, ownOpacityBaked, layerOutputOpacityDeferred = false, readStyle = getComputedStyle) {
       const isBackdropCanvas = (node) => node instanceof HTMLCanvasElement && node.hasAttribute("data-an-native-backdrop-presentation") && !!node.getAttribute("data-an-native-canvas");
       const receiverForCanvas = nativeBackdropReceiver;
       const precedingBackdropCanvas = (node) => {
@@ -18534,10 +24461,10 @@ fn hash(pixel: vec2f) -> f32 {
       const clipped = new Set(groupClips.map(({ node }) => node));
       const path = [];
       for (const node of nodes.reverse()) {
-        const opacity = authoredOpacity(node);
+        const opacity = authoredOpacity(node, readStyle);
         const receiver = isBackdropCanvas(node) ? receiverForCanvas(node) : precedingBackdropCanvas(node) ? node : null;
         if (receiver && !(node === this.target && this.placement === "fill") && !(node === this.target && this.placement === "layer" && this.layerTargetOpacityDeferred)) {
-          if (receiver === node && ownOpacityBaked && node.hasAttribute("data-an-native-layer-instance") && !layerOutputOpacityDeferred && authoredOpacity(receiver) < 1)
+          if (receiver === node && ownOpacityBaked && node.hasAttribute("data-an-native-layer-instance") && !layerOutputOpacityDeferred && authoredOpacity(receiver, readStyle) < 1)
             throw new NativeSourceError(
               "source-composition-unsupported",
               "source-composition-unsupported"
@@ -18545,7 +24472,7 @@ fn hash(pixel: vec2f) -> f32 {
           path.push({
             id: \`receiver:\${this.id(receiver)}\`,
             kind: "opacity",
-            opacity: authoredOpacity(receiver)
+            opacity: authoredOpacity(receiver, readStyle)
           });
         }
         const deferTargetOpacity = node === this.target && (this.placement === "fill" || this.placement === "layer" && this.layerTargetOpacityDeferred);
@@ -18564,6 +24491,15 @@ fn hash(pixel: vec2f) -> f32 {
       return path;
     }
     assertSourceComposition(records) {
+      const styles = /* @__PURE__ */ new Map();
+      const readStyle = (element) => {
+        let style = styles.get(element);
+        if (!style) {
+          style = getComputedStyle(element);
+          styles.set(element, style);
+        }
+        return style;
+      };
       const stop = this.placement === "backdrop" ? document.documentElement : this.target;
       const stackingPaints = /* @__PURE__ */ new Map();
       const visibleBoxes = [];
@@ -18575,7 +24511,7 @@ fn hash(pixel: vec2f) -> f32 {
         if (visible.width <= 0 || visible.height <= 0) continue;
         let transformOwner = null;
         for (let current = record4.node; current; current = current.parentElement) {
-          const style = getComputedStyle(current);
+          const style = readStyle(current);
           if (current !== stop && !transformOwner && hasSourceTransform(style))
             transformOwner = current;
           if (!(current === record4.node && current instanceof SVGSVGElement) && hasUnsupportedSourceMask(style.clipPath, style.maskImage))
@@ -18585,8 +24521,8 @@ fn hash(pixel: vec2f) -> f32 {
             );
           if (current === stop) break;
         }
-        const scope = sourcePaintScope(record4.node, stop);
-        const order = sourceLeafPaintOrder(record4.node, scope);
+        const scope = sourcePaintScope(record4.node, stop, readStyle);
+        const order = sourceLeafPaintOrder(record4.node, scope, readStyle);
         const footprints = stackingPaints.get(scope) ?? [];
         footprints.push({
           box: visible,
@@ -18613,8 +24549,16 @@ fn hash(pixel: vec2f) -> f32 {
             stackingNodes[second],
             stop
           );
-          const firstOrder = sourceStackingOrder(stackingNodes[first], common3);
-          const secondOrder = sourceStackingOrder(stackingNodes[second], common3);
+          const firstOrder = sourceStackingOrder(
+            stackingNodes[first],
+            common3,
+            readStyle
+          );
+          const secondOrder = sourceStackingOrder(
+            stackingNodes[second],
+            common3,
+            readStyle
+          );
           if (hasUnsupportedStackingOrder([
             {
               box: visibleBoxes[first],
@@ -18638,11 +24582,12 @@ fn hash(pixel: vec2f) -> f32 {
           "Overlapping source paint crosses an explicit CSS z-index context."
         );
     }
-    async recordSvg(element, out) {
+    recordSvg(element, out, metrics, memo) {
       assertLeafSupported(
         element,
         this.coordinateSpace === "target-local" ? this.target : void 0
       );
+      if (metrics) metrics.recordDirectStyleReads += 1;
       const style = getComputedStyle(element);
       if (style.display === "none" || style.visibility === "hidden") return;
       if (element.hasAttribute("transform"))
@@ -18652,6 +24597,7 @@ fn hash(pixel: vec2f) -> f32 {
         );
       const stop = this.coordinateSpace === "target-local" ? this.target : document.documentElement;
       for (let ancestor = element; ancestor; ancestor = ancestor.parentElement) {
+        if (metrics) metrics.recordDirectStyleReads += 1;
         if (hasSourceTransform(getComputedStyle(ancestor)))
           throw new NativeSourceError(
             "source-svg-transform-unsupported",
@@ -18659,6 +24605,7 @@ fn hash(pixel: vec2f) -> f32 {
           );
         if (ancestor === stop) break;
       }
+      if (metrics) metrics.recordDirectRectReads += 2;
       const box = element.getBoundingClientRect();
       const target = this.target.getBoundingClientRect();
       if (!Number.isFinite(box.width) || !Number.isFinite(box.height) || box.width <= 0 || box.height <= 0 || this.coordinateSpace === "target-local" && (Math.abs(target.width - this.target.offsetWidth) > 0.5 || Math.abs(target.height - this.target.offsetHeight) > 0.5))
@@ -18683,7 +24630,12 @@ fn hash(pixel: vec2f) -> f32 {
         element,
         this.target,
         this.coordinateSpace,
-        false
+        false,
+        null,
+        0,
+        "content",
+        void 0,
+        memo
       );
       const isolationPath = this.isolationPath(
         element,
@@ -18707,97 +24659,120 @@ fn hash(pixel: vec2f) -> f32 {
         );
         this.svgLeaves.set(element, leaf);
       }
-      const source3 = await leaf.read();
-      const capture = nativeCaptureRoi(source3);
-      const computedOverflow = classifyNativeComputedOverflowClip(style);
-      if (!computedOverflow.ok)
-        throw new NativeSourceError(
-          \`source-\${computedOverflow.reason}\`,
-          computedOverflow.detail
-        );
-      if (!capture && computedOverflow.outset > 0)
-        throw new NativeSourceError(
-          "source-capture-geometry-missing",
-          "The SVG raster has no committed source origin."
-        );
-      const expectedCapture = planNativeCaptureRoi({
-        ownBox: { x: 0, y: 0, width: box.width, height: box.height },
-        clipBox: {
-          x: -computedOverflow.outset,
-          y: -computedOverflow.outset,
-          width: box.width + 2 * computedOverflow.outset,
-          height: box.height + 2 * computedOverflow.outset
-        },
-        density: this.density,
-        maxDimension: 4096,
-        maxPixels: 8388608
-      });
-      if (!expectedCapture.ok)
-        throw new NativeSourceError(
-          \`source-\${expectedCapture.reason}\`,
-          "The current SVG capture geometry cannot be represented."
-        );
-      assertCurrentCaptureRoi(
-        capture,
-        expectedCapture.plan,
-        computedOverflow.outset > 0
+      return afterMaybePromise(
+        this.readSceneLeaf(leaf, metrics, "all", memo),
+        (source3) => {
+          const capture = nativeCaptureRoi(source3);
+          const computedOverflow = classifyNativeComputedOverflowClip(style);
+          if (!computedOverflow.ok)
+            throw new NativeSourceError(
+              \`source-\${computedOverflow.reason}\`,
+              computedOverflow.detail
+            );
+          if (!capture && computedOverflow.outset > 0)
+            throw new NativeSourceError(
+              "source-capture-geometry-missing",
+              "The SVG raster has no committed source origin."
+            );
+          const expectedCapture = planNativeCaptureRoi({
+            ownBox: { x: 0, y: 0, width: box.width, height: box.height },
+            clipBox: {
+              x: -computedOverflow.outset,
+              y: -computedOverflow.outset,
+              width: box.width + 2 * computedOverflow.outset,
+              height: box.height + 2 * computedOverflow.outset
+            },
+            density: this.density,
+            maxDimension: 4096,
+            maxPixels: 8388608
+          });
+          if (!expectedCapture.ok)
+            throw new NativeSourceError(
+              \`source-\${expectedCapture.reason}\`,
+              "The current SVG capture geometry cannot be represented."
+            );
+          assertCurrentCaptureRoi(
+            capture,
+            expectedCapture.plan,
+            computedOverflow.outset > 0
+          );
+          const capturedLocalBox = capture?.cssBox ?? localBox;
+          const captured = planNativeSourceAffine({
+            localBox: capturedLocalBox,
+            localToTarget: svgToTarget,
+            physicalScale: { x: 1, y: 1 }
+          });
+          if (!captured.ok)
+            throw new NativeSourceError("source-transform", "source-transform");
+          const capturedRect = captured.physicalBounds;
+          out.push({
+            key: this.id(element),
+            node: element,
+            kind: "dom",
+            source: source3,
+            width: source3.width,
+            height: source3.height,
+            revision: leaf.revision,
+            coordinateSpace: this.coordinateSpace,
+            localBox: capturedLocalBox,
+            localToTarget: svgToTarget,
+            rect: capturedRect,
+            clip: sourceClip.clip,
+            clips: [],
+            groupClips: sourceClip.groupClips.map(({ node, clip }) => ({
+              id: \`clip:\${this.id(node)}\`,
+              clip
+            })),
+            isolationPath,
+            opacity: 1
+          });
+        }
       );
-      const capturedLocalBox = capture?.cssBox ?? localBox;
-      const captured = planNativeSourceAffine({
-        localBox: capturedLocalBox,
-        localToTarget: svgToTarget,
-        physicalScale: { x: 1, y: 1 }
-      });
-      if (!captured.ok)
-        throw new NativeSourceError("source-transform", "source-transform");
-      const capturedRect = captured.physicalBounds;
-      out.push({
-        key: this.id(element),
-        node: element,
-        kind: "dom",
-        source: source3,
-        width: source3.width,
-        height: source3.height,
-        revision: leaf.revision,
-        coordinateSpace: this.coordinateSpace,
-        localBox: capturedLocalBox,
-        localToTarget: svgToTarget,
-        rect: capturedRect,
-        clip: sourceClip.clip,
-        clips: [],
-        groupClips: sourceClip.groupClips.map(({ node, clip }) => ({
-          id: \`clip:\${this.id(node)}\`,
-          clip
-        })),
-        isolationPath,
-        opacity: 1
-      });
     }
-    async record(element, out, paintPhase = "all") {
+    record(element, out, paintPhase = "all", metrics, memo) {
       if (!element.isConnected || this.omit(element)) return;
-      if (element instanceof SVGSVGElement) {
-        await this.recordSvg(element, out);
-        return;
-      }
+      if (element instanceof SVGSVGElement)
+        return this.recordSvg(element, out, metrics, memo);
       if (element instanceof SVGElement)
         throw new NativeSourceError(
           "source-inline-svg",
           "An SVG fragment outside an SVG root cannot be captured."
         );
       if (!(element instanceof HTMLElement)) return;
-      const style = getComputedStyle(element);
+      const recordStyles = memo?.styles ?? /* @__PURE__ */ new Map();
+      const readRecordStyle = (node) => {
+        let style2 = recordStyles.get(node);
+        if (!style2) {
+          style2 = snapshotComputedStyle(node);
+          recordStyles.set(node, style2);
+        }
+        return style2;
+      };
+      const readCountedRecordStyle = (node) => {
+        if (!recordStyles.has(node) && metrics)
+          metrics.recordDirectStyleReads += 1;
+        return readRecordStyle(node);
+      };
+      const readFreshRecordStyle = (node) => {
+        if (metrics) metrics.recordDirectStyleReads += 1;
+        return snapshotComputedStyle(node);
+      };
+      const style = readCountedRecordStyle(element);
       const groupLocalReceiver = this.groupLocalBackdropReceiver(element);
-      const visibility = groupLocalReceiver ? getComputedStyle(groupLocalReceiver) : style;
+      const visibility = groupLocalReceiver ? readCountedRecordStyle(groupLocalReceiver) : style;
       if (visibility.display === "none" || visibility.visibility === "hidden" || visibility.visibility === "collapse")
         return;
       if (element instanceof HTMLCanvasElement && element.hasAttribute("data-an-shader-canvas")) {
         for (let node = element; node; node = node.parentElement) {
-          const ancestorStyle = getComputedStyle(node);
-          if (ancestorStyle.display === "none" || ancestorStyle.visibility !== "visible" || authoredOpacity(node) <= 0)
+          const ancestorStyle = readCountedRecordStyle(node);
+          if (ancestorStyle.display === "none" || ancestorStyle.visibility !== "visible" || authoredOpacity(node, readRecordStyle) <= 0)
             return;
           if (node === this.target) break;
         }
+        if (metrics) metrics.recordDirectAffineReads += 1;
         const box2 = relativeRect(element, this.target, this.coordinateSpace);
+        if (metrics && this.coordinateSpace !== "target-viewport-axis-aligned")
+          metrics.recordDirectAffineReads += 1;
         const targetBox = this.coordinateSpace === "target-viewport-axis-aligned" ? viewportRelativeRect(this.target, this.target) : relativeAffine(this.target, this.target, this.coordinateSpace).rect;
         const sourceBounds = {
           x: 0,
@@ -18815,12 +24790,15 @@ fn hash(pixel: vec2f) -> f32 {
       }
       assertLeafSupported(
         element,
-        this.coordinateSpace === "target-local" ? this.target : void 0
+        this.coordinateSpace === "target-local" ? this.target : void 0,
+        readRecordStyle
       );
+      if (metrics) metrics.recordDirectLayoutSizeReads += 1;
       const ownSize = sourceLayoutSize(
         element,
         this.target,
-        this.coordinateSpace
+        this.coordinateSpace,
+        memo
       );
       const missingRootBox = element === document.documentElement && (element.offsetWidth === 0 || element.offsetHeight === 0);
       if (hasEmptySourceLayout(ownSize) || missingRootBox) {
@@ -18831,7 +24809,16 @@ fn hash(pixel: vec2f) -> f32 {
           );
         return;
       }
-      const geometry = relativeAffine(element, this.target, this.coordinateSpace);
+      if (metrics) metrics.recordDirectAffineReads += 1;
+      const geometry = relativeAffine(
+        element,
+        this.target,
+        this.coordinateSpace,
+        void 0,
+        readRecordStyle,
+        ownSize,
+        memo
+      );
       const box = geometry.rect;
       if (box.width <= 0 || box.height <= 0) return;
       const nativeInstanceId = element instanceof HTMLCanvasElement ? element.getAttribute("data-an-native-canvas") : null;
@@ -18851,17 +24838,21 @@ fn hash(pixel: vec2f) -> f32 {
         media || !!nativeInstanceId,
         null,
         0,
-        backdropReceiver ? "border" : "content"
+        backdropReceiver ? "border" : "content",
+        readRecordStyle,
+        memo
       );
       const contentVisible = sourceClip.clip.width > 0 && sourceClip.clip.height > 0;
-      const hasMediaBackground = media && mediaHasSolidBackground(element);
+      const hasMediaBackground = media && mediaHasSolidBackground(element, style);
       const backgroundBounds = intersect(box, sourceClip.ancestorClip);
       const backgroundVisible = hasMediaBackground && backgroundBounds.width > 0 && backgroundBounds.height > 0;
       if (!contentVisible && !backgroundVisible) return;
       const isolationPath = this.isolationPath(
         element,
         sourceClip.groupClips,
-        !!nativeInstanceId || boxPhase
+        !!nativeInstanceId || boxPhase,
+        false,
+        readRecordStyle
       );
       if (!isolationPath) return;
       const key = boxPhase ? this.fillBoxIds.get(paintPhase) : paintPhase === "foreground" ? this.fillForegroundId : paintPhase === "glyph" ? this.fillGlyphId : this.id(element);
@@ -18882,18 +24873,23 @@ fn hash(pixel: vec2f) -> f32 {
         opacity: 1
       };
       if (!contentVisible && backgroundVisible) {
-        await this.recordMediaBackground(
+        recordStyles.clear();
+        return this.recordMediaBackground(
           element,
           common3,
           sourceClip.ancestorClip,
-          out
+          out,
+          metrics,
+          memo
         );
-        return;
       }
       const mediaBox = sourceClip.clips[0]?.localBox ?? geometry.localBox;
       if (element instanceof HTMLImageElement) {
         assertLocalAsset(element.currentSrc || element.src);
-        if (!element.complete || element.naturalWidth <= 0)
+        const imageWidth = element.naturalWidth;
+        const imageHeight = element.naturalHeight;
+        const imageRendering = style.imageRendering;
+        if (!element.complete || imageWidth <= 0)
           throw new NativeSourceError(
             "source-image-pending",
             "An image source has not finished loading."
@@ -18901,33 +24897,49 @@ fn hash(pixel: vec2f) -> f32 {
         const image2 = mediaPlacement(
           element,
           mediaBox,
-          element.naturalWidth,
-          element.naturalHeight
+          imageWidth,
+          imageHeight,
+          style
         );
-        if (hasMediaBackground)
-          await this.recordMediaBackground(
-            element,
-            common3,
-            sourceClip.ancestorClip,
-            out
+        const imageRect = relativeAffine(
+          element,
+          this.target,
+          this.coordinateSpace,
+          image2.rect,
+          readRecordStyle,
+          void 0,
+          memo
+        ).rect;
+        const appendImage = () => {
+          if (metrics) metrics.recordDirectAffineReads += 1;
+          out.push({
+            ...common3,
+            rect: imageRect,
+            localBox: image2.rect,
+            uv: image2.uv,
+            kind: "image",
+            imageRendering: { value: imageRendering },
+            source: element,
+            width: imageWidth,
+            height: imageHeight,
+            revision: this.assetRevision
+          });
+        };
+        if (hasMediaBackground) {
+          recordStyles.clear();
+          return afterMaybePromise(
+            this.recordMediaBackground(
+              element,
+              common3,
+              sourceClip.ancestorClip,
+              out,
+              metrics,
+              memo
+            ),
+            appendImage
           );
-        out.push({
-          ...common3,
-          rect: relativeAffine(
-            element,
-            this.target,
-            this.coordinateSpace,
-            image2.rect
-          ).rect,
-          localBox: image2.rect,
-          uv: image2.uv,
-          kind: "image",
-          imageRendering: { value: style.imageRendering },
-          source: element,
-          width: element.naturalWidth,
-          height: element.naturalHeight,
-          revision: this.assetRevision
-        });
+        }
+        appendImage();
         return;
       }
       if (element instanceof HTMLVideoElement) {
@@ -18937,36 +24949,55 @@ fn hash(pixel: vec2f) -> f32 {
             "source-video-pending",
             "A video frame is not decoded yet."
           );
+        const videoWidth = element.videoWidth;
+        const videoHeight = element.videoHeight;
+        const imageRendering = style.imageRendering;
         const video = mediaPlacement(
           element,
           mediaBox,
-          element.videoWidth,
-          element.videoHeight
+          videoWidth,
+          videoHeight,
+          style
         );
-        if (hasMediaBackground)
-          await this.recordMediaBackground(
-            element,
-            common3,
-            sourceClip.ancestorClip,
-            out
+        const videoRect = relativeAffine(
+          element,
+          this.target,
+          this.coordinateSpace,
+          video.rect,
+          readRecordStyle,
+          void 0,
+          memo
+        ).rect;
+        const appendVideo = () => {
+          if (metrics) metrics.recordDirectAffineReads += 1;
+          out.push({
+            ...common3,
+            rect: videoRect,
+            localBox: video.rect,
+            uv: video.uv,
+            kind: "video",
+            imageRendering: { value: imageRendering },
+            source: element,
+            width: videoWidth,
+            height: videoHeight,
+            revision: ++this.assetRevision
+          });
+        };
+        if (hasMediaBackground) {
+          recordStyles.clear();
+          return afterMaybePromise(
+            this.recordMediaBackground(
+              element,
+              common3,
+              sourceClip.ancestorClip,
+              out,
+              metrics,
+              memo
+            ),
+            appendVideo
           );
-        out.push({
-          ...common3,
-          rect: relativeAffine(
-            element,
-            this.target,
-            this.coordinateSpace,
-            video.rect
-          ).rect,
-          localBox: video.rect,
-          uv: video.uv,
-          kind: "video",
-          imageRendering: { value: style.imageRendering },
-          source: element,
-          width: element.videoWidth,
-          height: element.videoHeight,
-          revision: ++this.assetRevision
-        });
+        }
+        appendVideo();
         return;
       }
       if (element instanceof HTMLCanvasElement) {
@@ -18974,14 +25005,19 @@ fn hash(pixel: vec2f) -> f32 {
           out.push({
             ...common3,
             kind: "native",
-            imageRendering: { value: style.imageRendering },
+            imageRendering: {
+              value: readFreshRecordStyle(element).imageRendering
+            },
             nativeInstanceId,
             width: element.width,
             height: element.height,
             revision: this.assetRevision
           });
         } else {
-          if (element.width <= 0 || element.height <= 0)
+          const canvasWidth = element.width;
+          const canvasHeight = element.height;
+          const imageRendering = style.imageRendering;
+          if (canvasWidth <= 0 || canvasHeight <= 0)
             throw new NativeSourceError(
               "source-canvas-empty",
               "A canvas source has no drawable pixels."
@@ -18989,33 +25025,49 @@ fn hash(pixel: vec2f) -> f32 {
           const canvas = mediaPlacement(
             element,
             mediaBox,
-            element.width,
-            element.height
+            canvasWidth,
+            canvasHeight,
+            style
           );
-          if (hasMediaBackground)
-            await this.recordMediaBackground(
-              element,
-              common3,
-              sourceClip.ancestorClip,
-              out
+          const canvasRect = relativeAffine(
+            element,
+            this.target,
+            this.coordinateSpace,
+            canvas.rect,
+            readRecordStyle,
+            void 0,
+            memo
+          ).rect;
+          const appendCanvas = () => {
+            if (metrics) metrics.recordDirectAffineReads += 1;
+            out.push({
+              ...common3,
+              rect: canvasRect,
+              localBox: canvas.rect,
+              uv: canvas.uv,
+              kind: "canvas",
+              imageRendering: { value: imageRendering },
+              source: element,
+              width: canvasWidth,
+              height: canvasHeight,
+              revision: ++this.assetRevision
+            });
+          };
+          if (hasMediaBackground) {
+            recordStyles.clear();
+            return afterMaybePromise(
+              this.recordMediaBackground(
+                element,
+                common3,
+                sourceClip.ancestorClip,
+                out,
+                metrics,
+                memo
+              ),
+              appendCanvas
             );
-          out.push({
-            ...common3,
-            rect: relativeAffine(
-              element,
-              this.target,
-              this.coordinateSpace,
-              canvas.rect
-            ).rect,
-            localBox: canvas.rect,
-            uv: canvas.uv,
-            kind: "canvas",
-            imageRendering: { value: style.imageRendering },
-            source: element,
-            width: element.width,
-            height: element.height,
-            revision: ++this.assetRevision
-          });
+          }
+          appendCanvas();
         }
         return;
       }
@@ -19045,13 +25097,7 @@ fn hash(pixel: vec2f) -> f32 {
           else if (paintPhase === "glyph") this.fillGlyphLeaf = leaf;
           else this.leaves.set(element, leaf);
         }
-        const source3 = await leaf.read();
-        const capture = nativeCaptureRoi(source3);
-        if (!capture && ownOverflow.outset > 0)
-          throw new NativeSourceError(
-            "source-capture-geometry-missing",
-            "The DOM raster has no committed source origin."
-          );
+        recordStyles.clear();
         const size = sizeOf(element);
         const ownClip = ownOverflow.edge === "none" ? { x: 0, y: 0, width: size.width, height: size.height } : sourceClipPlan(
           element,
@@ -19078,35 +25124,71 @@ fn hash(pixel: vec2f) -> f32 {
             \`source-\${expectedCapture.reason}\`,
             "The current DOM capture geometry cannot be represented."
           );
-        assertCurrentCaptureRoi(
-          capture,
-          expectedCapture.plan,
-          ownOverflow.outset > 0
+        return afterMaybePromise(
+          this.readSceneLeaf(leaf, metrics, paintPhase, memo),
+          (source3) => {
+            const capture = nativeCaptureRoi(source3);
+            if (!capture && ownOverflow.outset > 0)
+              throw new NativeSourceError(
+                "source-capture-geometry-missing",
+                "The DOM raster has no committed source origin."
+              );
+            assertCurrentCaptureRoi(
+              capture,
+              expectedCapture.plan,
+              ownOverflow.outset > 0
+            );
+            if (capture && metrics) metrics.recordDirectAffineReads += 1;
+            const capturedGeometryResult = planNativeSourceAffine({
+              localBox: capture?.cssBox ?? geometry.localBox,
+              localToTarget: geometry.localToTarget,
+              physicalScale: { x: 1, y: 1 }
+            });
+            if (!capturedGeometryResult.ok)
+              throw new NativeSourceError("source-transform", "source-transform");
+            const capturedGeometry = {
+              localBox: capture?.cssBox ?? geometry.localBox,
+              localToTarget: geometry.localToTarget,
+              rect: capturedGeometryResult.physicalBounds
+            };
+            out.push({
+              ...common3,
+              rect: capturedGeometry.rect,
+              localBox: capture?.cssBox ?? capturedGeometry.localBox,
+              localToTarget: capturedGeometry.localToTarget,
+              kind: "dom",
+              source: source3,
+              width: source3.width,
+              height: source3.height,
+              revision: leaf.revision
+            });
+          }
         );
-        const capturedGeometry = capture ? relativeAffine(
+      }
+    }
+    walk(element, out, metrics, memo) {
+      const result = runSourceWalkSteps(
+        this.walkSteps(element, out, metrics, memo),
+        memo
+      );
+      if (result && typeof result.then === "function")
+        return result.then(() => void 0);
+    }
+    *walkSteps(element, out, metrics, memo) {
+      let crossedAsyncBoundary = false;
+      let initialSize;
+      if (this.omit(element)) return false;
+      if (metrics) metrics.walkNodeVisits += 1;
+      if (element instanceof HTMLElement && element !== this.target) {
+        if (metrics) metrics.walkDirectLayoutSizeReads += 1;
+        initialSize = sourceLayoutSize(
           element,
           this.target,
           this.coordinateSpace,
-          capture.cssBox
-        ) : geometry;
-        out.push({
-          ...common3,
-          rect: capturedGeometry.rect,
-          localBox: capture?.cssBox ?? capturedGeometry.localBox,
-          localToTarget: capturedGeometry.localToTarget,
-          kind: "dom",
-          source: source3,
-          width: source3.width,
-          height: source3.height,
-          revision: leaf.revision
-        });
-      }
-    }
-    async walk(element, out) {
-      if (this.omit(element)) return;
-      if (element instanceof HTMLElement && element !== this.target) {
-        const size = sourceLayoutSize(element, this.target, this.coordinateSpace);
-        if (hasEmptySourceLayout(size)) {
+          memo
+        );
+        if (hasEmptySourceLayout(initialSize)) {
+          if (metrics) metrics.walkDirectStyleReads += 1;
           const style = getComputedStyle(element);
           if (style.display !== "contents") {
             const overflow = classifyNativeComputedOverflowClip(style);
@@ -19121,7 +25203,7 @@ fn hash(pixel: vec2f) -> f32 {
                   "source-empty-own-paint-unsupported",
                   "A zero-size clipped source has own paint that cannot be captured faithfully."
                 );
-              return;
+              return false;
             }
           }
         }
@@ -19148,20 +25230,31 @@ fn hash(pixel: vec2f) -> f32 {
             "source-image-rendering-geometry",
             "source-image-rendering-geometry"
           );
+        if (metrics) metrics.walkDirectStyleReads += 1;
         const imageRendering = {
           value: getComputedStyle(presentation).imageRendering
         };
+        if (metrics) metrics.walkDirectAffineReads += 1;
         const presentationGeometry = relativeAffine(
           layerInstance ? presentation : element,
           this.target,
-          this.coordinateSpace
+          this.coordinateSpace,
+          void 0,
+          getComputedStyle,
+          void 0,
+          memo
         );
         const rect = presentationGeometry.rect;
         const sourceClip = sourceClipPlan(
           element,
           this.target,
           this.coordinateSpace,
-          false
+          false,
+          null,
+          0,
+          "content",
+          void 0,
+          memo
         );
         const isolationPath = this.isolationPath(
           element,
@@ -19195,7 +25288,7 @@ fn hash(pixel: vec2f) -> f32 {
             opacity: 1
           });
         }
-        return;
+        return false;
       }
       const fillCanvases = [...element.children].filter(
         (child) => child.matches(
@@ -19203,25 +25296,59 @@ fn hash(pixel: vec2f) -> f32 {
         )
       );
       const boxBeforeNativeFill = fillCanvases.length > 0 && element instanceof HTMLElement && !hasDirectText(element);
-      if (boxBeforeNativeFill) await this.record(element, out);
-      for (const fill of fillCanvases) await this.walk(fill, out);
-      if (!boxBeforeNativeFill) await this.record(element, out);
-      if (element instanceof SVGSVGElement) return;
+      if (boxBeforeNativeFill) {
+        if (yield this.record(element, out, "all", metrics, memo))
+          crossedAsyncBoundary = true;
+      }
+      for (const fill of fillCanvases) {
+        if (yield* this.walkSteps(fill, out, metrics, memo))
+          crossedAsyncBoundary = true;
+      }
+      if (!boxBeforeNativeFill) {
+        if (yield this.record(element, out, "all", metrics, memo))
+          crossedAsyncBoundary = true;
+      }
+      if (element instanceof SVGSVGElement) return crossedAsyncBoundary;
       if (element instanceof HTMLElement) {
-        const size = sourceLayoutSize(element, this.target, this.coordinateSpace);
-        if (!hasEmptySourceLayout(size) && isSourceTextFlow(element)) return;
+        let size = initialSize;
+        if (crossedAsyncBoundary || !size) {
+          if (metrics) metrics.walkDirectLayoutSizeReads += 1;
+          size = sourceLayoutSize(
+            element,
+            this.target,
+            this.coordinateSpace,
+            memo
+          );
+        }
+        if (!hasEmptySourceLayout(size) && isSourceTextFlow(element))
+          return crossedAsyncBoundary;
       }
       const childGroups = [];
       for (const child of element.children)
         if (!fillCanvases.includes(child) && !(hasDirectText(element) && isInlineFlowChild(child))) {
           const records = [];
-          await this.walk(child, records);
+          if (yield* this.walkSteps(child, records, metrics, memo))
+            crossedAsyncBoundary = true;
           if (records.length) childGroups.push(records);
         }
       for (const records of orderAutoStackingSiblingPaint(element, childGroups))
         out.push(...records);
       if (element.lastElementChild)
         assertDomSiblingOrder(element, element.lastElementChild, element, out);
+      return crossedAsyncBoundary;
+    }
+    *readSceneWalkSteps(path, out, metrics, memo) {
+      if (this.placement === "layer") {
+        yield* this.walkSteps(this.target, out, metrics, memo);
+        return;
+      }
+      for (let index = 0; index < path.length - 1; index += 1) {
+        yield this.record(path[index], out, "all", metrics, memo);
+        for (const sibling of path[index].children) {
+          if (sibling === path[index + 1]) break;
+          yield* this.walkSteps(sibling, out, metrics, memo);
+        }
+      }
     }
     viewportBackground() {
       if (this.placement === "layer" && this.target !== document.documentElement)
@@ -19429,56 +25556,78 @@ fn hash(pixel: vec2f) -> f32 {
       this.assertSourceComposition(out);
       return out;
     }
-    async readScene() {
+    async readScene(metrics, callSite = "other") {
       if (this.disposed)
         throw new NativeSourceError(
           "source-disposed",
           "The source provider was disposed."
         );
       this.readSceneCalls += 1;
-      const background2 = this.viewportBackground();
-      const out = background2 ? [background2] : [];
-      if (this.placement === "layer") {
-        await this.walk(this.target, out);
-      } else {
+      if (metrics) {
+        metrics.calls += 1;
+        if (callSite === "scene-presentation")
+          metrics.scenePresentationCalls += 1;
+        else if (callSite === "mount-source") metrics.mountSourceCalls += 1;
+        else if (callSite === "dependency-refresh")
+          metrics.dependencyRefreshCalls += 1;
+        else metrics.otherCalls += 1;
+      }
+      const readStarted = metrics ? performance.now() : 0;
+      const memo = new SourceGeometryMemo(this.target, this.coordinateSpace);
+      try {
+        const background2 = this.viewportBackground();
+        const out = background2 ? [background2] : [];
+        const walkStarted = metrics ? performance.now() : 0;
         const path = [];
-        for (let node = this.target; node; node = node.parentElement)
-          path.unshift(node);
-        for (let index = 0; index < path.length - 1; index += 1) {
-          const parent = path[index];
-          await this.record(parent, out);
-          for (const sibling of parent.children) {
-            if (sibling === path[index + 1]) break;
-            await this.walk(sibling, out);
+        if (this.placement !== "layer")
+          for (let node = this.target; node; node = node.parentElement)
+            path.unshift(node);
+        try {
+          const traversal = runSourceWalkSteps(
+            this.readSceneWalkSteps(path, out, metrics, memo),
+            memo
+          );
+          if (traversal) await traversal;
+          memo.clear();
+        } finally {
+          if (metrics) metrics.walkWallMs += performance.now() - walkStarted;
+        }
+        const validationStarted = metrics ? performance.now() : 0;
+        try {
+          for (let index = 0; index < path.length - 1; index += 1)
+            assertDomSiblingOrder(path[index], path[index + 1], this.target, out);
+          this.assertSourceComposition(out);
+        } finally {
+          if (metrics)
+            metrics.validationWallMs += performance.now() - validationStarted;
+        }
+        const live = new Set(out.map((record4) => record4.node));
+        for (const [element, leaf] of this.leaves) {
+          if (!live.has(element)) {
+            leaf.dispose();
+            this.leaves.delete(element);
+            this.retiredLeaves += 1;
           }
         }
-        for (let index = 0; index < path.length - 1; index += 1)
-          assertDomSiblingOrder(path[index], path[index + 1], this.target, out);
-      }
-      this.assertSourceComposition(out);
-      const live = new Set(out.map((record4) => record4.node));
-      for (const [element, leaf] of this.leaves) {
-        if (!live.has(element)) {
-          leaf.dispose();
-          this.leaves.delete(element);
-          this.retiredLeaves += 1;
+        for (const [element, leaf] of this.mediaBackgrounds) {
+          if (!live.has(element)) {
+            leaf.dispose();
+            this.mediaBackgrounds.delete(element);
+            this.retiredLeaves += 1;
+          }
         }
-      }
-      for (const [element, leaf] of this.mediaBackgrounds) {
-        if (!live.has(element)) {
-          leaf.dispose();
-          this.mediaBackgrounds.delete(element);
-          this.retiredLeaves += 1;
+        for (const [element, leaf] of this.svgLeaves) {
+          if (!live.has(element)) {
+            leaf.dispose();
+            this.svgLeaves.delete(element);
+            this.retiredLeaves += 1;
+          }
         }
+        return out;
+      } finally {
+        memo.clear();
+        if (metrics) metrics.wallMs += performance.now() - readStarted;
       }
-      for (const [element, leaf] of this.svgLeaves) {
-        if (!live.has(element)) {
-          leaf.dispose();
-          this.svgLeaves.delete(element);
-          this.retiredLeaves += 1;
-        }
-      }
-      return out;
     }
     captureCount() {
       return this.captures;
@@ -19583,7 +25732,7 @@ fn hash(pixel: vec2f) -> f32 {
       if (property.type === "color")
         return !!value && !Array.isArray(value) && typeof value === "object" && "space" in value && value.space === "display-p3";
       return Array.isArray(value) && value.some(
-        (color7) => !!color7 && typeof color7 === "object" && "space" in color7 && color7.space === "display-p3"
+        (color9) => !!color9 && typeof color9 === "object" && "space" in color9 && color9.space === "display-p3"
       );
     });
   }
@@ -20939,6 +27088,9 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
     }
   };
 
+  // shared/native-benchmark-contract.ts
+  var NATIVE_BENCHMARK_SOURCE_READ_SCOPE = "read-scene-wall-intervals-and-explicit-traversal-counts-not-CPU-or-GPU-time";
+
   // app/components/design/bridge/native-mounted-benchmark.ts
   var NATIVE_BENCHMARK_PHASE_KEYS = [
     "deviceWallMs",
@@ -20994,6 +27146,67 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
         errorScopeWallMs: 0,
         publicationWallMs: 0
       }
+    };
+  }
+  var NATIVE_BENCHMARK_SOURCE_READ_KEYS = [
+    "calls",
+    "scenePresentationCalls",
+    "mountSourceCalls",
+    "dependencyRefreshCalls",
+    "otherCalls",
+    "wallMs",
+    "walkWallMs",
+    "validationWallMs",
+    "leafWaitWallMs",
+    "walkNodeVisits",
+    "walkDirectStyleReads",
+    "walkDirectLayoutSizeReads",
+    "walkDirectAffineReads",
+    "recordDirectStyleReads",
+    "recordDirectLayoutSizeReads",
+    "recordDirectAffineReads",
+    "recordDirectRectReads"
+  ];
+  var NATIVE_BENCHMARK_SOURCE_READ_WALL_KEYS = [
+    "wallMs",
+    "walkWallMs",
+    "validationWallMs",
+    "leafWaitWallMs"
+  ];
+  var NATIVE_BENCHMARK_SOURCE_READ_COUNT_KEYS = [
+    "calls",
+    "scenePresentationCalls",
+    "mountSourceCalls",
+    "dependencyRefreshCalls",
+    "otherCalls",
+    "walkNodeVisits",
+    "walkDirectStyleReads",
+    "walkDirectLayoutSizeReads",
+    "walkDirectAffineReads",
+    "recordDirectStyleReads",
+    "recordDirectLayoutSizeReads",
+    "recordDirectAffineReads",
+    "recordDirectRectReads"
+  ];
+  function emptyNativeSourceReadSceneMetrics() {
+    return {
+      calls: 0,
+      scenePresentationCalls: 0,
+      mountSourceCalls: 0,
+      dependencyRefreshCalls: 0,
+      otherCalls: 0,
+      wallMs: 0,
+      walkWallMs: 0,
+      validationWallMs: 0,
+      leafWaitWallMs: 0,
+      walkNodeVisits: 0,
+      walkDirectStyleReads: 0,
+      walkDirectLayoutSizeReads: 0,
+      walkDirectAffineReads: 0,
+      recordDirectStyleReads: 0,
+      recordDirectLayoutSizeReads: 0,
+      recordDirectAffineReads: 0,
+      recordDirectRectReads: 0
     };
   }
   var NativeMountedBenchmarkError = class extends Error {
@@ -21055,6 +27268,8 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
       this.fullFramePresence = null;
       this.fullFrameWalls = null;
       this.sceneWalls = null;
+      this.sourceReadDetailWalls = null;
+      this.sourceReadDetailPresence = null;
       this.finished = false;
       this.request = request;
       if (request.warmupRafIntervals !== 120 || request.measuredRafIntervals !== 840)
@@ -21095,6 +27310,23 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
         throw new NativeMountedBenchmarkError("benchmark-render-failed");
       const fullFrame = sample.fullFrameWallPhases;
       const hasFullFrame = fullFrame !== void 0;
+      const sourceReadDetail = sample.sourceReadDetail;
+      const hasSourceReadDetail = sourceReadDetail !== void 0;
+      if (this.sourceReadDetailPresence !== null && this.sourceReadDetailPresence !== hasSourceReadDetail || hasSourceReadDetail && !hasFullFrame || hasSourceReadDetail && (!sourceReadDetail || Object.keys(sourceReadDetail).length !== NATIVE_BENCHMARK_SOURCE_READ_KEYS.length || NATIVE_BENCHMARK_SOURCE_READ_KEYS.some(
+        (key) => !Object.prototype.hasOwnProperty.call(sourceReadDetail, key)
+      ) || !Number.isSafeInteger(sourceReadDetail.calls) || sourceReadDetail.calls < 0 || sourceReadDetail.calls > 1024 || sourceReadDetail.scenePresentationCalls + sourceReadDetail.mountSourceCalls + sourceReadDetail.dependencyRefreshCalls + sourceReadDetail.otherCalls !== sourceReadDetail.calls || sourceReadDetail.calls === 0 && NATIVE_BENCHMARK_SOURCE_READ_KEYS.filter(
+        (key) => key !== "calls"
+      ).some((key) => sourceReadDetail[key] !== 0) || NATIVE_BENCHMARK_SOURCE_READ_WALL_KEYS.some(
+        (key) => !Number.isFinite(sourceReadDetail[key]) || sourceReadDetail[key] < 0 || sourceReadDetail[key] > sample.renderWallMs
+      ) || NATIVE_BENCHMARK_SOURCE_READ_COUNT_KEYS.some(
+        (key) => !Number.isSafeInteger(sourceReadDetail[key]) || sourceReadDetail[key] < 0 || sourceReadDetail[key] > 1e6
+      ) || !nativeBenchmarkWallSumFits(sourceReadDetail.walkWallMs, [
+        sourceReadDetail.leafWaitWallMs
+      ]) || !nativeBenchmarkWallSumFits(sourceReadDetail.wallMs, [
+        sourceReadDetail.walkWallMs,
+        sourceReadDetail.validationWallMs
+      ])))
+        throw new NativeMountedBenchmarkError("benchmark-unavailable");
       if (this.fullFramePresence !== null && this.fullFramePresence !== hasFullFrame || hasFullFrame && !validNativeBenchmarkFullFrameValues(fullFrame, sample.renderWallMs))
         throw new NativeMountedBenchmarkError("benchmark-unavailable");
       const hasPhases = sample.hostWallPhases !== void 0;
@@ -21121,6 +27353,14 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
       this.composeWalls.push(sample.composeWallMs);
       this.phasePresence = hasPhases;
       this.fullFramePresence = hasFullFrame;
+      this.sourceReadDetailPresence = hasSourceReadDetail;
+      if (sourceReadDetail) {
+        this.sourceReadDetailWalls ?? (this.sourceReadDetailWalls = Object.fromEntries(
+          NATIVE_BENCHMARK_SOURCE_READ_KEYS.map((key) => [key, []])
+        ));
+        for (const key of NATIVE_BENCHMARK_SOURCE_READ_KEYS)
+          this.sourceReadDetailWalls[key].push(sourceReadDetail[key]);
+      }
       if (fullFrame) {
         this.fullFrameWalls ?? (this.fullFrameWalls = Object.fromEntries(
           NATIVE_BENCHMARK_FRAME_PHASE_KEYS.map((key) => [key, []])
@@ -21179,6 +27419,17 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
                 ])
               )
             }
+          }
+        } : {},
+        ...this.sourceReadDetailWalls ? {
+          sourceReadDetail: {
+            scope: NATIVE_BENCHMARK_SOURCE_READ_SCOPE,
+            stats: Object.fromEntries(
+              NATIVE_BENCHMARK_SOURCE_READ_KEYS.map((key) => [
+                key,
+                nativeBenchmarkStats(this.sourceReadDetailWalls[key])
+              ])
+            )
           }
         } : {},
         ...this.phaseWalls ? {
@@ -22051,7 +28302,7 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
     const prior2 = clock.paused ? clock.local : clock.local + (now - clock.global) * clock.speed;
     assertNativeUniformTiming(next.time, "initial-time");
     assertNativeUniformTiming(next.speed, "speed");
-    const local = seek || clock.paused !== next.paused ? next.time : prior2 + next.time - previousTime;
+    const local = seek ? next.time : clock.paused !== next.paused ? prior2 : prior2 + next.time - previousTime;
     assertNativeUniformTiming(local, "time");
     return { global: now, local, speed: next.speed, paused: next.paused };
   }
@@ -22203,8 +28454,13 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
   // app/components/design/bridge/native-preview-policy.ts
   var DEFAULT_NATIVE_PREVIEW_POLICY = {
     quality: "auto",
-    frameRateTarget: 60
+    frameRateTarget: 60,
+    colorMode: "srgb",
+    dynamicRange: "sdr"
   };
+  function resolveNativePreviewPolicy(editorPolicy, documentPolicy) {
+    return editorPolicy ?? documentPolicy ?? DEFAULT_NATIVE_PREVIEW_POLICY;
+  }
   var NativePreviewPolicyController = class {
     constructor() {
       this.policy = DEFAULT_NATIVE_PREVIEW_POLICY;
@@ -22354,9 +28610,9 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
         "simulation-seek-budget-exceeded",
         "Deterministic simulation seek exceeds the bounded step budget."
       );
-    const count = mode === "interactive" ? Math.min(pending, maxInteractiveSteps) : pending;
-    const steps = Array.from({ length: count }, (_, index) => firstStep + index);
-    const completedStep = count ? steps[count - 1] : lastCompletedStep;
+    const count2 = mode === "interactive" ? Math.min(pending, maxInteractiveSteps) : pending;
+    const steps = Array.from({ length: count2 }, (_, index) => firstStep + index);
+    const completedStep = count2 ? steps[count2 - 1] : lastCompletedStep;
     return {
       reset,
       steps,
@@ -22468,7 +28724,7 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
       this.computeLayout = computeLayout;
       this.resolveLayout = resolveLayout;
     }
-    static async create(device, computeWgsl2, resolveWgsl) {
+    static async create(device, computeWgsl4, resolveWgsl3) {
       const entries = (stage2, bufferType) => [
         {
           binding: 0,
@@ -22501,8 +28757,8 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
           "read-only-storage"
         )
       });
-      const computeModule = device.createShaderModule({ code: computeWgsl2 });
-      const resolveModule = device.createShaderModule({ code: resolveWgsl });
+      const computeModule = device.createShaderModule({ code: computeWgsl4 });
+      const resolveModule = device.createShaderModule({ code: resolveWgsl3 });
       for (const module of [computeModule, resolveModule]) {
         const info = await module.getCompilationInfo();
         if (info.messages.some((message) => message.type === "error"))
@@ -22704,6 +28960,16 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
   }
 
   // app/components/design/bridge/native-texture-feedback.ts
+  function trackNativeFeedbackRetirement(retirements, operation) {
+    let retirement;
+    const tracked = operation.finally(() => retirements.delete(retirement));
+    retirement = tracked.then(
+      () => void 0,
+      () => void 0
+    );
+    retirements.add(retirement);
+    return tracked;
+  }
   var NativeFeedbackFailure = class extends Error {
     constructor(code, cause) {
       super(code);
@@ -22715,6 +28981,10 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
   };
   var UNIFORM_BYTES = 32;
   var MAX_PENDING_UNIFORM_BYTES = 1048576;
+  var MAX_STATE_SNAPSHOT_BYTES = 2097152;
+  var MAX_STATE_SNAPSHOT_SIDE = 512;
+  var COPY_BYTES_PER_ROW_ALIGNMENT = 256;
+  var BYTES_PER_RGBA16FLOAT_TEXEL2 = 8;
   function assertAvailable(signal) {
     if (signal?.aborted)
       throw new NativeFeedbackFailure("feedback-aborted", signal.reason);
@@ -22806,7 +29076,8 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
         addressModeU: "clamp-to-edge",
         addressModeV: "clamp-to-edge"
       });
-      const storageUsage = GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST;
+      const stateUsage = GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC;
+      const displayUsage = GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST;
       const textures = [];
       try {
         for (let index = 0; index < 3; index += 1) {
@@ -22816,7 +29087,7 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
               planned.plan.width,
               planned.plan.height,
               "rgba16float",
-              storageUsage
+              index < 2 ? stateUsage : displayUsage
             )
           );
         }
@@ -22867,9 +29138,82 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
       this.ensureUsable();
       if (this.pending.size) throw new NativeFeedbackFailure("feedback-busy");
     }
+    async snapshotState(maxReadbackBytes = MAX_STATE_SNAPSHOT_BYTES, signal) {
+      this.ensureIdle();
+      assertAvailable(signal);
+      if (!this.initializedState)
+        throw new NativeFeedbackFailure("feedback-state-uninitialized");
+      const { width, height } = this.plan;
+      const byteLength = width * height * BYTES_PER_RGBA16FLOAT_TEXEL2;
+      if (width > MAX_STATE_SNAPSHOT_SIDE || height > MAX_STATE_SNAPSHOT_SIDE || byteLength > MAX_STATE_SNAPSHOT_BYTES)
+        throw new NativeFeedbackFailure("feedback-state-snapshot-limit");
+      if (!Number.isSafeInteger(maxReadbackBytes) || maxReadbackBytes < 0)
+        throw new NativeFeedbackFailure("feedback-state-snapshot-budget");
+      const bytesPerRow = width * BYTES_PER_RGBA16FLOAT_TEXEL2;
+      const paddedBytesPerRow = Math.ceil(bytesPerRow / COPY_BYTES_PER_ROW_ALIGNMENT) * COPY_BYTES_PER_ROW_ALIGNMENT;
+      const bufferSize = paddedBytesPerRow * height;
+      if (bufferSize > maxReadbackBytes)
+        throw new NativeFeedbackFailure("feedback-state-snapshot-budget");
+      const texture2 = this.state[this.readIndex];
+      const readIndex = this.readIndex;
+      const completedStep = this.completedStep;
+      let buffer = null;
+      let mapped = false;
+      this.openTransaction = true;
+      try {
+        buffer = this.device.createBuffer({
+          size: bufferSize,
+          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+        });
+        const encoder = this.device.createCommandEncoder();
+        encoder.copyTextureToBuffer(
+          { texture: texture2 },
+          { buffer, bytesPerRow: paddedBytesPerRow, rowsPerImage: height },
+          { width, height, depthOrArrayLayers: 1 }
+        );
+        this.device.queue.submit([encoder.finish()]);
+        await this.device.queue.onSubmittedWorkDone();
+        assertAvailable(signal);
+        await buffer.mapAsync(GPUMapMode.READ);
+        mapped = true;
+        assertAvailable(signal);
+        if (this.disposed || this.faulted || this.state[this.readIndex] !== texture2 || this.readIndex !== readIndex || this.completedStep !== completedStep)
+          throw new NativeFeedbackFailure("feedback-state-snapshot-stale");
+        const source3 = new Uint8Array(buffer.getMappedRange());
+        if (source3.byteLength !== bufferSize)
+          throw new NativeFeedbackFailure("feedback-state-readback-failed");
+        const packed = new Uint8Array(byteLength);
+        for (let row = 0; row < height; row += 1)
+          packed.set(
+            source3.subarray(
+              row * paddedBytesPerRow,
+              row * paddedBytesPerRow + bytesPerRow
+            ),
+            row * bytesPerRow
+          );
+        const digest = await crypto.subtle.digest("SHA-256", packed);
+        assertAvailable(signal);
+        return {
+          scope: "exact-feedback-state-linear-rgba16f",
+          width,
+          height,
+          completedStep,
+          byteLength,
+          sha256: [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("")
+        };
+      } catch (error) {
+        if (error instanceof NativeFeedbackFailure) throw error;
+        throw new NativeFeedbackFailure("feedback-state-readback-failed", error);
+      } finally {
+        if (mapped) buffer?.unmap();
+        buffer?.destroy();
+        this.openTransaction = false;
+      }
+    }
     reset() {
       this.ensureIdle();
-      const storageUsage = GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST;
+      const stateUsage = GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC;
+      const displayUsage = GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST;
       const next = [];
       try {
         for (let index = 0; index < 3; index += 1)
@@ -22878,7 +29222,7 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
               this.plan.width,
               this.plan.height,
               "rgba16float",
-              storageUsage
+              index < 2 ? stateUsage : displayUsage
             )
           );
       } catch (error) {
@@ -23156,6 +29500,16 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
   var MAX_PIXELS = 8388608;
   var MAX_RESOURCE_BYTES = 134217728;
   var MAX_REALM_TEXTURE_BYTES = 402653184;
+  var unavailableFeedbackStateFollowups = {
+    sourceTransition: {
+      availability: "unavailable",
+      code: "second-source-fixture-required"
+    },
+    lifecycleReplay: {
+      availability: "unavailable",
+      code: "multi-action-editor-sequence-required"
+    }
+  };
   var MAX_INPUT_ASSET_BYTES = 16777216;
   var MAX_PIPELINES = 64;
   var MAX_SOURCE_CLIPS = 8;
@@ -23850,6 +30204,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       };
       this.simulationExportSession = null;
       this.simulationExportStarting = false;
+      this.simulationExportStartInvalidated = false;
       this.simulationSessionSerial = 0;
       this.previewRestoreWork = null;
       this.compositionAbort = null;
@@ -23891,6 +30246,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       this.mountedBenchmark = null;
       this.mountedBenchmarkRenderMetrics = null;
       this.previewPolicy = new NativePreviewPolicyController();
+      this.editorPreviewPolicy = null;
       this.previewDirty = true;
       this.rafIntervalTelemetry = new NativeRafIntervalTelemetry();
       this.profileFrames = 0;
@@ -24168,6 +30524,14 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         }
       };
       this.scan = async () => {
+        if (this.simulationExportStarting || this.simulationExportSession) {
+          this.rescanPending = true;
+          if (this.simulationExportSession) {
+            this.simulationExportSession.failed = true;
+            this.simulationExportSession.sourceStale = true;
+          } else this.simulationExportStartInvalidated = true;
+          return;
+        }
         if (this.compositionDone) {
           this.compositionAbort?.abort();
           await this.compositionDone;
@@ -24269,8 +30633,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           }
           return;
         }
-        const documentColorRequested = documents[0]?.preview?.colorMode ?? "srgb";
-        const documentDynamicRangeRequested = documents[0]?.preview?.dynamicRange ?? "sdr";
+        const effectivePreviewPolicy = resolveNativePreviewPolicy(
+          this.editorPreviewPolicy,
+          documents[0]?.preview
+        );
+        const documentColorRequested = effectivePreviewPolicy.colorMode ?? "srgb";
+        const documentDynamicRangeRequested = effectivePreviewPolicy.dynamicRange ?? "sdr";
         if (this.documentColorRequested !== documentColorRequested || this.documentDynamicRangeRequested !== documentDynamicRangeRequested) {
           this.documentColorRequested = documentColorRequested;
           this.documentDynamicRangeRequested = documentDynamicRangeRequested;
@@ -24291,9 +30659,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           }
           this.publishColorCapability();
         }
-        if (this.previewPolicy.setPolicy(
-          documents[0]?.preview ?? DEFAULT_NATIVE_PREVIEW_POLICY
-        ))
+        if (this.previewPolicy.setPolicy(effectivePreviewPolicy))
           this.previewDirty = true;
         this.updatePreviewAttributes();
         for (const target of this.rejectedTargets) {
@@ -24666,7 +31032,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           sourceWallMs: 0,
           composeWallMs: 0,
           hostWallPhases: emptyNativeBenchmarkPhaseValues(),
-          fullFrameWallPhases: emptyNativeBenchmarkFullFrameValues()
+          fullFrameWallPhases: emptyNativeBenchmarkFullFrameValues(),
+          sourceReadDetail: emptyNativeSourceReadSceneMetrics()
         } : null;
         this.mountedBenchmarkRenderMetrics = benchmarkMetrics;
         this.running = (async () => {
@@ -24873,6 +31240,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               composeWallMs: benchmarkMetrics.composeWallMs,
               hostWallPhases: benchmarkMetrics.hostWallPhases,
               fullFrameWallPhases: benchmarkMetrics.fullFrameWallPhases,
+              sourceReadDetail: benchmarkMetrics.sourceReadDetail,
               failureCount: result.failures.length
             });
           if (!this.compositionAbort && !this.compositionPixelBusy && this.compositionPixelRatio === null && this.previewPolicy.observeRenderWall(result.renderWallMs)) {
@@ -25019,6 +31387,61 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         if (result.failures.length) throw new NativeRenderFailure(result);
         return result;
       };
+      this.renderAtWithPixelRatio = async (time, pixelRatio) => {
+        this.assertCompositionIdle();
+        if (!Number.isFinite(time) || time < 0)
+          throw new NativeSourceError(
+            "composition-invalid-frame",
+            "The explicit native validation time must be finite and nonnegative."
+          );
+        if (!Number.isFinite(pixelRatio) || pixelRatio <= 0 || pixelRatio > 4 || this.compositionPixelRatio !== null)
+          throw new NativeSourceError(
+            "composition-size-unsupported",
+            "The explicit native validation pixel ratio is unsupported."
+          );
+        this.compositionPixelRatio = pixelRatio;
+        this.compositionPixelBusy = true;
+        let previewDensityRestoreAttempted = false;
+        const restorePreviewDensityForValidation = async (time2) => {
+          this.compositionPixelRatio = null;
+          previewDensityRestoreAttempted = true;
+          if (pixelRatio === this.previewStatus().effectivePixelRatio || this.mounts.size === 0 || this.disposed || this.compositionUnsafe)
+            return;
+          const restored = await this.restorePreviewDensity(time2);
+          if (restored.failures.length)
+            throw new NativeRenderFailure(restored, "preview-density");
+        };
+        try {
+          const held = await this.withSynchronizedCompositionFrame(
+            {
+              frameIndex: 0,
+              fps: 60,
+              startTimeSeconds: time,
+              sourceContract: "declarative-only"
+            },
+            async (rendered, frame) => {
+              await restorePreviewDensityForValidation(frame.timeSeconds);
+              return rendered;
+            },
+            true
+          );
+          return held.value;
+        } catch (error) {
+          if (!previewDensityRestoreAttempted) {
+            try {
+              await restorePreviewDensityForValidation(this.currentTime());
+            } catch (restoreError) {
+              throw new NativePixelCleanupError([error, restoreError]);
+            }
+          }
+          throw error;
+        } finally {
+          this.compositionPixelRatio = null;
+          this.compositionPixelBusy = false;
+          if (!this.compositionAbort && !this.compositionUnsafe && this.playing && this.mounts.size && !this.raf && !this.disposed)
+            this.frame();
+        }
+      };
       this.setParameters = async (instanceId, params) => {
         this.assertCompositionIdle();
         if (this.scanning) await this.scanning;
@@ -25039,6 +31462,56 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         } catch (error) {
           mount.instance = previous;
           throw error;
+        }
+      };
+      this.setSimulationExportParameters = (options) => {
+        this.assertCompositionIdle(true);
+        if (options.signal?.aborted) throw options.signal.reason;
+        const session = this.simulationExportSession;
+        if (session?.sourceStale)
+          throw new NativeSourceError(
+            "simulation-session-source-stale",
+            "The preview source changed during the held render session."
+          );
+        if (!session || session.id !== options.sessionId || session.failed || session.nextFrame < 1)
+          throw new NativeSourceError(
+            "simulation-session-invalid",
+            "A parameter update requires the current held simulation session after its first frame."
+          );
+        const mount = this.mounts.get(options.instanceId);
+        if (!mount || !session.saved.some((saved) => saved.mount === mount) || mount.instance.nodeId !== options.nodeId || mount.definitionHash !== options.executionHash || this.draft?.instanceId === options.instanceId)
+          throw new NativeSourceError(
+            "simulation-session-target-stale",
+            "The held parameter target no longer matches the approved native effect."
+          );
+        const entries = Object.entries(options.params);
+        if (entries.length < 1 || entries.length > 16 || entries.some(([name, value]) => {
+          const property = mount.definition.properties[name];
+          return !property || property.type !== "float" && property.type !== "int" || !Number.isFinite(value);
+        }))
+          throw new NativeSourceError(
+            "simulation-session-params-invalid",
+            "Held parameter updates accept only bounded numeric native properties."
+          );
+        const previous = mount.instance;
+        const nextParams = {
+          ...previous.params,
+          ...options.params
+        };
+        try {
+          packNativeProperties(mount.definition, nextParams);
+          mount.instance = { ...previous, params: nextParams };
+          this.markMountRenderPending(mount);
+          return {
+            instanceId: mount.instance.id,
+            updatedProperties: entries.map(([name]) => name)
+          };
+        } catch (error) {
+          mount.instance = previous;
+          throw new NativeSourceError(
+            "simulation-session-params-invalid",
+            String(error)
+          );
         }
       };
       this.setTime = async (time) => {
@@ -25233,6 +31706,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             "simulation-session-limit",
             "Particle export needs a bounded start and end within 30 seconds and 3600 fixed steps."
           );
+        const targetInstanceIds = options.targetInstanceIds ?? [];
+        if (targetInstanceIds.length > 1 || new Set(targetInstanceIds).size !== targetInstanceIds.length || targetInstanceIds.some((id) => !this.mounts.has(id)))
+          throw new NativeSourceError(
+            "simulation-session-target-invalid",
+            "The held render session target is missing or exceeds its bound."
+          );
+        const targetInstances = new Set(targetInstanceIds);
         for (const mount of this.mounts.values()) {
           const spec = mount.definition.simulation;
           const feedback = mount.definition.feedback;
@@ -25284,6 +31764,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           timeoutMs
         );
         this.simulationExportStarting = true;
+        this.simulationExportStartInvalidated = false;
         this.rafIntervalTelemetry.reset();
         cancelAnimationFrame(this.raf);
         this.raf = 0;
@@ -25309,12 +31790,18 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             }
           }
           if (controller.signal.aborted) throw controller.signal.reason;
+          if (this.simulationExportStartInvalidated)
+            throw new NativeSourceError(
+              "simulation-session-source-stale",
+              "The preview source changed while the held render session was starting."
+            );
           snapshot = this.suspendForComposition();
           const saved = [...this.mounts.values()].filter(
-            (mount) => !!mount.definition.simulation || !!mount.definition.feedback
+            (mount) => !!mount.definition.simulation || !!mount.definition.feedback || targetInstances.has(mount.instance.id)
           ).map((mount) => {
             const entry = {
               mount,
+              instance: mount.instance,
               simulation: mount.simulation,
               feedback: mount.feedback,
               resources: mount.resourceTextures,
@@ -25337,6 +31824,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             clock: snapshot,
             saved,
             failed: false,
+            sourceStale: false,
             deviceEpoch: this.deviceEpoch
           };
           return { sessionId: id };
@@ -25347,6 +31835,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           clearTimeout(timer);
           options.signal?.removeEventListener("abort", abort);
           this.simulationExportStarting = false;
+          this.simulationExportStartInvalidated = false;
+          if (!this.simulationExportSession && this.rescanPending)
+            queueMicrotask(() => this.requestScan());
           if (!this.simulationExportSession && this.playing && !this.raf && !this.disposed)
             this.frame();
         }
@@ -25402,9 +31893,20 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             if (exportFeedback) await this.disposeFeedback(exportFeedback);
             for (const texture2 of mount.resourceTextures.values())
               this.destroyTexture(texture2);
-            mount.resourceTextures = saved.resources;
             if (mount.outputTexture && mount.outputTexture !== saved.output)
               this.destroyTexture(mount.outputTexture);
+            if (this.mounts.get(saved.instance.id) !== mount) {
+              if (saved.simulation)
+                for (const buffer of saved.simulation.buffers)
+                  this.destroySimulationBuffer(buffer);
+              if (saved.feedback) await this.disposeFeedback(saved.feedback);
+              for (const texture2 of new Set(saved.resources.values()))
+                this.destroyTexture(texture2);
+              if (saved.output) this.destroyTexture(saved.output);
+              continue;
+            }
+            mount.instance = saved.instance;
+            mount.resourceTextures = saved.resources;
             mount.outputTexture = saved.output;
             mount.simulation = saved.simulation;
             mount.feedback = saved.feedback;
@@ -25413,6 +31915,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           }
           this.simulationExportSession = null;
           this.restoreFromComposition(session.clock);
+          if (this.rescanPending) await this.scan();
           if (this.playing && !this.raf && this.mounts.size && !this.disposed)
             this.frame();
         } catch (error) {
@@ -25423,6 +31926,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         } finally {
           clearTimeout(timer);
         }
+        if (incomplete && session.sourceStale)
+          throw new NativeSourceError(
+            "simulation-session-source-stale",
+            "The preview source changed during the held render session."
+          );
         if (incomplete)
           throw new NativeSourceError(
             "simulation-session-incomplete",
@@ -25431,7 +31939,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       };
       this.renderCompositionFramePixels = (options) => this.renderCompositionPixelsWithConsumer(
         options,
-        async ({ pixels: pixels6 }) => pixels6
+        async ({ pixels: pixels7 }) => pixels7
       );
       this.compositionSceneDiagnostic = () => ({
         ...this.lastCompositionSceneDiagnostic,
@@ -25458,8 +31966,14 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       }));
       this.renderCompositionPixelsWithConsumer = async (options, consume) => {
         const simulationSession = this.simulationExportSession;
+        const repeatCurrentSimulationFrame = options.repeatCurrentSimulationFrame === true;
         if (simulationSession) {
-          if (options.simulationSessionId !== simulationSession.id || options.frameIndex !== simulationSession.nextFrame || options.fps !== simulationSession.fps || (options.startTimeSeconds ?? 0) !== simulationSession.startTimeSeconds || simulationSession.failed)
+          if (simulationSession.sourceStale)
+            throw new NativeSourceError(
+              "simulation-session-source-stale",
+              "The preview source changed during the held render session."
+            );
+          if (options.simulationSessionId !== simulationSession.id || (repeatCurrentSimulationFrame ? simulationSession.nextFrame < 1 || options.frameIndex !== simulationSession.nextFrame - 1 : options.frameIndex !== simulationSession.nextFrame) || options.fps !== simulationSession.fps || (options.startTimeSeconds ?? 0) !== simulationSession.startTimeSeconds || simulationSession.failed)
             throw new NativeSourceError(
               "simulation-session-sequence",
               "Particle export frames must use the active session and a monotonic frame index."
@@ -25468,6 +31982,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           throw new NativeSourceError(
             "simulation-session-invalid",
             "Particle export session is unavailable."
+          );
+        } else if (repeatCurrentSimulationFrame) {
+          throw new NativeSourceError(
+            "simulation-session-invalid",
+            "A repeated frame requires the current held simulation session."
           );
         } else if ([...this.mounts.values()].some(
           (mount) => mount.definition.simulation || mount.definition.feedback
@@ -25492,11 +32011,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               let failure2;
               let consumed;
               try {
-                const pixels6 = await this.readCompositionPixels(options, frame);
+                const pixels7 = await this.readCompositionPixels(options, frame);
                 if (frame.signal.aborted) throw frame.signal.reason;
                 consumed = await consume({
                   document,
-                  pixels: pixels6,
+                  pixels: pixels7,
                   runtimeCanvases: this.readyNativeCanvases(),
                   viewport: { ...options.viewport },
                   pixelRatio,
@@ -25529,7 +32048,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             },
             true
           );
-          if (simulationSession) simulationSession.nextFrame += 1;
+          if (simulationSession && !repeatCurrentSimulationFrame)
+            simulationSession.nextFrame += 1;
           return held.value;
         } catch (error) {
           if (simulationSession) simulationSession.failed = true;
@@ -25557,6 +32077,15 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           if (event.origin !== inheritedOrigin) return;
         }
         const data = event.data;
+        if (data.type === "native-shader-editor-preview-policy") {
+          if (window.parent === window || event.source !== window.parent) return;
+          if (data.schemaVersion !== 1 || !(data.policy === null || isEffectPreviewPolicy(data.policy)))
+            return;
+          this.editorPreviewPolicy = data.policy === null ? null : { ...data.policy };
+          this.previewDirty = true;
+          this.requestScan();
+          return;
+        }
         if (data.type === "native-effect-set-instance" || data.type === "native-effect-clear-instance") {
           if (window.parent === window || event.source !== window.parent) return;
           if (data.schemaVersion !== 1 || typeof data.requestId !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(data.requestId) || typeof data.instanceId !== "string" || !/^[A-Za-z0-9_.:-]{1,128}$/.test(data.instanceId) || typeof data.nodeId !== "string" || !/^[A-Za-z0-9_.:-]{1,128}$/.test(data.nodeId) || typeof data.sequence !== "number" || !Number.isSafeInteger(data.sequence) || data.sequence < 0 || typeof data.baseExecutionHash !== "string" || !/^[a-f0-9]{64}$/.test(data.baseExecutionHash) || typeof data.baseInstanceSignature !== "string" || !/^[a-f0-9]{64}$/.test(data.baseInstanceSignature) || typeof data.runtimeEpoch !== "string" || data.runtimeEpoch.length > 80)
@@ -26068,14 +32597,18 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           scene.suppressedElements.delete(child);
           continue;
         }
-        const opacity = readNativeAuthoredPaint(child).opacity;
-        child.setAttribute("data-an-native-authored-opacity", String(opacity));
+        const opacity = String(readNativeAuthoredPaint(child).opacity);
+        if (child.getAttribute("data-an-native-authored-opacity") !== opacity)
+          child.setAttribute("data-an-native-authored-opacity", opacity);
       }
       const authoredEpochBeforeRead = scene.provider.authoredSourceEpoch?.();
       let source3;
       const sceneSourceStarted = sceneWallPhases ? performance.now() : 0;
       try {
-        source3 = await scene.provider.readScene();
+        source3 = await scene.provider.readScene(
+          this.mountedBenchmarkRenderMetrics?.sourceReadDetail,
+          "scene-presentation"
+        );
       } catch (error) {
         this.releaseScenePresentation();
         throw error;
@@ -26220,7 +32753,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               String(opacity)
             );
           }
-          child.setAttribute("data-an-native-scene-suppressed", "");
+          if (!child.hasAttribute("data-an-native-scene-suppressed"))
+            child.setAttribute("data-an-native-scene-suppressed", "");
           scene.suppressedElements.add(child);
         }
         const committedInstances = new Set(nativeRecordIds);
@@ -27033,8 +33567,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
     releaseMountTextures(mount) {
       this.releaseSimulation(mount);
       this.releaseFeedback(mount);
-      for (const asset of mount.assetTextures.values())
-        this.destroyTexture(asset.texture);
+      for (const asset2 of mount.assetTextures.values())
+        this.destroyTexture(asset2.texture);
       mount.assetTextures.clear();
       for (const source3 of mount.sourceTextures.values())
         this.destroyTexture(source3.texture);
@@ -27705,8 +34239,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         if (!survivors.length) mount.target.removeAttribute(name);
       mount.provider?.dispose();
       mount.assetAbort.abort();
-      for (const asset of mount.assetTextures.values())
-        this.destroyTexture(asset.texture);
+      for (const asset2 of mount.assetTextures.values())
+        this.destroyTexture(asset2.texture);
       mount.assetTextures.clear();
       mount.assetPending.clear();
       mount.assetFailures.clear();
@@ -28172,7 +34706,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           script.textContent ?? ""
         );
         this.embeddedAssets = new Map(
-          parsed.assets.map((asset) => [asset.path, asset])
+          parsed.assets.map((asset2) => [asset2.path, asset2])
         );
         return this.embeddedAssets;
       } catch (error) {
@@ -29527,12 +36061,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "simulation-tier-invalid",
           "The particle tier is invalid."
         );
-      const count = spec.count.tiers[tier];
+      const count2 = spec.count.tiers[tier];
       const stateSpec = definition3.resources?.find(
         (resource) => resource.name === spec.stateResource
       );
       const byteLength = stateSpec?.byteLength;
-      if (stateSpec?.kind !== "buffer" || !byteLength || byteLength < count * spec.bytesPerParticle || byteLength * 2 > MAX_RESOURCE_BYTES || Math.ceil(count / 256) > this.device.limits.maxComputeWorkgroupsPerDimension || byteLength > this.device.limits.maxStorageBufferBindingSize)
+      if (stateSpec?.kind !== "buffer" || !byteLength || byteLength < count2 * spec.bytesPerParticle || byteLength * 2 > MAX_RESOURCE_BYTES || Math.ceil(count2 / 256) > this.device.limits.maxComputeWorkgroupsPerDimension || byteLength > this.device.limits.maxStorageBufferBindingSize)
         throw new NativeSourceError(
           "simulation-resource-unsupported",
           "The particle state exceeds bounded buffer or device limits."
@@ -29553,7 +36087,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "Simulation needs bounded compute, instanced draw, and persistent trail passes."
         );
       const definitionKey3 = \`\${definition3.id}:\${definition3.version}:\${update.wgsl}:\${paint.wgsl}:\${trail.wgsl}\`;
-      if (mount.simulation && (mount.simulation.count !== count || mount.simulation.byteLength !== byteLength || mount.simulation.width !== mount.width || mount.simulation.height !== mount.height || mount.simulation.seed !== instance.seed || mount.simulation.definitionKey !== definitionKey3))
+      if (mount.simulation && (mount.simulation.count !== count2 || mount.simulation.byteLength !== byteLength || mount.simulation.width !== mount.width || mount.simulation.height !== mount.height || mount.simulation.seed !== instance.seed || mount.simulation.definitionKey !== definitionKey3))
         this.releaseSimulation(mount);
       if (!mount.simulation) {
         if (this.estimatedResourceBytes() + byteLength * 2 > MAX_REALM_TEXTURE_BYTES)
@@ -29579,7 +36113,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           buffers: [first, second],
           readIndex: 0,
           completedStep: -1,
-          count,
+          count: count2,
           byteLength,
           width: mount.width,
           height: mount.height,
@@ -29664,7 +36198,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             pointer.active ? 1 : 0,
             spec.fixedDt,
             stepIndex,
-            count
+            count2
           ])
         );
         const pass = encoder.beginComputePass(
@@ -29675,7 +36209,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           0,
           bind(read, write, uniform(stepIndex * spec.fixedDt), interaction2)
         );
-        pass.dispatchWorkgroups(Math.ceil(count / update.dispatch.workgroupSize));
+        pass.dispatchWorkgroups(Math.ceil(count2 / update.dispatch.workgroupSize));
         pass.end();
         state.readIndex = writeIndex;
         state.completedStep = stepIndex;
@@ -29689,7 +36223,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         "data-an-native-simulation-target-step",
         String(stepPlan.targetStep)
       );
-      mount.target.setAttribute("data-an-native-particle-count", String(count));
+      mount.target.setAttribute("data-an-native-particle-count", String(count2));
       const outputSpec = definition3.resources?.find(
         (resource) => resource.name === paint.output
       );
@@ -29727,7 +36261,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           0,
           spec.fixedDt,
           state.completedStep,
-          count
+          count2
         ])
       );
       const render = encoder.beginRenderPass({
@@ -29751,7 +36285,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           interaction
         )
       );
-      render.draw(paint.draw.vertices, count);
+      render.draw(paint.draw.vertices, count2);
       render.end();
       let previousTrail = mount.resourceTextures.get(trail.output);
       let nextTrail = mount.resourceTextures.get("__native_trail_back");
@@ -29845,9 +36379,15 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         blend: read(uniformProperties.blend),
         seed: read(uniformProperties.seed)
       };
+      const resetPropertyValues = (adapted.definition.resetProperties ?? []).map(
+        (name) => [name, read(name)]
+      );
       const revision = instance.timing.seekRevision ?? 0;
       const prior2 = mount.feedback;
-      if (prior2 && (prior2.definitionHash !== mount.definitionHash || prior2.seed !== params.seed || prior2.seekRevision !== revision || prior2.sourceWidth !== source3.width || prior2.sourceHeight !== source3.height))
+      if (prior2 && (prior2.definitionHash !== mount.definitionHash || prior2.seed !== params.seed || nativeFeedbackResetValuesChanged(
+        prior2.resetPropertyValues,
+        resetPropertyValues
+      ) || prior2.seekRevision !== revision || prior2.sourceWidth !== source3.width || prior2.sourceHeight !== source3.height))
         this.releaseFeedback(mount);
       if (!mount.feedback) {
         const grid = adapted.definition.grid;
@@ -29877,6 +36417,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           textures,
           definitionHash: mount.definitionHash,
           seed: params.seed,
+          resetPropertyValues,
           seekRevision: revision,
           sourceRevision: "",
           pendingSourceRevision: null,
@@ -31360,7 +37901,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           }
         } else if (mount.provider) {
           const sourceStarted = performance.now();
-          scene = await mount.provider.readScene();
+          scene = await mount.provider.readScene(
+            this.mountedBenchmarkRenderMetrics?.sourceReadDetail,
+            "mount-source"
+          );
           sourceWallMs += performance.now() - sourceStarted;
           let renderedDependency = false;
           for (const record4 of scene) {
@@ -31383,7 +37927,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           }
           if (renderedDependency) {
             const sourceStarted2 = performance.now();
-            scene = await mount.provider.readScene();
+            scene = await mount.provider.readScene(
+              this.mountedBenchmarkRenderMetrics?.sourceReadDetail,
+              "dependency-refresh"
+            );
             sourceWallMs += performance.now() - sourceStarted2;
           }
           if (nestedTransaction) {
@@ -32677,10 +39224,16 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
     async readMountedOutput(target, signal) {
       if (signal.aborted) throw signal.reason;
       const mount = this.mounts.get(target.instanceId);
+      const session = this.simulationExportSession;
       if (!mount || mount.instance.nodeId !== target.nodeId || mount.definition.id !== target.definitionId || mount.definition.version !== target.definitionVersion || mount.definitionHash !== target.executionHash || this.draft?.instanceId === target.instanceId && this.draft.showDraft || !mount.outputTexture || mount.frozenReason || mount.reportedStatus?.status !== "ready" || mount.target.getAttribute("data-an-native-status") !== "ready")
         throw new NativeSourceError(
           "mounted-output-target-unready",
           "The exact mounted output is unavailable for validation."
+        );
+      if (session && (session.sourceStale || !session.saved.some((saved) => saved.mount === mount)))
+        throw new NativeSourceError(
+          session.sourceStale ? "simulation-session-source-stale" : "simulation-session-target-stale",
+          "The held render target changed during validation."
         );
       const texture2 = mount.outputTexture;
       if (texture2.format !== "rgba16float")
@@ -32712,7 +39265,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "The mounted output device is unavailable."
         );
       const assertCurrent = () => {
-        if (signal.aborted || this.device !== device || this.deviceEpoch !== generation || this.epoch !== runtimeEpoch || this.mounts.get(target.instanceId) !== mount || mount.instance !== instanceAtStart || mount.definition !== definitionAtStart || mount.frameCount !== frameCountAtStart || mount.outputTexture !== outputAtStart || mount.definitionHash !== target.executionHash || mount.instance.nodeId !== target.nodeId || mount.frozenReason || mount.reportedStatus?.status !== "ready" || mount.target.getAttribute("data-an-native-status") !== "ready" || this.draft?.instanceId === target.instanceId && this.draft.showDraft)
+        if (signal.aborted || this.device !== device || this.deviceEpoch !== generation || this.epoch !== runtimeEpoch || this.mounts.get(target.instanceId) !== mount || session && (session.sourceStale || !session.saved.some((saved) => saved.mount === mount)) || mount.instance !== instanceAtStart || mount.definition !== definitionAtStart || mount.frameCount !== frameCountAtStart || mount.outputTexture !== outputAtStart || mount.definitionHash !== target.executionHash || mount.instance.nodeId !== target.nodeId || mount.frozenReason || mount.reportedStatus?.status !== "ready" || mount.target.getAttribute("data-an-native-status") !== "ready" || this.draft?.instanceId === target.instanceId && this.draft.showDraft)
           throw new NativeSourceError(
             "mounted-output-stale",
             "The exact mounted output changed during validation."
@@ -32738,27 +39291,78 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               evaluated.packedRgba16f
             );
             assertCurrent();
+            const feedbackState = target.captureFeedbackState ? await this.readFeedbackStateSnapshot(
+              mount,
+              signal,
+              plan.byteLength
+            ) : void 0;
+            assertCurrent();
+            const mountOutput = {
+              scope: "exact-mount-output-linear-premultiplied",
+              instanceId: target.instanceId,
+              nodeId: target.nodeId,
+              definitionId: target.definitionId,
+              definitionVersion: target.definitionVersion,
+              executionHash: target.executionHash,
+              width: plan.width,
+              height: plan.height,
+              pixelSha256: [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join(""),
+              nonTransparentPixels: evaluated.nonTransparentPixels,
+              partialAlphaPixels: evaluated.partialAlphaPixels,
+              nonZeroRgbaPixels: evaluated.nonZeroRgbaPixels,
+              ...feedbackState ? { feedbackState } : {}
+            };
             return {
-              mountOutput: {
-                scope: "exact-mount-output-linear-premultiplied",
-                instanceId: target.instanceId,
-                nodeId: target.nodeId,
-                definitionId: target.definitionId,
-                definitionVersion: target.definitionVersion,
-                executionHash: target.executionHash,
-                width: plan.width,
-                height: plan.height,
-                pixelSha256: [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join(""),
-                nonTransparentPixels: evaluated.nonTransparentPixels,
-                partialAlphaPixels: evaluated.partialAlphaPixels,
-                nonZeroRgbaPixels: evaluated.nonZeroRgbaPixels
-              },
+              mountOutput,
               ...evaluated.linearGolden ? { linearGolden: evaluated.linearGolden } : {}
             };
           }
         });
       } finally {
         if (pinnedHere) this.activeMounts.delete(mount);
+      }
+    }
+    async readFeedbackStateSnapshot(mount, signal, readbackReservedBytes) {
+      const feedback = mount.feedback;
+      if (!feedback)
+        return {
+          availability: "unavailable",
+          code: "state-uninitialized",
+          followups: unavailableFeedbackStateFollowups
+        };
+      try {
+        const snapshot = await trackNativeFeedbackRetirement(
+          feedback.retirements,
+          feedback.executor.snapshotState(
+            MAX_REALM_TEXTURE_BYTES - this.estimatedResourceBytes() - readbackReservedBytes,
+            signal
+          )
+        );
+        return {
+          availability: "available",
+          ...snapshot,
+          followups: unavailableFeedbackStateFollowups
+        };
+      } catch (error) {
+        if (error instanceof NativeFeedbackFailure && error.code === "feedback-state-uninitialized")
+          return {
+            availability: "unavailable",
+            code: "state-uninitialized",
+            followups: unavailableFeedbackStateFollowups
+          };
+        if (error instanceof NativeFeedbackFailure && error.code === "feedback-state-snapshot-limit")
+          return {
+            availability: "unavailable",
+            code: "state-snapshot-limit",
+            followups: unavailableFeedbackStateFollowups
+          };
+        if (error instanceof NativeFeedbackFailure && error.code === "feedback-state-snapshot-budget")
+          return {
+            availability: "unavailable",
+            code: "state-snapshot-budget",
+            followups: unavailableFeedbackStateFollowups
+          };
+        throw error;
       }
     }
     async readLinearGoldenMount(target, signal) {
@@ -32995,7 +39599,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       let scopedDevice = null;
       let failed = false;
       let failure2;
-      let pixels6;
+      let pixels7;
       try {
         const device = await this.ensureDevice();
         const deviceEpoch = this.deviceEpoch;
@@ -33154,7 +39758,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           );
         const padded = new Uint8Array(buffer.getMappedRange());
         const rgba = rgbaFromAlignedRows(padded, width, height, bytesPerRow);
-        pixels6 = { width, height, colorSpace: "srgb", alpha: "straight", rgba };
+        pixels7 = { width, height, colorSpace: "srgb", alpha: "straight", rgba };
       } catch (error) {
         failed = true;
         failure2 = error;
@@ -33193,12 +39797,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           ...cleanupErrors
         ]);
       if (failed) throw failure2;
-      if (!pixels6)
+      if (!pixels7)
         throw new NativeSourceError(
           "gpu-readback-incomplete",
           "The full-scene readback produced no pixels."
         );
-      return pixels6;
+      return pixels7;
     }
     publishIdleSourceDiagnostic(continuousMountIds) {
       const mounts = [...this.mounts.values()].slice(0, 8).map((mount) => {

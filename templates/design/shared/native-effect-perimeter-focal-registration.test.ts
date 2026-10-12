@@ -5,11 +5,6 @@ import { describe, expect, it } from "vitest";
 import { planEffectGraph } from "./effect-graph";
 import { editNativeEffectHtml } from "./native-effect-edits";
 import {
-  OWNED_O_GENERATOR_DEFINITIONS,
-  OWNED_O_GENERATOR_PRESETS,
-} from "./native-effect-owned-o-generators";
-import { OWNED_P_DEFINITIONS, OWNED_P_PRESETS } from "./native-effect-owned-p";
-import {
   NativeEffectParameterConstraintError,
   validateParameterConstraintDefinitions,
   validateResolvedParameterConstraints,
@@ -39,20 +34,9 @@ import {
   type EffectDefinition,
   type EffectValue,
 } from "./native-effects";
-const ids = new Set(NATIVE_PERIMETER_FOCAL_DEFINITIONS.map((d) => d.id));
-const recipes = new Set(NATIVE_PERIMETER_FOCAL_PRESETS.map((p) => p.id));
-const oldDefinitions = NATIVE_EFFECT_DEFINITION_CATALOG.filter(
-  (d) =>
-    !ids.has(d.id) &&
-    !OWNED_O_GENERATOR_DEFINITIONS.some((o) => o.id === d.id) &&
-    !OWNED_P_DEFINITIONS.some((o) => o.id === d.id),
-);
-const oldRecipes = NATIVE_EFFECT_PRESETS.filter(
-  (p) =>
-    !recipes.has(p.id) &&
-    !OWNED_O_GENERATOR_PRESETS.some((o) => o.id === p.id) &&
-    !OWNED_P_PRESETS.some((o) => o.id === p.id),
-);
+// Later additions follow these pinned historical prefixes.
+const oldDefinitions = NATIVE_EFFECT_DEFINITION_CATALOG.slice(0, 258);
+const oldRecipes = NATIVE_EFFECT_PRESETS.slice(0, 516);
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 const html = '<div data-agent-native-node-id="target"></div>';
 function document(
@@ -95,12 +79,12 @@ describe("independent perimeter and focal native registration", () => {
     expect(sha(JSON.stringify(oldRecipes))).toBe(
       "36eb667be329273bba42cc6019a61c796b4d3409734cd002c3f134bdc684ee87",
     );
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(223);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(268);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(538);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(291);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(337);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(676);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((d) => d.id)).size,
-    ).toBe(223);
+    ).toBe(291);
     for (const definition of NATIVE_PERIMETER_FOCAL_DEFINITIONS) {
       expect(
         NATIVE_EFFECT_LATEST_DEFINITIONS.find((d) => d.id === definition.id),

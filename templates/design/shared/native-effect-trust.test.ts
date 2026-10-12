@@ -9,8 +9,11 @@ import {
 import {
   hashEffectDefinition,
   NativeEffectApprovalStateError,
+  NativeSceneAuthorizationError,
+  nativeSceneExecutableHashes,
   parseNativeEffectApprovalState,
 } from "./native-effect-trust";
+import type { EffectDocument } from "./native-effects";
 
 describe("native effect execution trust", () => {
   it("keeps the six historical Design built-in execution hashes pinned", async () => {
@@ -79,22 +82,65 @@ describe("native effect execution trust", () => {
     ).not.toBe(original);
   });
 
-  it("rejects malformed or oversized approval state instead of treating it as empty", () => {
+  it("bounds persisted approvals while preserving exact hash validation", () => {
     expect(parseNativeEffectApprovalState(null).hashes).toEqual([]);
     expect(() =>
       parseNativeEffectApprovalState({ schemaVersion: 1, hashes: ["bad"] }),
     ).toThrow(NativeEffectApprovalStateError);
+    const hashes = Array.from({ length: 512 }, (_, index) =>
+      (index + 1).toString(16).padStart(64, "0"),
+    );
+    expect(
+      parseNativeEffectApprovalState({ schemaVersion: 1, hashes }).hashes,
+    ).toHaveLength(512);
     expect(() =>
       parseNativeEffectApprovalState({
         schemaVersion: 1,
-        hashes: Array(33).fill("a".repeat(64)),
+        hashes: [...hashes, "f".repeat(64)],
       }),
-    ).toThrow();
+    ).toThrow(NativeEffectApprovalStateError);
     expect(() =>
       parseNativeEffectApprovalState({
         schemaVersion: 1,
         hashes: ["a".repeat(64), "a".repeat(64)],
       }),
-    ).toThrow();
+    ).toThrow(NativeEffectApprovalStateError);
+  });
+
+  it("keeps the active scene executable budget at 32", async () => {
+    const definitions = Array.from({ length: 33 }, (_, index) => ({
+      ...GRAIN_GRADIENT_EFFECT,
+      id: `grain-gradient-${index}`,
+    }));
+    const documentFor = (count: number): EffectDocument => ({
+      schemaVersion: 2,
+      definitions: definitions.slice(0, count),
+      instances: definitions.slice(0, count).map((definition, index) => ({
+        id: `instance-${index}`,
+        nodeId: `node-${index}`,
+        definitionId: definition.id,
+        definitionVersion: definition.version,
+        placement: "fill",
+        params: {},
+        enabled: true,
+        opacity: 1,
+        seed: index,
+        clip: "bounds",
+        blend: "normal",
+        timing: { speed: 1, paused: false, time: 0 },
+      })),
+    });
+    const approved = await Promise.all(
+      definitions.map((definition) => hashEffectDefinition(definition)),
+    );
+    await expect(
+      nativeSceneExecutableHashes(documentFor(32), approved, []),
+    ).resolves.toHaveLength(32);
+    await expect(
+      nativeSceneExecutableHashes(documentFor(33), approved, []),
+    ).rejects.toMatchObject({
+      name: "NativeSceneAuthorizationError",
+      code: "limit",
+    });
   });
 });

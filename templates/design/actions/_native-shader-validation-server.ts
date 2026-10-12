@@ -17,6 +17,7 @@ import {
 } from "../shared/native-effect-trust.js";
 import {
   authoredNodeCount,
+  packNativeProperties,
   parseEffectsFromHtml,
   validateEffectDocument,
   type EffectDefinition,
@@ -126,6 +127,57 @@ export async function verifyNativeShaderValidationCases(
           statusCode: 422,
         },
       );
+    if (item.statefulSequence) {
+      const feedbackSequence = !!definition.feedback || !!definition.simulation;
+      const hasStepGoldens = item.statefulSequence.some(
+        (step) => step.kind === "capture" && !!step.expectedLinearSamples,
+      );
+      if (
+        (feedbackSequence &&
+          (!definition.feedback ||
+            !item.captureFeedbackState ||
+            hasStepGoldens)) ||
+        (!feedbackSequence && (item.captureFeedbackState || !hasStepGoldens))
+      )
+        fail(
+          `Native validation sequence ${item.caseId} does not match the effect's feedback or numeric-golden mode.`,
+          {
+            errorCode: "native_validation_sequence_mode_invalid",
+            statusCode: 422,
+          },
+        );
+      const params = { ...instance.params };
+      for (const step of item.statefulSequence) {
+        if (step.kind !== "set-params") continue;
+        for (const [name, value] of Object.entries(step.params)) {
+          const property = definition.properties[name];
+          if (
+            !property ||
+            (property.type !== "float" && property.type !== "int") ||
+            !Number.isFinite(value)
+          )
+            fail(
+              `Native validation sequence ${item.caseId} has an unsupported numeric property ${name}.`,
+              {
+                errorCode: "native_validation_sequence_property_invalid",
+                statusCode: 422,
+              },
+            );
+          params[name] = value;
+        }
+        try {
+          packNativeProperties(definition, params);
+        } catch (error) {
+          fail(
+            `Native validation sequence ${item.caseId} has invalid parameters: ${String(error).slice(0, 240)}`,
+            {
+              errorCode: "native_validation_sequence_params_invalid",
+              statusCode: 422,
+            },
+          );
+        }
+      }
+    }
   }
   return document;
 }

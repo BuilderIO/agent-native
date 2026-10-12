@@ -9,6 +9,7 @@ import type {
   NativeDraftPreviewRequest,
   NativeDraftPreviewResult,
 } from "../../../../shared/native-draft-preview-contract";
+import { isEffectPreviewPolicy } from "../../../../shared/native-editor-preferences";
 import {
   nativeEffectAnimationCapability,
   type NativeEffectAnimationCapability,
@@ -27,6 +28,7 @@ import {
   type EffectDefinition,
   type EffectDocument,
   type EffectInstance,
+  type EffectPreviewPolicy,
 } from "../../../../shared/native-effects";
 import {
   NATIVE_EMBEDDED_ASSETS_ATTR,
@@ -36,6 +38,7 @@ import {
 } from "../../../../shared/native-embedded-assets";
 import {
   adaptNativeFeedbackDefinition,
+  nativeFeedbackResetValuesChanged,
   type NativeFeedbackDefinition,
 } from "../../../../shared/native-feedback-plan";
 import { planNativeInputResources } from "../../../../shared/native-input-resources";
@@ -125,6 +128,7 @@ import {
 import {
   emptyNativeBenchmarkPhaseValues,
   emptyNativeBenchmarkFullFrameValues,
+  emptyNativeSourceReadSceneMetrics,
   NativeMountedBenchmarkError,
   NativeMountedBenchmarkRun,
   type NativeBenchmarkPhaseValues,
@@ -153,8 +157,8 @@ import {
   planNativePresentationReadback,
 } from "./native-presentation-readback";
 import {
-  DEFAULT_NATIVE_PREVIEW_POLICY,
   NativePreviewPolicyController,
+  resolveNativePreviewPolicy,
   type NativePreviewStatus,
 } from "./native-preview-policy";
 import { NativeRafIntervalTelemetry } from "./native-raf-interval";
@@ -180,6 +184,7 @@ import {
   type NativeSceneProvider,
   type NativeSourceClip,
   type NativeSourceRecord,
+  type NativeSourceReadSceneMetrics,
 } from "./native-source-provider";
 import {
   planNativeImageSampling,
@@ -193,6 +198,7 @@ import {
 import {
   NativeFeedbackFailure,
   NativeTextureFeedbackExecutor,
+  trackNativeFeedbackRetirement,
   type NativeFeedbackEncodedFrame,
 } from "./native-texture-feedback";
 
@@ -432,6 +438,7 @@ type Mount = {
     textures: Set<GPUTexture>;
     definitionHash: string;
     seed: number;
+    resetPropertyValues: readonly (readonly [string, number])[];
     seekRevision: number;
     sourceRevision: string;
     pendingSourceRevision: string | null;
@@ -515,6 +522,7 @@ type NativePixelFrameOptions = RuntimeCompositionOptions & {
   viewport: { width: number; height: number };
   pixelRatio?: number;
   simulationSessionId?: string;
+  repeatCurrentSimulationFrame?: true;
 };
 type NativeClockSnapshot = {
   playing: boolean;
@@ -532,12 +540,14 @@ type NativeSimulationExportSession = {
   clock: NativeClockSnapshot;
   saved: {
     mount: Mount;
+    instance: Mount["instance"];
     simulation: Mount["simulation"];
     feedback: Mount["feedback"];
     resources: Map<string, GPUTexture>;
     output: GPUTexture | null;
   }[];
   failed: boolean;
+  sourceStale: boolean;
   deviceEpoch: number;
 };
 type RuntimeCompositionOptions = Pick<
@@ -558,6 +568,16 @@ const MAX_DIMENSION = 4096;
 const MAX_PIXELS = 8_388_608;
 const MAX_RESOURCE_BYTES = 134_217_728;
 const MAX_REALM_TEXTURE_BYTES = 402_653_184;
+const unavailableFeedbackStateFollowups = {
+  sourceTransition: {
+    availability: "unavailable",
+    code: "second-source-fixture-required",
+  },
+  lifecycleReplay: {
+    availability: "unavailable",
+    code: "multi-action-editor-sequence-required",
+  },
+} as const;
 const MAX_INPUT_ASSET_BYTES = 16_777_216;
 const MAX_PIPELINES = 64;
 const MAX_SOURCE_CLIPS = 8;
@@ -1322,6 +1342,7 @@ class NativeShaderRuntime {
   };
   private simulationExportSession: NativeSimulationExportSession | null = null;
   private simulationExportStarting = false;
+  private simulationExportStartInvalidated = false;
   private simulationSessionSerial = 0;
   private previewRestoreWork: Promise<NativeRenderResult> | null = null;
   private compositionAbort: AbortController | null = null;
@@ -1370,8 +1391,10 @@ class NativeShaderRuntime {
     composeWallMs: number;
     hostWallPhases: NativeBenchmarkPhaseValues;
     fullFrameWallPhases: NativeBenchmarkFullFrameValues;
+    sourceReadDetail: NativeSourceReadSceneMetrics;
   } | null = null;
   private previewPolicy = new NativePreviewPolicyController();
+  private editorPreviewPolicy: EffectPreviewPolicy | null = null;
   private previewDirty = true;
   private rafIntervalTelemetry = new NativeRafIntervalTelemetry();
   private profileFrames = 0;
@@ -1699,14 +1722,18 @@ class NativeShaderRuntime {
         scene.suppressedElements.delete(child);
         continue;
       }
-      const opacity = readNativeAuthoredPaint(child).opacity;
-      child.setAttribute("data-an-native-authored-opacity", String(opacity));
+      const opacity = String(readNativeAuthoredPaint(child).opacity);
+      if (child.getAttribute("data-an-native-authored-opacity") !== opacity)
+        child.setAttribute("data-an-native-authored-opacity", opacity);
     }
     const authoredEpochBeforeRead = scene.provider.authoredSourceEpoch?.();
     let source: NativeSourceRecord[];
     const sceneSourceStarted = sceneWallPhases ? performance.now() : 0;
     try {
-      source = await scene.provider.readScene();
+      source = await scene.provider.readScene(
+        this.mountedBenchmarkRenderMetrics?.sourceReadDetail,
+        "scene-presentation",
+      );
     } catch (error) {
       this.releaseScenePresentation();
       throw error;
@@ -1896,7 +1923,8 @@ class NativeShaderRuntime {
             String(opacity),
           );
         }
-        child.setAttribute("data-an-native-scene-suppressed", "");
+        if (!child.hasAttribute("data-an-native-scene-suppressed"))
+          child.setAttribute("data-an-native-scene-suppressed", "");
         scene.suppressedElements.add(child);
       }
       const committedInstances = new Set(nativeRecordIds);
@@ -3547,6 +3575,14 @@ class NativeShaderRuntime {
   }
 
   scan = async (): Promise<void> => {
+    if (this.simulationExportStarting || this.simulationExportSession) {
+      this.rescanPending = true;
+      if (this.simulationExportSession) {
+        this.simulationExportSession.failed = true;
+        this.simulationExportSession.sourceStale = true;
+      } else this.simulationExportStartInvalidated = true;
+      return;
+    }
     if (this.compositionDone) {
       this.compositionAbort?.abort();
       await this.compositionDone;
@@ -3658,9 +3694,13 @@ class NativeShaderRuntime {
       }
       return;
     }
-    const documentColorRequested = documents[0]?.preview?.colorMode ?? "srgb";
+    const effectivePreviewPolicy = resolveNativePreviewPolicy(
+      this.editorPreviewPolicy,
+      documents[0]?.preview,
+    );
+    const documentColorRequested = effectivePreviewPolicy.colorMode ?? "srgb";
     const documentDynamicRangeRequested =
-      documents[0]?.preview?.dynamicRange ?? "sdr";
+      effectivePreviewPolicy.dynamicRange ?? "sdr";
     if (
       this.documentColorRequested !== documentColorRequested ||
       this.documentDynamicRangeRequested !== documentDynamicRangeRequested
@@ -3686,11 +3726,7 @@ class NativeShaderRuntime {
       }
       this.publishColorCapability();
     }
-    if (
-      this.previewPolicy.setPolicy(
-        documents[0]?.preview ?? DEFAULT_NATIVE_PREVIEW_POLICY,
-      )
-    )
+    if (this.previewPolicy.setPolicy(effectivePreviewPolicy))
       this.previewDirty = true;
     this.updatePreviewAttributes();
     for (const target of this.rejectedTargets) {
@@ -7095,9 +7131,10 @@ class NativeShaderRuntime {
         adapted.code,
         "The feedback graph is not executable.",
       );
-    const read = (name: keyof typeof instance.params): number => {
+    const read = (name: string): number => {
       const value =
-        instance.params[name] ?? definition.properties[name]?.default;
+        (instance.params as Record<string, unknown>)[name] ??
+        definition.properties[name]?.default;
       if (typeof value !== "number" || !Number.isFinite(value))
         throw new NativeSourceError(
           "feedback-params-invalid",
@@ -7116,12 +7153,19 @@ class NativeShaderRuntime {
       blend: read(uniformProperties.blend),
       seed: read(uniformProperties.seed),
     };
+    const resetPropertyValues = (adapted.definition.resetProperties ?? []).map(
+      (name) => [name, read(name)] as const,
+    );
     const revision = instance.timing.seekRevision ?? 0;
     const prior = mount.feedback;
     if (
       prior &&
       (prior.definitionHash !== mount.definitionHash ||
         prior.seed !== params.seed ||
+        nativeFeedbackResetValuesChanged(
+          prior.resetPropertyValues,
+          resetPropertyValues,
+        ) ||
         prior.seekRevision !== revision ||
         prior.sourceWidth !== source.width ||
         prior.sourceHeight !== source.height)
@@ -7155,6 +7199,7 @@ class NativeShaderRuntime {
         textures,
         definitionHash: mount.definitionHash,
         seed: params.seed,
+        resetPropertyValues,
         seekRevision: revision,
         sourceRevision: "",
         pendingSourceRevision: null,
@@ -9022,7 +9067,10 @@ class NativeShaderRuntime {
         }
       } else if (mount.provider) {
         const sourceStarted = performance.now();
-        scene = await mount.provider.readScene();
+        scene = await mount.provider.readScene(
+          this.mountedBenchmarkRenderMetrics?.sourceReadDetail,
+          "mount-source",
+        );
         sourceWallMs += performance.now() - sourceStarted;
         let renderedDependency = false;
         for (const record of scene) {
@@ -9050,7 +9098,10 @@ class NativeShaderRuntime {
         }
         if (renderedDependency) {
           const sourceStarted = performance.now();
-          scene = await mount.provider.readScene();
+          scene = await mount.provider.readScene(
+            this.mountedBenchmarkRenderMetrics?.sourceReadDetail,
+            "dependency-refresh",
+          );
           sourceWallMs += performance.now() - sourceStarted;
         }
         if (nestedTransaction) {
@@ -9875,6 +9926,7 @@ class NativeShaderRuntime {
           composeWallMs: 0,
           hostWallPhases: emptyNativeBenchmarkPhaseValues(),
           fullFrameWallPhases: emptyNativeBenchmarkFullFrameValues(),
+          sourceReadDetail: emptyNativeSourceReadSceneMetrics(),
         }
       : null;
     this.mountedBenchmarkRenderMetrics = benchmarkMetrics;
@@ -10127,6 +10179,7 @@ class NativeShaderRuntime {
           composeWallMs: benchmarkMetrics.composeWallMs,
           hostWallPhases: benchmarkMetrics.hostWallPhases,
           fullFrameWallPhases: benchmarkMetrics.fullFrameWallPhases,
+          sourceReadDetail: benchmarkMetrics.sourceReadDetail,
           failureCount: result.failures.length,
         });
       if (
@@ -10466,6 +10519,82 @@ class NativeShaderRuntime {
     return result;
   };
 
+  renderAtWithPixelRatio = async (
+    time: number,
+    pixelRatio: number,
+  ): Promise<NativeRenderResult> => {
+    this.assertCompositionIdle();
+    if (!Number.isFinite(time) || time < 0)
+      throw new NativeSourceError(
+        "composition-invalid-frame",
+        "The explicit native validation time must be finite and nonnegative.",
+      );
+    if (
+      !Number.isFinite(pixelRatio) ||
+      pixelRatio <= 0 ||
+      pixelRatio > 4 ||
+      this.compositionPixelRatio !== null
+    )
+      throw new NativeSourceError(
+        "composition-size-unsupported",
+        "The explicit native validation pixel ratio is unsupported.",
+      );
+    this.compositionPixelRatio = pixelRatio;
+    this.compositionPixelBusy = true;
+    let previewDensityRestoreAttempted = false;
+    const restorePreviewDensityForValidation = async (time: number) => {
+      this.compositionPixelRatio = null;
+      previewDensityRestoreAttempted = true;
+      if (
+        pixelRatio === this.previewStatus().effectivePixelRatio ||
+        this.mounts.size === 0 ||
+        this.disposed ||
+        this.compositionUnsafe
+      )
+        return;
+      const restored = await this.restorePreviewDensity(time);
+      if (restored.failures.length)
+        throw new NativeRenderFailure(restored, "preview-density");
+    };
+    try {
+      const held = await this.withSynchronizedCompositionFrame(
+        {
+          frameIndex: 0,
+          fps: 60,
+          startTimeSeconds: time,
+          sourceContract: "declarative-only",
+        },
+        async (rendered, frame) => {
+          await restorePreviewDensityForValidation(frame.timeSeconds);
+          return rendered;
+        },
+        true,
+      );
+      return held.value;
+    } catch (error) {
+      if (!previewDensityRestoreAttempted) {
+        try {
+          await restorePreviewDensityForValidation(this.currentTime());
+        } catch (restoreError) {
+          throw new NativePixelCleanupError([error, restoreError]);
+        }
+      }
+      throw error;
+    } finally {
+      this.compositionPixelRatio = null;
+      this.compositionPixelBusy = false;
+      if (
+        !this.compositionAbort &&
+        !this.compositionUnsafe &&
+        this.playing &&
+        this.mounts.size &&
+        !this.raf &&
+        !this.disposed
+      )
+        this.frame();
+    }
+  };
+
   setParameters = async (
     instanceId: string,
     params: Record<string, unknown>,
@@ -10489,6 +10618,83 @@ class NativeShaderRuntime {
     } catch (error) {
       mount.instance = previous;
       throw error;
+    }
+  };
+
+  setSimulationExportParameters = (options: {
+    sessionId: string;
+    instanceId: string;
+    nodeId: string;
+    executionHash: string;
+    params: Record<string, number>;
+    signal?: AbortSignal;
+  }): { instanceId: string; updatedProperties: string[] } => {
+    this.assertCompositionIdle(true);
+    if (options.signal?.aborted) throw options.signal.reason;
+    const session = this.simulationExportSession;
+    if (session?.sourceStale)
+      throw new NativeSourceError(
+        "simulation-session-source-stale",
+        "The preview source changed during the held render session.",
+      );
+    if (
+      !session ||
+      session.id !== options.sessionId ||
+      session.failed ||
+      session.nextFrame < 1
+    )
+      throw new NativeSourceError(
+        "simulation-session-invalid",
+        "A parameter update requires the current held simulation session after its first frame.",
+      );
+    const mount = this.mounts.get(options.instanceId);
+    if (
+      !mount ||
+      !session.saved.some((saved) => saved.mount === mount) ||
+      mount.instance.nodeId !== options.nodeId ||
+      mount.definitionHash !== options.executionHash ||
+      this.draft?.instanceId === options.instanceId
+    )
+      throw new NativeSourceError(
+        "simulation-session-target-stale",
+        "The held parameter target no longer matches the approved native effect.",
+      );
+    const entries = Object.entries(options.params);
+    if (
+      entries.length < 1 ||
+      entries.length > 16 ||
+      entries.some(([name, value]) => {
+        const property = mount.definition.properties[name];
+        return (
+          !property ||
+          (property.type !== "float" && property.type !== "int") ||
+          !Number.isFinite(value)
+        );
+      })
+    )
+      throw new NativeSourceError(
+        "simulation-session-params-invalid",
+        "Held parameter updates accept only bounded numeric native properties.",
+      );
+    const previous = mount.instance;
+    const nextParams = {
+      ...previous.params,
+      ...options.params,
+    } as EffectInstance["params"];
+    try {
+      packNativeProperties(mount.definition, nextParams);
+      mount.instance = { ...previous, params: nextParams };
+      this.markMountRenderPending(mount);
+      return {
+        instanceId: mount.instance.id,
+        updatedProperties: entries.map(([name]) => name),
+      };
+    } catch (error) {
+      mount.instance = previous;
+      throw new NativeSourceError(
+        "simulation-session-params-invalid",
+        String(error),
+      );
     }
   };
 
@@ -11380,6 +11586,7 @@ class NativeShaderRuntime {
     fps: number;
     totalFrames: number;
     startTimeSeconds: number;
+    targetInstanceIds?: string[];
     signal?: AbortSignal;
     timeoutMs?: number;
   }): Promise<{ sessionId: string }> => {
@@ -11407,6 +11614,17 @@ class NativeShaderRuntime {
         "simulation-session-limit",
         "Particle export needs a bounded start and end within 30 seconds and 3600 fixed steps.",
       );
+    const targetInstanceIds = options.targetInstanceIds ?? [];
+    if (
+      targetInstanceIds.length > 1 ||
+      new Set(targetInstanceIds).size !== targetInstanceIds.length ||
+      targetInstanceIds.some((id) => !this.mounts.has(id))
+    )
+      throw new NativeSourceError(
+        "simulation-session-target-invalid",
+        "The held render session target is missing or exceeds its bound.",
+      );
+    const targetInstances = new Set(targetInstanceIds);
     for (const mount of this.mounts.values()) {
       const spec = mount.definition.simulation;
       const feedback = mount.definition.feedback;
@@ -11478,6 +11696,7 @@ class NativeShaderRuntime {
       timeoutMs,
     );
     this.simulationExportStarting = true;
+    this.simulationExportStartInvalidated = false;
     this.rafIntervalTelemetry.reset();
     cancelAnimationFrame(this.raf);
     this.raf = 0;
@@ -11503,15 +11722,23 @@ class NativeShaderRuntime {
         }
       }
       if (controller.signal.aborted) throw controller.signal.reason;
+      if (this.simulationExportStartInvalidated)
+        throw new NativeSourceError(
+          "simulation-session-source-stale",
+          "The preview source changed while the held render session was starting.",
+        );
       snapshot = this.suspendForComposition();
       const saved = [...this.mounts.values()]
         .filter(
           (mount) =>
-            !!mount.definition.simulation || !!mount.definition.feedback,
+            !!mount.definition.simulation ||
+            !!mount.definition.feedback ||
+            targetInstances.has(mount.instance.id),
         )
         .map((mount) => {
           const entry = {
             mount,
+            instance: mount.instance,
             simulation: mount.simulation,
             feedback: mount.feedback,
             resources: mount.resourceTextures,
@@ -11534,6 +11761,7 @@ class NativeShaderRuntime {
         clock: snapshot,
         saved,
         failed: false,
+        sourceStale: false,
         deviceEpoch: this.deviceEpoch,
       };
       return { sessionId: id };
@@ -11544,6 +11772,9 @@ class NativeShaderRuntime {
       clearTimeout(timer);
       options.signal?.removeEventListener("abort", abort);
       this.simulationExportStarting = false;
+      this.simulationExportStartInvalidated = false;
+      if (!this.simulationExportSession && this.rescanPending)
+        queueMicrotask(() => this.requestScan());
       if (
         !this.simulationExportSession &&
         this.playing &&
@@ -11610,9 +11841,20 @@ class NativeShaderRuntime {
         if (exportFeedback) await this.disposeFeedback(exportFeedback);
         for (const texture of mount.resourceTextures.values())
           this.destroyTexture(texture);
-        mount.resourceTextures = saved.resources;
         if (mount.outputTexture && mount.outputTexture !== saved.output)
           this.destroyTexture(mount.outputTexture);
+        if (this.mounts.get(saved.instance.id) !== mount) {
+          if (saved.simulation)
+            for (const buffer of saved.simulation.buffers)
+              this.destroySimulationBuffer(buffer);
+          if (saved.feedback) await this.disposeFeedback(saved.feedback);
+          for (const texture of new Set(saved.resources.values()))
+            this.destroyTexture(texture);
+          if (saved.output) this.destroyTexture(saved.output);
+          continue;
+        }
+        mount.instance = saved.instance;
+        mount.resourceTextures = saved.resources;
         mount.outputTexture = saved.output;
         mount.simulation = saved.simulation;
         mount.feedback = saved.feedback;
@@ -11621,6 +11863,7 @@ class NativeShaderRuntime {
       }
       this.simulationExportSession = null;
       this.restoreFromComposition(session.clock);
+      if (this.rescanPending) await this.scan();
       if (this.playing && !this.raf && this.mounts.size && !this.disposed)
         this.frame();
     } catch (error) {
@@ -11631,6 +11874,11 @@ class NativeShaderRuntime {
     } finally {
       clearTimeout(timer);
     }
+    if (incomplete && session.sourceStale)
+      throw new NativeSourceError(
+        "simulation-session-source-stale",
+        "The preview source changed during the held render session.",
+      );
     if (incomplete)
       throw new NativeSourceError(
         "simulation-session-incomplete",
@@ -11692,6 +11940,7 @@ class NativeShaderRuntime {
       definitionVersion: number;
       executionHash: string;
       expectedLinearSamples?: NativeExpectedLinearSamples;
+      captureFeedbackState?: true;
     },
   ) =>
     this.renderCompositionPixelsWithConsumer(options, async (frame) => ({
@@ -11707,6 +11956,7 @@ class NativeShaderRuntime {
       definitionVersion: number;
       executionHash: string;
       expectedLinearSamples?: NativeExpectedLinearSamples;
+      captureFeedbackState?: true;
     },
     signal: AbortSignal,
   ): Promise<{
@@ -11715,6 +11965,7 @@ class NativeShaderRuntime {
   }> {
     if (signal.aborted) throw signal.reason;
     const mount = this.mounts.get(target.instanceId);
+    const session = this.simulationExportSession;
     if (
       !mount ||
       mount.instance.nodeId !== target.nodeId ||
@@ -11730,6 +11981,17 @@ class NativeShaderRuntime {
       throw new NativeSourceError(
         "mounted-output-target-unready",
         "The exact mounted output is unavailable for validation.",
+      );
+    if (
+      session &&
+      (session.sourceStale ||
+        !session.saved.some((saved) => saved.mount === mount))
+    )
+      throw new NativeSourceError(
+        session.sourceStale
+          ? "simulation-session-source-stale"
+          : "simulation-session-target-stale",
+        "The held render target changed during validation.",
       );
     const texture = mount.outputTexture;
     if (texture.format !== "rgba16float")
@@ -11770,6 +12032,9 @@ class NativeShaderRuntime {
         this.deviceEpoch !== generation ||
         this.epoch !== runtimeEpoch ||
         this.mounts.get(target.instanceId) !== mount ||
+        (session &&
+          (session.sourceStale ||
+            !session.saved.some((saved) => saved.mount === mount))) ||
         mount.instance !== instanceAtStart ||
         mount.definition !== definitionAtStart ||
         mount.frameCount !== frameCountAtStart ||
@@ -11806,23 +12071,33 @@ class NativeShaderRuntime {
             evaluated.packedRgba16f,
           );
           assertCurrent();
+          const feedbackState = target.captureFeedbackState
+            ? await this.readFeedbackStateSnapshot(
+                mount,
+                signal,
+                plan.byteLength,
+              )
+            : undefined;
+          assertCurrent();
+          const mountOutput: NativeMountedOutputSummary = {
+            scope: "exact-mount-output-linear-premultiplied",
+            instanceId: target.instanceId,
+            nodeId: target.nodeId,
+            definitionId: target.definitionId,
+            definitionVersion: target.definitionVersion,
+            executionHash: target.executionHash,
+            width: plan.width,
+            height: plan.height,
+            pixelSha256: [...new Uint8Array(digest)]
+              .map((byte) => byte.toString(16).padStart(2, "0"))
+              .join(""),
+            nonTransparentPixels: evaluated.nonTransparentPixels,
+            partialAlphaPixels: evaluated.partialAlphaPixels,
+            nonZeroRgbaPixels: evaluated.nonZeroRgbaPixels,
+            ...(feedbackState ? { feedbackState } : {}),
+          };
           return {
-            mountOutput: {
-              scope: "exact-mount-output-linear-premultiplied" as const,
-              instanceId: target.instanceId,
-              nodeId: target.nodeId,
-              definitionId: target.definitionId,
-              definitionVersion: target.definitionVersion,
-              executionHash: target.executionHash,
-              width: plan.width,
-              height: plan.height,
-              pixelSha256: [...new Uint8Array(digest)]
-                .map((byte) => byte.toString(16).padStart(2, "0"))
-                .join(""),
-              nonTransparentPixels: evaluated.nonTransparentPixels,
-              partialAlphaPixels: evaluated.partialAlphaPixels,
-              nonZeroRgbaPixels: evaluated.nonZeroRgbaPixels,
-            },
+            mountOutput,
             ...(evaluated.linearGolden
               ? { linearGolden: evaluated.linearGolden }
               : {}),
@@ -11831,6 +12106,84 @@ class NativeShaderRuntime {
       });
     } finally {
       if (pinnedHere) this.activeMounts.delete(mount);
+    }
+  }
+
+  private async readFeedbackStateSnapshot(
+    mount: Mount,
+    signal: AbortSignal,
+    readbackReservedBytes: number,
+  ): Promise<
+    | {
+        availability: "available";
+        scope: "exact-feedback-state-linear-rgba16f";
+        width: number;
+        height: number;
+        completedStep: number;
+        byteLength: number;
+        sha256: string;
+        followups: typeof unavailableFeedbackStateFollowups;
+      }
+    | {
+        availability: "unavailable";
+        code:
+          | "state-uninitialized"
+          | "state-snapshot-limit"
+          | "state-snapshot-budget";
+        followups: typeof unavailableFeedbackStateFollowups;
+      }
+  > {
+    const feedback = mount.feedback;
+    if (!feedback)
+      return {
+        availability: "unavailable",
+        code: "state-uninitialized",
+        followups: unavailableFeedbackStateFollowups,
+      };
+    try {
+      const snapshot = await trackNativeFeedbackRetirement(
+        feedback.retirements,
+        feedback.executor.snapshotState(
+          MAX_REALM_TEXTURE_BYTES -
+            this.estimatedResourceBytes() -
+            readbackReservedBytes,
+          signal,
+        ),
+      );
+      return {
+        availability: "available",
+        ...snapshot,
+        followups: unavailableFeedbackStateFollowups,
+      };
+    } catch (error) {
+      if (
+        error instanceof NativeFeedbackFailure &&
+        error.code === "feedback-state-uninitialized"
+      )
+        return {
+          availability: "unavailable",
+          code: "state-uninitialized",
+          followups: unavailableFeedbackStateFollowups,
+        };
+      if (
+        error instanceof NativeFeedbackFailure &&
+        error.code === "feedback-state-snapshot-limit"
+      )
+        return {
+          availability: "unavailable",
+          code: "state-snapshot-limit",
+          followups: unavailableFeedbackStateFollowups,
+        };
+      if (
+        error instanceof NativeFeedbackFailure &&
+        error.code === "feedback-state-snapshot-budget"
+      )
+        return {
+          availability: "unavailable",
+          code: "state-snapshot-budget",
+          followups: unavailableFeedbackStateFollowups,
+        };
+      throw error;
     }
   }
 
@@ -12018,10 +12371,20 @@ class NativeShaderRuntime {
     consume: (frame: NativeHeldPixelFrame) => Promise<Consumed>,
   ): Promise<Consumed> => {
     const simulationSession = this.simulationExportSession;
+    const repeatCurrentSimulationFrame =
+      options.repeatCurrentSimulationFrame === true;
     if (simulationSession) {
+      if (simulationSession.sourceStale)
+        throw new NativeSourceError(
+          "simulation-session-source-stale",
+          "The preview source changed during the held render session.",
+        );
       if (
         options.simulationSessionId !== simulationSession.id ||
-        options.frameIndex !== simulationSession.nextFrame ||
+        (repeatCurrentSimulationFrame
+          ? simulationSession.nextFrame < 1 ||
+            options.frameIndex !== simulationSession.nextFrame - 1
+          : options.frameIndex !== simulationSession.nextFrame) ||
         options.fps !== simulationSession.fps ||
         (options.startTimeSeconds ?? 0) !==
           simulationSession.startTimeSeconds ||
@@ -12035,6 +12398,11 @@ class NativeShaderRuntime {
       throw new NativeSourceError(
         "simulation-session-invalid",
         "Particle export session is unavailable.",
+      );
+    } else if (repeatCurrentSimulationFrame) {
+      throw new NativeSourceError(
+        "simulation-session-invalid",
+        "A repeated frame requires the current held simulation session.",
       );
     } else if (
       [...this.mounts.values()].some(
@@ -12104,7 +12472,8 @@ class NativeShaderRuntime {
         },
         true,
       );
-      if (simulationSession) simulationSession.nextFrame += 1;
+      if (simulationSession && !repeatCurrentSimulationFrame)
+        simulationSession.nextFrame += 1;
       return held.value;
     } catch (error) {
       if (simulationSession) simulationSession.failed = true;
@@ -12486,6 +12855,19 @@ class NativeShaderRuntime {
       if (event.origin !== inheritedOrigin) return;
     }
     const data = event.data as Record<string, unknown>;
+    if (data.type === "native-shader-editor-preview-policy") {
+      if (window.parent === window || event.source !== window.parent) return;
+      if (
+        data.schemaVersion !== 1 ||
+        !(data.policy === null || isEffectPreviewPolicy(data.policy))
+      )
+        return;
+      this.editorPreviewPolicy =
+        data.policy === null ? null : { ...data.policy };
+      this.previewDirty = true;
+      this.requestScan();
+      return;
+    }
     if (
       data.type === "native-effect-set-instance" ||
       data.type === "native-effect-clear-instance"

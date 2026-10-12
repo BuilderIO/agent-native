@@ -44,6 +44,7 @@ export interface EffectFeedbackSpec {
   stateResource: string;
   displayResource: string;
   uniformProperties?: Partial<Record<FeedbackUniformSlot, string>>;
+  resetProperties?: readonly string[];
 }
 
 export const FEEDBACK_UNIFORM_SLOTS = [
@@ -158,7 +159,16 @@ function validateFeedbackGraph(
             ),
         ) ||
         new Set(Object.values(feedbackUniformProperties(feedback))).size !==
-          FEEDBACK_UNIFORM_SLOTS.length))
+          FEEDBACK_UNIFORM_SLOTS.length)) ||
+    (feedback.resetProperties !== undefined &&
+      (!Array.isArray(feedback.resetProperties) ||
+        feedback.resetProperties.length > 16 ||
+        new Set(feedback.resetProperties).size !==
+          feedback.resetProperties.length ||
+        feedback.resetProperties.some(
+          (property) =>
+            typeof property !== "string" || !RESOURCE_NAME.test(property),
+        )))
   )
     return ["feedback specification is malformed or unbounded"];
   const errors: string[] = [];

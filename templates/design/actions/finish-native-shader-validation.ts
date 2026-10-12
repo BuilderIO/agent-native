@@ -8,6 +8,7 @@ import {
   nativeShaderValidationCaseResultSchema,
   nativeShaderValidationFailureSchema,
   nativeShaderValidationStateKey,
+  type NativeMountedOutputSummary,
   type NativeShaderValidationState,
 } from "../shared/native-shader-validation.js";
 import { NATIVE_SHADER_RUNTIME_SOURCE } from "../shared/shader-fills.js";
@@ -45,6 +46,51 @@ const resultSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("canceled") }).strict(),
 ]);
 
+function sameFeedbackState(
+  left: NativeMountedOutputSummary["feedbackState"],
+  right: NativeMountedOutputSummary["feedbackState"],
+): boolean {
+  if (!left || !right) return left === right;
+  if (left.availability !== right.availability) return false;
+  if (
+    left.availability === "unavailable" ||
+    right.availability === "unavailable"
+  )
+    return (
+      left.availability === "unavailable" &&
+      right.availability === "unavailable" &&
+      left.code === right.code
+    );
+  return (
+    left.width === right.width &&
+    left.height === right.height &&
+    left.completedStep === right.completedStep &&
+    left.byteLength === right.byteLength &&
+    left.sha256 === right.sha256
+  );
+}
+
+function sameMountedOutput(
+  left: NativeMountedOutputSummary,
+  right: NativeMountedOutputSummary,
+): boolean {
+  return (
+    left.scope === right.scope &&
+    left.instanceId === right.instanceId &&
+    left.nodeId === right.nodeId &&
+    left.definitionId === right.definitionId &&
+    left.definitionVersion === right.definitionVersion &&
+    left.executionHash === right.executionHash &&
+    left.width === right.width &&
+    left.height === right.height &&
+    left.pixelSha256 === right.pixelSha256 &&
+    left.nonTransparentPixels === right.nonTransparentPixels &&
+    left.partialAlphaPixels === right.partialAlphaPixels &&
+    left.nonZeroRgbaPixels === right.nonZeroRgbaPixels &&
+    sameFeedbackState(left.feedbackState, right.feedbackState)
+  );
+}
+
 export default defineAction({
   agentTool: false,
   description:
@@ -78,6 +124,21 @@ export default defineAction({
         errorCode: "native_validation_canceled",
         statusCode: 409,
       });
+    if (
+      result.status === "validation-complete" &&
+      current.cases.some((item) => item.statefulSequence)
+    ) {
+      await assertAccess("design", designId, "editor");
+      const source = await readNativeShaderValidationSource(
+        designId,
+        current.fileId,
+      );
+      if (source.versionHash !== current.expectedVersionHash)
+        fail("The source changed before held-session validation finished.", {
+          errorCode: "native_validation_source_stale",
+          statusCode: 409,
+        });
+    }
     if (
       result.status === "validation-complete" &&
       current.cases.some((item) => item.presentationFault)
@@ -154,12 +215,223 @@ export default defineAction({
       const seen = new Set<string>();
       for (const item of result.results) {
         const requested = expected.get(item.caseId);
+        const requestedSteps = requested?.statefulSequence;
+        const actualSteps = item.statefulSequence;
+        let sequenceMismatch = requestedSteps
+          ? item.status === "ready" && !actualSteps
+          : !!actualSteps;
+        if (requestedSteps && actualSteps) {
+          let expectedFrameIndex = -1;
+          sequenceMismatch =
+            actualSteps.length !== requestedSteps.length ||
+            requestedSteps.some((step, index) => {
+              if (step.kind === "advance") expectedFrameIndex += 1;
+              const actual = actualSteps[index];
+              if (
+                !actual ||
+                actual.kind !== step.kind ||
+                actual.stepId !== step.stepId
+              )
+                return true;
+              if (step.kind === "set-params")
+                return (
+                  actual.kind !== "set-params" ||
+                  actual.updatedProperties.length !==
+                    Object.keys(step.params).length ||
+                  Object.keys(step.params).some(
+                    (name, propertyIndex) =>
+                      actual.kind !== "set-params" ||
+                      actual.updatedProperties[propertyIndex] !== name,
+                  )
+                );
+              if (actual.kind !== "advance" && actual.kind !== "capture")
+                return true;
+              if (
+                actual.frameIndex !== expectedFrameIndex ||
+                actual.timeSeconds !== expectedFrameIndex / 60
+              )
+                return true;
+              const output = actual.mountOutput;
+              const expectedWidth = requested?.mountedFrame
+                ? Math.ceil(
+                    requested.mountedFrame.viewport.width *
+                      requested.mountedFrame.pixelRatio,
+                  )
+                : 0;
+              const expectedHeight = requested?.mountedFrame
+                ? Math.ceil(
+                    requested.mountedFrame.viewport.height *
+                      requested.mountedFrame.pixelRatio,
+                  )
+                : 0;
+              if (
+                !requested ||
+                actual.pixelWidth !== expectedWidth ||
+                actual.pixelHeight !== expectedHeight ||
+                output.instanceId !== requested.instanceId ||
+                output.nodeId !== requested.nodeId ||
+                output.definitionId !== requested.definitionId ||
+                output.definitionVersion !== requested.definitionVersion ||
+                output.executionHash !== requested.executionHash ||
+                output.width > expectedWidth ||
+                output.height > expectedHeight ||
+                (requested.captureFeedbackState === true &&
+                  !output.feedbackState)
+              )
+                return true;
+              if (step.kind === "capture" && step.expectedLinearSamples) {
+                if (actual.kind !== "capture") return true;
+                const golden = actual.linearGolden;
+                if (
+                  !golden ||
+                  golden.sampleCount !== step.expectedLinearSamples.length ||
+                  (golden.passed &&
+                    golden.maxAbsError >
+                      Math.max(
+                        ...step.expectedLinearSamples.map(
+                          (sample) => sample.tolerance,
+                        ),
+                      )) ||
+                  (item.status === "ready" && !golden.passed)
+                )
+                  return true;
+              } else if (
+                actual.kind === "capture" &&
+                actual.linearGolden !== undefined
+              ) {
+                return true;
+              }
+              const expectedComparisons =
+                step.kind === "capture" && step.compare
+                  ? [
+                      ...(step.compare.feedbackState
+                        ? [
+                            {
+                              referenceStepId: step.compare.referenceStepId,
+                              subject: "feedback-state" as const,
+                              expected: step.compare.feedbackState,
+                            },
+                          ]
+                        : []),
+                      ...(step.compare.pixels
+                        ? [
+                            {
+                              referenceStepId: step.compare.referenceStepId,
+                              subject: "pixels" as const,
+                              expected: step.compare.pixels,
+                            },
+                          ]
+                        : []),
+                    ]
+                  : [];
+              if (actual.comparisons.length !== expectedComparisons.length)
+                return true;
+              if (
+                expectedComparisons.some((comparison, comparisonIndex) => {
+                  const observed = actual.comparisons[comparisonIndex];
+                  const reference = actualSteps
+                    .slice(0, index)
+                    .find(
+                      (receipt) =>
+                        receipt.stepId === comparison.referenceStepId,
+                    );
+                  if (!reference || reference.kind === "set-params")
+                    return true;
+                  let derived: "same" | "different" | "unavailable";
+                  if (comparison.subject === "pixels") {
+                    const left = reference.mountOutput;
+                    derived =
+                      left.width === output.width &&
+                      left.height === output.height &&
+                      left.pixelSha256 === output.pixelSha256
+                        ? "same"
+                        : "different";
+                  } else {
+                    const left = reference.mountOutput.feedbackState;
+                    const right = output.feedbackState;
+                    derived =
+                      !left ||
+                      !right ||
+                      left.availability !== "available" ||
+                      right.availability !== "available"
+                        ? "unavailable"
+                        : left.width === right.width &&
+                            left.height === right.height &&
+                            left.byteLength === right.byteLength &&
+                            left.sha256 === right.sha256
+                          ? "same"
+                          : "different";
+                  }
+                  return (
+                    observed.referenceStepId !== comparison.referenceStepId ||
+                    observed.subject !== comparison.subject ||
+                    observed.expected !== comparison.expected ||
+                    observed.observed !== derived ||
+                    observed.passed !==
+                      (observed.observed === observed.expected) ||
+                    (item.status === "ready" && !observed.passed)
+                  );
+                })
+              )
+                return true;
+              return false;
+            });
+        }
+        const finalStep = actualSteps
+          ? actualSteps[actualSteps.length - 1]
+          : undefined;
+        if (
+          requestedSteps &&
+          finalStep?.kind === "capture" &&
+          (!item.mountOutput ||
+            !sameMountedOutput(item.mountOutput, finalStep.mountOutput) ||
+            item.pixelSha256 !== finalStep.pixelSha256 ||
+            item.pixelWidth !== finalStep.pixelWidth ||
+            item.pixelHeight !== finalStep.pixelHeight)
+        )
+          sequenceMismatch = true;
+        const hasFailedGolden =
+          requestedSteps !== undefined &&
+          actualSteps?.some(
+            (step) =>
+              step.kind === "capture" &&
+              step.linearGolden !== undefined &&
+              !step.linearGolden.passed,
+          );
+        const hasFailedComparison =
+          actualSteps?.some(
+            (step) =>
+              step.kind !== "set-params" &&
+              step.comparisons.some((comparison) => !comparison.passed),
+          ) ?? false;
+        if (
+          requestedSteps &&
+          actualSteps &&
+          ((hasFailedGolden && item.code !== "linear-golden-failed") ||
+            (!hasFailedGolden && item.code === "linear-golden-failed") ||
+            (hasFailedComparison &&
+              !hasFailedGolden &&
+              item.code !== "stateful-sequence-assertion-failed") ||
+            (!hasFailedComparison &&
+              item.code === "stateful-sequence-assertion-failed"))
+        )
+          sequenceMismatch = true;
+        const missingFeedbackSnapshot =
+          requested?.captureFeedbackState === true &&
+          item.status === "ready" &&
+          actualSteps?.some(
+            (step) =>
+              step.kind !== "set-params" &&
+              step.mountOutput.feedbackState?.availability !== "available",
+          );
         if (
           !requested ||
           seen.has(item.caseId) ||
           requested.definitionId !== item.definitionId ||
           requested.definitionVersion !== item.definitionVersion ||
           requested.executionHash !== item.executionHash ||
+          sequenceMismatch ||
+          missingFeedbackSnapshot ||
           (!!item.mountOutput !== !!requested.mountedFrame &&
             (item.status === "ready" || !!item.mountOutput)) ||
           (item.mountOutput &&
@@ -182,6 +454,40 @@ export default defineAction({
                 ))) ||
           (!!item.linearGolden !== !!requested.expectedLinearSamples &&
             (item.status === "ready" || !!item.linearGolden)) ||
+          (!!item.fullScenePixelSamples !==
+            !!requested.scenePixelSampleCoordinates &&
+            (item.status === "ready" || !!item.fullScenePixelSamples)) ||
+          (item.fullScenePixelSamples &&
+            (!requested.scenePixelSampleCoordinates ||
+              !requested.mountedFrame ||
+              item.fullScenePixelSamples.requestId !== current.requestId ||
+              item.fullScenePixelSamples.sourceVersionHash !==
+                current.expectedVersionHash ||
+              item.fullScenePixelSamples.frameIndex !==
+                Math.round(requested.timeSeconds * 60) ||
+              item.fullScenePixelSamples.timeSeconds !==
+                requested.timeSeconds ||
+              item.fullScenePixelSamples.pixelRatio !==
+                requested.mountedFrame.pixelRatio ||
+              item.fullScenePixelSamples.width !==
+                Math.ceil(
+                  requested.mountedFrame.viewport.width *
+                    requested.mountedFrame.pixelRatio,
+                ) ||
+              item.fullScenePixelSamples.height !==
+                Math.ceil(
+                  requested.mountedFrame.viewport.height *
+                    requested.mountedFrame.pixelRatio,
+                ) ||
+              item.fullScenePixelSamples.samples.length !==
+                requested.scenePixelSampleCoordinates.length ||
+              item.fullScenePixelSamples.samples.some(
+                (sample, index) =>
+                  sample.x !==
+                    requested.scenePixelSampleCoordinates?.[index]?.x ||
+                  sample.y !==
+                    requested.scenePixelSampleCoordinates?.[index]?.y,
+              ))) ||
           (!!item.mountedMeasurement !== !!requested.mountedMeasurement &&
             (item.status === "ready" || !!item.mountedMeasurement)) ||
           (item.mountedMeasurement &&
@@ -194,6 +500,14 @@ export default defineAction({
           (item.linearGolden &&
             (item.linearGolden.sampleCount !==
               requested.expectedLinearSamples?.length ||
+              (item.linearGolden.passed &&
+                requested.expectedLinearSamples !== undefined &&
+                item.linearGolden.maxAbsError >
+                  Math.max(
+                    ...requested.expectedLinearSamples.map(
+                      (sample) => sample.tolerance,
+                    ),
+                  )) ||
               (item.status === "ready" && !item.linearGolden.passed) ||
               (item.status !== "ready" && item.linearGolden.passed))) ||
           (requested.fixture &&

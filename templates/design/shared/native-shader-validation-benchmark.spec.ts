@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   nativeShaderValidationRequestSchema,
   nativeShaderMountedMeasurementSchema,
+  nativeMountedOutputSummarySchema,
 } from "./native-shader-validation";
 
 const hash = "a".repeat(64);
@@ -197,6 +198,119 @@ describe("mounted measurement validation", () => {
       fullFrameWallPhases,
     });
     expect(accepted.fullFrameWallPhases).toEqual(fullFrameWallPhases);
+    const zeroReadStats = { count: 400, p50: 0, p95: 0, p99: 0, max: 0 };
+    const sourceReadDetail = {
+      scope:
+        "read-scene-wall-intervals-and-explicit-traversal-counts-not-CPU-or-GPU-time",
+      stats: {
+        calls: zeroReadStats,
+        scenePresentationCalls: zeroReadStats,
+        mountSourceCalls: zeroReadStats,
+        dependencyRefreshCalls: zeroReadStats,
+        otherCalls: zeroReadStats,
+        wallMs: zeroReadStats,
+        walkWallMs: zeroReadStats,
+        validationWallMs: zeroReadStats,
+        leafWaitWallMs: zeroReadStats,
+        walkNodeVisits: zeroReadStats,
+        walkDirectStyleReads: zeroReadStats,
+        walkDirectLayoutSizeReads: zeroReadStats,
+        walkDirectAffineReads: zeroReadStats,
+        recordDirectStyleReads: zeroReadStats,
+        recordDirectLayoutSizeReads: zeroReadStats,
+        recordDirectAffineReads: zeroReadStats,
+        recordDirectRectReads: zeroReadStats,
+      },
+    };
+    const highTraversalCount = {
+      ...sourceReadDetail,
+      stats: {
+        ...sourceReadDetail.stats,
+        walkNodeVisits: {
+          count: 400,
+          p50: 120_001,
+          p95: 120_001,
+          p99: 120_001,
+          max: 120_001,
+        },
+      },
+    };
+    expect(
+      nativeShaderMountedMeasurementSchema.safeParse({
+        ...measurement,
+        fullFrameWallPhases,
+        sourceReadDetail: highTraversalCount,
+      }).success,
+    ).toBe(true);
+    for (const invalid of [
+      {
+        ...sourceReadDetail,
+        scope:
+          "read-scene-wall-intervals-leaf-waits-nested-in-walk-not-CPU-or-GPU-time",
+      },
+      {
+        ...sourceReadDetail,
+        stats: {
+          ...sourceReadDetail.stats,
+          calls: { ...zeroReadStats, max: 1025 },
+        },
+      },
+      {
+        ...sourceReadDetail,
+        stats: {
+          ...sourceReadDetail.stats,
+          calls: { ...zeroReadStats, max: 0.5 },
+        },
+      },
+      {
+        ...sourceReadDetail,
+        stats: {
+          ...sourceReadDetail.stats,
+          walkNodeVisits: {
+            ...zeroReadStats,
+            p95: 1_000_001,
+            p99: 1_000_001,
+            max: 1_000_001,
+          },
+        },
+      },
+      {
+        ...sourceReadDetail,
+        stats: {
+          ...sourceReadDetail.stats,
+          recordDirectLayoutSizeReads: undefined,
+        },
+      },
+      {
+        ...sourceReadDetail,
+        stats: {
+          ...sourceReadDetail.stats,
+          walkDirectStyleReads: { ...zeroReadStats, count: 399 },
+        },
+      },
+      {
+        ...sourceReadDetail,
+        stats: {
+          ...sourceReadDetail.stats,
+          wallMs: { ...zeroReadStats, max: 0.1 },
+        },
+      },
+      {
+        ...sourceReadDetail,
+        stats: { ...sourceReadDetail.stats, extra: zeroReadStats },
+      },
+      {
+        ...sourceReadDetail,
+        stats: { ...sourceReadDetail.stats, wallMs: undefined },
+      },
+    ])
+      expect(
+        nativeShaderMountedMeasurementSchema.safeParse({
+          ...measurement,
+          fullFrameWallPhases,
+          sourceReadDetail: invalid,
+        }).success,
+      ).toBe(false);
     for (const payload of [
       null,
       false,
@@ -326,6 +440,158 @@ describe("mounted measurement validation", () => {
         },
       }).success,
     ).toBe(true);
+  });
+});
+
+describe("same-session feedback validation sequence", () => {
+  const baseCase = {
+    caseId: "feedback_replay",
+    instanceId: "effect-1",
+    nodeId: "node-1",
+    definitionId: "feedback-1",
+    definitionVersion: 1,
+    executionHash: hash,
+    timeSeconds: 0,
+    mountedFrame: { viewport: { width: 64, height: 64 }, pixelRatio: 1 },
+    captureFeedbackState: true,
+    statefulSequence: [
+      { kind: "advance", stepId: "initial" },
+      {
+        kind: "capture",
+        stepId: "same_time",
+        compare: {
+          referenceStepId: "initial",
+          feedbackState: "same",
+          pixels: "same",
+        },
+      },
+    ],
+  };
+
+  it("accepts exact same-time captures and bounded numeric patches", () => {
+    expect(
+      nativeShaderValidationRequestSchema.safeParse({
+        designId: "design-1",
+        fileId: "file-1",
+        expectedVersionHash: "version-1",
+        cases: [baseCase],
+      }).success,
+    ).toBe(true);
+    expect(
+      nativeShaderValidationRequestSchema.safeParse({
+        designId: "design-1",
+        fileId: "file-1",
+        expectedVersionHash: "version-1",
+        cases: [
+          {
+            ...baseCase,
+            statefulSequence: [
+              baseCase.statefulSequence[0],
+              { kind: "set-params", stepId: "edit", params: { seed: 42 } },
+              {
+                kind: "capture",
+                stepId: "after_edit",
+                compare: {
+                  referenceStepId: "initial",
+                  feedbackState: "different",
+                  pixels: "different",
+                },
+              },
+            ],
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects future references, capture-before-frame, excessive controls, and nonnumeric patches", () => {
+    const requestFor = (sequence: unknown, overrides = {}) =>
+      nativeShaderValidationRequestSchema.safeParse({
+        designId: "design-1",
+        fileId: "file-1",
+        expectedVersionHash: "version-1",
+        cases: [{ ...baseCase, ...overrides, statefulSequence: sequence }],
+      }).success;
+    expect(
+      requestFor([
+        { kind: "advance", stepId: "initial" },
+        {
+          kind: "capture",
+          stepId: "later",
+          compare: { referenceStepId: "future", pixels: "same" },
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      requestFor([
+        {
+          kind: "capture",
+          stepId: "early",
+          compare: { referenceStepId: "initial", pixels: "same" },
+        },
+        { kind: "advance", stepId: "initial" },
+      ]),
+    ).toBe(false);
+    expect(
+      requestFor([
+        { kind: "advance", stepId: "initial" },
+        {
+          kind: "set-params",
+          stepId: "edit",
+          params: { palette: "blue" },
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      requestFor(baseCase.statefulSequence, {
+        captureFeedbackState: undefined,
+      }),
+    ).toBe(false);
+  });
+
+  it("requires an exact RGBA16F state readback byte count", () => {
+    const mountOutput = {
+      scope: "exact-mount-output-linear-premultiplied",
+      instanceId: "effect-1",
+      nodeId: "node-1",
+      definitionId: "feedback-1",
+      definitionVersion: 1,
+      executionHash: hash,
+      width: 2,
+      height: 2,
+      pixelSha256: hash,
+      nonTransparentPixels: 0,
+      partialAlphaPixels: 0,
+      nonZeroRgbaPixels: 0,
+      feedbackState: {
+        availability: "available",
+        scope: "exact-feedback-state-linear-rgba16f",
+        width: 2,
+        height: 2,
+        completedStep: 0,
+        byteLength: 32,
+        sha256: hash,
+        followups: {
+          sourceTransition: {
+            availability: "unavailable",
+            code: "second-source-fixture-required",
+          },
+          lifecycleReplay: {
+            availability: "unavailable",
+            code: "multi-action-editor-sequence-required",
+          },
+        },
+      },
+    };
+    expect(
+      nativeMountedOutputSummarySchema.safeParse(mountOutput).success,
+    ).toBe(true);
+    expect(
+      nativeMountedOutputSummarySchema.safeParse({
+        ...mountOutput,
+        feedbackState: { ...mountOutput.feedbackState, byteLength: 31 },
+      }).success,
+    ).toBe(false);
   });
 });
 

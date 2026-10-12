@@ -10,6 +10,10 @@ import {
   createDensityCorrectedFrostEffect,
   createDensityCorrectedHalftoneEffect,
 } from "./native-effect-density-corrected";
+import {
+  HIGHLIGHT_STREAKS_EFFECT,
+  HIGHLIGHT_STREAKS_PRESETS,
+} from "./native-effect-highlight-streaks";
 import { BLOOM_EFFECT, GAUSSIAN_BLUR_EFFECT } from "./native-effect-multipass";
 import {
   BREADTH_A_DEFINITIONS,
@@ -87,10 +91,39 @@ import {
   OWNED_NEXT_SIX_N_PRESETS,
 } from "./native-effect-owned-next-six-n-v2";
 import {
+  OWNED_NEXT_SIX_R_DEFINITIONS,
+  OWNED_NEXT_SIX_R_PRESETS,
+} from "./native-effect-owned-next-six-r";
+import {
+  OWNED_NEXT_TWELVE_S_DEFINITIONS,
+  OWNED_NEXT_TWELVE_S_PRESETS,
+} from "./native-effect-owned-next-twelve-s";
+import {
+  OWNED_NEXT_TWELVE_T_DEFINITIONS,
+  OWNED_NEXT_TWELVE_T_PRESETS,
+} from "./native-effect-owned-next-twelve-t";
+import {
+  OWNED_NEXT_TWELVE_U_DEFINITIONS,
+  OWNED_NEXT_TWELVE_U_PRESETS,
+} from "./native-effect-owned-next-twelve-u";
+import {
+  OWNED_O_EDGE_GLASS_DEFINITIONS,
+  OWNED_O_EDGE_GLASS_PRESETS,
+} from "./native-effect-owned-o-edge-glass";
+import {
+  OWNED_O_EDGE_LIGHT_LEAK_V2,
+  OWNED_O_EDGE_LIGHT_LEAK_V2_PRESETS,
+  OWNED_O_EDGE_LIGHT_LEAK_V2_PRESET_LABEL_SOURCE_IDS,
+} from "./native-effect-owned-o-edge-light-leak-v2";
+import {
   OWNED_O_GENERATOR_DEFINITIONS,
   OWNED_O_GENERATOR_PRESETS,
 } from "./native-effect-owned-o-generators";
 import { OWNED_P_DEFINITIONS, OWNED_P_PRESETS } from "./native-effect-owned-p";
+import {
+  OWNED_P2_DEFINITIONS,
+  OWNED_P2_PRESETS,
+} from "./native-effect-owned-p2";
 import {
   OWNED_PROCESSOR_DEFINITIONS,
   OWNED_PROCESSOR_PRESETS,
@@ -99,6 +132,20 @@ import {
   OWNED_PROCESSOR_FOUR_DEFINITIONS,
   OWNED_PROCESSOR_FOUR_PRESETS,
 } from "./native-effect-owned-processors-four";
+import { OWNED_Q_DEFINITIONS, OWNED_Q_PRESETS } from "./native-effect-owned-q";
+import {
+  STATEFUL_NINE_DEFINITIONS,
+  STATEFUL_NINE_PRESETS,
+  STATEFUL_NINE_PRESET_LABEL_SOURCE_IDS,
+} from "./native-effect-owned-stateful-nine";
+import {
+  OWNED_V_FIELD_DEFINITIONS,
+  OWNED_V_FIELD_PRESETS,
+} from "./native-effect-owned-v-fields";
+import {
+  LUMA_DCT_EIGHT_EFFECT,
+  LUMA_DCT_EIGHT_PRESETS,
+} from "./native-effect-owned-v-luma-dct";
 import { PARTICLE_FLOW_EFFECT } from "./native-effect-particle-flow";
 import {
   NATIVE_PERIMETER_FOCAL_DEFINITIONS,
@@ -460,7 +507,21 @@ export const NATIVE_EFFECT_LATEST_DEFINITIONS: readonly EffectDefinition[] = [
   ...coordinateRandomCatalog.latest,
   ...NATIVE_PERIMETER_FOCAL_DEFINITIONS,
   ...OWNED_O_GENERATOR_DEFINITIONS,
+  ...OWNED_O_EDGE_GLASS_DEFINITIONS.filter(
+    (definition) => definition.id !== "an-native-owned-o-edge-light-leak",
+  ),
+  OWNED_O_EDGE_LIGHT_LEAK_V2,
   ...OWNED_P_DEFINITIONS,
+  ...OWNED_P2_DEFINITIONS,
+  ...OWNED_Q_DEFINITIONS,
+  ...OWNED_NEXT_SIX_R_DEFINITIONS,
+  ...STATEFUL_NINE_DEFINITIONS,
+  HIGHLIGHT_STREAKS_EFFECT,
+  ...OWNED_NEXT_TWELVE_S_DEFINITIONS,
+  ...OWNED_NEXT_TWELVE_T_DEFINITIONS,
+  ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
+  LUMA_DCT_EIGHT_EFFECT,
+  ...OWNED_V_FIELD_DEFINITIONS,
 ];
 
 export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
@@ -473,7 +534,19 @@ export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
   ...NATIVE_COORDINATE_RANDOM_DEFINITIONS,
   ...NATIVE_PERIMETER_FOCAL_DEFINITIONS,
   ...OWNED_O_GENERATOR_DEFINITIONS,
+  ...OWNED_O_EDGE_GLASS_DEFINITIONS,
+  OWNED_O_EDGE_LIGHT_LEAK_V2,
   ...OWNED_P_DEFINITIONS,
+  ...OWNED_P2_DEFINITIONS,
+  ...OWNED_Q_DEFINITIONS,
+  ...OWNED_NEXT_SIX_R_DEFINITIONS,
+  ...STATEFUL_NINE_DEFINITIONS,
+  HIGHLIGHT_STREAKS_EFFECT,
+  ...OWNED_NEXT_TWELVE_S_DEFINITIONS,
+  ...OWNED_NEXT_TWELVE_T_DEFINITIONS,
+  ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
+  LUMA_DCT_EIGHT_EFFECT,
+  ...OWNED_V_FIELD_DEFINITIONS,
 ];
 
 const PINNED_V2_PRESETS: readonly EffectPreset[] = [
@@ -575,11 +648,25 @@ export const NATIVE_PRESET_LABEL_SOURCE_IDS: Readonly<Record<string, string>> =
   {
     ...NATIVE_V3_PRESET_LABEL_SOURCE_IDS,
     ...coordinateRandomRecipes.labelSources,
+    ...OWNED_O_EDGE_LIGHT_LEAK_V2_PRESET_LABEL_SOURCE_IDS,
+    ...STATEFUL_NINE_PRESET_LABEL_SOURCE_IDS,
   };
 export const NATIVE_EFFECT_PRESETS: readonly EffectPreset[] = [
   ...PRE_COORDINATE_RANDOM_PRESETS,
   ...NATIVE_COORDINATE_RANDOM_PRESETS,
   ...NATIVE_PERIMETER_FOCAL_PRESETS,
   ...OWNED_O_GENERATOR_PRESETS,
+  ...OWNED_O_EDGE_GLASS_PRESETS,
+  ...OWNED_O_EDGE_LIGHT_LEAK_V2_PRESETS,
   ...OWNED_P_PRESETS,
+  ...OWNED_P2_PRESETS,
+  ...OWNED_Q_PRESETS,
+  ...OWNED_NEXT_SIX_R_PRESETS,
+  ...STATEFUL_NINE_PRESETS,
+  ...HIGHLIGHT_STREAKS_PRESETS,
+  ...OWNED_NEXT_TWELVE_S_PRESETS,
+  ...OWNED_NEXT_TWELVE_T_PRESETS,
+  ...OWNED_NEXT_TWELVE_U_PRESETS,
+  ...LUMA_DCT_EIGHT_PRESETS,
+  ...OWNED_V_FIELD_PRESETS,
 ];

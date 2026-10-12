@@ -305,6 +305,8 @@ import {
 import { HistoryPanel } from "@/components/design/editor/HistoryPanel";
 import type { DesignMigrationResult } from "@/components/design/editor/MakeRealDialog";
 import { MakeRealDialog } from "@/components/design/editor/MakeRealDialog";
+import { findVisibleNativeShaderPreferencesFrame } from "@/components/design/editor/native-shader-preferences-frame";
+import { NativeShaderPreferencesDialog } from "@/components/design/editor/NativeShaderPreferencesDialog";
 import { PendingVisualStyleWarningDialog } from "@/components/design/editor/PendingVisualStyleWarningDialog";
 import { ReadOnlyEditorPanel } from "@/components/design/editor/ReadOnlyEditorPanel";
 import { SaveTemplateDialog } from "@/components/design/editor/SaveTemplateDialog";
@@ -500,6 +502,7 @@ import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useEditorPreferences } from "@/hooks/use-editor-preferences";
+import { useNativeShaderEditorPreferences } from "@/hooks/use-native-shader-editor-preferences";
 import {
   designEditorCommandKey,
   type DesignEditorCommand,
@@ -4497,6 +4500,8 @@ function DesignEditor() {
 
   const [makeRealDialogOpen, setMakeRealDialogOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [nativeShaderPreferencesOpen, setNativeShaderPreferencesOpen] =
+    useState(false);
   const [autoLayoutSuggestionPreview, setAutoLayoutSuggestionPreview] =
     useState<{
       suggestion: AutoLayoutSuggestion;
@@ -4947,6 +4952,8 @@ function DesignEditor() {
     preferences: editorPreferences,
     setPreferences: setEditorPreferences,
   } = useEditorPreferences();
+  const { policy: editorNativePreviewPolicy } =
+    useNativeShaderEditorPreferences();
 
   useEffect(() => {
     if (!id || !design || !isSignedIn || !postAuthIntent) return;
@@ -6509,6 +6516,13 @@ function DesignEditor() {
 
   const activeFile =
     files.find((f) => f.id === activeFileId) ?? defaultActiveFile;
+  const nativeShaderPreferencesFrameKey = activeFile?.id
+    ? activeFile.id === boardFileId
+      ? `${activeFile.id}:board`
+      : activeBreakpointWidthState === undefined
+        ? activeFile.id
+        : getBreakpointIframeId(activeFile.id, activeBreakpointWidthState)
+    : "screen-unavailable";
   const handleActiveScreenRuntimeReload = useCallback(() => {
     if (activeFile) {
       handleLiveScreenRuntimeReload(
@@ -7665,6 +7679,16 @@ function DesignEditor() {
   >([]);
   const layersPanelRef = useRef<LayersPanelHandle | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const resolveNativeShaderPreferencesFrame = useCallback(
+    () =>
+      findVisibleNativeShaderPreferencesFrame({
+        root: canvasContainerRef.current,
+        screenId: activeFile?.id ?? null,
+        boardFileId,
+        breakpointWidthPx: activeBreakpointWidthState,
+      }),
+    [activeFile?.id, activeBreakpointWidthState, boardFileId],
+  );
   const visibleCanvasRectRef = useRef<(() => VisibleCanvasRect | null) | null>(
     null,
   );
@@ -25517,6 +25541,7 @@ function DesignEditor() {
       return (
         <DesignCanvas
           nativeApprovalsEnabled={isSignedIn}
+          editorNativePreviewPolicy={editorNativePreviewPolicy}
           layoutGridStep={layoutGrids[screen.id]?.size ?? 1}
           content={screenContent}
           contentKey={screenContentKey}
@@ -25970,6 +25995,7 @@ function DesignEditor() {
       handleRepromptDraftConsumed,
       handleExitReviewCommentMode,
       layoutGrids,
+      editorNativePreviewPolicy,
       t,
     ],
   );
@@ -26777,6 +26803,12 @@ function DesignEditor() {
             </DropdownMenuItem>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+        <DropdownMenuItem
+          onClick={() => setNativeShaderPreferencesOpen(true)}
+          disabled={!activeFile}
+        >
+          {t("settings.editorPreferences")}
+        </DropdownMenuItem>
         <DropdownMenuItem
           onClick={handlePinToolToggle}
           disabled={!activeFile || !canCommentDesign}
@@ -28630,6 +28662,7 @@ function DesignEditor() {
                     <>
                       {/* ── Render: overview canvas ── */}
                       <MultiScreenCanvas
+                        editorNativePreviewPolicy={editorNativePreviewPolicy}
                         screens={overviewScreens}
                         zoom={
                           responsiveInteractActive && overviewInteractScreenId
@@ -28970,6 +29003,7 @@ function DesignEditor() {
                       {/* ── Render: single-screen canvas ── */}
                       <DesignCanvas
                         nativeApprovalsEnabled={isSignedIn}
+                        editorNativePreviewPolicy={editorNativePreviewPolicy}
                         screenId={activeFile.id}
                         layoutGridStep={activeScreenLayoutGridStep}
                         content={activeContent}
@@ -29742,6 +29776,13 @@ function DesignEditor() {
         result={migrationResult}
         pending={migrateMutation.isPending}
         onConfirm={handleConfirmMakeReal}
+      />
+
+      <NativeShaderPreferencesDialog
+        open={nativeShaderPreferencesOpen}
+        onOpenChange={setNativeShaderPreferencesOpen}
+        frameKey={nativeShaderPreferencesFrameKey}
+        resolveFrame={resolveNativeShaderPreferencesFrame}
       />
 
       {id ? (

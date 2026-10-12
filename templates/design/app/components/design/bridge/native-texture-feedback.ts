@@ -15,11 +15,14 @@ declare const GPUTextureUsage: Readonly<{
   STORAGE_BINDING: number;
   TEXTURE_BINDING: number;
   COPY_DST: number;
+  COPY_SRC: number;
 }>;
 declare const GPUBufferUsage: Readonly<{
   UNIFORM: number;
   COPY_DST: number;
+  MAP_READ: number;
 }>;
+declare const GPUMapMode: Readonly<{ READ: number }>;
 
 export type NativeFeedbackFailureCode =
   | "feedback-definition-invalid"
@@ -35,7 +38,26 @@ export type NativeFeedbackFailureCode =
   | "feedback-aborted"
   | "feedback-device-lost"
   | "feedback-source-resized"
-  | "feedback-target-invalid";
+  | "feedback-target-invalid"
+  | "feedback-state-uninitialized"
+  | "feedback-state-snapshot-limit"
+  | "feedback-state-snapshot-budget"
+  | "feedback-state-snapshot-stale"
+  | "feedback-state-readback-failed";
+
+export function trackNativeFeedbackRetirement<T>(
+  retirements: Set<Promise<void>>,
+  operation: Promise<T>,
+): Promise<T> {
+  let retirement: Promise<void>;
+  const tracked = operation.finally(() => retirements.delete(retirement));
+  retirement = tracked.then(
+    () => undefined,
+    () => undefined,
+  );
+  retirements.add(retirement);
+  return tracked;
+}
 
 export class NativeFeedbackFailure extends Error {
   readonly code: NativeFeedbackFailureCode;
@@ -99,6 +121,19 @@ export interface NativeFeedbackEncodedFrame {
 
 const UNIFORM_BYTES = 32;
 const MAX_PENDING_UNIFORM_BYTES = 1_048_576;
+const MAX_STATE_SNAPSHOT_BYTES = 2_097_152;
+const MAX_STATE_SNAPSHOT_SIDE = 512;
+const COPY_BYTES_PER_ROW_ALIGNMENT = 256;
+const BYTES_PER_RGBA16FLOAT_TEXEL = 8;
+
+export interface NativeFeedbackStateSnapshot {
+  scope: "exact-feedback-state-linear-rgba16f";
+  width: number;
+  height: number;
+  completedStep: number;
+  byteLength: number;
+  sha256: string;
+}
 function assertAvailable(signal: AbortSignal | undefined): void {
   if (signal?.aborted)
     throw new NativeFeedbackFailure("feedback-aborted", signal.reason);
@@ -228,7 +263,12 @@ export class NativeTextureFeedbackExecutor {
       addressModeU: "clamp-to-edge",
       addressModeV: "clamp-to-edge",
     });
-    const storageUsage =
+    const stateUsage =
+      GPUTextureUsage.STORAGE_BINDING |
+      GPUTextureUsage.TEXTURE_BINDING |
+      GPUTextureUsage.COPY_DST |
+      GPUTextureUsage.COPY_SRC;
+    const displayUsage =
       GPUTextureUsage.STORAGE_BINDING |
       GPUTextureUsage.TEXTURE_BINDING |
       GPUTextureUsage.COPY_DST;
@@ -241,7 +281,7 @@ export class NativeTextureFeedbackExecutor {
             planned.plan.width,
             planned.plan.height,
             "rgba16float",
-            storageUsage,
+            index < 2 ? stateUsage : displayUsage,
           ),
         );
       }
@@ -298,9 +338,104 @@ export class NativeTextureFeedbackExecutor {
     if (this.pending.size) throw new NativeFeedbackFailure("feedback-busy");
   }
 
+  async snapshotState(
+    maxReadbackBytes = MAX_STATE_SNAPSHOT_BYTES,
+    signal?: AbortSignal,
+  ): Promise<NativeFeedbackStateSnapshot> {
+    this.ensureIdle();
+    assertAvailable(signal);
+    if (!this.initializedState)
+      throw new NativeFeedbackFailure("feedback-state-uninitialized");
+    const { width, height } = this.plan;
+    const byteLength = width * height * BYTES_PER_RGBA16FLOAT_TEXEL;
+    if (
+      width > MAX_STATE_SNAPSHOT_SIDE ||
+      height > MAX_STATE_SNAPSHOT_SIDE ||
+      byteLength > MAX_STATE_SNAPSHOT_BYTES
+    )
+      throw new NativeFeedbackFailure("feedback-state-snapshot-limit");
+    if (!Number.isSafeInteger(maxReadbackBytes) || maxReadbackBytes < 0)
+      throw new NativeFeedbackFailure("feedback-state-snapshot-budget");
+    const bytesPerRow = width * BYTES_PER_RGBA16FLOAT_TEXEL;
+    const paddedBytesPerRow =
+      Math.ceil(bytesPerRow / COPY_BYTES_PER_ROW_ALIGNMENT) *
+      COPY_BYTES_PER_ROW_ALIGNMENT;
+    const bufferSize = paddedBytesPerRow * height;
+    if (bufferSize > maxReadbackBytes)
+      throw new NativeFeedbackFailure("feedback-state-snapshot-budget");
+    const texture = this.state[this.readIndex];
+    const readIndex = this.readIndex;
+    const completedStep = this.completedStep;
+    let buffer: GPUBuffer | null = null;
+    let mapped = false;
+    this.openTransaction = true;
+    try {
+      buffer = this.device.createBuffer({
+        size: bufferSize,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      });
+      const encoder = this.device.createCommandEncoder();
+      encoder.copyTextureToBuffer(
+        { texture },
+        { buffer, bytesPerRow: paddedBytesPerRow, rowsPerImage: height },
+        { width, height, depthOrArrayLayers: 1 },
+      );
+      this.device.queue.submit([encoder.finish()]);
+      await this.device.queue.onSubmittedWorkDone();
+      assertAvailable(signal);
+      await buffer.mapAsync(GPUMapMode.READ);
+      mapped = true;
+      assertAvailable(signal);
+      if (
+        this.disposed ||
+        this.faulted ||
+        this.state[this.readIndex] !== texture ||
+        this.readIndex !== readIndex ||
+        this.completedStep !== completedStep
+      )
+        throw new NativeFeedbackFailure("feedback-state-snapshot-stale");
+      const source = new Uint8Array(buffer.getMappedRange());
+      if (source.byteLength !== bufferSize)
+        throw new NativeFeedbackFailure("feedback-state-readback-failed");
+      const packed = new Uint8Array(byteLength);
+      for (let row = 0; row < height; row += 1)
+        packed.set(
+          source.subarray(
+            row * paddedBytesPerRow,
+            row * paddedBytesPerRow + bytesPerRow,
+          ),
+          row * bytesPerRow,
+        );
+      const digest = await crypto.subtle.digest("SHA-256", packed);
+      assertAvailable(signal);
+      return {
+        scope: "exact-feedback-state-linear-rgba16f",
+        width,
+        height,
+        completedStep,
+        byteLength,
+        sha256: [...new Uint8Array(digest)]
+          .map((byte) => byte.toString(16).padStart(2, "0"))
+          .join(""),
+      };
+    } catch (error) {
+      if (error instanceof NativeFeedbackFailure) throw error;
+      throw new NativeFeedbackFailure("feedback-state-readback-failed", error);
+    } finally {
+      if (mapped) buffer?.unmap();
+      buffer?.destroy();
+      this.openTransaction = false;
+    }
+  }
+
   reset(): void {
     this.ensureIdle();
-    const storageUsage =
+    const stateUsage =
+      GPUTextureUsage.STORAGE_BINDING |
+      GPUTextureUsage.TEXTURE_BINDING |
+      GPUTextureUsage.COPY_DST |
+      GPUTextureUsage.COPY_SRC;
+    const displayUsage =
       GPUTextureUsage.STORAGE_BINDING |
       GPUTextureUsage.TEXTURE_BINDING |
       GPUTextureUsage.COPY_DST;
@@ -312,7 +447,7 @@ export class NativeTextureFeedbackExecutor {
             this.plan.width,
             this.plan.height,
             "rgba16float",
-            storageUsage,
+            index < 2 ? stateUsage : displayUsage,
           ),
         );
     } catch (error) {

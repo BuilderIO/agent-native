@@ -33,6 +33,12 @@ vi.mock("@agent-native/core/client/changelog", () => ({
   ChangelogSettingsCard: () => null,
 }));
 
+vi.mock("@/components/settings/EditorShaderPreferencesTab", () => ({
+  EditorShaderPreferencesTab: () => (
+    <div data-testid="editor-shader-preferences" />
+  ),
+}));
+
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
@@ -186,6 +192,17 @@ describe("Design settings", () => {
   });
 
   describe("the Settings shell", () => {
+    it("places editor shader preferences in the app settings group", () => {
+      renderSettings();
+
+      const tab = container.querySelector<HTMLAnchorElement>(
+        '[data-testid="settings-tab-design-editor-preferences"]',
+      );
+      expect(tab?.textContent).toBe("settings.editorPreferences");
+      expect(tab?.getAttribute("data-group")).toBe("app");
+      expect(tab?.hasAttribute("href")).toBe(false);
+    });
+
     it("makes observability a page inside Settings, not a link out", () => {
       mocks.useOrg.mockReturnValue({
         data: { orgId: "org-1", role: "admin" },

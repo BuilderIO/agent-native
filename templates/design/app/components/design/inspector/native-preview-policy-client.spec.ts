@@ -1,7 +1,10 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, it } from "vitest";
 
 import {
   NativePreviewPolicyError,
+  readNativePreviewStatusFromFrame,
   readNativePreviewStatus,
 } from "./native-preview-policy-client";
 
@@ -29,5 +32,21 @@ describe("native preview policy diagnostics", () => {
     expect(() =>
       readNativePreviewStatus({ ...measured, frameRateTarget: 144 }),
     ).toThrow(NativePreviewPolicyError);
+  });
+  it("reads only the supplied mounted frame and preserves unreadable status", () => {
+    const frame = document.createElement("iframe");
+    Object.defineProperty(frame, "contentWindow", { value: window });
+    Object.defineProperty(frame.contentWindow, "__anNativeShaders", {
+      configurable: true,
+      value: { previewStatus: () => measured },
+    });
+    expect(readNativePreviewStatusFromFrame(frame)).toEqual(measured);
+    Object.defineProperty(frame.contentWindow, "__anNativeShaders", {
+      configurable: true,
+      value: { previewStatus: () => ({ ...measured, rafIntervalMs: NaN }) },
+    });
+    expect(() => readNativePreviewStatusFromFrame(frame)).toThrowError(
+      NativePreviewPolicyError,
+    );
   });
 });

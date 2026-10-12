@@ -3,6 +3,8 @@ import { build } from "esbuild";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { OWNED_FEEDBACK_TEST_DEFINITION } from "../../../../shared/native-effect-owned-test-fixtures";
+import { GRAIN_GRADIENT_EFFECT } from "../../../../shared/native-effect-presets";
+import { hashEffectDefinition } from "../../../../shared/native-effect-trust";
 import type {
   EffectDefinition,
   EffectInstance,
@@ -98,14 +100,31 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
     requestSourceFrame(): void;
     renderInternal(time: number, strict: boolean): Promise<unknown>;
     running: Promise<unknown> | null;
-    simulationExportSession: { id: string; nextFrame: number } | null;
+    simulationExportSession: {
+      id: string;
+      nextFrame: number;
+      failed: boolean;
+      sourceStale: boolean;
+    } | null;
+    scan(): Promise<void>;
+    scanOnce(): Promise<void>;
+    rescanPending: boolean;
     beginSimulationExportSession(options: {
       fps: number;
       totalFrames: number;
       startTimeSeconds: number;
+      targetInstanceIds?: string[];
       signal?: AbortSignal;
     }): Promise<{ sessionId: string }>;
     endSimulationExportSession(sessionId: string): Promise<void>;
+    setSimulationExportParameters(options: {
+      sessionId: string;
+      instanceId: string;
+      nodeId: string;
+      executionHash: string;
+      params: Record<string, number>;
+      signal?: AbortSignal;
+    }): { instanceId: string; updatedProperties: string[] };
     dispose(): void;
   };
   const buffers: { id: number; size: number; destroyed: boolean }[] = [];
@@ -264,7 +283,9 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
     clock: { global: 0, local: 0, speed: 1, paused: false },
     definition,
     outputTexture: null,
-    provider: { needsContinuousFrames: () => false },
+    frameCount: 0,
+    renderWallSamples: [],
+    provider: { needsContinuousFrames: () => false, captureCount: () => 0 },
     animationCapability: "animated" as const,
   };
   const encoder = {
@@ -468,7 +489,7 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
       ...instance,
       id: "feedback-one",
       definitionId: OWNED_FEEDBACK_TEST_DEFINITION.id,
-      params: { seed: 37.5 },
+      params: { phase: 12 },
       timing: { speed: 1, paused: false, time: 0 },
     },
     simulation: null,
@@ -476,20 +497,150 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
     feedbackFrame: null,
     resourceTextures: new Map(),
     outputTexture: null,
+    frameCount: 0,
+    renderWallSamples: [],
+    definitionHash: await hashEffectDefinition(OWNED_FEEDBACK_TEST_DEFINITION),
   };
   runtime.mounts = new Map([[feedbackMount.instance.id, feedbackMount]]);
+  const previewInstance = feedbackMount.instance;
   const feedbackSession = await runtime.beginSimulationExportSession({
     fps: 60,
     totalFrames: 1,
     startTimeSeconds: 0,
   });
   expect(feedbackMount.feedback).toBeNull();
-  feedbackMount.feedback = exportFeedback;
   runtime.simulationExportSession!.nextFrame = 1;
+  let invalidParameterError: unknown;
+  try {
+    runtime.setSimulationExportParameters({
+      sessionId: feedbackSession.sessionId,
+      instanceId: feedbackMount.instance.id,
+      nodeId: feedbackMount.instance.nodeId,
+      executionHash: feedbackMount.definitionHash,
+      params: { unknown: 30 },
+    });
+  } catch (error) {
+    invalidParameterError = error;
+  }
+  expect(invalidParameterError).toMatchObject({
+    code: "simulation-session-params-invalid",
+  });
+  expect(feedbackMount.instance).toBe(previewInstance);
+  expect(
+    runtime.setSimulationExportParameters({
+      sessionId: feedbackSession.sessionId,
+      instanceId: feedbackMount.instance.id,
+      nodeId: feedbackMount.instance.nodeId,
+      executionHash: feedbackMount.definitionHash,
+      params: { phase: 30 },
+    }),
+  ).toEqual({
+    instanceId: feedbackMount.instance.id,
+    updatedProperties: ["phase"],
+  });
+  expect(feedbackMount.instance).not.toBe(previewInstance);
+  feedbackMount.feedback = exportFeedback;
   await runtime.endSimulationExportSession(feedbackSession.sessionId);
   expect(exportFeedback.executor.dispose).toHaveBeenCalledOnce();
   expect(feedbackMount.feedback).toBe(previewFeedback);
+  expect(feedbackMount.instance).toBe(previewInstance);
   expect(previewFeedback.executor.dispose).not.toHaveBeenCalled();
+  const ordinaryResources = new Map([["sentinel", { destroy: vi.fn() }]]);
+  const ordinaryOutput = { destroy: vi.fn() };
+  const ordinaryMount = {
+    ...feedbackMount,
+    definition: GRAIN_GRADIENT_EFFECT,
+    instance: {
+      ...feedbackMount.instance,
+      id: "ordinary-one",
+      definitionId: GRAIN_GRADIENT_EFFECT.id,
+      definitionVersion: GRAIN_GRADIENT_EFFECT.version,
+      params: { scale: 1 },
+    },
+    simulation: null,
+    feedback: null,
+    resourceTextures: ordinaryResources,
+    outputTexture: ordinaryOutput,
+    definitionHash: await hashEffectDefinition(GRAIN_GRADIENT_EFFECT),
+  };
+  runtime.mounts = new Map([[ordinaryMount.instance.id, ordinaryMount]]);
+  const ordinaryInstance = ordinaryMount.instance;
+  const ordinarySession = await runtime.beginSimulationExportSession({
+    fps: 60,
+    totalFrames: 1,
+    startTimeSeconds: 0,
+    targetInstanceIds: [ordinaryMount.instance.id],
+  });
+  expect(ordinaryMount.resourceTextures).not.toBe(ordinaryResources);
+  runtime.simulationExportSession!.nextFrame = 1;
+  runtime.setSimulationExportParameters({
+    sessionId: ordinarySession.sessionId,
+    instanceId: ordinaryMount.instance.id,
+    nodeId: ordinaryMount.instance.nodeId,
+    executionHash: ordinaryMount.definitionHash,
+    params: { scale: 2 },
+  });
+  expect(ordinaryMount.instance).not.toBe(ordinaryInstance);
+  await runtime.endSimulationExportSession(ordinarySession.sessionId);
+  expect(ordinaryMount.instance).toBe(ordinaryInstance);
+  expect(ordinaryMount.resourceTextures).toBe(ordinaryResources);
+  expect(ordinaryMount.outputTexture).toBe(ordinaryOutput);
+  await expect(
+    runtime.beginSimulationExportSession({
+      fps: 60,
+      totalFrames: 1,
+      startTimeSeconds: 0,
+      targetInstanceIds: ["missing"],
+    }),
+  ).rejects.toMatchObject({ code: "simulation-session-target-invalid" });
+  const detachedResource = { destroy: vi.fn() };
+  const detachedOutput = { destroy: vi.fn() };
+  const detachedResources = new Map([["held", detachedResource]]);
+  const detachedMount = {
+    ...ordinaryMount,
+    instance: { ...ordinaryMount.instance, id: "ordinary-detached" },
+    resourceTextures: detachedResources,
+    outputTexture: detachedOutput,
+  };
+  runtime.mounts = new Map([[detachedMount.instance.id, detachedMount]]);
+  const detachedSession = await runtime.beginSimulationExportSession({
+    fps: 60,
+    totalFrames: 1,
+    startTimeSeconds: 0,
+    targetInstanceIds: [detachedMount.instance.id],
+  });
+  const replacement = {
+    ...detachedMount,
+    resourceTextures: new Map(),
+    outputTexture: { destroy: vi.fn() },
+  };
+  runtime.mounts.set(detachedMount.instance.id, replacement);
+  await expect(
+    runtime.endSimulationExportSession(detachedSession.sessionId),
+  ).rejects.toMatchObject({ code: "simulation-session-incomplete" });
+  expect(detachedResource.destroy).toHaveBeenCalledOnce();
+  expect(detachedOutput.destroy).toHaveBeenCalledOnce();
+  expect(replacement.outputTexture.destroy).not.toHaveBeenCalled();
+
+  runtime.mounts = new Map([[ordinaryMount.instance.id, ordinaryMount]]);
+  const scanOnce = vi.fn().mockResolvedValue(undefined);
+  runtime.scanOnce = scanOnce;
+  const changedSourceSession = await runtime.beginSimulationExportSession({
+    fps: 60,
+    totalFrames: 1,
+    startTimeSeconds: 0,
+    targetInstanceIds: [ordinaryMount.instance.id],
+  });
+  await runtime.scan();
+  expect(runtime.simulationExportSession).toMatchObject({
+    failed: true,
+    sourceStale: true,
+  });
+  expect(scanOnce).not.toHaveBeenCalled();
+  await expect(
+    runtime.endSimulationExportSession(changedSourceSession.sessionId),
+  ).rejects.toMatchObject({ code: "simulation-session-source-stale" });
+  expect(scanOnce).toHaveBeenCalledOnce();
   runtime.mounts.clear();
   runtime.dispose();
 });

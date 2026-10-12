@@ -57,6 +57,50 @@ describe("native playback anchors", () => {
     expect(resumed.global).toBe(4);
   });
 
+  it("does not seek backward when a sampled pause is applied after rendering advances", () => {
+    const sampledTime = 42.4708;
+    const paused = updateNativePlaybackClock(
+      { global: 0, local: 0, speed: 1, paused: false },
+      0,
+      { time: sampledTime, speed: 1, paused: true },
+      42.52,
+    );
+    expect(paused.local).toBeCloseTo(42.52);
+    expect(paused.paused).toBe(true);
+  });
+
+  it("does not seek backward when resuming a paused clock with an older saved sample", () => {
+    const resumed = updateNativePlaybackClock(
+      { global: 42.52, local: 42.52, speed: 1, paused: true },
+      42.4708,
+      { time: 42.4708, speed: 1, paused: false },
+      44,
+    );
+    expect(resumed.local).toBeCloseTo(42.52);
+    expect(resumed.paused).toBe(false);
+  });
+
+  it("keeps an explicit seek on a playback transition distinct from a toggle", () => {
+    const sought = updateNativePlaybackClock(
+      { global: 42.52, local: 42.52, speed: 1, paused: true },
+      42.4708,
+      { time: 0, speed: 1, paused: false },
+      44,
+      true,
+    );
+    expect(sought.local).toBe(0);
+  });
+
+  it("does not hide an unrevisioned backward time edit while playback keeps running", () => {
+    const edited = updateNativePlaybackClock(
+      { global: 42.52, local: 42.52, speed: 1, paused: false },
+      42.4708,
+      { time: 42, speed: 1, paused: false },
+      42.52,
+    );
+    expect(edited.local).toBeLessThan(42.5);
+  });
+
   it("keeps a running phase continuous when speed changes without a time edit", () => {
     const next = updateNativePlaybackClock(
       { global: 1, local: 2, speed: 1, paused: false },

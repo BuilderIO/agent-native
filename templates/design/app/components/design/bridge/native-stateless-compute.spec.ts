@@ -1,7 +1,14 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 
+import { HIGHLIGHT_STREAKS_EFFECT } from "../../../../shared/native-effect-highlight-streaks";
+import {
+  packNativeProperties,
+  type EffectDefinition,
+  type EffectValue,
+} from "../../../../shared/native-effects";
 import {
   NativeStatelessComputeError,
+  isStatelessComputeDispatch,
   planStatelessCompute,
 } from "../../../../shared/native-stateless-compute";
 import { STATELESS_SORT_TEST_DEFINITION as fixture } from "../../../../shared/native-stateless-sort.test-fixture";
@@ -18,12 +25,17 @@ const limits = {
   maxComputeWorkgroupStorageSize: 16384,
 };
 afterEach(() => vi.unstubAllGlobals());
-async function setup() {
+async function setup(
+  definition: EffectDefinition = fixture,
+  params: Record<string, EffectValue> = {},
+) {
   vi.stubGlobal("GPUShaderStage", { COMPUTE: 4, VERTEX: 1, FRAGMENT: 2 });
   vi.stubGlobal("GPUBufferUsage", { STORAGE: 128, COPY_DST: 8, UNIFORM: 64 });
   const trace: string[] = [],
     layouts: GPUBindGroupLayoutDescriptor[] = [],
-    groups: GPUBindGroupDescriptor[] = [];
+    groups: GPUBindGroupDescriptor[] = [],
+    modules: string[] = [],
+    uniforms: Float32Array[] = [];
   let finish!: () => void, reject!: (error: unknown) => void;
   let shaderFailure = false,
     allocations = 0,
@@ -42,11 +54,14 @@ async function setup() {
     createPipelineLayout: (descriptor: GPUPipelineLayoutDescriptor) => ({
       descriptor,
     }),
-    createShaderModule: () => ({
-      getCompilationInfo: async () => ({
-        messages: shaderFailure ? [{ type: "error" }] : [],
-      }),
-    }),
+    createShaderModule: (descriptor: GPUShaderModuleDescriptor) => {
+      modules.push(descriptor.code);
+      return {
+        getCompilationInfo: async () => ({
+          messages: shaderFailure ? [{ type: "error" }] : [],
+        }),
+      };
+    },
     createComputePipelineAsync: async () => ({}),
     createRenderPipelineAsync: async () => ({}),
     createBindGroup: (descriptor: GPUBindGroupDescriptor) => {
@@ -54,7 +69,14 @@ async function setup() {
       return { descriptor };
     },
     queue: {
-      writeBuffer: () => trace.push("write-uniform"),
+      writeBuffer: (
+        _buffer: GPUBuffer,
+        _offset: number,
+        data: Float32Array,
+      ) => {
+        uniforms.push(new Float32Array(data));
+        trace.push("write-uniform");
+      },
       onSubmittedWorkDone: () => {
         trace.push("wait-completion");
         return pending;
@@ -114,27 +136,48 @@ async function setup() {
       };
     },
   } as unknown as GPUCommandEncoder;
+  const buffer = definition.resources?.find(
+    (resource) => resource.name === definition.statelessCompute?.bufferResource,
+  );
+  if (buffer?.sourceBytesPerPixel === undefined)
+    throw new TypeError(
+      "Test definition must declare its source buffer stride",
+    );
+  const dispatch = definition.passes[0].dispatch;
+  if (!isStatelessComputeDispatch(dispatch))
+    throw new TypeError("Test definition must declare its source dispatch");
   const plan = planStatelessCompute({
-    dispatch: fixture.passes[0].dispatch as any,
+    dispatch,
     sourceWidth: 13,
     sourceHeight: 3,
-    sourceBytesPerPixel: 1,
-    sharedBytes: 512,
+    sourceBytesPerPixel: buffer.sourceBytesPerPixel,
+    sharedBytes: definition.statelessCompute!.sharedBytes,
     pixelRatio: 1.6,
-    params: { blockLength: 8 },
+    params: {
+      ...Object.fromEntries(
+        Object.entries(definition.properties).map(([key, value]) => [
+          key,
+          value.default,
+        ]),
+      ),
+      ...params,
+    },
     limits,
   });
   const data = new Float32Array(136);
   data[6] = plan.encodedDensity;
+  data.set(packNativeProperties(definition, params), 8);
   const pipelines = await NativeStatelessComputePipelines.create(
     device,
-    fixture.passes[0].wgsl,
-    fixture.passes[1].wgsl,
+    definition.passes[0].wgsl,
+    definition.passes[1].wgsl,
   );
   return {
     trace,
     layouts,
     groups,
+    modules,
+    uniforms,
     owned,
     destroyed,
     finish,
@@ -162,6 +205,70 @@ async function setup() {
 }
 
 describe("stateless compute GPU command ownership", () => {
+  it("encodes the registered Highlight Streaks writer before its dependent render using the same source buffer", async () => {
+    const s = await setup(HIGHLIGHT_STREAKS_EFFECT, {
+      runWidth: 16,
+      threshold: 0.25,
+      amount: 0.5,
+    });
+    const frame = s.pipelines.encode(s.options);
+    expect(s.modules).toEqual(
+      HIGHLIGHT_STREAKS_EFFECT.passes.map((pass) => pass.wgsl),
+    );
+    expect(s.modules[0]).toContain(
+      "@binding(4) var<storage, read_write> anchors",
+    );
+    expect(s.modules[0]).toContain("anchors[linear] = anchor;");
+    expect(s.modules[0]).toContain("globals.params[0].x");
+    expect(s.modules[0]).toContain("globals.params[1].x");
+    expect(s.modules[0]).toContain("var<workgroup> scores: array<f32, 192>");
+    expect(s.modules[0]).toContain("sourceX >= 0 && sourceX < i32(extent.x)");
+    expect(s.modules[0]).toContain(
+      "workgroupBarrier();\n  let pixelX = tile.x * 64u + lane;\n  if (identity || pixelX >= extent.x) { return; }",
+    );
+    expect(s.modules[0]).toContain(
+      "let intensity = scores[u32(i32(sourceX) - origin)];",
+    );
+    expect(s.modules[0]).toContain("if (intensity > bestScore)");
+    expect(s.modules[1]).toContain("@binding(4) var<storage, read> anchors");
+    expect(s.modules[1]).toContain("let anchor = anchors[linear];");
+    expect(s.modules[1]).toContain("vec2i(i32(anchor - 1u), pixel.y)");
+    expect(s.modules[1]).toContain("globals.params[2].x");
+    expect(s.uniforms[0]?.[8]).toBe(16);
+    expect(s.uniforms[0]?.[12]).toBe(0.25);
+    expect(s.uniforms[0]?.[16]).toBe(0.5);
+    expect(s.trace).toEqual([
+      "allocate:156",
+      "allocate:544",
+      "write-uniform",
+      "clear:0:156",
+      "compute-begin",
+      "dispatch:1,3,1",
+      "compute-end",
+      "resolve-begin",
+      "draw:3",
+      "resolve-end",
+    ]);
+    const computeStorage = [...s.groups[0].entries].find(
+      (entry) => entry.binding === 4,
+    )!.resource;
+    const resolveStorage = [...s.groups[1].entries].find(
+      (entry) => entry.binding === 4,
+    )!.resource;
+    expect(computeStorage).toMatchObject({ offset: 0, size: 156 });
+    expect(resolveStorage).toEqual(computeStorage);
+    expect(
+      [...s.layouts[0].entries].find((entry) => entry.binding === 4)?.buffer
+        ?.type,
+    ).toBe("storage");
+    expect(
+      [...s.layouts[1].entries].find((entry) => entry.binding === 4)?.buffer
+        ?.type,
+    ).toBe("read-only-storage");
+    frame.abandon();
+    expect(s.owned.size).toBe(0);
+  });
+
   it("clears the entire packed source buffer before compute, then resolves without source/output alias", async () => {
     const s = await setup(),
       frame = s.pipelines.encode(s.options);

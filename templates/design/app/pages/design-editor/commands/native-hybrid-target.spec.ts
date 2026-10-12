@@ -2,6 +2,12 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  acceptNativeViewedSourceReplacement,
+  beginNativeViewedSourceReplacement,
+  registerNativeViewedSource,
+} from "@/components/design/design-canvas/native-viewed-source-lease";
+
 import { GRAIN_GRADIENT_EFFECT } from "../../../../shared/native-effect-presets";
 import { writeEffectsToHtml } from "../../../../shared/native-effects";
 import { sourceContentHash } from "../../../../shared/source-workspace";
@@ -66,6 +72,8 @@ function scene(native: boolean, fileId = "screen-a") {
     },
   });
   document.body.appendChild(iframe);
+  if (native)
+    registerNativeViewedSource(iframe, doc, sourceContentHash(source(true)));
   return {
     doc,
     iframe,
@@ -198,11 +206,17 @@ describe("native hybrid export selection", () => {
     const target = await resolveNativeHybridTarget(
       input(vi.fn().mockResolvedValue(viewed)),
     );
-    (
-      viewed.iframe.contentWindow as Window & {
-        __agentNativeSourceProvenance: { versionHash: string };
-      }
-    ).__agentNativeSourceProvenance.versionHash = "17:changed";
+    const requestId = beginNativeViewedSourceReplacement(
+      viewed.iframe,
+      viewed.doc,
+      "17:changed",
+    );
+    expect(target?.assertStillViewed).toThrowError(
+      expect.objectContaining({ code: "source-stale" }),
+    );
+    expect(
+      acceptNativeViewedSourceReplacement(viewed.iframe, viewed.doc, requestId),
+    ).toBe(true);
     expect(target?.assertStillViewed).toThrowError(
       expect.objectContaining({ code: "source-stale" }),
     );

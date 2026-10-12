@@ -263,16 +263,16 @@ describe("Design-owned next six catalog integration", () => {
   });
 
   it("adds six exact static effects and twelve authored recipes", async () => {
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(223);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(268);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(538);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(291);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(337);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(676);
     expect(OWNED_NEXT_SIX_DEFINITIONS).toHaveLength(6);
     expect(OWNED_NEXT_SIX_PRESETS).toHaveLength(12);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((value) => value.id)).size,
-    ).toBe(223);
+    ).toBe(291);
     expect(new Set(NATIVE_EFFECT_PRESETS.map((value) => value.id)).size).toBe(
-      538,
+      676,
     );
     for (const definition of OWNED_NEXT_SIX_DEFINITIONS) {
       expect(await hashEffectDefinition(definition)).toBe(

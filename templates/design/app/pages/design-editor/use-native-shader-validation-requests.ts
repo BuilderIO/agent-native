@@ -15,6 +15,7 @@ import { useEffect, useRef } from "react";
 
 import { readPreparedScene } from "./native-scene-export-client";
 import {
+  readNativeValidationViewport,
   validateNativePresentationFaultInEditor,
   validateNativeShaderCaseInEditor,
 } from "./native-shader-validation-client";
@@ -249,9 +250,15 @@ export function useNativeShaderValidationRequests(args: {
                 let preparedScene:
                   | ReturnType<typeof readPreparedScene>
                   | undefined;
-                if (item.mountedFrame) {
-                  const viewport = item.mountedFrame.viewport;
-                  const key = `${viewport.width}x${viewport.height}@${item.mountedFrame.pixelRatio}`;
+                if (
+                  item.mountedFrame ||
+                  (!item.mountedMeasurement && !item.presentationFault)
+                ) {
+                  const viewport =
+                    item.mountedFrame?.viewport ??
+                    readNativeValidationViewport(claimed.fileId);
+                  const pixelRatio = item.mountedFrame?.pixelRatio ?? 1;
+                  const key = `${viewport.width}x${viewport.height}@${pixelRatio}`;
                   preparedScene = preparedScenes.get(key);
                   if (!preparedScene) {
                     preparedScene = readPreparedScene(
@@ -262,7 +269,7 @@ export function useNativeShaderValidationRequests(args: {
                           fileId: claimed.fileId,
                           viewportWidth: viewport.width,
                           viewportHeight: viewport.height,
-                          pixelRatio: item.mountedFrame.pixelRatio,
+                          pixelRatio,
                         },
                         { method: "GET", signal },
                       ),
@@ -271,7 +278,7 @@ export function useNativeShaderValidationRequests(args: {
                         fileId: claimed.fileId,
                         width: viewport.width,
                         height: viewport.height,
-                        pixelRatio: item.mountedFrame.pixelRatio,
+                        pixelRatio,
                         expectedVersionHash: claimed.expectedVersionHash,
                       },
                     );
@@ -282,6 +289,8 @@ export function useNativeShaderValidationRequests(args: {
                   await validateNativeShaderCaseInEditor({
                     fileId: claimed.fileId,
                     item,
+                    requestId: claimed.requestId,
+                    expectedVersionHash: claimed.expectedVersionHash,
                     preparedScene,
                     signal,
                   }),

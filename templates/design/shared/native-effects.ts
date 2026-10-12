@@ -1317,6 +1317,46 @@ function validateDefinition(
       aliasesValid && record(feedback)
         ? feedbackUniformProperties(feedback as unknown as EffectFeedbackSpec)
         : undefined;
+    const resetProperties =
+      record(feedback) && feedback.resetProperties !== undefined
+        ? feedback.resetProperties
+        : undefined;
+    const resetPropertiesValid =
+      resetProperties === undefined ||
+      (Array.isArray(resetProperties) &&
+        resetProperties.length <= 16 &&
+        new Set(resetProperties).size === resetProperties.length &&
+        resetProperties.every((name) => {
+          if (
+            typeof name !== "string" ||
+            !PROPERTY_RE.test(name) ||
+            !record(value.properties) ||
+            !Object.prototype.hasOwnProperty.call(value.properties, name)
+          )
+            return false;
+          const property = value.properties[name];
+          return (
+            record(property) &&
+            ["float", "int"].includes(String(property.type)) &&
+            finite(property.default)
+          );
+        }));
+    const feedbackKeysValid =
+      !record(feedback) ||
+      (Object.keys(feedback).every((key) =>
+        [
+          "abi",
+          "grid",
+          "timing",
+          "stateResource",
+          "displayResource",
+          "uniformProperties",
+          "resetProperties",
+        ].includes(key),
+      ) &&
+        ["abi", "grid", "timing", "stateResource", "displayResource"].every(
+          (key) => Object.prototype.hasOwnProperty.call(feedback, key),
+        ));
     if (
       value.kind !== "processor" ||
       !Array.isArray(value.placements) ||
@@ -1327,8 +1367,11 @@ function validateDefinition(
       value.optionalImage !== undefined ||
       value.sourceSizing !== undefined ||
       !record(feedback) ||
+      !feedbackKeysValid ||
       Object.keys(feedback).length !==
-        (uniformProperties === undefined ? 5 : 6) ||
+        (uniformProperties === undefined ? 5 : 6) +
+          (resetProperties === undefined ? 0 : 1) ||
+      !resetPropertiesValid ||
       !aliasesValid ||
       feedback.abi !== "texture-feedback-v1" ||
       !record(grid) ||

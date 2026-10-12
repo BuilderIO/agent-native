@@ -34,6 +34,17 @@ The authored node ID is illustrative; use the exact ID returned for the selected
 file. Read back the new source version and inspect the mounted preview before
 reporting a visible result.
 
+## User-scoped preview settings
+
+Use `get-editor-preferences` to read the current user's shader preview override.
+Use `update-editor-preferences` to set the complete policy for previews across
+the user's designs, or pass `null` to inherit each design's saved
+`EffectDocument.preview` policy. This changes editor previews without editing
+a design's source. For a policy intended to be saved in one design, continue
+using `edit-native-shader` with `operation.kind: "set-preview"`. Shared preview
+controls belong in Settings; per-instance runtime failures remain visible in
+the shader inspector.
+
 Use `validate-native-shader` for CPU schema, parameter, and pass-graph checks.
 This does **not** compile WGSL or prove GPU rendering. Apply or edit with
 `edit-native-shader` and the exact `expectedVersionHash` from the read. Its
@@ -162,6 +173,12 @@ validation action's 45-second running lease. A measured 120 Hz or DPR 2
 claim requires the returned effective density and host/browser refresh proof;
 requesting the window alone does not establish either condition. Stateful
 feedback cases still require a bounded held-frame validation path.
+
+The validation sequence can advance feedback, capture the same current frame,
+and update bounded numeric parameters within one held session. Exact state
+hashes make it possible to distinguish a control response from a simulation
+step; seed and reset-property edits start a fresh state while ordinary control
+edits preserve it.
 
 The inspector can preview instance opacity and transform changes during a
 scrub without writing source; commit persists one `set-instance` edit and one

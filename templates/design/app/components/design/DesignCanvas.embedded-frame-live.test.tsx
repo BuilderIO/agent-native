@@ -16,6 +16,103 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("DesignCanvas live embedded-frame offset", () => {
+  it("broadcasts editor preview policy changes to every mounted screen and replays after frame load", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const policies = [
+      {
+        quality: "performance",
+        frameRateTarget: 120,
+        colorMode: "display-p3",
+        dynamicRange: "hdr",
+      },
+      {
+        quality: "quality",
+        frameRateTarget: 60,
+        colorMode: "srgb",
+        dynamicRange: "sdr",
+      },
+    ] as const;
+    const render = (policy: (typeof policies)[number]) => (
+      <>
+        {["screen-a", "screen-b"].map((screenId) => (
+          <DesignCanvas
+            key={screenId}
+            content="<!doctype html><html><body></body></html>"
+            contentKey={`${screenId}-policy-test`}
+            screenId={screenId}
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            editMode
+            registerRuntimeBridge={false}
+            editorNativePreviewPolicy={policy}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />
+        ))}
+      </>
+    );
+    const policyMessage = (policy: (typeof policies)[number]) => ({
+      type: "native-shader-editor-preview-policy",
+      schemaVersion: 1,
+      policy,
+    });
+
+    try {
+      await act(async () => root.render(render(policies[0])));
+      const frames = Array.from(
+        container.querySelectorAll<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        ),
+      );
+      expect(frames).toHaveLength(2);
+      const sent = frames.map((frame) =>
+        vi.spyOn(frame.contentWindow!, "postMessage"),
+      );
+      await act(async () => {
+        for (const frame of frames) frame.dispatchEvent(new Event("load"));
+      });
+      for (const messages of sent)
+        expect(messages).toHaveBeenCalledWith(policyMessage(policies[0]), "*");
+
+      await act(async () => root.render(render(policies[1])));
+      const nextFrames = Array.from(
+        container.querySelectorAll<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        ),
+      );
+      expect(nextFrames).toHaveLength(2);
+      expect(nextFrames[0]).toBe(frames[0]);
+      expect(nextFrames[1]).toBe(frames[1]);
+      for (const messages of sent)
+        expect(messages).toHaveBeenCalledWith(policyMessage(policies[1]), "*");
+
+      await act(async () => {
+        for (const frame of frames) frame.dispatchEvent(new Event("load"));
+      });
+      for (const messages of sent) {
+        const policyCalls = messages.mock.calls
+          .map(([message]) => message)
+          .filter(
+            (message) =>
+              typeof message === "object" &&
+              message !== null &&
+              (message as { type?: string }).type ===
+                "native-shader-editor-preview-policy",
+          );
+        expect(policyCalls[policyCalls.length - 1]).toEqual(
+          policyMessage(policies[1]),
+        );
+      }
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
   it.each(["null", "security-error"] as const)(
     "does not steal cross-origin frame focus on canvas pointer entry when contentDocument is %s",
     async (contentDocumentResult) => {

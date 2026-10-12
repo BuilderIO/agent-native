@@ -7,6 +7,7 @@ import type {
 } from "@shared/canvas-math";
 import type { CodeLayerProjection, CodeLayerSource } from "@shared/code-layer";
 import type { LayoutGridById } from "@shared/layout-grid";
+import type { EffectPreviewPolicy } from "@shared/native-effects";
 import type { PenCuspLatch, PenPath } from "@shared/pen-path";
 import type { SourceNodeProvenance } from "@shared/preview-source-provenance";
 import type { VectorEndpointStyle } from "@shared/vector-endpoints";
@@ -193,6 +194,7 @@ export interface MultiScreenCanvasProps {
   previewDeviceFrame?: DeviceFrameType;
   activeTool?: MultiScreenCanvasTool;
   nativeApprovalsEnabled?: boolean;
+  editorNativePreviewPolicy?: EffectPreviewPolicy | null;
   reviewResourceId?: string;
   reviewPinMode?: boolean;
   reviewCommentsHidden?: boolean;

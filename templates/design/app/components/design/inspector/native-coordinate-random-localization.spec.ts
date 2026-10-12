@@ -1,3 +1,4 @@
+import { OWNED_O_EDGE_LIGHT_LEAK_V2_PRESETS } from "@shared/native-effect-owned-o-edge-light-leak-v2";
 import {
   NATIVE_COORDINATE_RANDOM_PRESETS,
   NATIVE_COORDINATE_RANDOM_PRESET_SOURCE_IDS,
@@ -61,6 +62,30 @@ describe("coordinate noise recipe localization lineage", () => {
       expect(
         nativeCatalogPresetKey({ ...preset, name: "Authored recipe" }),
       ).toBeNull();
+    }
+  });
+});
+
+describe("Edge Light Leak v2 recipe localization lineage", () => {
+  it("reuses both existing labels in every shipped catalog", () => {
+    expect(OWNED_O_EDGE_LIGHT_LEAK_V2_PRESETS).toHaveLength(2);
+    for (const [
+      index,
+      preset,
+    ] of OWNED_O_EDGE_LIGHT_LEAK_V2_PRESETS.entries()) {
+      const labelId = `an-preset-owned-o-edge-light-leak-${index + 1}`;
+      expect(NATIVE_PRESET_LABEL_SOURCE_IDS[preset.id]).toBe(labelId);
+      expect(nativeCatalogPresetKey(structuredClone(preset))).toBe(
+        `editPanel.shaders.nativeCatalog.presets.${labelId}`,
+      );
+      for (const [locale, catalog] of catalogs) {
+        const messages = catalog.editPanel.shaders.nativeCatalog
+          .presets as Record<string, string>;
+        expect(
+          messages[labelId]?.length,
+          `${locale}: ${labelId}`,
+        ).toBeGreaterThan(0);
+      }
     }
   });
 });

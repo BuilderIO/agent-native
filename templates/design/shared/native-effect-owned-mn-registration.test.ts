@@ -71,19 +71,19 @@ const MN_HASHES = new Map([
 
 describe("Design-owned M/N registration", () => {
   it("adds six source processors and six generators with exact versions and recipes", async () => {
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(223);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(268);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(538);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(291);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(337);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(676);
     expect(
       NATIVE_EFFECT_LATEST_DEFINITIONS.filter((d) =>
         d.placements.includes("fill"),
       ),
-    ).toHaveLength(119);
+    ).toHaveLength(147);
     expect(
       NATIVE_EFFECT_LATEST_DEFINITIONS.filter((d) =>
         d.placements.includes("layer"),
       ),
-    ).toHaveLength(104);
+    ).toHaveLength(144);
     expect(OWNED_NEXT_SIX_M_DEFINITIONS).toHaveLength(6);
     expect(OWNED_NEXT_SIX_N_DEFINITIONS).toHaveLength(6);
     expect(OWNED_NEXT_SIX_M_PRESETS).toHaveLength(12);

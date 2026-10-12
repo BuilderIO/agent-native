@@ -2,6 +2,7 @@ import { hashEffectDefinition } from "@shared/native-effect-trust";
 import { parseEffectsFromHtml } from "@shared/native-effects";
 import type { NativePresentationFaultGrant } from "@shared/native-presentation-fault-gate";
 import type {
+  NativeFullScenePixelSamples,
   NativeShaderValidationCaseResult,
   NativeShaderValidationState,
 } from "@shared/native-shader-validation";
@@ -37,11 +38,16 @@ type MountedFrameOptions = {
   signal: AbortSignal;
   timeoutMs: number;
   simulationSessionId?: string;
+  repeatCurrentSimulationFrame?: true;
 };
 
 type MountedFrameRuntime = {
   scan?: () => Promise<void>;
   renderAt?: (time: number) => Promise<unknown>;
+  renderAtWithPixelRatio?: (
+    time: number,
+    pixelRatio: number,
+  ) => Promise<unknown>;
   dispose?: () => void;
   measureMountedScene?: (options: {
     instanceId: string;
@@ -53,6 +59,7 @@ type MountedFrameRuntime = {
     fps: 60;
     totalFrames: number;
     startTimeSeconds: 0;
+    targetInstanceIds?: string[];
     signal: AbortSignal;
     timeoutMs: number;
   }) => Promise<{ sessionId: string }>;
@@ -60,6 +67,19 @@ type MountedFrameRuntime = {
     sessionId: string,
     options: { timeoutMs: number },
   ) => Promise<void>;
+  setSimulationExportParameters?: (options: {
+    sessionId: string;
+    instanceId: string;
+    nodeId: string;
+    executionHash: string;
+    params: Record<string, number>;
+    signal: AbortSignal;
+  }) =>
+    | Promise<{ instanceId: string; updatedProperties: string[] }>
+    | {
+        instanceId: string;
+        updatedProperties: string[];
+      };
   renderCompositionFramePixels?: (
     options: MountedFrameOptions,
   ) => Promise<unknown>;
@@ -74,6 +94,10 @@ type MountedFrameRuntime = {
       expectedLinearSamples?: NonNullable<
         ValidationCase["expectedLinearSamples"]
       >;
+      scenePixelSampleCoordinates?: NonNullable<
+        ValidationCase["scenePixelSampleCoordinates"]
+      >;
+      captureFeedbackState?: true;
     },
   ) => Promise<unknown>;
   runReviewedPresentationFault?: (
@@ -343,6 +367,28 @@ async function mountedValidationViewport(
   }
 }
 
+export function readNativeValidationViewport(fileId: string): {
+  width: number;
+  height: number;
+} {
+  const frame = findValidationFrame(fileId);
+  const target = frame.contentWindow;
+  if (!frame.isConnected || !target)
+    throw mountedViewportError("mounted-viewport-source-unavailable");
+  const viewport = { width: target.innerWidth, height: target.innerHeight };
+  if (
+    !Number.isSafeInteger(viewport.width) ||
+    viewport.width < 1 ||
+    viewport.width > 4096 ||
+    !Number.isSafeInteger(viewport.height) ||
+    viewport.height < 1 ||
+    viewport.height > 4096 ||
+    viewport.width * viewport.height > 8_388_608
+  )
+    throw mountedViewportError("mounted-viewport-mismatch");
+  return viewport;
+}
+
 function findValidationFrame(fileId: string): HTMLIFrameElement {
   try {
     return findNativeDraftFrame(fileId);
@@ -504,20 +550,140 @@ function readMountedPixels(
   return value.rgba as Uint8Array<ArrayBuffer>;
 }
 
-async function renderMountedFrame(
-  runtime: MountedFrameRuntime,
-  item: ValidationCase,
-  stateful: boolean,
-  signal: AbortSignal,
-): Promise<{
+type MountedFrameSummary = {
   linearGolden?: NonNullable<NativeShaderValidationCaseResult["linearGolden"]>;
+  fullScenePixelSamples?: NativeFullScenePixelSamples;
   mountOutput: NonNullable<NativeShaderValidationCaseResult["mountOutput"]>;
   pixelSha256: string;
   pixelWidth: number;
   pixelHeight: number;
   nonTransparentPixels: number;
   partialAlphaPixels: number;
+};
+
+async function summarizeMountedFrame(
+  held: unknown,
+  item: ValidationCase,
+  signal: AbortSignal,
+  provenance?: { requestId: string; sourceVersionHash: string },
+  expectedSamples = item.expectedLinearSamples,
+): Promise<MountedFrameSummary> {
+  const frame = item.mountedFrame;
+  if (!frame)
+    throw new NativeShaderValidationClientError("runtime-unavailable");
+  const expectedWidth = Math.ceil(frame.viewport.width * frame.pixelRatio);
+  const expectedHeight = Math.ceil(frame.viewport.height * frame.pixelRatio);
+  if (signal.aborted)
+    throw new NativeShaderValidationClientError("request-aborted");
+  const pixels =
+    held && typeof held === "object" && "pixels" in held
+      ? held.pixels
+      : undefined;
+  const rgba = readMountedPixels(pixels, expectedWidth, expectedHeight);
+  let nonTransparentPixels = 0;
+  let partialAlphaPixels = 0;
+  for (let index = 3; index < rgba.length; index += 4) {
+    const alpha = rgba[index];
+    if (alpha > 0) nonTransparentPixels += 1;
+    if (alpha > 0 && alpha < 255) partialAlphaPixels += 1;
+  }
+  const linearGolden = expectedSamples
+    ? nativeLinearGoldenSummarySchema.parse(
+        held && typeof held === "object" && "linearGolden" in held
+          ? held.linearGolden
+          : undefined,
+      )
+    : undefined;
+  if (expectedSamples && linearGolden?.sampleCount !== expectedSamples.length)
+    throw new Error("mounted-golden-samples-incomplete");
+  const mountOutput = nativeMountedOutputSummarySchema.parse(
+    held && typeof held === "object" && "mountOutput" in held
+      ? held.mountOutput
+      : undefined,
+  );
+  if (
+    mountOutput.instanceId !== item.instanceId ||
+    mountOutput.nodeId !== item.nodeId ||
+    mountOutput.definitionId !== item.definitionId ||
+    mountOutput.definitionVersion !== item.definitionVersion ||
+    mountOutput.executionHash !== item.executionHash ||
+    mountOutput.width > expectedWidth ||
+    mountOutput.height > expectedHeight
+  )
+    throw new Error("mounted-output-identity-mismatch");
+  if (item.captureFeedbackState && !mountOutput.feedbackState)
+    throw new Error("feedback-state-snapshot-missing");
+  let fullScenePixelSamples: NativeFullScenePixelSamples | undefined;
+  const requestedSceneSamples = item.scenePixelSampleCoordinates;
+  if (requestedSceneSamples) {
+    if (!provenance?.requestId || !provenance.sourceVersionHash)
+      throw new Error("full-scene-sample-provenance-unavailable");
+    const samples = requestedSceneSamples.map(({ x, y }) => {
+      if (x >= expectedWidth || y >= expectedHeight)
+        throw new Error("full-scene-sample-coordinate-out-of-bounds");
+      const offset = (y * expectedWidth + x) * 4;
+      return {
+        x,
+        y,
+        rgba8: [
+          rgba[offset],
+          rgba[offset + 1],
+          rgba[offset + 2],
+          rgba[offset + 3],
+        ] as [number, number, number, number],
+      };
+    });
+    fullScenePixelSamples = {
+      scope: "full-scene-composition-srgb-straight-u8",
+      requestId: provenance.requestId,
+      sourceVersionHash: provenance.sourceVersionHash,
+      frameIndex: Math.round(item.timeSeconds * 60),
+      timeSeconds: item.timeSeconds,
+      width: expectedWidth,
+      height: expectedHeight,
+      pixelRatio: frame.pixelRatio,
+      colorSpace: "srgb",
+      alpha: "straight",
+      samples,
+    };
+  }
+  const digest = await crypto.subtle.digest("SHA-256", rgba);
+  if (signal.aborted)
+    throw new NativeShaderValidationClientError("request-aborted");
+  return {
+    ...(linearGolden ? { linearGolden } : {}),
+    ...(fullScenePixelSamples ? { fullScenePixelSamples } : {}),
+    mountOutput,
+    pixelSha256: [...new Uint8Array(digest)]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join(""),
+    pixelWidth: expectedWidth,
+    pixelHeight: expectedHeight,
+    nonTransparentPixels,
+    partialAlphaPixels,
+  };
+}
+
+async function renderMountedFrame(
+  runtime: MountedFrameRuntime,
+  item: ValidationCase,
+  stateful: boolean,
+  signal: AbortSignal,
+  provenance?: { requestId: string; sourceVersionHash: string },
+): Promise<{
+  linearGolden?: NonNullable<NativeShaderValidationCaseResult["linearGolden"]>;
+  fullScenePixelSamples?: NativeFullScenePixelSamples;
+  mountOutput: NonNullable<NativeShaderValidationCaseResult["mountOutput"]>;
+  pixelSha256: string;
+  pixelWidth: number;
+  pixelHeight: number;
+  nonTransparentPixels: number;
+  partialAlphaPixels: number;
+  statefulRenderMode?: NativeShaderValidationCaseResult["statefulRenderMode"];
+  statefulSequence?: NativeShaderValidationCaseResult["statefulSequence"];
 }> {
+  if (item.statefulSequence)
+    return await renderMountedStatefulSequence(runtime, item, signal);
   const frame = item.mountedFrame;
   const samples = item.expectedLinearSamples;
   if (
@@ -532,6 +698,7 @@ async function renderMountedFrame(
   const options = (
     index: number,
     simulationSessionId?: string,
+    repeatCurrentSimulationFrame = false,
   ): MountedFrameOptions => ({
     frameIndex: index,
     fps: 60,
@@ -542,6 +709,9 @@ async function renderMountedFrame(
     signal,
     timeoutMs: 30_000,
     ...(simulationSessionId ? { simulationSessionId } : {}),
+    ...(repeatCurrentSimulationFrame
+      ? { repeatCurrentSimulationFrame: true as const }
+      : {}),
   });
   const renderFinal = async (simulationSessionId?: string): Promise<unknown> =>
     runtime.renderCompositionFrameValidated!(
@@ -553,6 +723,10 @@ async function renderMountedFrame(
         definitionVersion: item.definitionVersion,
         executionHash: item.executionHash,
         ...(samples ? { expectedLinearSamples: samples } : {}),
+        ...(item.scenePixelSampleCoordinates
+          ? { scenePixelSampleCoordinates: item.scenePixelSampleCoordinates }
+          : {}),
+        ...(item.captureFeedbackState ? { captureFeedbackState: true } : {}),
       },
     );
   let held: unknown;
@@ -597,57 +771,226 @@ async function renderMountedFrame(
   } else {
     held = await renderFinal();
   }
-  if (signal.aborted)
-    throw new NativeShaderValidationClientError("request-aborted");
-  const pixels =
-    held && typeof held === "object" && "pixels" in held
-      ? held.pixels
-      : undefined;
-  const rgba = readMountedPixels(pixels, expectedWidth, expectedHeight);
-  let nonTransparentPixels = 0;
-  let partialAlphaPixels = 0;
-  for (let index = 3; index < rgba.length; index += 4) {
-    const alpha = rgba[index];
-    if (alpha > 0) nonTransparentPixels += 1;
-    if (alpha > 0 && alpha < 255) partialAlphaPixels += 1;
-  }
-  const linearGolden = samples
-    ? nativeLinearGoldenSummarySchema.parse(
-        held && typeof held === "object" && "linearGolden" in held
-          ? held.linearGolden
-          : undefined,
-      )
-    : undefined;
-  if (samples && linearGolden?.sampleCount !== samples.length)
-    throw new Error("mounted-golden-samples-incomplete");
-  const mountOutput = nativeMountedOutputSummarySchema.parse(
-    held && typeof held === "object" && "mountOutput" in held
-      ? held.mountOutput
-      : undefined,
-  );
-  if (
-    mountOutput.instanceId !== item.instanceId ||
-    mountOutput.nodeId !== item.nodeId ||
-    mountOutput.definitionId !== item.definitionId ||
-    mountOutput.definitionVersion !== item.definitionVersion ||
-    mountOutput.executionHash !== item.executionHash ||
-    mountOutput.width > expectedWidth ||
-    mountOutput.height > expectedHeight
-  )
-    throw new Error("mounted-output-identity-mismatch");
-  const digest = await crypto.subtle.digest("SHA-256", rgba);
-  if (signal.aborted)
-    throw new NativeShaderValidationClientError("request-aborted");
+  const summary = await summarizeMountedFrame(held, item, signal, provenance);
   return {
-    ...(linearGolden ? { linearGolden } : {}),
-    mountOutput,
-    pixelSha256: [...new Uint8Array(digest)]
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join(""),
-    pixelWidth: expectedWidth,
-    pixelHeight: expectedHeight,
-    nonTransparentPixels,
-    partialAlphaPixels,
+    ...summary,
+    ...(stateful ? { statefulRenderMode: "fresh-held-replay" as const } : {}),
+  };
+}
+
+async function renderMountedStatefulSequence(
+  runtime: MountedFrameRuntime,
+  item: ValidationCase,
+  signal: AbortSignal,
+): Promise<
+  MountedFrameSummary & {
+    statefulRenderMode: "same-held-session-sequence";
+    statefulSequence: NonNullable<
+      NativeShaderValidationCaseResult["statefulSequence"]
+    >;
+  }
+> {
+  const frame = item.mountedFrame;
+  const steps = item.statefulSequence;
+  if (
+    !frame ||
+    !steps ||
+    !runtime.beginSimulationExportSession ||
+    !runtime.endSimulationExportSession ||
+    !runtime.renderCompositionFrameValidated ||
+    !runtime.setSimulationExportParameters
+  )
+    throw new NativeShaderValidationClientError("runtime-unavailable");
+  const totalFrames = steps.filter((step) => step.kind === "advance").length;
+  const { sessionId } = await runtime.beginSimulationExportSession({
+    fps: 60,
+    totalFrames,
+    startTimeSeconds: 0,
+    ...(!item.captureFeedbackState
+      ? { targetInstanceIds: [item.instanceId] }
+      : {}),
+    signal,
+    timeoutMs: 30_000,
+  });
+  const options = (
+    frameIndex: number,
+    repeatCurrentSimulationFrame = false,
+  ): MountedFrameOptions => ({
+    frameIndex,
+    fps: 60,
+    startTimeSeconds: 0,
+    sourceContract: "declarative-only",
+    viewport: frame.viewport,
+    pixelRatio: frame.pixelRatio,
+    signal,
+    timeoutMs: 30_000,
+    simulationSessionId: sessionId,
+    ...(repeatCurrentSimulationFrame
+      ? { repeatCurrentSimulationFrame: true as const }
+      : {}),
+  });
+  const target = {
+    instanceId: item.instanceId,
+    nodeId: item.nodeId,
+    definitionId: item.definitionId,
+    definitionVersion: item.definitionVersion,
+    executionHash: item.executionHash,
+    ...(item.captureFeedbackState
+      ? { captureFeedbackState: true as const }
+      : {}),
+  };
+  const receipts: NonNullable<
+    NativeShaderValidationCaseResult["statefulSequence"]
+  > = [];
+  const rendered = new Map<
+    string,
+    { summary: MountedFrameSummary; frameIndex: number; timeSeconds: number }
+  >();
+  let frameIndex = -1;
+  let finalSummary: MountedFrameSummary | undefined;
+  let primaryError: unknown;
+  try {
+    for (const step of steps) {
+      if (signal.aborted)
+        throw new NativeShaderValidationClientError("request-aborted");
+      if (step.kind === "set-params") {
+        const update = await runtime.setSimulationExportParameters({
+          sessionId,
+          instanceId: item.instanceId,
+          nodeId: item.nodeId,
+          executionHash: item.executionHash,
+          params: step.params,
+          signal,
+        });
+        const updatedProperties = Object.keys(step.params);
+        if (
+          update.instanceId !== item.instanceId ||
+          updatedProperties.length !== update.updatedProperties.length ||
+          updatedProperties.some(
+            (name, index) => update.updatedProperties[index] !== name,
+          )
+        )
+          throw new Error("simulation-session-parameter-receipt-mismatch");
+        receipts.push({
+          kind: "set-params",
+          stepId: step.stepId,
+          updatedProperties,
+        });
+        continue;
+      }
+      const advance = step.kind === "advance";
+      if (advance) frameIndex += 1;
+      if (frameIndex < 0) throw new Error("simulation-session-frame-required");
+      const held = await runtime.renderCompositionFrameValidated(
+        options(frameIndex, !advance),
+        {
+          ...target,
+          ...(step.kind === "capture" && step.expectedLinearSamples
+            ? { expectedLinearSamples: step.expectedLinearSamples }
+            : {}),
+        },
+      );
+      const summary = await summarizeMountedFrame(
+        held,
+        item,
+        signal,
+        undefined,
+        step.kind === "capture" ? step.expectedLinearSamples : undefined,
+      );
+      const comparisons: NonNullable<
+        Extract<
+          NonNullable<
+            NativeShaderValidationCaseResult["statefulSequence"]
+          >[number],
+          { kind: "advance" | "capture" }
+        >["comparisons"]
+      > = [];
+      if (!advance && step.compare) {
+        const reference = rendered.get(step.compare.referenceStepId);
+        if (!reference)
+          throw new Error("simulation-session-comparison-reference-missing");
+        const compareFeedbackState = ():
+          | "same"
+          | "different"
+          | "unavailable" => {
+          const left = reference.summary.mountOutput.feedbackState;
+          const right = summary.mountOutput.feedbackState;
+          if (
+            left?.availability !== "available" ||
+            right?.availability !== "available"
+          )
+            return "unavailable";
+          return left.width === right.width &&
+            left.height === right.height &&
+            left.byteLength === right.byteLength &&
+            left.sha256 === right.sha256
+            ? "same"
+            : "different";
+        };
+        if (step.compare.feedbackState) {
+          const observed = compareFeedbackState();
+          comparisons.push({
+            referenceStepId: step.compare.referenceStepId,
+            subject: "feedback-state",
+            expected: step.compare.feedbackState,
+            observed,
+            passed: observed === step.compare.feedbackState,
+          });
+        }
+        if (step.compare.pixels) {
+          const left = reference.summary.mountOutput;
+          const right = summary.mountOutput;
+          const observed =
+            left.width === right.width &&
+            left.height === right.height &&
+            left.pixelSha256 === right.pixelSha256
+              ? "same"
+              : "different";
+          comparisons.push({
+            referenceStepId: step.compare.referenceStepId,
+            subject: "pixels",
+            expected: step.compare.pixels,
+            observed,
+            passed: observed === step.compare.pixels,
+          });
+        }
+      }
+      const timeSeconds = frameIndex / 60;
+      const receipt = {
+        kind: step.kind,
+        stepId: step.stepId,
+        frameIndex,
+        timeSeconds,
+        pixelSha256: summary.pixelSha256,
+        pixelWidth: summary.pixelWidth,
+        pixelHeight: summary.pixelHeight,
+        mountOutput: summary.mountOutput,
+        comparisons,
+        ...(summary.linearGolden ? { linearGolden: summary.linearGolden } : {}),
+      } as const;
+      receipts.push(receipt);
+      rendered.set(step.stepId, { summary, frameIndex, timeSeconds });
+      finalSummary = summary;
+    }
+  } catch (error) {
+    primaryError = error;
+  }
+  try {
+    await runtime.endSimulationExportSession(sessionId, {
+      timeoutMs: 30_000,
+    });
+  } catch (cleanupError) {
+    if (primaryError)
+      throw new NativeShaderValidationCleanupError(primaryError, cleanupError);
+    throw cleanupError;
+  }
+  if (primaryError) throw primaryError;
+  if (!finalSummary) throw new Error("simulation-session-sequence-empty");
+  const { linearGolden: _stepGolden, ...sequenceSummary } = finalSummary;
+  return {
+    ...sequenceSummary,
+    statefulRenderMode: "same-held-session-sequence",
+    statefulSequence: receipts,
   };
 }
 
@@ -785,15 +1128,27 @@ export async function validateNativePresentationFaultInEditor(args: {
 export async function validateNativeShaderCaseInEditor(args: {
   fileId: string;
   item: ValidationCase;
+  requestId?: string;
+  expectedVersionHash?: string;
   preparedScene?: Pick<
     ReturnType<typeof readPreparedScene>,
-    "html" | "approvedDefinitionHashes"
+    "html" | "approvedDefinitionHashes" | "viewport" | "initialPixelRatio"
   >;
   signal: AbortSignal;
 }): Promise<NativeShaderValidationCaseResult> {
   const { fileId, item, signal, preparedScene } = args;
   if (signal.aborted)
     throw new NativeShaderValidationClientError("request-aborted");
+  if (!item.mountedMeasurement && !item.presentationFault && !preparedScene)
+    return unavailable(
+      item,
+      item.mountedFrame
+        ? "mounted-viewport-source-unavailable"
+        : "validation-source-unavailable",
+      item.mountedFrame
+        ? "A prepared source is required for the held viewport."
+        : "An isolated prepared source is required for native shader validation.",
+    );
   let frame: HTMLIFrameElement;
   let stateful = false;
   try {
@@ -817,24 +1172,47 @@ export async function validateNativeShaderCaseInEditor(args: {
   }
   let dedicatedFrame: HTMLIFrameElement | undefined;
   try {
-    if (item.mountedFrame) {
+    if (
+      item.mountedFrame ||
+      (!item.mountedMeasurement && preparedScene !== undefined)
+    ) {
       try {
         if (!preparedScene)
           throw mountedViewportError("mounted-viewport-source-unavailable");
-        const liveStatus = await statusFor(frame, item, signal);
-        if (
-          liveStatus.status !== "ready" ||
-          liveStatus.backend !== "webgpu" ||
-          liveStatus.frames < 1
-        )
-          return unavailable(
-            item,
-            "mounted-source-unready",
-            "The selected native source is not ready for a dedicated validation frame.",
-          );
+        if (item.mountedFrame) {
+          const liveDocument = frame.contentDocument;
+          const liveSrcdoc = frame.srcdoc || frame.getAttribute("srcdoc");
+          const liveStatus = await statusFor(frame, item, signal);
+          if (
+            liveStatus.status !== "ready" ||
+            liveStatus.backend !== "webgpu" ||
+            liveStatus.frames < 1
+          ) {
+            if (
+              !frame.isConnected ||
+              frame.contentDocument !== liveDocument ||
+              (frame.srcdoc || frame.getAttribute("srcdoc")) !== liveSrcdoc ||
+              !(await verifyFrameSource(frame, item)).matches
+            )
+              return unavailable(
+                item,
+                "frame-source-stale",
+                "The mounted shader source does not match this validation case.",
+              );
+            const result = unavailable(
+              item,
+              liveStatus.code ?? "mounted-source-unready",
+              liveStatus.message ??
+                "The selected native source is not ready for a dedicated validation frame.",
+            );
+            return liveStatus.status === "error"
+              ? { ...result, status: "error" }
+              : result;
+          }
+        }
         dedicatedFrame = await mountedValidationViewport(
           frame,
-          item.mountedFrame.viewport,
+          item.mountedFrame?.viewport ?? preparedScene.viewport,
           item,
           preparedScene,
           signal,
@@ -866,6 +1244,10 @@ export async function validateNativeShaderCaseInEditor(args: {
         | (Window & {
             __anNativeShaders?: {
               renderAt?: (time: number) => Promise<unknown>;
+              renderAtWithPixelRatio?: (
+                time: number,
+                pixelRatio: number,
+              ) => Promise<unknown>;
             } & MountedFrameRuntime;
           })
         | null
@@ -877,7 +1259,7 @@ export async function validateNativeShaderCaseInEditor(args: {
           !runtime.renderCompositionFrameValidated
         : item.mountedMeasurement
           ? !runtime.measureMountedScene
-          : !runtime.renderAt)
+          : !runtime.renderAtWithPixelRatio)
     )
       return unavailable(
         item,
@@ -900,10 +1282,52 @@ export async function validateNativeShaderCaseInEditor(args: {
           item,
           stateful,
           signal,
+          args.requestId && args.expectedVersionHash
+            ? {
+                requestId: args.requestId,
+                sourceVersionHash: args.expectedVersionHash,
+              }
+            : undefined,
         );
         if (mountedFrame.linearGolden && !mountedFrame.linearGolden.passed) {
           renderFailed = true;
           renderCode = "linear-golden-failed";
+        }
+        if (
+          mountedFrame.statefulSequence?.some(
+            (step) =>
+              step.kind !== "set-params" &&
+              (step.comparisons.some((comparison) => !comparison.passed) ||
+                (step.kind === "capture" &&
+                  step.linearGolden !== undefined &&
+                  !step.linearGolden.passed)),
+          )
+        ) {
+          renderFailed = true;
+          const goldenFailed = mountedFrame.statefulSequence?.some(
+            (step) =>
+              step.kind === "capture" &&
+              step.linearGolden !== undefined &&
+              !step.linearGolden.passed,
+          );
+          renderCode = goldenFailed
+            ? "linear-golden-failed"
+            : "stateful-sequence-assertion-failed";
+          renderMessage = goldenFailed
+            ? "A held-session numeric pixel sample fell outside its requested tolerance."
+            : "A same-session feedback state or output comparison did not match the requested relation.";
+        } else if (
+          item.captureFeedbackState &&
+          mountedFrame.statefulSequence?.some(
+            (step) =>
+              step.kind !== "set-params" &&
+              step.mountOutput.feedbackState?.availability !== "available",
+          )
+        ) {
+          renderFailed = true;
+          renderCode = "stateful-sequence-snapshot-unavailable";
+          renderMessage =
+            "The same-session sequence could not read every requested GPU feedback state snapshot.";
         }
       } else if (item.mountedMeasurement) {
         const raw = await runtime.measureMountedScene!({
@@ -953,7 +1377,10 @@ export async function validateNativeShaderCaseInEditor(args: {
           throw mountedViewportError("benchmark-result-unreadable");
         mountedMeasurement = measured.data;
       } else {
-        const result = await runtime.renderAt!(item.timeSeconds);
+        const result = await runtime.renderAtWithPixelRatio!(
+          item.timeSeconds,
+          preparedScene!.initialPixelRatio,
+        );
         if (
           !result ||
           typeof result !== "object" ||

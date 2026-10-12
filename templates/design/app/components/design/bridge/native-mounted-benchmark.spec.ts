@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   emptyNativeBenchmarkPhaseValues,
   emptyNativeBenchmarkFullFrameValues,
+  emptyNativeSourceReadSceneMetrics,
   type NativeBenchmarkFullFrameValues,
   NativeMountedBenchmarkError,
   NativeMountedBenchmarkRun,
@@ -72,6 +73,166 @@ describe("live mounted benchmark window", () => {
     ).toBe(6);
     expect(result.sourceWallMs.p95).toBe(9);
     expect(result.hostWallPhases).toBeUndefined();
+  });
+
+  it("reports bounded readScene calls and nested waits without adding them to frame time", () => {
+    const window = new NativeMountedBenchmarkWindowCollector(request);
+    for (let index = 0; index <= 960; index += 1) {
+      window.onRaf(index * 10, "visible");
+      const phases = emptyNativeBenchmarkFullFrameValues();
+      phases.frame.renderInternalWallMs = 40;
+      phases.frame.mountAwaitWallMs = 15;
+      phases.frame.scenePresentationWallMs = 20;
+      phases.scene.sourceReadWallMs = 7;
+      window.onRender({
+        renderWallMs: 40,
+        sourceWallMs: 9,
+        composeWallMs: 1,
+        fullFrameWallPhases: phases,
+        sourceReadDetail: {
+          ...emptyNativeSourceReadSceneMetrics(),
+          calls: 2,
+          wallMs: 12,
+          walkWallMs: 9,
+          validationWallMs: 2,
+          leafWaitWallMs: 6,
+          scenePresentationCalls: 1,
+          mountSourceCalls: 1,
+          walkNodeVisits: 7,
+          walkDirectStyleReads: 2,
+          walkDirectLayoutSizeReads: 4,
+          walkDirectAffineReads: 1,
+          recordDirectStyleReads: 5,
+          recordDirectLayoutSizeReads: 3,
+          recordDirectAffineReads: 2,
+        },
+        failureCount: 0,
+      });
+    }
+    const result = window.result();
+    expect(result.sourceReadDetail?.stats.calls).toMatchObject({
+      count: 840,
+      p95: 2,
+    });
+    expect(result.sourceReadDetail?.stats.leafWaitWallMs.p95).toBe(6);
+    expect(result.sourceReadDetail?.stats.scenePresentationCalls.p95).toBe(1);
+    expect(result.sourceReadDetail?.stats.walkNodeVisits.p95).toBe(7);
+    expect(result.sourceReadDetail?.stats.recordDirectStyleReads.p95).toBe(5);
+    expect(result.fullFrameWallPhases?.stats.renderInternalWallMs.p95).toBe(40);
+  });
+
+  it("accepts a full-frame Fill render with no readScene calls and zero source intervals", () => {
+    const window = new NativeMountedBenchmarkWindowCollector(request);
+    for (let index = 0; index <= 960; index += 1) {
+      window.onRaf(index * 10, "visible");
+      const phases = emptyNativeBenchmarkFullFrameValues();
+      phases.frame.renderInternalWallMs = 4;
+      phases.frame.mountAwaitWallMs = 3;
+      window.onRender({
+        renderWallMs: 4,
+        sourceWallMs: 1,
+        composeWallMs: 1,
+        fullFrameWallPhases: phases,
+        sourceReadDetail: {
+          ...emptyNativeSourceReadSceneMetrics(),
+          calls: 0,
+          wallMs: 0,
+          walkWallMs: 0,
+          validationWallMs: 0,
+          leafWaitWallMs: 0,
+        },
+        failureCount: 0,
+      });
+    }
+    expect(window.result().sourceReadDetail?.stats.calls).toMatchObject({
+      count: 840,
+      p95: 0,
+      max: 0,
+    });
+  });
+
+  it.each([
+    {
+      ...emptyNativeSourceReadSceneMetrics(),
+      calls: 0,
+      wallMs: 1,
+      walkWallMs: 1,
+      validationWallMs: 0,
+      leafWaitWallMs: 0,
+    },
+    {
+      ...emptyNativeSourceReadSceneMetrics(),
+      calls: 2,
+      wallMs: 1,
+      walkWallMs: 0.8,
+      validationWallMs: 0.3,
+      leafWaitWallMs: 0,
+    },
+    {
+      ...emptyNativeSourceReadSceneMetrics(),
+      calls: 2,
+      wallMs: 1,
+      walkWallMs: 0.5,
+      validationWallMs: 0,
+      leafWaitWallMs: 0.6,
+    },
+    {
+      ...emptyNativeSourceReadSceneMetrics(),
+      calls: 2,
+      wallMs: Number.NaN,
+      walkWallMs: 0,
+      validationWallMs: 0,
+      leafWaitWallMs: 0,
+    },
+    {
+      ...emptyNativeSourceReadSceneMetrics(),
+      calls: 1025,
+      wallMs: 0,
+      walkWallMs: 0,
+      validationWallMs: 0,
+      leafWaitWallMs: 0,
+    },
+    {
+      ...emptyNativeSourceReadSceneMetrics(),
+      calls: 0,
+      wallMs: 0,
+      walkWallMs: 0,
+      validationWallMs: 0.01,
+      leafWaitWallMs: 0,
+    },
+    {
+      ...emptyNativeSourceReadSceneMetrics(),
+      calls: 1,
+      wallMs: 0,
+      walkWallMs: 0,
+      validationWallMs: 0,
+      leafWaitWallMs: 0,
+      extra: 0,
+    },
+    Object.assign(Object.create({ walkWallMs: 0 }), {
+      ...emptyNativeSourceReadSceneMetrics(),
+      calls: 1,
+      wallMs: 0,
+      validationWallMs: 0,
+      leafWaitWallMs: 0,
+      extra: 0,
+    }),
+  ])("rejects invalid readScene details %#", (sourceReadDetail) => {
+    const window = new NativeMountedBenchmarkWindowCollector(request);
+    for (let index = 0; index <= 120; index += 1)
+      window.onRaf(index * 10, "visible");
+    const phases = emptyNativeBenchmarkFullFrameValues();
+    phases.frame.renderInternalWallMs = 4;
+    expect(() =>
+      window.onRender({
+        renderWallMs: 4,
+        sourceWallMs: 0,
+        composeWallMs: 0,
+        fullFrameWallPhases: phases,
+        sourceReadDetail,
+        failureCount: 0,
+      }),
+    ).toThrowError("benchmark-unavailable");
   });
 
   it.each([

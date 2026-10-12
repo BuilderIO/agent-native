@@ -73,26 +73,26 @@ describe("Design-owned J effect registration", () => {
     );
   });
   it("registers one required-image Fill and five source processors with two recipes each", async () => {
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(223);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(268);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(538);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(291);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(337);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(676);
     expect(
       NATIVE_EFFECT_LATEST_DEFINITIONS.filter((definition) =>
         definition.placements.includes("fill"),
       ),
-    ).toHaveLength(119);
+    ).toHaveLength(147);
     expect(
       NATIVE_EFFECT_LATEST_DEFINITIONS.filter((definition) =>
         definition.placements.includes("layer"),
       ),
-    ).toHaveLength(104);
+    ).toHaveLength(144);
     expect(
       new Set(
         NATIVE_EFFECT_LATEST_DEFINITIONS.map((definition) => definition.id),
       ).size,
-    ).toBe(223);
+    ).toBe(291);
     expect(new Set(NATIVE_EFFECT_PRESETS.map((preset) => preset.id)).size).toBe(
-      538,
+      676,
     );
     expect(OWNED_NEXT_SIX_J_DEFINITIONS).toHaveLength(6);
     expect(OWNED_NEXT_SIX_J_PRESETS).toHaveLength(12);

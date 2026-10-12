@@ -4,6 +4,11 @@ import { chromium, type Page } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
+import {
+  GRAIN_GRADIENT_EFFECT,
+  HALFTONE_EFFECT,
+} from "../../../../shared/native-effect-presets";
+import { validateEffectDocument } from "../../../../shared/native-effects";
 
 function hydratedEditorChromeBridgeScript(initialSourceHead = ""): string {
   return (
@@ -1994,6 +1999,183 @@ describe("replace-document-content keeps shader runtime canvases", () => {
           radius: "16px",
         });
       });
+    },
+  );
+
+  it(
+    "keeps injected shader bridge nodes across valid authored effect document morphs",
+    { timeout: 30_000 },
+    async () => {
+      // Execution sentinels verify bridge node identity without starting WebGPU.
+      const runtime = `<script data-agent-native-native-shader-runtime data-runtime-version="2">window.__testNativeBridgeRuns = (window.__testNativeBridgeRuns || 0) + 1</script>`;
+      const legacyRuntime = `<script data-agent-native-shader-runtime data-runtime-version="1">window.__testLegacyBridgeRuns = (window.__testLegacyBridgeRuns || 0) + 1</script>`;
+      const fillBridge = `<script data-agent-native-shader-fill-preview-bridge>window.__testFillBridgeRuns = (window.__testFillBridgeRuns || 0) + 1</script>`;
+      const manifest = (
+        definition: typeof GRAIN_GRADIENT_EFFECT | typeof HALFTONE_EFFECT,
+        placement: "fill" | "layer",
+        instanceId: string,
+        nodeId: string,
+        params: Record<string, number>,
+      ) => {
+        const value = {
+          schemaVersion: 2,
+          definitions: [definition],
+          instances: [
+            {
+              id: instanceId,
+              nodeId,
+              definitionId: definition.id,
+              definitionVersion: definition.version,
+              placement,
+              params,
+              enabled: true,
+              opacity: 1,
+              seed: 1,
+              clip: "bounds",
+              blend: "normal",
+              timing: { speed: 1, paused: true, time: 0 },
+            },
+          ],
+        };
+        expect(validateEffectDocument(value)).toMatchObject({ valid: true });
+        return `<script type="application/x-agent-native-effects">${JSON.stringify(value)}</script>`;
+      };
+      const target = (nodeId: string, label: string) =>
+        `<div data-agent-native-node-id="${nodeId}" data-an-shader-effect="${label}">${label}</div>`;
+      await withBridgedPage(
+        runtime +
+          legacyRuntime +
+          fillBridge +
+          manifest(GRAIN_GRADIENT_EFFECT, "fill", "first", "target-a", {
+            grain: 0.25,
+          }) +
+          target("target-a", "first"),
+        async (page) => {
+          await page.evaluate(() => {
+            for (const script of document.querySelectorAll(
+              "script[data-agent-native-native-shader-runtime]," +
+                "script[data-agent-native-shader-runtime]," +
+                "script[data-agent-native-shader-fill-preview-bridge]",
+            )) {
+              (
+                script as HTMLScriptElement & { __runtimeIdentity?: number }
+              ).__runtimeIdentity = 1;
+            }
+          });
+
+          await replaceDocument(
+            page,
+            documentHtml(
+              manifest(HALFTONE_EFFECT, "layer", "second", "target-b", {
+                cellSize: 9,
+              }) + target("target-b", "updated"),
+            ),
+          );
+
+          expect(
+            await page.evaluate(() => ({
+              nativeStarts: (
+                window as Window & { __testNativeBridgeRuns?: number }
+              ).__testNativeBridgeRuns,
+              legacyStarts: (
+                window as Window & { __testLegacyBridgeRuns?: number }
+              ).__testLegacyBridgeRuns,
+              fillStarts: (window as Window & { __testFillBridgeRuns?: number })
+                .__testFillBridgeRuns,
+              nativeCount: document.querySelectorAll(
+                "script[data-agent-native-native-shader-runtime]",
+              ).length,
+              legacyCount: document.querySelectorAll(
+                "script[data-agent-native-shader-runtime]",
+              ).length,
+              fillCount: document.querySelectorAll(
+                "script[data-agent-native-shader-fill-preview-bridge]",
+              ).length,
+              bridgeIdentities: [
+                ...document.querySelectorAll<HTMLScriptElement>(
+                  "script[data-agent-native-shader-runtime]," +
+                    "script[data-agent-native-native-shader-runtime]," +
+                    "script[data-agent-native-shader-fill-preview-bridge]",
+                ),
+              ].map(
+                (script) =>
+                  (script as HTMLScriptElement & { __runtimeIdentity?: number })
+                    .__runtimeIdentity,
+              ),
+              manifest: JSON.parse(
+                document.querySelector(
+                  'script[type="application/x-agent-native-effects"]',
+                )?.textContent ?? "null",
+              ),
+              target: document.querySelector(
+                '[data-agent-native-node-id="target-b"]',
+              )?.textContent,
+              staleTarget:
+                document.querySelector(
+                  '[data-agent-native-node-id="target-a"]',
+                ) !== null,
+            })),
+          ).toEqual({
+            nativeStarts: 1,
+            legacyStarts: 1,
+            fillStarts: 1,
+            nativeCount: 1,
+            legacyCount: 1,
+            fillCount: 1,
+            bridgeIdentities: [1, 1, 1],
+            manifest: {
+              schemaVersion: 2,
+              definitions: [
+                expect.objectContaining({
+                  id: HALFTONE_EFFECT.id,
+                  version: HALFTONE_EFFECT.version,
+                }),
+              ],
+              instances: [
+                {
+                  id: "second",
+                  definitionId: HALFTONE_EFFECT.id,
+                  definitionVersion: HALFTONE_EFFECT.version,
+                  nodeId: "target-b",
+                  placement: "layer",
+                  params: { cellSize: 9 },
+                  enabled: true,
+                  opacity: 1,
+                  seed: 1,
+                  clip: "bounds",
+                  blend: "normal",
+                  timing: { speed: 1, paused: true, time: 0 },
+                },
+              ],
+            },
+            target: "updated",
+            staleTarget: false,
+          });
+
+          await replaceDocument(page, documentHtml(BASE_BODY));
+
+          expect(
+            await page.evaluate(() => ({
+              nativeCount: document.querySelectorAll(
+                "script[data-agent-native-native-shader-runtime]",
+              ).length,
+              manifestCount: document.querySelectorAll(
+                'script[type="application/x-agent-native-effects"]',
+              ).length,
+              targetCount: document.querySelectorAll("[data-an-shader-effect]")
+                .length,
+              nativeStarts: (
+                window as Window & { __testNativeBridgeRuns?: number }
+              ).__testNativeBridgeRuns,
+            })),
+          ).toEqual({
+            nativeCount: 1,
+            manifestCount: 0,
+            targetCount: 0,
+            nativeStarts: 1,
+          });
+        },
+      );
     },
   );
 });

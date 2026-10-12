@@ -28,7 +28,10 @@ import { editedStableSourceElement } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
 import { NATIVE_EFFECT_DEFINITION_CATALOG } from "@shared/native-effect-presets";
 import { hashEffectDefinition } from "@shared/native-effect-trust";
-import { parseEffectsFromHtml } from "@shared/native-effects";
+import {
+  parseEffectsFromHtml,
+  type EffectPreviewPolicy,
+} from "@shared/native-effects";
 import {
   appendPenNode,
   clonePenPath,
@@ -587,6 +590,7 @@ interface DesignCanvasProps {
   previewUrlSourceKey?: string;
   connectionId?: string;
   nativePreviewActive?: boolean;
+  editorNativePreviewPolicy?: EffectPreviewPolicy | null;
   sharedSnapshotPollActive?: boolean;
   externalSnapshotHtml?: string;
   snapshotOnly?: boolean;
@@ -1311,6 +1315,7 @@ export function DesignCanvas({
   previewUrlSourceKey,
   connectionId,
   nativePreviewActive = true,
+  editorNativePreviewPolicy,
   sharedSnapshotPollActive = true,
   externalSnapshotHtml,
   snapshotOnly = false,
@@ -5550,6 +5555,16 @@ export function DesignCanvas({
   const replayIframeEditorState = useCallback(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
+    if (editorNativePreviewPolicy !== undefined) {
+      iframe.contentWindow?.postMessage(
+        {
+          type: "native-shader-editor-preview-policy",
+          schemaVersion: 1,
+          policy: editorNativePreviewPolicy,
+        },
+        "*",
+      );
+    }
     iframe.contentWindow?.postMessage(
       {
         type: "set-editor-chrome-scale",
@@ -5699,6 +5714,7 @@ export function DesignCanvas({
       "*",
     );
   }, [
+    editorNativePreviewPolicy,
     handToolActive,
     effectiveEditorChromeScaleX,
     effectiveEditorChromeScaleY,

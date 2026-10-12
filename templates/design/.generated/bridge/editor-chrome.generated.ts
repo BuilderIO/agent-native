@@ -6661,9 +6661,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       recordSourceTree(root);
     }
     function recordSourceTree(root) {
-      if (root.nodeType === 1 && (root.hasAttribute("data-agent-native-edit-overlay") || // The shader runtime inserts this before the snapshot; claiming it
-      // lets the next morph delete it as stale source.
-      root.hasAttribute("data-an-shader-canvas"))) {
+      if (root.nodeType === 1 && (root.hasAttribute("data-agent-native-edit-overlay") || // These nodes belong to the live shader runtime and are absent from
+      // sanitized source replacements.
+      root.hasAttribute("data-an-shader-canvas") || root.matches(
+        "script[data-agent-native-shader-runtime],script[data-agent-native-native-shader-runtime],script[data-agent-native-shader-fill-preview-bridge]"
+      ))) {
         return;
       }
       recordSourceOwnership(root);
