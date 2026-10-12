@@ -569,7 +569,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [ai-sidebar-loopback, music-app-workflow]
+        shard: [ai-sidebar-loopback, music-app-workflow, home-system-selection]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -638,6 +638,15 @@ jobs:
           path: templates/design/test-results/design-music-app-${{ github.run_id }}-${{ github.run_attempt }}/
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Run Home design-system selection regressions
+        if: matrix.shard == 'home-system-selection'
+        working-directory: templates/design
+        timeout-minutes: 6
+        env:
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          E2E_AI_SIDEBAR_LOOPBACK: "1"
+        run: pnpm exec playwright test e2e/templates.spec.ts --grep 'home composer persists a (selected|cleared) design system on a blank design' --workers=1 --retries=0 --trace on
 
       - name: Detect retried Design test failures
         id: retry-artifacts

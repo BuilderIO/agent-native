@@ -781,6 +781,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const aiSidebarLoopback = step("Run AI sidebar loopback image regressions");
   const musicAppWorkflow = step("Run long music-app workflow regression");
   const musicAppDiagnostics = step("Upload music-app workflow diagnostics");
+  const homeSystemSelection = step(
+    "Run Home design-system selection regressions",
+  );
   const changedSpecRegressions = step("Run changed Design E2E specs");
   const screenSelectionRegressions = step(
     "Run focused Screen selection history regressions",
@@ -844,6 +847,45 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ),
     "the failure artifact must retain the dedicated Playwright trace output",
   );
+  assert.equal(
+    homeSystemSelection.match(/^        if: (.+)$/m)?.[1],
+    "matrix.shard == 'home-system-selection'",
+  );
+  assert.match(
+    homeSystemSelection,
+    /^        timeout-minutes: 6$/m,
+    "Home system-selection coverage needs a bounded six-minute step",
+  );
+  assert.ok(
+    homeSystemSelection.includes(
+      "E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
+    ),
+    "the Home lane must use the broad Design run ID for retry detection and artifacts",
+  );
+  assert.ok(
+    homeSystemSelection.includes('E2E_AI_SIDEBAR_LOOPBACK: "1"'),
+    "the Home composer tests must opt in to the deterministic loopback provider",
+  );
+  assert.ok(
+    homeSystemSelection.includes(
+      "pnpm exec playwright test e2e/templates.spec.ts --grep 'home composer persists a (selected|cleared) design system on a blank design' --workers=1 --retries=0 --trace on",
+    ),
+    "the Home lane must run only the selected/cleared system cases serially with traces",
+  );
+  const homeSystemSpec = readFileSync(
+    "templates/design/e2e/templates.spec.ts",
+    "utf8",
+  );
+  for (const title of [
+    "home composer persists a selected design system on a blank design",
+    "home composer persists a cleared design system on a blank design",
+  ]) {
+    assert.equal(
+      homeSystemSpec.split(title).length - 1,
+      1,
+      `Home system-selection case must exist exactly once: ${title}`,
+    );
+  }
   assert.match(
     screenSelectionRegressions,
     /^        if: startsWith\(matrix\.shard, 'screen-history-'\)$/m,
@@ -1076,6 +1118,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   assert.deepEqual(broadShardEntries, [
     "ai-sidebar-loopback",
     "music-app-workflow",
+    "home-system-selection",
   ]);
   assert.doesNotMatch(
     regressionCases,
