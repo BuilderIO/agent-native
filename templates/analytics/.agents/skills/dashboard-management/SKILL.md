@@ -536,7 +536,7 @@ in the same `set({...})` call.
   those colors.
 - A chart draws at most 400 points and says so under the chart. Line, area,
   combo and heatmap charts keep their last rows, and bar charts their first;
-  over dates in date order (`YYYY-MM-DD`, `YYYYMMDD`, weeks, quarters) both
+  over dates in date order (`YYYY-MM-DD`, `YYYYMMDD`, `Sep 30, 2026`, weeks, quarters) both
   keep the newest. Aggregate or limit the SQL instead of returning more.
 - Config keys the renderer does not honor are ignored. `mutate-dashboard`
   rejects them on the panels you change and lists the honored keys; read that

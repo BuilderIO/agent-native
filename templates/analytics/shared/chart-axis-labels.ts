@@ -113,6 +113,37 @@ function sortableDate(text: string): string | null {
   return Number.isNaN(time) ? null : new Date(time).toISOString();
 }
 
+const MONTHS = [
+  "jan",
+  "feb",
+  "mar",
+  "apr",
+  "may",
+  "jun",
+  "jul",
+  "aug",
+  "sep",
+  "oct",
+  "nov",
+  "dec",
+];
+
+/**
+ * `Sep 30, 2026`, `30 Sep 2026` or `September 2026` as a UTC instant. Parsed
+ * here because `Date.parse` reads these differently in each browser; without a
+ * year (`Oct 04`) there is no order to read.
+ */
+function sortableMonthNameDate(text: string): string | null {
+  const year = /\d{4}$/.exec(text)?.[0];
+  const month = MONTHS.indexOf(
+    text.match(/[a-z]{3}/i)?.[0].toLowerCase() ?? "",
+  );
+  if (!year || month < 0) return null;
+  const day = Number(/\b\d{1,2}\b/.exec(text.slice(0, -4))?.[0] ?? 1);
+  const date = new Date(Date.UTC(Number(year), month, day));
+  return date.getUTCDate() === day ? date.toISOString() : null;
+}
+
 function sortableAxisValue(value: unknown): number | string | null {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? null : value.toISOString();
@@ -123,6 +154,7 @@ function sortableAxisValue(value: unknown): number | string | null {
   if (ISO_DATE_VALUE.test(text) || COMPACT_DATE_VALUE.test(text)) {
     return sortableDate(text);
   }
+  if (MONTH_NAME_DATE.test(text)) return sortableMonthNameDate(text);
   const yearFirst = /^(\d{4})-?[WQ](\d{1,2})$/i.exec(text);
   if (yearFirst) return Number(yearFirst[1]) * 100 + Number(yearFirst[2]);
   const quarterFirst = /^Q([1-4])[ -](\d{4})$/i.exec(text);
@@ -133,7 +165,7 @@ function sortableAxisValue(value: unknown): number | string | null {
 
 /**
  * Which way an axis runs; null when its values cannot all be compared (month
- * names, mixed types) or are out of order (a query sorted by count), so no end
+ * names without a year, mixed types) or are out of order (a query sorted by count), so no end
  * is known to be the newest.
  */
 export function axisDirection(

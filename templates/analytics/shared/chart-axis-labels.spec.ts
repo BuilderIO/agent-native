@@ -87,6 +87,14 @@ describe("isDateAxis", () => {
       "ascending",
     );
     expect(axisDirection(["2026-13-45", "2026-10-01"])).toBeNull();
+    expect(axisDirection(["Sep 30, 2026", "Oct 1, 2026", "2026-10-02"])).toBe(
+      "ascending",
+    );
+    expect(axisDirection(["2 Oct 2026", "30 Sept 2026"])).toBe("descending");
+    expect(axisDirection(["September 2026", "October 2026", "Jan 2027"])).toBe(
+      "ascending",
+    );
+    expect(axisDirection(["Feb 30, 2026", "Mar 1, 2026"])).toBeNull();
     expect(axisDirection(["2026-09-09", "2026-09-09"])).toBe("ascending");
   });
 

@@ -1083,6 +1083,22 @@ describe("chart point limit", () => {
     expect(limitChartRows(days, "bar", "day")[0]).toEqual(days[0]);
   });
 
+  it("keeps the newest points of a bar chart over month-name dates with a year", () => {
+    const days = Array.from(
+      { length: 450 },
+      (_, index) => new Date(Date.UTC(2025, 0, 1 + index)),
+    ).map((day) => ({
+      day: day.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "UTC",
+      }),
+    }));
+    expect(chartPointLimit(days, "bar", "day")?.keeps).toBe("newest");
+    expect(limitChartRows(days, "bar", "day")[0]).toEqual(days[50]);
+  });
+
   it("keeps the first points of a bar chart over dates sorted by value", () => {
     const busiest = Array.from({ length: 450 }, (_, index) => ({
       date: new Date(Date.UTC(2025, 0, 1 + ((index * 7) % 450)))
