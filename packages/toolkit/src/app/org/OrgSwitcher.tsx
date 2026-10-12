@@ -532,9 +532,12 @@ export function OrgSwitcher({
   // Accounts that picked the retired "Personal" choice have `orgId: null`
   // stored while still holding memberships, which strands them outside the
   // org-scoped Builder.io connection and vault credentials. Move them back.
-  // A failed switch retries on the next org fetch, not on the next render:
-  // the mutation's state changes would otherwise re-run this in a tight loop.
+  // Automatic recovery failures wait for the next org fetch to avoid a loop
+  // on mutation state changes. A failed explicit switch from Personal gets one
+  // recovery pass because this effect may have skipped the pending selection.
   const personalRecoveryRef = useRef(false);
+  const [personalRecoveryRetryEpoch, setPersonalRecoveryRetryEpoch] =
+    useState(0);
   const firstMembershipId = org?.orgs?.[0]?.orgId ?? null;
   const switchOrgMutate = switchOrg.mutate;
   useEffect(() => {
@@ -565,7 +568,13 @@ export function OrgSwitcher({
         }
       },
     });
-  }, [org?.orgId, firstMembershipId, switchOrgMutate, dataUpdatedAt]);
+  }, [
+    org?.orgId,
+    firstMembershipId,
+    switchOrgMutate,
+    dataUpdatedAt,
+    personalRecoveryRetryEpoch,
+  ]);
 
   const showView = (next: MenuView) => {
     viewChangedRef.current = true;
@@ -708,12 +717,17 @@ export function OrgSwitcher({
 
   const selectOrg = (orgId: string) => {
     if (switchOrg.isPending || pendingOrgSwitchRef.current) return;
+    const selectedFromPersonal = org?.orgId == null;
     const selection = { kind: "explicit" as const, orgId, closedEarly: false };
     pendingOrgSwitchRef.current = selection;
     switchOrg.mutate(orgId, {
       onError: () => {
         if (pendingOrgSwitchRef.current === selection) {
           pendingOrgSwitchRef.current = null;
+          if (selectedFromPersonal && !selection.closedEarly) {
+            personalRecoveryRef.current = false;
+            setPersonalRecoveryRetryEpoch((epoch) => epoch + 1);
+          }
         }
       },
       onSuccess: () => {
