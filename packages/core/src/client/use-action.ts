@@ -235,6 +235,8 @@ export interface ActionFetchOptions {
 type InternalActionFetchOptions = ActionFetchOptions & {
   onResponse?: (response: Response) => void;
   uiCapabilityRetry?: boolean;
+  /** A GET that may share one request with the other GETs in its tick. */
+  batch?: boolean;
 };
 
 let uiCapabilityRequest: Promise<void> | undefined;
@@ -282,15 +284,16 @@ function utf8ByteLength(value: string): number {
 }
 
 /**
- * A GET with no per-call headers or blob body can share a request with the
- * other GETs in its tick. Inside an embed the embed token's scope decides which
- * requests the server accepts, and a batch POST can be refused where its GETs
- * would pass, so an embed keeps one request per call.
+ * A GET that asks to batch, with no per-call headers or blob body, can share a
+ * request with the other GETs in its tick. Inside an embed the embed token's
+ * scope decides which requests the server accepts, and a batch POST can be
+ * refused where its GETs would pass, so an embed keeps one request per call.
  */
 function canBatchActionGet(options?: InternalActionFetchOptions): boolean {
   return (
-    options?.responseType !== "blob" &&
-    options?.headers === undefined &&
+    options?.batch === true &&
+    options.responseType !== "blob" &&
+    options.headers === undefined &&
     !isEmbedAuthActive()
   );
 }
@@ -1141,6 +1144,11 @@ export function useActionQuery<
       let browserPersist = false;
       const result = await actionFetch<R>(actionName, "GET", params, {
         signal,
+        // A first fetch is what the page is waiting on, so it goes alone. On
+        // serverless a batch runs all its items on one database connection
+        // and answers only when the slowest is done. Only a refetch of data
+        // already on screen shares a batch.
+        batch: query?.state.data !== undefined,
         onResponse: (response) => {
           browserPersist =
             response.headers.get(ACTION_BROWSER_PERSIST_HEADER) ===
