@@ -274,6 +274,7 @@ const MOTION_TEXT_PROPERTIES = new Set<MotionTextProperty>([
   "translate",
   "scale",
   "rotate",
+  "filter",
 ]);
 
 export function motionTextDockProperty(property: MotionTextProperty): string {

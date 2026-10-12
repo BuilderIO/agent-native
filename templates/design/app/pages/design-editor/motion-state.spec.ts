@@ -406,6 +406,48 @@ describe("Motion Text timeline track identities", () => {
       motionTextAnimationsFromDockTracks(document, [translateTrack!]),
     ).toMatchObject([{ property: "translate" }]);
   });
+
+  it("round-trips text filter tracks through the dock", () => {
+    const projection = buildCodeLayerProjection(
+      '<h1 data-agent-native-node-id="title-1">Hello</h1>',
+    );
+    const document = {
+      version: 1 as const,
+      animations: [
+        {
+          targetNodeId: "title-1",
+          unit: "word" as const,
+          direction: "forward" as const,
+          staggerMs: 40,
+          property: "filter" as const,
+          durationMs: 400,
+          keyframes: [
+            { t: 0, value: "blur(0px)" },
+            { t: 1, value: "blur(8px)" },
+          ],
+        },
+      ],
+    };
+
+    const [track] = motionTextDocumentAsDockTracks(document, projection);
+
+    expect(track?.property).toBe("text:filter");
+    expect(motionTextPropertyFromDockTrack(track!.property)).toBe("filter");
+    expect(
+      motionTextAnimationsFromDockTracks(document, [
+        { ...track!, durationMs: 700 },
+      ]),
+    ).toMatchObject([
+      {
+        property: "filter",
+        durationMs: 700,
+        keyframes: [
+          { t: 0, value: "blur(0px)" },
+          { t: 1, value: "blur(8px)" },
+        ],
+      },
+    ]);
+  });
 });
 
 describe("resolveSelectedMotionTargets", () => {
