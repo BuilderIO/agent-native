@@ -15,6 +15,7 @@ export default function Templates() {
   const { data, isLoading, isError, isFetching, refetch } = useActionQuery(
     "list-design-templates",
     { includePreview: "true" },
+    { refetchOnMount: "always" },
   );
   const templates = useMemo(() => {
     const query = search.trim().toLowerCase();
