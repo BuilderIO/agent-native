@@ -1,15 +1,12 @@
+import {
+  normalizeSlideTransition,
+  SLIDE_TRANSITION_INPUTS,
+  SLIDE_TRANSITION_SPEED,
+  type SlideTransitionType,
+} from "./slide-transitions";
+
 export const SLIDES_PDF_SIDECAR_NAMESPACE =
   "https://agent-native.com/ns/slides-deck/1.0/";
-
-export const SIDECAR_TRANSITIONS = [
-  "instant",
-  "none",
-  "fade",
-  "slide",
-  "zoom",
-] as const;
-
-export type SlideTransition = (typeof SIDECAR_TRANSITIONS)[number];
 
 export interface SlidesPdfSidecarAnimation {
   id: string;
@@ -33,7 +30,8 @@ export interface SlidesPdfSidecarSlide {
   background?: string;
   imageUrl?: string;
   excalidrawData?: string;
-  transition?: SlideTransition;
+  transition?: SlideTransitionType;
+  transitionSpeed?: number;
   splitByParagraph?: boolean;
   skipped?: boolean;
   animations?: SlidesPdfSidecarAnimation[];
@@ -79,6 +77,19 @@ function isAnimationList(value: unknown): boolean {
   });
 }
 
+function isOptionalTransitionSpeed(value: unknown): boolean {
+  if (value === undefined) return true;
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= SLIDE_TRANSITION_SPEED.min &&
+    value <= SLIDE_TRANSITION_SPEED.max
+  );
+}
+
+// Accepts legacy transition names (instant, slide, zoom) from PDFs exported
+// before the catalog existed. On success those are rewritten to canonical
+// values in place, so a guarded value always carries SlideTransitionType.
 export function isSlidesPdfSidecar(value: unknown): value is SlidesPdfSidecar {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<SlidesPdfSidecar>;
@@ -86,7 +97,7 @@ export function isSlidesPdfSidecar(value: unknown): value is SlidesPdfSidecar {
   if (!isOptionalString(candidate.title)) return false;
   if (!isOptionalString(candidate.aspectRatio)) return false;
   if (!Array.isArray(candidate.slides)) return false;
-  return candidate.slides.every((entry) => {
+  const valid = candidate.slides.every((entry) => {
     if (typeof entry !== "object" || entry === null) return false;
     const slide = entry as SlidesPdfSidecarSlide;
     if (typeof slide.content !== "string") return false;
@@ -100,7 +111,18 @@ export function isSlidesPdfSidecar(value: unknown): value is SlidesPdfSidecar {
       isOptionalString(slide.imageUrl) &&
       isOptionalString(slide.excalidrawData) &&
       (slide.transition === undefined ||
-        (SIDECAR_TRANSITIONS as readonly string[]).includes(slide.transition))
+        (SLIDE_TRANSITION_INPUTS as readonly unknown[]).includes(
+          slide.transition,
+        )) &&
+      isOptionalTransitionSpeed(slide.transitionSpeed)
     );
   });
+  if (!valid) return false;
+
+  for (const slide of candidate.slides) {
+    if (slide.transition !== undefined) {
+      slide.transition = normalizeSlideTransition(slide.transition);
+    }
+  }
+  return true;
 }

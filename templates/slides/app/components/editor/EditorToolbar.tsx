@@ -107,8 +107,12 @@ import {
   parseUploadResponse,
   promptImportResponseError,
 } from "@/lib/upload-response";
-import { cn } from "@/lib/utils";
 
+import {
+  normalizeSlideTransition,
+  SLIDE_TRANSITION_TYPES,
+  type SlideTransitionType,
+} from "../../../shared/slide-transitions";
 import {
   registerEditorCommands,
   type EditorCommand,
@@ -123,6 +127,11 @@ import {
   type ExportMenuHandle,
   type ExportStatus,
 } from "./ExportMenu";
+import {
+  SLIDE_TRANSITION_LABEL_KEYS,
+  SlideTransitionControl,
+  type SlideTransitionPatch,
+} from "./SlideTransitionControl";
 export type PresentRequest = {
   preserveNativeNavigation: true;
 };
@@ -164,7 +173,9 @@ interface EditorToolbarProps {
   onToggleTextBoxMode?: () => void;
   shapeType?: SlideShapeType | null;
   onSelectShape?: (shape: SlideShapeType) => void;
-  onChangeSlideTransition?: (transition: SlideTransition) => void;
+  onChangeSlideTransition?: (patch: SlideTransitionPatch) => void;
+  onApplySlideTransitionToAll?: (patch: SlideTransitionPatch) => void;
+  onPlaySlideTransition?: () => void;
   onDuplicateDeck?: () => void;
   onExportPdf?: () => Promise<void> | void;
   onExportPptx?: () => Promise<void> | void;
@@ -183,14 +194,13 @@ interface EditorToolbarProps {
 const TOOLBAR_ICON_BUTTON_CLASS =
   "inline-flex size-8 flex-shrink-0 items-center justify-center rounded-md transition-colors";
 
-type SlideTransition = NonNullable<Slide["transition"]>;
-
-const SLIDE_TRANSITIONS: { value: SlideTransition; labelKey: string }[] = [
-  { value: "instant", labelKey: "editorToolbar.transition_instant" },
-  { value: "fade", labelKey: "editorToolbar.transition_fade" },
-  { value: "slide", labelKey: "editorToolbar.transition_slide" },
-  { value: "zoom", labelKey: "editorToolbar.transition_zoom" },
-];
+const SLIDE_TRANSITIONS: {
+  value: SlideTransitionType;
+  labelKey: string;
+}[] = SLIDE_TRANSITION_TYPES.map((value) => ({
+  value,
+  labelKey: SLIDE_TRANSITION_LABEL_KEYS[value],
+}));
 
 export default function EditorToolbar({
   deck,
@@ -228,6 +238,8 @@ export default function EditorToolbar({
   shapeType,
   onSelectShape,
   onChangeSlideTransition,
+  onApplySlideTransitionToAll,
+  onPlaySlideTransition,
   onDuplicateDeck,
   onExportPdf,
   onExportPptx,
@@ -245,8 +257,9 @@ export default function EditorToolbar({
   canComment = canEdit,
 }: EditorToolbarProps) {
   const t = useT();
-  // The host owns navigation and chat, so the widget drops the way back to the
-  // deck list and the agent panel controls.
+  // The top bar is the app's own in a widget. It drops only what the host owns
+  // (the way back to the deck list, the agent panel) and what the widget's
+  // write grant cannot run (comments, saved versions, export, import).
   const widgetEmbed = useIsMcpAppWidgetEmbed();
   // A read-only widget session refuses every save, so an offline or failed-save
   // pill would only restate that it is read-only.
@@ -343,10 +356,9 @@ export default function EditorToolbar({
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
   const isDark = themeMounted ? resolvedTheme === "dark" : false;
-  const activeSlideTransition: SlideTransition =
-    !currentSlide?.transition || currentSlide.transition === "none"
-      ? "instant"
-      : currentSlide.transition;
+  const activeSlideTransition = normalizeSlideTransition(
+    currentSlide?.transition,
+  );
   const undoModifier =
     typeof navigator !== "undefined" &&
     /Mac|iPhone|iPad/.test(navigator.platform)
@@ -636,7 +648,7 @@ export default function EditorToolbar({
           keywords: ["slide", "transition", transition.value],
           icon: IconBolt,
           active: activeSlideTransition === transition.value,
-          run: () => onChangeSlideTransition(transition.value),
+          run: () => onChangeSlideTransition({ transition: transition.value }),
         })),
       );
     }
@@ -867,12 +879,7 @@ export default function EditorToolbar({
         readOnly={!canEdit}
         onChange={(e) => onTitleChange(e.target.value)}
         style={{ width: `${titleInputWidth}px` }}
-        className={cn(
-          "min-w-0 max-w-[500px] bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground",
-          // The widget pane is narrower than the toolbar's controls, so a long
-          // title gives way to Share instead of pushing it out of view.
-          widgetEmbed ? "shrink truncate" : "shrink-0",
-        )}
+        className="min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"
         spellCheck={false}
       />
 
@@ -941,6 +948,22 @@ export default function EditorToolbar({
 
       {/* Top-right editor actions */}
       <div className="ml-auto flex shrink-0 items-center gap-1">
+        {/* Slide transition — the current slide's entry transition, speed,
+            apply-to-all, and preview. */}
+        {canEdit &&
+          currentSlide &&
+          onChangeSlideTransition &&
+          onApplySlideTransitionToAll && (
+            <SlideTransitionControl
+              currentSlide={currentSlide}
+              currentSlideIndex={currentSlideIndex}
+              canEdit={canEdit}
+              onChange={onChangeSlideTransition}
+              onApplyToAll={onApplySlideTransitionToAll}
+              onPlay={onPlaySlideTransition}
+            />
+          )}
+
         {/* Presence avatars — shared PresenceBar (agent + collaborators) */}
         <PresenceBar
           activeUsers={activeUsers ?? []}
@@ -1166,7 +1189,6 @@ export default function EditorToolbar({
           shareUrlLabel={primaryShareLink.label}
           shareUrlDescription={primaryShareLink.description}
           showShareLinks={showShareLink}
-          mobileSheet={widgetEmbed}
           basicSharingOnly={widgetEmbed}
           shareTabs={
             creativeContextEnabled && !widgetEmbed
@@ -1217,7 +1239,7 @@ export default function EditorToolbar({
         </Tooltip>
       )}
       {/* Present button — matches Share trigger height (h-9) */}
-      {!widgetEmbed && hasSlides ? (
+      {hasSlides ? (
         <Link
           to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
           onClick={onPresent ? handlePresentClick : undefined}
@@ -1227,7 +1249,7 @@ export default function EditorToolbar({
           <IconPlayerPlay className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
         </Link>
-      ) : !widgetEmbed ? (
+      ) : (
         <Button
           type="button"
           disabled
@@ -1236,7 +1258,7 @@ export default function EditorToolbar({
           <IconPlayerPlay className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
         </Button>
-      ) : null}
+      )}
 
       {/* Hidden file input for "Import" overflow menu item */}
       <input

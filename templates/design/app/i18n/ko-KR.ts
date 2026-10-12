@@ -222,7 +222,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "디자인",
+    home: "홈",
     templates: "템플릿",
     designSystems: "디자인 시스템",
     setupDesignSystem: "디자인 시스템 설정",
@@ -245,6 +245,9 @@ export default {
     labDesignReviewTools: "디자인 검토 도구",
     labDesignReviewToolsDescription:
       "디자인의 접근성 문제를 확인하고 시각적 변경 사항을 비교하세요.",
+    labMotion: "모션",
+    labMotionDescription:
+      "디자인 요소의 키프레임 애니메이션을 만들고 편집합니다.",
     mcpAbout:
       "Design을 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 Design에서 디자인을 만들고 편집할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
   },
@@ -766,7 +769,7 @@ export default {
       needsConnectedApp: "소스로 이동하려면 연결된 앱이 필요합니다",
     },
     leftRail: {
-      file: "파일",
+      layers: "레이어",
       agent: "에이전트",
       assets: "에셋",
       import: "가져오기",
@@ -811,6 +814,7 @@ export default {
       exit: "반응형 미리보기 종료",
     },
     motion: {
+      openDock: "모션",
       dockLabel: "모션 독",
       collapseDock: "모션 독 접기",
       play: "재생",
@@ -1071,7 +1075,7 @@ export default {
     fileMenu: {
       pendingEditsBlocked:
         "복제하기 전에 보류 중인 시각적 편집을 적용하거나 취소하세요.",
-      designs: "디자인",
+      allDesigns: "모든 디자인",
       rename: "이름 바꾸기",
       duplicate: "복제",
       versionHistory: "버전 기록",
@@ -1698,9 +1702,11 @@ export default {
     assetsNoImageUrl: "Assets에서 이미지 URL을 반환하지 않았습니다.",
     failedToUploadFile: "파일을 업로드하지 못했습니다.",
     imageAttachmentUnavailable:
-      "이 이미지를 시각 입력으로 준비하지 못했습니다. 더 작은 PNG, JPG, GIF 또는 WebP 파일을 첨부하세요.",
+      "이 이미지를 업로드할 수 있도록 준비하지 못했습니다. JPG, PNG, GIF 또는 WebP 이미지를 사용해 보세요.",
+    imageAttachmentTooLarge:
+      "이미지는 각각 최대 {{perFile}}MB, 전체 최대 {{total}}MB까지 첨부할 수 있습니다.",
     attachmentsTooLarge:
-      "첨부 파일이 너무 큽니다. 업로드는 총 {{max}}MB까지 지원됩니다. 파일 수를 줄이거나 더 작은 파일을 첨부하세요.",
+      "이미지는 자동으로 최적화됩니다. 최적화된 이미지와 다른 파일의 총 크기는 {{max}}MB 이하여야 합니다.",
     failedToSubmitPrompt: "프롬프트를 제출하지 못했습니다",
     skipPrompt: "프롬프트 건너뛰기",
     startBlankCanvas: "빈 캔버스로 시작",
@@ -1859,7 +1865,7 @@ export default {
     browseAllTemplates: "모두 둘러보기",
     connectBuilderIo: "Builder.io 사용",
     connectingBuilder: "Builder.io 설정 중…",
-    pageTitle: "Design",
+    pageTitle: "홈",
     searchPlaceholder: "디자인 검색...",
     newDesign: "새로운 Design",
     newDesignLower: "새로운 디자인",

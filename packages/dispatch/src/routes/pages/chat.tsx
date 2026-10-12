@@ -2,6 +2,7 @@ import {
   insertAgentComposerReference,
   markAgentChatHomeHandoff,
   readChatFirstMode,
+  requestAgentTaskOpen,
 } from "@agent-native/core/client/agent-chat";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -82,6 +83,9 @@ interface DispatchChatLocationState {
   dispatchThread?: {
     id?: string | number;
     threadId?: string;
+    parentThreadId?: string;
+    description?: string;
+    name?: string;
   };
 }
 
@@ -173,11 +177,21 @@ export default function ChatRoute() {
 
     const timer = window.setTimeout(() => {
       if (threadId) {
-        window.dispatchEvent(
-          new CustomEvent("agent-chat:open-thread", {
-            detail: { threadId },
-          }),
-        );
+        const parentThreadId = thread?.parentThreadId?.trim();
+        if (parentThreadId && parentThreadId !== threadId) {
+          requestAgentTaskOpen({
+            threadId,
+            parentThreadId,
+            description: thread?.description,
+            name: thread?.name,
+          });
+        } else {
+          window.dispatchEvent(
+            new CustomEvent("agent-chat:open-thread", {
+              detail: { threadId },
+            }),
+          );
+        }
       }
       if (message) {
         setPendingOverviewPrompt(prompt ?? null);
@@ -207,6 +221,9 @@ export default function ChatRoute() {
     prompt?.selectedEffort,
     thread?.id,
     thread?.threadId,
+    thread?.parentThreadId,
+    thread?.description,
+    thread?.name,
   ]);
 
   useEffect(() => {

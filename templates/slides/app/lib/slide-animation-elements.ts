@@ -1,5 +1,8 @@
 import type { AnimationType } from "@/context/DeckContext";
 
+import { ALLOWED_TAGS, DROP_WITH_CHILDREN } from "./sanitize-slide-html";
+import { SOURCE_STAMP_ATTR, stampSlideSource } from "./slide-source-map";
+
 export interface ParsedAnimationElement {
   index: number;
   path: number[];
@@ -19,34 +22,49 @@ export interface SelectedAnimationTarget {
   preview: string;
 }
 
-export interface ResolvedAnimationTarget<
-  T extends AnimationTarget = AnimationTarget,
-> {
-  target: T;
+/**
+ * Why a reveal does not resolve in its slide's HTML.
+ * - stale-path: its elementPath no longer points at an element.
+ * - missing-element: a legacy elementIndex target, the slide has no .fmd-slide, or
+ *   the target is one the slide sanitizer does not render (see renderedBySanitizer).
+ * - duplicate-after-expansion: once "By paragraph" is expanded, a step lands on
+ *   an element another reveal already hides, or on one of its ancestors or
+ *   descendants.
+ */
+export type RevealUnresolvedReason =
+  | "stale-path"
+  | "missing-element"
+  | "duplicate-after-expansion";
+
+/** One element a reveal hides and shows. A plain reveal has one step. */
+export interface RevealStep<T extends AnimationTarget = AnimationTarget> {
+  /** The reveal whose effect plays this step: an explicit reveal's own, when it is claimed by a by-paragraph reveal. */
+  animation: T;
   element: Element;
-  key: string;
+  path: number[];
+  /** The step's index in its by-paragraph reveal; null for a step that is not one of its paragraphs. */
+  paragraphIndex: number | null;
 }
 
-export type AnimationTargetResolutionIssueCode =
-  | "missing-target"
-  | "duplicate-target";
-
-export interface AnimationTargetResolutionIssue<
-  T extends AnimationTarget = AnimationTarget,
-> {
+interface RevealOutcomeBase {
   animationIndex: number;
-  code: AnimationTargetResolutionIssueCode;
-  target: T;
-  key?: string;
-  preview?: string;
+  id: string | null;
 }
 
-export interface AnimationTargetResolution<
-  T extends AnimationTarget = AnimationTarget,
-> {
-  resolved: ResolvedAnimationTarget<T>[] | null;
-  issue: AnimationTargetResolutionIssue<T> | null;
-}
+export type RevealOutcome<T extends AnimationTarget = AnimationTarget> =
+  | (RevealOutcomeBase & {
+      ok: true;
+      element: Element;
+      path: number[];
+      steps: RevealStep<T>[];
+    })
+  | (RevealOutcomeBase & {
+      ok: false;
+      reason: RevealUnresolvedReason;
+      preview: string | null;
+      /** The reveal's own element path when it was found. */
+      path: number[] | null;
+    });
 
 const INLINE_TAGS = new Set([
   "a",
@@ -275,203 +293,510 @@ export function resolveSlideAnimationElement(
   return legacyContainer?.children.item(target.elementIndex) ?? null;
 }
 
+const PARAGRAPH_TAGS = new Set([
+  "p",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "blockquote",
+]);
+
+/** A paragraph element, or a div whose text has no paragraphs or lists inside it, as a generated bullet row does. */
+function isParagraphBlock(element: Element): boolean {
+  if (PARAGRAPH_TAGS.has(element.tagName.toLowerCase())) return true;
+  return (
+    element.tagName.toLowerCase() === "div" &&
+    normalizeText(element.textContent).length > 0 &&
+    !element.querySelector("p, h1, h2, h3, h4, h5, h6, blockquote, li, ul, ol")
+  );
+}
+
+function hasParagraphsInListItem(element: Element, item: Element): boolean {
+  return Array.from(element.querySelectorAll("p")).some(
+    (paragraph) => paragraph.closest("li") === item,
+  );
+}
+
+function collectNestedLists(parent: Element, paragraphs: Element[]) {
+  for (const child of getPersistedChildren(parent)) {
+    const childTagName = child.tagName.toLowerCase();
+    if (SKIPPED_TAGS.has(childTagName)) continue;
+    if (childTagName === "ul" || childTagName === "ol") {
+      collectListItems(child, paragraphs);
+    } else {
+      collectNestedLists(child, paragraphs);
+    }
+  }
+}
+
+function collectListItemContent(parent: Element, paragraphs: Element[]) {
+  for (const child of getPersistedChildren(parent)) {
+    const childTagName = child.tagName.toLowerCase();
+    if (SKIPPED_TAGS.has(childTagName)) continue;
+    if (childTagName === "p") {
+      if (hasMeaningfulContent(child)) paragraphs.push(child);
+    } else if (childTagName === "ul" || childTagName === "ol") {
+      collectListItems(child, paragraphs);
+    } else if (childTagName === "li") {
+      collectListItem(child, paragraphs);
+    } else if (shouldKeepAsSingleElement(child)) {
+      const containingListItem = parent.closest("li");
+      if (
+        containingListItem &&
+        hasOwnText(child) &&
+        hasParagraphsInListItem(child, containingListItem)
+      ) {
+        paragraphs.push(child);
+        collectListItemContent(child, paragraphs);
+      } else {
+        if (hasMeaningfulContent(child)) paragraphs.push(child);
+        collectNestedLists(child, paragraphs);
+      }
+    } else {
+      collectListItemContent(child, paragraphs);
+    }
+  }
+}
+
+function collectListItem(item: Element, paragraphs: Element[]) {
+  const itemHasParagraphs = hasParagraphsInListItem(item, item);
+  if (itemHasParagraphs && hasOwnText(item)) {
+    paragraphs.push(item);
+    collectListItemContent(item, paragraphs);
+    return;
+  }
+  if (!itemHasParagraphs && hasMeaningfulContent(item)) {
+    paragraphs.push(item);
+    collectNestedLists(item, paragraphs);
+    return;
+  }
+  collectListItemContent(item, paragraphs);
+}
+
+function collectListItems(list: Element, paragraphs: Element[]) {
+  for (const child of getPersistedChildren(list)) {
+    const childTagName = child.tagName.toLowerCase();
+    if (SKIPPED_TAGS.has(childTagName)) continue;
+    if (childTagName === "li") {
+      collectListItem(child, paragraphs);
+    } else if (childTagName === "ul" || childTagName === "ol") {
+      collectListItems(child, paragraphs);
+    }
+  }
+}
+
+function collectParagraphs(parent: Element, paragraphs: Element[]) {
+  for (const child of getPersistedChildren(parent)) {
+    const childTagName = child.tagName.toLowerCase();
+    if (SKIPPED_TAGS.has(childTagName)) continue;
+    if (isParagraphBlock(child)) {
+      if (hasMeaningfulContent(child)) paragraphs.push(child);
+    } else if (childTagName === "li") {
+      collectListItem(child, paragraphs);
+    } else if (childTagName === "ul" || childTagName === "ol") {
+      collectListItems(child, paragraphs);
+    } else {
+      collectParagraphs(child, paragraphs);
+    }
+  }
+}
+
+/**
+ * The steps a "By paragraph" reveal on `element` plays, in document order.
+ * Editor and runtime both use this list, so the count the panel shows is the
+ * count playback runs. One element is returned when there is nothing to split.
+ *
+ * - Imported paragraphs of one text object each reveal once.
+ * - A list reveals each item's own text, nested lists and wrapped paragraphs
+ *   in document order. A selected paragraph in a list reveals its whole list.
+ * - A plain paragraph starts the reveal at itself and runs to the end of its
+ *   container. Selecting paragraph N starts at N.
+ * - Any other container reveals the paragraphs inside it.
+ */
+export function byParagraphTargets(element: Element): Element[] {
+  const textObject = element.closest(".fmd-pptx-text");
+  const imported = textObject
+    ? Array.from(textObject.querySelectorAll("p[data-pptx-paragraph]"))
+    : [];
+  if (imported.length > 1) return imported;
+
+  const paragraphs: Element[] = [];
+  const tagName = element.tagName.toLowerCase();
+  if (!textObject && PARAGRAPH_TAGS.has(tagName)) {
+    const containingList = element.closest("li")?.closest("ul, ol");
+    if (containingList) {
+      collectListItems(containingList, paragraphs);
+    } else {
+      const siblings: Element[] = [];
+      for (const sibling of getPersistedChildren(
+        element.parentElement ?? element,
+      )) {
+        const siblingTagName = sibling.tagName.toLowerCase();
+        if (isParagraphBlock(sibling)) {
+          if (hasMeaningfulContent(sibling)) siblings.push(sibling);
+        } else if (siblingTagName === "ul" || siblingTagName === "ol") {
+          collectListItems(sibling, siblings);
+        }
+      }
+      const index = siblings.indexOf(element);
+      paragraphs.push(...(index === -1 ? siblings : siblings.slice(index)));
+    }
+  } else {
+    const textContainer =
+      textObject ??
+      (tagName === "li" ? (element.closest("ul, ol") ?? element) : element);
+    collectParagraphs(textContainer, paragraphs);
+  }
+  return paragraphs.length > 1 ? paragraphs : [element];
+}
+
+/** Resolves each target, or null when one is missing or two land on the same element. */
 export function resolveSlideAnimationTargets<T extends AnimationTarget>(
   root: Element,
   targets: readonly T[],
-): ResolvedAnimationTarget<T>[] | null {
-  return resolveSlideAnimationTargetsWithDiagnostics(root, targets).resolved;
+): Array<{ target: T; element: Element; key: string }> | null {
+  const seen = new Set<string>();
+  const resolved: Array<{ target: T; element: Element; key: string }> = [];
+  for (const target of targets) {
+    const element = resolveSlideAnimationElement(root, target);
+    const path = element ? getPersistedElementPath(root, element) : null;
+    if (!element || !path) return null;
+    const key = animationElementKey(path);
+    if (seen.has(key)) return null;
+    seen.add(key);
+    resolved.push({ target, element, key });
+  }
+  return resolved;
 }
 
-function expandByParagraphAnimation<T extends AnimationTarget>(
-  root: Element,
-  target: T,
-  element: Element,
-  key: string,
-): Array<{ target: T; key: string }> | null {
-  if (!target.byParagraph) return [{ target, key }];
+interface LocatedReveal<T extends AnimationTarget> {
+  animation: T;
+  animationIndex: number;
+  element: Element;
+  path: number[];
+  targets: Array<{ element: Element; path: number[] }>;
+}
 
-  const textObject = element.closest(".fmd-pptx-text");
-  const importedParagraphs = textObject
-    ? Array.from(textObject.querySelectorAll("p[data-pptx-paragraph]"))
-    : [];
-  const tagName = element.tagName.toLowerCase();
-  const nativeParagraphs: Element[] = [];
-  if (importedParagraphs.length < 2) {
-    const collectNestedLists = (parent: Element) => {
-      for (const child of getPersistedChildren(parent)) {
-        const childTagName = child.tagName.toLowerCase();
-        if (SKIPPED_TAGS.has(childTagName)) continue;
-        if (childTagName === "ul" || childTagName === "ol") {
-          collectListItems(child);
-        } else {
-          collectNestedLists(child);
-        }
+function isRevealOutcome<T extends AnimationTarget>(
+  value: LocatedReveal<T> | RevealOutcome<T>,
+): value is RevealOutcome<T> {
+  return "ok" in value;
+}
+
+// The deck renderer swaps a <div class="mermaid"> block for a placeholder before
+// sanitizing (mermaid-blocks.ts), so the block and its contents never reach the DOM.
+const NOT_RENDERED_SELECTOR = [
+  ...DROP_WITH_CHILDREN,
+  'div[class="mermaid"]',
+].join(",");
+
+/**
+ * Whether the runtime renders this element. The sanitizer removes a
+ * DROP_WITH_CHILDREN element with its whole subtree, and unwraps any tag outside
+ * ALLOWED_TAGS. Either way the element's own data-pstep is lost, so a reveal on it
+ * would never hide or show anything.
+ */
+function renderedBySanitizer(element: Element): boolean {
+  return (
+    ALLOWED_TAGS.has(element.tagName.toLowerCase()) &&
+    element.closest(NOT_RENDERED_SELECTOR) === null
+  );
+}
+
+/**
+ * The one resolver for reveals. Every animation resolves to an outcome, in
+ * list order: ok with its steps, or unresolved with a typed reason. Save,
+ * Play, presenter and audience all read this, so they agree on what resolves.
+ * `root` is null when the content has no .fmd-slide; every reveal is then
+ * unresolved.
+ *
+ * An explicit reveal on one of a by-paragraph reveal's steps plays that step
+ * at its place in the by-paragraph order, and the by-paragraph reveal keeps
+ * its other steps. Among by-paragraph reveals, the first one plays a shared
+ * step.
+ */
+export function resolveRevealSteps<T extends AnimationTarget>(
+  root: Element | null,
+  animations: readonly T[],
+): RevealOutcome<T>[] {
+  const unresolved = (
+    animation: T,
+    animationIndex: number,
+    reason: RevealUnresolvedReason,
+    element: Element | null = null,
+    path: number[] | null = null,
+  ): RevealOutcome<T> => ({
+    ok: false,
+    animationIndex,
+    id: animation.id ?? null,
+    reason,
+    preview: element
+      ? getElementPreview(element, `Element ${animation.elementIndex + 1}`)
+      : null,
+    path,
+  });
+  if (!root) {
+    return animations.map((animation, animationIndex) =>
+      unresolved(animation, animationIndex, "missing-element"),
+    );
+  }
+
+  const located = animations.map(
+    (animation, animationIndex): LocatedReveal<T> | RevealOutcome<T> => {
+      const element = resolveSlideAnimationElement(root, animation);
+      if (!element) {
+        return unresolved(
+          animation,
+          animationIndex,
+          Array.isArray(animation.elementPath)
+            ? "stale-path"
+            : "missing-element",
+        );
       }
-    };
-    const hasParagraphsInListItem = (element: Element, item: Element) =>
-      Array.from(element.querySelectorAll("p")).some(
-        (paragraph) => paragraph.closest("li") === item,
-      );
-    const collectListItemContent = (parent: Element) => {
-      for (const child of getPersistedChildren(parent)) {
-        const childTagName = child.tagName.toLowerCase();
-        if (SKIPPED_TAGS.has(childTagName)) continue;
-        if (childTagName === "p") {
-          if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
-        } else if (childTagName === "ul" || childTagName === "ol") {
-          collectListItems(child);
-        } else if (childTagName === "li") {
-          collectListItem(child);
-        } else if (shouldKeepAsSingleElement(child)) {
-          const containingListItem = parent.closest("li");
-          if (
-            containingListItem &&
-            hasOwnText(child) &&
-            hasParagraphsInListItem(child, containingListItem)
-          ) {
-            nativeParagraphs.push(child);
-            collectListItemContent(child);
-          } else {
-            if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
-            collectNestedLists(child);
-          }
-        } else {
-          collectListItemContent(child);
-        }
+      const path = getPersistedElementPath(root, element);
+      if (!path || !renderedBySanitizer(element)) {
+        return unresolved(
+          animation,
+          animationIndex,
+          "missing-element",
+          element,
+          path,
+        );
       }
-    };
-    const collectListItem = (item: Element) => {
-      const itemHasParagraphs = hasParagraphsInListItem(item, item);
-      if (itemHasParagraphs && hasOwnText(item)) {
-        nativeParagraphs.push(item);
-        collectListItemContent(item);
-        return;
-      }
-      if (!itemHasParagraphs && hasMeaningfulContent(item)) {
-        nativeParagraphs.push(item);
-        collectNestedLists(item);
-        return;
-      }
-      collectListItemContent(item);
-    };
-    const collectListItems = (list: Element) => {
-      for (const child of getPersistedChildren(list)) {
-        const childTagName = child.tagName.toLowerCase();
-        if (SKIPPED_TAGS.has(childTagName)) continue;
-        if (childTagName === "li") {
-          collectListItem(child);
-        } else if (childTagName === "ul" || childTagName === "ol") {
-          collectListItems(child);
+      const elements = animation.byParagraph
+        ? byParagraphTargets(element)
+        : [element];
+      const targets: LocatedReveal<T>["targets"] = [];
+      for (const target of elements) {
+        const targetPath = getPersistedElementPath(root, target);
+        if (!targetPath || !renderedBySanitizer(target)) {
+          return unresolved(
+            animation,
+            animationIndex,
+            "missing-element",
+            target,
+            path,
+          );
         }
+        targets.push({ element: target, path: targetPath });
       }
-    };
-    const collectParagraphs = (parent: Element) => {
-      for (const child of getPersistedChildren(parent)) {
-        const childTagName = child.tagName.toLowerCase();
-        if (SKIPPED_TAGS.has(childTagName)) continue;
-        if (childTagName === "p") {
-          if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
-          continue;
-        }
-        if (childTagName === "li") {
-          collectListItem(child);
-          continue;
-        }
-        if (childTagName === "ul" || childTagName === "ol") {
-          collectListItems(child);
-          continue;
-        }
-        collectParagraphs(child);
-      }
-    };
-    if (!textObject && tagName === "p") {
-      const containingList = element.closest("li")?.closest("ul, ol");
-      if (containingList) {
-        collectListItems(containingList);
-      } else {
-        for (const sibling of getPersistedChildren(
-          element.parentElement ?? element,
-        )) {
-          const siblingTagName = sibling.tagName.toLowerCase();
-          if (siblingTagName === "p") {
-            if (hasMeaningfulContent(sibling)) nativeParagraphs.push(sibling);
-          } else if (siblingTagName === "ul" || siblingTagName === "ol") {
-            collectListItems(sibling);
-          }
-        }
-      }
-    } else {
-      const textContainer =
-        textObject ??
-        (tagName === "li" ? (element.closest("ul, ol") ?? element) : element);
-      collectParagraphs(textContainer);
+      return { animation, animationIndex, element, path, targets };
+    },
+  );
+
+  const explicitIndexByElement = new Map<Element, number>();
+  for (const entry of located) {
+    if (isRevealOutcome(entry) || entry.animation.byParagraph) continue;
+    if (!explicitIndexByElement.has(entry.element)) {
+      explicitIndexByElement.set(entry.element, entry.animationIndex);
     }
   }
-  const paragraphs =
-    importedParagraphs.length > 1 ? importedParagraphs : nativeParagraphs;
-  if (paragraphs.length < 2) return [{ target, key }];
-
-  const expanded: Array<{ target: T; key: string }> = [];
-  for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
-    const elementPath = getPersistedElementPath(root, paragraph);
-    if (!elementPath) return null;
-    expanded.push({
-      target: {
-        ...target,
-        id: target.id ? `${target.id}-paragraph-${paragraphIndex}` : undefined,
-        elementIndex: paragraphIndex,
-        elementPath,
-        byParagraph: false,
-      },
-      key: animationElementKey(elementPath),
-    });
+  // Maps an explicit reveal's index to the first by-paragraph reveal that steps through it.
+  const claimedBy = new Map<number, number>();
+  for (const entry of located) {
+    if (isRevealOutcome(entry) || !entry.animation.byParagraph) continue;
+    for (const { element } of entry.targets) {
+      const explicitIndex = explicitIndexByElement.get(element);
+      if (explicitIndex !== undefined && !claimedBy.has(explicitIndex)) {
+        claimedBy.set(explicitIndex, entry.animationIndex);
+      }
+    }
   }
-  return expanded;
+
+  // Every element an earlier reveal plays, with whether it came from expansion.
+  const accepted: Array<{ element: Element; expanded: boolean }> = [];
+  const collides = (element: Element, expanded: boolean) =>
+    accepted.some(
+      (prior) =>
+        prior.element === element ||
+        ((expanded || prior.expanded) &&
+          (prior.element.contains(element) || element.contains(prior.element))),
+    );
+
+  const results = located.map((entry): RevealOutcome<T> => {
+    if (isRevealOutcome(entry)) return entry;
+    const { animation, animationIndex, element, path, targets } = entry;
+    const id = animation.id ?? null;
+
+    if (!animation.byParagraph) {
+      if (explicitIndexByElement.get(element) !== animationIndex) {
+        return unresolved(
+          animation,
+          animationIndex,
+          "duplicate-after-expansion",
+          element,
+          path,
+        );
+      }
+      if (claimedBy.has(animationIndex)) {
+        return { ok: true, animationIndex, id, element, path, steps: [] };
+      }
+      if (collides(element, false)) {
+        return unresolved(
+          animation,
+          animationIndex,
+          "duplicate-after-expansion",
+          element,
+          path,
+        );
+      }
+      accepted.push({ element, expanded: false });
+      return {
+        ok: true,
+        animationIndex,
+        id,
+        element,
+        path,
+        steps: [{ animation, element, path, paragraphIndex: null }],
+      };
+    }
+
+    const expanded = targets.length > 1;
+    const steps: RevealStep<T>[] = [];
+    const playing: Array<{ element: Element; expanded: boolean }> = [];
+    let collided = false;
+    for (const [paragraphIndex, target] of targets.entries()) {
+      if (accepted.some((prior) => prior.element === target.element)) continue;
+      if (collides(target.element, expanded)) {
+        collided = true;
+        continue;
+      }
+      const explicitIndex = explicitIndexByElement.get(target.element);
+      const claimant =
+        explicitIndex !== undefined &&
+        claimedBy.get(explicitIndex) === animationIndex
+          ? animations[explicitIndex]!
+          : null;
+      steps.push({
+        animation: claimant ?? animation,
+        element: target.element,
+        path: target.path,
+        paragraphIndex: claimant || !expanded ? null : paragraphIndex,
+      });
+      playing.push({ element: target.element, expanded });
+    }
+    if (collided) {
+      return unresolved(
+        animation,
+        animationIndex,
+        "duplicate-after-expansion",
+        element,
+        path,
+      );
+    }
+    accepted.push(...playing);
+    return { ok: true, animationIndex, id, element, path, steps };
+  });
+
+  return results.map((outcome, animationIndex) => {
+    const owner = claimedBy.get(animationIndex);
+    if (!outcome.ok || owner === undefined || results[owner]!.ok) {
+      return outcome;
+    }
+    return unresolved(
+      animations[animationIndex]!,
+      animationIndex,
+      "duplicate-after-expansion",
+      outcome.element,
+      outcome.path,
+    );
+  });
 }
 
+/** The reveal steps of every ok outcome, in playback order. */
+export function revealStepsOf<T extends AnimationTarget>(
+  outcomes: readonly RevealOutcome<T>[],
+): RevealStep<T>[] {
+  return outcomes.flatMap((outcome) => (outcome.ok ? outcome.steps : []));
+}
+
+/**
+ * Each reveal as the single targets playback runs, or null when any reveal is
+ * unresolved. A by-paragraph reveal with several steps becomes one target per
+ * step, with its paragraph index in the id.
+ */
 export function expandByParagraphAnimations<T extends AnimationTarget>(
   root: Element,
   animations: readonly T[],
 ): T[] | null {
-  const resolved = resolveSlideAnimationTargets(root, animations);
-  if (!resolved) return null;
-
-  const prepared = resolved.map(({ target, element, key }) => {
-    const candidates = expandByParagraphAnimation(root, target, element, key);
-    return candidates ? { target, key, candidates } : null;
-  });
-  if (prepared.some((entry) => entry === null)) return null;
-  const entries = prepared.filter(
-    (entry): entry is NonNullable<typeof entry> => entry !== null,
-  );
-  const byParagraphTargetKeys = new Set(
-    entries
-      .filter(({ target }) => target.byParagraph)
-      .flatMap(({ candidates }) => candidates.map(({ key }) => key)),
-  );
-  const explicitTargets = new Map(
-    entries
-      .filter(({ target }) => !target.byParagraph)
-      .map(({ target, key }) => [key, target]),
-  );
   const expanded: T[] = [];
-  const seenTargets = new Set<string>();
-  for (const { target, key, candidates } of entries) {
-    if (!target.byParagraph) {
-      if (byParagraphTargetKeys.has(key) || seenTargets.has(key)) continue;
-      seenTargets.add(key);
-      expanded.push(target);
-      continue;
-    }
-
-    // The first configured by-paragraph animation wins duplicate step targets.
-    for (const candidate of candidates) {
-      if (seenTargets.has(candidate.key)) continue;
-      seenTargets.add(candidate.key);
-      expanded.push(explicitTargets.get(candidate.key) ?? candidate.target);
+  for (const outcome of resolveRevealSteps(root, animations)) {
+    if (!outcome.ok) return null;
+    for (const step of outcome.steps) {
+      if (step.paragraphIndex === null) {
+        expanded.push(step.animation);
+        continue;
+      }
+      expanded.push({
+        ...step.animation,
+        id: step.animation.id
+          ? `${step.animation.id}-paragraph-${step.paragraphIndex}`
+          : undefined,
+        elementIndex: step.paragraphIndex,
+        elementPath: step.path,
+        byParagraph: false,
+      });
     }
   }
   return expanded;
+}
+
+const STORED_STAMP_NONCE = "stored";
+
+function stampOrdinal(stamp: string): number | null {
+  const colon = stamp.lastIndexOf(":");
+  if (colon === -1) return null;
+  const ordinal = Number(stamp.slice(colon + 1));
+  return Number.isInteger(ordinal) && ordinal >= 0 ? ordinal : null;
+}
+
+/** Parses the stored HTML the way the runtime does, with source stamps. */
+function parseStoredWithStamps(stored: string): Document {
+  return new DOMParser().parseFromString(
+    stampSlideSource(stored, STORED_STAMP_NONCE).html,
+    "text/html",
+  );
+}
+
+/**
+ * The persisted path, in the stored HTML, of an element on the rendered canvas.
+ * The sanitized DOM drops svg, button, input and similar elements, so its
+ * child indices differ from the stored HTML that playback resolves against.
+ * The stamp names the stored element the rendered one came from.
+ */
+export function storedPathOfRenderedElement(
+  stored: string,
+  rendered: Element,
+): number[] | null {
+  const stamp = rendered.getAttribute(SOURCE_STAMP_ATTR);
+  const ordinal = stamp ? stampOrdinal(stamp) : null;
+  if (ordinal === null) return null;
+
+  const doc = parseStoredWithStamps(stored);
+  const root = doc.querySelector(".fmd-slide");
+  const element = doc.querySelector(
+    `[${SOURCE_STAMP_ATTR}="${STORED_STAMP_NONCE}:${ordinal}"]`,
+  );
+  if (!root || !element || !root.contains(element)) return null;
+  const path = getPersistedElementPath(root, element);
+  return path && path.length > 0 ? path : null;
+}
+
+/**
+ * The stamp ordinal of the stored element at `path`. A rendered copy is found
+ * by the same ordinal, since its stamp ends in that ordinal.
+ */
+export function storedOrdinalAtPath(
+  stored: string,
+  path: readonly number[],
+): number | null {
+  const root = parseStoredWithStamps(stored).querySelector(".fmd-slide");
+  const element = root ? resolveElementPath(root, [...path]) : null;
+  const stamp = element?.getAttribute(SOURCE_STAMP_ATTR);
+  return stamp ? stampOrdinal(stamp) : null;
 }
 
 export function getElementAnimationValue(type: AnimationType): string {
@@ -485,62 +810,6 @@ export function getElementAnimationValue(type: AnimationType): string {
     case "zoom":
       return "elem-zoom 300ms cubic-bezier(0.25,0.46,0.45,0.94) both";
   }
-}
-
-export function resolveSlideAnimationTargetsWithDiagnostics<
-  T extends AnimationTarget,
->(root: Element, targets: readonly T[]): AnimationTargetResolution<T> {
-  const seen = new Set<string>();
-  const resolved: ResolvedAnimationTarget<T>[] = [];
-
-  for (const [animationIndex, target] of targets.entries()) {
-    const element = resolveSlideAnimationElement(root, target);
-    if (!element) {
-      return {
-        resolved: null,
-        issue: {
-          animationIndex,
-          code: "missing-target",
-          target,
-        },
-      };
-    }
-    const path = getPersistedElementPath(root, element);
-    if (!path) {
-      return {
-        resolved: null,
-        issue: {
-          animationIndex,
-          code: "missing-target",
-          target,
-          preview: getElementPreview(
-            element,
-            `Element ${target.elementIndex + 1}`,
-          ),
-        },
-      };
-    }
-    const key = animationElementKey(path);
-    if (seen.has(key)) {
-      return {
-        resolved: null,
-        issue: {
-          animationIndex,
-          code: "duplicate-target",
-          target,
-          key,
-          preview: getElementPreview(
-            element,
-            `Element ${target.elementIndex + 1}`,
-          ),
-        },
-      };
-    }
-    seen.add(key);
-    resolved.push({ target, element, key });
-  }
-
-  return { resolved, issue: null };
 }
 
 export function getSlideAnimationTargetKey(

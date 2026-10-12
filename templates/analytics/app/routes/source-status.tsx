@@ -1,10 +1,18 @@
-import enUSMessages from "@/i18n/en-US";
-import SourceStatus from "@/pages/SourceStatus";
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
+import { redirect, type LoaderFunctionArgs } from "react-router";
 
-export function meta() {
-  return [{ title: enUSMessages.routeTitles.sourceStatus }];
+function target(url: URL): string {
+  return `/data-sources${url.search}${url.hash}`;
 }
 
-export default function SourceStatusRoute() {
-  return <SourceStatus />;
+export function loader({ url }: LoaderFunctionArgs) {
+  throw withSsrHtmlContentType(redirect(target(url)), { varyByQuery: true });
+}
+
+export function clientLoader({ url }: LoaderFunctionArgs) {
+  throw withSsrHtmlContentType(redirect(target(url)), { varyByQuery: true });
+}
+
+export default function SourceStatusAliasRoute() {
+  return null;
 }

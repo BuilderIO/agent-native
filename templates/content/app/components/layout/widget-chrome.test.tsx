@@ -228,39 +228,33 @@ describe.each([
     },
   );
 
-  it(
-    inWidget
-      ? "gives the page column the pane's width and a short lead-in"
-      : "keeps the page column and its lead-in",
-    async () => {
-      const titleRegion = documentEditorTitleRegionClassName(false);
-      const body = documentEditorBodyClassName("page");
-      openPage({
-        inWidget,
-        extraStyles: await utilityStyles(
-          ...`${titleRegion} ${body}`.split(/\s+/),
-        ),
-      });
+  it("keeps the app's page column and lead-in", async () => {
+    const titleRegion = documentEditorTitleRegionClassName(false);
+    const body = documentEditorBodyClassName("page");
+    openPage({
+      inWidget,
+      extraStyles: await utilityStyles(
+        ...`${titleRegion} ${body}`.split(/\s+/),
+      ),
+    });
 
-      const { container } = renderUi(
-        <main className="agent-native-app-main">
-          <div className={titleRegion} data-testid="title-region" />
-          <div className={body} data-testid="body" />
-        </main>,
-      );
+    const { container } = renderUi(
+      <main className="agent-native-app-main">
+        <div className={titleRegion} data-testid="title-region" />
+        <div className={body} data-testid="body" />
+      </main>,
+    );
 
-      const title = getComputedStyle(
-        container.querySelector('[data-testid="title-region"]')!,
-      );
-      const column = getComputedStyle(
-        container.querySelector('[data-testid="body"]')!,
-      );
-      expect(title.maxWidth).toBe(inWidget ? "1024px" : "768px");
-      expect(column.maxWidth).toBe(inWidget ? "1024px" : "768px");
-      if (inWidget) expect(title.paddingTop).toBe("24px");
-      else expect(title.paddingTop).not.toBe("24px");
-    },
-  );
+    const title = getComputedStyle(
+      container.querySelector('[data-testid="title-region"]')!,
+    );
+    const column = getComputedStyle(
+      container.querySelector('[data-testid="body"]')!,
+    );
+    expect(title.maxWidth).toBe("768px");
+    expect(column.maxWidth).toBe("768px");
+    expect(title.paddingTop).not.toBe("24px");
+  });
 });
 
 it("gives an editable directory widget Share and the page title, and leaves undo and redo to the formatting strip", async () => {

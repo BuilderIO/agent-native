@@ -808,6 +808,7 @@ export function useEditorContentAndComponents({
         immediateSave?: boolean;
         awaitSave?: boolean;
         persist?: boolean;
+        previewOnly?: boolean;
         recordHistory?: boolean;
         historyBeforeContent?: string;
         sourceBaseContent?: string;
@@ -815,6 +816,7 @@ export function useEditorContentAndComponents({
         shaderWriteCompletion?: true;
         updatedAt?: string;
         clipboardMutation?: ClipboardContentMutationPublication;
+        serverAccepted?: boolean;
       } = {},
     ) => {
       if (
@@ -902,6 +904,7 @@ export function useEditorContentAndComponents({
         immediateSave?: boolean;
         awaitSave?: boolean;
         persist?: boolean;
+        previewOnly?: boolean;
         recordHistory?: boolean;
         historyBeforeContent?: string;
         sourceBaseContent?: string;
@@ -909,6 +912,7 @@ export function useEditorContentAndComponents({
         shaderWriteCompletion?: true;
         updatedAt?: string;
         clipboardMutation?: ClipboardContentMutationPublication;
+        serverAccepted?: boolean;
       } = {},
     ) => {
       if (options.persist !== false && !canApplyContentEdit(fileId)) {

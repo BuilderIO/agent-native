@@ -1,4 +1,5 @@
 import { setClientAppState } from "@agent-native/core/client/hooks";
+import { stripInlineBytes } from "@agent-native/core/shared";
 import type { LayoutGridById } from "@shared/layout-grid";
 import type { RefObject } from "react";
 
@@ -34,6 +35,7 @@ const AGENT_SELECTION_STYLE_KEYS = [
   "height",
   "color",
   "backgroundColor",
+  "backgroundImage",
   "fontFamily",
   "fontSize",
   "fontWeight",
@@ -43,6 +45,7 @@ const AGENT_SELECTION_STYLE_KEYS = [
   "gap",
   "borderRadius",
   "opacity",
+  "objectFit",
 ] as const;
 const MAX_SUMMARY_CLASSES = 40;
 const MAX_SUMMARY_CLASS_LENGTH = 200;
@@ -65,6 +68,7 @@ function summarizeSelectedElement(element: ElementInfo) {
     selector: element.selector,
     runtimeSelector: element.runtimeSelector,
     runtimeSourceId: element.runtimeSourceId,
+    sourceLayerIdentity: element.sourceLayerIdentity,
     pendingNodeId: element.pendingNodeId,
     componentName: element.componentName,
     provenance: element.provenance,
@@ -80,6 +84,7 @@ function summarizeSelectedElement(element: ElementInfo) {
       element.textContentTruncated ||
       (text !== undefined && text.length > MAX_SUMMARY_TEXT_LENGTH) ||
       undefined,
+    imageSource: element.imageSource,
     boundingRect: element.boundingRect,
     childElementCount: element.childElementCount,
     isFlexContainer: element.isFlexContainer,
@@ -240,7 +245,10 @@ export function runPublishAgentSelectionContext({
     screens: selection.screens,
     selectedScreenIds: selection.selectedScreenIds,
     selectedElement: selectedElement
-      ? summarizeSelectedElement(selectedElement)
+      ? stripInlineBytes(
+          summarizeSelectedElement(selectedElement),
+          "placeholder",
+        )
       : null,
     mode: selection.mode,
     activeTool: selection.activeTool,

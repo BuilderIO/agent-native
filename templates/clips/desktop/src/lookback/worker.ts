@@ -14,8 +14,8 @@ export interface LookbackOrigin {
   includeSystemAudio: boolean;
 }
 
-// The caller wires these to the same calls processRewindExtension makes:
-// createPrivateAgentRewindRecording and the rewind_agent_handoff_upload command.
+// The caller wires these to createPrivateAgentRewindRecording and the
+// rewind_agent_handoff_upload command.
 export interface LookbackWorkerDeps {
   // Null when this device did not capture the recording, so its footage is not here.
   originFor(recordingId: string): LookbackOrigin | null;
@@ -68,25 +68,7 @@ export async function processRecordingContextItem(
       startedAt: item.startedAt,
     });
   } catch (error) {
-    // failed is reachable only from processing, so claim first, without footage.
-    try {
-      await deps.update({ id: item.id, status: "processing" });
-    } catch (claimError) {
-      if (isConflict(claimError)) {
-        console.warn(
-          "[lookback] another claim owns the item; creating its footage failed with:",
-          error,
-        );
-        return "skipped";
-      }
-      console.error(
-        "[lookback] claiming the item to record its failure failed:",
-        claimError,
-      );
-      return "failed";
-    }
-    await markFailed(item, error, deps);
-    return "failed";
+    return failWithoutFootage(item, error, deps);
   }
 
   try {
@@ -100,6 +82,11 @@ export async function processRecordingContextItem(
       // Another claim or a trim owns the item. Our footage was never linked.
       await trashUnusedRecording(recording.id, deps);
       return "skipped";
+    }
+    if (isNonRetryable(error)) {
+      // Rejected before the item changed, so this footage was never reserved.
+      await trashUnusedRecording(recording.id, deps);
+      return failWithoutFootage(item, error, deps);
     }
     // The claim may have landed before its response was lost.
     return failAfterClaim(item, recording.id, error, deps);
@@ -117,6 +104,8 @@ export async function processRecordingContextItem(
       includeSystemAudio: origin.includeSystemAudio,
     });
   } catch (error) {
+    if (isNonRetryable(error))
+      return failHeldClaim(item, recording.id, error, deps);
     return failAfterClaim(item, recording.id, error, deps);
   }
 
@@ -136,11 +125,55 @@ export async function processRecordingContextItem(
       await trashUnusedRecording(recording.id, deps);
       return "skipped";
     }
+    if (isNonRetryable(error))
+      return failHeldClaim(item, recording.id, error, deps);
     return failAfterClaim(item, recording.id, error, deps);
   }
 
   await trashReplacedFootage(item, recording.id, deps);
   return "ready";
+}
+
+// failed is reachable only from processing, so the item is claimed without
+// footage first. That claim releases any reservation. A 409 means another claim
+// owns the item, so this export records nothing.
+async function failWithoutFootage(
+  item: RecordingContextItem,
+  error: unknown,
+  deps: LookbackWorkerDeps,
+): Promise<LookbackWorkerOutcome> {
+  try {
+    await deps.update({ id: item.id, status: "processing" });
+  } catch (claimError) {
+    if (isConflict(claimError)) {
+      console.warn(
+        "[lookback] another claim owns the item; not recording its failure:",
+        error,
+      );
+      return "skipped";
+    }
+    console.error(
+      "[lookback] claiming the item to record its failure failed:",
+      claimError,
+    );
+    return "failed";
+  }
+  await markFailed(item, error, deps);
+  return "failed";
+}
+
+// Used when this export's claim is the one that landed, so the item is already
+// processing. A footage-less claim would be refused there: a processing item is
+// claimable again only once its claim is stale. Failing it directly is allowed.
+async function failHeldClaim(
+  item: RecordingContextItem,
+  recordingId: string,
+  error: unknown,
+  deps: LookbackWorkerDeps,
+): Promise<LookbackWorkerOutcome> {
+  await trashUnusedRecording(recordingId, deps);
+  await markFailed(item, error, deps);
+  return "failed";
 }
 
 // Runs when a step after the claim fails. The failed step may have committed on
@@ -247,4 +280,20 @@ async function trashUnusedRecording(
 
 function isConflict(error: unknown): boolean {
   return error instanceof ClipsActionError && error.status === 409;
+}
+
+// A 400 or 422 repeats on every poll, so the item fails instead of retrying.
+const NON_RETRYABLE_STATUSES = new Set([400, 422]);
+
+// The native upload command rejects with a message, not an ActionError. The
+// status is read from the text it builds from the server's response.
+const NATIVE_UPLOAD_REJECTED =
+  /^native recording (?:upload|retry setup) returned (400|422)\b/;
+
+function isNonRetryable(error: unknown): boolean {
+  if (error instanceof ClipsActionError) {
+    return NON_RETRYABLE_STATUSES.has(error.status);
+  }
+  const message = error instanceof Error ? error.message : error;
+  return typeof message === "string" && NATIVE_UPLOAD_REJECTED.test(message);
 }

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   availableEmbeddingFamilies: vi.fn(),
   getActiveEmbeddingSet: vi.fn(),
+  searchAnalyticsDictionaryCatalog: vi.fn(),
   searchAnalyticsQueryCatalog: vi.fn(),
   embed: vi.fn(),
 }));
@@ -19,6 +20,7 @@ vi.mock("@agent-native/creative-context/store", () => ({
 // the relevance bar is tested on the terms and matches production produces.
 vi.mock("./analytics-query-catalog", async (importActual) => ({
   ...(await importActual<typeof import("./analytics-query-catalog")>()),
+  searchAnalyticsDictionaryCatalog: mocks.searchAnalyticsDictionaryCatalog,
   searchAnalyticsQueryCatalog: mocks.searchAnalyticsQueryCatalog,
 }));
 
@@ -48,49 +50,49 @@ const candidates: AnalyticsQueryCatalogCandidate[] = [
     approved: true,
   },
   {
-    kind: "dashboard-panel",
-    origin: "saved-dashboard",
+    kind: "data-dictionary",
+    origin: "data-dictionary",
     score: 50,
-    matchedTerms: [],
-    dashboardId: "private-dashboard-id",
-    dashboardTitle: "Activation health",
-    panelId: "private-panel-id",
-    panelTitle: "Activation by cohort",
+    matchedTerms: ["activation", "cohort"],
+    id: "activation-cohort",
+    metric: "Activation by cohort",
+    definition: "Activation rate by signup cohort.",
     source: "bigquery",
-    query: "SELECT cohort_month, activation_rate FROM activation_cohorts",
-    dashboardCertified: false,
+    table: "activation_cohorts",
+    queryTemplate:
+      "SELECT cohort_month, activation_rate FROM activation_cohorts",
+    approved: true,
   },
   {
-    kind: "dashboard-panel",
-    origin: "saved-dashboard",
+    kind: "data-dictionary",
+    origin: "data-dictionary",
     score: 20,
-    matchedTerms: [],
-    dashboardId: "another-private-id",
-    dashboardTitle: "Support trends",
-    panelId: "another-private-panel",
-    panelTitle: "Ticket volume",
+    matchedTerms: ["support", "ticket", "volume"],
+    id: "support-ticket-volume",
+    metric: "Support ticket volume",
+    definition: "The count of created HubSpot tickets.",
     source: "hubspot",
-    query: "SELECT created_at, COUNT(*) FROM tickets GROUP BY created_at",
-    dashboardCertified: false,
+    table: "tickets",
+    queryTemplate:
+      "SELECT created_at, COUNT(*) FROM tickets GROUP BY created_at",
+    approved: false,
+    aiGenerated: false,
   },
 ];
 
 describe("retrieveAnalyticsPromptReferences", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+    mocks.searchAnalyticsDictionaryCatalog.mockResolvedValue({
       candidates: [candidates[1], candidates[0], candidates[2]],
       searched: 3,
       of: 3,
       truncated: false,
       nextPage: null,
-      searchedDashboardCount: 2,
-      dashboardSearchTruncated: false,
-      dashboardDetailHydrationTruncated: false,
-      dashboardSearchStatus: "available",
-      searchedDictionaryEntryCount: 1,
+      searchedDictionaryEntryCount: 3,
       dictionarySearchTruncated: false,
       dictionarySearchStatus: "available",
+      sourceIndexStatus: "available",
     });
     mocks.availableEmbeddingFamilies.mockResolvedValue([
       {
@@ -124,7 +126,7 @@ describe("retrieveAnalyticsPromptReferences", () => {
       orgId: "org-analytics",
     });
 
-    expect(mocks.searchAnalyticsQueryCatalog).toHaveBeenCalledWith(
+    expect(mocks.searchAnalyticsDictionaryCatalog).toHaveBeenCalledWith(
       expect.objectContaining({
         search: "How many active users were there last month?",
         email: "owner@example.com",
@@ -133,6 +135,7 @@ describe("retrieveAnalyticsPromptReferences", () => {
         signal: expect.anything(),
       }),
     );
+    expect(mocks.searchAnalyticsQueryCatalog).not.toHaveBeenCalled();
     expect(result.jevPromptCandidates[0]).toMatchObject({
       id: "analytics-reference-1",
       name: "Data dictionary: Monthly active users",
@@ -191,19 +194,21 @@ describe("retrieveAnalyticsPromptReferences", () => {
     };
     const stronger = {
       ...candidates[1]!,
-      dashboardTitle: "Tie stronger dashboard",
-      panelTitle: "Tie stronger panel",
-      query: "SELECT tie_stronger_metric",
+      id: "tie-stronger",
+      metric: "Tie stronger metric",
+      definition: "Unique stronger summary",
       score: 90,
     };
-    mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+    mocks.searchAnalyticsDictionaryCatalog.mockResolvedValue({
       candidates: [weaker, stronger],
-      searchedDashboardCount: 2,
-      dashboardSearchTruncated: false,
-      dashboardSearchStatus: "available",
-      searchedDictionaryEntryCount: 0,
+      searched: 2,
+      of: 2,
+      truncated: false,
+      nextPage: null,
+      searchedDictionaryEntryCount: 2,
       dictionarySearchTruncated: false,
       dictionarySearchStatus: "available",
+      sourceIndexStatus: "available",
     });
     mocks.embed.mockImplementation(async (inputs: { text?: string }[]) =>
       inputs.map(() => [1, 0]),
@@ -216,61 +221,51 @@ describe("retrieveAnalyticsPromptReferences", () => {
     });
 
     expect(result.jevPromptCandidates[0]?.name).toBe(
-      "Tie stronger dashboard: Tie stronger panel",
+      "Data dictionary: Tie stronger metric",
     );
   });
 
-  it("keeps certified dashboards ahead of more similar ordinary panels", async () => {
-    const ordinary = {
-      ...candidates[1]!,
-      dashboardTitle: "Ordinary dashboard",
-      panelTitle: "Ordinary panel",
-      score: 200,
-    };
-    const certified = {
-      ...candidates[2]!,
-      dashboardTitle: "Certified dashboard",
-      panelTitle: "Certified panel",
-      dashboardCertified: true,
-      score: 10,
-    };
-    mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
-      candidates: [ordinary, certified],
-      searchedDashboardCount: 2,
-      dashboardSearchTruncated: false,
-      dashboardSearchStatus: "available",
-      searchedDictionaryEntryCount: 0,
+  it("keeps initial prefetch dictionary-only and leaves saved query search on demand", async () => {
+    mocks.searchAnalyticsDictionaryCatalog.mockResolvedValue({
+      candidates: [candidates[0]],
+      searched: 1,
+      of: 1,
+      truncated: false,
+      nextPage: null,
+      searchedDictionaryEntryCount: 1,
       dictionarySearchTruncated: false,
       dictionarySearchStatus: "available",
+      sourceIndexStatus: "not-configured",
     });
-    mocks.embed.mockImplementation(async (inputs: { text?: string }[]) =>
-      inputs.map(({ text }) => (text?.includes("Certified") ? [0, 1] : [1, 0])),
-    );
 
     const result = await retrieveAnalyticsPromptReferences({
-      request: "certified dashboard request",
+      request: "which user model should I query?",
       email: "owner@example.com",
       orgId: null,
     });
 
-    expect(result.jevPromptCandidates[0]?.name).toBe(
-      "Certified dashboard: Certified panel",
+    expect(result.jevPromptCandidates).toHaveLength(1);
+    expect(result.jevPromptCandidates[0]?.metadata.referenceType).toBe(
+      "data-dictionary",
     );
+    expect(mocks.searchAnalyticsQueryCatalog).not.toHaveBeenCalled();
   });
 
   it("uses the lexical catalog order when no embedding family is connected", async () => {
     mocks.availableEmbeddingFamilies.mockResolvedValue([]);
-    mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+    mocks.searchAnalyticsDictionaryCatalog.mockResolvedValue({
       candidates: [
         candidates[1],
         { ...candidates[2]!, matchedTerms: ["ticket", "volume"] },
       ],
-      searchedDashboardCount: 2,
-      dashboardSearchTruncated: false,
-      dashboardSearchStatus: "available",
-      searchedDictionaryEntryCount: 0,
+      searched: 2,
+      of: 2,
+      truncated: false,
+      nextPage: null,
+      searchedDictionaryEntryCount: 2,
       dictionarySearchTruncated: false,
       dictionarySearchStatus: "available",
+      sourceIndexStatus: "available",
     });
 
     const result = await retrieveAnalyticsPromptReferences({
@@ -280,7 +275,7 @@ describe("retrieveAnalyticsPromptReferences", () => {
     });
 
     expect(result.jevPromptCandidates[0]?.name).toBe(
-      "Activation health: Activation by cohort",
+      "Data dictionary: Activation by cohort",
     );
     // A reference that matched none of the request's terms is not injected.
     expect(result.jevFallbackCandidateIds).toEqual(["analytics-reference-2"]);
@@ -346,81 +341,28 @@ describe("retrieveAnalyticsPromptReferences", () => {
         approved: true,
       },
     ];
-    const panel = (id: string, title: string, sql: string) => ({
-      id,
-      title,
-      sql,
-      source: "bigquery",
-      chartType: "table",
-    });
-    const dashboards = [
-      {
-        id: "product",
-        title: "Product Dashboard",
-        origin: "saved-dashboard" as const,
-        config: {
-          panels: [
-            panel(
-              "active-by-app",
-              "Weekly active users by app",
-              "SELECT app_name, COUNT(DISTINCT user_id) FROM events",
-            ),
-            panel(
-              "page-errors",
-              "Page load errors",
-              "SELECT page_path, COUNT(*) FROM errors WHERE status >= 500",
-            ),
-            panel(
-              "render-time",
-              "Panel render time",
-              "SELECT AVG(duration_ms) FROM panel_renders",
-            ),
-            panel(
-              "locales",
-              "Signups by locale",
-              "SELECT locale, COUNT(*) FROM signups GROUP BY locale",
-            ),
-          ],
-        },
-      },
-      {
-        id: "revenue",
-        title: "Revenue Dashboard",
-        origin: "saved-dashboard" as const,
-        config: {
-          panels: [
-            panel(
-              "bookings-region",
-              "Pipeline by region",
-              "SELECT region, SUM(amount) FROM deals GROUP BY region",
-            ),
-            panel(
-              "tickets",
-              "Support ticket volume",
-              "SELECT COUNT(*) FROM tickets",
-            ),
-          ],
-        },
-      },
-    ];
-
     async function injectedFor(request: string): Promise<string[]> {
       mocks.availableEmbeddingFamilies.mockResolvedValue([]);
-      mocks.searchAnalyticsQueryCatalog.mockImplementation(
-        async ({ search, limit }: { search: string; limit: number }) => ({
-          candidates: rankAnalyticsQueryCatalog({
+      mocks.searchAnalyticsDictionaryCatalog.mockImplementation(
+        async ({ search, limit }: { search: string; limit: number }) => {
+          const rankedCandidates = rankAnalyticsQueryCatalog({
             search,
             limit,
-            dashboards,
+            dashboards: [],
             dictionaryEntries,
-          }),
-          searchedDashboardCount: dashboards.length,
-          dashboardSearchTruncated: false,
-          dashboardSearchStatus: "available",
-          searchedDictionaryEntryCount: dictionaryEntries.length,
-          dictionarySearchTruncated: false,
-          dictionarySearchStatus: "available",
-        }),
+          });
+          return {
+            candidates: rankedCandidates,
+            searched: dictionaryEntries.length,
+            of: rankedCandidates.length,
+            truncated: false,
+            nextPage: null,
+            searchedDictionaryEntryCount: dictionaryEntries.length,
+            dictionarySearchTruncated: false,
+            dictionarySearchStatus: "available",
+            sourceIndexStatus: "not-configured",
+          };
+        },
       );
       const result = await retrieveAnalyticsPromptReferences({
         request,
@@ -472,7 +414,7 @@ describe("retrieveAnalyticsPromptReferences", () => {
       orgId: null,
     });
 
-    expect(mocks.searchAnalyticsQueryCatalog).toHaveBeenCalledWith(
+    expect(mocks.searchAnalyticsDictionaryCatalog).toHaveBeenCalledWith(
       expect.objectContaining({
         search: "pipeline by stage\nwhat about EMEA?",
       }),
@@ -480,14 +422,16 @@ describe("retrieveAnalyticsPromptReferences", () => {
   });
 
   it("reports an empty lookup as empty without a note", async () => {
-    mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+    mocks.searchAnalyticsDictionaryCatalog.mockResolvedValue({
       candidates: [],
-      searchedDashboardCount: 2,
-      dashboardSearchTruncated: false,
-      dashboardSearchStatus: "available",
+      searched: 1,
+      of: 0,
+      truncated: false,
+      nextPage: null,
       searchedDictionaryEntryCount: 1,
       dictionarySearchTruncated: false,
       dictionarySearchStatus: "available",
+      sourceIndexStatus: "not-configured",
     });
 
     await expect(
@@ -504,14 +448,16 @@ describe("retrieveAnalyticsPromptReferences", () => {
   });
 
   it("does not report a catalog that could not be read as an empty one", async () => {
-    mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+    mocks.searchAnalyticsDictionaryCatalog.mockResolvedValue({
       candidates: [],
-      searchedDashboardCount: 0,
-      dashboardSearchTruncated: false,
-      dashboardSearchStatus: "unavailable",
+      searched: 0,
+      of: 0,
+      truncated: true,
+      nextPage: null,
       searchedDictionaryEntryCount: 1,
       dictionarySearchTruncated: false,
-      dictionarySearchStatus: "available",
+      dictionarySearchStatus: "unavailable",
+      sourceIndexStatus: "unavailable",
     });
 
     const result = await retrieveAnalyticsPromptReferences({
@@ -523,14 +469,16 @@ describe("retrieveAnalyticsPromptReferences", () => {
     expect(result.prefetchStatus).toBe("failed");
   });
 
-  describe("when a catalog source is unavailable, partial, or truncated", () => {
+  describe("when dictionary sources are unavailable, partial, or truncated", () => {
     const complete = {
-      searchedDashboardCount: 2,
-      dashboardSearchTruncated: false,
-      dashboardSearchStatus: "available",
+      searched: 1,
+      of: 1,
+      truncated: false,
+      nextPage: null,
       searchedDictionaryEntryCount: 1,
       dictionarySearchTruncated: false,
       dictionarySearchStatus: "available",
+      sourceIndexStatus: "available",
     };
     const retrieve = () =>
       retrieveAnalyticsPromptReferences({
@@ -540,7 +488,7 @@ describe("retrieveAnalyticsPromptReferences", () => {
       });
 
     it("reports complete sources with hits as ok", async () => {
-      mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+      mocks.searchAnalyticsDictionaryCatalog.mockResolvedValue({
         ...complete,
         candidates: [candidates[0]],
       });
@@ -551,21 +499,22 @@ describe("retrieveAnalyticsPromptReferences", () => {
       expect(result.jevPromptCandidates).toHaveLength(1);
     });
 
-    it("keeps the other source's hits but reports failed when a source is unavailable", async () => {
-      mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+    it("does not confuse an unconfigured index with an incomplete dictionary lookup", async () => {
+      mocks.searchAnalyticsDictionaryCatalog.mockResolvedValue({
         ...complete,
-        candidates: [candidates[0]],
-        dashboardSearchStatus: "unavailable",
+        candidates: [],
+        of: 0,
+        sourceIndexStatus: "not-configured",
       });
 
       const result = await retrieve();
 
-      expect(result.prefetchStatus).toBe("failed");
-      expect(result.jevPromptCandidates).toHaveLength(1);
+      expect(result.prefetchStatus).toBe("empty");
+      expect(result.jevPromptCandidates).toEqual([]);
     });
 
     it("reports a partial dictionary with no hits as failed, not empty", async () => {
-      mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+      mocks.searchAnalyticsDictionaryCatalog.mockResolvedValue({
         ...complete,
         candidates: [],
         dictionarySearchStatus: "partial",
@@ -578,7 +527,7 @@ describe("retrieveAnalyticsPromptReferences", () => {
     });
 
     it("keeps the hits but reports failed when a dictionary scope failed to load", async () => {
-      mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+      mocks.searchAnalyticsDictionaryCatalog.mockResolvedValue({
         ...complete,
         candidates: [candidates[0]],
         dictionarySearchStatus: "partial",
@@ -590,19 +539,13 @@ describe("retrieveAnalyticsPromptReferences", () => {
       expect(result.jevPromptCandidates).toHaveLength(1);
     });
 
-    // Candidates from one capped source do not establish complete catalog
-    // coverage because a relevant reference can be outside the returned rows.
     it.each([
-      ["dashboard", { dashboardSearchTruncated: true }],
-      [
-        "dashboard detail hydration",
-        { dashboardDetailHydrationTruncated: true },
-      ],
-      ["dictionary", { dictionarySearchTruncated: true }],
+      ["dictionary source cap", { dictionarySearchTruncated: true }],
+      ["dictionary page", { truncated: true }],
     ])(
       "preserves hits but reports a truncated %s search as failed",
       async (_source, truncation) => {
-        mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+        mocks.searchAnalyticsDictionaryCatalog.mockResolvedValue({
           ...complete,
           ...truncation,
           candidates: [candidates[0]],
@@ -611,7 +554,7 @@ describe("retrieveAnalyticsPromptReferences", () => {
         expect(withHits.prefetchStatus).toBe("failed");
         expect(withHits.jevPromptCandidates).toHaveLength(1);
 
-        mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
+        mocks.searchAnalyticsDictionaryCatalog.mockResolvedValue({
           ...complete,
           ...truncation,
           candidates: [],
@@ -622,7 +565,7 @@ describe("retrieveAnalyticsPromptReferences", () => {
   });
 
   it("reports a catalog lookup that outlives the budget as timed out", async () => {
-    mocks.searchAnalyticsQueryCatalog.mockImplementation(
+    mocks.searchAnalyticsDictionaryCatalog.mockImplementation(
       () => new Promise(() => {}),
     );
 
@@ -663,9 +606,9 @@ describe("retrieveAnalyticsPromptReferences", () => {
     expect(
       result.jevPromptCandidates.map((candidate) => candidate.name),
     ).toEqual([
-      "Activation health: Activation by cohort",
+      "Data dictionary: Activation by cohort",
       "Data dictionary: Monthly active users",
-      "Support trends: Ticket volume",
+      "Data dictionary: Support ticket volume",
     ]);
     expect(result.jevFallbackCandidateIds).toEqual(["analytics-reference-2"]);
     expect(signals.length).toBeGreaterThan(0);
@@ -686,11 +629,11 @@ describe("retrieveAnalyticsPromptReferences", () => {
         deadlineAt: 1_500,
       });
 
-      expect(mocks.searchAnalyticsQueryCatalog).toHaveBeenCalledOnce();
+      expect(mocks.searchAnalyticsDictionaryCatalog).toHaveBeenCalledOnce();
       expect(mocks.availableEmbeddingFamilies).not.toHaveBeenCalled();
       expect(mocks.embed).not.toHaveBeenCalled();
       expect(result.jevPromptCandidates[0]?.name).toBe(
-        "Activation health: Activation by cohort",
+        "Data dictionary: Activation by cohort",
       );
     } finally {
       now.mockRestore();
@@ -721,7 +664,7 @@ describe("retrieveAnalyticsPromptReferences", () => {
       expect(mocks.getActiveEmbeddingSet).toHaveBeenCalledOnce();
       expect(mocks.embed).not.toHaveBeenCalled();
       expect(result.jevPromptCandidates[0]?.name).toBe(
-        "Activation health: Activation by cohort",
+        "Data dictionary: Activation by cohort",
       );
     } finally {
       now.mockRestore();
@@ -729,7 +672,7 @@ describe("retrieveAnalyticsPromptReferences", () => {
   });
 
   it("fails open with a typed status when catalog retrieval fails", async () => {
-    mocks.searchAnalyticsQueryCatalog.mockRejectedValue(
+    mocks.searchAnalyticsDictionaryCatalog.mockRejectedValue(
       new Error("catalog unavailable"),
     );
 

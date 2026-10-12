@@ -7,6 +7,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const labels = vi.hoisted(() => ({
@@ -202,6 +203,64 @@ function renderWithTypedSlash(prefix: string, query = "") {
     fireInput(result.editingEl, "insertText", query);
   }
   return result;
+}
+
+function renderWithImmediateEscape(prefix: string) {
+  const editingEl = document.createElement("div");
+  editingEl.setAttribute("contenteditable", "true");
+  const block = document.createElement("p");
+  const textNode = document.createTextNode(prefix);
+  block.append(textNode);
+  editingEl.append(block);
+  document.body.append(editingEl);
+  setCaret(textNode, prefix.length);
+  editingEl.focus();
+
+  const applyAuthoringCommand = vi.fn();
+  const textSession = {
+    isActive: true,
+    commands: { applyAuthoringCommand },
+  } as never;
+  const probe = { notifySlash: () => {}, escapePrevented: false };
+
+  function EscapeOnCommit({ open }: { open: boolean }) {
+    const dispatched = useRef(false);
+
+    useLayoutEffect(() => {
+      if (!open || dispatched.current) return;
+      dispatched.current = true;
+      const escape = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "Escape",
+      });
+      editingEl.dispatchEvent(escape);
+      probe.escapePrevented = escape.defaultPrevented;
+    }, [open]);
+
+    return null;
+  }
+
+  function Harness() {
+    const [slashTyped, setSlashTyped] = useState(false);
+    probe.notifySlash = () => setSlashTyped(true);
+
+    return (
+      <>
+        <SlideSlashCommandMenu
+          editingEl={editingEl}
+          textSession={textSession}
+        />
+        <EscapeOnCommit open={slashTyped} />
+      </>
+    );
+  }
+
+  const view = render(<Harness />);
+  editingEl.addEventListener("input", () => probe.notifySlash());
+
+  typeSlash(editingEl, textNode, prefix.length);
+  return { ...view, editingEl, textNode, applyAuthoringCommand, probe };
 }
 
 function setCaret(textNode: Text, offset: number) {
@@ -838,6 +897,16 @@ describe("slide slash command menu", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
     expect(keyDown(editingEl, "Enter")).toBe(true);
     expect(applyAuthoringCommand).not.toHaveBeenCalled();
+  });
+
+  it("closes on Escape before passive effects after a URL-like prefix", () => {
+    const prefix = "and/or https:/example.com ";
+    const { editingEl, textNode, probe } = renderWithImmediateEscape(prefix);
+
+    expect(probe.escapePrevented).toBe(true);
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(textNode.data).toBe(`${prefix}/`);
+    expect(document.activeElement).toBe(editingEl);
   });
 
   it("restores authored accessibility attributes when the menu closes", () => {

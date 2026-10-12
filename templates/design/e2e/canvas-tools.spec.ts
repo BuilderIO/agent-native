@@ -896,11 +896,26 @@ async function replaceActiveText(page: Page, text: string): Promise<void> {
   await page.waitForTimeout(150);
 }
 
+// Typing a long string once the editing surface is up commits it while the host
+// is still probing the new node, and a slow host then deletes the node as
+// untouched. Keys typed straight after the click are held by the host's pending
+// text capture instead, so wait for them to reach the surface before committing.
+async function typeAheadText(page: Page, text: string): Promise<void> {
+  await page.keyboard.type(text);
+  await expect
+    .poll(async () => (await textEditingChromeSummary(page))?.text ?? "", {
+      timeout: 20_000,
+    })
+    .toBe(text);
+  await page.keyboard.press("Escape");
+}
+
 async function insertTextByClick(
   page: Page,
   shell: Locator,
   text: string,
   xRatio = 0.32,
+  options?: { typeAhead?: boolean },
 ): Promise<void> {
   const card = shell.locator("[data-screen-card]");
   const cardBox = await card.boundingBox();
@@ -912,6 +927,10 @@ async function insertTextByClick(
     "true",
   );
   await page.mouse.click(cardBox.x + cardBox.width * xRatio, cardBox.y + 120);
+  if (options?.typeAhead) {
+    await typeAheadText(page, text);
+    return;
+  }
   await replaceActiveText(page, text);
 }
 
@@ -1121,6 +1140,32 @@ async function boardPrimitiveViewportBox(
   return box;
 }
 
+// The camera glides after Zoom to fit, so wait for the primitive to be on
+// screen and to stop moving before aiming a pointer at it.
+async function settledBoardPrimitiveViewportBox(
+  page: Page,
+  nodeId: string,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  const viewport = page.viewportSize();
+  if (!viewport) throw new Error("no viewport size");
+  let previous: { x: number; y: number } | null = null;
+  await expect
+    .poll(async () => {
+      const box = await boardPrimitiveViewportBox(page, nodeId);
+      const onScreen =
+        box.x >= 0 &&
+        box.y >= 0 &&
+        box.x + box.width <= viewport.width &&
+        box.y + box.height <= viewport.height;
+      const stable =
+        previous !== null && previous.x === box.x && previous.y === box.y;
+      previous = { x: box.x, y: box.y };
+      return onScreen && stable;
+    })
+    .toBe(true);
+  return boardPrimitiveViewportBox(page, nodeId);
+}
+
 function expectCloseToFrameSize(
   viewport: { width: number; height: number },
   frame: { width: number; height: number },
@@ -1181,11 +1226,13 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
   const layersBox = await page
     .getByRole("complementary", { name: "Layers" })
     .boundingBox();
-  expect(railBox?.width).toBe(64);
+  // The rail is 7 baseline units (`--design-chrome-rail-width`); the Layers
+  // panel opens at its 240px default width beside it.
+  expect(railBox?.width).toBe(56);
   expect(layersBox).not.toBeNull();
-  expect(Math.abs(layersBox!.x + layersBox!.width - 344)).toBeLessThanOrEqual(
-    1,
-  );
+  expect(
+    Math.abs(layersBox!.x + layersBox!.width - (railBox!.width + 240)),
+  ).toBeLessThanOrEqual(1);
 
   const iframe = screenShell(page, "Home")
     .locator("iframe[data-design-preview-iframe]")
@@ -1563,19 +1610,20 @@ test("selection, same-screen move, text and style edits, undo redo, and zoom nev
     designFrame(page).getByText("Flash-free heading", { exact: true }),
   ).toBeVisible();
 
-  await selectByText(page, "Alpha Button");
-  await expect(selectedLayerRow(page)).toContainText("Alpha Button");
   const beta = designFrame(page).getByText("Beta Button", { exact: true });
   const alpha = designFrame(page).getByText("Alpha Button", { exact: true });
   const alphaBox = await alpha.boundingBox();
   const betaBox = await beta.boundingBox();
   if (!alphaBox || !betaBox) throw new Error("missing auto-layout buttons");
+  // dragCanvasByText selects its own target with a Cmd/Ctrl+click, and that
+  // click on an already selected layer cycles to the layer beneath it.
   await dragCanvasByText(
     page,
     "Alpha Button",
     betaBox.x + betaBox.width - (alphaBox.x + alphaBox.width / 2) + 12,
     0,
   );
+  await expect(selectedLayerRow(page)).toContainText("Alpha Button");
   await page.waitForTimeout(900);
   await expectIframePaintStable(page, "focused-edit-stable");
 
@@ -1754,7 +1802,9 @@ test("click text creates auto-width text and survives reload", async ({
   const text =
     "A long responsive card title that needs more horizontal room than the final quarter of this screen provides";
 
-  await insertTextByClick(page, screenShell(page), text, 0.76);
+  await insertTextByClick(page, screenShell(page), text, 0.76, {
+    typeAhead: true,
+  });
 
   const primitive = await waitForTextPrimitive(page, "index.html", text);
   expect(primitive.display).toBe("inline-block");
@@ -1768,10 +1818,13 @@ test("click text creates auto-width text and survives reload", async ({
   const renderedGeometry = await renderedText.evaluate((element) => {
     const rect = element.getBoundingClientRect();
     const body = element.ownerDocument.body;
+    // Editing scrolls the screen to keep the caret in view, so measure from the
+    // text's own position on the screen rather than from the scrolled viewport.
+    const left = rect.left + (element.ownerDocument.defaultView?.scrollX ?? 0);
     return {
       width: rect.width,
       height: rect.height,
-      remainingWidth: body.clientWidth - rect.left,
+      remainingWidth: body.clientWidth - left,
       lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight),
     };
   });
@@ -2685,7 +2738,10 @@ test("same-board rectangle nesting into a finite-origin frame persists without p
   });
   await gotoEditor(page, designId);
 
-  let movedBox = await boardPrimitiveViewportBox(page, movedId);
+  // The opening camera frames the Home screen, which leaves this board content
+  // above the viewport. Zoom to fit brings it into view.
+  await page.keyboard.press("Shift+1");
+  let movedBox = await settledBoardPrimitiveViewportBox(page, movedId);
   await page.mouse.click(
     movedBox.x + movedBox.width / 2,
     movedBox.y + movedBox.height / 2,
@@ -3368,7 +3424,11 @@ test("single-screen undo does not consume overview history", async ({
   const homeScreen = sidebar
     .getByRole("button", { name: "Home", exact: true })
     .first();
+  // A row only selects and fits its Screen in the overview; Interact is what
+  // switches to the single-screen view.
   await homeScreen.click();
+  await expect(selectedLayerRow(page)).toContainText("Home");
+  await modeButton(page, "interact").click();
   await expect(homeScreen).toHaveAttribute("aria-current", "page");
 
   await pressPrimaryShortcut(page, "z");

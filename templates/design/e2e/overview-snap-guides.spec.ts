@@ -215,6 +215,8 @@ test("dragging a screen into line draws a guide through every screen it aligns w
   try {
     await openOverview(page, designId, 3);
     await selectFrame(page, 2);
+    await page.keyboard.press("Shift+1");
+    await page.waitForTimeout(400);
     const scale = await canvasScale(page);
     const before = await frameOffsets(page);
 
@@ -267,6 +269,8 @@ test("dragging a screen near an existing gap snaps the spacing to match it", asy
   try {
     await openOverview(page, designId, 3);
     await selectFrame(page, 2);
+    await page.keyboard.press("Shift+1");
+    await page.waitForTimeout(400);
     const scale = await canvasScale(page);
     const before = await frameOffsets(page);
 

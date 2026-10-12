@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { html2canvasMock } = vi.hoisted(() => ({ html2canvasMock: vi.fn() }));
-vi.mock("html2canvas", () => ({ default: html2canvasMock }));
+vi.mock("html2canvas-pro", () => ({ default: html2canvasMock }));
 
 import {
   assertReplayFontsReady,

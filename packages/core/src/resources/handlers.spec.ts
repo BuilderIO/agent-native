@@ -761,6 +761,48 @@ Legacy webhook.`,
       );
     });
 
+    it("preserves a name-less skill on a declared-name path collision", async () => {
+      const existing = {
+        id: "existing-skill",
+        owner: "test@test.com",
+        path: "skills/create-skill/SKILL.md",
+        content: "# Existing name-less skill",
+        updatedAt: 123,
+      };
+      const content = "---\nname: create-skill\n---\nNew named skill";
+      const created = {
+        id: "new-skill",
+        owner: "test@test.com",
+        path: "skills/create-skill-2/SKILL.md",
+        content,
+      };
+      mockResourceGetByPath.mockResolvedValue(existing);
+      mockResourcePutIfAbsent
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(created);
+
+      const result = await handleCreateResource({
+        _body: {
+          path: existing.path,
+          content,
+          mimeType: "text/markdown",
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(result).toEqual(created);
+      expect(mockResourcePutIfCurrent).not.toHaveBeenCalled();
+      expect(mockResourcePutIfAbsent).toHaveBeenNthCalledWith(
+        2,
+        "test@test.com",
+        created.path,
+        content,
+        "text/markdown",
+        undefined,
+      );
+    });
+
     it("retries a same-name upload after a concurrent update wins", async () => {
       const existing = {
         id: "existing-skill",

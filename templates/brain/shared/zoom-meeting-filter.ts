@@ -5,12 +5,6 @@ export function normalizeZoomMeetingId(value: unknown): string | null {
   return /^\d{6,15}$/.test(id) ? id : null;
 }
 
-export function normalizeZoomMeetingTopic(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const topic = value.trim().replace(/\s+/g, " ").toLowerCase();
-  return topic || null;
-}
-
 export function zoomFilterLines(value: string): string[] {
   return value
     .split("\n")

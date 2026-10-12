@@ -428,6 +428,11 @@ async function handleMcpRequestInternal(
 
   const serverRequestMeta: MCPRequestMeta = {
     ...requestMeta,
+    ...(requestConfig.createLocalAgentTaskClient
+      ? {
+          localAgentTaskClient: requestConfig.createLocalAgentTaskClient(event),
+        }
+      : {}),
     fullSurface: authResult.fullSurface === true,
     inlineMcpApps:
       requestMeta.inlineMcpApps === true &&

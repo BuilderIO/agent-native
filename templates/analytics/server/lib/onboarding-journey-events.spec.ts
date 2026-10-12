@@ -86,14 +86,15 @@ describe("onboarding journey events SQL", () => {
       date?: string;
       path?: string;
       properties?: Record<string, unknown>;
+      orgId?: string;
     } = {},
   ) {
     const date = options.date ?? today;
     const stamp = `${date}T12:00:${String(second).padStart(2, "0")}.000Z`;
     await client.query(
       `INSERT INTO analytics_events
-        (id, event_name, user_id, anonymous_id, session_id, timestamp, received_at, event_date, app, template, hostname, path, properties)
-       VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $8, 'clips.agent-native.com', $9, $10)`,
+        (id, event_name, user_id, anonymous_id, session_id, timestamp, received_at, event_date, app, template, hostname, path, properties, org_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $8, 'clips.agent-native.com', $9, $10, $11)`,
       [
         `ev-${nextId++}`,
         eventName,
@@ -105,6 +106,7 @@ describe("onboarding journey events SQL", () => {
         options.template ?? "clips",
         options.path ?? null,
         JSON.stringify(options.properties ?? {}),
+        options.orgId ?? SCOPE.orgId,
       ],
     );
   }
@@ -271,7 +273,7 @@ describe("onboarding journey events SQL", () => {
     }
   });
 
-  it("keeps output uniqueness checks on source columns in BigQuery HAVING clauses", async () => {
+  it("reuses one scoped source pass and preserves output uniqueness in BigQuery", async () => {
     await setup();
     const sql = buildOnboardingJourneyEventsSql(
       filters(),
@@ -279,12 +281,23 @@ describe("onboarding journey events SQL", () => {
       observation(),
     );
 
-    expect(sql).toContain("e.session_id AS source_session_id");
-    expect(sql).toContain("MIN(source_session_id) AS session_id");
-    expect(sql).toContain("COUNT(DISTINCT source_session_id) = 1");
-    expect(sql).toContain("MIN(source_journey_kind) AS journey_kind");
-    expect(sql).toContain("COUNT(DISTINCT source_journey_kind) = 1");
-    expect(sql).not.toContain("HAVING COUNT(DISTINCT session_id)");
+    expect(sql.match(/\bFROM\s+scoped_onboarding_events\s+e\b/gi)).toHaveLength(
+      1,
+    );
+    expect(sql).toContain("FROM onboarding_journey_identity_events e");
+    expect(sql).toContain("UNION ALL");
+    expect(sql).toContain("OVER (PARTITION BY e.session_id)");
+    expect(sql).toContain(
+      "CASE WHEN NULLIF(e.session_id, '') IS NOT NULL THEN",
+    );
+    expect(sql).toContain(
+      "PARTITION BY e.template_name, e.output_id, e.output_attempt_id",
+    );
+    expect(sql).toContain("MIN(e.candidate_session_id) OVER (");
+    expect(sql).toContain("MAX(e.candidate_session_id) OVER (");
+    expect(sql).toContain("MIN(e.candidate_journey_kind) OVER (");
+    expect(sql).toContain("MAX(e.candidate_journey_kind) OVER (");
+    expect(sql).not.toContain("COUNT(DISTINCT source_session_id)");
 
     const scoped = scopedAnalyticsSql(sql, SCOPE);
     await client.query(scoped.sql, scoped.args);
@@ -381,7 +394,9 @@ describe("onboarding journey events SQL", () => {
       expect(sql).not.toContain("auth_identity_bridge");
       expect(sql).not.toContain("funnel_user_key");
       expect(sql).toContain("funnel_user_email");
-      expect(sql.match(/FROM analytics_events/g)).toHaveLength(1);
+      expect(sql.match(/FROM analytics_events/g)).toHaveLength(
+        sql === journeySql ? 2 : 1,
+      );
     }
 
     expect(sessionsOf(await run())).toEqual(["design", "normal"]);
@@ -708,6 +723,112 @@ describe("onboarding journey events SQL", () => {
     expect(readyRows[0]).toMatchObject({ attempt_id: "attempt-exact" });
     expect(readyRows[0]).not.toHaveProperty("output_id");
     expect(readyRows[0]).not.toHaveProperty("recording_attempt_id");
+  });
+
+  it("keeps session classification and output links inside their exact scope", async () => {
+    await setup();
+    await insert("mixed-session", "signup", 1, {
+      email: "mixed@example.com",
+      template: "clips",
+    });
+    await insert("mixed-session", "integration_setup_exposed", 2, {
+      template: "design",
+    });
+    await insert("mixed-session", "onboarding_step_viewed", 3, {
+      template: "clips",
+      properties: { step_id: "role" },
+    });
+
+    const sharedLink = {
+      output_id: "shared-output",
+      recording_attempt_id: "shared-attempt",
+    };
+    await insert("clips-source", "signup", 1, {
+      email: "clips@example.com",
+      template: "clips",
+    });
+    await insert("clips-source", "recording_started", 2, {
+      template: "clips",
+      properties: sharedLink,
+    });
+    await insert("builder-source", "signup", 1, {
+      email: "dev@builder.io",
+      template: "clips",
+    });
+    await insert("builder-source", "recording_started", 2, {
+      template: "clips",
+      properties: sharedLink,
+    });
+    await insert("other-org-source", "signup", 1, {
+      email: "other-org@example.com",
+      template: "clips",
+      orgId: "org-2",
+    });
+    await insert("other-org-source", "recording_started", 2, {
+      template: "clips",
+      properties: sharedLink,
+      orgId: "org-2",
+    });
+    await insert(null, "recording_ready", 3, {
+      template: "clips",
+      properties: sharedLink,
+    });
+
+    await insert("slides-source", "signup", 1, {
+      email: "slides@example.com",
+      template: "slides",
+    });
+    await insert("slides-source", "generation_started", 2, {
+      template: "slides",
+      properties: {
+        output_id: "shared-output",
+        generation_attempt_id: "shared-attempt",
+      },
+    });
+    await insert(null, "generation_completed", 3, {
+      template: "slides",
+      properties: {
+        output_id: "shared-output",
+        generation_attempt_id: "shared-attempt",
+      },
+    });
+
+    await insert("null-attempt-source", "signup", 1, {
+      email: "null-attempt@example.com",
+      template: "clips",
+    });
+    await insert("null-attempt-source", "recording_started", 2, {
+      template: "clips",
+      properties: { output_id: "missing-attempt-output" },
+    });
+    await insert(null, "recording_ready", 3, {
+      template: "clips",
+      properties: { output_id: "missing-attempt-output" },
+    });
+
+    const rows = await run({ app: "all" });
+    const mixedRows = rows.filter((row) => row.session_id === "mixed-session");
+    expect(mixedRows.map((row) => row.journey_kind)).toEqual(
+      Array(mixedRows.length).fill("onboarding"),
+    );
+    expect(mixedRows.some((row) => row.template_name === "design")).toBe(true);
+
+    expect(
+      rows.find((row) => row.event_name === "recording_ready"),
+    ).toMatchObject({ session_id: "clips-source", journey_kind: "onboarding" });
+    expect(
+      rows.find((row) => row.event_name === "generation_completed"),
+    ).toMatchObject({
+      session_id: "slides-source",
+      journey_kind: "onboarding",
+    });
+    expect(
+      rows.some(
+        (row) =>
+          row.event_name === "recording_ready" &&
+          row.session_id === "null-attempt-source",
+      ),
+    ).toBe(false);
   });
 
   it("links a sessionless Slide completion through its exact viewed output and attempt", async () => {
@@ -1099,6 +1220,63 @@ describe("onboarding journey events SQL", () => {
     expect(normal[3]).toMatchObject({ step_id: "role", method_id: null });
   });
 
+  it("preserves journey results with the explicit event source projection", async () => {
+    await setup();
+    await seedSessions();
+    await insert("response-property-employee", "signup", 1, {
+      email: "person@example.com",
+    });
+    await insert("response-property-employee", "onboarding_step_viewed", 2, {
+      email: "person@example.com",
+      properties: { step_id: "role" },
+    });
+    await insert("response-property-employee", "http.response", 3, {
+      template: "",
+      properties: {
+        agent_native_template: "clips",
+        auth_user_id: "dev@builder.io",
+      },
+    });
+    await insert("response-top-level-test", "signup", 1, {
+      email: "person@example.com",
+    });
+    await insert("response-top-level-test", "onboarding_step_viewed", 2, {
+      email: "person@example.com",
+      properties: { step_id: "role" },
+    });
+    await insert("response-top-level-test", "http.response", 3, {
+      email: "qa+autoz@builder.io",
+    });
+    const sql = buildOnboardingJourneyEventsSql(
+      filters({ app: "clips" }),
+      { limit: 100, offset: 0 },
+      observation(),
+    );
+    const fullScope = scopedAnalyticsSql(sql, SCOPE);
+    const projectedScope = scopedAnalyticsSql(sql, SCOPE, undefined, {
+      scopedEventsSingleScan: true,
+      scopedEventsProjection: "onboarding_journey",
+      scopedEventsSourceProjections: {
+        e: "onboarding_journey",
+        r: "onboarding_journey_response_identity",
+      },
+    });
+    const fullResult = (await client.query(fullScope.sql, fullScope.args)) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    const projectedResult = (await client.query(
+      projectedScope.sql,
+      projectedScope.args,
+    )) as { rows: Array<Record<string, unknown>> };
+
+    expect(projectedResult.rows).toEqual(fullResult.rows);
+    expect(
+      projectedResult.rows.some(
+        (row) => row.session_id === "response-top-level-test",
+      ),
+    ).toBe(true);
+  });
+
   it("selects attempt ids only as an internal journey field", async () => {
     await setup();
     await insert("slides", "signup", 1, {
@@ -1258,6 +1436,50 @@ describe("onboarding journey events SQL", () => {
     const rows = await run({ emailFilter: "exclude_builder" });
     expect(sessionsOf(rows)).not.toContain("employee");
     expect(rows.filter((row) => row.session_id === "employee")).toEqual([]);
+  });
+
+  it("uses response identity to exclude the whole session without response properties", async () => {
+    await setup();
+    await insert("response-employee", "signup", 1, {
+      email: "person@example.com",
+    });
+    await insert("response-employee", "onboarding_step_viewed", 2, {
+      email: "person@example.com",
+      properties: { step_id: "role" },
+    });
+    await insert("response-employee", "http.response", 3, {
+      email: "dev@builder.io",
+      properties: { ignored_payload: "large response body" },
+    });
+
+    const rows = await run({ emailFilter: "exclude_builder" });
+
+    expect(
+      rows.filter((row) => row.session_id === "response-employee"),
+    ).toEqual([]);
+  });
+
+  it("preserves response property identity when excluding the whole session", async () => {
+    await setup();
+    await insert("response-property-employee", "signup", 1, {
+      email: "person@example.com",
+    });
+    await insert("response-property-employee", "onboarding_step_viewed", 2, {
+      email: "person@example.com",
+      properties: { step_id: "role" },
+    });
+    await insert("response-property-employee", "http.response", 3, {
+      properties: {
+        auth_user_id: "dev@builder.io",
+        ignored_payload: "large response body",
+      },
+    });
+
+    const rows = await run({ emailFilter: "exclude_builder" });
+
+    expect(
+      rows.filter((row) => row.session_id === "response-property-employee"),
+    ).toEqual([]);
   });
 
   it("never returns test identities, even when employees are included", async () => {

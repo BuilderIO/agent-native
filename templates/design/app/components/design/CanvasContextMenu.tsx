@@ -907,7 +907,10 @@ export const CanvasContextMenu = forwardRef<
                       shortcut={shortcuts.pasteProps}
                       onSelect={(event) => runAction("paste-props", event)}
                     />
-                    <CanvasMenuSeparator />
+                    {!isHiddenAction("copy-animation") ||
+                    !isHiddenAction("paste-animation") ? (
+                      <CanvasMenuSeparator />
+                    ) : null}
                     <CanvasMenuItem
                       hidden={isHiddenAction("copy-animation")}
                       disabled={!canRun("copy-animation", canCopyAnimation)}

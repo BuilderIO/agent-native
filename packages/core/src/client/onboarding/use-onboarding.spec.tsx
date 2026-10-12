@@ -20,6 +20,7 @@ vi.mock("../analytics.js", () => ({
   trackEvent: trackEventMock,
 }));
 
+import { SessionPreloadContext } from "../use-session.js";
 import {
   __resetOnboardingEventDedupeForTests,
   __resetOnboardingSummaryReadsForTests,
@@ -266,6 +267,7 @@ describe("useOnboarding — summary timeout", () => {
 
     expect(latest?.loading).toBe(false);
     expect(latest?.error).toBe("onboarding summary timed out");
+    expect(latest?.summaryKnown).toBe(false);
     expect(summarySignal?.aborted).toBe(true);
   });
 
@@ -301,12 +303,74 @@ describe("useOnboarding — summary timeout", () => {
     });
     expect(latest?.loading).toBe(false);
     expect(latest?.error).toBeNull();
+    expect(latest?.summaryKnown).toBe(true);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(15_000);
     });
     expect(latest?.loading).toBe(false);
     expect(latest?.error).toBeNull();
+  });
+});
+
+describe("useOnboarding — hinted session preload", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  function Harness() {
+    useOnboarding({ initialFirstRun: true });
+    return null;
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("reads the onboarding summary only after the session stops preloading", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/onboarding/summary")) {
+        return jsonResponse({
+          steps: [],
+          dismissed: false,
+          profile: { appId: "app", appName: "App", capabilities: [] },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${String(input)}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const summaryReads = () =>
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/onboarding/summary"),
+      ).length;
+    // Passive effects flush when the act scope that rendered them closes, so
+    // the scheduled read only starts once the render's act has ended.
+    const renderHarness = async (preloading: boolean) => {
+      await act(async () => {
+        root.render(
+          <SessionPreloadContext.Provider value={preloading}>
+            <Harness />
+          </SessionPreloadContext.Provider>,
+        );
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      });
+    };
+
+    await renderHarness(true);
+    expect(summaryReads()).toBe(0);
+
+    await renderHarness(false);
+    expect(summaryReads()).toBe(1);
   });
 });
 
@@ -1232,6 +1296,7 @@ describe("useOnboarding — focus during the deferral window", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    document.cookie = "agent-native-first-run=; Max-Age=0; path=/";
     vi.unstubAllGlobals();
   });
 
@@ -1332,6 +1397,7 @@ describe("useOnboarding — degraded summary tolerance", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    document.cookie = "agent-native-first-run=; Max-Age=0; path=/";
     vi.unstubAllGlobals();
   });
 
@@ -1354,6 +1420,145 @@ describe("useOnboarding — degraded summary tolerance", () => {
       capabilities: [],
     });
     expect(latest?.dismissed).toBe(false);
+    expect(latest?.summaryKnown).toBe(true);
+  });
+
+  it("retains known active onboarding when a refresh fails", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/onboarding/summary")) {
+        if (fetchMock.mock.calls.length > 1) {
+          return jsonResponse({}, false, 503);
+        }
+        return jsonResponse({
+          steps: [
+            {
+              id: "llm",
+              title: "Connect an AI engine",
+              description: "Pick an engine to power the agent.",
+              order: 10,
+              required: true,
+              complete: false,
+              methods: [],
+            },
+          ],
+          dismissed: false,
+          profile: { appId: "app", appName: "App", capabilities: [] },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${String(input)}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => root.render(<Harness />));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(latest?.summaryKnown).toBe(true);
+    expect(latest?.steps).toHaveLength(1);
+
+    await act(async () => {
+      await latest!.refresh();
+    });
+
+    expect(latest?.summaryKnown).toBe(true);
+    expect(latest?.steps).toHaveLength(1);
+    expect(latest?.error).toBe("summary: 503");
+  });
+
+  it("retains completed local state when the summary refresh fails", async () => {
+    let summaryCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/onboarding/summary")) {
+        summaryCalls += 1;
+        if (summaryCalls > 1) return jsonResponse({}, false, 503);
+        return jsonResponse({
+          steps: [
+            {
+              id: "llm",
+              title: "Connect an AI engine",
+              description: "Pick an engine to power the agent.",
+              order: 10,
+              required: true,
+              complete: false,
+              methods: [],
+            },
+          ],
+          dismissed: false,
+          profile: { appId: "app", appName: "App", capabilities: [] },
+        });
+      }
+      if (url.includes("/steps/llm/complete"))
+        return jsonResponse({ ok: true });
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => root.render(<Harness />));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(latest?.steps[0]?.complete).toBe(false);
+
+    await act(async () => {
+      await latest!.complete("llm");
+    });
+
+    expect(latest?.summaryKnown).toBe(true);
+    expect(latest?.steps[0]?.complete).toBe(true);
+    expect(latest?.allComplete).toBe(true);
+    expect(latest?.error).toBe("summary: 503");
+  });
+
+  it("applies a successful summary even when first-run status fails", async () => {
+    document.cookie = "agent-native-first-run=1; path=/";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/onboarding/summary")) {
+          return jsonResponse({
+            steps: [
+              {
+                id: "llm",
+                title: "Connect an AI engine",
+                description: "Pick an engine to power the agent.",
+                order: 10,
+                required: true,
+                complete: false,
+                methods: [],
+              },
+            ],
+            dismissed: false,
+            profile: { appId: "app", appName: "App", capabilities: [] },
+          });
+        }
+        if (url.includes("/onboarding/first-run/status")) {
+          return jsonResponse({}, false, 503);
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+
+    function FirstRunHarness() {
+      latest = useOnboarding({ firstRunSurface: true });
+      return null;
+    }
+
+    await act(async () => root.render(<FirstRunHarness />));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(latest?.summaryKnown).toBe(true);
+    expect(latest?.steps).toHaveLength(1);
+    expect(latest?.error).toBe("first-run status: 503");
   });
 });
 

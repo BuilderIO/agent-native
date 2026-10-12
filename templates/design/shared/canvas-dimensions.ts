@@ -272,7 +272,7 @@ export function resolveCanvasIntent(prompt?: string): CanvasIntent {
   const { phrase: output, head } = requestedOutput(value);
   const explicitDisplayLeaderboard =
     head.toLowerCase() === "leaderboard" &&
-    /\bdisplay\s+leaderboard\b/i.test(output);
+    /\b(?:display|mobile)\s+leaderboard\b/i.test(output);
   if (PRODUCT_SURFACE_HEAD.test(head) && !explicitDisplayLeaderboard) {
     return { kind: "responsive" };
   }

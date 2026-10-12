@@ -158,6 +158,34 @@ describe("CanvasContextMenu Copy as PNG", () => {
   });
 });
 
+describe("CanvasContextMenu animation actions", () => {
+  it("hides animation copy and paste actions when the caller gates them", async () => {
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      canCopyAnimation: true,
+      canPasteAnimation: true,
+      hiddenActions: ["copy-animation", "paste-animation"],
+    });
+
+    expect(view.findButton("Copy animation")).toBeUndefined();
+    expect(view.findButton("Paste animation")).toBeUndefined();
+    expect(view.findButton("Copy as code")).toBeDefined();
+    const hiddenSeparatorCount = view.container.querySelectorAll("hr").length;
+
+    const enabledView = await renderContextMenu({
+      selectedCount: 1,
+      canCopyAnimation: true,
+      canPasteAnimation: true,
+    });
+    expect(enabledView.container.querySelectorAll("hr").length).toBe(
+      hiddenSeparatorCount + 1,
+    );
+
+    await enabledView.cleanup();
+    await view.cleanup();
+  });
+});
+
 describe("CanvasContextMenu Select layer", () => {
   it("renders the ordered hit stack and selects the exact candidate", async () => {
     const onSelectLayer = vi.fn();

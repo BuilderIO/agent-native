@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { rankAnalyticsQueryCatalog } from "../../server/lib/analytics-query-catalog";
 
 export const BENCHMARK_TITLE = "SYNTHETIC: Analytics retrieval benchmark";
-export const BASELINE_REVISION = "70bf54c17404fa0993b248154bf95ef70d216a3f";
+export const BASELINE_REVISION = "bdd2cfccb528339cc47e19aeaff9bf3e367374f1";
 export const CSV_PATH = fileURLToPath(
   new URL("./SYNTHETIC-analytics-retrieval.csv", import.meta.url),
 );
@@ -49,7 +49,7 @@ export type SyntheticBenchmarkRow = {
   note: string;
 };
 
-const CASES: SyntheticCase[] = [
+export const SYNTHETIC_CASES: SyntheticCase[] = [
   {
     id: "dictionary-alias-mrr",
     query: "MRR",
@@ -146,18 +146,51 @@ const CASES: SyntheticCase[] = [
     ],
     dashboards: [],
   },
+  {
+    id: "builder-users-organization-vs-connect",
+    query: "organization Builder.io users",
+    expectedCandidateId: "dictionary:synthetic-membership-distribution",
+    note: "Synthetic retrieval case: organization membership should outrank an equally matching Connect-labelled example.",
+    dictionaryEntries: [
+      {
+        id: "synthetic-membership-distribution",
+        metric: "Builder.io User Distribution by Organization",
+        definition: "Builder.io users organization membership records.",
+        table: "synthetic_user_organization_role",
+        semanticScope: "membership",
+        sourceKind: "sigma",
+        sourceIndex: true,
+        aiGenerated: true,
+        approved: false,
+      },
+      {
+        id: "synthetic-connect-membership",
+        metric: "Builder.io Users Organization Connect",
+        definition: "Builder.io users organization membership records.",
+        table: "synthetic_user_organization_role",
+        semanticScope: "membership",
+        sourceKind: "sigma",
+        sourceIndex: true,
+        aiGenerated: true,
+        approved: false,
+      },
+    ],
+    dashboards: [],
+  },
 ];
 
-// Re-measured from the exact origin/main implementation at BASELINE_REVISION.
+// Measured against the exact origin/main implementation at BASELINE_REVISION.
 const MEASURED_ORIGIN_MAIN_RANKINGS: Record<string, string[]> = {
   "dictionary-alias-mrr": ["dictionary:synthetic-monthly-recurring-revenue"],
   "panel-sql-only-term": ["dashboard:synthetic-runtime-overview:slow-path"],
-  "semantic-scope-membership": [
-    "dictionary:synthetic-workspace-activity",
-    "dictionary:synthetic-workspace-membership",
-  ],
+  "semantic-scope-membership": ["dictionary:synthetic-workspace-membership"],
   "approved-over-generated": [
     "dictionary:synthetic-approved-workflow-completions",
+    "dictionary:synthetic-generated-workflow-completions",
+  ],
+  "builder-users-organization-vs-connect": [
+    "dictionary:synthetic-connect-membership",
+    "dictionary:synthetic-membership-distribution",
   ],
 };
 
@@ -186,7 +219,7 @@ function rankOf(candidateIds: string[], expectedId: string): string {
 }
 
 export function computeSyntheticBenchmark(): SyntheticBenchmarkRow[] {
-  return CASES.map((testCase) => {
+  return SYNTHETIC_CASES.map((testCase) => {
     const baselineIds = baselineCandidateIds(testCase);
     const afterIds = rankAnalyticsQueryCatalog({
       search: testCase.query,

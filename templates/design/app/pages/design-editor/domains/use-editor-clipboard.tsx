@@ -49,6 +49,7 @@ import {
 } from "../code-layer-state";
 import type { CanvasLayerClipboardEntry } from "../command-types";
 import { runCopySelection } from "../commands/copy-selection";
+import { runCutSelection } from "../commands/cut-selection";
 import { runDeleteSelection } from "../commands/delete-selection";
 import { runDuplicateSelection } from "../commands/duplicate-selection";
 import { runEditorPaste } from "../commands/editor-paste";
@@ -153,11 +154,13 @@ export function useEditorClipboard({
     latestClipboardMutationContentRef,
     clipboardPasteUndoStackRef,
     clipboardPasteRedoStackRef,
+    selectedLayerIdsStateRef,
+    overviewSelectedScreenIdsRef,
+    explicitOverviewScreenSelectionRef,
     activeBreakpointWidthState,
     activeBreakpointWidthStateRef,
     undoManagerRef,
     contentUndoStackRef,
-    explicitOverviewScreenSelectionRef,
     historyOrderRef,
     clearRedoStacks,
     captureCurrentSelection,
@@ -313,6 +316,31 @@ export function useEditorClipboard({
       selectedLayerIdsState,
     ],
   );
+
+  // Cut reads this after an awaited clipboard write; the ref keeps it on the
+  // latest render instead of the closure captured when cut started.
+  const getSelectionContentKey = () => {
+    const layerSnapshots = getSelectedLayerSnapshots();
+    const screenIds =
+      layerSnapshots.length === 0 && viewModeRef.current === "overview"
+        ? overviewSelectedScreenIds
+        : [];
+    return JSON.stringify([
+      layerSnapshots.map((snapshot) => [
+        snapshot.rootNodeId,
+        snapshot.sourceFileId,
+        snapshot.html,
+      ]),
+      screenIds.map((screenId) => [
+        screenId,
+        getScreenContent(screenId),
+        liveScreenSnapshotsById[screenId]?.html,
+        runtimeLayerSnapshotsById[screenId]?.html,
+      ]),
+    ]);
+  };
+  const getSelectionContentKeyRef = useRef(getSelectionContentKey);
+  getSelectionContentKeyRef.current = getSelectionContentKey;
 
   const getCanvasClipboardEntries = useCallback(() => {
     return getDesignClipboardLayerEntries({
@@ -1410,10 +1438,25 @@ export function useEditorClipboard({
   );
 
   const handleCutSelection = useCallback(async () => {
-    const copied = await handleCopySelection();
-    if (!copied) return;
-    handleDeleteSelection();
-  }, [handleCopySelection, handleDeleteSelection]);
+    await runCutSelection({
+      copySelection: handleCopySelection,
+      deleteSelection: handleDeleteSelection,
+      getSelectedLayerIds: () => [
+        ...selectedLayerIdsStateRef.current.map((id) => `layer:${id}`),
+        ...overviewSelectedScreenIdsRef.current.map((id) => `screen:${id}`),
+        ...explicitOverviewScreenSelectionRef.current.map(
+          (id) => `explicit-screen:${id}`,
+        ),
+      ],
+      getSelectionContentKey: () => getSelectionContentKeyRef.current(),
+    });
+  }, [
+    explicitOverviewScreenSelectionRef,
+    handleCopySelection,
+    handleDeleteSelection,
+    overviewSelectedScreenIdsRef,
+    selectedLayerIdsStateRef,
+  ]);
 
   const handleZoomToSelectionFit = useCallback(() => {
     const allFrames = withMeasuredFrameHeights(

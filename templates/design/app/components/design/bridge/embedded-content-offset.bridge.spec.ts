@@ -33,7 +33,7 @@ describe("embedded board content offset bridge", () => {
 
       await page.evaluate(() => {
         window.frames[0]?.postMessage(
-          { type: "set-content-offset", x: -8192, y: 2048 },
+          { type: "set-content-offset", x: -8192.4, y: 2048.6 },
           "*",
         );
       });
@@ -41,14 +41,21 @@ describe("embedded board content offset bridge", () => {
         () =>
           document.querySelector("style[data-agent-native-content-offset]")
             ?.textContent ===
-          "body > [data-agent-native-node-id]{translate:-8192px 2048px;}",
+          "body > [data-agent-native-node-id]{translate:-8192px 2049px;}",
       );
+      const appliedOffsetMetadata = await frame!
+        .locator("style[data-agent-native-content-offset]")
+        .evaluate((style) => ({
+          x: style.getAttribute("data-agent-native-content-offset-x"),
+          y: style.getAttribute("data-agent-native-content-offset-y"),
+        }));
+      expect(appliedOffsetMetadata).toEqual({ x: "-8192", y: "2049" });
 
       const rect = await frame!.locator("#target").evaluate((element) => {
         const { x, y } = element.getBoundingClientRect();
         return { x, y };
       });
-      expect(rect).toEqual({ x: -7192, y: 3048 });
+      expect(rect).toEqual({ x: -7192, y: 3049 });
 
       await page.evaluate(() => {
         window.frames[0]?.postMessage(
@@ -61,7 +68,7 @@ describe("embedded board content offset bridge", () => {
         await frame!
           .locator("style[data-agent-native-content-offset]")
           .textContent(),
-      ).toBe("body > [data-agent-native-node-id]{translate:-8192px 2048px;}");
+      ).toBe("body > [data-agent-native-node-id]{translate:-8192px 2049px;}");
     } finally {
       await browser.close();
     }

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mockEvent } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { PNG_BASE64 } from "../file-upload/test-image-fixtures.js";
 import {
   getRequestRunContext,
   runWithRequestContext,
@@ -120,8 +121,13 @@ async function firstPrompt(
     /** Steps to take while the handler is still preparing the prompt. */
     during?: () => Promise<void>;
   } = {},
-): Promise<{ text: string; runContext: RequestRunContext | undefined }> {
+): Promise<{
+  text: string;
+  runContext: RequestRunContext | undefined;
+  images: EngineMessage["content"];
+}> {
   let text = "";
+  let images: EngineMessage["content"] = [];
   let runContext: RequestRunContext | undefined;
   const engine: AgentEngine = {
     name: "test",
@@ -131,7 +137,7 @@ async function firstPrompt(
     capabilities: {
       thinking: false,
       promptCaching: false,
-      vision: false,
+      vision: true,
       computerUse: false,
       parallelToolCalls: false,
     },
@@ -142,6 +148,10 @@ async function firstPrompt(
       text ||= (last?.content ?? [])
         .flatMap((part) => (part.type === "text" ? [part.text] : []))
         .join("\n");
+      const imageParts = (last?.content ?? []).filter(
+        (part) => part.type === "image",
+      );
+      if (imageParts.length > 0) images = imageParts;
       runContext ??= { ...getRequestRunContext() };
       yield {
         type: "assistant-content",
@@ -184,7 +194,7 @@ async function firstPrompt(
     const reader = response.getReader();
     while (!(await reader.read()).done) {}
   }
-  return { text, runContext };
+  return { text, runContext, images };
 }
 
 describe("reference prefetch status", () => {
@@ -258,6 +268,39 @@ describe("reference prefetch status", () => {
     const { text } = await firstPrompt({ prepareRequest });
 
     expect(text).not.toContain("<context-note>");
+  });
+});
+
+describe("server-prepared prior image context", () => {
+  it("sends prior images to the model without persisting them as current uploads", async () => {
+    const onRunPrepared = vi.fn();
+    const imageData = `data:image/png;base64,${PNG_BASE64}`;
+
+    const { images, text } = await firstPrompt({
+      onRunPrepared,
+      prepareRequest: () => ({
+        contextAttachments: [
+          {
+            type: "image",
+            name: "earlier.png",
+            contentType: "image/png",
+            data: imageData,
+          },
+        ],
+      }),
+    });
+
+    expect(images).toContainEqual({
+      type: "image",
+      data: PNG_BASE64,
+      mediaType: "image/png",
+    });
+    expect(text).toContain("Images attached in earlier turns of this chat");
+    expect(onRunPrepared).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [expect.objectContaining({ name: "earlier.png" })],
+      }),
+    );
   });
 });
 

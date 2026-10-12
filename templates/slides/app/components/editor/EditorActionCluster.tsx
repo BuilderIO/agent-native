@@ -113,10 +113,9 @@ export function EditorActionCluster({
               onAddEmptySlide();
             }}
             disabled={addSlideGenerating}
-            aria-label={t("editorSidebar.newSlide")}
           >
             <IconPlus className="size-3.5" />
-            <span data-compact-label>{t("editorSidebar.newSlide")}</span>
+            {t("editorSidebar.newSlide")}
           </Button>
           {onToggleTextBoxMode && <div className={DIVIDER_CLASS} />}
         </>

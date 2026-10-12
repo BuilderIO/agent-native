@@ -134,33 +134,29 @@ Rewind está desactivado de forma predeterminada. No se captura nada hasta que l
 
 Activa Rewind en la pestaña Rewind de Configuración. Una vez activado, puedes preguntarle al agente cosas como «¿qué estaba mirando hace 20 minutos?» y este lee fragmentos de texto del búfer local de texto en pantalla, contexto de app y ventana, y fragmentos de transcripción. El agente nunca recibe las grabaciones en sí, con una excepción: una solicitud que tú revisas y apruebas, que convierte un rango exacto en un clip privado.
 
-#### Añadir lo que pasó antes (opción anterior del editor) {#add-what-happened-before}
-
-Esta es la opción anterior del editor. En el editor de un clip, **Add what happened before** toma los 30 segundos o los 5 minutos anteriores de tu historial local de Rewind y los añade al principio del vídeo del clip. El clip debe haberse grabado en este dispositivo mientras Rewind estaba activado, y esos momentos deben seguir dentro del historial conservado por Rewind. Para la opción más reciente, que mantiene el tiempo de pantalla anterior como contexto aparte y deja el vídeo como está, consulta [Tiempo de pantalla anterior](#earlier-screen-time).
-
-- El clip debe ser privado, sin que nadie más tenga acceso directo concedido. El historial de Rewind puede contener contexto de antes de que decidieras grabar, así que Clips hace primero el clip privado y se detiene si alguien más todavía tiene acceso.
-- El archivo multimedia del clip se sustituye por la grabación combinada. La transcripción, los capítulos, los comentarios y las reacciones se desplazan para que sus marcas de tiempo sigan coincidiendo, y la línea de tiempo marca dónde empezaba el clip original.
-- Se ejecuta una vez por clip y solo cuando lo pides. Nada se añade desde Rewind automáticamente.
-
 ### Tiempo de pantalla anterior {#earlier-screen-time}
 
 El tiempo de pantalla anterior añade hasta cinco minutos de tu pantalla de antes de que empezaras una grabación, tomados de Rewind en este dispositivo. Se adjunta a la grabación como contexto propio. No se integra en el vídeo de la grabación.
 
-El tiempo de pantalla anterior es una función opcional de Labs. Actívala en **Settings > Labs**, « Include earlier screen time ». Viene desactivada de forma predeterminada.
+El tiempo de pantalla anterior es una función opcional de Labs que viene activada de forma predeterminada. Puedes desactivarla en **Settings > Labs**, « Include earlier screen time », en la aplicación web de Clips o en la aplicación de escritorio.
 
 Con la función activada, el popover de la aplicación de escritorio de Clips tiene un control **Include last**. Elige **Off** (el valor predeterminado), **30 s**, **5 min** o **Custom…** para cualquier duración de hasta cinco minutos. Rewind debe estar activado y en funcionamiento para que una duración surta efecto. Si Rewind está desactivado, al elegir una duración se abre una breve explicación con un botón **Turn on Rewind**.
 
-Al empezar una grabación, se solicita la ventana temporal que elegiste en **Include last** y se sube desde este dispositivo. Con **Off**, no se solicita nada.
+Al empezar una grabación, se solicita la ventana temporal que elegiste en **Include last** y se sube desde este dispositivo al empezar la grabación. Con **Off**, no se solicita nada.
 
 Para ver exactamente lo que compartes, elige **Edit** junto al tiempo de pantalla anterior en la aplicación de escritorio cuando esté listo. El editor muestra una vista previa de hasta cinco minutos del historial local anterior al inicio de la grabación. La vista previa se crea en tu dispositivo y nunca se sube. La selección empieza en la ventana temporal que elegiste. Arrastra sus asas para recortarla y usa **Play selection** para reproducir solo esa parte.
 
+La ventana temporal muestra tres indicadores: **From 1:30 before** (desde cuándo antes empieza), **Length 1 min 30 s** y **To recording start**, porque cada ventana termina donde empieza la grabación. Cuando la ventana empieza al inicio de la grabación, su primer indicador dice **From recording start**.
+
 **Save** sube solo la ventana temporal seleccionada. Cancelar, o cerrar el editor de cualquier otra forma, descarta la vista previa y no sube nada.
 
-Para quitar el tiempo de pantalla anterior de un clip, pídele al agente que lo quite. La grabación del material pasa a la papelera, donde permanece hasta que la borres allí. Descartar una grabación también elimina el tiempo de pantalla anterior que tenía.
+Para quitar el tiempo de pantalla anterior, elige **Remove earlier screen time** en la vista de edición de la aplicación de escritorio o en el panel de la pestaña Transcript de la página del clip, y confirma. También puedes pedirle al agente que lo quite. La grabación del material pasa a la papelera, donde permanece hasta que la borres allí, y el clip deja de incluirla. Descartar una grabación también elimina el tiempo de pantalla anterior que tenía.
+
+Una grabación capturada en otro dispositivo muestra **Waiting for the device that recorded this clip** hasta que ese dispositivo la guarde. Solo ese dispositivo puede exportar su material, así que tus otros dispositivos la omiten. Un elemento sin dispositivo de grabación registrado, como uno pedido antes del seguimiento de dispositivos, lo sigue procesando la aplicación de escritorio que capturó la grabación.
 
 Mientras un clip tenga tiempo de pantalla anterior, sigue siendo privado. Pedirlo hace que el clip sea privado, y la solicitud se rechaza si el clip todavía se comparte directamente con otras personas. Compartir queda bloqueado hasta que quites el tiempo de pantalla anterior: hacer el clip público o visible para tu organización, o dar acceso a alguien, se rechaza.
 
-En la página del clip, la pestaña Transcript muestra el tiempo de pantalla anterior encima de la transcripción, con su ventana temporal y un reproductor insertado. La edición se hace en la aplicación de escritorio de Clips. El agente puede leer la ventana temporal y su estado.
+En la página del clip, la pestaña Transcript muestra el tiempo de pantalla anterior encima de la transcripción, con su ventana temporal y un reproductor insertado. La edición se hace en la aplicación de escritorio de Clips; el mismo panel también puede quitarlo. El agente puede leer la ventana temporal y su estado.
 
 Límites: el tiempo de pantalla anterior dura cinco minutos como máximo. El historial solo incluye lo que Rewind todavía conserva en este dispositivo, así que es posible que los momentos más antiguos ya no estén disponibles.
 
@@ -168,7 +164,17 @@ Límites: el tiempo de pantalla anterior dura cinco minutos como máximo. El his
 
 Instala la extensión de Clips para Chrome para obtener una grabación además de los registros del navegador y la actividad de red de la pestaña que estás depurando, útil para reportar errores del producto y reproducir problemas exclusivos del navegador.
 
-Solo observa la pestaña que estás grabando activamente, y solo mientras la grabación está en curso. Guarda los mensajes de la consola y datos básicos por solicitud (método, una URL redactada, estado, duración y si la solicitud falló), nunca los cuerpos de las solicitudes o respuestas, ni encabezados ni cookies. Usa la aplicación de escritorio para la grabación diaria, y recurre a la extensión de Chrome específicamente cuando necesites adjuntar esos registros del navegador.
+| Tema              | Comportamiento                                                                                                                                                                                                                                                      |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pestañas          | Hasta cinco: la pestaña desde la que iniciaste la grabación, y luego las pestañas que usaste en los últimos 10 minutos, de la más reciente a la más antigua.                                                                                                        |
+| Cambio de pestaña | También se captura una pestaña a la que cambies durante la grabación. Si hay más de cinco pestañas vinculadas, se desvincula la pestaña menos usada recientemente que no sea la que está en primer plano, y sus registros hasta ese momento siguen en la grabación. |
+| Retrospectiva     | Hasta 30 segundos antes de que empezara la grabación, en la medida en que la página todavía conserve su historial de consola y su lista de tiempos de recursos. Estas entradas tienen desplazamientos de tiempo negativos.                                          |
+| Guardado          | Mensajes de la consola e información básica de las solicitudes fetch/XHR: método, una URL redactada, estado, duración y si la solicitud falló. Cada entrada indica la pestaña de la que procede.                                                                    |
+| Nunca se guarda   | Cuerpos de solicitudes o respuestas, encabezados ni cookies.                                                                                                                                                                                                        |
+
+Las entradas de red de la retrospectiva no tienen método HTTP, así que su método se registra como `UNKNOWN`. Las solicitudes hechas durante la grabación incluyen el método. Se hace seguimiento de las pestañas mientras la extensión está en ejecución, así que durante los primeros 10 minutos tras iniciarse puede que menos de cinco pestañas cumplan los requisitos.
+
+Usa la aplicación de escritorio para la grabación diaria, y recurre a la extensión de Chrome específicamente cuando necesites adjuntar esos registros del navegador.
 
 ## Transcripción y metadatos de IA {#transcription-and-ai-metadata}
 

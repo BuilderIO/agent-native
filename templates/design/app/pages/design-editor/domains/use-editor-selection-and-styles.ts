@@ -137,6 +137,7 @@ export function useEditorSelectionAndStyles({
     selectedElement,
     setSelectedElement,
     selectedElementRef,
+    activeFileIdRef,
     liveRoutePathsByScreenIdRef,
     pendingStructureRedoReplayTimerRef,
     cancelPendingStructureVerification,
@@ -227,6 +228,7 @@ export function useEditorSelectionAndStyles({
     setHoveredElementScreenId,
     recordPendingHistoryEntry,
     ydoc,
+    currentYDocRef,
     isSynced,
     setCollabContent,
     setCollabContentFileId,
@@ -856,6 +858,7 @@ export function useEditorSelectionAndStyles({
         preserveSelection?: boolean;
         routePath?: string;
         pendingUndoGestureId?: string;
+        requirePersistedSourceAcceptance?: boolean;
       } = {},
     ) => {
       const routePath =
@@ -870,6 +873,8 @@ export function useEditorSelectionAndStyles({
           activeCanvasSourceType,
           activeCodeLayerProjection,
           activeFile,
+          activeFileIdRef,
+          currentYDocRef,
           activeProjectionContent,
           applyLinkedComponentEdit,
           canApplyContentEdit,

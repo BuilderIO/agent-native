@@ -1,11 +1,11 @@
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { AgentMark } from "@agent-native/toolkit/app/shared";
 import {
   IconAssembly,
-  IconFile,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
-  IconSparkles,
+  IconStack2,
 } from "@tabler/icons-react";
 import { useRef, type ReactNode } from "react";
 import { Link } from "react-router";
@@ -72,13 +72,13 @@ export function DesignWorkspaceRail({
   }> = [
     {
       panel: "file",
-      label: t("designEditor.leftRail.file"),
-      icon: <IconFile className="size-5" stroke={1.5} />,
+      label: t("designEditor.leftRail.layers"),
+      icon: <IconStack2 className="size-5" stroke={1.5} />,
     },
     {
       panel: "agent",
       label: t("designEditor.leftRail.agent"),
-      icon: <IconSparkles className="size-5" stroke={1.5} />,
+      icon: <AgentMark className="size-5" />,
     },
     {
       panel: "tokens",

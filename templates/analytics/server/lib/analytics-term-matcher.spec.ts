@@ -7,6 +7,7 @@ import {
   paginateSearchResults,
   semanticScopeCompatibility,
   semanticScopeForSearch,
+  unrelatedNameTerms,
 } from "./analytics-term-matcher";
 
 describe("Analytics term matching", () => {
@@ -35,6 +36,34 @@ describe("Analytics term matching", () => {
     expect(exact.matchedTerms).toEqual(
       expect.arrayContaining(["workspace", "member"]),
     );
+    expect(exact.exactMatchedTerms).toEqual([]);
+  });
+
+  it("reports literal query coverage separately from synonym recall", () => {
+    const match = matchSearchFields("Builder.io users organization", [
+      {
+        value: "Builder.io Connect Funnel; distinct users; org_id",
+        weight: 24,
+      },
+    ]);
+
+    expect(match.matchedTerms).toEqual(
+      expect.arrayContaining(["builder", "io", "user", "organization"]),
+    );
+    expect(match.exactMatchedTerms).toEqual(
+      expect.arrayContaining(["builder", "io", "user"]),
+    );
+    expect(match.exactMatchedTerms).not.toContain("organization");
+  });
+
+  it("treats synonymous labels as relevant but counts unrelated name terms", () => {
+    expect(unrelatedNameTerms("error rate", "5xx Error Rate")).toEqual([]);
+    expect(
+      unrelatedNameTerms(
+        "Builder.io users organization",
+        "Builder.io Connect Funnel",
+      ),
+    ).toEqual(["connect", "funnel"]);
   });
 
   it("normalizes the common phrase sign up to signup", () => {

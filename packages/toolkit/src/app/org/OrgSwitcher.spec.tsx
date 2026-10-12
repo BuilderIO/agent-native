@@ -752,16 +752,21 @@ describe("OrgSwitcher (account menu)", () => {
 
     expect(findItem("Globex").querySelector("svg.animate-spin")).not.toBeNull();
     expect(findItem("Acme").querySelector("svg.animate-spin")).toBeNull();
+    expect(findItem("Acme").hasAttribute("data-disabled")).toBe(true);
   });
 
-  it("keeps the current organization selection a no-op", async () => {
+  it("persists an explicit selection of the current organization", async () => {
     mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
 
     render(<OrgSwitcher />);
     openMenu();
     await select("Acme");
 
-    expect(mocks.switchOrg.mutate).not.toHaveBeenCalled();
+    expect(mocks.switchOrg.mutate).toHaveBeenCalledWith(
+      "org-1",
+      expect.any(Object),
+    );
+    expect(trigger().getAttribute("aria-expanded")).toBe("false");
   });
 
   it("accepts invitations and joins domain matches from the menu", async () => {

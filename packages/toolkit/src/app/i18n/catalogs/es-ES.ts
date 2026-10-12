@@ -38,6 +38,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "en cola",
   "agent.completed": "terminó",
   "agent.failed": "necesita atención",
+  "agent.failureReason.failed": "No se pudo terminar",
+  "agent.failureReason.setup": "Requiere configuración",
+  "agent.failureReason.auth": "Acceso rechazado",
+  "agent.failureReason.timeout": "Tardó demasiado",
+  "agent.failureReason.budget": "Se agotó el tiempo",
+  "agent.failureReason.response": "Sin resultado útil",
   "agent.closed": "cerró",
   "approval.alwaysAllow": "Permitir siempre",
   "approval.alwaysAllowHint": "Aprobar y permitir siempre este comando exacto",
@@ -128,7 +134,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "Omitir por ahora",
   "onboarding.saveRoleError": "No se pudo guardar tu rol.",
   "onboarding.builderCreateAccount": "Usar Builder.io",
-  "onboarding.builderSignInWithAccount": "Usar Builder.io",
+  "onboarding.builderSignInWithAccount":
+    "Iniciar sesión con una cuenta de Builder.io",
   "onboarding.builderActivateDescription":
     "Crea o reutiliza tu cuenta de Builder.io y activa sus créditos gratuitos con un solo clic.",
   "onboarding.builderActiveCredits":
@@ -150,8 +157,17 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderAccountExistsTitle": "Ya tienes una cuenta de Builder.io",
   "onboarding.builderAccountExistsDescription":
     "Inicia sesión para usar tu cuenta.",
+  "onboarding.builderActivationChecking":
+    "Comprobando si se pueden crear cuentas nuevas.",
+  "onboarding.builderActivationUnavailable":
+    "Esta aplicación no permite crear cuentas nuevas. Puedes conectar una cuenta existente.",
+  "onboarding.builderActivationUnavailableInMode":
+    "La activación de una cuenta nueva no está disponible en este modo. Aún puedes conectar una cuenta existente.",
+  "onboarding.builderActivationCheckFailed":
+    "No se pudo comprobar si esta aplicación permite crear cuentas nuevas.",
+
   "onboarding.builderActivationDescription":
-    "Crea o conecta una cuenta de Builder.io con un solo clic para obtener créditos gratis.",
+    "Crea una cuenta nueva para activar créditos gratis o continúa con una cuenta existente.",
   "onboarding.builderOrgActivationDescription":
     "Crearemos tu cuenta de Builder.io con un solo clic para que tu organización pueda usarla.",
   "onboarding.builderCreateAndActivate": "Crear y activar",
@@ -160,13 +176,14 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "Términos de servicio",
   "onboarding.builderPrivacy": "Política de privacidad",
   "onboarding.builderConsentAnd": "y",
-  "onboarding.builderExistingAccount": "Usar Builder.io",
+  "onboarding.builderExistingAccount": "Tengo una cuenta de Builder.io",
   "onboarding.builderActivating":
     "Activando los créditos gratuitos de Builder.io",
   "onboarding.builderConnecting":
     "Configurando los créditos gratuitos de Builder.io",
   "onboarding.builderProvisioningDescription":
     "Estamos creando tu cuenta de Builder.io y activando los créditos gratis.",
+  "onboarding.builderCancelPending": "Comprobando el estado de la conexión…",
   "onboarding.builderConnectionDescription":
     "Finaliza la conexión con un clic en la nueva ventana.",
   "onboarding.builderReadyWithCodeChanges":
@@ -892,6 +909,12 @@ const messages: ToolkitAgentChatTranslation = {
   "selection.attached":
     "{{formattedCount}} caracteres de la selección adjuntados",
   "selection.clear": "Borrar el contexto de la selección",
+  "setup.addKeyInSettings": "Añadir una clave en Ajustes",
+  "setup.addKeyInSettingsDescription": "Para tu cuenta o tu organización.",
+  "setup.setEnvironmentVariable": "Configurar una variable de entorno",
+  "setup.setEnvironmentVariableDescription":
+    "Una clave de proveedor para todos en esta aplicación.",
+
   "setup.addOwnKeys": "Añadir tus propias claves",
   "setup.builderCredits":
     "Builder.io incluye créditos gratuitos, o puedes usar tu propia clave de API.",

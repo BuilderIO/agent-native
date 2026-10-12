@@ -71,10 +71,6 @@ import {
   type RepromptDraftRequest,
   type ReviewFocusRequest,
 } from "@/components/visual-editor";
-import {
-  isDesignHotkeyEditableTarget,
-  isNativeKeyboardActivationTarget,
-} from "@/hooks/useDesignHotkeys";
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
 import {
   resolveDesktopDesignSnapshotLayer,
@@ -86,6 +82,7 @@ import {
 } from "@/lib/route-path";
 import { cn } from "@/lib/utils";
 import { penPathScreenContentOffset } from "@/pages/design-editor/clone-and-pen-edit";
+import type { TextCommitStatus } from "@/pages/design-editor/command-types";
 import {
   commitAfterPaint,
   flushCommitsAfterPaint,
@@ -108,6 +105,7 @@ import type {
   ReviewBoardGeometry,
 } from "../../../shared/review-anchor";
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
+import { hydrateInitialSourceTokens } from "./bridge/source-token-hydration";
 import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
 import { captureAnnotatedScreenshot } from "./design-canvas/annotation-snapshot";
 import { submitDesignAnnotations } from "./design-canvas/annotation-submit";
@@ -171,9 +169,12 @@ import {
   beginPendingTextDelivery,
   type BeginTextEditOptions,
   cancelPendingTextCapture,
+  cancelPendingTextHostCommit,
   isPendingTextInterceptionOpen,
+  isPendingTextRequestLive,
   onPendingTextCaptureCancel,
   owePendingTextCapture,
+  queuePendingTextHostCommit,
   registerTextEditOwner,
   releasePendingTextCapture,
   returnPendingTextCapture,
@@ -190,6 +191,14 @@ import {
   connectPrivateReplayScreenshotPreview,
   preparePrivateReplayScreenshotPreviewDocument,
 } from "./design-canvas/private-replay-screenshot-preview";
+import {
+  commitTextContentChange,
+  consumePendingTextCreation,
+  deferPendingTextCreationCleanup,
+  registerPendingTextCreation,
+  retainPendingTextCreationForActiveEdit,
+  type PendingTextCreationOwners,
+} from "./design-canvas/text-content-change-result";
 import { DeviceFrame } from "./DeviceFrame";
 import { dndHostLog } from "./dnd-debug";
 import type { RelativeStyleOperation } from "./edit-panel/style-change-types";
@@ -378,19 +387,6 @@ function clearTabFocusedLiveFrames(document: Document) {
   document
     .querySelectorAll<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
     .forEach((frame) => tabFocusedLiveFrames.delete(frame));
-}
-
-// A click inside the frame never moves host focus, so a chrome button clicked
-// before it would keep taking Enter and Space from the canvas selection.
-function releaseChromeButtonFocus(document: Document) {
-  const focused = document.activeElement;
-  if (
-    focused instanceof HTMLElement &&
-    isNativeKeyboardActivationTarget(focused) &&
-    !isDesignHotkeyEditableTarget(focused)
-  ) {
-    focused.blur();
-  }
 }
 
 const MOTION_PREVIEW_BRIDGE_SCRIPT = `
@@ -779,7 +775,7 @@ interface DesignCanvasProps {
       routePath?: string;
       relativeOperations?: Record<string, RelativeStyleOperation>;
     },
-  ) => void;
+  ) => TextCommitStatus | void;
   onTextEditingStateChange?: (
     state: Omit<TextEditingState, "screenId">,
   ) => void;
@@ -1104,10 +1100,6 @@ function originFromUrl(value: string | undefined): string | null {
   }
 }
 
-function inlineScriptJson(value: string): string {
-  return JSON.stringify(value).replace(/</g, "\\u003c");
-}
-
 function buildEditorChromeBridgeScript(args: {
   readOnly: boolean;
   editMode: boolean;
@@ -1119,49 +1111,113 @@ function buildEditorChromeBridgeScript(args: {
   contentOffsetY: number;
   runtimeLayerSnapshotEnabled: boolean;
   initialSourceHead: string;
+  initialSourceOwnership: string;
 }) {
   return (
     createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
-    EDITOR_CHROME_BRIDGE_SCRIPT.replace(
-      "__READ_ONLY__",
-      args.readOnly ? "true" : "false",
+    hydrateInitialSourceTokens(
+      EDITOR_CHROME_BRIDGE_SCRIPT.replace(
+        "__READ_ONLY__",
+        args.readOnly ? "true" : "false",
+      )
+        .replace("__TEXT_EDITING_ENABLED__", args.editMode ? "true" : "false")
+        .replace("__EDITOR_CHROME_SCALE_X__", String(args.editorChromeScaleX))
+        .replace("__EDITOR_CHROME_SCALE_Y__", String(args.editorChromeScaleY))
+        .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify(args.screenId))
+        .replace(
+          "__DESIGN_CANVAS_BOARD_SURFACE__",
+          args.boardSurface ? "true" : "false",
+        )
+        .replace(
+          "__DESIGN_CANVAS_CONTENT_OFFSET_X__",
+          String(Math.round(args.contentOffsetX)),
+        )
+        .replace(
+          "__DESIGN_CANVAS_CONTENT_OFFSET_Y__",
+          String(Math.round(args.contentOffsetY)),
+        )
+        .replace(
+          "__RUNTIME_LAYER_SNAPSHOT_ENABLED__",
+          args.runtimeLayerSnapshotEnabled ? "true" : "false",
+        )
+        .replace(
+          "__LIVE_REFLOW_ENABLED__",
+          LIVE_REFLOW_ENABLED ? "true" : "false",
+        )
+        .replace(
+          "__SELECTED_LAYER_DRAG_PRIORITY__",
+          SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
+        ),
+      args.initialSourceHead,
+      args.initialSourceOwnership,
     )
-      .replace("__TEXT_EDITING_ENABLED__", args.editMode ? "true" : "false")
-      .replace("__EDITOR_CHROME_SCALE_X__", String(args.editorChromeScaleX))
-      .replace("__EDITOR_CHROME_SCALE_Y__", String(args.editorChromeScaleY))
-      .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify(args.screenId))
-      .replace(
-        "__DESIGN_CANVAS_BOARD_SURFACE__",
-        args.boardSurface ? "true" : "false",
-      )
-      .replace(
-        "__DESIGN_CANVAS_CONTENT_OFFSET_X__",
-        String(Math.round(args.contentOffsetX)),
-      )
-      .replace(
-        "__DESIGN_CANVAS_CONTENT_OFFSET_Y__",
-        String(Math.round(args.contentOffsetY)),
-      )
-      .replace(
-        "__RUNTIME_LAYER_SNAPSHOT_ENABLED__",
-        args.runtimeLayerSnapshotEnabled ? "true" : "false",
-      )
-      .replace(
-        "__LIVE_REFLOW_ENABLED__",
-        LIVE_REFLOW_ENABLED ? "true" : "false",
-      )
-      .replace(
-        "__SELECTED_LAYER_DRAG_PRIORITY__",
-        SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
-      )
-      .replace(/__INITIAL_SOURCE_HEAD__/g, () =>
-        inlineScriptJson(args.initialSourceHead),
-      )
   );
 }
 
 function sourceHeadInnerHtml(html: string): string {
   return /<head\b[^>]*>([\s\S]*?)<\/head\s*>/i.exec(html)?.[1] ?? "";
+}
+
+function initialSourceOwnershipJson(html: string): string {
+  if (typeof DOMParser === "undefined") return "";
+  try {
+    const body = new DOMParser().parseFromString(html, "text/html").body;
+    const sourceNodeIds = new Map<string, number>();
+    const keyedNodes = new Map<
+      string,
+      {
+        tagName: string;
+        meta: { attrs: string[]; className: string; style: string };
+      }
+    >();
+    const sourceElements: Element[] = [];
+    const collectSourceElements = (node: Node) => {
+      if (node.nodeType !== 1) return;
+      const element = node as Element;
+      sourceElements.push(element);
+      const templateContent =
+        element.tagName === "TEMPLATE"
+          ? (element as HTMLTemplateElement).content
+          : null;
+      const children = templateContent?.childNodes ?? element.childNodes;
+      Array.from(children).forEach(collectSourceElements);
+    };
+    collectSourceElements(body);
+    sourceElements.forEach((element) => {
+      const nodeId = element.getAttribute("data-agent-native-node-id") ?? "";
+      if (!nodeId) return;
+      sourceNodeIds.set(nodeId, (sourceNodeIds.get(nodeId) ?? 0) + 1);
+    });
+    sourceElements.forEach((element) => {
+      const nodeId = element.getAttribute("data-agent-native-node-id") ?? "";
+      if (!nodeId || element === body || sourceNodeIds.get(nodeId) !== 1)
+        return;
+      keyedNodes.set(nodeId, {
+        tagName: element.tagName.toLowerCase(),
+        meta: {
+          attrs: Array.from(element.attributes, (attribute) => attribute.name),
+          className: element.getAttribute("class") ?? "",
+          style: element.getAttribute("style") ?? "",
+        },
+      });
+    });
+    const bodyMeta = {
+      attrs: Array.from(body.attributes, (attribute) => attribute.name),
+      className: body.getAttribute("class") ?? "",
+      style: body.getAttribute("style") ?? "",
+    };
+    return JSON.stringify({
+      body: bodyMeta,
+      sourceNodeIds: Array.from(sourceNodeIds.keys()),
+      nodes: Array.from(keyedNodes, ([nodeId, node]) => ({
+        nodeId,
+        ...node,
+      })),
+    });
+  } catch {
+    console.warn("Design could not capture initial source ownership");
+    return "";
+  }
 }
 
 const NO_SELECTORS = Object.freeze([]) as unknown as string[];
@@ -1468,6 +1524,38 @@ export function DesignCanvas({
   const { resolvedTheme } = useTheme();
   const browserOrigin = useBrowserOrigin();
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const canvasFocusProbeRequestIdRef = useRef(0);
+  const pendingCanvasFocusProbeRef = useRef<{
+    requestId: number;
+    iframe: HTMLIFrameElement;
+    contentWindow: Window;
+    allowTabFocusOverride: boolean;
+  } | null>(null);
+  const requestCanvasFocusProbe = useCallback(
+    (
+      iframe: HTMLIFrameElement,
+      options: { reason?: string; allowTabFocusOverride?: boolean } = {},
+    ) => {
+      const contentWindow = iframe.contentWindow;
+      if (!contentWindow || iframeRef.current !== iframe) return;
+      const requestId = ++canvasFocusProbeRequestIdRef.current;
+      pendingCanvasFocusProbeRef.current = {
+        requestId,
+        iframe,
+        contentWindow,
+        allowTabFocusOverride: options.allowTabFocusOverride === true,
+      };
+      contentWindow.postMessage(
+        {
+          type: "agent-native:canvas-focus-state-probe",
+          requestId,
+          ...(options.reason ? { reason: options.reason } : {}),
+        },
+        "*",
+      );
+    },
+    [],
+  );
   const restoreKScalePreviewRef = useRef<(() => void) | null>(null);
   const textEditingStateRef = useRef<Omit<TextEditingState, "screenId">>({
     active: false,
@@ -2187,6 +2275,7 @@ export function DesignCanvas({
             contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
             runtimeLayerSnapshotEnabled,
             initialSourceHead: "",
+            initialSourceOwnership: "",
           })
         : "",
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3344,49 +3433,58 @@ export function DesignCanvas({
   const srcdoc = useMemo(() => {
     if (rawExternalPreviewUrl) return undefined;
     const localizedContent = withLocalRuntimes(iframeRenderContent);
+    const frameContent = getEmbeddedFrameDocumentContent({
+      content: localizedContent,
+      embeddedFrameBackground,
+      transparentBackground,
+      contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
+      contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+      fitBodyToFrame: fitRootBodyToFrame ?? !boardSurface,
+    });
     const editorChromeBridge =
       createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
-      EDITOR_CHROME_BRIDGE_SCRIPT.replace(
-        "__READ_ONLY__",
-        readOnly ? "true" : "false",
-      )
-        .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
-        .replace(
-          "__EDITOR_CHROME_SCALE_X__",
-          String(effectiveEditorChromeScaleX),
+      hydrateInitialSourceTokens(
+        EDITOR_CHROME_BRIDGE_SCRIPT.replace(
+          "__READ_ONLY__",
+          readOnly ? "true" : "false",
         )
-        .replace(
-          "__EDITOR_CHROME_SCALE_Y__",
-          String(effectiveEditorChromeScaleY),
-        )
-        .replace(
-          "__DESIGN_CANVAS_SCREEN_ID__",
-          JSON.stringify(screenId ?? contentKey ?? ""),
-        )
-        .replace(
-          "__DESIGN_CANVAS_BOARD_SURFACE__",
-          boardSurface ? "true" : "false",
-        )
-        .replace(
-          "__DESIGN_CANVAS_CONTENT_OFFSET_X__",
-          String(Math.round(embeddedFrame?.contentOffsetX ?? 0)),
-        )
-        .replace(
-          "__DESIGN_CANVAS_CONTENT_OFFSET_Y__",
-          String(Math.round(embeddedFrame?.contentOffsetY ?? 0)),
-        )
-        .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
-        .replace(
-          "__LIVE_REFLOW_ENABLED__",
-          LIVE_REFLOW_ENABLED ? "true" : "false",
-        )
-        .replace(
-          "__SELECTED_LAYER_DRAG_PRIORITY__",
-          SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
-        )
-        .replace(/__INITIAL_SOURCE_HEAD__/g, () =>
-          inlineScriptJson(sourceHeadInnerHtml(localizedContent)),
-        );
+          .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
+          .replace(
+            "__EDITOR_CHROME_SCALE_X__",
+            String(effectiveEditorChromeScaleX),
+          )
+          .replace(
+            "__EDITOR_CHROME_SCALE_Y__",
+            String(effectiveEditorChromeScaleY),
+          )
+          .replace(
+            "__DESIGN_CANVAS_SCREEN_ID__",
+            JSON.stringify(screenId ?? contentKey ?? ""),
+          )
+          .replace(
+            "__DESIGN_CANVAS_BOARD_SURFACE__",
+            boardSurface ? "true" : "false",
+          )
+          .replace(
+            "__DESIGN_CANVAS_CONTENT_OFFSET_X__",
+            String(Math.round(embeddedFrame?.contentOffsetX ?? 0)),
+          )
+          .replace(
+            "__DESIGN_CANVAS_CONTENT_OFFSET_Y__",
+            String(Math.round(embeddedFrame?.contentOffsetY ?? 0)),
+          )
+          .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+          .replace(
+            "__LIVE_REFLOW_ENABLED__",
+            LIVE_REFLOW_ENABLED ? "true" : "false",
+          )
+          .replace(
+            "__SELECTED_LAYER_DRAG_PRIORITY__",
+            SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
+          ),
+        sourceHeadInnerHtml(localizedContent),
+        initialSourceOwnershipJson(frameContent),
+      );
     const imageDiagBridge = "";
     const bridgeToInject =
       sourceProvenanceBootstrap(iframeSourceProvenance) +
@@ -3399,14 +3497,6 @@ export function DesignCanvas({
       embeddedGestureBridgeForSrcdoc +
       editorChromeBridge +
       imageDiagBridge;
-    const frameContent = getEmbeddedFrameDocumentContent({
-      content: localizedContent,
-      embeddedFrameBackground,
-      transparentBackground,
-      contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
-      contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
-      fitBodyToFrame: fitRootBodyToFrame ?? !boardSurface,
-    });
     let frameDocument: string;
     if (/<\/(?:body|html)\s*>/i.test(frameContent)) {
       frameDocument = injectDocumentMarkup(frameContent, bridgeToInject);
@@ -3489,6 +3579,12 @@ export function DesignCanvas({
         usesLiveEditInjectedBridge ? liveEditBridgeKey : ""
       }`
     : iframeDocumentIdentity;
+  useLayoutEffect(() => {
+    pendingCanvasFocusProbeRef.current = null;
+    return () => {
+      pendingCanvasFocusProbeRef.current = null;
+    };
+  }, [editMode, iframeElementIdentity, interactMode, readOnly, sourceType]);
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
     runtimeReloadingFromDocumentIdRef.current = undefined;
@@ -3802,6 +3898,55 @@ export function DesignCanvas({
       const tabFocusedFrame = iframeRef.current;
       if (
         trustedCurrentFrame &&
+        e.data.type === "agent-native:canvas-focus-state" &&
+        Object.prototype.hasOwnProperty.call(e.data, "requestId")
+      ) {
+        const pendingProbe = pendingCanvasFocusProbeRef.current;
+        if (
+          !pendingProbe ||
+          !Number.isSafeInteger(e.data.requestId) ||
+          e.data.requestId !== pendingProbe.requestId
+        ) {
+          return;
+        }
+        pendingCanvasFocusProbeRef.current = null;
+        if (
+          pendingProbe.iframe !== tabFocusedFrame ||
+          pendingProbe.contentWindow !== iframeWindow ||
+          e.source !== pendingProbe.contentWindow ||
+          e.data.focusSafe !== true ||
+          (sourceType !== "localhost" && sourceType !== "fusion") ||
+          readOnly ||
+          !editMode ||
+          interactMode ||
+          textEditingStateRef.current.active ||
+          document.activeElement !== pendingProbe.iframe ||
+          (!pendingProbe.allowTabFocusOverride &&
+            (tabFocusNavigationPendingDocuments.has(document) ||
+              (tabFocusedLiveFrames.has(pendingProbe.iframe) &&
+                !tabFocusedLiveFrames.get(pendingProbe.iframe))))
+        ) {
+          if (
+            e.data.focusSafe === false &&
+            pendingProbe.iframe === tabFocusedFrame &&
+            document.activeElement === pendingProbe.iframe &&
+            tabFocusedLiveFrames.has(pendingProbe.iframe)
+          ) {
+            tabFocusedLiveFrames.set(pendingProbe.iframe, true);
+          }
+          return;
+        }
+        if (pendingProbe.allowTabFocusOverride) {
+          tabFocusNavigationPendingDocuments.delete(document);
+        }
+        if (tabFocusedLiveFrames.has(pendingProbe.iframe)) {
+          tabFocusedLiveFrames.delete(pendingProbe.iframe);
+        }
+        focusScrollSurfaceRef.current?.(false, true);
+        return;
+      }
+      if (
+        trustedCurrentFrame &&
         sourceType === "localhost" &&
         !readOnly &&
         editMode &&
@@ -3970,14 +4115,13 @@ export function DesignCanvas({
             tabFocusedLiveFrames.delete(iframeRef.current);
             window.requestAnimationFrame(() => {
               const currentIframe = iframeRef.current;
-              if (currentIframe?.contentWindow === iframeWindow) {
-                iframeWindow?.postMessage(
-                  {
-                    type: "agent-native:canvas-focus-state-probe",
-                    reason: "route-change",
-                  },
-                  "*",
-                );
+              if (
+                currentIframe &&
+                currentIframe.contentWindow === iframeWindow
+              ) {
+                requestCanvasFocusProbe(currentIframe, {
+                  reason: "route-change",
+                });
               }
             });
           }
@@ -4255,6 +4399,7 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "element-select") {
+        const activePreviewFrame = iframeRef.current;
         const reported = e.data.payload as
           | { selector?: string; sourceId?: string; runtimeSourceId?: string }
           | undefined;
@@ -4266,9 +4411,6 @@ export function DesignCanvas({
           );
         }
         const reportedRuntimeSourceId = reported?.runtimeSourceId?.trim();
-        if (e.data.intent?.source === "pointer") {
-          releaseChromeButtonFocus(document);
-        }
         if (e.data.intent) {
           suppressMirrorSelectorsRef.current =
             reportedCandidates.length > 0 ? reportedCandidates : null;
@@ -4285,6 +4427,27 @@ export function DesignCanvas({
           replayIframeEditorStateRef.current?.();
         }
         onElementSelect(e.data.payload, e.data.intent);
+        if (
+          e.data.trustedPointer === true &&
+          e.data.intent?.source === "pointer" &&
+          e.data.focusSafe !== false
+        ) {
+          if (
+            activePreviewFrame &&
+            e.source === activePreviewFrame.contentWindow &&
+            document.activeElement === activePreviewFrame
+          ) {
+            if (sourceType === "localhost" || sourceType === "fusion") {
+              requestCanvasFocusProbe(activePreviewFrame, {
+                allowTabFocusOverride: true,
+              });
+            } else {
+              focusScrollSurfaceRef.current?.();
+            }
+          } else {
+            focusScrollSurfaceRef.current?.();
+          }
+        }
         return;
       }
       if (
@@ -4407,20 +4570,48 @@ export function DesignCanvas({
             : undefined;
         if (selector) {
           const payload = e.data.payload;
+          const owner = capturedOwnerRef.current;
+          const sourceId =
+            payload &&
+            typeof payload === "object" &&
+            "sourceId" in payload &&
+            typeof payload.sourceId === "string"
+              ? payload.sourceId
+              : null;
+          // The bridge sends inactive state before this content message; consume
+          // the owner token now so later screen changes cannot erase its handoff.
+          const isPendingCreation = consumePendingTextCreation(
+            pendingTextCreationNodeOwnersRef.current,
+            owner,
+            sourceId,
+          );
           const routePath =
             typeof e.data.routePath === "string"
               ? e.data.routePath
               : (liveRoutePathRef.current ?? undefined);
           // The iframe shares this thread, so its ended edit only paints once the commit yields.
           commitAfterPaint(() => {
-            onTextContentChange?.(selector, value, payload, {
-              html,
-              originalValue,
-              originalHtml,
-              relativeOperations,
-              routePath,
+            commitTextContentChange({
+              owner,
+              nodeId: sourceId,
+              value,
+              isPendingTextCreation: isPendingCreation,
+              commit: () =>
+                onTextContentChange?.(selector, value, payload, {
+                  html,
+                  originalValue,
+                  originalHtml,
+                  relativeOperations,
+                  routePath,
+                }),
+              queueHostCommit: queuePendingTextHostCommit,
+              cancelHostCommit: cancelPendingTextHostCommit,
+              requestSnapshot: () => {
+                if (iframeRef.current?.isConnected) {
+                  requestSharedSnapshotAfterEdit();
+                }
+              },
             });
-            requestSharedSnapshotAfterEdit();
           });
         }
         return;
@@ -4925,6 +5116,11 @@ export function DesignCanvas({
           if (!capturedOwner) return;
           if (abandonedByUser) {
             cancelPendingTextCapture(capturedOwner, pendingNodeId);
+            deferPendingTextCreationCleanup(
+              pendingTextCreationNodeOwnersRef.current,
+              capturedOwner,
+              pendingNodeId,
+            );
           } else if (e.data.reason === "committed") {
             pendingTextEditRef.current =
               currentPending?.nodeId === pendingNodeId
@@ -4940,19 +5136,61 @@ export function DesignCanvas({
           typeof e.data.nodeId === "string" ? e.data.nodeId : "";
         const owner = capturedOwnerRef.current;
         if (owner && insertNodeId) {
+          const isPendingCreation = isPendingTextRequestLive(
+            owner,
+            insertNodeId,
+          );
           acknowledgePendingTextInsert(
             owner,
             insertNodeId,
             e.data.inserted === true,
           );
+          if (isPendingCreation && e.data.inserted === true) {
+            const activeTextEditIdentity = activeTextEditIdentityRef.current;
+            registerPendingTextCreation(
+              pendingTextCreationNodeOwnersRef.current,
+              owner,
+              insertNodeId,
+              activeTextEditIdentity?.owner === owner &&
+                activeTextEditIdentity.nodeId === insertNodeId,
+            );
+          }
         }
         return;
       }
       if (e.data.type === "text-editing-state") {
         const activatedSourceId =
           typeof e.data.sourceId === "string" ? e.data.sourceId : "";
+        const owner = capturedOwnerRef.current;
+        if (!e.data.active && owner && activatedSourceId) {
+          const activeTextEditIdentity = activeTextEditIdentityRef.current;
+          if (
+            activeTextEditIdentity?.owner === owner &&
+            activeTextEditIdentity.nodeId === activatedSourceId
+          ) {
+            activeTextEditIdentityRef.current = null;
+          }
+          // Empty Escape produces no following content message, so retire its
+          // token after a grace period that leaves the ordered bridge message
+          // pair (inactive, then content) time to arrive.
+          deferPendingTextCreationCleanup(
+            pendingTextCreationNodeOwnersRef.current,
+            owner,
+            activatedSourceId,
+          );
+        }
         if (e.data.active && activatedSourceId) {
-          const owner = capturedOwnerRef.current;
+          if (owner) {
+            activeTextEditIdentityRef.current = {
+              owner,
+              nodeId: activatedSourceId,
+            };
+            retainPendingTextCreationForActiveEdit(
+              pendingTextCreationNodeOwnersRef.current,
+              owner,
+              activatedSourceId,
+            );
+          }
           const pending = pendingTextEditRef.current;
           let buffered = "";
           if (pending && pending.nodeId === activatedSourceId) {
@@ -5296,6 +5534,7 @@ export function DesignCanvas({
     sourceType,
     bridgeUrl,
     liveEditBridgeKey,
+    requestCanvasFocusProbe,
     readOnly,
     editMode,
     interactMode,
@@ -5685,6 +5924,14 @@ export function DesignCanvas({
               (doc.head ?? doc.documentElement).appendChild(style);
             }
             style.textContent = css;
+            style.setAttribute(
+              "data-agent-native-content-offset-x",
+              String(Math.round(embeddedContentOffsetX)),
+            );
+            style.setAttribute(
+              "data-agent-native-content-offset-y",
+              String(Math.round(embeddedContentOffsetY)),
+            );
           }
         }
       } catch {
@@ -5797,6 +6044,13 @@ export function DesignCanvas({
 
   const capturedOwnerRef = useRef<string | null>(null);
   capturedOwnerRef.current = previewFrameId ? null : (screenId ?? null);
+  const pendingTextCreationNodeOwnersRef = useRef<PendingTextCreationOwners>(
+    new Map(),
+  );
+  const activeTextEditIdentityRef = useRef<{
+    owner: string;
+    nodeId: string;
+  } | null>(null);
 
   const beginTextEdit = useCallback(
     (nodeId: string, options?: BeginTextEditOptions): boolean => {
@@ -5905,6 +6159,13 @@ export function DesignCanvas({
     );
     return () => {
       unregister();
+      if (activeTextEditIdentityRef.current?.owner === owner) {
+        activeTextEditIdentityRef.current = null;
+      }
+      deferPendingTextCreationCleanup(
+        pendingTextCreationNodeOwnersRef.current,
+        owner,
+      );
       const pending = pendingTextEditRef.current;
       if (owner && pending) {
         returnPendingTextCapture(owner, pending.nodeId, pending.buffer);
@@ -7514,12 +7775,10 @@ export function DesignCanvas({
             ) {
               return;
             }
-            event.currentTarget.contentWindow?.postMessage(
-              { type: "agent-native:canvas-focus-state-probe" },
-              "*",
-            );
+            requestCanvasFocusProbe(event.currentTarget);
           }}
           onLoad={(event) => {
+            pendingCanvasFocusProbeRef.current = null;
             if (!externalPreviewUrl && designId) {
               connectPrivateReplayScreenshotPreview(
                 event.currentTarget,

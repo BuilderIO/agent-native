@@ -40,8 +40,16 @@ export default defineAction({
       .describe(
         "When the recording started, as an ISO timestamp. Must be within 120 seconds of the Clip's start.",
       ),
+    deviceId: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe(
+        "The desktop device that captured the Clip. Only that device's queue will export the footage.",
+      ),
   }),
-  run: async ({ recordingId, seconds, endedAt }) => {
+  run: async ({ recordingId, seconds, endedAt, deviceId }) => {
     await assertAccess("recording", recordingId, "owner");
 
     const [recording] = await getDb()
@@ -98,16 +106,26 @@ export default defineAction({
         startedAt: window.startedAt,
         endedAt: window.endedAt,
         status: "pending",
+        capturedDeviceId: deviceId ?? null,
         createdAt: now,
         updatedAt: now,
       })
       .onConflictDoNothing()
       .returning();
     if (inserted) {
-      // The sharing hook runs before the grant write, so a grant that commits
-      // between its check and this one is not caught here. Closing that needs
-      // the grant path in core to re-check after its own write.
-      if (await hasDirectRecordingShare(recordingId)) {
+      // Re-checked after the insert commits. Each check is its own autocommit
+      // read, so a share or visibility write that commits before it is seen
+      // here, and one that commits later runs its own post-write check against
+      // this insert.
+      const [current] = await getDb()
+        .select({ visibility: schema.recordings.visibility })
+        .from(schema.recordings)
+        .where(eq(schema.recordings.id, recordingId));
+      if (
+        !current ||
+        !isPrivateClip(current.visibility) ||
+        (await hasDirectRecordingShare(recordingId))
+      ) {
         const removed = await getDb()
           .update(schema.recordingContextItems)
           .set({ status: "removed", updatedAt: new Date().toISOString() })

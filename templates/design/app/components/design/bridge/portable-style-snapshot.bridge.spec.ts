@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-function hydratedEditorChromeBridgeScript(): string {
+function hydratedEditorChromeBridgeScript(
+  runtimeLayerSnapshotEnabled = false,
+): string {
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
     .replace("__TEXT_EDITING_ENABLED__", "false")
@@ -13,7 +15,10 @@ function hydratedEditorChromeBridgeScript(): string {
     .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
-    .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+    .replace(
+      "__RUNTIME_LAYER_SNAPSHOT_ENABLED__",
+      runtimeLayerSnapshotEnabled ? "true" : "false",
+    )
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
@@ -184,7 +189,123 @@ async function portableStyleSnapshotWithIframeProbe(
   }
 }
 
+async function runtimeLayerSnapshotAfterPortableStyleProbe(
+  html: string,
+  selector: string,
+): Promise<{ html: string; nodeCount: number }> {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({
+      viewport: { width: 800, height: 600 },
+    });
+    await page.setContent(html);
+    await page.evaluate(() => {
+      const realCreateElement = document.createElement.bind(document);
+      document.createElement = ((
+        tagName: string,
+        options?: ElementCreationOptions,
+      ) => {
+        if (tagName.toLowerCase() === "iframe") {
+          const iframe = realCreateElement(
+            tagName,
+            options,
+          ) as HTMLIFrameElement;
+          Object.defineProperty(iframe, "contentDocument", {
+            configurable: true,
+            get: () => null,
+          });
+          return iframe;
+        }
+        return realCreateElement(tagName, options);
+      }) as typeof document.createElement;
+
+      const target = window as Window & { __messages?: unknown[] };
+      target.__messages = [];
+      window.addEventListener("message", (event: MessageEvent) => {
+        target.__messages!.push(event.data);
+      });
+    });
+    await page.addScriptTag({
+      content: hydratedEditorChromeBridgeScript(true),
+    });
+    await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+    await page.evaluate((sel) => {
+      window.postMessage(
+        { type: "select-element", selector: sel, selectorCandidates: [sel] },
+        "*",
+      );
+    }, selector);
+    await page.waitForFunction(() =>
+      ((window as any).__messages ?? []).some(
+        (message: any) => message.type === "element-select",
+      ),
+    );
+    await page.waitForFunction(() =>
+      ((window as any).__messages ?? []).some(
+        (message: any) =>
+          message.type ===
+          "agent-native:runtime-layer-snapshot-reservation-request",
+      ),
+    );
+    const reservation = await page.evaluate(() =>
+      ((window as any).__messages ?? []).find(
+        (message: any) =>
+          message.type ===
+          "agent-native:runtime-layer-snapshot-reservation-request",
+      ),
+    );
+    await page.evaluate((request) => {
+      window.postMessage(
+        {
+          type: "grant-runtime-layer-snapshot-reservation",
+          requestId: request.requestId,
+          documentId: request.documentId,
+        },
+        "*",
+      );
+    }, reservation);
+    await page.waitForFunction(() =>
+      ((window as any).__messages ?? []).some(
+        (message: any) =>
+          message.type === "agent-native:runtime-layer-snapshot",
+      ),
+    );
+    return await page.evaluate(() => {
+      const snapshot = ((window as any).__messages ?? []).find(
+        (message: any) =>
+          message.type === "agent-native:runtime-layer-snapshot",
+      )?.payload;
+      return { html: snapshot.html, nodeCount: snapshot.nodeCount };
+    });
+  } finally {
+    await browser.close();
+  }
+}
+
 describe("portable style snapshot diff-vs-defaults probe", () => {
+  it(
+    "excludes the fallback style probe host from runtime layer snapshots",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <main data-agent-native-node-id="main">
+          <button data-agent-native-node-id="button">Continue</button>
+        </main>
+      </body></html>`;
+      const snapshot = await runtimeLayerSnapshotAfterPortableStyleProbe(
+        html,
+        '[data-agent-native-node-id="button"]',
+      );
+
+      expect(snapshot.html).not.toContain(
+        "all: initial !important;position: fixed !important;left: 0 !important;top: 0 !important;width: 0 !important;height: 0 !important;overflow: hidden !important;contain: strict !important;",
+      );
+      expect(snapshot.nodeCount).toBe(2);
+      expect(snapshot.html).toContain('data-agent-native-node-id="main"');
+      expect(snapshot.html).toContain('data-agent-native-node-id="button"');
+    },
+  );
+
   it(
     "carries a bare tag's authored appearance from the source document's own stylesheet (not just classed elements)",
     { timeout: 30_000 },

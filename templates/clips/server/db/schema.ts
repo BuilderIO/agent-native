@@ -649,6 +649,9 @@ export const recordingContextItems = table(
     // The footage the current 'processing' claim reserved. 'ready' must name
     // it, so a worker whose claim was replaced cannot land its footage.
     pendingMediaRecordingId: text("pending_media_recording_id"),
+    // The desktop device that captured the Clip. NULL (web-requested or
+    // pre-dating device scoping) is claimable by every device.
+    capturedDeviceId: text("captured_device_id"),
     durationMs: integer("duration_ms"),
     width: integer("width"),
     height: integer("height"),

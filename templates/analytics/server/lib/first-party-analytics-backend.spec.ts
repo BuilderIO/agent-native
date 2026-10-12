@@ -39,6 +39,7 @@ import {
   getFirstPartyAnalyticsTable,
   insertFirstPartyAnalyticsRows,
   insertFirstPartyAnalyticsRowsWithResults,
+  renderFirstPartyAnalyticsBigQueryRequestSql,
   renderFirstPartyAnalyticsBigQuerySql,
   resetFirstPartyAnalyticsBackendCacheForTests,
   saveFirstPartyAnalyticsBackend,
@@ -173,6 +174,60 @@ describe("event predicate pushdown", () => {
       expect(source[1]).toContain("event_date <= DATE '2026-10-08'");
     }
     expect(rendered.match(/QUALIFY ROW_NUMBER\(\)/g)).toHaveLength(2);
+  });
+  it("deduplicates a combined org and owner scan within the original scope groups", () => {
+    const query = `SELECT id, org_id FROM (
+      SELECT * FROM analytics_events
+      WHERE (org_id = 'org' OR (org_id IS NULL AND owner_email = 'owner@example.test'))
+        AND event_date <= DATE '2026-10-09'
+    ) AS analytics_events WHERE event_name = 'signup'`;
+
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(query, [], table, {
+      eventDateRange: { startDate: "2026-09-24", endDate: "2026-10-08" },
+      scopedEventsSingleScan: true,
+    });
+    const dedup = rendered.indexOf(" QUALIFY ROW_NUMBER()");
+    const rawSource = rendered.slice(0, dedup);
+
+    expect(
+      rendered.match(/FROM `example-project\.analytics\.events`/g),
+    ).toHaveLength(1);
+    expect(rawSource).toContain(
+      "(org_id = 'org' OR (org_id IS NULL AND owner_email = 'owner@example.test'))",
+    );
+    expect(rawSource).toContain("event_date >= DATE '2026-09-24'");
+    expect(rawSource).toContain("event_date <= DATE '2026-10-08'");
+    expect(rendered).toContain(
+      "QUALIFY ROW_NUMBER() OVER (PARTITION BY id, org_id ORDER BY received_at DESC) = 1",
+    );
+  });
+  it("forwards single-scan scope deduplication through the bounded request wrapper", () => {
+    const query = `SELECT id FROM (
+      SELECT * FROM analytics_events
+      WHERE (org_id = 'org' OR (org_id IS NULL AND owner_email = 'owner@example.test'))
+    ) AS analytics_events`;
+    const defaultRequest = renderFirstPartyAnalyticsBigQueryRequestSql(
+      query,
+      [],
+      table,
+    );
+    const scopedRequest = renderFirstPartyAnalyticsBigQueryRequestSql(
+      query,
+      [],
+      table,
+      { scopedEventsSingleScan: true },
+    );
+
+    expect(defaultRequest).toContain(
+      "QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1",
+    );
+    expect(scopedRequest).toContain(
+      "QUALIFY ROW_NUMBER() OVER (PARTITION BY id, org_id ORDER BY received_at DESC) = 1",
+    );
+    expect(
+      scopedRequest.match(/FROM `example-project\.analytics\.events`/g),
+    ).toHaveLength(1);
+    expect(scopedRequest).toContain("LIMIT 5000");
   });
   it("rejects impossible calendar dates before sending the query", () => {
     expect(() =>

@@ -1,6 +1,9 @@
+import { registerAuthPublicPaths } from "@agent-native/core/server";
 import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 import { DESIGN_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
+
+registerAuthPublicPaths(["/api/session-replay-storyboard"]);
 
 export default createToolkitAuthPlugin({
   workspaceAppAudience: "internal",

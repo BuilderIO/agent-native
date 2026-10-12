@@ -16,6 +16,7 @@ import type {
   TextPart,
 } from "@agent-native/agentkit/protocol";
 import {
+  agentEventSequenceEnd,
   isAgentKitProtocolVersion,
   parseAgentQueuedMessage,
   parseAgentRunOptions,
@@ -23,7 +24,11 @@ import {
   persistableFilePart,
 } from "@agent-native/agentkit/protocol";
 
-import { projectRootAssistantMessages } from "../../agent/thread-message-projection.js";
+import {
+  failedRunIdsWithError,
+  isRenderedRunNotStartedNotice,
+  projectRootAssistantMessages,
+} from "../../agent/thread-message-projection.js";
 import {
   RUN_NOT_STARTED_METADATA_KEY,
   retryContextFromRequest,
@@ -413,24 +418,6 @@ function storedMessages(
   });
 }
 
-/**
- * The server answers a turn it refused before any run started with a durable
- * notice and a failed run. The run renders as the recovery card, so showing the
- * notice too would print the same failure twice.
- */
-function isRenderedRunNotStartedNotice(
-  message: AgentMessage,
-  failedRunIds: ReadonlySet<string>,
-): boolean {
-  const metadata = asRecord(message.metadata);
-  return (
-    message.role === "assistant" &&
-    asRecord(metadata?.custom)?.[RUN_NOT_STARTED_METADATA_KEY] === true &&
-    typeof metadata?.runId === "string" &&
-    failedRunIds.has(metadata.runId)
-  );
-}
-
 function sameUserPrompt(left: AgentMessage, right: AgentMessage): boolean {
   if (
     left.role !== "user" ||
@@ -771,6 +758,7 @@ function reconcileDurableMessages(
   }
   const durableById = new Map(durable.map((message) => [message.id, message]));
   const assistantIdsByRun = new Map<string, Set<string>>();
+  const completedAssistantIdsByRun = new Map<string, Set<string>>();
   for (const event of events ?? []) {
     if (
       (event.type !== "message.created" &&
@@ -782,6 +770,12 @@ function reconcileDurableMessages(
     const ids = assistantIdsByRun.get(event.runId) ?? new Set<string>();
     ids.add(event.message.id);
     assistantIdsByRun.set(event.runId, ids);
+    if (event.type === "message.completed") {
+      const completedIds =
+        completedAssistantIdsByRun.get(event.runId) ?? new Set<string>();
+      completedIds.add(event.message.id);
+      completedAssistantIdsByRun.set(event.runId, completedIds);
+    }
   }
   for (const value of runs ?? []) {
     const run = asRecord(value);
@@ -835,6 +829,39 @@ function reconcileDurableMessages(
       submittedRunByTurn.has(turnId) ? null : submittedRunId(stored)!,
     );
   }
+  // A completed successor owns its turn, so discard a different completed
+  // answer from the submitted run while leaving partial output and other turns.
+  const supersededCompletedAssistantIds = new Set<string>();
+  for (const reply of durable) {
+    const metadata = asRecord(reply.metadata);
+    const custom = asRecord(metadata?.custom);
+    const turnId = custom?.turnId;
+    const submitted =
+      typeof turnId === "string" ? submittedRunByTurn.get(turnId) : undefined;
+    const replyRunId = metadata?.runId;
+    const replyText = textOf(reply.parts);
+    if (
+      reply.role !== "assistant" ||
+      reply.status !== "complete" ||
+      custom?.continued === true ||
+      typeof submitted !== "string" ||
+      typeof replyRunId !== "string" ||
+      replyRunId === submitted ||
+      durableRunIds(reply).includes(submitted) ||
+      durableByRun.has(submitted) ||
+      !replyText
+    ) {
+      continue;
+    }
+    for (const id of completedAssistantIdsByRun.get(submitted) ?? []) {
+      const snapshot = messages.find(
+        (message) => message.role === "assistant" && message.id === id,
+      );
+      if (snapshot && textOf(snapshot.parts) !== replyText) {
+        supersededCompletedAssistantIds.add(id);
+      }
+    }
+  }
   const shownByInterruptedRun = (reply: AgentMessage) => {
     const turnId = asRecord(asRecord(reply.metadata)?.custom)?.turnId;
     const submitted =
@@ -868,13 +895,31 @@ function reconcileDurableMessages(
     rootAssistantProjection.representedRootMessageIds;
   const snapshotRunIdsByMessageId =
     rootAssistantProjection.snapshotRunIdsByMessageId;
+  const supersededSnapshotMessageIds =
+    rootAssistantProjection.supersededSnapshotMessageIds;
   const rootMessageIdsBySnapshotMessageId = new Map(
     [...rootAssistantProjection.snapshotMessageIdsByRootMessageId].map(
       ([rootId, snapshotId]) => [snapshotId, rootId],
     ),
   );
+  const snapshotUserIds = new Set(
+    messages.flatMap((message) =>
+      message.role === "user" ? [message.id] : [],
+    ),
+  );
+  const representedDurableUserIds = new Set(
+    [...submittedUsersByAgentKitMessageId].flatMap(([snapshotId, stored]) =>
+      stored && snapshotId !== stored.id && snapshotUserIds.has(snapshotId)
+        ? [stored.id]
+        : [],
+    ),
+  );
   const deduplicatedMessages = messages.filter(
-    (message) => !representedDurableAssistantIds.has(message.id),
+    (message) =>
+      !(message.role === "user" && representedDurableUserIds.has(message.id)) &&
+      !representedDurableAssistantIds.has(message.id) &&
+      !supersededSnapshotMessageIds.has(message.id) &&
+      !supersededCompletedAssistantIds.has(message.id),
   );
 
   const representedSubmittedUserIds = new Set<string>();
@@ -1081,6 +1126,19 @@ function reconcileDurableMessages(
       }
     }
     const runId = snapshotRunId(message);
+    const sameRunRoot = runId ? durableByRun.get(runId) : undefined;
+    if (
+      sameRunRoot &&
+      rootAssistantProjection.snapshotMessageIdsByRootMessageId.has(
+        sameRunRoot.id,
+      ) &&
+      rootAssistantProjection.snapshotMessageIdsByRootMessageId.get(
+        sameRunRoot.id,
+      ) !== message.id &&
+      !durableById.has(message.id)
+    ) {
+      return message;
+    }
     const matched =
       durableById.get(message.id) ??
       (runId ? durableByRun.get(runId) : undefined);
@@ -1444,33 +1502,106 @@ function persistedRetryRequestAttachments(value: unknown): Array<{
   });
 }
 
+const MAX_PERSISTED_EVENT_OMISSION_RANGE = 256;
+const MAX_PERSISTED_EVENT_PREFIX_RANGES = 4_096;
+
 function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
-  const sequenceByRun = new Map<string, number>();
-  return events.flatMap((event): AgentEvent[] => {
+  const persisted: AgentEvent[] = [];
+  const seenRuns = new Set<string>();
+  let generatedPrefixRanges = 0;
+  const lastOmissionByRun = new Map<
+    string,
+    { index: number; firstSequence: number; lastSequence: number }
+  >();
+  for (const event of events) {
+    if (!seenRuns.has(event.runId)) {
+      seenRuns.add(event.runId);
+      const prefixRangeCount = Math.ceil(
+        Math.max(0, event.sequence - 1) / MAX_PERSISTED_EVENT_OMISSION_RANGE,
+      );
+      if (
+        generatedPrefixRanges + prefixRangeCount >
+        MAX_PERSISTED_EVENT_PREFIX_RANGES
+      ) {
+        throw new RangeError(
+          "Agent chat retained history prefix exceeds the supported omission range count.",
+        );
+      }
+      generatedPrefixRanges += prefixRangeCount;
+      for (
+        let firstSequence = 1;
+        firstSequence < event.sequence;
+        firstSequence += MAX_PERSISTED_EVENT_OMISSION_RANGE
+      ) {
+        const lastSequence = Math.min(
+          event.sequence - 1,
+          firstSequence + MAX_PERSISTED_EVENT_OMISSION_RANGE - 1,
+        );
+        const index = persisted.length;
+        persisted.push({
+          id: `persisted-history-prefix:${event.runId}:${firstSequence}`,
+          threadId: event.threadId,
+          runId: event.runId,
+          sequence: firstSequence,
+          occurredAt: event.occurredAt,
+          type: "x-agent-native.persisted-event-omission-range",
+          payload: {
+            lastSequence,
+            sourceType: "runtime_history_prefix",
+          },
+        } as AgentEvent);
+        lastOmissionByRun.set(event.runId, {
+          index,
+          firstSequence,
+          lastSequence,
+        });
+      }
+    }
     const base = () => {
-      const sequence = (sequenceByRun.get(event.runId) ?? 0) + 1;
-      sequenceByRun.set(event.runId, sequence);
       return {
         id: event.id,
         threadId: event.threadId,
         runId: event.runId,
-        sequence,
+        sequence: event.sequence,
         occurredAt: event.occurredAt,
       };
     };
     if (event.type === "run.started") {
-      return [{ ...base(), type: event.type }];
+      persisted.push({ ...base(), type: event.type });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (event.type === "run.completed" || event.type === "run.cancelled") {
-      return [{ ...base(), type: event.type }];
+      persisted.push({ ...base(), type: event.type });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (event.type === "run.failed") {
-      return [
-        { ...base(), type: event.type, error: persistedError(event.error) },
-      ];
+      persisted.push({
+        ...base(),
+        type: event.type,
+        error: persistedError(event.error),
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (event.type === "run.status") {
-      return [{ ...base(), type: event.type, status: event.status }];
+      persisted.push({ ...base(), type: event.type, status: event.status });
+      lastOmissionByRun.delete(event.runId);
+      continue;
+    }
+    if (
+      event.type === "x-agent-native.persisted-event-omission" ||
+      event.type === "x-agent-native.persisted-event-omission-range"
+    ) {
+      const index = persisted.length;
+      persisted.push(event);
+      lastOmissionByRun.set(event.runId, {
+        index,
+        firstSequence: event.sequence,
+        lastSequence: agentEventSequenceEnd(event),
+      });
+      continue;
     }
     if (
       event.type === "activity.started" ||
@@ -1478,47 +1609,80 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
       event.type === "activity.completed"
     ) {
       const activity = event.activity;
-      return [
-        {
-          ...base(),
-          type: event.type,
-          activity: {
-            id: activity.id,
-            kind: activity.kind,
-            label: activity.label,
-            status: activity.status,
-            ...(activity.runId ? { runId: activity.runId } : {}),
-            ...(activity.agentId ? { agentId: activity.agentId } : {}),
-            ...(activity.startedAt ? { startedAt: activity.startedAt } : {}),
-            ...(activity.completedAt
-              ? { completedAt: activity.completedAt }
-              : {}),
-          },
+      persisted.push({
+        ...base(),
+        type: event.type,
+        activity: {
+          id: activity.id,
+          kind: activity.kind,
+          label: activity.label,
+          status: activity.status,
+          ...(activity.runId ? { runId: activity.runId } : {}),
+          ...(activity.agentId ? { agentId: activity.agentId } : {}),
+          ...(activity.startedAt ? { startedAt: activity.startedAt } : {}),
+          ...(activity.completedAt
+            ? { completedAt: activity.completedAt }
+            : {}),
         },
-      ];
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (
       event.type === "message.completed" &&
       event.message.role === "assistant"
     ) {
-      return [
-        {
-          ...base(),
-          type: event.type,
-          message: {
-            id: event.message.id,
-            role: event.message.role,
-            parts: event.message.parts.filter((part) => part.type === "text"),
-            ...(event.message.createdAt
-              ? { createdAt: event.message.createdAt }
-              : {}),
-            ...(event.message.status ? { status: event.message.status } : {}),
-          },
+      persisted.push({
+        ...base(),
+        type: event.type,
+        message: {
+          id: event.message.id,
+          role: event.message.role,
+          parts: event.message.parts.filter((part) => part.type === "text"),
+          ...(event.message.createdAt
+            ? { createdAt: event.message.createdAt }
+            : {}),
+          ...(event.message.status ? { status: event.message.status } : {}),
         },
-      ];
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
-    return [];
-  });
+    const previous = lastOmissionByRun.get(event.runId);
+    if (
+      previous &&
+      event.sequence === previous.lastSequence + 1 &&
+      event.sequence - previous.firstSequence + 1 <=
+        MAX_PERSISTED_EVENT_OMISSION_RANGE
+    ) {
+      const omitted = persisted[previous.index];
+      if (omitted) {
+        persisted[previous.index] = {
+          ...omitted,
+          type: "x-agent-native.persisted-event-omission-range",
+          payload: {
+            ...(asRecord("payload" in omitted ? omitted.payload : undefined) ??
+              {}),
+            lastSequence: event.sequence,
+          },
+        } as AgentEvent;
+      }
+      previous.lastSequence = event.sequence;
+      continue;
+    }
+    const index = persisted.length;
+    persisted.push({
+      ...base(),
+      type: "x-agent-native.persisted-event-omission",
+      payload: { sourceType: event.type },
+    });
+    lastOmissionByRun.set(event.runId, {
+      index,
+      firstSequence: event.sequence,
+      lastSequence: event.sequence,
+    });
+  }
+  return persisted;
 }
 
 function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
@@ -2088,6 +2252,39 @@ function isRetryableHttpStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;
 }
 
+function throwIfRequestAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  const error = new Error("The AgentKit request was aborted.");
+  error.name = "AbortError";
+  throw error;
+}
+
+function waitForSnapshotRetry(
+  attempt: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  throwIfRequestAborted(signal);
+  return new Promise((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout>;
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      const error = new Error("The AgentKit request was aborted.");
+      error.name = "AbortError";
+      reject(error);
+    };
+    timer = setTimeout(
+      () => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      },
+      100 * 2 ** attempt,
+    );
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+  });
+}
+
 function snapshotAnnotationConflicts(
   value: unknown,
 ): SnapshotAnnotationConflict[] {
@@ -2209,14 +2406,21 @@ export function createAgentNativeAgentKitTransport(
     return new Headers(configured);
   }
 
-  async function fetchThread(threadId: string): Promise<StoredThread | null> {
+  async function fetchThread(
+    threadId: string,
+    signal?: AbortSignal,
+  ): Promise<StoredThread | null> {
+    throwIfRequestAborted(signal);
+    const requestHeaders = await headers({ sessionId: threadId });
+    throwIfRequestAborted(signal);
     const response = await fetcher(
       scopedThreadEndpoint(
         `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
         options,
       ),
-      { headers: await headers({ sessionId: threadId }) },
+      { headers: requestHeaders, signal },
     );
+    throwIfRequestAborted(signal);
     if (response.status === 404) return null;
     if (!response.ok) throw await responseError(response);
     const value = await response.json();
@@ -2235,16 +2439,7 @@ export function createAgentNativeAgentKitTransport(
     const updatedAt = timestamp(stored.updatedAt, createdAt);
     const repository = storedRepository(stored);
     const agentKit = asRecord(repository.agentKit);
-    const failedRunIds = new Set(
-      (Array.isArray(agentKit?.runs) ? agentKit.runs : []).flatMap((value) => {
-        const run = asRecord(value);
-        return run?.status === "failed" &&
-          asRecord(run.error) &&
-          typeof run.id === "string"
-          ? [run.id]
-          : [];
-      }),
-    );
+    const failedRunIds = failedRunIdsWithError(agentKit?.runs);
     const storedMessageProjection = storedMessages(
       repository.messages,
       now,
@@ -2707,11 +2902,7 @@ export function createAgentNativeAgentKitTransport(
               )
               .map((run) => run.id)
           : [];
-    const failedRunIds = new Set(
-      runs.flatMap((run) =>
-        run.status === "failed" && run.error ? [run.id] : [],
-      ),
-    );
+    const failedRunIds = failedRunIdsWithError(runs);
     const messages = reconcileDurableMessages(
       thread.messages,
       durableMessages.filter(
@@ -2758,14 +2949,20 @@ export function createAgentNativeAgentKitTransport(
     };
   }
 
-  async function persistThreadSnapshot(input: {
-    threadId: string;
-    snapshot: AgentThreadSnapshot;
-  }): Promise<void> {
-    let stored = await fetchThread(input.threadId);
+  async function persistThreadSnapshot(
+    input: {
+      threadId: string;
+      snapshot: AgentThreadSnapshot;
+    },
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    const signal = context?.signal;
+    throwIfRequestAborted(signal);
+    let stored = await fetchThread(input.threadId, signal);
     let createdByAnotherRequest = false;
     if (!stored) {
       const requestHeaders = await headers({ sessionId: input.threadId });
+      throwIfRequestAborted(signal);
       requestHeaders.set("content-type", "application/json");
       const response = await fetcher(
         scopedThreadEndpoint(`${apiUrl}/threads`, options),
@@ -2776,10 +2973,12 @@ export function createAgentNativeAgentKitTransport(
             id: input.threadId,
             title: input.snapshot.title ?? "",
           }),
+          signal,
         },
       );
+      throwIfRequestAborted(signal);
       if (response.status === 409) {
-        const racedThread = await fetchThread(input.threadId);
+        const racedThread = await fetchThread(input.threadId, signal);
         if (!racedThread) throw await responseError(response);
         stored = racedThread;
         createdByAnotherRequest = true;
@@ -2919,21 +3118,13 @@ export function createAgentNativeAgentKitTransport(
       changedEventRunIds.has(event.runId),
     );
     const eventRunLastSequenceById = new Map<string, number>();
-    for (const run of input.snapshot.runs ?? []) {
-      if (
-        typeof run.id === "string" &&
-        Number.isSafeInteger(run.lastSequence) &&
-        run.lastSequence >= 0
-      ) {
-        eventRunLastSequenceById.set(run.id, run.lastSequence);
-      }
-    }
     for (const event of input.snapshot.events ?? []) {
       const previousSequence = eventRunLastSequenceById.get(event.runId) ?? 0;
-      if (Number.isSafeInteger(event.sequence)) {
+      const sequenceEnd = agentEventSequenceEnd(event);
+      if (Number.isSafeInteger(sequenceEnd)) {
         eventRunLastSequenceById.set(
           event.runId,
-          Math.max(previousSequence, event.sequence),
+          Math.max(previousSequence, sequenceEnd),
         );
       }
     }
@@ -3307,6 +3498,7 @@ export function createAgentNativeAgentKitTransport(
     const persistChunk = async (
       entries: typeof updates,
     ): Promise<SnapshotAnnotationConflict[]> => {
+      throwIfRequestAborted(signal);
       const body = bodyFor(entries);
       if (encoder.encode(body).byteLength > MAX_THREAD_SNAPSHOT_REQUEST_BYTES) {
         if (entries.length > 1) {
@@ -3328,17 +3520,18 @@ export function createAgentNativeAgentKitTransport(
           ) {
             throw error;
           }
-          await new Promise((resolve) =>
-            setTimeout(resolve, 100 * 2 ** attempt),
-          );
+          await waitForSnapshotRetry(attempt, signal);
         };
+        throwIfRequestAborted(signal);
         let response: Response;
         try {
           response = await fetcher(threadUrl, {
             method: "PUT",
             headers: requestHeaders,
             body,
+            signal,
           });
+          throwIfRequestAborted(signal);
         } catch (error) {
           await retryAfterReadFailure(error);
           continue;
@@ -3358,19 +3551,20 @@ export function createAgentNativeAgentKitTransport(
             await retryAfterReadFailure(readError);
             continue;
           }
+          throwIfRequestAborted(signal);
           if (
             asRecord(error)?.retryable !== true ||
             attempt >= MAX_THREAD_SNAPSHOT_RETRIES
           ) {
             throw error;
           }
-          await new Promise((resolve) =>
-            setTimeout(resolve, 100 * 2 ** attempt),
-          );
+          await waitForSnapshotRetry(attempt, signal);
           continue;
         }
         try {
-          return snapshotAnnotationConflicts(await response.json());
+          const result = snapshotAnnotationConflicts(await response.json());
+          throwIfRequestAborted(signal);
+          return result;
         } catch (readError) {
           await retryAfterReadFailure(readError);
         }
@@ -3378,6 +3572,7 @@ export function createAgentNativeAgentKitTransport(
     };
     const annotationConflicts = new Map<string, SnapshotAnnotationConflict>();
     for (const entries of chunks) {
+      throwIfRequestAborted(signal);
       for (const conflict of await persistChunk(entries)) {
         annotationConflicts.set(
           JSON.stringify([

@@ -1970,6 +1970,24 @@ button.agentkit-object {
   pointer-events: auto;
 }
 
+.agentkit-host-suggestions-slot {
+  block-size: 2rem;
+  min-inline-size: 0;
+}
+
+.agentkit-host-suggestions-slot
+  .agentkit-host-suggestions[data-agent-suggestion-bar="true"] {
+  block-size: 100%;
+  padding-block: 0;
+}
+
+.agentkit-host-suggestions-slot [data-agent-suggestion-scroller="true"] {
+  display: flex;
+  block-size: 100%;
+  align-items: center;
+  padding-block: 0;
+}
+
 .agentkit-composer-stack [data-agent-composer-slot="area"],
 .agentkit-composer-stack [data-agent-composer-slot="workflow"],
 .agentkit-composer-stack [data-agent-composer-slot="root"],

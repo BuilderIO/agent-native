@@ -297,7 +297,8 @@ query.
 ### CI failures
 
 Run `pnpm ci:red-report`; follow [CI triage](references/ci-red-report.md).
-Keep each row in this transcript; never issue-track CI fingerprints.
+Automated CI, uptime, and monitoring findings use grouped `#qa-agent-native` rollups;
+read artifacts and keep occurrences here, never issue-track them.
 Query failures mean **CI unavailable**, not empty. Deploy/release/publish rows
 follow [`deployment-recovery.md`](references/deployment-recovery.md) and stay
 active through target proof; track source-fix disposition separately.
@@ -315,8 +316,8 @@ Before claiming an issue, check comments for handoffs. If someone offers a PR,
 or Steve asks them to, mark **Owned elsewhere**; do not investigate, edit, test,
 ship, reply, or close it. A direct request overrides this.
 
-Fix every defect at its root or ask an unblock question; do not
-skip old, bot-filed, or maintainer-commented issues. Feature requests and
+Fix root causes or ask what's blocking; triage human issues, not automated
+finding mirrors covered by QA rollups. Feature requests and
 subjective feedback need user/`:upvote:` authorization. Ask three questions max;
 re-read before posting/closing.
 
@@ -581,7 +582,7 @@ Upvoted items in scope: N (built: N)
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | [reply](...) or blocker | 👀 claim; ✅ Fixed; 🎫 human handoff needed |
 <!-- framework-repo-only:start -->
-| CI fingerprint · N runs · [latest run](...) | N/A | class · disposition | failed job/step | pre/post | test fix/quarantine; deploy target proof | N/A | owner/task record or existing [issue](...) | N/A | N/A |
+| CI fingerprint · N runs · [latest run](...) | N/A | class · disposition | failed job/step | pre/post | test fix/quarantine; deploy target proof | N/A | owner/task record or [QA rollup](...) | N/A | N/A |
 <!-- framework-repo-only:end -->
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged

@@ -1403,5 +1403,53 @@ describe("org handlers", () => {
       await prime();
       expect(load).toHaveBeenCalledTimes(2);
     });
+
+    it("clears cached memberships when a member removal fails after its offboard committed", async () => {
+      const { load, prime } = seedCachedMemberships();
+      await prime();
+      mockExecute
+        .mockResolvedValueOnce({
+          rows: [{ role: "member", federation_removal_pending_at: null }],
+          rowsAffected: 0,
+        })
+        .mockResolvedValueOnce({
+          rows: [{ email: "successor@example.test" }],
+          rowsAffected: 0,
+        });
+      mockOffboardMember.mockRejectedValueOnce(new Error("reply lost"));
+
+      await expect(
+        removeMemberHandler(
+          makeEvent("/_agent-native/org/members/member@example.test", {
+            transferTo: "successor@example.test",
+          }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 503 });
+
+      await prime();
+      expect(load).toHaveBeenCalledTimes(2);
+    });
+
+    it("clears cached memberships when a leave fails after its offboard committed", async () => {
+      const { load, prime } = seedCachedMemberships();
+      await prime();
+      mockExecute.mockResolvedValueOnce({
+        rows: [{ role: "member", name: "Example" }],
+        rowsAffected: 0,
+      });
+      mockOffboardMember.mockRejectedValueOnce(new Error("reply lost"));
+
+      await expect(
+        retryPendingFederatedRemovalHandler(
+          makeEvent("/_agent-native/org/leave", {
+            orgId: "org-1",
+            transferTo: "successor@example.test",
+          }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 503 });
+
+      await prime();
+      expect(load).toHaveBeenCalledTimes(2);
+    });
   });
 });

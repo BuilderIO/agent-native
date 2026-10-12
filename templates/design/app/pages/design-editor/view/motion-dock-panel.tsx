@@ -7,7 +7,6 @@ import type { EditorCore } from "../domains/use-editor-core";
 import type { EditorGenerationAndAccess } from "../domains/use-editor-generation-and-access";
 import type { EditorHistory } from "../domains/use-editor-history";
 import type { EditorLiveEditsAndPresence } from "../domains/use-editor-live-edits-and-presence";
-import { SHOW_DESIGN_SECONDARY_LEFT_PANELS } from "../types";
 
 export function renderMotionDockPanel({
   editorCore,
@@ -38,6 +37,7 @@ export function renderMotionDockPanel({
   const { canvasIframeRef } = editorCanvasAndScreens;
   const {
     initialGenerationChromeLimited,
+    motionLabEnabled,
     motionTracks,
     motionDurationMs,
     motionDefaultEase,
@@ -60,7 +60,7 @@ export function renderMotionDockPanel({
           Preview-only scrubbing fires a motion-preview postMessage to the
           canvas iframe; track/duration edits autosave through apply-motion-edit. */}
       {!hostOwnsChrome &&
-      SHOW_DESIGN_SECONDARY_LEFT_PANELS &&
+      motionLabEnabled &&
       !initialGenerationChromeLimited &&
       activeFile &&
       motionDockMounted ? (

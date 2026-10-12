@@ -134,33 +134,29 @@ Rewind is off by default. Nothing is captured until you turn it on in the deskto
 
 Turn Rewind on under the Rewind tab in Settings. Once it's on, you can ask the agent things like "what was I looking at 20 minutes ago?" and it reads text excerpts from the local buffer of on-screen text, app and window context, and transcript snippets. The agent never receives the recordings themselves, with one exception: a request you review and approve, which turns an exact range into a private clip.
 
-#### Add what happened before (older editor option) {#add-what-happened-before}
-
-This is the older editor option. In a clip's editor, **Add what happened before** pulls the previous 30 seconds or 5 minutes from your local Rewind history and adds it to the start of the clip's video. The clip must have been recorded on this device while Rewind was on, and the moments must still be within Rewind's retained history. For the newer option, which keeps earlier screen time as separate context and leaves the video alone, see [Earlier screen time](#earlier-screen-time).
-
-- The clip must be private, with no one else granted direct access. Rewind history can contain context from before you chose to record, so Clips makes the clip private first and stops if anyone else still has access.
-- The clip's media is replaced with the combined recording. The transcript, chapters, comments, and reactions shift so their timestamps still line up, and the timeline marks where the original clip started.
-- It runs once per clip and only when you ask. Nothing is added from Rewind automatically.
-
 ### Earlier screen time {#earlier-screen-time}
 
 Earlier screen time adds up to five minutes of your screen from before you started a recording, taken from Rewind on this device. It is attached to the recording as its own context. It is not stitched into the recording's video.
 
-Earlier screen time is an optional lab. Turn it on under **Settings > Labs**, "Include earlier screen time". It is off by default.
+Earlier screen time is an optional lab that is on by default. You can turn it off under **Settings > Labs**, "Include earlier screen time", in the Clips web app or the desktop app.
 
 With the lab on, the Clips desktop popover has an **Include last** control. Choose **Off** (the default), **30 s**, **5 min**, or **Custom…** for any length up to five minutes. Rewind must be on and running for an amount to take effect. If Rewind is off, choosing an amount opens a short explanation with a **Turn on Rewind** button.
 
-When you start a recording, the window you chose under **Include last** is requested and uploads from this device. With **Off**, nothing is requested.
+When you start a recording, the window you chose under **Include last** is requested and uploads from this device when the recording starts. With **Off**, nothing is requested.
 
 To see exactly what you're sharing, choose **Edit** next to the earlier screen time in the desktop app once it's ready. The editor shows a preview of up to five minutes of local history from before the recording started. The preview is built on your device and is never uploaded. The selection starts on the window you chose. Drag its handles to trim it, and use **Play selection** to play only that part.
 
+The window has three readouts: **From 1:30 before** (how far back it starts), **Length 1 min 30 s**, and **To recording start**, because every window ends where the recording starts. When the window starts at the recording start, its first readout reads **From recording start**.
+
 **Save** uploads only the selected window. Cancel, or closing the editor in any other way, discards the preview and uploads nothing.
 
-To remove earlier screen time from a clip, ask the agent to remove it. The footage recording moves to Trash, where it stays until you delete it there. Discarding a recording also removes the earlier screen time it had.
+To remove earlier screen time, choose **Remove earlier screen time** in the desktop edit view or in the Transcript tab's panel on the clip page, then confirm. You can also ask the agent to remove it. The footage recording moves to Trash, where it stays until you delete it there, and the clip no longer includes it. Discarding a recording also removes the earlier screen time it had.
+
+A recording captured on another device shows **Waiting for the device that recorded this clip** until that device saves it. Only that device can export its footage, so your other devices skip it. An item with no recording device on file, such as one requested before device tracking, is still processed by the desktop app that captured the recording.
 
 While a clip has earlier screen time, it stays private. Requesting it makes the clip private, and the request is refused if the clip is still shared directly with other people. Sharing is blocked until you remove the earlier screen time: making the clip public or visible to your organization, or giving someone access, is refused.
 
-On the clip page, the Transcript tab shows earlier screen time above the transcript, with its window and an inline player. Editing happens in the Clips desktop app. The agent can read the window and its status.
+On the clip page, the Transcript tab shows earlier screen time above the transcript, with its window and an inline player. Editing happens in the Clips desktop app; the same panel can remove it. The agent can read the window and its status.
 
 Limits: earlier screen time is five minutes at most. The history is only what Rewind still keeps on this device, so older moments may no longer be available.
 
@@ -168,7 +164,17 @@ Limits: earlier screen time is five minutes at most. The history is only what Re
 
 Install the Clips Chrome extension for a recording plus the browser logs and network activity from the tab you're debugging, useful for reporting product bugs and browser-only repros.
 
-It only watches the tab you're actively recording, and only while the recording is running. It saves console messages and basic per-request info (method, a redacted URL, status, duration, and whether a request failed), never request or response bodies, headers, or cookies. Use the desktop app for everyday recording, and reach for the Chrome extension specifically when you need those browser logs attached.
+| Topic       | Behavior                                                                                                                                                                                                       |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tabs        | Up to five: the tab you started the recording from, then tabs you used in the last 10 minutes, most recent first.                                                                                              |
+| Switching   | A tab you switch to during the recording is captured too. If more than five tabs are attached, the least recently used tab other than the one in focus is detached, and its logs so far stay in the recording. |
+| Lookback    | Up to 30 seconds before the recording started, as far as the page still keeps its console history and resource timing. These entries have negative time offsets.                                               |
+| Saved       | Console messages, and fetch/XHR request info: method, a redacted URL, status, duration, and whether it failed. Each entry records the tab it came from.                                                        |
+| Never saved | Request or response bodies, headers, or cookies.                                                                                                                                                               |
+
+Lookback network entries have no HTTP method, so their method is recorded as `UNKNOWN`. Requests made during the recording include the method. Tabs are tracked while the extension is running, so for the first 10 minutes after it starts, fewer than five tabs may qualify.
+
+Use the desktop app for everyday recording, and reach for the Chrome extension specifically when you need those browser logs attached.
 
 ## Transcription and AI metadata
 

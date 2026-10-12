@@ -11,6 +11,7 @@ import type { ZodType } from "zod";
 
 import {
   openRecordingContextTestDb,
+  readContextItemRow,
   RECORDING_CREATED_AT,
   resetRecordingContextTestDb,
   seedContextItem,
@@ -314,6 +315,101 @@ describe("request-recording-context", () => {
 
     expect(await countItems("rec_1")).toBe(0);
     expect(await countItems("rec_1", true)).toBe(1);
+  });
+
+  it("removes the new item and refuses when the Clip goes non-private after the insert", async () => {
+    // Stands in for a visibility write that commits after the pre-insert gate:
+    // the trigger makes the Clip org-visible the moment the item is inserted.
+    await client.exec(`
+      CREATE FUNCTION visibility_on_context_insert() RETURNS trigger AS $$
+      BEGIN
+        UPDATE recordings SET visibility = 'org' WHERE id = NEW.recording_id;
+        RETURN NEW;
+      END
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER visibility_on_context_insert AFTER INSERT ON recording_context_items
+        FOR EACH ROW EXECUTE FUNCTION visibility_on_context_insert();
+    `);
+    try {
+      await expect(
+        action.run({ recordingId: "rec_1", seconds: 30, endedAt: ENDED_AT }),
+      ).rejects.toThrow(DIRECT_SHARE_REWIND_ERROR);
+    } finally {
+      await client.exec(`
+        DROP TRIGGER visibility_on_context_insert ON recording_context_items;
+        DROP FUNCTION visibility_on_context_insert();
+      `);
+    }
+
+    expect(await visibilityOf("rec_1")).toBe("org");
+    expect(await countItems("rec_1")).toBe(0);
+    expect(await countItems("rec_1", true)).toBe(1);
+  });
+
+  it("keeps the item when a write after the insert leaves the Clip private", async () => {
+    // Stands in for an unrelated recordings write that commits after the insert.
+    await client.exec(`
+      CREATE FUNCTION touch_on_context_insert() RETURNS trigger AS $$
+      BEGIN
+        UPDATE recordings SET updated_at = 'raced' WHERE id = NEW.recording_id;
+        RETURN NEW;
+      END
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER touch_on_context_insert AFTER INSERT ON recording_context_items
+        FOR EACH ROW EXECUTE FUNCTION touch_on_context_insert();
+    `);
+    try {
+      await expect(
+        action.run({ recordingId: "rec_1", seconds: 30, endedAt: ENDED_AT }),
+      ).resolves.toMatchObject({ status: "pending" });
+    } finally {
+      await client.exec(`
+        DROP TRIGGER touch_on_context_insert ON recording_context_items;
+        DROP FUNCTION touch_on_context_insert();
+      `);
+    }
+
+    expect(await visibilityOf("rec_1")).toBe("private");
+    expect(await countItems("rec_1")).toBe(1);
+  });
+
+  it("stores the requesting device on the new item, and null when none is sent", async () => {
+    mocks.roles = { rec_1: "owner", rec_web: "owner" };
+    await seedRecording(client, { id: "rec_web" });
+
+    const fromDevice = await action.run({
+      recordingId: "rec_1",
+      seconds: 30,
+      endedAt: ENDED_AT,
+      deviceId: "dev_a",
+    });
+    expect(fromDevice.capturedDeviceId).toBe("dev_a");
+    expect(
+      (await readContextItemRow(client, fromDevice.id))?.captured_device_id,
+    ).toBe("dev_a");
+
+    const fromWeb = await action.run({
+      recordingId: "rec_web",
+      seconds: 30,
+      endedAt: ENDED_AT,
+    });
+    expect(fromWeb.capturedDeviceId).toBeNull();
+    expect(
+      (await readContextItemRow(client, fromWeb.id))?.captured_device_id,
+    ).toBeNull();
+  });
+
+  it("bounds deviceId to 1 to 200 characters", () => {
+    const schema = (action as unknown as { schema: ZodType }).schema;
+    const base = { recordingId: "rec_1", seconds: 30, endedAt: ENDED_AT };
+    expect(schema.safeParse({ ...base, deviceId: "d" }).success).toBe(true);
+    expect(
+      schema.safeParse({ ...base, deviceId: "d".repeat(200) }).success,
+    ).toBe(true);
+    expect(schema.safeParse({ ...base, deviceId: "" }).success).toBe(false);
+    expect(
+      schema.safeParse({ ...base, deviceId: "d".repeat(201) }).success,
+    ).toBe(false);
   });
 
   it("validates seconds within 1 to 300 and an ISO end time", () => {

@@ -262,6 +262,156 @@ async function emptyBoardPoint(page: Page) {
   return point;
 }
 
+async function canvasPointWhereLayerOwnsHit(
+  page: Page,
+  screenId: string,
+  layer: Locator,
+  attachmentName: string,
+) {
+  const layerBox = await layer.boundingBox();
+  if (!layerBox) {
+    await test.info().attach(attachmentName, {
+      body: JSON.stringify({ screenId, pageLayerBox: null }, null, 2),
+      contentType: "application/json",
+    });
+    throw new Error(`no visible canvas box for screen ${screenId}`);
+  }
+  const hit = await layer.evaluate((target) => {
+    const rect = target.getBoundingClientRect();
+    const viewport = {
+      width: document.documentElement.clientWidth,
+      height: document.documentElement.clientHeight,
+    };
+    const point = {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    };
+    const describe = (element: Element | null) =>
+      element
+        ? {
+            tagName: element.tagName,
+            id: element.id || null,
+            className:
+              typeof element.className === "string" ? element.className : null,
+            layerName: element.getAttribute("data-agent-native-layer-name"),
+            nodeId: element.getAttribute("data-agent-native-node-id"),
+            primitive: element.getAttribute("data-an-primitive"),
+            overlay:
+              element
+                .closest("[data-agent-native-edit-overlay]")
+                ?.getAttribute("data-agent-native-edit-overlay") ?? null,
+          }
+        : null;
+    const initialHit = document.elementFromPoint(point.x, point.y);
+    const overlays = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '[data-agent-native-edit-overlay="shield"], [data-agent-native-edit-overlay="selection"], [data-agent-native-edit-overlay="highlight"]',
+      ),
+    );
+    const pointerEvents = overlays.map(
+      (overlay) => overlay.style.pointerEvents,
+    );
+    overlays.forEach((overlay) => {
+      overlay.style.pointerEvents = "none";
+    });
+    let stack: Element[] = [];
+    try {
+      stack = Array.from(document.elementsFromPoint(point.x, point.y));
+    } finally {
+      overlays.forEach((overlay, index) => {
+        overlay.style.pointerEvents = pointerEvents[index] ?? "";
+      });
+    }
+    const underlyingHit =
+      stack.find(
+        (element) => !element.closest("[data-agent-native-edit-overlay]"),
+      ) ?? null;
+    const nearestSemanticLayer =
+      underlyingHit?.closest("[data-agent-native-layer-name]") ?? null;
+    return {
+      point,
+      rect: {
+        width: rect.width,
+        height: rect.height,
+        x: rect.x,
+        y: rect.y,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        left: rect.left,
+      },
+      viewport,
+      initialHit: describe(initialHit),
+      target: describe(target),
+      underlyingHit: describe(underlyingHit),
+      nearestSemanticLayer: describe(nearestSemanticLayer),
+      resolvesToTarget: nearestSemanticLayer === target,
+      hitStack: stack.slice(0, 6).map((element) => describe(element)),
+    };
+  });
+  if (
+    !hit.resolvesToTarget ||
+    !hit.rect.width ||
+    !hit.rect.height ||
+    hit.point.x < 0 ||
+    hit.point.y < 0 ||
+    hit.point.x > hit.viewport.width ||
+    hit.point.y > hit.viewport.height
+  ) {
+    await test.info().attach(attachmentName, {
+      body: JSON.stringify(
+        { screenId, pageLayerBox: layerBox, localHit: hit },
+        null,
+        2,
+      ),
+      contentType: "application/json",
+    });
+    throw new Error(
+      `center point resolves to ${hit.nearestSemanticLayer?.layerName ?? "no semantic layer"}, not the ${hit.target?.layerName ?? "target layer"}; see ${attachmentName}`,
+    );
+  }
+
+  const scaleX = layerBox.width / hit.rect.width;
+  const scaleY = layerBox.height / hit.rect.height;
+  const pagePoint = {
+    x: layerBox.x + (hit.point.x - hit.rect.left) * scaleX,
+    y: layerBox.y + (hit.point.y - hit.rect.top) * scaleY,
+  };
+  const parentHitStack = await page.evaluate(
+    ({ x, y }) =>
+      document
+        .elementsFromPoint(x, y)
+        .slice(0, 8)
+        .map((element) => ({
+          tagName: element.tagName,
+          screenId:
+            element instanceof HTMLIFrameElement
+              ? (element.dataset.screenIframeId ?? null)
+              : null,
+          className:
+            typeof element.className === "string" ? element.className : null,
+        })),
+    pagePoint,
+  );
+  const proof = {
+    screenId,
+    pagePoint,
+    pageLayerBox: layerBox,
+    localHit: hit,
+    parentHitStack,
+  };
+  await test.info().attach(attachmentName, {
+    body: JSON.stringify(proof, null, 2),
+    contentType: "application/json",
+  });
+  if (parentHitStack[0]?.screenId !== screenId) {
+    throw new Error(
+      `page point does not route through screen ${screenId}; see ${attachmentName}`,
+    );
+  }
+  return proof;
+}
+
 async function pickFrameMode(page: Page, mode: "Frame" | "Screen") {
   await page
     .locator(
@@ -987,7 +1137,7 @@ test("footer: Cmd+D duplicates the Navbar frame, renamed 'Footer', with its word
   await expect(navbarOnCanvas).toBeVisible({ timeout: 10_000 });
   const navbarBoxForSelect = (await navbarOnCanvas.boundingBox())!;
   await page.mouse.click(
-    navbarBoxForSelect.x + 10,
+    navbarBoxForSelect.x + navbarBoxForSelect.width / 2,
     navbarBoxForSelect.y + navbarBoxForSelect.height / 2,
   );
   await page.waitForTimeout(300);
@@ -1353,12 +1503,10 @@ test("mobile: Hero and CardRow are re-laid-out to vertical stacking for the narr
     '[data-agent-native-layer-name="Hero"]',
   );
   await expect(mobileHeroOnCanvas).toBeVisible({ timeout: 10_000 });
-  const mobileHeroBox = (await mobileHeroOnCanvas.boundingBox())!;
-  await page.mouse.click(mobileHeroBox.x + 10, mobileHeroBox.y + 10);
-  await page.waitForTimeout(300);
+  await selectLayerAtPath(page, "Hero", ["Landing Page Mobile"]);
   expect(
     await selectedLayerName(page),
-    "canvas click must select the mobile screen's Hero",
+    "the Layers row must select the mobile screen's Hero",
   ).toBe("Hero");
   const verticalButton = page.locator('button[aria-label="Vertical"]').first();
   await expect(verticalButton).toBeVisible({ timeout: 10_000 });
@@ -1369,12 +1517,10 @@ test("mobile: Hero and CardRow are re-laid-out to vertical stacking for the narr
     '[data-agent-native-layer-name="CardRow"]',
   );
   await expect(mobileCardRowOnCanvas).toBeVisible({ timeout: 10_000 });
-  const mobileCardRowBox = (await mobileCardRowOnCanvas.boundingBox())!;
-  await page.mouse.click(mobileCardRowBox.x + 10, mobileCardRowBox.y + 10);
-  await page.waitForTimeout(300);
+  await selectLayerAtPath(page, "CardRow", ["Landing Page Mobile"]);
   expect(
     await selectedLayerName(page),
-    "canvas click must select the mobile screen's CardRow",
+    "the Layers row must select the mobile screen's CardRow",
   ).toBe("CardRow");
   const verticalButton2 = page.locator('button[aria-label="Vertical"]').first();
   await expect(verticalButton2).toBeVisible({ timeout: 10_000 });
@@ -1529,7 +1675,7 @@ test("export: cdpScreenshot captures the desktop and mobile screens for visual r
   expect(stat2.size).toBeGreaterThan(1000);
 });
 
-test("container-first selection: plain click selects the screen's direct child, double-click drills in, cmd-click deep-selects", async ({
+test("screen content selection: plain click selects the hit layer, double-click edits text, and cmd-click deep-selects", async ({
   page,
 }) => {
   await openOverview(page, designId, 2);
@@ -1547,27 +1693,40 @@ test("container-first selection: plain click selects the screen's direct child, 
   const empty = await emptyBoardPoint(page);
   await page.mouse.click(empty.x, empty.y);
   await page.waitForTimeout(300);
-  const box = (await heroImage.boundingBox())!;
-  const cx = box.x + box.width / 2;
-  const cy = box.y + box.height / 2;
-  await page.mouse.click(cx, cy);
+  const heroImageHit = await canvasPointWhereLayerOwnsHit(
+    page,
+    deskScreenId,
+    heroImage,
+    "screen-hero-direct-selection-proof.json",
+  );
+  await page.mouse.click(heroImageHit.pagePoint.x, heroImageHit.pagePoint.y);
   await page.waitForTimeout(400);
   expect(
     await selectedLayerName(page),
-    `single click on a Hero-nested element must select Hero first; trace: ${await dumpTrace(page)}`,
-  ).toBe("Hero");
-
-  await page.mouse.dblclick(cx, cy);
-  await page.waitForTimeout(400);
-  expect(
-    await selectedLayerName(page),
-    "double-click must drill in to select HeroImage directly",
+    `a screen-content click must select the hit layer directly; trace: ${await dumpTrace(page)}`,
   ).toBe("HeroImage");
+
+  const heading = frame
+    .getByText("Build products faster with our platform", { exact: true })
+    .first();
+  await expect(heading).toBeVisible({ timeout: 10_000 });
+  const headingBox = await heading.boundingBox();
+  if (!headingBox) throw new Error("no visible box for the Hero heading");
+  await page.mouse.dblclick(
+    headingBox.x + headingBox.width / 2,
+    headingBox.y + headingBox.height / 2,
+  );
+  const textEditor = frame.locator(
+    '[data-agent-native-text-editing="true"][contenteditable="true"]',
+  );
+  await expect(textEditor).toBeVisible({ timeout: 10_000 });
+  await page.keyboard.press("Escape");
+  await expect(textEditor).toHaveCount(0, { timeout: 10_000 });
 
   await page.mouse.click(empty.x, empty.y);
   await page.waitForTimeout(300);
   await page.keyboard.down(MOD);
-  await page.mouse.click(cx, cy);
+  await page.mouse.click(heroImageHit.pagePoint.x, heroImageHit.pagePoint.y);
   await page.keyboard.up(MOD);
   await page.waitForTimeout(400);
   expect(
@@ -1667,18 +1826,7 @@ test("layers panel: dragging a row reorders it in the DOM", async ({
   await expandAllLayers(page);
 
   const selectDesktopLayerId = async (name: string) => {
-    const layer = page
-      .locator(
-        `iframe[data-design-preview-iframe][data-screen-iframe-id="${deskScreenId}"]`,
-      )
-      .contentFrame()
-      .locator(`[data-agent-native-layer-name="${name}"]`)
-      .first();
-    await expect(layer).toBeVisible();
-    const bounds = await layer.boundingBox();
-    if (!bounds) throw new Error(`Desktop ${name} has no canvas bounds`);
-    await page.mouse.click(bounds.x + 10, bounds.y + 10);
-    await expect.poll(() => selectedLayerName(page)).toBe(name);
+    await selectLayerAtPath(page, name, ["Landing Page"]);
     const id = await layerTree(page)
       .locator(
         '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
@@ -1698,38 +1846,163 @@ test("layers panel: dragging a row reorders it in the DOM", async ({
   await expect(cardRowRow).toBeVisible();
   await expect(heroRow).toBeVisible();
   await expect(cardRowRow).toHaveAttribute("draggable", "true");
+  await expect(heroRow).toHaveAttribute("aria-expanded", "true");
+  await heroRow.getByRole("button", { name: "Collapse layer" }).click();
+  await expect(heroRow).toHaveAttribute("aria-expanded", "false");
+  const cardRowName = cardRowRow.locator("[data-layer-row-name]");
+  await expect(cardRowName).toBeVisible();
+  const cardRowBounds = await cardRowRow.boundingBox();
+  const cardRowNameBounds = await cardRowName.boundingBox();
+  if (!cardRowBounds || !cardRowNameBounds) {
+    throw new Error("CardRow and its visible name must have Layers row bounds");
+  }
+  const sourcePosition = {
+    x:
+      cardRowNameBounds.x -
+      cardRowBounds.x +
+      Math.min(12, cardRowNameBounds.width / 2),
+    y: cardRowNameBounds.y - cardRowBounds.y + cardRowNameBounds.height / 2,
+  };
+  const sourcePagePoint = {
+    x: cardRowBounds.x + sourcePosition.x,
+    y: cardRowBounds.y + sourcePosition.y,
+  };
+  await page.mouse.move(sourcePagePoint.x, sourcePagePoint.y);
+  const sourceHit = await page.evaluate(({ x, y }) => {
+    const hit = document.elementFromPoint(x, y);
+    const rowButton = hit?.closest<HTMLElement>("[data-layer-row-button]");
+    const control = hit?.closest<HTMLButtonElement>("button[aria-label]");
+    return {
+      layerNodeId: rowButton?.dataset.layerNodeId ?? null,
+      insideLayerName: Boolean(hit?.closest("[data-layer-row-name]")),
+      controlLabel: control?.getAttribute("aria-label") ?? null,
+    };
+  }, sourcePagePoint);
+  expect(
+    sourceHit.layerNodeId,
+    `drag source point must hit CardRow itself: ${JSON.stringify(sourceHit)}`,
+  ).toBe(cardRowId);
+  expect(sourceHit.insideLayerName).toBe(true);
+  expect(sourceHit.controlLabel ?? "").not.toMatch(/lock|hide/i);
   const heroBounds = await heroRow.boundingBox();
   if (!heroBounds) throw new Error("Hero has no Layers row bounds");
   await cardRowRow.dragTo(heroRow, {
+    sourcePosition,
     targetPosition: { x: 24, y: heroBounds.height - 2 },
   });
+  await expect(cardRowRow).toHaveAttribute("draggable", "true");
 
-  const persistedTopLevelOrder = async () => {
+  const persistedDirectSiblingOrder = async () => {
     const html = await screenHtml(page, deskScreenId);
-    const order = [
-      ...html.matchAll(/data-agent-native-layer-name="([^"]+)"/g),
-    ].map((m) => m[1]);
-    return order.filter((n) => ["Navbar", "Hero", "CardRow"].includes(n));
+    return page.evaluate((content) => {
+      const document = new DOMParser().parseFromString(content, "text/html");
+      const hero = document.querySelector(
+        '[data-agent-native-layer-name="Hero"]',
+      );
+      const cardRow = document.querySelector(
+        '[data-agent-native-layer-name="CardRow"]',
+      );
+      const navbar = document.querySelector(
+        '[data-agent-native-layer-name="Navbar"]',
+      );
+      const siblings = Array.from(hero?.parentElement?.children ?? []);
+      const frameOrder = siblings
+        .map((element) => element.getAttribute("data-agent-native-layer-name"))
+        .filter(
+          (name): name is string =>
+            name === "Navbar" || name === "Hero" || name === "CardRow",
+        );
+      return {
+        directSiblings: Boolean(
+          hero &&
+          cardRow &&
+          navbar &&
+          hero.parentElement === cardRow.parentElement &&
+          hero.parentElement === navbar.parentElement,
+        ),
+        frameOrder,
+        cardRowLocked:
+          cardRow?.getAttribute("data-agent-native-locked") ?? null,
+        cardRowIndex: siblings.indexOf(cardRow as Element),
+        heroIndex: siblings.indexOf(hero as Element),
+      };
+    }, html);
   };
   await expect
     .poll(
       async () => {
-        const topLevel = await persistedTopLevelOrder();
-        const cardRowIndex = topLevel.indexOf("CardRow");
-        const heroIndex = topLevel.indexOf("Hero");
-        return cardRowIndex >= 0 && heroIndex >= 0 && cardRowIndex < heroIndex;
+        const saved = await persistedDirectSiblingOrder();
+        return (
+          saved.directSiblings &&
+          saved.frameOrder.join(",") === "Navbar,CardRow,Hero" &&
+          saved.cardRowIndex < saved.heroIndex &&
+          saved.cardRowLocked !== "true"
+        );
       },
       {
         timeout: 15_000,
-        message: "dragging CardRow above Hero must persist the layer order",
+        message:
+          "dragging CardRow above collapsed Hero must persist a direct sibling order",
       },
     )
     .toBe(true);
-  const topLevel = await persistedTopLevelOrder();
+  const savedOrder = await persistedDirectSiblingOrder();
   expect(
-    topLevel.indexOf("CardRow"),
-    `dragging CardRow above Hero in the layers panel must reorder the DOM; order was ${JSON.stringify(topLevel)}; trace: ${await dumpTrace(page)}`,
-  ).toBeLessThan(topLevel.indexOf("Hero"));
+    savedOrder.frameOrder,
+    `dragging CardRow above Hero in the layers panel must reorder the DOM; saved order was ${JSON.stringify(savedOrder)}; trace: ${await dumpTrace(page)}`,
+  ).toEqual(["Navbar", "CardRow", "Hero"]);
+  expect(savedOrder.cardRowLocked).not.toBe("true");
+
+  await openOverview(page, designId, 2);
+  await expandAllLayers(page);
+  const reloadedCardRowId = await selectDesktopLayerId("CardRow");
+  await expect(rowForNodeId(reloadedCardRowId)).toHaveAttribute(
+    "draggable",
+    "true",
+  );
+  const renderedOrder = await page
+    .locator(
+      `iframe[data-design-preview-iframe][data-screen-iframe-id="${deskScreenId}"]`,
+    )
+    .contentFrame()
+    .locator("body")
+    .evaluate((body) => {
+      const hero = body.querySelector('[data-agent-native-layer-name="Hero"]');
+      const cardRow = body.querySelector(
+        '[data-agent-native-layer-name="CardRow"]',
+      );
+      const navbar = body.querySelector(
+        '[data-agent-native-layer-name="Navbar"]',
+      );
+      const siblings = Array.from(hero?.parentElement?.children ?? []);
+      const frameOrder = siblings
+        .map((element) => element.getAttribute("data-agent-native-layer-name"))
+        .filter(
+          (name): name is string =>
+            name === "Navbar" || name === "Hero" || name === "CardRow",
+        );
+      return {
+        directSiblings: Boolean(
+          hero &&
+          cardRow &&
+          navbar &&
+          hero.parentElement === cardRow.parentElement &&
+          hero.parentElement === navbar.parentElement,
+        ),
+        frameOrder,
+        cardRowLocked:
+          cardRow?.getAttribute("data-agent-native-locked") ?? null,
+        cardRowIndex: siblings.indexOf(cardRow as Element),
+        heroIndex: siblings.indexOf(hero as Element),
+      };
+    });
+  expect(
+    renderedOrder.directSiblings &&
+      renderedOrder.frameOrder.join(",") === "Navbar,CardRow,Hero" &&
+      renderedOrder.cardRowIndex < renderedOrder.heroIndex,
+    `reloaded screen must render CardRow as a direct sibling before Hero; order was ${JSON.stringify(renderedOrder)}`,
+  ).toBe(true);
+  expect(renderedOrder.cardRowLocked).not.toBe("true");
 });
 
 async function setScrubField(
@@ -1964,26 +2237,64 @@ test("trailing: the mobile screen is resized to 390 wide via a typed inspector v
   await mobileLabel.click({ force: true });
   await page.waitForTimeout(400);
 
-  const widthInput = page.getByRole("textbox", { name: "W", exact: true });
+  await expect(
+    page.getByRole("heading", { name: "Screen", exact: true }),
+  ).toBeVisible();
+  const widthInput = page.getByRole("textbox", {
+    name: "W size in pixels",
+    exact: true,
+  });
   await expect(
     widthInput.first(),
     `no screen width field found for a selected screen; trace: ${await dumpTrace(page)}`,
   ).toBeVisible({ timeout: 8_000 });
+  await expect(widthInput).toHaveValue(`${DESKTOP_W}px`);
   await widthInput.fill(String(MOBILE_W));
   await widthInput.press("Enter");
   await page.waitForTimeout(800);
 
-  const box = await screenIframeBox(page, mobileScreenId);
-  const contentWidth = await page
-    .locator(
-      `iframe[data-design-preview-iframe][data-screen-iframe-id="${mobileScreenId}"]`,
-    )
-    .contentFrame()
-    .locator("body")
-    .evaluate(() => document.documentElement.clientWidth);
-  expect(
-    contentWidth,
-    `mobile screen must render at ${MOBILE_W}px after the typed resize`,
-  ).toBeLessThan(500);
-  void box;
+  const persistedMobileWidth = async () => {
+    const record: any = await getDesign(page, designId);
+    const data =
+      typeof record.data === "string"
+        ? JSON.parse(record.data || "{}")
+        : (record.data ?? {});
+    return {
+      canvasFrameWidth: data.canvasFrames?.[mobileScreenId]?.width,
+      screenMetadataWidth: data.screenMetadata?.[mobileScreenId]?.width,
+    };
+  };
+  await expect.poll(persistedMobileWidth, { timeout: 15_000 }).toEqual({
+    canvasFrameWidth: MOBILE_W,
+    screenMetadataWidth: MOBILE_W,
+  });
+
+  const renderedMobileWidth = () =>
+    page
+      .locator(
+        `iframe[data-design-preview-iframe][data-screen-iframe-id="${mobileScreenId}"]`,
+      )
+      .contentFrame()
+      .locator("body")
+      .evaluate((body) => body.ownerDocument.documentElement.clientWidth);
+  await expect.poll(renderedMobileWidth, { timeout: 15_000 }).toBe(MOBILE_W);
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
+    timeout: 30_000,
+  });
+  await page
+    .locator(`[data-screen-shell][data-frame-id="${mobileScreenId}"]`)
+    .locator("[data-frame-label]")
+    .click({ force: true });
+  const reloadedWidthInput = page.getByRole("textbox", {
+    name: "W size in pixels",
+    exact: true,
+  });
+  await expect(reloadedWidthInput).toHaveValue(`${MOBILE_W}px`);
+  await expect.poll(persistedMobileWidth).toEqual({
+    canvasFrameWidth: MOBILE_W,
+    screenMetadataWidth: MOBILE_W,
+  });
+  await expect.poll(renderedMobileWidth, { timeout: 15_000 }).toBe(MOBILE_W);
 });

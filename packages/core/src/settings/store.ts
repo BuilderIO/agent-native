@@ -2,6 +2,7 @@ import type { EventEmitter } from "node:events";
 
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
 import { getRequestContext } from "../server/request-context.js";
@@ -40,7 +41,7 @@ function settingsTable(): string {
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const table = settingsTable();
       const createSql = `
         CREATE TABLE IF NOT EXISTS ${table} (
@@ -60,6 +61,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

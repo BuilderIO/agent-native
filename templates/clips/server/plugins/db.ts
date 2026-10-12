@@ -1225,6 +1225,13 @@ export const migrations = runMigrations(
       CREATE INDEX IF NOT EXISTS recording_context_items_pending_media_recording_idx
         ON recording_context_items (pending_media_recording_id)`,
     },
+    {
+      version: 84,
+      name: "recording-context-captured-device",
+      // Additive. Mirrors `capturedDeviceId` in server/db/schema.ts. NULL rows
+      // predate device scoping and stay visible to every device's queue.
+      sql: `ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS captured_device_id TEXT`,
+    },
   ],
   { table: "clips_migrations" },
 );

@@ -89,7 +89,7 @@ function isSameSkillUpload(
     "name",
   )?.trim();
 
-  return Boolean(incomingDeclaredName) || !existingDeclaredName;
+  return Boolean(incomingDeclaredName) === Boolean(existingDeclaredName);
 }
 
 async function resolveOwner(event: any, shared?: boolean): Promise<string> {

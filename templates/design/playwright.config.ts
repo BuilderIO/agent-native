@@ -107,6 +107,11 @@ const ADVANCED_PANEL_SPEC_FILES = [
   /code-native-pr-surfaces\.spec\.ts$/,
   /code-workbench-local-files\.spec\.ts$/,
 ];
+const HOME_SYSTEM_SELECTION_SPEC = /home-system-selection\.spec\.ts$/;
+const CHROMIUM_PROJECT_USE = {
+  ...devices["Desktop Chrome"],
+  ...(BROWSER_CHANNEL ? { channel: BROWSER_CHANNEL } : {}),
+};
 
 const config = defineConfig({
   metadata: {
@@ -122,25 +127,42 @@ const config = defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? "github" : "list",
+  reporter: [
+    [process.env.CI ? "github" : "list"],
+    ...(process.env.E2E_LOG_TEST_PROGRESS === "1" ? [["line"] as const] : []),
+    [
+      path.join(import.meta.dirname, "e2e", "retry-failure-reporter.ts"),
+      { markerPath: path.join(E2E_RESULTS_DIR, "retry-failure.marker") },
+    ],
+  ],
   globalSetup: path.join(import.meta.dirname, "e2e", "global-setup.ts"),
   globalTeardown: path.join(import.meta.dirname, "e2e", "global-teardown.ts"),
   outputDir: E2E_RESULTS_DIR,
   use: {
     baseURL: BASE_URL,
     storageState: path.join(AUTH_DIR, "state.json"),
-    trace: "on-first-retry",
+    trace: process.env.CI ? "retain-on-failure" : "on-first-retry",
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
   },
   projects: [
     {
       name: BROWSER_CHANNEL ? `chromium-${BROWSER_CHANNEL}` : "chromium",
-      use: {
-        ...devices["Desktop Chrome"],
-        ...(BROWSER_CHANNEL ? { channel: BROWSER_CHANNEL } : {}),
-      },
+      testIgnore: [
+        ...(SHOW_SECONDARY_PANELS_IN_E2E ? [] : ADVANCED_PANEL_SPEC_FILES),
+        HOME_SYSTEM_SELECTION_SPEC,
+      ],
+      use: CHROMIUM_PROJECT_USE,
     },
+    ...(USE_SIDEBAR_LOOPBACK
+      ? [
+          {
+            name: "home-system-selection",
+            testMatch: HOME_SYSTEM_SELECTION_SPEC,
+            use: CHROMIUM_PROJECT_USE,
+          },
+        ]
+      : []),
   ],
   webServer: process.env.E2E_BASE_URL
     ? undefined

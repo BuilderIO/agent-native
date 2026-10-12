@@ -402,6 +402,11 @@ export function mountDevDbQueryForwardRoute(nitroApp: any): void {
   );
 }
 
+async function importDevMigrationModule(specifier: string): Promise<any> {
+  // Static adapter imports pull the local PGlite runtime into hosted bundles.
+  return import(/* @vite-ignore */ specifier);
+}
+
 export function mountDevDbMigrateForwardRoute(nitroApp: any): void {
   getH3App(nitroApp).use(
     DEV_DB_MIGRATE_ROUTE,
@@ -454,8 +459,11 @@ export function mountDevDbMigrateForwardRoute(nitroApp: any): void {
               "The dev server database is not PGlite; run drizzle-kit migrate directly.",
           };
         }
-        const { drizzle } = await import("drizzle-orm/pglite");
-        const { migrate } = await import("drizzle-orm/pglite/migrator");
+        const { drizzle } =
+          await importDevMigrationModule("drizzle-orm/pglite");
+        const { migrate } = await importDevMigrationModule(
+          "drizzle-orm/pglite/migrator",
+        );
         const client = await getPgliteClient(databaseUrl);
         await migrate(drizzle(client), {
           migrationsFolder,

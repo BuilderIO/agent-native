@@ -11,6 +11,7 @@ afterAll(async () => {
 type ExecuteInput = string | { sql: string; args?: unknown[] };
 
 const rawClient = {
+  transaction: pglite.transaction,
   execute: vi.fn(async (input: ExecuteInput) => {
     if (typeof input === "string") {
       await pglite.exec(input);
@@ -28,7 +29,7 @@ const rawClient = {
 
 vi.mock(import("../db/client.js"), async (importOriginal) => {
   const actual = await importOriginal();
-  return { ...actual, getDbExec: () => rawClient };
+  return { ...actual, getDbExec: () => actual.getScopedDbExec() ?? rawClient };
 });
 
 interface StoredResource {
@@ -47,7 +48,8 @@ const resourceStore = vi.hoisted(() => ({
 vi.mock("../resources/store.js", () => {
   const key = (owner: string, path: string) => `${owner}:${path}`;
   const copy = (row: StoredResource | undefined) => (row ? { ...row } : null);
-  return {
+  const store = {
+    ensureTable: vi.fn(async () => {}),
     SHARED_OWNER: "__shared__",
     organizationIdFromResourceOwner: (owner: string) =>
       owner.startsWith("__organization__:")
@@ -93,6 +95,15 @@ vi.mock("../resources/store.js", () => {
       };
       resourceStore.rows.set(key(input.owner, input.path), row);
       return { ...row };
+    },
+  };
+  return {
+    ...store,
+    resourcePutIfCurrentInTransaction: async (
+      input: Parameters<typeof store.resourcePutIfCurrent>[0],
+    ) => {
+      const resource = await store.resourcePutIfCurrent(input);
+      return resource ? { resource, notify: vi.fn() } : null;
     },
   };
 });
@@ -189,7 +200,7 @@ vi.mock("./scheduler-health.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./scheduler-health.js")>()),
   acquireAutomationSchedulerLease: vi.fn(async () => "test-lease"),
   releaseAutomationSchedulerLease: vi.fn(async () => undefined),
-  renewAutomationSchedulerLease: vi.fn(async () => undefined),
+  renewAutomationSchedulerLease: vi.fn(async () => true),
   recordAutomationSchedulerHealth: vi.fn(async () => undefined),
 }));
 

@@ -402,6 +402,7 @@ export function useEditorFilesAndSaving({
     (
       pending: FileContentSaveRequest,
       outboxJournalPromise?: Promise<boolean>,
+      onPersistedContent?: (acceptedContent: string) => void,
     ) =>
       runSaveFileContent(
         {
@@ -435,6 +436,7 @@ export function useEditorFilesAndSaving({
         },
         pending,
         outboxJournalPromise,
+        onPersistedContent,
       ),
     [
       acknowledgeOutboxEntry,
@@ -459,6 +461,8 @@ export function useEditorFilesAndSaving({
         syncCollab?: boolean;
         immediate?: boolean;
         identityMigrationSourceContent?: string;
+        deferCollabReconcile?: boolean;
+        onPersistedContent?: (acceptedContent: string) => void;
       },
     ) => {
       return runQueueFileContentSave(
@@ -856,8 +860,9 @@ export function useEditorFilesAndSaving({
   const files = useMemo(
     () =>
       serverFiles.map((file) => {
+        const pending = pendingLocalFileContentsSnapshot.get(file.id);
         const sourceContent =
-          pendingLocalFileContentsSnapshot.get(file.id)?.content ??
+          (pending?.deferCollabReconcile ? undefined : pending?.content) ??
           file.content ??
           "";
         const prepared = prepareCanonicalSourceContent(sourceContent, {

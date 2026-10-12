@@ -12,10 +12,12 @@ export default function Templates() {
   const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const search = searchParams.get("search") ?? "";
-  const { data, isLoading, isError, isFetching, refetch } = useActionQuery(
-    "list-design-templates",
-    { includePreview: "true" },
-  );
+  const { data, error, isLoading, isError, isFetching, refetch } =
+    useActionQuery(
+      "list-design-templates",
+      { includePreview: "true" },
+      { refetchOnMount: "always" },
+    );
   const templates = useMemo(() => {
     const query = search.trim().toLowerCase();
     return (data?.templates ?? []).filter(
@@ -26,6 +28,13 @@ export default function Templates() {
           .includes(query),
     );
   }, [data?.templates, search]);
+  const failure = error as { status?: number; errorCode?: string } | null;
+  const accessDenied =
+    [401, 403, 404].includes(failure?.status ?? 0) ||
+    ["unauthorized", "forbidden", "not_found"].includes(
+      failure?.errorCode ?? "",
+    );
+  const showError = isError && (data === undefined || accessDenied);
   useSetPageTitle(t("templatesPage.title"));
   return (
     <div className="mx-auto grid w-full max-w-370 gap-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -45,9 +54,10 @@ export default function Templates() {
       </div>
       {isError ? (
         <QueryErrorState onRetry={() => void refetch()} retrying={isFetching} />
-      ) : (
+      ) : null}
+      {!showError ? (
         <DesignTemplateLibrary templates={templates} loading={isLoading} />
-      )}
+      ) : null}
     </div>
   );
 }

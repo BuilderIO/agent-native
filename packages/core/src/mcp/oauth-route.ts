@@ -5,6 +5,10 @@ import { getHeader, getMethod, getQuery, setResponseStatus } from "h3";
 
 import type { DbExec } from "../db/client.js";
 import { getOrgDomain } from "../org/context.js";
+import {
+  getConfiguredAppBasePath,
+  normalizeAppBasePath,
+} from "../server/app-base-path.js";
 import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
 import {
   describeBearerCredentialRefusalWithRecovery,
@@ -14,6 +18,7 @@ import { getAuthSecret } from "../server/better-auth-instance.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import { trackAgentConnected } from "./agent-connected.js";
 import {
   McpCredentialIssuanceError,
   withMcpCredentialIssuance,
@@ -118,19 +123,6 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function normalizeBasePath(raw: string | undefined): string {
-  const trimmed = (raw ?? "").trim();
-  if (!trimmed || trimmed === "/") return "";
-  const withSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-  return withSlash.replace(/\/+$/, "");
-}
-
-function configuredBasePath(): string {
-  return normalizeBasePath(
-    process.env.APP_BASE_PATH || process.env.VITE_APP_BASE_PATH,
-  );
-}
-
 function stripTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
@@ -159,11 +151,11 @@ function configuredPublicBaseUrl(): string | undefined {
 }
 
 function appendConfiguredBasePath(baseUrl: string): string {
-  const basePath = configuredBasePath();
+  const basePath = getConfiguredAppBasePath();
   if (!basePath) return stripTrailingSlash(baseUrl);
   try {
     const url = new URL(baseUrl);
-    const pathname = normalizeBasePath(url.pathname);
+    const pathname = normalizeAppBasePath(url.pathname);
     if (pathname === basePath || pathname.endsWith(`${basePath}`)) {
       return stripTrailingSlash(`${url.origin}${pathname}`);
     }
@@ -1015,6 +1007,7 @@ async function handleAuthorize(
         createOAuthCode(
           {
             clientId,
+            clientName: client.clientName,
             redirectUri,
             codeChallenge: params.code_challenge,
             codeChallengeMethod: "S256",
@@ -1124,6 +1117,7 @@ function grantUnavailableError(description: string): Response {
 async function handleAuthorizationCodeGrant(
   event: H3Event,
   body: Record<string, string>,
+  options: McpOAuthRouteOptions,
 ): Promise<Response> {
   const code = body.code;
   const clientId = body.client_id;
@@ -1151,7 +1145,7 @@ async function handleAuthorizationCodeGrant(
   if (!issuer)
     return oauthError("server_error", "Unable to derive issuer", 500);
   try {
-    return await withMcpCredentialIssuance(
+    const response = await withMcpCredentialIssuance(
       {
         email: row.ownerEmail,
         orgId: row.orgId,
@@ -1178,6 +1172,16 @@ async function handleAuthorizationCodeGrant(
         );
       },
     );
+    if (response.status === 200) {
+      await trackAgentConnected({
+        email: row.ownerEmail,
+        origin: issuer,
+        appId: options.appId,
+        client: row.clientName ?? null,
+        method: "oauth",
+      });
+    }
+    return response;
   } catch (error) {
     if (
       error instanceof McpCredentialIssuanceError &&
@@ -1273,14 +1277,17 @@ async function handleRefreshTokenGrant(
   }
 }
 
-async function handleToken(event: H3Event): Promise<Response> {
+async function handleToken(
+  event: H3Event,
+  options: McpOAuthRouteOptions,
+): Promise<Response> {
   if (getMethod(event) !== "POST") {
     return oauthError("invalid_request", "Method not allowed", 405);
   }
   const body = await readOAuthParams(event);
   switch (body.grant_type) {
     case "authorization_code":
-      return handleAuthorizationCodeGrant(event, body);
+      return handleAuthorizationCodeGrant(event, body, options);
     case "refresh_token":
       return handleRefreshTokenGrant(event, body);
     default:
@@ -1296,7 +1303,7 @@ export async function handleMcpOAuth(
   const path = subpath.replace(/^\/+/, "").replace(/\/+$/, "");
   try {
     if (path === "authorize") return await handleAuthorize(event, options);
-    if (path === "token") return await handleToken(event);
+    if (path === "token") return await handleToken(event, options);
     if (path === "register") return await handleRegister(event);
     setResponseStatus(event, 404);
     return json({ error: "Not found" }, 404);

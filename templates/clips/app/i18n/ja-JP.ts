@@ -38,8 +38,18 @@ const messages = {
     retry: "再試行",
     playSelection: "選択範囲を再生",
     removeFailed: "破棄した録画の録画前の画面を削除できませんでした。",
-    scrubberStart: "開始",
-    scrubberEnd: "終了",
+    removeFailedAction:
+      "録画前の画面を削除できませんでした。もう一度お試しください。",
+    removeAction: "録画前の画面を削除",
+    removeConfirmTitle: "録画前の画面を削除しますか？",
+    removeConfirmBody:
+      "映像はゴミ箱に移動され、このクリップには含まれなくなります。",
+    removeConfirm: "削除",
+    removed: "録画前の画面を削除しました",
+    scrubberFromBefore: "{{offset}}前から",
+    scrubberFromStart: "録画開始から",
+    scrubberToBefore: "{{offset}}前まで",
+    scrubberToStart: "録画開始まで",
     scrubberLength: "長さ",
     scrubberStartHandle: "範囲の開始",
     scrubberEndHandle: "範囲の終了",
@@ -51,6 +61,7 @@ const messages = {
     empty: "このクリップには録画前の画面が添付されていません。",
     larger: "拡大",
     editHint: "範囲は Clips Desktop で編集します。",
+    waitingOtherDevice: "このクリップを録画したデバイスを待機中",
   },
   agentChat: {
     setup: {
@@ -883,7 +894,7 @@ const messages = {
       "Clips Desktop の音声入力を表示または非表示にします。",
     labLookbackContext: "以前の画面時間を含める",
     labLookbackContextDescription:
-      "録画の前の最大5分間の画面時間を、自動で取得される補足コンテキストとして添付します。デフォルトではオフです。",
+      "録画の前の最大5分間の画面時間を、自動で取得される補足コンテキストとして添付します。",
     uploadWorkspaceTitle: "アクティブなワークスペース",
     uploadWorkspaceDescription:
       "デスクトップからのアップロードを含む新しい Clips 録画で使用するワークスペースを選択します。",
@@ -2240,21 +2251,6 @@ const messages = {
     guideStartTitle: "Click Start notes (ローカライズ済み)",
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (ローカライズ済み)",
-  },
-  rewindExtension: {
-    title: "直前の出来事を追加",
-    description:
-      "ローカルのRewindから指定した時間範囲を選び、このクリップの先頭に追加します。自動では追加されません。",
-    progressLabel: "Rewind履歴の処理状況",
-    privateFirstTitle: "先にこのクリップを非公開にする",
-    privateFirstDescription:
-      "ローカルのRewind履歴には録画開始前の情報が含まれる場合があります。この操作でクリップは非公開になります。直接アクセスできる人がいる場合は、先に共有画面で削除できるようClipsが停止します。",
-    makePrivateContinue: "非公開にして続行",
-    add30Seconds: "直前の30秒を追加",
-    add5Minutes: "直前の5分を追加",
-    add5MinutesDescription: "長い説明の導入部分を復元するのに便利です。",
-    privateReady:
-      "このクリップは非公開です。ローカルのRewind履歴を追加できます。",
   },
   browserDiagnostics: {
     debug: "デバッグ",

@@ -6,7 +6,10 @@ import {
   AUTO_CONTINUE_OF_RUN_METADATA_KEY,
   CONTINUE_OF_RUN_METADATA_KEY,
 } from "../../agent/auto-continue.js";
-import type { AgentChatStructuredMessage } from "../../agent/types.js";
+import type {
+  AgentChatStructuredContentPart,
+  AgentChatStructuredMessage,
+} from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import {
@@ -1681,9 +1684,12 @@ export function createHttpAgentChatRuntime<
 function historyAttachmentStub(
   message: AgentChatRuntimeMessage,
   part: AgentChatRuntimeMessage["content"][number],
+  currentAttachmentUrls: ReadonlySet<string> = new Set<string>(),
 ): string | undefined {
   if (message.role !== "user") return undefined;
   if (part.type !== "file" && part.type !== "image") return undefined;
+  const url = durableHistoryAttachmentUrl(part.url);
+  if (url && currentAttachmentUrls.has(url)) return undefined;
   const kind = part.type === "image" ? "image" : "file";
   const rawName = part.type === "image" ? part.alt : part.filename;
   const name = rawName
@@ -1696,7 +1702,6 @@ function historyAttachmentStub(
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 100);
-  const url = durableHistoryAttachmentUrl(part.url);
   return `[attached: ${name || kind} ${mediaType || "unknown"} ${url || "no durable URL available"}]`;
 }
 
@@ -1714,32 +1719,93 @@ function durableHistoryAttachmentUrl(
   return sanitized.length <= 2_048 ? sanitized : undefined;
 }
 
+function historyImageReference(
+  message: AgentChatRuntimeMessage,
+  part: AgentChatRuntimeMessage["content"][number],
+  currentAttachmentUrls: ReadonlySet<string> = new Set<string>(),
+):
+  | Extract<AgentChatStructuredContentPart, { type: "image-reference" }>
+  | undefined {
+  if (message.role !== "user" || part.type !== "image" || !part.url) {
+    return undefined;
+  }
+  const url = durableHistoryAttachmentUrl(part.url);
+  if (url && currentAttachmentUrls.has(url)) return undefined;
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(part.url);
+  } catch (error) {
+    if (error instanceof TypeError) return undefined;
+    throw error;
+  }
+  if (parsedUrl.search || parsedUrl.hash) return undefined;
+  if (!url) return undefined;
+
+  const name = part.alt
+    ?.replace(/[\u0000-\u001f\u007f\[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+  const mediaType = part.mediaType
+    ?.replace(/[\u0000-\u001f\u007f\[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+  return {
+    type: "image-reference",
+    url,
+    ...(name ? { name } : {}),
+    ...(mediaType ? { mediaType } : {}),
+  };
+}
+
 /** Reasoning is the model's scratch work and is never replayed as history. */
-function runtimeMessageText(message: AgentChatRuntimeMessage): string {
+function runtimeMessageText(
+  message: AgentChatRuntimeMessage,
+  currentAttachmentUrls: ReadonlySet<string> = new Set<string>(),
+): string {
   return message.content
     .map((part) =>
       part.type === "text"
         ? part.text
-        : (historyAttachmentStub(message, part) ?? ""),
+        : (historyAttachmentStub(message, part, currentAttachmentUrls) ?? ""),
     )
     .filter(Boolean)
     .join("\n");
 }
 
-function isUserAsk(message: AgentChatRuntimeMessage): boolean {
+function isUserAsk(
+  message: AgentChatRuntimeMessage,
+  currentAttachmentUrls: ReadonlySet<string> = new Set<string>(),
+): boolean {
   return (
     message.role === "user" &&
     message.content.some(
       (part) =>
         (part.type === "text" && part.text.trim()) ||
-        historyAttachmentStub(message, part) !== undefined,
+        historyAttachmentStub(message, part, currentAttachmentUrls) !==
+          undefined,
     )
   );
 }
 
-function hasHistoryAttachment(message: AgentChatRuntimeMessage): boolean {
+function hasHistoryAttachment(
+  message: AgentChatRuntimeMessage,
+  currentAttachmentUrls: ReadonlySet<string> = new Set<string>(),
+): boolean {
   return message.content.some(
-    (part) => historyAttachmentStub(message, part) !== undefined,
+    (part) =>
+      historyAttachmentStub(message, part, currentAttachmentUrls) !== undefined,
+  );
+}
+
+function currentTurnAttachmentUrls(
+  attachments: readonly AgentChatRuntimeAttachment[] | undefined,
+): Set<string> {
+  return new Set(
+    (attachments ?? [])
+      .map((attachment) => durableHistoryAttachmentUrl(attachment.url))
+      .filter((url): url is string => url !== undefined),
   );
 }
 
@@ -1753,23 +1819,71 @@ function isSyntheticToolHistoryOmissionMessage(
   );
 }
 
+function equivalentRuntimeContent(left: unknown, right: unknown): boolean {
+  let remaining = 4096;
+  const leftAncestors = new WeakSet<object>();
+  const rightAncestors = new WeakSet<object>();
+  const compare = (a: unknown, b: unknown, depth: number): boolean => {
+    if (--remaining < 0 || depth > 64) return false;
+    if (Object.is(a, b)) return true;
+    if (!a || !b || typeof a !== "object" || typeof b !== "object")
+      return false;
+    const prototype = Object.getPrototypeOf(a);
+    if (
+      prototype !== Object.getPrototypeOf(b) ||
+      (prototype !== Object.prototype &&
+        prototype !== Array.prototype &&
+        prototype !== null) ||
+      leftAncestors.has(a) ||
+      rightAncestors.has(b)
+    )
+      return false;
+    if (Array.isArray(a) !== Array.isArray(b)) return false;
+    if (Array.isArray(a) && (!Array.isArray(b) || a.length !== b.length))
+      return false;
+    const keys = Object.keys(a);
+    if (keys.length > remaining || keys.length !== Object.keys(b).length)
+      return false;
+    leftAncestors.add(a);
+    rightAncestors.add(b);
+    try {
+      return keys.every((key) => {
+        const leftValue = Object.getOwnPropertyDescriptor(a, key);
+        const rightValue = Object.getOwnPropertyDescriptor(b, key);
+        return Boolean(
+          leftValue &&
+          rightValue &&
+          rightValue.enumerable &&
+          "value" in leftValue &&
+          "value" in rightValue &&
+          compare(leftValue.value, rightValue.value, depth + 1),
+        );
+      });
+    } finally {
+      leftAncestors.delete(a);
+      rightAncestors.delete(b);
+    }
+  };
+  return compare(left, right, 0);
+}
+
 function priorNativeHistoryMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
 ) {
   const source = messages ?? [];
   let currentPromptMessageIndex: number | undefined;
-  if (currentPrompt.trim()) {
-    for (let index = source.length - 1; index >= 0; index--) {
-      const message = source[index]!;
-      if (isSyntheticToolHistoryOmissionMessage(message)) continue;
-      if (message.role !== "user" && message.role !== "assistant") continue;
-      if (message.role === "user") {
-        const match = runtimeMessageTextMatches(message, currentPrompt);
-        if (match.matches || !match.complete) currentPromptMessageIndex = index;
-      }
-      break;
+  for (let index = source.length - 1; index >= 0; index--) {
+    const message = source[index]!;
+    if (isSyntheticToolHistoryOmissionMessage(message)) continue;
+    if (message.role !== "user") continue;
+    if (!currentPrompt.trim()) {
+      currentPromptMessageIndex = index;
+    } else {
+      const match = runtimeMessageTextMatches(message, currentPrompt);
+      if (match.matches || !match.complete) currentPromptMessageIndex = index;
     }
+    break;
   }
   return source.filter(
     (message, index) =>
@@ -1781,6 +1895,7 @@ function priorNativeHistoryMessages(
 function nativeHistoryFromMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
+  currentAttachmentUrls: ReadonlySet<string>,
 ) {
   return priorNativeHistoryMessages(messages, currentPrompt)
     .filter(
@@ -1788,7 +1903,7 @@ function nativeHistoryFromMessages(
     )
     .map((message) => ({
       role: message.role as "user" | "assistant",
-      content: runtimeMessageText(message),
+      content: runtimeMessageText(message, currentAttachmentUrls),
     }))
     .filter((message) => message.content.trim());
 }
@@ -1835,12 +1950,14 @@ const MAX_ADDED_TOOL_HISTORY_BYTES = 256 * 1024;
 const MAX_TOOL_HISTORY_RESULT_SUMMARY_BYTES = 4 * 1024;
 const MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS = MAX_TOOL_HISTORY_CALLS * 2;
 const MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS = MAX_TOOL_HISTORY_CALLS * 2;
+const MAX_STRUCTURED_HISTORY_IMAGE_REFERENCES = 6;
 const MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES = 1024;
 const MAX_STRUCTURED_HISTORY_PINNED_PROMPT_PARTS =
   MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES;
 const MAX_STRUCTURED_HISTORY_SOURCE_PARTS =
   MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS +
   MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS +
+  MAX_STRUCTURED_HISTORY_IMAGE_REFERENCES +
   MAX_STRUCTURED_HISTORY_PINNED_PROMPT_PARTS;
 const MAX_PINNED_PRIOR_USER_PROMPT_CHARS = 16 * 1024;
 /** Above every other candidate, so the byte budget drops pinned asks last. */
@@ -2490,7 +2607,9 @@ function boundStructuredToolHistory(
   );
 }
 
-type StructuredHistorySourcePart = AgentChatRuntimeMessage["content"][number];
+type StructuredHistorySourcePart =
+  | AgentChatRuntimeMessage["content"][number]
+  | Extract<AgentChatStructuredContentPart, { type: "image-reference" }>;
 
 interface StructuredHistorySourceMessage {
   message: AgentChatRuntimeMessage;
@@ -2545,36 +2664,37 @@ function boundedStructuredHistorySources(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
   supplementalMessages: readonly AgentChatRuntimeMessage[],
+  currentAttachmentUrls: ReadonlySet<string>,
 ): BoundedStructuredHistorySources {
   const historyMessages = messages ?? [];
   let currentPromptMessageIndex: number | undefined;
   let currentPromptScanLimited = false;
   let omitted = false;
   let toolHistoryOmitted = false;
-  if (currentPrompt.trim()) {
-    let visitedMessages = 0;
-    for (let index = historyMessages.length - 1; index >= 0; index--) {
-      if (visitedMessages >= MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES) {
-        currentPromptScanLimited = true;
-        omitted = true;
-        toolHistoryOmitted = true;
-        break;
-      }
-      visitedMessages++;
-      const message = historyMessages[index]!;
-      if (isSyntheticToolHistoryOmissionMessage(message)) continue;
-      if (message.role !== "user" && message.role !== "assistant") continue;
-      if (message.role === "user") {
-        const match = runtimeMessageTextMatches(message, currentPrompt);
-        if (match.matches) currentPromptMessageIndex = index;
-        if (!match.complete) {
-          omitted = true;
-          toolHistoryOmitted = true;
-          currentPromptMessageIndex = index;
-        }
-      }
+  let visitedMessages = 0;
+  for (let index = historyMessages.length - 1; index >= 0; index--) {
+    const message = historyMessages[index]!;
+    if (message.role === "assistant") continue;
+    if (visitedMessages >= MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES) {
+      currentPromptScanLimited = true;
+      omitted = true;
+      toolHistoryOmitted = true;
       break;
     }
+    visitedMessages++;
+    if (message.role !== "user") continue;
+    if (!currentPrompt.trim()) {
+      currentPromptMessageIndex = index;
+    } else {
+      const match = runtimeMessageTextMatches(message, currentPrompt);
+      if (match.matches) currentPromptMessageIndex = index;
+      if (!match.complete) {
+        omitted = true;
+        toolHistoryOmitted = true;
+        currentPromptMessageIndex = index;
+      }
+    }
+    break;
   }
 
   let firstUserPromptMessageIndex: number | undefined;
@@ -2585,7 +2705,16 @@ function boundedStructuredHistorySources(
   );
   for (let index = 0; index < firstPromptScanEnd; index++) {
     if (index === currentPromptMessageIndex) continue;
-    if (isUserAsk(historyMessages[index]!)) {
+    const message = historyMessages[index]!;
+    if (
+      currentPromptScanLimited &&
+      currentPrompt.trim() &&
+      message.role === "user" &&
+      runtimeMessageTextMatches(message, currentPrompt).matches
+    ) {
+      continue;
+    }
+    if (isUserAsk(message, currentAttachmentUrls)) {
       firstUserPromptMessageIndex = index;
       break;
     }
@@ -2600,7 +2729,7 @@ function boundedStructuredHistorySources(
     index++
   ) {
     if (index === currentPromptMessageIndex) continue;
-    if (hasHistoryAttachment(historyMessages[index]!)) {
+    if (hasHistoryAttachment(historyMessages[index]!, currentAttachmentUrls)) {
       attachmentPromptMessageIndices.push(index);
     }
   }
@@ -2616,7 +2745,7 @@ function boundedStructuredHistorySources(
     index--
   ) {
     if (index === currentPromptMessageIndex) continue;
-    if (isUserAsk(historyMessages[index]!)) {
+    if (isUserAsk(historyMessages[index]!, currentAttachmentUrls)) {
       previousUserPromptMessageIndex = index;
       break;
     }
@@ -2648,9 +2777,14 @@ function boundedStructuredHistorySources(
 
   const selectedReversed: StructuredHistorySourceMessage[] = [];
   const pinnedPromptsAdded = new Set<number>();
+  const selectedImageParts = new Set<
+    AgentChatRuntimeMessage["content"][number]
+  >();
   let selectedToolPartCount = 0;
   let selectedTextPartCount = 0;
   let selectedRegularTextPartCount = 0;
+  let selectedImagePartCount = 0;
+  const selectedImageUrls = new Set<string>();
   let scannedPartCount = 0;
   let visitedMessageCount = 0;
   let toolBoundary: StructuredHistorySourceBoundary | undefined;
@@ -2661,11 +2795,11 @@ function boundedStructuredHistorySources(
   ): void => {
     pinnedPromptsAdded.add(messageIndex);
     const message = historyMessages[messageIndex]!;
-    let text = runtimeMessageText(message);
+    let text = runtimeMessageText(message, currentAttachmentUrls);
     if (
       messageIndex === previousUserPromptMessageIndex &&
       messageIndex !== firstUserPromptMessageIndex &&
-      !hasHistoryAttachment(message) &&
+      !hasHistoryAttachment(message, currentAttachmentUrls) &&
       text.length > MAX_PINNED_PRIOR_USER_PROMPT_CHARS
     ) {
       omitted = true;
@@ -2678,6 +2812,28 @@ function boundedStructuredHistorySources(
     }
     selectedTextPartCount++;
     parts.push({ type: "text", text });
+  };
+  const addImageReference = (
+    parts: StructuredHistorySourcePart[],
+    message: AgentChatRuntimeMessage,
+    part: AgentChatRuntimeMessage["content"][number],
+  ): void => {
+    const reference = historyImageReference(
+      message,
+      part,
+      currentAttachmentUrls,
+    );
+    if (!reference || selectedImageParts.has(part)) return;
+    // History is walked newest-first, so the first reference to a URL keeps the newest metadata.
+    if (selectedImageUrls.has(reference.url)) return;
+    if (selectedImagePartCount >= MAX_STRUCTURED_HISTORY_IMAGE_REFERENCES) {
+      omitted = true;
+      return;
+    }
+    selectedImageParts.add(part);
+    selectedImageUrls.add(reference.url);
+    selectedImagePartCount++;
+    parts.push(reference);
   };
   const visitMessage = (
     message: AgentChatRuntimeMessage,
@@ -2715,7 +2871,17 @@ function boundedStructuredHistorySources(
         break;
       }
       scannedPartCount++;
-      const attachmentStub = historyAttachmentStub(message, part);
+      const attachmentStub = historyAttachmentStub(
+        message,
+        part,
+        currentAttachmentUrls,
+      );
+      const imageReference = historyImageReference(
+        message,
+        part,
+        currentAttachmentUrls,
+      );
+      if (imageReference) addImageReference(partsReversed, message, part);
       const isToolPart =
         (part.type === "tool-call" && message.role === "assistant") ||
         part.type === "tool-result";
@@ -2725,6 +2891,7 @@ function boundedStructuredHistorySources(
         if (!pinnedPromptsAdded.has(messageIndex)) {
           addPinnedPromptText(partsReversed, messageIndex);
         }
+        addImageReference(partsReversed, message, part);
         continue;
       }
       if (
@@ -2780,7 +2947,6 @@ function boundedStructuredHistorySources(
   ) {
     visitMessage(supplementalMessages[index]!, "supplemental", index);
   }
-  if (currentPromptScanLimited) stop = true;
   for (let index = historyMessages.length - 1; index >= 0 && !stop; index--) {
     if (index === currentPromptMessageIndex) continue;
     visitMessage(historyMessages[index]!, "messages", index);
@@ -2793,6 +2959,16 @@ function boundedStructuredHistorySources(
     if (pinnedPromptsAdded.has(index)) continue;
     const parts: StructuredHistorySourcePart[] = [];
     addPinnedPromptText(parts, index);
+    const message = historyMessages[index]!;
+    for (const part of message.content) {
+      if (scannedPartCount >= MAX_STRUCTURED_HISTORY_SOURCE_SCAN_STEPS) {
+        omitted = true;
+        toolHistoryOmitted = true;
+        break;
+      }
+      scannedPartCount++;
+      addImageReference(parts, message, part);
+    }
     if (parts.length) {
       selectedReversed.push({
         message: historyMessages[index]!,
@@ -2975,6 +3151,7 @@ function boundaryToolResultPartsToOmit(
 function nativeStructuredHistoryFromMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
+  currentAttachmentUrls: ReadonlySet<string>,
   supplementalMessages: readonly AgentChatRuntimeMessage[] = [],
   supplementalHistoryOmitted = false,
   supplementalToolHistoryOmitted = false,
@@ -2991,6 +3168,7 @@ function nativeStructuredHistoryFromMessages(
     messages,
     currentPrompt,
     supplementalMessages,
+    currentAttachmentUrls,
   );
   const boundaryResultsToOmit = boundaryToolResultPartsToOmit(
     messages,
@@ -3044,6 +3222,10 @@ function nativeStructuredHistoryFromMessages(
           textHistoryParts.add(textPart);
           pendingTextParts.push(textPart);
         }
+      } else if (part.type === "image-reference" && message.role === "user") {
+        flushTextCandidate();
+        flushResults();
+        content.push(part);
       } else if (part.type === "tool-call" && message.role === "assistant") {
         hasToolHistory = true;
         flushTextCandidate();
@@ -3263,6 +3445,56 @@ function agentNativeAgentReference(
   agent: string,
 ): AgentChatRuntimeObjectReference {
   return { id: agent, kind: "agent", label: agent };
+}
+
+// The renderer swaps this label for its localized working label. An app name or
+// a raw A2A state in an activity label prints beside the participant chip that
+// already names the app.
+const AGENT_CALL_ACTIVITY_LABEL = "processing";
+
+const AGENT_CALL_FAILURE_REASON_PREFIX = "agentChat.agent.failureReason.";
+
+const AGENT_CALL_FAILURE_REASON_FALLBACK = "failed";
+
+// Terminal codes are protocol vocabulary and arrive from remote peers, so this
+// is a Map: a plain object would answer `constructor` with a function. A code
+// missing here, or no code at all, resolves to the generic reason. Setup is
+// claimed only by credential codes: `permanent_precondition` (and the
+// `a2a_child_` and `a2a_target_blocked_this_turn` codes derived from it) also
+// stops attachment, SSRF, plan-mode, and unverified-user failures that no setup
+// step fixes, so those stay on the generic reason.
+const AGENT_CALL_FAILURE_REASONS = new Map<string, string>([
+  ["credential_missing", "setup"],
+  ["missing_credentials", "setup"],
+  ["invalid_auth", "setup"],
+  ["a2a_auth_rejected", "auth"],
+  ["credential_rejected", "auth"],
+  ["token_request_failed", "auth"],
+  ["http_401", "auth"],
+  ["http_403", "auth"],
+  ["invalid_api_key", "auth"],
+  ["authentication_error", "auth"],
+  ["unauthorized", "auth"],
+  ["timeout_without_task", "timeout"],
+  ["run_budget_exhausted", "budget"],
+  ["empty_agent_response", "response"],
+  ["a2a_response_too_large", "response"],
+]);
+
+// Every key `failureReasonKey` metadata can carry, so hosts can prove their
+// catalogs cover it.
+export const AGENT_CALL_FAILURE_REASON_KEYS: readonly string[] = [
+  ...new Set([
+    AGENT_CALL_FAILURE_REASON_FALLBACK,
+    ...AGENT_CALL_FAILURE_REASONS.values(),
+  ]),
+].map((reason) => `${AGENT_CALL_FAILURE_REASON_PREFIX}${reason}`);
+
+function agentCallFailureReasonKey(terminalCode: string | undefined): string {
+  return `${AGENT_CALL_FAILURE_REASON_PREFIX}${
+    (terminalCode && AGENT_CALL_FAILURE_REASONS.get(terminalCode)) ||
+    AGENT_CALL_FAILURE_REASON_FALLBACK
+  }`;
 }
 
 function agentNativeParticipantStatus(
@@ -3695,14 +3927,15 @@ function mapAgentNativeEvent(
           id: `${participantId}:${interactionKind}:${ev.seq ?? "current"}`,
           kind: interactionKind,
           participantId,
-          label: agent,
-          detail: ev.terminalCode,
           scope: "external",
-          object: ev.taskId
-            ? { id: ev.taskId, kind: "task", label: ev.taskId }
-            : undefined,
           source: agentNativeAgentReference(agent),
-          metadata: definedMetadata({ durationMs: ev.durationMs }),
+          metadata: definedMetadata({
+            durationMs: ev.durationMs,
+            failureReasonKey:
+              interactionKind === "failed"
+                ? agentCallFailureReasonKey(ev.terminalCode)
+                : undefined,
+          }),
         },
       },
     ];
@@ -3750,7 +3983,7 @@ function mapAgentNativeEvent(
         activity: {
           id: `${participantId}:progress`,
           kind: "agent",
-          label: ev.state ?? agent,
+          label: AGENT_CALL_ACTIVITY_LABEL,
           detail: ev.detail,
           status: "running",
           participantId,
@@ -3775,7 +4008,6 @@ function mapAgentNativeEvent(
           id: `${participantId}:message:${ev.seq ?? "current"}`,
           kind: "messaged",
           participantId,
-          label: agent,
           detail: ev.text,
           scope: "external",
           source: agentNativeAgentReference(agent),
@@ -3795,7 +4027,7 @@ function mapAgentNativeEvent(
         activity: {
           id: `${participantId}:activity`,
           kind: "agent",
-          label: agent,
+          label: AGENT_CALL_ACTIVITY_LABEL,
           detail: ev.snapshot.activePhase,
           status,
           participantId,
@@ -4279,6 +4511,25 @@ export function createAgentNativeChatRuntime(
       const latestUserMessage = [...(turn.messages ?? [])]
         .reverse()
         .find((message) => message.role === "user");
+      const latestUserMessageIndex = latestUserMessage
+        ? (turn.messages?.lastIndexOf(latestUserMessage) ?? -1)
+        : -1;
+      const messagesForHistory =
+        latestUserMessage &&
+        typeof latestUserMessage.id === "string" &&
+        latestUserMessage.id.trim().length > 0 &&
+        latestUserMessageIndex >= 0
+          ? turn.messages!.filter(
+              (message, index) =>
+                message.role !== "user" ||
+                message.id !== latestUserMessage.id ||
+                !equivalentRuntimeContent(
+                  message.content,
+                  latestUserMessage.content,
+                ) ||
+                index === latestUserMessageIndex,
+            )
+          : turn.messages;
       const prompt =
         turn.prompt ??
         latestUserMessage?.content
@@ -4312,15 +4563,23 @@ export function createAgentNativeChatRuntime(
         typeof turnEngine === "string" && turnEngine.trim()
           ? turnEngine
           : options.engine;
-      const history = nativeHistoryFromMessages(turn.messages, prompt);
+      const currentAttachmentUrlSet = currentTurnAttachmentUrls(
+        turn.attachments,
+      );
+      const history = nativeHistoryFromMessages(
+        messagesForHistory,
+        prompt,
+        currentAttachmentUrlSet,
+      );
       const loadedSkillSlugs = loadedSkillSlugsFromMessages(turn.messages);
       const pendingApprovalHistory =
         approvedToolCalls && continuationMessageState
           ? pendingApprovalRuntimeMessages(continuationMessageState)
           : { messages: [], omitted: false, toolHistoryOmitted: false };
       const structuredHistory = nativeStructuredHistoryFromMessages(
-        turn.messages,
+        messagesForHistory,
         prompt,
+        currentAttachmentUrlSet,
         pendingApprovalHistory.messages,
         pendingApprovalHistory.omitted,
         pendingApprovalHistory.toolHistoryOmitted,

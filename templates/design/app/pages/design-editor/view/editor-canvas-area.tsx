@@ -112,7 +112,6 @@ export function renderEditorCanvasArea({
     activeTool,
     hoveredElement,
     runtimeStructureInsertRequest,
-    widgetEmbed,
     selectedElement,
     t,
     isVisualEditSurface,
@@ -328,7 +327,6 @@ export function renderEditorCanvasArea({
   const chromeInsetRight = rightInspectorCanvasInset({
     visible: rightSidebarVisible,
     width: rightSidebarWidth,
-    widgetEmbed,
     minimalUi,
   });
 
@@ -356,6 +354,11 @@ export function renderEditorCanvasArea({
       hasClipboard={hasCanvasClipboard}
       hasPropsClipboard={hasPropsClipboard}
       hasAnimationClipboard={hasAnimationClipboard}
+      hiddenActions={
+        editorLiveEditsAndPresence.motionLabEnabled
+          ? undefined
+          : ["copy-animation", "paste-animation"]
+      }
       isLocked={activeLayerLocked}
       isHidden={activeLayerHidden}
       labels={{
@@ -447,10 +450,15 @@ export function renderEditorCanvasArea({
         Boolean(selectedElement)
       }
       canCopyAnimation={
-        Boolean(selectedElement) && selectedElementHasMotionTrack
+        editorLiveEditsAndPresence.motionLabEnabled &&
+        Boolean(selectedElement) &&
+        selectedElementHasMotionTrack
       }
       canPasteAnimation={
-        canEditDesign && hasAnimationClipboard && Boolean(selectedElement)
+        editorLiveEditsAndPresence.motionLabEnabled &&
+        canEditDesign &&
+        hasAnimationClipboard &&
+        Boolean(selectedElement)
       }
       canCopyAsCode={Boolean(
         selectedElement?.selector || selectedScreenIds.length > 0,

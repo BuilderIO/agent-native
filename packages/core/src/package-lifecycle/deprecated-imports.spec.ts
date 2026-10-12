@@ -165,6 +165,211 @@ describe("scanDeprecatedImports", () => {
     ).toEqual([]);
   });
 
+  it("skips generated Playwright artifacts during scans and hot updates", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-doctor-playwright-artifacts-"),
+    );
+    roots.push(root);
+    const source = path.join(root, "src", "consumer.ts");
+    const traceResource = path.join(
+      root,
+      "test-results",
+      "run-1",
+      "trace",
+      "resources",
+      "trace.css",
+    );
+    const reportSource = path.join(
+      root,
+      "playwright-report",
+      "assets",
+      "report.ts",
+    );
+    fs.mkdirSync(path.dirname(source), { recursive: true });
+    fs.mkdirSync(path.dirname(traceResource), { recursive: true });
+    fs.mkdirSync(path.dirname(reportSource), { recursive: true });
+    fs.writeFileSync(
+      source,
+      'import { AgentSidebar } from "@agent-native/core/client";\n',
+    );
+    fs.writeFileSync(
+      traceResource,
+      '@import "@agent-native/core/styles/agent-native.css";\n',
+    );
+    fs.writeFileSync(
+      reportSource,
+      'import { AgentSidebar } from "@agent-native/core/client";\n',
+    );
+    const manifest: MigrationManifest = {
+      sinceVersion: "0.110.0",
+      moves: {
+        "@agent-native/core/client": {
+          to: "@agent-native/toolkit/app/chat",
+        },
+        "@agent-native/core/styles/agent-native.css": {
+          to: "@agent-native/toolkit/styles.css",
+        },
+      },
+    };
+
+    const sourceFinding = expect.objectContaining({
+      file: source,
+      from: "@agent-native/core/client",
+      status: "active",
+    });
+    expect(scanDeprecatedImports({ root, manifests: [manifest] })).toEqual([
+      sourceFinding,
+    ]);
+    expect(
+      scanDeprecatedImports({
+        root,
+        files: [source, traceResource, reportSource],
+        manifests: [manifest],
+      }),
+    ).toEqual([sourceFinding]);
+  });
+
+  it.each(["ENOENT", "ENOTDIR"] as const)(
+    "ignores a source file that disappears during the scan (%s)",
+    (code) => {
+      const root = fs.mkdtempSync(
+        path.join(os.tmpdir(), "an-doctor-disappearing-source-"),
+      );
+      roots.push(root);
+      const source = path.join(root, "consumer.ts");
+      fs.writeFileSync(
+        source,
+        'import { AgentSidebar } from "@agent-native/core/client";\n',
+      );
+      const missingFile = Object.assign(new Error("source disappeared"), {
+        code,
+      });
+      const readFile = vi
+        .spyOn(fs, "readFileSync")
+        .mockImplementationOnce(() => {
+          throw missingFile;
+        });
+
+      try {
+        expect(
+          scanDeprecatedImports({
+            root,
+            files: [source],
+            manifests: [
+              {
+                sinceVersion: "0.110.0",
+                moves: {
+                  "@agent-native/core/client": {
+                    to: "@agent-native/toolkit/app/chat",
+                  },
+                },
+              },
+            ],
+          }),
+        ).toEqual([]);
+      } finally {
+        readFile.mockRestore();
+      }
+    },
+  );
+
+  it("preserves source read errors other than disappearance", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-doctor-unreadable-source-"),
+    );
+    roots.push(root);
+    const source = path.join(root, "consumer.ts");
+    fs.writeFileSync(
+      source,
+      'import { AgentSidebar } from "@agent-native/core/client";\n',
+    );
+    const readError = Object.assign(new Error("permission denied"), {
+      code: "EACCES",
+    });
+    const readFile = vi.spyOn(fs, "readFileSync").mockImplementationOnce(() => {
+      throw readError;
+    });
+
+    try {
+      expect(() =>
+        scanDeprecatedImports({
+          root,
+          files: [source],
+          manifests: [
+            {
+              sinceVersion: "0.110.0",
+              moves: {
+                "@agent-native/core/client": {
+                  to: "@agent-native/toolkit/app/chat",
+                },
+              },
+            },
+          ],
+        }),
+      ).toThrow("permission denied");
+    } finally {
+      readFile.mockRestore();
+    }
+  });
+
+  it("continues scanning when a nested source directory disappears", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-doctor-disappearing-directory-"),
+    );
+    roots.push(root);
+    const source = path.join(root, "consumer.ts");
+    const transientDirectory = path.join(root, "transient");
+    fs.mkdirSync(transientDirectory);
+    fs.writeFileSync(
+      source,
+      'import { AgentSidebar } from "@agent-native/core/client";\n',
+    );
+    fs.writeFileSync(
+      path.join(transientDirectory, "generated.ts"),
+      'import { AgentSidebar } from "@agent-native/core/client";\n',
+    );
+    const missingDirectory = Object.assign(
+      new Error("source directory disappeared"),
+      { code: "ENOTDIR" },
+    );
+    const originalReadDirectory = fs.readdirSync;
+    const readDirectory = vi.spyOn(fs, "readdirSync");
+    readDirectory.mockImplementationOnce((directory, options) => {
+      const entries = originalReadDirectory(directory, options);
+      fs.rmSync(transientDirectory, { recursive: true });
+      return entries;
+    });
+    readDirectory.mockImplementationOnce(() => {
+      throw missingDirectory;
+    });
+
+    try {
+      expect(
+        scanDeprecatedImports({
+          root,
+          manifests: [
+            {
+              sinceVersion: "0.110.0",
+              moves: {
+                "@agent-native/core/client": {
+                  to: "@agent-native/toolkit/app/chat",
+                },
+              },
+            },
+          ],
+        }),
+      ).toEqual([
+        expect.objectContaining({
+          file: source,
+          from: "@agent-native/core/client",
+          status: "active",
+        }),
+      ]);
+    } finally {
+      readDirectory.mockRestore();
+    }
+  });
+
   it("documents removed AgentKit chat exports in their migration guide", () => {
     const manifest = JSON.parse(
       fs.readFileSync(

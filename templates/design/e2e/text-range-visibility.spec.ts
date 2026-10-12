@@ -104,15 +104,10 @@ async function selectHeadingRange(page: Page): Promise<void> {
   await page.keyboard.press("Enter");
   const heading = designFrame(page).locator("h1").first();
   await expect(heading).toHaveAttribute("contenteditable", "true");
-  await heading.click({ position: { x: 2, y: 10 }, force: true });
-  // Locator-scoped `.press()` re-focuses `heading` before each key, closing
-  // the race a raw `page.keyboard.press()` leaves open: the click above can
-  // still be settling focus/caret placement asynchronously (matches
-  // selectTextRange below, which never saw this flake).
-  await heading.press("Home");
-  await heading.press("Shift+ArrowRight");
-  await heading.press("Shift+ArrowRight");
-  await heading.press("Shift+ArrowRight");
+  await heading.press(`${MOD}+ArrowUp`);
+  for (let index = 0; index < 3; index += 1) {
+    await heading.press("Shift+ArrowRight");
+  }
   await expect
     .poll(() => heading.evaluate(() => window.getSelection()?.toString() ?? ""))
     .toBe("E2E");

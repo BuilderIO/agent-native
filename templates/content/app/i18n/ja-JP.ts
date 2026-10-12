@@ -801,7 +801,6 @@ const editor = {
     linkToNotionPage: "Notionページへのリンク",
     localFile: "ローカルファイル",
     morePageActions: "その他のページアクション",
-    formatting: "書式",
     noPagesFound: "ページが見つかりませんでした",
     notifications: "通知",
     notionSync: "Notionの同期",
@@ -1111,6 +1110,8 @@ const exactEnglish = {
       openInClaude: "Claude で開く",
       openInClaudeCode: "Claude Code で開く",
       openInCodex: "Codex で開く",
+      connectContent: "Content を接続",
+      otherAgents: "その他のエージェント",
       agentCopyAccessNote:
         "エージェントは既存の権限で Content MCP を利用できます",
       temporaryAgentLink: "一時的なエージェントリンク",

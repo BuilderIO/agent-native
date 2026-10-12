@@ -14,6 +14,7 @@ import {
   loadActionsFromStaticRegistry,
   runAgentLoop,
   TOOL_SEARCH_ACTION_NAME,
+  type ActionEntry,
   type AgentChatEvent,
   type AgentLoopFinalResponseGuard,
 } from "@agent-native/core/server";
@@ -50,20 +51,70 @@ function toMessages(
   return messages;
 }
 
-function appendReferences(
+export function buildAnalyticsPromptContext(
   systemPrompt: string,
-  candidates: Awaited<
-    ReturnType<typeof retrieveAnalyticsPromptReferences>
-  >["jevPromptCandidates"],
+  references: Awaited<ReturnType<typeof retrieveAnalyticsPromptReferences>>,
 ): string {
-  if (candidates.length === 0) return systemPrompt;
-  const references = candidates
-    .map(
-      (candidate) =>
-        `### ${candidate.name}\n${candidate.description}\n${candidate.content}`,
-    )
+  const candidates = references.jevPromptCandidates;
+  let prompt = systemPrompt;
+  if (candidates.length > 0) {
+    const resource = candidates
+      .map(
+        (candidate) =>
+          `### ${candidate.name}\n${candidate.description}\n${candidate.content}`,
+      )
+      .join("\n\n");
+    prompt += `\n\n<resource scope="analytics-catalog">\n${resource}\n</resource>`;
+  }
+  if (
+    references.prefetchStatus === "timed_out" ||
+    references.prefetchStatus === "failed"
+  ) {
+    const reason =
+      references.prefetchStatus === "timed_out" ? "timed out" : "failed";
+    const subject =
+      candidates.length > 0 ? "Some preloaded context" : "Preloaded context";
+    prompt += `\n\n<context-note>${subject} was unavailable this turn (${reason}); search for anything relevant with the available tools before answering.</context-note>`;
+  }
+  return prompt;
+}
+
+export function filterAnalyticsEvalActions(
+  registry: Record<string, ActionEntry>,
+  actionAllowlist: readonly string[],
+): Record<string, ActionEntry> {
+  const unknown = actionAllowlist.filter((name) => !registry[name]);
+  if (unknown.length > 0) {
+    throw new Error(
+      `Analytics eval action allowlist contains unknown actions: ${unknown.join(", ")}.`,
+    );
+  }
+
+  const allowed = new Set(actionAllowlist);
+  const actions = Object.fromEntries(
+    Object.entries(registry).filter(
+      ([name]) => allowed.has(name) && name !== TOOL_SEARCH_ACTION_NAME,
+    ),
+  );
+  if (allowed.has(TOOL_SEARCH_ACTION_NAME)) attachToolSearch(actions);
+  return actions;
+}
+
+function buildAnalyticsSystemPrompt(
+  actions: Record<string, ActionEntry>,
+  initialToolNames: string[],
+): string {
+  const frameworkPrompt = buildFrameworkPrompts(undefined, {
+    extensions: true,
+  }).PROD_FRAMEWORK_PROMPT_COMPACT;
+  return [
+    frameworkPrompt,
+    generateActionsPrompt(actions, "tool", initialToolNames),
+    analyticsExtraContext(),
+    "This eval uses the production Analytics read-only action surface. Do not create, edit, send, publish, or persist app data.",
+  ]
+    .filter(Boolean)
     .join("\n\n");
-  return `${systemPrompt}\n\n<resource scope="analytics-catalog">\n${references}\n</resource>`;
 }
 
 async function runAnalyticsProductionPath(args: {
@@ -84,10 +135,7 @@ async function runAnalyticsProductionPath(args: {
     deadlineAt: Date.now() + 1_300,
   });
   const runId = `eval:${crypto.randomUUID()}`;
-  const prompt = appendReferences(
-    args.systemPrompt,
-    references.jevPromptCandidates,
-  );
+  const prompt = buildAnalyticsPromptContext(args.systemPrompt, references);
   const availableTools = actionsToEngineTools(args.actions);
   const initialNames = new Set(args.initialToolNames);
   const tools = availableTools.filter((tool) => initialNames.has(tool.name));
@@ -156,23 +204,6 @@ async function runAnalyticsProductionPath(args: {
     availableActionNames,
     readOnlyActionNames,
   };
-  if (
-    references.prefetchStatus !== "ok" &&
-    references.prefetchStatus !== "empty"
-  ) {
-    return {
-      output: {
-        text: "",
-        toolCalls: [],
-        ok: false,
-        error: `Analytics request preparation ${references.prefetchStatus}.`,
-        runId,
-        durationMs: 0,
-      },
-      receipt,
-    };
-  }
-
   const started = Date.now();
   let ok = true;
   try {
@@ -247,26 +278,32 @@ export function resolveProductionEvalContext(
   const initialToolNames = [
     ...new Set([...INITIAL_TOOL_NAMES, TOOL_SEARCH_ACTION_NAME]),
   ].filter((name) => Boolean(actions[name]));
-  const frameworkPrompt = buildFrameworkPrompts(undefined, {
-    extensions: true,
-  }).PROD_FRAMEWORK_PROMPT_COMPACT;
-  const systemPrompt = [
-    frameworkPrompt,
-    generateActionsPrompt(actions, "tool", initialToolNames),
-    analyticsExtraContext(),
-    "This eval uses the production Analytics read-only action surface. Do not create, edit, send, publish, or persist app data.",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  const systemPrompt = buildAnalyticsSystemPrompt(actions, initialToolNames);
 
   const productionChatPath: EvalProductionChatPath = {
-    run: (args) =>
-      runAnalyticsProductionPath({
-        ...args,
+    run: (args) => {
+      const evalActions = filterAnalyticsEvalActions(
         actions,
-        initialToolNames,
-        systemPrompt,
-      }),
+        args.actionAllowlist,
+      );
+      const evalInitialToolNames = [
+        ...new Set([...INITIAL_TOOL_NAMES, TOOL_SEARCH_ACTION_NAME]),
+      ].filter((name) => Boolean(evalActions[name]));
+      return runAnalyticsProductionPath({
+        input: args.input,
+        identity: args.identity,
+        engine: args.engine,
+        model: args.model,
+        signal: args.signal,
+        onUsage: args.onUsage,
+        actions: evalActions,
+        initialToolNames: evalInitialToolNames,
+        systemPrompt: buildAnalyticsSystemPrompt(
+          evalActions,
+          evalInitialToolNames,
+        ),
+      });
+    },
   };
 
   return {

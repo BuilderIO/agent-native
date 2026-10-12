@@ -1056,7 +1056,7 @@ export function useEditorScreenRendering({
           }}
           onTextContentChange={(selector, value, info, details) => {
             activateResponsiveScope();
-            handleScreenTextContentChange(
+            return handleScreenTextContentChange(
               screen.id,
               selector,
               value,

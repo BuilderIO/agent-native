@@ -39,8 +39,18 @@ const messages = {
     playSelection: "Reproducir selección",
     removeFailed:
       "No se pudo eliminar el tiempo de pantalla anterior de la grabación descartada.",
-    scrubberStart: "Empieza",
-    scrubberEnd: "Termina",
+    removeFailedAction:
+      "No se pudo eliminar el tiempo de pantalla anterior. Inténtalo de nuevo.",
+    removeAction: "Eliminar tiempo de pantalla anterior",
+    removeConfirmTitle: "¿Eliminar tiempo de pantalla anterior?",
+    removeConfirmBody:
+      "El material se mueve a la papelera y el clip deja de incluirlo.",
+    removeConfirm: "Eliminar",
+    removed: "Tiempo de pantalla anterior eliminado",
+    scrubberFromBefore: "Desde {{offset}} antes",
+    scrubberFromStart: "Desde el inicio de la grabación",
+    scrubberToBefore: "Hasta {{offset}} antes",
+    scrubberToStart: "Hasta el inicio de la grabación",
     scrubberLength: "Duración",
     scrubberStartHandle: "Inicio del intervalo",
     scrubberEndHandle: "Fin del intervalo",
@@ -52,6 +62,7 @@ const messages = {
     empty: "Este clip no tiene tiempo de pantalla anterior adjunto.",
     larger: "Ampliar",
     editHint: "Edita el intervalo en Clips Desktop.",
+    waitingOtherDevice: "Esperando al dispositivo que grabó este clip",
   },
   agentChat: {
     setup: {
@@ -893,7 +904,7 @@ const messages = {
       "Muestra u oculta el dictado por voz en Clips Desktop.",
     labLookbackContext: "Incluir tiempo de pantalla anterior",
     labLookbackContextDescription:
-      "Adjunta hasta cinco minutos de tiempo de pantalla anteriores a una grabación como contexto pasivo. Desactivado por defecto.",
+      "Adjunta hasta cinco minutos de tiempo de pantalla anteriores a una grabación como contexto pasivo.",
     uploadWorkspaceTitle: "Espacio activo",
     uploadWorkspaceDescription:
       "Elige el espacio que Clips usará para las nuevas grabaciones, incluidas las cargas desde el escritorio.",
@@ -2255,22 +2266,6 @@ const messages = {
     guideStartTitle: "Click Start notes",
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins.",
-  },
-  rewindExtension: {
-    title: "Añadir lo que ocurrió antes",
-    description:
-      "Elige un intervalo del Rewind local y añádelo al inicio de este clip. No se añade nada automáticamente.",
-    progressLabel: "Progreso del procesamiento del historial de Rewind",
-    privateFirstTitle: "Haz privado este clip primero",
-    privateFirstDescription:
-      "El historial local de Rewind puede incluir contexto anterior al inicio de la grabación. Esto hará privado el clip. Si alguien aún tiene acceso directo, Clips se detendrá para que lo elimines primero en Compartir.",
-    makePrivateContinue: "Hacer privado y continuar",
-    add30Seconds: "Añadir los 30 segundos anteriores",
-    add5Minutes: "Añadir los 5 minutos anteriores",
-    add5MinutesDescription:
-      "Útil para recuperar el inicio de una explicación más larga.",
-    privateReady:
-      "Este clip es privado. Ya puedes añadir el historial local de Rewind.",
   },
   browserDiagnostics: {
     debug: "Depuración",

@@ -1766,39 +1766,45 @@ describe("generate-design: new-file creation path", () => {
     });
   });
 
-  it("uses the LinkedIn single-image ad preset without app breakpoints", async () => {
-    const result = await action.run({
-      designId: "design-1",
-      prompt: "Create a LinkedIn ad for our mobile app launch",
-      devices: ["desktop", "mobile"],
-      files: [
-        {
-          filename: "ad.html",
-          fileType: "html",
-          content: "<!doctype html><html><body>Launch ad</body></html>",
-        },
-      ],
-      canvasFrames: [
-        { filename: "ad.html", x: 0, y: 0, width: 1200, height: 628 },
-      ],
-    });
+  it.each([
+    ["Create a LinkedIn ad for our mobile app launch", 1200, 627],
+    ["Create a mobile leaderboard", 320, 50],
+  ])(
+    "uses the fixed canvas for %s without app breakpoints",
+    async (prompt, width, height) => {
+      const result = await action.run({
+        designId: "design-1",
+        prompt,
+        devices: ["desktop", "mobile"],
+        files: [
+          {
+            filename: "ad.html",
+            fileType: "html",
+            content: "<!doctype html><html><body>Launch ad</body></html>",
+          },
+        ],
+        canvasFrames: [
+          { filename: "ad.html", x: 0, y: 0, width: 1200, height: 628 },
+        ],
+      });
 
-    const data = mocks.getDesignData();
-    const fileId = result.savedFiles[0]!.id;
-    expect(data.canvasFrames).toMatchObject({
-      [fileId]: { width: 1200, height: 627 },
-    });
-    expect(data.screenMetadata).toMatchObject({
-      [fileId]: {
-        width: 1200,
-        height: 627,
-        breakpointWidths: [],
-        heightPinned: true,
-        heightMode: "fixed",
-      },
-    });
-    expect(data.breakpointSet).toBeUndefined();
-  });
+      const data = mocks.getDesignData();
+      const fileId = result.savedFiles[0]!.id;
+      expect(data.canvasFrames).toMatchObject({
+        [fileId]: { width, height },
+      });
+      expect(data.screenMetadata).toMatchObject({
+        [fileId]: {
+          width,
+          height,
+          breakpointWidths: [],
+          heightPinned: true,
+          heightMode: "fixed",
+        },
+      });
+      expect(data.breakpointSet).toBeUndefined();
+    },
+  );
 
   it("keeps an exact-size ad free of mobile frames even when devices are passed", async () => {
     setExistingFile("<!doctype html><html><body>Old screen</body></html>");

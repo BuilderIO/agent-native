@@ -36,8 +36,16 @@ const messages = {
     retry: "फिर से प्रयास करें",
     playSelection: "चुना हुआ हिस्सा चलाएँ",
     removeFailed: "हटाई गई रिकॉर्डिंग का पहले का स्क्रीन समय नहीं हटाया जा सका।",
-    scrubberStart: "शुरू",
-    scrubberEnd: "खत्म",
+    removeFailedAction: "पहले का स्क्रीन समय नहीं हटाया जा सका। फिर से प्रयास करें।",
+    removeAction: "पहले का स्क्रीन समय हटाएँ",
+    removeConfirmTitle: "पहले का स्क्रीन समय हटाएँ?",
+    removeConfirmBody: "फ़ुटेज ट्रैश में ले जाया जाएगा और क्लिप में वह शामिल नहीं रहेगा।",
+    removeConfirm: "हटाएँ",
+    removed: "पहले का स्क्रीन समय हटाया गया",
+    scrubberFromBefore: "{{offset}} पहले से",
+    scrubberFromStart: "रिकॉर्डिंग की शुरुआत से",
+    scrubberToBefore: "{{offset}} पहले तक",
+    scrubberToStart: "रिकॉर्डिंग की शुरुआत तक",
     scrubberLength: "अवधि",
     scrubberStartHandle: "विंडो की शुरुआत",
     scrubberEndHandle: "विंडो का अंत",
@@ -49,6 +57,7 @@ const messages = {
     empty: "इस क्लिप के साथ पहले का स्क्रीन समय नहीं जुड़ा है।",
     larger: "बड़ा करें",
     editHint: "Clips Desktop में विंडो संपादित करें।",
+    waitingOtherDevice: "इस क्लिप को रिकॉर्ड करने वाले डिवाइस की प्रतीक्षा है",
   },
   agentChat: {
     setup: {
@@ -858,7 +867,7 @@ const messages = {
     labWisprFlowDescription: "Clips Desktop में वॉइस डिक्टेशन दिखाएँ या छिपाएँ।",
     labLookbackContext: "पहले का स्क्रीन समय शामिल करें",
     labLookbackContextDescription:
-      "रिकॉर्डिंग से पहले के पाँच मिनट तक का स्क्रीन समय स्वचालित संदर्भ के रूप में जोड़ें। डिफ़ॉल्ट रूप से बंद रहता है।",
+      "रिकॉर्डिंग से पहले के पाँच मिनट तक का स्क्रीन समय स्वचालित संदर्भ के रूप में जोड़ें।",
     uploadWorkspaceTitle: "सक्रिय वर्कस्पेस",
     uploadWorkspaceDescription:
       "वह वर्कस्पेस चुनें जिसका उपयोग Clips डेस्कटॉप अपलोड सहित नई रिकॉर्डिंग के लिए करेगा।",
@@ -2182,20 +2191,6 @@ const messages = {
     guideStartTitle: "Click Start notes (स्थानीयकृत)",
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (स्थानीयकृत)",
-  },
-  rewindExtension: {
-    title: "पहले हुई गतिविधि जोड़ें",
-    description:
-      "स्थानीय Rewind से कोई निश्चित समय चुनकर इस क्लिप की शुरुआत में जोड़ें। कुछ भी अपने-आप नहीं जोड़ा जाता।",
-    progressLabel: "Rewind इतिहास प्रोसेस होने की प्रगति",
-    privateFirstTitle: "पहले इस क्लिप को निजी बनाएँ",
-    privateFirstDescription:
-      "स्थानीय Rewind इतिहास में रिकॉर्डिंग शुरू करने से पहले का संदर्भ हो सकता है। इससे क्लिप निजी हो जाएगी। अगर किसी के पास अब भी सीधी पहुँच है, तो Clips रुक जाएगा ताकि आप पहले शेयर में उनकी पहुँच हटा सकें।",
-    makePrivateContinue: "निजी बनाएँ और जारी रखें",
-    add30Seconds: "पिछले 30 सेकंड जोड़ें",
-    add5Minutes: "पिछले 5 मिनट जोड़ें",
-    add5MinutesDescription: "लंबी व्याख्या की शुरुआत वापस पाने के लिए उपयोगी।",
-    privateReady: "यह क्लिप निजी है। अब आप स्थानीय Rewind इतिहास जोड़ सकते हैं।",
   },
   browserDiagnostics: {
     debug: "डीबग",

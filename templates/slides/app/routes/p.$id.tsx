@@ -29,6 +29,7 @@ import { data, useLoaderData } from "react-router";
 import SharedPresentation from "@/pages/SharedPresentation";
 
 import { getDb, schema } from "../../server/db";
+import { slideRevealIssues } from "../../server/lib/slide-reveal-issues";
 import {
   DECK_AGENT_CONTEXT_ENDPOINT,
   DECK_AGENT_RESOURCE_KIND,
@@ -82,7 +83,10 @@ function toSharedDeck(row: {
     title: row.title || data.title || "Untitled",
     slides: Array.isArray(data.slides)
       ? data.slides.map((slide, index) =>
-          toSharedDeckSlide(slide, index, { includeNotes: false }),
+          toSharedDeckSlide(slide, index, {
+            includeNotes: false,
+            revealIssues: slideRevealIssues(slide),
+          }),
         )
       : [],
     aspectRatio: data.aspectRatio,

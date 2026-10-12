@@ -14,6 +14,7 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
+import { SOURCE_INDEX_RUNS_MIGRATION_SQL } from "../lib/source-index-runs.js";
 
 function isDrizzleTable(value: unknown): value is object {
   return (
@@ -1792,6 +1793,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       version: 166,
       name: "dashboard-folder-github-sync",
       sql: `ALTER TABLE dashboard_folders ADD COLUMN IF NOT EXISTS github_sync TEXT`,
+    },
+    {
+      version: 167,
+      name: "source-index-runs-table",
+      sql: SOURCE_INDEX_RUNS_MIGRATION_SQL.join(";\n"),
     },
   ],
   { table: "analytics_migrations" },

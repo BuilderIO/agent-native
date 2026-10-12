@@ -186,6 +186,7 @@ export function ColorInput({
   onBackgroundImageChange,
   onImageFillChange,
   onImageFillLayerChange,
+  imageFillUploadTargetKeyForSelection,
   blendMode,
   onBlendModeChange,
   supportsLayeredFills = false,
@@ -218,7 +219,7 @@ export function ColorInput({
   backgroundRepeat?: string;
   backgroundPosition?: string;
   onBackgroundImageChange?: (value: string) => void;
-  onImageFillChange?: (value: ImageFillValue) => void;
+  onImageFillChange?: (value: ImageFillValue, meta?: StyleChangeMeta) => void;
   onImageFillLayerChange?: (
     patch: Record<
       | "backgroundImage"
@@ -227,7 +228,11 @@ export function ColorInput({
       | "backgroundPosition",
       string
     >,
+    meta?: StyleChangeMeta,
   ) => void;
+  imageFillUploadTargetKeyForSelection?: (
+    selectedFillId: string,
+  ) => string | undefined;
   blendMode?: string;
   onBlendModeChange?: (value: string) => void;
   supportsLayeredFills?: boolean;
@@ -244,6 +249,14 @@ export function ColorInput({
   const [selectedFillId, setSelectedFillId] = useState(SOLID_FILL_ID);
   const [selectedStopId, setSelectedStopId] = useState<string | undefined>();
   const pendingGestureRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (pendingGestureRef.current) return;
@@ -350,23 +363,68 @@ export function ColorInput({
     setSelectedStopId(gradient?.stops[0]?.id);
   };
 
+  const uploadTargetKey =
+    imageFillUploadTargetKeyForSelection?.(selectedFillId);
+  const latestImageFillContextRef = useRef({
+    uploadTargetKey,
+    selectedFillId,
+    backgroundLayers,
+    backgroundSizeLayers,
+    backgroundRepeatLayers,
+    backgroundPositionLayers,
+    onImageFillLayerChange,
+  });
+  latestImageFillContextRef.current = {
+    uploadTargetKey,
+    selectedFillId,
+    backgroundLayers,
+    backgroundSizeLayers,
+    backgroundRepeatLayers,
+    backgroundPositionLayers,
+    onImageFillLayerChange,
+  };
+
   const handleImageFillChange = onImageFillLayerChange
-    ? (nextImage: ImageFillValue) => {
-        const styles = imageFillToBackgroundStyles(nextImage);
-        const layerIndex = fillLayerIndex(selectedFillId);
-        onImageFillLayerChange(
+    ? (nextImage: ImageFillValue, meta?: StyleChangeMeta) => {
+        const latest = latestImageFillContextRef.current;
+        const useLatestContext =
+          uploadTargetKey !== undefined &&
+          latest.uploadTargetKey === uploadTargetKey;
+        const context = useLatestContext
+          ? latest
+          : {
+              uploadTargetKey,
+              selectedFillId,
+              backgroundLayers,
+              backgroundSizeLayers,
+              backgroundRepeatLayers,
+              backgroundPositionLayers,
+              onImageFillLayerChange,
+            };
+        const layerIndex = fillLayerIndex(context.selectedFillId);
+        const change = useLatestContext
+          ? latest.onImageFillLayerChange
+          : onImageFillLayerChange;
+        change?.(
           imageFillChangePatch(
             {
-              backgroundImage: backgroundLayers,
-              backgroundSize: backgroundSizeLayers,
-              backgroundRepeat: backgroundRepeatLayers,
-              backgroundPosition: backgroundPositionLayers,
+              backgroundImage: context.backgroundLayers,
+              backgroundSize: context.backgroundSizeLayers,
+              backgroundRepeat: context.backgroundRepeatLayers,
+              backgroundPosition: context.backgroundPositionLayers,
             },
             layerIndex,
-            styles,
+            imageFillToBackgroundStyles(nextImage),
           ),
+          meta,
         );
-        if (layerIndex === null) setSelectedFillId(fillLayerId(0));
+        const mayUpdateLocalSelection =
+          mountedRef.current &&
+          (meta?.requirePersistedSourceAcceptance !== true ||
+            latest.uploadTargetKey === uploadTargetKey);
+        if (layerIndex === null && mayUpdateLocalSelection) {
+          setSelectedFillId(fillLayerId(0));
+        }
       }
     : onImageFillChange;
 
@@ -558,6 +616,7 @@ export function ColorInput({
         supportsLayeredFills ? handlePaintValueChange : undefined
       }
       onImageFillChange={handleImageFillChange}
+      uploadTargetKey={uploadTargetKey}
       backgroundImage={selectedBackgroundLayerValue(backgroundLayers)}
       backgroundSize={selectedBackgroundLayerValue(backgroundSizeLayers)}
       backgroundRepeat={selectedBackgroundLayerValue(backgroundRepeatLayers)}

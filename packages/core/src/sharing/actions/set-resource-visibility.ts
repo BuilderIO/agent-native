@@ -93,20 +93,48 @@ export default defineAction({
       args.resourceType,
       args.resourceId,
     );
-    if (reg.persistVisibilityChange) {
-      await reg.persistVisibilityChange({
-        resource: access.resource,
-        resourceId: args.resourceId,
-        visibility: args.visibility,
-        update,
-        userEmail: rawAccess.userEmail,
-        orgId: currentOrgId,
-      });
-    } else {
-      await db
-        .update(reg.resourceTable)
-        .set(update)
-        .where(eq(reg.resourceTable.id, args.resourceId));
+    // Used for the write and for its undo, so a registration's own
+    // persistence (for example, a reserved name) runs both ways.
+    const persistVisibility = async (
+      visibility: "private" | "org" | "public",
+      values: Record<string, unknown>,
+    ) => {
+      if (reg.persistVisibilityChange) {
+        await reg.persistVisibilityChange({
+          resource: access.resource,
+          resourceId: args.resourceId,
+          visibility,
+          update: values,
+          userEmail: rawAccess.userEmail,
+          orgId: currentOrgId,
+        });
+      } else {
+        await db
+          .update(reg.resourceTable)
+          .set(values)
+          .where(eq(reg.resourceTable.id, args.resourceId));
+      }
+    };
+    await persistVisibility(args.visibility, update);
+    if (visibilityChanged) {
+      try {
+        // The check above runs before the write, so a context item that commits
+        // in between is missed by it. This one runs after the write and sees it.
+        await reg.assertSharingChange?.({
+          resource: { ...access.resource, ...update },
+          change: { kind: "visibility", visibility: args.visibility },
+        });
+      } catch (error) {
+        const previous: Record<string, unknown> = {
+          visibility: access.resource?.visibility,
+        };
+        if (update.orgId !== undefined) {
+          previous.orgId = access.resource?.orgId ?? null;
+        }
+        await persistVisibility(access.resource?.visibility, previous);
+        invalidateCollabAccessCache(args.resourceType, args.resourceId);
+        throw error;
+      }
     }
     invalidateCollabAccessCache(args.resourceType, args.resourceId);
     await notifyExtensionShareChanged(

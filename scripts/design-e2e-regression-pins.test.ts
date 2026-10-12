@@ -23,7 +23,7 @@ import {
 } from "./design-e2e-regression-pins.ts";
 
 test("regression pins resolve unique test titles to the current source lines", () => {
-  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 46);
+  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 47);
   assert.deepEqual(
     [...new Set(DESIGN_E2E_REGRESSION_PINS.map(({ shard }) => shard))],
     DESIGN_E2E_REGRESSION_SHARDS,

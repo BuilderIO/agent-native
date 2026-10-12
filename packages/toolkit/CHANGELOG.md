@@ -1,5 +1,47 @@
 # @agent-native/toolkit
 
+## 0.207.0
+
+### Minor Changes
+
+- 128f43e: Export a shared `AgentMark` icon for agent identity and use the same mark in the creative context panel.
+- 5debd13: `dbAdminBasePath` is now a deprecated runtime getter. Migrate string consumers to `getDbAdminBasePath()` so workspace paths resolve after mount metadata loads.
+- e818cf9: `McpInstallActions` from `@agent-native/toolkit/app/sharing` renders a share dialog's "Add to Cursor" and "Add to VS Code" rows plus a link to the app's other agent guides. It reads the server name and MCP URL from the app's connect identity and its labels from the shared guides, so a share dialog installs the same entry as Settings → MCP server.
+
+### Patch Changes
+
+- 3d09f9f: Keep active request copying in the chat actions menu with visible feedback, and route subjective UX proposals to human review.
+- dfcc0de: Keep earlier chat images available to later turns, and verify thread access before replaying a completed turn.
+- eae7aa3: Keep joined buttons distinct with theme-aware separators and rounded outer corners.
+- 43d0aa8: Retry transient chat route verification without replacing a restored tab, and only confirm a legacy snapshot fallback after the host save succeeds. Keep the exported chat header prop optional for existing consumers.
+- a9c8414: Show sign-in recovery for invalid or expired verification email links, preserving safe return paths and existing sessions.
+- 19cd58b: Fix chat turns that died or looked broken for recoverable reasons. A turn that yields to a connection request is recorded as awaiting input instead of a truncated run (no synthetic auto-continue, no chained successor), and automations record the yield as a typed connection_required failure and pause. Stale connection cards retire with their run, and a chat that does not own a pending connection resume no longer shows a stuck "Connection failed" banner. A failed peer-app call shows the app name once with a short reason and keeps its participant after the run finishes. Peer-app failures carry typed codes so the caller stops retrying an unfixable peer, and a peer that needs a connection returns a do-not-retry result. An org A2A secret equal to the deploy secret is refused, and the resulting identity demotion is logged.
+- aa34418: Never persist inline image or file bytes in chat storage: thread snapshots, queued messages, run events and dispatch payloads keep a durable URL or an explicit omitted marker instead of `data:` URLs. Chat now reports typed, localized upload and attachment errors (including a "Retry without attachment" action for provider-rejected files), replays earlier attachments and the original ask in long threads, keeps a provider ownership check from failing on one unreachable provider, marks interrupted tool results as unknown-outcome errors, and no longer records experiment assignments when a model was chosen explicitly.
+- 18384b3: Keep joined button controls at the same height.
+- ccddd3a: Preserve image attachments and user-selected output dimensions throughout agent chat and Design generation.
+- 2f52659: Load the sidebar chat body on demand while preserving automatic opens and commands sent before the body is ready.
+- Release all public npm packages with a patch version bump.
+- e818cf9: Device-flow browser approval links use the same configured public origin and base path as MCP identity and OAuth discovery, so an internal proxy host does not leak into the URL the CLI opens.
+
+  The MCP server settings and `/mcp/connect` page add **Add to Cursor**, **Add to VS Code**, and **Add to VS Code Insiders** install links, a VS Code guide, and a Codex guide that uses `codex mcp add` and `codex mcp login`. The app now names its own MCP server through a public `GET /mcp/connect/identity` route: production keeps the bare name (`agent-native-mail`), while beta, preview, and local deployments put the environment first (`beta-agent-native-mail`), so one client can hold both. Because no production name starts with `beta-`, `preview-`, or `local-`, beta `mail` and a production app named `mail-beta` (`agent-native-mail-beta`) never share an entry; `mcp.serverName` cannot start with those prefixes. Settings, the connect page, install links, and `npx @agent-native/core connect` all use that name instead of each deriving one from the hostname. Install links carry only the server name, transport, and MCP URL. Use `buildMcpInstallLink` from `@agent-native/core/shared/mcp-connect-content` and `useMcpConnectIdentity` from `@agent-native/core/client/mcp-connect-identity` to build them elsewhere. When both `VITE_APP_BASE_PATH` and `APP_BASE_PATH` are set, the connect page, the identity route, and the MCP OAuth metadata now resolve the base path the way the MCP server mounts it, with `VITE_APP_BASE_PATH` first, instead of advertising `APP_BASE_PATH`. `connect` and `@agent-native/skills` now escape every control character they write into Codex's `config.toml`, in server names from `--name` and in URLs and header values, so no name or value can break the file. A server name that is not a plain identifier (letters, digits, `-` and `_`, at most 64 characters) now fails the connect page and identity route with an error naming `mcp.serverName`, instead of being published into copyable `claude mcp add` and `codex mcp add` commands. The connect routes resolve that name before minting a token, so a refused name never leaves an issued token behind. A name derived from the app id or hostname is shortened and cleaned to fit instead of refused, and one that had to change ends in `__` and a 53-bit hash of the original, such as `agent-native-acme-notes__<hash>` for `@acme/notes`. No derived name used as is contains `__`, so a cleaned name never matches another app's plain derived name, and two cleaned names match only on a hash collision. A configured `mcp.serverName` is used as given, so it can still match another app's configured or derived name. An app with no `app.id`, template, or slug takes its name from the public URL that OAuth discovery advertises rather than the request's host, so one served behind a proxy under an internal hostname can get a new name; set `mcp.serverName` to keep the old one. `GET /mcp/connect/identity` stays mounted when `mcp.connect` is `false`, so Settings and share dialogs still show the server; its new `connect` field is then `false`, and they show the server URL without install links, client guides, or the connect-page link, since none of those can sign in. The identity's URLs are the public URL MCP OAuth discovery advertises (`APP_URL` or `WORKSPACE_OAUTH_ORIGIN` when set) rather than the request's `Host`, so a link installed behind a proxy signs in against the same resource. Listing and revoking tokens keeps working when the server name is refused. `connect` now stops with an error on an empty `--name` before it starts the browser approval.
+
+- ecfe037: Preserve opaque uploaded file IDs and show an error when retrying without attachments fails.
+- d7da131: Revisits paint the last known action results instead of a skeleton. Action query results are persisted per signed-in user and org in IndexedDB, restored before any action request is issued, then refetched in the background. Entries are dropped on sign-out, session end and org switch, after an hour, when a refetch returns 403 or 404, or when the cache schema version changes. Mutations are never persisted. Set `persistInBrowser: false` on an action definition to keep its reads out of the browser cache.
+- d44b119: `sendToAgentChat({ submit: false, context })` can name its prefill chip with the new `contextLabel` option; without it the chip uses the generic app-context label. A prefill the composer cannot hold alongside its current context is refused with a `context-too-large` result before the draft changes. A replacement prefill is no longer removed by the cleanup of an earlier send that was still in flight.
+- cdc66e3: Expose lightweight sidebar helpers and controlled assistant popovers so public pages can defer the assistant runtime until requested.
+- f8930b5: Keep invalid verification errors visible through sign-in continuations and scope unsent app context to its target chat thread.
+- d7da131: Start a hinted visitor's action reads while the session still resolves, and refresh only the action queries a write or sync event can affect. `useActionQuery` takes `resources` and `useActionMutation` takes `resources`, so a query tagged for a resource refetches only when a change to that resource lands, and a sync event naming its `resourceType` narrows the same way. Queries and writes without resources keep the broad refresh.
+- d4854b8: Let `ShareButton`'s `quickCopy` accept a `className`, so a host can size the joined share and copy-link control. With `basicSharingOnly`, the admin role and the email note are no longer offered.
+- 3451273: The sign-in page now records first and last touch with Core's shared capture instead of its own older copy. Visitors who land on a sign-in page keep the marketing site's forwarded referrer and landing page, ad click ids, and last touch, and a later tagged visit replaces an untagged first one. `captureAttribution()` takes a `landingPath` option for pages that stand in front of the path the visitor asked for.
+- 70bf54c: `ShareButton` accepts `basicSharingOnly` for sessions that can run only the list, share, unshare, and visibility actions, such as a scoped MCP App widget session. It omits the access-request review, the agent-context link, and the people suggestions there instead of showing sections that always fail.
+- Updated dependencies [19cd58b]
+- Updated dependencies [aa34418]
+- Updated dependencies [ccddd3a]
+- Updated dependencies
+- Updated dependencies [ecfe037]
+- Updated dependencies [41700be]
+  - @agent-native/agentkit@0.207.0
+
 ## 0.206.0
 
 ### Minor Changes
@@ -1146,11 +1188,5 @@
 ### Patch Changes
 
 - cbc6936: Show only the connect actions in the composer model picker when no LLM provider is configured, instead of a list of unpickable "needs API key" models, and surface Builder connect failures instead of leaving the "Connect Builder.io" button looking dead when the popup is blocked.
-
-## 0.10.8
-
-### Patch Changes
-
-- 14818b6: Allow the first local edit in a newly synced empty collaborative document to reach the host application's canonical save path.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

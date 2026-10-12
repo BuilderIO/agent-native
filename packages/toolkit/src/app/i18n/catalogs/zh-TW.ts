@@ -38,6 +38,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "排隊中",
   "agent.completed": "已完成",
   "agent.failed": "需要注意",
+  "agent.failureReason.failed": "未能完成",
+  "agent.failureReason.setup": "需要先完成設定",
+  "agent.failureReason.auth": "存取遭拒",
+  "agent.failureReason.timeout": "回應逾時",
+  "agent.failureReason.budget": "已超出時限",
+  "agent.failureReason.response": "沒有可用的結果",
   "agent.closed": "已關閉",
   "approval.alwaysAllow": "一律允許",
   "approval.alwaysAllowHint": "核准並一律允許這個完全相同的命令",
@@ -122,7 +128,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "暫時略過",
   "onboarding.saveRoleError": "無法儲存你的角色。",
   "onboarding.builderCreateAccount": "使用 Builder.io",
-  "onboarding.builderSignInWithAccount": "使用 Builder.io",
+  "onboarding.builderSignInWithAccount": "使用 Builder.io 帳戶登入",
   "onboarding.builderActivateDescription":
     "只要按一下即可建立或重新使用您的 Builder.io 帳戶，並啟用免費額度。",
   "onboarding.builderActiveCredits": "包含於有效的 Builder.io 免費額度",
@@ -140,8 +146,16 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivateTitle": "啟用免費額度",
   "onboarding.builderAccountExistsTitle": "您已有 Builder.io 帳戶",
   "onboarding.builderAccountExistsDescription": "登入以使用您的帳戶。",
+  "onboarding.builderActivationChecking": "正在確認是否可以建立新帳戶。",
+  "onboarding.builderActivationUnavailable":
+    "此應用程式未啟用新帳戶建立功能。你仍可連結現有帳戶。",
+  "onboarding.builderActivationUnavailableInMode":
+    "此模式無法啟用新帳戶。你仍可連結現有帳戶。",
+  "onboarding.builderActivationCheckFailed":
+    "無法確認此應用程式是否可以建立新帳戶。",
+
   "onboarding.builderActivationDescription":
-    "按一下即可建立或連接 Builder.io 帳戶，取得免費額度。",
+    "建立新帳戶以啟用免費點數，或使用現有帳戶繼續。",
   "onboarding.builderOrgActivationDescription":
     "我們會一鍵建立您的 Builder.io 帳戶，讓您的組織可以使用。",
   "onboarding.builderCreateAndActivate": "建立並啟用",
@@ -149,11 +163,12 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "服務條款",
   "onboarding.builderPrivacy": "隱私權政策",
   "onboarding.builderConsentAnd": "和",
-  "onboarding.builderExistingAccount": "使用 Builder.io",
+  "onboarding.builderExistingAccount": "我有 Builder.io 帳戶",
   "onboarding.builderActivating": "正在啟用 Builder.io 免費額度",
   "onboarding.builderConnecting": "正在設定 Builder.io 免費額度",
   "onboarding.builderProvisioningDescription":
     "正在建立您的 Builder.io 帳戶並啟用免費額度。",
+  "onboarding.builderCancelPending": "正在檢查連線狀態…",
   "onboarding.builderConnectionDescription": "在新視窗中按一下即可完成連線。",
   "onboarding.builderReadyWithCodeChanges":
     "AI 點數與雲端程式碼變更已準備就緒。",
@@ -1154,6 +1169,12 @@ const messages: ToolkitAgentChatTranslation = {
   "selection.attached": "已附加所選內容的 {{formattedCount}} 個字元",
   "selection.attached_other": "已附加所選內容的 {{formattedCount}} 個字元",
   "selection.clear": "清除所選內容的上下文",
+  "setup.addKeyInSettings": "在設定中新增金鑰",
+  "setup.addKeyInSettingsDescription": "供你的個人帳戶或組織使用。",
+  "setup.setEnvironmentVariable": "設定環境變數",
+  "setup.setEnvironmentVariableDescription":
+    "此應用程式的所有使用者共用一個供應商金鑰。",
+
   "setup.addOwnKeys": "加入您自己的金鑰",
   "setup.builderCredits":
     "Builder.io 提供免費額度，您也可以使用自己的 API 金鑰。",

@@ -28,7 +28,13 @@ import {
 } from "@/components/design/inspector";
 import { isEditorHotkeyBlockedByShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
 import { type LocalhostWriteConsentPayload } from "@/components/design/LocalhostWriteConsentDialog";
-import { useDesignHotkeys } from "@/hooks/useDesignHotkeys";
+import {
+  isDesignHotkeyBlockedByOpenLayer,
+  isPlatformPrimaryModifier,
+  normalizeDesignHotkeyKey,
+  isShowKeyboardShortcutsHotkey,
+  useDesignHotkeys,
+} from "@/hooks/useDesignHotkeys";
 
 import {
   collectCodeLayerAncestors,
@@ -68,6 +74,7 @@ import {
 import { usePendingLiveEditUnloadGuard } from "../pending-live-edit-unload-guard";
 import { blurActiveDesignEditableTarget } from "../png-export-render";
 import { findDesignFileByScreenTarget } from "../screen-command-utils";
+import { annotationHotkeyHandlers } from "../tool-state";
 import { SHOW_DESIGN_SECONDARY_LEFT_PANELS } from "../types";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
@@ -538,8 +545,14 @@ export function useEditorSourceAndSync({
   const shouldHandleEditorHotkey = useCallback((event: KeyboardEvent) => {
     // The shortcuts dialog is modal: only its own open/close chord leaves it.
     if (isEditorHotkeyBlockedByShortcutsDialog(event)) return false;
-    const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
-    const primary = event.metaKey || event.ctrlKey;
+    if (
+      isDesignHotkeyBlockedByOpenLayer(event.target) &&
+      !isShowKeyboardShortcutsHotkey(event)
+    ) {
+      return false;
+    }
+    const key = normalizeDesignHotkeyKey(event);
+    const primary = isPlatformPrimaryModifier(event);
     const plainPasteHotkey =
       primary && key === "v" && !event.altKey && !event.shiftKey;
     if (!plainPasteHotkey) return true;
@@ -598,8 +611,12 @@ export function useEditorSourceAndSync({
     onTextTool: canEditDesign ? handleTextTool : undefined,
     onPenTool: canEditDesign ? handlePenTool : undefined,
     onHandTool: handleHandTool,
-    onCommentTool: canCommentDesign ? handlePinToolToggle : undefined,
-    onDrawTool: canEditDesign ? handleDrawTool : undefined,
+    ...annotationHotkeyHandlers({
+      canEditDesign,
+      canCommentDesign,
+      onComment: handlePinToolToggle,
+      onDraw: handleDrawTool,
+    }),
     onScaleTool: canEditDesign ? handleScaleTool : undefined,
     onCopy: handleCopySelection,
     onCopyAsPng:

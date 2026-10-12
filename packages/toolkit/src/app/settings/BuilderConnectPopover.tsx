@@ -32,6 +32,7 @@ type BuilderConnectChoiceFlow = Pick<BuilderConnectFlow, "connecting"> & {
   error?: string | null;
   errorKind?: BuilderConnectErrorKind | null;
   retry?: () => boolean | void;
+  statusCheckEnabled?: boolean;
   statusReadSettledCount?: number;
   statusResolved?: boolean;
 };
@@ -92,6 +93,7 @@ export function BuilderConnectChoicePanel({
         })}
       </h2>
       <p
+        id="builder-connect-popover-description"
         className="text-xs leading-5 text-muted-foreground"
         role={flow.connecting ? "status" : undefined}
         aria-live={flow.connecting ? "polite" : undefined}
@@ -101,10 +103,30 @@ export function BuilderConnectChoicePanel({
               defaultValue:
                 "Creating your Builder.io account and activating free credits.",
             })
-          : t("agentChat.onboarding.builderActivationDescription", {
-              defaultValue:
-                "Create or connect a Builder.io account in one click to get free credits.",
-            })}
+          : canProvisionAccount
+            ? t("agentChat.onboarding.builderActivationDescription", {
+                defaultValue:
+                  "Create a new account to activate free credits, or continue with an existing account.",
+              })
+            : statusReadFailed
+              ? t("agentChat.onboarding.builderActivationCheckFailed", {
+                  defaultValue:
+                    "Couldn't check whether this app can create new accounts.",
+                })
+              : flow.statusCheckEnabled === false
+                ? t("agentChat.onboarding.builderActivationUnavailableInMode", {
+                    defaultValue:
+                      "New account activation isn't available in this mode. You can still connect an existing account.",
+                  })
+                : flow.statusResolved === false
+                  ? t("agentChat.onboarding.builderActivationChecking", {
+                      defaultValue:
+                        "Checking whether new account activation is available.",
+                    })
+                  : t("agentChat.onboarding.builderActivationUnavailable", {
+                      defaultValue:
+                        "New account creation isn't enabled for this app. You can still connect an existing account.",
+                    })}
       </p>
       {flow.accountExists ? (
         <div
@@ -160,6 +182,7 @@ export function BuilderConnectChoicePanel({
           type="button"
           data-testid={primaryTestId}
           className="w-full"
+          aria-describedby="builder-connect-popover-description"
           onClick={onCreateAndActivate}
           disabled={flow.connecting || !canProvisionAccount}
         >

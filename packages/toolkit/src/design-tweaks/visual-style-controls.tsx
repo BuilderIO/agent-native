@@ -19,6 +19,7 @@ import {
 import { cn } from "../utils.js";
 
 export {
+  cancelActiveScrubInputs,
   VisualScrubInput,
   resolvePendingScrubCommit,
   type PendingScrubCommit,

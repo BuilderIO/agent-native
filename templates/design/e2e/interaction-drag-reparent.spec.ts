@@ -10,6 +10,18 @@ import {
   gotoEditor,
 } from "./helpers";
 
+declare global {
+  interface Window {
+    __oversizedMainHitTestResults?: Array<{
+      anchorNodeId: string;
+      anchorRect: unknown;
+      guideRect: unknown;
+      placement: unknown;
+      dropMode: unknown;
+    }>;
+  }
+}
+
 const SCREEN_ONE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Screen One</title></head>
@@ -1223,11 +1235,22 @@ test.describe("drag reparent interaction", () => {
       .locator('[data-design-bottom-toolbar] button[aria-label="Rectangle"]')
       .click();
     await page.waitForTimeout(300);
+    const intendedRectSize = { width: 100, height: 80 };
+    const canvasZoomFactor = await canvasZoom(page);
+    const drawDelta = {
+      width: Math.round(intendedRectSize.width * canvasZoomFactor),
+      height: Math.round(intendedRectSize.height * canvasZoomFactor),
+    };
     await page.mouse.move(boardPoint.x, boardPoint.y);
     await page.mouse.down();
-    await page.mouse.move(boardPoint.x + 100, boardPoint.y + 80, {
-      steps: 12,
-    });
+    // Keep the intended 100x80 authored size within one physical pixel.
+    await page.mouse.move(
+      boardPoint.x + drawDelta.width,
+      boardPoint.y + drawDelta.height,
+      {
+        steps: 12,
+      },
+    );
     await page.mouse.up();
 
     await expect
@@ -1247,6 +1270,34 @@ test.describe("drag reparent interaction", () => {
       .contentFrame()
       .locator('[data-an-primitive="rectangle"]')
       .first();
+    const authoredRectSize = await rectLocator.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { width: rect.width, height: rect.height };
+    });
+    const authoredPixelTolerance = 1 / canvasZoomFactor;
+    expect(
+      Math.abs(authoredRectSize.width - intendedRectSize.width),
+    ).toBeLessThanOrEqual(authoredPixelTolerance);
+    expect(
+      Math.abs(authoredRectSize.height - intendedRectSize.height),
+    ).toBeLessThanOrEqual(authoredPixelTolerance);
+    const mainContentSize = await designFrame(page, screenId)
+      .locator('[data-agent-native-node-id="main"]')
+      .evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          width:
+            element.clientWidth -
+            Number.parseFloat(style.paddingLeft) -
+            Number.parseFloat(style.paddingRight),
+          height:
+            element.clientHeight -
+            Number.parseFloat(style.paddingTop) -
+            Number.parseFloat(style.paddingBottom),
+        };
+      });
+    expect(authoredRectSize.width).toBeLessThanOrEqual(mainContentSize.width);
+    expect(authoredRectSize.height).toBeLessThanOrEqual(mainContentSize.height);
     const rectBox = (await rectLocator.boundingBox())!;
     const main = await boxFor(page, screenId, "main");
 
@@ -1319,6 +1370,436 @@ test.describe("drag reparent interaction", () => {
         },
       )
       .toBe(true);
+  });
+
+  test("dropping an oversized board rectangle into Main suppresses the insertion guide and keeps one owner after reload", async ({
+    page,
+  }, testInfo) => {
+    const id = await newTwoScreenDesign(page);
+    await gotoEditor(page, id);
+    const screenId = await fileIdFor(page, id, "index.html");
+
+    const boardPoint = await emptyBoardPoint(page);
+    await page
+      .locator('[data-design-bottom-toolbar] button[aria-label="Rectangle"]')
+      .click();
+    await page.waitForTimeout(300);
+    const canvasZoomFactor = await canvasZoom(page);
+    expect(canvasZoomFactor).toBeGreaterThan(0.2);
+    expect(canvasZoomFactor).toBeLessThan(0.23);
+
+    await page.mouse.move(boardPoint.x, boardPoint.y);
+    await page.mouse.down();
+    await page.mouse.move(boardPoint.x + 100, boardPoint.y + 80, {
+      steps: 12,
+    });
+    await page.mouse.up();
+
+    await expect
+      .poll(
+        async () => fileContent(page, id, "__board__.html").catch(() => ""),
+        {
+          timeout: 10_000,
+          message:
+            "precondition: the rectangle tool must place a rectangle on the board",
+        },
+      )
+      .toContain('data-an-primitive="rectangle"');
+
+    const rectLocator = page
+      .locator("[data-board-surface-layer] iframe")
+      .first()
+      .contentFrame()
+      .locator('[data-an-primitive="rectangle"]')
+      .first();
+    const rectangleNodeId = await rectLocator.getAttribute(
+      "data-agent-native-node-id",
+    );
+    if (!rectangleNodeId) throw new Error("board rectangle has no node id");
+    const authoredRectSize = await rectLocator.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { width: rect.width, height: rect.height };
+    });
+    const mainContentSize = await designFrame(page, screenId)
+      .locator('[data-agent-native-node-id="main"]')
+      .evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          width:
+            element.clientWidth -
+            Number.parseFloat(style.paddingLeft) -
+            Number.parseFloat(style.paddingRight),
+          height:
+            element.clientHeight -
+            Number.parseFloat(style.paddingTop) -
+            Number.parseFloat(style.paddingBottom),
+        };
+      });
+    expect(mainContentSize).toEqual({ width: 900, height: 360 });
+    expect(authoredRectSize.width).toBeGreaterThan(460);
+    expect(authoredRectSize.width).toBeLessThan(mainContentSize.width);
+    expect(authoredRectSize.height).toBeGreaterThan(mainContentSize.height);
+    expect(authoredRectSize.width).toBeCloseTo(100 / canvasZoomFactor, 0);
+    expect(authoredRectSize.height).toBeCloseTo(80 / canvasZoomFactor, 0);
+
+    await page.evaluate((targetScreenId) => {
+      const targetFrame = Array.from(
+        document.querySelectorAll<HTMLIFrameElement>(
+          "iframe[data-screen-iframe-id]",
+        ),
+      ).find(
+        (frame) =>
+          frame.getAttribute("data-screen-iframe-id") === targetScreenId,
+      );
+      if (!targetFrame) throw new Error("target screen iframe is missing");
+      window.__oversizedMainHitTestResults = [];
+      window.addEventListener(
+        "message",
+        (event: MessageEvent) => {
+          const message: unknown = event.data;
+          if (
+            event.source !== targetFrame.contentWindow ||
+            typeof message !== "object" ||
+            message === null ||
+            !("type" in message) ||
+            message.type !== "agent-native:hit-test-result"
+          ) {
+            return;
+          }
+          const hitTestResults = (window.__oversizedMainHitTestResults ??= []);
+          hitTestResults.push({
+            anchorNodeId:
+              "anchorNodeId" in message &&
+              typeof message.anchorNodeId === "string"
+                ? message.anchorNodeId
+                : "",
+            anchorRect:
+              "anchorRect" in message ? (message.anchorRect ?? null) : null,
+            guideRect:
+              "guideRect" in message ? (message.guideRect ?? null) : null,
+            placement: "placement" in message ? message.placement : undefined,
+            dropMode: "dropMode" in message ? message.dropMode : undefined,
+          });
+        },
+        true,
+      );
+    }, screenId);
+
+    const rectBox = (await rectLocator.boundingBox())!;
+    const main = await boxFor(page, screenId, "main");
+    await page
+      .locator('[data-design-bottom-toolbar] button[aria-label="Move"]')
+      .click();
+    await page.waitForTimeout(300);
+    await page.mouse.move(
+      rectBox.x + rectBox.width / 2,
+      rectBox.y + rectBox.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      rectBox.x + rectBox.width / 2 - 12,
+      rectBox.y + rectBox.height / 2,
+      { steps: 4 },
+    );
+    await page.evaluate(() => {
+      window.__oversizedMainHitTestResults = [];
+    });
+    await page.mouse.move(main.x + main.width / 2, main.y + main.height / 2, {
+      steps: 24,
+    });
+    await page.waitForTimeout(400);
+
+    const latestHitTestResult = async () =>
+      page.evaluate(() => {
+        const results = window.__oversizedMainHitTestResults ?? [];
+        return results.length > 0 ? results[results.length - 1] : null;
+      });
+    await expect
+      .poll(latestHitTestResult, {
+        timeout: 5_000,
+        message:
+          "an oversized source over Main should produce a hit-test result",
+      })
+      .toMatchObject({
+        anchorNodeId: "",
+        anchorRect: null,
+        guideRect: null,
+      });
+    const hitTestResultWhileHeld = await latestHitTestResult();
+    const crossScreenDropGuide = page.locator("[data-cross-screen-drop-guide]");
+    const hitTestGuide = designFrame(page, screenId).locator(
+      "[data-agent-native-hit-test-preview]",
+    );
+    await expect(crossScreenDropGuide).toBeHidden();
+    await expect(hitTestGuide).toBeHidden();
+    const crossScreenGuideVisibleWhileHeld =
+      await crossScreenDropGuide.isVisible();
+    const hitTestGuideVisibleWhileHeld = await hitTestGuide.isVisible();
+    expect(crossScreenGuideVisibleWhileHeld).toBe(false);
+    expect(hitTestGuideVisibleWhileHeld).toBe(false);
+
+    const ownershipSamples: Array<Record<string, unknown>> = [];
+    type GeometryValues = {
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+    };
+    type RenderedGeometry = {
+      rect: GeometryValues;
+      computed: GeometryValues;
+    };
+    type OwnershipSnapshot = {
+      phase: string;
+      sampledAt: string;
+      nodeId: string;
+      indexCount: number;
+      boardCount: number;
+      owner: "index.html" | "__board__.html" | null;
+      authoredStyle: string | null;
+      authoredCoordinates: GeometryValues | null;
+      screenIframeCount: number;
+      boardIframeCount: number;
+      renderedNodeCountBeforeGeometry: number;
+      renderedNodeCountAfterGeometry: number;
+      geometryEvaluationError: string | null;
+      positionAndSize: RenderedGeometry | null;
+    };
+    const readOwnership = async (phase: string): Promise<OwnershipSnapshot> => {
+      const [indexHtml, boardHtml] = await Promise.all([
+        fileContent(page, id, "index.html"),
+        fileContent(page, id, "__board__.html"),
+      ]);
+      const indexCount =
+        indexHtml.split(`data-agent-native-node-id="${rectangleNodeId}"`)
+          .length - 1;
+      const boardCount =
+        boardHtml.split(`data-agent-native-node-id="${rectangleNodeId}"`)
+          .length - 1;
+      const owner: OwnershipSnapshot["owner"] =
+        indexCount === 1 && boardCount === 0
+          ? "index.html"
+          : boardCount === 1 && indexCount === 0
+            ? "__board__.html"
+            : null;
+      const ownerHtml =
+        owner === "index.html"
+          ? indexHtml
+          : owner === "__board__.html"
+            ? boardHtml
+            : null;
+      const authoredStyle = ownerHtml
+        ? styleOf(ownerHtml, rectangleNodeId)
+        : null;
+      const authoredCoordinates: GeometryValues | null = authoredStyle
+        ? {
+            left: styleNum(authoredStyle, "left"),
+            top: styleNum(authoredStyle, "top"),
+            width: styleNum(authoredStyle, "width"),
+            height: styleNum(authoredStyle, "height"),
+          }
+        : null;
+      const screenIframeSelector = `iframe[data-screen-iframe-id="${screenId}"]`;
+      const boardIframeSelector = "[data-board-surface-layer] iframe";
+      const [screenIframeCount, boardIframeCount] = await Promise.all([
+        page.locator(screenIframeSelector).count(),
+        page.locator(boardIframeSelector).count(),
+      ]);
+      const ownerIframeSelector =
+        owner === "index.html"
+          ? screenIframeSelector
+          : owner === "__board__.html"
+            ? boardIframeSelector
+            : null;
+      const nodeLocator = ownerIframeSelector
+        ? page
+            .locator(ownerIframeSelector)
+            .first()
+            .contentFrame()
+            .locator(`[data-agent-native-node-id="${rectangleNodeId}"]`)
+        : null;
+      const renderedNodeCountBeforeGeometry = nodeLocator
+        ? await nodeLocator.count()
+        : 0;
+      const sample: OwnershipSnapshot = {
+        phase,
+        sampledAt: new Date().toISOString(),
+        nodeId: rectangleNodeId,
+        indexCount,
+        boardCount,
+        owner,
+        authoredStyle,
+        authoredCoordinates,
+        screenIframeCount,
+        boardIframeCount,
+        renderedNodeCountBeforeGeometry,
+        renderedNodeCountAfterGeometry: renderedNodeCountBeforeGeometry,
+        geometryEvaluationError: null,
+        positionAndSize: null,
+      };
+      if (ownershipSamples.length < 50) ownershipSamples.push(sample);
+      if (nodeLocator && renderedNodeCountBeforeGeometry === 1) {
+        try {
+          const renderedNodes = await nodeLocator.evaluateAll((elements) =>
+            elements.map((element) => {
+              const rect = element.getBoundingClientRect();
+              const style = getComputedStyle(element);
+              return {
+                rect: {
+                  left: rect.left,
+                  top: rect.top,
+                  width: rect.width,
+                  height: rect.height,
+                },
+                computed: {
+                  left: Number.parseFloat(style.left),
+                  top: Number.parseFloat(style.top),
+                  width: Number.parseFloat(style.width),
+                  height: Number.parseFloat(style.height),
+                },
+              };
+            }),
+          );
+          sample.renderedNodeCountAfterGeometry = renderedNodes.length;
+          sample.positionAndSize = renderedNodes[0] ?? null;
+        } catch (error) {
+          sample.geometryEvaluationError =
+            error instanceof Error ? error.message : String(error);
+          throw error;
+        }
+      }
+      return sample;
+    };
+    const readStableOwnership = async (
+      phase: string,
+    ): Promise<OwnershipSnapshot> => {
+      let previous = "";
+      let stableSamples = 0;
+      await expect
+        .poll(
+          async () => {
+            const latest = await readOwnership(phase);
+            const next = JSON.stringify({
+              indexCount: latest.indexCount,
+              boardCount: latest.boardCount,
+              owner: latest.owner,
+              renderedNodeCountBeforeGeometry:
+                latest.renderedNodeCountBeforeGeometry,
+              renderedNodeCountAfterGeometry:
+                latest.renderedNodeCountAfterGeometry,
+              authoredCoordinates: latest.authoredCoordinates,
+            });
+            stableSamples = next === previous ? stableSamples + 1 : 0;
+            previous = next;
+            return stableSamples;
+          },
+          {
+            timeout: 10_000,
+            intervals: [500, 500, 500, 500, 500, 500],
+            message: "the rectangle owner and authored geometry should settle",
+          },
+        )
+        .toBeGreaterThanOrEqual(4);
+      return readOwnership(`${phase}:final`);
+    };
+
+    let afterMouseUp: OwnershipSnapshot | null = null;
+    let afterReload: OwnershipSnapshot | null = null;
+    try {
+      await page.mouse.up();
+      const afterMouseUpState = await readStableOwnership("after-mouseup");
+      afterMouseUp = afterMouseUpState;
+      expect(afterMouseUpState.indexCount + afterMouseUpState.boardCount).toBe(
+        1,
+      );
+      expect(afterMouseUpState.owner).not.toBeNull();
+      expect(afterMouseUpState.renderedNodeCountAfterGeometry).toBe(1);
+      if (
+        !afterMouseUpState.owner ||
+        !afterMouseUpState.authoredCoordinates ||
+        !afterMouseUpState.positionAndSize
+      ) {
+        throw new Error(
+          "the rectangle is missing owner or rendered geometry after mouse-up",
+        );
+      }
+      expect(
+        [
+          ...Object.values(afterMouseUpState.authoredCoordinates),
+          ...Object.values(afterMouseUpState.positionAndSize.rect),
+          ...Object.values(afterMouseUpState.positionAndSize.computed),
+        ].every(Number.isFinite),
+      ).toBe(true);
+
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(page.locator("[data-design-editor]")).toBeVisible({
+        timeout: 30_000,
+      });
+      const afterReloadState = await readStableOwnership("after-reload");
+      afterReload = afterReloadState;
+      expect(afterReloadState.indexCount + afterReloadState.boardCount).toBe(1);
+      expect(afterReloadState.renderedNodeCountAfterGeometry).toBe(1);
+      expect(afterReloadState.owner).toBe(afterMouseUpState.owner);
+      expect(afterReloadState.nodeId).toBe(rectangleNodeId);
+      expect(afterReloadState.authoredCoordinates).toEqual(
+        afterMouseUpState.authoredCoordinates,
+      );
+      if (
+        !afterReloadState.owner ||
+        !afterReloadState.authoredCoordinates ||
+        !afterReloadState.positionAndSize
+      ) {
+        throw new Error(
+          "the rectangle is missing owner or rendered geometry after reload",
+        );
+      }
+      expect(
+        [
+          ...Object.values(afterReloadState.authoredCoordinates),
+          ...Object.values(afterReloadState.positionAndSize.rect),
+          ...Object.values(afterReloadState.positionAndSize.computed),
+        ].every(Number.isFinite),
+      ).toBe(true);
+      expect(afterReloadState.positionAndSize.computed).toEqual(
+        afterMouseUpState.positionAndSize.computed,
+      );
+      expect(afterReloadState.positionAndSize.rect.left).toBeCloseTo(
+        afterMouseUpState.positionAndSize.rect.left,
+        0,
+      );
+      expect(afterReloadState.positionAndSize.rect.top).toBeCloseTo(
+        afterMouseUpState.positionAndSize.rect.top,
+        0,
+      );
+      expect(afterReloadState.positionAndSize.rect.width).toBeCloseTo(
+        afterMouseUpState.positionAndSize.rect.width,
+        0,
+      );
+      expect(afterReloadState.positionAndSize.rect.height).toBeCloseTo(
+        afterMouseUpState.positionAndSize.rect.height,
+        0,
+      );
+    } finally {
+      await testInfo.attach("oversized-main-drop-state.json", {
+        body: JSON.stringify(
+          {
+            canvasZoomFactor,
+            authoredRectSize,
+            mainContentSize,
+            hitTestResultWhileHeld,
+            crossScreenGuideVisibleWhileHeld,
+            hitTestGuideVisibleWhileHeld,
+            ownershipSamples,
+            afterMouseUp,
+            afterReload,
+            trace: await dumpTrace(page),
+          },
+          null,
+          2,
+        ),
+        contentType: "application/json",
+      });
+    }
   });
 
   test("holding Space while dragging into the footer keeps the element in its current parent", async ({

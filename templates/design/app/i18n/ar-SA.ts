@@ -221,7 +221,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "التصاميم",
+    home: "الرئيسية",
     templates: "القوالب",
     designSystems: "أنظمة التصميم",
     setupDesignSystem: "إعداد نظام التصميم",
@@ -244,6 +244,9 @@ export default {
     labDesignReviewTools: "أدوات مراجعة التصميم",
     labDesignReviewToolsDescription:
       "افحص تصاميمك بحثًا عن مشكلات إمكانية الوصول وقارن التغييرات المرئية.",
+    labMotion: "الحركة",
+    labMotionDescription:
+      "أنشئ الرسوم المتحركة القائمة على الإطارات المفتاحية في تصميماتك وعدّلها.",
     mcpAbout:
       "اربط Design بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Design نيابةً عنك: إنشاء التصاميم وتعديلها. ولا يرى إلا ما يمكنك رؤيته.",
   },
@@ -764,7 +767,7 @@ export default {
       needsConnectedApp: "الانتقال إلى المصدر يتطلب تطبيقًا متصلًا",
     },
     leftRail: {
-      file: "ملف",
+      layers: "الطبقات",
       agent: "الوكيل",
       assets: "الأصول",
       import: "استيراد",
@@ -809,6 +812,7 @@ export default {
       exit: "الخروج من المعاينة المتجاوبة",
     },
     motion: {
+      openDock: "الحركة",
       dockLabel: "لوحة الحركة",
       collapseDock: "طي لوحة الحركة",
       play: "تشغيل",
@@ -1062,7 +1066,7 @@ export default {
     fileMenu: {
       pendingEditsBlocked:
         "طبّق تعديلاتك المرئية المعلّقة أو تجاهلها قبل التكرار.",
-      designs: "التصاميم",
+      allDesigns: "كل التصاميم",
       rename: "إعادة التسمية",
       duplicate: "تكرار",
       versionHistory: "سجل الإصدارات",
@@ -1679,9 +1683,11 @@ export default {
     assetsNoImageUrl: "لم تُرجع Assets عنوان URL للصورة.",
     failedToUploadFile: "فشل تحميل الملف",
     imageAttachmentUnavailable:
-      "تعذّر تجهيز هذه الصورة كمدخل مرئي. أرفق ملف PNG أو JPG أو GIF أو WebP أصغر.",
+      "تعذّر تجهيز هذه الصورة للرفع. جرّب صورة بتنسيق JPG أو PNG أو GIF أو WebP.",
+    imageAttachmentTooLarge:
+      "يمكن أن يصل حجم كل صورة إلى {{perFile}} ميغابايت، وبإجمالي {{total}} ميغابايت للصور.",
     attachmentsTooLarge:
-      "المرفقات كبيرة جدًا. الحد الأقصى للرفع هو {{max}} ميغابايت إجمالًا — أرفق ملفات أقل أو أصغر.",
+      "يتم تحسين الصور تلقائيًا. يجب ألا يتجاوز الحجم الإجمالي للصور المحسّنة والملفات الأخرى {{max}} ميغابايت.",
     failedToSubmitPrompt: "تعذر إرسال المطالبة",
     skipPrompt: "تخطي المطالبة",
     startBlankCanvas: "ابدأ بلوحة فارغة",
@@ -1840,7 +1846,7 @@ export default {
     browseAllTemplates: "تصفح الكل",
     connectBuilderIo: "استخدم Builder.io",
     connectingBuilder: "جارٍ إعداد Builder.io…",
-    pageTitle: "Designs",
+    pageTitle: "الرئيسية",
     searchPlaceholder: "تصاميم البحث...",
     newDesign: "جديد Design",
     newDesignLower: "تصميم جديد",

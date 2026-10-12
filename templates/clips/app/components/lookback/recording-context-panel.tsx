@@ -1,12 +1,26 @@
 import { captureClientException } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
-import { useActionQuery } from "@agent-native/core/client/hooks";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs";
 import { CLIPS_LOOKBACK_CONTEXT } from "@shared/labs";
-import { IconArrowsMaximize } from "@tabler/icons-react";
+import { IconArrowsMaximize, IconTrash } from "@tabler/icons-react";
 import { type ReactNode, useEffect, useState } from "react";
+import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,6 +37,7 @@ import {
   formatClock,
   hasUnfinishedContextItems,
   isContextItemUnfinished,
+  isWaitingOnOtherDevice,
   type ListRecordingContextResult,
   type RecordingContextItem,
 } from "./recording-context-model";
@@ -80,10 +95,20 @@ export function RecordingContextPanel({
 }) {
   const t = useT();
   const itemsQuery = useRecordingContextItems(recordingId, true);
+  // Hides an item as soon as its removal lands, without waiting for the refetch.
+  const [removedIds, setRemovedIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const markRemoved = (id: string) =>
+    setRemovedIds((current) => new Set(current).add(id));
 
   let content: ReactNode;
+  let visibleCount = 0;
   if (itemsQuery.isSuccess) {
-    const items = itemsQuery.data.items;
+    const items = itemsQuery.data.items.filter(
+      (item) => !removedIds.has(item.id),
+    );
+    visibleCount = items.length;
     content =
       items.length === 0 ? (
         <p className="text-sm text-muted-foreground">
@@ -93,7 +118,7 @@ export function RecordingContextPanel({
         <ul className="flex flex-col gap-5">
           {items.map((item) => (
             <li key={item.id}>
-              <ContextItemCard item={item} />
+              <ContextItemCard item={item} onRemoved={markRemoved} />
             </li>
           ))}
         </ul>
@@ -111,7 +136,7 @@ export function RecordingContextPanel({
   return (
     <div className="max-h-80 shrink-0 overflow-y-auto border-b border-border px-4 py-4">
       {content}
-      {itemsQuery.isSuccess && itemsQuery.data.items.length > 0 ? (
+      {visibleCount > 0 ? (
         <p className="mt-4 text-xs text-muted-foreground">
           {t("lookbackContext.editHint")}
         </p>
@@ -135,9 +160,17 @@ function ContextPanelSkeleton() {
   );
 }
 
-function ContextItemCard({ item }: { item: RecordingContextItem }) {
+function ContextItemCard({
+  item,
+  onRemoved,
+}: {
+  item: RecordingContextItem;
+  onRemoved: (id: string) => void;
+}) {
   const t = useT();
   const [largerOpen, setLargerOpen] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
+  const removeContext = useActionMutation("remove-recording-context");
   const label = item.label?.trim() || t("lookbackContext.label");
   const windowText = t("lookbackContext.window", {
     start: formatClock(0),
@@ -147,6 +180,22 @@ function ContextItemCard({ item }: { item: RecordingContextItem }) {
     item.status === "ready" && item.mediaRecordingId
       ? contextVideoSrc(item.mediaRecordingId)
       : null;
+  // Only a pending item waits on its device. A processing item is already
+  // claimed by that device, so it keeps the saving text.
+  const waitingOnOtherDevice = isWaitingOnOtherDevice(item);
+
+  function confirmRemove() {
+    removeContext.mutate(
+      { id: item.id },
+      {
+        onSuccess: () => {
+          onRemoved(item.id);
+          toast.success(t("lookbackContext.removed"));
+        },
+        onError: () => toast.error(t("lookbackContext.removeFailedAction")),
+      },
+    );
+  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -157,19 +206,50 @@ function ContextItemCard({ item }: { item: RecordingContextItem }) {
             {windowText}
           </p>
         </div>
-        {src ? (
+        <div className="flex shrink-0 items-center gap-1">
+          {src ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setLargerOpen(true)}
+            >
+              <IconArrowsMaximize className="size-4" aria-hidden="true" />
+              {t("lookbackContext.larger")}
+            </Button>
+          ) : null}
           <Button
             type="button"
-            variant="ghost"
+            variant="outline-destructive"
             size="sm"
-            className="shrink-0"
-            onClick={() => setLargerOpen(true)}
+            onClick={() => setRemoveOpen(true)}
           >
-            <IconArrowsMaximize className="size-4" aria-hidden="true" />
-            {t("lookbackContext.larger")}
+            <IconTrash className="size-4" aria-hidden="true" />
+            {t("lookbackContext.removeAction")}
           </Button>
-        ) : null}
+        </div>
       </div>
+      <AlertDialog open={removeOpen} onOpenChange={setRemoveOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("lookbackContext.removeConfirmTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("lookbackContext.removeConfirmBody")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={confirmRemove}
+            >
+              {t("lookbackContext.removeConfirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {src ? (
         <>
           <video
@@ -201,7 +281,9 @@ function ContextItemCard({ item }: { item: RecordingContextItem }) {
           className="flex aspect-video w-full items-center justify-center gap-2 rounded-md bg-muted text-sm text-muted-foreground"
         >
           <Spinner />
-          {t("lookbackContext.savingEarlierTime")}
+          {waitingOnOtherDevice
+            ? t("lookbackContext.waitingOtherDevice")
+            : t("lookbackContext.savingEarlierTime")}
         </div>
       ) : (
         <div

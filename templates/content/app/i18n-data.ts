@@ -787,6 +787,8 @@ const editorToolbarMessages = {
   openInClaude: "Open in Claude",
   openInClaudeCode: "Open in Claude Code",
   openInCodex: "Open in Codex",
+  connectContent: "Connect Content",
+  otherAgents: "Other agents",
   agentCopyAccessNote:
     "Agents can use Content MCP with your existing permissions",
   temporaryAgentLink: "Temporary agent link",
@@ -847,7 +849,6 @@ const editorToolbarMessages = {
   localAndNotionChanged:
     "Local and Notion changed since the last sync. Choose which version wins.",
   morePageActions: "More page actions",
-  formatting: "Formatting",
   suggestEdits: "Suggest edits",
   suggesting: "Suggesting",
   stopSuggesting: "Stop suggesting",

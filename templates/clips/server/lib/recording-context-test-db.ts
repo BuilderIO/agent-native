@@ -17,7 +17,7 @@ export type Role = "viewer" | "editor" | "owner";
 const ROLE_RANK: Record<Role, number> = { viewer: 1, editor: 2, owner: 3 };
 
 // Mirrors recording_context_items in server/plugins/db.ts (migrations v81 to
-// v83). Keep the columns, indexes, and the partial unique index predicate
+// v84). Keep the columns, indexes, and the partial unique index predicate
 // identical to it.
 const CONTEXT_ITEMS_DDL = `
   CREATE TABLE recording_context_items (
@@ -33,6 +33,7 @@ const CONTEXT_ITEMS_DDL = `
     status TEXT NOT NULL,
     media_recording_id TEXT,
     pending_media_recording_id TEXT,
+    captured_device_id TEXT,
     duration_ms INTEGER,
     width INTEGER,
     height INTEGER,
@@ -130,6 +131,7 @@ export interface SeedContextItemOptions {
   endedAt?: string;
   mediaRecordingId?: string | null;
   pendingMediaRecordingId?: string | null;
+  capturedDeviceId?: string | null;
   createdAt?: string;
 }
 
@@ -145,8 +147,8 @@ export async function seedContextItem(
     `INSERT INTO recording_context_items (
        id, recording_id, requested_seconds, original_started_at, original_ended_at,
        started_at, ended_at, status, media_recording_id, pending_media_recording_id,
-       created_at, updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)`,
+       captured_device_id, created_at, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)`,
     [
       options.id,
       options.recordingId ?? "rec_1",
@@ -158,6 +160,7 @@ export async function seedContextItem(
       options.status ?? "pending",
       options.mediaRecordingId ?? null,
       options.pendingMediaRecordingId ?? null,
+      options.capturedDeviceId ?? null,
       options.createdAt ?? "2026-10-01T12:00:01.000Z",
     ],
   );

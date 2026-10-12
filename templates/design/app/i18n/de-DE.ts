@@ -227,7 +227,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "Designs",
+    home: "Startseite",
     templates: "Vorlagen",
     designSystems: "Designsysteme",
     setupDesignSystem: "Designsystem einrichten",
@@ -250,6 +250,9 @@ export default {
     labDesignReviewTools: "Tools zur Designprüfung",
     labDesignReviewToolsDescription:
       "Prüfe deine Designs auf Barrierefreiheit und vergleiche visuelle Änderungen.",
+    labMotion: "Motion-Design",
+    labMotionDescription:
+      "Erstelle und bearbeite Keyframe-Animationen in deinen Designs.",
     mcpAbout:
       "Verbinde Design mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Design für dich arbeiten: Designs erstellen und bearbeiten. Sie sieht nur, was du sehen kannst.",
   },
@@ -783,7 +786,7 @@ export default {
         "Für den Sprung zur Quelle ist eine verbundene App erforderlich",
     },
     leftRail: {
-      file: "Datei",
+      layers: "Ebenen",
       agent: "Agenten",
       assets: "Ressourcen",
       import: "Import",
@@ -828,6 +831,7 @@ export default {
       exit: "Responsive-Vorschau verlassen",
     },
     motion: {
+      openDock: "Motion",
       dockLabel: "Bewegungsleiste",
       collapseDock: "Bewegungsleiste einklappen",
       play: "Abspielen",
@@ -1092,7 +1096,7 @@ export default {
     fileMenu: {
       pendingEditsBlocked:
         "Wende deine ausstehenden visuellen Änderungen an oder verwirf sie, bevor du dupliziert.",
-      designs: "Designs",
+      allDesigns: "Alle Designs",
       rename: "Umbenennen",
       duplicate: "Duplizieren",
       versionHistory: "Versionsverlauf",
@@ -1737,9 +1741,11 @@ export default {
     assetsNoImageUrl: "Assets hat keine Bild-URL zurückgegeben.",
     failedToUploadFile: "Datei konnte nicht hochgeladen werden",
     imageAttachmentUnavailable:
-      "Dieses Bild konnte nicht als visuelle Eingabe vorbereitet werden. Füge eine kleinere PNG-, JPG-, GIF- oder WebP-Datei an.",
+      "Dieses Bild konnte nicht für den Upload vorbereitet werden. Versuche es mit einem JPG-, PNG-, GIF- oder WebP-Bild.",
+    imageAttachmentTooLarge:
+      "Bilder dürfen jeweils bis zu {{perFile}} MB groß sein und insgesamt {{total}} MB umfassen.",
     attachmentsTooLarge:
-      "Diese Anhänge sind zu groß. Uploads sind auf insgesamt {{max}} MB begrenzt – hänge weniger oder kleinere Dateien an.",
+      "Bilder werden automatisch optimiert. Optimierte Bilder und andere Dateien dürfen zusammen höchstens {{max}} MB groß sein.",
     failedToSubmitPrompt: "Prompt konnte nicht gesendet werden",
     skipPrompt: "Prompt überspringen",
     startBlankCanvas: "Mit leerer Zeichenfläche beginnen",
@@ -1907,7 +1913,7 @@ export default {
     browseAllTemplates: "Alle ansehen",
     connectBuilderIo: "Builder.io verwenden",
     connectingBuilder: "Builder.io wird eingerichtet…",
-    pageTitle: "Designs",
+    pageTitle: "Startseite",
     searchPlaceholder: "Designs suchen...",
     newDesign: "Neue Design",
     newDesignLower: "Neues Design",

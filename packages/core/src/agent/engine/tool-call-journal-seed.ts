@@ -38,6 +38,7 @@ export interface PriorTurnToolResultSummary {
 export type PriorTurnToolCallJournalRead =
   | {
       status: "read";
+      events: AgentChatEvent[];
       toolCallJournal: ToolCallJournal | null;
       priorToolCalls: PriorTurnToolCallSummary[];
       priorToolResults: PriorTurnToolResultSummary[];
@@ -71,6 +72,7 @@ export async function loadPriorTurnToolCallJournal(
   if (!threadId) {
     return {
       status: "read",
+      events: [],
       toolCallJournal: null,
       priorToolCalls: [],
       priorToolResults: [],
@@ -133,6 +135,7 @@ export async function loadPriorTurnToolCallJournal(
   }
   return {
     status: "read",
+    events: priorEvents,
     toolCallJournal:
       priorEvents.length > 0 ? classifyToolCallJournal(priorEvents) : null,
     priorToolCalls,

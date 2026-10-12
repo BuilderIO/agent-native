@@ -57,8 +57,8 @@ export const CLIPS_LOOKBACK_CONTEXT = defineLab({
   key: "clips.lookback-context",
   displayName: "Include earlier screen time",
   description:
-    "Attach up to five minutes of screen time from before a recording as passive context. Off by default.",
-  defaultEnabled: false,
+    "Attach up to five minutes of screen time from before a recording as passive context.",
+  defaultEnabled: true,
   keywords: "rewind lookback context history earlier screen before recording",
 });
 

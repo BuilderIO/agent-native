@@ -38,6 +38,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "في قائمة الانتظار",
   "agent.completed": "أنهى العمل",
   "agent.failed": "يحتاج إلى الانتباه",
+  "agent.failureReason.failed": "تعذّر الإكمال",
+  "agent.failureReason.setup": "يحتاج إلى إعداد أولًا",
+  "agent.failureReason.auth": "تم رفض الوصول",
+  "agent.failureReason.timeout": "استغرق وقتًا طويلًا",
+  "agent.failureReason.budget": "انتهى الوقت",
+  "agent.failureReason.response": "لا توجد نتيجة صالحة",
   "agent.closed": "أغلق",
   "approval.alwaysAllow": "السماح دائمًا",
   "approval.alwaysAllowHint": "الموافقة على هذا الأمر المحدد والسماح به دائمًا",
@@ -126,7 +132,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "تخطي الآن",
   "onboarding.saveRoleError": "تعذر حفظ دورك.",
   "onboarding.builderCreateAccount": "استخدم Builder.io",
-  "onboarding.builderSignInWithAccount": "استخدم Builder.io",
+  "onboarding.builderSignInWithAccount": "سجّل الدخول بحساب Builder.io",
   "onboarding.builderActivateDescription":
     "أنشئ حساب Builder.io الخاص بك أو أعد استخدامه وفعّل أرصدته المجانية بنقرة واحدة.",
   "onboarding.builderActiveCredits":
@@ -144,8 +150,17 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivateTitle": "تفعيل الأرصدة المجانية",
   "onboarding.builderAccountExistsTitle": "لديك حساب Builder.io بالفعل",
   "onboarding.builderAccountExistsDescription": "سجّل الدخول لاستخدام حسابك.",
+  "onboarding.builderActivationChecking":
+    "جارٍ التحقق مما إذا كان إنشاء حساب جديد متاحًا.",
+  "onboarding.builderActivationUnavailable":
+    "إنشاء حساب جديد غير مفعّل لهذا التطبيق. يمكنك ربط حساب موجود.",
+  "onboarding.builderActivationUnavailableInMode":
+    "تفعيل حساب جديد غير متاح في هذا الوضع. لا يزال بإمكانك ربط حساب موجود.",
+  "onboarding.builderActivationCheckFailed":
+    "تعذّر التحقق مما إذا كان هذا التطبيق يتيح إنشاء حسابات جديدة.",
+
   "onboarding.builderActivationDescription":
-    "أنشئ حساب Builder.io أو اربطه بنقرة واحدة للحصول على أرصدة مجانية.",
+    "أنشئ حسابًا جديدًا لتفعيل الأرصدة المجانية، أو تابع باستخدام حساب موجود.",
   "onboarding.builderOrgActivationDescription":
     "سننشئ حساب Builder.io الخاص بك بنقرة واحدة ليتمكن مؤسستك من استخدامه.",
   "onboarding.builderCreateAndActivate": "إنشاء وتفعيل",
@@ -153,11 +168,12 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "شروط الخدمة",
   "onboarding.builderPrivacy": "سياسة الخصوصية",
   "onboarding.builderConsentAnd": "و",
-  "onboarding.builderExistingAccount": "استخدم Builder.io",
+  "onboarding.builderExistingAccount": "لديّ حساب Builder.io",
   "onboarding.builderActivating": "جارٍ تفعيل أرصدة Builder.io المجانية",
   "onboarding.builderConnecting": "جارٍ إعداد أرصدة Builder.io المجانية",
   "onboarding.builderProvisioningDescription":
     "جارٍ إنشاء حساب Builder.io الخاص بك وتفعيل الأرصدة المجانية.",
+  "onboarding.builderCancelPending": "جارٍ التحقق من حالة الاتصال…",
   "onboarding.builderConnectionDescription":
     "أكمل الاتصال بنقرة واحدة في النافذة الجديدة.",
   "onboarding.builderReadyWithCodeChanges":
@@ -1239,6 +1255,12 @@ const messages: ToolkitAgentChatTranslation = {
   "selection.attached_many": "تم إرفاق {{formattedCount}} حرفًا من التحديد",
   "selection.attached_other": "تم إرفاق {{formattedCount}} حرف من التحديد",
   "selection.clear": "مسح سياق التحديد",
+  "setup.addKeyInSettings": "أضف مفتاحًا من الإعدادات",
+  "setup.addKeyInSettingsDescription": "لحسابك أو مؤسستك.",
+  "setup.setEnvironmentVariable": "عيّن متغير بيئة",
+  "setup.setEnvironmentVariableDescription":
+    "مفتاح موفّر واحد لجميع مستخدمي هذا التطبيق.",
+
   "setup.addOwnKeys": "إضافة مفاتيحك الخاصة",
   "setup.builderCredits":
     "يتضمن Builder.io أرصدة مجانية، أو يمكنك استخدام مفتاح API الخاص بك.",

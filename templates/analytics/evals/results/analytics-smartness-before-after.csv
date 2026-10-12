@@ -1,0 +1,5 @@
+phase,run,case_id,case_origin,production_run_completed,eval_passed,source_contract_passed,production_source_index_configured,duration_ms,input_tokens,output_tokens,llm_calls,find_data_calls,search_bigquery_schema_calls,tool_search_calls,failed_tool_calls,builder_credits
+origin-main,1,builder_users_membership_source,redacted_synthetic_report_case,true,false,false,false,107891,817660,2355,16,9,11,2,0,7.787
+origin-main,2,builder_users_membership_source,redacted_synthetic_report_case,true,false,false,false,94814,998784,2644,13,8,17,2,0,9.935
+pr-worktree-after,1,builder_users_membership_source,redacted_synthetic_report_case,true,false,false,false,76281,751678,1865,11,3,15,2,0,7.233
+pr-worktree-after,2,builder_users_membership_source,redacted_synthetic_report_case,true,false,false,false,91070,958581,2277,13,3,15,3,0,7.531

@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
+import { OVERVIEW_FRAME_LABEL_HEIGHT } from "../shared/canvas-frames";
 import { e2eBaseURL } from "./base-url";
 import {
   layerRow,
@@ -816,12 +817,125 @@ test("Shift-picking a Screen extends the Delete selection in All screens", async
       `[data-frame-id="${secondId}"] [data-frame-title]`,
     );
     await secondTitle.click({ modifiers: ["Shift"] });
+    await expect.poll(() => selectedScreenIds(page)).toHaveLength(2);
     await expect
       .poll(() => selectedScreenIds(page))
       .toEqual(expect.arrayContaining([homeId, secondId]));
     await expect(
       page.getByRole("button", { name: "Design", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
+
+    await page.keyboard.press("Delete");
+    await expect(layerRow(page, "Home")).toHaveCount(0);
+    await expect(layerRow(page, "Second")).toHaveCount(0);
+    await expect(layerRow(page, "Third")).toHaveCount(1);
+  } finally {
+    await postAction(page, "delete-design", { id }).catch(() => {});
+  }
+});
+
+test("Shift-marquee adds a hit Screen to the existing Delete selection", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 4400 });
+  const id = await newThreeScreenDesign(page);
+  try {
+    await openEditor(page, id);
+    const homeId = await fileIdByFilename(page, id, "index.html");
+    const secondId = await fileIdByFilename(page, id, "second.html");
+    const secondFrame = page.locator(`[data-frame-id="${secondId}"]`);
+    const secondTitle = page.locator(
+      `[data-frame-id="${secondId}"] [data-frame-title]`,
+    );
+    const homeTitle = page.locator(
+      `[data-frame-id="${homeId}"] [data-frame-title]`,
+    );
+    await homeTitle.click();
+    await expect.poll(() => selectedScreenIds(page)).toContain(homeId);
+    await expect
+      .poll(async () => {
+        const frameBox = await secondFrame.boundingBox();
+        const titleBox = await secondTitle.boundingBox();
+        const canvasBox = await page
+          .locator("[data-multi-screen-canvas-surface]")
+          .boundingBox();
+        return Boolean(
+          frameBox &&
+          titleBox &&
+          canvasBox &&
+          Math.min(frameBox.x, titleBox.x) >= canvasBox.x &&
+          Math.min(frameBox.y, titleBox.y) >= canvasBox.y &&
+          Math.max(frameBox.x + frameBox.width, titleBox.x + titleBox.width) <=
+            canvasBox.x + canvasBox.width &&
+          Math.max(
+            frameBox.y + frameBox.height,
+            titleBox.y + titleBox.height,
+          ) <=
+            canvasBox.y + canvasBox.height,
+        );
+      })
+      .toBe(true);
+
+    const frameBox = await secondFrame.boundingBox();
+    const titleBox = await secondTitle.boundingBox();
+    const canvas = await page
+      .locator("[data-multi-screen-canvas-surface]")
+      .boundingBox();
+    expect(frameBox).not.toBeNull();
+    expect(titleBox).not.toBeNull();
+    expect(canvas).not.toBeNull();
+    const zoom =
+      Number.parseFloat(
+        await page
+          .getByRole("button", { name: /^\d+%$/ })
+          .first()
+          .innerText(),
+      ) / 100;
+    expect(zoom).toBeGreaterThan(0);
+    const horizontalMargin = 24;
+    const verticalMargin =
+      Math.ceil(OVERVIEW_FRAME_LABEL_HEIGHT / zoom) + horizontalMargin;
+    const from = {
+      x: Math.max(
+        canvas!.x,
+        Math.min(frameBox!.x, titleBox!.x) - horizontalMargin,
+      ),
+      y: Math.max(
+        canvas!.y,
+        Math.min(frameBox!.y, titleBox!.y) - verticalMargin,
+      ),
+    };
+    const to = {
+      x: Math.min(
+        canvas!.x + canvas!.width,
+        Math.max(frameBox!.x + frameBox!.width, titleBox!.x + titleBox!.width) +
+          horizontalMargin,
+      ),
+      y: Math.min(
+        canvas!.y + canvas!.height,
+        Math.max(
+          frameBox!.y + frameBox!.height,
+          titleBox!.y + titleBox!.height,
+        ) + verticalMargin,
+      ),
+    };
+    expect(from.x).toBeGreaterThanOrEqual(canvas!.x);
+    expect(from.y).toBeGreaterThanOrEqual(canvas!.y);
+    expect(to.x).toBeLessThanOrEqual(canvas!.x + canvas!.width);
+    expect(to.y).toBeLessThanOrEqual(canvas!.y + canvas!.height);
+
+    await page.keyboard.down("Shift");
+    try {
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await page.mouse.move(to.x, to.y, { steps: 12 });
+      await page.mouse.up();
+    } finally {
+      await page.keyboard.up("Shift");
+    }
+    await expect
+      .poll(() => selectedScreenIds(page))
+      .toEqual(expect.arrayContaining([homeId, secondId]));
 
     await page.keyboard.press("Delete");
     await expect(layerRow(page, "Home")).toHaveCount(0);
@@ -1334,14 +1448,12 @@ test("deletes multiple selected Screens as one undoable operation", async ({
     await openEditor(page, id);
 
     await layerRow(page, "Home").click();
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+A" : "Control+A",
-    );
+    await layerRow(page, "Second").click({ modifiers: ["Shift"] });
     await expect(
       page
         .getByRole("tree", { name: "Layers" })
         .locator('[role="treeitem"][aria-level="1"][aria-selected="true"]'),
-    ).toHaveCount(3);
+    ).toHaveCount(2);
 
     await page.keyboard.press("Delete");
     await expect(layerRow(page, "Home")).toHaveCount(0);

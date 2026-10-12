@@ -6,6 +6,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { buildCodeLayerProjection } from "../shared/code-layer";
 import { e2eBaseURL } from "./base-url";
 import { expandAllLayers, gotoEditor } from "./helpers";
 
@@ -216,33 +217,104 @@ async function focusCanvas(page: Page): Promise<void> {
   });
 }
 
-async function emptyBoardPoint(page: Page, offset = { x: 0, y: 0 }) {
-  const point = await page.evaluate((off) => {
-    const world = document.querySelector("[data-multi-screen-canvas-world]");
-    const surface = (world?.parentElement ?? world) as HTMLElement | null;
-    if (!surface) return null;
-    const r = surface.getBoundingClientRect();
-    const cards = Array.from(
-      document.querySelectorAll("[data-screen-iframe-id]"),
-    ).map((el) => el.getBoundingClientRect());
-    for (let y = r.top + 60 + off.y; y < r.bottom - 60; y += 40) {
-      for (let x = r.left + 60 + off.x; x < r.right - 60; x += 40) {
-        if (
-          cards.some(
-            (c) =>
-              x >= c.left - 24 &&
-              x <= c.right + 24 &&
-              y >= c.top - 24 &&
-              y <= c.bottom + 24,
-          )
-        )
-          continue;
-        const hit = document.elementFromPoint(x, y);
-        if (hit && surface.contains(hit)) return { x, y };
-      }
+async function emptyBoardPoint(
+  page: Page,
+  options: {
+    offset?: { x: number; y: number };
+    dragSize?: { width: number; height: number };
+  } = {},
+) {
+  const offset = options.offset ?? { x: 0, y: 0 };
+  const dragSize = options.dragSize ?? { width: 0, height: 0 };
+  const boardIframes = page.locator(
+    "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+  );
+  const boardFrameBoxes: Array<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }> = [];
+  for (
+    let iframeIndex = 0;
+    iframeIndex < (await boardIframes.count());
+    iframeIndex += 1
+  ) {
+    const frames = boardIframes
+      .nth(iframeIndex)
+      .contentFrame()
+      .locator('[data-an-primitive="frame"]');
+    for (
+      let frameIndex = 0;
+      frameIndex < (await frames.count());
+      frameIndex += 1
+    ) {
+      const box = await frames.nth(frameIndex).boundingBox();
+      if (box) boardFrameBoxes.push(box);
     }
-    return null;
-  }, offset);
+  }
+  const point = await page.evaluate(
+    ({ offsetX, offsetY, dragWidth, dragHeight, boardFrameBoxes }) => {
+      const world = document.querySelector("[data-multi-screen-canvas-world]");
+      const surface = (world?.parentElement ?? world) as HTMLElement | null;
+      if (!surface) return null;
+      const r = surface.getBoundingClientRect();
+      const screenFrames = Array.from(
+        document.querySelectorAll("[data-screen-shell][data-frame-id]"),
+      ).map((el) => el.getBoundingClientRect());
+      const overlaps = (
+        left: number,
+        top: number,
+        right: number,
+        bottom: number,
+        rect: { left: number; top: number; right: number; bottom: number },
+      ) =>
+        right >= rect.left - 24 &&
+        left <= rect.right + 24 &&
+        bottom >= rect.top - 24 &&
+        top <= rect.bottom + 24;
+      for (
+        let y = r.top + 60 + offsetY;
+        y < r.bottom - 60 - dragHeight;
+        y += 40
+      ) {
+        for (
+          let x = r.left + 60 + offsetX;
+          x < r.right - 60 - dragWidth;
+          x += 40
+        ) {
+          const right = x + dragWidth;
+          const bottom = y + dragHeight;
+          if (
+            screenFrames.some((frame) => overlaps(x, y, right, bottom, frame))
+          )
+            continue;
+          if (
+            boardFrameBoxes.some((frame) =>
+              overlaps(x, y, right, bottom, {
+                left: frame.x,
+                top: frame.y,
+                right: frame.x + frame.width,
+                bottom: frame.y + frame.height,
+              }),
+            )
+          ) {
+            continue;
+          }
+          const hit = document.elementFromPoint(x, y);
+          if (hit && surface.contains(hit)) return { x, y };
+        }
+      }
+      return null;
+    },
+    {
+      offsetX: offset.x,
+      offsetY: offset.y,
+      dragWidth: dragSize.width,
+      dragHeight: dragSize.height,
+      boardFrameBoxes,
+    },
+  );
   if (!point) throw new Error("no empty canvas point found at this viewport");
   return point;
 }
@@ -263,6 +335,19 @@ async function boardHtml(request: APIRequestContext, designId: string) {
   return fileContent(request, designId, "__board__.html");
 }
 
+async function boardSourceFile(request: APIRequestContext, designId: string) {
+  const record = await designRecord(request, designId);
+  const file = record.files?.find(
+    (candidate: { filename: string }) =>
+      candidate.filename === "__board__.html",
+  );
+  if (!file) throw new Error(`no board file in design ${designId}`);
+  if (typeof file.id !== "string" || typeof file.content !== "string") {
+    throw new Error(`board file in design ${designId} is incomplete`);
+  }
+  return { fileId: file.id, content: file.content };
+}
+
 async function drawBoardFrame(
   page: Page,
   request: APIRequestContext,
@@ -279,17 +364,98 @@ async function drawBoardFrame(
   await page.mouse.down();
   await page.mouse.move(to.x, to.y, { steps: 16 });
   await page.mouse.up();
-  await expect
-    .poll(
-      async () =>
-        (
-          (await boardHtml(request, designId)).match(
-            /data-an-primitive="frame"/g,
-          ) ?? []
-        ).length,
-      { timeout: 10_000 },
-    )
-    .toBeGreaterThan(countBefore);
+  try {
+    await expect
+      .poll(
+        async () =>
+          (
+            (await boardHtml(request, designId)).match(
+              /data-an-primitive="frame"/g,
+            ) ?? []
+          ).length,
+        { timeout: 10_000 },
+      )
+      .toBeGreaterThan(countBefore);
+  } catch (error) {
+    const failure = error instanceof Error ? error.message : String(error);
+    let diagnostic: unknown;
+    try {
+      const browserState = await page.evaluate(
+        ({ from, to }) => {
+          const surface = document.querySelector(
+            "[data-multi-screen-canvas-world]",
+          )?.parentElement;
+          const rect = surface?.getBoundingClientRect();
+          const left = Math.min(from.x, to.x);
+          const top = Math.min(from.y, to.y);
+          const right = Math.max(from.x, to.x);
+          const bottom = Math.max(from.y, to.y);
+          const screens = Array.from(
+            document.querySelectorAll<HTMLElement>(
+              "[data-screen-shell][data-frame-id]",
+            ),
+          );
+          const target = (point: { x: number; y: number }) => {
+            const element = document.elementFromPoint(point.x, point.y);
+            return {
+              ...point,
+              tag: element?.tagName.toLowerCase() ?? null,
+              screen: element
+                ?.closest("[data-screen-shell][data-frame-id]")
+                ?.getAttribute("data-frame-id"),
+            };
+          };
+          return {
+            activeTool: document
+              .querySelector<HTMLElement>(
+                '[data-design-bottom-toolbar] button[aria-pressed="true"]',
+              )
+              ?.getAttribute("aria-label"),
+            viewport: [innerWidth, innerHeight],
+            surface: rect
+              ? [rect.left, rect.top, rect.right, rect.bottom]
+              : null,
+            targets: [target(from), target(to)],
+            intersectingScreens: screens
+              .filter((screen) => {
+                const screenRect = screen.getBoundingClientRect();
+                return (
+                  right >= screenRect.left &&
+                  left <= screenRect.right &&
+                  bottom >= screenRect.top &&
+                  top <= screenRect.bottom
+                );
+              })
+              .map((screen) => screen.getAttribute("data-frame-id")),
+          };
+        },
+        { from, to },
+      );
+      const countAfter = (
+        (await boardHtml(request, designId)).match(
+          /data-an-primitive="frame"/g,
+        ) ?? []
+      ).length;
+      diagnostic = {
+        from,
+        to,
+        countBefore,
+        countAfter,
+        ...browserState,
+        designTrace: await dump(page),
+      };
+    } catch (diagnosticError) {
+      diagnostic = {
+        diagnosticReadError:
+          diagnosticError instanceof Error
+            ? diagnosticError.message
+            : String(diagnosticError),
+      };
+    }
+    throw new Error(
+      `${failure}\nFrame draw context: ${JSON.stringify(diagnostic)}`,
+    );
+  }
 }
 
 test.describe("assemble portfolio pages", () => {
@@ -301,7 +467,7 @@ test.describe("assemble portfolio pages", () => {
     designId = "";
   });
 
-  test("Shift+S leaves the active tool unchanged; Frame Selection adds a board frame", async ({
+  test("Shift+S leaves the tool unchanged; Frame Selection wraps independent board frames with undo/redo", async ({
     page,
     request,
   }) => {
@@ -326,21 +492,41 @@ test.describe("assemble portfolio pages", () => {
       "Shift+S is unassigned and should not silently switch tools",
     ).toBe(activeToolBefore);
 
-    const p1 = await emptyBoardPoint(page);
+    const p1 = await emptyBoardPoint(page, {
+      dragSize: { width: 120, height: 80 },
+    });
     await drawBoardFrame(page, request, designId, p1, {
       x: p1.x + 120,
       y: p1.y + 80,
     });
-    const p2 = await emptyBoardPoint(page, { x: 260, y: 0 });
+    const p2 = await emptyBoardPoint(page, {
+      offset: { x: 260, y: 0 },
+      dragSize: { width: 120, height: 80 },
+    });
     await drawBoardFrame(page, request, designId, p2, {
       x: p2.x + 120,
       y: p2.y + 80,
     });
-    const boardBefore = await boardHtml(request, designId);
+    const boardBefore = await boardSourceFile(request, designId);
     const frameCountBefore = (
-      boardBefore.match(/data-an-primitive="frame"/g) ?? []
+      boardBefore.content.match(/data-an-primitive="frame"/g) ?? []
     ).length;
     expect(frameCountBefore).toBe(2);
+    const source = {
+      kind: "design-file" as const,
+      fileId: boardBefore.fileId,
+    };
+    const frameNodesBefore = buildCodeLayerProjection(boardBefore.content, {
+      source,
+    }).nodes.filter(
+      (node) => node.dataAttributes["data-an-primitive"] === "frame",
+    );
+    expect(frameNodesBefore).toHaveLength(2);
+    const originalParentId = frameNodesBefore[0]?.parentId;
+    expect(
+      frameNodesBefore[1]?.parentId,
+      `expected independent board frame siblings: ${JSON.stringify(frameNodesBefore.map(({ id, parentId, path }) => ({ id, parentId, path })))}`,
+    ).toBe(originalParentId);
 
     await page
       .locator('[data-design-bottom-toolbar] button[aria-label="Move"]')
@@ -366,17 +552,82 @@ test.describe("assemble portfolio pages", () => {
     await page.waitForTimeout(400);
     await page.evaluate(() => (window as any).__designTrace?.clear?.());
     await page.keyboard.press(`${MOD}+Alt+g`);
-    await page.waitForTimeout(600);
+    await expect
+      .poll(
+        async () =>
+          (await boardHtml(request, designId)).match(
+            /data-an-primitive="frame"/g,
+          )?.length ?? 0,
+      )
+      .toBe(frameCountBefore + 1);
 
-    const boardAfter = await boardHtml(request, designId);
-    const frameCountAfter = (
-      boardAfter.match(/data-an-primitive="frame"/g) ?? []
-    ).length;
-    expect(
-      frameCountAfter,
-      `Frame Selection (⌥⌘G) over two selected board frames should add one frame; trace: ${JSON.stringify(await dump(page))}. ` +
-        `before=${frameCountBefore} after=${frameCountAfter}`,
-    ).toBe(frameCountBefore + 1);
+    const boardAfter = await boardSourceFile(request, designId);
+    const frameNodesAfter = buildCodeLayerProjection(boardAfter.content, {
+      source,
+    }).nodes.filter(
+      (node) => node.dataAttributes["data-an-primitive"] === "frame",
+    );
+    expect(frameNodesAfter).toHaveLength(frameCountBefore + 1);
+    const wrappers = frameNodesAfter.filter(
+      (candidate) =>
+        frameNodesAfter.filter((child) => child.parentId === candidate.id)
+          .length === 2,
+    );
+    expect(wrappers).toHaveLength(1);
+    const wrapper = wrappers[0];
+    expect(wrapper).toBeDefined();
+    if (!wrapper) throw new Error("Frame Selection did not persist a wrapper");
+    expect(wrapper.parentId).toBe(originalParentId);
+
+    await focusCanvas(page);
+    await page.keyboard.press(`${MOD}+z`);
+    await expect
+      .poll(
+        async () =>
+          (await boardHtml(request, designId)).match(
+            /data-an-primitive="frame"/g,
+          )?.length ?? 0,
+      )
+      .toBe(frameCountBefore);
+    const boardAfterUndo = await boardSourceFile(request, designId);
+    const frameNodesAfterUndo = buildCodeLayerProjection(
+      boardAfterUndo.content,
+      { source },
+    ).nodes.filter(
+      (node) => node.dataAttributes["data-an-primitive"] === "frame",
+    );
+    expect(frameNodesAfterUndo).toHaveLength(2);
+    expect(frameNodesAfterUndo[0]?.parentId).toBe(originalParentId);
+    expect(frameNodesAfterUndo[1]?.parentId).toBe(originalParentId);
+
+    await focusCanvas(page);
+    await page.keyboard.press(`${MOD}+Shift+z`);
+    await expect
+      .poll(
+        async () =>
+          (await boardHtml(request, designId)).match(
+            /data-an-primitive="frame"/g,
+          )?.length ?? 0,
+      )
+      .toBe(frameCountBefore + 1);
+    const boardAfterRedo = await boardSourceFile(request, designId);
+    const frameNodesAfterRedo = buildCodeLayerProjection(
+      boardAfterRedo.content,
+      { source },
+    ).nodes.filter(
+      (node) => node.dataAttributes["data-an-primitive"] === "frame",
+    );
+    expect(frameNodesAfterRedo).toHaveLength(frameCountBefore + 1);
+    const redoneWrappers = frameNodesAfterRedo.filter(
+      (candidate) =>
+        frameNodesAfterRedo.filter((child) => child.parentId === candidate.id)
+          .length === 2,
+    );
+    expect(redoneWrappers).toHaveLength(1);
+    const redoneWrapper = redoneWrappers[0];
+    expect(redoneWrapper).toBeDefined();
+    if (!redoneWrapper) throw new Error("Redo did not restore the wrapper");
+    expect(redoneWrapper.parentId).toBe(originalParentId);
   });
 
   test("step 3 [overview, outside any screen]: stripping a board component's white fill via the inspector (peer-owned)", async ({
@@ -387,7 +638,9 @@ test.describe("assemble portfolio pages", () => {
       { filename: "index.html", content: BLANK_SCREEN("Home") },
     ]));
     await gotoEditor(page, designId);
-    const p1 = await emptyBoardPoint(page);
+    const p1 = await emptyBoardPoint(page, {
+      dragSize: { width: 140, height: 100 },
+    });
     await drawBoardFrame(page, request, designId, p1, {
       x: p1.x + 140,
       y: p1.y + 100,
@@ -896,6 +1149,84 @@ test.describe("assemble portfolio pages", () => {
 
     const filesBefore = await fileList(request, designId);
     await focusCanvas(page);
+    type GeometryWriteObservation = {
+      phase: "duplicate" | "undo" | "redo";
+      requestAt: number;
+      responseAt?: number;
+      status?: number;
+      error?: string;
+      operationSource?: unknown;
+      operationRevision?: unknown;
+      operations: Array<{
+        op?: unknown;
+        path: string[];
+        z?: unknown;
+      }>;
+    };
+    let phase: GeometryWriteObservation["phase"] = "duplicate";
+    const geometryWrites: GeometryWriteObservation[] = [];
+    const requestWrites = new Map<object, GeometryWriteObservation>();
+    page.on("request", (pageRequest) => {
+      if (
+        pageRequest.method() !== "POST" ||
+        !new URL(pageRequest.url()).pathname.endsWith(
+          "/_agent-native/actions/update-design",
+        )
+      ) {
+        return;
+      }
+      const postData = pageRequest.postData();
+      if (!postData) return;
+      let payload: Record<string, unknown>;
+      try {
+        payload = JSON.parse(postData) as Record<string, unknown>;
+      } catch {
+        return;
+      }
+      const dataOperations = Array.isArray(payload.dataOperations)
+        ? payload.dataOperations
+        : [];
+      const operations = dataOperations.flatMap((entry) => {
+        if (!entry || typeof entry !== "object") return [];
+        const operation = entry as Record<string, unknown>;
+        const rawPath = Array.isArray(operation.path) ? operation.path : [];
+        if (rawPath[0] !== "canvasFrames") return [];
+        const path = rawPath.map(String);
+        const value = operation.value;
+        const frameValue =
+          value && typeof value === "object"
+            ? (value as Record<string, unknown>)
+            : undefined;
+        const z = path[path.length - 1] === "z" ? value : frameValue?.z;
+        return [{ op: operation.op, path, ...(z === undefined ? {} : { z }) }];
+      });
+      const observation: GeometryWriteObservation = {
+        phase,
+        requestAt: Date.now(),
+        operationSource: payload.operationSource,
+        operationRevision: payload.operationRevision,
+        operations,
+      };
+      geometryWrites.push(observation);
+      requestWrites.set(pageRequest, observation);
+    });
+    page.on("response", (pageResponse) => {
+      const observation = requestWrites.get(pageResponse.request());
+      if (!observation) return;
+      observation.responseAt = Date.now();
+      observation.status = pageResponse.status();
+    });
+    page.on("requestfailed", (pageRequest) => {
+      const observation = requestWrites.get(pageRequest);
+      if (!observation) return;
+      observation.error = pageRequest.failure()?.errorText ?? "request failed";
+    });
+    const attachGeometryWriteChronology = async (name: string) => {
+      await test.info().attach(name, {
+        body: JSON.stringify(geometryWrites, null, 2),
+        contentType: "application/json",
+      });
+    };
     await page.keyboard.press(`${MOD}+d`);
     let filesAfter: string[] = [];
     await expect
@@ -921,54 +1252,81 @@ test.describe("assemble portfolio pages", () => {
     await expect
       .poll(() => selectedScreenFilenames(request, designId))
       .toEqual(copies.slice().sort());
-    await expect
-      .poll(async () => {
-        const frames = (await designData(request, designId)).canvasFrames;
-        return {
-          sourceCopy: frames?.[sourceCopyId],
-          neighborCopy: frames?.[neighborCopyId],
-          fartherCopy: frames?.[fartherCopyId],
-          farther: frames?.[fartherId],
-        };
-      })
-      .toEqual({
-        sourceCopy: {
-          ...geometry[sourceId],
-          x:
-            geometry[neighborId].x +
-            geometry[neighborId].width +
-            DESIGN_SCREEN_GAP,
-          z: 1,
-        },
-        neighborCopy: {
-          ...geometry[neighborId],
-          x:
-            geometry[fartherId].x +
-            geometry[fartherId].width +
-            DESIGN_SCREEN_GAP,
-          z: 3,
-        },
-        fartherCopy: {
-          ...geometry[fartherId],
-          x:
-            geometry[fartherId].x +
-            2 * (geometry[fartherId].width + DESIGN_SCREEN_GAP),
-          z: 5,
-        },
-        farther: { ...geometry[fartherId], z: 4 },
-      });
 
+    try {
+      await expect
+        .poll(async () => {
+          const frames = (await designData(request, designId)).canvasFrames;
+          return {
+            sourceCopy: frames?.[sourceCopyId],
+            neighborCopy: frames?.[neighborCopyId],
+            fartherCopy: frames?.[fartherCopyId],
+            source: frames?.[sourceId],
+            neighbor: frames?.[neighborId],
+            farther: frames?.[fartherId],
+          };
+        })
+        .toEqual({
+          sourceCopy: {
+            ...geometry[sourceId],
+            x:
+              geometry[neighborId].x +
+              geometry[neighborId].width +
+              DESIGN_SCREEN_GAP,
+            z: 1,
+          },
+          neighborCopy: {
+            ...geometry[neighborId],
+            x:
+              geometry[fartherId].x +
+              geometry[fartherId].width +
+              DESIGN_SCREEN_GAP,
+            z: 3,
+          },
+          fartherCopy: {
+            ...geometry[fartherId],
+            x:
+              geometry[fartherId].x +
+              2 * (geometry[fartherId].width + DESIGN_SCREEN_GAP),
+            z: 5,
+          },
+          source: { ...geometry[sourceId], z: 0 },
+          neighbor: { ...geometry[neighborId], z: 2 },
+          farther: { ...geometry[fartherId], z: 4 },
+        });
+    } catch (error) {
+      await attachGeometryWriteChronology(
+        "cmd-d-post-duplicate-geometry-writes.json",
+      );
+      throw error;
+    }
+
+    phase = "undo";
     await page.keyboard.press(`${MOD}+z`);
     await expect
       .poll(async () => (await fileList(request, designId)).length)
       .toBe(filesBefore.length);
-    await expect
-      .poll(async () => {
-        const frames = (await designData(request, designId)).canvasFrames;
-        return [frames?.[sourceId], frames?.[neighborId], frames?.[fartherId]];
-      })
-      .toEqual([geometry[sourceId], geometry[neighborId], geometry[fartherId]]);
+    try {
+      await expect
+        .poll(async () => {
+          const frames = (await designData(request, designId)).canvasFrames;
+          return [
+            frames?.[sourceId],
+            frames?.[neighborId],
+            frames?.[fartherId],
+          ];
+        })
+        .toEqual([
+          geometry[sourceId],
+          geometry[neighborId],
+          geometry[fartherId],
+        ]);
+    } catch (error) {
+      await attachGeometryWriteChronology("cmd-d-undo-geometry-writes.json");
+      throw error;
+    }
 
+    phase = "redo";
     await page.keyboard.press(`${MOD}+Shift+z`);
     await expect
       .poll(async () => (await fileList(request, designId)).length)

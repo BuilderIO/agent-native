@@ -63,7 +63,7 @@ async function action(
 
 async function createCardDesign(page: Page): Promise<string> {
   const created = await action(page.request, "create-design", {
-    title: `Workflow constraints recovery ${Date.now()}`,
+    title: `Design constraints recovery ${Date.now()}`,
     projectType: "prototype",
   });
   const designId = created.id ?? created.data?.id;

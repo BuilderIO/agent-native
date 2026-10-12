@@ -2,6 +2,9 @@ import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const RECORDING_TOO_LARGE_REASON = `Recording exceeds the ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB size limit. Please record a shorter clip.`;
+const MockVideoStorageStatusUnavailableError = vi.hoisted(
+  () => class VideoStorageStatusUnavailableError extends Error {},
+);
 
 const mockAppState = vi.hoisted(() => new Map<string, Record<string, any>>());
 const mockReadAppState = vi.hoisted(() => vi.fn());
@@ -192,6 +195,7 @@ vi.mock("../../../../lib/video-storage.js", () => ({
   shouldRejectVideoUploadWithoutStorage: (...args: unknown[]) =>
     mockShouldRejectVideoUploadWithoutStorage(...args),
   STORAGE_SETUP_REQUIRED_REASON: "Storage setup required",
+  VideoStorageStatusUnavailableError: MockVideoStorageStatusUnavailableError,
 }));
 
 import handler from "./chunk.post";
@@ -464,6 +468,118 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       expect.objectContaining({ sessionId: "browser-session-1" }),
     );
     expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("returns a retriable error when storage status is unavailable", async () => {
+    mockShouldRejectVideoUploadWithoutStorage.mockRejectedValueOnce(
+      new MockVideoStorageStatusUnavailableError(),
+    );
+    setRequest({
+      query: { index: "0", total: "1", mimeType: "video/webm" },
+      body: new Uint8Array([1]),
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: false,
+      errorCode: "video_storage_status_unavailable",
+      retryable: true,
+      storageSetupRequired: false,
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 503);
+    expect(mockRenewUploadLease).toHaveBeenCalledOnce();
+    expect(mockRenewUploadLease).toHaveBeenCalledWith(
+      "rec-1",
+      expect.objectContaining({
+        attemptId: null,
+        generationId: null,
+        uploadProgress: undefined,
+      }),
+    );
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+    expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
+    expect(mockTrack).not.toHaveBeenCalledWith(
+      "recording_failed",
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it("returns a stale-attempt conflict when storage status is unavailable", async () => {
+    mockShouldRejectVideoUploadWithoutStorage.mockRejectedValueOnce(
+      new MockVideoStorageStatusUnavailableError(),
+    );
+    mockRenewUploadLease.mockResolvedValueOnce({
+      held: false,
+      staleAttempt: true,
+    });
+    mockSelectRows.rows[0] = {
+      ...mockSelectRows.rows[0],
+      uploadAttemptId: "current-attempt",
+      uploadGenerationId: "generation-1",
+    };
+    setRequest({
+      query: {
+        index: "0",
+        total: "1",
+        mimeType: "video/webm",
+        attemptId: "stale-attempt",
+        uploadGenerationId: "generation-1",
+      },
+      body: new Uint8Array([1]),
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: false,
+      error: "A newer upload retry is already active.",
+      staleAttempt: true,
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
+    expect(mockShouldRejectVideoUploadWithoutStorage).toHaveBeenCalledOnce();
+    expect(mockRenewUploadLease).toHaveBeenCalledOnce();
+    expect(mockRenewUploadLease).toHaveBeenCalledWith(
+      "rec-1",
+      expect.objectContaining({
+        attemptId: "stale-attempt",
+        generationId: "generation-1",
+      }),
+    );
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("keeps an upload parked when storage status is unavailable", async () => {
+    mockShouldRejectVideoUploadWithoutStorage.mockRejectedValueOnce(
+      new MockVideoStorageStatusUnavailableError(),
+    );
+    mockRenewUploadLease.mockResolvedValueOnce({
+      held: false,
+      staleAttempt: false,
+      status: "uploading",
+      failureReason: "Connect storage to finish saving.",
+      videoUrl: null,
+      videoSizeBytes: null,
+      durationMs: null,
+    });
+    setRequest({
+      query: { index: "0", total: "1", mimeType: "video/webm" },
+      body: new Uint8Array([1]),
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: false,
+      errorCode: "video_storage_status_unavailable",
+      retryable: true,
+      storageSetupRequired: false,
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 503);
+    expect(mockRenewUploadLease).toHaveBeenCalledWith(
+      "rec-1",
+      expect.objectContaining({ preserveParked: true }),
+    );
+    expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
     expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 

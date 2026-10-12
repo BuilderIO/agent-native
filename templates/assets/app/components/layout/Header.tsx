@@ -26,8 +26,9 @@ function LibraryTitle({ id }: { id: string }) {
 
 function StaticTitle({ pathname }: { pathname: string }) {
   const t = useT();
-  const title = pageTitleKeys[pathname]
-    ? t(pageTitleKeys[pathname])
+  const titlePath = pathname.startsWith("/chat/") ? "/home" : pathname;
+  const title = pageTitleKeys[titlePath]
+    ? t(pageTitleKeys[titlePath])
     : t("navigation.brand");
   return (
     <h1 className="text-lg font-semibold tracking-tight truncate">{title}</h1>
@@ -49,7 +50,8 @@ export function Header() {
   const location = useLocation();
   const title = useHeaderTitle();
   const actions = useHeaderActions();
-  const showAgentToggle = location.pathname !== "/home";
+  const showAgentToggle =
+    location.pathname !== "/home" && !location.pathname.startsWith("/chat/");
 
   return (
     <header className="hidden h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4 md:flex lg:px-6">

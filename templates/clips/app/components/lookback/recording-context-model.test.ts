@@ -26,6 +26,7 @@ function item(
     width: 1280,
     height: 720,
     error: null,
+    capturedDeviceId: null,
     createdAt: "2026-10-09T10:05:01.000Z",
     updatedAt: "2026-10-09T10:05:30.000Z",
     ...overrides,
@@ -61,6 +62,34 @@ describe("recording context model", () => {
       hasUnfinishedContextItems([
         item({ status: "ready" }),
         item({ status: "processing" }),
+      ]),
+    ).toBe(true);
+  });
+
+  it("does not poll for a pending item held by another device", () => {
+    const heldElsewhere = item({
+      status: "pending",
+      mediaRecordingId: null,
+      capturedDeviceId: "device-desktop-1",
+    });
+    expect(hasUnfinishedContextItems([heldElsewhere])).toBe(false);
+    expect(
+      hasUnfinishedContextItems([heldElsewhere, item({ status: "ready" })]),
+    ).toBe(false);
+    expect(
+      hasUnfinishedContextItems([
+        heldElsewhere,
+        item({ status: "pending", mediaRecordingId: null }),
+      ]),
+    ).toBe(true);
+    expect(
+      hasUnfinishedContextItems([
+        heldElsewhere,
+        item({
+          status: "processing",
+          mediaRecordingId: null,
+          capturedDeviceId: "device-desktop-1",
+        }),
       ]),
     ).toBe(true);
   });

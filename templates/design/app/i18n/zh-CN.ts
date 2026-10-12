@@ -214,7 +214,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "设计",
+    home: "首页",
     templates: "模板",
     designSystems: "设计系统",
     setupDesignSystem: "设置设计系统",
@@ -235,6 +235,8 @@ export default {
       "试用 Builder，根据你的设计构建可运行的应用。",
     labDesignReviewTools: "设计审查工具",
     labDesignReviewToolsDescription: "检查设计中的无障碍问题并比较视觉变化。",
+    labMotion: "动效",
+    labMotionDescription: "创建和编辑设计元素的关键帧动画。",
     mcpAbout:
       "将 Design 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 Design 中工作：创建和编辑设计。它只能看到你有权看到的内容。",
   },
@@ -752,7 +754,7 @@ export default {
       needsConnectedApp: "源代码跳转需要连接应用",
     },
     leftRail: {
-      file: "文件",
+      layers: "图层",
       agent: "代理",
       assets: "资源",
       import: "导入",
@@ -797,6 +799,7 @@ export default {
       exit: "退出响应式预览",
     },
     motion: {
+      openDock: "动效",
       dockLabel: "运动面板",
       collapseDock: "收起运动面板",
       play: "播放",
@@ -1041,7 +1044,7 @@ export default {
     templateSaveFailed: "无法保存此模板",
     fileMenu: {
       pendingEditsBlocked: "复制前，请先应用或放弃待处理的可视化编辑。",
-      designs: "设计",
+      allDesigns: "所有设计",
       rename: "重命名",
       duplicate: "复制",
       versionHistory: "版本历史",
@@ -1640,9 +1643,11 @@ export default {
     assetsNoImageUrl: "Assets 未返回图片 URL。",
     failedToUploadFile: "上传文件失败",
     imageAttachmentUnavailable:
-      "无法将此图片准备为视觉输入。请附加较小的 PNG、JPG、GIF 或 WebP 文件。",
+      "无法准备此图片以供上传。请尝试使用 JPG、PNG、GIF 或 WebP 图片。",
+    imageAttachmentTooLarge:
+      "每张图片最大 {{perFile}} MB，所有图片合计最大 {{total}} MB。",
     attachmentsTooLarge:
-      "这些附件太大。上传总大小上限为 {{max}} MB — 请减少文件数量或使用更小的文件。",
+      "图片会自动优化。优化后的图片和其他文件总大小不得超过 {{max}} MB。",
     failedToSubmitPrompt: "无法提交提示",
     skipPrompt: "跳过提示",
     startBlankCanvas: "从空白画布开始",
@@ -1798,7 +1803,7 @@ export default {
     browseAllTemplates: "浏览全部",
     connectBuilderIo: "使用 Builder.io",
     connectingBuilder: "正在设置 Builder.io…",
-    pageTitle: "Design",
+    pageTitle: "首页",
     searchPlaceholder: "搜索设计...",
     newDesign: "新Design",
     newDesignLower: "新设计",

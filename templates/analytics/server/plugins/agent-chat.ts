@@ -1,3 +1,4 @@
+import "../register-secrets.js";
 import { getOrgContext } from "@agent-native/core/org";
 import {
   createAgentChatPlugin,

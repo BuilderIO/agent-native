@@ -928,6 +928,7 @@ async function handleSend(
         sourceContext: sourceContext ?? null,
       },
     };
+    event?.context?.__a2aBeforeTaskPersistence?.();
     const { task, reused } = await createOrReuseTask(
       message,
       contextId,

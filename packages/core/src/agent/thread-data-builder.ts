@@ -30,7 +30,11 @@ import {
   INTERRUPTED_TOOL_RESULT_MARKER as INTERRUPTED_TOOL_RESULT,
   stringifyToolUseInputForGateway,
 } from "./engine/translate-anthropic.js";
-import type { EngineContentPart, EngineMessage } from "./engine/types.js";
+import type {
+  EngineContentPart,
+  EngineMessage,
+  EngineToolResultPart,
+} from "./engine/types.js";
 import { parseFollowUpSuggestions } from "./follow-up-suggestions.js";
 import type { ActiveRun } from "./run-manager.js";
 import { isContinuationTerminalReason } from "./types.js";
@@ -42,7 +46,7 @@ interface ContentPart {
   toolCallId?: string;
   toolName?: string;
   argsText?: string;
-  args?: Record<string, string>;
+  args?: Record<string, unknown>;
   result?: string;
   isError?: boolean;
   outcome?: "unknown";
@@ -62,6 +66,7 @@ interface ContentPart {
 
 interface BuildAssistantMessageOptions {
   suppressInternalContinuation?: boolean;
+  preserveUnknownToolOutcomes?: boolean;
   turnId?: string;
   runDurationMs?: number;
   scope?: { type: string; id: string } | null;
@@ -274,6 +279,7 @@ export function buildAssistantMessage(
   metadata: Record<string, unknown>;
 } | null {
   const content: ContentPart[] = [];
+  const explicitUnknownOutcomes = new Set<ContentPart>();
   let toolCallCounter = 0;
   let runError: {
     message: string;
@@ -342,7 +348,7 @@ export function buildAssistantMessage(
       const toolCallId =
         explicitToolCallId ||
         (runId ? `${runId}:tc_${toolCallCounter}` : `tc_${toolCallCounter}`);
-      const args = (event.input ?? {}) as Record<string, string>;
+      const args = replayedToolInput(event.input);
       content.push({
         type: "tool-call",
         toolCallId,
@@ -409,6 +415,10 @@ export function buildAssistantMessage(
       if (part?.type === "tool-call") {
         part.result = event.result ?? "";
         if (event.isError !== undefined) part.isError = event.isError;
+        if (event.outcomeUnknown === true) {
+          part.outcome = "unknown";
+          explicitUnknownOutcomes.add(part);
+        }
         if (event.completedSideEffect !== undefined) {
           part.completedSideEffect = event.completedSideEffect;
         }
@@ -482,7 +492,10 @@ export function buildAssistantMessage(
 
   const continued = endedAtInternalContinuationBoundary;
   if (userStoppedRun || !continued) {
-    settleInterruptedToolCalls(content, userStoppedRun);
+    settleInterruptedToolCalls(
+      content.filter((part) => !explicitUnknownOutcomes.has(part)),
+      userStoppedRun && !options.preserveUnknownToolOutcomes,
+    );
   }
 
   const custom: Record<string, unknown> = {};
@@ -1064,13 +1077,34 @@ function replayableToolCalls(message: any): any[] {
   );
 }
 
+function replayedToolInput(input: unknown): Record<string, unknown> {
+  return input && typeof input === "object" && !Array.isArray(input)
+    ? (input as Record<string, unknown>)
+    : { rawInput: input };
+}
+
+function replayedToolResult(part: {
+  result?: unknown;
+  outcome?: unknown;
+}): Pick<EngineToolResultPart, "content" | "outcome"> {
+  const unknown = part.outcome === "unknown" || part.result === undefined;
+  const result =
+    part.result === undefined ? INTERRUPTED_TOOL_RESULT : part.result;
+  return {
+    content: replayedToolResultContent(
+      unknown ? { outcome: "unknown", result } : result,
+    ),
+    ...(unknown ? { outcome: "unknown" as const } : {}),
+  };
+}
+
 function replayedToolPayloadCost(message: any): number {
   let cost = 0;
   for (const part of replayableToolCalls(message)) {
-    cost += stringifyToolUseInputForGateway(part.args ?? {}).length;
-    if (part.result !== undefined) {
-      cost += replayedToolResultContent(part.result).length;
-    }
+    cost += stringifyToolUseInputForGateway(
+      replayedToolInput(part.args),
+    ).length;
+    cost += replayedToolResult(part).content.length;
   }
   return cost;
 }
@@ -1089,20 +1123,18 @@ function assistantReplayContent(
       typeof part.toolCallId === "string" ? part.toolCallId.trim() : "";
     const name = typeof part.toolName === "string" ? part.toolName.trim() : "";
     if (!id || !name) continue;
-    const input =
-      part.args && typeof part.args === "object" && !Array.isArray(part.args)
-        ? (part.args as Record<string, unknown>)
-        : {};
+    const input = replayedToolInput(part.args);
     assistant.push({ type: "tool-call", id, name, input });
-    const result =
-      part.result === undefined ? INTERRUPTED_TOOL_RESULT : part.result;
+    const result = replayedToolResult(part);
     results.push({
       type: "tool-result",
       toolCallId: id,
       toolName: name,
       toolInput: stringifyToolUseInputForGateway(input),
-      content: replayedToolResultContent(result),
-      ...(part.isError === true ? { isError: true } : {}),
+      ...result,
+      ...(part.isError === true || result.outcome === "unknown"
+        ? { isError: true }
+        : {}),
     });
   }
   return { assistant, results };
@@ -1575,6 +1607,7 @@ export interface MergeThreadDataOptions {
   preserveExistingQueuedMessages?: boolean;
   preserveExistingTopLevelKeys?: boolean;
   onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void;
+  trustedRunSequenceResetIds?: ReadonlySet<string>;
 }
 
 export interface ThreadAnnotationSnapshotConflict {
@@ -2076,16 +2109,21 @@ export function foldThreadRunSuggestions(
     ? previous.runs
     : [];
   const oldRun = runs.find((entry) => entry.id === run.runId);
-  const previousSequence =
-    oldRun &&
-    Number.isSafeInteger(oldRun.lastSequence) &&
-    oldRun.lastSequence >= 0
-      ? oldRun.lastSequence
-      : 0;
-  const lastSequence = run.events.reduce(
-    (maximum, { seq }) =>
-      Number.isSafeInteger(seq) && seq >= 0 ? Math.max(maximum, seq) : maximum,
-    previousSequence,
+  const committedSnapshots = previous._eventRunSnapshotCommits?.[run.runId];
+  const protocolSequences = [
+    previous._eventRunWatermarks?.[run.runId],
+    ...(Array.isArray(committedSnapshots)
+      ? committedSnapshots.map((snapshot: any) => snapshot?.lastSequence)
+      : []),
+  ];
+  const lastSequence = protocolSequences.reduce(
+    (maximum, sequence) =>
+      typeof sequence === "number" &&
+      Number.isSafeInteger(sequence) &&
+      sequence >= 0
+        ? Math.max(maximum, sequence)
+        : maximum,
+    0,
   );
   const snapshot: AgentRunSnapshot = {
     ...oldRun,
@@ -2164,6 +2202,7 @@ function mergeAgentKitEvents(
         Number.isFinite(merged[index].sequence)
           ? merged[index].sequence
           : Number.NaN,
+      sequenceEnd: getAgentKitEventSequenceEnd(merged[index]),
     }));
     runEvents.sort((left, right) => {
       if (
@@ -2175,11 +2214,167 @@ function mergeAgentKitEvents(
       }
       return left.order - right.order;
     });
-    runPositions.forEach((index, order) => {
-      merged[index] = { ...runEvents[order].event, sequence: order + 1 };
-    });
+    let nextSequence = 1;
+    for (const [
+      order,
+      { event, sequenceEnd, sequence },
+    ] of runEvents.entries()) {
+      const index = runPositions[order];
+      if (index === undefined) continue;
+      const span =
+        Number.isSafeInteger(sequenceEnd) &&
+        Number.isSafeInteger(sequence) &&
+        (sequenceEnd as number) >= sequence
+          ? (sequenceEnd as number) - sequence + 1
+          : 1;
+      if (event?.type === "x-agent-native.persisted-event-omission-range") {
+        const payload =
+          event.payload &&
+          typeof event.payload === "object" &&
+          !Array.isArray(event.payload)
+            ? event.payload
+            : {};
+        merged[index] = {
+          ...event,
+          sequence: nextSequence,
+          payload: {
+            ...payload,
+            lastSequence: nextSequence + span - 1,
+          },
+        };
+      } else {
+        merged[index] = { ...event, sequence: nextSequence };
+      }
+      nextSequence += span;
+    }
   }
   return merged;
+}
+
+function mergeAgentKitEventSnapshotBatch(
+  existing: unknown,
+  incoming: unknown,
+): unknown[] {
+  const merged = Array.isArray(existing) ? [...existing] : [];
+  const positions = new Map<string, number>();
+  merged.forEach((event, index) => {
+    if (typeof event?.id === "string" && !positions.has(event.id)) {
+      positions.set(event.id, index);
+    }
+  });
+  for (const event of Array.isArray(incoming) ? incoming : []) {
+    if (typeof event?.id !== "string") {
+      merged.push(event);
+      continue;
+    }
+    const index = positions.get(event.id);
+    if (index === undefined) {
+      positions.set(event.id, merged.length);
+      merged.push(event);
+    } else {
+      merged[index] = event;
+    }
+  }
+  return merged
+    .map((event, order) => ({
+      event,
+      order,
+      sequence:
+        typeof event?.sequence === "number" && Number.isFinite(event.sequence)
+          ? event.sequence
+          : Number.NaN,
+    }))
+    .sort((left, right) => {
+      if (
+        Number.isFinite(left.sequence) &&
+        Number.isFinite(right.sequence) &&
+        left.sequence !== right.sequence
+      ) {
+        return left.sequence - right.sequence;
+      }
+      return left.order - right.order;
+    })
+    .map(({ event }) => event);
+}
+
+const MAX_AGENT_NATIVE_PERSISTED_EVENT_OMISSION_RANGE = 256;
+
+function getAgentKitEventSequence(event: unknown): number | undefined {
+  if (!event || typeof event !== "object" || Array.isArray(event)) {
+    return undefined;
+  }
+  const sequence = (event as Record<string, unknown>).sequence;
+  return typeof sequence === "number" && Number.isSafeInteger(sequence)
+    ? sequence
+    : undefined;
+}
+
+function getAgentKitEventSequenceEnd(event: unknown): number | undefined {
+  const sequence = getAgentKitEventSequence(event);
+  if (sequence === undefined) return undefined;
+  if (
+    !event ||
+    typeof event !== "object" ||
+    (event as Record<string, unknown>).type !==
+      "x-agent-native.persisted-event-omission-range"
+  ) {
+    return sequence;
+  }
+  const payload = (event as Record<string, unknown>).payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return undefined;
+  }
+  const lastSequence = (payload as Record<string, unknown>).lastSequence;
+  return typeof lastSequence === "number" &&
+    Number.isSafeInteger(lastSequence) &&
+    lastSequence >= sequence &&
+    lastSequence - sequence < MAX_AGENT_NATIVE_PERSISTED_EVENT_OMISSION_RANGE
+    ? lastSequence
+    : undefined;
+}
+
+function hasContiguousAgentKitEventCoverage(
+  events: unknown[],
+  runId: string,
+  lastSequence: number,
+  firstSequence = 1,
+): boolean {
+  const runEvents = events
+    .filter(
+      (event) =>
+        event !== null &&
+        typeof event === "object" &&
+        !Array.isArray(event) &&
+        (event as Record<string, unknown>).runId === runId,
+    )
+    .map((event, order) => ({
+      event,
+      order,
+      sequence: getAgentKitEventSequence(event),
+      sequenceEnd: getAgentKitEventSequenceEnd(event),
+    }))
+    .sort((left, right) => {
+      if (
+        left.sequence !== undefined &&
+        right.sequence !== undefined &&
+        left.sequence !== right.sequence
+      ) {
+        return left.sequence - right.sequence;
+      }
+      return left.order - right.order;
+    });
+  let nextSequence = firstSequence;
+  for (const event of runEvents) {
+    if (
+      event.sequence !== nextSequence ||
+      event.sequenceEnd === undefined ||
+      event.sequenceEnd < event.sequence
+    ) {
+      return false;
+    }
+    nextSequence = event.sequenceEnd + 1;
+  }
+  return nextSequence === lastSequence + 1;
 }
 
 function mergeAgentKitFullEventSnapshot(
@@ -2236,17 +2431,7 @@ function mergeAgentKitFullEventSnapshot(
       const runEvents = incomingEventsByRun.get(runId) ?? [];
       const incomingSequence = Math.max(
         incomingRunSequences.get(runId) ?? 0,
-        ...runEvents.map((event) => {
-          const sequence =
-            event && typeof event === "object"
-              ? (event as Record<string, unknown>).sequence
-              : undefined;
-          return typeof sequence === "number" &&
-            Number.isSafeInteger(sequence) &&
-            sequence >= 0
-            ? sequence
-            : 0;
-        }),
+        ...runEvents.map((event) => getAgentKitEventSequenceEnd(event) ?? 0),
       );
       if (runEvents.length === 0 || incomingSequence <= committedSequence) {
         protectedRunIds.add(runId);
@@ -2376,6 +2561,27 @@ function mergeAgentKitEventRunSnapshots(input: {
       storedRunSequence ?? 0,
       committedSequence,
     );
+    if (!input.batches.has(runId) && lastSequence > knownSequence) {
+      const incomingEvents = Array.isArray(input.incomingEvents)
+        ? input.incomingEvents
+        : [];
+      const completeFromStart = hasContiguousAgentKitEventCoverage(
+        incomingEvents,
+        runId,
+        lastSequence,
+      );
+      const nextChunk = hasContiguousAgentKitEventCoverage(
+        incomingEvents,
+        runId,
+        lastSequence,
+        knownSequence + 1,
+      );
+      if (!completeFromStart && !nextChunk) {
+        throw new TypeError(
+          "Agent chat event snapshot did not contain a contiguous sequence range.",
+        );
+      }
+    }
     const hasKnownSequence =
       storedWatermark !== undefined ||
       storedRunSequence !== undefined ||
@@ -2385,6 +2591,9 @@ function mergeAgentKitEventRunSnapshots(input: {
     );
     if (
       (hasKnownSequence && lastSequence < knownSequence) ||
+      (hasKnownSequence &&
+        lastSequence === knownSequence &&
+        !input.incomingReplacements.has(runId)) ||
       (hasCommittedSnapshot && lastSequence <= committedSequence)
     ) {
       staleRunIds.add(runId);
@@ -2507,9 +2716,10 @@ function mergeAgentKitEventRunSnapshots(input: {
     const batchEvents = incomingEvents.filter(
       (event) => event?.runId === runId,
     );
-    const stagedEvents =
-      mergeAgentKitEvents(matchingCurrent ? current.events : [], batchEvents) ??
-      [];
+    const stagedEvents = mergeAgentKitEventSnapshotBatch(
+      matchingCurrent ? current.events : [],
+      batchEvents,
+    );
 
     if (stagedEvents.length > batch.expectedEventCount) {
       throw new TypeError(
@@ -2523,6 +2733,31 @@ function mergeAgentKitEventRunSnapshots(input: {
     }
 
     if (stagedEvents.length === batch.expectedEventCount) {
+      const lastEventSequence = stagedEvents.reduce<number>(
+        (maximum, event) => {
+          const sequence = getAgentKitEventSequenceEnd(event);
+          return sequence !== undefined && sequence >= 0
+            ? Math.max(maximum, sequence)
+            : maximum;
+        },
+        0,
+      );
+      if (batch.lastSequence !== lastEventSequence) {
+        throw new TypeError(
+          `Agent chat event snapshot cursor ${batch.lastSequence} did not match its last event sequence ${lastEventSequence}.`,
+        );
+      }
+      if (
+        !hasContiguousAgentKitEventCoverage(
+          stagedEvents,
+          runId,
+          batch.lastSequence,
+        )
+      ) {
+        throw new TypeError(
+          "Agent chat event snapshot did not include every sequence through its cursor.",
+        );
+      }
       events = mergeAgentKitEvents(events, stagedEvents, new Set([runId]));
       watermarks.set(runId, Math.max(knownSequence, batch.lastSequence));
       commits[runId] = [
@@ -2682,6 +2917,7 @@ function mergeAgentKitHistory(
   incoming: unknown,
   promptRunIds: Map<string, string>,
   onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void,
+  trustedRunSequenceResetIds: ReadonlySet<string> = new Set(),
 ): unknown {
   const incomingIsRecord =
     incoming !== null &&
@@ -2694,18 +2930,41 @@ function mergeAgentKitHistory(
     typeof existing === "object" &&
     !Array.isArray(existing);
   const snapshotDelta = next._snapshotDelta === true;
+  const incomingEvents = Array.isArray(next.events) ? next.events : [];
+  for (const event of incomingEvents) {
+    if (
+      event?.type === "x-agent-native.persisted-event-omission-range" &&
+      getAgentKitEventSequenceEnd(event) === undefined
+    ) {
+      throw new TypeError(
+        `Agent chat persisted omission ranges must cover at most ${MAX_AGENT_NATIVE_PERSISTED_EVENT_OMISSION_RANGE} event sequences.`,
+      );
+    }
+  }
   const incomingEventRunIds = new Set(
-    (Array.isArray(next.events) ? next.events : []).flatMap((event) =>
+    incomingEvents.flatMap((event) =>
       typeof event?.runId === "string" ? [event.runId] : [],
     ),
   );
   const incomingRunStarts = new Set(
-    (Array.isArray(next.events) ? next.events : []).flatMap((event) =>
+    incomingEvents.flatMap((event) =>
       typeof event?.runId === "string" && event.sequence === 1
         ? [event.runId]
         : [],
     ),
   );
+  const incomingEventSequences = new Map<string, number>();
+  for (const event of incomingEvents) {
+    if (typeof event?.runId !== "string") {
+      continue;
+    }
+    const sequenceEnd = getAgentKitEventSequenceEnd(event);
+    if (sequenceEnd === undefined || sequenceEnd < 0) continue;
+    incomingEventSequences.set(
+      event.runId,
+      Math.max(incomingEventSequences.get(event.runId) ?? 0, sequenceEnd),
+    );
+  }
   const eventRunSnapshotBatches = new Map<
     string,
     AgentKitEventRunSnapshotBatch
@@ -2736,36 +2995,31 @@ function mergeAgentKitHistory(
     }
   }
   const eventRunSnapshotWatermarks = new Map<string, number>();
-  for (const watermark of Array.isArray(next.eventRunSnapshotWatermarks)
-    ? next.eventRunSnapshotWatermarks
-    : []) {
-    if (
-      typeof watermark?.runId === "string" &&
-      typeof watermark.lastSequence === "number" &&
-      Number.isSafeInteger(watermark.lastSequence) &&
-      watermark.lastSequence >= 0 &&
-      incomingEventRunIds.has(watermark.runId) &&
-      !eventRunSnapshotBatches.has(watermark.runId)
-    ) {
-      eventRunSnapshotWatermarks.set(
-        watermark.runId,
-        Math.max(
-          eventRunSnapshotWatermarks.get(watermark.runId) ?? 0,
-          watermark.lastSequence,
-        ),
-      );
+  for (const [runId, lastSequence] of incomingEventSequences) {
+    if (incomingEventRunIds.has(runId) && !eventRunSnapshotBatches.has(runId)) {
+      eventRunSnapshotWatermarks.set(runId, lastSequence);
     }
   }
   const eventRunReplacements = new Map<string, number>();
   for (const replacement of Array.isArray(next.eventRunReplacements)
     ? next.eventRunReplacements
     : []) {
+    const eventSequence =
+      typeof replacement?.runId === "string"
+        ? incomingEventSequences.get(replacement.runId)
+        : undefined;
     if (
       typeof replacement?.runId === "string" &&
+      incomingRunStarts.has(replacement.runId) &&
       typeof replacement.lastSequence === "number" &&
       Number.isSafeInteger(replacement.lastSequence) &&
       replacement.lastSequence >= 1 &&
-      incomingRunStarts.has(replacement.runId) &&
+      eventSequence === replacement.lastSequence &&
+      hasContiguousAgentKitEventCoverage(
+        incomingEvents,
+        replacement.runId,
+        replacement.lastSequence,
+      ) &&
       !eventRunSnapshotBatches.has(replacement.runId)
     ) {
       eventRunReplacements.set(
@@ -2892,9 +3146,16 @@ function mergeAgentKitHistory(
       runs.set(run.id, run);
       continue;
     }
-    const richer = newer.lastSequence >= run.lastSequence ? newer : run;
-    const statusRun =
-      run.lastSequence > newer.lastSequence
+    const trustedReset =
+      trustedRunSequenceResetIds.has(run.id) && newer.lastSequence === 0;
+    const richer = trustedReset
+      ? newer
+      : newer.lastSequence >= run.lastSequence
+        ? newer
+        : run;
+    const statusRun = trustedReset
+      ? newer
+      : run.lastSequence > newer.lastSequence
         ? run
         : newer.lastSequence > run.lastSequence
           ? newer
@@ -2906,7 +3167,9 @@ function mergeAgentKitHistory(
       ...newer,
       ...richer,
       metadata: { ...run.metadata, ...newer.metadata, ...richer.metadata },
-      lastSequence: Math.max(newer.lastSequence, run.lastSequence),
+      lastSequence: trustedReset
+        ? newer.lastSequence
+        : Math.max(newer.lastSequence, run.lastSequence),
       status: statusRun.status,
     });
   }
@@ -2972,14 +3235,16 @@ function mergeAgentKitHistory(
         (suggestion: any) => suggestion?.runId === latest?.id,
       );
     }
-    if (Array.isArray(merged.activeRunIds)) {
-      merged.activeRunIds = merged.activeRunIds.filter(
-        (id: string) =>
-          !["completed", "failed", "cancelled"].includes(
-            runs.get(id)?.status ?? "",
-          ),
-      );
-    }
+    const activeRunIds = new Set([
+      ...(Array.isArray(previous.activeRunIds) ? previous.activeRunIds : []),
+      ...(Array.isArray(next.activeRunIds) ? next.activeRunIds : []),
+    ]);
+    merged.activeRunIds = [...activeRunIds].filter(
+      (id) =>
+        !["completed", "failed", "cancelled"].includes(
+          runs.get(id)?.status ?? "",
+        ),
+    );
   }
   const existingMessageRunIds = snapshotMessageRunIds(previous);
   const incomingMessageRunIds = snapshotMessageRunIds(next);
@@ -3164,6 +3429,7 @@ export function mergeThreadDataForClientSave(
       merged.agentKit,
       promptRunIds,
       options.onAnnotationConflict,
+      options.trustedRunSequenceResetIds,
     );
   }
 

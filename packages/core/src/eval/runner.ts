@@ -1,4 +1,5 @@
 import { access } from "node:fs/promises";
+import { createRequire } from "node:module";
 import nodePath from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -74,13 +75,20 @@ export async function scoreEval(
   }
 
   let run: AgentRunOutput;
+  const runAgent = (input: Eval["input"]) =>
+    runner.runAgent(
+      input,
+      evalCase.actionAllowlist
+        ? { actionAllowlist: evalCase.actionAllowlist }
+        : undefined,
+    );
   if (evalCase.run) {
     run = await evalCase.run({
       input: evalCase.input,
-      runAgent: (input) => runner.runAgent(input),
+      runAgent,
     });
   } else {
-    run = await runner.runAgent(evalCase.input);
+    run = await runAgent(evalCase.input);
   }
 
   const scores: ScorerResult[] = [];
@@ -257,6 +265,14 @@ export async function runEvalSuite(
   opts: RunEvalSuiteOptions = {},
 ): Promise<{ report: EvalRunReport; files: string[] }> {
   const cwd = opts.cwd ?? process.cwd();
+  let productionContext = opts.productionContext;
+  if (opts.requireProductionChatPath) {
+    if (!productionContext) {
+      productionContext = await loadProductionEvalContext(cwd, opts.identity);
+    } else if (!opts.evals) {
+      await ensureProductionEvalTypeScriptLoader(cwd);
+    }
+  }
 
   let files: string[] = [];
   let evals = opts.evals;
@@ -277,9 +293,9 @@ export async function runEvalSuite(
 
   let runner = opts.runner;
   if (opts.requireProductionChatPath) {
-    const productionContext =
-      opts.productionContext ??
-      (await loadProductionEvalContext(cwd, opts.identity));
+    if (!productionContext) {
+      throw new Error("Production-path evals require a production context.");
+    }
     requireProductionChatPath(productionContext);
     if (runner) {
       throw new Error(
@@ -342,6 +358,41 @@ function guardProductionEvalOutput(
   };
 }
 
+const productionEvalTypeScriptLoaders = new Map<string, Promise<void>>();
+
+async function ensureProductionEvalTypeScriptLoader(
+  cwd: string,
+): Promise<void> {
+  let loaderPath: string;
+  try {
+    loaderPath = createRequire(nodePath.join(cwd, "package.json")).resolve(
+      "tsx/esm/api",
+    );
+  } catch (cause) {
+    throw new Error(
+      "Production eval adapters require the app's TypeScript loader `tsx`.",
+      { cause },
+    );
+  }
+
+  let loader = productionEvalTypeScriptLoaders.get(loaderPath);
+  if (!loader) {
+    loader = import(pathToFileURL(loaderPath).href)
+      .then(({ register }) => {
+        register();
+      })
+      .catch((cause) => {
+        productionEvalTypeScriptLoaders.delete(loaderPath);
+        throw new Error(
+          "Production eval adapters require the app's TypeScript loader `tsx`.",
+          { cause },
+        );
+      });
+    productionEvalTypeScriptLoaders.set(loaderPath, loader);
+  }
+  await loader;
+}
+
 export async function loadProductionEvalContext(
   cwd: string,
   identity?: EvalProductionIdentity,
@@ -362,6 +413,8 @@ export async function loadProductionEvalContext(
       `Production eval adapter is missing at ${adapterPath}. Add evals/production-context.ts exporting resolveProductionEvalContext(identity).`,
     );
   }
+
+  await ensureProductionEvalTypeScriptLoader(cwd);
 
   const module = (await import(pathToFileURL(adapterPath).href)) as Record<
     string,

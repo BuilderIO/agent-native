@@ -14,6 +14,7 @@ import {
   type Browser,
   type Locator,
   type Page,
+  type Request,
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
@@ -58,6 +59,352 @@ type SignedOutPage = PageRuntimeErrors & {
   close: () => Promise<void>;
   mutationRequests: string[];
 };
+
+const ACTION_BATCH_PATH_SUFFIX = "/_agent-native/actions/get-actions-batch";
+const ACTION_ROUTE_PATH_PATTERN = /\/_agent-native\/actions\//;
+
+type ActionBatchRequestEntry = {
+  action: string;
+  query: string;
+};
+
+type ActionRequest = Pick<Request, "url" | "method" | "postDataJSON">;
+type VisualEditSnapshotRequestEntry = {
+  fileId: string;
+  batchIndex: number | null;
+};
+type VisualEditSnapshotResponseEntry = {
+  fileId: string;
+  status: number;
+  body: unknown;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+): boolean {
+  const actualKeys = Object.keys(value).sort();
+  const expectedKeys = [...expected].sort();
+  return (
+    actualKeys.length === expectedKeys.length &&
+    actualKeys.every((key, index) => key === expectedKeys[index])
+  );
+}
+
+function actionBatchRequests(
+  request: ActionRequest,
+): ActionBatchRequestEntry[] | null {
+  const pathname = new URL(request.url()).pathname;
+  if (
+    request.method() !== "POST" ||
+    !pathname.endsWith(ACTION_BATCH_PATH_SUFFIX)
+  ) {
+    return null;
+  }
+
+  let payload: unknown;
+  try {
+    payload = request.postDataJSON();
+  } catch {
+    return null;
+  }
+  if (!isRecord(payload) || !hasExactKeys(payload, ["requests"])) return null;
+  if (!Array.isArray(payload.requests) || payload.requests.length === 0) {
+    return null;
+  }
+
+  const entries: ActionBatchRequestEntry[] = [];
+  for (const entry of payload.requests) {
+    if (
+      !isRecord(entry) ||
+      !hasExactKeys(entry, ["action", "query"]) ||
+      typeof entry.action !== "string" ||
+      entry.action.trim().length === 0 ||
+      typeof entry.query !== "string"
+    ) {
+      return null;
+    }
+    entries.push({ action: entry.action, query: entry.query });
+  }
+  return entries;
+}
+
+function visualEditSnapshotRequestEntries(
+  request: ActionRequest,
+): VisualEditSnapshotRequestEntry[] {
+  const url = new URL(request.url());
+  if (
+    request.method() === "GET" &&
+    url.pathname.endsWith("/get-visual-edit-snapshot")
+  ) {
+    const fileId = url.searchParams.get("fileId");
+    return fileId ? [{ fileId, batchIndex: null }] : [];
+  }
+
+  const batchRequests = actionBatchRequests(request);
+  if (!batchRequests) return [];
+  return batchRequests.flatMap((entry, batchIndex) => {
+    if (entry.action !== "get-visual-edit-snapshot") return [];
+    const fileId = new URLSearchParams(entry.query).get("fileId");
+    return fileId ? [{ fileId, batchIndex }] : [];
+  });
+}
+
+function visualEditSnapshotResponseEntries(
+  request: ActionRequest,
+  status: number,
+  payload: unknown,
+): VisualEditSnapshotResponseEntry[] {
+  const requests = visualEditSnapshotRequestEntries(request);
+  if (requests.length === 0) return [];
+  if (requests[0]?.batchIndex === null) {
+    const directRequest = requests[0];
+    return directRequest
+      ? [{ fileId: directRequest.fileId, status, body: payload }]
+      : [];
+  }
+  if (status < 200 || status >= 300 || !isRecord(payload)) return [];
+  const results = payload.results;
+  if (!Array.isArray(results)) return [];
+
+  return requests.flatMap((requestEntry) => {
+    if (requestEntry.batchIndex === null) return [];
+    const result: unknown = results[requestEntry.batchIndex];
+    if (!isRecord(result) || typeof result.status !== "number") return [];
+    return [
+      {
+        fileId: requestEntry.fileId,
+        status: result.status,
+        body: result.body,
+      },
+    ];
+  });
+}
+
+function fullVisualEditSnapshotHtml(
+  response: VisualEditSnapshotResponseEntry,
+): string | null {
+  if (
+    response.status < 200 ||
+    response.status >= 300 ||
+    !isRecord(response.body) ||
+    response.body.fileId !== response.fileId ||
+    typeof response.body.html !== "string"
+  ) {
+    return null;
+  }
+  return response.body.html;
+}
+
+function rememberFullVisualEditSnapshotHtml(
+  snapshots: Map<string, string>,
+  response: VisualEditSnapshotResponseEntry,
+): void {
+  const html = fullVisualEditSnapshotHtml(response);
+  if (html !== null) snapshots.set(response.fileId, html);
+}
+
+function actionBatchIncludesAction(
+  request: ActionRequest,
+  actionName: string,
+): boolean {
+  const pathname = new URL(request.url()).pathname;
+  if (
+    request.method() !== "POST" ||
+    !pathname.endsWith(ACTION_BATCH_PATH_SUFFIX)
+  ) {
+    return false;
+  }
+
+  let payload: unknown;
+  try {
+    payload = request.postDataJSON();
+  } catch {
+    return false;
+  }
+  if (!isRecord(payload) || !Array.isArray(payload.requests)) return false;
+  return payload.requests.some(
+    (entry) => isRecord(entry) && entry.action === actionName,
+  );
+}
+
+function isActionMutationRequest(request: ActionRequest): boolean {
+  const pathname = new URL(request.url()).pathname;
+  return (
+    request.method() === "POST" &&
+    ACTION_ROUTE_PATH_PATTERN.test(pathname) &&
+    actionBatchRequests(request) === null
+  );
+}
+
+function fakeActionRequest({
+  path,
+  method,
+  payload,
+  parseError = false,
+}: {
+  path: string;
+  method: string;
+  payload?: unknown;
+  parseError?: boolean;
+}): ActionRequest {
+  return {
+    url: () => `http://localhost${path}`,
+    method: () => method,
+    postDataJSON: () => {
+      if (parseError) throw new Error("invalid JSON");
+      return payload;
+    },
+  };
+}
+
+test("public action request observer distinguishes read-only batches", () => {
+  const batchPath = ACTION_BATCH_PATH_SUFFIX;
+
+  expect(
+    isActionMutationRequest(
+      fakeActionRequest({
+        path: batchPath,
+        method: "POST",
+        payload: {
+          requests: [
+            { action: "get-design", query: "id=design-1" },
+            { action: "list-review-comments", query: "resourceId=design-1" },
+          ],
+        },
+      }),
+    ),
+  ).toBe(false);
+
+  for (const malformedBatch of [
+    fakeActionRequest({ path: batchPath, method: "POST", parseError: true }),
+    fakeActionRequest({
+      path: batchPath,
+      method: "POST",
+      payload: { requests: [] },
+    }),
+    fakeActionRequest({
+      path: batchPath,
+      method: "POST",
+      payload: { requests: [{ action: "get-design", query: "" }], extra: true },
+    }),
+    fakeActionRequest({
+      path: batchPath,
+      method: "POST",
+      payload: {
+        requests: [{ action: "get-design", query: "", extra: true }],
+      },
+    }),
+  ]) {
+    expect(isActionMutationRequest(malformedBatch)).toBe(true);
+  }
+
+  expect(
+    isActionMutationRequest(
+      fakeActionRequest({
+        path: "/_agent-native/actions/update-file",
+        method: "POST",
+        payload: { id: "file-1" },
+      }),
+    ),
+  ).toBe(true);
+  expect(
+    isActionMutationRequest(
+      fakeActionRequest({
+        path: "/_agent-native/actions/get-design",
+        method: "GET",
+      }),
+    ),
+  ).toBe(false);
+  expect(
+    actionBatchIncludesAction(
+      fakeActionRequest({
+        path: batchPath,
+        method: "POST",
+        payload: {
+          requests: [
+            { action: "refresh-localhost-preview-token", query: "" },
+            { action: "get-design" },
+          ],
+          unexpected: true,
+        },
+      }),
+      "refresh-localhost-preview-token",
+    ),
+  ).toBe(true);
+});
+
+test("visual-edit snapshot observer reads direct and batched responses", () => {
+  const directRequest = fakeActionRequest({
+    path: "/_agent-native/actions/get-visual-edit-snapshot?designId=design-1&fileId=file-1",
+    method: "GET",
+  });
+  expect(visualEditSnapshotRequestEntries(directRequest)).toEqual([
+    { fileId: "file-1", batchIndex: null },
+  ]);
+  const directResponse = visualEditSnapshotResponseEntries(directRequest, 200, {
+    fileId: "file-1",
+    html: "<h1>Local visual edit</h1>",
+    unchanged: false,
+  });
+  expect(fullVisualEditSnapshotHtml(directResponse[0]!)).toBe(
+    "<h1>Local visual edit</h1>",
+  );
+
+  const batchRequest = fakeActionRequest({
+    path: ACTION_BATCH_PATH_SUFFIX,
+    method: "POST",
+    payload: {
+      requests: [
+        { action: "get-design", query: "designId=design-1" },
+        {
+          action: "get-visual-edit-snapshot",
+          query: "designId=design-1&fileId=file-1",
+        },
+        {
+          action: "get-visual-edit-snapshot",
+          query: "designId=design-1&fileId=file-2",
+        },
+      ],
+    },
+  });
+  const batchResponses = visualEditSnapshotResponseEntries(batchRequest, 200, {
+    results: [
+      { status: 200, body: { id: "design-1" } },
+      {
+        status: 200,
+        body: {
+          fileId: "file-1",
+          html: "<h1>Local visual edit</h1>",
+          unchanged: false,
+        },
+      },
+      {
+        status: 200,
+        body: { fileId: "file-2", html: null, unchanged: true },
+      },
+    ],
+  });
+  expect(batchResponses.map(({ fileId }) => fileId)).toEqual([
+    "file-1",
+    "file-2",
+  ]);
+  expect(fullVisualEditSnapshotHtml(batchResponses[0]!)).toBe(
+    "<h1>Local visual edit</h1>",
+  );
+  expect(fullVisualEditSnapshotHtml(batchResponses[1]!)).toBeNull();
+  const snapshotHtmlByFile = new Map([
+    ["file-2", "<h1>Previously hydrated</h1>"],
+  ]);
+  for (const response of batchResponses) {
+    rememberFullVisualEditSnapshotHtml(snapshotHtmlByFile, response);
+  }
+  expect(snapshotHtmlByFile.get("file-2")).toBe("<h1>Previously hydrated</h1>");
+});
 
 function ownScreenFrame(page: Page) {
   return page
@@ -928,12 +1275,15 @@ test.describe.serial("public visual edit", () => {
       `/design/${collaborationDesignId}`,
       (page) => {
         page.on("request", (request) => {
+          const pathname = new URL(request.url()).pathname;
           if (
-            new URL(request.url()).pathname.endsWith(
-              "/actions/refresh-localhost-preview-token",
+            pathname.endsWith("/actions/refresh-localhost-preview-token") ||
+            actionBatchIncludesAction(
+              request,
+              "refresh-localhost-preview-token",
             )
           ) {
-            previewCredentialRequests.push(request.url());
+            previewCredentialRequests.push(pathname);
           }
         });
       },
@@ -1156,17 +1506,14 @@ test.describe.serial("public visual edit", () => {
       appReturnPath(`/design/${collaborationDesignId}?intent=share`),
     );
 
-    const guestSnapshotReads: string[] = [];
+    const guestSnapshotHtmlByFile = new Map<string, string>();
     const guestSnapshotRequestCounts = new Map<string, number>();
     const guest = await openSignedOutPage(
       browser,
       `/visual-edit/${collaborationDesignId}?share=1&editorView=overview&screen=${encodeURIComponent(collaborationScreenId)}`,
       (guestPage) => {
         guestPage.on("request", (request) => {
-          const url = new URL(request.url());
-          if (!url.pathname.endsWith("/get-visual-edit-snapshot")) return;
-          const fileId = url.searchParams.get("fileId");
-          if (fileId) {
+          for (const { fileId } of visualEditSnapshotRequestEntries(request)) {
             guestSnapshotRequestCounts.set(
               fileId,
               (guestSnapshotRequestCounts.get(fileId) ?? 0) + 1,
@@ -1174,9 +1521,22 @@ test.describe.serial("public visual edit", () => {
           }
         });
         guestPage.on("response", async (response) => {
-          if (response.url().includes("/get-visual-edit-snapshot")) {
-            guestSnapshotReads.push(
-              `${response.status()}: ${await response.text()}`,
+          if (visualEditSnapshotRequestEntries(response.request()).length === 0)
+            return;
+          let payload: unknown;
+          try {
+            payload = await response.json();
+          } catch {
+            return;
+          }
+          for (const snapshotResponse of visualEditSnapshotResponseEntries(
+            response.request(),
+            response.status(),
+            payload,
+          )) {
+            rememberFullVisualEditSnapshotHtml(
+              guestSnapshotHtmlByFile,
+              snapshotResponse,
             );
           }
         });
@@ -1185,12 +1545,17 @@ test.describe.serial("public visual edit", () => {
     try {
       const guestFrame = designFrame(guest.page, collaborationScreenId);
       await expect
-        .poll(() => guestSnapshotReads, { timeout: 15_000 })
-        .toEqual(
-          expect.arrayContaining([
-            expect.stringContaining("Local visual edit"),
-          ]),
-        );
+        .poll(
+          () =>
+            [collaborationScreenId, collaborationSecondScreenId].map(
+              (fileId) =>
+                guestSnapshotHtmlByFile
+                  .get(fileId)
+                  ?.includes("Local visual edit") ?? false,
+            ),
+          { timeout: 15_000 },
+        )
+        .toEqual([true, true]);
       await expect(
         guestFrame.getByRole("heading", { name: "Local visual edit" }),
       ).toBeVisible({ timeout: 30_000 });
@@ -1725,9 +2090,8 @@ async function openSignedOutPage(
     pageErrors.push(error.message);
   });
   page.on("request", (request) => {
-    const url = request.url();
-    if (request.method() === "POST" && /\/_agent-native\/actions\//.test(url)) {
-      mutationRequests.push(url);
+    if (isActionMutationRequest(request)) {
+      mutationRequests.push(new URL(request.url()).pathname);
     }
   });
   beforeLoad?.(page);

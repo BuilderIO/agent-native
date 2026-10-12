@@ -1069,12 +1069,14 @@ export function useEditorGenerationAndAccess({
       content: string,
       baseUpdatedAt?: string | null,
       identityMigrationSourceContent?: string,
+      deferCollabReconcile?: boolean,
     ) => {
       const current = pendingLocalFileContentsRef.current.get(fileId);
       if (
         current?.content === content &&
         current.identityMigrationSourceContent ===
           identityMigrationSourceContent &&
+        current.deferCollabReconcile === deferCollabReconcile &&
         (baseUpdatedAt === undefined || current.baseUpdatedAt !== undefined)
       )
         return;
@@ -1086,6 +1088,7 @@ export function useEditorGenerationAndAccess({
           content,
           baseUpdatedAt,
           identityMigrationSourceContent,
+          deferCollabReconcile,
         }),
       );
       setPendingLocalFileContentsRevision((revision) => revision + 1);

@@ -620,6 +620,36 @@ export async function resolveOrgIdForEmail(
   return ids[0];
 }
 
+export async function resolveActiveOrgIdForStorageCredential(
+  email: string,
+): Promise<string | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) return null;
+
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT m.org_id AS "orgId"
+          FROM org_members m
+          INNER JOIN organizations o ON m.org_id = o.id
+          WHERE LOWER(m.email) = ?
+            AND m.federation_removal_pending_at IS NULL`,
+    args: [normalizedEmail],
+  });
+  if (rows.length === 0) return null;
+
+  const activeOrgSetting = (await getUserSetting(
+    normalizedEmail,
+    ACTIVE_ORG_SETTING_KEY,
+    { bypassCache: true },
+  )) as ActiveOrgSetting;
+  const activeOrgId =
+    typeof activeOrgSetting?.orgId === "string"
+      ? activeOrgSetting.orgId.trim()
+      : "";
+  if (!activeOrgId) return null;
+
+  return rows.some((row) => row.orgId === activeOrgId) ? activeOrgId : null;
+}
+
 export async function resolveOrgIdForEmailViaEvent(
   event: H3Event,
   email: string,

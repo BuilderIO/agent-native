@@ -8,6 +8,7 @@ import {
   IconCalendarEvent,
   IconCircleCheck,
   IconExternalLink,
+  IconFlask,
   IconPencil,
   IconInfoCircle,
   IconHistory,
@@ -75,6 +76,7 @@ import {
   type FileUploadStatusProbe,
 } from "../../shared/file-upload-status";
 import {
+  CLIPS_LABS,
   CLIPS_LOOKBACK_CONTEXT,
   CLIPS_MEETINGS,
   CLIPS_WISPRFLOW,
@@ -135,6 +137,7 @@ import {
   originForServer,
   originForUrl,
 } from "./lib/desktop-auth-token";
+import { clipsDeviceId } from "./lib/device-id";
 import {
   getCameraStreamWithFallback,
   isMediaConstraintFailure,
@@ -330,17 +333,6 @@ interface RewindAgentHandoffRequest {
   agentUrl?: string;
   contextUrl?: string;
   expiresAt?: string;
-  error?: string;
-}
-
-interface RewindExtensionRequest {
-  requestId: string;
-  recordingId: string;
-  seconds: 30 | 300;
-  status: "pending" | "processing" | "ready" | "failed";
-  updatedAt: string;
-  preRollRecordingId?: string;
-  actualDurationMs?: number;
   error?: string;
 }
 
@@ -1167,7 +1159,6 @@ export function App({
     useState<RewindAgentHandoffRequest | null>(null);
   const agentHandoffProcessingRef = useRef<string | null>(null);
   const agentHandoffPreviewedRef = useRef<Set<string>>(new Set());
-  const rewindExtensionProcessingRef = useRef<Set<string>>(new Set());
   const [agentHandoffPreviewBusy, setAgentHandoffPreviewBusy] = useState(false);
   const [agentHandoffPreviewError, setAgentHandoffPreviewError] = useState<
     string | null
@@ -1201,6 +1192,7 @@ export function App({
     "unknown" | "authed" | "anon" | "unavailable"
   >("unknown");
   const [labValues, setLabValues] = useState<Record<string, unknown>>({});
+  const [labError, setLabError] = useState<string | null>(null);
   const t = useT();
   const [lookbackSeconds, setLookbackSeconds] = useState(loadLookbackSeconds);
   const [recentLookbackSeconds, setRecentLookbackSeconds] = useState(
@@ -1669,6 +1661,34 @@ export function App({
     };
   }, [authStatus, callClipsAction]);
 
+  // Writes through the same set-lab action the web app uses, so a change here
+  // also reaches Clips on the web and the record popover. The switch moves at
+  // once and is reverted if the save fails.
+  async function setLabEnabled(
+    lab: { key: string; displayName?: string },
+    enabled: boolean,
+  ) {
+    const previous = labValues;
+    setLabError(null);
+    const optimistic = { ...labValues, [lab.key]: enabled };
+    setLabValues(optimistic);
+    emit("clips:labs-updated", { values: optimistic }).catch(() => {});
+    try {
+      const saved = await callClipsAction<{ values: Record<string, unknown> }>(
+        "set-lab",
+        { key: lab.key, enabled },
+        { method: "POST" },
+      );
+      setLabValues(saved.values);
+      emit("clips:labs-updated", { values: saved.values }).catch(() => {});
+    } catch (error) {
+      console.warn("[clips-tray] lab update failed:", error);
+      setLabValues(previous);
+      emit("clips:labs-updated", { values: previous }).catch(() => {});
+      setLabError(`Could not change ${lab.displayName ?? lab.key}. Try again.`);
+    }
+  }
+
   useEffect(() => {
     invoke("meetings_watcher_set_lab_enabled", {
       enabled: authStatus === "authed" && meetingsLabEnabled,
@@ -1813,87 +1833,6 @@ export function App({
     [callClipsAction, serverUrl, updateAgentHandoff],
   );
 
-  const processRewindExtension = useCallback(
-    async (request: RewindExtensionRequest) => {
-      if (rewindExtensionProcessingRef.current.has(request.requestId)) return;
-      rewindExtensionProcessingRef.current.add(request.requestId);
-      let preRollRecordingId: string | null = null;
-      try {
-        const origin = getRewindClipOrigin(request.recordingId);
-        if (!origin) {
-          throw new Error(
-            "Clips Alpha no longer has the local start time for this Clip.",
-          );
-        }
-        const endedAtMs = Date.parse(origin.startedAt);
-        if (!Number.isFinite(endedAtMs)) {
-          throw new Error("The original Clip start time is invalid.");
-        }
-        await callClipsAction("update-rewind-extension-request", {
-          recordingId: request.recordingId,
-          requestId: request.requestId,
-          status: "processing",
-        });
-        const startedAt = new Date(
-          endedAtMs - request.seconds * 1_000,
-        ).toISOString();
-        const recording = await createPrivateAgentRewindRecording(
-          serverUrl,
-          origin.includeMicrophone || origin.includeSystemAudio,
-          startedAt,
-          loadDesktopAuthToken(serverUrl),
-        );
-        preRollRecordingId = recording.id;
-        const upload = await invoke<NativeRewindUploadResult>(
-          "rewind_agent_handoff_upload",
-          {
-            requestId: `handoff-${request.requestId}`,
-            startedAt,
-            endedAt: origin.startedAt,
-            serverUrl,
-            recordingId: recording.id,
-            authToken: loadDesktopAuthToken(serverUrl),
-            cookie:
-              typeof document !== "undefined" ? document.cookie || "" : "",
-            uploadMode: recording.uploadMode,
-            includeMic: origin.includeMicrophone,
-            includeSystemAudio: origin.includeSystemAudio,
-          },
-        );
-        await callClipsAction("update-rewind-extension-request", {
-          recordingId: request.recordingId,
-          requestId: request.requestId,
-          status: "ready",
-          preRollRecordingId: recording.id,
-          actualDurationMs: Math.round(upload.durationMs),
-          ...(typeof upload.width === "number" && upload.width > 0
-            ? { preRollWidth: upload.width }
-            : {}),
-          ...(typeof upload.height === "number" && upload.height > 0
-            ? { preRollHeight: upload.height }
-            : {}),
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (preRollRecordingId) {
-          await callClipsAction("trash-recording", {
-            id: preRollRecordingId,
-            skipIfReady: true,
-          }).catch(() => {});
-        }
-        await callClipsAction("update-rewind-extension-request", {
-          recordingId: request.recordingId,
-          requestId: request.requestId,
-          status: "failed",
-          error: message,
-        }).catch(() => {});
-      } finally {
-        rewindExtensionProcessingRef.current.delete(request.requestId);
-      }
-    },
-    [callClipsAction, serverUrl],
-  );
-
   function chooseLookbackSeconds(seconds: number) {
     setLookbackSeconds(seconds);
     saveLookbackSeconds(seconds);
@@ -1930,6 +1869,7 @@ export function App({
       recordingId,
       seconds,
       endedAt: origin.startedAt,
+      deviceId: clipsDeviceId(),
     }).catch((error: unknown) => {
       console.error(
         "[clips-popover] earlier screen time request failed:",
@@ -2013,6 +1953,7 @@ export function App({
         const items = await listPendingRecordingContext(
           { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
           {
+            deviceId: clipsDeviceId(),
             // The server accepts at most 100 excludeIds; any beyond that stay
             // in the oldest-first batch.
             excludeIds: [...skippedLookbackIdsRef.current].slice(0, 100),
@@ -2061,63 +2002,6 @@ export function App({
     processLookbackItem,
     rewindOn,
     serverUrl,
-  ]);
-
-  // Legacy editor stitch flow: it still reads its own app-state requests.
-  // Earlier-screen-time exports use the pending-context worker above.
-  useEffect(() => {
-    if (
-      authStatus !== "authed" ||
-      featureConfig?.screenMemory?.enabled !== true
-    ) {
-      return;
-    }
-    let cancelled = false;
-    let inFlight = false;
-    const poll = async () => {
-      if (document.hidden || inFlight) return;
-      inFlight = true;
-      const controller = new AbortController();
-      const abortTimer = setTimeout(
-        () => controller.abort(),
-        Math.max(10_000, 3_000 * 4),
-      );
-      try {
-        const result = await callClipsAction<{
-          requests?: RewindExtensionRequest[];
-        }>(
-          "list-rewind-extension-requests",
-          {},
-          { method: "GET", signal: controller.signal },
-        )
-          // coercion-ok: nothing to process this sweep either way; the next
-          // tick re-reads the pending requests.
-          .catch(() => null);
-        if (cancelled) return;
-        for (const request of result?.requests ?? []) {
-          void processRewindExtension(request);
-        }
-      } finally {
-        clearTimeout(abortTimer);
-        inFlight = false;
-      }
-    };
-    void poll();
-    const timer = window.setInterval(() => void poll(), 3_000);
-    const onVisibilityChange = () => {
-      if (!document.hidden) void poll();
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, [
-    authStatus,
-    callClipsAction,
-    featureConfig?.screenMemory?.enabled,
-    processRewindExtension,
   ]);
 
   useEffect(() => {
@@ -4626,6 +4510,12 @@ export function App({
           surface="memory"
           meetingsLabEnabled={meetingsLabEnabled}
           wisprFlowLabEnabled={wisprFlowLabEnabled}
+          labValues={labValues}
+          labError={labError}
+          labsSignedIn={authStatus === "authed"}
+          onLabEnabledChange={(lab, enabled) =>
+            void setLabEnabled(lab, enabled)
+          }
           recordingActive={isRecording || recordingFlowActive}
           initial={serverUrl}
           serverUrl={serverUrl}
@@ -4673,6 +4563,12 @@ export function App({
           onSettingsTabChange={setInitialSettingsTab}
           meetingsLabEnabled={meetingsLabEnabled}
           wisprFlowLabEnabled={wisprFlowLabEnabled}
+          labValues={labValues}
+          labError={labError}
+          labsSignedIn={authStatus === "authed"}
+          onLabEnabledChange={(lab, enabled) =>
+            void setLabEnabled(lab, enabled)
+          }
           recordingActive={isRecording || recordingFlowActive}
           initial={serverUrl}
           serverUrl={serverUrl}
@@ -6335,6 +6231,10 @@ function Setup({
   onSettingsTabChange,
   meetingsLabEnabled,
   wisprFlowLabEnabled,
+  labValues,
+  labError,
+  labsSignedIn,
+  onLabEnabledChange,
   recordingActive = false,
   initial,
   serverUrl,
@@ -6373,6 +6273,13 @@ function Setup({
   onSettingsTabChange?: (tab: SettingsTabId) => void;
   meetingsLabEnabled: boolean;
   wisprFlowLabEnabled: boolean;
+  labValues: Record<string, unknown>;
+  labError: string | null;
+  labsSignedIn: boolean;
+  onLabEnabledChange: (
+    lab: { key: string; displayName?: string },
+    enabled: boolean,
+  ) => void;
   recordingActive?: boolean;
   initial?: string | null;
   serverUrl?: string;
@@ -8030,6 +7937,43 @@ function Setup({
     );
   }
 
+  function renderLabsSettings() {
+    const signedIn = labsSignedIn;
+    return (
+      <div className="mx-auto grid w-full max-w-[620px] gap-7 pb-4">
+        <SettingsGroup label="Labs">
+          {CLIPS_LABS.map((lab) => (
+            <SettingsRow
+              key={lab.key}
+              label={lab.displayName ?? lab.key}
+              description={lab.description}
+              control={
+                <UiSwitch
+                  checked={isLabEnabled(labValues, lab)}
+                  onCheckedChange={(enabled) =>
+                    onLabEnabledChange(lab, enabled)
+                  }
+                  disabled={!signedIn}
+                  aria-label={lab.displayName ?? lab.key}
+                />
+              }
+            />
+          ))}
+        </SettingsGroup>
+        {signedIn ? null : (
+          <p className="text-xs text-muted-foreground">
+            Sign in to change labs.
+          </p>
+        )}
+        {labError ? (
+          <p role="alert" className="text-xs text-destructive">
+            {labError}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
   function renderAdvancedSettings() {
     return (
       <div className="mx-auto grid w-full max-w-[620px] gap-7 pb-4">
@@ -8623,6 +8567,11 @@ function Setup({
         ]
       : []),
     {
+      id: "labs",
+      label: "Labs",
+      icon: <IconFlask size={16} stroke={1.7} aria-hidden="true" />,
+    },
+    {
       id: "advanced",
       label: "Advanced",
       icon: <IconTool size={16} stroke={1.7} aria-hidden="true" />,
@@ -8641,6 +8590,8 @@ function Setup({
         return renderDictationSettings();
       case "rewind":
         return renderRewindSettings();
+      case "labs":
+        return renderLabsSettings();
       case "advanced":
         return renderAdvancedSettings();
       case "general":

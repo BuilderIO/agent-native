@@ -125,7 +125,7 @@ https://<your-app>.agent-native.com/mcp
 
 每個託管應用程式還有一個幫助頁面
 `https://&lt;app&gt;/mcp/connect` 與可複製的 URL 和
-Claude、ChatGPT、游標、Claude 程式碼、Codex、Grok 和其他的主機特定分頁。
+適用於 Claude、ChatGPT、Cursor、VS Code、Claude Code、Codex、Grok 和「其他」的主機專屬分頁。
 
 ## 私人 Content 連結 {#private-content-links}
 
@@ -169,9 +169,26 @@ Dispatch 不會重寫 ChatGPT 或 Claude 的快取行事曆/郵件/等。
 快照。`mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` 範圍與下文
 [標準遠端 MCP OAuth](#standard-oauth) 中介紹的相同。
 
-Cursor、Goose、Postman、MCPJam 和 VS Code GitHub Copilot 使用相同的遙控器
-當其建置支援遠端 OAuth 時，MCP URL 透過自己的 MCP 伺服器 UI
-MCP 伺服器。
+### Cursor、VS Code 和 Codex {#install-links}
+
+**Settings → MCP server** 和 `/mcp/connect` 中的 **Cursor** 與 **VS Code**
+分頁提供安裝按鈕。**新增至 Cursor** 會開啟 Cursor 的 **Install MCP server?**
+提示。**新增至 VS Code** 和 **新增至 VS Code Insiders** 會開啟帶有 **Install**
+按鈕的伺服器頁面。連結只包含伺服器名稱、傳輸方式和 MCP URL，絕不包含權杖、標頭或帳戶資訊。
+用戶端第一次連線時會自行完成 OAuth 登入。在 VS Code 中，這些工具接著會出現在 Agent 模式下的 Chat 檢視中。
+
+若是 Codex，請執行 `codex mcp add <server-name> --url <mcp-url>`，接著執行
+`codex mcp login <server-name>`，透過 OAuth 登入。**Codex** 分頁會填好這兩個值。
+
+當 Goose、Postman、MCPJam 和其他用戶端的版本支援採用 OAuth 的遠端 MCP 伺服器時，
+它們會在各自的 MCP 伺服器介面中使用同一個遠端 MCP URL。
+
+### 伺服器名稱 {#server-names}
+
+應用程式會為自己的 MCP 伺服器命名，所有入口都使用這個名稱：安裝連結、可複製的指令，以及
+`npx @agent-native/core@latest connect`。
+正式環境使用不帶前綴的名稱，例如 `agent-native-mail`。Beta、預覽和本機部署會把環境名稱放在最前面，例如 `beta-agent-native-mail`，讓同一個用戶端可以同時保留正式環境和 Beta 兩個項目。這些前綴是保留的：`mcp.serverName` 不能以 `beta-`、`preview-` 或 `local-` 開頭，因此 Beta 名稱絕不會與另一個應用程式的正式環境名稱相同。
+指令碼可以透過 `GET /mcp/connect/identity` 讀取名稱；這個端點不需要登入，會傳回伺服器名稱、應用程式名稱、應用程式 URL、MCP URL、環境，以及在 `mcp.connect` 關閉時為 `false` 的 `connect` 旗標。
 
 ### 快速測試提示 {#quick-test}
 

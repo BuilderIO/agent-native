@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 import {
   mkdir,
   readdir,
@@ -23,7 +24,7 @@ const MAX_ENTRIES = 1_500;
 const MAX_BUNDLE_BYTES = 750_000;
 const MAX_ROOT_BYTES = 250_000_000;
 const MAX_STRING_LENGTH = 2_000;
-const MAX_DESCRIPTION_LENGTH = 1_000;
+const MAX_DESCRIPTION_LENGTH = 2_000;
 const SKIP_DIRECTORIES = new Set([
   ".git",
   ".next",
@@ -80,6 +81,7 @@ export interface SourceIndexEntry {
   source: string;
   sourceKind?: "dbt" | "code" | "sigma";
   entryType?: "model" | "event" | "semantic_model" | "metric";
+  status?: "active" | "deprecated";
   semanticScope?: SemanticScope;
   owner?: string;
   grain?: string;
@@ -109,6 +111,7 @@ export interface SourceIndexScanSummary {
   unsafeEntriesOmitted: number;
   unsafeFieldsOmitted: number;
   truncatedFields: number;
+  unresolvedTrackingCallSites: number;
 }
 
 export interface SourceIndexOptions {
@@ -165,6 +168,11 @@ interface ModelDoc {
   name: string;
   sourcePath?: string;
   description?: string;
+  explicitGrain?: string;
+  inferredGrain?: string;
+  inferredGrainKeyCandidates?: string[][];
+  passThroughModel?: string;
+  passThroughColumns?: string[] | "*";
   semanticModelEnabled?: boolean;
   semanticModelName?: string;
   group?: string;
@@ -173,6 +181,7 @@ interface ModelDoc {
   columns: Map<string, ColumnDoc>;
   tests: Set<string>;
   dependencies: Set<string>;
+  // A dbt `unique_key` is not proof that model SQL is unique on those columns.
   grainHints: string[][];
 }
 
@@ -232,11 +241,22 @@ function codedError(code: string, message: string): never {
   throw new SourceIndexError(code, message);
 }
 
+function accountSourceBytes(size: number, budget: ReadBudget): void {
+  budget.bytes += size;
+  if (budget.bytes > MAX_ROOT_BYTES) {
+    codedError(
+      "root_size_limit_exceeded",
+      "A source root exceeds the 250 MB scan limit.",
+    );
+  }
+}
+
 function emptyScanSummary(): SourceIndexScanSummary {
   return {
     unsafeEntriesOmitted: 0,
     unsafeFieldsOmitted: 0,
     truncatedFields: 0,
+    unresolvedTrackingCallSites: 0,
   };
 }
 
@@ -247,6 +267,7 @@ function addScanSummary(
   target.unsafeEntriesOmitted += source.unsafeEntriesOmitted;
   target.unsafeFieldsOmitted += source.unsafeFieldsOmitted;
   target.truncatedFields += source.truncatedFields;
+  target.unresolvedTrackingCallSites += source.unresolvedTrackingCallSites;
 }
 
 async function readSigmaCredentialsFromEnvFile(
@@ -617,6 +638,7 @@ async function listFiles(root: string): Promise<FileRecord[]> {
 async function readSourceFile(
   file: FileRecord,
   budget: ReadBudget,
+  preaccountedSize?: number,
 ): Promise<string> {
   let fileStat;
   try {
@@ -630,15 +652,24 @@ async function readSourceFile(
       "A source file exceeds the safe index size limit.",
     );
   }
-  budget.bytes += fileStat.size;
-  if (budget.bytes > MAX_ROOT_BYTES) {
+  if (preaccountedSize === undefined) {
+    accountSourceBytes(fileStat.size, budget);
+  } else if (fileStat.size !== preaccountedSize) {
     codedError(
-      "root_size_limit_exceeded",
-      "A source root exceeds the 250 MB scan limit.",
+      "source_changed_during_scan",
+      "A source file changed while the index was being built.",
     );
   }
   try {
     return await readFile(file.absolutePath, "utf8");
+  } catch {
+    codedError("file_unreadable", "A source file could not be read.");
+  }
+}
+
+async function sourceFileSize(file: FileRecord): Promise<number> {
+  try {
+    return (await stat(file.absolutePath)).size;
   } catch {
     codedError("file_unreadable", "A source file could not be read.");
   }
@@ -692,8 +723,206 @@ function yamlScalar(raw: string): string {
   if (value.startsWith("'") && value.endsWith("'")) {
     return value.slice(1, -1).replace(/''/g, "'");
   }
-  if ([">", ">-", ">+", "|", "|-", "|+"].includes(value)) return "";
+  if (/^[>|](?:[1-9])?[+-]?$|^[>|][+-]?[1-9]?$/.test(value)) return "";
   return value.replace(/\s+#(?!\d).*$/, "").trim();
+}
+
+function parseDbtDocBlocks(markdown: string): Map<string, string | null> {
+  const docs = new Map<string, string | null>();
+  const pattern =
+    /{%\s*docs\s+([A-Za-z_][A-Za-z0-9_-]{0,99})\s*%}([\s\S]*?){%\s*enddocs\s*%}/g;
+  for (const match of markdown.matchAll(pattern)) {
+    const name = match[1]!;
+    const description = match[2]!.replace(/\s+/g, " ").trim();
+    if (!description) continue;
+    docs.set(name, docs.has(name) ? null : description);
+  }
+  return docs;
+}
+
+function dbtDocReferenceName(raw: string): string | null {
+  const value = yamlScalar(raw);
+  const reference = value.match(
+    /^\{\{\s*doc\(\s*(['"])([A-Za-z_][A-Za-z0-9_-]{0,99})\1\s*\)\s*\}\}$/,
+  );
+  return reference?.[2] ?? null;
+}
+
+interface DbtDescriptionReference {
+  name: string | null;
+  nextLineIndex: number;
+  prefix: string;
+}
+
+function dbtDescriptionReferenceAt(
+  lines: string[],
+  lineIndex: number,
+): DbtDescriptionReference | null {
+  const line = lines[lineIndex]!;
+  const commentFree = yamlCommentFree(line);
+  const description = commentFree.match(/^([ \t]*description\s*:\s*)(.*)$/);
+  if (!description) return null;
+
+  const raw = description[2]!;
+  if (!/^[>|](?:[1-9])?[+-]?$|^[>|][+-]?[1-9]?$/.test(raw.trim())) {
+    return {
+      name: dbtDocReferenceName(raw),
+      nextLineIndex: lineIndex + 1,
+      prefix: description[1]!,
+    };
+  }
+
+  const keyIndent = description[1]!.match(/^[ \t]*/)?.[0].length ?? 0;
+  const valueLines: string[] = [];
+  let nextLineIndex = lineIndex + 1;
+  while (nextLineIndex < lines.length) {
+    const valueLine = lines[nextLineIndex]!;
+    if (!valueLine.trim()) {
+      valueLines.push("");
+      nextLineIndex += 1;
+      continue;
+    }
+    const indent = valueLine.match(/^[ \t]*/)?.[0].length ?? 0;
+    if (indent <= keyIndent) break;
+    valueLines.push(valueLine.trim());
+    nextLineIndex += 1;
+  }
+
+  return {
+    name: dbtDocReferenceName(valueLines.join(" ")),
+    nextLineIndex,
+    prefix: description[1]!,
+  };
+}
+
+function referencedDbtDocNames(yaml: string): Set<string> {
+  const names = new Set<string>();
+  const lines = yaml.split(/\r?\n/);
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const reference = dbtDescriptionReferenceAt(lines, lineIndex);
+    if (reference?.name) names.add(reference.name);
+    if (reference) lineIndex = reference.nextLineIndex - 1;
+  }
+  return names;
+}
+
+async function containsReferencedDbtDocBlock(
+  file: FileRecord,
+  references: Set<string>,
+): Promise<boolean> {
+  let state:
+    | "search"
+    | "open"
+    | "prefix_whitespace"
+    | "docs_word"
+    | "docs_space"
+    | "name_start"
+    | "name"
+    | "name_end"
+    | "close_brace" = "search";
+  let docsWordIndex = 0;
+  let name = "";
+  const isWhitespace = (value: string) => /\s/u.test(value);
+  const isIdentifierStart = (value: string) => /[A-Za-z_]/u.test(value);
+  const isIdentifierPart = (value: string) => /[A-Za-z0-9_-]/u.test(value);
+  let found = false;
+  const stream = createReadStream(file.absolutePath, { encoding: "utf8" });
+  try {
+    for await (const chunk of stream) {
+      for (const value of chunk) {
+        const restart = () => {
+          state = value === "{" ? "open" : "search";
+          docsWordIndex = 0;
+          name = "";
+        };
+        switch (state) {
+          case "search":
+            if (value === "{") state = "open";
+            break;
+          case "open":
+            if (value === "%") state = "prefix_whitespace";
+            else restart();
+            break;
+          case "prefix_whitespace":
+            if (isWhitespace(value)) break;
+            if (value === "d") {
+              state = "docs_word";
+              docsWordIndex = 1;
+            } else restart();
+            break;
+          case "docs_word":
+            if (value === "docs"[docsWordIndex]) {
+              docsWordIndex += 1;
+              if (docsWordIndex === "docs".length) state = "docs_space";
+            } else restart();
+            break;
+          case "docs_space":
+            if (isWhitespace(value)) state = "name_start";
+            else restart();
+            break;
+          case "name_start":
+            if (isWhitespace(value)) break;
+            if (isIdentifierStart(value)) {
+              name = value;
+              state = "name";
+            } else restart();
+            break;
+          case "name":
+            if (isIdentifierPart(value)) {
+              name += value;
+              if (name.length > 100) restart();
+            } else if (isWhitespace(value)) state = "name_end";
+            else if (value === "%") state = "close_brace";
+            else restart();
+            break;
+          case "name_end":
+            if (isWhitespace(value)) break;
+            if (value === "%") state = "close_brace";
+            else restart();
+            break;
+          case "close_brace":
+            if (value === "}") {
+              if (references.has(name)) {
+                found = true;
+                break;
+              }
+              state = "search";
+              name = "";
+            } else restart();
+            break;
+        }
+        if (found) break;
+      }
+      if (found) break;
+    }
+  } catch {
+    codedError("file_unreadable", "A source file could not be read.");
+  }
+  return found;
+}
+
+function resolveDbtDocReferences(
+  yaml: string,
+  docs: Map<string, string | null>,
+): string {
+  const lines = yaml.split(/\r?\n/);
+  const resolvedLines: string[] = [];
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex]!;
+    const reference = dbtDescriptionReferenceAt(lines, lineIndex);
+    if (!reference?.name) {
+      resolvedLines.push(line);
+      continue;
+    }
+    const resolved = docs.get(reference.name);
+    if (!resolved) {
+      resolvedLines.push(line);
+      continue;
+    }
+    resolvedLines.push(`${reference.prefix}${JSON.stringify(resolved)}`);
+    lineIndex = reference.nextLineIndex - 1;
+  }
+  return resolvedLines.join("\n");
 }
 
 function yamlList(raw: string): string[] {
@@ -923,11 +1152,7 @@ function parseSchemaYaml(
         indent > modelMetaIndent &&
         !context.column
       ) {
-        const columns = value
-          .split(/[,+\s]+/)
-          .map(safeIdentifier)
-          .filter((name): name is string => Boolean(name));
-        addGrainHint(context.model, columns);
+        context.model.explicitGrain = safeDescription(value, scanSummary);
         continue;
       }
       if (
@@ -1463,8 +1688,12 @@ function semanticModelEntries(
     const primary = (item.children.get("entities") ?? []).find(
       (entity) => entity.type?.toLowerCase() === "primary",
     );
-    const primaryEntity =
+    const primaryEntityKey =
       safeIdentifier(primary?.expr ?? primary?.name ?? "") ?? undefined;
+    const primaryEntityName =
+      safeIdentifier(primary?.name ?? "") ?? primaryEntityKey;
+    const primaryEntity =
+      safeIdentifier(item.values.primary_entity ?? "") ?? primaryEntityName;
     const timeDimension =
       safeIdentifier(item.nested["defaults.agg_time_dimension"] ?? "") ??
       (item.children.get("dimensions") ?? [])
@@ -1474,15 +1703,11 @@ function semanticModelEntries(
     const modelDoc = modelName
       ? models.find((model) => model.name === modelName)
       : undefined;
-    const uniqueGrain = modelDoc?.grainHints[0];
     const explicitGrain = safeDescription(item.values.grain ?? "", scanSummary);
     const grain =
       explicitGrain ??
-      (uniqueGrain?.length
-        ? `Unique key: ${uniqueGrain.join(", ")}`
-        : primaryEntity
-          ? `Primary entity: ${primaryEntity}`
-          : undefined);
+      modelDeclaredGrain(modelDoc) ??
+      (primaryEntityKey ? `Primary entity: ${primaryEntityKey}` : undefined);
     const group = safeIdentifier(item.values.group ?? "");
     const owner =
       safeOwnerName(item.ownerName ?? item.values.owner, scanSummary) ??
@@ -1496,6 +1721,11 @@ function semanticModelEntries(
         description ?? `dbt semantic model ${name}`,
         ...(modelName ? [`Model: ${modelName}`] : []),
         ...(primaryEntity ? [`Primary entity: ${primaryEntity}`] : []),
+        ...(primaryEntity &&
+        primaryEntityKey &&
+        primaryEntity !== primaryEntityKey
+          ? [`Primary entity expression: ${primaryEntityKey}`]
+          : []),
         ...(timeDimension ? [`Time dimension: ${timeDimension}`] : []),
       ].join(". "),
       5_000,
@@ -1546,12 +1776,9 @@ function semanticModelEntries(
           .filter((column) => column.dimensionType?.toLowerCase() === "time")
           .map((column) => safeIdentifier(column.name ?? ""))
           .find((value): value is string => Boolean(value));
-      const uniqueGrain = modelDoc.grainHints[0];
-      const grain = uniqueGrain?.length
-        ? `Unique key: ${uniqueGrain.join(", ")}`
-        : primaryEntity
-          ? `Primary entity: ${primaryEntity}`
-          : undefined;
+      const grain =
+        modelDeclaredGrain(modelDoc) ??
+        (primaryEntity ? `Primary entity: ${primaryEntity}` : undefined);
       const group = safeIdentifier(modelDoc.group ?? "");
       const owner = group ? groups.get(group) : undefined;
       const description = safeDescription(
@@ -1774,6 +2001,9 @@ function semanticModelEntries(
 function mergeModel(target: ModelDoc, source: ModelDoc): void {
   target.sourcePath ??= source.sourcePath;
   target.description ??= source.description;
+  target.explicitGrain ??= source.explicitGrain;
+  target.inferredGrain ??= source.inferredGrain;
+  target.passThroughModel ??= source.passThroughModel;
   target.semanticModelEnabled ??= source.semanticModelEnabled;
   target.semanticModelName ??= source.semanticModelName;
   target.group ??= source.group;
@@ -1824,6 +2054,14 @@ function sqlWithoutComments(sql: string): string {
       if (char === "\\" && quote !== "`") escaped = true;
       else if (char === quote) quote = null;
       continue;
+    }
+    if (char === "{" && next === "#") {
+      const end = sql.indexOf("#}", index + 2);
+      if (end >= 0) {
+        result += sql.slice(index, end + 2).replace(/[^\r\n]/g, " ");
+        index = end + 1;
+        continue;
+      }
     }
     if (char === "{" && next === "{") {
       const end = sql.indexOf("}}", index + 2);
@@ -1879,23 +2117,282 @@ function extractSqlDependencies(sql: string): string[] {
   return [...dependencies].sort();
 }
 
-function extractUniqueKey(sql: string): string[][] {
-  const source = sqlWithoutComments(sql);
-  const hints: string[][] = [];
-  for (const match of source.matchAll(
-    /\bunique_key\s*[:=]\s*(\[[^\]]{0,1000}\]|['"]([A-Za-z_][A-Za-z0-9_-]{0,99})['"])/g,
-  )) {
-    const value = match[1]!;
-    const columns = value.startsWith("[")
-      ? value
-          .slice(1, -1)
-          .split(",")
-          .map((part) => safeIdentifier(part.replace(/['"\s]/g, "")))
-          .filter((part): part is string => part !== null)
-      : [match[2]!];
-    if (columns.length) hints.push([...new Set(columns)]);
+const SQL_IDENTIFIER = String.raw`[A-Za-z_][A-Za-z0-9_$]*`;
+const SQL_COLUMN_REFERENCE = new RegExp(
+  String.raw`^(?:${SQL_IDENTIFIER}\s*\.\s*){0,2}(?:${SQL_IDENTIFIER}|\*)$`,
+  "i",
+);
+
+function finalSelectList(source: string): string | undefined {
+  let depth = 0;
+  let quote: "'" | '"' | "`" | undefined;
+  let selectStart: number | undefined;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]!;
+    if (quote) {
+      if (character === quote) {
+        if (source[index + 1] === quote) index += 1;
+        else quote = undefined;
+      } else if (character === "\\" && quote !== "`") {
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+      continue;
+    }
+    if (character === "(") {
+      depth += 1;
+      continue;
+    }
+    if (character === ")") {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (depth !== 0 || !/[A-Za-z]/.test(character)) continue;
+
+    const match = source.slice(index).match(/^[A-Za-z_][A-Za-z0-9_$]*/);
+    if (!match) continue;
+    const keyword = match[0].toLowerCase();
+    if (keyword === "select") selectStart = index + match[0].length;
+    else if (keyword === "from" && selectStart !== undefined) {
+      return source.slice(selectStart, index).trim();
+    }
+    index += match[0].length - 1;
   }
-  return hints;
+  return undefined;
+}
+
+function splitTopLevelSqlList(value: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let quote: "'" | '"' | "`" | undefined;
+  let start = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]!;
+    if (quote) {
+      if (character === quote) {
+        if (value[index + 1] === quote) index += 1;
+        else quote = undefined;
+      } else if (character === "\\" && quote !== "`") {
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+    } else if (character === "(") {
+      depth += 1;
+    } else if (character === ")") {
+      depth = Math.max(0, depth - 1);
+    } else if (character === "," && depth === 0) {
+      parts.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  parts.push(value.slice(start).trim());
+  return parts.filter(Boolean);
+}
+
+function directProjection(projection: string):
+  | {
+      inputColumn: string;
+      outputColumn: string;
+    }
+  | undefined {
+  const value = projection.trim();
+  if (value === "*") return { inputColumn: "*", outputColumn: "*" };
+
+  let expression = value;
+  let outputColumn: string | undefined;
+  const explicitAlias = value.match(
+    new RegExp(String.raw`^(.+?)\s+as\s+(${SQL_IDENTIFIER})$`, "i"),
+  );
+  const implicitAlias = explicitAlias
+    ? undefined
+    : value.match(new RegExp(String.raw`^(.+?)\s+(${SQL_IDENTIFIER})$`, "i"));
+  const alias = explicitAlias ?? implicitAlias;
+  if (alias) {
+    expression = alias[1]!.trim();
+    outputColumn = alias[2]!.toLowerCase();
+  }
+  if (!SQL_COLUMN_REFERENCE.test(expression)) return undefined;
+  const inputColumn = expression
+    .split(".")
+    .pop()!
+    .trim()
+    .replace(/`/g, "")
+    .toLowerCase();
+  return {
+    inputColumn,
+    outputColumn: outputColumn ?? inputColumn,
+  };
+}
+
+function hasRowReducingSql(source: string): boolean {
+  return (
+    /\b(?:distinct|group\s+by|having|qualify|union|intersect|except|pivot|unpivot|over|limit|offset|fetch\s+first|tablesample)\b/i.test(
+      source,
+    ) ||
+    /\b(?:count|countif|sum|avg|min|max|array_agg|array_concat_agg|string_agg|any_value|approx_count_distinct|approx_quantiles|approx_top_count|approx_top_sum|logical_and|logical_or|bit_and|bit_or|bit_xor|stddev(?:_pop|_samp)?|variance(?:_pop|_samp)?|corr|covar_(?:pop|samp)|percentile_(?:cont|disc))\s*\(/i.test(
+      source,
+    )
+  );
+}
+
+function hasCommaSeparatedFromSource(source: string): boolean {
+  const inFromByDepth = new Map<number, boolean>();
+  let depth = 0;
+  let quote: string | undefined;
+  const backtick = String.fromCharCode(96);
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]!;
+    if (quote) {
+      if (character === quote) {
+        if (source[index + 1] === quote) index += 1;
+        else quote = undefined;
+      } else if (character === "\\" && quote !== backtick) {
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === backtick) {
+      quote = character;
+      continue;
+    }
+    if (character === "(") {
+      depth += 1;
+      continue;
+    }
+    if (character === ")") {
+      inFromByDepth.delete(depth);
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (character === "," && inFromByDepth.get(depth)) return true;
+    if (!/[A-Za-z_]/.test(character)) continue;
+
+    const match = source.slice(index).match(/^[A-Za-z_][A-Za-z0-9_$]*/);
+    if (!match) continue;
+    const keyword = match[0].toLowerCase();
+    if (keyword === "from") inFromByDepth.set(depth, true);
+    else if (
+      keyword === "select" ||
+      /^(?:where|group|having|qualify|order|limit|offset|fetch|union|intersect|except)$/.test(
+        keyword,
+      )
+    ) {
+      inFromByDepth.delete(depth);
+    }
+    index += match[0].length - 1;
+  }
+  return false;
+}
+
+function hasOnlyMembershipJoins(
+  source: string,
+  unnestedAlias: string,
+): boolean {
+  const joinCount = (source.match(/\bjoin\b/gi) ?? []).length;
+  if (joinCount === 1) return true;
+  if (joinCount !== 2) return false;
+
+  const organizationJoin = source.match(
+    /\bleft(?:\s+outer)?\s+join\s+\{\{\s*ref\(\s*["']organizations["']\s*\)\s*\}\}\s+(?:as\s+)?([A-Za-z_][A-Za-z0-9_]*)\s+on\s+(?:[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*org_id\b/i,
+  );
+  return Boolean(
+    organizationJoin &&
+    organizationJoin[2]!.toLowerCase() === unnestedAlias.toLowerCase() &&
+    organizationJoin[3]!.toLowerCase() === organizationJoin[1]!.toLowerCase(),
+  );
+}
+
+function inferUnnestedMembershipGrain(
+  sql: string,
+  modelName: string,
+): string | undefined {
+  if (
+    !/(?:user|member)/i.test(modelName) ||
+    !/(?:org|organization)/i.test(modelName)
+  ) {
+    return undefined;
+  }
+  const source = sqlWithoutComments(sql);
+  if (hasRowReducingSql(source) || hasCommaSeparatedFromSource(source)) {
+    return undefined;
+  }
+  const arrayName = source.match(
+    /\b(?:cross\s+)?join\s+unnest\s*\(\s*(?:[A-Za-z_][A-Za-z0-9_]*\.)?([A-Za-z_][A-Za-z0-9_]*)\s*\)/i,
+  )?.[1];
+  const unnestedAlias = source.match(
+    /\b(?:cross\s+)?join\s+unnest\s*\(\s*(?:[A-Za-z_][A-Za-z0-9_]*\.)?[A-Za-z_][A-Za-z0-9_]*\s*\)\s+(?:as\s+)?([A-Za-z_][A-Za-z0-9_]*)/i,
+  )?.[1];
+  const safeArrayName = arrayName ? safeIdentifier(arrayName) : null;
+  if (
+    !safeArrayName ||
+    !/(?:org|organization)/i.test(safeArrayName) ||
+    !unnestedAlias ||
+    !hasOnlyMembershipJoins(source, unnestedAlias)
+  ) {
+    return undefined;
+  }
+  const selectList = finalSelectList(source);
+  if (!selectList) return undefined;
+  const projections = splitTopLevelSqlList(selectList)
+    .map(directProjection)
+    .filter((projection): projection is NonNullable<typeof projection> =>
+      Boolean(projection),
+    );
+  const hasUserId = projections.some(
+    (projection) =>
+      projection.outputColumn === "user_id" &&
+      projection.inputColumn === "user_id",
+  );
+  const hasOrganizationId = projections.some(
+    (projection) =>
+      projection.outputColumn === "organization_id" &&
+      projection.inputColumn === unnestedAlias.toLowerCase(),
+  );
+  if (!hasUserId || !hasOrganizationId) return undefined;
+  return `Expanded grain: one row per user-organization array entry from UNNEST(${safeArrayName})`;
+}
+
+interface PassThroughModel {
+  modelName: string;
+  columns: string[] | "*";
+}
+
+function extractPassThroughModel(
+  sql: string,
+  dependencies: string[],
+): PassThroughModel | undefined {
+  if (dependencies.length !== 1 || !dependencies[0]?.startsWith("ref:")) {
+    return undefined;
+  }
+  const source = sqlWithoutComments(sql);
+  if (
+    (source.match(/\bselect\b/gi) ?? []).length !== 1 ||
+    hasRowReducingSql(source) ||
+    /\b(?:join|unnest|group\s+by|distinct|union|intersect|except|having|qualify|pivot|unpivot|over)\b/i.test(
+      source,
+    )
+  ) {
+    return undefined;
+  }
+  const selectList = finalSelectList(source);
+  if (!selectList) return undefined;
+  const projections = splitTopLevelSqlList(selectList).map(directProjection);
+  if (projections.some((projection) => !projection)) return undefined;
+  const columns = projections.map((projection) => projection!.inputColumn);
+  const modelName = safeIdentifier(dependencies[0].slice("ref:".length));
+  if (!modelName) return undefined;
+  if (columns.includes("*"))
+    return columns.length === 1 ? { modelName, columns: "*" } : undefined;
+  return { modelName, columns };
 }
 
 function isTestSql(relativePath: string): boolean {
@@ -2158,32 +2655,35 @@ function trackedEventParts(
   args: string[],
   constants: Map<string, string>,
   scanSummary: SourceIndexScanSummary,
-): { name: string; properties: string[] } | null {
+):
+  | { status: "resolved"; name: string; properties: string[] }
+  | { status: "unresolved" }
+  | { status: "unsafe" } {
   const first = args[0]?.trim();
-  if (!first) return null;
+  if (!first) return { status: "unresolved" };
   const firstLiteral = parseLiteral(first);
   if (firstLiteral !== null) {
     const name = safeEventName(firstLiteral);
     if (!name) {
       scanSummary.unsafeEntriesOmitted += 1;
-      return null;
+      return { status: "unsafe" };
     }
     const direct = objectMembers(args[1] ?? "{}", scanSummary).map(
       ({ key }) => key,
     );
-    return { name, properties: direct };
+    return { status: "resolved", name, properties: direct };
   }
   const constantName = constants.get(first);
-  if (constantName) {
+  if (constantName !== undefined) {
     const name = safeEventName(constantName);
     if (!name) {
       scanSummary.unsafeEntriesOmitted += 1;
-      return null;
+      return { status: "unsafe" };
     }
     const direct = objectMembers(args[1] ?? "{}", scanSummary).map(
       ({ key }) => key,
     );
-    return { name, properties: direct };
+    return { status: "resolved", name, properties: direct };
   }
 
   const object = objectMembers(first, scanSummary);
@@ -2191,10 +2691,13 @@ function trackedEventParts(
     ["event", "eventName", "name"].includes(key),
   );
   const rawName = eventMember ? parseLiteral(eventMember.value) : null;
-  const name = rawName ? safeEventName(rawName) : null;
+  const name = rawName !== null ? safeEventName(rawName) : null;
   if (!name) {
-    if (rawName) scanSummary.unsafeEntriesOmitted += 1;
-    return null;
+    if (rawName !== null) {
+      scanSummary.unsafeEntriesOmitted += 1;
+      return { status: "unsafe" };
+    }
+    return { status: "unresolved" };
   }
   const properties = new Set<string>();
   for (const member of object) {
@@ -2219,7 +2722,45 @@ function trackedEventParts(
       }
     }
   }
-  return { name, properties: [...properties] };
+  return { status: "resolved", name, properties: [...properties] };
+}
+
+function findCallClosingParen(code: string, openParen: number): number | null {
+  let depth = 1;
+  for (let index = openParen + 1; index < code.length; index += 1) {
+    if (code[index] === "(") depth += 1;
+    else if (code[index] === ")") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return null;
+}
+
+function isTrackingDeclaration(
+  code: string,
+  callStart: number,
+  openParen: number,
+  args: string[] | null,
+): boolean {
+  const prefix = code.slice(Math.max(0, callStart - 40), callStart);
+  if (/\bfunction(?:\s*\*)?\s*$/.test(prefix)) return true;
+
+  const firstParameter = args?.[0]?.trim();
+  if (
+    firstParameter &&
+    /^(?:\.\.\.)?[A-Za-z_$][A-Za-z0-9_$]*(?:\?|!)?\s*:\s*/.test(firstParameter)
+  ) {
+    return true;
+  }
+
+  const closingParen = findCallClosingParen(code, openParen);
+  if (closingParen === null) return false;
+  const suffix = code.slice(closingParen + 1);
+  return (
+    /^\s*(?::\s*[^{};\n]+)?\s*\{/.test(suffix) ||
+    /^\s*(?::\s*[^{};\n]+)?\s*=>/.test(suffix)
+  );
 }
 
 function extractCodeEvents(
@@ -2236,7 +2777,7 @@ function extractCodeEvents(
   for (const match of commentMask.matchAll(constantPattern)) {
     const name = match[1]!;
     const value = parseLiteral(`${match[2]}${match[3]}${match[2]}`);
-    if (value) constants.set(name, value);
+    if (value !== null) constants.set(name, value);
   }
 
   const objectVariables = new Map<string, string[]>();
@@ -2268,9 +2809,17 @@ function extractCodeEvents(
     const start = match.index ?? 0;
     const openParen = start + match[0].lastIndexOf("(");
     const args = callArguments(source, openParen);
-    if (!args) continue;
+    if (isTrackingDeclaration(codeMask, start, openParen, args)) continue;
+    if (!args) {
+      scanSummary.unresolvedTrackingCallSites += 1;
+      continue;
+    }
     const extracted = trackedEventParts(args, constants, scanSummary);
-    if (!extracted) continue;
+    if (extracted.status === "unresolved") {
+      scanSummary.unresolvedTrackingCallSites += 1;
+      continue;
+    }
+    if (extracted.status === "unsafe") continue;
     const properties = new Set(extracted.properties);
     const secondArgument = args[1]?.trim();
     if (secondArgument && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(secondArgument)) {
@@ -2307,6 +2856,98 @@ function mergeModels(
   return [...models.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function modelDeclaredGrain(model: ModelDoc | undefined): string | undefined {
+  if (!model) return undefined;
+  const uniqueGrain = model.grainHints[0];
+  const uniqueColumnKey = [...model.columns.values()].find(
+    (column) => column.tests.has("unique") && column.tests.has("not_null"),
+  )?.name;
+  const descriptionGrain = model.description?.match(
+    /\b(one\s+row\s+per\s+[^.;\n]{1,240}?)(?=(?:,\s+(?:which|with|and|where|but)\b)|[.;\n]|$)/i,
+  )?.[1];
+  return (
+    model.explicitGrain ??
+    (uniqueGrain?.length
+      ? `Unique key: ${uniqueGrain.join(", ")}`
+      : undefined) ??
+    (uniqueColumnKey ? `Unique key: ${uniqueColumnKey}` : undefined) ??
+    descriptionGrain?.replace(/\s+/g, " ").trim() ??
+    model.inferredGrain
+  );
+}
+
+function grainKeyCandidates(model: ModelDoc): string[][] {
+  if (model.explicitGrain) {
+    return model.columns.size ? [[...model.columns.keys()]] : [];
+  }
+  if (model.grainHints.length) return model.grainHints;
+  if (model.inferredGrainKeyCandidates?.length)
+    return model.inferredGrainKeyCandidates;
+
+  const uniqueColumn = [...model.columns.values()].find(
+    (column) => column.tests.has("unique") && column.tests.has("not_null"),
+  )?.name;
+  if (uniqueColumn) return [[uniqueColumn]];
+
+  const hasDescriptionGrain = Boolean(
+    model.description?.match(
+      /\b(one\s+row\s+per\s+[^.;\n]{1,240}?)(?=(?:,\s+(?:which|with|and|where|but)\b)|[.;\n]|$)/i,
+    ),
+  );
+  return (model.inferredGrain || hasDescriptionGrain) && model.columns.size
+    ? [[...model.columns.keys()]]
+    : [];
+}
+
+function preservesUpstreamGrain(
+  upstream: ModelDoc,
+  projectedColumns: string[] | "*",
+): boolean {
+  if (projectedColumns === "*") return true;
+  const projected = new Set(
+    projectedColumns.map((column) => column.toLowerCase()),
+  );
+  return grainKeyCandidates(upstream).some((candidate) =>
+    candidate.every((column) => projected.has(column.toLowerCase())),
+  );
+}
+
+function inheritPassThroughGrains(models: ModelDoc[]): void {
+  const byName = new Map(models.map((model) => [model.name, model]));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const model of models) {
+      if (
+        model.inferredGrain ||
+        model.explicitGrain ||
+        model.grainHints.length ||
+        [...model.columns.values()].some(
+          (column) =>
+            column.tests.has("unique") && column.tests.has("not_null"),
+        )
+      ) {
+        continue;
+      }
+      const upstream = model.passThroughModel
+        ? byName.get(model.passThroughModel)
+        : undefined;
+      const upstreamGrain = modelDeclaredGrain(upstream);
+      if (
+        !upstream ||
+        !upstreamGrain ||
+        !model.passThroughColumns ||
+        !preservesUpstreamGrain(upstream, model.passThroughColumns)
+      ) {
+        continue;
+      }
+      model.inferredGrain = `Same row grain as ${upstream.name}: ${upstreamGrain}`;
+      model.inferredGrainKeyCandidates = grainKeyCandidates(upstream);
+      changed = true;
+    }
+  }
+}
+
 function modelEntries(root: RootContext, model: ModelDoc): SourceIndexEntry[] {
   const columns = [...model.columns.values()].sort((a, b) =>
     a.name.localeCompare(b.name),
@@ -2322,6 +2963,7 @@ function modelEntries(root: RootContext, model: ModelDoc): SourceIndexEntry[] {
         "; ",
       )
     : undefined;
+  const declaredGrain = modelDeclaredGrain(model);
   const columnDefinitions = columns.map((column) => {
     const type = column.dataType ? ` (${column.dataType})` : "";
     const description = column.description ? `: ${column.description}` : "";
@@ -2355,6 +2997,7 @@ function modelEntries(root: RootContext, model: ModelDoc): SourceIndexEntry[] {
         `${model.name} ${model.description ?? ""}`,
       ),
       table: model.name,
+      ...(declaredGrain ? { grain: declaredGrain } : {}),
       ...(columnsUsed ? { columnsUsed } : {}),
       ...(dependencies.length
         ? { dependencies: boundedList(dependencies, 4_000, "; ") }
@@ -2376,6 +3019,54 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
   const fingerprint = createHash("sha256");
   const budget = { bytes: 0 };
   const scanSummary = emptyScanSummary();
+  const dbtDocBlocks = new Map<string, string | null>();
+  const docReferences = new Set<string>();
+  const yamlByPath = new Map<string, string>();
+  for (const file of files) {
+    const extension = path.extname(file.absolutePath).toLowerCase();
+    if (extension !== ".yml" && extension !== ".yaml") continue;
+    const yaml = await readSourceFile(file, budget);
+    yamlByPath.set(file.absolutePath, yaml);
+    for (const name of referencedDbtDocNames(yaml)) docReferences.add(name);
+  }
+
+  const markdownSizes = new Map<string, number>();
+  const sqlSizes = new Map<string, number>();
+  for (const file of files) {
+    const extension = path.extname(file.absolutePath).toLowerCase();
+    if (extension === ".md" && docReferences.size) {
+      const size = await sourceFileSize(file);
+      accountSourceBytes(size, budget);
+      markdownSizes.set(file.absolutePath, size);
+    } else if (extension === ".sql") {
+      const size = await sourceFileSize(file);
+      accountSourceBytes(size, budget);
+      sqlSizes.set(file.absolutePath, size);
+    }
+  }
+
+  for (const file of files) {
+    const markdownSize = markdownSizes.get(file.absolutePath);
+    if (markdownSize === undefined) continue;
+    if (markdownSize > MAX_FILE_BYTES) {
+      if (await containsReferencedDbtDocBlock(file, docReferences)) {
+        codedError(
+          "file_limit_exceeded",
+          "A referenced dbt documentation file exceeds the safe index size limit.",
+        );
+      }
+      continue;
+    }
+    const markdown = await readSourceFile(file, budget, markdownSize);
+    const parsedBlocks = parseDbtDocBlocks(markdown);
+    if (![...parsedBlocks.keys()].some((name) => docReferences.has(name))) {
+      continue;
+    }
+    hashFile(fingerprint, file, markdown);
+    for (const [name, description] of parsedBlocks) {
+      dbtDocBlocks.set(name, dbtDocBlocks.has(name) ? null : description);
+    }
+  }
   for (const file of files) {
     const extension = path.extname(file.absolutePath).toLowerCase();
     const relativePath = safeRelativePath(
@@ -2384,17 +3075,25 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
       scanSummary,
     );
     if (extension === ".yml" || extension === ".yaml") {
-      const docsRaw = await readSourceFile(file, budget);
+      const docsRaw = yamlByPath.get(file.absolutePath);
+      if (docsRaw === undefined) {
+        codedError("file_unreadable", "A source file could not be read.");
+      }
       hashFile(fingerprint, file, docsRaw);
-      docs.push(...parseSchemaYaml(docsRaw, relativePath, scanSummary));
-      docs.push(...parseEmbeddedSemanticYaml(docsRaw, relativePath));
+      const resolvedDocs = resolveDbtDocReferences(docsRaw, dbtDocBlocks);
+      docs.push(...parseSchemaYaml(resolvedDocs, relativePath, scanSummary));
+      docs.push(...parseEmbeddedSemanticYaml(resolvedDocs, relativePath));
       semanticYamlItems.push(
-        ...parseSemanticYamlItems(docsRaw, relativePath, scanSummary),
+        ...parseSemanticYamlItems(resolvedDocs, relativePath, scanSummary),
       );
       continue;
     }
     if (extension !== ".sql") continue;
-    const sql = await readSourceFile(file, budget);
+    const sqlSize = sqlSizes.get(file.absolutePath);
+    if (sqlSize === undefined) {
+      codedError("file_unreadable", "A source file could not be read.");
+    }
+    const sql = await readSourceFile(file, budget, sqlSize);
     hashFile(fingerprint, file, sql);
     const dependencies = extractSqlDependencies(sql);
     if (isTestSql(file.relativePath)) {
@@ -2432,17 +3131,30 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
       scanSummary.unsafeEntriesOmitted += 1;
       continue;
     }
+    const inferredGrain = inferUnnestedMembershipGrain(sql, modelName);
+    const passThrough = extractPassThroughModel(sql, dependencies);
     const model: ModelDoc = {
       name: modelName,
       ...(relativePath ? { sourcePath: relativePath } : {}),
       columns: new Map(),
       tests: new Set(),
       dependencies: new Set(dependencies),
-      grainHints: extractUniqueKey(sql),
+      grainHints: [],
+      ...(inferredGrain ? { inferredGrain } : {}),
+      ...(inferredGrain
+        ? { inferredGrainKeyCandidates: [["user_id", "organization_id"]] }
+        : {}),
+      ...(passThrough
+        ? {
+            passThroughModel: passThrough.modelName,
+            passThroughColumns: passThrough.columns,
+          }
+        : {}),
     };
     sqlModels.push(model);
   }
   const mergedModels = mergeModels(root, docs, sqlModels);
+  inheritPassThroughGrains(mergedModels);
   return {
     entries: [
       ...mergedModels.flatMap((model) => modelEntries(root, model)),
@@ -2733,12 +3445,14 @@ export async function compileSourceIndex(
       "Each dbt root must have Git commit metadata so generatedAt is reproducible.",
     );
   }
-  entries.sort((a, b) => a.id.localeCompare(b.id));
+  const indexedEntries = entries
+    .map((entry) => ({ ...entry, status: entry.status ?? "active" }))
+    .sort((a, b) => a.id.localeCompare(b.id));
   const bundle: SourceIndexBundle = {
     schemaVersion: SCHEMA_VERSION,
     generatedAt,
     sources,
-    entries,
+    entries: indexedEntries,
     scanSummary,
   };
   const validated = sourceIndexBundleSchema.safeParse(bundle);

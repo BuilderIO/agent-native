@@ -89,6 +89,31 @@ describe("list-recording-context", () => {
     expect(removedOnly.items).toEqual([]);
   });
 
+  it("returns each item's capturedDeviceId, null when no device captured it", async () => {
+    await seedRecording(client, { id: "rec_2" });
+    mocks.roles = { rec_1: "viewer", rec_2: "viewer" };
+    await seedContextItem(client, {
+      id: "from_device",
+      capturedDeviceId: "dev_a",
+    });
+    await seedContextItem(client, {
+      id: "from_web",
+      recordingId: "rec_2",
+    });
+
+    const fromDevice = await action.run({ recordingId: "rec_1" });
+    expect(fromDevice.items[0]).toMatchObject({
+      id: "from_device",
+      capturedDeviceId: "dev_a",
+    });
+
+    const fromWeb = await action.run({ recordingId: "rec_2" });
+    expect(fromWeb.items[0]).toMatchObject({
+      id: "from_web",
+      capturedDeviceId: null,
+    });
+  });
+
   it("returns an empty list when the Clip has no context", async () => {
     await expect(action.run({ recordingId: "rec_1" })).resolves.toEqual({
       items: [],

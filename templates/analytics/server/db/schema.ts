@@ -748,6 +748,30 @@ export const analyticsDbAdminConnections = table(
   }),
 );
 
+export const sourceIndexRuns = table(
+  "source_index_runs",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    status: text("status", {
+      enum: ["running", "succeeded", "failed"],
+    }).notNull(),
+    trigger: text("trigger", { enum: ["manual", "scheduled"] }).notNull(),
+    startedAt: text("started_at").notNull(),
+    finishedAt: text("finished_at"),
+    entryCount: integer("entry_count"),
+    sourceRevisions: text("source_revisions").notNull().default("{}"),
+    error: text("error"),
+    createdByEmail: text("created_by_email"),
+  },
+  (run) => ({
+    orgStartedIdx: index("source_index_runs_org_started_idx").on(
+      run.orgId,
+      run.startedAt,
+    ),
+  }),
+);
+
 export const sessionRecordings = table(
   "session_recordings",
   {

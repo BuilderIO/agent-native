@@ -13,6 +13,7 @@ import {
   semanticScopeForSearch,
   searchTerms,
   decodeSearchCursor,
+  unrelatedNameTerms,
 } from "./analytics-term-matcher";
 export { relevanceTerms, searchTerms } from "./analytics-term-matcher";
 
@@ -29,6 +30,7 @@ import {
   type DashboardReferenceRecord,
   type DashboardSummaryRecord,
 } from "./dashboards-store";
+import { mergeDataDictionaryEntry } from "./data-dictionary-overlays";
 import {
   readSourceIndex,
   sourceIndexDictionaryEntries,
@@ -67,6 +69,12 @@ function sourceEntryType(
     : undefined;
 }
 
+function sourceEntryStatus(
+  value: unknown,
+): "active" | "deprecated" | undefined {
+  return value === "active" || value === "deprecated" ? value : undefined;
+}
+
 function isRetiredCatalogReference(value: Record<string, unknown>): boolean {
   if (value.deprecated === true) return true;
   return [value.status, value.lifecycle, value.state].some(
@@ -82,6 +90,7 @@ export type AnalyticsQueryCatalogCandidate =
       origin: "saved-dashboard" | "dashboard-template";
       score: number;
       matchedTerms: string[];
+      exactMatchedTerms?: string[];
       dashboardId: string;
       dashboardTitle: string;
       dashboardDescription?: string;
@@ -100,6 +109,7 @@ export type AnalyticsQueryCatalogCandidate =
       origin: "data-dictionary" | "source-index";
       score: number;
       matchedTerms: string[];
+      exactMatchedTerms?: string[];
       id: string;
       metric: string;
       definition?: string;
@@ -121,6 +131,7 @@ export type AnalyticsQueryCatalogCandidate =
       aiGenerated?: boolean;
       sourceKind?: "dbt" | "code" | "sigma";
       entryType?: "model" | "event" | "semantic_model" | "metric";
+      status?: "active" | "deprecated";
       grain?: string;
       primaryEntity?: string;
       timeDimension?: string;
@@ -151,6 +162,19 @@ export type AnalyticsQueryCatalogSearchResult = {
   searchedDictionaryEntryCount: number;
   dictionarySearchTruncated: boolean;
   dictionarySearchStatus: "available" | "partial" | "unavailable";
+  sourceIndexStatus: "not-configured" | "unavailable" | "invalid" | "available";
+};
+
+export type AnalyticsDictionarySearchResult = {
+  candidates: AnalyticsQueryCatalogCandidate[];
+  searched: number;
+  of: number;
+  truncated: boolean;
+  nextPage: string | null;
+  searchedDictionaryEntryCount: number;
+  dictionarySearchTruncated: boolean;
+  dictionarySearchStatus: "available" | "partial" | "unavailable";
+  sourceIndexStatus: "not-configured" | "unavailable" | "invalid" | "available";
 };
 
 function text(value: unknown): string {
@@ -328,7 +352,11 @@ function dashboardPanelCandidates(args: {
         : {};
     const panelTitle = text(panel.title) || text(panel.id);
     const panelDescription = text(panelConfig.description);
-    const { score: rawScore, matchedTerms } = matchScore(args.search, [
+    const {
+      score: rawScore,
+      matchedTerms,
+      exactMatchedTerms,
+    } = matchScore(args.search, [
       { value: panelTitle, weight: 24 },
       { value: panelDescription, weight: 12 },
       { value: args.dashboardTitle, weight: 10 },
@@ -344,16 +372,25 @@ function dashboardPanelCandidates(args: {
       },
     ]);
     const requestedTerms = new Set(searchTerms(args.search));
-    const unmatchedTitleTerms = searchTerms(panelTitle).filter(
-      (term) => !requestedTerms.has(term),
-    ).length;
-    const titleSpecificityPenalty = Math.min(unmatchedTitleTerms, 4) * 4;
     const titleMatchedTerms = matchScore(args.search, [
       { value: panelTitle, weight: 1 },
     ]).matchedTerms;
     const strongTitleTerms = titleMatchedTerms.filter(
       (term) => !LOW_INFORMATION_TERMS.has(term),
     ).length;
+    const dashboardTitleMatchedTerms = matchScore(args.search, [
+      { value: args.dashboardTitle, weight: 1 },
+    ]).matchedTerms;
+    const titleSpecificityPenalty =
+      (titleMatchedTerms.length
+        ? Math.min(unrelatedNameTerms(args.search, panelTitle).length, 4) * 12
+        : 0) +
+      (dashboardTitleMatchedTerms.length
+        ? Math.min(
+            unrelatedNameTerms(args.search, args.dashboardTitle).length,
+            4,
+          ) * 4
+        : 0);
     const titleIsOnTopic =
       requestedTerms.size > 0 &&
       (strongTitleTerms >= 2 ||
@@ -369,13 +406,16 @@ function dashboardPanelCandidates(args: {
       titleSpecificityPenalty -
       missingQueryPenalty +
       aggregateIntent;
-    if (relevanceScore <= 0) return [];
+    if (rawScore <= 0) return [];
+    const adjustedRelevanceScore = Math.max(1, relevanceScore);
     const dashboardCertified = Boolean(
       args.dashboardUpdatedAt &&
       isDashboardCertified(args.certification, args.dashboardUpdatedAt),
     );
     const score =
-      relevanceScore + (dashboardCertified ? 60 : 0) + (args.favorite ? 20 : 0);
+      adjustedRelevanceScore +
+      (dashboardCertified ? 60 : 0) +
+      (args.favorite ? 20 : 0);
 
     return [
       {
@@ -383,6 +423,7 @@ function dashboardPanelCandidates(args: {
         origin: args.origin,
         score,
         matchedTerms,
+        exactMatchedTerms,
         dashboardId: args.dashboardId,
         dashboardTitle: args.dashboardTitle,
         ...(args.dashboardDescription
@@ -412,7 +453,11 @@ function dictionaryCandidates(
 ): AnalyticsQueryCatalogCandidate[] {
   const candidates = entries.flatMap((entry) => {
     if (isRetiredCatalogReference(entry)) return [];
-    const { score: rawScore, matchedTerms } = matchScore(search, [
+    const {
+      score: rawScore,
+      matchedTerms,
+      exactMatchedTerms,
+    } = matchScore(search, [
       { value: entry.metric, weight: 28 },
       { value: entry.commonQuestions, weight: 16 },
       { value: entry.definition, weight: 12 },
@@ -428,7 +473,20 @@ function dictionaryCandidates(
       { value: entry.semanticModel, weight: 8 },
       { value: entry.owner, weight: 3 },
     ]);
-    if (!rawScore) return [];
+    const metricMatch = matchScore(search, [
+      { value: entry.metric, weight: 1 },
+    ]);
+    const requestedTerms = searchTerms(search);
+    const exactSingleTermMetricMatch =
+      requestedTerms.length === 1 &&
+      metricMatch.exactMatchedTerms.includes(requestedTerms[0] ?? "");
+    const metricNamePenalty =
+      metricMatch.matchedTerms.length && !exactSingleTermMetricMatch
+        ? Math.min(unrelatedNameTerms(search, text(entry.metric)).length, 4) *
+          12
+        : 0;
+    if (rawScore <= 0) return [];
+    const score = Math.max(1, rawScore - metricNamePenalty);
     const isSourceIndex = entry.sourceIndex === true;
     const declaredScope = text(entry.semanticScope);
     const semanticScope =
@@ -441,9 +499,7 @@ function dictionaryCandidates(
           );
     const entrySourceKind = sourceKind(entry.sourceKind);
     const entryType = sourceEntryType(entry.entryType);
-    const score = rawScore;
-    if (!score) return [];
-
+    const status = sourceEntryStatus(entry.status);
     const id = text(entry.id);
     const metric = text(entry.metric);
     if (!id || !metric) return [];
@@ -455,6 +511,7 @@ function dictionaryCandidates(
           : ("data-dictionary" as const),
         score: score + (entry.approved === true ? 12 : 0),
         matchedTerms,
+        exactMatchedTerms,
         id,
         metric,
         ...(text(entry.definition)
@@ -498,6 +555,7 @@ function dictionaryCandidates(
           : {}),
         ...(entrySourceKind ? { sourceKind: entrySourceKind } : {}),
         ...(entryType ? { entryType } : {}),
+        ...(status ? { status } : {}),
         ...(text(entry.grain) ? { grain: text(entry.grain) } : {}),
         ...(text(entry.primaryEntity)
           ? { primaryEntity: text(entry.primaryEntity) }
@@ -547,6 +605,12 @@ function candidateIsRunnable(
   return candidate.kind === "dashboard-panel"
     ? Boolean(candidate.query)
     : Boolean(candidate.queryTemplate);
+}
+
+function candidateExactMatchedTerms(
+  candidate: AnalyticsQueryCatalogCandidate,
+): string[] {
+  return candidate.exactMatchedTerms ?? [];
 }
 
 function candidateDedupeKey(candidate: AnalyticsQueryCatalogCandidate): string {
@@ -614,7 +678,9 @@ export function rankAnalyticsQueryCatalogPage(args: {
   const requestedTerms = new Set(searchTerms(args.search));
   const hasExactQueryCoverage = (candidate: AnalyticsQueryCatalogCandidate) =>
     requestedTerms.size > 0 &&
-    [...requestedTerms].every((term) => candidate.matchedTerms.includes(term));
+    [...requestedTerms].every((term) =>
+      candidateExactMatchedTerms(candidate).includes(term),
+    );
   const hasFullQueryCoverage = (candidate: AnalyticsQueryCatalogCandidate) =>
     requestedTerms.size > 1 && hasExactQueryCoverage(candidate);
   // Strong definitions and proven panels outrank generic hits before coverage.
@@ -641,7 +707,7 @@ export function rankAnalyticsQueryCatalogPage(args: {
           ? 1
           : 0,
     coverage:
-      candidate.matchedTerms.length +
+      candidateExactMatchedTerms(candidate).length +
       (candidate.kind === "dashboard-panel" && candidate.dashboardCertified
         ? 1
         : 0),
@@ -731,15 +797,23 @@ async function listDictionaryEntries(args: {
   searchedEntryCount: number;
   truncated: boolean;
   status: "available" | "partial" | "unavailable";
+  sourceIndexStatus: "not-configured" | "unavailable" | "invalid" | "available";
 }> {
   const entries: DictionaryEntry[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, number>();
   const collect = (raw: unknown) => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
     const entry = raw as DictionaryEntry;
     const id = text(entry.id);
-    if (!id || seen.has(id)) return;
-    seen.add(id);
+    if (!id) return;
+    const existingIndex = seen.get(id);
+    if (existingIndex !== undefined) {
+      const existing = entries[existingIndex];
+      if (existing)
+        entries[existingIndex] = mergeDataDictionaryEntry(existing, entry);
+      return;
+    }
+    seen.set(id, entries.length);
     entries.push(entry);
   };
 
@@ -783,7 +857,13 @@ async function listDictionaryEntries(args: {
     );
   }
   let sourceIndexUnavailable = false;
+  let sourceIndexStatus:
+    | "not-configured"
+    | "unavailable"
+    | "invalid"
+    | "available" = "unavailable";
   if (sourceIndexResult.status === "fulfilled") {
+    sourceIndexStatus = sourceIndexResult.value.status;
     if (sourceIndexResult.value.status === "available") {
       for (const entry of sourceIndexDictionaryEntries(
         sourceIndexResult.value.bundle,
@@ -801,6 +881,7 @@ async function listDictionaryEntries(args: {
     }
   } else {
     sourceIndexUnavailable = true;
+    sourceIndexStatus = "unavailable";
     console.warn(
       "[analytics-query-catalog] Organization source index lookup failed.",
     );
@@ -830,6 +911,45 @@ async function listDictionaryEntries(args: {
         : availableScopes > 0
           ? "partial"
           : "unavailable",
+    sourceIndexStatus,
+  };
+}
+
+export async function searchAnalyticsDictionaryCatalog(args: {
+  search: string;
+  email: string;
+  orgId: string | null;
+  limit: number;
+  nextPage?: string;
+  offset?: number;
+  signal?: AbortSignal;
+}): Promise<AnalyticsDictionarySearchResult> {
+  args.signal?.throwIfAborted();
+  const dictionary = await listDictionaryEntries({
+    email: args.email,
+    orgId: args.orgId,
+  });
+  args.signal?.throwIfAborted();
+  const page = rankAnalyticsQueryCatalogPage({
+    search: args.search,
+    dashboards: [],
+    dictionaryEntries: dictionary.entries,
+    limit: args.limit,
+    offset: args.nextPage
+      ? decodeSearchCursor(args.search, args.nextPage)
+      : args.offset,
+  });
+  return {
+    ...page,
+    searched: dictionary.searchedEntryCount,
+    truncated:
+      page.truncated ||
+      dictionary.truncated ||
+      dictionary.status !== "available",
+    searchedDictionaryEntryCount: dictionary.searchedEntryCount,
+    dictionarySearchTruncated: dictionary.truncated,
+    dictionarySearchStatus: dictionary.status,
+    sourceIndexStatus: dictionary.sourceIndexStatus,
   };
 }
 
@@ -1130,5 +1250,9 @@ export async function searchAnalyticsQueryCatalog(args: {
     searchedDictionaryEntryCount,
     dictionarySearchTruncated,
     dictionarySearchStatus,
+    sourceIndexStatus:
+      dictionaryResult.status === "fulfilled"
+        ? dictionaryResult.value.sourceIndexStatus
+        : "unavailable",
   };
 }

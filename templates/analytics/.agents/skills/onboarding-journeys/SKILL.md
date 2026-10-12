@@ -29,6 +29,15 @@ The pipeline runs without a UI. Codex does all four steps from the terminal:
 
 ## The tree
 
+`estimate-onboarding-journey-cost` dry-runs the same access-scoped BigQuery
+event-page SQL as `get-onboarding-journey`. Pass matching dates, app,
+email filter, follow-up mode, and event row budget. It returns estimated bytes
+per possible page, their sum in `possiblePagesEstimatedBytes`, the unchanged
+per-query cap, and `within_cap` or `over_cap`. Page two is estimated when the
+row budget permits it; production reads it only when page one fills. The sum
+is a possible-pages estimate, not executed or billed bytes. Data-dependent
+follow-up queries are excluded. An unavailable estimate fails explicitly.
+
 `get-onboarding-journey` returns `JourneyTree`; `format: "summary"` returns the
 same event-derived journey and follow-up counts as an indented `outline` with no
 examples. Summaries skip replay reads, so `coverage.sessionsWithReplay` is

@@ -228,7 +228,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "Diseños",
+    home: "Inicio",
     templates: "Plantillas",
     designSystems: "Sistemas de diseño",
     setupDesignSystem: "Configurar sistema de diseño",
@@ -251,6 +251,9 @@ export default {
     labDesignReviewTools: "Herramientas de revisión de diseños",
     labDesignReviewToolsDescription:
       "Comprueba si tus diseños tienen problemas de accesibilidad y compara los cambios visuales.",
+    labMotion: "Movimiento",
+    labMotionDescription:
+      "Crea y edita animaciones con fotogramas clave en tus diseños.",
     mcpAbout:
       "Conecta Design con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en Design por ti: crear diseños y editarlos. Solo ve lo que tú puedes ver.",
   },
@@ -780,7 +783,7 @@ export default {
       needsConnectedApp: "Saltar al código fuente requiere una app conectada",
     },
     leftRail: {
-      file: "Archivo",
+      layers: "Capas",
       agent: "Agentes",
       assets: "Recursos",
       import: "Importar",
@@ -825,6 +828,7 @@ export default {
       exit: "Salir de la vista previa adaptable",
     },
     motion: {
+      openDock: "Movimiento",
       dockLabel: "Panel de movimiento",
       collapseDock: "Contraer panel de movimiento",
       play: "Reproducir",
@@ -1087,7 +1091,7 @@ export default {
     fileMenu: {
       pendingEditsBlocked:
         "Aplica o descarta tus ediciones visuales pendientes antes de duplicar.",
-      designs: "Diseños",
+      allDesigns: "Todos los diseños",
       rename: "Renombrar",
       duplicate: "Duplicar",
       versionHistory: "Historial de versiones",
@@ -1721,9 +1725,11 @@ export default {
     assetsNoImageUrl: "Assets no devolvió una URL de imagen.",
     failedToUploadFile: "No se pudo cargar el archivo",
     imageAttachmentUnavailable:
-      "No se pudo preparar esta imagen como referencia visual. Adjunta un archivo PNG, JPG, GIF o WebP más pequeño.",
+      "No se pudo preparar esta imagen para subirla. Prueba con una imagen JPG, PNG, GIF o WebP.",
+    imageAttachmentTooLarge:
+      "Cada imagen puede ocupar hasta {{perFile}} MB, con un máximo total de {{total}} MB para las imágenes.",
     attachmentsTooLarge:
-      "Esos adjuntos son demasiado grandes. Las subidas están limitadas a {{max}} MB en total: adjunta menos archivos o más pequeños.",
+      "Las imágenes se optimizan automáticamente. El total de imágenes optimizadas y otros archivos no puede superar {{max}} MB.",
     failedToSubmitPrompt: "No se pudo enviar el prompt",
     skipPrompt: "Omitir prompt",
     startBlankCanvas: "Empezar con un lienzo en blanco",
@@ -1885,7 +1891,7 @@ export default {
     browseAllTemplates: "Ver todo",
     connectBuilderIo: "Usar Builder.io",
     connectingBuilder: "Configurando Builder.io…",
-    pageTitle: "Design",
+    pageTitle: "Inicio",
     searchPlaceholder: "Buscar diseños...",
     newDesign: "Nuevo Design",
     newDesignLower: "Nuevo diseño",

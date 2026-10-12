@@ -228,7 +228,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "Designs",
+    home: "Início",
     templates: "Modelos",
     designSystems: "Sistemas de design",
     setupDesignSystem: "Configurar sistema de design",
@@ -251,6 +251,9 @@ export default {
     labDesignReviewTools: "Ferramentas de revisão de design",
     labDesignReviewToolsDescription:
       "Verifique problemas de acessibilidade nos seus designs e compare alterações visuais.",
+    labMotion: "Movimento",
+    labMotionDescription:
+      "Crie e edite animações com quadros-chave nos seus designs.",
     mcpAbout:
       "Conecte o Design ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar no Design por você: criar designs e editá-los. Ele só vê o que você pode ver.",
   },
@@ -777,7 +780,7 @@ export default {
       needsConnectedApp: "Ir para o código-fonte exige um aplicativo conectado",
     },
     leftRail: {
-      file: "Arquivo",
+      layers: "Camadas",
       agent: "Agentes",
       assets: "Recursos",
       import: "Importar",
@@ -822,6 +825,7 @@ export default {
       exit: "Sair da visualização responsiva",
     },
     motion: {
+      openDock: "Movimento",
       dockLabel: "Painel de movimento",
       collapseDock: "Recolher painel de movimento",
       play: "Reproduzir",
@@ -1085,7 +1089,7 @@ export default {
     fileMenu: {
       pendingEditsBlocked:
         "Aplique ou descarte suas edições visuais pendentes antes de duplicar.",
-      designs: "Designs",
+      allDesigns: "Todos os designs",
       rename: "Renomear",
       duplicate: "Duplicar",
       versionHistory: "Histórico de versões",
@@ -1719,9 +1723,11 @@ export default {
     assetsNoImageUrl: "Assets não retornou uma URL de imagem.",
     failedToUploadFile: "Falha ao carregar o arquivo",
     imageAttachmentUnavailable:
-      "Não foi possível preparar esta imagem como referência visual. Anexe um arquivo PNG, JPG, GIF ou WebP menor.",
+      "Não foi possível preparar esta imagem para envio. Tente uma imagem JPG, PNG, GIF ou WebP.",
+    imageAttachmentTooLarge:
+      "Cada imagem pode ter até {{perFile}} MB, com um total máximo de {{total}} MB para imagens.",
     attachmentsTooLarge:
-      "Esses anexos são grandes demais. Os envios são limitados a {{max}} MB no total — anexe menos arquivos ou arquivos menores.",
+      "As imagens são otimizadas automaticamente. O total das imagens otimizadas e dos outros arquivos não pode passar de {{max}} MB.",
     failedToSubmitPrompt: "Não foi possível enviar o prompt",
     skipPrompt: "Pular prompt",
     startBlankCanvas: "Começar com uma tela em branco",
@@ -1883,7 +1889,7 @@ export default {
     browseAllTemplates: "Ver todos",
     connectBuilderIo: "Usar Builder.io",
     connectingBuilder: "Configurando o Builder.io…",
-    pageTitle: "Designs",
+    pageTitle: "Início",
     searchPlaceholder: "Pesquisar desenhos...",
     newDesign: "Novo Design",
     newDesignLower: "Novo design",

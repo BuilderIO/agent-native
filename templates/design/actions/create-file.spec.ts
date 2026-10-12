@@ -1035,6 +1035,10 @@ describe("create-file: canvas placement and landing URL", () => {
     });
 
     expect(result.renderable).toBe(false);
+    expect(mocks.seedFromText).toHaveBeenCalledWith(
+      result.id,
+      "opaque asset bytes",
+    );
     expect(mocks.track).not.toHaveBeenCalled();
   });
 

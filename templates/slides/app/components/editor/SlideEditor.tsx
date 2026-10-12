@@ -12,7 +12,6 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs";
-import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import { hasCrossedCanvasDragThreshold } from "@agent-native/toolkit/canvas-interactions";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
@@ -92,11 +91,11 @@ import {
   registerInlineEditRemoteApplier,
   requestInlineEditRemoteRetry,
 } from "@/lib/inline-edit-remote";
+import { revealsAfterDelete } from "@/lib/reveal-after-delete";
 import { publishSlidesSelection } from "@/lib/slide-agent-context";
 import {
   getElementPreview,
-  getPersistedElementPath,
-  resolveElementPath,
+  storedPathOfRenderedElement,
   type SelectedAnimationTarget,
 } from "@/lib/slide-animation-elements";
 import {
@@ -126,7 +125,10 @@ import {
   type VideoPlaybackSettings,
 } from "@/lib/slide-video";
 import { TAB_ID } from "@/lib/tab-id";
-import type { UndoSelectionRequest } from "@/lib/undo-reveal";
+import {
+  renderedElementForStoredPath,
+  type UndoSelectionRequest,
+} from "@/lib/undo-reveal";
 import { shortcutLabel } from "@/lib/utils";
 import { enterSelectionMode } from "@/root";
 
@@ -149,7 +151,6 @@ import {
   type SlideShapeType,
 } from "./EditorActionCluster";
 import { hasInlineHeight } from "./fit-text-object";
-import { FollowingSlideStack } from "./FollowingSlideStack";
 import ImageCropOverlay, {
   writeImageCropPercentGeometry,
 } from "./ImageCropOverlay";
@@ -326,6 +327,13 @@ import {
 } from "./slide-text-targets";
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
+import {
+  SLIDE_SCROLL_CONTAINER_CLASS,
+  SLIDE_SCROLL_TRACK_CLASS,
+  type SlideScroll,
+  SlideScrollPreviews,
+  useSlideScrollFollow,
+} from "./SlideScrollStack";
 import { SlideSlashCommandMenu } from "./SlideSlashCommandMenu";
 import {
   SlidesLayersPanel,
@@ -1121,12 +1129,9 @@ interface SlideEditorProps {
   comments?: CommentThread[];
   /** Opens the thread anchored to text the user clicked on the canvas. */
   onSelectCommentThread?: (threadId: string) => void;
-  /** MCP App widget only: every slide in the deck. The ones after this one are
-   *  stacked below it at the same width so a slide shorter than the pane is
-   *  followed by the next ones instead of an empty band. */
-  deckSlides?: readonly Slide[];
-  /** Makes a clicked following slide the current slide. */
-  onSelectFollowingSlide?: (slideId: string) => void;
+  /** With no room for the slide rail: the deck's slides, scrolled through as
+   *  one column with this slide's editor in its place among them. */
+  slideScroll?: SlideScroll;
   /** Objects the last Undo/Redo changed; selected once the slide shows them. */
   undoSelection?: UndoSelectionRequest | null;
   /** The editor is done with `undoSelection` (applied or not applicable). */
@@ -1731,8 +1736,6 @@ export default function SlideEditor({
   onToggleObjectFit,
   onChangeObjectPosition,
   agentActive,
-  deckSlides,
-  onSelectFollowingSlide,
   undoSelection,
   onUndoSelectionConsumed,
   slideIndex = 0,
@@ -1756,6 +1759,7 @@ export default function SlideEditor({
   slideId,
   comments = [],
   onSelectCommentThread,
+  slideScroll,
   deckId,
   onInlineEditStart,
   onInlineEditEnd,
@@ -1766,9 +1770,6 @@ export default function SlideEditor({
   onComment,
 }: SlideEditorProps) {
   const t = useT();
-  // The host pane owns every surface around the slide, so the widget shows the
-  // slide alone: top-aligned, filling the width, with no toolbar rows or notes.
-  const widgetEmbed = useIsMcpAppWidgetEmbed();
   const layoutOverflowWarningEnabled = useLabState(
     SLIDES_LAYOUT_OVERFLOW_WARNING.key,
   ).enabled;
@@ -1984,9 +1985,17 @@ export default function SlideEditor({
   }, [onUpdateSlide, slide.id]);
   const dims = getAspectRatioDims(aspectRatio);
   const [, setFitCanvasZoom] = useState(100);
+  const stacked = slideScroll !== undefined;
   const userSetCanvasZoomRef = useRef(false);
   const canvasWidth = Math.round(dims.width * (canvasZoom / 100));
   const canvasTrackRef = useRef<HTMLDivElement>(null);
+  useSlideScrollFollow({
+    scroll: slideScroll,
+    currentSlideId: slide.id,
+    width: canvasWidth,
+    scrollContainerRef,
+    currentSlideRef: containerRef,
+  });
   const setManualCanvasZoom = useCallback((next: number) => {
     userSetCanvasZoomRef.current = true;
     setCanvasZoom(Math.round(next));
@@ -2057,12 +2066,12 @@ export default function SlideEditor({
         (parseFloat(trackStyle?.paddingBottom ?? "0") || 0);
       const nextFitZoom = computeCanvasFitZoom({
         viewportWidth: scrollContainer.clientWidth,
-        viewportHeight: scrollContainer.clientHeight,
+        // Slides that scroll fit the pane's width; its height only bounds one.
+        viewportHeight: stacked ? undefined : scrollContainer.clientHeight,
         canvasWidth: dims.width,
         canvasHeight: dims.height,
         horizontalPadding,
         verticalPadding,
-        fillViewport: widgetEmbed,
       });
 
       setFitCanvasZoom(nextFitZoom);
@@ -2090,14 +2099,7 @@ export default function SlideEditor({
       observer?.disconnect();
       window.removeEventListener("resize", scheduleUpdate);
     };
-  }, [dims.width, dims.height, widgetEmbed]);
-
-  // The widget scrolls through the slides that follow this one, so a newly
-  // selected slide starts at the top of the pane.
-  useEffect(() => {
-    const scrollContainer = scrollContainerRef.current;
-    if (widgetEmbed && scrollContainer) scrollContainer.scrollTop = 0;
-  }, [slide.id, widgetEmbed]);
+  }, [dims.width, dims.height, stacked]);
 
   // Reset overflow state whenever the slide changes — the renderer will
   // report the next measurement (or stay null if the new slide fits). The
@@ -2892,10 +2894,14 @@ export default function SlideEditor({
   const getSelectedAnimationTarget =
     useCallback((): SelectedAnimationTarget | null => {
       const element = selectedImg ?? resolveSelectedElement();
-      const root = element?.closest<HTMLElement>(".fmd-slide");
-      if (!element || !root) return null;
-      const elementPath = getPersistedElementPath(root, element);
-      if (!elementPath || elementPath.length === 0) return null;
+      const scope = element?.closest<HTMLElement>("[data-slide-content-scope]");
+      const stored = scope ? getRenderedSlideSource(scope)?.stored : undefined;
+      if (!element || stored === undefined) return null;
+      // The path is taken from the stored HTML, the one playback resolves
+      // against. The rendered DOM drops svg and similar elements, so its
+      // indices would point at the wrong object at runtime.
+      const elementPath = storedPathOfRenderedElement(stored, element);
+      if (!elementPath) return null;
       const elementIndex = elementPath[elementPath.length - 1] ?? 0;
       return {
         elementIndex,
@@ -4180,13 +4186,16 @@ export default function SlideEditor({
     }
     appliedUndoSelectionRef.current = undoSelection.sequence;
     onUndoSelectionConsumed?.();
-    const root = slideContent.querySelector(".fmd-slide");
+    // Target paths are stored-HTML paths; the canvas drops svg and similar
+    // elements, so its own child indices would select the wrong object.
+    const stored = getRenderedSlideSource(slideContent)?.stored;
     const elements = undoSelection.targets
       .map(
         (target) =>
           (target.objectId &&
             findSlideObjectById(slideContent, target.objectId)) ||
-          (root && resolveElementPath(root, target.path)),
+          (stored !== undefined &&
+            renderedElementForStoredPath(slideContent, stored, target.path)),
       )
       .filter(
         (element): element is HTMLElement => element instanceof HTMLElement,
@@ -4569,6 +4578,8 @@ export default function SlideEditor({
     (resolvedSelection?: readonly HTMLElement[]) => {
       const slideContent = getSlideContent();
       if (!slideContent) return false;
+      // The objects taken off the canvas; their stored paths pick the reveals to drop.
+      const removed: HTMLElement[] = [];
 
       if (multiSelection.size > 0) {
         const selected = Array.from(multiSelection)
@@ -4593,6 +4604,7 @@ export default function SlideEditor({
           return false;
         }
         for (const element of roots) {
+          removed.push(element);
           removeSlideObjectAndLayoutSpacer(element, {
             preserveLayoutSlot: true,
           });
@@ -4614,8 +4626,11 @@ export default function SlideEditor({
           // Imported images can be nested inside an absolutely-positioned owner;
           // remove that owner so its persisted metadata cannot become a ghost.
           const owner = findPersistedImageObject(element, slideContent);
-          if (owner) removeSlideObjectAndLayoutSpacer(owner);
-          else {
+          if (owner) {
+            removed.push(owner);
+            removeSlideObjectAndLayoutSpacer(owner);
+          } else {
+            removed.push(element);
             removeSlideObjectAndLayoutSpacer(element, {
               preserveLayoutSlot: true,
             });
@@ -4623,6 +4638,7 @@ export default function SlideEditor({
           setSelectedImg(null);
           setImageOverlay(null);
         } else {
+          removed.push(element);
           removeSlideObjectAndLayoutSpacer(element, {
             preserveLayoutSlot: true,
           });
@@ -4632,9 +4648,25 @@ export default function SlideEditor({
 
       const html = readCurrentSlideContentHtml();
       if (html !== null) {
-        onUpdateSlideRef.current({ content: html, animations: [] }, undefined, {
-          clearMissingImagePreviews: true,
-        });
+        // Only reveals on the removed objects go; the rest follow their
+        // elements to the paths the saved HTML now has.
+        const stored = getRenderedSlideSource(slideContent)?.stored;
+        onUpdateSlideRef.current(
+          {
+            content: html,
+            ...(stored !== undefined && slide.animations
+              ? {
+                  animations: revealsAfterDelete(
+                    stored,
+                    removed,
+                    slide.animations,
+                  ),
+                }
+              : {}),
+          },
+          undefined,
+          { clearMissingImagePreviews: true },
+        );
       }
       syncSelectionToAppState(null);
       return true;
@@ -4647,6 +4679,7 @@ export default function SlideEditor({
       readCurrentSlideContentHtml,
       resolveSelectedElement,
       selectedImg,
+      slide.animations,
     ],
   );
 
@@ -10391,9 +10424,9 @@ export default function SlideEditor({
 
   return (
     <div
-      className={`relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--slides-editor-surface)] ${
-        widgetEmbed ? "" : "rounded-l-lg"
-      } ${animationsOpen || layersOpen ? "rounded-r-lg" : ""}`}
+      className={`relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-[var(--slides-editor-surface)] ${
+        animationsOpen || layersOpen ? "rounded-r-lg" : ""
+      }`}
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
       {!readOnly && wideContextToolbarSlot
@@ -10445,17 +10478,26 @@ export default function SlideEditor({
                 ref={scrollContainerRef}
                 className={`h-full overflow-auto ${
                   drawMode ? "pb-24 sm:pb-28" : ""
-                }`}
+                } ${stacked ? SLIDE_SCROLL_CONTAINER_CLASS : ""}`}
               >
                 <div
                   ref={canvasTrackRef}
-                  className={`flex min-h-full w-max min-w-full justify-center ${
-                    widgetEmbed
-                      ? "flex-col items-center"
-                      : "items-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16"
+                  className={`flex min-h-full w-max min-w-full items-center justify-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16 ${
+                    stacked ? SLIDE_SCROLL_TRACK_CLASS : ""
                   }`}
                   onPointerDown={handleCanvasBackgroundPointerDown}
                 >
+                  {slideScroll ? (
+                    <SlideScrollPreviews
+                      side="before"
+                      scroll={slideScroll}
+                      currentSlideId={slide.id}
+                      width={canvasWidth}
+                      aspectRatio={aspectRatio}
+                      designSystem={designSystem}
+                      scrollContainerRef={scrollContainerRef}
+                    />
+                  ) : null}
                   <div
                     ref={containerRef}
                     data-main-slide-canvas="true"
@@ -10495,11 +10537,7 @@ export default function SlideEditor({
                           <SlideRenderer
                             slide={slide}
                             slidePosition={slidePosition}
-                            className={
-                              widgetEmbed
-                                ? "rounded-none!"
-                                : "shadow-2xl shadow-black/40"
-                            }
+                            className="shadow-2xl shadow-black/40"
                             designSystem={designSystem}
                             aspectRatio={aspectRatio}
                             onOverflowChange={handleOverflowChange}
@@ -10630,14 +10668,15 @@ export default function SlideEditor({
                       </ContextMenuContent>
                     </ContextMenu>
                   </div>
-                  {widgetEmbed && deckSlides && onSelectFollowingSlide ? (
-                    <FollowingSlideStack
-                      slides={deckSlides}
-                      afterSlideId={slide.id}
+                  {slideScroll ? (
+                    <SlideScrollPreviews
+                      side="after"
+                      scroll={slideScroll}
+                      currentSlideId={slide.id}
                       width={canvasWidth}
                       aspectRatio={aspectRatio}
                       designSystem={designSystem}
-                      onSelect={onSelectFollowingSlide}
+                      scrollContainerRef={scrollContainerRef}
                     />
                   ) : null}
                 </div>
@@ -10652,13 +10691,11 @@ export default function SlideEditor({
           : null}
       </div>
 
-      {!widgetEmbed && (
-        <SpeakerNotesPanel
-          notes={slide.notes}
-          onChange={(notes) => onUpdateSlide({ notes })}
-          readOnly={readOnly}
-        />
-      )}
+      <SpeakerNotesPanel
+        notes={slide.notes}
+        onChange={(notes) => onUpdateSlide({ notes })}
+        readOnly={readOnly}
+      />
 
       {!imageCrop && selectionRect && !selectedElementSelector && (
         <ImageSelectionOutline

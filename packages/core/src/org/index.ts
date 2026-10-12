@@ -63,6 +63,10 @@ export const resolveOrgIdForEmail = lazyFunction(
   loadOrgContext,
   "resolveOrgIdForEmail",
 );
+export const resolveActiveOrgIdForStorageCredential = lazyFunction(
+  loadOrgContext,
+  "resolveActiveOrgIdForStorageCredential",
+);
 export const createOrganization = lazyFunction(
   loadOrgContext,
   "createOrganization",

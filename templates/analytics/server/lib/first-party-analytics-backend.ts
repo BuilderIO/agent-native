@@ -297,6 +297,44 @@ const FIRST_PARTY_ANALYTICS_RAW_SCHEMA = [
   ["org_id", "STRING"],
 ] as const;
 
+export const ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS = [
+  "id",
+  "org_id",
+  "received_at",
+  "event_date",
+  "event_name",
+  "user_id",
+  "user_key",
+  "session_id",
+  "timestamp",
+  "path",
+  "app",
+  "template",
+  "properties",
+  "owner_email",
+] as const;
+
+export const ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS = [
+  "id",
+  "org_id",
+  "received_at",
+  "event_date",
+  "timestamp",
+  "event_name",
+  "user_id",
+  "user_key",
+  "session_id",
+  "app",
+  "template",
+  "properties",
+  "owner_email",
+] as const;
+
+export type FirstPartyAnalyticsEventsProjection = "onboarding_journey";
+export type FirstPartyAnalyticsEventSourceProjection =
+  | FirstPartyAnalyticsEventsProjection
+  | "onboarding_journey_response_identity";
+
 export const FIRST_PARTY_ANALYTICS_BACKFILL_COLUMNS = [
   "id",
   "public_key_id",
@@ -1298,25 +1336,89 @@ function onboardingEventDatePredicates(eventDateRange?: {
 function addPartitionPrunedEventDeduplication(
   sql: string,
   table: BigQueryTableRef,
-  eventDateRange?: { startDate: string; endDate: string },
+  options: {
+    eventDateRange?: { startDate: string; endDate: string };
+    scopedEventsSingleScan?: boolean;
+    scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
+    scopedEventsSourceProjections?: Record<
+      string,
+      FirstPartyAnalyticsEventSourceProjection
+    >;
+  } = {},
 ): string {
   const quote = String.fromCharCode(96);
-  const source =
-    "SELECT * FROM " +
-    quote +
-    firstPartyAnalyticsRawTable(table) +
-    quote +
-    " WHERE";
+  const rawTableName = firstPartyAnalyticsRawTable(table);
+  const rawSource = `${quote}${rawTableName}${quote}`;
+  const projectionRequested =
+    options.scopedEventsProjection === "onboarding_journey" ||
+    options.scopedEventsSourceProjections !== undefined;
+  const projectedColumnsPattern =
+    ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS.join("\\s*,\\s*");
+  const responseIdentityColumnsPattern =
+    ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS.join("\\s*,\\s*");
+  const selectedColumnsPattern = projectionRequested
+    ? `(?:\\*|${projectedColumnsPattern}|${responseIdentityColumnsPattern})`
+    : "\\*";
+  const sourcePattern = new RegExp(
+    `\\bSELECT\\s+(${selectedColumnsPattern})\\s+FROM\\s+(${quote}[^${quote}]+${quote})\\s+WHERE\\b`,
+    "gi",
+  );
+  const sourceSelectPattern = new RegExp(
+    `^SELECT\\s+${selectedColumnsPattern}\\s+FROM\\b`,
+    "i",
+  );
   let result = "";
   let cursor = 0;
   let searchStart = 0;
   const code = maskSqlLiterals(sql, "bigquery");
+  const tokens = projectionRequested
+    ? lexAgentSql(sql, { dialect: "bigquery" })
+    : [];
+  const selectStarts = new Set(
+    tokens
+      .filter((token) => token.kind === "word" && token.value === "select")
+      .map((token) => token.start),
+  );
+  const rawSourcePositions = tokens.flatMap((token, index) => {
+    const next = tokens[index + 1];
+    return token.kind === "word" &&
+      (token.value === "from" || token.value === "join") &&
+      next?.kind === "quoted-identifier" &&
+      next.value === rawTableName
+      ? [next.start]
+      : [];
+  });
+  let rewrittenRawSources = 0;
+  let journeyEventSources = 0;
+  let responseIdentitySources = 0;
   while (cursor < sql.length) {
-    const sourceIndex = sql.indexOf(source, searchStart);
-    if (sourceIndex === -1) return result + sql.slice(cursor);
-    searchStart = sourceIndex + source.length;
-    if (!code.startsWith("SELECT * FROM ", sourceIndex)) continue;
-    const predicateStart = sourceIndex + source.length;
+    sourcePattern.lastIndex = searchStart;
+    const sourceMatch = sourcePattern.exec(sql);
+    if (!sourceMatch) {
+      result += sql.slice(cursor);
+      break;
+    }
+    const sourceIndex = sourceMatch.index;
+    searchStart = sourcePattern.lastIndex;
+    const selectedColumns = sourceMatch[1]!
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+    const isResponseIdentitySource =
+      projectionRequested &&
+      selectedColumns ===
+        ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS.join(", ");
+    const isJourneyEventSource =
+      projectionRequested &&
+      selectedColumns === ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS.join(", ");
+    if (
+      sourceMatch[2] !== rawSource ||
+      (projectionRequested && !selectStarts.has(sourceIndex)) ||
+      !sourceSelectPattern.test(code.slice(sourceIndex))
+    ) {
+      continue;
+    }
+    const predicateStart = sourcePattern.lastIndex;
     let depth = 0;
     let predicateEnd = sql.length;
     for (let index = predicateStart; index < sql.length; index++) {
@@ -1341,21 +1443,51 @@ function addPartitionPrunedEventDeduplication(
     // ponytail: insertAll is at-least-once; staging + MERGE is the upgrade path
     // for physical exactly-once if the warehouse contract requires it.
     const predicates = [
-      ...onboardingEventDatePredicates(eventDateRange),
+      ...onboardingEventDatePredicates(options.eventDateRange),
       ...firstPartyEventPushdownPredicates(sql, sourceIndex),
+      ...(isJourneyEventSource ? ["event_name != 'http.response'"] : []),
     ].filter(
       (predicate, index, all) =>
         all.findIndex(
           (candidate) => candidate.toLowerCase() === predicate.toLowerCase(),
         ) === index,
     );
+    // Combined org and owner scans must keep their independent latest receipts.
+    const dedupPartition = options.scopedEventsSingleScan ? "id, org_id" : "id";
     result +=
       sql.slice(cursor, predicateEnd) +
       predicates.map((predicate) => ` AND (${predicate})`).join("") +
-      " QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1" +
+      ` QUALIFY ROW_NUMBER() OVER (PARTITION BY ${dedupPartition} ORDER BY received_at DESC) = 1` +
       (predicateEnd < sql.length ? " " : "");
+    if (projectionRequested) rewrittenRawSources++;
+    if (isJourneyEventSource) journeyEventSources++;
+    if (isResponseIdentitySource) responseIdentitySources++;
     cursor = predicateEnd;
     searchStart = cursor;
+  }
+  const sourceProjections = Object.values(
+    options.scopedEventsSourceProjections ?? {},
+  );
+  const expectedJourneyEventSources =
+    options.scopedEventsSourceProjections === undefined
+      ? 1
+      : sourceProjections.filter(
+          (projection) => projection === "onboarding_journey",
+        ).length;
+  const expectedResponseIdentitySources = sourceProjections.filter(
+    (projection) => projection === "onboarding_journey_response_identity",
+  ).length;
+  if (
+    projectionRequested &&
+    rawSourcePositions.length > 0 &&
+    (rewrittenRawSources !== rawSourcePositions.length ||
+      journeyEventSources !== expectedJourneyEventSources ||
+      responseIdentitySources !== expectedResponseIdentitySources)
+  ) {
+    throw new FirstPartyAnalyticsUnsupportedSqlError(
+      "an unsupported onboarding journey event source projection",
+      "First-party BigQuery query cannot safely apply the onboarding journey event projection and deduplication",
+    );
   }
   return result;
 }
@@ -1368,7 +1500,15 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   scopedSql: string,
   args: Array<string | null>,
   table: BigQueryTableRef,
-  options: { eventDateRange?: { startDate: string; endDate: string } } = {},
+  options: {
+    eventDateRange?: { startDate: string; endDate: string };
+    scopedEventsSingleScan?: boolean;
+    scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
+    scopedEventsSourceProjections?: Record<
+      string,
+      FirstPartyAnalyticsEventSourceProjection
+    >;
+  } = {},
 ): string {
   // The Postgres scope builder uses a text fallback for nullable event
   // dates. BigQuery's event_date is a DATE, and the fallback is unnecessary
@@ -1391,8 +1531,25 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   return addPartitionPrunedEventDeduplication(
     coerceDateComparisonOperands(qualifyQuerySources(bound, table)),
     table,
-    options.eventDateRange,
+    options,
   );
+}
+
+export function renderFirstPartyAnalyticsBigQueryRequestSql(
+  scopedSql: string,
+  args: Array<string | null>,
+  table: BigQueryTableRef,
+  options: {
+    eventDateRange?: { startDate: string; endDate: string };
+    scopedEventsSingleScan?: boolean;
+    scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
+    scopedEventsSourceProjections?: Record<
+      string,
+      FirstPartyAnalyticsEventSourceProjection
+    >;
+  } = {},
+): string {
+  return `SELECT * FROM (${renderFirstPartyAnalyticsBigQuerySql(scopedSql, args, table, options)}) AS first_party_analytics_query LIMIT 5000`;
 }
 
 export async function queryFirstPartyAnalyticsInBigQuery(
@@ -1401,6 +1558,12 @@ export async function queryFirstPartyAnalyticsInBigQuery(
   table: BigQueryTableRef,
   options: {
     eventDateRange?: { startDate: string; endDate: string };
+    scopedEventsSingleScan?: boolean;
+    scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
+    scopedEventsSourceProjections?: Record<
+      string,
+      FirstPartyAnalyticsEventSourceProjection
+    >;
     maxBytesBilled?: number;
     timeoutMs?: number;
     signal?: AbortSignal;
@@ -1428,7 +1591,12 @@ export async function queryFirstPartyAnalyticsInBigQuery(
   let result: Awaited<ReturnType<typeof runQuery>>;
   try {
     result = await runQuery(
-      `SELECT * FROM (${renderFirstPartyAnalyticsBigQuerySql(scopedSql, args, table, { eventDateRange: options.eventDateRange })}) AS first_party_analytics_query LIMIT 5000`,
+      renderFirstPartyAnalyticsBigQueryRequestSql(scopedSql, args, table, {
+        eventDateRange: options.eventDateRange,
+        scopedEventsSingleScan: options.scopedEventsSingleScan,
+        scopedEventsProjection: options.scopedEventsProjection,
+        scopedEventsSourceProjections: options.scopedEventsSourceProjections,
+      }),
       {
         maxBytesBilled: options.maxBytesBilled,
         ...(signal ? { signal } : {}),

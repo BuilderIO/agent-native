@@ -1,5 +1,6 @@
 import { getDbExec, isLocalDatabase, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import type { StoreWriteOptions } from "../settings/store.js";
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
@@ -18,7 +19,7 @@ function escapeLike(s: string): string {
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `
         CREATE TABLE IF NOT EXISTS application_state (
           session_id TEXT NOT NULL,
@@ -43,6 +44,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

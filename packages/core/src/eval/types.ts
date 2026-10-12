@@ -76,6 +76,8 @@ export interface EvalProductionChatPath {
   run(args: {
     input: EvalInput;
     identity: EvalProductionIdentity;
+    /** Exact action surface permitted for this eval case. */
+    actionAllowlist: readonly string[];
     engine: AgentEngine;
     model: string;
     signal: AbortSignal;
@@ -132,9 +134,16 @@ export interface EvalRunContext {
   runAgent(input: EvalInput): Promise<AgentRunOutput>;
 }
 
+export interface AgentRunOptions {
+  /** Restrict actions before the model receives tools or can search the registry. */
+  readonly actionAllowlist?: readonly string[];
+}
+
 export interface Eval {
   name: string;
   input: EvalInput;
+  /** Restrict this case to named actions before model or tool-search access. */
+  actionAllowlist?: readonly string[];
   skipReason?: string;
   run?(ctx: EvalRunContext): AgentRunOutput | Promise<AgentRunOutput>;
   scorers: Scorer<any, any>[];

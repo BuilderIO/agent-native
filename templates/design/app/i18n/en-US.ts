@@ -154,7 +154,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "Designs",
+    home: "Home",
     templates: "Templates",
     designSystems: "Design Systems",
     setupDesignSystem: "Set up design system",
@@ -177,6 +177,9 @@ export default {
     labDesignReviewTools: "Design review tools",
     labDesignReviewToolsDescription:
       "Check your designs for accessibility issues and compare visual changes.",
+    labMotion: "Motion",
+    labMotionDescription:
+      "Create and edit keyframe animations in your designs.",
     mcpAbout:
       "Connect Design to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Design for you: create designs and edit them. It sees only what you can see.",
   },
@@ -703,7 +706,7 @@ export default {
       needsConnectedApp: "Source jump needs a connected app",
     },
     leftRail: {
-      file: "File",
+      layers: "Layers",
       agent: "Agents",
       assets: "Assets",
       import: "Import",
@@ -748,6 +751,7 @@ export default {
       exit: "Exit responsive preview",
     },
     motion: {
+      openDock: "Motion",
       dockLabel: "Motion dock",
       collapseDock: "Collapse motion dock",
       play: "Play",
@@ -1008,7 +1012,7 @@ export default {
     fileMenu: {
       pendingEditsBlocked:
         "Apply or discard your pending visual edits before duplicating.",
-      designs: "Designs",
+      allDesigns: "All designs",
       rename: "Rename",
       duplicate: "Duplicate",
       versionHistory: "Version history",
@@ -1633,9 +1637,11 @@ export default {
     assetsNoImageUrl: "Assets did not return an image URL.",
     failedToUploadFile: "Failed to upload file",
     imageAttachmentUnavailable:
-      "We couldn't prepare this image as visual input. Attach a smaller PNG, JPG, GIF, or WebP file.",
+      "We couldn't prepare this image for upload. Try a JPG, PNG, GIF, or WebP image.",
+    imageAttachmentTooLarge:
+      "Images can be up to {{perFile}} MB each, with {{total}} MB total.",
     attachmentsTooLarge:
-      "Those attachments are too large. Uploads are limited to {{max}} MB in total — attach fewer or smaller files.",
+      "Images are optimized automatically. Optimized images and other files must fit within {{max}} MB total.",
     failedToSubmitPrompt: "Failed to submit prompt",
     skipPrompt: "Skip prompt",
     startBlankCanvas: "Start with a blank canvas",
@@ -1795,7 +1801,7 @@ export default {
     browseAllTemplates: "Browse all",
     connectBuilderIo: "Use Builder.io",
     connectingBuilder: "Setting up Builder.io…",
-    pageTitle: "Designs",
+    pageTitle: "Home",
     searchPlaceholder: "Search designs...",
     newDesign: "New Design",
     newDesignLower: "New design",

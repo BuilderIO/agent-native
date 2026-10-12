@@ -93,7 +93,7 @@ export function renderLeftSidebar({
   canApplyPendingVisualEditsWithAgent: boolean;
   projectMenu: ReactElement;
   projectTitleControl: ReactElement;
-  minimalUiToggle: ReactElement;
+  minimalUiToggle: ReactElement | null;
   leftContentWidth: number;
   leftSidebarVisible: boolean;
 }) {
@@ -217,7 +217,7 @@ export function renderLeftSidebar({
                       to="/home"
                       className="-mx-1 self-start rounded px-1 text-xs leading-4 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                     >
-                      {t("designEditor.fileMenu.designs")}
+                      {t("designEditor.fileMenu.allDesigns")}
                     </Link>
                   )}
                 </div>
@@ -420,6 +420,9 @@ export function renderLeftSidebar({
                   {canEditDesign && !shellMode ? (
                     <DesignExtensionsPanel
                       context={designExtensionContext}
+                      motionLabEnabled={
+                        editorLiveEditsAndPresence.motionLabEnabled
+                      }
                       hideAssetLibrary
                       title={t("designEditor.leftRail.tools")}
                     />
@@ -442,6 +445,7 @@ export function renderLeftSidebar({
                     {id && !shellMode && codeWorkbenchOpenedRef.current ? (
                       <CodeWorkbenchLoader
                         designId={id}
+                        active={activeLeftPanel === "code"}
                         activeFileId={routeCodeFileId}
                         activeFilename={routeCodeFilename}
                         selectedNodeId={selectedElementLayerId}

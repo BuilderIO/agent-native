@@ -198,7 +198,7 @@ describe("runApplyDesignEditorCommand: overview camera fit", () => {
     expect(requestCameraFit).not.toHaveBeenCalled();
   });
 
-  it("centers and fits a focused screen when the command also has a zoom", () => {
+  it("centers a focused screen at the command zoom", () => {
     const requestCameraFit = vi.fn();
     const args = makeArgs({
       files: [screenFile],
@@ -221,6 +221,10 @@ describe("runApplyDesignEditorCommand: overview camera fit", () => {
       left: 0,
       top: 0,
       right: 320,
+    });
+    expect(requestCameraFit.mock.calls[0]![1]).toEqual({
+      screenId: "file-1",
+      displayZoom: 50,
     });
   });
 

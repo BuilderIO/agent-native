@@ -1,3 +1,4 @@
+import { memoizeByContent } from "./memoize-by-content";
 import { commonPrefixLength, commonSuffixLength } from "./string-diff.js";
 
 export type SourceEdit =
@@ -11,13 +12,19 @@ export type SourceEdit =
       replace: string;
     };
 
-export function sourceContentHash(content: string): string {
+function hashSourceContent(content: string): string {
   let hash = 2166136261;
   for (let index = 0; index < content.length; index += 1) {
     hash ^= content.charCodeAt(index);
     hash = Math.imul(hash, 16777619) >>> 0;
   }
   return `${content.length}:${hash.toString(36)}`;
+}
+
+const memoizedSourceContentHash = memoizeByContent(64, hashSourceContent);
+
+export function sourceContentHash(content: string): string {
+  return memoizedSourceContentHash(content);
 }
 
 /** One splice that turns a known base document into `resultHash`'s content. */

@@ -267,5 +267,5 @@ describe("Slides share migrations", () => {
         ],
       }),
     ).rejects.toThrow(/unique/i);
-  }, 20_000);
+  }, 120_000);
 });

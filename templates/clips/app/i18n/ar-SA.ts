@@ -36,8 +36,17 @@ const messages = {
     retry: "إعادة المحاولة",
     playSelection: "تشغيل التحديد",
     removeFailed: "تعذّرت إزالة وقت الشاشة السابق للتسجيل الملغى.",
-    scrubberStart: "يبدأ",
-    scrubberEnd: "ينتهي",
+    removeFailedAction: "تعذّرت إزالة وقت الشاشة السابق. حاول مرة أخرى.",
+    removeAction: "إزالة وقت الشاشة السابق",
+    removeConfirmTitle: "هل تريد إزالة وقت الشاشة السابق؟",
+    removeConfirmBody:
+      "يتم نقل اللقطات إلى المهملات، ولن يتضمنها المقطع بعد الآن.",
+    removeConfirm: "إزالة",
+    removed: "تمت إزالة وقت الشاشة السابق",
+    scrubberFromBefore: "من {{offset}} قبل",
+    scrubberFromStart: "من بداية التسجيل",
+    scrubberToBefore: "حتى {{offset}} قبل",
+    scrubberToStart: "حتى بداية التسجيل",
     scrubberLength: "المدة",
     scrubberStartHandle: "بداية النافذة",
     scrubberEndHandle: "نهاية النافذة",
@@ -49,6 +58,7 @@ const messages = {
     empty: "لا يوجد وقت شاشة سابق مرفق بهذا المقطع.",
     larger: "تكبير",
     editHint: "عدّل النافذة في Clips Desktop.",
+    waitingOtherDevice: "بانتظار الجهاز الذي سجّل هذا المقطع",
   },
   agentChat: {
     setup: {
@@ -868,7 +878,7 @@ const messages = {
     labWisprFlowDescription: "أظهر الإملاء الصوتي في Clips Desktop أو أخفه.",
     labLookbackContext: "تضمين وقت الشاشة السابق",
     labLookbackContextDescription:
-      "أرفِق حتى خمس دقائق من وقت الشاشة السابق للتسجيل كسياق تلقائي. مُعطَّل افتراضيًا.",
+      "أرفِق حتى خمس دقائق من وقت الشاشة السابق للتسجيل كسياق تلقائي.",
     uploadWorkspaceTitle: "مساحة العمل النشطة",
     uploadWorkspaceDescription:
       "اختر مساحة العمل التي يستخدمها Clips للتسجيلات الجديدة، بما في ذلك تحميلات سطح المكتب.",
@@ -2204,20 +2214,6 @@ const messages = {
     guideStartTitle: "Click Start notes (مترجم)",
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (مترجم)",
-  },
-  rewindExtension: {
-    title: "إضافة ما حدث قبل التسجيل",
-    description:
-      "اختر فترة محددة من Rewind المحلي وأضفها إلى بداية هذا المقطع. لن تتم إضافة أي شيء تلقائيًا.",
-    progressLabel: "تقدم معالجة سجل Rewind",
-    privateFirstTitle: "اجعل هذا المقطع خاصًا أولًا",
-    privateFirstDescription:
-      "قد يتضمن سجل Rewind المحلي سياقًا من قبل بدء التسجيل. سيؤدي هذا إلى جعل المقطع خاصًا. إذا كان لدى أي شخص وصول مباشر، فسيتوقف Clips لتتمكن من إزالته أولًا من المشاركة.",
-    makePrivateContinue: "اجعله خاصًا وتابع",
-    add30Seconds: "إضافة الثلاثين ثانية السابقة",
-    add5Minutes: "إضافة الدقائق الخمس السابقة",
-    add5MinutesDescription: "مفيد لاستعادة بداية شرح أطول.",
-    privateReady: "أصبح هذا المقطع خاصًا. يمكنك الآن إضافة سجل Rewind المحلي.",
   },
   browserDiagnostics: {
     debug: "تصحيح الأخطاء",

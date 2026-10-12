@@ -7,7 +7,13 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath, childNodeIds, designFrame, gotoEditor } from "./helpers";
+import {
+  appPath,
+  childNodeIds,
+  designFrame,
+  expandAllLayers,
+  gotoEditor,
+} from "./helpers";
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
@@ -117,6 +123,7 @@ function layerRow(page: Page, name: string): Locator {
 }
 
 async function clickLayerRow(page: Page, name: string): Promise<void> {
+  await expandAllLayers(page);
   const button = layerRowButton(page, name);
   await expect(button).toBeVisible({ timeout: 10_000 });
   await button.click({ force: true });
@@ -189,6 +196,7 @@ test.describe("card component: structure, duplicate, rename, reorder, group", ()
           { timeout: 10_000 },
         )
         .toBe(2);
+      await expandAllLayers(page);
 
       const titleRows = layerTree(page).locator(
         '[data-layer-row-button] span[title="Wireless Headphones"]',
@@ -214,6 +222,11 @@ test.describe("card component: structure, duplicate, rename, reorder, group", ()
         ),
       ).toHaveCount(1);
 
+      await expect
+        .poll(() => fileContent(page, designId, "index.html"), {
+          timeout: 10_000,
+        })
+        .toContain('data-agent-native-layer-name="Bluetooth Speaker Title"');
       const html = await fileContent(page, designId, "index.html");
       expect(html).toContain(
         'data-agent-native-layer-name="Wireless Headphones"',
@@ -221,12 +234,39 @@ test.describe("card component: structure, duplicate, rename, reorder, group", ()
       expect(html).toContain(
         'data-agent-native-layer-name="Bluetooth Speaker Title"',
       );
+
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(
+        page.getByRole("button", { name: "Move", exact: true }),
+      ).toBeVisible();
+      await expect(
+        layerTree(page).locator('[data-layer-row-button] span[title="Card"]'),
+      ).toHaveCount(2, { timeout: 10_000 });
+      await expandAllLayers(page);
+      await expect(
+        layerTree(page).locator(
+          '[data-layer-row-button] span[title="Bluetooth Speaker Title"]',
+        ),
+      ).toHaveCount(1, { timeout: 10_000 });
+      await expect(
+        layerTree(page).locator(
+          '[data-layer-row-button] span[title="Wireless Headphones"]',
+        ),
+      ).toHaveCount(1);
+
+      const reloadedHtml = await fileContent(page, designId, "index.html");
+      expect(reloadedHtml).toContain(
+        'data-agent-native-layer-name="Wireless Headphones"',
+      );
+      expect(reloadedHtml).toContain(
+        'data-agent-native-layer-name="Bluetooth Speaker Title"',
+      );
     } finally {
       await action(request, "delete-design", { id: designId }).catch(() => {});
     }
   });
 
-  test("dragging Price above StatusTag in the layers panel reorders the DOM and persists after reload", async ({
+  test("dragging Price below StatusTag in the layers panel reorders the DOM and persists after reload", async ({
     page,
     request,
   }) => {
@@ -236,19 +276,41 @@ test.describe("card component: structure, duplicate, rename, reorder, group", ()
       await clickLayerRow(page, "Price");
 
       const before = await fileContent(page, designId, "index.html");
-      expect(before.indexOf('id="statustag"')).toBeLessThan(
-        before.indexOf('id="price"'),
+      const statusTagIndex = before.indexOf(
+        'data-agent-native-node-id="statustag"',
       );
+      const priceIndex = before.indexOf('data-agent-native-node-id="price"');
+      expect(statusTagIndex).toBeGreaterThan(-1);
+      expect(priceIndex).toBeGreaterThan(-1);
+      expect(statusTagIndex).toBeLessThan(priceIndex);
+
+      const statusTagRow = layerRow(page, "StatusTag");
+      await statusTagRow
+        .getByRole("button", { name: "Collapse layer" })
+        .click();
+      await expect(statusTagRow).toHaveAttribute("aria-expanded", "false");
+      const statusTagBox = await statusTagRow.boundingBox();
+      if (!statusTagBox) throw new Error("StatusTag row has no bounding box");
 
       await layerRow(page, "Price").dragTo(layerRow(page, "StatusTag"), {
-        targetPosition: { x: 24, y: 2 },
+        targetPosition: { x: 24, y: statusTagBox.height - 1 },
       });
 
       await expect
         .poll(
           async () => {
             const html = await fileContent(page, designId, "index.html");
-            return html.indexOf('id="price"') < html.indexOf('id="statustag"');
+            const nextPriceIndex = html.indexOf(
+              'data-agent-native-node-id="price"',
+            );
+            const nextStatusTagIndex = html.indexOf(
+              'data-agent-native-node-id="statustag"',
+            );
+            return (
+              nextPriceIndex >= 0 &&
+              nextStatusTagIndex >= 0 &&
+              nextPriceIndex < nextStatusTagIndex
+            );
           },
           { timeout: 10_000, message: `trace: ${await dumpTrace(page)}` },
         )
@@ -256,9 +318,15 @@ test.describe("card component: structure, duplicate, rename, reorder, group", ()
 
       await gotoEditor(page, designId);
       const afterReload = await fileContent(page, designId, "index.html");
-      expect(afterReload.indexOf('id="price"')).toBeLessThan(
-        afterReload.indexOf('id="statustag"'),
+      const reloadedPriceIndex = afterReload.indexOf(
+        'data-agent-native-node-id="price"',
       );
+      const reloadedStatusTagIndex = afterReload.indexOf(
+        'data-agent-native-node-id="statustag"',
+      );
+      expect(reloadedPriceIndex).toBeGreaterThan(-1);
+      expect(reloadedStatusTagIndex).toBeGreaterThan(-1);
+      expect(reloadedPriceIndex).toBeLessThan(reloadedStatusTagIndex);
     } finally {
       await action(request, "delete-design", { id: designId }).catch(() => {});
     }
