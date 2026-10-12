@@ -473,15 +473,16 @@ function rejectSchemaKeywords(
     if (target === undefined) {
       return 'has a tool schema with a $ref that is not "#" or an unencoded JSON pointer inside the schema';
     }
-    if (isPlainRecord(target)) {
-      if (walk.refStack.has(target)) {
-        return "has a tool schema with a recursive $ref";
-      }
-      walk.refStack.add(target);
-      const rejection = rejectSchemaKeywords(target, root, walk);
-      walk.refStack.delete(target);
-      if (rejection) return rejection;
+    // Only objects can recurse, but every target, boolean ones included, is
+    // evaluated where the $ref is used and counts toward the budget.
+    const recursive = isPlainRecord(target);
+    if (recursive && walk.refStack.has(target)) {
+      return "has a tool schema with a recursive $ref";
     }
+    if (recursive) walk.refStack.add(target);
+    const rejection = rejectSchemaKeywords(target, root, walk);
+    if (recursive) walk.refStack.delete(target);
+    if (rejection) return rejection;
   }
   const children: unknown[] = [];
   for (const keyword of SUBSCHEMA_KEYWORDS) children.push(schema[keyword]);

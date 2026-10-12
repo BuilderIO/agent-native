@@ -428,6 +428,37 @@ describe("resolveAppAdditionalActions", () => {
       );
       expect(booleans).toEqual({});
 
+      // Each $ref to a boolean schema counts twice: the $ref and its target.
+      const booleanRefs = entry("x", {
+        tool: {
+          description: "x",
+          parameters: {
+            type: "object",
+            properties: Object.fromEntries(
+              Array.from({ length: 2_000 }, (_, i) => [
+                `p${i}`,
+                { $ref: "#/$defs/t" },
+              ]),
+            ),
+            $defs: { t: true },
+          },
+        },
+      });
+      const refBudgeted = await resolveAppAdditionalActions(
+        config({
+          resolver: () =>
+            Object.fromEntries(
+              Array.from({ length: 5 }, (_, i) => [
+                `bool-ref-${i}`,
+                booleanRefs,
+              ]),
+            ),
+        }),
+        alice,
+        {},
+      );
+      expect(Object.keys(refBudgeted)).toHaveLength(4);
+
       // Rejected schemas draw from the same budget as accepted ones.
       const rejectedLate = (i: number) =>
         entry("x", {
