@@ -1,6 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestUserEmail,
+  getRequestUserName,
+} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -11,6 +14,7 @@ import {
   submittedCommentMentions,
 } from "../server/lib/comment-mention-input.js";
 import { notifyEditedCommentMentions } from "../server/lib/comment-notifications.js";
+import { commentSubmissionSource } from "../server/lib/comment-submission-source.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
   personMentions,
@@ -34,7 +38,7 @@ export default defineAction({
       ),
     resolved: z.coerce.boolean().optional().describe("Resolved state"),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     if (
       args.content === undefined &&
       args.mentions === undefined &&
@@ -51,8 +55,6 @@ export default defineAction({
         documentId: schema.documentComments.documentId,
         threadId: schema.documentComments.threadId,
         authorEmail: schema.documentComments.authorEmail,
-        authorName: schema.documentComments.authorName,
-        submissionSource: schema.documentComments.submissionSource,
         content: schema.documentComments.content,
         mentionsJson: schema.documentComments.mentionsJson,
       })
@@ -79,6 +81,8 @@ export default defineAction({
         ? "editor"
         : "commenter",
     );
+    // guard:allow-bare-error — invariant: assertAccess refuses a signed-out caller
+    if (!userEmail) throw new Error("no authenticated user");
 
     const updatedAt = new Date().toISOString();
     const mentions =
@@ -158,6 +162,8 @@ export default defineAction({
     }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
+    // The email names whoever made the edit: an editor can add a mention to
+    // someone else's comment.
     const notified = addedMentions.length
       ? await notifyEditedCommentMentions({
           documentId: comment.documentId,
@@ -165,9 +171,9 @@ export default defineAction({
           orgId: (access.resource.orgId as string | null) ?? null,
           threadId: comment.threadId,
           ownerEmail: access.resource.ownerEmail as string,
-          authorEmail: comment.authorEmail,
-          authorName: comment.authorName,
-          submissionSource: comment.submissionSource,
+          authorEmail: userEmail,
+          authorName: getRequestUserName(),
+          submissionSource: commentSubmissionSource(ctx?.caller),
           content: args.content ?? comment.content,
           mentions: addedMentions,
           isReply: comment.threadId !== args.id,

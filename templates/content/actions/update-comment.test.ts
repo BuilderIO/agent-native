@@ -15,6 +15,9 @@ type Row = {
 const state = vi.hoisted(() => ({ rows: [] as Row[], locked: [] as string[] }));
 const mockAssertAccess = vi.hoisted(() => vi.fn());
 const mockGetUserEmail = vi.hoisted(() => vi.fn(() => "author@example.com"));
+const mockGetUserName = vi.hoisted(() =>
+  vi.fn((): string | undefined => undefined),
+);
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockNotifyMentions = vi.hoisted(() => vi.fn());
 
@@ -24,6 +27,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => mockGetUserEmail(),
+  getRequestUserName: () => mockGetUserName(),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -114,14 +118,17 @@ vi.mock("../server/db/index.js", () => {
 
 import action from "./update-comment";
 
-function run(args: {
-  id: string;
-  documentId?: string;
-  content?: string;
-  mentions?: string;
-  resolved?: boolean;
-}) {
-  return (action as any).run(args);
+function run(
+  args: {
+    id: string;
+    documentId?: string;
+    content?: string;
+    mentions?: string;
+    resolved?: boolean;
+  },
+  ctx?: { caller: string },
+) {
+  return (action as any).run(args, ctx);
 }
 
 beforeEach(() => {
@@ -357,6 +364,35 @@ describe("update-comment (action) — reopen permission", () => {
         authorEmail: "author@example.com",
         content: "Hi @Sam, @Lee, and @Claude",
         mentions: [{ kind: "person", email: "lee@example.com", name: "Lee" }],
+      }),
+    );
+  });
+
+  it("names the editor, not the comment's author, as who mentioned someone", async () => {
+    mockGetUserEmail.mockReturnValue("editor@example.com");
+    mockGetUserName.mockReturnValue("Edie");
+
+    await run(
+      {
+        id: "c-2",
+        content: "A reply for @Lee",
+        mentions: JSON.stringify([{ email: "lee@example.com", name: "Lee" }]),
+      },
+      { caller: "tool" },
+    );
+
+    expect(mockAssertAccess).toHaveBeenCalledWith(
+      "document",
+      "doc-1",
+      "editor",
+    );
+    expect(state.rows[1].authorEmail).toBe("other@example.com");
+    expect(mockNotifyMentions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authorEmail: "editor@example.com",
+        authorName: "Edie",
+        submissionSource: "agent",
+        isReply: true,
       }),
     );
   });

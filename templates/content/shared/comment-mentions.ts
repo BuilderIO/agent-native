@@ -185,18 +185,49 @@ export function followsNameCharacter(text: string, at: number): boolean {
 const URL_START = /\/\/|\bwww\.|^[("'<[]*(?:[a-z\d-]+\.)+[a-z]{2,}[/?#]/i;
 
 /**
- * Markdown's inline links, label and destination: `[@Sam](x.com/@Sam)`. A
- * label holds no brackets, a destination nests parentheses one deep as in
- * `x.com/Sam_(name)`, and neither spans a line, so a failed scan stops at the
- * second `(` it meets and the search stays linear.
+ * Markdown's links, label and target: inline, as in `[@Sam](x.com/@Sam)`, and
+ * by reference, as in `[@Sam][profile]` or `[@Sam]`, when the text defines
+ * that label (a definition's own `[label]:` counts too). A label holds no
+ * brackets and nothing spans a line. Parentheses are paired in one pass, so a
+ * destination may nest them, as in `x.com/Sam_(name)`, without a rescan per
+ * `(`.
  */
 function linkSpans(text: string): { start: number; end: number }[] {
-  return [...text.matchAll(/\[[^[\]\n]*\]\((?:[^()\n]|\([^()\n]*\))*\)/g)].map(
-    (link) => ({
-      start: link.index,
-      end: link.index + link[0].length,
-    }),
+  const closeOf = new Map<number, number>();
+  const open: number[] = [];
+  for (let at = 0; at < text.length; at += 1) {
+    const char = text[at];
+    if (char === "\n") open.length = 0;
+    else if (char === "(") open.push(at);
+    else if (char === ")" && open.length) closeOf.set(open.pop()!, at);
+  }
+  const defined = new Set(
+    [...text.matchAll(/^ {0,3}\[([^[\]\n]+)\]:/gm)].map((definition) =>
+      referenceKey(definition[1]!),
+    ),
   );
+  const spans: { start: number; end: number }[] = [];
+  for (const link of text.matchAll(/\[([^[\]\n]*)\](?:\[([^[\]\n]*)\]|\()?/g)) {
+    const [whole, label, reference] = link;
+    const opensDestination = whole.endsWith("(");
+    const close = opensDestination
+      ? closeOf.get(link.index + whole.length - 1)
+      : undefined;
+    if (close !== undefined) {
+      spans.push({ start: link.index, end: close + 1 });
+    } else if (defined.has(referenceKey(reference || label!))) {
+      spans.push({
+        start: link.index,
+        end: link.index + whole.length - (opensDestination ? 1 : 0),
+      });
+    }
+  }
+  return spans;
+}
+
+/** A reference label as Markdown matches it: trimmed, spaced, any case. */
+function referenceKey(label: string): string {
+  return label.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 /**

@@ -157,7 +157,7 @@ describe("comment mentions", () => {
       name: "Sam",
     };
     const text =
-      "Ask @Sam, not `@Sam`, ``a `@Sam` b``, https://medium.com/@Sam, //cdn.example.com/@Sam, github.com/@Sam, (x.com/@Sam), [site](example.com/@Sam), [site](example.com?user=@Sam), x.com#@Sam, [site](<x.com/@Sam>), [@Sam](https://x.com), [@Sam](https://x.com/Sam_(name)), or www.example.com/@Sam. A lone ` leaves @Sam";
+      "Ask @Sam, not `@Sam`, ``a `@Sam` b``, https://medium.com/@Sam, //cdn.example.com/@Sam, github.com/@Sam, (x.com/@Sam), [site](example.com/@Sam), [site](example.com?user=@Sam), x.com#@Sam, [site](<x.com/@Sam>), [@Sam](https://x.com), [@Sam](https://x.com/Sam_(name)), [@Sam](https://x.com/a_(b_(c))), or www.example.com/@Sam. A lone ` leaves @Sam";
 
     expect(findCommentMentions(text, [sam]).map(({ start }) => start)).toEqual([
       4,
@@ -167,6 +167,25 @@ describe("comment mentions", () => {
     expect(
       commentMentionsForText("https://example.com/@Sam", [sam]),
     ).toBeUndefined();
+  });
+
+  it("never matches an @name in a link the comment defines by reference", () => {
+    const sam = {
+      kind: "person" as const,
+      email: "sam@example.com",
+      name: "Sam",
+    };
+    const text =
+      "See [@Sam][profile], [@Sam][], and [@Sam], then ask @Sam.\n\n[Profile]: https://x.com/p\n[@sam]: https://x.com/s";
+
+    expect(findCommentMentions(text, [sam]).map(({ start }) => start)).toEqual([
+      text.indexOf("ask @Sam") + 4,
+    ]);
+    expect(
+      findCommentMentions("Ask [@Sam], with no definition", [sam]).map(
+        ({ start }) => start,
+      ),
+    ).toEqual([5]);
   });
 
   it("reads a long run of @s in a URL, code, or unclosed links without rescanning it", () => {

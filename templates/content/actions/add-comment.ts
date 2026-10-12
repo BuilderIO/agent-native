@@ -21,6 +21,7 @@ import {
   submittedCommentMentions,
 } from "../server/lib/comment-mention-input.js";
 import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
+import { commentSubmissionSource } from "../server/lib/comment-submission-source.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
   personMentions,
@@ -162,12 +163,7 @@ export async function addCommentWithGuard(
   const mentions = submittedCommentMentions(args.mentions ?? []);
   assertMentionsInText(content, mentions);
   const mentionsJson = serializeStoredCommentMentions(mentions);
-  const submissionSource =
-    ctx?.caller === "mcp" || ctx?.caller === "webmcp"
-      ? "mcp"
-      : ctx?.caller === "tool"
-        ? "agent"
-        : (ctx?.caller ?? null);
+  const submissionSource = commentSubmissionSource(ctx?.caller);
   const submissionRunId = ctx?.runId ?? null;
   const submissionThreadId =
     actorKind === "agent"
