@@ -38,7 +38,6 @@ import {
   IconPlayerPlay,
   IconPlayerPause,
   IconArrowsLeftRight,
-  IconCheck,
   IconDiamond,
   IconDiamondFilled,
   IconChevronDown,

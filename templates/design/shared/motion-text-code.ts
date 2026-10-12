@@ -761,7 +761,7 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
       if (token.animated) units.push({ start: start, end: end, index: units.length, fragments: [] });
     });
     if (units.length === 0) throw new Error("Motion text target has no animatable text units.");
-    if (units.length > 512) throw new Error("Motion text target exceeds the 512-unit runtime limit.");
+    if (units.length > ${MAX_RUNTIME_UNITS}) throw new Error("Motion text target exceeds the ${MAX_RUNTIME_UNITS}-unit runtime limit.");
 
     var leafOffset = 0;
     leaves.forEach(function (leaf) {

@@ -35,7 +35,7 @@ function transform(
 
 describe("motionSourceProvenancePlugin", () => {
   it("binds rendered host JSX IDs to their original module path and SHA-256", () => {
-    const source = `export function Card() { return <section><button>Go</button><style>{"p { margin: 0 }"}</style><script>{"window.ready = true"}</script></section>; }`;
+    const source = `type Props = { label: string }; export function Card({ label }: Props) { return <section><button>{label}</button><style>{"p { margin: 0 }"}</style><script>{"window.ready = true"}</script></section>; }`;
     const result = transform(source, "templates/design/src/Card.tsx");
 
     expect(result?.code).toContain(
@@ -77,6 +77,11 @@ describe("motionSourceProvenancePlugin", () => {
     expect(
       transform(source, "src/Card.tsx", "serve", `${source}\n// stale`),
     ).toBeNull();
+  });
+
+  it("skips JSX provenance for incomplete source without failing the dev transform", () => {
+    const source = `export const Card = () => <button>`;
+    expect(transform(source, "src/Card.tsx")).toBeNull();
   });
 
   it("reports unreadable source instead of silently skipping provenance", () => {

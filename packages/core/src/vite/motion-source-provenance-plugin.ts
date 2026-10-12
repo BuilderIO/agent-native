@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
 
+import { parse } from "@babel/parser";
 import MagicString from "magic-string";
 import type { Plugin, ResolvedConfig } from "vite";
 
@@ -15,30 +15,19 @@ const NODE_ID_ATTRIBUTE = "data-agent-native-node-id";
 const SOURCE_FILE_ATTRIBUTE = "data-agent-native-motion-source-file";
 const SOURCE_HASH_ATTRIBUTE = "data-agent-native-motion-source-hash";
 
-type TypeScriptApi = {
-  ScriptKind: { JSX: number; TSX: number };
-  ScriptTarget: { Latest: number };
-  createSourceFile: (
-    fileName: string,
-    sourceText: string,
-    languageVersion: number,
-    setParentNodes: boolean,
-    scriptKind: number,
-  ) => any;
-  isIdentifier: (node: unknown) => boolean;
-  isJsxAttribute: (node: unknown) => boolean;
-  isJsxElement: (node: unknown) => boolean;
-  isJsxSelfClosingElement: (node: unknown) => boolean;
-  isJsxSpreadAttribute: (node: unknown) => boolean;
-  isStringLiteral: (node: unknown) => boolean;
-  forEachChild: (node: unknown, callback: (child: any) => void) => void;
+type BabelNode = {
+  end?: number;
+  name?: unknown;
+  start?: number;
+  type: string;
+  value?: unknown;
+  [key: string]: unknown;
 };
 
 /** Adds dev-only JSX identity evidence so source edits follow rendered nodes. */
 export function motionSourceProvenancePlugin(): Plugin {
   let root = process.cwd();
   let command: ResolvedConfig["command"] = "serve";
-  let ts: TypeScriptApi | null | undefined;
 
   return {
     name: "agent-native-motion-source-provenance",
@@ -82,51 +71,84 @@ export function motionSourceProvenancePlugin(): Plugin {
         return null;
       }
 
-      ts ??= loadTypeScript(root);
-      if (!ts || !code.includes("<")) return null;
+      if (!code.includes("<")) return null;
 
-      const sourceFile = ts.createSourceFile(
-        absolutePath,
-        code,
-        ts.ScriptTarget.Latest,
-        true,
-        extension === ".tsx" ? ts.ScriptKind.TSX : ts.ScriptKind.JSX,
-      );
-      if (sourceFile.parseDiagnostics?.length) return null;
+      let syntaxTree: BabelNode;
+      try {
+        syntaxTree = parse(code, {
+          plugins: extension === ".tsx" ? ["jsx", "typescript"] : ["jsx"],
+          sourceType: "unambiguous",
+        }) as unknown as BabelNode;
+      } catch (error) {
+        if (error instanceof SyntaxError) return null;
+        throw error;
+      }
 
       const sourceHash = createHash("sha256").update(diskSource).digest("hex");
       const magic = new MagicString(code, { filename: absolutePath });
       let hostElementOrdinal = 0;
       let changed = false;
 
-      const visit = (node: any): void => {
-        if (ts!.isJsxElement(node) || ts!.isJsxSelfClosingElement(node)) {
-          const opening = ts!.isJsxElement(node) ? node.openingElement : node;
-          const tag = opening.tagName;
-          if (ts!.isIdentifier(tag) && isMotionSourceHostElementTag(tag.text)) {
+      const visit = (node: BabelNode): void => {
+        if (node.type === "JSXElement") {
+          const opening = asBabelNode(node.openingElement);
+          const tag = asBabelNode(opening?.name);
+          if (
+            opening?.type === "JSXOpeningElement" &&
+            tag?.type === "JSXIdentifier" &&
+            typeof tag.name === "string" &&
+            isMotionSourceHostElementTag(tag.name)
+          ) {
             const ordinal = hostElementOrdinal++;
-            const properties = opening.attributes.properties as any[];
-            const hasSpread = properties.some((property) =>
-              ts!.isJsxSpreadAttribute(property),
+            const properties = Array.isArray(opening.attributes)
+              ? opening.attributes
+                  .map(asBabelNode)
+                  .filter(
+                    (property): property is BabelNode => property !== null,
+                  )
+              : [];
+            const hasSpread = properties.some(
+              (property) => property.type === "JSXSpreadAttribute",
             );
-            const attributes = new Map<string, any[]>();
+            const attributes = new Map<string, BabelNode[]>();
             for (const property of properties) {
-              if (!ts!.isJsxAttribute(property)) continue;
-              const name = property.name.getText(sourceFile);
-              const matching = attributes.get(name) ?? [];
+              if (property.type !== "JSXAttribute") continue;
+              const name = asBabelNode(property.name);
+              if (
+                name?.type !== "JSXIdentifier" ||
+                typeof name.name !== "string"
+              ) {
+                continue;
+              }
+              const matching = attributes.get(name.name) ?? [];
               matching.push(property);
-              attributes.set(name, matching);
+              attributes.set(name.name, matching);
             }
 
+            const isStaticStringAttribute = (property: BabelNode): boolean => {
+              const value = asBabelNode(property.value);
+              return (
+                value?.type === "StringLiteral" &&
+                typeof value.value === "string"
+              );
+            };
+            const staticStringValue = (
+              property: BabelNode | undefined,
+            ): string | undefined => {
+              const value = property ? asBabelNode(property.value) : null;
+              return value?.type === "StringLiteral" &&
+                typeof value.value === "string"
+                ? value.value
+                : undefined;
+            };
             const idAttributes = attributes.get(NODE_ID_ATTRIBUTE) ?? [];
             const hasDynamicNodeId =
               idAttributes.length > 0 &&
               (idAttributes.length !== 1 ||
-                !idAttributes[0].initializer ||
-                !ts!.isStringLiteral(idAttributes[0].initializer));
+                !isStaticStringAttribute(idAttributes[0]!));
             const authoredNodeId =
               idAttributes.length === 1 && !hasDynamicNodeId
-                ? idAttributes[0].initializer.text
+                ? staticStringValue(idAttributes[0])
                 : undefined;
             const nodeId =
               authoredNodeId ?? generatedMotionNodeId(modulePath, ordinal);
@@ -138,9 +160,7 @@ export function motionSourceProvenancePlugin(): Plugin {
               const matches = attributes.get(name) ?? [];
               return (
                 matches.length > 1 ||
-                (matches.length === 1 &&
-                  (!matches[0].initializer ||
-                    !ts!.isStringLiteral(matches[0].initializer)))
+                (matches.length === 1 && !isStaticStringAttribute(matches[0]!))
               );
             });
 
@@ -160,35 +180,53 @@ export function motionSourceProvenancePlugin(): Plugin {
               for (const [name, value] of expectedAttributes) {
                 const existing = attributes.get(name) ?? [];
                 if (existing.length === 0) {
+                  const insertionPoint = properties.at(-1)?.end ?? tag.end;
+                  if (typeof insertionPoint !== "number") {
+                    throw new Error(
+                      `Unable to locate JSX attributes in ${absolutePath}.`,
+                    );
+                  }
                   magic.appendLeft(
-                    opening.attributes.end,
+                    insertionPoint,
                     ` ${name}=${JSON.stringify(value)}`,
                   );
                   changed = true;
                   continue;
                 }
+                const attribute = existing[0]!;
+                const start = attribute.start;
+                const end = attribute.end;
                 if (
                   existing.length !== 1 ||
-                  !existing[0].initializer ||
-                  !ts!.isStringLiteral(existing[0].initializer)
+                  !isStaticStringAttribute(attribute) ||
+                  typeof start !== "number" ||
+                  typeof end !== "number"
                 ) {
                   continue;
                 }
-                if (existing[0].initializer.text !== value) {
-                  magic.update(
-                    existing[0].getStart(sourceFile),
-                    existing[0].end,
-                    `${name}=${JSON.stringify(value)}`,
-                  );
+                if (staticStringValue(attribute) !== value) {
+                  magic.update(start, end, `${name}=${JSON.stringify(value)}`);
                   changed = true;
                 }
               }
             }
           }
         }
-        ts!.forEachChild(node, visit);
+        for (const value of Object.values(node)) {
+          if (Array.isArray(value)) {
+            for (const child of value) {
+              const astChild = asBabelNode(child);
+              if (astChild) visit(astChild);
+            }
+          } else {
+            const astChild = asBabelNode(value);
+            if (astChild) visit(astChild);
+          }
+        }
       };
-      visit(sourceFile);
+      const program = asBabelNode(syntaxTree.program);
+      if (!program) return null;
+      visit(program);
       if (!changed) return null;
 
       return {
@@ -203,26 +241,14 @@ export function motionSourceProvenancePlugin(): Plugin {
   };
 }
 
-function loadTypeScript(root: string): TypeScriptApi | null {
-  const require = createRequire(path.join(root, "package.json"));
-  for (const name of ["typescript", "typescript-7"]) {
-    try {
-      return require(name) as TypeScriptApi;
-    } catch (error) {
-      if (!isMissingPackage(error, name)) throw error;
-      // JSX provenance is optional in a dev server without a TypeScript parser.
-    }
+function asBabelNode(value: unknown): BabelNode | null {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !("type" in value) ||
+    typeof value.type !== "string"
+  ) {
+    return null;
   }
-  return null;
-}
-
-function isMissingPackage(error: unknown, name: string): boolean {
-  if (!(error instanceof Error) || !("code" in error)) return false;
-  const missingPackage = error.message.match(
-    /Cannot find module ['"]([^'"]+)['"]/,
-  );
-  return (
-    (error as Error & { code?: unknown }).code === "MODULE_NOT_FOUND" &&
-    missingPackage?.[1] === name
-  );
+  return value as BabelNode;
 }

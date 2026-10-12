@@ -22,7 +22,6 @@ import type {
 } from "@shared/motion-text-code";
 import {
   motionTimelineDurationForContent,
-  type MotionEase,
   type MotionPlaybackMode,
 } from "@shared/motion-timeline";
 import { sourcePositionPrecision } from "@shared/source-mode";
