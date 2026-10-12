@@ -33,6 +33,13 @@ export interface CompileResult {
   hash: string;
 }
 
+export class MotionCssSourceParseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MotionCssSourceParseError";
+  }
+}
+
 export interface MotionCompileOptions {
   easingVariables?: readonly MotionEasingVariable[];
 }
@@ -210,7 +217,7 @@ export function parse(css: string): MotionTrack[] {
           ? parsePathTrimKeyframeBody(body)
           : parseKeyframeBody(body, decoded.property);
     if (!keyframes) {
-      throw new Error(
+      throw new MotionCssSourceParseError(
         `Motion CSS for "${decoded.targetNodeId}" contains a path animation that cannot be read losslessly.`,
       );
     }

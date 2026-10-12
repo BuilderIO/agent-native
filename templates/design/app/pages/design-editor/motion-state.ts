@@ -3,10 +3,11 @@ import type { MotionAnimationStyleDefinition } from "@shared/motion-animation-st
 import type { MotionAudioClip } from "@shared/motion-code";
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
-import type {
-  MotionTextAnimation,
-  MotionTextDocument,
-  MotionTextProperty,
+import {
+  MOTION_TEXT_PROPERTIES,
+  type MotionTextAnimation,
+  type MotionTextDocument,
+  type MotionTextProperty,
 } from "@shared/motion-text-code";
 import {
   applyMotionAutoKeyframe,
@@ -45,6 +46,11 @@ export interface MotionTimelineQueryResult {
   designId: string;
   timelines: MotionTimelineRow[];
   count: number;
+  recoveryErrors?: Array<{
+    sourceRef: string;
+    errorCode: string;
+    message: string;
+  }>;
 }
 
 export function hasMotionTimelineContent(args: {
@@ -269,13 +275,9 @@ export function hydrateMotionDockTracks(
 }
 
 const MOTION_TEXT_DOCK_PROPERTY_PREFIX = "text:";
-const MOTION_TEXT_PROPERTIES = new Set<MotionTextProperty>([
-  "opacity",
-  "translate",
-  "scale",
-  "rotate",
-  "filter",
-]);
+const MOTION_TEXT_PROPERTY_SET = new Set<MotionTextProperty>(
+  MOTION_TEXT_PROPERTIES,
+);
 
 export function motionTextDockProperty(property: MotionTextProperty): string {
   return `${MOTION_TEXT_DOCK_PROPERTY_PREFIX}${property}`;
@@ -286,7 +288,7 @@ export function motionTextPropertyFromDockTrack(
 ): MotionTextProperty | null {
   if (!property.startsWith(MOTION_TEXT_DOCK_PROPERTY_PREFIX)) return null;
   const candidate = property.slice(MOTION_TEXT_DOCK_PROPERTY_PREFIX.length);
-  return MOTION_TEXT_PROPERTIES.has(candidate as MotionTextProperty)
+  return MOTION_TEXT_PROPERTY_SET.has(candidate as MotionTextProperty)
     ? (candidate as MotionTextProperty)
     : null;
 }

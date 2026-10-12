@@ -25,40 +25,12 @@ import {
   type MotionPlaybackMode,
   type MotionTimeline,
 } from "./motion-timeline";
+import { ts } from "./motion-typescript-runtime";
 
 const NODE_ID_ATTRIBUTE = "data-agent-native-node-id";
 const MANAGED_STYLE_ATTRIBUTE = "data-agent-native-motion";
 const MOTION_TEXT_COMPONENT_MODULE = "@agent-native/core/client/motion-text";
 const MOTION_TEXT_COMPONENT_EXPORT = "AgentNativeMotionText";
-
-type TypeScriptRuntime = typeof import("typescript");
-
-let cachedTypeScript: TypeScriptRuntime | undefined;
-const ts = new Proxy({} as TypeScriptRuntime, {
-  get(_target, property) {
-    if (!cachedTypeScript) {
-      const runtimeProcess = (
-        globalThis as typeof globalThis & {
-          process?: {
-            getBuiltinModule?: (specifier: string) => unknown;
-          };
-        }
-      ).process;
-      const moduleApi = runtimeProcess?.getBuiltinModule?.("node:module") as
-        | {
-            createRequire: (filename: string) => (specifier: string) => unknown;
-          }
-        | undefined;
-      if (!moduleApi) {
-        throw new Error("React Motion source parsing requires Node.js.");
-      }
-      cachedTypeScript = moduleApi.createRequire(import.meta.url)(
-        "typescript",
-      ) as TypeScriptRuntime;
-    }
-    return cachedTypeScript[property as keyof TypeScriptRuntime];
-  },
-});
 
 export type MotionReactSourceErrorCode =
   | "stale-source"

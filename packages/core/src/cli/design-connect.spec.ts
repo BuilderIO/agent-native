@@ -1027,6 +1027,28 @@ describe("design connect bridge endpoints", () => {
       path.join(root, "app/routes/home.tsx"),
       `/*${"x".repeat(12 * 1024 * 1024)}*/ export default null;`,
     );
+    const unboundedRead = vi.spyOn(fsPromises, "readFile");
+    try {
+      await expect(
+        isMotionModuleReachableFromRoute({
+          rootPath: root,
+          routePath: "app/routes/home.tsx",
+          modulePath: "app/components/Unrelated.tsx",
+        }),
+      ).rejects.toThrow(/12 MiB verification limit/);
+      expect(unboundedRead).not.toHaveBeenCalled();
+    } finally {
+      unboundedRead.mockRestore();
+    }
+
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      "export default null;\n",
+    );
+    fs.writeFileSync(
+      path.join(root, "tsconfig.json"),
+      `/*${"x".repeat(12 * 1024 * 1024)}*/ {}`,
+    );
     await expect(
       isMotionModuleReachableFromRoute({
         rootPath: root,
@@ -1034,6 +1056,7 @@ describe("design connect bridge endpoints", () => {
         modulePath: "app/components/Unrelated.tsx",
       }),
     ).rejects.toThrow(/12 MiB verification limit/);
+    fs.unlinkSync(path.join(root, "tsconfig.json"));
 
     const imports = Array.from({ length: 512 }, (_, index) => {
       const current = path.join(

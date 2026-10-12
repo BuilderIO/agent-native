@@ -288,6 +288,63 @@ describe("get-motion-timeline inline source recovery", () => {
     expect(mocks.readLiveSourceFile).toHaveBeenCalledWith(fileRow("file-2"));
   });
 
+  it("reports malformed unindexed sources without hiding valid recovery", async () => {
+    const malformedPathCss = compileMotionCode({
+      ...timeline,
+      tracks: [
+        {
+          targetNodeId: "hero",
+          property: "translate",
+          keyframes: [
+            {
+              t: 0,
+              value: "0px 0px",
+              motionPath: {
+                version: 1,
+                type: "cubic",
+                control1: { x: 0, y: 100 },
+                control2: { x: 0, y: 100 },
+              },
+            },
+            { t: 1, value: "100px 0px" },
+          ],
+        },
+      ],
+    })
+      .css.replace(/\/\* agent-native-motion-source:[\s\S]*? \*\//, "")
+      .replace("offset-distance: 100%;", "offset-distance: 99%;");
+    mocks.setFileRows([fileRow("file-bad"), fileRow("file-good")]);
+    mocks.setLiveContents({
+      "file-bad": injectManagedMotionCss(
+        '<html><body><p data-agent-native-node-id="hero">Hello</p></body></html>',
+        malformedPathCss,
+      ),
+      "file-good": managedContent,
+    });
+
+    const result = await action.run({ designId: "design-1" });
+
+    expect(result.timelines).toHaveLength(1);
+    expect(result.timelines[0]).toMatchObject({
+      sourceRef: "file-good",
+      source: "recovered-css",
+      tracks: timeline.tracks,
+    });
+    expect(result.recoveryErrors).toEqual([
+      {
+        sourceRef: "file-bad",
+        errorCode: "motion_css_source_unreadable",
+        message: expect.stringMatching(/path animation that cannot be read/),
+      },
+    ]);
+    await expect(
+      action.run({ designId: "design-1", sourceRef: "file-bad" }),
+    ).rejects.toMatchObject({
+      errorCode: "motion_css_source_unreadable",
+      statusCode: 422,
+    });
+  });
+
   it("continues recovery across bounded source-file pages", async () => {
     const rows = Array.from({ length: 51 }, (_, index) => {
       const id = `file-${String(index + 1).padStart(3, "0")}`;

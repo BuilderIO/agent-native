@@ -73,6 +73,7 @@ import {
 } from "../shared/motion-react-source.js";
 import {
   injectMotionTextRuntime,
+  MOTION_TEXT_PROPERTIES,
   MOTION_TEXT_UNITS,
   MOTION_TEXT_SOURCE_VERSION,
   encodeMotionTextDocument,
@@ -132,7 +133,7 @@ const motionTextDocumentSchema = z
             direction: z.enum(["forward", "reverse"]),
             staggerMs: z.number().min(0).max(5000),
             delayMs: z.number().min(0).max(MAX_MOTION_DURATION_MS).optional(),
-            property: z.enum(["opacity", "translate", "scale", "rotate"]),
+            property: z.enum(MOTION_TEXT_PROPERTIES),
             durationMs: z.number().positive().max(MAX_MOTION_DURATION_MS),
             keyframes: z.array(motionTextKeyframeSchema).min(2).max(128),
           })
@@ -341,6 +342,7 @@ const motionAnimationStyleSchema = z
               .min(1)
               .max(MOTION_ANIMATION_STYLE_MAX_KEYFRAMES),
             delayMs: z.number().min(0).max(MAX_MOTION_DURATION_MS).optional(),
+            enabled: z.boolean().optional(),
             durationMs: z
               .number()
               .positive()

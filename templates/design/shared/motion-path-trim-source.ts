@@ -1,5 +1,7 @@
 import { parse } from "parse5";
-import * as ts from "typescript";
+import type * as TypeScript from "typescript";
+
+import { ts } from "./motion-typescript-runtime";
 
 export const MOTION_PATH_TRIM_PATH_LENGTH_ATTRIBUTE =
   "data-agent-native-motion-path-length";
@@ -152,13 +154,13 @@ function isSafeStaticPathLengthAttribute(attribute: string): boolean {
     ts.ScriptKind.TSX,
   );
   let valid = false;
-  const visit = (node: ts.Node) => {
+  const visit = (node: TypeScript.Node) => {
     if (
       ts.isJsxSelfClosingElement(node) &&
       node.tagName.getText(sourceFile) === "path"
     ) {
       const attributes = node.attributes.properties.filter(
-        (property): property is ts.JsxAttribute =>
+        (property): property is TypeScript.JsxAttribute =>
           ts.isJsxAttribute(property) &&
           property.name.getText(sourceFile) === PATH_LENGTH_ATTRIBUTE,
       );
@@ -178,7 +180,7 @@ function isSafeStaticPathLengthAttribute(attribute: string): boolean {
   return valid;
 }
 
-function isStaticJsxPathLength(attribute: ts.JsxAttribute): boolean {
+function isStaticJsxPathLength(attribute: TypeScript.JsxAttribute): boolean {
   const initializer = attribute.initializer;
   if (!initializer) return false;
   if (ts.isStringLiteral(initializer)) return true;
@@ -384,12 +386,12 @@ function removeLeadingInsertedSpace(
 }
 
 type JsxPathNode = {
-  node: ts.JsxOpeningElement | ts.JsxSelfClosingElement;
+  node: TypeScript.JsxOpeningElement | TypeScript.JsxSelfClosingElement;
   tagName: string;
   nodeId: string | null;
-  pathLength: ts.JsxAttribute | null;
-  marker: ts.JsxAttribute | null;
-  spreads: ts.JsxSpreadAttribute[];
+  pathLength: TypeScript.JsxAttribute | null;
+  marker: TypeScript.JsxAttribute | null;
+  spreads: TypeScript.JsxSpreadAttribute[];
 };
 
 function applyTsxPathTrimSource(
@@ -404,8 +406,8 @@ function applyTsxPathTrimSource(
     ts.ScriptKind.TSX,
   );
   const parseDiagnostics = (
-    sourceFile as ts.SourceFile & {
-      parseDiagnostics: readonly ts.Diagnostic[];
+    sourceFile as TypeScript.SourceFile & {
+      parseDiagnostics: readonly TypeScript.Diagnostic[];
     }
   ).parseDiagnostics;
   if (parseDiagnostics.length > 0) {
@@ -415,10 +417,11 @@ function applyTsxPathTrimSource(
     );
   }
   const paths: JsxPathNode[] = [];
-  const visit = (node: ts.Node) => {
+  const visit = (node: TypeScript.Node) => {
     if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
       const jsxAttributes = node.attributes.properties.filter(
-        (property): property is ts.JsxAttribute => ts.isJsxAttribute(property),
+        (property): property is TypeScript.JsxAttribute =>
+          ts.isJsxAttribute(property),
       );
       const named = (name: string) =>
         jsxAttributes.filter(
@@ -484,12 +487,12 @@ function applyTsxPathTrimSource(
     const active = path.nodeId !== null && activeTargetNodeIds.has(path.nodeId);
     const attributes = path.node.attributes.properties;
     const pathLengthAttrs = attributes.filter(
-      (property): property is ts.JsxAttribute =>
+      (property): property is TypeScript.JsxAttribute =>
         ts.isJsxAttribute(property) &&
         property.name.getText(sourceFile) === PATH_LENGTH_ATTRIBUTE,
     );
     const markerAttrs = attributes.filter(
-      (property): property is ts.JsxAttribute =>
+      (property): property is TypeScript.JsxAttribute =>
         ts.isJsxAttribute(property) &&
         property.name.getText(sourceFile) ===
           MOTION_PATH_TRIM_PATH_LENGTH_ATTRIBUTE,
@@ -578,8 +581,8 @@ function applyTsxPathTrimSource(
 }
 
 function jsxAttributeInsertionPoint(
-  node: ts.JsxOpeningElement | ts.JsxSelfClosingElement,
-  sourceFile: ts.SourceFile,
+  node: TypeScript.JsxOpeningElement | TypeScript.JsxSelfClosingElement,
+  sourceFile: TypeScript.SourceFile,
 ): number {
   const end = node.end;
   const text = sourceFile.text;
@@ -593,9 +596,9 @@ function jsxAttributeInsertionPoint(
 }
 
 function hasSvgJsxAncestor(
-  node: ts.JsxOpeningElement | ts.JsxSelfClosingElement,
+  node: TypeScript.JsxOpeningElement | TypeScript.JsxSelfClosingElement,
 ): boolean {
-  let current: ts.Node | undefined = node.parent;
+  let current: TypeScript.Node | undefined = node.parent;
   while (current) {
     if (
       ts.isJsxElement(current) &&
@@ -609,8 +612,8 @@ function hasSvgJsxAncestor(
 }
 
 function removeJsxAttributeEdit(
-  attribute: ts.JsxAttribute,
-  sourceFile: ts.SourceFile,
+  attribute: TypeScript.JsxAttribute,
+  sourceFile: TypeScript.SourceFile,
 ): SourceEdit {
   let start = attribute.getStart(sourceFile);
   if (sourceFile.text[start - 1] === " ") start--;
@@ -618,8 +621,8 @@ function removeJsxAttributeEdit(
 }
 
 function readStaticJsxString(
-  attribute: ts.JsxAttribute,
-  sourceFile: ts.SourceFile,
+  attribute: TypeScript.JsxAttribute,
+  sourceFile: TypeScript.SourceFile,
 ): string | null {
   const initializer = attribute.initializer;
   if (initializer && ts.isStringLiteral(initializer)) return initializer.text;
@@ -634,7 +637,9 @@ function readStaticJsxString(
   return null;
 }
 
-function isNormalizedJsxPathLength(attribute: ts.JsxAttribute): boolean {
+function isNormalizedJsxPathLength(
+  attribute: TypeScript.JsxAttribute,
+): boolean {
   const initializer = attribute.initializer;
   return (
     initializer !== undefined &&

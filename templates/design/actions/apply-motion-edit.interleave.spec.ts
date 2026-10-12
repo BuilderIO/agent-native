@@ -394,6 +394,57 @@ const animationStyles = [
 ];
 
 describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
+  it("saves the filter Text property and hidden style tracks through the action schema", async () => {
+    const textDocument = {
+      ...captionTextDocument,
+      animations: [
+        {
+          ...captionTextDocument.animations[0],
+          property: "filter" as const,
+          keyframes: [
+            { t: 0, value: "blur(4px)", ease: "ease-out" },
+            { t: 1, value: "blur(0px)" },
+          ],
+        },
+      ],
+    };
+    const hiddenStyles = [
+      {
+        ...animationStyles[0],
+        id: "hidden-fade",
+        tracks: [
+          {
+            ...animationStyles[0].tracks[0],
+            enabled: false,
+          },
+        ],
+      },
+    ];
+    const input = action.schema.parse({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: [],
+      textDocument,
+      animationStyles: hiddenStyles,
+      durationMs: 600,
+    });
+
+    const saved = await action.run(input);
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+
+    expect(saved).toMatchObject({
+      textAnimationCount: 1,
+      animationStyleCount: 1,
+    });
+    expect(readback.timelines[0]).toMatchObject({
+      textDocument,
+      animationStyles: hiddenStyles,
+    });
+  });
+
   it("persists and reads a text-only timeline from managed inline HTML source", async () => {
     const saved = await action.run({
       designId: DESIGN_ID,

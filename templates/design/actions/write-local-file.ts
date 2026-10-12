@@ -266,20 +266,24 @@ export default defineAction({
     if (isLocalhostBridgeRelayRequest(ctx)) {
       const step = localhostBridgeRelayStep(ctx);
       const operation = content !== undefined ? "write-file" : "apply-edit";
+      const expectedVersionFields = {
+        ...(expectedVersionHash === undefined ? {} : { expectedVersionHash }),
+        ...(requireExpectedVersionHash === undefined
+          ? {}
+          : { requireExpectedVersionHash }),
+      };
       const bridgeRequest =
         content !== undefined
           ? {
               relPath,
               content,
-              expectedVersionHash,
-              requireExpectedVersionHash,
+              ...expectedVersionFields,
             }
           : {
               relPath,
               search: patch!.search,
               replace: patch!.replace,
-              expectedVersionHash,
-              requireExpectedVersionHash,
+              ...expectedVersionFields,
             };
       return createLocalhostBridgeRelay({
         relay: {
@@ -295,14 +299,12 @@ export default defineAction({
                     ? {
                         relPath,
                         content,
-                        expectedVersionHash,
-                        requireExpectedVersionHash,
+                        ...expectedVersionFields,
                       }
                     : {
                         relPath,
                         patch,
-                        expectedVersionHash,
-                        requireExpectedVersionHash,
+                        ...expectedVersionFields,
                       },
               }
             : {}),

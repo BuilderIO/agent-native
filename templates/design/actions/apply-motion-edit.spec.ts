@@ -478,6 +478,19 @@ describe("Motion Text source action input", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts the source-backed filter property used by Motion Text", () => {
+    const result = action.schema.safeParse({
+      designId: "d1",
+      tracks: [],
+      textDocument: {
+        ...textDocument,
+        animations: [{ ...textDocument.animations[0], property: "filter" }],
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it("allows clearing only Text while preserving supplied ordinary tracks", () => {
     const result = action.schema.safeParse({
       designId: "d1",
@@ -502,6 +515,34 @@ describe("Motion Text source action input", () => {
         textDocument: { ...textDocument, version: 2 },
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("Motion animation style action input", () => {
+  it("accepts hidden style tracks and preserves their enabled state", () => {
+    const result = action.schema.safeParse({
+      designId: "d1",
+      tracks: [],
+      animationStyles: [
+        {
+          id: "hidden-opacity",
+          name: "Hidden opacity",
+          category: "enter",
+          tracks: [
+            {
+              property: "opacity",
+              keyframes: [{ t: 0, value: "0" }],
+              enabled: false,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.animationStyles?.[0]?.tracks[0]?.enabled).toBe(false);
+    }
   });
 });
 

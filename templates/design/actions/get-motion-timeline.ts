@@ -22,6 +22,7 @@ import {
 import {
   extractManagedMotionCss,
   hashCss,
+  MotionCssSourceParseError,
   parse,
   parseFirstAnimationDurationMs,
   parsePlaybackMode,
@@ -165,6 +166,45 @@ type ManagedCssSource = {
 
 const INLINE_SOURCE_PAGE_SIZE = 50;
 
+class InvalidManagedMotionSourceError extends Error {
+  constructor(
+    readonly errorCode: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "InvalidManagedMotionSourceError";
+  }
+}
+
+interface ManagedSourceRecoveryIssue {
+  sourceRef: string;
+  errorCode: string;
+  message: string;
+}
+
+function invalidManagedSource(
+  errorCode: string,
+  error: Error | string,
+): InvalidManagedMotionSourceError {
+  const message = typeof error === "string" ? error : error.message;
+  return new InvalidManagedMotionSourceError(errorCode, message);
+}
+
+function parseLegacyMotionCss(css: string): MotionTrack[] {
+  try {
+    return parse(css).filter(
+      (track) =>
+        track.keyframes.length > 0 &&
+        track.keyframes.every((keyframe) => keyframe.value.trim().length > 0),
+    );
+  } catch (error) {
+    if (error instanceof MotionCssSourceParseError) {
+      throw invalidManagedSource("motion_css_source_unreadable", error);
+    }
+    throw error;
+  }
+}
+
 async function readManagedCssFromFile(
   file: SourceWorkspaceFile,
 ): Promise<ManagedCssSource | null> {
@@ -174,10 +214,10 @@ async function readManagedCssFromFile(
       ? readMotionTextDocument(content)
       : { status: "absent" as const };
   if (textRead.status === "invalid") {
-    fail(textRead.error.message, {
-      errorCode: `motion_text_source_${textRead.error.code.replace(/-/g, "_")}`,
-      statusCode: 422,
-    });
+    throw invalidManagedSource(
+      `motion_text_source_${textRead.error.code.replace(/-/g, "_")}`,
+      textRead.error,
+    );
   }
   const textDocument = textRead.status === "valid" ? textRead.document : null;
   const css = extractManagedMotionCss(content);
@@ -200,18 +240,17 @@ async function readManagedCssFromFile(
   }
 
   const metadata = decodeMotionCodeMetadata(css);
-  if (metadata.status === "invalid") throw metadata.error;
+  if (metadata.status === "invalid") {
+    throw invalidManagedSource(
+      `motion_source_${metadata.error.code.replace(/-/g, "_")}`,
+      metadata.error,
+    );
+  }
 
   const tracks =
     metadata.status === "valid"
       ? metadata.document.tracks
-      : parse(css).filter(
-          (track) =>
-            track.keyframes.length > 0 &&
-            track.keyframes.every(
-              (keyframe) => keyframe.value.trim().length > 0,
-            ),
-        );
+      : parseLegacyMotionCss(css);
   const animationStyles =
     metadata.status === "valid"
       ? (metadata.document.animationStyles ?? [])
@@ -233,9 +272,9 @@ async function readManagedCssFromFile(
     !authoredTextDocument &&
     metadata.status !== "valid"
   ) {
-    fail(
+    throw invalidManagedSource(
+      "motion_source_metadata_missing",
       "Managed inline Motion CSS is missing its versioned source document.",
-      { errorCode: "motion_source_metadata_missing", statusCode: 422 },
     );
   }
 
@@ -291,17 +330,28 @@ async function readManagedCssForSource(args: {
 
   if (!file) return null;
 
-  return readManagedCssFromFile(file);
+  try {
+    return await readManagedCssFromFile(file);
+  } catch (error) {
+    if (error instanceof InvalidManagedMotionSourceError) {
+      fail(error.message, { errorCode: error.errorCode, statusCode: 422 });
+    }
+    throw error;
+  }
 }
 
 async function readUnindexedManagedInlineSources(args: {
   designId: string;
   indexedSourceRefs: ReadonlySet<string>;
-}): Promise<Array<{ sourceRef: string; managedCss: ManagedCssSource }>> {
+}): Promise<{
+  recovered: Array<{ sourceRef: string; managedCss: ManagedCssSource }>;
+  recoveryErrors: ManagedSourceRecoveryIssue[];
+}> {
   const recovered: Array<{
     sourceRef: string;
     managedCss: ManagedCssSource;
   }> = [];
+  const recoveryErrors: ManagedSourceRecoveryIssue[] = [];
 
   let afterId: string | undefined;
   while (true) {
@@ -331,14 +381,23 @@ async function readUnindexedManagedInlineSources(args: {
 
     for (const file of files) {
       if (args.indexedSourceRefs.has(file.id)) continue;
-      const managedCss = await readManagedCssFromFile(file);
-      if (managedCss) recovered.push({ sourceRef: file.id, managedCss });
+      try {
+        const managedCss = await readManagedCssFromFile(file);
+        if (managedCss) recovered.push({ sourceRef: file.id, managedCss });
+      } catch (error) {
+        if (!(error instanceof InvalidManagedMotionSourceError)) throw error;
+        recoveryErrors.push({
+          sourceRef: file.id,
+          errorCode: error.errorCode,
+          message: error.message,
+        });
+      }
     }
 
     if (files.length < INLINE_SOURCE_PAGE_SIZE) break;
   }
 
-  return recovered;
+  return { recovered, recoveryErrors };
 }
 
 async function resolveManagedReactLocation(args: {
@@ -637,10 +696,11 @@ export default defineAction({
     "<style data-agent-native-motion> block. Also returns the versioned " +
     "textDocument source for static HTML/JSX Text animations and source-backed " +
     "audioClips containing hosted URLs and clip timing. Versioned source metadata is " +
-    "read losslessly; legacy CSS remains parseable. Invalid managed source " +
-    "data is returned as an error rather than an empty timeline. Editors read " +
-    "live localhost React/HTML source; viewers receive stored source marked " +
-    "unverified. Read-only.",
+    "read losslessly; legacy CSS remains parseable. An all-design inline " +
+    "listing returns malformed unindexed HTML sources in recoveryErrors with " +
+    "sourceRef, errorCode, and message; an explicitly selected invalid source " +
+    "returns its validation error. Editors read live localhost React/HTML " +
+    "source; viewers receive stored source marked unverified. Read-only.",
   readOnly: true,
   http: { method: "GET" },
   schema: z.object({
@@ -786,6 +846,7 @@ export default defineAction({
     const canReadLocalSource = ["owner", "admin", "editor"].includes(
       access.role,
     );
+    let recoveryErrors: ManagedSourceRecoveryIssue[] = [];
     if (
       !timelineId &&
       !sourceRef &&
@@ -798,14 +859,15 @@ export default defineAction({
           timeline.sourceRef ? [timeline.sourceRef] : [],
         ),
       );
-      const recoveredSources = await readUnindexedManagedInlineSources({
+      const recovery = await readUnindexedManagedInlineSources({
         designId,
         indexedSourceRefs,
       });
+      recoveryErrors = recovery.recoveryErrors;
       for (const {
         sourceRef: recoveredSourceRef,
         managedCss,
-      } of recoveredSources) {
+      } of recovery.recovered) {
         inlineManagedSourceCache.set(
           recoveredSourceRef,
           Promise.resolve(managedCss),
@@ -1081,6 +1143,7 @@ export default defineAction({
       designId,
       timelines,
       count: timelines.length,
+      recoveryErrors,
       sourceWriteCapability,
     };
   },

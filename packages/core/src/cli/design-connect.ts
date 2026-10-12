@@ -2332,6 +2332,7 @@ const SOURCE_MODULE_EXTENSIONS = [
 ];
 const MAX_MOTION_IMPORT_GRAPH_MODULES = 512;
 const MAX_MOTION_IMPORT_GRAPH_BYTES = 12 * 1024 * 1024;
+const MAX_MOTION_IMPORT_READ_CHUNK_BYTES = 64 * 1024;
 const NON_SOURCE_IMPORT_EXTENSIONS = new Set([
   ".css",
   ".scss",
@@ -2358,6 +2359,106 @@ const MOTION_BRIDGE_RECEIPT_DOMAIN =
 
 function sha256String(value: string): string {
   return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+function failMotionImportGraphByteLimit(): never {
+  throw new Error("Motion import graph exceeds the 12 MiB verification limit.");
+}
+
+function readMotionImportConfig(
+  filePath: string,
+  remainingBytes: number,
+): { source: string; bytesRead: number } {
+  const noFollow = fsSync.constants.O_NOFOLLOW ?? 0;
+  const descriptor = fsSync.openSync(
+    filePath,
+    fsSync.constants.O_RDONLY | noFollow,
+  );
+  try {
+    const stat = fsSync.fstatSync(descriptor);
+    if (!stat.isFile()) {
+      throw new Error(
+        `Motion import config is not a regular file: ${filePath}`,
+      );
+    }
+    if (stat.size > remainingBytes) failMotionImportGraphByteLimit();
+
+    const chunks: Buffer[] = [];
+    let bytesRead = 0;
+    let position = 0;
+    while (true) {
+      const buffer = Buffer.alloc(
+        Math.min(
+          MAX_MOTION_IMPORT_READ_CHUNK_BYTES,
+          remainingBytes - bytesRead + 1,
+        ),
+      );
+      const count = fsSync.readSync(
+        descriptor,
+        buffer,
+        0,
+        buffer.length,
+        position,
+      );
+      if (count === 0) break;
+      bytesRead += count;
+      if (bytesRead > remainingBytes) failMotionImportGraphByteLimit();
+      chunks.push(buffer.subarray(0, count));
+      position += count;
+    }
+    return {
+      source: Buffer.concat(chunks, bytesRead).toString("utf8"),
+      bytesRead,
+    };
+  } finally {
+    fsSync.closeSync(descriptor);
+  }
+}
+
+async function readMotionGraphModule(
+  filePath: string,
+  remainingBytes: number,
+): Promise<{ source: string; bytesRead: number }> {
+  const noFollow = fsSync.constants.O_NOFOLLOW ?? 0;
+  const handle = await fs.open(filePath, fsSync.constants.O_RDONLY | noFollow);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) {
+      throw new Error(
+        `Motion source module is not a regular file: ${filePath}`,
+      );
+    }
+    if (stat.size > remainingBytes) failMotionImportGraphByteLimit();
+
+    const chunks: Buffer[] = [];
+    let bytesRead = 0;
+    let position = 0;
+    while (true) {
+      const buffer = Buffer.alloc(
+        Math.min(
+          MAX_MOTION_IMPORT_READ_CHUNK_BYTES,
+          remainingBytes - bytesRead + 1,
+        ),
+      );
+      const { bytesRead: count } = await handle.read(
+        buffer,
+        0,
+        buffer.length,
+        position,
+      );
+      if (count === 0) break;
+      bytesRead += count;
+      if (bytesRead > remainingBytes) failMotionImportGraphByteLimit();
+      chunks.push(buffer.subarray(0, count));
+      position += count;
+    }
+    return {
+      source: Buffer.concat(chunks, bytesRead).toString("utf8"),
+      bytesRead,
+    };
+  } finally {
+    await handle.close();
+  }
 }
 
 function deriveMotionBridgeReceipt(args: {
@@ -2496,11 +2597,12 @@ function stripJsonComments(source: string): string {
 function readMotionImportAliases(rootPath: string): {
   baseUrl: string;
   aliases: MotionImportAlias[];
+  bytesRead: number;
 } {
   const rootConfig = ["tsconfig.json", "jsconfig.json"]
     .map((name) => path.join(rootPath, name))
     .find((candidate) => fsSync.existsSync(candidate));
-  if (!rootConfig) return { baseUrl: rootPath, aliases: [] };
+  if (!rootConfig) return { baseUrl: rootPath, aliases: [], bytesRead: 0 };
 
   const configChain: Array<{
     path: string;
@@ -2510,6 +2612,7 @@ function readMotionImportAliases(rootPath: string): {
     };
   }> = [];
   const seen = new Set<string>();
+  let bytesRead = 0;
   const load = (configPath: string, depth: number): void => {
     const canonicalPath = path.resolve(configPath);
     if (seen.has(canonicalPath)) {
@@ -2523,11 +2626,14 @@ function readMotionImportAliases(rootPath: string): {
       );
     }
     seen.add(canonicalPath);
+    const configSource = readMotionImportConfig(
+      canonicalPath,
+      MAX_MOTION_IMPORT_GRAPH_BYTES - bytesRead,
+    );
+    bytesRead += configSource.bytesRead;
     let parsed: unknown;
     try {
-      parsed = JSON.parse(
-        stripJsonComments(fsSync.readFileSync(canonicalPath, "utf8")),
-      );
+      parsed = JSON.parse(stripJsonComments(configSource.source));
     } catch {
       throw new Error(
         `Cannot parse ${path.basename(canonicalPath)} import aliases.`,
@@ -2587,7 +2693,7 @@ function readMotionImportAliases(rootPath: string): {
   const sortedAliases = [...aliases.values()].sort(
     (left, right) => right.pattern.length - left.pattern.length,
   );
-  return { baseUrl, aliases: sortedAliases };
+  return { baseUrl, aliases: sortedAliases, bytesRead };
 }
 
 function resolveTsConfigExtends(
@@ -2916,7 +3022,7 @@ export async function isMotionModuleReachableFromRoute(args: {
   const visited = new Set<string>();
   const pending = [route];
   let reachable = false;
-  let sourceBytes = 0;
+  let sourceBytes = aliases.bytesRead;
   while (pending.length > 0) {
     const current = pending.pop()!;
     if (visited.has(current.canonicalPath)) continue;
@@ -2927,13 +3033,12 @@ export async function isMotionModuleReachableFromRoute(args: {
     }
     visited.add(current.canonicalPath);
     if (current.canonicalPath === targetCanonical) reachable = true;
-    const source = await fs.readFile(current.absolutePath, "utf8");
-    sourceBytes += Buffer.byteLength(source, "utf8");
-    if (sourceBytes > MAX_MOTION_IMPORT_GRAPH_BYTES) {
-      throw new Error(
-        "Motion import graph exceeds the 12 MiB verification limit.",
-      );
-    }
+    const moduleSource = await readMotionGraphModule(
+      current.absolutePath,
+      MAX_MOTION_IMPORT_GRAPH_BYTES - sourceBytes,
+    );
+    sourceBytes += moduleSource.bytesRead;
+    const { source } = moduleSource;
     for (const specifier of moduleDependencies(source, current.absolutePath)) {
       const dependency = await resolveSourceModule(
         rootPath,

@@ -19,15 +19,17 @@ export const MOTION_TEXT_UNITS = [
   "line",
   "paragraph",
 ] as const;
+export const MOTION_TEXT_PROPERTIES = [
+  "opacity",
+  "translate",
+  "scale",
+  "rotate",
+  "filter",
+] as const;
 
 export type MotionTextUnit = (typeof MOTION_TEXT_UNITS)[number];
 export type MotionTextDirection = "forward" | "reverse";
-export type MotionTextProperty =
-  | "opacity"
-  | "translate"
-  | "scale"
-  | "rotate"
-  | "filter";
+export type MotionTextProperty = (typeof MOTION_TEXT_PROPERTIES)[number];
 
 export interface MotionTextKeyframe {
   t: number;
@@ -121,13 +123,9 @@ const INLINE_TEXT_TAGS = new Set([
   "u",
   "var",
 ]);
-const TEXT_PROPERTY_ALLOWLIST = new Set<MotionTextProperty>([
-  "opacity",
-  "translate",
-  "scale",
-  "rotate",
-  "filter",
-]);
+const TEXT_PROPERTY_ALLOWLIST = new Set<MotionTextProperty>(
+  MOTION_TEXT_PROPERTIES,
+);
 
 type HtmlNode = {
   nodeName?: string;
