@@ -1256,7 +1256,7 @@ const planQuestionSchema: z.ZodType<PlanQuestion> = z.object({
 
 export const questionFormDataSchema: z.ZodType<PlanQuestionFormBlock["data"]> =
   z.object({
-    questions: z.array(planQuestionSchema).max(40).default([]),
+    questions: z.array(planQuestionSchema).min(1).max(40).default([]),
     submitLabel: z.string().trim().max(400).optional(),
   });
 
@@ -1380,6 +1380,7 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
               blocks: z.array(planBlockSchema).max(40),
             }),
           )
+          .min(1)
           .max(12)
           .default([]),
         orientation: z.enum(["horizontal", "vertical"]).optional(),
@@ -1520,6 +1521,7 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
                 .max(80),
             }),
           )
+          .min(1)
           .max(60)
           .default([]),
         relations: z

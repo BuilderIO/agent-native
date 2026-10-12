@@ -175,11 +175,63 @@ function validationHintForIssues(issues: unknown[], originalType: string) {
 }
 
 export function serializePlanContent(content: PlanContentInput): string {
-  return JSON.stringify(
-    sanitizePlanContent(
-      planContentSchema.parse(preSanitizePlanContentInput(content)),
+  const parsed = sanitizePlanContent(
+    planContentSchema.parse(
+      preSanitizePlanContentInput(omitEmptyLegacyDefaults(content)),
     ),
   );
+  return JSON.stringify(omitEmptyLegacyDefaults(parsed));
+}
+
+// Reapply read-time defaults without relaxing validation for explicitly empty data.
+function omitEmptyLegacyDefaults(content: PlanContentInput): PlanContentInput {
+  const cloned = cloneJson(content) as Record<string, unknown>;
+  const omitFromBlocks = (blocks: unknown) => {
+    if (!Array.isArray(blocks)) return;
+    for (const block of blocks) {
+      if (!block || typeof block !== "object") continue;
+      const record = block as Record<string, unknown>;
+      const data = record.data as Record<string, unknown> | undefined;
+      if (!data) continue;
+
+      if (
+        (record.type === "question-form" ||
+          record.type === "visual-questions") &&
+        Array.isArray(data.questions) &&
+        data.questions.length === 0
+      ) {
+        delete data.questions;
+      }
+      if (record.type === "tabs" && Array.isArray(data.tabs)) {
+        if (data.tabs.length === 0) {
+          delete data.tabs;
+        } else {
+          for (const tab of data.tabs) {
+            if (tab && typeof tab === "object") {
+              omitFromBlocks((tab as Record<string, unknown>).blocks);
+            }
+          }
+        }
+      }
+      if (
+        record.type === "data-model" &&
+        Array.isArray(data.entities) &&
+        data.entities.length === 0
+      ) {
+        delete data.entities;
+      }
+      if (record.type === "columns" && Array.isArray(data.columns)) {
+        for (const column of data.columns) {
+          if (column && typeof column === "object") {
+            omitFromBlocks((column as Record<string, unknown>).blocks);
+          }
+        }
+      }
+    }
+  };
+
+  omitFromBlocks(cloned.blocks);
+  return cloned as PlanContentInput;
 }
 
 export function normalizePlanContent(
