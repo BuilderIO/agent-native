@@ -4,6 +4,7 @@
 // Placeholders in <name>/source.html:
 //   __KIT_HEAD__    the font link, the template's tokens read from the code, and kit/base.css
 //   __KIT_SCRIPT__  kit/ui.ts and kit/changes.ts with their types stripped, with KIT_ICONS from kit/icons.json
+//                   plus <name>/icons.json
 //                   and KIT_CHANGES from <name>/changes.json
 //   __LOGO__        the Agent-Native logo (__LOGO_SMALL__ at 20 × 12)
 //   __FOO__         any other placeholder is filled from <name>/foo.json
@@ -132,6 +133,13 @@ if (!config.template)
 
 const changes = loadChanges();
 const script = (file: string) => stripTypeScriptTypes(read(join(kit, file)));
+// A prototype's own icons.json (written by kit/add-icons.ts) adds to the kit's set.
+const icons = {
+  ...JSON.parse(read(join(kit, "icons.json"))),
+  ...(existsSync(join(dir, "icons.json"))
+    ? JSON.parse(read(join(dir, "icons.json")))
+    : {}),
+};
 // Function replacements, so `$&`, `$'`, and `$$` in the inlined code stay literal.
 const fills: [string, string][] = [
   [
@@ -140,7 +148,7 @@ const fills: [string, string][] = [
   ],
   [
     "__KIT_SCRIPT__",
-    `<script>\nconst KIT_ICONS = ${read(join(kit, "icons.json")).trim()};\nconst KIT_CHANGES = ${JSON.stringify(changes)};\n${script("ui.ts")}\n${script("changes.ts")}</script>`,
+    `<script>\nconst KIT_ICONS = ${JSON.stringify(icons)};\nconst KIT_CHANGES = ${JSON.stringify(changes)};\n${script("ui.ts")}\n${script("changes.ts")}</script>`,
   ],
   [
     "__LOGO_SMALL__",
