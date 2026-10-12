@@ -26,7 +26,15 @@ import {
   resolveBuilderCredential,
   resolveBuilderCredentials,
 } from "./credential-provider.js";
-import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
+import {
+  getRequestBuilderStorageCredentialOrgId,
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "./request-context.js";
+
+function getBuilderCredentialOrgId(): string | null {
+  return getRequestOrgId() ?? getRequestBuilderStorageCredentialOrgId() ?? null;
+}
 
 async function readCredentialStore<T>(read: () => Promise<T>): Promise<T> {
   try {
@@ -188,7 +196,7 @@ export async function resolveBuilderRequestAuthorization(
   } = {},
 ): Promise<BuilderRequestAuthorization | null> {
   const ownerEmail = getRequestUserEmail();
-  const orgId = getRequestOrgId() ?? null;
+  const orgId = getBuilderCredentialOrgId();
 
   if (input.oauthResource === "publish") {
     const publishAuthorization = await readCredentialStore(() =>
@@ -339,7 +347,7 @@ export async function resolveBuilderApiAuthorization(
 
 export async function hasBuilderApiCredentialCustody(): Promise<boolean> {
   const ownerEmail = getRequestUserEmail();
-  const orgId = getRequestOrgId() ?? null;
+  const orgId = getBuilderCredentialOrgId();
   if (ownerEmail && (await readOAuthCustody(ownerEmail, orgId))) {
     return true;
   }
@@ -350,7 +358,7 @@ export async function canAuthorizeBuilderApiRequest(
   requiredScope?: BuilderOAuthPermissionScope,
 ): Promise<boolean> {
   const ownerEmail = getRequestUserEmail();
-  const orgId = getRequestOrgId() ?? null;
+  const orgId = getBuilderCredentialOrgId();
 
   if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail, orgId))) {
     try {

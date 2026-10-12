@@ -3,6 +3,7 @@ import {
   isActionContractError,
   type ActionRunContext,
 } from "@agent-native/core/action";
+import { resolveActiveOrgIdForStorageCredential } from "@agent-native/core/org";
 import {
   deleteAttachment,
   mintAttachmentRef,
@@ -473,6 +474,25 @@ export default defineEventHandler(async (event) => {
       orgScope: "personal",
     },
     async () => {
+      let storageCredentialOrgId: string | null;
+      try {
+        storageCredentialOrgId = await resolveActiveOrgIdForStorageCredential(
+          caller.email!,
+        );
+      } catch {
+        badRequest("Design private screenshot storage is unavailable", 503);
+      }
+      const withStorageCredentialOrg = <T>(operation: () => T | Promise<T>) =>
+        runWithRequestContext(
+          {
+            userEmail: caller.email!,
+            orgId: undefined,
+            orgScope: "personal",
+            builderStorageCredentialOrgId: storageCredentialOrgId,
+          },
+          operation,
+        );
+
       let designId = manifest.designId;
       if (!designId) {
         const created = await createDesign.run(
@@ -568,44 +588,52 @@ export default defineEventHandler(async (event) => {
       let actionFailed = false;
       let actionFailure: unknown;
       try {
-        const screenshots = [];
-        for (let index = 0; index < manifest.screenshots.length; index += 1) {
-          const screenshot = manifest.screenshots[index]!;
-          const minted = await mintAttachmentRef({
-            data: screenshotBytes[index]!,
-            filename: `${screenshot.replayId}-${String(screenshot.offsetMs).padStart(8, "0")}.png`,
-            mimeType: "image/png",
-            ownerEmail: caller.email!,
-            orgId: null,
-            metadata: {
-              appId: "analytics",
-              resourceType: "session-replay-screenshot-handoff",
-              resourceId: screenshot.replayId,
-              replayId: screenshot.replayId,
-              offsetMs: screenshot.offsetMs,
-            },
-          });
-          if (minted.status !== "ok") {
-            badRequest("Design private screenshot storage is unavailable", 503);
+        const screenshots: Array<ReplayScreenshot & { attachmentRef: string }> =
+          [];
+        await withStorageCredentialOrg(async () => {
+          for (let index = 0; index < manifest.screenshots.length; index += 1) {
+            const screenshot = manifest.screenshots[index]!;
+            const minted = await mintAttachmentRef({
+              data: screenshotBytes[index]!,
+              filename: `${screenshot.replayId}-${String(screenshot.offsetMs).padStart(8, "0")}.png`,
+              mimeType: "image/png",
+              ownerEmail: caller.email!,
+              orgId: null,
+              metadata: {
+                appId: "analytics",
+                resourceType: "session-replay-screenshot-handoff",
+                resourceId: screenshot.replayId,
+                replayId: screenshot.replayId,
+                offsetMs: screenshot.offsetMs,
+              },
+            });
+            if (minted.status !== "ok") {
+              badRequest(
+                "Design private screenshot storage is unavailable",
+                503,
+              );
+            }
+            refs.push(minted.ref);
+            screenshots.push({ ...screenshot, attachmentRef: minted.ref });
           }
-          refs.push(minted.ref);
-          screenshots.push({ ...screenshot, attachmentRef: minted.ref });
-        }
+        });
 
-        const result = await addSessionReplayScreenshotsToBoard.run(
-          {
-            designId,
-            ...(manifest.title ? { title: manifest.title } : {}),
-            cohortTotal: manifest.cohortTotal,
-            selectedReplayCount: manifest.selectedReplayCount,
-            screenshots,
-          },
-          {
-            caller: "frontend",
-            actionName: "add-session-replay-screenshots-to-board",
-            userEmail: caller.email!,
-            orgId: null,
-          } satisfies ActionRunContext,
+        const result = await withStorageCredentialOrg(() =>
+          addSessionReplayScreenshotsToBoard.run(
+            {
+              designId,
+              ...(manifest.title ? { title: manifest.title } : {}),
+              cohortTotal: manifest.cohortTotal,
+              selectedReplayCount: manifest.selectedReplayCount,
+              screenshots,
+            },
+            {
+              caller: "frontend",
+              actionName: "add-session-replay-screenshots-to-board",
+              userEmail: caller.email!,
+              orgId: null,
+            } satisfies ActionRunContext,
+          ),
         );
         if (!result.boardUrl || !result.designId) {
           throw createError({
@@ -628,10 +656,12 @@ export default defineEventHandler(async (event) => {
       } finally {
         for (const ref of refs) {
           try {
-            const deleted = await deleteAttachment(ref, {
-              ownerEmail: caller.email!,
-              orgId: null,
-            });
+            const deleted = await withStorageCredentialOrg(() =>
+              deleteAttachment(ref, {
+                ownerEmail: caller.email!,
+                orgId: null,
+              }),
+            );
             if (deleted.status === "ok" && deleted.deleted) continue;
             cleanupPending = true;
           } catch {

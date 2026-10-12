@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   readMultipartFormData: vi.fn(),
   runWithRequestContext: vi.fn(),
   runAction: vi.fn(),
+  resolveActiveOrgIdForStorageCredential: vi.fn(),
   select: vi.fn(),
   eq: vi.fn(),
   whereCalls: [] as { table: unknown; conditions: unknown[] }[],
@@ -78,6 +79,11 @@ vi.mock("@agent-native/core/action", () => ({
 vi.mock("@agent-native/core/private-blob", () => ({
   deleteAttachment: mocks.deleteAttachment,
   mintAttachmentRef: mocks.mintAttachmentRef,
+}));
+
+vi.mock("@agent-native/core/org", () => ({
+  resolveActiveOrgIdForStorageCredential:
+    mocks.resolveActiveOrgIdForStorageCredential,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -270,6 +276,7 @@ describe("POST /api/session-replay-storyboard", () => {
       mocks.readMultipartFormData,
       mocks.runAction,
       mocks.runWithRequestContext,
+      mocks.resolveActiveOrgIdForStorageCredential,
       mocks.select,
       mocks.eq,
       mocks.verifyA2AToken,
@@ -279,6 +286,7 @@ describe("POST /api/session-replay-storyboard", () => {
     mocks.verifyA2AToken.mockResolvedValue({
       email: "ada@example.test",
     });
+    mocks.resolveActiveOrgIdForStorageCredential.mockResolvedValue(null);
     mocks.runWithRequestContext.mockImplementation(
       async (_context: unknown, callback: () => unknown) => callback(),
     );
@@ -418,12 +426,84 @@ describe("POST /api/session-replay-storyboard", () => {
       },
       expect.any(Function),
     );
+    expect(mocks.runWithRequestContext).toHaveBeenNthCalledWith(
+      2,
+      {
+        userEmail: "ada@example.test",
+        orgId: undefined,
+        orgScope: "personal",
+        builderStorageCredentialOrgId: null,
+      },
+      expect.any(Function),
+    );
     expect(mocks.createDesign).not.toHaveBeenCalled();
     expect(mocks.select).toHaveBeenCalledOnce();
     expect(mocks.deleteAttachment).toHaveBeenCalledWith(
       "private-attachment-ref",
       { ownerEmail: "ada@example.test", orgId: null },
     );
+  });
+
+  it("uses the selected org only for Builder storage while keeping the attachment personal", async () => {
+    mocks.resolveActiveOrgIdForStorageCredential.mockResolvedValue("org-1");
+
+    await (handler as any)(makeEvent(makeFormData()));
+
+    const storageContext = {
+      userEmail: "ada@example.test",
+      orgId: undefined,
+      orgScope: "personal",
+      builderStorageCredentialOrgId: "org-1",
+    };
+    expect(mocks.runWithRequestContext).toHaveBeenNthCalledWith(
+      2,
+      storageContext,
+      expect.any(Function),
+    );
+    expect(mocks.runWithRequestContext).toHaveBeenNthCalledWith(
+      3,
+      storageContext,
+      expect.any(Function),
+    );
+    expect(mocks.runWithRequestContext).toHaveBeenNthCalledWith(
+      4,
+      storageContext,
+      expect.any(Function),
+    );
+    expect(
+      mocks.runWithRequestContext.mock.invocationCallOrder[2],
+    ).toBeLessThan(mocks.runAction.mock.invocationCallOrder[0]!);
+    expect(mocks.runAction.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.runWithRequestContext.mock.invocationCallOrder[3]!,
+    );
+    expect(mocks.mintAttachmentRef).toHaveBeenCalledWith(
+      expect.objectContaining({ ownerEmail: "ada@example.test", orgId: null }),
+    );
+    expect(mocks.deleteAttachment).toHaveBeenCalledWith(
+      "private-attachment-ref",
+      { ownerEmail: "ada@example.test", orgId: null },
+    );
+    expect(mocks.runAction).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ orgId: null }),
+    );
+  });
+
+  it("maps an unavailable active-org lookup to fixed storage failure before creating a board", async () => {
+    mocks.resolveActiveOrgIdForStorageCredential.mockRejectedValueOnce(
+      new Error("membership lookup failed"),
+    );
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData({ designId: null }))),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      statusMessage: "Design private screenshot storage is unavailable",
+    });
+    expect(mocks.createDesign).not.toHaveBeenCalled();
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
+    expect(mocks.runAction).not.toHaveBeenCalled();
   });
 
   it("rejects a missing signed Analytics user before parsing or writing", async () => {

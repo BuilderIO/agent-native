@@ -9,6 +9,10 @@ const mockPutSetting = vi.fn();
 const mockDeleteSetting = vi.fn();
 const mockGetRequestUserEmail = vi.fn<[], string | undefined>();
 const mockGetRequestOrgId = vi.fn<[], string | undefined>();
+const mockGetRequestBuilderStorageCredentialOrgId = vi.fn<
+  [],
+  string | null | undefined
+>();
 const mockGetRequestContext = vi.fn<
   [],
   | {
@@ -65,6 +69,8 @@ vi.mock("./request-context.js", () => ({
   getRequestContext: () => mockGetRequestContext(),
   getRequestUserEmail: () => mockGetRequestUserEmail(),
   getRequestOrgId: () => mockGetRequestOrgId(),
+  getRequestBuilderStorageCredentialOrgId: () =>
+    mockGetRequestBuilderStorageCredentialOrgId(),
 }));
 vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: (...args: any[]) => mockResolveOrgIdForEmail(...args),
@@ -211,6 +217,7 @@ beforeEach(() => {
   mockDeleteSetting.mockResolvedValue(true);
   mockGetRequestUserEmail.mockReturnValue(undefined);
   mockGetRequestOrgId.mockReturnValue(undefined);
+  mockGetRequestBuilderStorageCredentialOrgId.mockReturnValue(undefined);
   mockGetRequestContext.mockReturnValue(undefined);
   mockIsLocalDatabase.mockReturnValue(true);
   mockResolveOrgIdForEmail.mockResolvedValue(null);
@@ -1408,6 +1415,46 @@ describe("resolveBuilderCredentialsDetailed", () => {
     const result = await resolveBuilderCredentialsDetailed();
     expect(result.source).toBe("org");
     expect(result.lookupFailed).toBe(false);
+  });
+
+  it("uses the scoped storage org for a personal Builder upload request", async () => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockGetRequestBuilderStorageCredentialOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockImplementation(async ({ key, scope, scopeId }) =>
+      scope === "org" &&
+      scopeId === "builder_io" &&
+      (key === "BUILDER_PRIVATE_KEY" || key === "BUILDER_PUBLIC_KEY")
+        ? { value: `${scope}-${key}`, last4: "-key", updatedAt: 1 }
+        : null,
+    );
+
+    const result = await resolveBuilderCredentialsDetailed();
+
+    expect(result).toMatchObject({
+      source: "org",
+      privateKey: "org-BUILDER_PRIVATE_KEY",
+      publicKey: "org-BUILDER_PUBLIC_KEY",
+      lookupFailed: false,
+    });
+    expect(mockResolveOrgIdForEmail).not.toHaveBeenCalled();
+    expect(mockReadAppSecret).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "org", scopeId: "builder_io" }),
+    );
+  });
+
+  it("does not infer an org when the storage scope explicitly has no selection", async () => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockGetRequestBuilderStorageCredentialOrgId.mockReturnValue(null);
+    mockResolveOrgIdForEmail.mockResolvedValue("builder_io");
+
+    await resolveBuilderCredentialsDetailed();
+
+    expect(mockResolveOrgIdForEmail).not.toHaveBeenCalled();
+    expect(mockReadAppSecret).not.toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "org" }),
+    );
   });
 
   it("skips a user-scoped credential the gateway already rejected and falls through to a working org-scoped one", async () => {

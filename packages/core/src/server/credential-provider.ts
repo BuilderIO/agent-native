@@ -33,6 +33,7 @@ import {
   getRequestContext,
   getRequestUserEmail,
   getRequestOrgId,
+  getRequestBuilderStorageCredentialOrgId,
 } from "./request-context.js";
 
 const DISPATCH_VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
@@ -410,6 +411,10 @@ async function resolveOrgIdForRequestEmail(
   }
 }
 
+function getRequestBuilderCredentialOrgId(): string | null | undefined {
+  return getRequestOrgId() ?? getRequestBuilderStorageCredentialOrgId();
+}
+
 /**
  * A member's personal Builder key pair (user row, or the pre-org solo row) is
  * unused while their org restricts personal API keys. Mirrors the resolvers'
@@ -419,9 +424,10 @@ async function resolveOrgIdForRequestEmail(
 function isPersonalBuilderCredentialRestricted(
   email: string,
   identity?: BuilderCredentialLookupIdentity,
+  requestOrgId?: string | null,
 ): Promise<boolean> {
   if (identity === undefined)
-    return isPersonalProviderKeyUseRestricted({ email });
+    return isPersonalProviderKeyUseRestricted({ email, orgId: requestOrgId });
   if (identity.orgId === null) return Promise.resolve(false);
   const orgId = identity.orgId?.trim();
   return isPersonalProviderKeyUseRestricted(
@@ -455,18 +461,25 @@ async function resolveScopedBuilderCredential(
   let orgLookupCause: unknown;
   try {
     const { readAppSecret } = await import("../secrets/storage.js");
+    const requestOrgId =
+      identity === undefined ? getRequestBuilderCredentialOrgId() : undefined;
 
     const personalRestricted = await isPersonalBuilderCredentialRestricted(
       email,
       identity,
+      requestOrgId,
     );
 
     let orgId: string | null | undefined =
-      identity === undefined ? getRequestOrgId() : identity.orgId?.trim();
+      identity === undefined ? requestOrgId : identity.orgId?.trim();
     let orgSource: "request" | "email-fallback" | "none" = orgId
       ? "request"
       : "none";
-    if (!orgId && !(identity !== undefined && identity.orgId === null)) {
+    if (
+      !orgId &&
+      requestOrgId !== null &&
+      !(identity !== undefined && identity.orgId === null)
+    ) {
       const resolved = await resolveOrgIdForRequestEmail(email);
       orgLookupCause = resolved.cause;
       orgId = resolved.orgId;
@@ -637,17 +650,25 @@ async function resolveScopedBuilderCredentials(
       );
     };
 
+    const requestOrgId =
+      identity === undefined ? getRequestBuilderCredentialOrgId() : undefined;
+
     const personalRestricted = await isPersonalBuilderCredentialRestricted(
       email,
       identity,
+      requestOrgId,
     );
 
     let orgId: string | null | undefined =
-      identity === undefined ? getRequestOrgId() : identity.orgId?.trim();
+      identity === undefined ? requestOrgId : identity.orgId?.trim();
     let orgSource: "request" | "email-fallback" | "none" = orgId
       ? "request"
       : "none";
-    if (!orgId && !(identity !== undefined && identity.orgId === null)) {
+    if (
+      !orgId &&
+      requestOrgId !== null &&
+      !(identity !== undefined && identity.orgId === null)
+    ) {
       const resolved = await resolveOrgIdForRequestEmail(email);
       orgLookupCause = resolved.cause;
       orgId = resolved.orgId;
