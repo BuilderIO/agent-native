@@ -4748,6 +4748,7 @@ export async function runAuthoringFuzz(
         };
       }, editorSelector);
     // Keep one real shortcut per direction; replay the rest in-page to avoid thousands of protocol round trips.
+    const historyReplayYieldBudgetMs = 50;
     const runHistoryBatch = (options: {
       direction: "undo" | "redo";
       maxCalls: number;
@@ -4760,11 +4761,13 @@ export async function runAuthoringFuzz(
           selector,
           modifier,
           stableLimit,
+          yieldBudgetMs,
           ...state
         }: {
           selector: string;
           modifier: string;
           stableLimit: number;
+          yieldBudgetMs: number;
           direction: "undo" | "redo";
           maxCalls: number;
           html: string;
@@ -4773,7 +4776,11 @@ export async function runAuthoringFuzz(
         }) => {
           let { html, stableCalls, changedCount } = state;
           let calls = 0;
+          let maxSliceDurationMs = 0;
+          let maxEventDurationMs = 0;
+          let sliceStartedAt = performance.now();
           while (calls < state.maxCalls && stableCalls < stableLimit) {
+            const eventStartedAt = performance.now();
             const root = document.querySelector(selector);
             if (!(root instanceof HTMLElement)) {
               throw new Error(
@@ -4818,19 +4825,32 @@ export async function runAuthoringFuzz(
             }
             html = nextHtml;
             calls += 1;
-            if (calls % 32 === 0) {
+            const eventDurationMs = performance.now() - eventStartedAt;
+            maxEventDurationMs = Math.max(maxEventDurationMs, eventDurationMs);
+            const sliceDurationMs = performance.now() - sliceStartedAt;
+            maxSliceDurationMs = Math.max(maxSliceDurationMs, sliceDurationMs);
+            if (sliceDurationMs >= yieldBudgetMs) {
               await new Promise<void>((resolve) =>
-                requestAnimationFrame(() => resolve()),
+                window.setTimeout(resolve, 0),
               );
+              sliceStartedAt = performance.now();
             }
           }
-          return { html, stableCalls, changedCount, calls };
+          return {
+            html,
+            stableCalls,
+            changedCount,
+            calls,
+            maxSliceDurationMs,
+            maxEventDurationMs,
+          };
         },
         {
           ...options,
           selector: editorSelector,
           modifier,
           stableLimit: stableHistoryProbeLimit,
+          yieldBudgetMs: historyReplayYieldBudgetMs,
         },
       );
     let currentHtml = finalHtml;
@@ -4862,6 +4882,9 @@ export async function runAuthoringFuzz(
     undoCalls += remainingUndo.calls;
     undoCount = remainingUndo.changedCount;
     currentHtml = remainingUndo.html;
+    console.log(
+      `[edit-fidelity] undo history replay: ${remainingUndo.calls} calls; max event ${remainingUndo.maxEventDurationMs.toFixed(1)}ms; max synchronous slice ${remainingUndo.maxSliceDurationMs.toFixed(1)}ms`,
+    );
     await checkPageErrors();
     await assertOutsideUnchanged();
     assertByteIdenticalHtml(
@@ -4901,6 +4924,9 @@ export async function runAuthoringFuzz(
     redoCalls += remainingRedo.calls;
     redoCount = remainingRedo.changedCount;
     currentHtml = remainingRedo.html;
+    console.log(
+      `[edit-fidelity] redo history replay: ${remainingRedo.calls} calls; max event ${remainingRedo.maxEventDurationMs.toFixed(1)}ms; max synchronous slice ${remainingRedo.maxSliceDurationMs.toFixed(1)}ms`,
+    );
     await checkPageErrors();
     await assertOutsideUnchanged();
     assertByteIdenticalHtml(currentHtml, finalHtml, "redo-all editor HTML");
