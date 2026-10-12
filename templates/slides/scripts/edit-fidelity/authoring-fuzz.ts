@@ -281,6 +281,43 @@ function browserSessionClaimId(pathname: string) {
   )?.[1];
 }
 
+export function uniquePendingBrowserSessionId(
+  claims: readonly { method: string; pathname: string }[],
+) {
+  const sessionIds = new Set(
+    claims
+      .filter((claim) =>
+        isBrowserSessionClaimRequest(claim.method, claim.pathname),
+      )
+      .map((claim) => browserSessionClaimId(claim.pathname))
+      .filter((sessionId): sessionId is string => Boolean(sessionId)),
+  );
+  return sessionIds.size === 1
+    ? (sessionIds.values().next().value ?? null)
+    : null;
+}
+
+export function browserSessionIdAfterRequest(
+  currentSessionId: string | null,
+  method: string,
+  pathname: string,
+) {
+  return isBrowserSessionClaimRequest(method, pathname)
+    ? (browserSessionClaimId(pathname) ?? null)
+    : currentSessionId;
+}
+
+export function isPostNavigationBrowserSessionTraffic(
+  pathname: string,
+  requestStartedDuringNavigation: boolean,
+  requestStartedAfterNavigation: boolean,
+) {
+  return (
+    isBrowserSessionPath(pathname) &&
+    (requestStartedDuringNavigation || requestStartedAfterNavigation)
+  );
+}
+
 type SaveReloadRequestAbortRule = {
   path: string | RegExp;
   method?: string;
@@ -1509,14 +1546,12 @@ export async function runAuthoringFuzz(
       },
     );
   };
-  const hasTrackedClaimStartedAfterNavigation = (sessionId: string | null) =>
-    Boolean(
-      sessionId &&
-      [...reloadNavigationRequests.entries()].some(
-        ([request, candidate]) =>
-          (candidate.requestStartedDuringNavigation ||
-            candidate.requestStartedAfterNavigation) &&
-          browserSessionClaimId(new URL(request.url()).pathname) === sessionId,
+  const hasPostNavigationBrowserSessionTraffic = () =>
+    [...reloadNavigationRequests.entries()].some(([request, candidate]) =>
+      isPostNavigationBrowserSessionTraffic(
+        new URL(request.url()).pathname,
+        candidate.requestStartedDuringNavigation,
+        candidate.requestStartedAfterNavigation,
       ),
     );
   const pendingSaveConflicts: Promise<void>[] = [];
@@ -1527,6 +1562,12 @@ export async function runAuthoringFuzz(
   let conflictResourceErrors = 0;
   let activeIndex = -1;
   let activePhase = "setup";
+  currentBrowserSessionId = uniquePendingBrowserSessionId(
+    [...watchedRequests.keys()].map((request) => ({
+      method: request.method(),
+      pathname: new URL(request.url()).pathname,
+    })),
+  );
   for (const [request, startedAt] of watchedRequests.entries()) {
     if (
       !isBrowserSessionClaimRequest(
@@ -1636,7 +1677,7 @@ export async function runAuthoringFuzz(
           consolePhase,
           now,
           currentBrowserSessionId,
-          hasTrackedClaimStartedAfterNavigation(browserSessionIdAtReload),
+          hasPostNavigationBrowserSessionTraffic(),
         );
       pageErrors.push(...retiredSessionPollResult.errors);
       if (retiredSessionPollResult.matched) {
@@ -1682,7 +1723,7 @@ export async function runAuthoringFuzz(
         pageErrorText,
         activePhase,
         now,
-        hasTrackedClaimStartedAfterNavigation(browserSessionIdAtReload),
+        hasPostNavigationBrowserSessionTraffic(),
       );
     pageErrors.push(...retiredSessionPageErrorResult.errors);
     if (retiredSessionPageErrorResult.matched) {
@@ -1757,11 +1798,12 @@ export async function runAuthoringFuzz(
   const onRequest = (request: any) => {
     const requestUrl = new URL(request.url());
     const startedAt = Date.now();
+    currentBrowserSessionId = browserSessionIdAfterRequest(
+      currentBrowserSessionId,
+      request.method(),
+      requestUrl.pathname,
+    );
     if (isBrowserSessionClaimRequest(request.method(), requestUrl.pathname)) {
-      if (reloadNavigationStartedAt === null) {
-        currentBrowserSessionId =
-          browserSessionClaimId(requestUrl.pathname) ?? null;
-      }
       inFlightBrowserSessionClaims.set(request, {
         startedAt,
         responseStatus: null,
