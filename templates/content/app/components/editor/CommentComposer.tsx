@@ -272,7 +272,7 @@ export const CommentComposer = forwardRef<
     if (handle) setComposerReady(true);
   }, []);
   const [initialReferences] = useState(() =>
-    textReferences(value, mentions, null),
+    textReferences(value, mentions, aiDraft),
   );
   const aiReferenceSeen = useRef(false);
   const hydratingControlledText = useRef(false);

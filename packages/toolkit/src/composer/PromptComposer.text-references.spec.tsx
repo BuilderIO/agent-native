@@ -116,6 +116,24 @@ describe("composer text with chips", () => {
       "cy@example.test",
     ]);
   });
+
+  it("reports each chip as its own @name, apart from the words beside it", async () => {
+    let text = "";
+    await render({ onTextChange: (next) => (text = next) });
+
+    await act(async () =>
+      composerRef.current!.setText("word@Sam@Bo and @Cyx", [
+        person(4, 8, "sam@example.test", "Sam"),
+        person(8, 11, "bo@example.test", "Bo"),
+        person(16, 19, "cy@example.test", "Cy"),
+      ]),
+    );
+
+    expect(lines()).toEqual([
+      "word[sam@example.test][bo@example.test] and [cy@example.test]x",
+    ]);
+    expect(text).toBe("word @Sam @Bo and @Cy x");
+  });
 });
 
 describe("inserting @ at the cursor", () => {

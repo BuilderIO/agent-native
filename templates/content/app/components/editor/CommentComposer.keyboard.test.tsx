@@ -390,6 +390,33 @@ describe("CommentComposer rich recipient", () => {
     ).not.toBeNull();
   });
 
+  it("restores a saved AI draft with one recipient chip", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="restored"
+          initialValue="Ask @GPT-5.6 Luna"
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "suggest",
+          }}
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    expect(editor().textContent?.match(/GPT-5.6 Luna/g)).toHaveLength(1);
+    expect(
+      editor().querySelectorAll(
+        '[data-mention-ref-type="content-comment-ai-recipient"]',
+      ),
+    ).toHaveLength(1);
+  });
+
   it("replaces an existing AI recipient when another model is selected", async () => {
     await act(async () =>
       root.render(

@@ -1,5 +1,9 @@
 // @vitest-environment happy-dom
 
+import {
+  commentMentionsForText,
+  readStoredCommentMentions,
+} from "@shared/comment-mentions";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -116,20 +120,47 @@ describe("CommentComposer people who share a name", () => {
     });
   });
 
+  const focusEditor = (position: "start" | "end") =>
+    act(async () => {
+      (
+        editor() as HTMLElement & {
+          editor: { commands: { focus(position: "start" | "end"): boolean } };
+        }
+      ).editor.commands.focus(position);
+    });
+
   it("keeps a word typed after a restored draft's last chip apart from it", async () => {
     await act(async () =>
       root.render(<Owner value="Ask @Sam Lee" mentions={[second]} />),
     );
     await settle();
-    await act(async () => {
-      (
-        editor() as HTMLElement & {
-          editor: { commands: { focus(position: "end"): boolean } };
-        }
-      ).editor.commands.focus("end");
-    });
+    await focusEditor("end");
     await typeRichEditorText(editor(), "today");
 
     expect(saved).toEqual({ value: "Ask @Sam Lee today", mentions: [second] });
+  });
+
+  it("keeps each person when a word is typed right against their chip", async () => {
+    await act(async () =>
+      root.render(
+        <Owner value="@Sam Lee and @Sam Lee" mentions={[second, first]} />,
+      ),
+    );
+    await settle();
+    await focusEditor("start");
+    await typeRichEditorText(editor(), "Hi");
+
+    expect(chips()).toEqual([second.email, first.email]);
+    expect(saved).toEqual({
+      value: "Hi @Sam Lee and @Sam Lee",
+      mentions: [second, first],
+    });
+    const people = saved.mentions.map((person) => ({
+      kind: "person" as const,
+      ...person,
+    }));
+    expect(
+      readStoredCommentMentions(commentMentionsForText(saved.value, people)),
+    ).toEqual(people);
   });
 });

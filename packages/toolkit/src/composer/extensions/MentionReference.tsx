@@ -4,6 +4,9 @@ import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import { MentionChip } from "../MentionChip.js";
 import type { MentionItemMedia as MentionItemMediaValue } from "../types.js";
 
+const NAME_START = /^[\p{L}\p{N}_]/u;
+const NAME_END = /[\p{L}\p{N}_]$/u;
+
 function parseMentionItemMedia(
   value: string | null,
 ): MentionItemMediaValue | null {
@@ -101,8 +104,18 @@ export const MentionReference = Node.create({
     ];
   },
 
-  renderText({ node }) {
-    return `@${node.attrs.label}`;
+  renderText({ node, parent, index }) {
+    const text = `@${node.attrs.label}`;
+    // Text matches a mention only as a whole @name token, so a chip right
+    // against a word would read as no mention, or as a later one.
+    const before = parent.maybeChild(index - 1);
+    const after = parent.maybeChild(index + 1);
+    const leading = before?.isText && NAME_END.test(before.text ?? "");
+    const trailing =
+      NAME_END.test(text) &&
+      ((after?.isText && NAME_START.test(after.text ?? "")) ||
+        after?.type === node.type);
+    return `${leading ? " " : ""}${text}${trailing ? " " : ""}`;
   },
 
   addNodeView() {
