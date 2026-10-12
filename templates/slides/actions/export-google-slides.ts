@@ -19,7 +19,7 @@ export default defineAction({
     const result = ctx
       ? await exportPptxAction.run({ deckId, includeNotes }, ctx)
       : await exportPptxAction.run({ deckId, includeNotes });
-    const { filename, slideCount, downloadUrl } = result;
+    const { slideCount, downloadUrl } = result;
 
     const googleSlidesImportDialogUrl =
       "https://docs.google.com/presentation/u/0/?usp=import";
