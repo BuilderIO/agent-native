@@ -139,7 +139,11 @@ export function runPersistTweakSave(
         if (tweakSaveRevisionRef.current === pending.revision) {
           setTweakSaveActive(true);
         }
-        const failureKind = classifyTweakSaveFailure(error, journaled);
+        const failureKind = classifyTweakSaveFailure(
+          error,
+          journaled,
+          navigator.onLine,
+        );
         if (failureKind === "conflict") {
           toast.error(t("designEditor.toasts.tweakConflict"));
         } else if (failureKind === "durable-retry") {

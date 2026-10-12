@@ -172,6 +172,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   activeInspectorTabRef.current = activeInspectorTab;
   const [activeLeftPanel, setActiveLeftPanel] =
     useState<DesignLeftPanel | null>("file");
+  const collapseLeftPanel = useCallback(() => setActiveLeftPanel(null), []);
   // The workbench loads Monaco and follows the selection with source reads, so
   // it mounts on first open and then stays mounted to keep its state.
   const codeWorkbenchOpenedRef = useRef(false);
@@ -1317,6 +1318,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     setActiveInspectorTab,
     activeLeftPanel,
     setActiveLeftPanel,
+    collapseLeftPanel,
     codeWorkbenchOpenedRef,
     leftSidebarWidth,
     rightSidebarWidth,

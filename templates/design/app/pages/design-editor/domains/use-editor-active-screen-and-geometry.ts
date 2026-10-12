@@ -123,10 +123,7 @@ import {
   findInteractDevicePreset,
   INTERACT_CUSTOM_DEVICE_NAME,
 } from "../responsive-interact";
-import {
-  classifyDesignSaveFailure,
-  designSaveErrorMessage,
-} from "../save-failure";
+import { classifyDesignSaveFailure } from "../save-failure";
 import {
   getOverviewScreenExportGeometryById,
   resolveAvailableActiveFileId,
@@ -360,8 +357,9 @@ export function useEditorActiveScreenAndGeometry({
     locallyPinnedHeightIdsRef,
     designSaveOperationSourceRef,
     pendingFrameGeometryOperationsForUnloadRef,
+    frameGeometryOperationsInFlightRef,
     creativeContextEnabled,
-    warnChangesWillRetry,
+    reportSaveFailure,
     journalOutboxEntry,
     acknowledgeOutboxEntry,
     retryDesignSaveOutbox,
@@ -603,6 +601,12 @@ export function useEditorActiveScreenAndGeometry({
         pendingFrameGeometryOperationsForUnloadRef.current,
       );
       if (operationsForRevision.length === 0) return false;
+      frameGeometryOperationsInFlightRef.current =
+        stagePendingDesignDataOperations(
+          frameGeometryOperationsInFlightRef.current,
+          operationsForRevision,
+          revision,
+        );
       const operationSource = designSaveOperationSourceRef.current;
       const previous = frameGeometryMutationChainRef.current;
       const current = previous
@@ -610,6 +614,8 @@ export function useEditorActiveScreenAndGeometry({
         .then(async () => {
           let outboxEntry: ReturnType<typeof createFrameGeometryOutboxEntry> =
             null;
+          let journaled = false;
+          let queuedForRetry = false;
           try {
             const rejectedAssignments = stripRejectedRestoreClaimAssignments(
               operationsForRevision,
@@ -623,7 +629,7 @@ export function useEditorActiveScreenAndGeometry({
               operationSource,
             );
             if (!outboxEntry) return;
-            await journalOutboxEntry(outboxEntry);
+            journaled = await journalOutboxEntry(outboxEntry);
             await saveDesignDataAsync(outboxEntry.payload as any);
             pendingFrameGeometryOperationsForUnloadRef.current =
               clearAcknowledgedDesignDataOperationsThroughRevision(
@@ -746,17 +752,19 @@ export function useEditorActiveScreenAndGeometry({
                   "Reconciled frame geometry save remains queued for retry.",
                   reconciledEntryRetryFailure.error,
                 );
-                warnChangesWillRetry();
-              } else if (
-                classifyDesignSaveFailure(error, navigator.onLine) === "offline"
-              ) {
-                warnChangesWillRetry();
-              } else {
-                toast.error(
-                  designSaveErrorMessage(error) ?? t("common.genericError"),
-                  { id: "design-geometry-save-error" },
-                );
               }
+              reportSaveFailure(reconciledEntryRetryFailure?.error ?? error);
+            }
+            queuedForRetry =
+              journaled &&
+              classifyDesignSaveFailure(error, navigator.onLine) === "offline";
+          } finally {
+            if (!queuedForRetry) {
+              frameGeometryOperationsInFlightRef.current =
+                clearAcknowledgedDesignDataOperationsThroughRevision(
+                  frameGeometryOperationsInFlightRef.current,
+                  revision,
+                );
             }
           }
         });
@@ -775,9 +783,8 @@ export function useEditorActiveScreenAndGeometry({
       journalOutboxEntry,
       queryClient,
       saveDesignDataAsync,
-      t,
       shellMode,
-      warnChangesWillRetry,
+      reportSaveFailure,
     ],
   );
 
@@ -889,7 +896,7 @@ export function useEditorActiveScreenAndGeometry({
           journalOutboxEntry,
           pendingFrameGeometryOperationsForUnloadRef,
           queryClient,
-          warnChangesWillRetry,
+          reportSaveFailure,
         },
         pending,
         keepalive,
@@ -902,7 +909,7 @@ export function useEditorActiveScreenAndGeometry({
       id,
       journalOutboxEntry,
       queryClient,
-      warnChangesWillRetry,
+      reportSaveFailure,
     ],
   );
 
@@ -1289,7 +1296,7 @@ export function useEditorActiveScreenAndGeometry({
         if (!attempt.accepted) return;
         void attempt.completion
           .then(() => acknowledgeFrameGeometryOutboxEntry(entry))
-          .catch(warnChangesWillRetry);
+          .catch(reportSaveFailure);
         return;
       }
       persistFrameGeometrySave(pending, true);
@@ -1305,14 +1312,12 @@ export function useEditorActiveScreenAndGeometry({
     flushPendingFrameGeometrySave,
     journalOutboxEntry,
     persistFrameGeometrySave,
-    warnChangesWillRetry,
+    reportSaveFailure,
   ]);
 
   useEffect(() => {
     const handleBackground = () => {
-      void flushPendingFileContentSavesForBackground().catch(
-        warnChangesWillRetry,
-      );
+      void flushPendingFileContentSavesForBackground().catch(reportSaveFailure);
       flushPendingTweakSave();
       flushPendingFrameGeometrySave();
     };

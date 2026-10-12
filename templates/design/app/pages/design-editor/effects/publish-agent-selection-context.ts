@@ -9,6 +9,7 @@ import type { InspectorTab } from "@/components/design/EditPanel";
 import type { MotionDockLiveState } from "@/components/design/MotionDock";
 import type { ElementInfo } from "@/components/design/types";
 import type { ResponsiveEditScope } from "@/pages/design-editor/command-types";
+import { KEEPALIVE_ACTION_MAX_BYTES } from "@/pages/design-editor/data-operations";
 import { DESIGN_SELECTION_ZOOM_SAVE_DELAY_MS } from "@/pages/design-editor/editor-constants";
 import { designSelectionStateKeys } from "@/pages/design-editor/editor-helpers";
 import type {
@@ -18,6 +19,82 @@ import type {
   DesignTool,
   EditorMode,
 } from "@/pages/design-editor/types";
+
+export class DesignSelectionPublishError extends Error {
+  constructor(
+    readonly key: string,
+    readonly cause: unknown,
+  ) {
+    super(`Could not publish the editor selection to "${key}"`);
+    this.name = "DesignSelectionPublishError";
+  }
+}
+
+const AGENT_SELECTION_STYLE_KEYS = [
+  "display",
+  "position",
+  "width",
+  "height",
+  "color",
+  "backgroundColor",
+  "backgroundImage",
+  "fontFamily",
+  "fontSize",
+  "fontWeight",
+  "lineHeight",
+  "textAlign",
+  "flexDirection",
+  "gap",
+  "borderRadius",
+  "opacity",
+  "objectFit",
+] as const;
+const MAX_SUMMARY_CLASSES = 40;
+const MAX_SUMMARY_CLASS_LENGTH = 200;
+const MAX_SUMMARY_TEXT_LENGTH = 200;
+const SELECTION_PUBLISH_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
+
+// The agent targets an element by these ids; its subtree style snapshot stays
+// in the frame, where copy reads it on demand.
+function summarizeSelectedElement(element: ElementInfo) {
+  const computedStyles: Record<string, string> = {};
+  for (const key of AGENT_SELECTION_STYLE_KEYS) {
+    const value = element.computedStyles[key];
+    if (value) computedStyles[key] = value;
+  }
+  const text = element.textContent;
+  return {
+    tagName: element.tagName,
+    id: element.id,
+    sourceId: element.sourceId,
+    selector: element.selector,
+    runtimeSelector: element.runtimeSelector,
+    runtimeSourceId: element.runtimeSourceId,
+    sourceLayerIdentity: element.sourceLayerIdentity,
+    pendingNodeId: element.pendingNodeId,
+    componentName: element.componentName,
+    provenance: element.provenance,
+    repeat: element.repeat,
+    primitiveKind: element.primitiveKind,
+    isGroup: element.isGroup,
+    classes: element.classes
+      .filter((name) => name.length <= MAX_SUMMARY_CLASS_LENGTH)
+      .slice(0, MAX_SUMMARY_CLASSES),
+    classCount: element.classes.length,
+    textContent: text?.slice(0, MAX_SUMMARY_TEXT_LENGTH),
+    textContentTruncated:
+      element.textContentTruncated ||
+      (text !== undefined && text.length > MAX_SUMMARY_TEXT_LENGTH) ||
+      undefined,
+    imageSource: element.imageSource,
+    boundingRect: element.boundingRect,
+    childElementCount: element.childElementCount,
+    isFlexContainer: element.isFlexContainer,
+    isGridContainer: element.isGridContainer,
+    parentDisplay: element.parentDisplay,
+    computedStyles,
+  };
+}
 
 export interface PublishAgentSelectionContextArgs {
   activeBreakpointWidthState: number | undefined;
@@ -190,7 +267,12 @@ export function runPublishAgentSelectionContext({
     zoom: selection.zoom,
     screens: selection.screens,
     selectedScreenIds: selection.selectedScreenIds,
-    selectedElement: stripInlineBytes(selection.selectedElement, "placeholder"),
+    selectedElement: selectedElement
+      ? stripInlineBytes(
+          summarizeSelectedElement(selectedElement),
+          "placeholder",
+        )
+      : null,
     mode: selection.mode,
     activeTool: selection.activeTool,
     inspectorTab: selection.inspectorTab,
@@ -209,18 +291,52 @@ export function runPublishAgentSelectionContext({
   const persistedKey = JSON.stringify(persistedSelection);
   const { zoom: _zoom, ...persistedContext } = persistedSelection;
   const persistedContextKey = JSON.stringify(persistedContext);
-  const writePersistedSelection = (pending: {
-    key: string;
-    contextKey: string;
-    value: Record<string, unknown>;
-  }) => {
+  const writePersistedSelection = (
+    pending: {
+      key: string;
+      contextKey: string;
+      value: Record<string, unknown>;
+    },
+    attempt = 0,
+  ) => {
     persistedSelectionStateRef.current = pending.key;
     persistedSelectionContextRef.current = pending.contextKey;
-    for (const key of designSelectionStateKeys()) {
-      setClientAppState(key, pending.value, { keepalive: true }).catch(
-        () => {},
-      );
-    }
+    const keys = designSelectionStateKeys();
+    // Every key's write shares the browser's in-flight keepalive budget.
+    const keepalive =
+      new TextEncoder().encode(pending.key).length * keys.length <=
+      KEEPALIVE_ACTION_MAX_BYTES;
+    void Promise.all(
+      keys.map((key) =>
+        setClientAppState(key, pending.value, { keepalive }).then(
+          () => true,
+          (cause: unknown) => {
+            console.error(new DesignSelectionPublishError(key, cause));
+            return false;
+          },
+        ),
+      ),
+    ).then((written) => {
+      if (
+        written.every(Boolean) ||
+        persistedSelectionStateRef.current !== pending.key
+      ) {
+        return;
+      }
+      persistedSelectionStateRef.current = null;
+      persistedSelectionContextRef.current = null;
+      const delay = SELECTION_PUBLISH_RETRY_DELAYS_MS[attempt];
+      if (
+        delay === undefined ||
+        persistedSelectionWriteTimerRef.current !== null
+      ) {
+        return;
+      }
+      persistedSelectionWriteTimerRef.current = window.setTimeout(() => {
+        persistedSelectionWriteTimerRef.current = null;
+        writePersistedSelection(pending, attempt + 1);
+      }, delay);
+    });
   };
   if (persistedSelectionStateRef.current === persistedKey) {
     if (persistedSelectionWriteTimerRef.current !== null) {
