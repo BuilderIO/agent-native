@@ -182,6 +182,7 @@ type SaveReloadRequestAbortRule = {
 const navigationAbortErrors = ["NS_BINDING_ABORTED", "net::ERR_ABORTED"];
 // Browser-session requests abort after at least ten seconds; leave timer slack.
 const reloadNavigationAbortMaxRequestAgeMs = 9_000;
+const reloadNavigationConsoleGraceMs = 1_000;
 
 const browserSessionRegistrationRequestRule: SaveReloadRequestAbortRule = {
   path: "/_agent-native/browser-sessions",
@@ -240,7 +241,9 @@ type WatchedRequestNavigationCandidate = {
   pathname: string;
   method: string;
   ageMs: number;
+  settledAgeMs?: number;
   requestWasPendingAtNavigation?: boolean;
+  competingRequestStartedAfterNavigation?: boolean;
 };
 
 function isExpectedWatchedRequestNavigationAbort(
@@ -249,8 +252,12 @@ function isExpectedWatchedRequestNavigationAbort(
 ) {
   return (
     candidate.requestWasPendingAtNavigation === true &&
+    candidate.competingRequestStartedAfterNavigation !== true &&
     candidate.ageMs >= 0 &&
     candidate.ageMs < reloadNavigationAbortMaxRequestAgeMs &&
+    (candidate.settledAgeMs === undefined ||
+      (candidate.settledAgeMs >= 0 &&
+        candidate.settledAgeMs < reloadNavigationConsoleGraceMs)) &&
     rules.some((rule) => {
       const matchesPath =
         typeof rule.path === "string"
@@ -279,10 +286,23 @@ export function isExpectedWatchedRequestCorsError(
     );
   if (!match) return false;
 
-  return candidates.some(
-    (candidate) =>
-      candidate.url === match[1] &&
+  return (
+    candidates.filter(
+      (candidate) =>
+        candidate.url === match[1] &&
+        isExpectedWatchedRequestNavigationAbort(candidate, rules),
+    ).length === 1
+  );
+}
+
+function hasExactlyOneExpectedBrowserSessionAbort(
+  candidates: WatchedRequestNavigationCandidate[],
+  rules: readonly SaveReloadRequestAbortRule[],
+) {
+  return (
+    candidates.filter((candidate) =>
       isExpectedWatchedRequestNavigationAbort(candidate, rules),
+    ).length === 1
   );
 }
 
@@ -302,9 +322,7 @@ export function isExpectedSaveReloadBrowserSessionConsoleError(
   return (
     activePhase === "save/reload" &&
     rules !== null &&
-    candidates.some((candidate) =>
-      isExpectedWatchedRequestNavigationAbort(candidate, rules),
-    )
+    hasExactlyOneExpectedBrowserSessionAbort(candidates, rules)
   );
 }
 
@@ -356,11 +374,9 @@ export function isExpectedCleanupBrowserSessionPollConsoleError(
   return (
     message ===
       "[Agent-Native browser session] poll failed: TypeError: Load failed" &&
-    candidates.some((candidate) =>
-      isExpectedWatchedRequestNavigationAbort(candidate, [
-        browserSessionClaimRequestRule,
-      ]),
-    )
+    hasExactlyOneExpectedBrowserSessionAbort(candidates, [
+      browserSessionClaimRequestRule,
+    ])
   );
 }
 
@@ -371,21 +387,19 @@ export function isExpectedCleanupBrowserSessionHeartbeatConsoleError(
   return (
     message ===
       "[Agent-Native browser session] heartbeat failed: TypeError: Load failed" &&
-    candidates.some((candidate) =>
-      isExpectedWatchedRequestNavigationAbort(candidate, [
-        browserSessionRegistrationRequestRule,
-      ]),
-    )
+    hasExactlyOneExpectedBrowserSessionAbort(candidates, [
+      browserSessionRegistrationRequestRule,
+    ])
   );
 }
 
 export function isExpectedCleanupNavigationError(
   message: string,
   candidates: WatchedRequestNavigationCandidate[],
-  navigationPending: boolean,
+  navigationStarted: boolean,
 ) {
   return (
-    navigationPending &&
+    navigationStarted &&
     (isExpectedWatchedRequestCorsError(
       message,
       "cleanup/navigation",
@@ -1018,7 +1032,10 @@ export async function runAuthoringFuzz(
     { method: string; path: string; startedAt: number }
   >();
   const watchedRequests = new Map(options.initialPendingWatchedRequests);
-  const reloadNavigationRequests = new Map<any, number>();
+  const reloadNavigationRequests = new Map<
+    any,
+    { startedAt: number; settledAt: number | null }
+  >();
   let reloadNavigationStartedAt: number | null = null;
   // Diagnostic only: reloadNavigationStartedAt resets after each reload, but a
   // late failure can still be logged after that. This keeps the latest start.
@@ -1052,15 +1069,20 @@ export async function runAuthoringFuzz(
     }
     const consoleText = message.text();
     const consolePhase = activePhase;
+    const now = Date.now();
     const reloadNavigationCandidates = [
       ...reloadNavigationRequests.entries(),
-    ].map(([request, startedAt]) => ({
-      url: request.url(),
-      pathname: new URL(request.url()).pathname,
-      method: request.method(),
-      ageMs: Date.now() - startedAt,
-      requestWasPendingAtNavigation: true,
-    }));
+    ].map(([request, { startedAt, settledAt }]) => {
+      const url = request.url();
+      return {
+        url,
+        pathname: new URL(url).pathname,
+        method: request.method(),
+        ageMs: now - startedAt,
+        ...(settledAt === null ? {} : { settledAgeMs: now - settledAt }),
+        requestWasPendingAtNavigation: true,
+      };
+    });
     // Captured now, not when the log runs: Firefox normalization finishes
     // asynchronously, after reload state may have been reset. Offsets use the
     // latest reload start, which is never reset (negative = started before it).
@@ -1070,9 +1092,10 @@ export async function runAuthoringFuzz(
       sinceReloadMs:
         lastReloadStartedAt === null ? null : Date.now() - lastReloadStartedAt,
       reloadMap: [...reloadNavigationRequests.entries()].map(
-        ([request, startedAt]) => ({
+        ([request, { startedAt, settledAt }]) => ({
           pathname: new URL(request.url()).pathname,
-          ageMs: Date.now() - startedAt,
+          ageMs: now - startedAt,
+          settledAgeMs: settledAt === null ? null : now - settledAt,
           startOffsetMs: startOffsetMs(startedAt),
         }),
       ),
@@ -1149,8 +1172,11 @@ export async function runAuthoringFuzz(
           : Date.now() - requestStartedAt,
       )
     ) {
+      const candidate = reloadNavigationRequests.get(request);
+      if (candidate) candidate.settledAt = Date.now();
       return;
     }
+    reloadNavigationRequests.delete(request);
     if (
       [
         "/_agent-native/actions/get-lab-states",
@@ -1183,7 +1209,7 @@ export async function runAuthoringFuzz(
         reloadNavigationAbortMaxRequestAgeMs &&
       isBrowserSessionPath(requestUrl.pathname)
     ) {
-      reloadNavigationRequests.set(request, startedAt);
+      reloadNavigationRequests.set(request, { startedAt, settledAt: null });
     }
     if (!traceEnabled) return;
     pendingRequests.set(request, {
@@ -1205,7 +1231,9 @@ export async function runAuthoringFuzz(
   const onRequestSettled = (request: any) => {
     pendingRequests.delete(request);
     watchedRequests.delete(request);
-    reloadNavigationRequests.delete(request);
+    const candidate = reloadNavigationRequests.get(request);
+    // WebKit can deliver the fetch error after Playwright's requestfinished event.
+    if (candidate) candidate.settledAt = Date.now();
   };
   const onResponse = (response: any) => {
     if (traceEnabled) {
@@ -4941,7 +4969,7 @@ export async function runAuthoringFuzz(
       reloadNavigationStartedAt = Date.now();
       lastReloadStartedAt = reloadNavigationStartedAt;
       for (const [request, startedAt] of watchedRequests.entries()) {
-        reloadNavigationRequests.set(request, startedAt);
+        reloadNavigationRequests.set(request, { startedAt, settledAt: null });
         if (traceEnabled) {
           console.log(
             `[edit-fidelity] reload pending ${request.method()} ${new URL(request.url()).pathname} ageMs=${Date.now() - startedAt}`,

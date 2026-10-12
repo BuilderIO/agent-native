@@ -5403,6 +5403,13 @@ async function runAuthoringFuzzQa(
       any,
       { page: Page; startedAt: number }
     >();
+    let cleanupNavigationStarted = false;
+    let cleanupNavigationCompetingClaimStarted = false;
+    const isBrowserSessionClaimRequest = (request: any) =>
+      request.method() === "POST" &&
+      /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
+        new URL(request.url()).pathname,
+      );
     const cleanupRequestTrackingPages = new Map<
       Page,
       {
@@ -5413,6 +5420,9 @@ async function runAuthoringFuzzQa(
     const trackCleanupRequests = (target: Page) => {
       if (cleanupRequestTrackingPages.has(target)) return;
       const onRequest = (request: any) => {
+        if (cleanupNavigationStarted && isBrowserSessionClaimRequest(request)) {
+          cleanupNavigationCompetingClaimStarted = true;
+        }
         cleanupRequestStartTimes.set(request, {
           page: target,
           startedAt: Date.now(),
@@ -5607,7 +5617,6 @@ async function runAuthoringFuzzQa(
         startedAt: number;
         requestWasPendingAtNavigation: true;
       }> = [];
-      let cleanupNavigationPending = false;
       let recoveryPage: Page | null = stableCleanupPage;
       let lastCleanupPage: Page | null = null;
       const recordCleanupFailure = (
@@ -5635,18 +5644,20 @@ async function runAuthoringFuzzQa(
           ({ startedAt, ...candidate }) => ({
             ...candidate,
             ageMs: now - startedAt,
+            competingRequestStartedAfterNavigation:
+              cleanupNavigationCompetingClaimStarted,
           }),
         );
       };
       const isExpectedCleanupNavigationError = (
         message: string,
         candidates = getCleanupNavigationCandidates(),
-        navigationPending = cleanupNavigationPending,
+        navigationStarted = cleanupNavigationStarted,
       ) => {
         return isExpectedCleanupNavigationRequestError(
           message,
           candidates,
-          navigationPending,
+          navigationStarted,
         );
       };
       if (authoringSucceeded && page && !page.isClosed()) {
@@ -5665,25 +5676,17 @@ async function runAuthoringFuzzQa(
         if (message.type() === "error") {
           const text = message.text();
           if (
-            !cleanupNavigationPending ||
+            !cleanupNavigationStarted ||
             !isFirefoxBrowserSessionConsoleError(text)
           ) {
             if (isExpectedCleanupNavigationError(text)) return;
             cleanupErrors.push(`console: ${text}`);
             return;
           }
-          const candidates = getCleanupNavigationCandidates();
-          const navigationPending = cleanupNavigationPending;
           let inspection: Promise<void>;
           inspection = normalizeFirefoxBrowserSessionConsoleError(message)
             .then((normalized) => {
-              if (
-                isExpectedCleanupNavigationError(
-                  normalized,
-                  candidates,
-                  navigationPending,
-                )
-              ) {
+              if (isExpectedCleanupNavigationError(normalized)) {
                 return;
               }
               cleanupErrors.push(`console: ${normalized}`);
@@ -5866,16 +5869,11 @@ async function runAuthoringFuzzQa(
               cleanupUrl.origin !== homeUrl.origin ||
               cleanupUrl.pathname !== homeUrl.pathname
             ) {
-              cleanupNavigationPending = true;
-              try {
-                await cleanupPage.goto(`${base}/home`, {
-                  waitUntil: "domcontentloaded",
-                  timeout: 120_000,
-                });
-              } finally {
-                cleanupNavigationPending = false;
-                cleanupNavigationCandidates = [];
-              }
+              cleanupNavigationStarted = true;
+              await cleanupPage.goto(`${base}/home`, {
+                waitUntil: "domcontentloaded",
+                timeout: 120_000,
+              });
             }
           } catch (error) {
             recordCleanupFailure("could not leave scratch deck", error);
@@ -5912,6 +5910,7 @@ async function runAuthoringFuzzQa(
       while (pendingCleanupConsoleInspections.size) {
         await Promise.all([...pendingCleanupConsoleInspections]);
       }
+      cleanupNavigationCandidates = [];
       if (page) await closePage(page, "could not close authoring page");
       for (const cleanupPage of recoveryPages) {
         await closePage(cleanupPage, "could not close recovery page");
