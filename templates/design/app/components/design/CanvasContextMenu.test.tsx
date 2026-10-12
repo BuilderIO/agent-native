@@ -505,3 +505,53 @@ describe("CanvasContextMenu shortcut hints", () => {
     await view.cleanup();
   });
 });
+
+describe("CanvasContextMenu empty canvas", () => {
+  const canvasChild = (view: { container: HTMLElement }) =>
+    Array.from(view.container.querySelectorAll("div")).find(
+      (el) => el.textContent === "Canvas" && el.children.length === 0,
+    )!;
+  async function rightClick(target: Element) {
+    await act(async () => {
+      target.dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+      );
+    });
+  }
+
+  it("shows the agent and sharing menu on empty canvas even though the open screen counts as selected", async () => {
+    const onExploreWithAgent = vi.fn();
+    const onCopyLink = vi.fn();
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      onExploreWithAgent,
+      onCopyLink,
+      onToggleUi: vi.fn(),
+      onToggleComments: vi.fn(),
+    });
+    await rightClick(canvasChild(view));
+
+    expect(view.findButton("Explore with Agent")?.disabled).toBe(false);
+    expect(view.findButton("Copy link")?.disabled).toBe(false);
+    expect(view.findButton("Hide UI")).toBeDefined();
+    expect(view.findButton("Bring to front")).toBeUndefined();
+
+    view.findButton("Explore with Agent")?.click();
+    view.findButton("Copy link")?.click();
+    expect(onExploreWithAgent).toHaveBeenCalledTimes(1);
+    expect(onCopyLink).toHaveBeenCalledTimes(1);
+    await view.cleanup();
+  });
+
+  it("keeps the selection menu when the right-click lands on a screen", async () => {
+    const view = await renderContextMenu({ selectedCount: 1 });
+    const screen = document.createElement("div");
+    screen.setAttribute("data-frame-shell", "");
+    canvasChild(view).append(screen);
+    await rightClick(screen);
+
+    expect(view.findButton("Bring to front")).toBeDefined();
+    expect(view.findButton("Explore with Agent")).toBeUndefined();
+    await view.cleanup();
+  });
+});

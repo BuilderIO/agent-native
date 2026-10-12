@@ -1,4 +1,6 @@
+import { openAgentSidebar } from "@agent-native/toolkit/app/shared";
 import type { ReactElement } from "react";
+import { toast } from "sonner";
 
 import { CanvasContextMenu } from "@/components/design/CanvasContextMenu";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
@@ -604,6 +606,17 @@ export function renderEditorCanvasArea({
       }
       onToggleUi={handleToggleUi}
       onToggleComments={handleToggleComments}
+      onExploreWithAgent={openAgentSidebar}
+      onCopyLink={() => {
+        if (!navigator.clipboard) {
+          toast.error(t("common.genericError"));
+          return;
+        }
+        void navigator.clipboard
+          .writeText(window.location.href)
+          .then(() => toast.success(t("review.linkCopied")))
+          .catch(() => toast.error(t("common.genericError")));
+      }}
       appendedItems={
         canOfferBooleanSubtract ? (
           <ContextMenuGroup>

@@ -74,7 +74,9 @@ export type CanvasContextMenuAction =
   | "flip-horizontal"
   | "flip-vertical"
   | "toggle-ui"
-  | "toggle-comments";
+  | "toggle-comments"
+  | "explore-with-agent"
+  | "copy-link";
 
 export interface CanvasContextMenuPoint {
   clientX: number;
@@ -149,6 +151,8 @@ export interface CanvasContextMenuLabels {
   toggleUiHide: string;
   toggleCommentsShow: string;
   toggleCommentsHide: string;
+  exploreWithAgent: string;
+  copyLink: string;
 }
 
 export interface CanvasContextMenuShortcuts {
@@ -191,6 +195,8 @@ export interface CanvasContextMenuShortcuts {
   flipVertical: string;
   toggleUi: string;
   toggleComments: string;
+  exploreWithAgent: string;
+  copyLink: string;
 }
 
 export interface CanvasContextMenuProps {
@@ -305,6 +311,8 @@ export interface CanvasContextMenuProps {
   onFlipVertical?: CanvasContextMenuActionHandler;
   onToggleUi?: CanvasContextMenuActionHandler;
   onToggleComments?: CanvasContextMenuActionHandler;
+  onExploreWithAgent?: CanvasContextMenuActionHandler;
+  onCopyLink?: CanvasContextMenuActionHandler;
   appendedItems?: ReactNode;
 }
 
@@ -357,13 +365,15 @@ const DEFAULT_LABELS: CanvasContextMenuLabels = {
   toggleUiHide: "Hide UI",
   toggleCommentsShow: "Show comments",
   toggleCommentsHide: "Hide comments",
+  exploreWithAgent: "Explore with Agent",
+  copyLink: "Copy link",
 };
 
 const DEFAULT_SHORTCUT_BINDINGS: Record<
   keyof CanvasContextMenuShortcuts,
   string
 > = {
-  pasteHere: "",
+  pasteHere: "$mod+v",
   selectAll: "$mod+a",
   zoomToFit: "shift+1",
   zoomToSelection: "shift+2",
@@ -402,6 +412,8 @@ const DEFAULT_SHORTCUT_BINDINGS: Record<
   flipVertical: "shift+v",
   toggleUi: "$mod+\\",
   toggleComments: "shift+c",
+  exploreWithAgent: "",
+  copyLink: "",
 };
 
 function defaultShortcutLabels(
@@ -436,6 +448,9 @@ export function dispatchContextMenuAt(
     }),
   );
 }
+
+const CANVAS_CONTENT_TARGET_SELECTOR =
+  "[data-frame-shell],[data-design-preview-iframe],[data-frame-selection-box],[data-draft-id]";
 
 const MENU_CONTENT_CLASS =
   "w-52 min-w-[200px] rounded-[6px] border border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] py-[3px] px-[3px] text-[12px] text-foreground shadow-[0_4px_16px_rgba(0,0,0,0.16),0_0_0_0.5px_rgba(0,0,0,0.08)] outline-none data-[state=open]:!animate-none data-[state=closed]:!animate-none";
@@ -541,6 +556,8 @@ export const CanvasContextMenu = forwardRef<
     onFlipVertical,
     onToggleUi,
     onToggleComments,
+    onExploreWithAgent,
+    onCopyLink,
     appendedItems,
   },
   ref,
@@ -564,6 +581,7 @@ export const CanvasContextMenu = forwardRef<
   );
   const [point, setPoint] = useState<CanvasContextMenuPoint | null>(null);
   const [open, setOpen] = useState(false);
+  const [emptyCanvasTarget, setEmptyCanvasTarget] = useState(false);
   const triggerRef = useRef<HTMLDivElement>(null);
   const imperativePointRef = useRef<CanvasContextMenuPoint | null>(null);
   const preventContextMenuFocusRestoreRef = useRef(false);
@@ -630,6 +648,8 @@ export const CanvasContextMenu = forwardRef<
       "flip-vertical": onFlipVertical,
       "toggle-ui": onToggleUi,
       "toggle-comments": onToggleComments,
+      "explore-with-agent": onExploreWithAgent,
+      "copy-link": onCopyLink,
     }),
     [
       onAddAutoLayout,
@@ -641,6 +661,8 @@ export const CanvasContextMenu = forwardRef<
       onCopyAsCode,
       onCopyAsPng,
       onCopyAsSvg,
+      onCopyLink,
+      onExploreWithAgent,
       onRotateClockwise,
       onCopyProps,
       onCreateComponent,
@@ -700,7 +722,7 @@ export const CanvasContextMenu = forwardRef<
     return <>{children}</>;
   }
 
-  const hasSelection = selectedCount > 0;
+  const hasSelection = selectedCount > 0 && !emptyCanvasTarget;
 
   return (
     <ContextMenu open={open} onOpenChange={handleOpenChange}>
@@ -711,8 +733,17 @@ export const CanvasContextMenu = forwardRef<
           onContextMenuCapture={(event) => {
             if (imperativePointRef.current) {
               setPoint(imperativePointRef.current);
+              setEmptyCanvasTarget(false);
               return;
             }
+            // The open screen counts as selected even when nothing was
+            // clicked, so only the pointer target says whether this is empty
+            // canvas.
+            setEmptyCanvasTarget(
+              !(event.target as Element | null)?.closest?.(
+                CANVAS_CONTENT_TARGET_SELECTOR,
+              ),
+            );
             const canvasPoint = getCanvasPoint?.({
               clientX: event.clientX,
               clientY: event.clientY,
@@ -1085,7 +1116,26 @@ export const CanvasContextMenu = forwardRef<
           </>
         ) : (
           <>
-            {/* The empty canvas menu exposes paste and visibility controls. */}
+            {/* The empty canvas menu leads with agent and sharing, then paste and visibility controls. */}
+            <ContextMenuGroup>
+              <CanvasMenuItem
+                hidden={isHiddenAction("explore-with-agent")}
+                disabled={!canRun("explore-with-agent", true)}
+                label={labels.exploreWithAgent}
+                shortcut={shortcuts.exploreWithAgent}
+                onSelect={(event) => runAction("explore-with-agent", event)}
+              />
+              <CanvasMenuItem
+                hidden={isHiddenAction("copy-link")}
+                disabled={!canRun("copy-link", true)}
+                label={labels.copyLink}
+                shortcut={shortcuts.copyLink}
+                onSelect={(event) => runAction("copy-link", event)}
+              />
+            </ContextMenuGroup>
+
+            <CanvasMenuSeparator />
+
             <ContextMenuGroup>
               <CanvasMenuItem
                 hidden={isHiddenAction("paste-here")}
