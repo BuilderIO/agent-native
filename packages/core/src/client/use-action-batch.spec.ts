@@ -276,6 +276,25 @@ describe("action GET batching", () => {
     expect(batchedActions(calls)).toEqual(["get-a", "get-b"]);
   });
 
+  it("keeps an opted-out query unbatched when another reader of it renders later", async () => {
+    const { calls } = stubFetch(answerBatches);
+    const { refetchAll } = await mountQueries([
+      ["get-a"],
+      ["get-b"],
+      ["get-editor-document", undefined, { batchRefetches: false }],
+      ["get-editor-document"],
+    ]);
+    calls.length = 0;
+
+    await refetchAll();
+
+    expect(calls.map(requestLine).sort()).toEqual([
+      "GET /_agent-native/actions/get-editor-document",
+      `POST ${BATCH_URL}`,
+    ]);
+    expect(batchedActions(calls)).toEqual(["get-a", "get-b"]);
+  });
+
   it("keeps imperative GET calls on their own requests", async () => {
     const { calls } = stubFetch();
 

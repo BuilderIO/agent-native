@@ -1105,6 +1105,26 @@ export function revokeBrowserPersistableActionQuery(query: Query): void {
   browserPersistableActionQueries.delete(query);
 }
 
+const UNBATCHED_REFETCHES_META_KEY = "actionUnbatchedRefetches";
+
+/**
+ * A first fetch is what the page is waiting on, so it goes alone. On
+ * serverless a batch runs all its items on one database connection and
+ * answers only when the slowest is done. Only a refetch of data already on
+ * screen shares a batch. A query holds the options of whichever observer
+ * rendered last, so an opt-out is read from every observer, not from the
+ * query function that happens to run.
+ */
+function canBatchActionQueryFetch(query: Query | undefined): boolean {
+  return (
+    query?.state.data !== undefined &&
+    !query.observers.some(
+      (observer) =>
+        observer.options.meta?.[UNBATCHED_REFETCHES_META_KEY] === true,
+    )
+  );
+}
+
 export function useActionQuery<
   TResult = undefined,
   TName extends ActionName = ActionName,
@@ -1124,8 +1144,9 @@ export function useActionQuery<
     resources?: readonly string[];
     /**
      * Set false when the UI holds a placeholder until a fresh read lands
-     * instead of showing cached data. Its refetches then go alone, like a
-     * first fetch, rather than waiting on the other reads in their batch.
+     * instead of showing cached data. While any component reading the query
+     * sets it, the query's refetches go alone, like a first fetch, rather
+     * than waiting on the other reads in their batch.
      */
     batchRefetches?: boolean;
   },
@@ -1137,7 +1158,7 @@ export function useActionQuery<
     retry: callerRetry,
     queryKeyScope,
     resources,
-    batchRefetches = true,
+    batchRefetches,
     ...restOptions
   } = options ?? {};
   const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
@@ -1151,11 +1172,7 @@ export function useActionQuery<
       let browserPersist = false;
       const result = await actionFetch<R>(actionName, "GET", params, {
         signal,
-        // A first fetch is what the page is waiting on, so it goes alone. On
-        // serverless a batch runs all its items on one database connection
-        // and answers only when the slowest is done. Only a refetch of data
-        // already on screen shares a batch.
-        batch: batchRefetches && query?.state.data !== undefined,
+        batch: canBatchActionQueryFetch(query),
         onResponse: (response) => {
           browserPersist =
             response.headers.get(ACTION_BROWSER_PERSIST_HEADER) ===
@@ -1185,11 +1202,14 @@ export function useActionQuery<
     },
     retryDelay: defaultActionQueryRetryDelay,
     ...restOptions,
-    ...(resources
+    ...(resources || batchRefetches === false
       ? {
           meta: {
             ...restOptions.meta,
-            [ACTION_RESOURCES_META_KEY]: resources,
+            ...(resources ? { [ACTION_RESOURCES_META_KEY]: resources } : {}),
+            ...(batchRefetches === false
+              ? { [UNBATCHED_REFETCHES_META_KEY]: true }
+              : {}),
           },
         }
       : {}),
