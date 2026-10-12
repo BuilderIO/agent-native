@@ -13,7 +13,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 function renderRail(
-  activePanel: "file" | "agent" | null,
+  activePanel: "file" | "agent" | "threads" | null,
   onMotionToggle?: () => void,
 ) {
   const onPanelChange = vi.fn();
@@ -75,5 +75,35 @@ describe("DesignWorkspaceRail", () => {
 
     expect(onMotionToggle).toHaveBeenCalledOnce();
     rail.root.unmount();
+  });
+
+  it("lists Layers, Agent, Tokens and Threads, in that order", async () => {
+    const rail = renderRail("file");
+    await rail.mount();
+
+    const labels = Array.from(
+      rail.host.querySelectorAll("nav button[aria-label]"),
+    ).map((button) => button.getAttribute("aria-label"));
+    expect(labels.slice(0, 4)).toEqual([
+      "designEditor.leftRail.layers",
+      "designEditor.leftRail.agent",
+      "designEditor.leftRail.tokens",
+      "designEditor.leftRail.threads",
+    ]);
+    rail.root.unmount();
+  });
+
+  it("opens Threads from the rail and collapses it when clicked again", async () => {
+    const opened = renderRail("file");
+    await opened.mount();
+    await opened.click("designEditor.leftRail.threads");
+    expect(opened.onPanelChange).toHaveBeenCalledWith("threads");
+    opened.root.unmount();
+
+    const collapsed = renderRail("threads");
+    await collapsed.mount();
+    await collapsed.click("designEditor.leftRail.threads");
+    expect(collapsed.onPanelChange).toHaveBeenCalledWith(null);
+    collapsed.root.unmount();
   });
 });

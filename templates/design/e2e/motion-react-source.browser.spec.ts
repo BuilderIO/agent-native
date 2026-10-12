@@ -357,7 +357,6 @@ test.describe.serial("React Motion source browser writeback", () => {
     );
 
     await gotoEditor(page, designId);
-    await page.getByRole("tab", { name: "Design", exact: true }).click();
     await selectByText(page, "Motion target", { screenId });
     await page
       .getByRole("button", { name: "Motion dock", exact: true })

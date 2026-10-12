@@ -2,6 +2,13 @@ import { defineAction } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { z } from "zod";
 
+import { SELECTABLE_INTERACT_DEVICE_PRESETS } from "../shared/interact-device-presets.js";
+import { INTERACT_THEME_MODES } from "../shared/preview-color-scheme.js";
+
+const interactDeviceNames = SELECTABLE_INTERACT_DEVICE_PRESETS.map(
+  (preset) => preset.name,
+);
+
 const designEditorToolSchema = z.enum([
   "move",
   "frame",
@@ -19,6 +26,11 @@ const designEditorToolSchema = z.enum([
   "scale",
 ]);
 
+// The Agent tool is retired. A stale agent or URL that still asks for it gets
+// Move, not an error; leftPanel=agent opens the Agent panel.
+const retiredToolToMove = (value: unknown) =>
+  value === "agent" ? "move" : value;
+
 const designLeftPanelSchema = z.enum([
   "file",
   "agent",
@@ -26,12 +38,13 @@ const designLeftPanelSchema = z.enum([
   "import",
   "tools",
   "tokens",
+  "threads",
   "code",
 ]);
 
 export default defineAction({
   description:
-    "Navigate the UI to a specific view or path. Views: list, templates, editor, design-systems, present, settings. Use --templateId with templates, --designId with editor/present views, and --designSystemId with design-systems. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use inspectorTab=design|comments|tweaks to focus the inspector, or leftPanel=file|agent|assets|import|tools|tokens|code to focus the left rail (file is the panel labeled Layers, with screens and the layer tree), including Import and the wide Code workspace. Legacy inspectorTab=extensions opens Tools. Use tool to activate a design editor tool.",
+    "Navigate the UI to a specific view or path. Views: list, templates, editor, design-systems, present, settings. Use --templateId with templates, --designId with editor/present views, and --designSystemId with design-systems. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use leftPanel=file|agent|assets|import|tools|tokens|threads|code to focus the left rail (file is the panel labeled Layers, with screens and the layer tree; threads is the review comment threads panel), including Import and the wide Code workspace. The inspector has no tabs, so inspectorTab is accepted and ignored; the legacy value extensions still opens Tools. Use tool to activate a design editor tool. In Interact mode, use interactDevice to pick the preview device and interactTheme=light|dark|system to pick the preview color scheme.",
   schema: z
     .object({
       view: z
@@ -57,11 +70,13 @@ export default defineAction({
         .optional()
         .describe("Alias for editorView"),
       inspectorTab: z
-        .enum(["design", "comments", "tweaks", "extensions"])
+        .enum(["design", "comments", "tweaks", "code", "extensions"])
         .optional()
-        .describe("Design editor inspector tab to focus"),
+        .describe(
+          "Ignored: the inspector has no tabs. Only the legacy value extensions is read, as an alias for leftPanel=tools.",
+        ),
       inspector: z
-        .enum(["design", "comments", "tweaks", "extensions"])
+        .enum(["design", "comments", "tweaks", "code", "extensions"])
         .optional()
         .describe("Alias for inspectorTab"),
       leftPanel: designLeftPanelSchema
@@ -82,9 +97,27 @@ export default defineAction({
         .number()
         .optional()
         .describe("Optional design canvas zoom percentage"),
-      tool: designEditorToolSchema
+      tool: z
+        .preprocess(retiredToolToMove, designEditorToolSchema)
         .optional()
-        .describe("Optional design editor tool to activate"),
+        .describe(
+          "Optional design editor tool to activate. draw only applies while the user has the Annotate lab on and otherwise lands on move. comment arms the comment pin tool and opens the Threads panel. To open the Agent panel use leftPanel=agent.",
+        ),
+      interactDevice: z
+        .string()
+        .refine((name) => interactDeviceNames.includes(name), {
+          message: `interactDevice must be one of: ${interactDeviceNames.join(", ")}`,
+        })
+        .optional()
+        .describe(
+          `Interact mode device preset (${interactDeviceNames.join(", ")})`,
+        ),
+      interactTheme: z
+        .enum(INTERACT_THEME_MODES)
+        .optional()
+        .describe(
+          "Interact mode color scheme for the preview: light, dark or system. system is the default and shows the design exactly as authored, with no scheme forced. light and dark force that scheme. Dark only changes designs that have dark styles; without them the preview stays as it is and the user is asked to add some. A screen served from a URL or running app takes no theme.",
+        ),
       designSystemId: z
         .string()
         .optional()
@@ -133,9 +166,11 @@ export default defineAction({
     if (args.designId) nav.designId = args.designId;
     const editorView = args.editorView ?? args.viewMode;
     if (editorView) nav.editorView = editorView;
-    const inspectorTab = args.inspectorTab ?? args.inspector;
-    if (inspectorTab) nav.inspectorTab = inspectorTab;
-    const leftPanel = args.leftPanel ?? args.panel;
+    const legacyInspectorPanel =
+      (args.inspectorTab ?? args.inspector) === "extensions"
+        ? "tools"
+        : undefined;
+    const leftPanel = args.leftPanel ?? args.panel ?? legacyInspectorPanel;
     if (leftPanel) nav.leftPanel = leftPanel;
     if (args.fileId) nav.fileId = args.fileId;
     if (args.screenId) nav.screenId = args.screenId;
@@ -143,6 +178,8 @@ export default defineAction({
     if (args.screen) nav.screen = args.screen;
     if (args.zoom !== undefined) nav.zoom = args.zoom;
     if (args.tool) nav.tool = args.tool;
+    if (args.interactDevice) nav.interactDevice = args.interactDevice;
+    if (args.interactTheme) nav.interactTheme = args.interactTheme;
     if (args.designSystemId) nav.designSystemId = args.designSystemId;
     if (args.templateId) nav.templateId = args.templateId;
     if (args.path) nav.path = args.path;
@@ -150,11 +187,13 @@ export default defineAction({
     return `Navigating to ${args.view || args.path}${
       args.designId ? ` (design: ${args.designId})` : ""
     }${editorView ? ` (${editorView} view)` : ""}${
-      inspectorTab ? ` (${inspectorTab} inspector)` : ""
-    }${leftPanel ? ` (${leftPanel} panel)` : ""}${
+      leftPanel ? ` (${leftPanel} panel)` : ""
+    }${
       args.fileId || args.screenId || args.filename || args.screen
         ? ` (screen: ${args.fileId ?? args.screenId ?? args.filename ?? args.screen})`
         : ""
-    }${args.tool ? ` (${args.tool} tool)` : ""}${args.designSystemId ? ` (design system: ${args.designSystemId})` : ""}`;
+    }${args.tool ? ` (${args.tool} tool)` : ""}${
+      args.interactDevice ? ` (device: ${args.interactDevice})` : ""
+    }${args.interactTheme ? ` (theme: ${args.interactTheme})` : ""}${args.designSystemId ? ` (design system: ${args.designSystemId})` : ""}`;
   },
 });

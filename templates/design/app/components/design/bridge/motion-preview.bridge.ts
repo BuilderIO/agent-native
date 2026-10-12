@@ -1,5 +1,5 @@
 /**
- * Motion-preview bridge — injected into every canvas iframe.
+ * Motion-preview bridge — injected into every Edit canvas iframe. Interact's document carries only the theme and links bridges.
  *
  * Allows the MotionDock's scrubbing preview to animate elements in ALL editor
  * modes without writing anything to the DB, Yjs state, or source files.

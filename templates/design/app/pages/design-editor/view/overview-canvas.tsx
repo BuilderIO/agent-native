@@ -3,6 +3,7 @@ import {
   RecentEditHighlights,
 } from "@agent-native/toolkit/collab-ui";
 
+import { getInteractFrameCornerClass } from "@/components/design/interact-frame-corners";
 import { shouldRenderOverviewReviewCanvas } from "@/components/design/multi-screen/board-surface-html";
 import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
 import { ReviewCanvasPins } from "@/components/visual-editor";
@@ -28,6 +29,7 @@ import type { EditorScreenRendering } from "../domains/use-editor-screen-renderi
 import type { EditorSelectionAndStyles } from "../domains/use-editor-selection-and-styles";
 import type { EditorSourceAndSync } from "../domains/use-editor-source-and-sync";
 import type { EditorToolsAndVectors } from "../domains/use-editor-tools-and-vectors";
+import { findInteractDevicePreset } from "../responsive-interact";
 import { findDesignFileByScreenTarget } from "../screen-command-utils";
 import type { DesignData } from "../types";
 
@@ -143,6 +145,7 @@ export function renderOverviewCanvas({
     setExplicitOverviewCanvasZoom,
     cameraCommand,
     explicitOverviewCanvasZoom,
+    interactDeviceName,
     interactDeviceSize,
     deviceFrame,
     queueFrameGeometrySave,
@@ -338,6 +341,15 @@ export function renderOverviewCanvas({
         focusedInteractViewport={
           responsiveInteractActive && overviewInteractScreenId
             ? interactDeviceSize
+            : null
+        }
+        focusedInteractCornerClass={
+          responsiveInteractActive && overviewInteractScreenId
+            ? getInteractFrameCornerClass({
+                category:
+                  findInteractDevicePreset(interactDeviceName)?.category,
+                width: interactDeviceSize.width,
+              })
             : null
         }
         readOnly={!canEditDesign}

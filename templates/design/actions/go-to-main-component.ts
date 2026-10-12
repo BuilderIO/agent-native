@@ -213,7 +213,6 @@ export default defineAction({
       fileId: main.fileId,
       filename: main.filename,
       selectedNodeId: main.nodeId,
-      inspectorTab: "design",
       inspectorSection: "component",
     });
 

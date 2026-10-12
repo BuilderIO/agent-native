@@ -1,6 +1,7 @@
-import type { ReactElement } from "react";
-
-import { CanvasContextMenu } from "@/components/design/CanvasContextMenu";
+import {
+  CanvasContextMenu,
+  type CanvasContextMenuAction,
+} from "@/components/design/CanvasContextMenu";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
 import { GenerationStatusCard } from "@/components/design/GenerationStatusCard";
 import { ReadOnlyDesignBanner } from "@/components/design/ReadOnlyDesignBanner";
@@ -46,6 +47,12 @@ import { renderOverviewCanvas } from "./overview-canvas";
 import { renderSingleScreenCanvas } from "./single-screen-canvas";
 import { renderVisualEditApplyToolbar } from "./visual-edit-apply-toolbar";
 
+// Left out of the canvas menu while the Motion lab is off.
+const ANIMATION_ACTIONS: readonly CanvasContextMenuAction[] = [
+  "copy-animation",
+  "paste-animation",
+];
+
 export function renderEditorCanvasArea({
   editorCore,
   editorHistory,
@@ -71,7 +78,6 @@ export function renderEditorCanvasArea({
   id,
   design,
   canApplyPendingVisualEditsWithAgent,
-  renderResponsiveInteractBar,
   leftChromeOverlayInset,
   rightSidebarVisible,
   chromeInsetLeft,
@@ -100,7 +106,6 @@ export function renderEditorCanvasArea({
   id: string;
   design: DesignData;
   canApplyPendingVisualEditsWithAgent: boolean;
-  renderResponsiveInteractBar: (floating: boolean) => ReactElement;
   leftChromeOverlayInset: string | undefined;
   rightSidebarVisible: boolean;
   chromeInsetLeft: number;
@@ -139,6 +144,7 @@ export function renderEditorCanvasArea({
     pinMode,
     canCommentDesign,
     drawMode,
+    annotateLab,
   } = editorGenerationAndAccess;
   const {
     layoutGrids,
@@ -357,7 +363,7 @@ export function renderEditorCanvasArea({
       hiddenActions={
         editorLiveEditsAndPresence.motionLabEnabled
           ? undefined
-          : ["copy-animation", "paste-animation"]
+          : ANIMATION_ACTIONS
       }
       isLocked={activeLayerLocked}
       isHidden={activeLayerHidden}
@@ -638,12 +644,6 @@ export function renderEditorCanvasArea({
               : undefined
           }
         >
-          {/* Interact's device chrome sits inside the canvas column so
-                    the workspace rails stay put — Interact is a different view
-                    of the same editor, not a chrome-free takeover. */}
-          {responsiveInteractActive && !minimalUi ? (
-            <div className="shrink-0">{renderResponsiveInteractBar(false)}</div>
-          ) : null}
           {/* Breakpoint targeting controls live in the selected Screen
                     inspector section instead of over the canvas. */}
           <div
@@ -804,7 +804,10 @@ export function renderEditorCanvasArea({
                       is separate from DesignCanvas's focused-screen batch. */}
             <SharedDrawOverlay
               visible={
-                viewMode === "overview" && drawMode && mode === "annotate"
+                viewMode === "overview" &&
+                drawMode &&
+                mode === "annotate" &&
+                annotateLab === "on"
               }
               clearSignal={overviewAnnotationResetSignal}
               scopeKey="overview"

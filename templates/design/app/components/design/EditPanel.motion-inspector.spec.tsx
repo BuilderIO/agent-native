@@ -23,7 +23,7 @@ vi.mock("@agent-native/core/client/uploads", async (importOriginal) => ({
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { EditPanel, type InspectorTab } from "./EditPanel";
+import { EditPanel } from "./EditPanel";
 import type { ElementInfo } from "./types";
 
 const selectedElement: ElementInfo = {
@@ -66,10 +66,11 @@ afterEach(() => {
 
 function MotionInspectorHarness({
   onToggle,
+  motionInspector,
 }: {
   onToggle: (property: string) => void;
+  motionInspector: boolean;
 }) {
-  const [activeTab, setActiveTab] = useState<InspectorTab>("design");
   const [queryClient] = useState(() => new QueryClient());
   return (
     <QueryClientProvider client={queryClient}>
@@ -78,9 +79,7 @@ function MotionInspectorHarness({
           selectedElement={selectedElement}
           viewMode="single"
           mode="edit"
-          activeTab={activeTab}
-          onActiveTabChange={setActiveTab}
-          motionInspectorEnabled
+          motionInspector={motionInspector}
           motionKeyframeState={{
             hasTimeline: true,
             keyframedProperties: ["scale"],
@@ -96,33 +95,24 @@ function MotionInspectorHarness({
 }
 
 describe("EditPanel Motion inspector context", () => {
-  it("opens from its accessible tab and reuses the property keyframe controls", async () => {
+  it("switches to the Motion inspector with no tab and reuses the property keyframe controls", async () => {
     const onToggle = vi.fn();
     await act(async () =>
-      root.render(<MotionInspectorHarness onToggle={onToggle} />),
+      root.render(
+        <MotionInspectorHarness onToggle={onToggle} motionInspector={false} />,
+      ),
     );
 
-    const motionTab = container.querySelector<HTMLButtonElement>(
-      '[data-design-inspector-tab="motion"]',
-    );
-    expect(motionTab?.getAttribute("aria-label")).toBe(
-      "designEditor.motion.tabLabel",
-    );
+    expect(container.querySelector("[data-design-inspector-tab]")).toBeNull();
     expect(container.querySelector("[data-interaction-state]")).not.toBeNull();
-    await act(async () => {
-      motionTab?.dispatchEvent(
-        new MouseEvent("mousedown", {
-          bubbles: true,
-          button: 0,
-          ctrlKey: false,
-        }),
-      );
-      motionTab?.focus();
-    });
-    const selectedMotionTab = container.querySelector<HTMLButtonElement>(
-      '[data-design-inspector-tab="motion"]',
+
+    await act(async () =>
+      root.render(
+        <MotionInspectorHarness onToggle={onToggle} motionInspector />,
+      ),
     );
-    expect(selectedMotionTab?.getAttribute("data-state")).toBe("active");
+
+    expect(container.querySelector("[data-design-inspector-tab]")).toBeNull();
     expect(container.querySelector("[data-interaction-state]")).toBeNull();
     expect(
       container.querySelector(
@@ -147,8 +137,7 @@ describe("EditPanel Motion inspector context", () => {
               selectedElement={selectedElement}
               viewMode="single"
               mode="edit"
-              activeTab="motion"
-              motionInspectorEnabled
+              motionInspector
               motionSelectedTarget={{ nodeId: "motion-node", label: "Box" }}
               onStyleChange={vi.fn()}
             />
@@ -180,8 +169,7 @@ describe("EditPanel Motion inspector context", () => {
               selectedElement={selectedElement}
               viewMode="single"
               mode="edit"
-              activeTab="motion"
-              motionInspectorEnabled
+              motionInspector
               motionSelectedTarget={{ nodeId: "motion-node", label: "Box" }}
               motionAudioClips={[]}
               onMotionAudioClipsChange={vi.fn()}
@@ -236,8 +224,7 @@ describe("EditPanel Motion inspector context", () => {
               selectedElement={flexFrame}
               viewMode="single"
               mode="edit"
-              activeTab="motion"
-              motionInspectorEnabled
+              motionInspector
               motionSelectedTarget={{ nodeId: "motion-node", label: "Box" }}
               motionKeyframeState={{
                 hasTimeline: true,
@@ -269,8 +256,7 @@ describe("EditPanel Motion inspector context", () => {
               viewMode="single"
               mode="edit"
               readOnly
-              activeTab="motion"
-              motionInspectorEnabled
+              motionInspector
               motionSelectedTarget={{ nodeId: "motion-node", label: "Box" }}
               onStyleChange={vi.fn()}
             />
@@ -279,9 +265,6 @@ describe("EditPanel Motion inspector context", () => {
       ),
     );
 
-    expect(
-      container.querySelector('[data-design-inspector-tab="motion"]'),
-    ).not.toBeNull();
     expect(
       container.querySelector(
         '[data-design-inspector-section] h3[aria-label="designEditor.motion.animations"]',

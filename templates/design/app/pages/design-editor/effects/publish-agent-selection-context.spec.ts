@@ -28,7 +28,6 @@ function argsFor(overrides: Partial<Args> = {}): Args {
       id: "screen-1",
       filename: "index.html",
     } as Args["activeFile"],
-    activeInspectorTab: "design" as Args["activeInspectorTab"],
     activeLeftPanel: null,
     activeTool: "move" as Args["activeTool"],
     design: null,
@@ -38,6 +37,8 @@ function argsFor(overrides: Partial<Args> = {}): Args {
     files: [],
     hoveredElement: null,
     id: "design-1",
+    interactDevice: { name: 'MacBook Air 13"', width: 1440, height: 900 },
+    interactTheme: "light",
     isSignedIn: true,
     mode: "edit" as Args["mode"],
     motionAutoKeyframeEnabled: false,
@@ -69,6 +70,54 @@ function publishedSelection(): Record<string, unknown> {
   return (window as unknown as { __designSelection: Record<string, unknown> })
     .__designSelection;
 }
+
+describe("runPublishAgentSelectionContext Interact state", () => {
+  beforeEach(() => {
+    delete (window as unknown as { __designSelection?: unknown })
+      .__designSelection;
+  });
+
+  it("publishes the device and theme the user chose while previewing", () => {
+    runPublishAgentSelectionContext(
+      argsFor({
+        mode: "interact" as Args["mode"],
+        interactDevice: { name: "iPhone 17", width: 402, height: 874 },
+        interactTheme: "dark",
+      }),
+    );
+    expect(publishedSelection().interact).toEqual({
+      device: { name: "iPhone 17", width: 402, height: 874 },
+      theme: "dark",
+    });
+  });
+
+  it("publishes System as System, so the agent sees the choice and not a resolved guess", () => {
+    runPublishAgentSelectionContext(
+      argsFor({
+        mode: "interact" as Args["mode"],
+        interactTheme: "system",
+      }),
+    );
+    expect(publishedSelection().interact).toMatchObject({ theme: "system" });
+  });
+
+  it("publishes null outside Interact so a stale default is not read as a choice", () => {
+    runPublishAgentSelectionContext(argsFor({ mode: "edit" as Args["mode"] }));
+    expect(publishedSelection().interact).toBeNull();
+  });
+
+  it("publishes a Custom device with the screen's own size", () => {
+    runPublishAgentSelectionContext(
+      argsFor({
+        mode: "interact" as Args["mode"],
+        interactDevice: { name: "Custom", width: 1000, height: 700 },
+      }),
+    );
+    expect(publishedSelection().interact).toMatchObject({
+      device: { name: "Custom", width: 1000, height: 700 },
+    });
+  });
+});
 
 describe("runPublishAgentSelectionContext layout grid", () => {
   beforeEach(() => {
@@ -138,6 +187,23 @@ describe("runPublishAgentSelectionContext layout grid", () => {
         '["node-1\\u001ftranslate",1]',
       ],
     });
+  });
+
+  it("tells the agent which tool is active and which mode it is in", () => {
+    runPublishAgentSelectionContext(
+      argsFor({ activeTool: "comment", mode: "annotate" }),
+    );
+    expect(publishedSelection()).toMatchObject({
+      activeTool: "comment",
+      mode: "annotate",
+    });
+  });
+});
+
+describe("runPublishAgentSelectionContext inspector", () => {
+  it("publishes no inspector tab: the inspector has none", () => {
+    runPublishAgentSelectionContext(argsFor());
+    expect(publishedSelection()).not.toHaveProperty("inspectorTab");
   });
 });
 

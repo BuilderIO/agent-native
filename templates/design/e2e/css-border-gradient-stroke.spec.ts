@@ -119,13 +119,13 @@ async function selectBorderRectangle(page: Page) {
   await expect(row).toHaveAttribute("aria-selected", "true");
 }
 
+// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
 test("HTML rectangle border gradient paints, persists, reloads, and returns to solid", async ({
   page,
 }) => {
   const { designId, screenId } = await createDesign(page);
   try {
     await gotoEditor(page, designId);
-    await page.getByRole("tab", { name: "Design", exact: true }).click();
     await expandAllLayers(page);
     await page.evaluate(() => {
       (window as any).__debugBridgeSelections = [];
@@ -169,9 +169,11 @@ test("HTML rectangle border gradient paints, persists, reloads, and returns to s
     expect(popoverId).toBeTruthy();
     const popover = page.locator(`[id="${popoverId}"]`);
     await expect(
-      popover.getByRole("button", { name: "Linear", exact: true }),
+      popover.getByRole("button", { name: "Gradient", exact: true }),
     ).toBeVisible();
-    await popover.getByRole("button", { name: "Linear", exact: true }).click();
+    await popover
+      .getByRole("button", { name: "Gradient", exact: true })
+      .click();
 
     await expect
       .poll(() => borderState(page, screenId))
@@ -190,7 +192,6 @@ test("HTML rectangle border gradient paints, persists, reloads, and returns to s
     expect(savedGradient).toContain("border-image-slice: 1");
 
     await page.reload();
-    await page.getByRole("tab", { name: "Design", exact: true }).click();
     await selectBorderRectangle(page);
     await expect
       .poll(async () => (await borderState(page, screenId)).borderImageSource)

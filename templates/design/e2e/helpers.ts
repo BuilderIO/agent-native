@@ -305,27 +305,60 @@ export async function expandAllLayers(page: Page): Promise<void> {
   }
 }
 
+/**
+ * The Frame group's main button. It arms whichever of Frame and Screen was used
+ * last, so it is found by its group, not by a label.
+ */
 export function frameToolButton(page: Page): Locator {
   return page
     .locator(
-      '[data-design-bottom-toolbar] button[aria-label="Frame"],' +
-        ' [data-design-bottom-toolbar] button[aria-label="Screen"]',
+      '[data-design-bottom-toolbar] [data-design-toolbar-group="frame"] button',
     )
     .first();
+}
+
+/** Toolbar tools that sit in a group's menu, and the group each one is in. */
+const MENU_TOOL_GROUP = {
+  Move: "Move",
+  Hand: "Move",
+  Scale: "Move",
+  Frame: "Frame",
+  Screen: "Frame",
+  Rectangle: "Shapes",
+  Line: "Shapes",
+  Arrow: "Shapes",
+  Ellipse: "Shapes",
+  Polygon: "Shapes",
+  Star: "Shapes",
+} as const;
+export type ToolbarTool = keyof typeof MENU_TOOL_GROUP | "Text";
+
+/**
+ * Arm a tool the way a user does: Text is a button of its own; every other tool
+ * is an item in its group's menu, opened from the chevron. A group's main button
+ * only arms the tool used last, so it cannot be relied on to reach a particular
+ * one.
+ */
+export async function selectTool(page: Page, tool: ToolbarTool): Promise<void> {
+  const toolbar = page.locator("[data-design-bottom-toolbar]");
+  if (tool === "Text") {
+    await toolbar.getByRole("button", { name: "Text", exact: true }).click();
+    return;
+  }
+  await toolbar
+    .getByRole("button", {
+      name: `${MENU_TOOL_GROUP[tool]} options`,
+      exact: true,
+    })
+    .click();
+  await page.getByRole("menuitem", { name: new RegExp(`^${tool}\\b`) }).click();
 }
 
 export async function pickFrameMode(
   page: Page,
   mode: "Frame" | "Screen",
 ): Promise<void> {
-  await page
-    .locator(
-      '[data-design-bottom-toolbar] button[aria-label="Frame options"],' +
-        ' [data-design-bottom-toolbar] button[aria-label="Screen options"]',
-    )
-    .first()
-    .click();
-  await page.getByRole("menuitem").filter({ hasText: mode }).first().click();
+  await selectTool(page, mode);
 }
 
 export async function resetPersistedCanvasState(page: Page): Promise<void> {
@@ -504,11 +537,7 @@ export async function enterInteractView(
   await fullView.evaluate((element) => {
     (element as HTMLButtonElement).click();
   });
-  // Focusing may swap the preview for the Screen's live editor, so the
-  // iframe that must survive is the one on screen when Interact is pressed.
   await expect(previewIframe).toBeVisible();
-  const previewIframeHandle = await previewIframe.elementHandle();
-  if (!previewIframeHandle) throw new Error("screen preview iframe is missing");
   await page
     .locator('[data-design-top-bar] [data-design-mode="interact"]')
     .click();
@@ -517,17 +546,13 @@ export async function enterInteractView(
     "true",
   );
   await expect(
-    page.getByRole("button", { name: "Exit responsive preview" }),
+    page.locator("[data-design-top-bar] [data-design-interact-route]"),
   ).toBeVisible();
-  expect(
-    await previewIframeHandle.evaluate((before) =>
-      Boolean(
-        before
-          .closest("[data-screen-shell]")
-          ?.querySelector("iframe[data-design-preview-iframe]") === before,
-      ),
-    ),
-  ).toBe(true);
+  // Interact loads the page afresh with only its own bridges, so the preview
+  // is a new iframe; the screen still has exactly one.
+  await expect(screenShell.locator(DESIGN_PREVIEW_IFRAME_SELECTOR)).toHaveCount(
+    1,
+  );
   await expect
     .poll(
       async () =>

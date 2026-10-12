@@ -112,6 +112,13 @@ describe("resolveTweaksToCssVars", () => {
     expect(isSafeCssTokenValue("red/* comment */")).toBe(false);
     expect(isSafeCssTokenValue("<style>body{color:red}</style>")).toBe(false);
     expect(isSafeCssTokenValue("oklch(70% 0.12 240)")).toBe(true);
+    expect(isSafeCssTokenValue("color(display-p3 0.9175 0.2003 0.1386)")).toBe(
+      true,
+    );
+    expect(isSafeCssTokenValue("color(display-p3 1 0 0 / 0.5)")).toBe(true);
+    expect(isSafeCssTokenValue("color(display-p3 1 0 0); color: red")).toBe(
+      false,
+    );
     expect(isSafeCssVarName("--color-accent")).toBe(true);
     expect(isSafeCssVarName("--color-accent;body")).toBe(false);
     expect(isSafeCssVarName("color-accent")).toBe(false);
