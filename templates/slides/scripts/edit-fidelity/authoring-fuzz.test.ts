@@ -1283,6 +1283,18 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
       true,
     ),
   ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
+      "Load request cancelled",
+      "save/reload",
+      "POST",
+      true,
+      100,
+      false,
+      true,
+    ),
+  ).toBe(false);
 });
 
 it("ignores only WebKit CORS console errors for requests canceled by reload", () => {
@@ -1381,6 +1393,11 @@ it("ignores only WebKit CORS console errors for requests canceled by reload", ()
   expect(
     isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
       { ...candidate, requestStartedDuringNavigation: true },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      { ...candidate, competingClaimStartedAfterNavigation: true },
     ]),
   ).toBe(false);
   expect(
@@ -1600,6 +1617,11 @@ it("ignores browser-session poll or heartbeat errors only for matching canceled 
   ).toBe(false);
   expect(
     isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      { ...claimCandidate, competingClaimStartedAfterNavigation: true },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
       { ...claimCandidate, ageMs: 9_000 },
     ]),
   ).toBe(false);
@@ -1714,6 +1736,18 @@ it("correlates a poll error to one successful claim that finished just before re
     isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
       completedClaim,
       { ...completedClaim, url: `${completedClaim.url}?second` },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      completedClaim,
+      {
+        ...completedClaim,
+        ageMs: 9_000,
+        requestWasPendingAtNavigation: true,
+        requestFinishedSuccessfully: false,
+        completedSuccessfullyBeforeNavigation: false,
+      },
     ]),
   ).toBe(false);
   expect(

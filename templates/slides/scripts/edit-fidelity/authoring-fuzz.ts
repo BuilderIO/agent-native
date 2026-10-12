@@ -320,11 +320,13 @@ export function isExpectedSaveReloadWatchedRequestAbort(
   requestWasPendingAtReloadNavigation = false,
   requestAgeMs = Number.POSITIVE_INFINITY,
   requestStartedDuringNavigation = false,
+  competingClaimStartedAfterNavigation = false,
 ) {
   return (
     activePhase === "save/reload" &&
     requestWasPendingAtReloadNavigation &&
     !requestStartedDuringNavigation &&
+    !competingClaimStartedAfterNavigation &&
     requestAgeMs >= 0 &&
     requestAgeMs < reloadNavigationAbortMaxRequestAgeMs &&
     saveReloadRequestAbortRules.some((rule) => {
@@ -363,11 +365,14 @@ function isExpectedWatchedRequestNavigationAbort(
   candidate: WatchedRequestNavigationCandidate,
   rules: readonly SaveReloadRequestAbortRule[],
   allowFinishedRequestGrace = false,
+  rejectCompetingClaim = false,
 ) {
   return (
     candidate.requestWasPendingAtNavigation === true &&
     candidate.requestStartedDuringNavigation !== true &&
     candidate.competingRequestStartedAfterNavigation !== true &&
+    (!rejectCompetingClaim ||
+      candidate.competingClaimStartedAfterNavigation !== true) &&
     (candidate.requestFinishedSuccessfully !== true ||
       (allowFinishedRequestGrace &&
         candidate.sameOrigin === true &&
@@ -418,6 +423,7 @@ export function isExpectedWatchedRequestCorsError(
           candidate,
           rules,
           activePhase === "save/reload",
+          activePhase === "save/reload",
         ),
     ).length === 1
   );
@@ -427,6 +433,7 @@ function hasExactlyOneExpectedBrowserSessionAbort(
   candidates: WatchedRequestNavigationCandidate[],
   rules: readonly SaveReloadRequestAbortRule[],
   allowFinishedRequestGrace = false,
+  rejectCompetingClaim = false,
 ) {
   return (
     candidates.filter((candidate) =>
@@ -434,6 +441,7 @@ function hasExactlyOneExpectedBrowserSessionAbort(
         candidate,
         rules,
         allowFinishedRequestGrace,
+        rejectCompetingClaim,
       ),
     ).length === 1
   );
@@ -485,16 +493,12 @@ export function isExpectedSaveReloadBrowserSessionConsoleError(
   const isPollFailure =
     message ===
     "[Agent-Native browser session] poll failed: TypeError: Load failed";
-  if (
-    isPollFailure &&
-    candidates.some(
-      (candidate) =>
-        candidate.completedSuccessfullyBeforeNavigation === true &&
-        candidate.competingClaimStartedAfterNavigation === true,
-    )
-  ) {
-    return false;
-  }
+  const completedClaimCount = candidates.filter(
+    isExpectedCompletedClaimBeforeReload,
+  ).length;
+  const claimCandidateCount = candidates.filter((candidate) =>
+    isBrowserSessionClaimRequest(candidate.method, candidate.pathname),
+  ).length;
   return (
     activePhase === "save/reload" &&
     rules !== null &&
@@ -502,9 +506,9 @@ export function isExpectedSaveReloadBrowserSessionConsoleError(
       candidates,
       rules,
       isPollFailure,
+      isPollFailure,
     ) ||
-      (isPollFailure &&
-        candidates.filter(isExpectedCompletedClaimBeforeReload).length === 1))
+      (isPollFailure && completedClaimCount === 1 && claimCandidateCount === 1))
   );
 }
 
@@ -613,6 +617,7 @@ export function isExpectedSaveReloadWatchedRequestCorsConsoleError(
     requestStartedDuringNavigation?: boolean;
     requestFinishedSuccessfully?: boolean;
     competingRequestStartedAfterNavigation?: boolean;
+    competingClaimStartedAfterNavigation?: boolean;
   }>,
 ) {
   if (activePhase !== "save/reload") return false;
@@ -1250,6 +1255,26 @@ export async function runAuthoringFuzz(
   // Diagnostic only: reloadNavigationStartedAt resets after each reload, but a
   // late failure can still be logged after that. This keeps the latest start.
   let lastReloadStartedAt: number | null = null;
+  const hasCompetingClaimStartedAfterNavigation = (request: any) => {
+    const url = new URL(request.url());
+    if (!isBrowserSessionClaimRequest(request.method(), url.pathname))
+      return false;
+    return [...reloadNavigationRequests.entries()].some(
+      ([otherRequest, otherCandidate]) => {
+        if (
+          otherRequest === request ||
+          !otherCandidate.requestStartedDuringNavigation
+        ) {
+          return false;
+        }
+        const otherUrl = new URL(otherRequest.url());
+        return (
+          otherRequest.method() === request.method() &&
+          otherUrl.pathname === url.pathname
+        );
+      },
+    );
+  };
   const pendingSaveConflicts: Promise<void>[] = [];
   const pendingConsoleInspections = new Set<Promise<void>>();
   const conflictResponsePaths: string[] = [];
@@ -1331,17 +1356,7 @@ export async function runAuthoringFuzz(
             : { completedBeforeNavigationAgeMs }),
           requestStartedDuringNavigation,
           competingClaimStartedAfterNavigation:
-            isBrowserSessionClaimRequest(
-              request.method(),
-              new URL(url).pathname,
-            ) &&
-            [...reloadNavigationRequests.entries()].some(
-              ([otherRequest, otherCandidate]) =>
-                otherRequest !== request &&
-                otherCandidate.requestStartedDuringNavigation &&
-                otherRequest.method() === request.method() &&
-                new URL(otherRequest.url()).pathname === new URL(url).pathname,
-            ),
+            hasCompetingClaimStartedAfterNavigation(request),
         };
       },
     );
@@ -1413,6 +1428,8 @@ export async function runAuthoringFuzz(
     const navigationCandidate = reloadNavigationRequests.get(request);
     const requestPendingAtReloadNavigation =
       navigationCandidate?.requestWasPendingAtNavigation === true;
+    const competingClaimStartedAfterNavigation =
+      hasCompetingClaimStartedAfterNavigation(request);
     pendingRequests.delete(request);
     watchedRequests.delete(request);
     inFlightBrowserSessionClaims.delete(request);
@@ -1435,6 +1452,7 @@ export async function runAuthoringFuzz(
           ? Number.POSITIVE_INFINITY
           : Date.now() - requestStartedAt,
         navigationCandidate?.requestStartedDuringNavigation === true,
+        competingClaimStartedAfterNavigation,
       )
     ) {
       const candidate = navigationCandidate;
