@@ -1,3 +1,4 @@
+import "./action-query-cache.test-fixtures.js";
 // @vitest-environment happy-dom
 import type { PersistedClient } from "@tanstack/query-persist-client-core";
 import {
@@ -175,7 +176,9 @@ it("bounds the clear caller and holds new storage access behind the background c
   );
   await new Promise((resolve) => setTimeout(resolve, 2_250));
   expect(clearReturned).toBe(true);
-  expect(clearError).toBeUndefined();
+  expect(clearError).toMatchObject({
+    message: expect.stringMatching(/timed out/i),
+  });
   expect(events).toContain(`set:start:${scopeA}`);
   expect(events).not.toContain(`set:end:${scopeA}`);
   expect(events).not.toContain("clear:start");

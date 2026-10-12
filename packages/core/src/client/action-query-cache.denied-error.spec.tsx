@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 import type { PersistedClient } from "@tanstack/query-persist-client-core";
 import {
   dehydrate,
@@ -8,6 +7,9 @@ import {
 import { act, useSyncExternalStore } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
+
+// @vitest-environment happy-dom
+import { cacheBuster } from "./action-query-cache.test-fixtures.js";
 
 const sessionState = vi.hoisted(() => {
   const listeners = new Set<() => void>();
@@ -100,7 +102,7 @@ function cacheRecord(key: readonly unknown[], data: unknown): PersistedClient {
   source.setQueryData(key, data, { updatedAt: Date.now() - 25 });
   const record: PersistedClient = {
     timestamp: Date.now(),
-    buster: "action-query-cache-v1",
+    buster: cacheBuster(),
     clientState: dehydrate(source),
   };
   source.clear();
@@ -247,7 +249,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-it("clears a previous scope's denied UI state while preserving the next scope record", async () => {
+it("clears prior-scope denial UI and refetches after durable invalidation", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   sessionState.set(USER_A, false);
   const { records, storage } = memoryStorage();
@@ -287,10 +289,8 @@ it("clears a previous scope's denied UI state while preserving the next scope re
     cacheRecord(HELD_KEY, { designs: [{ title: "saved for Bob" }] }),
   );
   await act(async () => bindActionQueryCache(client, SCOPE_B));
-  expect(records.has(SCOPE_B)).toBe(true);
-  expect(client.getQueryData(HELD_KEY)).toEqual({
-    designs: [{ title: "saved for Bob" }],
-  });
+  expect(records.has(SCOPE_B)).toBe(false);
+  expect(client.getQueryData(HELD_KEY)).toBeUndefined();
 
   const container = roots.at(-1)?.container;
   const bobStart = snapshots.length;
@@ -309,7 +309,7 @@ it("clears a previous scope's denied UI state while preserving the next scope re
     ),
   ).toBe(false);
   expect(container?.querySelector('[data-testid="held"]')?.textContent).toBe(
-    "saved for Bob",
+    "pending",
   );
 
   const bobFetchStart = snapshots.length;
@@ -335,7 +335,7 @@ it("clears a previous scope's denied UI state while preserving the next scope re
   await expect
     .poll(() => client.getQueryData<{ value: string }>(DENIED_KEY)?.value)
     .toBe("bob-private");
-  expect(records.has(SCOPE_B)).toBe(true);
+  expect(records.has(SCOPE_B)).toBe(false);
 });
 
 it("keeps same-scope denial evidence fail-closed", async () => {
@@ -429,19 +429,59 @@ it("characterizes Gate scope changes separately from direct binding", async () =
   setActionQueryCacheStorage(storage);
   const bobFetch = deferred<Response>();
   let privateRequestCount = 0;
-  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-    const action =
-      new URL(String(input), "http://localhost").pathname.split("/").at(-1) ??
-      "";
-    const denied = action === "get-private-data";
-    if (denied) {
-      privateRequestCount += 1;
-      if (privateRequestCount === 1)
-        return singleActionResponse(action, true, "Alice private data denied");
-      return bobFetch.promise;
-    }
-    return singleActionResponse(action, false, "");
-  });
+  const batchedActions: string[][] = [];
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://localhost");
+      const action = url.pathname.split("/").at(-1) ?? "";
+      if (action === "get-actions-batch") {
+        const requestBody = JSON.parse(String(init?.body)) as {
+          requests: Array<{ action: string }>;
+        };
+        batchedActions.push(requestBody.requests.map(({ action }) => action));
+        const results = await Promise.all(
+          requestBody.requests.map(async ({ action: requestedAction }) => {
+            let response: Response;
+            if (requestedAction === "get-private-data") {
+              privateRequestCount += 1;
+              response =
+                privateRequestCount === 1
+                  ? singleActionResponse(
+                      requestedAction,
+                      true,
+                      "Alice private data denied",
+                    )
+                  : await bobFetch.promise;
+            } else {
+              response = singleActionResponse(requestedAction, false, "");
+            }
+            const payload = await response.json();
+            return {
+              status: response.status,
+              ...(response.ok ? { body: payload } : { error: payload }),
+              headers: Object.fromEntries(response.headers.entries()),
+            };
+          }),
+        );
+        return new Response(JSON.stringify({ results }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      const denied = action === "get-private-data";
+      if (denied) {
+        privateRequestCount += 1;
+        if (privateRequestCount === 1)
+          return singleActionResponse(
+            action,
+            true,
+            "Alice private data denied",
+          );
+        return bobFetch.promise;
+      }
+      return singleActionResponse(action, false, "");
+    },
+  );
   vi.stubGlobal("fetch", fetchMock);
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -475,7 +515,7 @@ it("characterizes Gate scope changes separately from direct binding", async () =
     ),
   ).toBe(false);
   expect(container?.querySelector('[data-testid="held"]')?.textContent).toBe(
-    "saved for Bob",
+    "pending",
   );
   await act(async () =>
     bobFetch.resolve(singleActionResponse("get-private-data", false, "")),
@@ -483,4 +523,11 @@ it("characterizes Gate scope changes separately from direct binding", async () =
   await expect
     .poll(() => client.getQueryData<{ value: string }>(DENIED_KEY)?.value)
     .toBe("bob-private");
+  expect(
+    batchedActions.some(
+      (actions) =>
+        actions.includes("get-private-data") &&
+        actions.includes("list-designs"),
+    ),
+  ).toBe(true);
 });

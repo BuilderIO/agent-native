@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 import type { PersistedClient } from "@tanstack/query-persist-client-core";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -9,6 +8,8 @@ import {
   setActionQueryCacheStorage,
   type ActionQueryCacheStorage,
 } from "./action-query-cache.js";
+// @vitest-environment happy-dom
+import { cacheBuster } from "./action-query-cache.test-fixtures.js";
 let scope = "";
 const queryKey = ["action", "delete-reject-rebind-diagnostic"] as const;
 const clients: QueryClient[] = [];
@@ -16,13 +17,16 @@ const records = new Map<string, PersistedClient>();
 const oldData = { value: "old authorized result" };
 let rejectedDeletesRemaining = 0;
 let deleteAttempts = 0;
+let clearAttempts = 0;
+let clearCompletions = 0;
+let readAfterSuccessfulClear = false;
 
 function persistedRecord(value = oldData): PersistedClient {
   const source = new QueryClient();
   source.setQueryData(queryKey, value);
   const record = {
     timestamp: Date.now(),
-    buster: "action-query-cache-v1",
+    buster: cacheBuster(),
     clientState: dehydrate(source),
   };
   source.clear();
@@ -30,7 +34,12 @@ function persistedRecord(value = oldData): PersistedClient {
 }
 
 const storage: ActionQueryCacheStorage = {
-  get: async (key) => records.get(key),
+  get: async (key) => {
+    if (key === scope && clearAttempts > 0) {
+      readAfterSuccessfulClear = clearCompletions === clearAttempts;
+    }
+    return records.get(key);
+  },
   set: async (key, value) => {
     records.set(key, value);
   },
@@ -43,13 +52,20 @@ const storage: ActionQueryCacheStorage = {
     records.delete(key);
   },
   keys: async () => [...records.keys()],
-  clear: async () => records.clear(),
+  clear: async () => {
+    clearAttempts += 1;
+    records.clear();
+    clearCompletions = clearAttempts;
+  },
 };
 
 beforeEach(() => {
   scope = `delete-reject-rebind-${crypto.randomUUID()}`;
   rejectedDeletesRemaining = 0;
   deleteAttempts = 0;
+  clearAttempts = 0;
+  clearCompletions = 0;
+  readAfterSuccessfulClear = false;
 });
 
 afterEach(async () => {
@@ -59,10 +75,13 @@ afterEach(async () => {
   records.clear();
   rejectedDeletesRemaining = 0;
   deleteAttempts = 0;
+  clearAttempts = 0;
+  clearCompletions = 0;
+  readAfterSuccessfulClear = false;
   vi.restoreAllMocks();
 });
 
-it("keeps rejected-delete scopes blocked until a later delete succeeds", async () => {
+it("clears persisted scopes after a rejected delete before a new bind can restore", async () => {
   records.set(scope, persistedRecord());
   setActionQueryCacheStorage(storage);
   setActionQueryCacheStorage(storage);
@@ -90,14 +109,17 @@ it("keeps rejected-delete scopes blocked until a later delete succeeds", async (
   const clientB = new QueryClient();
   clients.push(clientB);
   await bindActionQueryCache(clientB, scope);
-  expect(deleteAttempts).toBe(2);
-  expect(records.has(scope)).toBe(true);
+  expect(deleteAttempts).toBe(1);
+  expect(clearAttempts).toBe(1);
+  expect(readAfterSuccessfulClear).toBe(true);
+  expect(records.has(scope)).toBe(false);
   expect(clientB.getQueryData(queryKey)).toBeUndefined();
 
   const clientC = new QueryClient();
   clients.push(clientC);
   await bindActionQueryCache(clientC, scope);
-  expect(deleteAttempts).toBe(3);
+  expect(deleteAttempts).toBe(1);
+  expect(clearAttempts).toBe(1);
   expect(records.has(scope)).toBe(false);
   expect(clientC.getQueryData(queryKey)).toBeUndefined();
 

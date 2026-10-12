@@ -1,4 +1,6 @@
 import { vi } from "vitest";
+
+import { cacheBuster } from "./action-query-cache.test-fixtures.js";
 vi.mock("./use-session.js", () => ({
   useSession: () => ({ session: null, status: "unavailable", isLoading: true }),
   isSessionFromFirstRead: () => false,
@@ -31,7 +33,7 @@ function persisted(value: string): PersistedClient {
   client.setQueryData(queryKey, { value });
   return {
     timestamp: Date.now(),
-    buster: "action-query-cache-v1",
+    buster: cacheBuster(),
     clientState: dehydrate(client),
   };
 }

@@ -1,3 +1,4 @@
+import "./action-query-cache.test-fixtures.js";
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act, useEffect, type ReactNode } from "react";

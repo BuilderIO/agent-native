@@ -83,6 +83,124 @@ let bindAttemptGeneration = 0;
 const inFlightStorageWrites = new Set<Promise<void>>();
 const inFlightStorageDeletes = new Set<Promise<void>>();
 const failedStorageDeleteScopes = new Set<string>();
+const CACHE_EPOCH_KEY = "agent-native.action-query-cache.epoch";
+const CLEAR_INTENT_PREFIX = "agent-native.action-query-cache.clear-required:";
+let cacheSafetyUnavailable = false;
+
+interface ClearIntent {
+  key: string;
+  value: string | null;
+}
+
+interface CacheSafetyState {
+  epoch: string;
+  pendingClearIntents: ClearIntent[];
+}
+
+function newCacheToken(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function readCacheSafetyState(
+  probeWrite = false,
+): CacheSafetyState | undefined {
+  if (cacheSafetyUnavailable || typeof window === "undefined") return undefined;
+  try {
+    const local = window.localStorage;
+    let epoch = local.getItem(CACHE_EPOCH_KEY);
+    if (!epoch) {
+      epoch = newCacheToken();
+      local.setItem(CACHE_EPOCH_KEY, epoch);
+      if (local.getItem(CACHE_EPOCH_KEY) !== epoch) {
+        cacheSafetyUnavailable = true;
+        return undefined;
+      }
+    } else if (probeWrite) {
+      local.setItem(CACHE_EPOCH_KEY, epoch);
+      if (local.getItem(CACHE_EPOCH_KEY) !== epoch) {
+        cacheSafetyUnavailable = true;
+        return undefined;
+      }
+    }
+    const pendingClearIntents: ClearIntent[] = [];
+    for (let index = 0; index < local.length; index += 1) {
+      const key = local.key(index);
+      if (key?.startsWith(CLEAR_INTENT_PREFIX)) {
+        pendingClearIntents.push({ key, value: local.getItem(key) });
+      }
+    }
+    return { epoch, pendingClearIntents };
+  } catch {
+    cacheSafetyUnavailable = true;
+    return undefined;
+  }
+}
+
+function beginDurableClearIntent(): ClearIntent | undefined {
+  const local = (() => {
+    try {
+      return typeof window === "undefined" ? undefined : window.localStorage;
+    } catch {
+      cacheSafetyUnavailable = true;
+      return undefined;
+    }
+  })();
+  if (!local || cacheSafetyUnavailable) return undefined;
+  const value = newCacheToken();
+  const key = `${CLEAR_INTENT_PREFIX}${value}`;
+  let intent: ClearIntent | undefined;
+  let epochAdvanced = false;
+  try {
+    local.setItem(key, value);
+    if (local.getItem(key) !== value)
+      throw new Error("Unable to persist cache clear intent");
+    intent = { key, value };
+  } catch {
+    // Rotating the epoch still invalidates previously stored records.
+  }
+  try {
+    const epoch = newCacheToken();
+    local.setItem(CACHE_EPOCH_KEY, epoch);
+    if (local.getItem(CACHE_EPOCH_KEY) !== epoch)
+      throw new Error("Unable to persist cache epoch");
+    epochAdvanced = true;
+  } catch {
+    // A durable marker still keeps cold binds behind a full clear.
+  }
+  if (intent || epochAdvanced) return intent;
+  cacheSafetyUnavailable = true;
+  return undefined;
+}
+
+function removeCompletedClearIntents(intents: ClearIntent[]): void {
+  try {
+    if (typeof window === "undefined") return;
+    const local = window.localStorage;
+    for (const intent of intents) {
+      if (
+        intent.key.startsWith(CLEAR_INTENT_PREFIX) &&
+        local.getItem(intent.key) === intent.value
+      ) {
+        local.removeItem(intent.key);
+      }
+    }
+  } catch {
+    // A retained intent makes the next bind repeat the safe clear.
+  }
+}
+
+function clearIntents(): ClearIntent[] {
+  return readCacheSafetyState()?.pendingClearIntents ?? [];
+}
+
+function matchesCacheEpoch(epoch: string): boolean {
+  const current = readCacheSafetyState();
+  return (
+    current !== undefined &&
+    current.epoch === epoch &&
+    current.pendingClearIntents.length === 0
+  );
+}
 
 function trackStorageWrite(write: Promise<void>): void {
   inFlightStorageWrites.add(write);
@@ -104,13 +222,16 @@ function trackStorageDelete(deletion: Promise<void>): Promise<void> {
 function beginStorageClear(): Promise<void> {
   if (storageClearInFlight) return storageClearInFlight;
   storageClearRequired = true;
+  beginDurableClearIntent();
+  const intentsToClear = clearIntents();
   const generation = ++storageClearGeneration;
   let clear!: Promise<void>;
   clear = (async () => {
     await waitForStorageOperations();
     await storage.clear();
     failedStorageDeleteScopes.clear();
-    storageClearRequired = false;
+    removeCompletedClearIntents(intentsToClear);
+    storageClearRequired = clearIntents().length > 0;
   })().finally(() => {
     if (
       storageClearInFlight === clear &&
@@ -234,7 +355,7 @@ interface ScopedPersister extends Persister {
 }
 
 // ponytail: one record holds every persisted result for the scope, with no size cap; split per query or cap bytes if restore shows up in traces.
-function scopedPersister(scope: string): ScopedPersister {
+function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
   const createdDuringClearGeneration = storageClearGeneration;
   let open = true;
   let persistBlocked = false;
@@ -253,11 +374,24 @@ function scopedPersister(scope: string): ScopedPersister {
     restoredSources = new Map();
   };
 
+  const canUseCache = () => {
+    const safe = matchesCacheEpoch(cacheEpoch);
+    if (!safe) {
+      persistBlocked = true;
+      restoreBlocked = true;
+      clearRestoredState();
+      latest = undefined;
+      clearTimeout(timer);
+      timer = undefined;
+    }
+    return safe;
+  };
+
   const flush = () => {
     timer = undefined;
     const next = latest;
     latest = undefined;
-    if (!open || persistBlocked || !next) return;
+    if (!open || persistBlocked || !next || !canUseCache()) return;
     const write = storage
       .set(scope, next)
       .catch((error) =>
@@ -273,20 +407,20 @@ function scopedPersister(scope: string): ScopedPersister {
 
   return {
     persistClient(client) {
-      if (!open || persistBlocked) return;
+      if (!open || persistBlocked || !canUseCache()) return;
       latest = client;
       timer ??= setTimeout(flush, WRITE_DELAY_MS);
     },
     async restoreClient() {
       clearRestoredState();
-      if (!open || restoreBlocked) return undefined;
+      if (!open || restoreBlocked || !canUseCache()) return undefined;
       const revision = restoreRevision;
       const stored = await storage.get(scope);
       // A revoked record can still be in an outstanding storage read. Do not
       // return it to the persister after discard, even if the read was started
       // before the matching access-denied response.
       const record =
-        open && !restoreBlocked && revision === restoreRevision
+        open && !restoreBlocked && revision === restoreRevision && canUseCache()
           ? withinMaxAge(stored)
           : undefined;
       restored = new Map(
@@ -346,6 +480,8 @@ function scopedPersister(scope: string): ScopedPersister {
       clearTimeout(timer);
       timer = undefined;
       if (createdDuringClearGeneration !== storageClearGeneration) return;
+      storageClearRequired = true;
+      beginDurableClearIntent();
       const deletion = (async () => {
         await Promise.all([...writesInFlight]);
         await storage.del(scope);
@@ -395,6 +531,8 @@ function trackRevokedScopeDelete(
     },
     (error) => {
       failedStorageDeleteScopes.add(scope);
+      storageClearRequired = true;
+      beginDurableClearIntent();
       throw error;
     },
   );
@@ -478,6 +616,14 @@ export async function bindActionQueryCache(
   options: { trustPrebindResults?: boolean } = {},
 ): Promise<void> {
   const attempt = ++bindAttemptGeneration;
+  let cacheSafety = readCacheSafetyState(true);
+  if (!cacheSafety) {
+    releaseWithoutCache(client, attempt);
+    return;
+  }
+  if (!storageClearInFlight) {
+    storageClearRequired = cacheSafety.pendingClearIntents.length > 0;
+  }
   if (storageClearInFlight || storageClearRequired) {
     let clearFinished: boolean;
     try {
@@ -495,6 +641,11 @@ export async function bindActionQueryCache(
       releaseWithoutCache(client, attempt);
       return;
     }
+  }
+  cacheSafety = readCacheSafetyState(true);
+  if (!cacheSafety || cacheSafety.pendingClearIntents.length > 0) {
+    releaseWithoutCache(client, attempt);
+    return;
   }
   const trustPrebindResults = options.trustPrebindResults === true;
   const previousBinding = binding;
@@ -524,7 +675,7 @@ export async function bindActionQueryCache(
     });
   }
   const generation = bindingGeneration;
-  const persister = scopedPersister(scope);
+  const persister = scopedPersister(scope, cacheSafety.epoch);
   const token = {};
   registerActionQueryCacheRevoker(client, () => persister.discard(), token);
   bindingScopes.set(token, scope);
@@ -679,7 +830,7 @@ export async function bindActionQueryCache(
     const [unsubscribe, restored] = persistQueryClient({
       queryClient: client,
       persister,
-      buster: ACTION_QUERY_CACHE_BUSTER,
+      buster: `${ACTION_QUERY_CACHE_BUSTER}:${cacheSafety.epoch}`,
       maxAge: ACTION_QUERY_CACHE_MAX_AGE_MS,
       hydrateOptions,
       dehydrateOptions: {
@@ -760,10 +911,15 @@ export async function bindActionQueryCache(
 export async function clearActionQueryCache(): Promise<void> {
   closeBinding();
   const clear = beginStorageClear();
-  await waitForCleanup(
+  const clearFinished = await waitForCleanup(
     clear,
     "Cached action results could not be cleared in time; cleanup remains required.",
   );
+  if (!clearFinished) {
+    throw new Error(
+      "Cached action result clearing timed out; cleanup remains required.",
+    );
+  }
 }
 
 /**

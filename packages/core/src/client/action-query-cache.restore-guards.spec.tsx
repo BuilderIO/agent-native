@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 import type { PersistedClient } from "@tanstack/query-persist-client-core";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { expect, it } from "vitest";
@@ -7,6 +6,8 @@ import {
   bindActionQueryCache,
   setActionQueryCacheStorage,
 } from "./action-query-cache.js";
+// @vitest-environment happy-dom
+import { cacheBuster } from "./action-query-cache.test-fixtures.js";
 import { isBrowserPersistableActionQuery } from "./use-action.js";
 
 function persistedFor(
@@ -42,7 +43,7 @@ function persistedFor(
   }
   return {
     timestamp: options.timestamp ?? Date.now(),
-    buster: options.buster ?? "action-query-cache-v1",
+    buster: cacheBuster(options.buster),
     clientState: state,
   };
 }

@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 import type { PersistedClient } from "@tanstack/query-persist-client-core";
 import {
   dehydrate,
@@ -8,6 +7,9 @@ import {
 import React, { act, useSyncExternalStore } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
+
+// @vitest-environment happy-dom
+import { cacheBuster } from "./action-query-cache.test-fixtures.js";
 
 const sessionState = vi.hoisted(() => {
   const listeners = new Set<() => void>();
@@ -101,7 +103,7 @@ function cacheRecord(
   source.setQueryData(queryKey, data, { updatedAt: Date.now() - 50 });
   return {
     timestamp: Date.now(),
-    buster: "action-query-cache-v1",
+    buster: cacheBuster(),
     clientState: dehydrate(source),
   };
 }

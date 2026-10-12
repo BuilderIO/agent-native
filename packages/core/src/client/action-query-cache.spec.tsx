@@ -1,5 +1,3 @@
-// @vitest-environment happy-dom
-
 import type { PersistedClient } from "@tanstack/query-persist-client-core";
 import {
   QueryClient,
@@ -9,6 +7,9 @@ import {
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// @vitest-environment happy-dom
+import { cacheBuster } from "./action-query-cache.test-fixtures.js";
 
 const sessionMocks = vi.hoisted(() => {
   type MockSession = {
@@ -427,7 +428,7 @@ describe("ActionQueryCacheGate", () => {
     });
     records.set(ALICE_SCOPE, {
       timestamp: Date.now() - 61 * 60 * 1000,
-      buster: "action-query-cache-v1",
+      buster: cacheBuster(),
       clientState: dehydrate(stale),
     });
 
@@ -456,7 +457,7 @@ describe("ActionQueryCacheGate", () => {
     }
     records.set(ALICE_SCOPE, {
       timestamp: Date.now(),
-      buster: "action-query-cache-v1",
+      buster: cacheBuster(),
       clientState,
     });
 

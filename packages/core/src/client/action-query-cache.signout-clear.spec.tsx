@@ -8,6 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
+import { cacheBuster } from "./action-query-cache.test-fixtures.js";
 // @vitest-environment happy-dom
 import { useActionQuery } from "./use-action.js";
 
@@ -33,7 +34,7 @@ function cacheRecord(
   source.setQueryData(queryKey, data, { updatedAt: Date.now() - 50 });
   const record: PersistedClient = {
     timestamp: Date.now(),
-    buster: "action-query-cache-v1",
+    buster: cacheBuster(),
     clientState: dehydrate(source),
   };
   source.clear();

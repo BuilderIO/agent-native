@@ -1,3 +1,4 @@
+import "./action-query-cache.test-fixtures.js";
 import type { PersistedClient } from "@tanstack/query-persist-client-core";
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

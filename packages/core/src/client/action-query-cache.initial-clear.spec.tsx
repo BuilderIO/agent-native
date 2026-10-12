@@ -1,9 +1,11 @@
-// @vitest-environment happy-dom
 import type { PersistedClient } from "@tanstack/query-persist-client-core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+
+// @vitest-environment happy-dom
+import { cacheBuster } from "./action-query-cache.test-fixtures.js";
 
 const sessionState = vi.hoisted(() => {
   const listeners = new Set<() => void>();
@@ -83,7 +85,7 @@ function cacheRecord(owner: string): PersistedClient {
   source.setQueryData(ACTION_KEY, { owner }, { updatedAt: Date.now() - 10 });
   const record: PersistedClient = {
     timestamp: Date.now(),
-    buster: "action-query-cache-v1",
+    buster: cacheBuster(),
     clientState: importDehydrate(source),
   };
   source.clear();
@@ -235,7 +237,8 @@ it("releases the Gate after a timed-out clear only after scrubbing, with no late
     },
   });
   await resetStorage(cache, storage.storage);
-  pendingClear = cache.clearActionQueryCache();
+  const clearCaller = cache.clearActionQueryCache();
+  pendingClear = clearCaller.catch(() => {});
   await started.promise;
 
   const client = new QueryClient();
@@ -251,6 +254,7 @@ it("releases the Gate after a timed-out clear only after scrubbing, with no late
   expect(storage.gets).toEqual([]);
   expect(storage.sets).toEqual([]);
   expect(fetchMock).toHaveBeenCalledTimes(1);
+  await expect(clearCaller).rejects.toThrow(/timed out/i);
 
   held.resolve();
   await pendingClear;
@@ -365,7 +369,8 @@ it("an obsolete timeout leaves a shared client untouched after a newer scope att
     },
   });
   await resetStorage(cache, storage.storage);
-  pendingClear = cache.clearActionQueryCache();
+  const clearCaller = cache.clearActionQueryCache();
+  pendingClear = clearCaller.catch(() => {});
   await started.promise;
 
   const client = new QueryClient();
@@ -384,5 +389,6 @@ it("an obsolete timeout leaves a shared client untouched after a newer scope att
   expect(storage.sets).toEqual([]);
 
   held.resolve();
+  await expect(clearCaller).rejects.toThrow(/timed out/i);
   await pendingClear;
 });

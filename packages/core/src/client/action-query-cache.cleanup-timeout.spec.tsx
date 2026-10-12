@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 import type { PersistedClient } from "@tanstack/query-persist-client-core";
 import {
   QueryClient,
@@ -8,6 +7,9 @@ import {
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
+
+// @vitest-environment happy-dom
+import { cacheBuster } from "./action-query-cache.test-fixtures.js";
 
 const sessionState = vi.hoisted(() => {
   const listeners = new Set<() => void>();
@@ -84,7 +86,7 @@ function persistedOwner(owner: string): PersistedClient {
   client.setQueryData(QUERY_KEY, { owner }, { updatedAt: Date.now() - 10 });
   const value: PersistedClient = {
     timestamp: Date.now(),
-    buster: "action-query-cache-v1",
+    buster: cacheBuster(),
     clientState: dehydrate(client),
   };
   client.clear();

@@ -1,3 +1,4 @@
+import "./action-query-cache.test-fixtures.js";
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 

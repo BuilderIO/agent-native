@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 import type { PersistedClient } from "@tanstack/query-persist-client-core";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { afterEach, expect, it } from "vitest";
@@ -9,6 +8,8 @@ import {
   setActionQueryCacheStorage,
   type ActionQueryCacheStorage,
 } from "./action-query-cache.js";
+// @vitest-environment happy-dom
+import { cacheBuster } from "./action-query-cache.test-fixtures.js";
 
 const scope = "same-scope-delete-proof-20261012";
 const queryKey = ["action", "same-scope-delete-proof"] as const;
@@ -27,7 +28,7 @@ function persistedRecord(): PersistedClient {
   source.setQueryData(queryKey, { value: "old allowed value" });
   return {
     timestamp: Date.now(),
-    buster: "action-query-cache-v1",
+    buster: cacheBuster(),
     clientState: dehydrate(source),
   };
 }

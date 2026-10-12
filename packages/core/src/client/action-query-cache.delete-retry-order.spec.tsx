@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 import type { PersistedClient } from "@tanstack/query-persist-client-core";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -9,25 +8,26 @@ import {
   setActionQueryCacheStorage,
   type ActionQueryCacheStorage,
 } from "./action-query-cache.js";
+// @vitest-environment happy-dom
+import { cacheBuster } from "./action-query-cache.test-fixtures.js";
+
 let scope = "";
-const queryKey = ["action", "retry-overlap-diagnostic"] as const;
+const queryKey = ["action", "delete-failure-clear-order"] as const;
 const clients: QueryClient[] = [];
 const records = new Map<string, PersistedClient>();
+const storageEvents: string[] = [];
 const oldData = { value: "old allowed result" };
 const freshData = { value: "new allowed result" };
-let rejectFirstDelete = false;
+let rejectNextDelete = false;
 let deleteAttempts = 0;
-let retryStarted: (() => void) | undefined;
-let releaseRetry: (() => void) | undefined;
-let retryStartedPromise!: Promise<void>;
-let retryReleasePromise!: Promise<void>;
+let clearAttempts = 0;
 
 function persistedRecord(value = oldData): PersistedClient {
   const source = new QueryClient();
   source.setQueryData(queryKey, value);
   const record = {
     timestamp: Date.now(),
-    buster: "action-query-cache-v1",
+    buster: cacheBuster(),
     clientState: dehydrate(source),
   };
   source.clear();
@@ -35,65 +35,67 @@ function persistedRecord(value = oldData): PersistedClient {
 }
 
 const storage: ActionQueryCacheStorage = {
-  get: async (key) => records.get(key),
+  get: async (key) => {
+    storageEvents.push(`get:${key}`);
+    return records.get(key);
+  },
   set: async (key, value) => {
+    storageEvents.push(`set:${key}`);
     records.set(key, value);
   },
   del: async (key) => {
+    storageEvents.push(`del:${key}`);
     deleteAttempts += 1;
-    if (rejectFirstDelete && deleteAttempts === 1) {
-      rejectFirstDelete = false;
-      throw new Error("diagnostic first delete failure");
-    }
-    if (deleteAttempts === 2) {
-      retryStarted?.();
-      await retryReleasePromise;
-      records.delete(key);
-      return;
+    if (rejectNextDelete) {
+      rejectNextDelete = false;
+      throw new Error("diagnostic storage delete failure");
     }
     records.delete(key);
   },
-  keys: async () => [...records.keys()],
-  clear: async () => records.clear(),
+  keys: async () => {
+    storageEvents.push("keys");
+    return [...records.keys()];
+  },
+  clear: async () => {
+    clearAttempts += 1;
+    storageEvents.push("clear:start");
+    records.clear();
+    storageEvents.push("clear:end");
+  },
 };
 
 beforeEach(() => {
-  scope = `retry-overlap-${crypto.randomUUID()}`;
-  rejectFirstDelete = false;
+  scope = `delete-failure-${crypto.randomUUID()}`;
+  rejectNextDelete = false;
   deleteAttempts = 0;
-  retryStartedPromise = new Promise<void>((resolve) => {
-    retryStarted = resolve;
-  });
-  retryReleasePromise = new Promise<void>((resolve) => {
-    releaseRetry = resolve;
-  });
+  clearAttempts = 0;
+  storageEvents.length = 0;
 });
 
 afterEach(async () => {
-  releaseRetry?.();
-  await clearActionQueryCache();
+  await clearActionQueryCache().catch(() => {});
   setActionQueryCacheStorage(undefined);
   for (const client of clients.splice(0)) client.clear();
   records.clear();
+  storageEvents.length = 0;
   vi.restoreAllMocks();
 });
 
-async function startRevocation(
-  bind: typeof bindActionQueryCache,
-): Promise<QueryClient> {
+it("clears persisted results before a same-scope bind can restore after delete rejection", async () => {
+  vi.spyOn(console, "warn").mockImplementation(() => {});
   records.set(scope, persistedRecord());
   setActionQueryCacheStorage(storage);
-  setActionQueryCacheStorage(storage);
-  const client = new QueryClient({
+
+  const clientA = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  clients.push(client);
-  await bind(client, scope);
-  expect(client.getQueryData(queryKey)).toEqual(oldData);
+  clients.push(clientA);
+  await bindActionQueryCache(clientA, scope);
+  expect(clientA.getQueryData(queryKey)).toEqual(oldData);
 
-  rejectFirstDelete = true;
+  rejectNextDelete = true;
   await expect(
-    client.fetchQuery({
+    clientA.fetchQuery({
       queryKey,
       retry: false,
       queryFn: async () => {
@@ -102,37 +104,25 @@ async function startRevocation(
     }),
   ).rejects.toMatchObject({ status: 403 });
   await expect.poll(() => deleteAttempts).toBe(1);
-  await expect.poll(() => records.has(scope)).toBe(true);
-  return client;
-}
+  expect(records.has(scope)).toBe(true);
 
-it("makes a same-scope bind wait for an in-flight retry delete", async () => {
-  vi.spyOn(console, "warn").mockImplementation(() => {});
-  await startRevocation(bindActionQueryCache);
-
+  storageEvents.length = 0;
   const clientB = new QueryClient();
   clients.push(clientB);
-  const bindB = bindActionQueryCache(clientB, scope);
-  await retryStartedPromise;
+  await bindActionQueryCache(clientB, scope);
 
-  const clientC = new QueryClient();
-  clients.push(clientC);
-  let bindCFinished = false;
-  const bindC = bindActionQueryCache(clientC, scope).then(() => {
-    bindCFinished = true;
-  });
-  await new Promise((resolve) => setTimeout(resolve, 0));
-
-  expect(deleteAttempts).toBe(2);
-  expect(bindCFinished).toBe(false);
-  releaseRetry?.();
-  await Promise.all([bindB, bindC]);
+  const clearFinished = storageEvents.indexOf("clear:end");
+  const scopeRead = storageEvents.indexOf(`get:${scope}`);
+  expect(clearAttempts).toBe(1);
+  expect(deleteAttempts).toBe(1);
+  expect(clearFinished).toBeGreaterThanOrEqual(0);
+  expect(scopeRead).toBeGreaterThan(clearFinished);
   expect(records.has(scope)).toBe(false);
+  expect(clientB.getQueryData(queryKey)).toBeUndefined();
 
   records.set(scope, persistedRecord(freshData));
-  const clientD = new QueryClient();
-  clients.push(clientD);
-  await bindActionQueryCache(clientD, scope);
-  expect(clientD.getQueryData(queryKey)).toEqual(freshData);
-  expect(records.has(scope)).toBe(true);
+  const clientC = new QueryClient();
+  clients.push(clientC);
+  await bindActionQueryCache(clientC, scope);
+  expect(clientC.getQueryData(queryKey)).toEqual(freshData);
 });
