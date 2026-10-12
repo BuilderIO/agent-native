@@ -5,32 +5,22 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconCircle,
-  IconClipboard,
   IconCode,
   IconComponents,
-  IconCopy,
   IconEye,
   IconEyeOff,
   IconFile,
-  IconFlipHorizontal,
-  IconFlipVertical,
-  IconFrame,
   IconLayoutColumns,
-  IconLayersSubtract,
-  IconLayersUnion,
   IconLayoutGrid,
   IconLayoutRows,
   IconLine,
   IconListTree,
   IconLock,
   IconLockOpen,
-  IconPencil,
   IconPhoto,
   IconPlus,
   IconSearch,
   IconSquare,
-  IconStackBack,
-  IconStackFront,
   IconStar,
   IconTriangle,
   IconTypography,
@@ -55,6 +45,13 @@ import {
   type RefObject,
 } from "react";
 
+import {
+  MENU_CONTENT_CLASS,
+  MENU_ITEM_CLASS,
+  MENU_SEPARATOR_CLASS,
+  MENU_SHORTCUT_CLASS,
+  MENU_SUB_TRIGGER_CLASS,
+} from "@/components/design/context-menu-styles";
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
 import {
@@ -63,6 +60,9 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuShortcut,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
@@ -190,6 +190,14 @@ export interface LayersPanelLabels {
   sendToBack: string;
   flipHorizontal: string;
   flipVertical: string;
+  copyLink: string;
+  arrange: string;
+  transform: string;
+  menuRename: string;
+  menuHide: string;
+  menuShow: string;
+  menuLock: string;
+  menuUnlock: string;
 }
 
 export interface LayersPanelProps {
@@ -225,13 +233,10 @@ export interface LayersPanelProps {
   boardElements?: LayersPanelNode[];
   hoveredLayerId?: string | null;
   onCopyLayer?: (ids: string[]) => void;
+  onCopyLink?: (nodeId: string) => void;
   onPasteHere?: (targetId: string) => void;
-  onPasteToReplace?: (ids: string[]) => void;
   onDuplicateLayer?: (ids: string[]) => void;
   onDeleteLayer?: (ids: string[]) => void;
-  onGroupSelection?: (ids: string[]) => void;
-  onFrameSelection?: (ids: string[]) => void;
-  onUngroupSelection?: (ids: string[]) => void;
   onReorderLayer?: (
     ids: string[],
     direction: "front" | "forward" | "backward" | "back",
@@ -348,6 +353,14 @@ function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
     sendToBack: t("layersPanel.sendToBack"),
     flipHorizontal: t("layersPanel.flipHorizontal"),
     flipVertical: t("layersPanel.flipVertical"),
+    copyLink: t("layersPanel.copyLink"),
+    arrange: t("layersPanel.arrange"),
+    transform: t("layersPanel.transform"),
+    menuRename: t("layersPanel.menuRename"),
+    menuHide: t("layersPanel.menuHide"),
+    menuShow: t("layersPanel.menuShow"),
+    menuLock: t("layersPanel.menuLock"),
+    menuUnlock: t("layersPanel.menuUnlock"),
   };
 }
 
@@ -891,13 +904,10 @@ function LayersPanelImpl(
     boardElements,
     hoveredLayerId,
     onCopyLayer,
+    onCopyLink,
     onPasteHere,
-    onPasteToReplace,
     onDuplicateLayer,
     onDeleteLayer,
-    onGroupSelection,
-    onFrameSelection,
-    onUngroupSelection,
     onReorderLayer,
     onFlipHorizontal,
     onFlipVertical,
@@ -1620,10 +1630,7 @@ function LayersPanelImpl(
                     visibleRowsRef={visibleRowsRef}
                     rootsRef={rootsRef}
                     onCopyLayer={onCopyLayer}
-                    onPasteToReplace={onPasteToReplace}
-                    onGroupSelection={onGroupSelection}
-                    onFrameSelection={onFrameSelection}
-                    onUngroupSelection={onUngroupSelection}
+                    onCopyLink={onCopyLink}
                     onReorderLayer={onReorderLayer}
                     onFlipHorizontal={onFlipHorizontal}
                     onFlipVertical={onFlipVertical}
@@ -1691,10 +1698,7 @@ interface LayerRowProps {
   visibleRowsRef: RefObject<FlatLayerRow[]>;
   rootsRef: RefObject<LayersPanelNode[]>;
   onCopyLayer?: (ids: string[]) => void;
-  onPasteToReplace?: (ids: string[]) => void;
-  onGroupSelection?: (ids: string[]) => void;
-  onFrameSelection?: (ids: string[]) => void;
-  onUngroupSelection?: (ids: string[]) => void;
+  onCopyLink?: (nodeId: string) => void;
   onReorderLayer?: (
     ids: string[],
     direction: "front" | "forward" | "backward" | "back",
@@ -1785,10 +1789,7 @@ const LayerRow = memo(function LayerRow({
   visibleRowsRef,
   rootsRef,
   onCopyLayer,
-  onPasteToReplace,
-  onGroupSelection,
-  onFrameSelection,
-  onUngroupSelection,
+  onCopyLink,
   onReorderLayer,
   onFlipHorizontal,
   onFlipVertical,
@@ -2064,16 +2065,9 @@ const LayerRow = memo(function LayerRow({
       visibleRows: visibleRowsRef.current,
     });
 
-  const canUngroupThisRow = Boolean(onUngroupSelection && canAcceptChildren);
+  const hasTransformActions = Boolean(onFlipHorizontal || onFlipVertical);
   const hasEditActions = Boolean(
-    onCopyLayer ||
-    onPasteToReplace ||
-    onGroupSelection ||
-    onFrameSelection ||
-    canUngroupThisRow ||
-    onReorderLayer ||
-    onFlipHorizontal ||
-    onFlipVertical,
+    onCopyLayer || onCopyLink || onReorderLayer || hasTransformActions,
   );
 
   const showContextMenu =
@@ -2400,7 +2394,7 @@ const LayerRow = memo(function LayerRow({
       </ContextMenuTrigger>
       {showContextMenu ? (
         <ContextMenuContent
-          className="z-[300] min-w-[200px] text-[12px]"
+          className={cn("z-[300]", MENU_CONTENT_CLASS)}
           onCloseAutoFocus={(event) => {
             if (!preventContextMenuFocusRestoreRef.current) return;
             event.preventDefault();
@@ -2408,181 +2402,102 @@ const LayerRow = memo(function LayerRow({
           }}
         >
           {onCopyLayer ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
+            <RowMenuItem
+              label={labels.copy}
+              shortcut={shortcut("$mod+c")}
               onSelect={() => onCopyLayer(getContextMenuTargetIdsForRow())}
-            >
-              <IconCopy className="size-3.5 text-muted-foreground" />
-              {labels.copy}
-              <ContextMenuShortcut>{shortcut("$mod+c")}</ContextMenuShortcut>
-            </ContextMenuItem>
+            />
           ) : null}
-          {onPasteToReplace ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
-              onSelect={() => onPasteToReplace(getContextMenuTargetIdsForRow())}
-            >
-              <IconClipboard className="size-3.5 text-muted-foreground" />
-              {labels.pasteToReplace}
-              <ContextMenuShortcut>
-                {shortcut("$mod+shift+r")}
-              </ContextMenuShortcut>
-            </ContextMenuItem>
-          ) : null}
-
-          {(onCopyLayer || onPasteToReplace) && onReorderLayer ? (
-            <ContextMenuSeparator />
-          ) : null}
-
-          {onReorderLayer ? (
-            <>
-              <ContextMenuItem
-                className="gap-2 text-[12px]"
-                onSelect={() =>
-                  onReorderLayer(getContextMenuTargetIdsForRow(), "front")
-                }
-              >
-                <IconStackFront className="size-3.5 text-muted-foreground" />
-                {labels.bringToFront}
-                <ContextMenuShortcut>{shortcut("]")}</ContextMenuShortcut>
-              </ContextMenuItem>
-              <ContextMenuItem
-                className="gap-2 text-[12px]"
-                onSelect={() =>
-                  onReorderLayer(getContextMenuTargetIdsForRow(), "back")
-                }
-              >
-                <IconStackBack className="size-3.5 text-muted-foreground" />
-                {labels.sendToBack}
-                <ContextMenuShortcut>{shortcut("[")}</ContextMenuShortcut>
-              </ContextMenuItem>
-            </>
-          ) : null}
-
-          {onReorderLayer &&
-          (onGroupSelection ||
-            canUngroupThisRow ||
-            onFrameSelection ||
-            onRename) ? (
-            <ContextMenuSeparator />
-          ) : null}
-
-          {onGroupSelection ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
-              onSelect={() => onGroupSelection(getContextMenuTargetIdsForRow())}
-            >
-              <IconLayersUnion className="size-3.5 text-muted-foreground" />
-              {labels.group}
-              <ContextMenuShortcut>{shortcut("$mod+g")}</ContextMenuShortcut>
-            </ContextMenuItem>
-          ) : null}
-          {onFrameSelection ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
-              onSelect={() => onFrameSelection(getContextMenuTargetIdsForRow())}
-            >
-              <IconFrame className="size-3.5 text-muted-foreground" />
-              {labels.frameSelection}
-              <ContextMenuShortcut>
-                {shortcut("$mod+alt+g")}
-              </ContextMenuShortcut>
-            </ContextMenuItem>
+          {onCopyLink ? (
+            <RowMenuItem
+              label={labels.copyLink}
+              onSelect={() => onCopyLink(node.id)}
+            />
           ) : null}
           {onRename && node.renamable !== false ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
+            <RowMenuItem
+              label={labels.menuRename}
+              shortcut={shortcut("$mod+r")}
               onSelect={() => {
                 preventContextMenuFocusRestoreRef.current = true;
                 onStartRename(node);
               }}
-            >
-              <IconPencil className="size-3.5 text-muted-foreground" />
-              {labels.rename}
-              <ContextMenuShortcut>{shortcut("$mod+r")}</ContextMenuShortcut>
-            </ContextMenuItem>
+            />
           ) : null}
 
-          {/* Only container rows expose Ungroup; plain rows do not show it, even
-              when the callback is wired up. */}
-          {canUngroupThisRow ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
-              onSelect={() =>
-                onUngroupSelection?.(getContextMenuTargetIdsForRow())
-              }
-            >
-              <IconLayersSubtract className="size-3.5 text-muted-foreground" />
-              {labels.ungroup}
-              <ContextMenuShortcut>
-                {shortcut("$mod+shift+g")}
-              </ContextMenuShortcut>
-            </ContextMenuItem>
-          ) : null}
-
-          {(onGroupSelection ||
-            canUngroupThisRow ||
-            onFrameSelection ||
+          {(onCopyLayer ||
+            onCopyLink ||
             (onRename && node.renamable !== false)) &&
           (lockable || hideable) ? (
-            <ContextMenuSeparator />
+            <ContextMenuSeparator className={MENU_SEPARATOR_CLASS} />
           ) : null}
           {hideable ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
+            <RowMenuItem
+              label={node.hidden ? labels.menuShow : labels.menuHide}
+              shortcut={shortcut("$mod+shift+h")}
               onSelect={() => onToggleHidden?.(node.id, !node.hidden)}
-            >
-              {node.hidden ? (
-                <IconEye className="size-3.5 text-muted-foreground" />
-              ) : (
-                <IconEyeOff className="size-3.5 text-muted-foreground" />
-              )}
-              {node.hidden ? labels.show : labels.hide}
-              <ContextMenuShortcut>
-                {shortcut("$mod+shift+h")}
-              </ContextMenuShortcut>
-            </ContextMenuItem>
+            />
           ) : null}
           {lockable ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
+            <RowMenuItem
+              label={node.locked ? labels.menuUnlock : labels.menuLock}
+              shortcut={shortcut("$mod+shift+l")}
               onSelect={() => onToggleLocked?.(node.id, !node.locked)}
-            >
-              {node.locked ? (
-                <IconLockOpen className="size-3.5 text-muted-foreground" />
-              ) : (
-                <IconLock className="size-3.5 text-muted-foreground" />
-              )}
-              {node.locked ? labels.unlock : labels.lock}
-              <ContextMenuShortcut>
-                {shortcut("$mod+shift+l")}
-              </ContextMenuShortcut>
-            </ContextMenuItem>
+            />
           ) : null}
 
-          {(lockable || hideable) && (onFlipHorizontal || onFlipVertical) ? (
-            <ContextMenuSeparator />
+          {(lockable || hideable) && (onReorderLayer || hasTransformActions) ? (
+            <ContextMenuSeparator className={MENU_SEPARATOR_CLASS} />
           ) : null}
-
-          {onFlipHorizontal ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
-              onSelect={() => onFlipHorizontal(getContextMenuTargetIdsForRow())}
-            >
-              <IconFlipHorizontal className="size-3.5 text-muted-foreground" />
-              {labels.flipHorizontal}
-              <ContextMenuShortcut>{shortcut("shift+h")}</ContextMenuShortcut>
-            </ContextMenuItem>
+          {onReorderLayer ? (
+            <ContextMenuSub>
+              <ContextMenuSubTrigger className={MENU_SUB_TRIGGER_CLASS}>
+                {labels.arrange}
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent className={MENU_CONTENT_CLASS}>
+                <RowMenuItem
+                  label={labels.bringToFront}
+                  shortcut={shortcut("]")}
+                  onSelect={() =>
+                    onReorderLayer(getContextMenuTargetIdsForRow(), "front")
+                  }
+                />
+                <RowMenuItem
+                  label={labels.sendToBack}
+                  shortcut={shortcut("[")}
+                  onSelect={() =>
+                    onReorderLayer(getContextMenuTargetIdsForRow(), "back")
+                  }
+                />
+              </ContextMenuSubContent>
+            </ContextMenuSub>
           ) : null}
-          {onFlipVertical ? (
-            <ContextMenuItem
-              className="gap-2 text-[12px]"
-              onSelect={() => onFlipVertical(getContextMenuTargetIdsForRow())}
-            >
-              <IconFlipVertical className="size-3.5 text-muted-foreground" />
-              {labels.flipVertical}
-              <ContextMenuShortcut>{shortcut("shift+v")}</ContextMenuShortcut>
-            </ContextMenuItem>
+          {hasTransformActions ? (
+            <ContextMenuSub>
+              <ContextMenuSubTrigger className={MENU_SUB_TRIGGER_CLASS}>
+                {labels.transform}
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent className={MENU_CONTENT_CLASS}>
+                {onFlipHorizontal ? (
+                  <RowMenuItem
+                    label={labels.flipHorizontal}
+                    shortcut={shortcut("shift+h")}
+                    onSelect={() =>
+                      onFlipHorizontal(getContextMenuTargetIdsForRow())
+                    }
+                  />
+                ) : null}
+                {onFlipVertical ? (
+                  <RowMenuItem
+                    label={labels.flipVertical}
+                    shortcut={shortcut("shift+v")}
+                    onSelect={() =>
+                      onFlipVertical(getContextMenuTargetIdsForRow())
+                    }
+                  />
+                ) : null}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
           ) : null}
         </ContextMenuContent>
       ) : null}
@@ -2774,4 +2689,25 @@ export function dropPlacementForEvent(
     return "after";
   }
   return canDropInside ? "inside" : "after";
+}
+
+function RowMenuItem({
+  label,
+  shortcut,
+  onSelect,
+}: {
+  label: string;
+  shortcut?: string;
+  onSelect: () => void;
+}) {
+  return (
+    <ContextMenuItem className={MENU_ITEM_CLASS} onSelect={onSelect}>
+      <span className="flex-1 truncate">{label}</span>
+      {shortcut ? (
+        <ContextMenuShortcut className={MENU_SHORTCUT_CLASS}>
+          {shortcut}
+        </ContextMenuShortcut>
+      ) : null}
+    </ContextMenuItem>
+  );
 }
