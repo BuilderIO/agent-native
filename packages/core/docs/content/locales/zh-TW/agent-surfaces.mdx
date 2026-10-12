@@ -188,29 +188,39 @@ createAgentChatPlugin({
 Agent 會繼承相同操作表面。由於不受限制的 shell 無法強制執行嚴格的操作
 邊界，trusted shell 工具會自動降為依請求過濾的 sandbox。
 
-### 請求範圍的附加操作
+### 請求層級的附加動作
 
-當呼叫端可用的操作只有在請求時才能確定（例如使用者在伺服器執行期間註冊的
-工具）時，請使用 `resolveAdditionalActions`。此回呼會在每個經過驗證的
-互動式聊天請求（正式環境與開發環境）、A2A 任務以及 MCP `ask_app` 呼叫中
-執行。`surface` 為 `"chat"`、`"a2a"` 或 `"mcp"`，由應用程式決定哪些介面
-取得哪些操作。回傳的項目只會在該請求中加入呼叫端的 MCP 工具：
-`tool-search` 可以找到它們，`resolveActionSurface` 也會在
-`availableActionNames` 中看到它們。
+當呼叫端可用的動作只有在請求時才能確定（例如使用者在伺服器執行期間註冊的工具）時，
+請使用 `resolveAdditionalActions`。此回呼會在每個經過驗證的互動式對話執行（正式
+環境與開發環境）中執行一次，先於 `tool-search` 和 `resolveActionSurface`，因此兩
+者都能看到回傳的項目。這些項目僅在該次執行中加入該呼叫端的登錄表。只有當你在
+`additionalActionSurfaces` 中列出對應的介面時，A2A 任務和 MCP 的 `ask_app` 呼叫
+才會收到它們；`surface` 會告訴回呼是哪個介面在請求。
 
 ```ts
 createAgentChatPlugin({
   actions,
+  additionalActionSurfaces: ["a2a"],
   resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
-    surface === "chat" ? await loadUserTools(ownerEmail, orgId) : {},
+    loadUserTools(ownerEmail, orgId, {
+      includeEditorTools: surface === "chat",
+    }),
 });
 ```
 
-使用範本操作、框架工具或 MCP 工具名稱的項目會被忽略，即使請求的登錄表中
-沒有該工具（例如 lean 模式），伺服器對每個名稱只記錄一次警告。`event` 在
-`chat` 和 `a2a` 中提供；`ask_app` 呼叫沒有此欄位。匿名請求、排程工作、
-自動化和 Agent 團隊的子 Agent 不會呼叫此回呼。伺服器以持久背景執行方式
-完成的聊天回合仍會以 `surface: "chat"` 呼叫它。回呼擲回的錯誤會使請求失敗。
+請將回傳的項目視為不可信的輸入。當項目名稱不是 1–64 個字母、數字、`_` 或 `-` 時，
+當名稱屬於任何範本、框架、開發或 MCP 動作（包括對代理隱藏的動作）時，當它是呼叫
+端看不到的 `mcp__` 名稱時，或當其工具定義無法使用時，框架會忽略該項目，並只記錄
+一次警告。描述中的隱藏控制字元會被移除並限制長度，`parameters` 必須是根為
+`object` 的有界 JSON schema。
+
+每個項目都綁定到解析它時所針對的呼叫端。無論由哪個調度器發起，每次呼叫都會拒絕為
+不同的使用者或組織執行，強制執行該項目的 `access` 政策，並在不做型別強制轉換的情
+況下依其 schema 驗證引數。當對話輪次作為持久背景執行繼續時，回呼會再次執行，但該
+輪次保留其原有名稱：新項目不會加入，已消失的名稱在被呼叫時會回傳錯誤。
+
+`event` 在 `chat` 和 `a2a` 中設定；`ask_app` 呼叫沒有該欄位。對於匿名請求、排程
+工作、自動化或代理團隊的子代理，不會呼叫該回呼。回呼擲出的錯誤會使請求失敗。
 
 ## 原生內嵌 UI {#native-inline-ui}
 

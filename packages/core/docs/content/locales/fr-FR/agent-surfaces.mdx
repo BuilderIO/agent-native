@@ -208,33 +208,49 @@ appliquer une frontière d’actions stricte.
 
 ### Actions supplémentaires limitées à la requête
 
-Utilisez `resolveAdditionalActions` lorsque les actions accessibles à
-l’appelant ne sont connues qu’au moment de la requête, par exemple des outils
+Utilisez `resolveAdditionalActions` lorsque les actions qu’un appelant peut
+utiliser ne sont connues qu’au moment de la requête, par exemple des outils
 qu’un utilisateur enregistre pendant que le serveur tourne. Le callback
-s’exécute pour chaque requête de chat interactif authentifiée (production et
-développement), chaque tâche A2A et chaque appel MCP à `ask_app`. `surface`
-vaut `"chat"`, `"a2a"` ou `"mcp"`, ce qui permet à l’app de décider quelles
-surfaces reçoivent quelles actions. Les entrées retournées s’ajoutent aux
-outils MCP de l’appelant pour cette requête uniquement : `tool-search` peut les
-trouver et `resolveActionSurface` les voit dans `availableActionNames`.
+s’exécute une fois par exécution de chat interactive authentifiée (production et
+développement), avant `tool-search` et `resolveActionSurface`, de sorte que les
+deux voient les entrées renvoyées. Elles rejoignent le registre de cet appelant
+pour cette exécution uniquement. Les tâches A2A et les appels MCP `ask_app` ne
+les reçoivent que si vous listez ces surfaces dans `additionalActionSurfaces` ;
+`surface` indique au callback laquelle fait la demande.
 
 ```ts
 createAgentChatPlugin({
   actions,
+  additionalActionSurfaces: ["a2a"],
   resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
-    surface === "chat" ? await loadUserTools(ownerEmail, orgId) : {},
+    loadUserTools(ownerEmail, orgId, {
+      includeEditorTools: surface === "chat",
+    }),
 });
 ```
 
-Une entrée qui utilise le nom d’une action du template, d’un outil du framework
-ou d’un outil MCP est ignorée, même lorsque le registre de la requête n’inclut
-pas cet outil (comme en mode lean), et le serveur journalise un avertissement
-une fois par nom. `event` est défini pour `chat` et `a2a` ; les appels
-`ask_app` n’en ont pas. Le callback n’est pas appelé pour les requêtes
-anonymes, les jobs planifiés, les automatisations ni les sous-agents des
-équipes d’agents. Un tour de chat que le serveur termine en exécution durable
-en arrière-plan l’appelle toujours avec `surface: "chat"`. Une erreur levée par
-le callback fait échouer la requête.
+Traitez les entrées renvoyées comme une entrée non fiable. Le framework ignore
+une entrée, et consigne un avertissement une seule fois, lorsque son nom n’est
+pas composé de 1 à 64 lettres, chiffres, `_` ou `-` ; lorsque le nom appartient
+à une action de modèle, de framework, de développement ou MCP, y compris les
+actions masquées à l’agent ; lorsqu’il s’agit d’un nom `mcp__` que l’appelant ne
+peut pas voir ; ou lorsque la définition de son outil est inutilisable. Les
+descriptions perdent leurs caractères de contrôle cachés et sont plafonnées, et
+`parameters` doit être un schéma JSON borné dont la racine est de type `object`.
+
+Chaque entrée est liée à l’appelant pour lequel elle a été résolue. Chaque
+appel, quel que soit le dispatcher qui l’effectue, refuse de s’exécuter pour un
+autre utilisateur ou une autre organisation, applique la politique `access` de
+l’entrée et valide les arguments par rapport à son schéma sans coercition de
+type. Lorsqu’un tour de chat se poursuit sous forme d’exécution durable en
+arrière-plan, le callback s’exécute de nouveau, mais le tour conserve ses noms
+d’origine : les nouvelles entrées restent à l’écart, et un nom qui a disparu
+renvoie une erreur lorsqu’il est appelé.
+
+`event` est défini pour `chat` et `a2a` ; les appels `ask_app` n’en ont pas. Le
+callback n’est pas appelé pour les requêtes anonymes, les tâches planifiées, les
+automatisations ou les sous-agents d’équipes d’agents. Une erreur levée par le
+callback fait échouer la requête.
 
 ## Interface utilisateur native intégrée {#native-inline-ui}
 

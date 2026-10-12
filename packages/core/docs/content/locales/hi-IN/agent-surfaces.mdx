@@ -193,32 +193,47 @@ request-filtered sandbox तक सीमित हो जाते हैं, �
 
 ### अनुरोध-स्कोप वाले अतिरिक्त actions
 
-जब caller के लिए उपलब्ध actions केवल request के समय पता चलते हों, जैसे
-server चलते समय user द्वारा register किए गए tools, तब
-`resolveAdditionalActions` का उपयोग करें। callback हर authenticated
-interactive chat request (production और dev), A2A task और MCP `ask_app` call
-पर चलता है। `surface` का मान `"chat"`, `"a2a"` या `"mcp"` होता है, इसलिए app
-तय करता है कि किस surface को कौन-से actions मिलें। लौटाई गई entries केवल उसी
-request के लिए caller के MCP tools में जुड़ती हैं: `tool-search` उन्हें खोज
-सकता है, और `resolveActionSurface` उन्हें `availableActionNames` में देखता है।
+जब कॉलर जिन actions का उपयोग कर सकता है वे केवल अनुरोध के समय पता चलते हों, जैसे
+सर्वर चलते समय उपयोगकर्ता द्वारा register किए गए tools, तब
+`resolveAdditionalActions` का उपयोग करें। callback हर authenticated interactive
+chat run (production और dev) के लिए एक बार चलता है, `tool-search` और
+`resolveActionSurface` से पहले, इसलिए दोनों को लौटाई गई entries दिखती हैं। ये
+केवल उसी run के लिए उस कॉलर की registry में जुड़ती हैं। A2A tasks और MCP
+`ask_app` calls इन्हें तभी पाते हैं जब आप उन surfaces को
+`additionalActionSurfaces` में सूचीबद्ध करें; `surface` callback को बताता है कि
+कौन-सा अनुरोध कर रहा है।
 
 ```ts
 createAgentChatPlugin({
   actions,
+  additionalActionSurfaces: ["a2a"],
   resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
-    surface === "chat" ? await loadUserTools(ownerEmail, orgId) : {},
+    loadUserTools(ownerEmail, orgId, {
+      includeEditorTools: surface === "chat",
+    }),
 });
 ```
 
-जो entry किसी template action, framework tool या MCP tool के नाम का उपयोग करती
-है, उसे अनदेखा किया जाता है, तब भी जब request की registry में वह tool शामिल
-नहीं होता (जैसे lean mode में), और server हर नाम के लिए एक बार warning log
-करता है। `event` केवल `chat` और `a2a` के लिए set होता है; `ask_app` calls में
-यह नहीं होता। anonymous requests, scheduled jobs, automations या agent-team
-sub-agents के लिए callback नहीं चलता। जिस chat turn को server durable
-background run के रूप में पूरा करता है, उसमें callback अब भी
-`surface: "chat"` के साथ चलता है। callback द्वारा throw की गई error request
-को fail कर देती है।
+लौटाई गई entries को untrusted input मानें। framework किसी entry को अनदेखा कर
+देता है, और एक बार warning log करता है, जब उसका नाम 1–64 अक्षरों, अंकों, `_` या
+`-` का न हो; जब वह नाम किसी template, framework, dev या MCP action का हो, उन
+actions सहित जो agent से छिपे हैं; जब वह ऐसा `mcp__` नाम हो जिसे कॉलर नहीं देख
+सकता; या जब उसकी tool definition उपयोग योग्य न हो। descriptions से छिपे control
+characters हटा दिए जाते हैं और उनकी लंबाई सीमित की जाती है, और `parameters` एक
+सीमित JSON schema होना चाहिए जिसकी root `object` हो।
+
+हर entry उस कॉलर से बंधी होती है जिसके लिए उसे resolve किया गया था। हर call,
+चाहे कोई भी dispatcher उसे करे, किसी दूसरे उपयोगकर्ता या organization के लिए
+चलने से इनकार करता है, entry की `access` policy लागू करता है, और arguments को
+उसके schema के विरुद्ध type coercion के बिना validate करता है। जब कोई chat turn
+durable background run के रूप में जारी रहता है, तो callback फिर चलता है लेकिन
+turn अपने मूल नाम बनाए रखता है: नई entries बाहर रहती हैं, और जो नाम गायब हो गया
+वह call करने पर error लौटाता है।
+
+`event` `chat` और `a2a` के लिए सेट होता है; `ask_app` calls में यह नहीं होता।
+anonymous अनुरोधों, scheduled jobs, automations या agent-team sub-agents के लिए
+callback नहीं बुलाया जाता। callback द्वारा throw की गई error अनुरोध को विफल कर
+देती है।
 
 ## Native inline UI {#native-inline-ui}
 

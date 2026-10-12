@@ -208,33 +208,50 @@ Action-Grenze durchsetzen kann.
 
 ### Request-bezogene zusätzliche Actions
 
-Verwende `resolveAdditionalActions`, wenn die Actions eines Aufrufers erst zur
-Anfragezeit bekannt sind, etwa Tools, die ein Benutzer registriert, während der
-Server läuft. Der Callback läuft für jede authentifizierte interaktive
-Chat-Anfrage (Produktion und Entwicklung), jede A2A-Aufgabe und jeden
-MCP-Aufruf von `ask_app`. `surface` ist `"chat"`, `"a2a"` oder `"mcp"`, sodass
-die App entscheidet, welche Oberflächen welche Actions erhalten. Die
-zurückgegebenen Einträge ergänzen die MCP-Tools des Aufrufers nur für diese
-Anfrage: `tool-search` findet sie, und `resolveActionSurface` sieht sie in
-`availableActionNames`.
+Verwende `resolveAdditionalActions`, wenn die Actions, die ein Aufrufer nutzen
+kann, erst zur Anfragezeit bekannt sind, etwa Tools, die ein Benutzer
+registriert, während der Server läuft. Der Callback läuft einmal pro
+authentifiziertem interaktivem Chat-Lauf (Produktion und Entwicklung), vor
+`tool-search` und `resolveActionSurface`, sodass beide die zurückgegebenen
+Einträge sehen. Sie gehören nur für diesen Lauf zur Registry dieses Aufrufers.
+A2A-Aufgaben und MCP-Aufrufe von `ask_app` erhalten sie nur, wenn du diese
+Oberflächen in `additionalActionSurfaces` auflistest; `surface` teilt dem
+Callback mit, welche Oberfläche gerade anfragt.
 
 ```ts
 createAgentChatPlugin({
   actions,
+  additionalActionSurfaces: ["a2a"],
   resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
-    surface === "chat" ? await loadUserTools(ownerEmail, orgId) : {},
+    loadUserTools(ownerEmail, orgId, {
+      includeEditorTools: surface === "chat",
+    }),
 });
 ```
 
-Ein Eintrag, der den Namen einer Template-Action, eines Framework-Tools oder
-eines MCP-Tools verwendet, wird ignoriert, auch wenn die Registry der Anfrage
-dieses Tool nicht enthält (wie im Lean-Modus), und der Server protokolliert pro
-Name einmal eine Warnung. `event` ist für `chat` und `a2a` gesetzt;
-`ask_app`-Aufrufe haben keines. Der Callback wird weder für anonyme Anfragen
-noch für geplante Jobs, Automationen oder Sub-Agenten von Agent-Teams
-aufgerufen. Ein Chat-Turn, den der Server als dauerhaften Hintergrundlauf
-abschließt, ruft ihn weiterhin mit `surface: "chat"` auf. Ein Fehler, den der
-Callback wirft, lässt die Anfrage fehlschlagen.
+Behandle zurückgegebene Einträge als nicht vertrauenswürdige Eingabe. Das
+Framework ignoriert einen Eintrag und protokolliert einmal eine Warnung, wenn
+sein Name nicht aus 1–64 Buchstaben, Ziffern, `_` oder `-` besteht; wenn der
+Name zu einer beliebigen Template-, Framework-, Dev- oder MCP-Action gehört,
+einschließlich vor dem Agenten verborgener Actions; wenn es ein `mcp__`-Name
+ist, den der Aufrufer nicht sehen kann; oder wenn seine Tool-Definition
+unbrauchbar ist. Aus Beschreibungen werden verborgene Steuerzeichen entfernt,
+und sie werden in der Länge begrenzt; `parameters` muss ein begrenztes
+JSON-Schema mit einem `object`-Wurzelelement sein.
+
+Jeder Eintrag ist an den Aufrufer gebunden, für den er aufgelöst wurde. Jeder
+Aufruf, egal welcher Dispatcher ihn ausführt, weigert sich, für einen anderen
+Benutzer oder eine andere Organisation zu laufen, erzwingt die
+`access`-Richtlinie des Eintrags und validiert die Argumente ohne Typumwandlung
+gegen sein Schema. Setzt sich ein Chat-Turn als dauerhafter Hintergrundlauf
+fort, läuft der Callback erneut, aber der Turn behält seine ursprünglichen
+Namen: Neue Einträge bleiben draußen, und ein Name, der verschwunden ist,
+liefert beim Aufruf einen Fehler.
+
+`event` ist für `chat` und `a2a` gesetzt; `ask_app`-Aufrufe haben keines. Der
+Callback wird weder für anonyme Anfragen noch für geplante Jobs, Automationen
+oder Sub-Agenten von Agent-Teams aufgerufen. Ein Fehler, den der Callback wirft,
+lässt die Anfrage fehlschlagen.
 
 ## Native Inline-UI {#native-inline-ui}
 
