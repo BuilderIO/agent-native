@@ -82,6 +82,21 @@ after(() => {
 });
 
 describe("serverless function size baseline", () => {
+  it("marks filtered module names omitted without logging those names", () => {
+    const root = workspace();
+    const baselineFile = path.join(root, "baseline.json");
+    writeFileSync(baselineFile, JSON.stringify({ chat: { server: MB } }));
+    const functionsDir = build(root, "functions");
+    emitFunction(functionsDir, "server", 7 * MB);
+    const libs = path.join(functionsDir, "server", "_libs");
+    mkdirSync(libs);
+    writeFileSync(path.join(libs, "PRIVATE+name.mjs"), "PRIVATE_CONTENT");
+    const checked = runGuard(functionsDir, baselineFile, [], "chat");
+    assert.equal(checked.status, 1);
+    assert.match(checked.output, /"filteredEntriesOmitted":true/);
+    assert.match(checked.output, /"truncated":true/);
+    assert.doesNotMatch(checked.output, /PRIVATE/);
+  });
   it("preserves size guidance when a generated directory is malformed", () => {
     const root = workspace();
     const baselineFile = path.join(root, "baseline.json");
