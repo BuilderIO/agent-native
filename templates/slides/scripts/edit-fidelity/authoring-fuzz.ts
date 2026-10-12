@@ -718,7 +718,6 @@ export function createRetiredBrowserSessionErrorCorrelator() {
         activePhase !== "save/reload" ||
         navigationStartedAt === null ||
         now < navigationStartedAt ||
-        now - navigationStartedAt >= reloadNavigationConsoleGraceMs ||
         !sessionIdAtNavigation ||
         currentSessionId !== sessionIdAtNavigation ||
         competingClaimStartedAfterNavigation
@@ -738,13 +737,18 @@ export function createRetiredBrowserSessionErrorCorrelator() {
       );
       if (pageErrorIndex >= 0) {
         pendingPageErrors.splice(pageErrorIndex, 1);
-      } else {
-        pendingPollWarnings.push({
-          message,
-          at: now,
-          sessionId: sessionIdAtNavigation,
-        });
+        return { matched: true, errors };
       }
+
+      if (now - navigationStartedAt >= reloadNavigationConsoleGraceMs) {
+        return { matched: false, errors };
+      }
+
+      pendingPollWarnings.push({
+        message,
+        at: now,
+        sessionId: sessionIdAtNavigation,
+      });
       return { matched: true, errors };
     },
     nextExpiryDelay(now: number) {

@@ -1987,6 +1987,26 @@ it("pairs retired-session reload errors in either event order and retains late e
   ).toEqual({ matched: true, errors: [] });
   expect(pollWarningFirst.nextExpiryDelay(1_024)).toBe(null);
 
+  const pollWarningAfterNavigationGrace = makeCorrelator();
+  expect(
+    pollWarningAfterNavigationGrace.onPageError(
+      pageError,
+      "save/reload",
+      1_990,
+      false,
+    ),
+  ).toEqual({ matched: true, errors: [] });
+  expect(
+    pollWarningAfterNavigationGrace.onPollWarning(
+      pollWarning,
+      "save/reload",
+      2_010,
+      sessionId,
+      false,
+    ),
+  ).toEqual({ matched: true, errors: [] });
+  expect(pollWarningAfterNavigationGrace.nextExpiryDelay(2_010)).toBe(null);
+
   const newSessionWarning = makeCorrelator();
   expect(
     newSessionWarning.onPollWarning(
