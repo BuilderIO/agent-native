@@ -1212,6 +1212,85 @@ describe("applyPlanContentPatches validates the input plan first", () => {
   });
 
   it.each(["tabs", "columns"] as const)(
+    "preserves unchanged nested legacy defaults in update-block %s patches",
+    (type) => {
+      const nestedQuestion = {
+        id: "legacy-nested-questions",
+        type: "question-form",
+        data: {},
+      };
+      const containerData =
+        type === "tabs"
+          ? {
+              tabs: [
+                {
+                  id: "tab",
+                  label: "Questions",
+                  blocks: [nestedQuestion],
+                },
+              ],
+            }
+          : {
+              columns: [
+                {
+                  id: "column",
+                  blocks: [nestedQuestion],
+                },
+              ],
+            };
+      const content = storedPlanContentSchema.parse({
+        version: 2,
+        blocks: [{ id: "container", type, data: containerData }],
+      });
+      const existing = content.blocks[0];
+      if (!existing || existing.type !== type) {
+        throw new Error(`expected ${type} container`);
+      }
+
+      const next = applyPlanContentPatches(content, [
+        {
+          op: "update-block",
+          blockId: "container",
+          patch: { data: existing.data as unknown as Record<string, unknown> },
+        },
+      ]);
+
+      expect(next.blocks[0]).toMatchObject({
+        id: "container",
+        type,
+        data:
+          type === "tabs"
+            ? {
+                tabs: [
+                  {
+                    blocks: [
+                      {
+                        id: "legacy-nested-questions",
+                        type: "question-form",
+                        data: { questions: [] },
+                      },
+                    ],
+                  },
+                ],
+              }
+            : {
+                columns: [
+                  {
+                    blocks: [
+                      {
+                        id: "legacy-nested-questions",
+                        type: "question-form",
+                        data: { questions: [] },
+                      },
+                    ],
+                  },
+                ],
+              },
+      });
+    },
+  );
+
+  it.each(["tabs", "columns"] as const)(
     "rejects incomplete nested authoring data in update-block %s patches",
     (type) => {
       const existingNestedBlock = {
@@ -1272,7 +1351,9 @@ describe("applyPlanContentPatches validates the input plan first", () => {
             patch: { data },
           },
         ]),
-      ).toThrow(/require data\.(questions|items)/i);
+      ).toThrow(
+        /require (data\.(questions|items)|at least one (questions|items))/i,
+      );
     },
   );
 

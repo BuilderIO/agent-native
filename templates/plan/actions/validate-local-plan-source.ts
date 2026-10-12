@@ -83,7 +83,17 @@ export default defineAction({
     }
 
     try {
-      await parsePlanMdxFolder(args.mdx);
+      const stateSource = args.mdx[".plan-state.json"];
+      const state = stateSource ? JSON.parse(stateSource) : undefined;
+      const hasStoredPlanId =
+        !!state &&
+        typeof state === "object" &&
+        "planId" in state &&
+        typeof state.planId === "string" &&
+        state.planId.length > 0;
+      await parsePlanMdxFolder(args.mdx, {
+        allowStoredLegacyDefaults: hasStoredPlanId,
+      });
       return { valid: true as const, issues: [] as ValidationIssue[] };
     } catch (error) {
       return { valid: false as const, issues: toValidationIssues(error) };

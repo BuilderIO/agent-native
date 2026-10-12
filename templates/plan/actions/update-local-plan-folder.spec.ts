@@ -163,6 +163,126 @@ describe("update-local-plan-folder", () => {
     });
   });
 
+  it("round-trips full content with unchanged stored legacy defaults", async () => {
+    const content = storedPlanContentSchema.parse({
+      version: 2,
+      title: "Legacy local plan",
+      brief: "Keep older blocks intact.",
+      blocks: [
+        {
+          id: "summary",
+          type: "rich-text",
+          data: { markdown: "Original summary." },
+        },
+        { id: "legacy-questions", type: "question-form", data: {} },
+        { id: "legacy-tabs", type: "tabs", data: {} },
+        { id: "legacy-model", type: "data-model", data: {} },
+      ],
+    });
+    await writePlanLocalFolder({
+      slug: "legacy-full-update",
+      planId: "local-legacy-full-update",
+      title: content.title ?? "Legacy local plan",
+      brief: content.brief,
+      content,
+      url: "/local-plans/legacy-full-update",
+    });
+
+    const replacement = storedPlanContentSchema.parse({
+      ...content,
+      blocks: content.blocks.map((block) =>
+        block.id === "summary" && block.type === "rich-text"
+          ? { ...block, data: { markdown: "Updated full content." } }
+          : block,
+      ),
+    });
+    const result = await updateLocalPlanFolder.run({
+      slug: "legacy-full-update",
+      content: replacement,
+    });
+
+    expect(result.plan.content?.blocks).toMatchObject([
+      {
+        id: "summary",
+        type: "rich-text",
+        data: { markdown: "Updated full content." },
+      },
+      {
+        id: "legacy-questions",
+        type: "question-form",
+        data: { questions: [] },
+      },
+      { id: "legacy-tabs", type: "tabs", data: { tabs: [] } },
+      { id: "legacy-model", type: "data-model", data: { entities: [] } },
+    ]);
+    const reread = await readPlanLocalFolder("legacy-full-update");
+    expect(reread.content.blocks.map((block) => block.id)).toEqual(
+      content.blocks.map((block) => block.id),
+    );
+  });
+
+  it("rejects newly authored empty blocks in a full local content update", async () => {
+    const content = sampleContent();
+    await writePlanLocalFolder({
+      slug: "new-empty-full-update",
+      planId: "local-new-empty-full-update",
+      title: content.title ?? "Checkout review",
+      brief: content.brief,
+      content,
+      url: "/local-plans/new-empty-full-update",
+    });
+
+    const replacement = storedPlanContentSchema.parse({
+      ...content,
+      blocks: [
+        ...content.blocks,
+        { id: "new-questions", type: "question-form", data: {} },
+      ],
+    });
+    await expect(
+      updateLocalPlanFolder.run({
+        slug: "new-empty-full-update",
+        content: replacement,
+      }),
+    ).rejects.toThrow(/require at least one questions entry/i);
+  });
+
+  it("rejects clearing a previously populated required field in a full update", async () => {
+    const content = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        {
+          id: "questions",
+          type: "question-form",
+          data: {
+            questions: [{ id: "q1", title: "Question", mode: "freeform" }],
+          },
+        },
+      ],
+    });
+    await writePlanLocalFolder({
+      slug: "cleared-question-full-update",
+      planId: "local-cleared-question-full-update",
+      title: "Questions",
+      brief: "Question form.",
+      content,
+      url: "/local-plans/cleared-question-full-update",
+    });
+
+    const replacement = storedPlanContentSchema.parse({
+      ...content,
+      blocks: [
+        { id: "questions", type: "question-form", data: { questions: [] } },
+      ],
+    });
+    await expect(
+      updateLocalPlanFolder.run({
+        slug: "cleared-question-full-update",
+        content: replacement,
+      }),
+    ).rejects.toThrow(/require at least one questions entry/i);
+  });
+
   it("writes back to an opened repo-relative local plan path", async () => {
     const repoRoot = path.join(tmpDir, "repo");
     process.env.PLAN_REPO_ROOT = repoRoot;

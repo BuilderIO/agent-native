@@ -2151,6 +2151,22 @@ function validateAuthoringPlanContent(
   }
 }
 
+export function parsePlanContentAuthoringChanges(
+  input: unknown,
+  previous: PlanContent,
+): PlanContent {
+  const parsed = storedPlanContentSchema.parse(input);
+  const authoringInput = typeof input === "string" ? JSON.parse(input) : input;
+  const candidate =
+    authoringInput &&
+    typeof authoringInput === "object" &&
+    Array.isArray((authoringInput as { blocks?: unknown }).blocks)
+      ? (authoringInput as PlanContent)
+      : parsed;
+  assertPlanContentAuthoringChanges(candidate, previous);
+  return parsed;
+}
+
 export function assertPlanContentAuthoringChanges(
   content: PlanContent,
   previous: PlanContent,
@@ -2839,7 +2855,8 @@ export function applyPlanContentPatches(
   content: PlanContent,
   patches: PlanContentPatch[],
 ): PlanContent {
-  const next = cloneJson(storedPlanContentSchema.parse(content));
+  const previous = storedPlanContentSchema.parse(content);
+  const next = cloneJson(previous);
   let pendingVisualRenderMode: PlanVisualCanvasMode | undefined;
 
   for (const patch of planContentPatchesSchema.parse(patches)) {
@@ -2931,14 +2948,12 @@ export function applyPlanContentPatches(
           merged.editable = patch.patch.editable;
         }
         if (patch.patch.data !== undefined) {
-          validateRequiredAuthoringDataPatch(block.type, patch.patch.data);
-          validatePatchedNestedAuthoringBlocks(block.type, patch.patch.data);
           (merged as { data: unknown }).data = {
             ...(block as { data?: Record<string, unknown> }).data,
             ...patch.patch.data,
           };
         }
-        return planBlockSchema.parse(merged);
+        return merged;
       }).blocks;
       continue;
     }
@@ -3184,39 +3199,8 @@ export function applyPlanContentPatches(
     setVisualRenderMode(next, pendingVisualRenderMode);
   }
   syncCanvasWireframes(next);
+  assertPlanContentAuthoringChanges(next, previous);
   return storedPlanContentSchema.parse(next);
-}
-
-function validateRequiredAuthoringDataPatch(
-  type: PlanBlockType,
-  data: Record<string, unknown>,
-) {
-  const required = requiredAuthoringDataFields[type];
-  if (!required) return;
-  const value = data[required.field];
-  if (required.nonEmpty && Array.isArray(value) && value.length === 0) {
-    throw new Error(
-      `Authoring ${type} blocks require at least one ${required.field} entry.`,
-    );
-  }
-}
-
-function validatePatchedNestedAuthoringBlocks(
-  type: PlanBlockType,
-  data: Record<string, unknown>,
-) {
-  const groups =
-    type === "tabs" ? data.tabs : type === "columns" ? data.columns : undefined;
-  if (!Array.isArray(groups)) return;
-
-  for (const group of groups) {
-    if (!group || typeof group !== "object") continue;
-    const blocks = (group as Record<string, unknown>).blocks;
-    if (!Array.isArray(blocks)) continue;
-    for (const block of blocks) {
-      planAuthoringBlockSchema.parse(block);
-    }
-  }
 }
 
 function cloneJson<T>(value: T): T {

@@ -12,17 +12,15 @@ import {
   localPlanKindSchema,
   resolveLocalPlanKind,
 } from "../server/lib/local-plan-kind.js";
-import {
-  normalizePlanContent,
-  normalizeStoredPlanContent,
-} from "../server/plan-content.js";
+import { normalizeStoredPlanContent } from "../server/plan-content.js";
 import { referencedBlockIdsForPlanComments } from "../server/plan-mdx.js";
 import {
   agentPlanContentPatchesSchema,
-  agentPlanContentSchema,
   applyPlanContentPatches,
+  parsePlanContentAuthoringChanges,
   planContentPatchesSchema,
-  planContentSchema,
+  storedPlanContentSchema,
+  assertPlanContentAuthoringChanges,
   type PlanContent,
 } from "../shared/plan-content.js";
 import type { PlanKind } from "../shared/types.js";
@@ -50,7 +48,7 @@ const updateLocalPlanFolderSchema = z.object({
     .optional()
     .describe("One-line plan summary shown under the title."),
   kind: localPlanKindSchema.optional(),
-  content: planContentSchema.optional().describe(CONTENT_DESCRIPTION),
+  content: z.unknown().optional().describe(CONTENT_DESCRIPTION),
   contentPatches: planContentPatchesSchema
     .optional()
     .default([])
@@ -63,7 +61,7 @@ export default defineAction({
     "Update a DB-free local Agent-Native Plan MDX folder from PLAN_LOCAL_DIR or an optional repo-relative path. Applies the same structured contentPatches used by update-visual-plan, writes plan.mdx/canvas.mdx/prototype.mdx back to the same local folder, and never writes to the database.",
   schema: updateLocalPlanFolderSchema,
   agentInputSchema: updateLocalPlanFolderSchema.extend({
-    content: agentPlanContentSchema.optional().describe(CONTENT_DESCRIPTION),
+    content: storedPlanContentSchema.optional().describe(CONTENT_DESCRIPTION),
     contentPatches: agentPlanContentPatchesSchema
       .optional()
       .default([])
@@ -102,11 +100,12 @@ export default defineAction({
 
     let nextContent: PlanContent =
       args.content !== undefined
-        ? (normalizePlanContent(args.content) ?? current.content)
+        ? parsePlanContentAuthoringChanges(args.content, current.content)
         : current.content;
     if (args.contentPatches.length > 0) {
       nextContent = applyPlanContentPatches(nextContent, args.contentPatches);
     }
+    assertPlanContentAuthoringChanges(nextContent, current.content);
 
     const metadataPatch = args.contentPatches.find(
       (patch) => patch.op === "set-metadata",

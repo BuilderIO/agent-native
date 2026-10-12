@@ -36,6 +36,10 @@ import {
   planStatusSchema,
   writeEvent,
 } from "../server/plans.js";
+import {
+  assertPlanContentAuthoringChanges,
+  type PlanContent,
+} from "../shared/plan-content.js";
 
 export default defineAction({
   description:
@@ -95,11 +99,21 @@ export default defineAction({
     }),
   },
   run: async (args) => {
+    let previousContent: PlanContent | undefined;
+    if (args.planId) {
+      await assertPlanEditor(args.planId);
+      previousContent = (await loadPlanBundle(args.planId)).plan.content;
+    }
+
     let content: Awaited<ReturnType<typeof parsePlanMdxFolder>>;
     try {
       content = await parsePlanMdxFolder(args.mdx, {
+        allowStoredLegacyDefaults: previousContent !== undefined,
         salvageInvalidBlocks: args.kind === "recap",
       });
+      if (previousContent) {
+        assertPlanContentAuthoringChanges(content, previousContent);
+      }
       if (args.kind === "recap") {
         assertRecapWireframesHaveContent(content);
       }
@@ -115,8 +129,6 @@ export default defineAction({
     const db = getDb();
 
     if (args.planId) {
-      await assertPlanEditor(args.planId);
-
       const incomingAssets = args.mdx["assets/"];
       if (incomingAssets && Object.keys(incomingAssets).length > 0) {
         const srcByFilename = await importPlanAssets(
