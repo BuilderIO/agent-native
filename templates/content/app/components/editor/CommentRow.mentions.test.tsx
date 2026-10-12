@@ -162,6 +162,23 @@ describe("sent comment mentions", () => {
     expect(host.textContent).not.toContain("](");
   });
 
+  it("leaves an @name in a Markdown link's label as the link", () => {
+    const pills = render(
+      "See [@Sam](https://x.com/profile) and ask @Sam",
+      JSON.stringify([
+        { kind: "person", email: "sam@example.com", name: "Sam" },
+      ]),
+    );
+
+    expect(pills.map((pill) => spokenText(pill))).toEqual(["@Sam"]);
+    expect(
+      [...host.querySelectorAll("a[href='https://x.com/profile']")].map(
+        (link) => link.textContent,
+      ),
+    ).toEqual(["@Sam"]);
+    expect(host.textContent).not.toContain("](");
+  });
+
   it("never turns markup in a name or comment into elements", () => {
     const pills = render(
       "<b>bold</b> @<img src=x>",

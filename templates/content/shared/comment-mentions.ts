@@ -179,12 +179,22 @@ export function followsNameCharacter(text: string, at: number): boolean {
 
 // `//` starts a URL with or without its scheme, as in `//x.com/@Sam`. A bare
 // domain followed by a path, query, or fragment, as in `github.com/@Sam` or
-// `x.com?u=@Sam`, counts where a URL starts: at the run's start or as a
-// Markdown link's destination, `[site](x.com/@Sam)` or `[site](<x.com#@Sam>)`.
-// Anchoring it there keeps it linear; tried at every dot, its backtracking
-// would be quadratic in a run like `a.a.a.a`.
-const URL_START =
-  /\/\/|\bwww\.|(?:^[("'<[]*|\]\(<?)(?:[a-z\d-]+\.)+[a-z]{2,}[/?#]/i;
+// `x.com?u=@Sam`, counts at the run's start. Anchoring it there keeps it
+// linear; tried at every dot, its backtracking would be quadratic in a run
+// like `a.a.a.a`.
+const URL_START = /\/\/|\bwww\.|^[("'<[]*(?:[a-z\d-]+\.)+[a-z]{2,}[/?#]/i;
+
+/**
+ * Markdown's inline links, label and destination: `[@Sam](x.com/@Sam)`. A
+ * label holds no brackets and neither part spans a line, so no two scans
+ * cover the same text and the search stays linear.
+ */
+function linkSpans(text: string): { start: number; end: number }[] {
+  return [...text.matchAll(/\[[^[\]\n]*\]\([^()\n]*\)/g)].map((link) => ({
+    start: link.index,
+    end: link.index + link[0].length,
+  }));
+}
 
 /**
  * Where URLs run in the text, as in `https://x.com/@Sam`: from just past a URL
@@ -231,14 +241,15 @@ function codeSpans(text: string): { start: number; end: number }[] {
 }
 
 /**
- * Tests whether an `@` in `text` is literal: in inline code or a URL, where it
- * is code or part of the address, never a mention. Every comment write runs
- * this, so it reads the text once; a scan per `@` is quadratic in a long run
- * of `@`s.
+ * Tests whether an `@` in `text` is literal: in inline code, a Markdown link,
+ * or a URL, where it is code, a link, or part of the address, never a mention.
+ * Every comment write runs this, so it reads the text once; a scan per `@` is
+ * quadratic in a long run of `@`s.
  */
 export function literalAtSignTest(text: string): (at: number) => boolean {
   const literal = new Uint8Array(text.length);
   for (const span of codeSpans(text)) literal.fill(1, span.start + 1, span.end);
+  for (const link of linkSpans(text)) literal.fill(1, link.start, link.end);
   for (const url of urlRanges(text)) literal.fill(1, url.start, url.end);
   return (at) => literal[at] === 1;
 }

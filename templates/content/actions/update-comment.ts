@@ -28,7 +28,7 @@ export default defineAction({
       .union([z.string(), z.array(z.unknown())])
       .optional()
       .describe(
-        'JSON-encoded mentions, one per @name in the final text in text order; omitted, the stored mentions must still match it. People: {"email","name"}; agents: {"kind":"agent","model","name"}',
+        'JSON-encoded mentions, one per @name in the final text in text order; omitted, the stored mentions must still match it. People: {"email","name"}; agents: {"kind":"agent","model","name"}. A malformed list, or an entry no @name in the final text reaches, is rejected with a 400.',
       ),
     resolved: z.coerce.boolean().optional().describe("Resolved state"),
   }),
