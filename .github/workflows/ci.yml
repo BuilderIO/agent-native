@@ -757,6 +757,8 @@ jobs:
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
+          E2E_LOG_TEST_PROGRESS: "1"
+          PW_TEST_DEBUG_REPORTERS: "1"
         run: |
           set -euo pipefail
           changed_specs_file="$RUNNER_TEMP/design-canvas-e2e-specs.nul"
@@ -784,7 +786,7 @@ jobs:
           echo "found=$found" >> "$GITHUB_OUTPUT"
 
       - name: Upload Design E2E artifacts
-        if: ${{ !cancelled() && (failure() || steps.retry-artifacts.outputs.found == 'true') }}
+        if: ${{ always() && (failure() || cancelled() || steps.retry-artifacts.outputs.found == 'true') }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: design-changed-${{ matrix.shard }}-${{ github.run_attempt }}

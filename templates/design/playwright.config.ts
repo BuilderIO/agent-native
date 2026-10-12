@@ -124,6 +124,7 @@ const config = defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: [
     [process.env.CI ? "github" : "list"],
+    ...(process.env.E2E_LOG_TEST_PROGRESS === "1" ? [["line"] as const] : []),
     [
       path.join(import.meta.dirname, "e2e", "retry-failure-reporter.ts"),
       { markerPath: path.join(E2E_RESULTS_DIR, "retry-failure.marker") },
