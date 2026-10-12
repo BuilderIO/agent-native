@@ -272,7 +272,11 @@ test.describe.serial("layers menu structure operations", () => {
 
     await clickLayerAction(page, "Beta Button", "Show layer");
     await expect(designFrame(page).getByText("Beta Button")).toBeVisible();
-    const restoredPayload = await selectByText(page, "Beta Button");
+    // The restored layer is still selected, and Cmd-click on a selected layer
+    // cycles to the one beneath it.
+    const restoredPayload = await selectByText(page, "Beta Button", {
+      clearPreviousSelection: true,
+    });
     expect(restoredPayload.textContent ?? "").toContain("Beta Button");
   });
 });
