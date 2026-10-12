@@ -13,10 +13,9 @@ test("comments toolbar opens an anchored composer", async ({
     `E2E Comment Interaction ${testInfo.workerIndex}-${testInfo.repeatEachIndex}`,
   );
   await gotoEditor(page, designId);
-
-  await page.getByRole("tab", { name: "Comments", exact: true }).click();
-  await expect(page.locator("[data-review-comments-panel]")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Filter" })).toBeVisible();
+  await expect(
+    page.locator('[data-design-inspector-tab="comments"]'),
+  ).toHaveCount(0);
 
   await page
     .locator('[data-design-bottom-toolbar] button[aria-label="Pin comment"]')
@@ -152,9 +151,8 @@ test("comments toolbar opens an anchored composer", async ({
 
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(
-    page.getByRole("tab", { name: "Comments", exact: true }),
-  ).toBeVisible();
-  await page.getByRole("tab", { name: "Comments", exact: true }).click();
+    page.locator('[data-design-inspector-tab="comments"]'),
+  ).toHaveCount(0);
   const persistedPin = page.locator("[data-review-pin]").last();
   await expect(persistedPin).toBeVisible();
   await persistedPin.click();
@@ -163,12 +161,6 @@ test("comments toolbar opens an anchored composer", async ({
     .filter({ hasText: "Browser comment check @alice+e2e" })
     .last();
   await expect(threadPopover).toBeVisible();
-  await expect(
-    page
-      .locator("[data-review-comments-panel] article")
-      .getByText("Browser comment check @alice+e2e", { exact: true }),
-  ).toBeVisible();
-
   const replyInput = page.locator("textarea[data-review-reply-input]:visible");
   await expect(replyInput).toHaveCount(1);
   await expect(replyInput).toBeVisible();
@@ -295,9 +287,8 @@ test("comments toolbar opens an anchored composer", async ({
     body: "Browser comment reply",
   });
   await expect(
-    page.getByRole("tab", { name: "Comments", exact: true }),
-  ).toBeVisible();
-  await page.getByRole("tab", { name: "Comments", exact: true }).click();
+    page.locator('[data-design-inspector-tab="comments"]'),
+  ).toHaveCount(0);
   await page.locator("[data-review-pin]").last().click();
   const reloadedPopover = page
     .locator("[data-review-popover]")

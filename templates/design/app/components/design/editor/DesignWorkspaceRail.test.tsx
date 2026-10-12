@@ -12,7 +12,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-function renderRail(activePanel: "file" | "agent" | null) {
+function renderRail(activePanel: "file" | "agent" | "threads" | null) {
   const onPanelChange = vi.fn();
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -59,6 +59,15 @@ describe("DesignWorkspaceRail", () => {
     await rail.click("designEditor.leftRail.agent");
 
     expect(rail.onPanelChange).toHaveBeenCalledWith("agent");
+    rail.root.unmount();
+  });
+
+  it("opens the Threads panel from the workspace rail", async () => {
+    const rail = renderRail("file");
+    await rail.mount();
+    await rail.click("designEditor.leftRail.threads");
+
+    expect(rail.onPanelChange).toHaveBeenCalledWith("threads");
     rail.root.unmount();
   });
 });

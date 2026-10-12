@@ -19,17 +19,26 @@ export interface NavigationState {
   templateId?: string;
   editorView?: "single" | "overview";
   mode?: "edit" | "annotate" | "interact";
-  inspectorTab?: "design" | "comments" | "tweaks" | "code" | "extensions";
-  inspector?: "design" | "comments" | "tweaks" | "code" | "extensions";
+  inspectorTab?: "design" | "tweaks" | "code" | "extensions";
+  inspector?: "design" | "tweaks" | "code" | "extensions";
   leftPanel?:
     | "file"
     | "agent"
+    | "threads"
     | "assets"
     | "tools"
     | "tokens"
     | "import"
     | "code";
-  panel?: "file" | "agent" | "assets" | "tools" | "tokens" | "import" | "code";
+  panel?:
+    | "file"
+    | "agent"
+    | "threads"
+    | "assets"
+    | "tools"
+    | "tokens"
+    | "import"
+    | "code";
   fileId?: string;
   screenId?: string;
   filename?: string;
@@ -62,17 +71,26 @@ export interface DesignEditorCommand {
   editorView?: "single" | "overview";
   viewMode?: "single" | "overview";
   mode?: "edit" | "annotate" | "interact";
-  inspectorTab?: "design" | "comments" | "tweaks" | "code" | "extensions";
-  inspector?: "design" | "comments" | "tweaks" | "code" | "extensions";
+  inspectorTab?: "design" | "tweaks" | "code" | "extensions";
+  inspector?: "design" | "tweaks" | "code" | "extensions";
   leftPanel?:
     | "file"
     | "agent"
+    | "threads"
     | "assets"
     | "tools"
     | "tokens"
     | "import"
     | "code";
-  panel?: "file" | "agent" | "assets" | "tools" | "tokens" | "import" | "code";
+  panel?:
+    | "file"
+    | "agent"
+    | "threads"
+    | "assets"
+    | "tools"
+    | "tokens"
+    | "import"
+    | "code";
   fileId?: string;
   screenId?: string;
   filename?: string;
@@ -120,11 +138,8 @@ function normalizeEditorView(
 
 function normalizeInspectorTab(
   value: unknown,
-): "design" | "comments" | "tweaks" | "code" | undefined {
-  return value === "design" ||
-    value === "comments" ||
-    value === "tweaks" ||
-    value === "code"
+): "design" | "tweaks" | "code" | undefined {
+  return value === "design" || value === "tweaks" || value === "code"
     ? value
     : undefined;
 }
@@ -134,6 +149,7 @@ function normalizeLeftPanel(
 ):
   | "file"
   | "agent"
+  | "threads"
   | "assets"
   | "tools"
   | "tokens"

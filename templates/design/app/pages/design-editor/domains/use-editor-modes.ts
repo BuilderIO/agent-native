@@ -107,7 +107,6 @@ export function useEditorModes({
     pendingVisualStyleEditsRef,
     pendingLiveNonStyleEditsRef,
     clearPendingLiveEditState,
-    setActiveInspectorTab,
     setMinimalUi,
     setExpandedLayerIds,
     selectedLayerIdsState,
@@ -701,7 +700,6 @@ export function useEditorModes({
       return;
     }
     showComments();
-    setActiveInspectorTab("comments");
     if (viewMode !== "overview") {
       enterOverviewFromZoom("annotate");
     }

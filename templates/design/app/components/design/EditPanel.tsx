@@ -213,10 +213,6 @@ import {
   clampScreenDimension,
   type ScreenSizeConstraints,
 } from "./multi-screen/screen-sizing";
-import {
-  ReviewCommentsPanel,
-  type ReviewCommentsPanelProps,
-} from "./ReviewCommentsPanel";
 import { ReviewPanel } from "./ReviewPanel";
 import type { ReviewPanelProps } from "./ReviewPanel";
 import type { StatesPanelProps } from "./StatesPanel";
@@ -299,7 +295,7 @@ export function mergeOptimisticInteractionStateStyles(
   return { ...(persisted ?? {}), ...(pending ?? {}) };
 }
 
-export type InspectorTab = "design" | "tweaks" | "comments" | "code";
+export type InspectorTab = "design" | "tweaks" | "code";
 
 export type DesignViewMode = "single" | "overview";
 
@@ -417,8 +413,6 @@ interface EditPanelProps {
   onTokensApplied?: (resolvedCssVars: Record<string, string>) => void;
   statesPanelProps?: Omit<StatesPanelProps, "designId">;
   reviewPanelProps?: Omit<ReviewPanelProps, "className">;
-  reviewCommentsPanelProps?: ReviewCommentsPanelProps;
-  reviewCommentsCount?: number;
   componentNodeId?: string;
   componentRuntime?: RuntimeComponentDetails;
   requestLocalhostWrite?: (opts: {
@@ -1479,7 +1473,6 @@ function InspectorTabsHeader({
   readOnly,
   onActiveTabChange,
   trailing,
-  commentsCount = 0,
   inspectorGridDebug = false,
   onInspectorGridDebugChange,
   tweaksEnabled,
@@ -1488,7 +1481,6 @@ function InspectorTabsHeader({
   readOnly: boolean;
   onActiveTabChange: (tab: InspectorTab) => void;
   trailing?: ReactNode;
-  commentsCount?: number;
   inspectorGridDebug?: boolean;
   onInspectorGridDebugChange?: (visible: boolean) => void;
   tweaksEnabled: boolean;
@@ -1521,28 +1513,6 @@ function InspectorTabsHeader({
                   {t("navigation.brand")}
                 </TabsTrigger>
               ) : null}
-              <TabsTrigger
-                value="comments"
-                data-design-inspector-tab="comments"
-                aria-label={
-                  commentsCount > 0
-                    ? t("review.commentsTab", { count: commentsCount })
-                    : t("review.comments")
-                }
-                className="design-sidebar-section-title group h-6 min-w-0 rounded-md gap-1 px-1.5 py-1 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
-              >
-                <span className="truncate">{t("review.comments")}</span>
-                {commentsCount > 0 ? (
-                  <span
-                    className={cn(
-                      "flex shrink-0 items-center justify-center rounded-full bg-muted tabular-nums text-muted-foreground group-data-[state=active]:bg-background",
-                      "design-sidebar-meta h-4 min-w-4 px-1",
-                    )}
-                  >
-                    {commentsCount > 99 ? "99+" : commentsCount}
-                  </span>
-                ) : null}
-              </TabsTrigger>
               {!readOnly && tweaksEnabled ? (
                 <TabsTrigger
                   value="tweaks"
@@ -2353,8 +2323,6 @@ export const EditPanel = memo(function EditPanel({
   onShaderSourceApplied,
   onFontUploaded,
   reviewPanelProps,
-  reviewCommentsPanelProps,
-  reviewCommentsCount = 0,
   componentNodeId,
   componentRuntime,
   requestLocalhostWrite,
@@ -2818,7 +2786,6 @@ export const EditPanel = memo(function EditPanel({
           readOnly={readOnly}
           onActiveTabChange={handleActiveTabChange}
           trailing={headerTrailing}
-          commentsCount={reviewCommentsCount}
           inspectorGridDebug={inspectorGridDebug}
           onInspectorGridDebugChange={onInspectorGridDebugChange}
           tweaksEnabled={tweaksEnabled}
@@ -3378,8 +3345,6 @@ export const EditPanel = memo(function EditPanel({
             element={inspectorElement}
             screen={selectedScreenGeometry}
           />
-        ) : resolvedActiveTab === "comments" && reviewCommentsPanelProps ? (
-          <ReviewCommentsPanel {...reviewCommentsPanelProps} />
         ) : null}
         {import.meta.env.DEV &&
         resolvedActiveTab === "design" &&

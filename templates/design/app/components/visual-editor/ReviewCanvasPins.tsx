@@ -3593,7 +3593,7 @@ function reviewAuthorLabel(comment: ReviewComment, fallback: string): string {
   return comment.authorName ?? comment.authorEmail ?? fallback;
 }
 
-function reviewAuthorInitials(value: string): string {
+export function reviewAuthorInitials(value: string): string {
   const localPart = value.split("@")[0]?.trim() ?? "";
   const initials = localPart
     .split(/[\s._+-]+/)

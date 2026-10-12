@@ -18,6 +18,7 @@ import {
   useReviewComments,
   useSendReviewThreadToAgent,
 } from "@agent-native/core/client/review";
+import type { ReviewComment } from "@agent-native/core/review";
 import { useCreativeContextLabState } from "@agent-native/creative-context/client";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { getOverviewScreenFileIds } from "@shared/design-files";
@@ -38,7 +39,6 @@ import { toast } from "sonner";
 
 import { failPendingTextCapture } from "@/components/design/design-canvas/pending-text-capture";
 import { recordDesignPerformance } from "@/components/design/design-trace";
-import { getUnreadReviewThreadIds } from "@/components/design/ReviewCommentsPanel";
 import type { ElementInfo } from "@/components/design/types";
 import { type DesignAccessStatus } from "@/components/DesignAccessState";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
@@ -124,6 +124,8 @@ type ActiveBreakpointWrite = {
   breakpointId: string;
   editScope: ResponsiveEditScope;
 };
+
+const NO_REVIEW_COMMENTS: ReviewComment[] = [];
 
 export function useEditorGenerationAndAccess({
   editorCore,
@@ -821,15 +823,7 @@ export function useEditorGenerationAndAccess({
     },
     { enabled: Boolean(id) && !shellMode },
   );
-  const reviewComments = reviewResult.data?.comments ?? [];
-  const reviewUnreadCount = useMemo(
-    () =>
-      getUnreadReviewThreadIds(
-        reviewComments,
-        reviewResult.data?.discussion?.threadPreferences ?? {},
-      ).size,
-    [reviewComments, reviewResult.data?.discussion?.threadPreferences],
-  );
+  const reviewComments = reviewResult.data?.comments ?? NO_REVIEW_COMMENTS;
   const reviewAgentQueueThreadIds = useMemo(
     () =>
       new Set(
@@ -1531,7 +1525,6 @@ export function useEditorGenerationAndAccess({
     tweaksEnabled,
     reviewResult,
     reviewComments,
-    reviewUnreadCount,
     reviewAgentQueueCount,
     sendReviewThreadToAgent,
     reviewSendingThreadId,

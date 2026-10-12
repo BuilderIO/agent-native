@@ -3,6 +3,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { AgentMark } from "@agent-native/toolkit/app/shared";
 import {
   IconAssembly,
+  IconMessageCircle2,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconStack2,
@@ -84,6 +85,11 @@ export function DesignWorkspaceRail({
       panel: "tokens",
       label: t("designEditor.leftRail.tokens"),
       icon: <IconAssembly className="size-5" stroke={1.5} />,
+    },
+    {
+      panel: "threads",
+      label: t("designEditor.leftRail.threads"),
+      icon: <IconMessageCircle2 className="size-5" stroke={1.5} />,
     },
   ];
 

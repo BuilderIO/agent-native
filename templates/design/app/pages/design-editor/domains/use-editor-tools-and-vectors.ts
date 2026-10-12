@@ -35,7 +35,6 @@ import type {
   VectorEditOverlayState,
 } from "@/components/design/multi-screen/types";
 import { reviewThreadIdFromHash } from "@/components/design/review-link";
-import { type ReviewCommentsPanelProps } from "@/components/design/ReviewCommentsPanel";
 import type { ElementSelectionIntent } from "@/components/design/types";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { type DrawAnnotation } from "@/components/visual-editor/DrawOverlay";
@@ -64,7 +63,6 @@ import {
   EMPTY_TEXT_CLEANUP_MAX_ATTEMPTS,
   EMPTY_TEXT_CLEANUP_RETRY_MS,
 } from "../editor-constants";
-import { buildSignInHrefForComment } from "../editor-helpers";
 import { runMirrorSelectionToAgentChat } from "../effects/mirror-selection-to-agent-chat";
 import { runPublishAgentSelectionContext } from "../effects/publish-agent-selection-context";
 import { loadDesignSystemGenerationContext } from "../generation-prompt-directives";
@@ -116,7 +114,6 @@ export function useEditorToolsAndVectors({
   const {
     t,
     id,
-    session,
     isSignedIn,
     location,
     shellMode,
@@ -143,7 +140,6 @@ export function useEditorToolsAndVectors({
   } = editorCore;
   const {
     activeInspectorTab,
-    setActiveInspectorTab,
     activeLeftPanel,
     setActiveLeftPanel,
     selectedLayerIdsState,
@@ -176,7 +172,6 @@ export function useEditorToolsAndVectors({
     pendingQuestions,
     design,
     canEditDesign,
-    canCommentDesign,
     reviewResult,
     reviewComments,
     sendReviewThreadToAgent,
@@ -263,7 +258,6 @@ export function useEditorToolsAndVectors({
   const [overviewAnnotationSending, setOverviewAnnotationSending] =
     useState(false);
   const overviewAnnotationSendingRef = useRef(false);
-  const signInToCommentHref = buildSignInHrefForComment();
 
   const selectedScreenIds = useMemo(
     () =>
@@ -376,7 +370,6 @@ export function useEditorToolsAndVectors({
         setSelectedLayerIdsState(boardTarget ? [] : [targetId]);
         setMode("edit");
       }
-      setActiveInspectorTab("comments");
       reviewFocusNonceRef.current += 1;
       setReviewFocusRequest({
         nonce: reviewFocusNonceRef.current,
@@ -407,44 +400,6 @@ export function useEditorToolsAndVectors({
     reviewComments,
     reviewResult.isLoading,
   ]);
-
-  const reviewCommentsPanelProps = useMemo<
-    ReviewCommentsPanelProps | undefined
-  >(
-    () =>
-      id
-        ? {
-            designId: id,
-            canComment: canCommentDesign,
-            currentUserEmail: session?.email,
-            currentTargetId:
-              activeFile?.id === boardFileId ? null : activeFile?.id,
-            canResolve: canEditDesign,
-            canDeleteComment: (comment) =>
-              canEditDesign ||
-              ("canDelete" in comment && comment.canDelete === true) ||
-              comment.authorEmail === session?.email,
-            signInHref: signInToCommentHref,
-            canDispatchToAgent: canEditDesign,
-            sendingThreadId: reviewSendingThreadId,
-            onSendThreadToAgent: canEditDesign
-              ? handleSendReviewThreadToAgent
-              : undefined,
-            onSelectThread: handleReviewThreadSelect,
-          }
-        : undefined,
-    [
-      canCommentDesign,
-      canEditDesign,
-      activeFile?.id,
-      handleReviewThreadSelect,
-      handleSendReviewThreadToAgent,
-      id,
-      reviewSendingThreadId,
-      session?.email,
-      signInToCommentHref,
-    ],
-  );
 
   const handleCreatePrimitive = useCallback(
     (
@@ -1532,7 +1487,7 @@ export function useEditorToolsAndVectors({
     canvasBackgroundRef,
     handleDispatchCommentToAgent,
     handleSendReviewThreadToAgent,
-    reviewCommentsPanelProps,
+    handleReviewThreadSelect,
     handleCreatePrimitive,
     handlePrimitiveCreated,
     handleBoardDrawPrimitive,

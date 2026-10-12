@@ -1,3 +1,4 @@
+import type { ReviewThreadPreference } from "@agent-native/core/review";
 import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 import { IconClipboard } from "@tabler/icons-react";
 import { memo, type ReactElement } from "react";
@@ -17,6 +18,7 @@ import { LeftPanelHeader } from "@/components/design/editor/LeftPanelHeader";
 import { ReadOnlyEditorPanel } from "@/components/design/editor/ReadOnlyEditorPanel";
 import { FirstRunStart } from "@/components/design/FirstRunStart";
 import { LayersPanel } from "@/components/design/LayersPanel";
+import { ReviewThreadsSidebar } from "@/components/design/ReviewThreadsSidebar";
 import { TokensPanel } from "@/components/design/TokensPanel";
 import { DesignComposerContextProvider } from "@/components/editor/DesignComposerContextProvider";
 import { FigmaLinkComposerBubble } from "@/components/editor/FigmaLinkComposerBubble";
@@ -47,6 +49,7 @@ import {
 // The editor re-renders on every selection while the chat stays mounted, so
 // its props must stay referentially stable for this memo to hold.
 const MemoAgentChatSurface = memo(AgentChatSurface);
+const NO_THREAD_PREFERENCES: Record<string, ReviewThreadPreference> = {};
 
 export function renderLeftSidebar({
   editorCore,
@@ -123,7 +126,13 @@ export function renderLeftSidebar({
     codeWorkbenchOpenedRef,
     startSidebarResize,
   } = editorHistory;
-  const { canEditDesign, browserTabId } = editorGenerationAndAccess;
+  const {
+    canEditDesign,
+    canCommentDesign,
+    browserTabId,
+    reviewComments,
+    reviewResult,
+  } = editorGenerationAndAccess;
   const { handleTokensApplied } = editorFilesAndSaving;
   const { handleLayerLeave } = editorCanvasAndScreens;
   const {
@@ -137,8 +146,11 @@ export function renderLeftSidebar({
   const { designExtensionContext } = editorSelectionAndStyles;
   const { showPastedImagesNotice } = editorClipboard;
   const { handleDeleteInlineFile } = editorEditCommands;
-  const { handleSidebarScreenSelect, handleSidebarScreenOverview } =
-    editorModes;
+  const {
+    handleSidebarScreenSelect,
+    handleSidebarScreenOverview,
+    handlePinToolToggle,
+  } = editorModes;
   const { layersPanelRef } = editorExportAndHandoff;
   const {
     designIsEmpty,
@@ -334,6 +346,31 @@ export function renderLeftSidebar({
                   }
                 />
               )}
+            </div>
+            <div
+              className={cn(
+                "min-h-0 flex-1 flex-col overflow-hidden",
+                activeLeftPanel === "threads" ? "flex" : "hidden",
+              )}
+            >
+              <ReviewThreadsSidebar
+                comments={reviewComments}
+                screens={editorFilesAndSaving.overviewScreens}
+                canvasFrameGeometryById={
+                  editorFilesAndSaving.displayedCanvasFrameGeometryById
+                }
+                loading={reviewResult.isLoading}
+                error={reviewResult.isError}
+                threadPreferences={
+                  reviewResult.data?.discussion?.threadPreferences ??
+                  NO_THREAD_PREFERENCES
+                }
+                canSetThreadPreferences={Boolean(
+                  reviewResult.data?.discussion?.canSetThreadPreferences,
+                )}
+                onSelectThread={editorToolsAndVectors.handleReviewThreadSelect}
+                onAddThread={canCommentDesign ? handlePinToolToggle : undefined}
+              />
             </div>
             {SHOW_DESIGN_SECONDARY_LEFT_PANELS ? (
               <div

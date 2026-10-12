@@ -27,6 +27,7 @@ export type ShapeTool =
 export type DesignLeftPanel =
   | "file"
   | "agent"
+  | "threads"
   | "assets"
   | "tools"
   | "tokens"
@@ -49,6 +50,7 @@ export function isDesignLeftPanelEnabled(
   if (
     value !== "file" &&
     value !== "agent" &&
+    value !== "threads" &&
     value !== "assets" &&
     value !== "tools" &&
     value !== "tokens" &&
