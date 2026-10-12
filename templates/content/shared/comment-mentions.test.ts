@@ -54,6 +54,16 @@ describe("comment mentions", () => {
     expect(() => parseCommentMentions("{not-json")).toThrow(
       "Comment mentions metadata is not valid JSON",
     );
+    expect(
+      parseCommentMentions([
+        { email: "sam@example.com", name: "S".repeat(256) },
+      ]),
+    ).toHaveLength(1);
+    expect(() =>
+      parseCommentMentions([
+        { email: "sam@example.com", name: "S".repeat(257) },
+      ]),
+    ).toThrow("Comment mention name must be at most 256 characters");
   });
 
   it("rejects a submitted mention whose name or agent identity is not text", () => {
@@ -147,7 +157,7 @@ describe("comment mentions", () => {
       name: "Sam",
     };
     const text =
-      "Ask @Sam, not `@Sam`, ``a `@Sam` b``, https://medium.com/@Sam, //cdn.example.com/@Sam, or www.example.com/@Sam. A lone ` leaves @Sam";
+      "Ask @Sam, not `@Sam`, ``a `@Sam` b``, https://medium.com/@Sam, //cdn.example.com/@Sam, github.com/@Sam, (x.com/@Sam), or www.example.com/@Sam. A lone ` leaves @Sam";
 
     expect(findCommentMentions(text, [sam]).map(({ start }) => start)).toEqual([
       4,
@@ -172,6 +182,27 @@ describe("comment mentions", () => {
     const elapsedMs = performance.now() - started;
 
     expect(starts).toEqual([text.length - 4]);
+    expect(elapsedMs).toBeLessThan(1_000);
+  });
+
+  it("matches many listed names against many @s without trying each name at each @", () => {
+    const people = Array.from({ length: 20_000 }, (_, index) => ({
+      kind: "person" as const,
+      email: `person${index}@example.com`,
+      name: `Person ${index}`,
+    }));
+    const sams = Array.from({ length: 20_000 }, (_, index) => ({
+      kind: "person" as const,
+      email: `sam${index}@example.com`,
+      name: "Sam",
+    }));
+    const text = `${"a.".repeat(50_000)} ${"@".repeat(50_000)} @Person 7 @Sam`;
+
+    const started = performance.now();
+    const matches = findCommentMentions(text, [...people, ...sams]);
+    const elapsedMs = performance.now() - started;
+
+    expect(matches.map(({ mention }) => mention)).toEqual([people[7], sams[0]]);
     expect(elapsedMs).toBeLessThan(1_000);
   });
 

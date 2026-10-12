@@ -25,6 +25,10 @@ function text(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
+// The matcher walks up to a name's length from each `@`, so this bounds its
+// work. A display name, or an email standing in for one, fits well within it.
+const MAX_MENTION_NAME_LENGTH = 256;
+
 function mentionFrom(entry: unknown): CommentMention | string {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
     return "Comment mentions metadata contains an invalid entry";
@@ -39,6 +43,9 @@ function mentionFrom(entry: unknown): CommentMention | string {
   }
   const name = text(record.name);
   if (!name) return "Comment mention name is required";
+  if (name.length > MAX_MENTION_NAME_LENGTH) {
+    return `Comment mention name must be at most ${MAX_MENTION_NAME_LENGTH} characters`;
+  }
   if (record.kind === "agent") {
     const model = text(record.model);
     if (!model) return "Comment agent mention model is required";
@@ -151,8 +158,11 @@ function isNameCharacter(character: string | undefined): boolean {
   return character !== undefined && NAME_CHARACTER.test(character);
 }
 
-// `//` starts a URL with or without its scheme, as in `//x.com/@Sam`.
-const URL_START = /\/\/|\bwww\./i;
+// `//` starts a URL with or without its scheme, as in `//x.com/@Sam`, and a
+// run can open with a bare domain, as in `github.com/@Sam`. The domain is
+// matched only at the run's start: tried at every dot, its backtracking would
+// be quadratic in a run like `a.a.a.a`.
+const URL_START = /\/\/|\bwww\.|^[("'<[]*(?:[a-z\d-]+\.)+[a-z]{2,}\//i;
 
 /**
  * Where URLs run in the text, as in `https://x.com/@Sam`: from just past a URL
@@ -229,6 +239,54 @@ export function isMentionNameAt(
   );
 }
 
+interface NameNode {
+  next: Map<string, NameNode>;
+  name?: string;
+}
+
+function nameTrie(names: Iterable<string>): NameNode {
+  const root: NameNode = { next: new Map() };
+  for (const name of names) {
+    let node = root;
+    for (let index = 0; index < name.length; index += 1) {
+      let next = node.next.get(name[index]!);
+      if (!next) {
+        next = { next: new Map() };
+        node.next.set(name[index]!, next);
+      }
+      node = next;
+    }
+    node.name = name;
+  }
+  return root;
+}
+
+/**
+ * The longest listed name that the `@` at `at` spells as a whole name. One walk
+ * from the `@` reads every name at once, so a long list costs no more per `@`
+ * than its longest name.
+ */
+function longestNameAt(
+  names: NameNode,
+  text: string,
+  at: number,
+): string | undefined {
+  let node = names;
+  let longest: string | undefined;
+  for (let index = at + 1; index < text.length; index += 1) {
+    const next = node.next.get(text[index]!);
+    if (!next) break;
+    node = next;
+    if (
+      node.name !== undefined &&
+      !(isNameCharacter(text[index]) && isNameCharacter(text[index + 1]))
+    ) {
+      longest = node.name;
+    }
+  }
+  return longest;
+}
+
 /**
  * Where stored mentions' `@name`s appear in the text. A name counts only as a
  * whole token, so `@Sam` is not inside `@Samantha` or `me@Sam.com`, and where
@@ -245,12 +303,13 @@ export function findCommentMentions(
 ): CommentMentionMatch[] {
   const byName = new Map<string, CommentMention[]>();
   for (const mention of mentions) {
-    if (mention.name) {
-      byName.set(mention.name, [...(byName.get(mention.name) ?? []), mention]);
-    }
+    if (!mention.name) continue;
+    const listed = byName.get(mention.name);
+    if (listed) listed.push(mention);
+    else byName.set(mention.name, [mention]);
   }
-  const names = [...byName.keys()].sort((a, b) => b.length - a.length);
-  if (!names.length) return [];
+  if (!byName.size) return [];
+  const names = nameTrie(byName.keys());
   const isLiteral = literalAtSignTest(text);
   const seen = new Map<string, number>();
   const matches: CommentMentionMatch[] = [];
@@ -259,7 +318,7 @@ export function findCommentMentions(
     const name =
       isNameCharacter(text[start - 1]) || isLiteral(start)
         ? undefined
-        : names.find((candidate) => isMentionNameAt(text, start, candidate));
+        : longestNameAt(names, text, start);
     if (name === undefined) {
       start = text.indexOf("@", start + 1);
       continue;
