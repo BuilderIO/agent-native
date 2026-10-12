@@ -10,6 +10,7 @@ import {
   authoringFuzzLineNavigationKeys,
   authoringFuzzProfileIndex,
   authoringFuzzUnavailableExitCode,
+  recordCleanupRequestOutcome,
   canonicalizeAuthoringFuzzPersistence,
   createAuthoringFuzzPlan,
   formatAuthoringFuzzCleanupIssue,
@@ -1018,6 +1019,17 @@ it("isolates authoring fuzz from the unrelated browser-session service", () => {
     ok: false,
     error: "Browser-session registration omitted its id",
   });
+});
+
+it("clears a cleanup finish marker when the same request later fails", () => {
+  const finishedAt = new WeakMap<object, number>();
+  const request = {};
+
+  recordCleanupRequestOutcome(finishedAt, request, "finished", 10);
+  expect(finishedAt.get(request)).toBe(10);
+
+  recordCleanupRequestOutcome(finishedAt, request, "failed", 20);
+  expect(finishedAt.has(request)).toBe(false);
 });
 
 it("ignores registration aborts only when reload navigation cancels an in-flight request", () => {

@@ -32,6 +32,7 @@ import {
   isFirefoxBrowserSessionConsoleError,
   lineNavigationKeys,
   normalizeFirefoxBrowserSessionConsoleError,
+  recordCleanupRequestOutcome,
   retryAuthoringFuzzScratchDeckLookup,
   runAuthoringFuzz,
   type AuthoringFuzzPersistence,
@@ -5452,10 +5453,21 @@ async function runAuthoringFuzzQa(
         });
       };
       const onRequestFinished = (request: any) => {
-        cleanupRequestFinishedAt.set(request, Date.now());
+        recordCleanupRequestOutcome(
+          cleanupRequestFinishedAt,
+          request,
+          "finished",
+          Date.now(),
+        );
         cleanupRequestStartTimes.delete(request);
       };
       const onRequestFailed = (request: any) => {
+        recordCleanupRequestOutcome(
+          cleanupRequestFinishedAt,
+          request,
+          "failed",
+          Date.now(),
+        );
         cleanupRequestStartTimes.delete(request);
       };
       target.on("request", onRequest);

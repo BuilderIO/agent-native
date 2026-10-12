@@ -173,6 +173,16 @@ export function authoringFuzzBrowserSessionResponse(
   return null;
 }
 
+export function recordCleanupRequestOutcome(
+  finishedAt: WeakMap<object, number>,
+  request: object,
+  outcome: "finished" | "failed",
+  at: number,
+) {
+  if (outcome === "finished") finishedAt.set(request, at);
+  else finishedAt.delete(request);
+}
+
 type Page = any;
 type Locator = any;
 type ScrollBox = {
