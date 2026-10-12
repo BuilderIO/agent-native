@@ -116,7 +116,16 @@ function readCacheSafetyState(
         return undefined;
       }
     } else if (probeWrite) {
-      local.setItem(CACHE_EPOCH_KEY, epoch);
+      const probeKey = `${CACHE_EPOCH_KEY}.probe:${newCacheToken()}`;
+      const probeValue = newCacheToken();
+      try {
+        local.setItem(probeKey, probeValue);
+        if (local.getItem(probeKey) !== probeValue) {
+          throw new Error("Unable to verify cache epoch storage access");
+        }
+      } finally {
+        local.removeItem(probeKey);
+      }
       if (local.getItem(CACHE_EPOCH_KEY) !== epoch) {
         cacheSafetyUnavailable = true;
         return undefined;
@@ -489,6 +498,8 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
       clearTimeout(timer);
       timer = undefined;
       if (createdDuringClearGeneration !== storageClearGeneration) return;
+      const currentSafety = readCacheSafetyState();
+      if (currentSafety && currentSafety.epoch !== cacheEpoch) return;
       storageClearRequired = true;
       beginDurableClearIntent();
       const deletion = (async () => {

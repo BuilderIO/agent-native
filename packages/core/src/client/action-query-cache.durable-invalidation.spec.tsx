@@ -22,9 +22,14 @@ const oldData = { secretLabel: "previously allowed" };
 const epochKey = "agent-native.action-query-cache.epoch";
 const markerPrefix = "agent-native.action-query-cache.clear-required:";
 const initialEpoch = "initial-test-epoch";
+const peerEpoch = "peer-cleared-epoch";
+const concurrentEpoch = "newer-tab-clear-epoch";
 const records = new Map<string, PersistedClient>();
 const events: string[] = [];
 const durableValues = new Map<string, string>();
+let interleaveClearBeforeEpochProbeWrite = false;
+let epochProbeWriteArmed = false;
+let interleavedClearCompleted = false;
 let rejectNextDelete = false;
 let localStorageReadFails = false;
 let localStorageWriteFails = false;
@@ -74,12 +79,12 @@ function makeDeleteGate(): DeleteGate {
   };
 }
 
-function persisted(value = oldData): PersistedClient {
+function persisted(value = oldData, epoch = initialEpoch): PersistedClient {
   const source = new QueryClientCtor();
   source.setQueryData(queryKey, value, { updatedAt: Date.now() - 100 });
   const result = {
     timestamp: Date.now(),
-    buster: `action-query-cache-v1:${initialEpoch}`,
+    buster: `action-query-cache-v1:${epoch}`,
     clientState: dehydrate(source),
   };
   source.clear();
@@ -168,7 +173,11 @@ function stubSafetyStorage() {
       },
       getItem: (key: string) => {
         if (localStorageReadFails) throw new Error("localStorage blocked");
-        return durableValues.get(key) ?? null;
+        const value = durableValues.get(key) ?? null;
+        if (key === epochKey && interleaveClearBeforeEpochProbeWrite) {
+          epochProbeWriteArmed = true;
+        }
+        return value;
       },
       setItem: (key: string, value: string) => {
         if (
@@ -176,6 +185,20 @@ function stubSafetyStorage() {
           (localStorageMarkerWriteFails && key.startsWith(markerPrefix))
         ) {
           throw new Error("localStorage quota exceeded");
+        }
+        if (
+          interleaveClearBeforeEpochProbeWrite &&
+          epochProbeWriteArmed &&
+          !interleavedClearCompleted
+        ) {
+          epochProbeWriteArmed = false;
+          interleavedClearCompleted = true;
+          const marker = `${markerPrefix}tab-b-clear`;
+          durableValues.set(marker, "tab-b-clear");
+          durableValues.set(epochKey, concurrentEpoch);
+          records.clear();
+          durableValues.delete(marker);
+          events.push("tab-b:clear-complete");
         }
         durableValues.set(key, value);
       },
@@ -217,6 +240,9 @@ beforeEach(async () => {
   releaseSetResolve = setDone.resolve;
   durableValues.clear();
   durableValues.set(epochKey, initialEpoch);
+  interleaveClearBeforeEpochProbeWrite = false;
+  epochProbeWriteArmed = false;
+  interleavedClearCompleted = false;
   first.setActionQueryCacheStorage(storage);
   cold.setActionQueryCacheStorage(storage);
 });
@@ -454,4 +480,86 @@ it("keeps a newer clear intent when an older clear finishes", async () => {
 
   expect(durableValues.get(intentKey)).toBe("intent-after-clear-started");
   expect(pendingIntentKeys()).toContain(intentKey);
+});
+
+it("does not let an old-epoch denial invalidate a newer same-scope record", async () => {
+  records.set(scope, persisted());
+  const oldClient = new QueryClientCtor({
+    defaultOptions: { queries: { retry: false } },
+  });
+  await first.bindActionQueryCache(oldClient, scope);
+  expect(oldClient.getQueryData(queryKey)).toEqual(oldData);
+
+  // Model another tab completing a clear and then saving a fresh record for
+  // the same user scope under the advanced epoch.
+  records.clear();
+  durableValues.set(epochKey, peerEpoch);
+  const freshData = { secretLabel: "new epoch result" };
+  records.set(scope, persisted(freshData, peerEpoch));
+
+  await expect(
+    oldClient.fetchQuery({
+      queryKey,
+      retry: false,
+      queryFn: async () => {
+        throw Object.assign(new Error("forbidden"), { status: 403 });
+      },
+    }),
+  ).rejects.toMatchObject({ status: 403 });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(durableValues.get(epochKey)).toBe(peerEpoch);
+  expect(pendingIntentKeys()).toEqual([]);
+  expect(records.get(scope)?.buster).toBe(`action-query-cache-v1:${peerEpoch}`);
+  const freshClient = new QueryClientCtor({
+    defaultOptions: { queries: { retry: false } },
+  });
+  await cold.bindActionQueryCache(freshClient, scope);
+  expect(freshClient.getQueryData(queryKey)).toEqual(freshData);
+});
+
+it("retains clear protection when a same-epoch pending intent already exists", async () => {
+  records.set(scope, persisted());
+  const oldClient = new QueryClientCtor({
+    defaultOptions: { queries: { retry: false } },
+  });
+  await first.bindActionQueryCache(oldClient, scope);
+  expect(oldClient.getQueryData(queryKey)).toEqual(oldData);
+
+  const pendingKey = `${markerPrefix}peer-pending`;
+  durableValues.set(pendingKey, "peer-pending");
+  await expect(
+    oldClient.fetchQuery({
+      queryKey,
+      retry: false,
+      queryFn: async () => {
+        throw Object.assign(new Error("forbidden"), { status: 403 });
+      },
+    }),
+  ).rejects.toMatchObject({ status: 403 });
+  await expect.poll(() => events.includes(`del:${scope}`)).toBe(true);
+
+  expect(durableValues.get(epochKey)).not.toBe(initialEpoch);
+  expect(pendingIntentKeys()).toContain(pendingKey);
+  expect(records.has(scope)).toBe(false);
+});
+
+it("does not overwrite a newer epoch when a probe races with another tab clear", async () => {
+  records.set(scope, persisted());
+  interleaveClearBeforeEpochProbeWrite = true;
+  const client = new QueryClientCtor({
+    defaultOptions: { queries: { retry: false } },
+  });
+
+  await cold.bindActionQueryCache(client, scope);
+
+  expect(interleavedClearCompleted).toBe(true);
+  expect(events).toContain("tab-b:clear-complete");
+  expect(durableValues.get(epochKey)).toBe(concurrentEpoch);
+  expect(events).not.toContain(`get:${scope}`);
+  expect(client.getQueryData(queryKey)).toBeUndefined();
+  expect(records.has(scope)).toBe(false);
+  expect(
+    [...durableValues.keys()].filter((key) => key.includes("probe")),
+  ).toEqual([]);
 });
