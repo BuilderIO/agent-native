@@ -793,7 +793,7 @@ const MAX_TOOL_HISTORY_SOURCE_EVENT_WORK = 4_096;
 const MAX_TOOL_HISTORY_SOURCE_EVENTS = MAX_TOOL_HISTORY_SOURCE_EVENT_WORK / 2;
 const MAX_TOOL_HISTORY_SOURCE_TOOLS = 4_096;
 const TOOL_HISTORY_OMISSION_TEXT =
-  "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.";
+  "Some tool-call history could not be included in the history supplied for this turn.";
 const TOOL_HISTORY_ORDER_OMISSION_TEXT =
   "Tool-call history was omitted because its position could not be reconstructed safely.";
 
