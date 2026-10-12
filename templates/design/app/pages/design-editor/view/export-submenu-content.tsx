@@ -10,18 +10,20 @@ import type { EditorExportAndHandoff } from "../domains/use-editor-export-and-ha
 import type { EditorFilesAndSaving } from "../domains/use-editor-files-and-saving";
 import type { EditorGenerationAndAccess } from "../domains/use-editor-generation-and-access";
 
-export function ExportSubmenuContent({
+export function ExportMenuItems({
   editorCore,
   editorGenerationAndAccess,
   editorFilesAndSaving,
   editorActiveScreenAndGeometry,
   editorExportAndHandoff,
+  alwaysShowPdf = false,
 }: {
   editorCore: EditorCore;
   editorGenerationAndAccess: EditorGenerationAndAccess;
   editorFilesAndSaving: EditorFilesAndSaving;
   editorActiveScreenAndGeometry: EditorActiveScreenAndGeometry;
   editorExportAndHandoff: EditorExportAndHandoff;
+  alwaysShowPdf?: boolean;
 }) {
   const { t, viewMode } = editorCore;
   const { exportHtmlMutation, exportZipMutation } = editorGenerationAndAccess;
@@ -41,8 +43,11 @@ export function ExportSubmenuContent({
     codingHandoffLoading,
   } = editorExportAndHandoff;
 
+  const canExportAllScreens =
+    viewMode === "overview" && overviewScreens.length >= 2;
+
   return (
-    <DropdownMenuSubContent className="design-editor-app-menu-content w-56">
+    <>
       <DropdownMenuItem
         onClick={handleDownloadHtml}
         disabled={!activeFile || exportHtmlMutation.isPending}
@@ -73,10 +78,10 @@ export function ExportSubmenuContent({
       >
         {t("designEditor.downloadZip")}
       </DropdownMenuItem>
-      {viewMode === "overview" && overviewScreens.length >= 2 ? (
+      {alwaysShowPdf || canExportAllScreens ? (
         <DropdownMenuItem
           onClick={() => void handleDownloadAllScreensPdf()}
-          disabled={pngExporting}
+          disabled={!canExportAllScreens || pngExporting}
         >
           {t("designEditor.downloadPdfAllScreens")}
         </DropdownMenuItem>
@@ -88,6 +93,20 @@ export function ExportSubmenuContent({
       >
         {t("designEditor.copyCodingHandoff")}
       </DropdownMenuItem>
+    </>
+  );
+}
+
+export function ExportSubmenuContent(props: {
+  editorCore: EditorCore;
+  editorGenerationAndAccess: EditorGenerationAndAccess;
+  editorFilesAndSaving: EditorFilesAndSaving;
+  editorActiveScreenAndGeometry: EditorActiveScreenAndGeometry;
+  editorExportAndHandoff: EditorExportAndHandoff;
+}) {
+  return (
+    <DropdownMenuSubContent className="design-editor-app-menu-content w-56">
+      <ExportMenuItems {...props} />
     </DropdownMenuSubContent>
   );
 }
