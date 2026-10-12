@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-query";
 import type {
   Query,
+  QueryClient,
   UseQueryOptions,
   UseMutationOptions,
 } from "@tanstack/react-query";
@@ -1084,7 +1085,19 @@ function trackActionCircuitTrip(
 // Identical keys in another client or auth scope must earn their own permission.
 const browserPersistableActionQueries = new WeakSet<Query>();
 const browserPersistableActionQueryBindings = new WeakMap<Query, object>();
+const actionQueryCacheRevokers = new WeakMap<QueryClient, () => void>();
 let actionQueryCacheBindingToken: object | undefined;
+
+export function registerActionQueryCacheRevoker(
+  client: QueryClient,
+  revoke: () => void,
+): void {
+  actionQueryCacheRevokers.set(client, revoke);
+}
+
+function revokeActionQueryCacheForClient(client: QueryClient): void {
+  actionQueryCacheRevokers.get(client)?.();
+}
 
 /** @internal set only by the scoped action-query cache binder. */
 export function setActionQueryCacheBindingToken(
@@ -1179,12 +1192,14 @@ export function useActionQuery<
       } catch (error) {
         const status = actionErrorStatus(error);
         if (
-          query &&
           !signal.aborted &&
           (status === 401 || status === 403 || status === 404)
         ) {
-          revokeBrowserPersistableActionQuery(query);
-          query.setState({ data: undefined, dataUpdatedAt: 0 });
+          if (query) {
+            revokeBrowserPersistableActionQuery(query);
+            query.setState({ data: undefined, dataUpdatedAt: 0 });
+          }
+          revokeActionQueryCacheForClient(client);
         }
         throw error;
       }

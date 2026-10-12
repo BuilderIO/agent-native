@@ -25,6 +25,7 @@ import { clientBuildId } from "./build-compatibility.js";
 import {
   isBrowserPersistableActionQueryForBinding,
   markRestoredBrowserPersistableActionQuery,
+  registerActionQueryCacheRevoker,
   revokeBrowserPersistableActionQuery,
   setActionQueryCacheBindingToken,
 } from "./use-action.js";
@@ -127,6 +128,8 @@ interface RestoredSource {
 interface ScopedPersister extends Persister {
   /** Drops a write still waiting on the debounce, then deletes the record. */
   discard(): void;
+  /** Blocks restore and writes when a revoked record could not be deleted. */
+  blockAfterFailedDelete(): void;
   close(): void;
   /** The query hashes and data ages the last restore hydrated from the record. */
   restoredStates(): ReadonlyMap<string, number>;
@@ -243,12 +246,16 @@ function scopedPersister(scope: string): ScopedPersister {
         await Promise.all([...writesInFlight]);
         await storage.del(scope);
       })();
-      inFlightStorageDeletes.add(deletion);
-      void deletion
-        .catch((error) =>
-          console.warn("Unable to delete cached action results", error),
-        )
-        .finally(() => inFlightStorageDeletes.delete(deletion));
+      trackRevokedScopeDelete(scope, deletion);
+    },
+    blockAfterFailedDelete() {
+      persistBlocked = true;
+      restoreBlocked = true;
+      restoreRevision += 1;
+      clearRestoredState();
+      latest = undefined;
+      clearTimeout(timer);
+      timer = undefined;
     },
     close() {
       open = false;
@@ -272,6 +279,29 @@ interface Binding {
 let binding: Binding | undefined;
 let bindingGeneration = 0;
 const inFlightStorageDeletes = new Set<Promise<void>>();
+const failedStorageDeleteScopes = new Set<string>();
+
+function trackRevokedScopeDelete(
+  scope: string,
+  deletion: Promise<void>,
+): Promise<void> {
+  const trackedDeletion = deletion.then(
+    () => {
+      failedStorageDeleteScopes.delete(scope);
+    },
+    (error) => {
+      failedStorageDeleteScopes.add(scope);
+      throw error;
+    },
+  );
+  inFlightStorageDeletes.add(trackedDeletion);
+  void trackedDeletion
+    .catch((error) =>
+      console.warn("Unable to delete cached action results", error),
+    )
+    .finally(() => inFlightStorageDeletes.delete(trackedDeletion));
+  return trackedDeletion;
+}
 
 /** Stops persisting and drops this document's action results. Storage is
  * untouched. */
@@ -347,6 +377,7 @@ export async function bindActionQueryCache(
   }
   const generation = bindingGeneration;
   const persister = scopedPersister(scope);
+  registerActionQueryCacheRevoker(client, () => persister.discard());
   const token = {};
   let unsubscribePersist = () => {};
   let stopHydrationTracking = () => {};
@@ -387,6 +418,16 @@ export async function bindActionQueryCache(
 
   const cleanup = (async () => {
     await Promise.allSettled(earlierDeletes);
+    if (!isCurrentBinding()) return;
+    let blockPersistenceForScope = false;
+    if (failedStorageDeleteScopes.has(scope)) {
+      try {
+        await trackRevokedScopeDelete(scope, storage.del(scope));
+      } catch (error) {
+        blockPersistenceForScope = true;
+      }
+    }
+    if (blockPersistenceForScope) persister.blockAfterFailedDelete();
     if (!isCurrentBinding()) return;
     const keys = await storage.keys();
     if (!isCurrentBinding()) return;
@@ -552,6 +593,7 @@ export async function bindActionQueryCache(
 export async function clearActionQueryCache(): Promise<void> {
   closeBinding();
   await storage.clear();
+  failedStorageDeleteScopes.clear();
 }
 
 /**
