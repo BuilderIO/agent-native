@@ -58,7 +58,8 @@
     ".github/**",
     "scripts/**",
     ".changeset/**",
-    ".agents/**"
+    ".agents/**",
+    "prototypes/**"
   ],
   "overrides": [
     {

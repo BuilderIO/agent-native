@@ -2,6 +2,7 @@ node_modules
 dist
 /README.md
 docs/plans/
+prototypes/
 .netlify
 out
 .video-bakeoff

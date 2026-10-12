@@ -19,6 +19,22 @@ describe("parseUnifiedDiff", () => {
     expect(result?.get(`${CWD}/src/a.ts`)).toEqual(new Set([3]));
   });
 
+  it("leaves prototypes out of the added lines", () => {
+    const diff = [
+      "diff --git a/prototypes/kit/ui.ts b/prototypes/kit/ui.ts",
+      "+++ b/prototypes/kit/ui.ts",
+      "@@ -0,0 +1 @@",
+      "+} catch {}",
+      "diff --git a/src/a.ts b/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -0,0 +2 @@",
+      "+const x = 1;",
+    ].join("\n");
+
+    const result = parseUnifiedDiff(diff, CWD);
+    expect([...(result?.keys() ?? [])]).toEqual([`${CWD}/src/a.ts`]);
+  });
+
   it("refuses to scope when a source file diffs as binary", () => {
     const diff = "Binary files a/src/a.ts and b/src/a.ts differ";
     expect(parseUnifiedDiff(diff, CWD)).toBeNull();

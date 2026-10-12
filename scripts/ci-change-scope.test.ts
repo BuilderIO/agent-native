@@ -29,6 +29,17 @@ test("recognizes documentation surfaces and package metadata", () => {
   );
 });
 
+test("treats prototypes as docs-only", () => {
+  assert.equal(isDocsPath("prototypes/chat/source.html"), true);
+  assert.equal(isDocsPath("prototypes/kit/build.ts"), true);
+  const scope = classifyChangedPaths([
+    "prototypes/slides/source.html",
+    "prototypes/kit/ui.css",
+  ]);
+  assert.equal(scope.docsOnly, true);
+  assert.equal(scope.full, false);
+});
+
 test("does not treat implementation and instruction paths as docs-only", () => {
   assert.equal(isDocsPath("packages/core/src/index.ts"), false);
   assert.equal(isDocsPath("templates/chat/AGENTS.md"), false);

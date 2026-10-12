@@ -87,8 +87,12 @@ export function parseUnifiedDiff(diff, cwd) {
     }
     if (raw.startsWith("+++ ")) {
       const target = raw.slice(4).trim();
+      const path = target.replace(/^b\//, "");
+      // Prototypes are throwaway design artifacts, not shipped code, so the diff-scoped guards don't police them.
       file =
-        target === "/dev/null" ? null : `${cwd}/${target.replace(/^b\//, "")}`;
+        target === "/dev/null" || path.startsWith("prototypes/")
+          ? null
+          : `${cwd}/${path}`;
       continue;
     }
     const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(raw);
