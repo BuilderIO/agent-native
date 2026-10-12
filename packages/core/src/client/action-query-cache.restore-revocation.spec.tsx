@@ -11,7 +11,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-it.each([403, 404])(
+it.each([401, 403, 404])(
   "does not restore or reauthorize a record revoked with %i while its read is pending",
   async (status) => {
     const action = await import("./use-action.js");
@@ -75,7 +75,7 @@ it.each([403, 404])(
   },
 );
 
-it.each([403, 404])(
+it.each([401, 403, 404])(
   "clears restore eligibility when a hydrated result is revoked with %i",
   async (status) => {
     const action = await import("./use-action.js");

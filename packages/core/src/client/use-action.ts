@@ -1081,23 +1081,25 @@ function trackActionCircuitTrip(
   }
 }
 
-// ponytail: one entry per action query this page has fetched; prune on query removal if this ever grows.
-const browserPersistableActionQueryHashes = new Set<string>();
+// Identical keys in another client or auth scope must earn their own permission.
+const browserPersistableActionQueries = new WeakSet<Query>();
 
-/** @internal read by the persisted query cache; keys are `hashKey` values. */
+/** @internal read by the persisted query cache. */
 export function isBrowserPersistableActionQuery(query: Query): boolean {
   return (
     query.queryKey[0] === "action" &&
     query.state.status === "success" &&
-    browserPersistableActionQueryHashes.has(query.queryHash)
+    browserPersistableActionQueries.has(query)
   );
 }
 
 /** @internal used only after a persisted action result is accepted and hydrated. */
-export function markRestoredBrowserPersistableActionQuery(
-  queryHash: string,
-): void {
-  browserPersistableActionQueryHashes.add(queryHash);
+export function markRestoredBrowserPersistableActionQuery(query: Query): void {
+  browserPersistableActionQueries.add(query);
+}
+
+export function revokeBrowserPersistableActionQuery(query: Query): void {
+  browserPersistableActionQueries.delete(query);
 }
 
 export function useActionQuery<
@@ -1132,8 +1134,9 @@ export function useActionQuery<
   const circuitKey = () => hashKey(queryKey);
   return useQuery<R>({
     queryKey,
-    queryFn: async ({ signal }) => {
+    queryFn: async ({ signal, client }) => {
       const key = circuitKey();
+      const query = client.getQueryCache().find({ queryKey, exact: true });
       assertActionCircuitClosed(key);
       let browserPersist = false;
       const result = await actionFetch<R>(actionName, "GET", params, {
@@ -1145,8 +1148,10 @@ export function useActionQuery<
         },
       });
       resetActionFailureCircuit(key);
-      if (browserPersist) browserPersistableActionQueryHashes.add(key);
-      else browserPersistableActionQueryHashes.delete(key);
+      if (query && !signal.aborted) {
+        if (browserPersist) browserPersistableActionQueries.add(query);
+        else browserPersistableActionQueries.delete(query);
+      }
       return result;
     },
     // The failure circuit counts fetch cycles, so a cycle is recorded where

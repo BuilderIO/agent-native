@@ -24,6 +24,7 @@ import { clientBuildId } from "./build-compatibility.js";
 import {
   isBrowserPersistableActionQuery,
   markRestoredBrowserPersistableActionQuery,
+  revokeBrowserPersistableActionQuery,
 } from "./use-action.js";
 import { useSession } from "./use-session.js";
 
@@ -162,7 +163,7 @@ function scopedPersister(scope: string): ScopedPersister {
       const stored = await storage.get(scope);
       // A revoked record can still be in an outstanding storage read. Do not
       // return it to the persister after discard, even if the read was started
-      // before the matching 403/404.
+      // before the matching access-denied response.
       const record =
         open && revision === restoreRevision ? withinMaxAge(stored) : undefined;
       restored = new Map(
@@ -372,7 +373,10 @@ export async function bindActionQueryCache(
     // The record may still hold this result from before the refetch. Only a
     // successful query is dehydrated, so the rewrite after this error leaves
     // it out.
-    if (status === 403 || status === 404) persister.discard();
+    if (status === 401 || status === 403 || status === 404) {
+      revokeBrowserPersistableActionQuery(event.query);
+      persister.discard();
+    }
   });
   binding = {
     client,
@@ -409,7 +413,7 @@ export async function bindActionQueryCache(
         source.dataUpdatedAt === deserialized?.dataUpdatedAt &&
         Object.is(query.state.data, deserialized?.data)
       ) {
-        markRestoredBrowserPersistableActionQuery(query.queryHash);
+        markRestoredBrowserPersistableActionQuery(query);
       }
     }
   };

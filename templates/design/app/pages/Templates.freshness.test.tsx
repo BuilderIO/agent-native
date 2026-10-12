@@ -116,6 +116,9 @@ afterEach(async () => {
 describe("Templates cached-list freshness", () => {
   it.each([
     { status: 503, keepCachedList: true },
+    { status: 408, keepCachedList: true },
+    { status: 429, keepCachedList: true },
+    { status: 401, keepCachedList: false },
     { status: 403, keepCachedList: false },
     { status: 404, keepCachedList: false },
   ])(

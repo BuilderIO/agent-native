@@ -30,9 +30,7 @@ export default function Templates() {
   }, [data?.templates, search]);
   const failure = error as { status?: number; errorCode?: string } | null;
   const accessDenied =
-    (failure?.status !== undefined &&
-      failure.status >= 400 &&
-      failure.status < 500) ||
+    [401, 403, 404].includes(failure?.status ?? 0) ||
     ["unauthorized", "forbidden", "not_found"].includes(
       failure?.errorCode ?? "",
     );
