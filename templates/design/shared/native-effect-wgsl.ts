@@ -25,3 +25,13 @@ export const NATIVE_GLOBAL_BINDINGS = NATIVE_RENDER_GLOBALS.slice(
   0,
   NATIVE_RENDER_GLOBALS.indexOf("struct VertexOutput"),
 );
+
+export function nativeRenderExtraTextureBindings(readCount: number): string {
+  if (!Number.isSafeInteger(readCount) || readCount < 0 || readCount > 16)
+    throw new RangeError("A render pass needs at most sixteen texture reads.");
+  return Array.from(
+    { length: Math.max(0, readCount - 2) },
+    (_, index) =>
+      `@group(0) @binding(${index + 4}) var extraTexture${index}: texture_2d<f32>;`,
+  ).join("\n");
+}

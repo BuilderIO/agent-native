@@ -95,7 +95,7 @@ describe("get-shader native-v2", () => {
         expect.objectContaining({ id: GRAIN_GRADIENT_EFFECT.id, version: 2 }),
       ]),
     );
-    expect(result.definitions).toHaveLength(343);
+    expect(result.definitions).toHaveLength(350);
     expect(result.definitions).toEqual(
       expect.arrayContaining(
         [
@@ -417,7 +417,7 @@ describe("get-shader native-v2", () => {
         }),
       ]),
     );
-    expect(result.presets).toHaveLength(688);
+    expect(result.presets).toHaveLength(702);
     expect(result.presets).toEqual(NATIVE_EFFECT_PRESETS);
     expect(result.definitions).toEqual(
       expect.arrayContaining([

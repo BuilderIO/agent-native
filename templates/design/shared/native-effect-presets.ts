@@ -11,6 +11,10 @@ import {
   createDensityCorrectedHalftoneEffect,
 } from "./native-effect-density-corrected";
 import {
+  FREQUENCY_SEPARATION_EFFECT,
+  FREQUENCY_SEPARATION_PRESETS,
+} from "./native-effect-frequency-separation";
+import {
   HIGHLIGHT_STREAKS_EFFECT,
   HIGHLIGHT_STREAKS_PRESETS,
 } from "./native-effect-highlight-streaks";
@@ -146,6 +150,10 @@ import {
   LUMA_DCT_EIGHT_EFFECT,
   LUMA_DCT_EIGHT_PRESETS,
 } from "./native-effect-owned-v-luma-dct";
+import {
+  OWNED_W_DISTORTION_DEFINITIONS,
+  OWNED_W_DISTORTION_PRESETS,
+} from "./native-effect-owned-w-distortions";
 import { PARTICLE_FLOW_EFFECT } from "./native-effect-particle-flow";
 import {
   NATIVE_PERIMETER_FOCAL_DEFINITIONS,
@@ -508,7 +516,14 @@ const coordinateRandomCatalog = createCoordinateRandomCatalog(
 export const NATIVE_COORDINATE_RANDOM_DEFINITIONS: readonly EffectDefinition[] =
   coordinateRandomCatalog.successors;
 export const NATIVE_EFFECT_LATEST_DEFINITIONS: readonly EffectDefinition[] = [
-  ...coordinateRandomCatalog.latest,
+  ...coordinateRandomCatalog.latest.filter(
+    (definition) =>
+      !OWNED_W_DISTORTION_DEFINITIONS.some(
+        (successor) =>
+          successor.id === definition.id &&
+          successor.version > definition.version,
+      ),
+  ),
   ...NATIVE_PERIMETER_FOCAL_DEFINITIONS,
   ...OWNED_O_GENERATOR_DEFINITIONS,
   ...OWNED_O_EDGE_GLASS_DEFINITIONS.filter(
@@ -521,12 +536,16 @@ export const NATIVE_EFFECT_LATEST_DEFINITIONS: readonly EffectDefinition[] = [
   ...OWNED_NEXT_SIX_R_DEFINITIONS,
   ...STATEFUL_NINE_DEFINITIONS,
   HIGHLIGHT_STREAKS_EFFECT,
-  ...OWNED_NEXT_TWELVE_S_DEFINITIONS,
+  ...OWNED_NEXT_TWELVE_S_DEFINITIONS.filter(
+    (definition) => definition.id !== "an-native-owned-s-parabolic-bend",
+  ),
   ...OWNED_NEXT_TWELVE_T_DEFINITIONS,
   ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
   LUMA_DCT_EIGHT_EFFECT,
   ...OWNED_V_FIELD_DEFINITIONS,
   ...POINTER_EFFECT_DEFINITIONS,
+  ...OWNED_W_DISTORTION_DEFINITIONS,
+  FREQUENCY_SEPARATION_EFFECT,
 ];
 
 export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
@@ -553,6 +572,8 @@ export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
   LUMA_DCT_EIGHT_EFFECT,
   ...OWNED_V_FIELD_DEFINITIONS,
   ...POINTER_EFFECT_DEFINITIONS,
+  ...OWNED_W_DISTORTION_DEFINITIONS,
+  FREQUENCY_SEPARATION_EFFECT,
 ];
 
 const PINNED_V2_PRESETS: readonly EffectPreset[] = [
@@ -676,4 +697,6 @@ export const NATIVE_EFFECT_PRESETS: readonly EffectPreset[] = [
   ...LUMA_DCT_EIGHT_PRESETS,
   ...OWNED_V_FIELD_PRESETS,
   ...POINTER_EFFECT_PRESETS,
+  ...OWNED_W_DISTORTION_PRESETS,
+  ...FREQUENCY_SEPARATION_PRESETS,
 ];

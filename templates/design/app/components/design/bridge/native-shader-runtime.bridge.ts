@@ -1302,8 +1302,7 @@ class NativeShaderRuntime {
   private fillTextPipeline: GPURenderPipeline | null = null;
   private presentPipeline: GPURenderPipeline | null = null;
   private finishPipeline: GPURenderPipeline | null = null;
-  private effectLayout: GPUBindGroupLayout | null = null;
-  private effectPipelineLayout: GPUPipelineLayout | null = null;
+  private effectPipelineLayouts = new Map<number, GPUPipelineLayout>();
   private pipelines = new NativePipelineCache<GPURenderPipeline>(MAX_PIPELINES);
   private simulationComputePipelines =
     new NativePipelineCache<GPUComputePipeline>(16);
@@ -2884,8 +2883,7 @@ class NativeShaderRuntime {
     this.fillTextPipeline = null;
     this.presentPipeline = null;
     this.finishPipeline = null;
-    this.effectLayout = null;
-    this.effectPipelineLayout = null;
+    this.effectPipelineLayouts.clear();
     for (const buffer of this.retirement.splice(0)) this.destroyUniform(buffer);
     for (const texture of this.textureRetirement.splice(0))
       this.destroyTexture(texture);
@@ -3933,7 +3931,7 @@ class NativeShaderRuntime {
           definition.passes.some(
             (pass) =>
               pass.kind !== "render" ||
-              pass.reads.length > 2 ||
+              pass.reads.length > 16 ||
               (pass.previousFrameReads?.length ?? 0) > 0,
           )
         ) {
@@ -3941,7 +3939,7 @@ class NativeShaderRuntime {
             instance,
             target,
             "pass-unsupported",
-            "This native runtime supports up to two current-frame render textures; compute and temporal inputs need a different path.",
+            "This native runtime supports up to sixteen current-frame render textures; compute and temporal inputs need a different path.",
           );
           continue;
         }
@@ -4869,10 +4867,25 @@ class NativeShaderRuntime {
     format: GPUTextureFormat,
     blend = false,
     effect = false,
+    effectTextureCount = 2,
   ): Promise<GPURenderPipeline> {
     const device = await this.ensureDevice();
     const deviceEpoch = this.deviceEpoch;
-    const key = `${deviceEpoch}:${format}:${blend}:${effect}:${wgsl}`;
+    const textureCount = effect ? Math.max(2, effectTextureCount) : 0;
+    if (effect) {
+      const limit = device.limits.maxSampledTexturesPerShaderStage;
+      if (!Number.isSafeInteger(limit) || limit < 2)
+        throw new NativeSourceError(
+          "effect-input-limit-unavailable",
+          "The WebGPU device did not report a usable sampled-texture limit.",
+        );
+      if (textureCount > limit)
+        throw new NativeSourceError(
+          "effect-input-limit",
+          `This pass needs ${textureCount} sampled textures; the WebGPU device supports ${limit} per shader stage.`,
+        );
+    }
+    const key = `${deviceEpoch}:${format}:${blend}:${effect}:${textureCount}:${wgsl}`;
     if (!this.pipelines.has(key)) this.ensureTextureBudget(524_288);
     return this.pipelines.getOrCreate(key, async () => {
       const module = device.createShaderModule({ code: wgsl });
@@ -4893,8 +4906,11 @@ class NativeShaderRuntime {
             message: error.message,
           })),
         );
-      if (effect && !this.effectPipelineLayout) {
-        this.effectLayout = device.createBindGroupLayout({
+      let effectPipelineLayout = effect
+        ? this.effectPipelineLayouts.get(textureCount)
+        : undefined;
+      if (effect && !effectPipelineLayout) {
+        const effectLayout = device.createBindGroupLayout({
           entries: [
             {
               binding: 0,
@@ -4916,15 +4932,21 @@ class NativeShaderRuntime {
               visibility: GPUShaderStage.FRAGMENT,
               texture: { sampleType: "float" },
             },
+            ...Array.from({ length: textureCount - 2 }, (_, index) => ({
+              binding: index + 4,
+              visibility: GPUShaderStage.FRAGMENT,
+              texture: { sampleType: "float" as const },
+            })),
           ],
         });
-        this.effectPipelineLayout = device.createPipelineLayout({
-          bindGroupLayouts: [this.effectLayout],
+        effectPipelineLayout = device.createPipelineLayout({
+          bindGroupLayouts: [effectLayout],
         });
+        this.effectPipelineLayouts.set(textureCount, effectPipelineLayout);
       }
       try {
         const pipeline = await device.createRenderPipelineAsync({
-          layout: effect ? this.effectPipelineLayout! : "auto",
+          layout: effect ? effectPipelineLayout! : "auto",
           vertex: { module, entryPoint: "vs" },
           fragment: {
             module,
@@ -7692,11 +7714,11 @@ class NativeShaderRuntime {
     for (const pass of plan.passes) {
       if (
         pass.kind !== "render" ||
-        pass.reads.length > 2 ||
+        pass.reads.length > 16 ||
         pass.previousFrameReads?.length
       )
         throw new Error(
-          `Pass ${pass.id} requires unsupported compute, temporal, or multi-input behavior.`,
+          `Pass ${pass.id} requires unsupported compute, temporal, or more than sixteen texture inputs.`,
         );
       const readName = pass.reads[0];
       const input = readName ? resources.get(readName) : this.white;
@@ -7705,13 +7727,16 @@ class NativeShaderRuntime {
           "pass-input-missing",
           `Pass ${pass.id} has no texture for ${readName ?? "its unused GPU binding"}.`,
         );
-      const secondName = pass.reads[1];
-      const second = secondName ? resources.get(secondName) : this.white!;
-      if (!second)
-        throw new NativeSourceError(
-          "pass-input-missing",
-          `Pass ${pass.id} has no texture for ${secondName}.`,
-        );
+      const otherInputs = pass.reads.slice(1).map((name) => {
+        const texture = resources.get(name);
+        if (!texture)
+          throw new NativeSourceError(
+            "pass-input-missing",
+            `Pass ${pass.id} has no texture for ${name}.`,
+          );
+        return texture;
+      });
+      const second = otherInputs[0] ?? this.white!;
       const mipmappedReads = pass.reads.filter((name) => {
         const binding = inputPlan.inputs.get(name);
         return binding?.kind === "asset" && binding.mipmap === "generated";
@@ -7772,7 +7797,13 @@ class NativeShaderRuntime {
       }
       let pipeline: GPURenderPipeline;
       try {
-        pipeline = await this.pipeline(pass.wgsl, format, false, true);
+        pipeline = await this.pipeline(
+          pass.wgsl,
+          format,
+          false,
+          true,
+          pass.reads.length,
+        );
       } catch (error) {
         if (error instanceof NativeShaderCompilationError)
           throw error.withPass(pass.id);
@@ -7808,6 +7839,8 @@ class NativeShaderRuntime {
         mipmappedReads.length
           ? this.sourceSizingSampler("linear", "linear", "linear")
           : this.sampler!,
+        null,
+        otherInputs.slice(1),
       );
       const render = encoder.beginRenderPass({
         ...this.gpuTimestampWrites(encoder, `effect:${pass.id}`),

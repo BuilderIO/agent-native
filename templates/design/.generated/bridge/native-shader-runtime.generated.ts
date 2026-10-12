@@ -30,10 +30,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     ) || !Number.isSafeInteger(spec.sharedBytes) || spec.sharedBytes < 0 || spec.sharedBytes > 16384 || typeof spec.bufferResource !== "string" || spec.subpixelBlocks !== void 0 && spec.subpixelBlocks !== "source-identity")
       return invalid;
     const [compute, resolve] = passes;
-    const source3 = resources.get("source");
+    const source4 = resources.get("source");
     const buffer = resources.get(spec.bufferResource);
     const color9 = output ? resources.get(output) : void 0;
-    if (resources.size !== 3 || passes.length !== 2 || source3?.kind !== "texture-2d" || source3.external !== true || source3.size !== "viewport" || source3.persistent === true || source3.preprocess !== void 0 || source3.mipmap !== void 0 || source3.sampleEncoding !== void 0 || source3.usage?.length !== 1 || !source3.usage.includes("sampled") || buffer?.kind !== "buffer" || buffer.size !== "source" || buffer.byteLength !== void 0 || ![1, 4, 8, 16].includes(buffer.sourceBytesPerPixel) || buffer.external === true || buffer.persistent === true || buffer.format !== void 0 || buffer.usage?.length !== 2 || !buffer.usage.includes("storage") || !buffer.usage.includes("copy-dst") || color9?.kind !== "texture-2d" || color9.size !== "viewport" || color9.format !== "rgba16float" || color9.external === true || color9.persistent === true || !color9.usage?.includes("render") || !color9.usage.includes("sampled") || compute?.kind !== "compute" || compute.reads.length !== 1 || compute.reads[0] !== "source" || compute.output !== spec.bufferResource || !isStatelessComputeDispatch(compute.dispatch) || resolve?.kind !== "render" || resolve.reads.length !== 2 || resolve.reads[0] !== "source" || resolve.reads[1] !== spec.bufferResource || resolve.output !== output || passes.some(
+    if (resources.size !== 3 || passes.length !== 2 || source4?.kind !== "texture-2d" || source4.external !== true || source4.size !== "viewport" || source4.persistent === true || source4.preprocess !== void 0 || source4.mipmap !== void 0 || source4.sampleEncoding !== void 0 || source4.usage?.length !== 1 || !source4.usage.includes("sampled") || buffer?.kind !== "buffer" || buffer.size !== "source" || buffer.byteLength !== void 0 || ![1, 4, 8, 16].includes(buffer.sourceBytesPerPixel) || buffer.external === true || buffer.persistent === true || buffer.format !== void 0 || buffer.usage?.length !== 2 || !buffer.usage.includes("storage") || !buffer.usage.includes("copy-dst") || color9?.kind !== "texture-2d" || color9.size !== "viewport" || color9.format !== "rgba16float" || color9.external === true || color9.persistent === true || !color9.usage?.includes("render") || !color9.usage.includes("sampled") || compute?.kind !== "compute" || compute.reads.length !== 1 || compute.reads[0] !== "source" || compute.output !== spec.bufferResource || !isStatelessComputeDispatch(compute.dispatch) || resolve?.kind !== "render" || resolve.reads.length !== 2 || resolve.reads[0] !== "source" || resolve.reads[1] !== spec.bufferResource || resolve.output !== output || passes.some(
       (pass) => pass.previousFrameReads !== void 0 || pass.additionalOutputs !== void 0 || pass.persistent === true || pass.draw !== void 0 || pass.original !== void 0
     ) || resolve.dispatch !== void 0)
       return invalid;
@@ -482,9 +482,9 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     if (!Number.isFinite(number) || number < 0) {
       return { ok: false, reason: "unreadable" };
     }
-    const unit4 = match[2];
-    if (unit4 === "px" || unit4 === "%") {
-      return { ok: true, length: { value: number, unit: unit4 } };
+    const unit5 = match[2];
+    if (unit5 === "px" || unit5 === "%") {
+      return { ok: true, length: { value: number, unit: unit5 } };
     }
     return number === 0 ? { ok: true, length: { value: 0, unit: "px" } } : { ok: false, reason: "unreadable" };
   }
@@ -670,6 +670,14 @@ struct VertexOutput {
     0,
     NATIVE_RENDER_GLOBALS.indexOf("struct VertexOutput")
   );
+  function nativeRenderExtraTextureBindings(readCount) {
+    if (!Number.isSafeInteger(readCount) || readCount < 0 || readCount > 16)
+      throw new RangeError("A render pass needs at most sixteen texture reads.");
+    return Array.from(
+      { length: Math.max(0, readCount - 2) },
+      (_, index) => \`@group(0) @binding(\${index + 4}) var extraTexture\${index}: texture_2d<f32>;\`
+    ).join("\\n");
+  }
 
   // ../../node_modules/.pnpm/parse5@8.0.1/node_modules/parse5/dist/common/unicode.js
   var CODE_POINTS;
@@ -2360,10 +2368,10 @@ struct VertexOutput {
         \`\${prefix}.sourceSizing ABI needs one source-reading processor render pass\`
       );
     if (record2(value.sourceSizing) && value.sourceSizing.intrinsicEncoding === "srgb-encoded-straight") {
-      const source3 = Array.isArray(value.resources) ? value.resources.find(
+      const source4 = Array.isArray(value.resources) ? value.resources.find(
         (resource) => record2(resource) && resource.name === "source"
       ) : void 0;
-      if (!record2(source3) || source3.kind !== "texture-2d" || source3.external !== true || source3.sampleEncoding !== "srgb-encoded-straight")
+      if (!record2(source4) || source4.kind !== "texture-2d" || source4.external !== true || source4.sampleEncoding !== "srgb-encoded-straight")
         errors.push(
           \`\${prefix}.sourceSizing intrinsic source needs an encoded-straight external texture\`
         );
@@ -2538,12 +2546,12 @@ struct VertexOutput {
         value.properties
       ).map((error) => \`\${prefix}.\${error}\`)
     );
-    const provenance3 = value.provenance;
-    if (!record2(provenance3) || !["design-original", "user-authored", "imported"].includes(
-      String(provenance3.origin)
-    ) || provenance3.note !== void 0 && (typeof provenance3.note !== "string" || provenance3.note.length > 240)) {
+    const provenance4 = value.provenance;
+    if (!record2(provenance4) || !["design-original", "user-authored", "imported"].includes(
+      String(provenance4.origin)
+    ) || provenance4.note !== void 0 && (typeof provenance4.note !== "string" || provenance4.note.length > 240)) {
       errors.push(\`\${prefix}.provenance is invalid\`);
-    } else if (provenance3.origin === "imported" && !validImportedUpstream(provenance3.upstream)) {
+    } else if (provenance4.origin === "imported" && !validImportedUpstream(provenance4.upstream)) {
       errors.push(
         \`\${prefix}.provenance imported source needs repository, commit, file, and license\`
       );
@@ -4392,9 +4400,9 @@ fn \${functionName}(point: vec2f) -> f32 {
     return {
       ...structuredClone(definition3),
       version: nextVersion,
-      passes: definition3.passes.map((source3) => ({
-        ...structuredClone(source3),
-        ...source3.id === passId ? { wgsl } : {}
+      passes: definition3.passes.map((source4) => ({
+        ...structuredClone(source4),
+        ...source4.id === passId ? { wgsl } : {}
       }))
     };
   }
@@ -4665,11 +4673,11 @@ fn \${functionName}(point: vec2f) -> f32 {
     const labelSources = {};
     const recipes = SUCCESSOR_RECIPE_IDS.map(([sourceId, id]) => {
       const matches = baseRecipes.filter((recipe2) => recipe2.id === sourceId);
-      const [source3] = matches;
-      if (matches.length !== 1 || !source3)
+      const [source4] = matches;
+      if (matches.length !== 1 || !source4)
         throw new CoordinateRandomRewriteError("definition-shape");
       const definitions = successors.filter(
-        (definition4) => definition4.id === source3.definitionId && definition4.version === source3.definitionVersion + 1
+        (definition4) => definition4.id === source4.definitionId && definition4.version === source4.definitionVersion + 1
       );
       const [definition3] = definitions;
       if (definitions.length !== 1 || !definition3)
@@ -4677,7 +4685,7 @@ fn \${functionName}(point: vec2f) -> f32 {
       presetSources[id] = sourceId;
       labelSources[id] = existingLabelSources[sourceId] ?? sourceId;
       return {
-        ...structuredClone(source3),
+        ...structuredClone(source4),
         id,
         definitionVersion: definition3.version
       };
@@ -4948,6 +4956,186 @@ fn \${functionName}(point: vec2f) -> f32 {
     };
   }
 
+  // shared/native-effect-frequency-separation.ts
+  var MAX_RADIUS = 24;
+  var KERNEL_TAPS = 6;
+  var radius = (label, value) => ({
+    type: "float",
+    label,
+    default: value,
+    min: 0,
+    max: MAX_RADIUS,
+    step: 0.1,
+    unit: "px"
+  });
+  var contrast = (label, value) => ({
+    type: "float",
+    label,
+    default: value,
+    min: 0,
+    max: 3,
+    step: 0.01
+  });
+  var source2 = {
+    name: "source",
+    kind: "texture-2d",
+    usage: ["sampled"],
+    external: true,
+    size: "viewport"
+  };
+  var texture = (name) => ({
+    name,
+    kind: "texture-2d",
+    format: "rgba16float",
+    usage: ["render", "sampled"],
+    size: "viewport"
+  });
+  function blur(axis2, radiusIndex) {
+    return \`\${NATIVE_RENDER_GLOBALS}
+@fragment fn fs(input: VertexOutput) -> @location(0) vec4f {
+  let support = globals.params[\${radiusIndex}].x * globals.clock.z;
+  let direction = vec2f(\${axis2[0]}.0, \${axis2[1]}.0) * globals.viewport.zw;
+  var energy = 0.0;
+  var accumulation = vec4f(0.0);
+  for (var offset = -\${KERNEL_TAPS}; offset <= \${KERNEL_TAPS}; offset += 1) {
+    let position = f32(offset) / \${KERNEL_TAPS}.0;
+    let weight = exp(-4.5 * position * position);
+    let uv = clamp(input.uv + direction * support * position, vec2f(0.0), vec2f(1.0));
+    accumulation += textureSampleLevel(sourceTexture, effectSampler, uv, 0.0) * weight;
+    energy += weight;
+  }
+  return accumulation / energy;
+}
+\`;
+  }
+  var composite = \`\${NATIVE_RENDER_GLOBALS}
+\${nativeRenderExtraTextureBindings(3)}
+@fragment fn fs(input: VertexOutput) -> @location(0) vec4f {
+  let original = textureSampleLevel(sourceTexture, effectSampler, input.uv, 0.0);
+  if (globals.params[4].x <= 0.0 || original.a <= 0.00001) { return original; }
+  let fineBlur = textureSampleLevel(maskTexture, effectSampler, input.uv, 0.0);
+  let coarseBlur = textureSampleLevel(extraTexture0, effectSampler, input.uv, 0.0);
+  let originalAlpha = original.a;
+  let originalColor = select(vec3f(0.0), original.rgb / max(originalAlpha, 0.00001), originalAlpha > 0.00001);
+  let fineColor = select(vec3f(0.0), fineBlur.rgb / max(fineBlur.a, 0.00001), fineBlur.a > 0.00001);
+  let coarseColor = select(vec3f(0.0), coarseBlur.rgb / max(coarseBlur.a, 0.00001), coarseBlur.a > 0.00001);
+  let fineDetail = originalColor - fineColor;
+  let middleDetail = fineColor - coarseColor;
+  let separated = coarseColor
+    + middleDetail * globals.params[3].x
+    + fineDetail * globals.params[2].x;
+  let result = mix(originalColor, separated, globals.params[4].x);
+  return vec4f(result * originalAlpha, originalAlpha);
+}
+\`;
+  var provenance = {
+    origin: "design-original"
+  };
+  var FREQUENCY_SEPARATION_EFFECT = {
+    id: "an-native-frequency-separation",
+    name: "Frequency Separation",
+    version: 1,
+    kind: "processor",
+    placements: ["layer", "backdrop"],
+    properties: {
+      fineRadius: radius("Fine Radius", 2.5),
+      coarseRadius: radius("Coarse Radius", 12),
+      fineContrast: contrast("Fine Contrast", 1),
+      middleContrast: contrast("Middle Contrast", 1),
+      amount: {
+        type: "float",
+        label: "Amount",
+        default: 1,
+        min: 0,
+        max: 1,
+        step: 0.01
+      }
+    },
+    inputs: { source: { kind: "texture-2d", resource: "source" } },
+    outputs: { color: { kind: "texture-2d", resource: "color" } },
+    resources: [
+      source2,
+      texture("fineHorizontal"),
+      texture("fineBlur"),
+      texture("coarseHorizontal"),
+      texture("coarseBlur"),
+      texture("color")
+    ],
+    output: "color",
+    provenance,
+    passes: [
+      {
+        id: "fine-horizontal",
+        kind: "render",
+        reads: ["source"],
+        output: "fineHorizontal",
+        wgsl: blur([1, 0], 0)
+      },
+      {
+        id: "fine-vertical",
+        kind: "render",
+        reads: ["fineHorizontal"],
+        output: "fineBlur",
+        wgsl: blur([0, 1], 0)
+      },
+      {
+        id: "coarse-horizontal",
+        kind: "render",
+        reads: ["source"],
+        output: "coarseHorizontal",
+        wgsl: blur([1, 0], 1)
+      },
+      {
+        id: "coarse-vertical",
+        kind: "render",
+        reads: ["coarseHorizontal"],
+        output: "coarseBlur",
+        wgsl: blur([0, 1], 1)
+      },
+      {
+        id: "composite",
+        kind: "render",
+        reads: ["source", "fineBlur", "coarseBlur"],
+        output: "color",
+        wgsl: composite
+      }
+    ]
+  };
+  var FREQUENCY_SEPARATION_PRESETS = [
+    {
+      id: "an-preset-frequency-separation-natural",
+      name: "Natural Retouch",
+      definitionId: FREQUENCY_SEPARATION_EFFECT.id,
+      definitionVersion: FREQUENCY_SEPARATION_EFFECT.version,
+      placement: "layer",
+      params: {
+        fineRadius: 2.5,
+        coarseRadius: 12,
+        fineContrast: 0.9,
+        middleContrast: 0.85,
+        amount: 0.8
+      },
+      clip: "bounds",
+      provenance
+    },
+    {
+      id: "an-preset-frequency-separation-detail",
+      name: "Fine Detail Lift",
+      definitionId: FREQUENCY_SEPARATION_EFFECT.id,
+      definitionVersion: FREQUENCY_SEPARATION_EFFECT.version,
+      placement: "layer",
+      params: {
+        fineRadius: 1.5,
+        coarseRadius: 8,
+        fineContrast: 1.4,
+        middleContrast: 1.1,
+        amount: 0.7
+      },
+      clip: "bounds",
+      provenance
+    }
+  ];
+
   // shared/native-effect-highlight-streaks.ts
   var computeWgsl = \`\${NATIVE_GLOBAL_BINDINGS}
 @group(0) @binding(4) var<storage, read_write> anchors: array<u32>;
@@ -5167,7 +5355,7 @@ fn cs(@builtin(workgroup_id) tile: vec3u, @builtin(local_invocation_index) lane:
 }
 \`;
   }
-  var radius = {
+  var radius2 = {
     type: "float",
     label: "Radius",
     default: 8,
@@ -5176,14 +5364,14 @@ fn cs(@builtin(workgroup_id) tile: vec3u, @builtin(local_invocation_index) lane:
     step: 0.1,
     unit: "px"
   };
-  var source2 = {
+  var source3 = {
     name: "source",
     kind: "texture-2d",
     usage: ["sampled"],
     external: true,
     size: "viewport"
   };
-  var texture = (name) => ({
+  var texture2 = (name) => ({
     name,
     kind: "texture-2d",
     format: "rgba16float",
@@ -5193,7 +5381,7 @@ fn cs(@builtin(workgroup_id) tile: vec3u, @builtin(local_invocation_index) lane:
   var extent = {
     output: { top: SUPPORT, right: SUPPORT, bottom: SUPPORT, left: SUPPORT }
   };
-  var provenance = {
+  var provenance2 = {
     origin: "design-original"
   };
   var GAUSSIAN_BLUR_EFFECT = {
@@ -5202,13 +5390,13 @@ fn cs(@builtin(workgroup_id) tile: vec3u, @builtin(local_invocation_index) lane:
     version: 2,
     kind: "processor",
     placements: ["layer", "backdrop"],
-    properties: { radius },
+    properties: { radius: radius2 },
     inputs: { source: { kind: "texture-2d", resource: "source" } },
     outputs: { color: { kind: "texture-2d", resource: "color" } },
-    resources: [source2, texture("blurH"), texture("color")],
+    resources: [source3, texture2("blurH"), texture2("color")],
     extent,
     output: "color",
-    provenance,
+    provenance: provenance2,
     passes: [
       {
         id: "horizontal",
@@ -5233,7 +5421,7 @@ fn cs(@builtin(workgroup_id) tile: vec3u, @builtin(local_invocation_index) lane:
     kind: "processor",
     placements: ["layer", "backdrop"],
     properties: {
-      radius,
+      radius: radius2,
       threshold: {
         type: "float",
         label: "Threshold",
@@ -5262,15 +5450,15 @@ fn cs(@builtin(workgroup_id) tile: vec3u, @builtin(local_invocation_index) lane:
     inputs: { source: { kind: "texture-2d", resource: "source" } },
     outputs: { color: { kind: "texture-2d", resource: "color" } },
     resources: [
-      source2,
-      texture("bright"),
-      texture("blurH"),
-      texture("blurV"),
-      texture("color")
+      source3,
+      texture2("bright"),
+      texture2("blurH"),
+      texture2("blurV"),
+      texture2("color")
     ],
     extent,
     output: "color",
-    provenance,
+    provenance: provenance2,
     passes: [
       {
         id: "bright",
@@ -6047,7 +6235,7 @@ return colorOver(colorOver(base,first),second);\`,
     options: ["transparent", "clamp"],
     advanced: true
   });
-  var provenance2 = {
+  var provenance3 = {
     origin: "design-original",
     note: "Original Design shader material with bounded native render passes and linear premultiplied output."
   };
@@ -6072,7 +6260,7 @@ return colorOver(colorOver(base,first),second);\`,
       renderResource("color")
     ],
     output: "color",
-    provenance: provenance2,
+    provenance: provenance3,
     passes: [
       {
         id: "refract",
@@ -6126,7 +6314,7 @@ return colorOver(colorOver(base,first),second);\`,
     outputs: { color: { kind: "texture-2d", resource: "color" } },
     resources: [sourceResource, renderResource("wake"), renderResource("color")],
     output: "color",
-    provenance: provenance2,
+    provenance: provenance3,
     passes: [
       {
         id: "wake",
@@ -6396,7 +6584,7 @@ fn cs(@builtin(global_invocation_id) invocation: vec3u) {
           output: "feedbackOutput"
         }
       ],
-      provenance: provenance2
+      provenance: provenance3
     };
   }
   var DESIGN_OWNED_STATEFUL_DEFINITIONS = [
@@ -7860,10 +8048,10 @@ return paletteAt(clamp(field,0.0,1.0));
     ["an-preset-owned-folded-paper-signature", "Folded Sheets Signature"],
     ["an-preset-owned-folded-paper-alternate", "Folded Sheets Alternate"]
   ]);
-  function exactlyOnce(source3, oldText, newText) {
-    if (source3.split(oldText).length !== 2)
+  function exactlyOnce(source4, oldText, newText) {
+    if (source4.split(oldText).length !== 2)
       throw new Error(\`Static v3 source expected exactly one \${oldText}\`);
-    return source3.replace(oldText, newText);
+    return source4.replace(oldText, newText);
   }
   function corrected(definition3) {
     if (definition3.version !== 2 || definition3.passes.length !== 1 || definition3.passes[0]?.kind !== "render" || definition3.properties.motion?.type !== "float")
@@ -14363,14 +14551,14 @@ fn densityAt(uv: vec2f) -> vec2f {
       }
     };
   }
-  var float3 = (label, value, min, max, unit4) => ({
+  var float3 = (label, value, min, max, unit5) => ({
     type: "float",
     label,
     default: value,
     min,
     max,
     step: 0.01,
-    ...unit4 ? { unit: unit4 } : {}
+    ...unit5 ? { unit: unit5 } : {}
   });
   function processor(id, name, version, properties4, code, note) {
     const slots2 = /* @__PURE__ */ new Map();
@@ -14686,14 +14874,14 @@ fn exchangeRank(q: vec2f) -> f32 {
   };
 
   // shared/native-effect-owned-p2-sort.ts
-  var float4 = (label, value, min, max, unit4) => ({
+  var float4 = (label, value, min, max, unit5) => ({
     type: "float",
     label,
     default: value,
     min,
     max,
     step: 0.01,
-    ...unit4 ? { unit: unit4 } : {}
+    ...unit5 ? { unit: unit5 } : {}
   });
   function processor2(id, name, version, properties4, code, note) {
     const slots2 = /* @__PURE__ */ new Map();
@@ -18225,6 +18413,347 @@ fn cs(
     }
   ];
 
+  // shared/native-effect-owned-w-distortions.ts
+  var f = (label, value, min, max) => catalogFloat(label, value, min, max);
+  var unit4 = (label, value) => f(label, value, 0, 1);
+  var angle = (label, value) => f(label, value, -180, 180);
+  function predecessor(definitions, id) {
+    const found = definitions.find((definition3) => definition3.id === id);
+    if (!found || found.version !== 1)
+      throw new Error(\`The frozen \${id} predecessor is unavailable\`);
+    return found;
+  }
+  var corner2 = predecessor(
+    OWNED_NEXT_PROCESSOR_DEFINITIONS2,
+    "an-native-owned-corner-perspective"
+  );
+  var polar = predecessor(
+    OWNED_NEXT_FOUR_H_DEFINITIONS,
+    "an-native-owned-log-polar-reprojection"
+  );
+  var bend = predecessor(
+    OWNED_NEXT_TWELVE_S_DEFINITIONS,
+    "an-native-owned-s-parabolic-bend"
+  );
+  var OWNED_W_DISTORTION_DRAFTS = [
+    {
+      id: "owned-w-axis-mirror",
+      name: "Axis Mirror",
+      kind: "processor",
+      backdrop: true,
+      edgeSampling: "repeat-mirror-bilinear-v2",
+      mechanism: "Reflects one half-plane across a movable, freely rotated line while preserving the opposite half.",
+      properties: {
+        edge: structuredClone(CATALOG_EDGE),
+        centerX: unit4("Center X", 0.5),
+        centerY: unit4("Center Y", 0.5),
+        angle: angle("Mirror angle", 0),
+        side: {
+          type: "enum",
+          label: "Mirrored side",
+          default: "positive",
+          options: ["positive", "negative"]
+        },
+        blend: unit4("Blend", 1)
+      },
+      fragment: (p2) => \`
+  let original = sampleSource(input.uv);
+  let extent = globals.viewport.xy / globals.clock.z;
+  let center = vec2f(\${p2("centerX")}.x, \${p2("centerY")}.x) * extent;
+  let radians = \${p2("angle")}.x * PI / 180.0;
+  let normal = vec2f(-sin(radians), cos(radians));
+  let distance = dot(input.uv * extent - center, normal);
+  let selected = select(-distance, distance, u32(\${p2("side")}.x) == 0u);
+  if (selected <= 0.0 || \${p2("blend")}.x <= 0.0) { return original; }
+  let reflected = (input.uv * extent - 2.0 * distance * normal) / extent;
+  return mix(original, sampleSource(reflected), \${p2("blend")}.x);\`,
+      looks: [
+        ["Horizontal reflection", { angle: 0, centerY: 0.5 }],
+        ["Diagonal reflection", { angle: 42, centerX: 0.43, blend: 0.9 }]
+      ]
+    },
+    {
+      id: "owned-w-elastic-stretch",
+      name: "Elastic Stretch",
+      kind: "processor",
+      backdrop: true,
+      edgeSampling: "repeat-mirror-bilinear-v2",
+      mechanism: "Inverse-samples a directional stretch with compact radial falloff; pixels outside the selected radius stay fixed.",
+      properties: {
+        edge: structuredClone(CATALOG_EDGE),
+        centerX: unit4("Center X", 0.5),
+        centerY: unit4("Center Y", 0.5),
+        angle: angle("Stretch angle", 0),
+        radius: f("Stretch radius", 0.36, 0.05, 0.8),
+        strength: f("Stretch strength", 0.5, -0.9, 2)
+      },
+      fragment: (p2) => \`
+  let extent = globals.viewport.xy / globals.clock.z;
+  let center = vec2f(\${p2("centerX")}.x, \${p2("centerY")}.x) * extent;
+  let radius = \${p2("radius")}.x * min(extent.x, extent.y);
+  let ray = input.uv * extent - center;
+  let reach = length(ray) / radius;
+  if (reach >= 1.0 || \${p2("strength")}.x == 0.0) { return sampleSource(input.uv); }
+  let radians = \${p2("angle")}.x * PI / 180.0;
+  let axis = vec2f(cos(radians), sin(radians));
+  let parallel = dot(ray, axis);
+  let weight = 1.0 - reach * reach;
+  let scale = max(1.0 + \${p2("strength")}.x * weight * weight, 0.1);
+  return sampleSource((center + ray - axis * parallel * (1.0 - 1.0 / scale)) / extent);\`,
+      looks: [
+        ["Wide pull", { radius: 0.55, strength: 0.55 }],
+        ["Tight compression", { angle: 65, radius: 0.28, strength: -0.55 }]
+      ]
+    },
+    {
+      id: "owned-w-lit-spherize",
+      name: "Lit Spherize",
+      kind: "processor",
+      backdrop: true,
+      edgeSampling: "repeat-mirror-bilinear-v2",
+      mechanism: "Wraps source pixels over a hemispherical disk and shades its analytic normal with a movable light; exterior pixels stay unchanged.",
+      properties: {
+        edge: structuredClone(CATALOG_EDGE),
+        centerX: unit4("Center X", 0.5),
+        centerY: unit4("Center Y", 0.5),
+        radius: f("Sphere radius", 0.34, 0.08, 0.48),
+        depth: unit4("Sphere depth", 0.7),
+        lightAngle: angle("Light angle", -35),
+        lightHeight: unit4("Light height", 0.72),
+        lighting: unit4("Lighting", 0.55)
+      },
+      fragment: (p2) => \`
+  let original = sampleSource(input.uv);
+  let extent = globals.viewport.xy / globals.clock.z;
+  let center = vec2f(\${p2("centerX")}.x, \${p2("centerY")}.x) * extent;
+  let radius = \${p2("radius")}.x * min(extent.x, extent.y);
+  let disk = (input.uv * extent - center) / radius;
+  let r2 = dot(disk, disk);
+  if (r2 >= 1.0 || \${p2("depth")}.x <= 0.0) { return original; }
+  let z = sqrt(max(1.0 - r2, 0.00001));
+  let surfaceRadius = asin(sqrt(r2)) / max(sqrt(r2), 0.00001);
+  let mapped = center + mix(disk, disk * surfaceRadius, \${p2("depth")}.x) * radius;
+  let sampled = sampleSource(mapped / extent);
+  let radians = \${p2("lightAngle")}.x * PI / 180.0;
+  let light = normalize(vec3f(cos(radians), sin(radians), 0.2 + \${p2("lightHeight")}.x * 1.8));
+  let normal = normalize(vec3f(disk, z));
+  let diffuse = max(dot(normal, light), 0.0);
+  let halfVector = normalize(light + vec3f(0.0, 0.0, 1.0));
+  let sheen = pow(max(dot(normal, halfVector), 0.0), 24.0) * 0.25;
+  let illumination = mix(1.0, 0.38 + diffuse * 0.62 + sheen, \${p2("lighting")}.x);
+  let lit = vec4f(sampled.rgb * illumination, sampled.a);
+  return mix(original, lit, (1.0 - smoothstep(0.93, 1.0, sqrt(r2))) * \${p2("depth")}.x);\`,
+      looks: [
+        ["Soft hemisphere", { depth: 0.55, lighting: 0.35 }],
+        [
+          "Raking light",
+          { depth: 1, lightAngle: 48, lightHeight: 0.3, lighting: 0.9 }
+        ]
+      ]
+    },
+    {
+      id: "owned-log-polar-reprojection",
+      version: 2,
+      name: polar.name,
+      kind: "processor",
+      backdrop: polar.placements.includes("backdrop"),
+      mechanism: "Adds linear-radius unwrapping to the geometric log-radius map while retaining its center, rotation, blend, and edge controls.",
+      properties: {
+        ...polar.properties,
+        radialSpacing: {
+          type: "enum",
+          label: "Radial spacing",
+          default: "logarithmic",
+          options: ["logarithmic", "linear"]
+        }
+      },
+      fragment: (p2) => \`
+  let amount = \${p2("amount")}.x;
+  if (amount <= 0.0) { return sampleSource(input.uv); }
+  let inner = \${p2("innerRadius")}.x;
+  let outer = max(\${p2("outerRadius")}.x, inner + 0.001);
+  let angle = input.uv.x * TAU + \${p2("rotation")}.x;
+  let logRadius = inner * pow(outer / inner, input.uv.y);
+  let linearRadius = mix(inner, outer, input.uv.y);
+  let radius = select(logRadius, linearRadius, u32(\${p2("radialSpacing")}.x) == 1u);
+  let mapped = vec2f(\${p2("centerX")}.x, \${p2("centerY")}.x) + radius * vec2f(cos(angle), sin(angle));
+  return sampleSource(mix(input.uv, mapped, amount));\`,
+      looks: [
+        [
+          "Circular strip",
+          { radialSpacing: "linear", innerRadius: 0.02, outerRadius: 0.58 }
+        ],
+        [
+          "Wide angular map",
+          {
+            radialSpacing: "linear",
+            innerRadius: 0.16,
+            outerRadius: 0.9,
+            rotation: 0.55
+          }
+        ]
+      ]
+    },
+    {
+      id: "owned-s-parabolic-bend",
+      version: 2,
+      name: bend.name,
+      kind: "processor",
+      backdrop: bend.placements.includes("backdrop"),
+      mechanism: "Generalizes the horizontal parabolic bend to a freely rotated axis with a finite influence, preserving its older exact version.",
+      properties: {
+        ...bend.properties,
+        bendAngle: angle("Bend angle", 0),
+        influence: f("Bend influence", 1, 0.05, 1)
+      },
+      fragment: (p2) => \`
+  let radians = \${p2("bendAngle")}.x * PI / 180.0;
+  let axis = vec2f(-sin(radians), cos(radians));
+  let normal = vec2f(axis.y, -axis.x);
+  let ray = input.uv - vec2f(0.5, \${p2("anchor")}.x);
+  let along = dot(ray, axis);
+  let across = dot(ray, normal);
+  let influence = 1.0 - smoothstep(\${p2("influence")}.x * 0.5, \${p2("influence")}.x, abs(across));
+  let displacement = \${p2("curvature")}.x * along * abs(along) * (1.0 + \${p2("taper")}.x * along) * influence;
+  return sampleSource(input.uv - normal * displacement);\`,
+      looks: [
+        ["Local bow", { curvature: 0.48, bendAngle: 20, influence: 0.35 }],
+        ["Diagonal arch", { curvature: -0.7, bendAngle: -42, influence: 0.65 }]
+      ]
+    },
+    {
+      id: "owned-corner-perspective",
+      version: 2,
+      name: corner2.name,
+      kind: "processor",
+      backdrop: corner2.placements.includes("backdrop"),
+      mechanism: "Adds a camera control mode with yaw, pitch, field of view, pan, and zoom to the existing four-corner planar homography.",
+      properties: {
+        edge: corner2.properties.edge,
+        topLeft: {
+          ...corner2.properties.topLeft,
+          visibleWhen: { property: "viewMode", equals: "corners" }
+        },
+        topRight: {
+          ...corner2.properties.topRight,
+          visibleWhen: { property: "viewMode", equals: "corners" }
+        },
+        bottomRight: {
+          ...corner2.properties.bottomRight,
+          visibleWhen: { property: "viewMode", equals: "corners" }
+        },
+        bottomLeft: {
+          ...corner2.properties.bottomLeft,
+          visibleWhen: { property: "viewMode", equals: "corners" }
+        },
+        viewMode: {
+          type: "enum",
+          label: "Perspective mode",
+          default: "corners",
+          options: ["corners", "camera"]
+        },
+        yaw: {
+          ...angle("Camera yaw", 0),
+          visibleWhen: { property: "viewMode", equals: "camera" }
+        },
+        pitch: {
+          ...angle("Camera pitch", 0),
+          visibleWhen: { property: "viewMode", equals: "camera" }
+        },
+        fieldOfView: {
+          ...f("Field of view", 55, 20, 100),
+          visibleWhen: { property: "viewMode", equals: "camera" }
+        },
+        zoom: {
+          ...f("Camera zoom", 1, 0.4, 3),
+          visibleWhen: { property: "viewMode", equals: "camera" }
+        },
+        panX: {
+          ...f("Camera pan X", 0, -1, 1),
+          visibleWhen: { property: "viewMode", equals: "camera" }
+        },
+        panY: {
+          ...f("Camera pan Y", 0, -1, 1),
+          visibleWhen: { property: "viewMode", equals: "camera" }
+        }
+      },
+      fragment: (p2) => \`
+  if (u32(\${p2("viewMode")}.x) == 1u) {
+    let yaw = \${p2("yaw")}.x * PI / 180.0;
+    let pitch = \${p2("pitch")}.x * PI / 180.0;
+    let right = vec3f(cos(yaw), 0.0, sin(yaw));
+    let up = vec3f(sin(yaw) * sin(pitch), cos(pitch), -cos(yaw) * sin(pitch));
+    let normal = cross(right, up);
+    let aspect = globals.viewport.x / max(globals.viewport.y, 1.0);
+    let focal = tan(\${p2("fieldOfView")}.x * PI / 360.0);
+    let screen = (input.uv - vec2f(0.5)) * 2.0;
+    let ray = normalize(vec3f(screen.x * aspect * focal, screen.y * focal, -1.0));
+    let denominator = dot(ray, normal);
+    if (abs(denominator) < 0.00001) { return vec4f(0.0); }
+    let distance = -normal.z / denominator;
+    if (distance <= 0.0) { return vec4f(0.0); }
+    let hit = vec3f(0.0, 0.0, 1.0) + ray * distance;
+    let mapped = vec2f(dot(hit, right), dot(hit, up)) / \${p2("zoom")}.x +
+      vec2f(0.5 + \${p2("panX")}.x, 0.5 + \${p2("panY")}.x);
+    return sampleSource(mapped);
+  }
+  let p0 = \${p2("topLeft")}.xy; let p1 = \${p2("topRight")}.xy;
+  let p2 = \${p2("bottomRight")}.xy; let p3 = \${p2("bottomLeft")}.xy;
+  let d1 = p1 - p2; let d2 = p3 - p2;
+  let d3 = p0 - p1 + p2 - p3;
+  let determinant = d1.x * d2.y - d2.x * d1.y;
+  if (abs(determinant) < 0.00001) { return vec4f(0.0); }
+  let g = (d3.x * d2.y - d2.x * d3.y) / determinant;
+  let h = (d1.x * d3.y - d3.x * d1.y) / determinant;
+  let a = p1.x - p0.x + g * p1.x; let b = p3.x - p0.x + h * p3.x;
+  let d = p1.y - p0.y + g * p1.y; let e = p3.y - p0.y + h * p3.y;
+  let ax = a - input.uv.x * g; let bx = b - input.uv.x * h;
+  let dy = d - input.uv.y * g; let ey = e - input.uv.y * h;
+  let rhs = input.uv - p0;
+  let inverseDet = ax * ey - bx * dy;
+  if (abs(inverseDet) < 0.00001) { return vec4f(0.0); }
+  let sourceUv = vec2f((rhs.x * ey - bx * rhs.y) / inverseDet,
+    (ax * rhs.y - rhs.x * dy) / inverseDet);
+  if (any(sourceUv < vec2f(0.0)) || any(sourceUv > vec2f(1.0))) { return vec4f(0.0); }
+  return sampleSource(sourceUv);\`,
+      looks: [
+        ["Camera yaw", { viewMode: "camera", yaw: 27, fieldOfView: 55 }],
+        [
+          "Raised viewpoint",
+          {
+            viewMode: "camera",
+            yaw: -18,
+            pitch: 29,
+            fieldOfView: 68,
+            zoom: 1.35
+          }
+        ]
+      ]
+    }
+  ];
+  var OWNED_W_DISTORTION_DEFINITIONS = OWNED_W_DISTORTION_DRAFTS.map((draft) => {
+    const base = catalogShader(draft);
+    return {
+      ...base,
+      resources: base.resources?.map(
+        (resource) => resource.name === "color" ? { ...resource, format: "rgba16float" } : resource
+      ),
+      provenance: { origin: "design-original", note: draft.mechanism }
+    };
+  });
+  var OWNED_W_DISTORTION_PRESETS = OWNED_W_DISTORTION_DRAFTS.flatMap(
+    (draft) => draft.looks.map(([name, params], index) => ({
+      id: \`an-preset-\${draft.id}-v\${draft.version ?? 1}-\${index + 1}\`,
+      name,
+      definitionId: \`an-native-\${draft.id}\`,
+      definitionVersion: draft.version ?? 1,
+      placement: "layer",
+      params,
+      clip: "bounds",
+      provenance: { origin: "design-original" }
+    }))
+  );
+
   // shared/native-effect-particle-flow.ts
   var stateBindings = \`
 struct Particle {
@@ -18497,7 +19026,7 @@ struct ParticleVertex {
   };
 
   // shared/native-effect-perimeter-focal.ts
-  var f = (label, value, min, max) => ({
+  var f2 = (label, value, min, max) => ({
     type: "float",
     label,
     default: value,
@@ -18513,20 +19042,20 @@ struct ParticleVertex {
       options: ["none", "contain", "cover"],
       advanced: true
     },
-    scale: { ...f("Scale", 1, 0.01, 4), advanced: true },
-    rotation: { ...f("Rotation", 0, 0, 360), unit: "\\xB0", advanced: true },
-    originX: { ...f("Origin X", 0.5, 0, 1), advanced: true },
-    originY: { ...f("Origin Y", 0.5, 0, 1), advanced: true },
-    offsetX: { ...f("Offset X", 0, -1, 1), advanced: true },
-    offsetY: { ...f("Offset Y", 0, -1, 1), advanced: true },
+    scale: { ...f2("Scale", 1, 0.01, 4), advanced: true },
+    rotation: { ...f2("Rotation", 0, 0, 360), unit: "\\xB0", advanced: true },
+    originX: { ...f2("Origin X", 0.5, 0, 1), advanced: true },
+    originY: { ...f2("Origin Y", 0.5, 0, 1), advanced: true },
+    offsetX: { ...f2("Offset X", 0, -1, 1), advanced: true },
+    offsetY: { ...f2("Offset Y", 0, -1, 1), advanced: true },
     worldWidth: {
-      ...f("World width", 0, 0, 8192),
+      ...f2("World width", 0, 0, 8192),
       unit: "px",
       step: 1,
       advanced: true
     },
     worldHeight: {
-      ...f("World height", 0, 0, 8192),
+      ...f2("World height", 0, 0, 8192),
       unit: "px",
       step: 1,
       advanced: true
@@ -18549,21 +19078,21 @@ struct ParticleVertex {
       ],
       maxCount: 5
     },
-    roundness: f("Roundness", 0.2, 0, 1),
-    thickness: f("Thickness", 0.025, 0, 1),
-    marginLeft: f("Left margin", 0.05, 0, 1),
-    marginRight: f("Right margin", 0.05, 0, 1),
-    marginTop: f("Top margin", 0.05, 0, 1),
-    marginBottom: f("Bottom margin", 0.05, 0, 1),
+    roundness: f2("Roundness", 0.2, 0, 1),
+    thickness: f2("Thickness", 0.025, 0, 1),
+    marginLeft: f2("Left margin", 0.05, 0, 1),
+    marginRight: f2("Right margin", 0.05, 0, 1),
+    marginTop: f2("Top margin", 0.05, 0, 1),
+    marginBottom: f2("Bottom margin", 0.05, 0, 1),
     aspectRatio: {
       type: "enum",
       label: "Aspect ratio",
       default: "auto",
       options: ["auto", "square"]
     },
-    softness: f("Softness", 0.3, 0, 1),
-    intensity: f("Intensity", 0.6, 0, 1),
-    bloom: f("Halo reach", 0.35, 0, 1),
+    softness: f2("Softness", 0.3, 0, 1),
+    intensity: f2("Intensity", 0.6, 0, 1),
+    bloom: f2("Halo reach", 0.35, 0, 1),
     spots: {
       type: "int",
       label: "Lights per color",
@@ -18572,10 +19101,10 @@ struct ParticleVertex {
       max: 4,
       step: 1
     },
-    spotSize: f("Light reach", 0.15, 0, 1),
-    pulse: f("Pulse", 0.25, 0, 1),
-    smoke: f("Mist depth", 0.2, 0, 1),
-    smokeSize: f("Mist scale", 0.5, 0, 1),
+    spotSize: f2("Light reach", 0.15, 0, 1),
+    pulse: f2("Pulse", 0.25, 0, 1),
+    smoke: f2("Mist depth", 0.2, 0, 1),
+    smokeSize: f2("Mist scale", 0.5, 0, 1),
     ...coordinateProperties()
   };
   var focalProperties = {
@@ -18590,16 +19119,16 @@ struct ParticleVertex {
       ],
       maxCount: 10
     },
-    radius: f("Radius", 0.7, 0, 3),
-    focalDistance: f("Focal distance", 0, 0, 3),
-    focalAngle: { ...f("Focal angle", 0, 0, 360), unit: "\\xB0" },
-    falloff: f("Falloff", 0, -1, 1),
-    mixing: f("Stop blending", 1, 0, 1),
-    distortion: f("Distortion", 0.15, 0, 1),
-    distortionShift: f("Deformation phase", 0, -1, 1),
-    distortionFreq: f("Angular frequency", 6, 0, 20),
-    grainMixer: f("Field grain", 0.02, 0, 1),
-    grainOverlay: f("Color grain", 0.015, 0, 1),
+    radius: f2("Radius", 0.7, 0, 3),
+    focalDistance: f2("Focal distance", 0, 0, 3),
+    focalAngle: { ...f2("Focal angle", 0, 0, 360), unit: "\\xB0" },
+    falloff: f2("Falloff", 0, -1, 1),
+    mixing: f2("Stop blending", 1, 0, 1),
+    distortion: f2("Distortion", 0.15, 0, 1),
+    distortionShift: f2("Deformation phase", 0, -1, 1),
+    distortionFreq: f2("Angular frequency", 6, 0, 20),
+    grainMixer: f2("Field grain", 0.02, 0, 1),
+    grainOverlay: f2("Color grain", 0.015, 0, 1),
     ...coordinateProperties()
   };
   function uniforms(properties4) {
@@ -19620,7 +20149,11 @@ fn hash(pixel: vec2f) -> f32 {
   );
   var NATIVE_COORDINATE_RANDOM_DEFINITIONS = coordinateRandomCatalog.successors;
   var NATIVE_EFFECT_LATEST_DEFINITIONS = [
-    ...coordinateRandomCatalog.latest,
+    ...coordinateRandomCatalog.latest.filter(
+      (definition3) => !OWNED_W_DISTORTION_DEFINITIONS.some(
+        (successor) => successor.id === definition3.id && successor.version > definition3.version
+      )
+    ),
     ...NATIVE_PERIMETER_FOCAL_DEFINITIONS,
     ...OWNED_O_GENERATOR_DEFINITIONS,
     ...OWNED_O_EDGE_GLASS_DEFINITIONS.filter(
@@ -19633,12 +20166,16 @@ fn hash(pixel: vec2f) -> f32 {
     ...OWNED_NEXT_SIX_R_DEFINITIONS,
     ...STATEFUL_NINE_DEFINITIONS,
     HIGHLIGHT_STREAKS_EFFECT,
-    ...OWNED_NEXT_TWELVE_S_DEFINITIONS,
+    ...OWNED_NEXT_TWELVE_S_DEFINITIONS.filter(
+      (definition3) => definition3.id !== "an-native-owned-s-parabolic-bend"
+    ),
     ...OWNED_NEXT_TWELVE_T_DEFINITIONS,
     ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
     LUMA_DCT_EIGHT_EFFECT,
     ...OWNED_V_FIELD_DEFINITIONS,
-    ...POINTER_EFFECT_DEFINITIONS
+    ...POINTER_EFFECT_DEFINITIONS,
+    ...OWNED_W_DISTORTION_DEFINITIONS,
+    FREQUENCY_SEPARATION_EFFECT
   ];
   var NATIVE_EFFECT_DEFINITION_CATALOG = [
     ...NATIVE_EFFECT_DEFINITIONS_V1,
@@ -19663,7 +20200,9 @@ fn hash(pixel: vec2f) -> f32 {
     ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
     LUMA_DCT_EIGHT_EFFECT,
     ...OWNED_V_FIELD_DEFINITIONS,
-    ...POINTER_EFFECT_DEFINITIONS
+    ...POINTER_EFFECT_DEFINITIONS,
+    ...OWNED_W_DISTORTION_DEFINITIONS,
+    FREQUENCY_SEPARATION_EFFECT
   ];
   var PINNED_V2_PRESETS = [
     {
@@ -19708,11 +20247,11 @@ fn hash(pixel: vec2f) -> f32 {
   var pinnedPresetIds = new Set(PINNED_V2_PRESETS.map((preset2) => preset2.id));
   var v3LabelSourceIds = {};
   var v3Recipes = NATIVE_EFFECT_V3_DEFINITIONS.flatMap(
-    (definition3) => createCatalogEffectPresets([definition3]).map((source3, index) => {
+    (definition3) => createCatalogEffectPresets([definition3]).map((source4, index) => {
       const slug = definition3.id.replace(/^an-native-/, "");
       const id = \`an-preset-v3-\${slug}-\${index + 1}\`;
-      v3LabelSourceIds[id] = source3.id;
-      return { ...source3, id };
+      v3LabelSourceIds[id] = source4.id;
+      return { ...source4, id };
     })
   );
   var NATIVE_V3_PRESET_LABEL_SOURCE_IDS = v3LabelSourceIds;
@@ -19775,7 +20314,9 @@ fn hash(pixel: vec2f) -> f32 {
     ...OWNED_NEXT_TWELVE_U_PRESETS,
     ...LUMA_DCT_EIGHT_PRESETS,
     ...OWNED_V_FIELD_PRESETS,
-    ...POINTER_EFFECT_PRESETS
+    ...POINTER_EFFECT_PRESETS,
+    ...OWNED_W_DISTORTION_PRESETS,
+    ...FREQUENCY_SEPARATION_PRESETS
   ];
 
   // shared/native-effect-trust.ts
@@ -20213,13 +20754,13 @@ fn hash(pixel: vec2f) -> f32 {
     const { width, height, pixelRatio, target } = geometry;
     const translate = transform?.translate ?? [0, 0];
     const scale = transform?.scale ?? [1, 1];
-    const angle = transform?.rotate ?? 0;
+    const angle2 = transform?.rotate ?? 0;
     const origin = transform?.origin ?? [0.5, 0.5];
     if (![width, height, pixelRatio, target.width, target.height].every(
       (value) => Number.isFinite(value) && value > 0
-    ) || ![target.x, target.y, angle, ...translate, ...scale, ...origin].every(
+    ) || ![target.x, target.y, angle2, ...translate, ...scale, ...origin].every(
       Number.isFinite
-    ) || scale.some((value) => value <= 0 || value > 100) || origin.some((value) => value < 0 || value > 1) || translate.some((value) => Math.abs(value) > 1e5) || Math.abs(angle) > 100 * Math.PI)
+    ) || scale.some((value) => value <= 0 || value > 100) || origin.some((value) => value < 0 || value > 1) || translate.some((value) => Math.abs(value) > 1e5) || Math.abs(angle2) > 100 * Math.PI)
       return {
         ok: false,
         code: "effect-transform-invalid",
@@ -20229,8 +20770,8 @@ fn hash(pixel: vec2f) -> f32 {
     const oy = target.y + origin[1] * target.height;
     const tx = translate[0] * pixelRatio;
     const ty = translate[1] * pixelRatio;
-    const cosine = Math.cos(angle);
-    const sine = Math.sin(angle);
+    const cosine = Math.cos(angle2);
+    const sine = Math.sin(angle2);
     const a = cosine / scale[0];
     const b = sine / scale[0];
     const d = -sine / scale[1];
@@ -21114,7 +21655,7 @@ fn hash(pixel: vec2f) -> f32 {
   function validRadii(radii, width, height) {
     const values = Object.values(radii);
     if (values.some(
-      (corner2) => !Number.isFinite(corner2.x) || !Number.isFinite(corner2.y) || corner2.x < 0 || corner2.y < 0
+      (corner3) => !Number.isFinite(corner3.x) || !Number.isFinite(corner3.y) || corner3.x < 0 || corner3.y < 0
     ))
       return false;
     const tolerance = 1e-5;
@@ -21130,8 +21671,8 @@ fn hash(pixel: vec2f) -> f32 {
       height: Math.max(0, Math.min(a.y + a.height, b.y + b.height) - y)
     };
   }
-  function outsetAdjustedRadius(radius2, width, height, outsetX, outsetY) {
-    const coverage = 2 * Math.min(radius2.x / width, radius2.y / height);
+  function outsetAdjustedRadius(radius3, width, height, outsetX, outsetY) {
+    const coverage = 2 * Math.min(radius3.x / width, radius3.y / height);
     const dimension = (value, outset) => {
       if (outset <= 0) return Math.max(0, value + outset);
       if (value > outset || coverage > 1) return value + outset;
@@ -21139,8 +21680,8 @@ fn hash(pixel: vec2f) -> f32 {
       return value + outset * (1 - (1 - ratio) ** 3 * (1 - coverage ** 3));
     };
     return {
-      x: dimension(radius2.x, outsetX),
-      y: dimension(radius2.y, outsetY)
+      x: dimension(radius3.x, outsetX),
+      y: dimension(radius3.y, outsetY)
     };
   }
   function normalizeRadii(radii, width, height) {
@@ -21215,23 +21756,23 @@ fn hash(pixel: vec2f) -> f32 {
         reason: "unsupported-curve",
         detail: "The inner clip curve crosses an opposite edge and is not a quarter ellipse."
       };
-    const corner2 = (radius2, horizontalInset, verticalInset) => outsetAdjustedRadius(
-      radius2,
+    const corner3 = (radius3, horizontalInset, verticalInset) => outsetAdjustedRadius(
+      radius3,
       localWidth,
       localHeight,
       -horizontalInset,
       -verticalInset
     );
     const adjustedRadii = {
-      topLeft: corner2(outerRadii.topLeft, inset.left, inset.top),
-      topRight: corner2(outerRadii.topRight, inset.right, inset.top),
-      bottomRight: corner2(outerRadii.bottomRight, inset.right, inset.bottom),
-      bottomLeft: corner2(outerRadii.bottomLeft, inset.left, inset.bottom)
+      topLeft: corner3(outerRadii.topLeft, inset.left, inset.top),
+      topRight: corner3(outerRadii.topRight, inset.right, inset.top),
+      bottomRight: corner3(outerRadii.bottomRight, inset.right, inset.bottom),
+      bottomLeft: corner3(outerRadii.bottomLeft, inset.left, inset.bottom)
     };
     const localRadii = outset > 0 ? normalizeRadii(adjustedRadii, width, height) : adjustedRadii;
-    const scaled = (radius2) => ({
-      x: radius2.x * scaleX,
-      y: radius2.y * scaleY
+    const scaled = (radius3) => ({
+      x: radius3.x * scaleX,
+      y: radius3.y * scaleY
     });
     const clip = {
       rect: {
@@ -21968,12 +22509,12 @@ fn hash(pixel: vec2f) -> f32 {
           const pattern = graph.byId.get(match[1]);
           if (pattern.localName !== "pattern") continue;
           if (element.closest("pattern")) patternWorkLimit();
-          const source3 = originals.get(element);
-          if (!source3 || typeof source3.getScreenCTM !== "function")
+          const source4 = originals.get(element);
+          if (!source4 || typeof source4.getScreenCTM !== "function")
             patternWorkLimit();
           let matrix;
           try {
-            matrix = source3.getScreenCTM();
+            matrix = source4.getScreenCTM();
           } catch {
             patternWorkLimit();
           }
@@ -22050,7 +22591,7 @@ fn hash(pixel: vec2f) -> f32 {
       rootStyle.borderTopRightRadius,
       rootStyle.borderBottomRightRadius,
       rootStyle.borderBottomLeftRadius
-    ].some((radius2) => !radius2 || !zeroRadius(radius2)))
+    ].some((radius3) => !radius3 || !zeroRadius(radius3)))
       throw new NativeSvgSourceError(
         "source-svg-root-radius-unsupported",
         "An SVG root needs a rounded vector viewport clip."
@@ -22188,9 +22729,9 @@ fn hash(pixel: vec2f) -> f32 {
       );
     return serialized;
   }
-  async function rasterNativeSvgSource(source3, canvas, density) {
-    const box = source3.getBoundingClientRect();
-    const overflow = classifyNativeComputedOverflowClip(getComputedStyle(source3));
+  async function rasterNativeSvgSource(source4, canvas, density) {
+    const box = source4.getBoundingClientRect();
+    const overflow = classifyNativeComputedOverflowClip(getComputedStyle(source4));
     if (!overflow.ok)
       throw new NativeSvgSourceError(
         \`source-svg-\${overflow.reason}\`,
@@ -22225,7 +22766,7 @@ fn hash(pixel: vec2f) -> f32 {
         "An SVG source exceeds bounded physical raster dimensions."
       );
     const serialized = serializeNativeSvgSource(
-      source3,
+      source4,
       {
         width: box.width,
         height: box.height
@@ -24701,13 +25242,13 @@ fn hash(pixel: vec2f) -> f32 {
         finish2();
         throw normalizeCachedLeafError(error);
       }
-      const validate = (source3) => {
+      const validate = (source4) => {
         if (leaf.revision !== revision && (leaf.capturedSceneSnapshot !== plannedSnapshot || leaf.capturedPaintSnapshot !== plannedPaint))
           throw new NativeSourceError(
             "source-scene-stale",
             "The source geometry changed before its raster snapshot began."
           );
-        return source3;
+        return source4;
       };
       if (result instanceof Promise)
         return result.then(validate).catch((error) => {
@@ -24794,14 +25335,14 @@ fn hash(pixel: vec2f) -> f32 {
       }
       return afterMaybePromise(
         this.readSceneLeaf(leaf, metrics, "background", memo),
-        (source3) => {
+        (source4) => {
           out.push({
             ...common3,
             key: this.backgroundId(element),
             kind: "dom",
-            source: source3,
-            width: source3.width,
-            height: source3.height,
+            source: source4,
+            width: source4.width,
+            height: source4.height,
             revision: leaf.revision,
             clip: ancestorClip,
             clips: []
@@ -25030,8 +25571,8 @@ fn hash(pixel: vec2f) -> f32 {
       }
       return afterMaybePromise(
         this.readSceneLeaf(leaf, metrics, "all", memo),
-        (source3) => {
-          const capture = nativeCaptureRoi(source3);
+        (source4) => {
+          const capture = nativeCaptureRoi(source4);
           const computedOverflow = classifyNativeComputedOverflowClip(style);
           if (!computedOverflow.ok)
             throw new NativeSourceError(
@@ -25078,9 +25619,9 @@ fn hash(pixel: vec2f) -> f32 {
             key: this.id(element),
             node: element,
             kind: "dom",
-            source: source3,
-            width: source3.width,
-            height: source3.height,
+            source: source4,
+            width: source4.width,
+            height: source4.height,
             revision: leaf.revision,
             coordinateSpace: this.coordinateSpace,
             localBox: capturedLocalBox,
@@ -25495,8 +26036,8 @@ fn hash(pixel: vec2f) -> f32 {
           );
         return afterMaybePromise(
           this.readSceneLeaf(leaf, metrics, paintPhase, memo),
-          (source3) => {
-            const capture = nativeCaptureRoi(source3);
+          (source4) => {
+            const capture = nativeCaptureRoi(source4);
             if (!capture && ownOverflow.outset > 0)
               throw new NativeSourceError(
                 "source-capture-geometry-missing",
@@ -25526,9 +26067,9 @@ fn hash(pixel: vec2f) -> f32 {
               localBox: capture?.cssBox ?? capturedGeometry.localBox,
               localToTarget: capturedGeometry.localToTarget,
               kind: "dom",
-              source: source3,
-              width: source3.width,
-              height: source3.height,
+              source: source4,
+              width: source4.width,
+              height: source4.height,
               revision: leaf.revision
             });
           }
@@ -25737,10 +26278,10 @@ fn hash(pixel: vec2f) -> f32 {
           "A CSS canvas background image needs a viewport-sized raster source."
         );
       const rootAlpha = solidBackgroundAlpha(rootStyle.backgroundColor);
-      const source3 = rootAlpha === 0 && document.body ? document.body : root;
-      const style = source3 === root ? rootStyle : getComputedStyle(source3);
+      const source4 = rootAlpha === 0 && document.body ? document.body : root;
+      const style = source4 === root ? rootStyle : getComputedStyle(source4);
       const alpha = solidBackgroundAlpha(style.backgroundColor);
-      if (style.backgroundImage !== "none" || alpha === null || getComputedStyle(root).opacity !== "1" || source3 !== root && style.opacity !== "1")
+      if (style.backgroundImage !== "none" || alpha === null || getComputedStyle(root).opacity !== "1" || source4 !== root && style.opacity !== "1")
         throw new NativeSourceError(
           "source-viewport-background-unsupported",
           "The CSS canvas background extends beyond the root box and needs a supported opaque solid source."
@@ -25784,7 +26325,7 @@ fn hash(pixel: vec2f) -> f32 {
       if (clip.width <= 0 || clip.height <= 0) return null;
       return {
         key: -1,
-        node: source3,
+        node: source4,
         coordinateSpace: this.coordinateSpace,
         kind: "canvas",
         sourceRole: "viewport-background",
@@ -26157,11 +26698,11 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
     };
     const add2 = (family) => {
       const entries = family === "compute" ? families.compute === void 0 ? [] : families.compute : families[family];
-      for (const texture2 of entries) {
-        if (seen.has(texture2)) continue;
-        seen.add(texture2);
+      for (const texture3 of entries) {
+        if (seen.has(texture3)) continue;
+        seen.add(texture3);
         familyTextures[family] += 1;
-        const bytes = textureBytes.get(texture2);
+        const bytes = textureBytes.get(texture3);
         if (bytes === void 0) familyMissingTextures[family] += 1;
         else familyKnownBytes[family] += bytes;
       }
@@ -26448,15 +26989,15 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
         "composition-media-unseekable",
         "A live media stream has no deterministic seek position."
       );
-    const source3 = video.currentSrc || video.src;
-    if (!source3)
+    const source4 = video.currentSrc || video.src;
+    if (!source4)
       throw failure(
         "composition-media-unseekable",
         "A video has no resolved source."
       );
     let url;
     try {
-      url = new URL(source3, doc.baseURI);
+      url = new URL(source4, doc.baseURI);
     } catch {
       throw failure(
         "composition-media-unseekable",
@@ -27148,8 +27689,8 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
       this.settled = false;
       this.scratch = new Map(
         keep.flatMap((name) => {
-          const texture2 = committed.get(name);
-          return texture2 === void 0 ? [] : [[name, texture2]];
+          const texture3 = committed.get(name);
+          return texture3 === void 0 ? [] : [[name, texture3]];
         })
       );
     }
@@ -27157,7 +27698,7 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
       if (this.settled) throw new Error("frame-resources-already-settled");
       const retained = new Set(this.scratch.values());
       return [...new Set(this.committed.values())].filter(
-        (texture2) => !retained.has(texture2)
+        (texture3) => !retained.has(texture3)
       );
     }
     commit() {
@@ -27169,7 +27710,7 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
       this.settled = true;
       const retained = new Set(this.committed.values());
       return [...new Set(this.scratch.values())].filter(
-        (texture2) => !retained.has(texture2)
+        (texture3) => !retained.has(texture3)
       );
     }
   };
@@ -28493,7 +29034,7 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
     }
   };
   async function withNativeMountedTextureReadback(args) {
-    const { device, texture: texture2, plan, signal, assertCurrent, consume } = args;
+    const { device, texture: texture3, plan, signal, assertCurrent, consume } = args;
     if (signal.aborted) throw signal.reason;
     let buffer = null;
     let mapped = false;
@@ -28510,7 +29051,7 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
       scopeOpen = true;
       const encoder = device.createCommandEncoder();
       encoder.copyTextureToBuffer(
-        { texture: texture2 },
+        { texture: texture3 },
         { buffer, bytesPerRow: plan.bytesPerRow, rowsPerImage: plan.height },
         [plan.width, plan.height, 1]
       );
@@ -28784,18 +29325,18 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
     let nonTransparentPixels = 0;
     for (let y = 0; y < plan.height; y += 1) {
       for (let x = 0; x < plan.width; x += 1) {
-        const source3 = y * plan.bytesPerRow + x * 4;
+        const source4 = y * plan.bytesPerRow + x * 4;
         const target = (y * plan.width + x) * 4;
         if (plan.format === "bgra8unorm") {
-          rgba[target] = padded[source3 + 2];
-          rgba[target + 1] = padded[source3 + 1];
-          rgba[target + 2] = padded[source3];
+          rgba[target] = padded[source4 + 2];
+          rgba[target + 1] = padded[source4 + 1];
+          rgba[target + 2] = padded[source4];
         } else {
-          rgba[target] = padded[source3];
-          rgba[target + 1] = padded[source3 + 1];
-          rgba[target + 2] = padded[source3 + 2];
+          rgba[target] = padded[source4];
+          rgba[target + 1] = padded[source4 + 1];
+          rgba[target + 2] = padded[source4 + 2];
         }
-        const alpha = padded[source3 + 3];
+        const alpha = padded[source4 + 3];
         rgba[target + 3] = alpha;
         if (alpha > 0) nonTransparentPixels += 1;
       }
@@ -28937,12 +29478,12 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
 
   // app/components/design/bridge/native-runtime-epoch.ts
   var localEpochCounter = 0;
-  function createNativeRuntimeEpoch(source3 = globalThis.crypto) {
-    if (typeof source3?.randomUUID === "function")
-      return source3.randomUUID.call(source3);
-    if (typeof source3?.getRandomValues === "function") {
+  function createNativeRuntimeEpoch(source4 = globalThis.crypto) {
+    if (typeof source4?.randomUUID === "function")
+      return source4.randomUUID.call(source4);
+    if (typeof source4?.getRandomValues === "function") {
       const bytes = new Uint8Array(16);
-      source3.getRandomValues(bytes);
+      source4.getRandomValues(bytes);
       return \`local-\${Array.from(
         bytes,
         (byte) => byte.toString(16).padStart(2, "0")
@@ -29181,8 +29722,8 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
       }
     }
     encode(options) {
-      const { plan, source: source3, target, data, allocator } = options;
-      if (plan.mode !== "compute" || source3 === target || source3.width !== plan.sourceWidth || source3.height !== plan.sourceHeight || target.format !== "rgba16float" || data.length !== 136 || data[6] !== plan.encodedDensity || !Number.isSafeInteger(plan.byteLength) || plan.byteLength < 4 || plan.byteLength % 4 !== 0)
+      const { plan, source: source4, target, data, allocator } = options;
+      if (plan.mode !== "compute" || source4 === target || source4.width !== plan.sourceWidth || source4.height !== plan.sourceHeight || target.format !== "rgba16float" || data.length !== 136 || data[6] !== plan.encodedDensity || !Number.isSafeInteger(plan.byteLength) || plan.byteLength < 4 || plan.byteLength % 4 !== 0)
         throw new NativeStatelessComputeError("stateless-compute-frame-invalid");
       const buffers = [];
       let closed = false;
@@ -29207,7 +29748,7 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
             resource: { buffer: uniform, offset: 0, size: data.byteLength }
           },
           { binding: 1, resource: options.sampler },
-          { binding: 2, resource: source3.createView() },
+          { binding: 2, resource: source4.createView() },
           { binding: 3, resource: options.white.createView() },
           {
             binding: 4,
@@ -29375,9 +29916,9 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
   }
   function releaseTextures(allocator, textures) {
     const failures = [];
-    for (const texture2 of textures) {
+    for (const texture3 of textures) {
       try {
-        allocator.release(texture2);
+        allocator.release(texture3);
       } catch (error) {
         failures.push(error);
       }
@@ -29538,7 +30079,7 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
       const bufferSize = paddedBytesPerRow * height;
       if (bufferSize > maxReadbackBytes)
         throw new NativeFeedbackFailure("feedback-state-snapshot-budget");
-      const texture2 = this.state[this.readIndex];
+      const texture3 = this.state[this.readIndex];
       const readIndex = this.readIndex;
       const completedStep = this.completedStep;
       let buffer = null;
@@ -29551,7 +30092,7 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
         });
         const encoder = this.device.createCommandEncoder();
         encoder.copyTextureToBuffer(
-          { texture: texture2 },
+          { texture: texture3 },
           { buffer, bytesPerRow: paddedBytesPerRow, rowsPerImage: height },
           { width, height, depthOrArrayLayers: 1 }
         );
@@ -29561,15 +30102,15 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
         await buffer.mapAsync(GPUMapMode.READ);
         mapped = true;
         assertAvailable(signal);
-        if (this.disposed || this.faulted || this.state[this.readIndex] !== texture2 || this.readIndex !== readIndex || this.completedStep !== completedStep)
+        if (this.disposed || this.faulted || this.state[this.readIndex] !== texture3 || this.readIndex !== readIndex || this.completedStep !== completedStep)
           throw new NativeFeedbackFailure("feedback-state-snapshot-stale");
-        const source3 = new Uint8Array(buffer.getMappedRange());
-        if (source3.byteLength !== bufferSize)
+        const source4 = new Uint8Array(buffer.getMappedRange());
+        if (source4.byteLength !== bufferSize)
           throw new NativeFeedbackFailure("feedback-state-readback-failed");
         const packed = new Uint8Array(byteLength);
         for (let row = 0; row < height; row += 1)
           packed.set(
-            source3.subarray(
+            source4.subarray(
               row * paddedBytesPerRow,
               row * paddedBytesPerRow + bytesPerRow
             ),
@@ -30552,8 +31093,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       this.fillTextPipeline = null;
       this.presentPipeline = null;
       this.finishPipeline = null;
-      this.effectLayout = null;
-      this.effectPipelineLayout = null;
+      this.effectPipelineLayouts = /* @__PURE__ */ new Map();
       this.pipelines = new NativePipelineCache(MAX_PIPELINES);
       this.simulationComputePipelines = new NativePipelineCache(16);
       this.simulationRenderPipelines = new NativePipelineCache(16);
@@ -30582,7 +31122,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       this.presentationFaultRuntimeHash = null;
       this.presentationMirrorCapture = false;
       this.publishedPresentationMirror = new NativePublishedPresentationMirror(
-        (texture2) => this.destroyTexture(texture2)
+        (texture3) => this.destroyTexture(texture3)
       );
       this.compositionPixelRatio = null;
       this.compositionPixelBusy = false;
@@ -31196,13 +31736,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               continue;
             }
             if (!definition3.simulation && !definition3.feedback && !definition3.statelessCompute && definition3.passes.some(
-              (pass) => pass.kind !== "render" || pass.reads.length > 2 || (pass.previousFrameReads?.length ?? 0) > 0
+              (pass) => pass.kind !== "render" || pass.reads.length > 16 || (pass.previousFrameReads?.length ?? 0) > 0
             )) {
               reject(
                 instance,
                 target,
                 "pass-unsupported",
-                "This native runtime supports up to two current-frame render textures; compute and temporal inputs need a different path."
+                "This native runtime supports up to sixteen current-frame render textures; compute and temporal inputs need a different path."
               );
               continue;
             }
@@ -32294,8 +32834,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             const exportFeedback = mount.feedback;
             mount.feedback = null;
             if (exportFeedback) await this.disposeFeedback(exportFeedback);
-            for (const texture2 of mount.resourceTextures.values())
-              this.destroyTexture(texture2);
+            for (const texture3 of mount.resourceTextures.values())
+              this.destroyTexture(texture3);
             if (mount.outputTexture && mount.outputTexture !== saved.output)
               this.destroyTexture(mount.outputTexture);
             if (this.mounts.get(saved.instance.id) !== mount) {
@@ -32303,8 +32843,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
                 for (const buffer of saved.simulation.buffers)
                   this.destroySimulationBuffer(buffer);
               if (saved.feedback) await this.disposeFeedback(saved.feedback);
-              for (const texture2 of new Set(saved.resources.values()))
-                this.destroyTexture(texture2);
+              for (const texture3 of new Set(saved.resources.values()))
+                this.destroyTexture(texture3);
               if (saved.output) this.destroyTexture(saved.output);
               continue;
             }
@@ -32795,8 +33335,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       scene.context.unconfigure();
       for (const entry of scene.surface.sourceTextures.values())
         this.destroyTexture(entry.texture);
-      for (const texture2 of scene.surface.resourceTextures.values())
-        this.destroyTexture(texture2);
+      for (const texture3 of scene.surface.resourceTextures.values())
+        this.destroyTexture(texture3);
       for (const entry of scene.surface.isolationTextures.values())
         this.destroyTexture(entry.texture);
       for (const entry of scene.surface.drawBindings.values())
@@ -33005,10 +33545,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           child.setAttribute("data-an-native-authored-opacity", opacity);
       }
       const authoredEpochBeforeRead = scene.provider.authoredSourceEpoch?.();
-      let source3;
+      let source4;
       const sceneSourceStarted = sceneWallPhases ? performance.now() : 0;
       try {
-        source3 = await scene.provider.readScene(
+        source4 = await scene.provider.readScene(
           this.mountedBenchmarkRenderMetrics?.sourceReadDetail,
           "scene-presentation"
         );
@@ -33036,7 +33576,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       ).map((mount) => mount.instance.id);
       const nativeRecordIds = this.representedNativeInstances(
         new Set(
-          source3.flatMap(
+          source4.flatMap(
             (record4) => record4.nativeInstanceId ? [record4.nativeInstanceId] : []
           )
         )
@@ -33057,10 +33597,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         const sceneComposeStarted = sceneWallPhases ? performance.now() : 0;
         const composed = await this.composeScene(
           scene.surface,
-          source3,
+          source4,
           encoder,
           "source",
-          this.colorPresented === "srgb" && this.dynamicRangePresented === "sdr" && source3.length > 1 ? "srgb-css-linear" : "linear"
+          this.colorPresented === "srgb" && this.dynamicRangePresented === "sdr" && source4.length > 1 ? "srgb-css-linear" : "linear"
         );
         if (sceneWallPhases)
           sceneWallPhases.composeWallMs += performance.now() - sceneComposeStarted;
@@ -33122,7 +33662,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           [...this.mounts.values()].filter((mount) => mount.instance.placement === "backdrop").map((mount) => mount.canvas)
         );
         const paintedChildren = /* @__PURE__ */ new Set();
-        for (const record4 of source3) {
+        for (const record4 of source4) {
           const nativeTarget = record4.nativeInstanceId ? this.mounts.get(record4.nativeInstanceId)?.target : void 0;
           for (let child of nativeTarget ? [record4.node, nativeTarget] : [record4.node]) {
             while (child.parentElement && child.parentElement !== body)
@@ -33248,10 +33788,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       const seen = /* @__PURE__ */ new Set();
       const bytes = (textures) => {
         let total = 0;
-        for (const texture2 of textures) {
-          if (!texture2 || seen.has(texture2)) continue;
-          seen.add(texture2);
-          total += this.textureBytes.get(texture2) ?? 0;
+        for (const texture3 of textures) {
+          if (!texture3 || seen.has(texture3)) continue;
+          seen.add(texture3);
+          total += this.textureBytes.get(texture3) ?? 0;
         }
         return total;
       };
@@ -33483,14 +34023,14 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         minFilter: "linear"
       });
       const solid = (bytes) => {
-        const texture2 = device.createTexture({
+        const texture3 = device.createTexture({
           size: [1, 1],
           format: "rgba8unorm",
           usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
         });
-        scope.own(() => this.destroyTexture(texture2));
-        device.queue.writeTexture({ texture: texture2 }, bytes, { bytesPerRow: 4 }, [1, 1]);
-        return texture2;
+        scope.own(() => this.destroyTexture(texture3));
+        device.queue.writeTexture({ texture: texture3 }, bytes, { bytesPerRow: 4 }, [1, 1]);
+        return texture3;
       };
       const transparent = solid(EMPTY_SOURCE);
       const white = solid(WHITE_SOURCE);
@@ -33702,11 +34242,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       this.fillTextPipeline = null;
       this.presentPipeline = null;
       this.finishPipeline = null;
-      this.effectLayout = null;
-      this.effectPipelineLayout = null;
+      this.effectPipelineLayouts.clear();
       for (const buffer of this.retirement.splice(0)) this.destroyUniform(buffer);
-      for (const texture2 of this.textureRetirement.splice(0))
-        this.destroyTexture(texture2);
+      for (const texture3 of this.textureRetirement.splice(0))
+        this.destroyTexture(texture3);
       for (const mount of this.mounts.values())
         this.postStatus(mount.instance.id, mount.instance.nodeId, "error", {
           code,
@@ -33815,29 +34354,29 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         levelHeight = Math.max(1, Math.floor(levelHeight / 2));
       }
       this.ensureTextureBudget(bytes);
-      const texture2 = this.device.createTexture({
+      const texture3 = this.device.createTexture({
         size: [width, height],
         format,
         mipLevelCount,
         usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT | extraUsage
       });
-      this.textureBytes.set(texture2, bytes);
+      this.textureBytes.set(texture3, bytes);
       this.allocatedTextureBytes += bytes;
-      return texture2;
+      return texture3;
     }
-    destroyTexture(texture2) {
-      if (!texture2 || this.destroyedTextures.has(texture2)) return;
-      if (this.statelessTextureLeases.has(texture2)) {
-        this.statelessTextureDestruction.add(texture2);
+    destroyTexture(texture3) {
+      if (!texture3 || this.destroyedTextures.has(texture3)) return;
+      if (this.statelessTextureLeases.has(texture3)) {
+        this.statelessTextureDestruction.add(texture3);
         return;
       }
-      const bytes = this.textureBytes.get(texture2);
+      const bytes = this.textureBytes.get(texture3);
       if (bytes !== void 0) {
         this.allocatedTextureBytes -= bytes;
-        this.textureBytes.delete(texture2);
+        this.textureBytes.delete(texture3);
       }
-      this.destroyedTextures.add(texture2);
-      texture2.destroy();
+      this.destroyedTextures.add(texture3);
+      texture3.destroy();
     }
     destroyDevice(device) {
       if (this.statelessDeviceLeases.has(device)) {
@@ -33847,17 +34386,17 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       device.destroy();
     }
     retainStatelessTextures(device, textures) {
-      for (const texture2 of textures)
-        if (!this.textureBytes.has(texture2) || this.statelessTextureDestruction.has(texture2))
+      for (const texture3 of textures)
+        if (!this.textureBytes.has(texture3) || this.statelessTextureDestruction.has(texture3))
           throw new NativeStatelessComputeError(
             "stateless-compute-bytes-unavailable"
           );
       if (this.statelessDeviceDestruction.has(device))
         throw new NativeStatelessComputeError("stateless-compute-frame-invalid");
-      for (const texture2 of textures)
+      for (const texture3 of textures)
         this.statelessTextureLeases.set(
-          texture2,
-          (this.statelessTextureLeases.get(texture2) ?? 0) + 1
+          texture3,
+          (this.statelessTextureLeases.get(texture3) ?? 0) + 1
         );
       this.statelessDeviceLeases.set(
         device,
@@ -33870,21 +34409,21 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           throw new NativeStatelessComputeError(
             "stateless-compute-frame-invalid"
           );
-        for (const texture2 of textures) {
-          const refs = this.statelessTextureLeases.get(texture2);
+        for (const texture3 of textures) {
+          const refs = this.statelessTextureLeases.get(texture3);
           if (refs === void 0 || refs < 1)
             throw new NativeStatelessComputeError(
               "stateless-compute-frame-invalid"
             );
         }
         released = true;
-        for (const texture2 of textures) {
-          const refs = this.statelessTextureLeases.get(texture2);
-          if (refs > 1) this.statelessTextureLeases.set(texture2, refs - 1);
+        for (const texture3 of textures) {
+          const refs = this.statelessTextureLeases.get(texture3);
+          if (refs > 1) this.statelessTextureLeases.set(texture3, refs - 1);
           else {
-            this.statelessTextureLeases.delete(texture2);
-            if (this.statelessTextureDestruction.delete(texture2))
-              this.destroyTexture(texture2);
+            this.statelessTextureLeases.delete(texture3);
+            if (this.statelessTextureDestruction.delete(texture3))
+              this.destroyTexture(texture3);
           }
         }
         if (deviceRefs > 1)
@@ -33973,11 +34512,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       for (const asset2 of mount.assetTextures.values())
         this.destroyTexture(asset2.texture);
       mount.assetTextures.clear();
-      for (const source3 of mount.sourceTextures.values())
-        this.destroyTexture(source3.texture);
+      for (const source4 of mount.sourceTextures.values())
+        this.destroyTexture(source4.texture);
       mount.sourceTextures.clear();
-      for (const texture2 of mount.resourceTextures.values())
-        this.destroyTexture(texture2);
+      for (const texture3 of mount.resourceTextures.values())
+        this.destroyTexture(texture3);
       mount.resourceTextures.clear();
       for (const entry of mount.isolationTextures.values())
         this.destroyTexture(entry.texture);
@@ -34120,8 +34659,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               saved.mount.instance.id
             )
           );
-        for (const texture2 of new Set(saved.resources.values()))
-          this.destroyTexture(texture2);
+        for (const texture3 of new Set(saved.resources.values()))
+          this.destroyTexture(texture3);
         if (saved.output) this.destroyTexture(saved.output);
       }
     }
@@ -34689,13 +35228,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       this.destroyTexture(mount.outputTexture);
       mount.outputTexture = null;
       this.destroyTexture(mount.maskTexture);
-      for (const texture2 of mount.resourceTextures.values())
-        this.destroyTexture(texture2);
+      for (const texture3 of mount.resourceTextures.values())
+        this.destroyTexture(texture3);
       for (const binding of mount.drawBindings.values())
         this.destroyUniform(binding.buffer);
       mount.drawBindings.clear();
-      for (const source3 of mount.sourceTextures.values())
-        this.destroyTexture(source3.texture);
+      for (const source4 of mount.sourceTextures.values())
+        this.destroyTexture(source4.texture);
       for (const entry of mount.isolationTextures.values())
         this.destroyTexture(entry.texture);
       mount.isolationTextures.clear();
@@ -34791,8 +35330,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         mount.maskTexture = null;
         mount.maskSignature = "";
         mount.inputMaskSignature = "";
-        for (const texture2 of mount.resourceTextures.values())
-          this.destroyTexture(texture2);
+        for (const texture3 of mount.resourceTextures.values())
+          this.destroyTexture(texture3);
         mount.resourceTextures.clear();
         for (const entry of mount.isolationTextures.values())
           this.textureRetirement.push(entry.texture);
@@ -34802,10 +35341,24 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         mount.drawBindings.clear();
       }
     }
-    async pipeline(wgsl, format, blend2 = false, effect = false) {
+    async pipeline(wgsl, format, blend2 = false, effect = false, effectTextureCount = 2) {
       const device = await this.ensureDevice();
       const deviceEpoch = this.deviceEpoch;
-      const key = \`\${deviceEpoch}:\${format}:\${blend2}:\${effect}:\${wgsl}\`;
+      const textureCount = effect ? Math.max(2, effectTextureCount) : 0;
+      if (effect) {
+        const limit = device.limits.maxSampledTexturesPerShaderStage;
+        if (!Number.isSafeInteger(limit) || limit < 2)
+          throw new NativeSourceError(
+            "effect-input-limit-unavailable",
+            "The WebGPU device did not report a usable sampled-texture limit."
+          );
+        if (textureCount > limit)
+          throw new NativeSourceError(
+            "effect-input-limit",
+            \`This pass needs \${textureCount} sampled textures; the WebGPU device supports \${limit} per shader stage.\`
+          );
+      }
+      const key = \`\${deviceEpoch}:\${format}:\${blend2}:\${effect}:\${textureCount}:\${wgsl}\`;
       if (!this.pipelines.has(key)) this.ensureTextureBudget(524288);
       return this.pipelines.getOrCreate(key, async () => {
         const module = device.createShaderModule({ code: wgsl });
@@ -34826,8 +35379,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               message: error.message
             }))
           );
-        if (effect && !this.effectPipelineLayout) {
-          this.effectLayout = device.createBindGroupLayout({
+        let effectPipelineLayout = effect ? this.effectPipelineLayouts.get(textureCount) : void 0;
+        if (effect && !effectPipelineLayout) {
+          const effectLayout = device.createBindGroupLayout({
             entries: [
               {
                 binding: 0,
@@ -34848,16 +35402,22 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
                 binding: 3,
                 visibility: GPUShaderStage.FRAGMENT,
                 texture: { sampleType: "float" }
-              }
+              },
+              ...Array.from({ length: textureCount - 2 }, (_, index) => ({
+                binding: index + 4,
+                visibility: GPUShaderStage.FRAGMENT,
+                texture: { sampleType: "float" }
+              }))
             ]
           });
-          this.effectPipelineLayout = device.createPipelineLayout({
-            bindGroupLayouts: [this.effectLayout]
+          effectPipelineLayout = device.createPipelineLayout({
+            bindGroupLayouts: [effectLayout]
           });
+          this.effectPipelineLayouts.set(textureCount, effectPipelineLayout);
         }
         try {
           const pipeline = await device.createRenderPipelineAsync({
-            layout: effect ? this.effectPipelineLayout : "auto",
+            layout: effect ? effectPipelineLayout : "auto",
             vertex: { module, entryPoint: "vs" },
             fragment: {
               module,
@@ -34899,7 +35459,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         }
       });
     }
-    bind(mount, key, pipeline, source3, mask, bytes, sampler = this.sampler, secondSampler = null, extraTextures = []) {
+    bind(mount, key, pipeline, source4, mask, bytes, sampler = this.sampler, secondSampler = null, extraTextures = []) {
       const size = Math.ceil(bytes.byteLength / 16) * 16;
       let entry = mount.drawBindings.get(key);
       if (!entry || entry.size !== size) {
@@ -34930,13 +35490,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         mount.drawBindings.set(key, entry);
       }
       this.device.queue.writeBuffer(entry.buffer, 0, bytes);
-      if (!entry.bindGroup || entry.pipeline !== pipeline || entry.source !== source3 || entry.mask !== mask || entry.sampler !== sampler || entry.secondSampler !== secondSampler || entry.extraTextures?.length !== extraTextures.length || extraTextures.some(
-        (texture2, index) => entry.extraTextures?.[index] !== texture2
+      if (!entry.bindGroup || entry.pipeline !== pipeline || entry.source !== source4 || entry.mask !== mask || entry.sampler !== sampler || entry.secondSampler !== secondSampler || entry.extraTextures?.length !== extraTextures.length || extraTextures.some(
+        (texture3, index) => entry.extraTextures?.[index] !== texture3
       )) {
         const entries = [
           { binding: 0, resource: { buffer: entry.buffer } },
           { binding: 1, resource: sampler },
-          { binding: 2, resource: source3.createView() }
+          { binding: 2, resource: source4.createView() }
         ];
         if (mask) entries.push({ binding: 3, resource: mask.createView() });
         if (secondSampler) entries.push({ binding: 4, resource: secondSampler });
@@ -34950,7 +35510,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           entries
         });
         entry.pipeline = pipeline;
-        entry.source = source3;
+        entry.source = source4;
         entry.mask = mask;
         entry.sampler = sampler;
         entry.secondSampler = secondSampler;
@@ -34983,10 +35543,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           mount.drawBindings.delete(key);
           this.retirement.push(entry.buffer);
         }
-        for (const [key, source3] of mount.sourceTextures)
-          if (this.renderEpoch - source3.lastFrame >= 120) {
+        for (const [key, source4] of mount.sourceTextures)
+          if (this.renderEpoch - source4.lastFrame >= 120) {
             mount.sourceTextures.delete(key);
-            this.destroyTexture(source3.texture);
+            this.destroyTexture(source4.texture);
           }
       }
       if (this.retirementPending || !this.retirement.length && !this.textureRetirement.length || !this.device)
@@ -34995,14 +35555,14 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       const device = this.device;
       const buffers = this.retirement.splice(0);
       const textures = this.textureRetirement.splice(0);
-      for (const texture2 of textures)
-        this.retirementInFlightTextures.add(texture2);
+      for (const texture3 of textures)
+        this.retirementInFlightTextures.add(texture3);
       void device.queue.onSubmittedWorkDone().then(
         () => {
           for (const buffer of buffers) this.destroyUniform(buffer);
-          for (const texture2 of textures) {
-            this.retirementInFlightTextures.delete(texture2);
-            this.destroyTexture(texture2);
+          for (const texture3 of textures) {
+            this.retirementInFlightTextures.delete(texture3);
+            this.destroyTexture(texture3);
           }
           this.retirementPending = false;
           this.retireBindings();
@@ -35010,9 +35570,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         (error) => {
           this.issue("gpu-retirement", String(error));
           for (const buffer of buffers) this.destroyUniform(buffer);
-          for (const texture2 of textures) {
-            this.retirementInFlightTextures.delete(texture2);
-            this.destroyTexture(texture2);
+          for (const texture3 of textures) {
+            this.retirementInFlightTextures.delete(texture3);
+            this.destroyTexture(texture3);
           }
           this.retirementPending = false;
           this.retireBindings();
@@ -35042,14 +35602,14 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       let entry = mount.sourceTextures.get(record4.key);
       if (!entry || entry.width !== uploadWidth || entry.height !== uploadHeight) {
         this.ensureCompositionBudget(mount, uploadWidth * uploadHeight * 4);
-        const texture2 = this.texture(
+        const texture3 = this.texture(
           uploadWidth,
           uploadHeight,
           "rgba8unorm-srgb"
         );
         if (entry) this.textureRetirement.push(entry.texture);
         entry = {
-          texture: texture2,
+          texture: texture3,
           revision: -1,
           width: uploadWidth,
           height: uploadHeight,
@@ -35245,7 +35805,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       }
       return new Blob([bytes.buffer], { type: mime });
     }
-    async generateEncodedMips(mount, device, texture2, sizes) {
+    async generateEncodedMips(mount, device, texture3, sizes) {
       if (sizes.length < 2) return;
       const pipeline = await this.pipeline(encodedMipWgsl, "rgba8unorm");
       if (this.device !== device)
@@ -35271,7 +35831,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             entries: [
               {
                 binding: 0,
-                resource: texture2.createView({
+                resource: texture3.createView({
                   baseMipLevel: level - 1,
                   mipLevelCount: 1
                 })
@@ -35294,7 +35854,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           pass.end();
           encoder.copyTextureToTexture(
             { texture: output },
-            { texture: texture2, mipLevel: level },
+            { texture: texture3, mipLevel: level },
             [size.width, size.height, 1]
           );
         }
@@ -35307,7 +35867,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         }
       }
     }
-    async uploadLinearPremultColorAsset(mount, device, assetKey, source3, width, height, signal) {
+    async uploadLinearPremultColorAsset(mount, device, assetKey, source4, width, height, signal) {
       const pipeline = await this.pipeline(linearPremultInputWgsl, "rgba16float");
       if (this.device !== device || signal.aborted)
         throw new NativeSourceError(
@@ -35325,7 +35885,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         encoded = this.texture(width, height, "rgba8unorm-srgb");
         output = this.texture(width, height, "rgba16float");
         device.queue.copyExternalImageToTexture(
-          { source: source3, flipY: false },
+          { source: source4, flipY: false },
           { texture: encoded, premultipliedAlpha: false, colorSpace: "srgb" },
           [width, height]
         );
@@ -35389,10 +35949,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           \`The color input could not be normalized: \${String(error)}\`
         );
       } finally {
-        for (const texture2 of [encoded, output]) {
-          if (!texture2) continue;
-          if (queued) this.textureRetirement.push(texture2);
-          else this.destroyTexture(texture2);
+        for (const texture3 of [encoded, output]) {
+          if (!texture3) continue;
+          if (queued) this.textureRetirement.push(texture3);
+          else this.destroyTexture(texture3);
         }
       }
     }
@@ -35509,7 +36069,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             }
             const temporaryBytes = totalBytes - width * height * 4;
             this.ensureCompositionBudget(mount, totalBytes + temporaryBytes);
-            const texture3 = this.texture(
+            const texture4 = this.texture(
               width,
               height,
               "rgba8unorm",
@@ -35523,10 +36083,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               scopeOpen = true;
               device.queue.copyExternalImageToTexture(
                 { source: bitmap ?? image2, flipY: false },
-                { texture: texture3, premultipliedAlpha: false, colorSpace: "srgb" },
+                { texture: texture4, premultipliedAlpha: false, colorSpace: "srgb" },
                 [width, height]
               );
-              await this.generateEncodedMips(mount, device, texture3, sizes);
+              await this.generateEncodedMips(mount, device, texture4, sizes);
               submitted = sizes.length > 1;
               const validation = device.popErrorScope();
               scopeOpen = false;
@@ -35542,10 +36102,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
                   "The encoded image changed before its mips were ready."
                 );
               mount.assetTextures.set(assetKey, {
-                texture: texture3,
+                texture: texture4,
                 lastFrame: this.renderEpoch
               });
-              return texture3;
+              return texture4;
             } catch (error) {
               let scopeCleanupError;
               let scopeCleanupFailed = false;
@@ -35556,8 +36116,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
                   scopeCleanupError = cleanupError;
                   scopeCleanupFailed = true;
                 }
-              if (submitted) this.textureRetirement.push(texture3);
-              else this.destroyTexture(texture3);
+              if (submitted) this.textureRetirement.push(texture4);
+              else this.destroyTexture(texture4);
               if (scopeCleanupFailed)
                 throw new NativeSourceError(
                   "input-asset-cleanup",
@@ -35571,7 +36131,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             }
           }
           this.ensureCompositionBudget(mount, width * height * 4);
-          const texture2 = this.texture(
+          const texture3 = this.texture(
             width,
             height,
             sampleEncoding === "srgb-color" ? "rgba8unorm-srgb" : "rgba8unorm"
@@ -35579,16 +36139,16 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           try {
             device.queue.copyExternalImageToTexture(
               { source: bitmap ?? image2, flipY: false },
-              { texture: texture2, premultipliedAlpha: false, colorSpace: "srgb" },
+              { texture: texture3, premultipliedAlpha: false, colorSpace: "srgb" },
               [width, height]
             );
             mount.assetTextures.set(assetKey, {
-              texture: texture2,
+              texture: texture3,
               lastFrame: this.renderEpoch
             });
-            return texture2;
+            return texture3;
           } catch (error) {
-            this.destroyTexture(texture2);
+            this.destroyTexture(texture3);
             throw new NativeSourceError(
               "input-asset-upload",
               \`The input image could not be uploaded to WebGPU: \${String(error)}\`
@@ -35640,16 +36200,16 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "source-group-local-chain-unsupported",
           "source-group-local-chain-unsupported"
         );
-      let source3 = mount.resourceTextures.get(outputName);
-      if (!source3) {
+      let source4 = mount.resourceTextures.get(outputName);
+      if (!source4) {
         this.ensureCompositionBudget(
           mount,
           mount.width * mount.height * (this.workingFormat === "rgba16float" ? 8 : 4)
         );
-        source3 = this.texture(mount.width, mount.height);
-        mount.resourceTextures.set(outputName, source3);
+        source4 = this.texture(mount.width, mount.height);
+        mount.resourceTextures.set(outputName, source4);
       }
-      let compositionTarget = source3;
+      let compositionTarget = source4;
       let cssIntermediate;
       if (blendMode === "srgb-css-linear") {
         const key = \`css-intermediate:\${outputName}\`;
@@ -35659,10 +36219,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             mount,
             mount.width * mount.height * (this.workingFormat === "rgba16float" ? 8 : 4)
           );
-          const texture2 = this.texture(mount.width, mount.height);
+          const texture3 = this.texture(mount.width, mount.height);
           if (entry) this.textureRetirement.push(entry.texture);
           entry = {
-            texture: texture2,
+            texture: texture3,
             width: mount.width,
             height: mount.height,
             lastFrame: this.renderEpoch
@@ -35675,7 +36235,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       }
       const rootPlanes = {
         primary: compositionTarget,
-        companion: cssIntermediate ? source3 : void 0,
+        companion: cssIntermediate ? source4 : void 0,
         key: outputName
       };
       const unavailablePlanes = () => {
@@ -35695,9 +36255,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               mount,
               width * height * (this.workingFormat === "rgba16float" ? 8 : 4)
             );
-            const texture2 = this.texture(width, height);
+            const texture3 = this.texture(width, height);
             if (entry) this.textureRetirement.push(entry.texture);
-            entry = { texture: texture2, width, height, lastFrame: this.renderEpoch };
+            entry = { texture: texture3, width, height, lastFrame: this.renderEpoch };
             mount.isolationTextures.set(key, entry);
           }
           entry.lastFrame = this.renderEpoch;
@@ -35798,7 +36358,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             const containsParent = (box) => box.x <= parentBox.x && box.y <= parentBox.y && box.x + box.width >= parentBox.x + parentBox.width && box.y + box.height >= parentBox.y + parentBox.height;
             const radii = clipShape?.radii;
             const squareClip = radii && Object.values(radii).every(
-              (corner2) => corner2.x === 0 && corner2.y === 0
+              (corner3) => corner3.x === 0 && corner3.y === 0
             );
             if (item.node.opacity === 1 && (item.node.isolationKind === "opacity" || clipShape && squareClip && containsParent(clipShape.rect) && clipShape.localToTarget.b === 0 && clipShape.localToTarget.c === 0)) {
               current = await drawItems(
@@ -35853,10 +36413,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
                   mount,
                   groupWidth * groupHeight * (this.workingFormat === "rgba16float" ? 8 : 4)
                 );
-                const texture2 = this.texture(groupWidth, groupHeight);
+                const texture3 = this.texture(groupWidth, groupHeight);
                 if (entry) this.textureRetirement.push(entry.texture);
                 entry = {
-                  texture: texture2,
+                  texture: texture3,
                   width: groupWidth,
                   height: groupHeight,
                   lastFrame: this.renderEpoch
@@ -36160,20 +36720,20 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             );
           const nativeMount = record4.nativeInstanceId ? this.mounts.get(record4.nativeInstanceId) : void 0;
           const nestedBackdropId = nested && nativeMount?.instance.placement === "backdrop" && nestedLayerOwner?.placement === "layer" && mount.target !== nativeMount.target && mount.target.contains(nativeMount.target) ? nativeMount.instance.id : void 0;
-          const texture2 = record4.nativeInstanceId ? nestedBackdropId ? this.transparent : nativeMount?.outputTexture : this.upload(mount, record4);
-          if (!texture2)
+          const texture3 = record4.nativeInstanceId ? nestedBackdropId ? this.transparent : nativeMount?.outputTexture : this.upload(mount, record4);
+          if (!texture3)
             throw new NativeSourceError(
               "native-dependency-missing",
               \`Native source \${record4.nativeInstanceId} has no rendered GPU texture.\`
             );
-          if (record4.nativeInstanceId && !nestedBackdropId && record4.imageRendering && (record4.width !== texture2.width || record4.height !== texture2.height))
+          if (record4.nativeInstanceId && !nestedBackdropId && record4.imageRendering && (record4.width !== texture3.width || record4.height !== texture3.height))
             throw new NativeSourceError(
               "source-image-rendering-geometry",
               "source-image-rendering-geometry"
             );
           return {
             id: node.id,
-            texture: texture2,
+            texture: texture3,
             rect: record4.rect,
             localBox: record4.localBox,
             localToTarget: record4.localToTarget,
@@ -36247,9 +36807,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             mount,
             width * height * (this.workingFormat === "rgba16float" ? 8 : 4)
           );
-          const texture2 = this.texture(width, height);
+          const texture3 = this.texture(width, height);
           if (entry) this.textureRetirement.push(entry.texture);
-          entry = { texture: texture2, width, height, lastFrame: this.renderEpoch };
+          entry = { texture: texture3, width, height, lastFrame: this.renderEpoch };
           mount.isolationTextures.set(groupKey, entry);
         }
         entry.lastFrame = this.renderEpoch;
@@ -36298,7 +36858,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         rootPlanes
       );
       if (blendMode === "srgb-css-linear") {
-        const decoded = compositionTarget === source3 ? rootPlanes.primary : source3;
+        const decoded = compositionTarget === source4 ? rootPlanes.primary : source4;
         if (!cssIntermediate || compositionTarget !== rootPlanes.primary && compositionTarget !== rootPlanes.companion || decoded === compositionTarget)
           unavailablePlanes();
         const decodePipeline = await this.pipeline(
@@ -36327,13 +36887,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         pass.setBindGroup(0, binding);
         pass.draw(6);
         pass.end();
-        if (decoded !== source3) {
+        if (decoded !== source4) {
           mount.resourceTextures.set(outputName, decoded);
-          cssIntermediate.texture = source3;
-          source3 = decoded;
+          cssIntermediate.texture = source4;
+          source4 = decoded;
         }
       }
-      return blendMode === "srgb-css-linear" ? source3 : compositionTarget;
+      return blendMode === "srgb-css-linear" ? source4 : compositionTarget;
     }
     simulationBindLayout(device) {
       if (this.simulationLayout) return this.simulationLayout;
@@ -36477,7 +37037,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       this.retirement.push(buffer);
       return buffer;
     }
-    async simulationPasses(mount, source3, time, encoder, definition3, instance, deterministic) {
+    async simulationPasses(mount, source4, time, encoder, definition3, instance, deterministic) {
       assertNativeUniformTiming(time, "time");
       assertNativeUniformTiming(instance.timing.time, "initial-time");
       assertNativeUniformTiming(instance.timing.speed, "speed");
@@ -36570,7 +37130,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         this.releaseSimulation(mount);
         return this.simulationPasses(
           mount,
-          source3,
+          source4,
           time,
           encoder,
           definition3,
@@ -36608,7 +37168,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         entries: [
           { binding: 0, resource: { buffer: globals } },
           { binding: 1, resource: this.sampler },
-          { binding: 2, resource: source3.createView() },
+          { binding: 2, resource: source4.createView() },
           { binding: 3, resource: this.white.createView() },
           { binding: 4, resource: { buffer: read } },
           { binding: 5, resource: { buffer: write } },
@@ -36783,7 +37343,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       mount.resourceTextures.set("__native_trail_back", previousTrail);
       return nextTrail;
     }
-    async feedbackPasses(mount, source3, time, encoder, definition3, instance, sourceRevision, deterministic) {
+    async feedbackPasses(mount, source4, time, encoder, definition3, instance, sourceRevision, deterministic) {
       if (definition3 !== mount.definition)
         throw new NativeSourceError(
           "feedback-draft-unsupported",
@@ -36821,7 +37381,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       if (prior2 && (prior2.definitionHash !== mount.definitionHash || prior2.seed !== params.seed || nativeFeedbackResetValuesChanged(
         prior2.resetPropertyValues,
         resetPropertyValues
-      ) || prior2.seekRevision !== revision || prior2.sourceWidth !== source3.width || prior2.sourceHeight !== source3.height))
+      ) || prior2.seekRevision !== revision || prior2.sourceWidth !== source4.width || prior2.sourceHeight !== source4.height))
         this.releaseFeedback(mount);
       if (!mount.feedback) {
         const grid = adapted.definition.grid;
@@ -36834,13 +37394,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           this.device,
           {
             allocate: (width, height, format, usage) => {
-              const texture2 = this.texture(width, height, format, usage);
-              textures.add(texture2);
-              return texture2;
+              const texture3 = this.texture(width, height, format, usage);
+              textures.add(texture3);
+              return texture3;
             },
-            release: (texture2) => {
-              textures.delete(texture2);
-              this.destroyTexture(texture2);
+            release: (texture3) => {
+              textures.delete(texture3);
+              this.destroyTexture(texture3);
             }
           },
           adapted.definition
@@ -36855,8 +37415,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           seekRevision: revision,
           sourceRevision: "",
           pendingSourceRevision: null,
-          sourceWidth: source3.width,
-          sourceHeight: source3.height,
+          sourceWidth: source4.width,
+          sourceHeight: source4.height,
           retirements: /* @__PURE__ */ new Set()
         };
       }
@@ -36871,19 +37431,19 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "Feedback resolve needs a viewport-sized float output."
         );
       let output = mount.resourceTextures.get(outputName);
-      if (output && (output.width !== source3.width || output.height !== source3.height || output.format !== "rgba16float")) {
+      if (output && (output.width !== source4.width || output.height !== source4.height || output.format !== "rgba16float")) {
         mount.resourceTextures.delete(outputName);
         this.destroyTexture(output);
         output = void 0;
       }
       if (!output) {
-        this.ensureCompositionBudget(mount, source3.width * source3.height * 8);
-        output = this.texture(source3.width, source3.height, "rgba16float");
+        this.ensureCompositionBudget(mount, source4.width * source4.height * 8);
+        output = this.texture(source4.width, source4.height, "rgba16float");
         mount.resourceTextures.set(outputName, output);
       }
       const frame = feedback.executor.encode({
         encoder,
-        source: source3,
+        source: source4,
         target: output,
         timeSeconds: time,
         initialLocalSeconds: instance.timing.time,
@@ -36897,7 +37457,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       mount.feedbackFrame = frame;
       return output;
     }
-    async statelessComputePasses(mount, source3, time, encoder, definition3, instance, deterministic) {
+    async statelessComputePasses(mount, source4, time, encoder, definition3, instance, deterministic) {
       try {
         const spec = definition3.statelessCompute;
         const graph = planEffectGraph(definition3);
@@ -36926,8 +37486,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         );
         const plan = planStatelessCompute({
           dispatch: compute.dispatch,
-          sourceWidth: source3.width,
-          sourceHeight: source3.height,
+          sourceWidth: source4.width,
+          sourceHeight: source4.height,
           sourceBytesPerPixel: buffer.sourceBytesPerPixel,
           sharedBytes: spec.sharedBytes,
           subpixelBlocks: spec.subpixelBlocks,
@@ -36944,7 +37504,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             maxComputeWorkgroupStorageSize: limits.maxComputeWorkgroupStorageSize
           }
         });
-        if (plan.mode === "identity") return source3;
+        if (plan.mode === "identity") return source4;
         if (!(mount.statelessBuffers instanceof Set) || !(mount.statelessInputs instanceof Map))
           throw new NativeStatelessComputeError(
             "stateless-compute-bytes-unavailable"
@@ -36966,9 +37526,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             "stateless-compute-frame-invalid"
           );
         let output = mount.resourceTextures.get(resolve.output);
-        const replace = !output || output === source3 || output === mount.outputTexture || output.width !== mount.width || output.height !== mount.height || output.format !== "rgba16float";
+        const replace = !output || output === source4 || output === mount.outputTexture || output.width !== mount.width || output.height !== mount.height || output.format !== "rgba16float";
         const inputTextures = /* @__PURE__ */ new Set([
-          source3,
+          source4,
           this.white,
           ...mount.outputTexture ? [mount.outputTexture] : []
         ]);
@@ -36977,7 +37537,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           resourceTextures: new Map([
             ...mount.resourceTextures,
             ...[...inputTextures].map(
-              (texture2, index) => [\`__native_stateless_input_\${index}\`, texture2]
+              (texture3, index) => [\`__native_stateless_input_\${index}\`, texture3]
             )
           ])
         };
@@ -36992,7 +37552,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           const prior2 = output;
           output = this.texture(mount.width, mount.height, "rgba16float");
           mount.resourceTextures.set(resolve.output, output);
-          if (prior2 && prior2 !== source3 && prior2 !== mount.outputTexture)
+          if (prior2 && prior2 !== source4 && prior2 !== mount.outputTexture)
             this.textureRetirement.push(prior2);
         }
         const data = new Float32Array(136);
@@ -37019,21 +37579,21 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           device,
           inputTextures
         );
-        for (const texture2 of inputTextures)
+        for (const texture3 of inputTextures)
           mount.statelessInputs.set(
-            texture2,
-            (mount.statelessInputs.get(texture2) ?? 0) + 1
+            texture3,
+            (mount.statelessInputs.get(texture3) ?? 0) + 1
           );
         const detachInputs = () => {
           try {
-            for (const texture2 of inputTextures) {
-              const refs = mount.statelessInputs.get(texture2);
+            for (const texture3 of inputTextures) {
+              const refs = mount.statelessInputs.get(texture3);
               if (refs === void 0 || refs < 1)
                 throw new NativeStatelessComputeError(
                   "stateless-compute-bytes-unavailable"
                 );
-              if (refs === 1) mount.statelessInputs.delete(texture2);
-              else mount.statelessInputs.set(texture2, refs - 1);
+              if (refs === 1) mount.statelessInputs.delete(texture3);
+              else mount.statelessInputs.set(texture3, refs - 1);
             }
           } finally {
             releaseTextures2();
@@ -37044,7 +37604,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           frame = pipelines.encode({
             plan,
             encoder,
-            source: source3,
+            source: source4,
             target: output,
             white: this.white,
             sampler: this.sampler,
@@ -37126,7 +37686,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         }
       }
     }
-    async effectPasses(mount, source3, time, encoder, definition3 = mount.definition, instance = mount.instance, deterministic = false, sourceRevision = "") {
+    async effectPasses(mount, source4, time, encoder, definition3 = mount.definition, instance = mount.instance, deterministic = false, sourceRevision = "") {
       assertNativeUniformTiming(time, "time");
       assertNativeUniformTiming(instance.timing.time, "initial-time");
       assertNativeUniformTiming(instance.timing.speed, "speed");
@@ -37143,7 +37703,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       if (definition3.statelessCompute)
         return this.statelessComputePasses(
           mount,
-          source3,
+          source4,
           time,
           encoder,
           definition3,
@@ -37153,7 +37713,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       if (definition3.simulation)
         return this.simulationPasses(
           mount,
-          source3,
+          source4,
           time,
           encoder,
           definition3,
@@ -37163,7 +37723,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       if (definition3.feedback)
         return this.feedbackPasses(
           mount,
-          source3,
+          source4,
           time,
           encoder,
           definition3,
@@ -37196,16 +37756,16 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         else if (binding.source === "mask") {
           input = await this.inputMask(mount, encoder);
           mount.inputMaskUsedFrame = this.renderEpoch;
-        } else input = source3;
+        } else input = source4;
         resources.set(name, input);
       }
-      if (!resources.has("source")) resources.set("source", source3);
+      if (!resources.has("source")) resources.set("source", source4);
       const dpr = mount.pixelRatio;
       let resourceBytes = 0;
       for (const pass of plan.passes) {
-        if (pass.kind !== "render" || pass.reads.length > 2 || pass.previousFrameReads?.length)
+        if (pass.kind !== "render" || pass.reads.length > 16 || pass.previousFrameReads?.length)
           throw new Error(
-            \`Pass \${pass.id} requires unsupported compute, temporal, or multi-input behavior.\`
+            \`Pass \${pass.id} requires unsupported compute, temporal, or more than sixteen texture inputs.\`
           );
         const readName = pass.reads[0];
         const input = readName ? resources.get(readName) : this.white;
@@ -37214,13 +37774,16 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             "pass-input-missing",
             \`Pass \${pass.id} has no texture for \${readName ?? "its unused GPU binding"}.\`
           );
-        const secondName = pass.reads[1];
-        const second = secondName ? resources.get(secondName) : this.white;
-        if (!second)
-          throw new NativeSourceError(
-            "pass-input-missing",
-            \`Pass \${pass.id} has no texture for \${secondName}.\`
-          );
+        const otherInputs = pass.reads.slice(1).map((name) => {
+          const texture3 = resources.get(name);
+          if (!texture3)
+            throw new NativeSourceError(
+              "pass-input-missing",
+              \`Pass \${pass.id} has no texture for \${name}.\`
+            );
+          return texture3;
+        });
+        const second = otherInputs[0] ?? this.white;
         const mipmappedReads = pass.reads.filter((name) => {
           const binding = inputPlan.inputs.get(name);
           return binding?.kind === "asset" && binding.mipmap === "generated";
@@ -37270,7 +37833,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         }
         let pipeline;
         try {
-          pipeline = await this.pipeline(pass.wgsl, format, false, true);
+          pipeline = await this.pipeline(
+            pass.wgsl,
+            format,
+            false,
+            true,
+            pass.reads.length
+          );
         } catch (error) {
           if (error instanceof NativeShaderCompilationError)
             throw error.withPass(pass.id);
@@ -37303,7 +37872,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           input,
           second,
           data,
-          mipmappedReads.length ? this.sourceSizingSampler("linear", "linear", "linear") : this.sampler
+          mipmappedReads.length ? this.sourceSizingSampler("linear", "linear", "linear") : this.sampler,
+          null,
+          otherInputs.slice(1)
         );
         const render = encoder.beginRenderPass({
           ...this.gpuTimestampWrites(encoder, \`effect:\${pass.id}\`),
@@ -37324,7 +37895,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       }
       const last = plan.passes[plan.passes.length - 1];
       const outputName = definition3.output ?? last?.output;
-      if (!outputName) return source3;
+      if (!outputName) return source4;
       const result = resources.get(outputName);
       if (!result)
         throw new Error(\`Effect output \${outputName} has no GPU texture.\`);
@@ -37377,16 +37948,16 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           );
         context.drawImage(image2, 0, 0);
       }
-      const texture2 = this.texture(mount.width, mount.height, "rgba8unorm");
+      const texture3 = this.texture(mount.width, mount.height, "rgba8unorm");
       this.device.queue.copyExternalImageToTexture(
         { source: canvas },
-        { texture: texture2, premultipliedAlpha: true },
+        { texture: texture3, premultipliedAlpha: true },
         [mount.width, mount.height]
       );
       this.destroyTexture(mount.maskTexture);
-      mount.maskTexture = texture2;
+      mount.maskTexture = texture3;
       mount.maskSignature = signature;
-      return texture2;
+      return texture3;
     }
     async inputMask(mount, encoder) {
       const text = await this.textMask(mount);
@@ -37417,7 +37988,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         resolved.radii.bottomLeft.x,
         resolved.radii.bottomLeft.y
       ];
-      if (!extent2?.expanded && radii.every((radius2) => radius2 === 0)) return text;
+      if (!extent2?.expanded && radii.every((radius3) => radius3 === 0)) return text;
       const signature = \`\${mount.width}:\${mount.height}:\${targetWidth}:\${targetHeight}:\${extent2?.left ?? 0}:\${extent2?.top ?? 0}:\${mount.maskSignature}:\${radii.join(",")}\`;
       const cached = mount.resourceTextures.get("__native_input_mask");
       if (cached && mount.inputMaskSignature === signature) return cached;
@@ -37494,7 +38065,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         result.radii.bottomLeft.y
       ];
     }
-    async finish(mount, source3, encoder, instance = mount.instance, definition3 = mount.definition, outputName = "__native_final_back") {
+    async finish(mount, source4, encoder, instance = mount.instance, definition3 = mount.definition, outputName = "__native_final_back") {
       let output = mount.resourceTextures.get(outputName);
       if (!output) {
         output = this.texture(
@@ -37534,7 +38105,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         mount,
         "finish",
         pipeline,
-        source3,
+        source4,
         mask,
         new Float32Array([
           mount.width,
@@ -37682,8 +38253,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       return output;
     }
     async drawCoveredFillPhase(mount, encoder, key, wgsl, first, second, extras, initialBackground) {
-      for (const texture2 of [first, second, ...extras])
-        if (texture2 !== this.transparent && (texture2.width !== mount.width || texture2.height !== mount.height))
+      for (const texture3 of [first, second, ...extras])
+        if (texture3 !== this.transparent && (texture3.width !== mount.width || texture3.height !== mount.height))
           throw new NativeSourceError(
             "fill-phase-size-mismatch",
             "A captured Fill paint phase does not match its target extent."
@@ -37801,7 +38372,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         throw error;
       }
     }
-    async present(mount, source3, encoder, context = mount.context, publishedMirror) {
+    async present(mount, source4, encoder, context = mount.context, publishedMirror) {
       const pipeline = this.presentPipeline ?? await this.pipeline(presentWgsl(this.colorPresented), this.format);
       this.presentPipeline = pipeline;
       const mask = this.white;
@@ -37809,7 +38380,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         mount,
         "present",
         pipeline,
-        source3,
+        source4,
         mask,
         new Float32Array([mount.width, mount.height, 0, 0, 1, 0, 0, 0])
       );
@@ -37925,15 +38496,15 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         );
       transaction.active.add(child.instance.id);
       try {
-        let source3 = child.resourceTextures.get("__native_group_local_source");
-        if (!source3 || source3.width !== child.width || source3.height !== child.height) {
+        let source4 = child.resourceTextures.get("__native_group_local_source");
+        if (!source4 || source4.width !== child.width || source4.height !== child.height) {
           this.ensureCompositionBudget(
             child,
             child.width * child.height * (this.workingFormat === "rgba16float" ? 8 : 4)
           );
-          if (source3) this.textureRetirement.push(source3);
-          source3 = this.texture(child.width, child.height);
-          child.resourceTextures.set("__native_group_local_source", source3);
+          if (source4) this.textureRetirement.push(source4);
+          source4 = this.texture(child.width, child.height);
+          child.resourceTextures.set("__native_group_local_source", source4);
         }
         const pipeline = await this.pipeline(
           groupLocalBackdropSourceWgsl,
@@ -37954,7 +38525,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         const pass = encoder.beginRenderPass({
           colorAttachments: [
             {
-              view: source3.createView(),
+              view: source4.createView(),
               loadOp: "clear",
               storeOp: "store",
               clearValue: { r: 0, g: 0, b: 0, a: 0 }
@@ -37968,7 +38539,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         const childTime = transaction.deterministic ? child.instance.timing.time + (child.instance.timing.paused ? 0 : transaction.time * child.instance.timing.speed) : child.clock.paused ? child.clock.local : child.clock.local + (transaction.time - child.clock.global) * child.clock.speed;
         const result = await this.effectPasses(
           child,
-          source3,
+          source4,
           childTime,
           encoder,
           child.definition,
@@ -38278,7 +38849,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           activeInstance
         );
         let scene = [];
-        let source3;
+        let source4;
         let fillBackground = null;
         let fillBorder = null;
         let fillOuterCoverage = null;
@@ -38290,10 +38861,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         const textFill = mount.instance.placement === "fill" && activeInstance.clip === "text";
         let sourceRevision = "";
         if (previousLayer) {
-          source3 = this.alignedLayerSource(mount, previousLayer, encoder);
+          source4 = this.alignedLayerSource(mount, previousLayer, encoder);
           sourceRevision = \`\${previousLayer.instance.id}:\${previousLayer.frameCount}\`;
         } else if (mount.instance.placement === "fill") {
-          source3 = this.transparent;
+          source4 = this.transparent;
           if (previousFill) {
             fillBackground = previousFill.fillUnderlayTexture;
             fillGlyphBase = previousFill.fillTextTexture;
@@ -38403,7 +38974,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           sourceRevision = scene.map((record4) => \`\${record4.key}:\${record4.revision}\`).join("|");
           if (scene.length) {
             const composeStarted = performance.now();
-            source3 = await this.composeScene(
+            source4 = await this.composeScene(
               mount,
               scene,
               encoder,
@@ -38412,8 +38983,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               nestedTransaction
             );
             composeWallMs += performance.now() - composeStarted;
-          } else source3 = this.transparent;
-        } else source3 = this.transparent;
+          } else source4 = this.transparent;
+        } else source4 = this.transparent;
         if (this.disposed)
           throw new Error(
             "The native shader runtime was disposed during source acquisition."
@@ -38447,14 +39018,14 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           };
           frameResources = new NativeFrameResourceScratch(
             mount.resourceTextures,
-            source3 === mount.resourceTextures.get("source") ? ["source"] : []
+            source4 === mount.resourceTextures.get("source") ? ["source"] : []
           );
           mount.resourceTextures = frameResources.scratch;
         }
         const effectPassesStarted = hostWallPhases ? performance.now() : 0;
         const output = await this.effectPasses(
           mount,
-          source3,
+          source4,
           localTime,
           encoder,
           draft?.definition,
@@ -38769,7 +39340,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           mount.resourceTextures.delete("__native_final_back");
         }
         const liveResources = /* @__PURE__ */ new Set([
-          ...source3 === mount.resourceTextures.get("source") || fillBackground === mount.resourceTextures.get("source") ? ["source"] : [],
+          ...source4 === mount.resourceTextures.get("source") || fillBackground === mount.resourceTextures.get("source") ? ["source"] : [],
           "__native_final_back",
           ...fillBackground ? ["__native_fill_foreground"] : [],
           ...fillUnderlayResult ? ["__native_fill_underlay"] : [],
@@ -38784,10 +39355,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             (pass) => pass.output
           )
         ]);
-        for (const [name, texture2] of mount.resourceTextures)
+        for (const [name, texture3] of mount.resourceTextures)
           if (!liveResources.has(name)) {
             mount.resourceTextures.delete(name);
-            this.textureRetirement.push(texture2);
+            this.textureRetirement.push(texture3);
           }
         for (const [name, entry] of mount.isolationTextures)
           if (entry.lastFrame !== this.renderEpoch) {
@@ -38902,9 +39473,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           }
           frameResources = null;
           unpublishedLayerState = null;
-          for (const texture2 of staleResources)
-            if (!this.textureRetirement.includes(texture2))
-              this.textureRetirement.push(texture2);
+          for (const texture3 of staleResources)
+            if (!this.textureRetirement.includes(texture3))
+              this.textureRetirement.push(texture3);
         }
         if (mount.instance.placement === "layer") {
           if (nestedTransaction)
@@ -38925,11 +39496,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         }
         for (const {
           mount: child,
-          texture: texture2
+          texture: texture3
         } of nestedTransaction?.staged.values() ?? []) {
           const previous = child.outputTexture;
-          child.outputTexture = texture2;
-          if (previous && previous !== texture2) {
+          child.outputTexture = texture3;
+          if (previous && previous !== texture3) {
             for (const [name, resource] of child.resourceTextures)
               if (resource === previous) child.resourceTextures.delete(name);
             this.textureRetirement.push(previous);
@@ -38965,9 +39536,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         if (mirrorCandidate) this.publishedPresentationMirror.discard();
         if (frameResources) {
           mount.resourceTextures = frameResources.committed;
-          for (const texture2 of frameResources.rollback())
-            if (!this.textureRetirement.includes(texture2))
-              this.textureRetirement.push(texture2);
+          for (const texture3 of frameResources.rollback())
+            if (!this.textureRetirement.includes(texture3))
+              this.textureRetirement.push(texture3);
           if (unpublishedLayerState) {
             mount.outputTexture = unpublishedLayerState.outputTexture;
             mount.fillTextTexture = unpublishedLayerState.fillTextTexture;
@@ -39027,10 +39598,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       return this.timeOverride ?? (performance.now() - this.clockOrigin) / 1e3;
     }
     async readPublishedPresentationMirror(mount) {
-      const texture2 = this.publishedPresentationMirror.current();
+      const texture3 = this.publishedPresentationMirror.current();
       const device = this.device;
       const epoch = this.deviceEpoch;
-      if (!texture2 || !device || texture2.width !== mount.canvas.width || texture2.height !== mount.canvas.height)
+      if (!texture3 || !device || texture3.width !== mount.canvas.width || texture3.height !== mount.canvas.height)
         throw new NativeSourceError(
           "presentation-fault-mirror-unavailable",
           "The reviewed GPU presentation mirror is unavailable."
@@ -39038,9 +39609,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       let plan;
       try {
         plan = planNativePresentationReadback({
-          width: texture2.width,
-          height: texture2.height,
-          format: texture2.format,
+          width: texture3.width,
+          height: texture3.height,
+          format: texture3.format,
           colorSpace: this.colorPresented,
           dynamicRange: this.dynamicRangePresented
         });
@@ -39074,7 +39645,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         scopeOpen = true;
         const encoder = device.createCommandEncoder();
         encoder.copyTextureToBuffer(
-          { texture: texture2 },
+          { texture: texture3 },
           { buffer, bytesPerRow: plan.bytesPerRow, rowsPerImage: plan.height },
           [plan.width, plan.height, 1]
         );
@@ -39094,7 +39665,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           );
         await buffer.mapAsync(GPUMapMode.READ);
         mapped = true;
-        if (this.device !== device || this.deviceEpoch !== epoch || this.publishedPresentationMirror.current() !== texture2)
+        if (this.device !== device || this.deviceEpoch !== epoch || this.publishedPresentationMirror.current() !== texture3)
           throw new NativeSourceError(
             "presentation-fault-device-changed",
             "The published GPU presentation changed during readback."
@@ -39686,8 +40257,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           session.sourceStale ? "simulation-session-source-stale" : "simulation-session-target-stale",
           "The held render target changed during validation."
         );
-      const texture2 = mount.outputTexture;
-      if (texture2.format !== "rgba16float")
+      const texture3 = mount.outputTexture;
+      if (texture3.format !== "rgba16float")
         throw new NativeSourceError(
           "mounted-output-format-unavailable",
           "The mounted output is not a linear half-float texture."
@@ -39698,7 +40269,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "mounted-output-budget-exceeded",
           "The exact mounted readback exceeds the bounded GPU resource budget."
         );
-      if (texture2.width !== plan.width || texture2.height !== plan.height)
+      if (texture3.width !== plan.width || texture3.height !== plan.height)
         throw new NativeSourceError(
           "mounted-output-extent-mismatch",
           "The mounted output extent changed before validation."
@@ -39824,8 +40395,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "linear-golden-target-unready",
           "linear-golden-target-unready"
         );
-      const texture2 = mount.outputTexture;
-      if (texture2.format !== "rgba16float")
+      const texture3 = mount.outputTexture;
+      if (texture3.format !== "rgba16float")
         throw new NativeSourceError(
           "linear-golden-format-unavailable",
           "linear-golden-format-unavailable"
@@ -39860,7 +40431,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         const encoder = device.createCommandEncoder();
         for (const origin of plan.origins)
           encoder.copyTextureToBuffer(
-            { texture: texture2, origin: [origin.x, origin.y, 0] },
+            { texture: texture3, origin: [origin.x, origin.y, 0] },
             {
               buffer,
               offset: origin.offset,
@@ -40119,7 +40690,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         scopeOpen = true;
         scopedDevice = device;
         const encoder = device.createCommandEncoder();
-        const source3 = await this.composeScene(
+        const source4 = await this.composeScene(
           surface,
           scene,
           encoder,
@@ -40142,7 +40713,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           surface,
           "__export_transfer",
           pipeline,
-          source3,
+          source4,
           null,
           new Float32Array([width, height, 0, 0, 1, 0, 0, 0])
         );
@@ -40236,8 +40807,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         });
       for (const entry of surface.sourceTextures.values())
         await clean(() => this.destroyTexture(entry.texture));
-      for (const texture2 of surface.resourceTextures.values())
-        await clean(() => this.destroyTexture(texture2));
+      for (const texture3 of surface.resourceTextures.values())
+        await clean(() => this.destroyTexture(texture3));
       for (const entry of surface.isolationTextures.values())
         await clean(() => this.destroyTexture(entry.texture));
       for (const entry of surface.drawBindings.values())
@@ -40257,16 +40828,16 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
     }
     publishIdleSourceDiagnostic(continuousMountIds) {
       const mounts = [...this.mounts.values()].slice(0, 8).map((mount) => {
-        const source3 = mount.provider?.diagnosticSnapshot();
+        const source4 = mount.provider?.diagnosticSnapshot();
         return {
           instanceId: mount.instance.id,
           placement: mount.instance.placement,
           animationCapability: mount.animationCapability,
           continuous: continuousMountIds.includes(mount.instance.id),
-          readSceneCalls: source3?.readSceneCalls ?? null,
-          captures: source3?.captures ?? null,
-          invalidations: source3?.invalidations ?? null,
-          leaves: source3?.leaves.slice(0, 6).map((leaf) => ({
+          readSceneCalls: source4?.readSceneCalls ?? null,
+          captures: source4?.captures ?? null,
+          invalidations: source4?.invalidations ?? null,
+          leaves: source4?.leaves.slice(0, 6).map((leaf) => ({
             nodeId: leaf.nodeId,
             kind: leaf.kind,
             captures: leaf.captures,
@@ -40495,8 +41066,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         "data-an-native-preview-pixel-ratio"
       );
       for (const buffer of this.retirement.splice(0)) this.destroyUniform(buffer);
-      for (const texture2 of this.textureRetirement.splice(0))
-        this.destroyTexture(texture2);
+      for (const texture3 of this.textureRetirement.splice(0))
+        this.destroyTexture(texture3);
       this.destroyTexture(this.transparent);
       this.destroyTexture(this.white);
       this.pipelines.reset();

@@ -11,6 +11,7 @@ import {
 import { OWNED_FEEDBACK_TEST_DEFINITION } from "../../../../shared/native-effect-owned-test-fixtures";
 import { planNativeEffectTransform } from "../../../../shared/native-effect-transform";
 import { hashEffectDefinition } from "../../../../shared/native-effect-trust";
+import { nativeRenderExtraTextureBindings } from "../../../../shared/native-effect-wgsl";
 import type {
   EffectDefinition,
   EffectInstance,
@@ -180,6 +181,7 @@ describe("native multipass texture bindings", () => {
       features: new Set(["timestamp-query"]),
       limits: {
         maxTextureDimension2D: 8192,
+        maxSampledTexturesPerShaderStage: 16,
         maxComputeWorkgroupsPerDimension: 65535,
         maxStorageBufferBindingSize: 134217728,
         maxBufferSize: 268435456,
@@ -989,6 +991,7 @@ describe("native multipass texture bindings", () => {
             pixelRatio: number;
             frameCount: number;
             assetAbort: AbortController;
+            resourceTextures: Map<string, FakeTexture>;
             assetTextures: Map<
               string,
               { texture: FakeTexture; lastFrame: number }
@@ -1052,6 +1055,104 @@ describe("native multipass texture bindings", () => {
         destroyTexture(texture: FakeTexture): void;
         destroyUniform(buffer: GPUBuffer): void;
       };
+      const fourInputDefinition: EffectDefinition = {
+        ...definition,
+        resources: [
+          ...definition.resources!,
+          {
+            name: "blur2",
+            kind: "texture-2d",
+            format: "rgba16float",
+            size: "viewport",
+            usage: ["render", "sampled"],
+          },
+          {
+            name: "blur3",
+            kind: "texture-2d",
+            format: "rgba16float",
+            size: "viewport",
+            usage: ["render", "sampled"],
+          },
+        ],
+        passes: [
+          definition.passes[0],
+          { ...definition.passes[0], id: "blur-2", output: "blur2" },
+          { ...definition.passes[0], id: "blur-3", output: "blur3" },
+          {
+            ...definition.passes[1],
+            wgsl: `${nativeRenderExtraTextureBindings(4)}\n${wgsl}`,
+            reads: ["source", "blur", "blur2", "blur3"],
+          },
+        ],
+      };
+      const sharpTexture = textures.find(
+        (texture) => texture.id === sharp.textureId,
+      )!;
+      await densityProbe.effectPasses(
+        mounted,
+        sharpTexture,
+        0,
+        device.createCommandEncoder(),
+        fourInputDefinition,
+        mounted.instance,
+      );
+      const currentBlur = mounted.resourceTextures.get("blur")!;
+      const blur2 = mounted.resourceTextures.get("blur2")!;
+      const blur3 = mounted.resourceTextures.get("blur3")!;
+      expect(
+        bound.some((group) =>
+          [
+            [2, sharpTexture.id],
+            [3, currentBlur.id],
+            [4, blur2.id],
+            [5, blur3.id],
+          ].every(([binding, textureId]) =>
+            group.entries.some(
+              (entry) =>
+                entry.binding === binding &&
+                (entry.resource as { textureId?: number }).textureId ===
+                  textureId,
+            ),
+          ),
+        ),
+      ).toBe(true);
+      expect(
+        bindLayouts.some((layout) =>
+          [0, 1, 2, 3, 4, 5].every((binding) =>
+            layout.entries.some((entry) => entry.binding === binding),
+          ),
+        ),
+      ).toBe(true);
+      const pipelineProbe = densityProbe as typeof densityProbe & {
+        pipeline(
+          code: string,
+          format: GPUTextureFormat,
+          blend: boolean,
+          effect: boolean,
+          effectTextureCount: number,
+        ): Promise<GPURenderPipeline>;
+      };
+      await pipelineProbe.pipeline(wgsl, "rgba8unorm", false, true, 16);
+      expect(
+        bindLayouts.some(
+          (layout) =>
+            layout.entries.length === 18 && layout.entries[17]?.binding === 17,
+        ),
+      ).toBe(true);
+      expect(nativeRenderExtraTextureBindings(16).split("\n")).toHaveLength(14);
+      device.limits.maxSampledTexturesPerShaderStage = 15;
+      await expect(
+        pipelineProbe.pipeline(wgsl, "rgba8unorm", false, true, 16),
+      ).rejects.toMatchObject({ code: "effect-input-limit" });
+      device.limits.maxSampledTexturesPerShaderStage = 3;
+      await expect(
+        pipelineProbe.pipeline(wgsl, "rgba8unorm", false, true, 4),
+      ).rejects.toMatchObject({ code: "effect-input-limit" });
+      device.limits.maxSampledTexturesPerShaderStage = 16;
+      mounted.resourceTextures.delete("blur2");
+      mounted.resourceTextures.delete("blur3");
+      densityProbe.destroyTexture(blur2);
+      densityProbe.destroyTexture(blur3);
       const unexpanded = { ...definition, extent: undefined };
       const densityCases = [
         { cssWidth: 8.25, ratio: 1.6, screenWidth: 4.125 },

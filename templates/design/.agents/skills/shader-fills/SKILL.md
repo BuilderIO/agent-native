@@ -84,30 +84,35 @@ can write a color texture with no source reads; a processor reads `source`
 and writes a different resource; a multipass processor declares resources,
 reads prior outputs in an acyclic graph, and names its final `output`.
 The runtime supports bounded compute/buffer state for Particle Flow, previous-
-frame resources, two named sampled texture inputs, asset-valued texture
-parameters, and instance transforms. These are typed contracts, not blanket
-CSS or WGSL support: undeclared inputs, unsupported graph/resource modes,
+frame resources, up to 16 named sampled texture inputs per ordinary render
+pass (subject to the WebGPU device's sampled-texture limit), asset-valued
+texture parameters, and instance transforms. These are typed contracts, not
+blanket CSS or WGSL support: undeclared inputs, unsupported graph/resource modes,
 authored-node bindings, arbitrary URL protocols, and unsupported source
-composition fail with explicit diagnostics. A two-input render pass maps its
-ordered `reads` to WGSL sampled texture bindings 2 and 3; bindings 0 and 1
-remain `Globals` and sampler. For a native asset input, store a same-origin
-root-relative raster URL in the manifest, never a `data:` or `blob:` URL. For a user-selected native texture, call `upload-design-native-texture` with the selected Design and HTML file IDs, the PNG/JPEG/WebP data URL, and a stable idempotency key for retries. The action verifies editor access and provider bytes and returns a Design-scoped `/api/design-native-texture/<id>.<ext>` path. Store only that returned path in the texture property. The binary reader rechecks current Design access and byte digest; standalone export embeds the same verified bytes. The existing selected Design/file application state identifies the UI target, but the action requires both IDs explicitly. Do not reuse the QA-local uploader or paste a hosted CDN URL into a native texture property.
+composition fail with explicit diagnostics. An ordinary render pass maps its
+ordered `reads` to WGSL sampled texture bindings 2 through 17; bindings 0 and 1
+remain `Globals` and sampler. `NATIVE_RENDER_GLOBALS` declares the first two
+texture bindings; `nativeRenderExtraTextureBindings(readCount)` declares any
+additional bindings for render-pass WGSL without changing compute bindings.
+For a native asset input, store a same-origin root-relative raster URL in the
+manifest, never a `data:` or `blob:` URL. For a user-selected native texture, call `upload-design-native-texture` with the selected Design and HTML file IDs, the PNG/JPEG/WebP data URL, and a stable idempotency key for retries. The action verifies editor access and provider bytes and returns a Design-scoped `/api/design-native-texture/<id>.<ext>` path. Store only that returned path in the texture property. The binary reader rechecks current Design access and byte digest; standalone export embeds the same verified bytes. The existing selected Design/file application state identifies the UI target, but the action requires both IDs explicitly. Do not reuse the QA-local uploader or paste a hosted CDN URL into a native texture property.
 Standalone export packages referenced local raster bytes in a bounded inert
 registry without changing the authored URL or definition hash. The runtime
 checks the registry digest before decode; missing, unreadable, or oversized
 inputs fail explicitly. A registered local QA upload URL is resolved only by
-its scoped export provider, not by an arbitrary network fetch. Each render
-ordinary render pass uses the fixed `Globals` uniform, sampler, and two sampled
-texture bindings (0–3), `vs`/`fs` entry points, linear RGB working color, and
-premultiplied output.
+its scoped export provider, not by an arbitrary network fetch. Each ordinary
+render pass uses the fixed `Globals` uniform and sampler at bindings 0–1,
+its ordered sampled textures from binding 2, `vs`/`fs` entry points, linear
+RGB working color, and premultiplied output.
 
 A stateless source processor can opt into `statelessCompute: {abi:
 "source-buffer-v1",bufferResource,sharedBytes}`. Its graph contains exactly the
 external sampled `source`, one nonpersistent buffer with `size: "source"`,
 `sourceBytesPerPixel: 1|4|8|16`, storage/copy-destination usage, and one
 nonpersistent RGBA16F viewport output. One `cs` compute pass reads source and
-writes that buffer; the following `vs`/`fs` resolve reads both. Binding 4 is the
-same storage range, writable in compute and read-only in resolve. Dispatch uses
+writes that buffer; the following `vs`/`fs` resolve reads both. In this separate
+compute ABI, binding 4 is the same storage range, writable in compute and
+read-only in resolve. Dispatch uses
 `elements: "source-grid"` with a declared `[x,y,1]` workgroup of at most 256
 lanes, or `elements: "source-row-blocks"`, `[64,1,1]`, and an integer
 `blockProperty` from 1 to 16. Source dimensions and encoded render density
