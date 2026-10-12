@@ -91,6 +91,7 @@ async function selectedOverviewScreenIds(page: Page): Promise<string[]> {
 
 async function openHistory(page: Page): Promise<void> {
   await page.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitem", { name: "File", exact: true }).click();
   await page.getByRole("menuitem", { name: "Version history" }).click();
   await expect(page.getByRole("heading", { name: "History" })).toBeVisible();
 }

@@ -15,6 +15,7 @@ import {
   useRef,
   useMemo,
   useId,
+  type ChangeEvent,
 } from "react";
 import { flushSync } from "react-dom";
 import { useBlocker } from "react-router";
@@ -178,6 +179,8 @@ export function useEditorSourceAndSync({
     pendingLiveNonStyleEditsRef,
     clearPendingLiveEditState,
     minimalUi,
+    setMinimalUi,
+    setActiveLeftPanel,
     clearPendingLiveEditStateRef,
     clearReloadedPendingLiveEdits,
     activeLeftPanel,
@@ -275,6 +278,7 @@ export function useEditorSourceAndSync({
     handleToggleMinimalUi,
     handleShowAssetsPanel,
     uiHidden,
+    setUiHidden,
   } = editorContentAndComponents;
   const {
     activeCodeFile,
@@ -808,6 +812,24 @@ export function useEditorSourceAndSync({
     importPanelRef.current?.importFile(pendingImportFile);
     setPendingImportFile(null);
   }, [pendingImportFile, importPanelMounted]);
+  // The file input must render outside any dropdown: menus unmount on close,
+  // before the file picker reports its change event.
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
+  const openImportFilePicker = useCallback(() => {
+    importFileInputRef.current?.click();
+  }, []);
+  const handleImportFileChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+      setMinimalUi(false);
+      setUiHidden(false);
+      setActiveLeftPanel("import");
+      setPendingImportFile(file);
+    },
+    [setActiveLeftPanel, setMinimalUi, setUiHidden],
+  );
   const pendingVisualStyleNavigationBlocker = useBlocker(
     useCallback(
       ({ currentLocation, nextLocation }) =>
@@ -1810,7 +1832,9 @@ export function useEditorSourceAndSync({
     handleBooleanSubtractSelection,
     pendingVisualStyleNavigationBlocker,
     importPanelRef,
-    setPendingImportFile,
+    importFileInputRef,
+    openImportFilePicker,
+    handleImportFileChange,
     skipPendingEditNavigationBlockRef,
     handleStayOnPendingVisualStyleNavigation,
     handleDiscardPendingVisualStylesAndNavigate,

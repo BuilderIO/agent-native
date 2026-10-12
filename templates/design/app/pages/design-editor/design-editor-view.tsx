@@ -842,7 +842,7 @@ export function renderDesignEditorView({
     editorEditCommands,
     editorModes,
     editorExportAndHandoff,
-    id,
+    editorSourceAndSync,
   });
 
   const projectTitleControl = renderProjectTitleControl({
@@ -853,7 +853,6 @@ export function renderDesignEditorView({
     editorActiveScreenAndGeometry,
     editorLiveEditsAndPresence,
     editorLayoutAndStructure,
-    editorContentAndComponents,
     editorExportAndHandoff,
     editorSourceAndSync,
     design,
@@ -1602,6 +1601,14 @@ export function renderDesignEditorView({
         editorContentAndComponents,
         editPanelProps,
       })}
+
+      <input
+        ref={editorSourceAndSync.importFileInputRef}
+        type="file"
+        accept=".fig,.html,.htm"
+        className="hidden"
+        onChange={editorSourceAndSync.handleImportFileChange}
+      />
 
       {/* ── Render: dialogs ── */}
       {renderEditorDialogs({
