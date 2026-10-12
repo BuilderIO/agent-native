@@ -81,7 +81,7 @@ afterEach(async () => {
 let activeApi: CacheApi | undefined;
 export function registerScopeProvenanceCases(label: string, api: CacheApi) {
   activeApi = api;
-  it(`${label}: keeps B's record after a known A-bound denial`, async () => {
+  it(`${label}: discards B's record when a custom query has no denial provenance`, async () => {
     const scopeA = `scope-a-${crypto.randomUUID()}`;
     const scopeB = `scope-b-${crypto.randomUUID()}`;
     const { records, storage } = memoryStorage();
@@ -94,10 +94,8 @@ export function registerScopeProvenanceCases(label: string, api: CacheApi) {
     records.set(scopeB, persisted("B-only cached result"));
     await api.bindActionQueryCache(client, scopeB);
 
-    expect(client.getQueryData(queryKey)).toEqual({
-      value: "B-only cached result",
-    });
-    expect(records.has(scopeB)).toBe(true);
+    expect(client.getQueryData(queryKey)).toBeUndefined();
+    expect(records.has(scopeB)).toBe(false);
   });
 
   it(`${label}: an unknown pre-bind denial still clears the next scope`, async () => {

@@ -1106,6 +1106,26 @@ export function setActionQueryCacheBindingToken(
   actionQueryCacheBindingToken = token;
 }
 
+const accessDeniedActionQueryBindings = new WeakMap<Query, object>();
+
+export function setAccessDeniedActionQueryBinding(
+  query: Query,
+  token: object | undefined,
+): void {
+  if (token) accessDeniedActionQueryBindings.set(query, token);
+  else accessDeniedActionQueryBindings.delete(query);
+}
+
+export function getAccessDeniedActionQueryBinding(
+  query: Query,
+): object | undefined {
+  return accessDeniedActionQueryBindings.get(query);
+}
+
+export function clearAccessDeniedActionQueryBinding(query: Query): void {
+  accessDeniedActionQueryBindings.delete(query);
+}
+
 /** @internal read by the persisted query cache. */
 export function isBrowserPersistableActionQuery(query: Query): boolean {
   return (
@@ -1196,6 +1216,7 @@ export function useActionQuery<
           (status === 401 || status === 403 || status === 404)
         ) {
           if (query) {
+            setAccessDeniedActionQueryBinding(query, bindingTokenAtFetch);
             revokeBrowserPersistableActionQuery(query);
             query.setState({ data: undefined, dataUpdatedAt: 0 });
           }
@@ -1205,6 +1226,7 @@ export function useActionQuery<
       }
       resetActionFailureCircuit(key);
       if (query && !signal.aborted) {
+        clearAccessDeniedActionQueryBinding(query);
         if (browserPersist) {
           browserPersistableActionQueries.add(query);
           if (

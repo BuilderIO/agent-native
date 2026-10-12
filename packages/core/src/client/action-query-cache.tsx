@@ -23,6 +23,7 @@ import type { AuthSession } from "../server/auth.js";
 import { actionErrorStatus } from "./action-failure-circuit.js";
 import { clientBuildId } from "./build-compatibility.js";
 import {
+  getAccessDeniedActionQueryBinding,
   isBrowserPersistableActionQueryForBinding,
   markRestoredBrowserPersistableActionQuery,
   registerActionQueryCacheRevoker,
@@ -330,6 +331,7 @@ interface Binding {
 
 let binding: Binding | undefined;
 let bindingGeneration = 0;
+const bindingScopes = new WeakMap<object, string>();
 
 function trackRevokedScopeDelete(
   scope: string,
@@ -415,6 +417,14 @@ export async function bindActionQueryCache(
     .getQueryCache()
     .getAll()
     .filter(isAccessDeniedActionQuery);
+  const denialsKnownFromDifferentScope = deniedBeforeBind.filter((query) => {
+    const token = getAccessDeniedActionQueryBinding(query);
+    const denialScope = token ? bindingScopes.get(token) : undefined;
+    return denialScope !== undefined && denialScope !== scope;
+  });
+  const everyDenialKnownFromDifferentScope =
+    deniedBeforeBind.length > 0 &&
+    denialsKnownFromDifferentScope.length === deniedBeforeBind.length;
   const earlierDeletes = [...inFlightStorageDeletes];
   closeBinding();
   // An unverified result fetched before the first scope was known must not be
@@ -431,6 +441,7 @@ export async function bindActionQueryCache(
   const persister = scopedPersister(scope);
   registerActionQueryCacheRevoker(client, () => persister.discard());
   const token = {};
+  bindingScopes.set(token, scope);
   let unsubscribePersist = () => {};
   let stopHydrationTracking = () => {};
   let unsubscribeRevoked = () => {};
@@ -461,14 +472,24 @@ export async function bindActionQueryCache(
     }
   });
 
-  if (
-    deniedBeforeBind.length > 0 &&
-    !(previousBinding?.client === client && previousBinding.scope !== scope)
-  ) {
-    persister.discard();
+  if (deniedBeforeBind.length > 0) {
+    if (!everyDenialKnownFromDifferentScope) persister.discard();
     for (const query of deniedBeforeBind) {
       revokeBrowserPersistableActionQuery(query);
-      clearAccessDeniedActionQueryData(query);
+      if (everyDenialKnownFromDifferentScope) {
+        query.setState({
+          data: undefined,
+          dataUpdatedAt: 0,
+          error: null,
+          errorUpdatedAt: 0,
+          fetchFailureCount: 0,
+          fetchFailureReason: null,
+          status: "pending",
+          fetchStatus: "idle",
+        });
+      } else {
+        clearAccessDeniedActionQueryData(query);
+      }
     }
   }
 
@@ -484,6 +505,8 @@ export async function bindActionQueryCache(
       }
     }
     if (blockPersistenceForScope) persister.blockAfterFailedDelete();
+    if (!isCurrentBinding()) return;
+    await waitForStorageOperations();
     if (!isCurrentBinding()) return;
     const keys = await storage.keys();
     if (!isCurrentBinding()) return;
