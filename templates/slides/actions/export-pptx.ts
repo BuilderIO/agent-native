@@ -1642,6 +1642,28 @@ const trackPptxExportFailures = withExportFailureTracking<{
   includeNotes: boolean;
 }>("pptx");
 
+type SlidesPptxDownloadContext = {
+  slidesPptxDownload?: true;
+  slidesPptxDownloadFilename?: string;
+};
+
+function slidesPptxDownloadContext(
+  ctx: unknown,
+): SlidesPptxDownloadContext | undefined {
+  const context = ctx as SlidesPptxDownloadContext | undefined;
+  return context?.slidesPptxDownload === true ? context : undefined;
+}
+
+function isSafePptxFilename(filename: unknown): filename is string {
+  return (
+    typeof filename === "string" &&
+    !filename.includes("..") &&
+    path.basename(filename) === filename &&
+    path.extname(filename).toLowerCase() === ".pptx" &&
+    /^[a-zA-Z0-9_.-]+$/.test(filename)
+  );
+}
+
 export default defineAction({
   description:
     "Export a deck as a PowerPoint (.pptx) file, preserving imported PPTX geometry, text styles, shapes, and images. Freeform editor objects must use the Slides editor's Export > PowerPoint flow so browser-rendered geometry is preserved. Returns a download URL for the generated file.",
@@ -1927,15 +1949,18 @@ export default defineAction({
       (await pptx.write({ outputType: "nodebuffer" })) as Buffer,
       { themeColors: deckThemeColors(deckData), slideGradients },
     );
-    const filename = safeGeneratedFilename(row.title, ".pptx");
+    const downloadContext = slidesPptxDownloadContext(ctx);
+    const filename = isSafePptxFilename(
+      downloadContext?.slidesPptxDownloadFilename,
+    )
+      ? downloadContext.slidesPptxDownloadFilename
+      : safeGeneratedFilename(row.title, ".pptx");
 
-    let filePath: string | undefined;
-    if (!isServerless()) {
-      const exportDir = tenantExportDir(userEmail);
-      fs.mkdirSync(exportDir, { recursive: true });
-      filePath = path.join(exportDir, filename);
-      fs.writeFileSync(filePath, buffer);
-    }
+    // Hosted temp storage is per instance, so retries can rebuild after a cold start.
+    const exportDir = tenantExportDir(userEmail);
+    fs.mkdirSync(exportDir, { recursive: true });
+    const filePath = path.join(exportDir, filename);
+    fs.writeFileSync(filePath, buffer);
 
     trackDeckExported(
       {
@@ -1950,7 +1975,7 @@ export default defineAction({
 
     return {
       downloadUrl: getExportUrl(filename, { deckId, includeNotes }),
-      ...(ctx?.caller === "http" ? { buffer, filePath } : {}),
+      ...(downloadContext ? { buffer, filePath } : {}),
       filename,
       slideCount: slides.length,
       ...(backgroundGradientsFlattened > 0
@@ -1984,14 +2009,4 @@ function deckThemeFonts(
       ? (fonts[index] as string)
       : undefined;
   return [face(0), face(1) ?? face(0)];
-}
-
-function isServerless(): boolean {
-  return Boolean(
-    process.env.NETLIFY ||
-    process.env.VERCEL ||
-    process.env.AWS_LAMBDA_FUNCTION_NAME ||
-    process.cwd() === "/var/task" ||
-    process.cwd().startsWith("/var/task/"),
-  );
 }

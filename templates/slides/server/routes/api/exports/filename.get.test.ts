@@ -7,15 +7,18 @@ const mocks = vi.hoisted(() => ({
   setResponseHeader: vi.fn(),
   setResponseStatus: vi.fn(),
   resolveAuth: vi.fn(),
+  createReadStream: vi.fn(),
+  streamFile: vi.fn((..._args: unknown[]) => "streamed-export"),
 }));
 
+vi.mock("fs", () => ({ createReadStream: mocks.createReadStream }));
 vi.mock("fs/promises", () => ({ stat: mocks.stat }));
 vi.mock("@agent-native/core", () => ({
   isActionContractError: () => false,
 }));
 vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: (_context: unknown, run: () => unknown) => run(),
-  streamFile: vi.fn(),
+  streamFile: (...args: unknown[]) => mocks.streamFile(...args),
 }));
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -69,7 +72,29 @@ describe("slides hosted PPTX download route", () => {
         caller: "http",
         userEmail: "user@example.com",
         orgId: "org-1",
+        slidesPptxDownload: true,
+        slidesPptxDownloadFilename: "missing-export.pptx",
       },
     );
+  });
+
+  it("reuses a persisted export after the first authenticated regeneration", async () => {
+    mocks.stat
+      .mockRejectedValueOnce(new Error("ENOENT"))
+      .mockResolvedValueOnce({ size: 12 });
+    const handler = (await import("./[filename].get.js")).default as (
+      event: unknown,
+    ) => Promise<unknown>;
+
+    const regenerated = await handler({});
+    const streamed = await handler({});
+
+    expect(regenerated).toBeInstanceOf(Response);
+    expect(streamed).toBe("streamed-export");
+    expect(mocks.createReadStream).toHaveBeenCalledWith(
+      expect.stringMatching(/missing-export\.pptx$/),
+    );
+    expect(mocks.streamFile).toHaveBeenCalledTimes(1);
+    expect(mocks.run).toHaveBeenCalledTimes(1);
   });
 });

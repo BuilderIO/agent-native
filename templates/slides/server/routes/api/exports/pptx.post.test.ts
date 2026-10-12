@@ -149,6 +149,7 @@ describe("slides pptx export route", () => {
       caller: "http",
       userEmail: "user@example.com",
       orgId: "org-1",
+      slidesPptxDownload: true,
     });
     expect(mockRun.mock.calls[1][0]).toEqual({
       deckId: "deck-1",

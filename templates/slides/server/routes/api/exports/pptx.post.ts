@@ -36,17 +36,19 @@ export default defineEventHandler(async (event) => {
 
   const deckId = body.deckId;
   const includeNotes = body.includeNotes ?? true;
+  const actionContext = {
+    caller: "http" as const,
+    userEmail: session.email,
+    orgId: session.orgId,
+    slidesPptxDownload: true as const,
+  };
   const runExport = async () =>
     exportPptxAction.run(
       {
         deckId,
         includeNotes,
       },
-      {
-        caller: "http",
-        userEmail: session.email,
-        orgId: session.orgId,
-      },
+      actionContext,
     );
 
   try {

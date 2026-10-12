@@ -14,6 +14,7 @@ import {
 
 import exportPptxAction from "../../../../actions/export-pptx.js";
 import { resolveSlidesRequestAuth } from "../../../handlers/request-auth-context.js";
+import { asPptxDownloadRegeneration } from "../../../lib/deck-export-tracking.js";
 import { tenantExportDir } from "../../../lib/tenant-files.js";
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -66,19 +67,25 @@ export default defineEventHandler(async (event) => {
     }
 
     try {
+      const actionContext = {
+        caller: "http" as const,
+        userEmail: session.email,
+        orgId: session.orgId,
+        slidesPptxDownload: true as const,
+        slidesPptxDownloadFilename: filename,
+      };
       const result = await runWithRequestContext(
         { userEmail: session.email, orgId: session.orgId },
         () =>
-          exportPptxAction.run(
-            {
-              deckId,
-              includeNotes: query.includeNotes !== "false",
-            },
-            {
-              caller: "http",
-              userEmail: session.email,
-              orgId: session.orgId,
-            },
+          asPptxDownloadRegeneration(
+            async () =>
+              await exportPptxAction.run(
+                {
+                  deckId,
+                  includeNotes: query.includeNotes !== "false",
+                },
+                actionContext,
+              ),
           ),
       );
 
