@@ -52,6 +52,7 @@ const repo = join(kit, "../..");
 const TOKEN_SOURCES = (template: string) => [
   "packages/toolkit/src/app/styles/tokens/agent-kit.css",
   "packages/toolkit/src/app/styles/agent-native.css",
+  "packages/toolkit/src/app/agentkit/react/styles.css",
   `templates/${template}/app/global.css`,
 ];
 
@@ -96,7 +97,12 @@ function tokensCss(template: string): string {
   for (const source of TOKEN_SOURCES(template)) {
     const css = read(join(repo, source)).replace(/\/\*[\s\S]*?\*\//g, "");
     for (const rule of topLevelRules(css)) {
-      if (rule.selector === ":root" || rule.selector.startsWith("@theme"))
+      // AgentKit scopes its chat tokens to `:where(.agentkit-chat)`; they're var() chains, so :root is safe.
+      if (
+        rule.selector === ":root" ||
+        rule.selector === ":where(.agentkit-chat)" ||
+        rule.selector.startsWith("@theme")
+      )
         light.push(...customProperties(rule.body));
       else if (rule.selector === ".dark")
         dark.push(...customProperties(rule.body));
