@@ -1,6 +1,10 @@
 [
   {
     "date": "2026-10-12",
+    "text": "Drew the Settings profile photo as the app does, so its letter shows in dark mode, and kept menus above dialogs"
+  },
+  {
+    "date": "2026-10-12",
     "text": "Moved into the prototypes library, built on the code's design tokens, with this Changes log in place of the Spec drawer"
   },
   {

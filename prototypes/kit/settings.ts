@@ -206,7 +206,7 @@ function stControl(r) {
   if (c.link)
     return `<button class="st-link" ${c.to ? `data-st-go="${c.to}"` : `data-st-toast="${r.l}: ${c.link}"`}>${c.link}${ic("chevron-right", "s14")}</button>`;
   if (c.photo)
-    return `<span class="st-av" style="background:var(--kit-accent)">${KIT_ST.initial}</span><button class="st-btn" data-st-toast="Choose a photo">Change</button>`;
+    return `<span class="st-av st-photo">${KIT_ST.initial}</span><button class="st-btn" data-st-toast="Choose a photo">Change</button>`;
   if (c.text !== undefined) return `<span class="muted">${c.text}</span>`;
   return "";
 }

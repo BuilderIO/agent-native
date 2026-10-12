@@ -90,4 +90,6 @@
 .st-log h5 { margin: 8px 0 4px; font-size: 12px; font-weight: 500; color: var(--color-muted-foreground); }
 .st-log ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
 .st-av { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 600; flex: none; }
+/* The profile photo placeholder, as AccountSettingsCard draws it: 40px, bordered, a muted letter on the accent fill. */
+.st-av.st-photo { width: 40px; height: 40px; border: 1px solid var(--color-border); background: var(--color-accent); color: var(--color-muted-foreground); }
 .st-new { font-size: 10px; line-height: 14px; font-weight: 600; padding: 0 5px; border-radius: 4px; background: color-mix(in srgb, var(--kit-accent) 14%, transparent); color: var(--kit-accent); }
