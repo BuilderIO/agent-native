@@ -43,6 +43,8 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
   ExtensionSlot: () => null,
 }));
 
+import { APP_SERIES_COLORS } from "@shared/app-series-colors";
+
 import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
 import {
@@ -222,6 +224,40 @@ describe("SqlChart axis labels, series order and point limits", () => {
     expect(swatches).toEqual([
       ["negative", "#ef4444"],
       ["positive", "#10b981"],
+    ]);
+  });
+
+  it("keeps each app's color when the stack is reordered", async () => {
+    const appPanel = panel("area", {
+      stacked: true,
+      pivot: { xKey: "day", seriesKey: "template", valueKey: "count" },
+    });
+    const swatches = () =>
+      [...container.querySelectorAll("[data-chart-legend-item]")].map(
+        (item) => [
+          item.getAttribute("data-chart-legend-item"),
+          item.querySelector<HTMLElement>("span[style]")?.style.backgroundColor,
+        ],
+      );
+
+    mocks.rows = dates(2).flatMap((day) => [
+      { day, template: "mail", count: 90 },
+      { day, template: "slides", count: 5 },
+    ]);
+    await render(appPanel);
+    expect(swatches()).toEqual([
+      ["mail", APP_SERIES_COLORS.mail],
+      ["slides", APP_SERIES_COLORS.slides],
+    ]);
+
+    mocks.rows = dates(2).flatMap((day) => [
+      { day, template: "mail", count: 5 },
+      { day, template: "slides", count: 90 },
+    ]);
+    await render({ ...appPanel, id: "reordered" });
+    expect(swatches()).toEqual([
+      ["slides", APP_SERIES_COLORS.slides],
+      ["mail", APP_SERIES_COLORS.mail],
     ]);
   });
 

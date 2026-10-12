@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics";
+import { APP_SERIES_COLORS } from "./app-series-colors";
 import {
   PANEL_CHART_TYPES,
   PANEL_TOP_LEVEL_KEYS,
@@ -13,6 +14,7 @@ import {
   missingKeysFromColumns,
   orderPanelSeries,
   planPanelRender,
+  resolveSeriesColors,
   stableStringify,
   unknownPanelConfigKeys,
   validatePanelContract,
@@ -815,6 +817,92 @@ describe("orderPanelSeries", () => {
 
     expect(plan.yKeys).toEqual(["positive", "negative", "neutral"]);
     expect(plan.colorSlots).toEqual([0, 1, 2]);
+  });
+});
+
+describe("resolveSeriesColors", () => {
+  const PALETTE = ["#06b6d4", "#ef4444", "#f59e0b"];
+  const stacked = {
+    chartType: "area" as const,
+    config: {
+      stacked: true,
+      pivot: { xKey: "day", seriesKey: "template", valueKey: "visitors" },
+    },
+  };
+
+  function colorsByKey(
+    rows: Record<string, unknown>[],
+    panel: Parameters<typeof planPanelRender>[1],
+  ) {
+    const plan = planPanelRender(rows, panel);
+    const colors = resolveSeriesColors(
+      plan.yKeys,
+      plan.colorSlots,
+      panel,
+      PALETTE,
+    );
+    return plan.yKeys.map((key, index) => [key, colors[index]]);
+  }
+
+  it("keeps each app's color when the stack order changes", () => {
+    const mailFirst = colorsByKey(
+      [
+        { day: "2026-10-01", template: "slides", visitors: 2 },
+        { day: "2026-10-01", template: "mail", visitors: 9 },
+      ],
+      stacked,
+    );
+    const slidesFirst = colorsByKey(
+      [
+        { day: "2026-10-01", template: "slides", visitors: 9 },
+        { day: "2026-10-01", template: "mail", visitors: 2 },
+      ],
+      stacked,
+    );
+
+    expect(mailFirst).toEqual([
+      ["mail", APP_SERIES_COLORS.mail],
+      ["slides", APP_SERIES_COLORS.slides],
+    ]);
+    expect(slidesFirst).toEqual([
+      ["slides", APP_SERIES_COLORS.slides],
+      ["mail", APP_SERIES_COLORS.mail],
+    ]);
+  });
+
+  it("skips palette colors an app in the chart shows; other series keep their slot", () => {
+    expect(
+      colorsByKey(
+        [
+          { day: "2026-10-01", template: "forms", visitors: 9 },
+          { day: "2026-10-01", template: "docs", visitors: 2 },
+        ],
+        stacked,
+      ),
+    ).toEqual([
+      ["forms", APP_SERIES_COLORS.forms],
+      // Slot 1 of the palette without forms' #06b6d4.
+      ["docs", "#f59e0b"],
+    ]);
+  });
+
+  it("lets config.colors override the app colors", () => {
+    const panel = {
+      ...stacked,
+      config: { ...stacked.config, colors: PALETTE },
+    };
+    expect(
+      colorsByKey(
+        [
+          { day: "2026-10-01", template: "mail", visitors: 9 },
+          { day: "2026-10-01", template: "slides", visitors: 2 },
+        ],
+        panel,
+      ),
+    ).toEqual([
+      ["mail", "#06b6d4"],
+      ["slides", "#ef4444"],
+    ]);
   });
 });
 

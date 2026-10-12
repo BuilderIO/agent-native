@@ -15,6 +15,7 @@ import {
   isNumericLikeValue,
   limitChartRows,
   planPanelRender,
+  resolveSeriesColors,
   type ChartPointLimit,
   type HeatmapKeys,
 } from "@shared/panel-render-contract";
@@ -1314,8 +1315,11 @@ export function SqlChart({
     );
   }
   const colors = panel.config?.colors || DEFAULT_COLORS;
-  const seriesColors = plan.colorSlots.map(
-    (slot) => colors[slot % colors.length],
+  const seriesColors = resolveSeriesColors(
+    plan.yKeys,
+    plan.colorSlots,
+    panel,
+    colors,
   );
   const yFormatter = panel.config?.yFormatter;
 

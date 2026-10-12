@@ -21,6 +21,7 @@ import {
   chartPointLimit,
   limitChartRows,
   orderPanelSeries,
+  resolveSeriesColors,
   seriesColorSlots,
   type ChartPointLimit,
 } from "../../shared/panel-render-contract";
@@ -375,11 +376,13 @@ function detectChartKeys(
   return { xKey, yKeys };
 }
 
-function chartColor(config: SqlPanel["config"], index: number): string {
-  const configured = config?.colors?.[index];
-  return configured && !configured.includes("var(")
-    ? configured
-    : CHART_COLORS[index % CHART_COLORS.length];
+// The image has no CSS, so a configured `var(...)` color takes the palette color in its slot.
+function reportPalette(config: SqlPanel["config"]): string[] {
+  const configured = config?.colors;
+  if (!configured?.length) return CHART_COLORS;
+  return configured.map((color, index) =>
+    color.includes("var(") ? CHART_COLORS[index % CHART_COLORS.length] : color,
+  );
 }
 
 function formatReportSeriesLabel(panel: SqlPanel, value: string): string {
@@ -472,7 +475,12 @@ function buildChartInput(
         : (JSON.stringify(row[xKey]) ?? ""),
   );
   const plotted = chartType === "pie" ? yKeys.slice(0, 1) : yKeys;
-  const colorSlots = seriesColorSlots(plotted, detected.yKeys, panel);
+  const colors = resolveSeriesColors(
+    plotted,
+    seriesColorSlots(plotted, detected.yKeys, panel),
+    panel,
+    reportPalette(config),
+  );
   const dualAxis = resolveDualAxis(plotted, config);
   const formatterFor = (key: string): ReportChartValueFormatter | undefined =>
     dualAxis.formatterFor(key);
@@ -482,7 +490,7 @@ function buildChartInput(
     series: plotted.map((key, index) => ({
       label: formatReportSeriesLabel(panel, key),
       data: visible.map((row) => toNumber(row[key])),
-      color: chartColor(config, colorSlots[index]),
+      color: colors[index],
       ...(dualAxis.enabled ? { axis: dualAxis.sideFor(key) } : {}),
       ...(formatterFor(key) ? { formatter: formatterFor(key) } : {}),
     })),

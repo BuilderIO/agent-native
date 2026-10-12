@@ -5,6 +5,7 @@ import {
   type SqlPanel,
   type SqlPanelConfig,
 } from "../app/pages/adhoc/sql-dashboard/types";
+import { appSeriesColor } from "./app-series-colors";
 import { axisDirection, isDateAxis } from "./chart-axis-labels";
 import { normalizeDashboardConfig } from "./dashboard-config-normalization";
 import {
@@ -729,6 +730,32 @@ export function seriesColorSlots(
 }
 
 /**
+ * The color each of `orderedKeys` draws in. Without `config.colors`, a series
+ * named after an Agent-Native app takes that app's fixed color and the rest
+ * take `palette` by slot, skipping colors an app already shows in this chart.
+ * With `config.colors`, `palette` is those colors and every series takes its slot.
+ */
+export function resolveSeriesColors(
+  orderedKeys: readonly string[],
+  slots: readonly number[],
+  panel: RenderPanel,
+  palette: readonly string[],
+): string[] {
+  const bySlot = (colors: readonly string[], index: number) =>
+    colors[slots[index] % colors.length];
+  if (keyList(panel.config?.colors).length > 0) {
+    return orderedKeys.map((_, index) => bySlot(palette, index));
+  }
+  const appColors = orderedKeys.map(appSeriesColor);
+  const shown = new Set(appColors.map((color) => color?.toLowerCase()));
+  const free = palette.filter((color) => !shown.has(color.toLowerCase()));
+  return orderedKeys.map(
+    (_, index) =>
+      appColors[index] ?? bySlot(free.length > 0 ? free : palette, index),
+  );
+}
+
+/**
  * The order a panel draws its series in; the first is the bottom of a stack.
  * `config.pivot.seriesOrder` and a listed `config.yKeys` are the author's
  * order. Otherwise a stacked bar or area chart puts the largest total first and
@@ -810,7 +837,7 @@ export interface PanelRenderPlan {
   rawColumns: string[];
   xKey: string;
   yKeys: string[];
-  /** Each of `yKeys`' slot in `config.colors`; see `seriesColorSlots`. */
+  /** Each of `yKeys`' color slot; `resolveSeriesColors` turns them into colors. */
   colorSlots: number[];
   /** The viewer sees "No data": no rows, or a funnel or heatmap that finds nothing to draw. */
   empty: boolean;

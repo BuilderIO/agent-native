@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SqlPanel } from "../../app/pages/adhoc/sql-dashboard/types";
+import { APP_SERIES_COLORS } from "../../shared/app-series-colors";
 
 const mocks = vi.hoisted(() => ({
   runWithRequestContext: vi.fn(
@@ -949,6 +950,53 @@ describe("report chart parity with the dashboard", () => {
     ).toEqual([
       ["negative", "#ef4444"],
       ["positive", "#10b981"],
+    ]);
+  });
+
+  it("draws each app in the same fixed color as the dashboard", async () => {
+    await renderReportEmail({
+      snapshot: {
+        ...snapshotOf([
+          panel({
+            id: "daily",
+            chartType: "area",
+            config: {
+              stacked: true,
+              pivot: {
+                xKey: "date",
+                seriesKey: "template",
+                valueKey: "visitors",
+              },
+            },
+          }),
+        ]),
+        filters: { f_timeRange: "all" },
+      },
+      panelData: new Map([
+        [
+          "daily",
+          {
+            status: "rows" as const,
+            rows: [
+              { date: "2026-10-01", template: "slides", visitors: 2 },
+              { date: "2026-10-01", template: "mail", visitors: 9 },
+              { date: "2026-10-01", template: "unknown", visitors: 1 },
+            ],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    const chartInput = mocks.renderReportChartSvg.mock.calls[0][0] as {
+      series: Array<{ label: string; color: string }>;
+    };
+    expect(
+      chartInput.series.map((entry) => [entry.label, entry.color]),
+    ).toEqual([
+      ["mail", APP_SERIES_COLORS.mail],
+      ["slides", APP_SERIES_COLORS.slides],
+      ["unknown", APP_SERIES_COLORS.unknown],
     ]);
   });
 });
