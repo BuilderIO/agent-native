@@ -2677,7 +2677,7 @@ export function createAgentChatPlugin(
                 ownerEmail: userEmail,
                 orgId: a2aOrgId,
               },
-              a2aRegisteredActions,
+              { ...prodActions, ...a2aRegisteredActions },
             )),
           });
 
@@ -3287,7 +3287,7 @@ export function createAgentChatPlugin(
               ...(await resolveAppAdditionalActions(
                 options?.resolveAdditionalActions,
                 { surface: "mcp", ownerEmail, orgId: mcpOrgId },
-                mcpRegisteredActions,
+                { ...prodActions, ...mcpRegisteredActions },
               )),
             });
 

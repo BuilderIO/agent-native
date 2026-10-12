@@ -15,7 +15,29 @@ const booted = vi.hoisted(() => ({
   mcpConfig: undefined as
     | { askAgent: (message: string) => Promise<unknown> }
     | undefined,
+  delegatedAdditions: [] as Array<{ surface: string; names: string[] }>,
 }));
+
+// A2A and ask_app go on to run the model after resolving app actions, so stop
+// them right after the merge and record which app names survived it.
+vi.mock("./agent-chat/additional-actions.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./agent-chat/additional-actions.js")>();
+  return {
+    ...actual,
+    resolveAppAdditionalActions: async (
+      ...args: Parameters<typeof actual.resolveAppAdditionalActions>
+    ) => {
+      const added = await actual.resolveAppAdditionalActions(...args);
+      if (args[1].surface === "chat") return added;
+      booted.delegatedAdditions.push({
+        surface: args[1].surface,
+        names: Object.keys(added),
+      });
+      throw new Error("app actions resolved");
+    },
+  };
+});
 
 vi.mock("../agent/production-agent.js", async (importOriginal) => {
   const actual =
@@ -132,6 +154,7 @@ describe("resolveAdditionalActions through the agent chat plugin", () => {
     booted.handlerOptions.length = 0;
     booted.a2aConfig = undefined;
     booted.mcpConfig = undefined;
+    booted.delegatedAdditions.length = 0;
   });
 
   afterEach(async () => {
@@ -264,6 +287,52 @@ describe("resolveAdditionalActions through the agent chat plugin", () => {
         ownerEmail: "alice@example.com",
         orgId: "acme",
       },
+    ]);
+  });
+
+  it("ignores framework names that the A2A and ask_app registries leave out", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await boot(
+      async () => ({
+        "agent-teams": entry("app agent-teams"),
+        "user-registered-tool": entry("user tool"),
+      }),
+      { mcpEnabled: true },
+    );
+
+    const failures = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme" },
+      async () => [
+        await booted
+          .a2aConfig!.handler(
+            { role: "user", parts: [{ type: "text", text: "list my decks" }] },
+            {
+              taskId: "task-delegated-reserved-names",
+              metadata: {},
+              event: mockEvent(
+                new Request("http://localhost/_agent-native/a2a", {
+                  method: "POST",
+                }),
+              ),
+              writeArtifact: () => "",
+            },
+          )
+          .next()
+          .then(
+            () => null,
+            (error: Error) => error.message,
+          ),
+        await booted.mcpConfig!.askAgent("list my decks").then(
+          () => null,
+          (error: Error) => error.message,
+        ),
+      ],
+    );
+
+    expect(failures).toEqual(["app actions resolved", "app actions resolved"]);
+    expect(booted.delegatedAdditions).toEqual([
+      { surface: "a2a", names: ["user-registered-tool"] },
+      { surface: "mcp", names: ["user-registered-tool"] },
     ]);
   });
 });
