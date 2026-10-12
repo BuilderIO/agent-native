@@ -13,6 +13,9 @@ Clickable prototypes of the Agent-Native templates, one folder each. Each builds
 
 ## Working on one
 
+![How prototypes, artifacts, Figma, and the code fit together](docs/00-workflow.png)
+
+
 Ask the agent to open, change, republish, or Figma-sync a prototype; the `prototypes` skill (`.agents/skills/prototypes/`) has the workflow. `figma` in each `prototype.json` names the app's page in the Agent-Native Figma file and the sections the prototype maps to.
 
 Prototypes aren't shipped code: CI classes `prototypes/` as docs-only, the diff-scoped guards skip it, and oxfmt and oxlint ignore it. Check a prototype by building it and loading the page.
