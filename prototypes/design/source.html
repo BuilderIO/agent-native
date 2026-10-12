@@ -175,99 +175,6 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 @keyframes swap { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
 
 
-/* Settings: the toolkit SettingsShell (full page at /settings/:page). 252px rail with Back to Design, search, and
-   groups Account · Design · Connections · Agent · Organization; an 824px column under a sticky 60px header. */
-.settings { position: fixed; inset: 36px 0 0 0; z-index: 45; background: var(--color-background); display: grid; grid-template-columns: 252px minmax(0, 1fr); font-size: 13px; line-height: 20px; }
-.settings[hidden] { display: none; }
-.st-rail { background: var(--sidebar, var(--color-muted)); border-right: 1px solid var(--color-border); overflow-y: auto; padding: 12px 8px 24px; display: flex; flex-direction: column; }
-.st-back { height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; font-weight: 500; color: var(--color-muted-foreground); }
-.st-back:hover { background: var(--color-accent); color: var(--color-foreground); }
-.st-search { margin: 8px 0 4px; height: 32px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-background); color: var(--color-muted-foreground); }
-.st-search:focus-within { border-color: var(--design-editor-accent-color); box-shadow: 0 0 0 3px var(--design-editor-selection-color); }
-.st-search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font: inherit; color: var(--color-foreground); }
-.st-search input::-webkit-search-cancel-button { display: none; }
-.st-glabel { margin: 14px 8px 4px; font-size: 11.5px; line-height: 16px; color: var(--color-muted-foreground); font-weight: 500; }
-.st-item { height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; font-weight: 500; text-align: left; width: 100%; }
-.st-item:hover { background: var(--color-accent); }
-.st-item[aria-current="page"] { background: var(--selected, var(--color-accent)); }
-.st-item svg.i { width: 16px; height: 16px; flex: none; }
-.st-item .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-primary); margin-left: auto; }
-.st-hit { display: flex; gap: 8px; padding: 6px 8px; border-radius: 6px; text-align: left; width: 100%; }
-.st-hit:hover, .st-hit[aria-selected="true"] { background: var(--color-accent); }
-.st-hit small { display: block; color: var(--color-muted-foreground); font-size: 12px; line-height: 16px; }
-.st-main { overflow-y: auto; position: relative; }
-.st-col { max-width: 824px; margin: 0 auto; padding: 4px 32px 112px; }
-.st-head { position: sticky; top: 0; z-index: 2; height: 60px; display: flex; align-items: center; gap: 8px; background: var(--color-background); font-size: 14px; font-weight: 500; }
-.st-head .crumb { color: var(--color-muted-foreground); }
-.st-head .grow { flex: 1; }
-.st-head .badge, .st-sec-h .badge, .st-row .badge { font-size: 11px; line-height: 16px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--color-border); color: var(--color-muted-foreground); font-weight: 500; }
-.st-agent { position: absolute; top: 14px; right: 14px; z-index: 3; }
-.st-sec { margin-top: 20px; }
-.st-sec-h { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-weight: 600; }
-.st-card { border: 1px solid var(--color-border); border-radius: 10px; }
-.st-row { min-height: 56px; display: flex; align-items: center; gap: 16px; padding: 10px 16px; }
-.st-row + .st-row { border-top: 1px solid var(--color-border); }
-.st-row .lt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.st-row .lt b { font-weight: 500; display: flex; align-items: center; gap: 8px; }
-.st-row .lt small { color: var(--color-muted-foreground); font-size: 12px; line-height: 16px; }
-.st-row .rt { flex: none; display: flex; align-items: center; gap: 8px; }
-.st-row .ico { width: 32px; height: 32px; border-radius: 8px; background: var(--color-muted); display: grid; place-items: center; flex: none; }
-.st-row.flash { animation: stflash 1.2s ease-out; }
-@keyframes stflash { 0% { background: var(--design-editor-selection-color); } 100% { background: transparent; } }
-.st-btn { height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-background); font-weight: 500; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.st-btn:hover { background: var(--color-accent); }
-.st-btn.primary { background: var(--color-primary); color: var(--color-primary-foreground); border-color: var(--color-primary); }
-.st-btn.danger { color: hsl(0 72% 51%); }
-.st-sel { height: 32px; min-width: 160px; max-width: 280px; padding: 0 8px 0 12px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-background); display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; }
-.st-sel span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.st-in { height: 32px; width: 240px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-background); font: inherit; color: var(--color-foreground); }
-.st-in:focus, .st-area:focus { outline: none; border-color: var(--design-editor-accent-color); box-shadow: 0 0 0 3px var(--design-editor-selection-color); }
-.st-in.num { width: 96px; }
-.st-sw { width: 36px; height: 20px; border-radius: 10px; background: var(--color-border); position: relative; flex: none; transition: background .15s; }
-.st-sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / 20%); transition: transform .15s; }
-.st-sw[aria-checked="true"] { background: var(--color-primary); }
-.st-sw[aria-checked="true"]::after { transform: translateX(16px); }
-.st-link { color: var(--color-foreground); font-weight: 500; display: inline-flex; align-items: center; gap: 2px; }
-.st-link:hover { text-decoration: underline; text-underline-offset: 3px; }
-.st-copy { display: flex; gap: 8px; }
-.st-copy input { width: 320px; font: 12px/16px var(--mono); }
-.st-empty { padding: 32px 16px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.st-empty b { font-weight: 500; }
-.st-empty small { color: var(--color-muted-foreground); font-size: 12px; line-height: 16px; max-width: 420px; }
-.st-empty .st-btn { margin-top: 8px; }
-.st-intro, .st-foot { color: var(--color-muted-foreground); }
-.st-foot { margin-top: 24px; font-size: 12px; }
-.st-foot button { color: var(--color-foreground); font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }
-.st-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.st-tile { border: 1px solid var(--color-border); border-radius: 10px; padding: 12px; display: flex; gap: 12px; align-items: flex-start; text-align: left; }
-.st-tile:hover { background: var(--color-accent); }
-.st-tile .tn { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.st-tile .tn b { font-weight: 500; }
-.st-tile .tn small { color: var(--color-muted-foreground); font-size: 12px; line-height: 16px; }
-.st-more { margin-top: 8px; color: var(--color-muted-foreground); font-weight: 500; }
-.st-more:hover { color: var(--color-foreground); }
-.st-hosts { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 12px; }
-.st-hosts button { height: 28px; padding: 0 10px; border-radius: 8px; color: var(--color-muted-foreground); font-weight: 500; }
-.st-hosts button[aria-pressed="true"] { background: var(--color-muted); color: var(--color-foreground); }
-.st-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
-.st-cmd { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border-radius: 8px; background: var(--color-muted); font: 12px/16px var(--mono); margin-top: 8px; }
-.st-cmd code { flex: 1; min-width: 0; word-break: break-all; }
-.st-area { width: 100%; min-height: 96px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-background); font: inherit; color: var(--color-foreground); resize: vertical; }
-.st-tabs { display: flex; gap: 16px; border-bottom: 1px solid var(--color-border); margin-top: 8px; }
-.st-tabs button { height: 36px; font-weight: 500; color: var(--color-muted-foreground); box-shadow: inset 0 -2px 0 transparent; }
-.st-tabs button[aria-selected="true"] { color: var(--color-foreground); box-shadow: inset 0 -2px 0 var(--color-foreground); }
-.st-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.st-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 16px; }
-.st-metric { border: 1px solid var(--color-border); border-radius: 10px; padding: 12px; }
-.st-metric small { color: var(--color-muted-foreground); font-size: 12px; }
-.st-metric b { display: block; font-size: 20px; line-height: 28px; font-weight: 600; }
-.st-chart { height: 120px; display: flex; align-items: flex-end; gap: 4px; padding: 16px; }
-.st-chart span { flex: 1; background: var(--design-editor-accent-color); opacity: .75; border-radius: 3px 3px 0 0; }
-.st-log h4 { margin: 20px 0 4px; font-size: 13px; font-weight: 600; }
-.st-log h5 { margin: 8px 0 4px; font-size: 12px; font-weight: 500; color: var(--color-muted-foreground); }
-.st-log ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
-.st-av { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 600; flex: none; }
-.st-new { font-size: 10px; line-height: 14px; font-weight: 600; padding: 0 5px; border-radius: 4px; background: var(--design-editor-selection-color); color: var(--design-editor-accent-color); }
 
 /* frame tool presets: icon groups; preset names line up with the group icon, sizes right in tabular figures */
 .fp-head { height: 40px; display: flex; align-items: center; padding: 0 16px; font-weight: 600; font-size: 12px; border-bottom: 1px solid var(--color-border); flex: none; }
@@ -1082,7 +989,6 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
   <button class="chip" id="changes-btn" aria-pressed="false">Changes</button>
 </div>
 <div class="app design" id="app">
-  <div class="settings" id="settings" hidden></div>
   <nav class="rail" aria-label="App">
     <div class="rail-head"><button class="icon-btn" id="app-menu-btn" aria-haspopup="menu" title="Menu">__LOGO__</button></div>
     <div class="rail-nav">
@@ -2913,7 +2819,6 @@ function linkTo(scope) {
   const screen = `${DESIGN_URL}?screen=${S.route.replace(/^\//, "") || "home"}`;
   return scope === "screen" ? screen : `${screen}&node=${((S.multi || []).length > 1 ? S.multi : [S.selected]).join(",")}`;
 }
-function copyText(text, msg) { (navigator.clipboard?.writeText(text) || Promise.reject()).then(() => toast(msg), () => toast(msg)); }
 // One Copy link, like Send to: it links what you right-clicked, and the toast names it.
 const copyLink = (scope, icon = "link") => ({ t: "Copy link", run: () => copyText(linkTo(scope), `Link to ${scopeName(scope)} copied`) });
 const COPY_PASTE_AS = () => [{ t: "Copy as PNG", k: "⇧⌘C" }, { t: "Copy properties", k: "⌥⌘C" }, { t: "Paste properties", k: "⌥⌘V" }, "-", { t: "Paste over selection", k: "⇧⌘V" }];
@@ -2971,133 +2876,21 @@ document.addEventListener("contextmenu", e => {
 });
 
 
-/* ───────── Settings (toolkit SettingsShell + core-pages.ts; Design's additions from routes/settings.tsx) ───────── */
-const SETTINGS = __SETTINGS__;
-const MCP_HOSTS = [
-  ["Claude", ["Open Customize → Connectors in Claude.", "Click the + button → Add custom connector.", "Paste the MCP URL above, name it Design, click Connect.", "On the consent page, click Authorize to approve mcp:read, mcp:write, mcp:apps."], null, "Open Claude → Connectors"],
-  ["ChatGPT", ["In ChatGPT web, open Settings → Apps → Advanced settings and enable developer mode if your workspace requires it.", "Choose Create app, paste the MCP URL above, select OAuth, and scan the tools.", "Sign in with your Agent-Native account, approve the requested scopes, and enable the app in a chat."], null, "Open ChatGPT"],
-  ["Cursor", ["Open Cursor → Settings → MCP.", "Click Add MCP Server, paste the MCP URL above, save.", "When prompted, sign in with your Agent-Native account and approve the MCP scopes."], null, null],
-  ["Claude Code", ["In your terminal, run:"], `claude mcp add --transport http design ${MCP_URL}`, "Copy command"],
-  ["Codex", ["In your terminal, run:"], "npx @agent-native/core@latest connect https://design.agent-native.com", "Copy command"],
-  ["Grok", ["Open grok.com/connectors and choose New Connector → Custom.", "Paste the MCP URL above and complete the requested authentication.", "Enable the connector in a chat after Grok discovers the tools."], null, "Open Grok → Connectors"],
-  ["Other", ["Any MCP-compatible client with remote-OAuth support: paste the MCP URL above. For clients without OAuth, paste this .mcp.json snippet and generate a static bearer below:"], `{ "mcpServers": { "design": { "type": "http", "url": "${MCP_URL}" } } }`, "Copy config"],
-];
-const ST = { page: "profile", q: "", host: "Claude", usageTab: "Overview", seen: false, prev: null };
-const stVisible = p => p.lab === "creative" ? !!S.labCreative : true;
-const stPages = () => SETTINGS.pages.filter(stVisible);
-const stPage = id => SETTINGS.pages.find(p => p.id === id);
-const stGroupLabel = g => SETTINGS.groups.find(x => x[0] === g)[1];
-function openSettings(page = "profile", flash) {
-  closeMenu?.(); document.querySelector(".share-pop")?._close?.();
-  ST.page = stVisible(stPage(page) || {}) ? page : "profile"; ST.q = "";
-  $("#settings").hidden = false; renderSettings();
-  if (flash) requestAnimationFrame(() => { const r = $(`#settings [data-key="${CSS.escape(flash)}"]`); if (r) { r.scrollIntoView({ block: "center" }); r.classList.add("flash"); } });
-}
-function closeSettings() { $("#settings").hidden = true; }
-function stIndex() {
-  const hits = [];
-  stPages().forEach(p => {
-    hits.push({ page: p.id, label: p.l, where: stGroupLabel(p.g), icon: p.icon });
-    p.sections.forEach(sec => (sec.rows || []).forEach(r => hits.push({ page: p.id, label: r.l, where: `${stGroupLabel(p.g)} › ${p.l}`, icon: p.icon, key: r.l })));
-  });
-  return hits;
-}
-function stControl(r) {
-  const c = r.c;
-  if (c.sw !== undefined) { const on = c.lab === "tokens" ? !!S.labsTokens : c.lab === "code" ? !!S.labsCode : c.lab === "annotate" ? !!S.labs : c.lab === "creative" ? !!S.labCreative : (ST[`sw:${ST.page}:${r.l}`] ?? c.sw); return `<button class="st-sw" role="switch" aria-checked="${on}" data-st-sw="${r.l}" data-lab="${c.lab || ""}" aria-label="${r.l}"></button>`; }
-  if (c.sel !== undefined) return `<button class="st-sel" data-st-sel="${r.l}"><span>${ST[`sel:${ST.page}:${r.l}`] || c.sel}</span>${ic("chevron-down", "s14")}</button>`;
-  if (c.btn) return `<button class="st-btn ${c.v || ""}" data-st-toast="${c.btn}">${c.btn}${c.ext ? ic("external-link", "s14") : ""}</button>`;
-  if (c.input !== undefined) return `<input class="st-in ${c.num ? "num" : ""}" value="${c.val || ""}" placeholder="${c.input}" aria-label="${r.l}">`;
-  if (c.copy) return `<span class="st-copy"><input class="st-in" readonly value="${c.copy}" aria-label="${r.l}"><button class="st-btn" data-st-copy="${c.copy}">Copy</button></span>`;
-  if (c.link) return `<button class="st-link" ${c.to ? `data-st-go="${c.to}"` : `data-st-toast="${r.l}: ${c.link}"`}>${c.link}${ic("chevron-right", "s14")}</button>`;
-  if (c.photo) return `<span class="st-av" style="background:#7c6cf2">S</span><button class="st-btn" data-st-toast="Choose a photo">Change</button>`;
-  if (c.text !== undefined) return `<span class="muted">${c.text}</span>`;
-  return "";
-}
-function stRow(r) {
-  const lead = r.c.icon ? `<span class="ico">${ic(r.c.icon, "s16")}</span>` : "";
-  return `<div class="st-row" data-key="${r.l}">${lead}<span class="lt"><b>${r.l}${r.c.badge ? `<span class="badge">${r.c.badge}</span>` : ""}${r.c.new ? `<span class="st-new" title="Proposed in this redesign; not in the code">New</span>` : ""}</b>${r.d ? `<small>${r.d}</small>` : ""}</span><span class="rt">${stControl(r)}</span></div>`;
-}
-function stSection(sec) {
-  const head = sec.h ? `<div class="st-sec-h">${sec.h}${sec.badge ? `<span class="badge">${sec.badge}</span>` : ""}</div>` : "";
-  let body = "";
-  if (sec.rows) body = `<div class="st-card">${sec.rows.map(stRow).join("")}</div>`;
-  else if (sec.empty) body = `<div class="st-card"><div class="st-empty"><b>${sec.empty.t}</b>${sec.empty.d ? `<small>${sec.empty.d}</small>` : ""}${sec.empty.btn ? `<button class="st-btn" data-st-toast="${sec.empty.btn}">${sec.empty.btn}</button>` : ""}</div></div>`;
-  else if (sec.intro) body = `<p class="st-intro" style="margin:0">${sec.intro}</p>`;
-  else if (sec.foot) return `<p class="st-foot">${sec.to ? sec.foot.replace(/(Integrations|MCP server|Model)\.?$/, m => `<button data-st-go="${sec.to}">${m.replace(".", "")}</button>.`) : sec.foot}</p>`;
-  else if (sec.link) body = `<button class="st-link" data-st-toast="Opens the privacy page">${sec.link}${ic("external-link", "s14")}</button>`;
-  else if (sec.search) body = `<label class="st-search" style="margin:0;max-width:320px">${ic("search", "s14")}<input type="search" placeholder="${sec.search}" aria-label="${sec.search}"></label>`;
-  else if (sec.tiles) body = `<div class="st-tiles">${sec.tiles.map(([n, d]) => `<button class="st-tile" data-st-toast="Opens ${n}"><span class="tn"><b>${n}</b><small>${d}</small></span>${ic("plus", "s16")}</button>`).join("")}</div>${sec.more ? `<button class="st-more" data-st-toast="${sec.more}">${sec.more}</button>` : ""}`;
-  else if (sec.hosts) { const h = MCP_HOSTS.find(x => x[0] === ST.host); body = `<p class="st-intro" style="margin:0">${sec.d}</p><div class="st-hosts" role="tablist">${MCP_HOSTS.map(([n]) => `<button role="tab" aria-pressed="${n === ST.host}" data-st-host="${n}">${n}</button>`).join("")}</div><ol class="st-steps">${h[1].map(x => `<li>${x}</li>`).join("")}</ol>${h[2] ? `<div class="st-cmd"><code>${h[2]}</code><button class="icon-btn xs" data-st-copy='${h[2]}' aria-label="Copy">${ic("copy", "s14")}</button></div>` : ""}${h[3] && !h[2] ? `<button class="st-btn" style="margin-top:12px" data-st-toast="${h[3]}">${h[3]}${ic("external-link", "s14")}</button>` : ""}`; }
-  else if (sec.area) body = `${sec.d ? `<p class="st-intro" style="margin:0 0 8px">${sec.d}</p>` : ""}<textarea class="st-area" placeholder="${sec.area}"></textarea><div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="st-btn" data-st-toast="Saved">Save</button></div>`;
-  else if (sec.people) body = `<div class="st-card">${sec.people.map(([n, e, role, c, me]) => `<div class="st-row"><span class="st-av" style="background:${c}">${n[0].toUpperCase()}</span><span class="lt"><b>${n}${me === true ? `<span class="badge">You</span>` : me === "invited" ? `<span class="badge">Invited</span>` : ""}</b>${e ? `<small>${e}</small>` : ""}</span><span class="rt">${role === "Owner" ? `<span class="muted">Owner</span>` : me === "invited" ? `<span class="muted">${role}</span>` : `<button class="st-sel" style="min-width:112px" data-st-sel="role:${n}" data-opts="Member,Admin"><span>${ST["sel:role:" + n] || role}</span>${ic("chevron-down", "s14")}</button><button class="icon-btn" aria-label="More" data-st-toast="Remove member">${ic("dots")}</button>`}</span></div>`).join("")}</div>`;
-  else if (sec.filters) body = `<div class="st-filters">${sec.filters.map(([v, opts]) => `<button class="st-sel" data-st-sel="f:${v}" data-opts="${opts.join(",")}"><span>${ST["sel:f:" + v] || v}</span>${ic("chevron-down", "s14")}</button>`).join("")}</div>`;
-  else if (sec.changelog) body = `<div class="st-log">${[...new Set(sec.changelog.map(x => x[0]))].map(date => `<h4>${date}</h4>${sec.changelog.filter(x => x[0] === date).map(([, type, items]) => `<h5>${type}</h5><ul>${items.map(i => `<li>${i}</li>`).join("")}</ul>`).join("")}`).join("")}<button class="st-more" data-st-toast="Shows every update">View all updates</button></div>`;
-  else if (sec.usage) {
-    const bars = [30, 45, 38, 60, 52, 70, 42, 65, 80, 58, 74, 90, 66, 84].map(h => `<span style="height:${h}%"></span>`).join("");
-    body = `<div class="st-tabs" role="tablist">${["Overview", "Activity"].map(t => `<button role="tab" aria-selected="${ST.usageTab === t}" data-st-usage="${t}">${t}</button>`).join("")}</div>
-      <div class="st-filters">${[["Last 30 days", "Last 7 days,Last 30 days,Last 90 days"], ["All apps", "All apps,Design,Content,Slides"], ["Everyone", "Everyone,Just you"]].map(([v, o]) => `<button class="st-sel" style="min-width:0" data-st-sel="u:${v}" data-opts="${o}"><span>${ST["sel:u:" + v] || v}</span>${ic("chevron-down", "s14")}</button>`).join("")}</div>
-      ${ST.usageTab === "Overview" ? `<div class="st-metrics">${[["Estimated spend", "$42.10"], ["Calls", "1,284"], ["Tokens", "3.2M"], ["Active people", "3"]].map(([l, v]) => `<div class="st-metric"><small>${l}</small><b>${v}</b></div>`).join("")}</div>
-      <div class="st-sec"><div class="st-sec-h">Usage history<span class="grow"></span></div><div class="st-card"><div class="st-chart">${bars}</div></div></div>
-      <div class="st-sec"><div class="st-sec-h">Top chats</div><div class="st-card">${[["Tighter hero for 13″ screens", "412 calls"], ["Pricing cards: annual toggle", "238 calls"], ["Generate tokens", "96 calls"]].map(([t, n]) => `<div class="st-row"><span class="lt"><b>${t}</b></span><span class="rt muted">${n}</span></div>`).join("")}</div></div>`
-      : `<div class="st-sec"><div class="st-sec-h">Tool calls</div><div class="st-card"><div class="st-chart">${bars}</div></div></div><div class="st-sec"><div class="st-sec-h">Model calls</div><div class="st-card"><div class="st-chart">${bars}</div></div></div>`}`;
-  }
-  return `<section class="st-sec">${head}${body}</section>`;
-}
-function renderSettings() {
-  const el = $("#settings"), p = stPage(ST.page);
-  if (p.id === "whats-new") ST.seen = true;
-  const q = ST.q.trim().toLowerCase();
-  const nav = q ? (() => { const hits = stIndex().filter(h => h.label.toLowerCase().includes(q)).slice(0, 12);
-      return hits.length ? `<div role="listbox" aria-label="Search results" style="margin-top:8px">${hits.map((h, i) => `<button class="st-hit" role="option" aria-selected="${i === 0}" data-st-go="${h.page}" ${h.key ? `data-st-flash="${h.key}"` : ""}>${ic(h.icon, "s16")}<span>${h.label}<small>${h.where}</small></span></button>`).join("")}</div>` : `<p class="muted" style="padding:8px">No matching settings</p>`; })()
-    : SETTINGS.groups.map(([g, label]) => { const items = stPages().filter(x => x.g === g); return items.length ? `<div class="st-glabel">${label}</div>${items.map(x => `<button class="st-item" data-st-go="${x.id}" aria-current="${x.id === ST.page ? "page" : "false"}">${ic(x.icon)}<span>${x.l}</span>${x.dot && !ST.seen ? `<span class="dot" aria-label="New"></span>` : ""}</button>`).join("")}` : ""; }).join("");
-  el.innerHTML = `<nav class="st-rail" aria-label="Settings">
-      <button class="st-back" id="st-back">${ic("arrow-left", "s16")}Back to Design</button>
-      <label class="st-search">${ic("search", "s14")}<input id="st-q" type="search" placeholder="Search settings" aria-label="Search settings" value="${ST.q}" autocomplete="off">${ST.q ? `<button class="icon-btn xs" id="st-clear" aria-label="Clear search">${ic("x", "s12")}</button>` : `<span class="kbd">/</span>`}</label>
-      ${nav}
-    </nav>
-    <main class="st-main"><button class="icon-btn st-agent" title="Agent" data-st-toast="Opens the agent panel">${ic("sparkles")}</button>
-      <div class="st-col"><header class="st-head"><span>${p.l}</span>${p.badge ? `<span class="badge" ${p.badge === "Design" ? `title="Updates to Design. Each app has its own changelog."` : ""}>${p.badge}</span>` : ""}<span class="grow"></span>${p.act ? `<button class="st-btn" data-st-toast="${p.act}">${p.act}</button>` : ""}</header>
-      ${p.sections.map(stSection).join("")}</div></main>`;
-  if (ST.focusQ) { ST.focusQ = false; const i = $("#st-q"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
-}
-document.addEventListener("click", e => {
-  if (!e.target.closest?.("#settings")) return;
-  const t = e.target;
-  if (t.closest("#st-back")) return closeSettings();
-  if (t.closest("#st-clear")) { ST.q = ""; ST.focusQ = true; return renderSettings(); }
-  const go = t.closest("[data-st-go]"); if (go) { const flash = go.dataset.stFlash; ST.page = go.dataset.stGo; ST.q = ""; renderSettings(); $("#settings .st-main").scrollTop = 0; if (flash) requestAnimationFrame(() => { const r = $(`#settings [data-key="${CSS.escape(flash)}"]`); if (r) { r.scrollIntoView({ block: "center" }); r.classList.add("flash"); } }); return; }
-  const sw = t.closest("[data-st-sw]"); if (sw) {
-    const on = sw.getAttribute("aria-checked") !== "true", lab = sw.dataset.lab;
-    if (lab === "tokens") { S.labsTokens = on; $('.rail-item[data-panel="tokens"]').hidden = !on; $("#labs-tokens")?.setAttribute("aria-pressed", on); if (!on && S.panel === "tokens") setPanel("file"); }
-    else if (lab === "annotate") { S.labs = on; renderTopbar(); }
-    else if (lab === "code") setLabCode(on);
-    else if (lab === "creative") S.labCreative = on;
-    else ST[`sw:${ST.page}:${sw.dataset.stSw}`] = on;
-    return renderSettings();
-  }
-  const sel = t.closest("[data-st-sel]"); if (sel) {
-    const key = sel.dataset.stSel, row = stPage(ST.page).sections.flatMap(s => s.rows || []).find(r => r.l === key);
-    const opts = sel.dataset.opts ? sel.dataset.opts.split(",") : row.c.opts, cur = sel.querySelector("span").textContent;
-    return openMenu(sel, opts.map(o => ({ t: o, radio: true, on: o === cur, run: () => { ST[row ? `sel:${ST.page}:${key}` : "sel:" + key] = o; renderSettings(); } })), { align: "right" });
-  }
-  const host = t.closest("[data-st-host]"); if (host) { ST.host = host.dataset.stHost; return renderSettings(); }
-  const ut = t.closest("[data-st-usage]"); if (ut) { ST.usageTab = ut.dataset.stUsage; return renderSettings(); }
-  const cp = t.closest("[data-st-copy]"); if (cp) return copyText(cp.dataset.stCopy, "Copied");
-  const ts = t.closest("[data-st-toast]"); if (ts) return toast(ts.dataset.stToast);
+/* ───────── Settings: the kit's toolkit Settings shell, with Design's Labs flags and MCP server ───────── */
+kitSettingsInit({
+  app: "Design", mcpName: "design", mcpUrl: MCP_URL,
+  labs: {
+    get: lab => ({ tokens: S.labsTokens, code: S.labsCode, annotate: S.labs, creative: S.labCreative })[lab] ?? false,
+    set: (lab, on) => {
+      if (lab === "tokens") { S.labsTokens = on; $('.rail-item[data-panel="tokens"]').hidden = !on; $("#labs-tokens")?.setAttribute("aria-pressed", on); if (!on && S.panel === "tokens") setPanel("file"); }
+      else if (lab === "annotate") { S.labs = on; renderTopbar(); }
+      else if (lab === "code") setLabCode(on);
+      else if (lab === "creative") S.labCreative = on;
+    },
+  },
+  onOpen: () => document.querySelector(".share-pop")?._close?.(),
+  topChats: [["Tighter hero for 13″ screens", "412 calls"], ["Pricing cards: annual toggle", "238 calls"], ["Generate tokens", "96 calls"]],
 });
-document.addEventListener("input", e => { if (e.target.id === "st-q") { ST.q = e.target.value; ST.focusQ = true; renderSettings(); } });
-document.addEventListener("keydown", e => {
-  const open = !$("#settings").hidden;
-  if ((e.metaKey || e.ctrlKey) && e.key === ",") { e.preventDefault(); if (!open) openSettings("profile"); return; }
-  if (!open) return;
-  if (e.target.id === "st-q") {
-    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); ST.q = ""; ST.focusQ = true; renderSettings(); }
-    if (e.key === "Enter") { const h = $("#settings .st-hit"); if (h) h.click(); }
-    return;
-  }
-  if (e.key === "/" && !e.target.closest?.("input, textarea")) { e.preventDefault(); $("#st-q").focus(); }
-}, true);
 
 /* ───────── version history (today's HistoryPanel.tsx + server/lib/design-versions.ts) ───────── */
 const minsAgo = m => new Date(Date.now() - m * 60000).toISOString();

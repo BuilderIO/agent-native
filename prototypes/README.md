@@ -13,6 +13,7 @@ Clickable prototypes of the Agent-Native templates, one folder each. Each builds
 kit/              shared by every prototype
   base.css        base reset, icon class, the Changes drawer, and the few tokens the code doesn't have yet
   ui.css, ui.ts   the review strip, buttons, segmented control, menus, toasts, ic() and $
+  settings.*      the toolkit's Settings shell; settings.json holds the shared pages
   changes.ts      the Changes drawer
   icons.json      the Tabler icons prototypes draw with (add any a prototype needs)
   build.ts        builds one prototype
@@ -20,6 +21,7 @@ kit/              shared by every prototype
   source.html     the prototype
   prototype.json  { "template": "<folder under templates/>" }
   changes.json    the change log shown in the Changes drawer
+  settings.json   optional: { "app": "<name>", "pages": [...] }, the app's own Settings pages
   dist/           build output (not committed)
 ```
 
@@ -51,4 +53,5 @@ One plain sentence per change, in the past tense, saying what changed for someon
 2. In `source.html`, put `__KIT_HEAD__` after the `<title>`, `__KIT_SCRIPT__` before the prototype's own `<script>`, and call `kitChangesInit(button)` on the button that opens the Changes drawer.
 3. Draw icons with `ic("name")` and menus with `openMenu(anchor, items)`, both from `kit/ui.ts`; use `__LOGO__` for the logo. Any other `__NAME__` placeholder is filled from `<name>/name.json`.
 4. Set `--kit-accent` in the prototype's `:root` to the template's accent token. Shared pieces a second prototype needs go in the kit, not copied between prototypes.
-5. Build it, publish it, and add it to the table above.
+5. For Settings, add `settings.json` with the app's own pages (General, What's new, Labs if it has any); a page with the same id as a kit page replaces it. Call `kitSettingsInit({ app, mcpName, mcpUrl })` once, then `openSettings(page)` opens it, and ⌘, works. Shared pages write `{app}` and `{mcpUrl}` where they mean the current app.
+6. Build it, publish it, and add it to the table above.

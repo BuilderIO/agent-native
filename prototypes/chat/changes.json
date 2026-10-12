@@ -1,3 +1,10 @@
 [
-  { "date": "2026-10-12", "text": "Started the Chat prototype from the shipped app" }
+  {
+    "date": "2026-10-12",
+    "text": "Added Settings, opened from the account menu, the command menu, and \u2318,"
+  },
+  {
+    "date": "2026-10-12",
+    "text": "Started the Chat prototype from the shipped app"
+  }
 ]

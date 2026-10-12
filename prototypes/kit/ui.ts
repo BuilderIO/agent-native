@@ -175,3 +175,11 @@ function toast(t) {
   document.body.append(d);
   setTimeout(() => d.remove(), 2200);
 }
+
+// Copy text and confirm with a toast; the toast shows even where the clipboard is refused.
+function copyText(text, msg) {
+  (navigator.clipboard?.writeText(text) || Promise.reject()).then(
+    () => toast(msg),
+    () => toast(msg),
+  );
+}

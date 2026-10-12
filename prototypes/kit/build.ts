@@ -4,7 +4,7 @@
 // Placeholders in <name>/source.html:
 //   __KIT_HEAD__    the font link, the template's tokens read from the code, and kit/base.css
 //   __KIT_SCRIPT__  kit/ui.ts and kit/changes.ts with their types stripped, with KIT_ICONS from kit/icons.json
-//                   plus <name>/icons.json
+//                   plus <name>/icons.json, and KIT_SETTINGS from kit/settings.json plus <name>/settings.json
 //                   and KIT_CHANGES from <name>/changes.json
 //   __LOGO__        the Agent-Native logo (__LOGO_SMALL__ at 20 × 12)
 //   __FOO__         any other placeholder is filled from <name>/foo.json
@@ -138,6 +138,42 @@ if (!config.template)
   );
 
 const changes = loadChanges();
+
+// Settings: the kit's shared pages plus the prototype's own App pages, which replace a kit page with the same id.
+function loadSettings() {
+  const own = join(dir, "settings.json");
+  if (!existsSync(own)) return null;
+  const base = JSON.parse(read(join(kit, "settings.json")));
+  const app = JSON.parse(read(own)) as {
+    app: string;
+    icon?: string;
+    pages: { id: string; g?: string }[];
+  };
+  if (!app.app)
+    throw new Error(
+      `${name}/settings.json needs "app", the name Settings shows for the app group`,
+    );
+  const appPages = new Map(
+    base.pages
+      .filter((p: { g: string }) => p.g === "app")
+      .map((p: { id: string }) => [p.id, p]),
+  );
+  for (const page of app.pages) appPages.set(page.id, { ...page, g: "app" });
+  const order = (id: string) => base.appOrder.indexOf(id) + 1 || 99;
+  return {
+    groups: base.groups.map(
+      ([g, label, icon]: [string, string, string | null]) =>
+        g === "app" ? [g, app.app, app.icon ?? null] : [g, label, icon],
+    ),
+    pages: [
+      ...base.pages.filter((p: { g: string }) => p.g !== "app"),
+      ...[...appPages.values()].sort(
+        (a: any, b: any) => order(a.id) - order(b.id),
+      ),
+    ],
+  };
+}
+const settings = loadSettings();
 const script = (file: string) => stripTypeScriptTypes(read(join(kit, file)));
 // A prototype's own icons.json (written by kit/add-icons.ts) adds to the kit's set.
 const icons = {
@@ -150,11 +186,11 @@ const icons = {
 const fills: [string, string][] = [
   [
     "__KIT_HEAD__",
-    `${FONTS}\n<style>\n${tokensCss(config.template)}\n${read(join(kit, "base.css"))}\n${read(join(kit, "ui.css"))}</style>`,
+    `${FONTS}\n<style>\n${tokensCss(config.template)}\n${read(join(kit, "base.css"))}\n${read(join(kit, "ui.css"))}\n${read(join(kit, "settings.css"))}</style>`,
   ],
   [
     "__KIT_SCRIPT__",
-    `<script>\nconst KIT_ICONS = ${JSON.stringify(icons)};\nconst KIT_CHANGES = ${JSON.stringify(changes)};\n${script("ui.ts")}\n${script("changes.ts")}</script>`,
+    `<script>\nconst KIT_ICONS = ${JSON.stringify(icons)};\nconst KIT_CHANGES = ${JSON.stringify(changes)};\nconst KIT_SETTINGS = ${JSON.stringify(settings)};\n${script("ui.ts")}\n${script("changes.ts")}\n${script("settings.ts")}</script>`,
   ],
   [
     "__LOGO_SMALL__",

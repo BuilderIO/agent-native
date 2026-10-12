@@ -385,8 +385,8 @@ function orgMenu(btn) {
     { t: "Your workspace", icon: "external-link" },
     { t: "Create organization", icon: "plus" },
     "-",
-    { t: "Settings", icon: "settings", k: "⌘,", toast: "Opens Settings (the toolkit's Settings shell)" },
-    { t: "Usage", icon: "chart-bar" },
+    { t: "Settings", icon: "settings", k: "⌘,", run: () => openSettings("profile") },
+    { t: "Usage", icon: "chart-bar", run: () => openSettings("usage") },
     { t: "Get apps and extensions", icon: "download", sub: [{ t: "Agent-Native Desktop" }, { t: "Chrome extension" }, { t: "Slack app" }] },
     "-",
     { t: "Log out", icon: "logout" },
@@ -401,9 +401,9 @@ function forkThread() {
 function commandMenu() {
   if ($(".cmd-wrap")) return;
   const rows = () => [
-    ["Actions", [[S.thread ? "New Chat" : "Chat", "edit", newChat], ["Manage agent", "hierarchy-2", () => toast("Opens agent settings")]]],
+    ["Actions", [[S.thread ? "New Chat" : "Chat", "edit", newChat], ["Manage agent", "hierarchy-2", () => openSettings("model")]]],
     ["Appearance", [["Toggle theme", document.documentElement.dataset.theme === "dark" ? "sun" : "moon", toggleTheme]]],
-    ["", [["Settings", "settings", () => toast("Opens Settings")], ["What's new", "history", () => toast("Opens What's new")], ["About Agent-Native", "info-circle", () => toast("Opens About Agent-Native")], ["Log out", "logout", () => toast("Logs out")]]],
+    ["", [["Settings", "settings", () => openSettings("profile")], ["What's new", "history", () => openSettings("whats-new")], ["About Agent-Native", "info-circle", () => toast("Opens About Agent-Native")], ["Log out", "logout", () => toast("Logs out")]]],
   ];
   const wrap = document.createElement("div"); wrap.className = "cmd-wrap";
   wrap.innerHTML = `<div class="cmd" role="dialog" aria-label="Command menu"><label class="cmd-in">${ic("search")}<input id="cmd-q" placeholder="Type a command or ask AI..." aria-label="Type a command or ask AI..."></label><div class="cmd-list" id="cmd-list"></div></div>`;
@@ -504,5 +504,6 @@ document.addEventListener("mouseover", e => {
 $("#theme-btn").addEventListener("click", toggleTheme);
 $("#scenario").addEventListener("change", e => setScenario(e.target.value));
 kitChangesInit($("#changes-btn"));
+kitSettingsInit({ app: "Chat", mcpName: "chat", mcpUrl: "https://chat.agent-native.com/mcp" });
 render();
 </script>
