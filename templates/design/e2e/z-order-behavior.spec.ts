@@ -647,6 +647,11 @@ test("overview board arrange commands measure, persist, and support context menu
     await page
       .getByRole("menu")
       .last()
+      .getByRole("menuitem", { name: "Arrange" })
+      .hover();
+    await page
+      .getByRole("menu")
+      .last()
       .getByText("Send to back", { exact: true })
       .click();
     await expect
@@ -661,6 +666,11 @@ test("overview board arrange commands measure, persist, and support context menu
       .toEqual(["Red", "Green", "Blue"]);
 
     await rightClickBoardNode(page, "blue");
+    await page
+      .getByRole("menu")
+      .last()
+      .getByRole("menuitem", { name: "Arrange" })
+      .hover();
     await page
       .getByRole("menu")
       .last()

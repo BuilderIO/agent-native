@@ -111,6 +111,9 @@ export interface RepromptDraftRequest {
   fileId: string;
   target: NodeRewriteTarget;
   point?: ReviewAnchorPoint;
+  /** Preset instruction; with `submit` it is sent without opening the composer for typing. */
+  instruction?: string;
+  submit?: boolean;
 }
 
 export interface ReviewFocusRequest {
@@ -912,6 +915,7 @@ export function ReviewCanvasPins({
   const migratedBoardAnchorIdsRef = useRef<Set<string>>(new Set());
   const migrationInFlightRef = useRef(false);
   const lastRepromptDraftNonceRef = useRef<number | null>(null);
+  const autoSubmitRepromptPinIdRef = useRef<string | null>(null);
   const lastPinRequestNonceRef = useRef<number | null>(null);
   const frameCallbacksRef = useRef<
     Map<string, (payload: Record<string, unknown>) => void>
@@ -1528,13 +1532,17 @@ export function ReviewCanvasPins({
     setDraftMentions([]);
     setPendingRepromptId(null);
     setDraftMode("reprompt");
+    const draftPinId = crypto.randomUUID();
+    autoSubmitRepromptPinIdRef.current = repromptDraftRequest.submit
+      ? draftPinId
+      : null;
     setDraftPin({
-      id: crypto.randomUUID(),
+      id: draftPinId,
       anchor: {
         ...(nodeId ? { nodeId } : {}),
         point,
       },
-      draft: "",
+      draft: repromptDraftRequest.instruction ?? "",
       resolutionTarget: "agent",
       metadata: {
         mode: "reprompt",
@@ -1978,6 +1986,14 @@ export function ReviewCanvasPins({
       targetId,
     ],
   );
+
+  // A preset that cannot submit (stale source, busy agent) leaves its
+  // instruction in the open composer for the user to send.
+  useEffect(() => {
+    if (!draftPin || autoSubmitRepromptPinIdRef.current !== draftPin.id) return;
+    autoSubmitRepromptPinIdRef.current = null;
+    void submitReprompt(draftPin, []);
+  }, [draftPin, submitReprompt]);
 
   const submitSelectionQuestion = useCallback(
     async (

@@ -986,6 +986,13 @@ export function useEditorExportAndHandoff({
     ],
   );
 
+  const inspectorRasterScope: PngCaptureScope =
+    pngSelectedElements.length > 0
+      ? "element"
+      : viewMode === "overview" && overviewSelectedScreenIds.length > 0
+        ? "screens"
+        : "document";
+
   const handleCopyAsPng = useCallback(async () => {
     if (pngExportingRef.current) return;
     if (!canCopyPngToClipboard()) {
@@ -996,7 +1003,7 @@ export function useEditorExportAndHandoff({
     pngExportingRef.current = true;
     setPngExporting(true);
     try {
-      const pngBlob = renderPngBlob({ scope: "screens" });
+      const pngBlob = renderPngBlob({ scope: inspectorRasterScope });
       await copyPngPromiseToClipboard(pngBlob);
       toast.success(t("designEditor.toasts.pngCopied"));
     } catch (error) {
@@ -1015,7 +1022,7 @@ export function useEditorExportAndHandoff({
       pngExportingRef.current = false;
       setPngExporting(false);
     }
-  }, [renderPngBlob, showRasterCaptureError, t]);
+  }, [inspectorRasterScope, renderPngBlob, showRasterCaptureError, t]);
 
   const resolveLiveFigmaSvgSource = useCallback(
     (targetFileId: string | undefined): LiveFigmaSvgSource | null => {
@@ -1214,13 +1221,6 @@ export function useEditorExportAndHandoff({
       viewMode,
     ],
   );
-
-  const inspectorRasterScope: PngCaptureScope =
-    pngSelectedElements.length > 0
-      ? "element"
-      : viewMode === "overview" && overviewSelectedScreenIds.length > 0
-        ? "screens"
-        : "document";
 
   const handleRenderExportPreview = useCallback(
     () =>
