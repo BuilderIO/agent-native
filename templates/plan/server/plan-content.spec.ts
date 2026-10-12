@@ -1534,6 +1534,9 @@ describe("parsePlanContent per-block salvage", () => {
       { id: "legacy-data-model", data: { entities: [] } },
       { id: "legacy-annotated-code", data: { code: "" } },
     ]);
+
+    const roundTripped = parsePlanContent(serializePlanContent(result!));
+    expect(roundTripped?.blocks).toMatchObject(result?.blocks);
   });
 
   it("does not accept an explicitly invalid legacy field as an omission", () => {
