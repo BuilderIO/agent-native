@@ -7,6 +7,7 @@ import type { NativePresentationFaultGrant } from "@shared/native-presentation-f
 import {
   isNativePresentationFaultFailureCode,
   nativeShaderValidationStateKey,
+  nativeShaderValidationFailureSchema,
   nativeShaderValidationStateSchema,
   type NativeShaderValidationCaseResult,
   type NativeShaderValidationState,
@@ -37,6 +38,32 @@ export class NativeShaderValidationReportError extends Error {
     super("GPU validation and its result report both failed.");
     this.name = "NativeShaderValidationReportError";
   }
+}
+
+function requestFailureCode(
+  error: unknown,
+  cases: NativeShaderValidationState["cases"],
+): NonNullable<NativeShaderValidationState["failure"]>["code"] {
+  const rawCode =
+    error && typeof error === "object" && "code" in error ? error.code : null;
+  if (typeof rawCode !== "string") return "render-failed";
+  if (
+    cases.length === 1 &&
+    cases[0]?.presentationFault &&
+    isNativePresentationFaultFailureCode(rawCode)
+  )
+    return rawCode;
+  const message =
+    error instanceof Error && error.message.trim()
+      ? error.message.slice(0, 300)
+      : "validation-render-failed";
+  const parsed = nativeShaderValidationFailureSchema.safeParse({
+    code: rawCode,
+    message,
+  });
+  if (!parsed.success || isNativePresentationFaultFailureCode(parsed.data.code))
+    return "render-failed";
+  return parsed.data.code;
 }
 
 export async function runNativeShaderValidationRequest(args: {
@@ -122,17 +149,7 @@ export async function runNativeShaderValidationRequest(args: {
       : {
           status: "failed" as const,
           failure: {
-            code: (claimed.cases.length === 1 &&
-            claimed.cases[0]?.presentationFault &&
-            error &&
-            typeof error === "object" &&
-            "code" in error &&
-            typeof error.code === "string" &&
-            isNativePresentationFaultFailureCode(error.code)
-              ? error.code
-              : "render-failed") as NonNullable<
-              NativeShaderValidationState["failure"]
-            >["code"],
+            code: requestFailureCode(error, claimed.cases),
             message: (error instanceof Error
               ? error.message
               : "validation-render-failed"

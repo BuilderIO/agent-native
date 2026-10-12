@@ -1,6 +1,10 @@
-import type { NativeShaderValidationState } from "@shared/native-shader-validation";
+import {
+  nativeShaderValidationFailureSchema,
+  type NativeShaderValidationState,
+} from "@shared/native-shader-validation";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { NativeSceneExportError } from "./native-scene-export-client";
 import { runNativeShaderValidationRequest } from "./use-native-shader-validation-requests";
 
 const item = {
@@ -183,6 +187,76 @@ describe("foreground GPU validation request", () => {
           },
         },
       );
+    }
+  });
+
+  it("keeps prepared-scene source staleness typed and terminal", async () => {
+    vi.stubGlobal("window", {
+      setInterval,
+      clearInterval,
+      setTimeout,
+      clearTimeout,
+    });
+    const claimed: NativeShaderValidationState = {
+      ...pending,
+      status: "running",
+      expiresAt: Date.now() + 45_000,
+    };
+    const preparationError = new NativeSceneExportError(
+      "source-stale",
+      "Design source changed before the local export could start.",
+    );
+    for (const [error, expectedCode] of [
+      [preparationError, "source-stale"],
+      [
+        Object.assign(new Error("Unrecognized source preparation failure."), {
+          code: "native_export_source_conflict",
+        }),
+        "render-failed",
+      ],
+    ] as const) {
+      const finishResults: unknown[] = [];
+      const invoke = vi.fn(
+        async (name: string, input: Record<string, unknown>) => {
+          if (name === "claim-native-shader-validation") return claimed;
+          finishResults.push(input.result);
+          return { status: "failed" };
+        },
+      );
+
+      await expect(
+        runNativeShaderValidationRequest({
+          request: pending,
+          designId: "design-1",
+          tabId: "tab-1",
+          signal: new AbortController().signal,
+          validate: async () => {
+            throw error;
+          },
+          invoke,
+          readState: async () => claimed,
+        }),
+      ).rejects.toBe(error);
+
+      expect(invoke).toHaveBeenCalledTimes(2);
+      expect(finishResults).toHaveLength(1);
+      expect(finishResults[0]).toMatchObject({
+        status: "failed",
+        failure: {
+          code: expectedCode,
+          message: error.message.slice(0, 300),
+        },
+      });
+      const result = finishResults[0] as {
+        status: string;
+        failure: unknown;
+      };
+      expect(
+        nativeShaderValidationFailureSchema.parse(result.failure),
+      ).toMatchObject({
+        code: expectedCode,
+      });
+      expect(result.status).not.toBe("validation-complete");
     }
   });
 });
