@@ -119,6 +119,29 @@ describe("export-pptx action", () => {
     });
   });
 
+  it("returns a download link instead of file bytes to tool callers", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: false },
+      { caller: "tool" } as never,
+    );
+
+    const downloadUrl = new URL(result.downloadUrl);
+    expect(downloadUrl.pathname).toBe(`/api/exports/${result.filename}`);
+    expect(downloadUrl.searchParams.get("deckId")).toBe("deck-1");
+    expect(downloadUrl.searchParams.get("includeNotes")).toBe("false");
+    expect(result).not.toHaveProperty("buffer");
+    expect(result).not.toHaveProperty("filePath");
+  });
+
   it("does not let a caller pass an analytics opt-out", () => {
     const parsed = exportPptx.schema.safeParse({
       deckId: "deck-1",

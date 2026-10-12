@@ -38,6 +38,16 @@ export function getDeckUrl(deckId: string): string {
   return `${getSlidesAppUrl()}/deck/${deckId}`;
 }
 
-export function getExportUrl(filename: string): string {
-  return `${getSlidesAppUrl()}/api/exports/${filename}`;
+export function getExportUrl(
+  filename: string,
+  options?: { deckId?: string; includeNotes?: boolean },
+): string {
+  const url = new URL(
+    `${getSlidesAppUrl()}/api/exports/${encodeURIComponent(filename)}`,
+  );
+  if (options?.deckId) url.searchParams.set("deckId", options.deckId);
+  if (options?.includeNotes !== undefined) {
+    url.searchParams.set("includeNotes", String(options.includeNotes));
+  }
+  return url.toString();
 }

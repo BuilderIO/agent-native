@@ -25,6 +25,7 @@ import {
   ASPECT_RATIO_VALUES,
 } from "../shared/aspect-ratios.js";
 import { fillSlideNumberTokensInHtml } from "../shared/slide-number.js";
+import { getExportUrl } from "./_app-url.js";
 
 type TableCell = PptxGenJS.TableCell;
 type TableRow = PptxGenJS.TableRow;
@@ -1948,8 +1949,8 @@ export default defineAction({
     );
 
     return {
-      buffer,
-      filePath,
+      downloadUrl: getExportUrl(filename, { deckId, includeNotes }),
+      ...(ctx?.caller === "http" ? { buffer, filePath } : {}),
       filename,
       slideCount: slides.length,
       ...(backgroundGradientsFlattened > 0

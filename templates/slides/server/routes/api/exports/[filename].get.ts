@@ -2,14 +2,17 @@ import { createReadStream } from "fs";
 import { stat } from "fs/promises";
 import path from "path";
 
-import { streamFile } from "@agent-native/core/server";
+import { isActionContractError } from "@agent-native/core";
+import { runWithRequestContext, streamFile } from "@agent-native/core/server";
 import {
   defineEventHandler,
+  getQuery,
   getRouterParam,
   setResponseHeader,
   setResponseStatus,
 } from "h3";
 
+import exportPptxAction from "../../../../actions/export-pptx.js";
 import { resolveSlidesRequestAuth } from "../../../handlers/request-auth-context.js";
 import { tenantExportDir } from "../../../lib/tenant-files.js";
 
@@ -46,6 +49,7 @@ export default defineEventHandler(async (event) => {
 
   const exportsDir = path.resolve(tenantExportDir(session.email));
   const filepath = path.resolve(exportsDir, filename);
+  const query = getQuery(event);
 
   if (!filepath.startsWith(exportsDir + path.sep)) {
     setResponseStatus(event, 403);
@@ -55,8 +59,56 @@ export default defineEventHandler(async (event) => {
   try {
     await stat(filepath);
   } catch {
-    setResponseStatus(event, 404);
-    return { error: "Not found" };
+    const deckId = typeof query.deckId === "string" ? query.deckId : "";
+    if (path.extname(filename).toLowerCase() !== ".pptx" || !deckId) {
+      setResponseStatus(event, 404);
+      return { error: "Not found" };
+    }
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: session.email, orgId: session.orgId },
+        () =>
+          exportPptxAction.run(
+            {
+              deckId,
+              includeNotes: query.includeNotes !== "false",
+            },
+            {
+              caller: "http",
+              userEmail: session.email,
+              orgId: session.orgId,
+            },
+          ),
+      );
+
+      if (!result.buffer) {
+        throw new Error("PPTX export did not produce downloadable bytes");
+      }
+
+      return new Response(new Uint8Array(result.buffer), {
+        headers: {
+          "Content-Type": CONTENT_TYPES[".pptx"],
+          "Content-Disposition": `attachment; filename="${path.basename(
+            result.filename,
+          )}"`,
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    } catch (error) {
+      if (isActionContractError(error)) {
+        setResponseStatus(event, error.statusCode);
+        return { error: error.message, errorCode: error.errorCode };
+      }
+      const message =
+        error instanceof Error ? error.message : "Could not export PPTX.";
+      setResponseStatus(
+        event,
+        message.startsWith("Deck not found") ? 404 : 500,
+      );
+      return { error: message };
+    }
   }
 
   const ext = path.extname(filename).toLowerCase();
