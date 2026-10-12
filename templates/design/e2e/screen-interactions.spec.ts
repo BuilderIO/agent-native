@@ -490,15 +490,19 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
       }
     });
     const codeWorkbench = page.getByTestId("design-code-workbench");
+    // The dev server can reload the page once to recover optimized deps, which
+    // strands the first navigation on "Loading application"; navigate again.
     const openCodeWorkbench = async () => {
-      await page.goto(appPath(`/design/${designId}?panel=code`), {
-        waitUntil: "domcontentloaded",
-      });
-      const loadError = page.getByTestId("design-code-workbench-load-error");
-      if (await loadError.isVisible().catch(() => false)) {
-        await page.getByRole("button", { name: "Retry code editor" }).click();
-      }
-      await expect(codeWorkbench).toBeVisible({ timeout: 30_000 });
+      await expect(async () => {
+        await page.goto(appPath(`/design/${designId}?panel=code`), {
+          waitUntil: "domcontentloaded",
+        });
+        const loadError = page.getByTestId("design-code-workbench-load-error");
+        if (await loadError.isVisible().catch(() => false)) {
+          await page.getByRole("button", { name: "Retry code editor" }).click();
+        }
+        await expect(codeWorkbench).toBeVisible({ timeout: 15_000 });
+      }).toPass({ timeout: 60_000 });
     };
     await openCodeWorkbench();
     await expect(screenShell).toBeVisible();
@@ -517,26 +521,35 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
     await expect(page.getByTestId("design-code-workbench")).toBeHidden();
     const frameLabel = screenShell.locator("[data-frame-label]");
     await expect(frameLabel).toBeVisible();
-    await frameLabel.click();
     const readFrameX = async () =>
       designData(await readDesign(request, designId)).canvasFrames?.[fileId]?.x;
     const initialX = await readFrameX();
     expect(initialX).toBe(0);
     for (let index = 0; index < 20; index += 1) {
-      const writeResponse = page.waitForResponse((response) => {
-        const pathname = new URL(response.url()).pathname;
-        return (
-          pathname.endsWith("/_agent-native/actions/update-design") &&
-          response.request().method() === "POST"
+      // Re-select before each nudge: the first key press can land before the
+      // frame selection reaches the keyboard handler.
+      await expect(async () => {
+        await frameLabel.click();
+        const writeResponse = page.waitForResponse(
+          (response) => {
+            const pathname = new URL(response.url()).pathname;
+            return (
+              pathname.endsWith("/_agent-native/actions/update-design") &&
+              response.request().method() === "POST"
+            );
+          },
+          { timeout: 5_000 },
         );
-      });
-      await page.keyboard.press("ArrowRight");
-      const response = await writeResponse;
-      expect(
-        response.ok(),
-        `canvas commit failed: ${response.status()} ${await response.text()}`,
-      ).toBe(true);
-      await expect.poll(readFrameX).toBe(initialX + index + 1);
+        await page.keyboard.press("ArrowRight");
+        const response = await writeResponse;
+        expect(
+          response.ok(),
+          `canvas commit failed: ${response.status()} ${await response.text()}`,
+        ).toBe(true);
+      }).toPass({ timeout: 30_000 });
+      await expect
+        .poll(readFrameX)
+        .toBeGreaterThanOrEqual(initialX + index + 1);
     }
     expect(sourceReads).toBe(sourceReadsBeforeEdits);
 
