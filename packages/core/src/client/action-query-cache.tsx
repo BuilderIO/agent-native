@@ -74,6 +74,48 @@ const indexedDbStorage: ActionQueryCacheStorage = {
 };
 
 let storage: ActionQueryCacheStorage = indexedDbStorage;
+let storageClearGeneration = 0;
+let storageClearInFlight: Promise<void> | undefined;
+let storageClearRequired = false;
+const inFlightStorageWrites = new Set<Promise<void>>();
+const inFlightStorageDeletes = new Set<Promise<void>>();
+const failedStorageDeleteScopes = new Set<string>();
+
+function trackStorageWrite(write: Promise<void>): void {
+  inFlightStorageWrites.add(write);
+  void write.then(
+    () => inFlightStorageWrites.delete(write),
+    () => inFlightStorageWrites.delete(write),
+  );
+}
+
+function trackStorageDelete(deletion: Promise<void>): Promise<void> {
+  inFlightStorageDeletes.add(deletion);
+  void deletion.then(
+    () => inFlightStorageDeletes.delete(deletion),
+    () => inFlightStorageDeletes.delete(deletion),
+  );
+  return deletion;
+}
+
+async function waitForStorageClear(): Promise<void> {
+  while (storageClearInFlight) {
+    const clear = storageClearInFlight;
+    await clear;
+  }
+  if (storageClearRequired) {
+    await clearActionQueryCache();
+  }
+}
+
+async function waitForStorageOperations(): Promise<void> {
+  while (inFlightStorageWrites.size > 0 || inFlightStorageDeletes.size > 0) {
+    await Promise.allSettled([
+      ...inFlightStorageWrites,
+      ...inFlightStorageDeletes,
+    ]);
+  }
+}
 
 /** @internal exported for tests */
 export function setActionQueryCacheStorage(
@@ -140,6 +182,7 @@ interface ScopedPersister extends Persister {
 
 // ponytail: one record holds every persisted result for the scope, with no size cap; split per query or cap bytes if restore shows up in traces.
 function scopedPersister(scope: string): ScopedPersister {
+  const createdDuringClearGeneration = storageClearGeneration;
   let open = true;
   let persistBlocked = false;
   let latest: PersistedClient | undefined;
@@ -168,7 +211,11 @@ function scopedPersister(scope: string): ScopedPersister {
         console.warn("Unable to save cached action results", error),
       );
     writesInFlight.add(write);
-    void write.finally(() => writesInFlight.delete(write));
+    trackStorageWrite(write);
+    void write.then(
+      () => writesInFlight.delete(write),
+      () => writesInFlight.delete(write),
+    );
   };
 
   return {
@@ -230,7 +277,10 @@ function scopedPersister(scope: string): ScopedPersister {
       restoreBlocked = true;
       restoreRevision += 1;
       clearRestoredState();
-      return storage.del(scope);
+      if (createdDuringClearGeneration !== storageClearGeneration) {
+        return Promise.resolve();
+      }
+      return trackStorageDelete(storage.del(scope));
     },
     discard() {
       persistBlocked = true;
@@ -242,6 +292,7 @@ function scopedPersister(scope: string): ScopedPersister {
       latest = undefined;
       clearTimeout(timer);
       timer = undefined;
+      if (createdDuringClearGeneration !== storageClearGeneration) return;
       const deletion = (async () => {
         await Promise.all([...writesInFlight]);
         await storage.del(scope);
@@ -271,6 +322,7 @@ function scopedPersister(scope: string): ScopedPersister {
 
 interface Binding {
   client: QueryClient;
+  scope: string;
   token: object;
   persister: ScopedPersister;
   unsubscribe: () => void;
@@ -278,8 +330,6 @@ interface Binding {
 
 let binding: Binding | undefined;
 let bindingGeneration = 0;
-const inFlightStorageDeletes = new Set<Promise<void>>();
-const failedStorageDeleteScopes = new Set<string>();
 
 function trackRevokedScopeDelete(
   scope: string,
@@ -294,12 +344,10 @@ function trackRevokedScopeDelete(
       throw error;
     },
   );
-  inFlightStorageDeletes.add(trackedDeletion);
-  void trackedDeletion
-    .catch((error) =>
-      console.warn("Unable to delete cached action results", error),
-    )
-    .finally(() => inFlightStorageDeletes.delete(trackedDeletion));
+  trackStorageDelete(trackedDeletion);
+  void trackedDeletion.catch((error) =>
+    console.warn("Unable to delete cached action results", error),
+  );
   return trackedDeletion;
 }
 
@@ -357,8 +405,12 @@ export async function bindActionQueryCache(
   scope: string,
   options: { trustPrebindResults?: boolean } = {},
 ): Promise<void> {
+  if (storageClearInFlight || storageClearRequired) {
+    await waitForStorageClear();
+  }
   const trustPrebindResults = options.trustPrebindResults === true;
-  const alreadyBoundClient = binding?.client === client;
+  const previousBinding = binding;
+  const alreadyBoundClient = previousBinding?.client === client;
   const deniedBeforeBind = client
     .getQueryCache()
     .getAll()
@@ -384,6 +436,7 @@ export async function bindActionQueryCache(
   let unsubscribeRevoked = () => {};
   const currentBinding: Binding = {
     client,
+    scope,
     token,
     persister,
     unsubscribe: () => {
@@ -408,7 +461,10 @@ export async function bindActionQueryCache(
     }
   });
 
-  if (deniedBeforeBind.length > 0) {
+  if (
+    deniedBeforeBind.length > 0 &&
+    !(previousBinding?.client === client && previousBinding.scope !== scope)
+  ) {
     persister.discard();
     for (const query of deniedBeforeBind) {
       revokeBrowserPersistableActionQuery(query);
@@ -434,13 +490,7 @@ export async function bindActionQueryCache(
     for (const key of keys) {
       if (key === scope) continue;
       if (!isCurrentBinding()) return;
-      const deletion = storage.del(key);
-      inFlightStorageDeletes.add(deletion);
-      try {
-        await deletion;
-      } finally {
-        inFlightStorageDeletes.delete(deletion);
-      }
+      await trackStorageDelete(storage.del(key));
     }
   })();
   try {
@@ -592,8 +642,28 @@ export async function bindActionQueryCache(
  * record. */
 export async function clearActionQueryCache(): Promise<void> {
   closeBinding();
-  await storage.clear();
-  failedStorageDeleteScopes.clear();
+  if (storageClearInFlight) {
+    await storageClearInFlight;
+    return;
+  }
+  storageClearRequired = true;
+  const generation = ++storageClearGeneration;
+  let clear!: Promise<void>;
+  clear = (async () => {
+    await waitForStorageOperations();
+    await storage.clear();
+    failedStorageDeleteScopes.clear();
+    storageClearRequired = false;
+  })().finally(() => {
+    if (
+      storageClearInFlight === clear &&
+      storageClearGeneration === generation
+    ) {
+      storageClearInFlight = undefined;
+    }
+  });
+  storageClearInFlight = clear;
+  await clear;
 }
 
 /**
@@ -607,18 +677,19 @@ export function ActionQueryCacheGate({ children }: { children: ReactNode }) {
   const scope = session
     ? actionQueryCacheScope(session, clientBuildId())
     : null;
-  const trustPrebindResults =
-    scope !== null && status === "authenticated" && isSessionFromFirstRead();
+  const terminalUnauthenticated = status === "unauthenticated";
   const bindAttempt = useMemo(
-    () => ({}),
-    [queryClient, scope, status, trustPrebindResults],
+    () => ({
+      trustPrebindResults:
+        scope !== null && !terminalUnauthenticated && isSessionFromFirstRead(),
+    }),
+    [queryClient, scope, terminalUnauthenticated],
   );
   const [settledAttempt, setSettledAttempt] = useState<object | null>(null);
 
   useEffect(() => {
-    // "loading", "unavailable" and "signing-out" are not an ended session:
-    // signOut() clears the store itself, and a transient read must not wipe it.
-    if (status === "unauthenticated") {
+    // A transient session reread does not replace a same-scope cache binding.
+    if (terminalUnauthenticated) {
       clearActionQueryCache().catch((error) =>
         console.warn("Unable to clear cached action results", error),
       );
@@ -633,25 +704,21 @@ export function ActionQueryCacheGate({ children }: { children: ReactNode }) {
     const finish = () => {
       if (current) setSettledAttempt(bindAttempt);
     };
-    bindActionQueryCache(queryClient, scope, { trustPrebindResults }).then(
-      finish,
-      (error) => {
-        console.warn("Unable to use cached action results", error);
-        finish();
-      },
-    );
+    bindActionQueryCache(queryClient, scope, {
+      trustPrebindResults: bindAttempt.trustPrebindResults,
+    }).then(finish, (error) => {
+      console.warn("Unable to use cached action results", error);
+      finish();
+    });
     return () => {
       current = false;
       closeBinding();
     };
-  }, [bindAttempt, queryClient, scope, status, trustPrebindResults]);
+  }, [bindAttempt, queryClient, scope, terminalUnauthenticated]);
 
   const restoring = scope !== null && settledAttempt !== bindAttempt;
-  // Keep an unverified pre-session tree out of view until its queries have
-  // been removed and the verified scope has finished restoring. A first-read
-  // preload remains mounted so the verified fast path does not fetch twice.
   const holdUntrustedChildren =
-    scope !== null && !trustPrebindResults && restoring;
+    scope !== null && !bindAttempt.trustPrebindResults && restoring;
   return (
     <IsRestoringProvider value={restoring}>
       {holdUntrustedChildren ? null : children}
