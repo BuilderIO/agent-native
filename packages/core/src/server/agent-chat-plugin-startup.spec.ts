@@ -23,9 +23,6 @@ describe("agent chat startup", () => {
     );
     expect(source).not.toContain("new McpClientManager(");
     expect(source).not.toContain("ensureMcpInitialized");
-    expect(source).toMatch(
-      /resolveAdditionalActions: \(details\) =>\s+getChatAdditionalActions\(details, \{\s+\.\.\.prodActions,\s+\.\.\.prodHandlerActions,\s+\}\)/,
-    );
   });
 
   it("resolves MCP only from authenticated chat or a due job that requests tools", () => {

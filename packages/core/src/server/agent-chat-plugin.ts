@@ -455,7 +455,10 @@ import {
   resolveArtifactBaseUrl,
   unverifiedA2AUserError,
 } from "./agent-chat/action-filters-a2a.js";
-import { resolveAppAdditionalActions } from "./agent-chat/additional-actions.js";
+import {
+  normalizeAdditionalActionSurfaces,
+  resolveAppAdditionalActions,
+} from "./agent-chat/additional-actions.js";
 import {
   createBuilderBrowserTool,
   createTeamTools,
@@ -1268,16 +1271,34 @@ export function createAgentChatPlugin(
           ...(toolNames ? { toolNames } : {}),
         });
       };
-      // `reserved` must hold the full template and framework registry, not the
-      // lean subset a handler exposes, or an app entry could take a framework
-      // name that other surfaces resolve to the framework implementation.
-      const getChatAdditionalActions = async (
+      // Every registry any surface can dispatch to a built-in implementation,
+      // pushed as each one is assembled below. App-supplied request actions
+      // may not reuse any of these names, even on a surface (lean chat, A2A,
+      // ask_app) that leaves the built-in out, or an allowlist or approval
+      // granted to that name could be redirected to app code.
+      const reservedActionRegistries: Array<Record<string, ActionEntry>> = [];
+      const additionalActionsConfig = {
+        resolver: options?.resolveAdditionalActions,
+        externalSurfaces: normalizeAdditionalActionSurfaces(
+          options?.additionalActionSurfaces,
+        ),
+        isReservedName: (name: string) =>
+          reservedActionRegistries.some((registry) =>
+            Object.hasOwn(registry, name),
+          ),
+      };
+      // The one place a request's caller-scoped actions are resolved — the
+      // caller's MCP tools plus the app's additional actions — for chat, A2A,
+      // and ask_app alike. Call it once per run, before tool-search and
+      // surface filtering, and reuse the result for the whole run.
+      const getRequestScopedActions = async (
         details: {
-          event: any;
-          ownerEmail: string | null;
-          orgId: string | null;
+          surface: "chat" | "a2a" | "mcp";
+          event?: any;
+          ownerEmail: string | null | undefined;
+          orgId: string | null | undefined;
         },
-        reserved: Record<string, ActionEntry>,
+        registered: Record<string, ActionEntry>,
       ): Promise<Record<string, ActionEntry>> => {
         const mcpEntries = await getMcpActionEntriesForPrincipal(
           details.ownerEmail,
@@ -1286,9 +1307,9 @@ export function createAgentChatPlugin(
         return {
           ...mcpEntries,
           ...(await resolveAppAdditionalActions(
-            options?.resolveAdditionalActions,
-            { surface: "chat", ...details },
-            { ...reserved, ...mcpEntries },
+            additionalActionsConfig,
+            details,
+            { ...registered, ...mcpEntries },
           )),
         };
       };
@@ -2241,6 +2262,13 @@ export function createAgentChatPlugin(
       const externalFullActions = mcpFullActions
         ? { ...mcpOnlyActions, ...mcpFullActions }
         : undefined;
+      reservedActionRegistries.push(
+        templateScriptsAll,
+        discoveredActionsAll,
+        devScriptsForA2A,
+        externalActions,
+        ...(externalFullActions ? [externalFullActions] : []),
+      );
 
       const { mountA2A } = await import("../a2a/server.js");
       const localA2AConfig: import("../a2a/types.js").A2AConfig = {
@@ -2614,10 +2642,6 @@ export function createAgentChatPlugin(
           // returns a schema error the model can fix on the next step, which is
           // strictly better than a shell loop nobody can see.
           const a2aOrgId = getRequestOrgId();
-          const requestMcpActionEntries = await getMcpActionEntriesForPrincipal(
-            userEmail,
-            a2aOrgId,
-          );
           const a2aRegisteredActions = devActive
             ? {
                 ...templateScripts,
@@ -2638,7 +2662,6 @@ export function createAgentChatPlugin(
                 ...coreEmailTools,
                 ...coreAttachmentTools,
                 ...browserTools,
-                ...requestMcpActionEntries,
                 ...devScriptsForA2A,
                 ...devRunCodeTool,
               }
@@ -2663,21 +2686,19 @@ export function createAgentChatPlugin(
                 ...coreEmailTools,
                 ...coreAttachmentTools,
                 ...browserTools,
-                ...requestMcpActionEntries,
                 ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
                 ...prodCodingTools,
               };
           const a2aActions = attachToolSearch({
             ...a2aRegisteredActions,
-            ...(await resolveAppAdditionalActions(
-              options?.resolveAdditionalActions,
+            ...(await getRequestScopedActions(
               {
                 surface: "a2a",
                 event: context.event,
                 ownerEmail: userEmail,
                 orgId: a2aOrgId,
               },
-              { ...prodActions, ...a2aRegisteredActions },
+              a2aRegisteredActions,
             )),
           });
 
@@ -3245,8 +3266,6 @@ export function createAgentChatPlugin(
             // caller cannot nurse a shell command that misfires.
             const devActiveMcp = isDevMode();
             const mcpOrgId = getRequestOrgId();
-            const requestMcpActionEntries =
-              await getMcpActionEntriesForPrincipal(ownerEmail, mcpOrgId);
             const mcpRegisteredActions = devActiveMcp
               ? {
                   ...templateScripts,
@@ -3260,7 +3279,6 @@ export function createAgentChatPlugin(
                   ...workspaceFilesTool,
                   ...workspaceFileActions,
                   ...toolActions,
-                  ...requestMcpActionEntries,
                   ...devScriptsForA2A,
                   ...devRunCodeTool,
                 }
@@ -3278,16 +3296,14 @@ export function createAgentChatPlugin(
                   ...workspaceFilesTool,
                   ...workspaceFileActions,
                   ...toolActions,
-                  ...requestMcpActionEntries,
                   ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
                   ...prodCodingTools,
                 };
             const mcpActions = attachToolSearch({
               ...mcpRegisteredActions,
-              ...(await resolveAppAdditionalActions(
-                options?.resolveAdditionalActions,
+              ...(await getRequestScopedActions(
                 { surface: "mcp", ownerEmail, orgId: mcpOrgId },
-                { ...prodActions, ...mcpRegisteredActions },
+                mcpRegisteredActions,
               )),
             });
 
@@ -3465,6 +3481,7 @@ export function createAgentChatPlugin(
       } catch {
         // Ignore — templates without sharing still work.
       }
+      reservedActionRegistries.push(httpActions);
       const { mountActionRoutes, mountWebMcpActionRoutes } =
         await import("./action-routes.js");
       const directoryProfile = mcpOptions.enabled
@@ -4447,6 +4464,7 @@ export function createAgentChatPlugin(
           : {}),
       });
       leanRunCodeToolActions = leanActions;
+      reservedActionRegistries.push(prodActions, leanActions);
 
       // Always build the production handler (includes resource tools + call-agent + team tools)
       // In production mode (!canToggle), resolve the owner from the request session.
@@ -4925,10 +4943,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           await onRunComplete(run, threadId, trackingSource);
         },
         resolveAdditionalActions: (details) =>
-          getChatAdditionalActions(details, {
-            ...prodActions,
-            ...prodHandlerActions,
-          }),
+          getRequestScopedActions(
+            { surface: "chat", ...details },
+            prodHandlerActions,
+          ),
         // Resolve owner from session for usage attribution in hosted prod
         resolveOwnerEmail: isHostedProd ? getOwnerFromEvent : undefined,
       });
@@ -5117,14 +5135,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         // Wire the late-binding supplier for devRunCodeTool so the bridge can
         // call back into the fully-assembled devActions registry.
         devRunCodeToolActions = devActions;
+        reservedActionRegistries.push(devActions);
         devHandler = createProductionAgentHandler({
           assertAiSetupReady: requireAgentChatAiSetup,
           actions: devActions,
           resolveAdditionalActions: (details) =>
-            getChatAdditionalActions(details, {
-              ...prodActions,
-              ...devActions,
-            }),
+            getRequestScopedActions(
+              { surface: "chat", ...details },
+              devActions,
+            ),
           systemPrompt: async (event: any) => {
             const { owner, extra } = await prepareRun(event);
             const requestActionsPrompt = resolveRequestActionsPrompt(

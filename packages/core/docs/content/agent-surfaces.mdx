@@ -206,27 +206,41 @@ an unrestricted shell cannot enforce a hard action boundary.
 
 Use `resolveAdditionalActions` when the actions a caller can use are only known
 at request time, such as tools a user registers while the server runs. The
-callback runs for every authenticated interactive chat request (production and
-dev), A2A task, and MCP `ask_app` call. `surface` is `"chat"`, `"a2a"`, or
-`"mcp"`, so the app decides which surfaces receive which actions. Returned
-entries join the caller's MCP tools for that request only: `tool-search` can
-find them, and `resolveActionSurface` sees them in `availableActionNames`.
+callback runs once per authenticated interactive chat run (production and dev),
+before `tool-search` and `resolveActionSurface`, so both see the returned
+entries. They join that caller's registry for that run only. A2A tasks and MCP
+`ask_app` calls receive them only when you list those surfaces in
+`additionalActionSurfaces`; `surface` tells the callback which one is asking.
 
 ```ts
 createAgentChatPlugin({
   actions,
+  additionalActionSurfaces: ["a2a"],
   resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
-    surface === "chat" ? await loadUserTools(ownerEmail, orgId) : {},
+    loadUserTools(ownerEmail, orgId, {
+      includeEditorTools: surface === "chat",
+    }),
 });
 ```
 
-An entry that uses the name of a template action, a framework tool, or an MCP
-tool is ignored, even when the request's registry leaves that tool out (as lean
-mode does), and the server logs a warning once per name. `event` is set for
-`chat` and `a2a`; `ask_app` calls have none. The callback is not called for
-anonymous requests, scheduled jobs, automations, or agent-team sub-agents. A
-chat turn that the server finishes as a durable background run still calls it
-with `surface: "chat"`. An error the callback throws fails the request.
+Treat returned entries as untrusted input. The framework ignores an entry, and
+logs a warning once, when its name is not 1–64 letters, digits, `_`, or `-`;
+when the name belongs to any template, framework, dev, or MCP action, including
+actions hidden from the agent; when it is an `mcp__` name the caller cannot
+see; or when its tool definition is unusable. Descriptions lose hidden control
+characters and are capped, and `parameters` must be a bounded JSON schema with
+an `object` root.
+
+Each entry is bound to the caller it was resolved for. Every call, whichever
+dispatcher makes it, refuses to run for a different user or organization,
+enforces the entry's `access` policy, and validates the arguments against its
+schema without type coercion. When a chat turn continues as a durable background
+run, the callback runs again but the turn keeps its original names: new entries
+stay out, and a name that disappeared returns an error when called.
+
+`event` is set for `chat` and `a2a`; `ask_app` calls have none. The callback
+is not called for anonymous requests, scheduled jobs, automations, or agent-team
+sub-agents. An error the callback throws fails the request.
 
 ## Native inline UI {#native-inline-ui}
 

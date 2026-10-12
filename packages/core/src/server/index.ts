@@ -288,7 +288,8 @@ export {
 } from "./agent-chat-plugin.js";
 export type {
   AgentChatAdditionalActionsDetails,
-  AgentChatRequestSurface,
+  AgentChatAdditionalActionsExternalSurface,
+  AgentChatAdditionalActionsSurface,
   ResolveAgentChatAdditionalActions,
 } from "./agent-chat/additional-actions.js";
 export {

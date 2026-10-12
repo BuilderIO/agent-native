@@ -15,7 +15,11 @@ const booted = vi.hoisted(() => ({
   mcpConfig: undefined as
     | { askAgent: (message: string) => Promise<unknown> }
     | undefined,
-  delegatedAdditions: [] as Array<{ surface: string; names: string[] }>,
+  delegatedAdditions: [] as Array<{
+    surface: string;
+    names: string[];
+    entries: Record<string, any>;
+  }>,
 }));
 
 // A2A and ask_app go on to run the model after resolving app actions, so stop
@@ -33,6 +37,7 @@ vi.mock("./agent-chat/additional-actions.js", async (importOriginal) => {
       booted.delegatedAdditions.push({
         surface: args[1].surface,
         names: Object.keys(added),
+        entries: added,
       });
       throw new Error("app actions resolved");
     },
@@ -127,7 +132,12 @@ const closers: Array<() => void | Promise<void>> = [];
 
 async function boot(
   resolveAdditionalActions: AgentChatPluginOptions["resolveAdditionalActions"],
-  { mcpEnabled = false }: { mcpEnabled?: boolean } = {},
+  {
+    mcpEnabled = false,
+    additionalActionSurfaces,
+  }: Pick<AgentChatPluginOptions, "additionalActionSurfaces"> & {
+    mcpEnabled?: boolean;
+  } = {},
 ): Promise<void> {
   const nitroApp = {
     h3App: createApp(),
@@ -138,12 +148,24 @@ async function boot(
     },
   };
   createAgentChatPlugin({
-    actions: () => ({ "list-decks": entry("template list-decks") }),
+    actions: () => ({
+      "list-decks": entry("template list-decks"),
+      "hidden-template-action": {
+        ...entry("hidden template action"),
+        agentTool: false,
+      },
+      "mcp-only-template-action": {
+        ...entry("MCP-only template action"),
+        agentTool: false,
+        mcpTool: true,
+      },
+    }),
     a2aAgentDelegation: false,
     frameworkTools: "minimal",
     leanPrompt: true,
     mcp: { enabled: mcpEnabled },
     resolveAdditionalActions,
+    additionalActionSurfaces,
   })(nitroApp);
   await booted.initPromises.at(-1);
 }
@@ -221,10 +243,13 @@ describe("resolveAdditionalActions through the agent chat plugin", () => {
 
   it("asks the app for A2A actions with the delegated caller's identity", async () => {
     const seen: unknown[] = [];
-    await boot(async (details) => {
-      seen.push(details);
-      throw new Error("app resolver reached");
-    });
+    await boot(
+      async (details) => {
+        seen.push(details);
+        throw new Error("app resolver reached");
+      },
+      { additionalActionSurfaces: ["a2a"] },
+    );
 
     const event = mockEvent(
       new Request("http://localhost/_agent-native/a2a", { method: "POST" }),
@@ -267,7 +292,7 @@ describe("resolveAdditionalActions through the agent chat plugin", () => {
         seen.push(details);
         throw new Error("app resolver reached");
       },
-      { mcpEnabled: true },
+      { mcpEnabled: true, additionalActionSurfaces: ["mcp"] },
     );
 
     const failure = await runWithRequestContext(
@@ -297,7 +322,7 @@ describe("resolveAdditionalActions through the agent chat plugin", () => {
         "agent-teams": entry("app agent-teams"),
         "user-registered-tool": entry("user tool"),
       }),
-      { mcpEnabled: true },
+      { mcpEnabled: true, additionalActionSurfaces: ["a2a", "mcp"] },
     );
 
     const failures = await runWithRequestContext(
@@ -330,9 +355,128 @@ describe("resolveAdditionalActions through the agent chat plugin", () => {
     );
 
     expect(failures).toEqual(["app actions resolved", "app actions resolved"]);
-    expect(booted.delegatedAdditions).toEqual([
+    expect(delegatedNames()).toEqual([
       { surface: "a2a", names: ["user-registered-tool"] },
       { surface: "mcp", names: ["user-registered-tool"] },
     ]);
   });
+
+  it("reserves template actions hidden from the agent on every surface", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await boot(
+      async () => ({
+        "hidden-template-action": entry("app hidden"),
+        "mcp-only-template-action": entry("app MCP-only"),
+        "user-registered-tool": entry("user tool"),
+      }),
+      { mcpEnabled: true, additionalActionSurfaces: ["a2a", "mcp"] },
+    );
+
+    const chatHandlers = booted.handlerOptions.filter(
+      (options) => options.resolveAdditionalActions,
+    );
+    expect(chatHandlers).toHaveLength(2);
+    for (const options of chatHandlers) {
+      const added: Record<string, ActionEntry> =
+        await options.resolveAdditionalActions({
+          event: { path: "/_agent-native/agent-chat" },
+          ownerEmail: "alice@example.com",
+          orgId: "acme",
+        });
+      expect(Object.keys(added)).toEqual(["user-registered-tool"]);
+    }
+    await runDelegated("alice@example.com", "task-hidden-template-names");
+    expect(delegatedNames()).toEqual([
+      { surface: "a2a", names: ["user-registered-tool"] },
+      { surface: "mcp", names: ["user-registered-tool"] },
+    ]);
+  });
+
+  it("keeps app actions off A2A and ask_app until the app opts in", async () => {
+    const resolver = vi.fn(async () => ({
+      "user-registered-tool": entry("user tool"),
+    }));
+    await boot(resolver, { mcpEnabled: true });
+
+    await runDelegated("alice@example.com", "task-not-opted-in");
+
+    expect(resolver).not.toHaveBeenCalled();
+    expect(delegatedNames()).toEqual([
+      { surface: "a2a", names: [] },
+      { surface: "mcp", names: [] },
+    ]);
+  });
+
+  it("gives each delegated caller only their own entries, resolved once per run", async () => {
+    const resolver = vi.fn(async ({ ownerEmail }: { ownerEmail: string }) => ({
+      [`tool-for-${ownerEmail.split("@")[0]}`]: entry(`${ownerEmail} tool`),
+    }));
+    await boot(resolver, {
+      mcpEnabled: true,
+      additionalActionSurfaces: ["a2a", "mcp"],
+    });
+
+    await Promise.all([
+      runDelegated("alice@example.com", "task-alice"),
+      runDelegated("bob@example.com", "task-bob"),
+    ]);
+
+    // Two callers on two surfaces: four runs, one resolution each.
+    expect(resolver).toHaveBeenCalledTimes(4);
+    const names = delegatedNames();
+    expect(names).toHaveLength(4);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        { surface: "a2a", names: ["tool-for-alice"] },
+        { surface: "mcp", names: ["tool-for-alice"] },
+        { surface: "a2a", names: ["tool-for-bob"] },
+        { surface: "mcp", names: ["tool-for-bob"] },
+      ]),
+    );
+
+    const aliceTool = booted.delegatedAdditions.find(({ names }) =>
+      names.includes("tool-for-alice"),
+    )!.entries["tool-for-alice"];
+    await expect(
+      runWithRequestContext(
+        { userEmail: "bob@example.com", orgId: "acme" },
+        () => aliceTool.run({}),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme" },
+        () => aliceTool.run({}),
+      ),
+    ).resolves.toBe("alice@example.com tool");
+  });
 });
+
+function delegatedNames(): Array<{ surface: string; names: string[] }> {
+  return booted.delegatedAdditions.map(({ surface, names }) => ({
+    surface,
+    names,
+  }));
+}
+
+async function runDelegated(userEmail: string, taskId: string): Promise<void> {
+  await runWithRequestContext({ userEmail, orgId: "acme" }, async () => {
+    await booted
+      .a2aConfig!.handler(
+        { role: "user", parts: [{ type: "text", text: "list my decks" }] },
+        {
+          taskId,
+          metadata: {},
+          event: mockEvent(
+            new Request("http://localhost/_agent-native/a2a", {
+              method: "POST",
+            }),
+          ),
+          writeArtifact: () => "",
+        },
+      )
+      .next()
+      .catch(() => null);
+    await booted.mcpConfig!.askAgent("list my decks").catch(() => null);
+  });
+}

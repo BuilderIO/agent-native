@@ -1384,6 +1384,47 @@ export function readPersistedActionSurface(
   }
 }
 
+function readPersistedAdditionalActionNames(
+  body: AgentChatRequest,
+): string[] | undefined {
+  const names = body.__resolvedAdditionalActionNames;
+  if (names === undefined) return undefined;
+  if (!Array.isArray(names) || names.some((name) => typeof name !== "string")) {
+    throw new Error("Persisted additional action names are malformed");
+  }
+  return names;
+}
+
+/**
+ * A durable continuation re-resolves the caller's additional actions, which
+ * may have changed since the turn started. Keep the turn's names: drop entries
+ * that appeared since, and keep a vanished name as an entry that fails loudly
+ * when called, so a persisted action allowlist that names it still resolves.
+ */
+export function pinAdditionalActionsToTurn(
+  resolved: Record<string, ActionEntry>,
+  turnNames: readonly string[],
+): Record<string, ActionEntry> {
+  const pinned: Record<string, ActionEntry> = {};
+  for (const name of turnNames) {
+    pinned[name] = Object.hasOwn(resolved, name)
+      ? resolved[name]
+      : {
+          tool: {
+            description: `${name} is no longer available to this caller.`,
+            parameters: { type: "object", properties: {} },
+          },
+          readOnly: true,
+          run: () => {
+            throw new Error(
+              `${name} is no longer available to this caller; it was removed after this turn started.`,
+            );
+          },
+        };
+  }
+  return pinned;
+}
+
 export function filterActionsByAllowedNames(
   actions: Record<string, ActionEntry>,
   allowedActionNames: readonly string[],
@@ -10621,6 +10662,7 @@ export function createProductionAgentHandler(
         AGENT_CHAT_RECOVERY_OF_RUN_FIELD
       ];
       delete body.__resolvedActionSurface;
+      delete body.__resolvedAdditionalActionNames;
     }
     let requestedActionScope: AgentActionScope | undefined;
     if (hasOwn(body, "actionScope")) {
@@ -11035,11 +11077,23 @@ export function createProductionAgentHandler(
       ownerEmail &&
       getRequestContext()?.agentRunAnonymous !== true
     ) {
-      const additionalActions = await options.resolveAdditionalActions({
+      const resolvedAdditionalActions = await options.resolveAdditionalActions({
         event,
         ownerEmail,
         orgId: getRequestOrgId() ?? null,
       });
+      const turnAdditionalActionNames = isBackgroundWorker
+        ? readPersistedAdditionalActionNames(body)
+        : undefined;
+      const additionalActions = turnAdditionalActionNames
+        ? pinAdditionalActionsToTurn(
+            resolvedAdditionalActions,
+            turnAdditionalActionNames,
+          )
+        : resolvedAdditionalActions;
+      if (!isBackgroundWorker) {
+        body.__resolvedAdditionalActionNames = Object.keys(additionalActions);
+      }
       const requestActions = { ...resolvedActions, ...additionalActions };
       if (requestActions[TOOL_SEARCH_ACTION_NAME]) {
         requestActions[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() =>
