@@ -112,6 +112,19 @@ export class DesignVersionRestoreConflictError extends Error {
   }
 }
 
+export class DesignVersionCheckpointChangedError extends Error {
+  readonly statusCode = 409;
+  readonly retryable = true;
+  readonly errorCode = "design-version-checkpoint-changed";
+
+  constructor() {
+    super(
+      "Design or its history changed while the checkpoint was being prepared. Retry the operation.",
+    );
+    this.name = "DesignVersionCheckpointChangedError";
+  }
+}
+
 class DesignCheckpointBlobUnavailableError extends Error {
   constructor() {
     super(
@@ -552,6 +565,29 @@ async function withDesignFileLocks<T>(
 
 type DesignAccess = Awaited<ReturnType<typeof assertAccess>>;
 type DesignDatabase = Pick<ReturnType<typeof getDb>, "select" | "insert">;
+type LatestDesignVersion = {
+  id: string;
+  snapshot: string;
+  createdAt: string | null;
+  label: string | null;
+  chatContext: string | null;
+};
+type DesignVersionSourceCapture = {
+  designOwnerEmail?: string;
+  designData: string;
+  designTitle: string;
+  designDescription: string | null;
+  projectType: string;
+  designSystemId: string | null;
+  liveSnapshot: Awaited<ReturnType<typeof buildDesignSnapshot>>;
+  currentStateJson: string;
+  stateHash: string;
+  sourceFingerprint: string;
+  latest?: LatestDesignVersion;
+};
+type WithDesignVersionSourceMutationLock = <T>(
+  work: (database: DesignDatabase, access: DesignAccess) => Promise<T>,
+) => Promise<T>;
 
 const designVersionLocks = new Map<string, Promise<unknown>>();
 
@@ -596,27 +632,15 @@ async function latestStateMatches(
   }
 }
 
-async function captureDesignVersion(
+async function readDesignVersionSourceCapture(
   designId: string,
   options: {
-    label: string;
-    chatContext?: DesignVersionChatContext;
     deletionGeometry?: ComponentDeletionGeometry;
     preferStoredFileContent?: boolean;
-    idempotencyKey?: string;
   },
   access: DesignAccess,
   database?: DesignDatabase,
-  persistWithinSourceMutationLock?: (
-    persist: (database: DesignDatabase) => Promise<{
-      version: { id: string; createdAt: string; label: string };
-      duplicateBlob: PrivateBlobHandle | null;
-    }>,
-  ) => Promise<{
-    version: { id: string; createdAt: string; label: string };
-    duplicateBlob: PrivateBlobHandle | null;
-  }>,
-): Promise<{ id: string; createdAt: string; label: string }> {
+): Promise<DesignVersionSourceCapture> {
   let design = access.resource as {
     data?: unknown;
     title?: unknown;
@@ -659,21 +683,18 @@ async function captureDesignVersion(
     typeof design.designSystemId === "string" || design.designSystemId === null
       ? design.designSystemId
       : null;
-  const currentFiles = liveSnapshot.files.map(
-    ({ id, filename, fileType, content }) => ({
-      id,
-      filename,
-      fileType,
-      content,
-    }),
-  );
   const currentState = {
     designData,
     designTitle,
     designDescription,
     projectType,
     designSystemId,
-    files: currentFiles,
+    files: liveSnapshot.files.map(({ id, filename, fileType, content }) => ({
+      id,
+      filename,
+      fileType,
+      content,
+    })),
     tweaks: liveSnapshot.tweaks,
     appliedTweaks: liveSnapshot.appliedTweaks,
     resolvedCssVars: liveSnapshot.resolvedCssVars,
@@ -681,6 +702,20 @@ async function captureDesignVersion(
   };
   const currentStateJson = stableStringify(currentState);
   const stateHash = createHash("sha256").update(currentStateJson).digest("hex");
+  const ownerEmail =
+    typeof design.ownerEmail === "string" ? design.ownerEmail : undefined;
+  const sourceFingerprint = createHash("sha256")
+    .update(
+      stableStringify({
+        currentState,
+        fileSources: liveSnapshot.files.map(({ id, source }) => ({
+          id,
+          source,
+        })),
+        ownerEmail: ownerEmail ?? null,
+      }),
+    )
+    .digest("hex");
   const db = database ?? getDb();
   const [latest] = await db
     .select({
@@ -698,35 +733,159 @@ async function captureDesignVersion(
       desc(schema.designVersions.id),
     )
     .limit(1);
-  const createdAt = nextRevisionTimestamp(latest?.createdAt);
-  if (latest) {
-    const currentChatContextKey = chatContextKey(options.chatContext);
-    let chatContextCompatible = !currentChatContextKey;
-    if (currentChatContextKey) {
-      try {
-        chatContextCompatible =
-          chatContextKey(parseStoredChatContext(latest.chatContext)) ===
-          currentChatContextKey;
-      } catch {
-        chatContextCompatible = false;
-      }
-    }
-    if (
-      chatContextCompatible &&
-      (await latestStateMatches(
-        latest.snapshot,
-        designId,
-        stateHash,
-        currentStateJson,
-      ))
-    ) {
-      return {
-        id: latest.id,
-        createdAt: latest.createdAt ?? createdAt,
-        label: latest.label ?? options.label,
-      };
-    }
+  return {
+    designOwnerEmail: ownerEmail,
+    designData,
+    designTitle,
+    designDescription,
+    projectType,
+    designSystemId,
+    liveSnapshot,
+    currentStateJson,
+    stateHash,
+    sourceFingerprint,
+    latest,
+  };
+}
+
+function latestVersionMatches(
+  left?: LatestDesignVersion,
+  right?: LatestDesignVersion,
+) {
+  if (!left || !right) return left === right;
+  return (
+    left.id === right.id &&
+    left.snapshot === right.snapshot &&
+    left.createdAt === right.createdAt &&
+    left.label === right.label &&
+    left.chatContext === right.chatContext
+  );
+}
+
+function latestVersionStateHashCheck(
+  latest: LatestDesignVersion,
+  stateHash: string,
+): { status: "valid"; matches: boolean } | { status: "unreadable" } {
+  try {
+    const stored: unknown = JSON.parse(latest.snapshot);
+    return {
+      status: "valid",
+      matches: isRecord(stored) && stored.stateHash === stateHash,
+    };
+  } catch {
+    return { status: "unreadable" };
   }
+}
+
+function latestVersionChatContextCheck(
+  latest: LatestDesignVersion,
+  context?: DesignVersionChatContext,
+): "match" | "mismatch" | "unreadable" {
+  const currentKey = chatContextKey(context);
+  if (!currentKey) return "match";
+  try {
+    return chatContextKey(parseStoredChatContext(latest.chatContext)) ===
+      currentKey
+      ? "match"
+      : "mismatch";
+  } catch {
+    return "unreadable";
+  }
+}
+
+function versionFromLatest(
+  latest: LatestDesignVersion,
+  fallbackLabel: string,
+): { id: string; createdAt: string; label: string } {
+  return {
+    id: latest.id,
+    createdAt: latest.createdAt ?? nextRevisionTimestamp(latest.createdAt),
+    label: latest.label ?? fallbackLabel,
+  };
+}
+
+function assertSourceFingerprintMatches(
+  expected: DesignVersionSourceCapture,
+  current: DesignVersionSourceCapture,
+): void {
+  if (expected.sourceFingerprint !== current.sourceFingerprint) {
+    throw new DesignVersionCheckpointChangedError();
+  }
+}
+
+async function captureDesignVersion(
+  designId: string,
+  options: {
+    label: string;
+    chatContext?: DesignVersionChatContext;
+    deletionGeometry?: ComponentDeletionGeometry;
+    preferStoredFileContent?: boolean;
+    idempotencyKey?: string;
+  },
+  access: DesignAccess,
+  database?: DesignDatabase,
+  withSourceMutationLock?: WithDesignVersionSourceMutationLock,
+): Promise<{ id: string; createdAt: string; label: string }> {
+  const capture = (
+    captureAccess: DesignAccess,
+    captureDatabase?: DesignDatabase,
+  ) =>
+    readDesignVersionSourceCapture(
+      designId,
+      options,
+      captureAccess,
+      captureDatabase,
+    );
+  const prepared = withSourceMutationLock
+    ? await withSourceMutationLock((lockedDatabase, lockedAccess) =>
+        capture(lockedAccess, lockedDatabase),
+      )
+    : await capture(access, database);
+  const latest = prepared.latest;
+  const createdAt = nextRevisionTimestamp(latest?.createdAt);
+  const deduplicated =
+    latest &&
+    latestVersionChatContextCheck(latest, options.chatContext) === "match" &&
+    (await latestStateMatches(
+      latest.snapshot,
+      designId,
+      prepared.stateHash,
+      prepared.currentStateJson,
+    ))
+      ? latest
+      : undefined;
+
+  if (deduplicated) {
+    if (!withSourceMutationLock) {
+      return versionFromLatest(deduplicated, options.label);
+    }
+    const validated = await withSourceMutationLock(
+      async (lockedDatabase, lockedAccess) => {
+        const current = await capture(lockedAccess, lockedDatabase);
+        assertSourceFingerprintMatches(prepared, current);
+        if (!latestVersionMatches(prepared.latest, current.latest)) {
+          const stateHashCheck = current.latest
+            ? latestVersionStateHashCheck(current.latest, prepared.stateHash)
+            : { status: "unreadable" as const };
+          if (
+            current.latest &&
+            latestVersionChatContextCheck(
+              current.latest,
+              options.chatContext,
+            ) === "match" &&
+            stateHashCheck.status === "valid" &&
+            stateHashCheck.matches
+          ) {
+            return versionFromLatest(current.latest, options.label);
+          }
+          throw new DesignVersionCheckpointChangedError();
+        }
+        return versionFromLatest(deduplicated, options.label);
+      },
+    );
+    return validated;
+  }
+
   const id = options.idempotencyKey
     ? designVersionIdForIdempotencyKey(designId, options.idempotencyKey)
     : `design-version-${createHash("sha256")
@@ -735,7 +894,7 @@ async function captureDesignVersion(
             designId,
             previousVersionId: latest?.id ?? "initial",
             chatContextKey: chatContextKey(options.chatContext),
-            stateHash,
+            stateHash: prepared.stateHash,
           }),
         )
         .digest("hex")}`;
@@ -743,17 +902,17 @@ async function captureDesignVersion(
     schemaVersion: 1,
     snapshotKind: "design-history",
     designId,
-    designData,
-    designTitle,
-    designDescription,
-    projectType,
-    designSystemId,
-    files: liveSnapshot.files,
-    tweaks: liveSnapshot.tweaks,
-    appliedTweaks: liveSnapshot.appliedTweaks,
-    resolvedCssVars: liveSnapshot.resolvedCssVars,
+    designData: prepared.designData,
+    designTitle: prepared.designTitle,
+    designDescription: prepared.designDescription,
+    projectType: prepared.projectType,
+    designSystemId: prepared.designSystemId,
+    files: prepared.liveSnapshot.files,
+    tweaks: prepared.liveSnapshot.tweaks,
+    appliedTweaks: prepared.liveSnapshot.appliedTweaks,
+    resolvedCssVars: prepared.liveSnapshot.resolvedCssVars,
     capturedAt: createdAt,
-    stateHash,
+    stateHash: prepared.stateHash,
     ...(options.chatContext ? { chatContext: options.chatContext } : {}),
     ...(options.deletionGeometry
       ? { deletionGeometry: options.deletionGeometry }
@@ -766,8 +925,7 @@ async function captureDesignVersion(
       data: Buffer.from(snapshot),
       filename: `${id}.design-history.json`,
       mimeType: "application/json",
-      ownerEmail:
-        typeof design.ownerEmail === "string" ? design.ownerEmail : undefined,
+      ownerEmail: prepared.designOwnerEmail,
       metadata: {
         appId: "design",
         resourceType: "design-version",
@@ -783,9 +941,9 @@ async function captureDesignVersion(
       schemaVersion: 2,
       snapshotKind: "design-history-blob",
       designId,
-      fileCount: liveSnapshot.files.length,
+      fileCount: prepared.liveSnapshot.files.length,
       capturedAt: createdAt,
-      stateHash,
+      stateHash: prepared.stateHash,
       ...(options.chatContext ? { chatContext: options.chatContext } : {}),
       ...(options.deletionGeometry
         ? { deletionGeometry: options.deletionGeometry }
@@ -805,7 +963,7 @@ async function captureDesignVersion(
         chatContext: options.chatContext
           ? JSON.stringify(options.chatContext)
           : null,
-        fileCount: liveSnapshot.files.length,
+        fileCount: prepared.liveSnapshot.files.length,
         createdAt,
       })
       .onConflictDoNothing()
@@ -839,9 +997,37 @@ async function captureDesignVersion(
   };
   let persisted: Awaited<ReturnType<typeof persist>>;
   try {
-    persisted = await (persistWithinSourceMutationLock
-      ? persistWithinSourceMutationLock(persistAfterAuthorization)
-      : persistAfterAuthorization(db));
+    if (withSourceMutationLock) {
+      persisted = await withSourceMutationLock(
+        async (lockedDatabase, lockedAccess) => {
+          const current = await capture(lockedAccess, lockedDatabase);
+          assertSourceFingerprintMatches(prepared, current);
+          if (!latestVersionMatches(prepared.latest, current.latest)) {
+            const stateHashCheck = current.latest
+              ? latestVersionStateHashCheck(current.latest, prepared.stateHash)
+              : { status: "unreadable" as const };
+            if (
+              current.latest &&
+              latestVersionChatContextCheck(
+                current.latest,
+                options.chatContext,
+              ) === "match" &&
+              stateHashCheck.status === "valid" &&
+              stateHashCheck.matches
+            ) {
+              return {
+                version: versionFromLatest(current.latest, options.label),
+                duplicateBlob: uploadedBlob,
+              };
+            }
+            throw new DesignVersionCheckpointChangedError();
+          }
+          return persistAfterAuthorization(lockedDatabase);
+        },
+      );
+    } else {
+      persisted = await persistAfterAuthorization(database ?? getDb());
+    }
   } catch (persistError) {
     if (uploadedBlob && !persistenceStarted) {
       try {
@@ -920,10 +1106,10 @@ export async function createDesignVersionSnapshotWithSourceMutationLock(
       options,
       access,
       undefined,
-      async (persist) =>
+      async (work) =>
         withDesignSourceMutationTransaction(designId, async (tx) => {
-          await assertAccess("design", designId, "editor");
-          return persist(tx);
+          const lockedAccess = await assertAccess("design", designId, "editor");
+          return work(tx, lockedAccess);
         }),
     );
   });
@@ -961,10 +1147,10 @@ export async function createDesignChatBeginningSnapshot(
       },
       access,
       undefined,
-      async (persist) =>
+      async (work) =>
         withDesignSourceMutationTransaction(designId, async (tx) => {
-          await assertAccess("design", designId, "editor");
-          return persist(tx);
+          const lockedAccess = await assertAccess("design", designId, "editor");
+          return work(tx, lockedAccess);
         }),
     );
   });
