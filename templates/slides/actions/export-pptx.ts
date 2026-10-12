@@ -1647,6 +1647,7 @@ const trackPptxExportFailures = withExportFailureTracking<{
 type SlidesPptxDownloadContext = {
   slidesPptxDownload?: true;
   slidesPptxDownloadFilename?: string;
+  slidesPptxDownloadPersist?: true;
 };
 
 function slidesPptxDownloadContext(
@@ -1957,9 +1958,11 @@ export default defineAction({
     )
       ? downloadContext.slidesPptxDownloadFilename
       : safeGeneratedFilename(row.title, ".pptx");
+    const persistExport =
+      !downloadContext || downloadContext.slidesPptxDownloadPersist === true;
 
     const exportDir = tenantExportDir(userEmail);
-    if (!downloadContext) {
+    if (persistExport) {
       fs.mkdirSync(exportDir, { recursive: true });
       fs.writeFileSync(path.join(exportDir, filename), buffer);
     }
@@ -1967,7 +1970,7 @@ export default defineAction({
       pruneHostedPptxExports(
         exportDir,
         Date.now(),
-        downloadContext ? undefined : filename,
+        persistExport ? filename : undefined,
       );
     }
 

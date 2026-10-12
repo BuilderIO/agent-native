@@ -73,6 +73,7 @@ export default defineEventHandler(async (event) => {
         orgId: session.orgId,
         slidesPptxDownload: true as const,
         slidesPptxDownloadFilename: filename,
+        slidesPptxDownloadPersist: true as const,
       };
       const result = await runWithRequestContext(
         { userEmail: session.email, orgId: session.orgId },

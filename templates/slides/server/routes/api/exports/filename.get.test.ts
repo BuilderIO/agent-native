@@ -74,6 +74,7 @@ describe("slides hosted PPTX download route", () => {
         orgId: "org-1",
         slidesPptxDownload: true,
         slidesPptxDownloadFilename: "missing-export.pptx",
+        slidesPptxDownloadPersist: true,
       },
     );
   });

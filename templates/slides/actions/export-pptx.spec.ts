@@ -170,7 +170,7 @@ describe("export-pptx action", () => {
     expect(result).not.toHaveProperty("filePath");
   });
 
-  it("returns binary internals only to the Slides download route", async () => {
+  it("returns bytes without persisting for a direct Slides download", async () => {
     mocks.resolveAccess.mockResolvedValue({
       resource: {
         title: "Deck",
@@ -194,6 +194,36 @@ describe("export-pptx action", () => {
     expect(result).not.toHaveProperty("filePath");
     expect(fs.writeFileSync).not.toHaveBeenCalled();
     expect(fs.mkdirSync).not.toHaveBeenCalled();
+  });
+
+  it("persists authenticated download regeneration for later GET requests", async () => {
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("K_SERVICE", "slides");
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: true },
+      {
+        caller: "http",
+        slidesPptxDownload: true,
+        slidesPptxDownloadFilename: "requested-export.pptx",
+        slidesPptxDownloadPersist: true,
+      } as never,
+    );
+    const exportDir = tenantExportDir("local@example.com");
+
+    expect(result.buffer).toBeInstanceOf(Buffer);
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      path.join(exportDir, "requested-export.pptx"),
+      expect.any(Buffer),
+    );
   });
 
   it("persists exports in the hosted runtime directory for later downloads", async () => {
