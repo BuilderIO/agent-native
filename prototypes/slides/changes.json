@@ -1,7 +1,11 @@
 [
   {
     "date": "2026-10-12",
-    "text": "Added Settings from the account menu and \u2318,"
+    "text": "Matched the shipped app's menu icons and red offline save state"
+  },
+  {
+    "date": "2026-10-12",
+    "text": "Added Settings from the account menu and ⌘,"
   },
   {
     "date": "2026-10-12",

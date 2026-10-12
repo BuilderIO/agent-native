@@ -203,7 +203,10 @@ button:focus-visible, input:focus-visible, [tabindex]:focus-visible, textarea:fo
 .etb .title:focus { color: var(--color-foreground); }
 .etb .right { margin-left: auto; display: flex; align-items: center; gap: 4px; }
 .view-only { display: inline-flex; align-items: center; border-radius: 999px; border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-muted) 50%, transparent); padding: 4px 10px; font-size: 12px; font-weight: 500; color: var(--color-muted-foreground); }
-.save-warn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--warning); background: color-mix(in srgb, var(--warning) 10%, transparent); margin-right: 4px; }
+/* SaveStatusIndicator: the code draws offline, failed, and conflict saves in destructive red. */
+.save-warn { display: inline-flex; align-items: center; gap: 4px; min-width: 0; padding: 4px 6px; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--color-destructive) 30%, transparent); background: color-mix(in srgb, var(--color-destructive) 10%, transparent); font-size: 11px; color: var(--color-destructive); margin-right: 4px; flex: none; }
+.save-warn button { height: 24px; display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; border-radius: 6px; color: inherit; }
+.save-warn button:hover { background: color-mix(in srgb, var(--color-destructive) 10%, transparent); }
 .presence { display: flex; align-items: center; padding-left: 8px; }
 .pav { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: #fff; border: 1px solid #fff; flex: none; }
 .pav.pav-ai { background: var(--slides-agent); }
@@ -693,7 +696,7 @@ function renderEditor() {
     <input class="title" id="deck-title" value="${esc(d.title)}" ${edit ? "" : "readonly"} spellcheck="false" aria-label="Deck title">
     <div style="width:8px;flex:none"></div>
     ${edit ? "" : '<span class="view-only">View only</span>'}
-    ${edit && S.scenario === "offline" ? `<span class="save-warn" data-tip="Changes will save when reconnected">${ic("cloud-off", "s14")}Offline</span>` : ""}
+    ${edit && S.scenario === "offline" ? `<span class="save-warn" role="alert" title="Changes will save when reconnected">${ic("cloud-off", "s14")}<span>Offline</span><button data-act="backup" aria-label="Download backup" data-tip="Download backup">${ic("download", "s14")}</button><button data-act="import-backup" aria-label="Import backup" data-tip="Import backup">${ic("upload", "s14")}</button></span>` : ""}
     <div class="right">
       <div class="presence">${agentBusy || S.agentOpen ? `<span class="pav pav-ai ${agentBusy ? "active" : ""}" data-tip="${agentBusy ? "AI is editing" : "AI agent"}">AI</span>` : ""}<span class="pav" style="background:#7c5cff;margin-left:6px" data-tip="Priya Raman">P</span></div>
       <button class="tb-ic" id="more-btn" data-tip="More" aria-label="More" aria-haspopup="menu">${ic("dots-vertical")}</button>
@@ -839,25 +842,25 @@ function startGeneration() {
 const run = (t, fn) => ({ t, run: fn });
 function deckMenu(btn, d) {
   openMenu(btn, [
-    run("Rename", () => { S.renaming = d.id; renderGridOnly(); const i = $("#rename-in"); i.focus(); i.select(); }),
-    run("Duplicate", () => { const c = { ...structuredClone(d), id: d.id + "-copy" + uid++, title: d.title + " (copy)", starred: false }; DECKS.splice(DECKS.indexOf(d) + 1, 0, c); renderGridOnly(); toast("Deck duplicated"); }),
-    run("Share Presentation", () => openShare(btn, d)),
-    run("Set as workspace default", () => confirmDialog("Set as workspace default?", `"${d.title}" is private. Setting it as the workspace default shares it with every member of this workspace, and new decks will use it as their style reference. Members can select a different reference deck when they create a deck.`, "Set as default", () => toast("Set as the workspace default"))),
+    { t: "Rename", icon: "pencil", run: () => { S.renaming = d.id; renderGridOnly(); const i = $("#rename-in"); i.focus(); i.select(); } },
+    { t: "Duplicate", icon: "copy", run: () => { const c = { ...structuredClone(d), id: d.id + "-copy" + uid++, title: d.title + " (copy)", starred: false }; DECKS.splice(DECKS.indexOf(d) + 1, 0, c); renderGridOnly(); toast("Deck duplicated"); } },
+    { t: "Share Presentation", icon: "share-2", run: () => openShare(btn, d) },
+    { t: "Set as workspace default", icon: "building-community", run: () => confirmDialog("Set as workspace default?", `"${d.title}" is private. Setting it as the workspace default shares it with every member of this workspace, and new decks will use it as their style reference. Members can select a different reference deck when they create a deck.`, "Set as default", () => toast("Set as the workspace default")) },
     "-",
-    { t: "Delete", danger: true, run: () => confirmDialog("Delete Deck?", "This will permanently delete this deck and all its slides. This action cannot be undone.", "Delete", () => { DECKS = DECKS.filter(x => x !== d); renderGridOnly(); }, true) },
+    { t: "Delete", icon: "trash", danger: true, run: () => confirmDialog("Delete Deck?", "This will permanently delete this deck and all its slides. This action cannot be undone.", "Delete", () => { DECKS = DECKS.filter(x => x !== d); renderGridOnly(); }, true) },
   ], { align: "right", minWidth: 224 });
 }
 function moreMenu(btn) {
   const edit = canEdit(), slides = editorSlides().length > 0;
   const items = [];
-  if (edit) items.push({ label: "Slide tools" }, run("Transitions", () => toast("Transitions")), run("Layers", () => toast("Layers")), run("Tweaks", () => toast("Tweaks")), run("Annotate slide", () => toast("Draw on the slide, then send it to the agent")));
-  items.push(run("Pin comments", () => toast("Click anywhere to drop a comment pin")), "-", run("Comments", () => { S.comments = !S.comments; renderEditor(); }), "-");
-  if (edit) items.push({ t: `Undo (${k("⌘Z")})`, disabled: true }, { t: `Redo (${k("⇧⌘Z")})`, disabled: true }, "-");
-  items.push(run("History", openHistory), "-",
-    { t: "Export", disabled: !slides, sub: [run("Download as HTML", () => toast("Downloaded Fieldnote 2.0 launch plan.html")), run("Export as PDF", () => toast("Exporting...")), run("Export as PPTX", () => toast("Exporting...")), run("Export to Google Slides", () => toast("Exported to Google Slides"))] },
-    "-", run("Duplicate deck", () => toast("Deck duplicated")), "-", run("Import file", () => toast("Import PPTX, DOCX, or PDF")));
+  if (edit) items.push({ label: "Slide tools" }, { t: "Transitions", icon: "bolt", run: () => toast("Transitions") }, { t: "Layers", icon: "layers-subtract", run: () => toast("Layers") }, { t: "Tweaks", icon: "adjustments", run: () => toast("Tweaks") }, { t: "Annotate slide", icon: "pencil-plus", run: () => toast("Draw on the slide, then send it to the agent") });
+  items.push({ t: "Pin comments", icon: "pin", run: () => toast("Click anywhere to drop a comment pin") }, "-", { t: "Comments", icon: "message", run: () => { S.comments = !S.comments; renderEditor(); } }, "-");
+  if (edit) items.push({ t: `Undo (${k("⌘Z")})`, icon: "arrow-back-up", disabled: true }, { t: `Redo (${k("⇧⌘Z")})`, icon: "arrow-forward-up", disabled: true }, "-");
+  items.push({ t: "History", icon: "history", run: openHistory }, "-",
+    { t: "Export", icon: "upload", disabled: !slides, sub: [{ t: "Download as HTML", icon: "code", run: () => toast("Downloaded Fieldnote 2.0 launch plan.html") }, { t: "Export as PDF", icon: "file-type-pdf", run: () => toast("Exporting...") }, { t: "Export as PPTX", icon: "download", run: () => toast("Exporting...") }, { t: "Export to Google Slides", icon: "brand-google", run: () => toast("Exported to Google Slides") }] },
+    "-", { t: "Duplicate deck", icon: "copy", run: () => toast("Deck duplicated") }, "-", { t: "Import file", icon: "download", run: () => toast("Import PPTX, DOCX, or PDF") });
   openMenu(btn, items, { align: "right", minWidth: 256 });
-  const cm = [...document.querySelectorAll(".menu button")].find(b => b.textContent === "Comments");
+  const cm = [...document.querySelectorAll(".menu button")].find(b => b.textContent.trim() === "Comments");
   if (cm) cm.insertAdjacentHTML("beforeend", `<span class="badge">${COMMENTS.length}</span>`);
 }
 function thumbMenu(e, i) {
@@ -886,7 +889,7 @@ function elementMenu(e) {
 function composerAddMenu(btn) {
   const home = btn.dataset.cmpAdd === "home-input";
   const design = { t: "Design", sub: [run("Reference a presentation", () => toast("Search presentations…")), run("Use a design system", () => toast("Choose a design system")), run("Add Figma", () => toast("Paste a Figma link")), run("Add website", () => toast("Paste a website URL")), { t: "Integrations", sub: [{ t: "Google Drive" }, { t: "Notion" }, { t: "Slack" }] }] };
-  const items = [run("Upload File", () => toast("Choose a file to attach")), { t: "Add context", sub: [design] }];
+  const items = [{ t: "Upload File", icon: "file", run: () => toast("Choose a file to attach") }, { t: "Add context", icon: "text-recognition", sub: [design] }];
   if (!home) items.push(run("Schedule Task", () => toast("Schedule Task")), run("Create Automation", () => toast("Create Automation")), run("Create Skill", () => toast("Create Skill")));
   openMenu(btn, items, { minWidth: 256, above: !home });
 }
@@ -895,15 +898,18 @@ function modelMenu(btn) {
 }
 function agentMenu(btn) {
   openMenu(btn, [
-    { t: "Collapse sidebar", k: k("⌘."), run: () => { S.agentOpen = false; render(); } }, "-",
-    run("Widen chat", () => toast("Widen chat")), run("Open full view", () => toast("Open full view")), run("Integrations", () => toast("Integrations")), "-",
-    run("New chat", () => { S.chat = "new"; CHATS.new = { title: "New chat", msgs: [] }; renderAgent(); }), run("Share", () => toast("Share chat")), run("All chats", () => toast("All chats")), run("Agent runs", () => toast("Agent runs")), "-",
-    run("Feedback", () => toast("Feedback")), "-", run("Clear chat", () => { CHATS[chatKey()].msgs = []; renderAgent(); }),
+    { t: "Collapse sidebar", icon: "layout-sidebar-right-collapse", k: k("⌘."), run: () => { S.agentOpen = false; render(); } }, "-",
+    { t: "Widen chat", icon: "arrows-horizontal", run: () => toast("Widen chat") }, run("Open full view", () => toast("Open full view")), { t: "Integrations", icon: "plug-connected", run: () => toast("Integrations") }, "-",
+    { t: "New chat", icon: "plus", run: () => { S.chat = "new"; CHATS.new = { title: "New chat", msgs: [] }; renderAgent(); } }, { t: "Share", icon: "share-3", run: () => toast("Share chat") }, { t: "All chats", icon: "history", run: () => toast("All chats") }, { t: "Agent runs", icon: generating() ? "loader-2" : "subtask", sub: [{ t: generating() ? "Fieldnote launch plan, running" : "No recent runs", disabled: !generating() }] }, "-",
+    { t: "Feedback", icon: "message-dots", run: () => toast("Feedback") }, "-", { t: "Clear chat", icon: "x", run: () => { CHATS[chatKey()].msgs = []; renderAgent(); } },
   ], { align: "right", minWidth: 192 });
 }
 function orgMenu(btn) {
-  openMenu(btn, [{ label: "shawn@example.com" }, { t: "Builder.io", radio: true, on: true, run: () => {} }, run("Create organization", () => toast("Create organization")), "-", { t: "Settings", k: k("⌘,"), run: () => openSettings("profile") }, run("Usage", () => openSettings("usage")), "-", run("Log out", () => toast("Log out"))], { above: true, minWidth: 248 });
+  openMenu(btn, [{ label: "shawn@example.com" }, { t: "Builder.io", icon: "briefcase", run: () => {} }, { t: "Create organization", icon: "plus", run: () => toast("Create organization") }, "-", { t: "Settings", icon: "settings", k: k("⌘,"), run: () => openSettings("profile") }, { t: "Usage", icon: "chart-bar", run: () => openSettings("usage") }, "-", { t: "Log out", icon: "logout", run: () => toast("Log out") }], { above: true, minWidth: 248 });
+  trailingCheck("Builder.io");
 }
+// A checked row with its check after the label, as OrgSwitcher and the composer's mode menu draw it.
+function trailingCheck(label) { const b = [...document.querySelectorAll(".menu button")].find(x => x.querySelector("span")?.textContent === label || x.querySelector(".tt span")?.textContent === label); b?.insertAdjacentHTML("beforeend", `<span class="kbd" style="opacity:1;color:var(--color-primary)">${ic("check", "s14")}</span>`); }
 function pickMenu(btn, list, cur, set) { openMenu(btn, list.map(t => ({ t, radio: true, on: t === cur, run: () => set(t) })), { minWidth: 160 }); }
 
 /* ───────── popovers: share, shapes, color, add slide ───────── */
@@ -1082,6 +1088,7 @@ document.addEventListener("click", e => {
   if ((b = q("[data-open]"))) { if (S.renaming) return; return openDeck(b.dataset.open); }
   if ((b = q("[data-star]"))) { const d = DECKS.find(x => x.id === b.dataset.star); d.starred = !d.starred; return renderGridOnly(); }
   if ((b = q("[data-deck-menu]"))) return deckMenu(b, DECKS.find(x => x.id === b.dataset.deckMenu));
+  if ((b = q("[data-ds-menu]"))) return openMenu(b, [{ t: "Set as workspace default", icon: "building-community", run: () => toast("Set as the workspace default") }, "-", { t: "Delete", icon: "trash", danger: true, run: () => confirmDialog("Delete design system?", "This permanently deletes the design system. Decks using it keep their current look but are no longer linked to it.", "Delete", () => toast("Design system deleted"), true) }], { align: "right", minWidth: 224 });
   if ((b = q("[data-tpl-menu]"))) return openMenu(b, [run("Preview", () => previewTemplate(+b.dataset.tplMenu))], { align: "right" });
   if ((b = q("[data-use-tpl]"))) { const c = b.closest(".card"); c.insertAdjacentHTML("beforeend", `<div class="opening">${ic("loader-2", "spin")}Opening template…</div>`); return setTimeout(() => useTemplate(+b.dataset.useTpl), 700); }
   if ((b = q("[data-tab]"))) { S.homeTab = b.dataset.tab; return render(); }
@@ -1089,7 +1096,7 @@ document.addEventListener("click", e => {
   if ((b = q("[data-agent-suggest]"))) return sendToAgent(b.dataset.agentSuggest);
   if ((b = q("[data-cmp-add]"))) return composerAddMenu(b);
   if ((b = q("[data-cmp-model]"))) return modelMenu(b);
-  if ((b = q("[data-cmp-mode]"))) return openMenu(b, [{ t: "Act", desc: "Make changes directly", radio: true, on: true, run: () => {} }, { t: "Plan", desc: "Propose a plan first", radio: true, run: () => toast("Plan") }], { above: true, align: "right", minWidth: 200 });
+  if ((b = q("[data-cmp-mode]"))) { openMenu(b, [{ t: "Act", icon: "pencil", desc: "Use tools and make approved changes", run: () => {} }, { t: "Plan", icon: "clipboard-list", desc: "Read-only research and approval first", run: () => toast("Plan mode") }], { above: true, align: "right", minWidth: 272 }); return trailingCheck("Act"); }
   if ((b = q("[data-send]"))) { const inp = $("#" + b.dataset.send); const text = inp.innerText; inp.textContent = ""; b.disabled = true; return b.dataset.send === "home-input" ? startFromPrompt(text) : sendToAgent(text); }
   if (q("[data-stop]")) { clearInterval(genTimer); const c = CHATS.gen; c.msgs[1].running = false; c.msgs[1].acts = "Stopped"; S.scenario = "default"; $("#scenario-sel").value = "default"; S.gen = null; render(); return; }
   if (q("[data-chip-x]")) { q(".ctx-chip").remove(); return; }
@@ -1105,8 +1112,8 @@ document.addEventListener("click", e => {
   if (q("#text-color")) return colorPop(q("#text-color"), "Text color", "", c => { const el = $(`#stage [data-el="${S.el}"]`); if (el) el.style.color = c; });
   if (q("#font-btn")) return pickMenu(q("#font-btn"), ["Inherit", "Sans Serif", "Serif", "Monospace", "Inter", "Poppins", "Playfair Display", "JetBrains Mono"], "Inter", f => toast(`Font: ${f}`));
   if (q("#weight-btn")) return pickMenu(q("#weight-btn"), ["Reg", "Med", "Semi", "Bold"], S.weight || "Bold", w => { S.weight = w; renderEditor(); });
-  if (q("#align-btn")) return pickMenu(q("#align-btn"), ["Left", "Center", "Right", "Justify"], "Left", () => {});
-  if (q("#arrange-btn")) return openMenu(q("#arrange-btn"), [{ label: "Position" }, { t: "Left" }, { t: "Center" }, { t: "Right" }, "-", { t: "Top" }, { t: "Middle" }, { t: "Bottom" }, "-", { t: "Send to back" }, { t: "Send backward" }, { t: "Bring to front" }, { t: "Bring forward" }], { minWidth: 176 });
+  if (q("#align-btn")) return openMenu(q("#align-btn"), [["Left", "align-left"], ["Center", "align-center"], ["Right", "align-right"], ["Justify", "align-justified"]].map(([t, icon]) => ({ t, icon, run: () => { const el = $(`#stage [data-el="${S.el}"]`); if (el) el.style.textAlign = t.toLowerCase(); } })), { minWidth: 160 });
+  if (q("#arrange-btn")) return openMenu(q("#arrange-btn"), [{ label: "Position" }, { t: "Left" }, { t: "Center" }, { t: "Right" }, "-", { t: "Top" }, { t: "Middle" }, { t: "Bottom" }, "-", { t: "Send to back", icon: "stack-back" }, { t: "Send backward", icon: "stack-back" }, { t: "Bring to front", icon: "stack-front" }, { t: "Bring forward", icon: "stack-front" }], { minWidth: 176 });
   if ((b = q("[data-size]"))) { S.size = (S.size || 38) + +b.dataset.size; $("#size-v").textContent = S.size; const el = $(`#stage [data-el="${S.el}"]`); if (el) el.style.fontSize = S.size + "px"; return; }
   if ((b = q("[data-toggle]"))) { const kk = b.dataset.toggle; S[kk] = !S[kk]; b.setAttribute("aria-pressed", S[kk]); const el = $(`#stage [data-el="${S.el}"]`); if (el) el.style[kk === "italic" ? "fontStyle" : "textDecoration"] = S[kk] ? kk : ""; return; }
   if ((b = q("[data-zoom]"))) { S.zoom = Math.max(50, Math.min(200, S.zoom + 25 * +b.dataset.zoom)); return renderEditor(); }
@@ -1139,6 +1146,8 @@ function act(a, b) {
     case "bell": return toast("No notifications");
     case "voice": return toast("Listening…");
     case "list": return toast(b.getAttribute("aria-label"));
+    case "backup": return toast("Backup downloaded");
+    case "import-backup": return toast("Choose a valid Slides backup JSON file.");
     case "share-ds": return openShare(b, { title: "Fieldnote", visibility: "org" });
     default: toast(b.getAttribute("aria-label") || a);
   }
