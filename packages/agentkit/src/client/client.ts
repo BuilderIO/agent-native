@@ -5340,6 +5340,9 @@ export class AgentKitClient implements AgentKitController {
           ...(eventRun.activeMessageId === undefined
             ? {}
             : { activeMessageId: eventRun.activeMessageId }),
+          ...(eventRun.inheritedMessageId === undefined
+            ? {}
+            : { inheritedMessageId: eventRun.inheritedMessageId }),
           ...(eventRun.usage === undefined ? {} : { usage: eventRun.usage }),
           ...(eventRun.error === undefined ? {} : { error: eventRun.error }),
         };

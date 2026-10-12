@@ -32,13 +32,24 @@ import {
 } from "../protocol/index.js";
 
 export type AgentConnectionStatus =
-  "idle" | "connecting" | "connected" | "reconnecting" | "offline" | "error";
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "offline"
+  | "error";
 
 export interface AgentRunState {
   id: RunId;
   status: AgentRunStatus;
   lastSequence: number;
   activeMessageId?: string;
+  /**
+   * A streaming reply from an earlier run that this run is expected to
+   * continue. Kept apart from `activeMessageId` until the run writes to it, so
+   * a run that never does is not recorded as the reply's author.
+   */
+  inheritedMessageId?: string;
   startedAt?: string;
   completedAt?: string;
   usage?: AgentUsage;
@@ -366,25 +377,58 @@ function retireConnectionRequests(
   return { ...thread, connectionRequests, connectionRequestRunIds };
 }
 
+function holdsMessage(run: AgentRunState, messageId: string): boolean {
+  return (
+    !isTerminalRunStatus(run.status) &&
+    (run.activeMessageId === messageId || run.inheritedMessageId === messageId)
+  );
+}
+
 function claimFoldedAssistant(
   thread: AgentThreadState,
   runId: RunId,
 ): AgentThreadState {
-  if (thread.runs[runId]?.activeMessageId) return thread;
+  const current = thread.runs[runId];
+  if (current?.activeMessageId || current?.inheritedMessageId) return thread;
   let inherited: string | undefined;
   for (const run of Object.values(thread.runs)) {
     if (run.id === runId) break;
-    if (isTerminalRunStatus(run.status) || !run.activeMessageId) continue;
-    const message = thread.messages.find(
-      (item) => item.id === run.activeMessageId,
-    );
+    const held = run.activeMessageId ?? run.inheritedMessageId;
+    if (isTerminalRunStatus(run.status) || !held) continue;
+    const message = thread.messages.find((item) => item.id === held);
     if (message?.role === "assistant" && message.status === "streaming") {
-      inherited = run.activeMessageId;
+      inherited = held;
     }
   }
   return inherited
-    ? updateRun(thread, runId, { activeMessageId: inherited })
+    ? updateRun(thread, runId, { inheritedMessageId: inherited })
     : thread;
+}
+
+/**
+ * Settles a shared reply nobody is still writing with the outcome of the last
+ * run that wrote it.
+ */
+function releaseSharedMessage(
+  thread: AgentThreadState,
+  messageId: string,
+): AgentThreadState {
+  const runs = Object.values(thread.runs);
+  if (runs.some((run) => holdsMessage(run, messageId))) return thread;
+  const owner = runs.findLast(
+    (run) =>
+      isTerminalRunStatus(run.status) && run.activeMessageId === messageId,
+  );
+  if (!owner) return thread;
+  const status = owner.status === "completed" ? "complete" : "error";
+  return {
+    ...thread,
+    messages: thread.messages.map((message) =>
+      message.id === messageId && message.status === "streaming"
+        ? { ...message, status }
+        : message,
+    ),
+  };
 }
 
 function assignActiveMessage(
@@ -392,31 +436,40 @@ function assignActiveMessage(
   runId: RunId,
   messageId: string,
 ): AgentThreadState {
-  const previous = thread.runs[runId]?.activeMessageId;
-  const next = updateRun(thread, runId, { activeMessageId: messageId });
-  if (!previous || previous === messageId) return next;
+  const { inheritedMessageId, ...run } = thread.runs[runId] ?? {
+    id: runId,
+    status: "queued" as const,
+    lastSequence: 0,
+  };
+  const previous = run.activeMessageId ?? inheritedMessageId;
+  let next: AgentThreadState = {
+    ...thread,
+    runs: { ...thread.runs, [runId]: { ...run, activeMessageId: messageId } },
+  };
+  // A continuation that starts after its predecessor finished still writes to
+  // the predecessor's reply, so that reply has to take text again.
+  const message = next.messages.find((item) => item.id === messageId);
   if (
-    Object.values(next.runs).some(
-      (run) =>
-        !isTerminalRunStatus(run.status) && run.activeMessageId === previous,
+    run.activeMessageId !== messageId &&
+    message?.role === "assistant" &&
+    message.status === "complete" &&
+    Object.values(thread.runs).some(
+      (other) =>
+        other.id !== runId &&
+        isTerminalRunStatus(other.status) &&
+        other.activeMessageId === messageId,
     )
   ) {
-    return next;
+    next = {
+      ...next,
+      messages: upsertMessage(next.messages, {
+        ...message,
+        status: "streaming",
+      }),
+    };
   }
-  const owner = Object.values(next.runs).findLast(
-    (run) =>
-      isTerminalRunStatus(run.status) && run.activeMessageId === previous,
-  );
-  if (!owner) return next;
-  const status = owner.status === "completed" ? "complete" : "error";
-  return {
-    ...next,
-    messages: next.messages.map((message) =>
-      message.id === previous && message.status === "streaming"
-        ? { ...message, status }
-        : message,
-    ),
-  };
+  if (!previous || previous === messageId) return next;
+  return releaseSharedMessage(next, previous);
 }
 
 export function settleRunProjection(
@@ -533,8 +586,9 @@ function settleRunItems(
       continue;
     }
     if (isTerminalRunStatus(run.status)) continue;
-    if (run.activeMessageId) {
-      messageIds.delete(run.activeMessageId);
+    if (run.activeMessageId || run.inheritedMessageId) {
+      if (run.activeMessageId) messageIds.delete(run.activeMessageId);
+      if (run.inheritedMessageId) messageIds.delete(run.inheritedMessageId);
       continue;
     }
     const foldedMessageId =
@@ -553,7 +607,7 @@ function settleRunItems(
     messageIds.delete(foldedMessageId);
     runs = {
       ...runs,
-      [run.id]: { ...run, activeMessageId: foldedMessageId },
+      [run.id]: { ...run, inheritedMessageId: foldedMessageId },
     };
   }
   const settleStatus = <
@@ -580,7 +634,7 @@ function settleRunItems(
           message: "The run ended before the action reported a result.",
         }
       : undefined;
-  return {
+  const settled: AgentThreadState = {
     ...thread,
     runs,
     messages: thread.messages.map((message) =>
@@ -650,6 +704,12 @@ function settleRunItems(
       }),
     ),
   };
+  // A continuation that never wrote to the reply it inherited leaves it with
+  // the outcome of the run that did.
+  const inherited = thread.runs[runId]?.inheritedMessageId;
+  return inherited && !messageIds.has(inherited)
+    ? releaseSharedMessage(settled, inherited)
+    : settled;
 }
 
 export type AgentEventAdmission =
@@ -848,6 +908,13 @@ export function reduceAgentEvent(
         (message) => message.id === event.message.id,
       );
       if (current?.status === "complete") return next;
+      // The predecessor finishing its part does not finish a reply a
+      // continuation is still writing.
+      const status = Object.values(next.runs).some(
+        (run) => run.id !== event.runId && holdsMessage(run, event.message.id),
+      )
+        ? "streaming"
+        : (event.message.status ?? "complete");
       if (
         current?.status === "streaming" &&
         current.parts.length > 0 &&
@@ -859,16 +926,13 @@ export function reduceAgentEvent(
             ...current,
             ...event.message,
             parts: current.parts,
-            status: event.message.status ?? "complete",
+            status,
           }),
         };
       }
       return {
         ...next,
-        messages: upsertMessage(next.messages, {
-          ...event.message,
-          status: event.message.status ?? "complete",
-        }),
+        messages: upsertMessage(next.messages, { ...event.message, status }),
       };
     }
     case "message.delta":

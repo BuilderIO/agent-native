@@ -330,8 +330,9 @@ describe("AgentKit lifecycle projections", () => {
 
     expect(thread.runs["run-2"]).toMatchObject({
       status: "running",
-      activeMessageId: "assistant-shared",
+      inheritedMessageId: "assistant-shared",
     });
+    expect(thread.runs["run-2"]?.activeMessageId).toBeUndefined();
 
     thread = reduceAgentEvent(thread, event(3, { type: "run.completed" }));
 
@@ -400,6 +401,187 @@ describe("AgentKit lifecycle projections", () => {
 
     expect(thread.messages).toEqual([
       expect.objectContaining({ id: "assistant-shared", status: "complete" }),
+    ]);
+  });
+
+  it("does not record a continuation that never writes as the shared reply's author", () => {
+    let thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: "Answer",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+    thread = reduceAgentEvent(thread, {
+      ...event(1, { type: "run.started" }),
+      id: "run-2-started",
+      runId: "run-2",
+    });
+    thread = reduceAgentEvent(thread, event(3, { type: "run.completed" }));
+    thread = reduceAgentEvent(thread, {
+      ...event(2, { type: "run.completed" }),
+      id: "run-2-completed",
+      runId: "run-2",
+    });
+
+    expect(thread.runs["run-1"]?.activeMessageId).toBe("assistant-shared");
+    expect(thread.runs["run-2"]?.activeMessageId).toBeUndefined();
+    expect(thread.messages).toEqual([
+      expect.objectContaining({ id: "assistant-shared", status: "complete" }),
+    ]);
+  });
+
+  it("keeps a completed predecessor's reply complete when its continuation fails before writing", () => {
+    let thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: "Answer",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+    thread = reduceAgentEvent(thread, {
+      ...event(1, { type: "run.started" }),
+      id: "run-2-started",
+      runId: "run-2",
+    });
+    thread = reduceAgentEvent(thread, event(3, { type: "run.completed" }));
+    thread = reduceAgentEvent(thread, {
+      ...event(2, {
+        type: "run.failed",
+        error: { code: "provider_error", message: "Provider failed" },
+      }),
+      id: "run-2-failed",
+      runId: "run-2",
+    });
+
+    expect(thread.runs["run-2"]?.status).toBe("failed");
+    expect(thread.messages).toEqual([
+      expect.objectContaining({
+        id: "assistant-shared",
+        status: "complete",
+        parts: [{ type: "text", text: "Answer" }],
+      }),
+    ]);
+  });
+
+  it("keeps a shared reply streaming when the predecessor completes the message during a continuation", () => {
+    let thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: "Partial",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+    thread = reduceAgentEvent(thread, {
+      ...event(1, { type: "run.started" }),
+      id: "run-2-started",
+      runId: "run-2",
+    });
+    thread = [
+      event(3, {
+        type: "message.completed",
+        message: {
+          id: "assistant-shared",
+          role: "assistant",
+          status: "complete",
+          parts: [],
+        },
+      }),
+      event(4, { type: "run.completed" }),
+    ].reduce(reduceAgentEvent, thread);
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({ id: "assistant-shared", status: "streaming" }),
+    ]);
+
+    thread = [
+      {
+        ...event(2, {
+          type: "message.delta",
+          messageId: "assistant-shared",
+          text: " still",
+        }),
+        id: "run-2-delta",
+        runId: "run-2",
+      },
+      {
+        ...event(3, { type: "run.completed" }),
+        id: "run-2-completed",
+        runId: "run-2",
+      },
+    ].reduce(reduceAgentEvent, thread);
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({
+        id: "assistant-shared",
+        status: "complete",
+        parts: [{ type: "text", text: "Partial still" }],
+      }),
+    ]);
+  });
+
+  it("appends a continuation that starts after its predecessor completed the shared reply", () => {
+    let thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: "Partial",
+      }),
+      event(3, {
+        type: "message.completed",
+        message: {
+          id: "assistant-shared",
+          role: "assistant",
+          status: "complete",
+          parts: [],
+        },
+      }),
+      event(4, { type: "run.completed" }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(thread.messages[0]?.status).toBe("complete");
+
+    thread = [
+      {
+        ...event(1, { type: "run.started" }),
+        id: "run-2-started",
+        runId: "run-2",
+      },
+      {
+        ...event(2, {
+          type: "message.delta",
+          messageId: "assistant-shared",
+          text: " still",
+        }),
+        id: "run-2-delta",
+        runId: "run-2",
+      },
+    ].reduce(reduceAgentEvent, thread);
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({
+        id: "assistant-shared",
+        status: "streaming",
+        parts: [{ type: "text", text: "Partial still" }],
+      }),
+    ]);
+
+    thread = reduceAgentEvent(thread, {
+      ...event(3, { type: "run.completed" }),
+      id: "run-2-completed",
+      runId: "run-2",
+    });
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({
+        id: "assistant-shared",
+        status: "complete",
+        parts: [{ type: "text", text: "Partial still" }],
+      }),
     ]);
   });
 

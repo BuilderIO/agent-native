@@ -1237,6 +1237,71 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(2);
   });
 
+  it("counts one durable reply when a continuation inherited the reply but never wrote to it", async () => {
+    const repository = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "Write forty lines" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [{ type: "text", text: "All forty lines." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Write forty lines" }],
+          },
+          {
+            id: "assistant-shared",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "All forty lines." }],
+          },
+        ],
+        runs: [
+          {
+            id: "run-1",
+            status: "completed",
+            activeMessageId: "assistant-shared",
+          },
+          {
+            id: "run-2",
+            status: "completed",
+            inheritedMessageId: "assistant-shared",
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Write forty lines",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
   it("counts a fully projected folded reply once across its runs", async () => {
     const repository = {
       messages: [
