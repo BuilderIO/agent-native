@@ -319,10 +319,12 @@ export function isExpectedSaveReloadWatchedRequestAbort(
   method?: string,
   requestWasPendingAtReloadNavigation = false,
   requestAgeMs = Number.POSITIVE_INFINITY,
+  requestStartedDuringNavigation = false,
 ) {
   return (
     activePhase === "save/reload" &&
     requestWasPendingAtReloadNavigation &&
+    !requestStartedDuringNavigation &&
     requestAgeMs >= 0 &&
     requestAgeMs < reloadNavigationAbortMaxRequestAgeMs &&
     saveReloadRequestAbortRules.some((rule) => {
@@ -364,6 +366,7 @@ function isExpectedWatchedRequestNavigationAbort(
 ) {
   return (
     candidate.requestWasPendingAtNavigation === true &&
+    candidate.requestStartedDuringNavigation !== true &&
     candidate.competingRequestStartedAfterNavigation !== true &&
     (candidate.requestFinishedSuccessfully !== true ||
       (allowFinishedRequestGrace &&
@@ -607,6 +610,7 @@ export function isExpectedSaveReloadWatchedRequestCorsConsoleError(
     settledAgeMs?: number;
     responseStatus?: number;
     requestWasPendingAtReloadNavigation?: boolean;
+    requestStartedDuringNavigation?: boolean;
     requestFinishedSuccessfully?: boolean;
     competingRequestStartedAfterNavigation?: boolean;
   }>,
@@ -1406,8 +1410,9 @@ export async function runAuthoringFuzz(
   };
   const onRequestFailed = (request: any) => {
     const requestStartedAt = watchedRequests.get(request);
+    const navigationCandidate = reloadNavigationRequests.get(request);
     const requestPendingAtReloadNavigation =
-      reloadNavigationRequests.has(request);
+      navigationCandidate?.requestWasPendingAtNavigation === true;
     pendingRequests.delete(request);
     watchedRequests.delete(request);
     inFlightBrowserSessionClaims.delete(request);
@@ -1429,9 +1434,10 @@ export async function runAuthoringFuzz(
         requestStartedAt === undefined
           ? Number.POSITIVE_INFINITY
           : Date.now() - requestStartedAt,
+        navigationCandidate?.requestStartedDuringNavigation === true,
       )
     ) {
-      const candidate = reloadNavigationRequests.get(request);
+      const candidate = navigationCandidate;
       if (candidate) {
         candidate.settledAt = Date.now();
         candidate.finishedSuccessfully = false;
@@ -1482,7 +1488,7 @@ export async function runAuthoringFuzz(
         settledAt: null,
         finishedSuccessfully: false,
         responseStatus: null,
-        requestWasPendingAtNavigation: true,
+        requestWasPendingAtNavigation: false,
         completedSuccessfullyBeforeNavigation: false,
         completedBeforeNavigationAgeMs: null,
         requestStartedDuringNavigation: true,

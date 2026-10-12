@@ -1272,6 +1272,17 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
       ),
     ).toBe(false);
   }
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
+      "Load request cancelled",
+      "save/reload",
+      "POST",
+      true,
+      100,
+      true,
+    ),
+  ).toBe(false);
 });
 
 it("ignores only WebKit CORS console errors for requests canceled by reload", () => {
@@ -1365,6 +1376,11 @@ it("ignores only WebKit CORS console errors for requests canceled by reload", ()
   expect(
     isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
       { ...candidate, requestWasPendingAtReloadNavigation: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      { ...candidate, requestStartedDuringNavigation: true },
     ]),
   ).toBe(false);
   expect(
@@ -1575,6 +1591,11 @@ it("ignores browser-session poll or heartbeat errors only for matching canceled 
   expect(
     isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
       { ...claimCandidate, requestWasPendingAtNavigation: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      { ...claimCandidate, requestStartedDuringNavigation: true },
     ]),
   ).toBe(false);
   expect(
