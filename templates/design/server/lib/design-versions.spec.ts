@@ -30,6 +30,11 @@ const captureMocks = vi.hoisted(() => ({
   },
   forceInsertConflict: false,
   persistConcurrentInsertOnConflict: false,
+  sourceMutationActive: false,
+  rejectSourceMutationAccess: false,
+  rejectPersistence: false,
+  sourceMutationEvents: [] as string[],
+  mutationDatabase: null as unknown,
   assertAccess: vi.fn(),
   buildDesignSnapshot: vi.fn(),
   nanoid: vi.fn(),
@@ -70,6 +75,18 @@ vi.mock("nanoid", () => ({ nanoid: captureMocks.nanoid }));
 
 vi.mock("../source-workspace.js", () => ({
   lockDesignSourceMutation: vi.fn(),
+  withDesignSourceMutationTransaction: async (
+    _designId: string,
+    callback: (database: unknown) => Promise<unknown>,
+  ) => {
+    captureMocks.sourceMutationEvents.push("lock");
+    captureMocks.sourceMutationActive = true;
+    try {
+      return await callback(captureMocks.mutationDatabase);
+    } finally {
+      captureMocks.sourceMutationActive = false;
+    }
+  },
   withSourceFileWriteLock: async (
     _fileId: string,
     work: () => Promise<unknown>,
@@ -119,6 +136,14 @@ vi.mock("../db/index.js", () => {
           return query;
         },
         onConflictDoNothing: () => {
+          if (captureMocks.rejectPersistence) {
+            captureMocks.sourceMutationEvents.push(
+              captureMocks.sourceMutationActive
+                ? "persist-failure-inside"
+                : "persist-failure-outside",
+            );
+            throw new Error("version persistence outcome is unknown");
+          }
           query.conflicted = captureMocks.forceInsertConflict;
           if (
             table === schema.designVersions &&
@@ -128,6 +153,11 @@ vi.mock("../db/index.js", () => {
               (revision) => revision.id === query.value.id,
             )
           ) {
+            captureMocks.sourceMutationEvents.push(
+              captureMocks.sourceMutationActive
+                ? "insert-inside"
+                : "insert-outside",
+            );
             captureMocks.revisions.push(query.value);
           }
           captureMocks.forceInsertConflict = false;
@@ -140,6 +170,7 @@ vi.mock("../db/index.js", () => {
       return query;
     },
   };
+  captureMocks.mutationDatabase = db;
   return { getDb: () => db, schema };
 });
 
@@ -147,6 +178,7 @@ import {
   __clearEditorCheckpointSkipsForTests,
   createDesignChatBeginningSnapshot,
   createDesignVersionSnapshot,
+  createDesignVersionSnapshotWithSourceMutationLock,
   listDesignVersions,
   parseDesignVersionSnapshot,
   readDesignVersionSnapshot,
@@ -161,13 +193,27 @@ beforeEach(() => {
   captureMocks.forceInsertConflict = false;
   captureMocks.persistConcurrentInsertOnConflict = false;
   captureMocks.assertAccess.mockReset();
-  captureMocks.assertAccess.mockImplementation(async () => ({
-    resource: { ...captureMocks.design },
-  }));
+  captureMocks.sourceMutationActive = false;
+  captureMocks.rejectSourceMutationAccess = false;
+  captureMocks.rejectPersistence = false;
+  captureMocks.sourceMutationEvents = [];
+  captureMocks.assertAccess.mockImplementation(async () => {
+    captureMocks.sourceMutationEvents.push(
+      captureMocks.sourceMutationActive ? "access-inside" : "access-outside",
+    );
+    if (
+      captureMocks.sourceMutationActive &&
+      captureMocks.rejectSourceMutationAccess
+    ) {
+      throw new Error("editor access revoked");
+    }
+    return { resource: { ...captureMocks.design } };
+  });
   captureMocks.buildDesignSnapshot.mockReset();
-  captureMocks.buildDesignSnapshot.mockImplementation(
-    async () => captureMocks.liveSnapshot,
-  );
+  captureMocks.buildDesignSnapshot.mockImplementation(async () => {
+    captureMocks.sourceMutationEvents.push("snapshot");
+    return captureMocks.liveSnapshot;
+  });
   captureMocks.nanoid.mockReset();
   captureMocks.nanoid.mockImplementation(
     () => `design-version-${captureMocks.revisions.length + 1}`,
@@ -187,6 +233,17 @@ beforeEach(() => {
     resolvedCssVars: {},
   };
   putPrivateBlob.mockReset();
+  putPrivateBlob.mockImplementation(async () => {
+    captureMocks.sourceMutationEvents.push(
+      captureMocks.sourceMutationActive ? "blob-inside" : "blob-outside",
+    );
+    return {
+      id: "blob-1",
+      provider: "test",
+      opaque: true,
+      encrypted: true,
+    };
+  });
   deletePrivateBlob.mockReset();
   captureError.mockReset();
 });
@@ -315,6 +372,37 @@ describe("parseDesignVersionSnapshot", () => {
 });
 
 describe("createDesignVersionSnapshot", () => {
+  it("locks final persistence and rechecks editor access after snapshot work", async () => {
+    captureMocks.liveSnapshot = {
+      files: [
+        {
+          id: "file-1",
+          filename: "index.html",
+          fileType: "html",
+          content: "x".repeat(300 * 1024),
+          source: "stored",
+        },
+      ],
+      tweaks: [],
+      appliedTweaks: {},
+      resolvedCssVars: {},
+    };
+
+    await createDesignVersionSnapshotWithSourceMutationLock("design-1", {
+      label: "Before editor screen delete",
+    });
+
+    expect(captureMocks.sourceMutationEvents).toEqual([
+      "access-outside",
+      "snapshot",
+      "blob-outside",
+      "lock",
+      "access-inside",
+      "insert-inside",
+    ]);
+    expect(captureMocks.revisions).toHaveLength(1);
+  });
+
   it("coalesces unchanged snapshots but records the next real edit", async () => {
     const first = await createDesignVersionSnapshot("design-1", {
       label: "Chat autosave",
@@ -343,13 +431,44 @@ describe("createDesignVersionSnapshot", () => {
     expect(captureMocks.revisions).toHaveLength(2);
   });
 
+  it("does not persist a chat-start snapshot after editor access is revoked", async () => {
+    captureMocks.rejectSourceMutationAccess = true;
+
+    await expect(
+      createDesignChatBeginningSnapshot("design-1", {
+        threadId: "thread-revoked",
+        runId: "run-revoked",
+      }),
+    ).rejects.toThrow("editor access revoked");
+
+    expect(captureMocks.revisions).toHaveLength(0);
+    expect(captureMocks.sourceMutationEvents).toEqual([
+      "access-outside",
+      "snapshot",
+      "lock",
+      "access-inside",
+    ]);
+    expect(captureMocks.sourceMutationActive).toBe(false);
+  });
+
   it("captures the start of a chat once per thread", async () => {
     const run = { threadId: 'thread "%_\\path', runId: "run-1" };
 
     const first = await createDesignChatBeginningSnapshot("design-1", run);
-    const retry = await createDesignChatBeginningSnapshot("design-1", run);
 
     expect(first).not.toBeNull();
+    expect(captureMocks.sourceMutationEvents).toEqual([
+      "access-outside",
+      "snapshot",
+      "lock",
+      "access-inside",
+      "insert-inside",
+    ]);
+
+    captureMocks.sourceMutationEvents = [];
+    const retry = await createDesignChatBeginningSnapshot("design-1", run);
+    expect(captureMocks.sourceMutationEvents).toEqual(["access-outside"]);
+
     expect(retry).toBeNull();
     expect(captureMocks.revisions).toHaveLength(1);
     expect(
@@ -640,6 +759,104 @@ describe("createDesignVersionSnapshot", () => {
 
     expect(second).toEqual(first);
     expect(captureMocks.revisions).toHaveLength(1);
+  });
+
+  it("cleans up an uploaded blob when in-lock access is rejected before persistence", async () => {
+    const blob = {
+      id: "blob-1",
+      provider: "test",
+      opaque: true as const,
+      encrypted: true,
+    };
+    putPrivateBlob.mockImplementation(async () => {
+      captureMocks.sourceMutationEvents.push(
+        captureMocks.sourceMutationActive
+          ? "blob-upload-inside"
+          : "blob-upload-outside",
+      );
+      return blob;
+    });
+    deletePrivateBlob.mockImplementation(async () => {
+      captureMocks.sourceMutationEvents.push(
+        captureMocks.sourceMutationActive
+          ? "blob-delete-inside"
+          : "blob-delete-outside",
+      );
+      return { deleted: true, provider: "test" };
+    });
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "x".repeat(300 * 1024),
+        },
+      ],
+    };
+    captureMocks.rejectSourceMutationAccess = true;
+
+    await expect(
+      createDesignChatBeginningSnapshot("design-1", {
+        threadId: "thread-revoked-large",
+        runId: "run-revoked-large",
+      }),
+    ).rejects.toThrow("editor access revoked");
+
+    expect(deletePrivateBlob).toHaveBeenCalledWith(blob);
+    expect(captureMocks.sourceMutationEvents).toEqual([
+      "access-outside",
+      "snapshot",
+      "blob-upload-outside",
+      "lock",
+      "access-inside",
+      "blob-delete-outside",
+    ]);
+    expect(captureMocks.revisions).toHaveLength(0);
+  });
+
+  it("preserves an uploaded blob when persistence outcome is uncertain", async () => {
+    const blob = {
+      id: "blob-1",
+      provider: "test",
+      opaque: true as const,
+      encrypted: true,
+    };
+    putPrivateBlob.mockImplementation(async () => {
+      captureMocks.sourceMutationEvents.push(
+        captureMocks.sourceMutationActive
+          ? "blob-upload-inside"
+          : "blob-upload-outside",
+      );
+      return blob;
+    });
+    captureMocks.liveSnapshot = {
+      ...captureMocks.liveSnapshot,
+      files: [
+        {
+          ...captureMocks.liveSnapshot.files[0],
+          content: "x".repeat(300 * 1024),
+        },
+      ],
+    };
+    captureMocks.rejectPersistence = true;
+
+    await expect(
+      createDesignChatBeginningSnapshot("design-1", {
+        threadId: "thread-uncertain-large",
+        runId: "run-uncertain-large",
+      }),
+    ).rejects.toThrow("version persistence outcome is unknown");
+
+    expect(deletePrivateBlob).not.toHaveBeenCalled();
+    expect(captureMocks.sourceMutationEvents).toEqual([
+      "access-outside",
+      "snapshot",
+      "blob-upload-outside",
+      "lock",
+      "access-inside",
+      "persist-failure-inside",
+    ]);
+    expect(captureMocks.revisions).toHaveLength(0);
   });
 
   it("cleans up a large blob when a duplicate insert loses the race", async () => {

@@ -30,6 +30,7 @@ import {
   affectedRowCount,
   designSourceMutationLockKey,
   lockDesignFilesTable,
+  withDesignSourceMutationTransaction,
   withSourceFileWriteLock,
 } from "../source-workspace.js";
 import { buildDesignSnapshot } from "./design-snapshot.js";
@@ -606,6 +607,15 @@ async function captureDesignVersion(
   },
   access: DesignAccess,
   database?: DesignDatabase,
+  persistWithinSourceMutationLock?: (
+    persist: (database: DesignDatabase) => Promise<{
+      version: { id: string; createdAt: string; label: string };
+      duplicateBlob: PrivateBlobHandle | null;
+    }>,
+  ) => Promise<{
+    version: { id: string; createdAt: string; label: string };
+    duplicateBlob: PrivateBlobHandle | null;
+  }>,
 ): Promise<{ id: string; createdAt: string; label: string }> {
   let design = access.resource as {
     data?: unknown;
@@ -784,26 +794,76 @@ async function captureDesignVersion(
     });
   }
 
-  const [inserted] = await db
-    .insert(schema.designVersions)
-    .values({
-      id,
-      designId,
-      label: options.label,
-      snapshot: storedSnapshot,
-      chatContext: options.chatContext
-        ? JSON.stringify(options.chatContext)
-        : null,
-      fileCount: liveSnapshot.files.length,
-      createdAt,
-    })
-    .onConflictDoNothing()
-    .returning({ id: schema.designVersions.id });
-  if (!inserted && uploadedBlob) {
-    const cleanup = await deletePrivateBlob(uploadedBlob).catch((error) => ({
-      deleted: false,
-      reason: error instanceof Error ? error.message : String(error),
-    }));
+  const persist = async (persistenceDb: DesignDatabase) => {
+    const [inserted] = await persistenceDb
+      .insert(schema.designVersions)
+      .values({
+        id,
+        designId,
+        label: options.label,
+        snapshot: storedSnapshot,
+        chatContext: options.chatContext
+          ? JSON.stringify(options.chatContext)
+          : null,
+        fileCount: liveSnapshot.files.length,
+        createdAt,
+      })
+      .onConflictDoNothing()
+      .returning({ id: schema.designVersions.id });
+    const [stored] = await persistenceDb
+      .select({
+        id: schema.designVersions.id,
+        createdAt: schema.designVersions.createdAt,
+        label: schema.designVersions.label,
+      })
+      .from(schema.designVersions)
+      .where(eq(schema.designVersions.id, id))
+      .limit(1);
+    if (!stored) {
+      throw new Error(`Design version "${id}" was not persisted.`);
+    }
+    return {
+      version: {
+        id: stored.id,
+        createdAt: stored.createdAt ?? createdAt,
+        label: stored.label ?? options.label,
+      },
+      duplicateBlob: !inserted ? uploadedBlob : null,
+    };
+  };
+
+  let persistenceStarted = false;
+  const persistAfterAuthorization = async (persistenceDb: DesignDatabase) => {
+    persistenceStarted = true;
+    return persist(persistenceDb);
+  };
+  let persisted: Awaited<ReturnType<typeof persist>>;
+  try {
+    persisted = await (persistWithinSourceMutationLock
+      ? persistWithinSourceMutationLock(persistAfterAuthorization)
+      : persistAfterAuthorization(db));
+  } catch (persistError) {
+    if (uploadedBlob && !persistenceStarted) {
+      try {
+        const cleanup = await deletePrivateBlob(uploadedBlob);
+        if (!cleanup.deleted) {
+          console.warn(
+            "[design-version] uploaded blob cleanup was not confirmed",
+          );
+        }
+      } catch {
+        console.warn("[design-version] uploaded blob cleanup failed");
+      }
+    }
+    throw persistError;
+  }
+  if (persisted.duplicateBlob) {
+    const cleanup = await deletePrivateBlob(persisted.duplicateBlob).catch(
+      (error) => ({
+        deleted: false,
+        reason: error instanceof Error ? error.message : String(error),
+      }),
+    );
     if (!cleanup.deleted) {
       console.warn("[design-version] duplicate blob cleanup incomplete", {
         designId,
@@ -812,23 +872,7 @@ async function captureDesignVersion(
       });
     }
   }
-  const [stored] = await db
-    .select({
-      id: schema.designVersions.id,
-      createdAt: schema.designVersions.createdAt,
-      label: schema.designVersions.label,
-    })
-    .from(schema.designVersions)
-    .where(eq(schema.designVersions.id, id))
-    .limit(1);
-  if (!stored) {
-    throw new Error(`Design version "${id}" was not persisted.`);
-  }
-  return {
-    id: stored.id,
-    createdAt: stored.createdAt ?? createdAt,
-    label: stored.label ?? options.label,
-  };
+  return persisted.version;
 }
 
 export async function withDesignVersionLock<T>(
@@ -858,6 +902,30 @@ export async function createDesignVersionSnapshot(
   return withDesignVersionLock(designId, async () => {
     const access = await assertAccess("design", designId, "editor");
     return captureDesignVersion(designId, options, access);
+  });
+}
+
+export async function createDesignVersionSnapshotWithSourceMutationLock(
+  designId: string,
+  options: {
+    label: string;
+    chatContext?: DesignVersionChatContext;
+    deletionGeometry?: ComponentDeletionGeometry;
+  },
+) {
+  return withDesignVersionLock(designId, async () => {
+    const access = await assertAccess("design", designId, "editor");
+    return captureDesignVersion(
+      designId,
+      options,
+      access,
+      undefined,
+      async (persist) =>
+        withDesignSourceMutationTransaction(designId, async (tx) => {
+          await assertAccess("design", designId, "editor");
+          return persist(tx);
+        }),
+    );
   });
 }
 
@@ -892,6 +960,12 @@ export async function createDesignChatBeginningSnapshot(
         idempotencyKey: `chat-start:${run.threadId}`,
       },
       access,
+      undefined,
+      async (persist) =>
+        withDesignSourceMutationTransaction(designId, async (tx) => {
+          await assertAccess("design", designId, "editor");
+          return persist(tx);
+        }),
     );
   });
 }
