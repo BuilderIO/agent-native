@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { defineAction, fail } from "@agent-native/core/action";
 import {
   compareAndSetAppState,
@@ -13,6 +15,8 @@ import {
   SourceWorkspaceEditConflictError,
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
+import { resolveCodeLayerTarget } from "../shared/code-layer.js";
+import { authoredSourceBindingsAvailable } from "../shared/native-authored-source-bindings.js";
 import {
   editNativeEffectHtml,
   type NativeEffectEdit,
@@ -95,12 +99,27 @@ const operation = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("set-instance"),
     instanceId: z.string(),
+    params: values.optional(),
     enabled: z.boolean().optional(),
     opacity: z.number().optional(),
     seed: z.number().int().min(0).max(1_000_000).optional(),
     clip: z.enum(["bounds", "text"]).optional(),
     placement: z.enum(["fill", "layer", "backdrop"]).optional(),
     bindings: z.unknown().nullable().optional(),
+    bindingTargets: z
+      .record(
+        z.string(),
+        z.object({
+          selector: z
+            .string()
+            .min(1)
+            .describe(
+              "Unique same-file source selector; the action persists an authored node ID before binding.",
+            ),
+          capture: z.enum(["content", "appearance"]),
+        }),
+      )
+      .optional(),
     transform: z.unknown().nullable().optional(),
     sourceSizing: sourceSizing.nullable().optional(),
   }),
@@ -156,6 +175,7 @@ const operation = z.discriminatedUnion("kind", [
 export default defineAction({
   description:
     "Edit a native v2 GPU effect in one inline Design HTML file, or approve/revoke an exact executable definition hash for the signed-in viewer. " +
+    "set-instance can update params and bindings atomically; bindingTargets resolves unique same-file selectors and stamps stable authored node IDs on unlocked sources in that write. Authored bindings are for ordinary render-pass inputs, not compute or stateful effects. " +
     "Source edits, including document preview quality, frame-rate, requested color gamut, and dynamic-range policy, require editor access and an expected version hash; approvals require view access and change only viewer-scoped application state. " +
     "CPU validation does not compile GPU code; verify rendering in the Design preview.",
   requiresAuth: true,
@@ -305,16 +325,159 @@ export default defineAction({
         },
       };
     }
-    const next = editNativeEffectHtml(
-      live.content,
-      operation as NativeEffectEdit,
-    );
+    let preparedHtml = live.content;
+    let preparedOperation = operation as NativeEffectEdit;
+    if (operation.kind === "set-instance" && operation.bindingTargets) {
+      const parsed = parseEffectsFromHtml(live.content);
+      if (parsed.errors.length)
+        fail("Native effect manifest is unreadable.", {
+          errorCode: "native_effect_manifest_unreadable",
+          statusCode: 422,
+        });
+      const instance = parsed.document?.instances.find(
+        (item) => item.id === operation.instanceId,
+      );
+      if (!instance)
+        fail("Native effect instance not found.", {
+          errorCode: "native_effect_instance_not_found",
+          statusCode: 404,
+        });
+      const supplied = operation.bindings;
+      if (
+        supplied !== undefined &&
+        supplied !== null &&
+        (typeof supplied !== "object" || Array.isArray(supplied))
+      )
+        fail("Input bindings must be a named record.", {
+          errorCode: "native_effect_validation_failed",
+          statusCode: 422,
+        });
+      const bindings = {
+        ...(supplied === null ? {} : (supplied ?? instance.bindings ?? {})),
+      } as Record<
+        string,
+        import("../shared/native-effects.js").EffectInputBinding
+      >;
+      for (const [name, target] of Object.entries(operation.bindingTargets)) {
+        const { projection, resolution } = resolveCodeLayerTarget(
+          preparedHtml,
+          { selector: target.selector },
+          {
+            source: {
+              kind: "design-file",
+              designId,
+              fileId,
+              filename: file.filename,
+            },
+          },
+        );
+        const node = resolution.status === "resolved" ? resolution.node : null;
+        const span = node?.source;
+        if (!node || !span)
+          fail("Canvas layer changed or could not be uniquely resolved.", {
+            errorCode: "native_effect_source_layer_unavailable",
+            statusCode: 409,
+          });
+        const rawId = node.dataAttributes["data-agent-native-node-id"]?.trim();
+        const sameIdCount = rawId
+          ? projection.nodes.filter(
+              (candidate) =>
+                candidate.dataAttributes["data-agent-native-node-id"] === rawId,
+            ).length
+          : 0;
+        let nodeId = rawId;
+        const openTag = preparedHtml.slice(span.openStart, span.openEnd);
+        const stableIdAttributes = [
+          ...openTag.matchAll(
+            /\sdata-agent-native-node-id\s*=\s*(?:"[^"]*"|'[^']*'|[^\s/>]+)/gi,
+          ),
+        ];
+        if (
+          !nodeId ||
+          !/^[A-Za-z0-9_.:-]{1,128}$/.test(nodeId) ||
+          sameIdCount !== 1 ||
+          stableIdAttributes.length !== 1
+        ) {
+          const byId = new Map(
+            projection.nodes.map((candidate) => [candidate.id, candidate]),
+          );
+          let ancestor: typeof node | undefined = node;
+          while (ancestor) {
+            if (ancestor.dataAttributes["data-agent-native-locked"] === "true")
+              fail("A locked canvas layer cannot receive a source ID.", {
+                errorCode: "native_effect_source_layer_locked",
+                statusCode: 422,
+              });
+            ancestor = ancestor.parentId
+              ? byId.get(ancestor.parentId)
+              : undefined;
+          }
+          nodeId = `an.${randomUUID().replace(/-/g, "")}`;
+          const cleaned = openTag.replace(
+            /\sdata-agent-native-node-id\s*=\s*(?:"[^"]*"|'[^']*'|[^\s/>]+)/gi,
+            "",
+          );
+          const insertAt = cleaned.endsWith("/>")
+            ? cleaned.length - 2
+            : cleaned.length - 1;
+          const annotated = `${cleaned.slice(0, insertAt)} data-agent-native-node-id="${nodeId}"${cleaned.slice(insertAt)}`;
+          preparedHtml =
+            preparedHtml.slice(0, span.openStart) +
+            annotated +
+            preparedHtml.slice(span.openEnd);
+        }
+        bindings[name] = {
+          kind: "authored-node",
+          nodeId,
+          capture: target.capture,
+        };
+      }
+      preparedOperation = {
+        ...operation,
+        bindings,
+        bindingTargets: undefined,
+      } as NativeEffectEdit;
+    }
+    const next = editNativeEffectHtml(preparedHtml, preparedOperation);
     if (next.errors.length) {
       fail(`Native effect edit rejected: ${next.errors.join("; ")}`, {
         errorCode: "native_effect_validation_failed",
         statusCode: 422,
         details: { errors: next.errors },
       });
+    }
+    if (
+      operation.kind === "apply" ||
+      operation.kind === "apply-many" ||
+      operation.kind === "apply-preset" ||
+      (operation.kind === "set-instance" &&
+        (operation.bindings !== undefined || operation.bindingTargets))
+    ) {
+      const beforeIds = new Set(
+        parseEffectsFromHtml(live.content).document?.instances.map(
+          (item) => item.id,
+        ) ?? [],
+      );
+      const after = parseEffectsFromHtml(next.html);
+      if (after.errors.length || !after.document)
+        fail("Native effect result could not be read back.", {
+          errorCode: "native_effect_manifest_unreadable",
+          statusCode: 422,
+        });
+      const changedInstances = after.document.instances.filter((item) =>
+        operation.kind === "set-instance"
+          ? item.id === operation.instanceId
+          : !beforeIds.has(item.id),
+      );
+      if (
+        changedInstances.some(
+          (item) => !authoredSourceBindingsAvailable(next.html, item.bindings),
+        )
+      )
+        fail("An authored input layer is missing or duplicated in this file.", {
+          errorCode: "native_effect_source_layer_unavailable",
+          statusCode: 422,
+        });
     }
     if (next.html !== live.content)
       await snapshotDesignBeforeAgentEdit(designId, context);

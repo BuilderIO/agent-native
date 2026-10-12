@@ -1,10 +1,14 @@
 import { parse, type DefaultTreeAdapterMap } from "parse5";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { buildCodeLayerProjection } from "../shared/code-layer.js";
 import { OWNED_CURRENT_IMAGE_SOURCE_TEST_EFFECT } from "../shared/native-current-image-source.test-fixture.js";
 import { editNativeEffectHtml } from "../shared/native-effect-edits.js";
 import { OWNED_INTRINSIC_IMAGE_TEST_EFFECT } from "../shared/native-effect-owned-source-test-fixtures.js";
-import { GRAIN_GRADIENT_EFFECT } from "../shared/native-effect-presets.js";
+import {
+  GRAIN_GRADIENT_EFFECT,
+  HALFTONE_EFFECT,
+} from "../shared/native-effect-presets.js";
 import { hashEffectDefinition } from "../shared/native-effect-trust.js";
 import { parseEffectsFromHtml } from "../shared/native-effects.js";
 import { defaultNativeIntrinsicSourceSizing } from "../shared/native-source-sizing.js";
@@ -78,6 +82,133 @@ describe("edit-native-shader", () => {
       versionHash: "hash-2",
       updatedAt: "2026-10-07",
     });
+  });
+
+  it("stamps an unannotated source layer and saves its authored binding in one source write", async () => {
+    const source = `<html><body><main><div data-agent-native-node-id="hero">Effect</div><img alt="Photo source" src="/photo.png"></main></body></html>`;
+    const applied = editNativeEffectHtml(source, {
+      kind: "apply",
+      nodeId: "hero",
+      placement: "layer",
+      definitionId: HALFTONE_EFFECT.id,
+      definitionVersion: HALFTONE_EFFECT.version,
+    });
+    expect(applied.errors).toEqual([]);
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content: applied.html,
+      versionHash: "hash-1",
+    });
+    const image = buildCodeLayerProjection(applied.html).nodes.find(
+      (node) => node.tag === "img",
+    );
+    expect(image?.selector).toBeTruthy();
+    const result = await action.run({
+      designId: "design-1",
+      fileId: "file-1",
+      expectedVersionHash: "hash-1",
+      operation: {
+        kind: "set-instance",
+        instanceId: applied.instanceIds[0],
+        bindings: null,
+        bindingTargets: {
+          source: { selector: image!.selector, capture: "content" },
+        },
+      },
+    });
+    expect(mocks.writeInlineSourceFile).toHaveBeenCalledOnce();
+    const written = mocks.writeInlineSourceFile.mock.calls[0]?.[0];
+    expect(written.expectedVersionHash).toBe("hash-1");
+    expect(written.content).toBe(result.content);
+    const savedId = /<img[^>]*data-agent-native-node-id="([^"]+)"/.exec(
+      result.content,
+    )?.[1];
+    expect(savedId).toMatch(/^an\.[a-f0-9]{32}$/);
+    expect(
+      parseEffectsFromHtml(result.content).document?.instances[0].bindings,
+    ).toEqual({
+      source: { kind: "authored-node", nodeId: savedId, capture: "content" },
+    });
+    expect(result.content).not.toContain("bindingTargets");
+
+    mocks.writeInlineSourceFile.mockClear();
+    await expect(
+      action.run({
+        designId: "design-1",
+        fileId: "file-1",
+        expectedVersionHash: "hash-1",
+        operation: {
+          kind: "set-instance",
+          instanceId: applied.instanceIds[0],
+          bindings: null,
+          bindingTargets: {
+            source: { selector: "main > video", capture: "appearance" },
+          },
+        },
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "native_effect_source_layer_unavailable",
+    });
+    expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+  });
+
+  it("refuses to stamp a locked source layer", async () => {
+    const source = `<html><body><main><div data-agent-native-node-id="hero">Effect</div><section data-agent-native-locked="true"><img alt="Locked" src="/photo.png"></section></main></body></html>`;
+    const applied = editNativeEffectHtml(source, {
+      kind: "apply",
+      nodeId: "hero",
+      placement: "layer",
+      definitionId: HALFTONE_EFFECT.id,
+      definitionVersion: HALFTONE_EFFECT.version,
+    });
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content: applied.html,
+      versionHash: "hash-1",
+    });
+    const image = buildCodeLayerProjection(applied.html).nodes.find(
+      (node) => node.tag === "img",
+    );
+    await expect(
+      action.run({
+        designId: "design-1",
+        fileId: "file-1",
+        expectedVersionHash: "hash-1",
+        operation: {
+          kind: "set-instance",
+          instanceId: applied.instanceIds[0],
+          bindingTargets: {
+            source: { selector: image!.selector, capture: "content" },
+          },
+        },
+      }),
+    ).rejects.toMatchObject({ errorCode: "native_effect_source_layer_locked" });
+    expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+  });
+
+  it("refuses an authored binding when its source ID is absent from the current file", async () => {
+    await expect(
+      action.run({
+        designId: "design-1",
+        fileId: "file-1",
+        expectedVersionHash: "hash-1",
+        operation: {
+          kind: "apply",
+          nodeId: "hero",
+          placement: "layer",
+          definitionId: HALFTONE_EFFECT.id,
+          definitionVersion: HALFTONE_EFFECT.version,
+          bindings: {
+            source: {
+              kind: "authored-node",
+              nodeId: "missing",
+              capture: "content",
+            },
+          },
+        },
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "native_effect_source_layer_unavailable",
+    });
+    expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
   });
 
   it("approves only the exact CPU-validated source hash through user-scoped CAS", async () => {

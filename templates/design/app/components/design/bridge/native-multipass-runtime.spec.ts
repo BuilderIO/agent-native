@@ -22,7 +22,10 @@ import type { NativeGpuSampleWindow } from "./native-gpu-sample-window";
 import type { NativeGpuScopeProfiler } from "./native-gpu-scope-profiler";
 import type { NativeMountedBenchmarkRun } from "./native-mounted-benchmark";
 import type { NativePlaybackClock } from "./native-playback-clock";
-import type { NativeSourceRecord } from "./native-source-provider";
+import {
+  createNativeSceneProvider,
+  type NativeSourceRecord,
+} from "./native-source-provider";
 
 const wgsl = `
 struct Globals { viewport: vec4f, clock: vec4f, params: array<vec4f, 32> };
@@ -547,6 +550,27 @@ describe("native multipass texture bindings", () => {
       offsetHeight: { value: 8.25 },
     });
     document.body.append(target);
+    const authoredTarget = document.createElement("canvas");
+    authoredTarget.dataset.agentNativeNodeId = "other-node";
+    authoredTarget.width = 13;
+    authoredTarget.height = 13;
+    Object.defineProperties(authoredTarget, {
+      offsetWidth: { value: 8.25 },
+      offsetHeight: { value: 8.25 },
+    });
+    vi.spyOn(authoredTarget, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(50, 20, 8.25, 8.25),
+    );
+    document.body.append(authoredTarget);
+    for (const root of [document.documentElement, document.body]) {
+      Object.defineProperties(root, {
+        offsetWidth: { configurable: true, value: 400 },
+        offsetHeight: { configurable: true, value: 300 },
+      });
+      vi.spyOn(root, "getBoundingClientRect").mockReturnValue(
+        new DOMRect(0, 0, 400, 300),
+      );
+    }
     const manifest = document.createElement("script");
     manifest.type = "application/x-agent-native-effects";
     manifest.textContent = JSON.stringify({
@@ -1123,6 +1147,223 @@ describe("native multipass texture bindings", () => {
           ),
         ),
       ).toBe(true);
+      const authoredDefinition: EffectDefinition = {
+        ...definition,
+        inputs: {
+          authored: { kind: "texture-2d", resource: "authored" },
+        },
+        resources: [
+          ...definition.resources!,
+          { name: "authored", kind: "texture-2d", external: true },
+        ],
+        passes: [
+          definition.passes[0]!,
+          {
+            ...definition.passes[1]!,
+            wgsl: `${nativeRenderExtraTextureBindings(3)}\n${wgsl}`,
+            reads: ["source", "blur", "authored"],
+          },
+        ],
+      };
+      const authoredRunner = densityProbe as typeof densityProbe & {
+        authoredInputTexture(
+          mount: object,
+          resource: string,
+          binding: { nodeId: string; capture: "content" | "appearance" },
+          time: number,
+          deterministic: boolean,
+          encoder: object,
+          complete: Set<string>,
+          active: Set<string>,
+        ): Promise<FakeTexture>;
+      };
+      expect([blur3.width, blur3.height]).toEqual([13, 13]);
+      const authoredSceneProbe = createNativeSceneProvider(
+        authoredTarget,
+        "layer",
+        undefined,
+        undefined,
+        "content",
+      )!;
+      expect(
+        (await authoredSceneProbe.readScene()).map((record) => record.source),
+      ).toEqual([authoredTarget]);
+      authoredSceneProbe.dispose();
+      const authoredCapture = vi.spyOn(authoredRunner, "authoredInputTexture");
+      const authoredInstance: EffectInstance = {
+        ...mounted.instance,
+        bindings: {
+          authored: {
+            kind: "authored-node",
+            nodeId: "other-node",
+            capture: "content",
+          },
+        },
+      };
+      const authoredDependencies = {
+        complete: new Set<string>(),
+        active: new Set([mounted.instance.id]),
+      };
+      const beforeAuthoredBindings = bound.length;
+      const copiedBeforeAuthored = copied.length;
+      await expect(
+        (
+          authoredRunner.effectPasses as (
+            ...args: unknown[]
+          ) => Promise<FakeTexture>
+        )(
+          mounted,
+          sharpTexture,
+          0,
+          device.createCommandEncoder(),
+          authoredDefinition,
+          authoredInstance,
+          false,
+          "",
+          authoredDependencies,
+        ),
+      ).resolves.toBeDefined();
+      expect(authoredCapture).toHaveBeenCalledWith(
+        mounted,
+        "authored",
+        { kind: "authored-node", nodeId: "other-node", capture: "content" },
+        0,
+        false,
+        expect.any(Object),
+        authoredDependencies.complete,
+        authoredDependencies.active,
+      );
+      const capturedTexture = await authoredCapture.mock.results[0]!.value;
+      const sourceTexture = [
+        ...(
+          mounted as typeof mounted & {
+            authoredInputs: Map<
+              string,
+              {
+                surface: {
+                  sourceTextures: Map<string, { texture: FakeTexture }>;
+                };
+              }
+            >;
+          }
+        ).authoredInputs
+          .get("authored")!
+          .surface.sourceTextures.values(),
+      ][0]!.texture;
+      expect(capturedTexture.id).not.toBe(sourceTexture.id);
+      expect(
+        bound
+          .slice(beforeAuthoredBindings)
+          .some((group) =>
+            group.entries.some(
+              (entry) =>
+                entry.binding === 2 &&
+                (entry.resource as { textureId?: number }).textureId ===
+                  sourceTexture.id,
+            ),
+          ),
+      ).toBe(true);
+      expect(
+        bound
+          .slice(beforeAuthoredBindings)
+          .some((group) =>
+            group.entries.some(
+              (entry) =>
+                entry.binding === 4 &&
+                (entry.resource as { textureId?: number }).textureId ===
+                  capturedTexture.id,
+            ),
+          ),
+      ).toBe(true);
+      await expect(
+        authoredRunner.authoredInputTexture(
+          mounted,
+          "authored",
+          { nodeId: "two-texture-node", capture: "appearance" },
+          0,
+          false,
+          device.createCommandEncoder(),
+          authoredDependencies.complete,
+          authoredDependencies.active,
+        ),
+      ).rejects.toMatchObject({ code: "effect-dependency-cycle" });
+      const backdropCanvas = document.createElement("canvas");
+      backdropCanvas.width = sharpTexture.width;
+      backdropCanvas.height = sharpTexture.height;
+      backdropCanvas.dataset.anNativeCanvas = "authored-backdrop";
+      backdropCanvas.setAttribute("data-an-native-backdrop-presentation", "");
+      backdropCanvas.setAttribute(
+        "data-an-native-backdrop-receiver-node-id",
+        "other-node",
+      );
+      backdropCanvas.setAttribute("data-an-native-authored-opacity", "1");
+      Object.defineProperties(backdropCanvas, {
+        offsetWidth: { value: 8.25 },
+        offsetHeight: { value: 8.25 },
+      });
+      vi.spyOn(backdropCanvas, "getBoundingClientRect").mockReturnValue(
+        new DOMRect(50, 20, 8.25, 8.25),
+      );
+      authoredTarget.before(backdropCanvas);
+      internal.mounts.set("authored-backdrop", {
+        ...mounted,
+        target: authoredTarget,
+        canvas: backdropCanvas,
+        instance: {
+          ...mounted.instance,
+          id: "authored-backdrop",
+          nodeId: "other-node",
+          placement: "backdrop",
+        },
+        outputTexture: sharpTexture,
+        outputExtent: mounted.outputExtent,
+      } as never);
+      const renderBackdrop = vi
+        .spyOn(
+          authoredRunner as typeof authoredRunner & {
+            renderMount(...args: unknown[]): Promise<void>;
+          },
+          "renderMount",
+        )
+        .mockResolvedValue(undefined);
+      const composeAppearance = vi.spyOn(internal, "composeScene");
+      const appearanceTexture = await authoredRunner.authoredInputTexture(
+        mounted,
+        "authored",
+        { nodeId: "other-node", capture: "appearance" },
+        0,
+        false,
+        device.createCommandEncoder(),
+        authoredDependencies.complete,
+        authoredDependencies.active,
+      );
+      expect(appearanceTexture).toBeDefined();
+      expect(renderBackdrop).toHaveBeenCalled();
+      expect(
+        composeAppearance.mock.calls[
+          composeAppearance.mock.calls.length - 1
+        ]?.[1].map((record) => record.nativeInstanceId),
+      ).toEqual(["authored-backdrop", undefined]);
+      backdropCanvas.remove();
+      await expect(
+        authoredRunner.authoredInputTexture(
+          mounted,
+          "authored",
+          { nodeId: "other-node", capture: "appearance" },
+          0,
+          false,
+          device.createCommandEncoder(),
+          authoredDependencies.complete,
+          authoredDependencies.active,
+        ),
+      ).rejects.toMatchObject({
+        code: "input-authored-appearance-unavailable",
+      });
+      composeAppearance.mockRestore();
+      renderBackdrop.mockRestore();
+      internal.mounts.delete("authored-backdrop");
+      authoredCapture.mockRestore();
+      copied.splice(copiedBeforeAuthored);
       const pipelineProbe = densityProbe as typeof densityProbe & {
         pipeline(
           code: string,

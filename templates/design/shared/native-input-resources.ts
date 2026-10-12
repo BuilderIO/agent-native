@@ -19,6 +19,7 @@ export type NativeExternalTextureInput =
       preprocess?: "paper-liquid-mask" | "paper-gem-smoke-mask-32";
       mipmap?: "generated";
     }
+  | { kind: "authored-node"; nodeId: string; capture: "content" | "appearance" }
   | { kind: "fallback"; source: "transparent-data" };
 
 export type NativeInputPlan =
@@ -35,7 +36,10 @@ function sameInput(
     a.kind === b.kind &&
     (a.kind === "asset"
       ? a.url === (b as typeof a).url
-      : a.source === (b as typeof a).source)
+      : a.kind === "authored-node"
+        ? a.nodeId === (b as typeof a).nodeId &&
+          a.capture === (b as typeof a).capture
+        : a.source === (b as typeof a).source)
   );
 }
 
@@ -80,6 +84,18 @@ export function planNativeInputResources(
           code: "input-binding-conflict",
           detail: `Texture property ${name} conflicts with binding ${portName}.`,
         };
+      if (
+        typeof value !== "object" ||
+        !("kind" in value) ||
+        value.kind !== "asset" ||
+        !("url" in value) ||
+        typeof value.url !== "string"
+      )
+        return {
+          ok: false,
+          code: "input-texture-property-asset-required",
+          detail: `Texture property ${name} needs an asset reference.`,
+        };
       binding = value as EffectTextureRef;
     }
     if (!binding && needed.has(resource) && BUILTINS.has(resource))
@@ -113,11 +129,16 @@ export function planNativeInputResources(
           : "optional-image-asset-required",
         detail: `Input ${portName} needs a decoded asset rather than an authored or composed source.`,
       };
-    if (binding.kind === "authored-node")
+    if (
+      binding.kind === "authored-node" &&
+      (definition.statelessCompute ||
+        definition.simulation ||
+        definition.feedback)
+    )
       return {
         ok: false,
-        code: "input-authored-node-unsupported",
-        detail: `Input ${portName} needs an authored-node capture path.`,
+        code: "input-authored-mode-unsupported",
+        detail: `Input ${portName} needs a render-pass effect for authored-node capture.`,
       };
     if (binding.kind === "asset") {
       const checked = checkEffectAssetUrl(binding.url);
@@ -153,7 +174,7 @@ export function planNativeInputResources(
         detail: `Input ${portName} cannot sample a backdrop on a ${instance.placement} instance.`,
       };
     if (
-      binding.kind === "builtin" &&
+      (binding.kind === "builtin" || binding.kind === "authored-node") &&
       definition.resources?.some(
         (candidate) =>
           candidate.name === resource &&

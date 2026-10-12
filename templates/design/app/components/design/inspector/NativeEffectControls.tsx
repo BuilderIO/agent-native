@@ -2,6 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import type {
   EffectColor,
   EffectDefinition,
+  EffectInputBinding,
   EffectValue,
   EffectTextureRef,
   NativePositionValue,
@@ -26,11 +27,19 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 
 import {
+  nativeAuthoredInputPorts,
+  type NativeAuthoredLayerOption,
+} from "./native-authored-input-options";
+import {
   nativeCatalogOptionKey,
   nativeCatalogPropertyKey,
 } from "./native-catalog-display";
 import { nativeOrderedNumericBounds } from "./native-ordered-numeric-bounds";
 import { NativeEffectColorControl } from "./NativeEffectColorControl";
+import {
+  NativeEffectInputControls,
+  type NativeEffectInputChoice,
+} from "./NativeEffectInputControls";
 import { NativeEffectPositionControl } from "./NativeEffectPositionControl";
 import { NativeEffectTextureControl } from "./NativeEffectTextureControl";
 import { NativeNumericScrub } from "./NativeNumericScrub";
@@ -101,6 +110,9 @@ export function NativeEffectControls({
   onValueChange,
   designId,
   fileId,
+  bindings,
+  layerOptions,
+  onInputChange,
 }: {
   definition: EffectDefinition;
   values: Record<string, EffectValue>;
@@ -109,6 +121,9 @@ export function NativeEffectControls({
   onValueChange: (name: string, value: EffectValue, phase: Phase) => void;
   designId?: string;
   fileId?: string;
+  bindings?: Record<string, EffectInputBinding>;
+  layerOptions?: NativeAuthoredLayerOption[];
+  onInputChange?: (name: string, binding: NativeEffectInputChoice) => void;
 }) {
   const t = useT();
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -122,9 +137,54 @@ export function NativeEffectControls({
   };
   const available = nativeVisibleProperties(definition, values, true);
   const visible = nativeVisibleProperties(definition, values, advancedOpen);
+  const inputPorts = onInputChange ? nativeAuthoredInputPorts(definition) : [];
+  const inputPortNames = new Set(inputPorts.map(([name]) => name));
   return (
     <div className="grid gap-2">
+      {inputPorts.map(([name, port]) => {
+        const textureProperty = Object.entries(definition.properties).find(
+          ([, property]) =>
+            property.type === "texture" && property.input === name,
+        );
+        const assetValue = textureProperty
+          ? ((values[textureProperty[0]] as EffectTextureRef | null) ?? null)
+          : null;
+        const binding = bindings?.[name] ?? null;
+        const defaultAvailable =
+          port.resource === "source" ||
+          port.resource === "mask" ||
+          port.resource === "backdrop" ||
+          (port.optional && port.fallback === "transparent-data");
+        const label = textureProperty
+          ? propertyLabel(textureProperty[1].label)
+          : name === "source"
+            ? t("designEditor.patchProof.source")
+            : name === "backdrop"
+              ? t("editPanel.shaders.nativeCatalog.properties.backdrop")
+              : name === "mask"
+                ? t("editPanel.shaders.nativeInputMask")
+                : name
+                    .replace(/([a-z])([A-Z])/g, "$1 $2")
+                    .replace(/[-_]/g, " ")
+                    .replace(/^./, (character) => character.toUpperCase());
+        return (
+          <NativeEffectInputControls
+            key={name}
+            label={label}
+            binding={binding}
+            assetValue={assetValue}
+            layers={layerOptions ?? []}
+            defaultAvailable={Boolean(defaultAvailable)}
+            disabled={disabled}
+            designId={designId}
+            fileId={fileId}
+            onChange={(next) => onInputChange?.(name, next)}
+          />
+        );
+      })}
       {visible.map(([name, property], index) => {
+        if (property.type === "texture" && inputPortNames.has(property.input))
+          return null;
         const current = values[name] ?? property.default;
         const label = propertyLabel(property.label);
         const control = (() => {

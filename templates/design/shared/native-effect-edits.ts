@@ -75,12 +75,17 @@ export type NativeEffectEdit =
   | {
       kind: "set-instance";
       instanceId: string;
+      params?: Record<string, EffectValue>;
       enabled?: boolean;
       opacity?: number;
       seed?: number;
       clip?: EffectInstance["clip"];
       placement?: EffectInstance["placement"];
       bindings?: Record<string, EffectInputBinding> | null;
+      bindingTargets?: Record<
+        string,
+        { selector: string; capture: "content" | "appearance" }
+      >;
       transform?: EffectTransform2D | null;
       sourceSizing?: NativeSourceSizing | null;
     }
@@ -514,6 +519,10 @@ export function editNativeEffectHtml(
       `native effect instance "${operation.instanceId}" not found`,
     ]);
   const instance = document.instances[index];
+  if (operation.kind === "set-instance" && operation.bindingTargets)
+    return failed(html, [
+      "native effect binding targets need source resolution",
+    ]);
   if (operation.kind === "set-instance" && operation.sourceSizing)
     return failed(html, ["legacy-image-abi-retired"]);
   const instances = [...document.instances];
@@ -536,6 +545,7 @@ export function editNativeEffectHtml(
         ]);
       instances[index] = {
         ...instance,
+        params: { ...instance.params, ...(operation.params ?? {}) },
         enabled: operation.enabled ?? instance.enabled,
         opacity: operation.opacity ?? instance.opacity,
         seed: operation.seed ?? instance.seed,

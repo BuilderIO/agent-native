@@ -2272,6 +2272,7 @@ function cloneOwnPaint(
   preserveNativeTextFlow = false,
   phase: NativeOwnPaintPhase = "all",
   fillPaint?: NativeFillBackgroundPaint,
+  authoredTextPaint?: { color: string; textFillColor: string },
 ): HTMLElement {
   const boxPhase =
     phase === "background" ||
@@ -2334,6 +2335,13 @@ function cloneOwnPaint(
     copy.remove();
   }
   copyComputedCss(element, clone);
+  if (authoredTextPaint) {
+    clone.style.color = authoredTextPaint.color;
+    clone.style.setProperty(
+      "-webkit-text-fill-color",
+      authoredTextPaint.textFillColor,
+    );
+  }
   clone.style.position = "static";
   clone.style.left = "auto";
   clone.style.top = "auto";
@@ -2596,6 +2604,7 @@ async function rasterOwnPaint(
   fillPaint?: NativeFillBackgroundPaint,
   glyphClone?: HTMLElement,
   glyphColors?: Map<Element, string>,
+  authoredTextPaint?: { color: string; textFillColor: string },
 ): Promise<void> {
   const size = sizeOf(element);
   const overflow = classifyNativeComputedOverflowClip(
@@ -2632,7 +2641,15 @@ async function rasterOwnPaint(
       "A source has invalid or oversized expanded capture geometry.",
     );
   const { width, height } = capture.plan.pixelBox;
-  const clone = glyphClone ?? cloneOwnPaint(element, false, phase, fillPaint);
+  const clone =
+    glyphClone ??
+    cloneOwnPaint(
+      element,
+      !!authoredTextPaint,
+      phase,
+      fillPaint,
+      authoredTextPaint,
+    );
   applyNativeCaptureOverflowClip(clone, overflow);
   const canvasText =
     phase !== "background" &&
@@ -2745,10 +2762,18 @@ async function rasterOwnPaint(
       density,
     );
     try {
-      await paintNativeTextFlow(element, canvas, false, glyphColors, {
-        density,
-        pixelOffset: capture.plan.pixelOffset,
-      });
+      await paintNativeTextFlow(
+        element,
+        canvas,
+        false,
+        authoredTextPaint
+          ? new Map([[element, authoredTextPaint.textFillColor]])
+          : glyphColors,
+        {
+          density,
+          pixelOffset: capture.plan.pixelOffset,
+        },
+      );
     } finally {
       if (clipped) context.restore();
     }
@@ -3116,6 +3141,7 @@ class SceneProvider implements NativeSceneProvider {
     CachedLeaf
   >();
   private fillForegroundLeaf: CachedLeaf | null = null;
+  private authoredContentTextSignature: string | null = null;
   private fillGlyphLeaf: CachedLeaf | null = null;
   private fillGlyphClone: HTMLElement | null = null;
   private fillGlyphColors: Map<Element, string> | null = null;
@@ -3161,6 +3187,7 @@ class SceneProvider implements NativeSceneProvider {
     private readonly placement: "fill" | "layer" | "backdrop",
     private readonly onDirty: () => void = () => {},
     private readonly backdropPresentation?: HTMLCanvasElement,
+    private readonly targetCapture?: "content" | "appearance",
   ) {
     this.coordinateSpace =
       placement === "backdrop" ? "target-local-global" : "target-local";
@@ -3284,6 +3311,43 @@ class SceneProvider implements NativeSceneProvider {
       element.compareDocumentPosition(this.backdropPresentation) &
       Node.DOCUMENT_POSITION_FOLLOWING
     );
+  }
+
+  private authoredContentTextPaint(
+    element: HTMLElement,
+  ): { color: string; textFillColor: string } | undefined {
+    if (
+      this.targetCapture !== "content" ||
+      element !== this.target ||
+      !element.hasAttribute("data-an-native-text-suppressed")
+    )
+      return undefined;
+    if (
+      !hasDirectText(element) ||
+      [...element.children].some(
+        (child) =>
+          !child.matches(
+            "canvas[data-an-native-canvas]:not([data-an-native-presentation])",
+          ),
+      )
+    )
+      throw new NativeSourceError(
+        "input-authored-content-text-unavailable",
+        "Authored colors for styled descendant text are unavailable while a native text Fill is presented.",
+      );
+    const color = element.getAttribute("data-an-native-authored-color");
+    const textFill = element.getAttribute(
+      "data-an-native-authored-text-fill-color",
+    );
+    if (!color || textFill === null)
+      throw new NativeSourceError(
+        "input-authored-content-text-unavailable",
+        "The authored text color has no preserved style snapshot.",
+      );
+    return {
+      color,
+      textFillColor: textFill && textFill !== "currentcolor" ? textFill : color,
+    };
   }
 
   private wakeDynamicSource = (event: Event): void => {
@@ -3421,9 +3485,13 @@ class SceneProvider implements NativeSceneProvider {
   needsContinuousFrames(): boolean {
     const scope = this.placement === "backdrop" ? document.body : this.target;
     if (
+      (scope instanceof HTMLVideoElement && !scope.paused && !scope.ended) ||
       [...scope.querySelectorAll<HTMLVideoElement>("video")].some(
         (video) => !video.paused && !video.ended,
       ) ||
+      (scope instanceof HTMLCanvasElement &&
+        !scope.hasAttribute("data-an-native-canvas") &&
+        !scope.hasAttribute("data-an-native-presentation")) ||
       scope.querySelector(
         "canvas:not([data-an-native-canvas]):not([data-an-native-presentation])",
       )
@@ -4532,6 +4600,7 @@ class SceneProvider implements NativeSceneProvider {
               paintPhase === "glyph"
                 ? (this.fillGlyphColors ?? undefined)
                 : undefined,
+              this.authoredContentTextPaint(node),
             ),
           this.onDirty,
           (reason) => this.recordLeafInvalidation(key, reason),
@@ -4668,9 +4737,13 @@ class SceneProvider implements NativeSceneProvider {
         }
       }
     }
-    const fillInstance = element.getAttribute("data-an-native-fill-instance");
+    const captureTargetContent =
+      element === this.target && this.targetCapture === "content";
+    const fillInstance = captureTargetContent
+      ? null
+      : element.getAttribute("data-an-native-fill-instance");
     const layerInstance =
-      element !== this.target &&
+      (element !== this.target || this.targetCapture === "appearance") &&
       element.getAttribute("data-an-native-layer-instance");
     const replacementInstance = layerInstance || fillInstance;
     if (replacementInstance) {
@@ -4705,7 +4778,9 @@ class SceneProvider implements NativeSceneProvider {
       const presentationGeometry = relativeAffine(
         layerInstance ? presentation : element,
         this.target,
-        this.coordinateSpace,
+        element === this.target && layerInstance
+          ? "target-local-global"
+          : this.coordinateSpace,
         undefined,
         getComputedStyle,
         undefined,
@@ -4765,11 +4840,13 @@ class SceneProvider implements NativeSceneProvider {
       }
       return false;
     }
-    const fillCanvases = [...element.children].filter((child) =>
-      child.matches(
-        "canvas[data-an-native-canvas]:not([data-an-native-presentation])",
-      ),
-    );
+    const fillCanvases = captureTargetContent
+      ? []
+      : [...element.children].filter((child) =>
+          child.matches(
+            "canvas[data-an-native-canvas]:not([data-an-native-presentation])",
+          ),
+        );
     const boxBeforeNativeFill =
       fillCanvases.length > 0 &&
       element instanceof HTMLElement &&
@@ -4804,6 +4881,9 @@ class SceneProvider implements NativeSceneProvider {
     const childGroups: NativeSourceRecord[][] = [];
     for (const child of element.children)
       if (
+        !(
+          captureTargetContent && child.hasAttribute("data-an-native-canvas")
+        ) &&
         !fillCanvases.includes(child) &&
         !(hasDirectText(element) && isInlineFlowChild(child))
       ) {
@@ -4823,6 +4903,90 @@ class SceneProvider implements NativeSceneProvider {
     return crossedAsyncBoundary;
   }
 
+  private recordTargetBackdropPresentations(
+    out: NativeSourceRecord[],
+    metrics: NativeSourceReadSceneMetrics | undefined,
+    memo: SourceGeometryMemo,
+  ): void {
+    const presentations: HTMLCanvasElement[] = [];
+    for (
+      let sibling = this.target.previousElementSibling;
+      sibling instanceof HTMLCanvasElement &&
+      sibling.hasAttribute("data-an-native-backdrop-presentation");
+      sibling = sibling.previousElementSibling
+    )
+      presentations.unshift(sibling);
+    for (const canvas of presentations) {
+      if (nativeBackdropReceiver(canvas) !== this.target)
+        throw new NativeSourceError(
+          "source-composition-unsupported",
+          "A backdrop presentation no longer belongs to the captured target.",
+        );
+      const instanceId = canvas.getAttribute("data-an-native-canvas");
+      if (!instanceId || canvas.width < 1 || canvas.height < 1)
+        throw new NativeSourceError(
+          "native-presentation-missing",
+          "An authored backdrop has no current native presentation surface.",
+        );
+      if (metrics) metrics.walkDirectAffineReads += 1;
+      const geometry = relativeAffine(
+        canvas,
+        this.target,
+        "target-local-global",
+        undefined,
+        getComputedStyle,
+        undefined,
+        memo,
+      );
+      const sourceClip = sourceClipPlan(
+        this.target,
+        this.target,
+        this.coordinateSpace,
+        true,
+        null,
+        0,
+        "border",
+        undefined,
+        memo,
+      );
+      const isolationPath = this.isolationPath(
+        this.target,
+        sourceClip.groupClips,
+        false,
+      );
+      if (
+        !isolationPath ||
+        geometry.rect.width <= 0 ||
+        geometry.rect.height <= 0 ||
+        sourceClip.clip.width <= 0 ||
+        sourceClip.clip.height <= 0
+      )
+        continue;
+      out.push({
+        key: this.id(canvas),
+        node: this.target,
+        kind: "native",
+        nativeInstanceId: instanceId,
+        imageRendering: { value: getComputedStyle(canvas).imageRendering },
+        width: canvas.width,
+        height: canvas.height,
+        revision: this.assetRevision,
+        coordinateSpace: this.coordinateSpace,
+        rect: geometry.rect,
+        localBox: geometry.localBox,
+        localToTarget: geometry.localToTarget,
+        clip: sourceClip.clip,
+        clips: sourceClip.clips,
+        groupClips: sourceClip.groupClips.map(({ node, clip }) => ({
+          id: `clip:${this.id(node)}`,
+          clip,
+        })),
+        isolationPath,
+        opacity: 1,
+      });
+    }
+  }
+
   private *readSceneWalkSteps(
     path: Element[],
     out: NativeSourceRecord[],
@@ -4830,6 +4994,8 @@ class SceneProvider implements NativeSceneProvider {
     memo: SourceGeometryMemo,
   ): Generator<SourceWalkStep, void, boolean> {
     if (this.placement === "layer") {
+      if (this.targetCapture === "appearance")
+        this.recordTargetBackdropPresentations(out, metrics, memo);
       yield* this.walkSteps(this.target, out, metrics, memo);
       return;
     }
@@ -5119,6 +5285,14 @@ class SceneProvider implements NativeSceneProvider {
         "source-disposed",
         "The source provider was disposed.",
       );
+    const authoredTextPaint = this.authoredContentTextPaint(this.target);
+    const authoredTextSignature = authoredTextPaint
+      ? JSON.stringify(authoredTextPaint)
+      : null;
+    if (authoredTextSignature !== this.authoredContentTextSignature) {
+      this.leaves.get(this.target)?.invalidate("attributes");
+      this.authoredContentTextSignature = authoredTextSignature;
+    }
     this.readSceneCalls += 1;
     if (metrics) {
       metrics.calls += 1;
@@ -5184,6 +5358,14 @@ class SceneProvider implements NativeSceneProvider {
           this.retiredLeaves += 1;
         }
       }
+      if (
+        JSON.stringify(this.authoredContentTextPaint(this.target) ?? null) !==
+        JSON.stringify(authoredTextPaint ?? null)
+      )
+        throw new NativeSourceError(
+          "input-authored-source-stale",
+          "The authored text style changed during capture.",
+        );
       return out;
     } finally {
       memo.clear();
@@ -5235,6 +5417,13 @@ export function createNativeSceneProvider(
   placement: "fill" | "layer" | "backdrop",
   onDirty?: () => void,
   backdropPresentation?: HTMLCanvasElement,
+  targetCapture?: "content" | "appearance",
 ): NativeSceneProvider | null {
-  return new SceneProvider(target, placement, onDirty, backdropPresentation);
+  return new SceneProvider(
+    target,
+    placement,
+    onDirty,
+    backdropPresentation,
+    targetCapture,
+  );
 }

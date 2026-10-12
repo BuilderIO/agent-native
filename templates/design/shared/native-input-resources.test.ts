@@ -105,7 +105,7 @@ describe("native named input resources", () => {
     ]);
   });
 
-  it("rejects missing, conflicting, or unsupported authored inputs explicitly", () => {
+  it("rejects missing or conflicting inputs and retains authored capture bindings", () => {
     expect(planNativeInputResources(definition, instance)).toMatchObject({
       ok: false,
       code: "input-resource-missing",
@@ -117,18 +117,23 @@ describe("native named input resources", () => {
         bindings: { coverage: { kind: "asset", url: "/masks/b.png" } },
       }),
     ).toMatchObject({ ok: false, code: "input-binding-conflict" });
-    expect(
-      planNativeInputResources(definition, {
-        ...instance,
-        bindings: {
-          coverage: {
-            kind: "authored-node",
-            nodeId: "other-node",
-            capture: "appearance",
-          },
+    const authored = planNativeInputResources(definition, {
+      ...instance,
+      bindings: {
+        coverage: {
+          kind: "authored-node",
+          nodeId: "other-node",
+          capture: "appearance",
         },
-      }),
-    ).toMatchObject({ ok: false, code: "input-authored-node-unsupported" });
+      },
+    });
+    expect(authored.ok).toBe(true);
+    if (authored.ok)
+      expect(authored.inputs.get("coverage")).toEqual({
+        kind: "authored-node",
+        nodeId: "other-node",
+        capture: "appearance",
+      });
   });
 
   it("maps a declared builtin mask without using the source texture as a stand-in", () => {

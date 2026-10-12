@@ -19,6 +19,7 @@ import {
   MAX_SANE_SCREEN_ENTRY_ZOOM,
   MIN_RENDERABLE_OVERVIEW_DISPLAY_ZOOM,
   resolveOverviewZoomBasisScreenId,
+  resolveOverviewCanvasZoom,
   resolveScreenEntryZoom,
   shouldDeferOverviewZoomCommand,
   shouldPopToOverviewOnZoomChange,
@@ -664,6 +665,15 @@ describe("overview zoom hydration is idempotent across reloads (regression: comp
         zoom = hydrateWithDeferral(zoom);
       }
       expect(zoom).toBeCloseTo(persisted, 9);
+    }
+  });
+});
+
+describe("overview canvas zoom follows its current geometry basis", () => {
+  it("keeps an explicit display zoom stable as the frame geometry resolves", () => {
+    for (const scale of [0.25, 1.125]) {
+      const canvasZoom = resolveOverviewCanvasZoom(100, scale);
+      expect(getOverviewDisplayZoom(canvasZoom, scale)).toBeCloseTo(100);
     }
   });
 });

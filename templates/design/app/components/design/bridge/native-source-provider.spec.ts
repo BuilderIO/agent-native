@@ -427,6 +427,7 @@ describe("same-target Fill and Layer source ownership", () => {
       unobserve() {}
     } as typeof ResizeObserver;
     const target = document.createElement("div");
+    target.setAttribute("data-agent-native-node-id", "same-target");
     target.setAttribute("data-an-native-fill-instance", "base-fill");
     target.setAttribute("data-an-native-layer-instance", "final-layer");
     target.setAttribute("data-an-native-authored-opacity", "0.5");
@@ -438,11 +439,24 @@ describe("same-target Fill and Layer source ownership", () => {
     const layer = document.createElement("canvas");
     layer.setAttribute("data-an-native-canvas", "final-layer");
     layer.setAttribute("data-an-native-presentation", "");
-    document.body.append(target, fill, layer);
+    layer.setAttribute("data-an-native-layer-opacity-owner", "receiver");
+    const backdrop = document.createElement("canvas");
+    backdrop.width = 100;
+    backdrop.height = 80;
+    backdrop.setAttribute("data-an-native-canvas", "own-backdrop");
+    backdrop.setAttribute("data-an-native-presentation", "");
+    backdrop.setAttribute("data-an-native-backdrop-presentation", "");
+    backdrop.setAttribute(
+      "data-an-native-backdrop-receiver-node-id",
+      "same-target",
+    );
+    backdrop.setAttribute("data-an-native-authored-opacity", "1");
+    document.body.append(backdrop, target, fill, layer);
     const boxes = new Map<Element, DOMRect>([
       [document.documentElement, new DOMRect(0, 0, 400, 300)],
       [document.body, new DOMRect(0, 0, 400, 300)],
       [target, new DOMRect(10, 20, 100, 80)],
+      [backdrop, new DOMRect(10, 20, 100, 80)],
       [fill, new DOMRect(10, 20, 100, 80)],
       [layer, new DOMRect(5, 10, 120, 100)],
     ]);
@@ -513,12 +527,29 @@ describe("same-target Fill and Layer source ownership", () => {
           paddingRight: "0px",
           paddingBottom: "0px",
           paddingLeft: "0px",
+          width: "100px",
+          height: "80px",
+          boxSizing: "border-box",
           getPropertyValue: () => "0px",
           content: "none",
         }) as unknown as CSSStyleDeclaration,
     );
     const layerSource = createNativeSceneProvider(target, "layer");
     const fullScene = createNativeSceneProvider(document.body, "layer");
+    const contentInput = createNativeSceneProvider(
+      target,
+      "layer",
+      undefined,
+      undefined,
+      "content",
+    );
+    const appearanceInput = createNativeSceneProvider(
+      target,
+      "layer",
+      undefined,
+      undefined,
+      "appearance",
+    );
     try {
       const input = await layerSource!.readScene();
       expect(
@@ -538,13 +569,84 @@ describe("same-target Fill and Layer source ownership", () => {
           .filter((record) => record.nativeInstanceId)
           .map((record) => record.nativeInstanceId),
       ).toEqual(["final-layer"]);
-      expect(output[0]).toMatchObject({
+      expect(
+        output.find((record) => record.nativeInstanceId === "final-layer"),
+      ).toMatchObject({
         rect: { x: 5, y: 10, width: 120, height: 100 },
-        isolationPath: [],
+        isolationPath: [
+          expect.objectContaining({ kind: "opacity", opacity: 0.5 }),
+        ],
       });
+      expect(
+        (await contentInput!.readScene())
+          .filter((record) => record.nativeInstanceId)
+          .map((record) => record.nativeInstanceId),
+      ).toEqual([]);
+      const appearance = (await appearanceInput!.readScene()).filter(
+        (record) => record.nativeInstanceId,
+      );
+      expect(appearance.map((record) => record.nativeInstanceId)).toEqual([
+        "own-backdrop",
+        "final-layer",
+      ]);
+      expect(appearance[0]?.rect).toEqual({
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 80,
+      });
+      expect(appearance[1]?.rect).toEqual({
+        x: -5,
+        y: -10,
+        width: 120,
+        height: 100,
+      });
+      target.setAttribute("data-an-native-text-suppressed", "");
+      await expect(contentInput!.readScene()).rejects.toMatchObject({
+        code: "input-authored-content-text-unavailable",
+      });
+      target.textContent = "Authored text";
+      target.setAttribute("data-an-native-authored-color", "rgb(12, 34, 56)");
+      target.setAttribute(
+        "data-an-native-authored-text-fill-color",
+        "rgb(12, 34, 56)",
+      );
+      let imageSource = "";
+      let releaseDecode!: () => void;
+      const decodeGate = new Promise<void>((resolve) => {
+        releaseDecode = resolve;
+      });
+      class CapturedImage {
+        set src(value: string) {
+          imageSource = value;
+        }
+        async decode() {
+          await decodeGate;
+        }
+      }
+      vi.stubGlobal("Image", CapturedImage);
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+        clearRect() {},
+        drawImage() {},
+      } as unknown as CanvasRenderingContext2D);
+      const textScene = contentInput!.readScene();
+      await vi.waitFor(() =>
+        expect(imageSource).toContain("data:image/svg+xml"),
+      );
+      expect(target.hasAttribute("data-an-native-text-suppressed")).toBe(true);
+      releaseDecode();
+      await expect(textScene).resolves.toEqual([
+        expect.objectContaining({ node: target, kind: "dom" }),
+      ]);
+      expect(decodeURIComponent(imageSource)).toContain("rgb(12, 34, 56)");
+      expect(decodeURIComponent(imageSource)).not.toContain(
+        "data-an-native-text-suppressed",
+      );
     } finally {
       layerSource?.dispose();
       fullScene?.dispose();
+      contentInput?.dispose();
+      appearanceInput?.dispose();
     }
   });
 });
@@ -731,7 +833,24 @@ describe("backdrop presentation sources", () => {
       undefined,
       second,
     );
+    const firstAppearance = createNativeSceneProvider(
+      firstReceiver,
+      "layer",
+      undefined,
+      undefined,
+      "appearance",
+    );
     try {
+      const appearance = await firstAppearance!.readScene();
+      expect(
+        appearance
+          .filter((record) => record.kind === "native")
+          .map((record) => record.nativeInstanceId),
+      ).toEqual(["first-glass"]);
+      expect(appearance[0]).toMatchObject({
+        node: firstReceiver,
+        rect: { x: 0, y: 0, width: 100, height: 80 },
+      });
       const fullRecords = await full!.readScene();
       expect(fullRecords.some((record) => record.node === sceneCanvas)).toBe(
         false,
@@ -797,6 +916,7 @@ describe("backdrop presentation sources", () => {
       full?.dispose();
       firstSource?.dispose();
       secondSource?.dispose();
+      firstAppearance?.dispose();
     }
   });
 });
@@ -1621,6 +1741,36 @@ describe("native cached source captures", () => {
       expect(provider!.needsContinuousFrames()).toBe(true);
     } finally {
       provider!.dispose();
+    }
+  });
+  it("keeps a canvas or playing video capture target live", () => {
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const canvasProvider = createNativeSceneProvider(canvas, "layer");
+    const video = document.createElement("video");
+    Object.defineProperty(video, "paused", {
+      configurable: true,
+      value: false,
+    });
+    Object.defineProperty(video, "ended", {
+      configurable: true,
+      value: false,
+    });
+    document.body.append(video);
+    const videoProvider = createNativeSceneProvider(video, "layer");
+    try {
+      expect(canvasProvider?.needsContinuousFrames()).toBe(true);
+      canvas.dataset.anNativeCanvas = "owned";
+      expect(canvasProvider?.needsContinuousFrames()).toBe(false);
+      expect(videoProvider?.needsContinuousFrames()).toBe(true);
+      Object.defineProperty(video, "paused", {
+        configurable: true,
+        value: true,
+      });
+      expect(videoProvider?.needsContinuousFrames()).toBe(false);
+    } finally {
+      canvasProvider?.dispose();
+      videoProvider?.dispose();
     }
   });
   it("wakes for relevant ancestor CSS motion without waking for unrelated or ancestor media events", () => {

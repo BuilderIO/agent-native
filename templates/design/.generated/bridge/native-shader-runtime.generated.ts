@@ -2904,9 +2904,9 @@ struct VertexOutput {
         const color9 = value;
         packed.set([...linearSrgb(color9), color9.alpha], offset);
       } else {
-        const colors = value;
-        packed[offset] = colors.length;
-        for (const [index, color9] of colors.entries())
+        const colors2 = value;
+        packed[offset] = colors2.length;
+        for (const [index, color9] of colors2.entries())
           packed.set(
             [...linearSrgb(color9), color9.alpha],
             offset + (index + 1) * 4
@@ -18754,6 +18754,337 @@ fn cs(
     }))
   );
 
+  // shared/native-effect-owned-x-noise.ts
+  var f2 = (label, value, min, max) => catalogFloat(label, value, min, max);
+  var seed = () => ({
+    type: "int",
+    label: "Seed",
+    default: 17,
+    min: 0,
+    max: 65535,
+    step: 1
+  });
+  var colors = (palette = CATALOG_PALETTES.lagoon) => ({
+    palette: catalogPalette(palette),
+    seed: seed(),
+    contrast: f2("Contrast", 1.15, 0.1, 3),
+    balance: f2("Balance", 0, -0.5, 0.5)
+  });
+  var stableNoiseHelpers = \`
+fn stableHash(cell: vec2i) -> u32 {
+  var bits = (bitcast<u32>(cell.x) * 2246822519u) ^ (bitcast<u32>(cell.y) * 3266489917u);
+  bits = (bits ^ (bits >> 15u)) * 668265263u;
+  bits = (bits ^ (bits >> 13u)) * 2246822519u;
+  return bits ^ (bits >> 16u);
+}
+fn stableRandom(cell: vec2i) -> f32 {
+  return f32(stableHash(cell) >> 8u) / 16777216.0;
+}
+\`;
+  var gradientHelpers = stableNoiseHelpers + \`
+fn gradientCell(cell: vec3i) -> vec3f {
+  let hash = stableHash(vec2i(cell.x + cell.z * 15731, cell.y + cell.z * 789221));
+  let components = vec3f(
+    f32(hash & 1023u),
+    f32((hash >> 10u) & 1023u),
+    f32((hash >> 20u) & 1023u)
+  ) / 511.5 - vec3f(1.0);
+  return normalize(components + vec3f(0.0001, 0.0002, 0.0003));
+}
+fn gradientPerlin(point: vec3f) -> f32 {
+  let cell = vec3i(floor(point));
+  let local = fract(point);
+  let fade = local * local * local * (local * (local * 6.0 - vec3f(15.0)) + vec3f(10.0));
+  var signal = 0.0;
+  for (var z = 0; z <= 1; z += 1) {
+    for (var y = 0; y <= 1; y += 1) {
+      for (var x = 0; x <= 1; x += 1) {
+        let offset = vec3i(x, y, z);
+        let displacement = local - vec3f(offset);
+        let weight = select(1.0 - fade.x, fade.x, x == 1) *
+          select(1.0 - fade.y, fade.y, y == 1) *
+          select(1.0 - fade.z, fade.z, z == 1);
+        signal += dot(gradientCell(cell + offset), displacement) * weight;
+      }
+    }
+  }
+  return signal;
+}
+fn simplexCorner(cell: vec3i, offset: vec3f) -> f32 {
+  let support = max(0.6 - dot(offset, offset), 0.0);
+  return support * support * support * support * dot(gradientCell(cell), offset);
+}
+fn latticeSimplex(point: vec3f) -> f32 {
+  let skew = (point.x + point.y + point.z) / 3.0;
+  let cell = vec3i(floor(point + vec3f(skew)));
+  let unskew = f32(cell.x + cell.y + cell.z) / 6.0;
+  let local = point - (vec3f(cell) - vec3f(unskew));
+  var first = vec3i(0);
+  var second = vec3i(0);
+  if (local.x >= local.y) {
+    if (local.y >= local.z) { first = vec3i(1, 0, 0); second = vec3i(1, 1, 0); }
+    else if (local.x >= local.z) { first = vec3i(1, 0, 0); second = vec3i(1, 0, 1); }
+    else { first = vec3i(0, 0, 1); second = vec3i(1, 0, 1); }
+  } else {
+    if (local.y < local.z) { first = vec3i(0, 0, 1); second = vec3i(0, 1, 1); }
+    else if (local.x < local.z) { first = vec3i(0, 1, 0); second = vec3i(0, 1, 1); }
+    else { first = vec3i(0, 1, 0); second = vec3i(1, 1, 0); }
+  }
+  return 32.0 * (
+    simplexCorner(cell, local) +
+    simplexCorner(cell + first, local - vec3f(first) + vec3f(1.0 / 6.0)) +
+    simplexCorner(cell + second, local - vec3f(second) + vec3f(2.0 / 6.0)) +
+    simplexCorner(cell + vec3i(1), local - vec3f(0.5))
+  );
+}
+\`;
+  var currentCurl = DESIGN_OWNED_DYNAMICS_DEFINITIONS.find(
+    (definition3) => definition3.id === "an-native-curl-streamlines"
+  );
+  if (!currentCurl || currentCurl.version !== 1)
+    throw new Error("The frozen Curl Streamlines predecessor is unavailable");
+  var OWNED_X_NOISE_DRAFTS = [
+    {
+      id: "owned-x-high-pass-speckle",
+      name: "High-Pass Speckle",
+      kind: "generator",
+      mechanism: "A static integer pixel lattice subtracts a four-neighbor local mean from seeded white speckle, suppressing low spatial frequencies without claiming a blue-noise distribution.",
+      properties: {
+        ...colors(CATALOG_PALETTES.ink),
+        grainSize: f2("Grain size", 2, 1, 10)
+      },
+      helpers: () => stableNoiseHelpers,
+      fragment: (p2) => \`
+  let scale = max(\${p2("grainSize")}.x * globals.clock.z, 1.0);
+  let cell = vec2i(floor(input.uv * globals.viewport.xy / scale));
+  let seedOffset = vec2i(i32(\${p2("seed")}.x), 917);
+  let center = stableRandom(cell + seedOffset);
+  let surround = (stableRandom(cell + seedOffset + vec2i(1, 0)) +
+    stableRandom(cell + seedOffset + vec2i(-1, 0)) +
+    stableRandom(cell + seedOffset + vec2i(0, 1)) +
+    stableRandom(cell + seedOffset + vec2i(0, -1))) * 0.25;
+  let tone = clamp(0.5 + (center - surround) * \${p2("contrast")}.x * 0.75 + \${p2("balance")}.x, 0.0, 1.0);
+  return paletteAt(tone);\`,
+      looks: [
+        ["Fine print speckle", { grainSize: 1, contrast: 1.4 }],
+        ["Broad matte grain", { grainSize: 4, contrast: 0.85, seed: 271 }]
+      ]
+    },
+    {
+      id: "owned-x-drainage-field",
+      name: "Drainage Field",
+      kind: "generator",
+      mechanism: "A static gradient-noise height field traces a few local downhill steps and accents converging channels; it is a drainage pattern, not an erosion simulation.",
+      properties: {
+        ...colors(CATALOG_PALETTES.ember),
+        scale: f2("Scale", 4.5, 1, 12),
+        channelDepth: f2("Channel depth", 0.6, 0, 1)
+      },
+      helpers: () => gradientHelpers + \`
+fn terrain(point: vec2f) -> f32 {
+  var position = point;
+  var amplitude = 0.6;
+  var value = 0.0;
+  for (var octave = 0u; octave < 4u; octave += 1u) {
+    value += gradientPerlin(vec3f(position, f32(octave) * 8.1)) * amplitude;
+    position = rotate(position, 0.47) * 2.03;
+    amplitude *= 0.48;
+  }
+  return value;
+}
+fn slope(point: vec2f) -> vec2f {
+  let d = vec2f(0.035, 0.0);
+  let e = vec2f(0.0, 0.035);
+  return vec2f(terrain(point + d) - terrain(point - d),
+    terrain(point + e) - terrain(point - e));
+}
+\`,
+      fragment: (p2) => \`
+  let aspect = globals.viewport.x / max(globals.viewport.y, 1.0);
+  let seedOffset = vec2f(\${p2("seed")}.x * 0.017, \${p2("seed")}.x * 0.031);
+  let point = (input.uv - vec2f(0.5)) * vec2f(aspect, 1.0) * \${p2("scale")}.x + seedOffset;
+  var position = point;
+  var channel = 0.0;
+  for (var step = 0u; step < 3u; step += 1u) {
+    let grade = slope(position);
+    let direction = grade / max(length(grade), 0.0001);
+    position -= direction * 0.11;
+    channel += exp(-abs(terrain(position) - terrain(point)) * 8.0) *
+      (0.25 + length(grade) * 2.0);
+  }
+  let elevation = terrain(point);
+  let relief = 0.5 + elevation * \${p2("contrast")}.x * 0.65 + \${p2("balance")}.x;
+  let carved = relief - clamp(channel * 0.18, 0.0, 0.35) * \${p2("channelDepth")}.x;
+  return paletteAt(clamp(carved, 0.0, 1.0));\`,
+      looks: [
+        ["Dry tributaries", { scale: 3.2, channelDepth: 0.45 }],
+        ["Deep wash", { scale: 7.2, channelDepth: 0.95, seed: 91 }]
+      ]
+    },
+    {
+      id: "owned-x-wavelet-bands",
+      name: "Wavelet Bands",
+      kind: "generator",
+      mechanism: "Rotating Gaussian-windowed wave packets combine at several frequency bands; phase advances in time while band spread and octave spacing shape the interference.",
+      properties: {
+        ...colors(CATALOG_PALETTES.orchid),
+        scale: f2("Scale", 4.5, 1, 12),
+        speed: f2("Speed", 0.28, 0, 2),
+        bandSpread: f2("Band spread", 3.5, 0.5, 9)
+      },
+      helpers: () => stableNoiseHelpers,
+      fragment: (p2) => \`
+  let aspect = globals.viewport.x / max(globals.viewport.y, 1.0);
+  let point = (input.uv - vec2f(0.5)) * vec2f(aspect, 1.0) * \${p2("scale")}.x;
+  let time = globals.clock.x * \${p2("speed")}.x;
+  var signal = 0.0;
+  var weight = 0.55;
+  var position = point;
+  for (var octave = 0u; octave < 4u; octave += 1u) {
+    let cell = vec2i(floor(position));
+    let jitter = stableRandom(cell + vec2i(i32(\${p2("seed")}.x), i32(octave) * 71));
+    let local = fract(position) - vec2f(0.5);
+    let angle = f32(octave) * 1.17 + time * (0.2 + f32(octave) * 0.12);
+    let axis = vec2f(cos(angle), sin(angle));
+    let envelope = exp(-dot(local, local) * \${p2("bandSpread")}.x);
+    signal += cos(dot(local, axis) * TAU * 2.0 + jitter * TAU + time) * envelope * weight;
+    position = rotate(position, 0.63) * 1.91 + vec2f(3.7, 9.1);
+    weight *= 0.57;
+  }
+  let tone = clamp(0.5 + signal * \${p2("contrast")}.x * 0.7 + \${p2("balance")}.x, 0.0, 1.0);
+  return paletteAt(tone);\`,
+      looks: [
+        ["Soft wavelets", { scale: 3.2, bandSpread: 2.1, speed: 0.18 }],
+        [
+          "Dense wavelets",
+          { scale: 8.1, bandSpread: 6.3, speed: 0.6, seed: 109 }
+        ]
+      ]
+    },
+    {
+      id: "owned-x-perlin-gradient-field",
+      name: "Perlin Gradient Field",
+      kind: "generator",
+      mechanism: "Three-dimensional gradient lattice interpolation uses quintic fade and morphs along its third axis; a second octave adds controllable detail without switching to value noise.",
+      properties: {
+        ...colors(CATALOG_PALETTES.lagoon),
+        scale: f2("Scale", 4, 1, 12),
+        speed: f2("Speed", 0.25, 0, 2),
+        detail: f2("Detail", 0.35, 0, 1)
+      },
+      helpers: () => gradientHelpers,
+      fragment: (p2) => \`
+  let aspect = globals.viewport.x / max(globals.viewport.y, 1.0);
+  let position = (input.uv - vec2f(0.5)) * vec2f(aspect, 1.0) * \${p2("scale")}.x;
+  let time = globals.clock.x * \${p2("speed")}.x + \${p2("seed")}.x * 0.037;
+  let base = gradientPerlin(vec3f(position, time));
+  let fine = gradientPerlin(vec3f(rotate(position, 0.73) * 2.03, time * 0.71 + 13.7));
+  let tone = clamp(0.5 + (base + fine * \${p2("detail")}.x * 0.5) * \${p2("contrast")}.x * 0.9 + \${p2("balance")}.x, 0.0, 1.0);
+  return paletteAt(tone);\`,
+      looks: [
+        ["Gradient fog", { scale: 2.6, detail: 0.15, speed: 0.14 }],
+        ["Gradient turbulence", { scale: 7, detail: 0.8, contrast: 1.55 }]
+      ]
+    },
+    {
+      id: "owned-x-simplex-lattice",
+      name: "Simplex Lattice",
+      kind: "generator",
+      mechanism: "Three-dimensional skewed simplex cells blend four gradient corners and morph continuously through the time axis, distinct from Perlin's gradient lattice interpolation.",
+      properties: {
+        ...colors(CATALOG_PALETTES.ember),
+        scale: f2("Scale", 4.8, 1, 12),
+        speed: f2("Speed", 0.3, 0, 2),
+        detail: f2("Detail", 0.28, 0, 1)
+      },
+      helpers: () => gradientHelpers,
+      fragment: (p2) => \`
+  let aspect = globals.viewport.x / max(globals.viewport.y, 1.0);
+  let position = (input.uv - vec2f(0.5)) * vec2f(aspect, 1.0) * \${p2("scale")}.x;
+  let time = globals.clock.x * \${p2("speed")}.x + \${p2("seed")}.x * 0.043;
+  let base = latticeSimplex(vec3f(position, time));
+  let fine = latticeSimplex(vec3f(rotate(position, 0.49) * 2.11, time * 0.79 + 11.3));
+  let tone = clamp(0.5 + (base + fine * \${p2("detail")}.x * 0.45) * \${p2("contrast")}.x * 0.6 + \${p2("balance")}.x, 0.0, 1.0);
+  return paletteAt(tone);\`,
+      looks: [
+        ["Simplex glow", { scale: 3, detail: 0.1, speed: 0.19 }],
+        ["Simplex turbulence", { scale: 8, detail: 0.86, contrast: 1.45 }]
+      ]
+    },
+    {
+      id: "curl-streamlines",
+      name: "Curl Streamlines",
+      version: currentCurl.version + 1,
+      kind: "generator",
+      mechanism: "Keeps the original streamline rendering and adds a curl-magnitude view derived from finite differences of a smooth gradient-noise potential.",
+      properties: {
+        ...structuredClone(currentCurl.properties),
+        fieldMode: {
+          type: "enum",
+          label: "Field mode",
+          default: "streamlines",
+          options: ["streamlines", "curl-magnitude"]
+        },
+        derivativeStep: f2("Derivative step", 0.035, 5e-3, 0.12)
+      },
+      helpers: () => gradientHelpers,
+      fragment: (p2) => \`
+  let aspect = globals.viewport.x / max(globals.viewport.y, 1.0);
+  let q = (input.uv - vec2f(0.5)) * vec2f(aspect, 1.0) * \${p2("scale")}.x;
+  let time = globals.clock.x * \${p2("speed")}.x;
+  let density = \${p2("density")}.x;
+  if (u32(\${p2("fieldMode")}.x) == 0u) {
+    var position = q;
+    var ink = 0.0;
+    for (var step = 0u; step < 12u; step += 1u) {
+      let angle = sin(position.y * density + time) + cos(position.x * density * 0.7 - time);
+      position += vec2f(cos(angle), sin(angle)) * 0.018;
+      ink += exp(-abs(sin(position.x * density * 1.8 - position.y * density * 0.9)) / max(\${p2("softness")}.x, 0.005));
+    }
+    return paletteAt(clamp(ink / 8.0, 0.0, 1.0));
+  }
+  let delta = \${p2("derivativeStep")}.x;
+  let field = vec3f(q * density * 0.28, time * 0.5);
+  let dx = vec3f(delta, 0.0, 0.0);
+  let dy = vec3f(0.0, delta, 0.0);
+  let dphiDx = (gradientPerlin(field + dx) - gradientPerlin(field - dx)) / (2.0 * delta);
+  let dphiDy = (gradientPerlin(field + dy) - gradientPerlin(field - dy)) / (2.0 * delta);
+  let curl = vec2f(dphiDy, -dphiDx);
+  let magnitude = length(curl);
+  let tone = clamp(magnitude * \${p2("softness")}.x * 1.4, 0.0, 1.0);
+  return paletteAt(tone);\`,
+      looks: [
+        ["Flowing ink", { fieldMode: "streamlines", density: 8 }],
+        [
+          "Curl energy",
+          { fieldMode: "curl-magnitude", density: 10, softness: 0.24 }
+        ]
+      ]
+    }
+  ];
+  var OWNED_X_NOISE_DEFINITIONS = OWNED_X_NOISE_DRAFTS.map((draft) => {
+    const base = catalogShader(draft);
+    return {
+      ...base,
+      resources: base.resources?.map(
+        (resource) => resource.name === "color" ? { ...resource, format: "rgba16float" } : resource
+      ),
+      provenance: { origin: "design-original", note: draft.mechanism }
+    };
+  });
+  var OWNED_X_NOISE_PRESETS = OWNED_X_NOISE_DRAFTS.flatMap(
+    (draft) => draft.looks.map(([name, params], index) => ({
+      id: \`an-preset-\${draft.id}-v\${draft.version ?? 1}-\${index + 1}\`,
+      name,
+      definitionId: \`an-native-\${draft.id}\`,
+      definitionVersion: draft.version ?? 1,
+      placement: "fill",
+      params,
+      clip: "bounds",
+      provenance: { origin: "design-original" }
+    }))
+  );
+
   // shared/native-effect-particle-flow.ts
   var stateBindings = \`
 struct Particle {
@@ -19026,7 +19357,7 @@ struct ParticleVertex {
   };
 
   // shared/native-effect-perimeter-focal.ts
-  var f2 = (label, value, min, max) => ({
+  var f3 = (label, value, min, max) => ({
     type: "float",
     label,
     default: value,
@@ -19042,20 +19373,20 @@ struct ParticleVertex {
       options: ["none", "contain", "cover"],
       advanced: true
     },
-    scale: { ...f2("Scale", 1, 0.01, 4), advanced: true },
-    rotation: { ...f2("Rotation", 0, 0, 360), unit: "\\xB0", advanced: true },
-    originX: { ...f2("Origin X", 0.5, 0, 1), advanced: true },
-    originY: { ...f2("Origin Y", 0.5, 0, 1), advanced: true },
-    offsetX: { ...f2("Offset X", 0, -1, 1), advanced: true },
-    offsetY: { ...f2("Offset Y", 0, -1, 1), advanced: true },
+    scale: { ...f3("Scale", 1, 0.01, 4), advanced: true },
+    rotation: { ...f3("Rotation", 0, 0, 360), unit: "\\xB0", advanced: true },
+    originX: { ...f3("Origin X", 0.5, 0, 1), advanced: true },
+    originY: { ...f3("Origin Y", 0.5, 0, 1), advanced: true },
+    offsetX: { ...f3("Offset X", 0, -1, 1), advanced: true },
+    offsetY: { ...f3("Offset Y", 0, -1, 1), advanced: true },
     worldWidth: {
-      ...f2("World width", 0, 0, 8192),
+      ...f3("World width", 0, 0, 8192),
       unit: "px",
       step: 1,
       advanced: true
     },
     worldHeight: {
-      ...f2("World height", 0, 0, 8192),
+      ...f3("World height", 0, 0, 8192),
       unit: "px",
       step: 1,
       advanced: true
@@ -19078,21 +19409,21 @@ struct ParticleVertex {
       ],
       maxCount: 5
     },
-    roundness: f2("Roundness", 0.2, 0, 1),
-    thickness: f2("Thickness", 0.025, 0, 1),
-    marginLeft: f2("Left margin", 0.05, 0, 1),
-    marginRight: f2("Right margin", 0.05, 0, 1),
-    marginTop: f2("Top margin", 0.05, 0, 1),
-    marginBottom: f2("Bottom margin", 0.05, 0, 1),
+    roundness: f3("Roundness", 0.2, 0, 1),
+    thickness: f3("Thickness", 0.025, 0, 1),
+    marginLeft: f3("Left margin", 0.05, 0, 1),
+    marginRight: f3("Right margin", 0.05, 0, 1),
+    marginTop: f3("Top margin", 0.05, 0, 1),
+    marginBottom: f3("Bottom margin", 0.05, 0, 1),
     aspectRatio: {
       type: "enum",
       label: "Aspect ratio",
       default: "auto",
       options: ["auto", "square"]
     },
-    softness: f2("Softness", 0.3, 0, 1),
-    intensity: f2("Intensity", 0.6, 0, 1),
-    bloom: f2("Halo reach", 0.35, 0, 1),
+    softness: f3("Softness", 0.3, 0, 1),
+    intensity: f3("Intensity", 0.6, 0, 1),
+    bloom: f3("Halo reach", 0.35, 0, 1),
     spots: {
       type: "int",
       label: "Lights per color",
@@ -19101,10 +19432,10 @@ struct ParticleVertex {
       max: 4,
       step: 1
     },
-    spotSize: f2("Light reach", 0.15, 0, 1),
-    pulse: f2("Pulse", 0.25, 0, 1),
-    smoke: f2("Mist depth", 0.2, 0, 1),
-    smokeSize: f2("Mist scale", 0.5, 0, 1),
+    spotSize: f3("Light reach", 0.15, 0, 1),
+    pulse: f3("Pulse", 0.25, 0, 1),
+    smoke: f3("Mist depth", 0.2, 0, 1),
+    smokeSize: f3("Mist scale", 0.5, 0, 1),
     ...coordinateProperties()
   };
   var focalProperties = {
@@ -19119,16 +19450,16 @@ struct ParticleVertex {
       ],
       maxCount: 10
     },
-    radius: f2("Radius", 0.7, 0, 3),
-    focalDistance: f2("Focal distance", 0, 0, 3),
-    focalAngle: { ...f2("Focal angle", 0, 0, 360), unit: "\\xB0" },
-    falloff: f2("Falloff", 0, -1, 1),
-    mixing: f2("Stop blending", 1, 0, 1),
-    distortion: f2("Distortion", 0.15, 0, 1),
-    distortionShift: f2("Deformation phase", 0, -1, 1),
-    distortionFreq: f2("Angular frequency", 6, 0, 20),
-    grainMixer: f2("Field grain", 0.02, 0, 1),
-    grainOverlay: f2("Color grain", 0.015, 0, 1),
+    radius: f3("Radius", 0.7, 0, 3),
+    focalDistance: f3("Focal distance", 0, 0, 3),
+    focalAngle: { ...f3("Focal angle", 0, 0, 360), unit: "\\xB0" },
+    falloff: f3("Falloff", 0, -1, 1),
+    mixing: f3("Stop blending", 1, 0, 1),
+    distortion: f3("Distortion", 0.15, 0, 1),
+    distortionShift: f3("Deformation phase", 0, -1, 1),
+    distortionFreq: f3("Angular frequency", 6, 0, 20),
+    grainMixer: f3("Field grain", 0.02, 0, 1),
+    grainOverlay: f3("Color grain", 0.015, 0, 1),
     ...coordinateProperties()
   };
   function uniforms(properties4) {
@@ -20148,35 +20479,6 @@ fn hash(pixel: vec2f) -> f32 {
     PRE_COORDINATE_RANDOM_LATEST_DEFINITIONS
   );
   var NATIVE_COORDINATE_RANDOM_DEFINITIONS = coordinateRandomCatalog.successors;
-  var NATIVE_EFFECT_LATEST_DEFINITIONS = [
-    ...coordinateRandomCatalog.latest.filter(
-      (definition3) => !OWNED_W_DISTORTION_DEFINITIONS.some(
-        (successor) => successor.id === definition3.id && successor.version > definition3.version
-      )
-    ),
-    ...NATIVE_PERIMETER_FOCAL_DEFINITIONS,
-    ...OWNED_O_GENERATOR_DEFINITIONS,
-    ...OWNED_O_EDGE_GLASS_DEFINITIONS.filter(
-      (definition3) => definition3.id !== "an-native-owned-o-edge-light-leak"
-    ),
-    OWNED_O_EDGE_LIGHT_LEAK_V2,
-    ...OWNED_P_DEFINITIONS,
-    ...OWNED_P2_DEFINITIONS,
-    ...OWNED_Q_DEFINITIONS,
-    ...OWNED_NEXT_SIX_R_DEFINITIONS,
-    ...STATEFUL_NINE_DEFINITIONS,
-    HIGHLIGHT_STREAKS_EFFECT,
-    ...OWNED_NEXT_TWELVE_S_DEFINITIONS.filter(
-      (definition3) => definition3.id !== "an-native-owned-s-parabolic-bend"
-    ),
-    ...OWNED_NEXT_TWELVE_T_DEFINITIONS,
-    ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
-    LUMA_DCT_EIGHT_EFFECT,
-    ...OWNED_V_FIELD_DEFINITIONS,
-    ...POINTER_EFFECT_DEFINITIONS,
-    ...OWNED_W_DISTORTION_DEFINITIONS,
-    FREQUENCY_SEPARATION_EFFECT
-  ];
   var NATIVE_EFFECT_DEFINITION_CATALOG = [
     ...NATIVE_EFFECT_DEFINITIONS_V1,
     ...NATIVE_EFFECT_DEFINITIONS,
@@ -20202,8 +20504,40 @@ fn hash(pixel: vec2f) -> f32 {
     ...OWNED_V_FIELD_DEFINITIONS,
     ...POINTER_EFFECT_DEFINITIONS,
     ...OWNED_W_DISTORTION_DEFINITIONS,
-    FREQUENCY_SEPARATION_EFFECT
+    FREQUENCY_SEPARATION_EFFECT,
+    ...OWNED_X_NOISE_DEFINITIONS
   ];
+  var currentDefinitionCandidates = [
+    ...coordinateRandomCatalog.latest,
+    ...NATIVE_PERIMETER_FOCAL_DEFINITIONS,
+    ...OWNED_O_GENERATOR_DEFINITIONS,
+    ...OWNED_O_EDGE_GLASS_DEFINITIONS,
+    OWNED_O_EDGE_LIGHT_LEAK_V2,
+    ...OWNED_P_DEFINITIONS,
+    ...OWNED_P2_DEFINITIONS,
+    ...OWNED_Q_DEFINITIONS,
+    ...OWNED_NEXT_SIX_R_DEFINITIONS,
+    ...STATEFUL_NINE_DEFINITIONS,
+    HIGHLIGHT_STREAKS_EFFECT,
+    ...OWNED_NEXT_TWELVE_S_DEFINITIONS,
+    ...OWNED_NEXT_TWELVE_T_DEFINITIONS,
+    ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
+    LUMA_DCT_EIGHT_EFFECT,
+    ...OWNED_V_FIELD_DEFINITIONS,
+    ...POINTER_EFFECT_DEFINITIONS,
+    ...OWNED_W_DISTORTION_DEFINITIONS,
+    FREQUENCY_SEPARATION_EFFECT,
+    ...OWNED_X_NOISE_DEFINITIONS
+  ];
+  var latestDefinitionById = /* @__PURE__ */ new Map();
+  for (const definition3 of currentDefinitionCandidates) {
+    const prior2 = latestDefinitionById.get(definition3.id);
+    if (!prior2 || definition3.version > prior2.version)
+      latestDefinitionById.set(definition3.id, definition3);
+  }
+  var NATIVE_EFFECT_LATEST_DEFINITIONS = currentDefinitionCandidates.filter(
+    (definition3) => latestDefinitionById.get(definition3.id) === definition3
+  );
   var PINNED_V2_PRESETS = [
     {
       id: "an-preset-orange-cream-grain",
@@ -20316,7 +20650,8 @@ fn hash(pixel: vec2f) -> f32 {
     ...OWNED_V_FIELD_PRESETS,
     ...POINTER_EFFECT_PRESETS,
     ...OWNED_W_DISTORTION_PRESETS,
-    ...FREQUENCY_SEPARATION_PRESETS
+    ...FREQUENCY_SEPARATION_PRESETS,
+    ...OWNED_X_NOISE_PRESETS
   ];
 
   // shared/native-effect-trust.ts
@@ -20614,7 +20949,20 @@ fn hash(pixel: vec2f) -> f32 {
     "an-native-owned-wire-dome@4",
     "an-native-owned-folded-paper@4",
     "an-native-owned-crystal-lattice@4",
-    "an-native-focal-color-field@1"
+    "an-native-focal-color-field@1",
+    "an-native-pointer-magnifier@1",
+    "an-native-pointer-vortex@1",
+    "an-native-pointer-spotlight@1",
+    "an-native-pointer-prism@1",
+    "an-native-owned-w-axis-mirror@1",
+    "an-native-owned-w-elastic-stretch@1",
+    "an-native-owned-w-lit-spherize@1",
+    "an-native-owned-log-polar-reprojection@2",
+    "an-native-owned-s-parabolic-bend@2",
+    "an-native-owned-corner-perspective@2",
+    "an-native-frequency-separation@1",
+    "an-native-owned-x-high-pass-speckle@1",
+    "an-native-owned-x-drainage-field@1"
   ]);
   var ANIMATED_BUILTIN_VERSIONS = /* @__PURE__ */ new Set([
     "an-native-owned-v-thermal-mask-contour@1",
@@ -20712,7 +21060,13 @@ fn hash(pixel: vec2f) -> f32 {
     "an-native-owned-contour-terrain@3",
     "an-native-owned-gyroid-slice@3",
     "an-native-grain-gradient@4",
-    "an-native-luminous-perimeter@1"
+    "an-native-luminous-perimeter@1",
+    "an-native-pointer-ripples@1",
+    "an-native-pointer-iridescence@1",
+    "an-native-owned-x-wavelet-bands@1",
+    "an-native-owned-x-perlin-gradient-field@1",
+    "an-native-owned-x-simplex-lattice@1",
+    "an-native-curl-streamlines@2"
   ]);
   var canonicalPayloadByVersion = new Map(
     NATIVE_EFFECT_DEFINITION_CATALOG.map((definition3) => [
@@ -20732,11 +21086,17 @@ fn hash(pixel: vec2f) -> f32 {
   }
 
   // shared/native-effect-frame-policy.ts
+  function nativeMountNeedsContinuousSourceFrames(mount) {
+    if (mount.provider?.needsContinuousFrames()) return true;
+    for (const input of mount.authoredInputs?.values() ?? [])
+      if (input.provider.needsContinuousFrames()) return true;
+    return false;
+  }
   function planNativeSceneFrame(mounts, playing, draftPlaying, benchmarkActive, previewDirty, renderBusy) {
     let scheduleNext = benchmarkActive || previewDirty || draftPlaying === true;
     if (!scheduleNext)
       for (const mount of mounts) {
-        if (mount.provider?.needsContinuousFrames()) {
+        if (nativeMountNeedsContinuousSourceFrames(mount)) {
           scheduleNext = true;
           break;
         }
@@ -21005,7 +21365,7 @@ fn hash(pixel: vec2f) -> f32 {
   // shared/native-input-resources.ts
   var BUILTINS = /* @__PURE__ */ new Set(["source", "mask", "backdrop"]);
   function sameInput(a, b) {
-    return a.kind === b.kind && (a.kind === "asset" ? a.url === b.url : a.source === b.source);
+    return a.kind === b.kind && (a.kind === "asset" ? a.url === b.url : a.kind === "authored-node" ? a.nodeId === b.nodeId && a.capture === b.capture : a.source === b.source);
   }
   function planNativeInputResources(definition3, instance) {
     const produced = new Set(
@@ -21034,6 +21394,12 @@ fn hash(pixel: vec2f) -> f32 {
             code: "input-binding-conflict",
             detail: \`Texture property \${name} conflicts with binding \${portName}.\`
           };
+        if (typeof value !== "object" || !("kind" in value) || value.kind !== "asset" || !("url" in value) || typeof value.url !== "string")
+          return {
+            ok: false,
+            code: "input-texture-property-asset-required",
+            detail: \`Texture property \${name} needs an asset reference.\`
+          };
         binding = value;
       }
       if (!binding && needed.has(resource) && BUILTINS.has(resource))
@@ -21058,11 +21424,11 @@ fn hash(pixel: vec2f) -> f32 {
           code: optionalNoise ? "optional-noise-asset-required" : "optional-image-asset-required",
           detail: \`Input \${portName} needs a decoded asset rather than an authored or composed source.\`
         };
-      if (binding.kind === "authored-node")
+      if (binding.kind === "authored-node" && (definition3.statelessCompute || definition3.simulation || definition3.feedback))
         return {
           ok: false,
-          code: "input-authored-node-unsupported",
-          detail: \`Input \${portName} needs an authored-node capture path.\`
+          code: "input-authored-mode-unsupported",
+          detail: \`Input \${portName} needs a render-pass effect for authored-node capture.\`
         };
       if (binding.kind === "asset") {
         const checked = checkEffectAssetUrl(binding.url);
@@ -21089,7 +21455,7 @@ fn hash(pixel: vec2f) -> f32 {
           code: "input-placement-unsupported",
           detail: \`Input \${portName} cannot sample a backdrop on a \${instance.placement} instance.\`
         };
-      if (binding.kind === "builtin" && definition3.resources?.some(
+      if ((binding.kind === "builtin" || binding.kind === "authored-node") && definition3.resources?.some(
         (candidate) => candidate.name === resource && candidate.sampleEncoding === "linear-data"
       ))
         return {
@@ -24272,7 +24638,7 @@ fn hash(pixel: vec2f) -> f32 {
     snapshot.getPropertyValue = (name) => values.get(name) ?? "";
     return snapshot;
   }
-  function cloneOwnPaint(element, preserveNativeTextFlow = false, phase = "all", fillPaint) {
+  function cloneOwnPaint(element, preserveNativeTextFlow = false, phase = "all", fillPaint, authoredTextPaint) {
     const boxPhase = phase === "background" || phase === "border" || phase === "coverage" || phase === "inner-coverage";
     const clone = boxPhase ? document.createElement("div") : element.cloneNode(true);
     for (const node of [clone, ...clone.querySelectorAll("*")]) {
@@ -24309,6 +24675,13 @@ fn hash(pixel: vec2f) -> f32 {
       copy.remove();
     }
     copyComputedCss(element, clone);
+    if (authoredTextPaint) {
+      clone.style.color = authoredTextPaint.color;
+      clone.style.setProperty(
+        "-webkit-text-fill-color",
+        authoredTextPaint.textFillColor
+      );
+    }
     clone.style.position = "static";
     clone.style.left = "auto";
     clone.style.top = "auto";
@@ -24498,7 +24871,7 @@ fn hash(pixel: vec2f) -> f32 {
       \`\${box} \${overflow.outset}px\`
     );
   }
-  async function rasterOwnPaint(element, canvas, density, phase = "all", fillPaint, glyphClone, glyphColors) {
+  async function rasterOwnPaint(element, canvas, density, phase = "all", fillPaint, glyphClone, glyphColors, authoredTextPaint) {
     const size = sizeOf(element);
     const overflow = classifyNativeComputedOverflowClip(
       getComputedStyle(element)
@@ -24531,7 +24904,13 @@ fn hash(pixel: vec2f) -> f32 {
         "A source has invalid or oversized expanded capture geometry."
       );
     const { width, height } = capture.plan.pixelBox;
-    const clone = glyphClone ?? cloneOwnPaint(element, false, phase, fillPaint);
+    const clone = glyphClone ?? cloneOwnPaint(
+      element,
+      !!authoredTextPaint,
+      phase,
+      fillPaint,
+      authoredTextPaint
+    );
     applyNativeCaptureOverflowClip(clone, overflow);
     const canvasText = phase !== "background" && phase !== "border" && phase !== "coverage" && phase !== "inner-coverage" && (hasDirectText(element) || isSourceTextFlow(element) || phase === "foreground" || phase === "glyph") && nativeTextFlowUsesDocumentFont(element);
     if (canvasText) {
@@ -24631,10 +25010,16 @@ fn hash(pixel: vec2f) -> f32 {
         density
       );
       try {
-        await paintNativeTextFlow(element, canvas, false, glyphColors, {
-          density,
-          pixelOffset: capture.plan.pixelOffset
-        });
+        await paintNativeTextFlow(
+          element,
+          canvas,
+          false,
+          authoredTextPaint ? /* @__PURE__ */ new Map([[element, authoredTextPaint.textFillColor]]) : glyphColors,
+          {
+            density,
+            pixelOffset: capture.plan.pixelOffset
+          }
+        );
       } finally {
         if (clipped) context.restore();
       }
@@ -24911,14 +25296,16 @@ fn hash(pixel: vec2f) -> f32 {
   }
   var SceneProvider = class {
     constructor(target, placement, onDirty = () => {
-    }, backdropPresentation) {
+    }, backdropPresentation, targetCapture) {
       this.target = target;
       this.placement = placement;
       this.onDirty = onDirty;
       this.backdropPresentation = backdropPresentation;
+      this.targetCapture = targetCapture;
       this.leaves = /* @__PURE__ */ new Map();
       this.fillBoxLeaves = /* @__PURE__ */ new Map();
       this.fillForegroundLeaf = null;
+      this.authoredContentTextSignature = null;
       this.fillGlyphLeaf = null;
       this.fillGlyphClone = null;
       this.fillGlyphColors = null;
@@ -25058,6 +25445,32 @@ fn hash(pixel: vec2f) -> f32 {
         return true;
       return !(element.compareDocumentPosition(this.backdropPresentation) & Node.DOCUMENT_POSITION_FOLLOWING);
     }
+    authoredContentTextPaint(element) {
+      if (this.targetCapture !== "content" || element !== this.target || !element.hasAttribute("data-an-native-text-suppressed"))
+        return void 0;
+      if (!hasDirectText(element) || [...element.children].some(
+        (child) => !child.matches(
+          "canvas[data-an-native-canvas]:not([data-an-native-presentation])"
+        )
+      ))
+        throw new NativeSourceError(
+          "input-authored-content-text-unavailable",
+          "Authored colors for styled descendant text are unavailable while a native text Fill is presented."
+        );
+      const color9 = element.getAttribute("data-an-native-authored-color");
+      const textFill = element.getAttribute(
+        "data-an-native-authored-text-fill-color"
+      );
+      if (!color9 || textFill === null)
+        throw new NativeSourceError(
+          "input-authored-content-text-unavailable",
+          "The authored text color has no preserved style snapshot."
+        );
+      return {
+        color: color9,
+        textFillColor: textFill && textFill !== "currentcolor" ? textFill : color9
+      };
+    }
     invalidateAll(reason) {
       this.assetRevision += 1;
       this.sourceGeneration += 1;
@@ -25143,9 +25556,9 @@ fn hash(pixel: vec2f) -> f32 {
     }
     needsContinuousFrames() {
       const scope = this.placement === "backdrop" ? document.body : this.target;
-      if ([...scope.querySelectorAll("video")].some(
+      if (scope instanceof HTMLVideoElement && !scope.paused && !scope.ended || [...scope.querySelectorAll("video")].some(
         (video) => !video.paused && !video.ended
-      ) || scope.querySelector(
+      ) || scope instanceof HTMLCanvasElement && !scope.hasAttribute("data-an-native-canvas") && !scope.hasAttribute("data-an-native-presentation") || scope.querySelector(
         "canvas:not([data-an-native-canvas]):not([data-an-native-presentation])"
       ))
         return true;
@@ -25996,7 +26409,8 @@ fn hash(pixel: vec2f) -> f32 {
               paintPhase,
               this.fillPaint ?? void 0,
               paintPhase === "glyph" ? this.fillGlyphClone ?? void 0 : void 0,
-              paintPhase === "glyph" ? this.fillGlyphColors ?? void 0 : void 0
+              paintPhase === "glyph" ? this.fillGlyphColors ?? void 0 : void 0,
+              this.authoredContentTextPaint(node)
             ),
             this.onDirty,
             (reason) => this.recordLeafInvalidation(key, reason),
@@ -26118,8 +26532,9 @@ fn hash(pixel: vec2f) -> f32 {
           }
         }
       }
-      const fillInstance = element.getAttribute("data-an-native-fill-instance");
-      const layerInstance = element !== this.target && element.getAttribute("data-an-native-layer-instance");
+      const captureTargetContent = element === this.target && this.targetCapture === "content";
+      const fillInstance = captureTargetContent ? null : element.getAttribute("data-an-native-fill-instance");
+      const layerInstance = (element !== this.target || this.targetCapture === "appearance") && element.getAttribute("data-an-native-layer-instance");
       const replacementInstance = layerInstance || fillInstance;
       if (replacementInstance) {
         const presentations = [...element.parentElement?.children ?? []].filter(
@@ -26148,7 +26563,7 @@ fn hash(pixel: vec2f) -> f32 {
         const presentationGeometry = relativeAffine(
           layerInstance ? presentation : element,
           this.target,
-          this.coordinateSpace,
+          element === this.target && layerInstance ? "target-local-global" : this.coordinateSpace,
           void 0,
           getComputedStyle,
           void 0,
@@ -26200,7 +26615,7 @@ fn hash(pixel: vec2f) -> f32 {
         }
         return false;
       }
-      const fillCanvases = [...element.children].filter(
+      const fillCanvases = captureTargetContent ? [] : [...element.children].filter(
         (child) => child.matches(
           "canvas[data-an-native-canvas]:not([data-an-native-presentation])"
         )
@@ -26235,7 +26650,7 @@ fn hash(pixel: vec2f) -> f32 {
       }
       const childGroups = [];
       for (const child of element.children)
-        if (!fillCanvases.includes(child) && !(hasDirectText(element) && isInlineFlowChild(child))) {
+        if (!(captureTargetContent && child.hasAttribute("data-an-native-canvas")) && !fillCanvases.includes(child) && !(hasDirectText(element) && isInlineFlowChild(child))) {
           const records = [];
           if (yield* this.walkSteps(child, records, metrics, memo))
             crossedAsyncBoundary = true;
@@ -26251,8 +26666,78 @@ fn hash(pixel: vec2f) -> f32 {
         assertDomSiblingOrder(element, element.lastElementChild, element, out);
       return crossedAsyncBoundary;
     }
+    recordTargetBackdropPresentations(out, metrics, memo) {
+      const presentations = [];
+      for (let sibling = this.target.previousElementSibling; sibling instanceof HTMLCanvasElement && sibling.hasAttribute("data-an-native-backdrop-presentation"); sibling = sibling.previousElementSibling)
+        presentations.unshift(sibling);
+      for (const canvas of presentations) {
+        if (nativeBackdropReceiver(canvas) !== this.target)
+          throw new NativeSourceError(
+            "source-composition-unsupported",
+            "A backdrop presentation no longer belongs to the captured target."
+          );
+        const instanceId = canvas.getAttribute("data-an-native-canvas");
+        if (!instanceId || canvas.width < 1 || canvas.height < 1)
+          throw new NativeSourceError(
+            "native-presentation-missing",
+            "An authored backdrop has no current native presentation surface."
+          );
+        if (metrics) metrics.walkDirectAffineReads += 1;
+        const geometry = relativeAffine(
+          canvas,
+          this.target,
+          "target-local-global",
+          void 0,
+          getComputedStyle,
+          void 0,
+          memo
+        );
+        const sourceClip = sourceClipPlan(
+          this.target,
+          this.target,
+          this.coordinateSpace,
+          true,
+          null,
+          0,
+          "border",
+          void 0,
+          memo
+        );
+        const isolationPath = this.isolationPath(
+          this.target,
+          sourceClip.groupClips,
+          false
+        );
+        if (!isolationPath || geometry.rect.width <= 0 || geometry.rect.height <= 0 || sourceClip.clip.width <= 0 || sourceClip.clip.height <= 0)
+          continue;
+        out.push({
+          key: this.id(canvas),
+          node: this.target,
+          kind: "native",
+          nativeInstanceId: instanceId,
+          imageRendering: { value: getComputedStyle(canvas).imageRendering },
+          width: canvas.width,
+          height: canvas.height,
+          revision: this.assetRevision,
+          coordinateSpace: this.coordinateSpace,
+          rect: geometry.rect,
+          localBox: geometry.localBox,
+          localToTarget: geometry.localToTarget,
+          clip: sourceClip.clip,
+          clips: sourceClip.clips,
+          groupClips: sourceClip.groupClips.map(({ node, clip }) => ({
+            id: \`clip:\${this.id(node)}\`,
+            clip
+          })),
+          isolationPath,
+          opacity: 1
+        });
+      }
+    }
     *readSceneWalkSteps(path, out, metrics, memo) {
       if (this.placement === "layer") {
+        if (this.targetCapture === "appearance")
+          this.recordTargetBackdropPresentations(out, metrics, memo);
         yield* this.walkSteps(this.target, out, metrics, memo);
         return;
       }
@@ -26406,13 +26891,13 @@ fn hash(pixel: vec2f) -> f32 {
       if (hidden) this.target.removeAttribute("data-an-native-text-suppressed");
       try {
         this.fillGlyphClone = cloneOwnPaint(this.target, true, "glyph");
-        const colors = /* @__PURE__ */ new Map();
+        const colors2 = /* @__PURE__ */ new Map();
         for (const node of [
           this.target,
           ...this.target.querySelectorAll("*")
         ])
-          colors.set(node, getComputedStyle(node).color);
-        this.fillGlyphColors = colors;
+          colors2.set(node, getComputedStyle(node).color);
+        this.fillGlyphColors = colors2;
       } finally {
         if (hidden)
           this.target.setAttribute("data-an-native-text-suppressed", "");
@@ -26476,6 +26961,12 @@ fn hash(pixel: vec2f) -> f32 {
           "source-disposed",
           "The source provider was disposed."
         );
+      const authoredTextPaint = this.authoredContentTextPaint(this.target);
+      const authoredTextSignature = authoredTextPaint ? JSON.stringify(authoredTextPaint) : null;
+      if (authoredTextSignature !== this.authoredContentTextSignature) {
+        this.leaves.get(this.target)?.invalidate("attributes");
+        this.authoredContentTextSignature = authoredTextSignature;
+      }
       this.readSceneCalls += 1;
       if (metrics) {
         metrics.calls += 1;
@@ -26537,6 +27028,11 @@ fn hash(pixel: vec2f) -> f32 {
             this.retiredLeaves += 1;
           }
         }
+        if (JSON.stringify(this.authoredContentTextPaint(this.target) ?? null) !== JSON.stringify(authoredTextPaint ?? null))
+          throw new NativeSourceError(
+            "input-authored-source-stale",
+            "The authored text style changed during capture."
+          );
         return out;
       } finally {
         memo.clear();
@@ -26578,8 +27074,14 @@ fn hash(pixel: vec2f) -> f32 {
       }
     }
   };
-  function createNativeSceneProvider(target, placement, onDirty, backdropPresentation) {
-    return new SceneProvider(target, placement, onDirty, backdropPresentation);
+  function createNativeSceneProvider(target, placement, onDirty, backdropPresentation, targetCapture) {
+    return new SceneProvider(
+      target,
+      placement,
+      onDirty,
+      backdropPresentation,
+      targetCapture
+    );
   }
 
   // app/components/design/bridge/native-authored-paint.ts
@@ -31818,6 +32320,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           const existing = this.mounts.get(id);
           if (existing) {
             if (!rejectedIds.has(id)) existing.frozenReason = null;
+            if (JSON.stringify(existing.instance.bindings) !== JSON.stringify(entry.instance.bindings))
+              this.releaseAuthoredInputs(existing);
             if (existing.definitionHash !== entry.hash || JSON.stringify(existing.instance) !== JSON.stringify(entry.instance) || existing.previousLayerId !== entry.previousLayerId || existing.previousFillId !== entry.previousFillId)
               this.markMountRenderPending(existing);
             if (existing.feedback && (!entry.definition.feedback || existing.feedback.definitionHash !== entry.hash))
@@ -33798,17 +34302,30 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       const mounts = [...this.mounts.values()].map((mount) => ({
         id: mount.instance.id,
         sourceBytes: bytes(
-          [...mount.sourceTextures.values()].map((entry) => entry.texture)
+          [
+            ...mount.sourceTextures.values(),
+            ...[...mount.authoredInputs.values()].flatMap((input) => [
+              ...input.surface.sourceTextures.values()
+            ])
+          ].map((entry) => entry.texture)
         ),
         assetBytes: bytes(
           [...mount.assetTextures.values()].map((entry) => entry.texture)
         ),
         graphBytes: bytes([
           ...mount.resourceTextures.values(),
+          ...[...mount.authoredInputs.values()].flatMap((input) => [
+            ...input.surface.resourceTextures.values()
+          ]),
           ...mount.feedback?.textures ?? []
         ]),
         isolationBytes: bytes(
-          [...mount.isolationTextures.values()].map((entry) => entry.texture)
+          [
+            ...mount.isolationTextures.values(),
+            ...[...mount.authoredInputs.values()].flatMap((input) => [
+              ...input.surface.isolationTextures.values()
+            ])
+          ].map((entry) => entry.texture)
         ),
         finalBytes: bytes([mount.outputTexture]),
         maskBytes: bytes([mount.maskTexture])
@@ -34436,22 +34953,30 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       };
     }
     ensureCompositionBudget(mount, bytes) {
+      const owner = mount.budgetOwner ?? ("authoredInputs" in mount ? mount : null);
+      const surfaces = owner ? [
+        owner,
+        ...[...owner.authoredInputs.values()].map((input) => input.surface)
+      ] : [mount];
+      const budgetRecord = owner ?? mount;
       const budget = summarizeNativeCompositionBudget(
         {
-          resource: mount.resourceTextures.values(),
-          feedback: mount.feedback?.textures ?? [],
-          source: [...mount.sourceTextures.values()].map(
+          resource: surfaces.flatMap((surface) => [
+            ...surface.resourceTextures.values()
+          ]),
+          feedback: budgetRecord.feedback?.textures ?? [],
+          source: surfaces.flatMap(
+            (surface) => [...surface.sourceTextures.values()].map((entry) => entry.texture)
+          ),
+          asset: [...budgetRecord.assetTextures?.values() ?? []].map(
             (entry) => entry.texture
           ),
-          asset: [...mount.assetTextures?.values() ?? []].map(
-            (entry) => entry.texture
-          ),
-          isolation: [...mount.isolationTextures.values()].map(
-            (entry) => entry.texture
+          isolation: surfaces.flatMap(
+            (surface) => [...surface.isolationTextures.values()].map((entry) => entry.texture)
           ),
           compute: [
-            ...mount.statelessBuffers ?? [],
-            ...mount.statelessInputs?.keys() ?? []
+            ...budgetRecord.statelessBuffers ?? [],
+            ...budgetRecord.statelessInputs?.keys() ?? []
           ]
         },
         new Map([
@@ -34506,7 +35031,31 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       );
       return !authoredChildren || style.overflowX !== "visible" && style.overflowY !== "visible";
     }
+    releaseAuthoredInput(mount, resource) {
+      const input = mount.authoredInputs.get(resource);
+      if (!input) return;
+      mount.authoredInputs.delete(resource);
+      input.provider.dispose();
+      const surface = input.surface;
+      const textures = /* @__PURE__ */ new Set([
+        ...surface.resourceTextures.values(),
+        ...[...surface.sourceTextures.values()].map((entry) => entry.texture),
+        ...[...surface.isolationTextures.values()].map((entry) => entry.texture)
+      ]);
+      for (const texture3 of textures) this.destroyTexture(texture3);
+      for (const binding of surface.drawBindings.values())
+        this.destroyUniform(binding.buffer);
+      surface.resourceTextures.clear();
+      surface.sourceTextures.clear();
+      surface.isolationTextures.clear();
+      surface.drawBindings.clear();
+    }
+    releaseAuthoredInputs(mount) {
+      for (const resource of [...mount.authoredInputs.keys()])
+        this.releaseAuthoredInput(mount, resource);
+    }
     releaseMountTextures(mount) {
+      this.releaseAuthoredInputs(mount);
       this.releaseSimulation(mount);
       this.releaseFeedback(mount);
       for (const asset2 of mount.assetTextures.values())
@@ -34840,6 +35389,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         assetPending: /* @__PURE__ */ new Map(),
         assetFailures: /* @__PURE__ */ new Map(),
         assetAbort: new AbortController(),
+        authoredInputs: /* @__PURE__ */ new Map(),
         outputTexture: null,
         groupLocalCommittedChildren: /* @__PURE__ */ new Set(),
         groupLocalNoncontributingChildren: /* @__PURE__ */ new Set(),
@@ -35211,6 +35761,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       ])
         if (!survivors.length) mount.target.removeAttribute(name);
       mount.provider?.dispose();
+      this.releaseAuthoredInputs(mount);
       mount.assetAbort.abort();
       for (const asset2 of mount.assetTextures.values())
         this.destroyTexture(asset2.texture);
@@ -36439,7 +36990,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               height: groupHeight / scaleY
             };
             const identity = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
-            const seed = {
+            const seed2 = {
               id: \`\${groupKey}:incoming\`,
               texture: current,
               rect: fullBox,
@@ -36452,7 +37003,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               encodedScene: blendMode !== "linear"
             };
             const groupResult = await drawItems(
-              [seed, ...item.children],
+              [seed2, ...item.children],
               groupTexture("working"),
               left,
               top,
@@ -37686,7 +38237,213 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         }
       }
     }
-    async effectPasses(mount, source4, time, encoder, definition3 = mount.definition, instance = mount.instance, deterministic = false, sourceRevision = "") {
+    authoredInputTarget(nodeId) {
+      let target = null;
+      for (const candidate of document.querySelectorAll(
+        "[data-agent-native-node-id]"
+      )) {
+        if (candidate.getAttribute("data-agent-native-node-id") !== nodeId)
+          continue;
+        if (target)
+          throw new NativeSourceError(
+            "input-authored-node-ambiguous",
+            \`Authored input \${nodeId} has more than one live node.\`
+          );
+        target = candidate;
+      }
+      if (!target)
+        throw new NativeSourceError(
+          "input-authored-node-missing",
+          \`Authored input \${nodeId} has no live node.\`
+        );
+      return target;
+    }
+    async authoredInputTexture(mount, resource, binding, time, deterministic, encoder, complete, active) {
+      let target;
+      try {
+        target = this.authoredInputTarget(binding.nodeId);
+      } catch (error) {
+        this.releaseAuthoredInput(mount, resource);
+        throw error;
+      }
+      const epoch = this.deviceEpoch;
+      const renderEpoch = this.renderEpoch;
+      const backdropOwners = binding.capture === "appearance" ? [...this.mounts.values()].filter(
+        (candidate) => candidate.target === target && candidate.instance.placement === "backdrop"
+      ) : [];
+      const nativeOwner = binding.capture === "appearance" ? [...this.mounts.values()].find(
+        (candidate) => candidate.target === target && candidate.isTopLayer && candidate.instance.placement === "layer"
+      ) ?? [...this.mounts.values()].find(
+        (candidate) => candidate.target === target && candidate.isTopLayer && candidate.instance.placement === "fill"
+      ) : void 0;
+      for (const backdrop of backdropOwners) {
+        if (backdrop.frozenReason)
+          throw new NativeSourceError(
+            backdrop.frozenReason.code,
+            backdrop.frozenReason.message
+          );
+        if (active.has(backdrop.instance.id))
+          throw new NativeSourceError(
+            "effect-dependency-cycle",
+            \`Authored appearance \${binding.nodeId} depends on its own active backdrop.\`
+          );
+        await this.renderMount(backdrop, time, deterministic, complete, active);
+        if (!backdrop.outputTexture || !backdrop.outputExtent)
+          throw new NativeSourceError(
+            "input-authored-appearance-unavailable",
+            \`Authored appearance \${binding.nodeId} has no current backdrop output.\`
+          );
+      }
+      if (nativeOwner) {
+        if (nativeOwner.frozenReason)
+          throw new NativeSourceError(
+            nativeOwner.frozenReason.code,
+            nativeOwner.frozenReason.message
+          );
+        if (active.has(nativeOwner.instance.id))
+          throw new NativeSourceError(
+            "effect-dependency-cycle",
+            \`Authored appearance \${binding.nodeId} depends on its own active effect.\`
+          );
+        await this.renderMount(
+          nativeOwner,
+          time,
+          deterministic,
+          complete,
+          active
+        );
+        if (!nativeOwner.outputTexture || !nativeOwner.outputExtent)
+          throw new NativeSourceError(
+            "input-authored-appearance-unavailable",
+            \`Authored appearance \${binding.nodeId} has no current native output.\`
+          );
+      }
+      const extent2 = nativeOwner?.outputExtent;
+      const ratio = extent2?.pixelRatio ?? mount.pixelRatio;
+      const width = extent2?.width ?? Math.ceil(target.offsetWidth * ratio);
+      const height = extent2?.height ?? Math.ceil(target.offsetHeight * ratio);
+      if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1 || width > MAX_DIMENSION || height > MAX_DIMENSION || width * height > MAX_PIXELS)
+        throw new NativeSourceError(
+          "input-authored-node-size",
+          \`Authored input \${binding.nodeId} has unavailable or oversized capture dimensions.\`
+        );
+      let capture = mount.authoredInputs.get(resource);
+      if (capture && (capture.target !== target || capture.nodeId !== binding.nodeId || capture.capture !== binding.capture || capture.surface.width !== width || capture.surface.height !== height || capture.surface.pixelRatio !== ratio || (capture.surface.outputExtent?.left ?? 0) !== (extent2?.left ?? 0) || (capture.surface.outputExtent?.top ?? 0) !== (extent2?.top ?? 0))) {
+        this.releaseAuthoredInput(mount, resource);
+        capture = void 0;
+      }
+      if (!capture) {
+        const provider = createNativeSceneProvider(
+          target,
+          "layer",
+          this.requestSourceFrame,
+          void 0,
+          binding.capture
+        );
+        if (!provider)
+          throw new NativeSourceError(
+            "input-authored-node-unavailable",
+            \`Authored input \${binding.nodeId} cannot be captured.\`
+          );
+        capture = {
+          target,
+          nodeId: binding.nodeId,
+          capture: binding.capture,
+          provider,
+          surface: {
+            target,
+            width,
+            height,
+            pixelRatio: ratio,
+            outputExtent: extent2 ?? null,
+            budgetOwner: mount,
+            resourceTextures: /* @__PURE__ */ new Map(),
+            isolationTextures: /* @__PURE__ */ new Map(),
+            drawBindings: /* @__PURE__ */ new Map(),
+            sourceTextures: /* @__PURE__ */ new Map(),
+            imageRasters: 0,
+            sourceDownsamples: 0
+          }
+        };
+        mount.authoredInputs.set(resource, capture);
+      }
+      capture.provider.setDensity(ratio);
+      const readStableScene = async () => {
+        const before = capture.provider.sourceEpoch?.();
+        if (before === void 0)
+          throw new NativeSourceError(
+            "input-authored-source-stale",
+            \`Authored input \${binding.nodeId} has no source revision.\`
+          );
+        const scene2 = await capture.provider.readScene(
+          void 0,
+          "dependency-refresh"
+        );
+        if (capture.provider.sourceEpoch?.() !== before)
+          throw new NativeSourceError(
+            "input-authored-source-stale",
+            \`Authored input \${binding.nodeId} changed during source read.\`
+          );
+        return { scene: scene2, sourceEpoch: before };
+      };
+      let read = await readStableScene();
+      let scene = read.scene;
+      let refreshed = false;
+      for (const record4 of scene) {
+        if (!record4.nativeInstanceId) continue;
+        const dependency = this.mounts.get(record4.nativeInstanceId);
+        if (!dependency)
+          throw new NativeSourceError(
+            "native-dependency-missing",
+            \`Authored input \${binding.nodeId} contains an unmounted native output.\`
+          );
+        if (dependency.frozenReason)
+          throw new NativeSourceError(
+            dependency.frozenReason.code,
+            dependency.frozenReason.message
+          );
+        if (active.has(dependency.instance.id))
+          throw new NativeSourceError(
+            "effect-dependency-cycle",
+            \`Authored input \${binding.nodeId} depends on an active effect.\`
+          );
+        await this.renderMount(dependency, time, deterministic, complete, active);
+        refreshed = true;
+      }
+      if (refreshed) {
+        read = await readStableScene();
+        scene = read.scene;
+      }
+      if (nativeOwner && !scene.some(
+        (record4) => record4.nativeInstanceId === nativeOwner.instance.id
+      ))
+        throw new NativeSourceError(
+          "input-authored-appearance-unavailable",
+          \`Authored appearance \${binding.nodeId} did not expose its current native output.\`
+        );
+      for (const backdrop of backdropOwners)
+        if (!scene.some(
+          (record4) => record4.nativeInstanceId === backdrop.instance.id
+        ))
+          throw new NativeSourceError(
+            "input-authored-appearance-unavailable",
+            \`Authored appearance \${binding.nodeId} did not expose its current backdrop output.\`
+          );
+      const texture3 = await this.composeScene(
+        capture.surface,
+        scene,
+        encoder,
+        "source",
+        this.colorPresented === "srgb" && this.dynamicRangePresented === "sdr" && scene.length > 1 ? "srgb-css-linear" : "linear"
+      );
+      if (this.deviceEpoch !== epoch || this.renderEpoch !== renderEpoch || this.mounts.get(mount.instance.id) !== mount || mount.authoredInputs.get(resource) !== capture || this.authoredInputTarget(binding.nodeId) !== target || capture.provider.sourceEpoch?.() !== read.sourceEpoch)
+        throw new NativeSourceError(
+          "input-authored-source-stale",
+          \`Authored input \${binding.nodeId} changed during capture.\`
+        );
+      return texture3;
+    }
+    async effectPasses(mount, source4, time, encoder, definition3 = mount.definition, instance = mount.instance, deterministic = false, sourceRevision = "", dependencies) {
       assertNativeUniformTiming(time, "time");
       assertNativeUniformTiming(instance.timing.time, "initial-time");
       assertNativeUniformTiming(instance.timing.speed, "speed");
@@ -37741,6 +38498,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       const inputPlan = planNativeInputResources(definition3, instance);
       if (!inputPlan.ok)
         throw new NativeSourceError(inputPlan.code, inputPlan.detail);
+      for (const resource of [...mount.authoredInputs.keys()])
+        if (inputPlan.inputs.get(resource)?.kind !== "authored-node")
+          this.releaseAuthoredInput(mount, resource);
       const resources = /* @__PURE__ */ new Map();
       for (const [name, binding] of inputPlan.inputs) {
         let input;
@@ -37753,7 +38513,23 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             binding.mipmap
           );
         else if (binding.kind === "fallback") input = this.transparent;
-        else if (binding.source === "mask") {
+        else if (binding.kind === "authored-node") {
+          if (!dependencies)
+            throw new NativeSourceError(
+              "input-authored-context-unavailable",
+              "The authored input has no render dependency context."
+            );
+          input = await this.authoredInputTexture(
+            mount,
+            name,
+            binding,
+            time,
+            deterministic,
+            encoder,
+            dependencies.complete,
+            dependencies.active
+          );
+        } else if (binding.source === "mask") {
           input = await this.inputMask(mount, encoder);
           mount.inputMaskUsedFrame = this.renderEpoch;
         } else input = source4;
@@ -38545,7 +39321,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           child.definition,
           child.instance,
           transaction.deterministic,
-          \`group-local:\${parent.instance.id}:\${this.renderEpoch}\`
+          \`group-local:\${parent.instance.id}:\${this.renderEpoch}\`,
+          { complete: transaction.complete, active: transaction.active }
         );
         const finished = await this.finish(
           child,
@@ -38789,6 +39566,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         time,
         deterministic,
         active,
+        complete,
         staged: /* @__PURE__ */ new Map(),
         noncontributing: /* @__PURE__ */ new Set()
       } : void 0;
@@ -39000,7 +39778,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               "stateless-compute-frame-invalid"
             );
         };
-        const detachedCandidate = sourceEpoch !== void 0 && !mount.provider.needsContinuousFrames() && mount.isTopLayer && visibleLayoutUnchanged && mount.instance.placement === "layer" && mount.suppressed && mount.canvas.isConnected && mount.canvas.style.visibility === "visible" && !this.compositionAbort && !this.compositionPixelBusy && !mount.previousLayerId && !mount.previousFillId && !mount.definition.simulation && !mount.definition.feedback && !draft && !!mount.outputTexture && mount.outputTexture.width === mount.width && mount.outputTexture.height === mount.height && canDetachPresentationFromSources(scene);
+        const detachedCandidate = sourceEpoch !== void 0 && !nativeMountNeedsContinuousSourceFrames(mount) && mount.isTopLayer && visibleLayoutUnchanged && mount.instance.placement === "layer" && mount.suppressed && mount.canvas.isConnected && mount.canvas.style.visibility === "visible" && !this.compositionAbort && !this.compositionPixelBusy && !mount.previousLayerId && !mount.previousFillId && !mount.definition.simulation && !mount.definition.feedback && !draft && !!mount.outputTexture && mount.outputTexture.width === mount.width && mount.outputTexture.height === mount.height && canDetachPresentationFromSources(scene);
         if (detachedCandidate) {
           unpublishedLayerState = {
             outputTexture: mount.outputTexture,
@@ -39031,7 +39809,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           draft?.definition,
           activeInstance,
           deterministic,
-          sourceRevision
+          sourceRevision,
+          { complete, active }
         );
         if (hostWallPhases)
           hostWallPhases.effectPassesWallMs += performance.now() - effectPassesStarted;
@@ -40870,15 +41649,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         if (document.documentElement.hasAttribute(
           "data-an-native-source-idle-observer"
         )) {
-          const continuousMountIds = [...this.mounts.values()].filter((mount) => mount.provider?.needsContinuousFrames()).map((mount) => mount.instance.id);
+          const continuousMountIds = [...this.mounts.values()].filter(nativeMountNeedsContinuousSourceFrames).map((mount) => mount.instance.id);
           this.publishIdleSourceDiagnostic(continuousMountIds);
           if (continuousMountIds.length) this.requestSourceFrame();
           else this.scheduleIdleSourcePoll();
           return;
         }
-        if ([...this.mounts.values()].some(
-          (mount) => mount.provider?.needsContinuousFrames()
-        ))
+        if ([...this.mounts.values()].some(nativeMountNeedsContinuousSourceFrames))
           this.requestSourceFrame();
         else this.scheduleIdleSourcePoll();
       }, 250);

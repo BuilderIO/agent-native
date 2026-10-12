@@ -212,6 +212,96 @@ describe("NativeShaderLibraryBrowser", () => {
     });
   });
 
+  it("applies a saved preset when its authored input exists uniquely in the current file", async () => {
+    const onApplySaved = vi.fn().mockResolvedValue(true);
+    callAction.mockImplementation(
+      (name: string, args: Record<string, unknown>) => {
+        if (name === "read-source-file")
+          return Promise.resolve({
+            content:
+              '<main><div data-agent-native-node-id="target"></div><img data-agent-native-node-id="photo" src="/photo.png"></main>',
+          });
+        if (name === "get-shader" && args.libraryEntryId)
+          return Promise.resolve({
+            library: {
+              selectedEntry: {
+                definition: GRAIN_GRADIENT_EFFECT,
+                preset: {
+                  id: "saved-preset",
+                  definitionId: GRAIN_GRADIENT_EFFECT.id,
+                  definitionVersion: GRAIN_GRADIENT_EFFECT.version,
+                  placement: "fill",
+                  params: {},
+                  clip: "bounds",
+                  bindings: {
+                    source: {
+                      kind: "authored-node",
+                      nodeId: "photo",
+                      capture: "appearance",
+                    },
+                  },
+                  provenance: { origin: "user-authored" },
+                },
+              },
+            },
+          });
+        if (name === "get-shader")
+          return Promise.resolve({
+            approvedDefinitionHashes: [],
+            library: {
+              builtins: [],
+              items: [
+                {
+                  id: "saved",
+                  itemKey: "library:saved",
+                  name: "Saved material",
+                  placements: ["fill"],
+                  presetPlacement: "fill",
+                  favorite: false,
+                  lastUsedAt: null,
+                },
+              ],
+              hasMore: false,
+              nextCursor: null,
+              selectedEntry: null,
+            },
+          });
+        return Promise.resolve({});
+      },
+    );
+    await act(async () =>
+      root.render(
+        <NativeShaderLibraryBrowser
+          mode="fill"
+          search=""
+          disabled={false}
+          nodeId="target"
+          designId="design-1"
+          fileId="file-1"
+          onApplyBuiltin={vi.fn()}
+          onApplySaved={onApplySaved}
+        />,
+      ),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 230));
+    });
+    const saved = host.querySelector<HTMLButtonElement>(
+      '[aria-label="Saved material"]',
+    );
+    expect(saved).not.toBeNull();
+    await act(async () => saved!.click());
+    expect(onApplySaved).toHaveBeenCalledOnce();
+    expect(showError).not.toHaveBeenCalled();
+    expect(callAction).toHaveBeenCalledWith(
+      "get-shader",
+      expect.objectContaining({
+        source: { kind: "design-file", designId: "design-1", fileId: "file-1" },
+      }),
+      { method: "GET" },
+    );
+  });
+
   it("starts with every latest fill definition before the action read resolves", async () => {
     callAction.mockImplementation(() => new Promise(() => {}));
     await act(async () => {
@@ -266,8 +356,10 @@ describe("NativeShaderLibraryBrowser", () => {
       ...OWNED_NEXT_TWELVE_T_DEFINITIONS,
       ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
       ...STATEFUL_NINE_DEFINITIONS,
-    ].filter((candidate) =>
-      candidate.placements.some((placement) => placement !== "fill"),
+    ].filter(
+      (candidate) =>
+        NATIVE_EFFECT_LATEST_DEFINITIONS.includes(candidate) &&
+        candidate.placements.some((placement) => placement !== "fill"),
     )) {
       expect(
         host.querySelector(

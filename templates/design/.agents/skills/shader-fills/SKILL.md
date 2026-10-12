@@ -88,14 +88,33 @@ frame resources, up to 16 named sampled texture inputs per ordinary render
 pass (subject to the WebGPU device's sampled-texture limit), asset-valued
 texture parameters, and instance transforms. These are typed contracts, not
 blanket CSS or WGSL support: undeclared inputs, unsupported graph/resource modes,
-authored-node bindings, arbitrary URL protocols, and unsupported source
-composition fail with explicit diagnostics. An ordinary render pass maps its
+arbitrary URL protocols, and unsupported source composition fail with explicit
+diagnostics. An ordinary render pass maps its
 ordered `reads` to WGSL sampled texture bindings 2 through 17; bindings 0 and 1
 remain `Globals` and sampler. `NATIVE_RENDER_GLOBALS` declares the first two
 texture bindings; `nativeRenderExtraTextureBindings(readCount)` declares any
 additional bindings for render-pass WGSL without changing compute bindings.
 For a native asset input, store a same-origin root-relative raster URL in the
 manifest, never a `data:` or `blob:` URL. For a user-selected native texture, call `upload-design-native-texture` with the selected Design and HTML file IDs, the PNG/JPEG/WebP data URL, and a stable idempotency key for retries. The action verifies editor access and provider bytes and returns a Design-scoped `/api/design-native-texture/<id>.<ext>` path. Store only that returned path in the texture property. The binary reader rechecks current Design access and byte digest; standalone export embeds the same verified bytes. The existing selected Design/file application state identifies the UI target, but the action requires both IDs explicitly. Do not reuse the QA-local uploader or paste a hosted CDN URL into a native texture property.
+Ordinary render-pass texture and mask inputs can instead bind another uniquely
+identified layer in the same screen. `capture:"content"` reads that layer's
+original content; `capture:"appearance"` reads its rendered effect stack. The
+inspector's Canvas layer picker offers both. Stateful, compute, retired
+optional-image/noise, and linear-data ports do not offer authored layers.
+The source cannot be the receiver or create a dependency cycle. Live source
+changes update the binding, while a missing or duplicated ID fails explicitly.
+For an unannotated unlocked image, text, or group, pass
+`operation.bindingTargets:{<port>:{selector,capture}}` to `edit-native-shader`
+with `kind:"set-instance"`; the action resolves that selector against the
+current source and stamps a persistent `data-agent-native-node-id` in the same
+source write. Never persist a selector or preview hash as a binding node ID.
+Locked layers need an existing stable ID. A saved preset with authored bindings
+can be applied only when each referenced ID exists uniquely in the current
+screen. Use `set-instance` to send the complete `bindings` record and optional
+`params` together when switching a texture property from an asset to a layer:
+set that asset parameter to `null` in the same operation. An absent `params`
+field leaves parameters unchanged; supplied parameters merge with the stored
+ones before validation.
 Standalone export packages referenced local raster bytes in a bounded inert
 registry without changing the authored URL or definition hash. The runtime
 checks the registry digest before decode; missing, unreadable, or oversized

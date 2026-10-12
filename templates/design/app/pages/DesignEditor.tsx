@@ -541,6 +541,7 @@ import {
   readDesignClipboardPayloadFromSystem,
   readSystemClipboard,
 } from "@/lib/design-clipboard";
+import { designEditorViewFromSearchParams } from "@/lib/design-editor-route";
 import {
   type DesignClipboardPayload,
   type DesignClipboardScreenEntry,
@@ -1091,6 +1092,7 @@ import {
   getScreenFrameOriginCanvas,
   pinnedHeightScreenIds,
   resolveOverviewZoomBasisScreenId,
+  resolveOverviewCanvasZoom,
   resolveZoomUpdate,
   readOverviewZoomPercentFromTransform,
   resolveScreenDropPoint,
@@ -1607,9 +1609,8 @@ function DesignEditor() {
     worldBounds: FrameBounds;
   } | null>(null);
   const screenZoomByIdRef = useRef<Map<string, number>>(new Map());
-  const [explicitOverviewCanvasZoom, setExplicitOverviewCanvasZoom] = useState<
-    number | null
-  >(null);
+  const [explicitOverviewDisplayZoom, setExplicitOverviewDisplayZoom] =
+    useState<number | null>(null);
   const [deviceFrame] = useState<DeviceFrameType>("none");
   const [interactDeviceName, setInteractDeviceName] = useState(
     DEFAULT_INTERACT_DEVICE_PRESET.name,
@@ -6912,21 +6913,28 @@ function DesignEditor() {
       shouldResetExplicitOverviewZoomOnBasisChange({
         previousBasisScreenId,
         nextBasisScreenId: overviewZoomBasisScreenId,
-        explicitOverviewCanvasZoom,
+        explicitOverviewCanvasZoom:
+          explicitOverviewDisplayZoom === null
+            ? null
+            : getOverviewCanvasZoom(
+                explicitOverviewDisplayZoom,
+                overviewZoomScale,
+              ),
         nextOverviewZoomScale: overviewZoomScale,
       })
     ) {
-      setExplicitOverviewCanvasZoom(null);
+      setExplicitOverviewDisplayZoom(null);
     }
   }, [
-    explicitOverviewCanvasZoom,
+    explicitOverviewDisplayZoom,
     overviewZoomBasisScreenId,
     overviewZoomScale,
   ]);
 
-  const overviewCanvasZoom =
-    explicitOverviewCanvasZoom ??
-    getDefaultOverviewCanvasZoom(overviewZoomScale);
+  const overviewCanvasZoom = resolveOverviewCanvasZoom(
+    explicitOverviewDisplayZoom,
+    overviewZoomScale,
+  );
   const overviewZoom = clampOverviewDisplayZoom(
     getOverviewDisplayZoom(overviewCanvasZoom, overviewZoomScale),
   );
@@ -6934,24 +6942,24 @@ function DesignEditor() {
   const initialOverviewZoomValue = initialSearchParams.get("zoom");
   const hasExplicitOverviewZoomCommand =
     viewMode === "overview" &&
-    initialSearchParams.get("view") === "overview" &&
+    designEditorViewFromSearchParams(initialSearchParams) === "overview" &&
     initialOverviewZoomValue !== null &&
     Number.isFinite(Number(initialOverviewZoomValue));
   const setZoomForView = useCallback(
     (targetView: "single" | "overview", update: SetStateAction<number>) => {
       if (targetView === "overview") {
-        setExplicitOverviewCanvasZoom((currentCanvasZoom) => {
+        setExplicitOverviewDisplayZoom((currentDisplayZoom) => {
           const scale = overviewZoomScaleRef.current;
-          const resolvedCanvasZoom =
-            currentCanvasZoom ?? getDefaultOverviewCanvasZoom(scale);
-          const currentDisplayZoom = getOverviewDisplayZoom(
-            resolvedCanvasZoom,
-            scale,
+          const resolvedDisplayZoom =
+            currentDisplayZoom ??
+            getOverviewDisplayZoom(getDefaultOverviewCanvasZoom(scale), scale);
+          const nextDisplayZoom = resolveZoomUpdate(
+            update,
+            resolvedDisplayZoom,
           );
-          const nextDisplayZoom = resolveZoomUpdate(update, currentDisplayZoom);
           return Number.isFinite(nextDisplayZoom)
-            ? getOverviewCanvasZoom(nextDisplayZoom, scale)
-            : currentCanvasZoom;
+            ? nextDisplayZoom
+            : currentDisplayZoom;
         });
         return;
       }
@@ -6968,6 +6976,15 @@ function DesignEditor() {
     },
     [setZoomForView, viewMode],
   );
+  const handleOverviewCanvasZoomChange = useCallback((canvasZoom: number) => {
+    const displayZoom = getOverviewDisplayZoom(
+      canvasZoom,
+      overviewZoomScaleRef.current,
+    );
+    if (Number.isFinite(displayZoom)) {
+      setExplicitOverviewDisplayZoom(displayZoom);
+    }
+  }, []);
 
   useEffect(() => {
     if (viewMode !== "single" || !activeFileId) return;
@@ -17834,7 +17851,7 @@ function DesignEditor() {
     );
     const bounds = getFrameGroupBounds(frames);
     if (!bounds) {
-      setExplicitOverviewCanvasZoom(100);
+      setExplicitOverviewDisplayZoom(100);
       return;
     }
     cameraCommandNonceRef.current += 1;
@@ -28672,17 +28689,14 @@ function DesignEditor() {
                         onZoomChange={
                           responsiveInteractActive && overviewInteractScreenId
                             ? undefined
-                            : setExplicitOverviewCanvasZoom
+                            : handleOverviewCanvasZoomChange
                         }
                         cameraCommand={cameraCommand}
                         suppressLineupRecenter={suppressLineupRecenter}
                         preserveCameraOnScreenCountChange={
-                          explicitOverviewCanvasZoom !== null
+                          explicitOverviewDisplayZoom !== null
                         }
-                        deferLineupZoomChange={
-                          hasExplicitOverviewZoomCommand &&
-                          explicitOverviewCanvasZoom === null
-                        }
+                        deferLineupZoomChange={hasExplicitOverviewZoomCommand}
                         chromeInsetLeft={chromeInsetLeft}
                         chromeInsetRight={chromeInsetRight}
                         visibleCanvasRectRef={visibleCanvasRectRef}

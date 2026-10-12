@@ -54,6 +54,25 @@ describe("native scene RAF policy", () => {
     expect(plan([source]).scheduleNext).toBe(true);
   });
 
+  it("keeps a static consumer live only while an authored input provider needs frames", () => {
+    let moving = false;
+    const consumer = {
+      ...mount("static"),
+      authoredInputs: new Map([
+        ["authored", { provider: { needsContinuousFrames: () => moving } }],
+      ]),
+    };
+    expect(plan([consumer], { playing: false }).scheduleNext).toBe(false);
+    moving = true;
+    expect(plan([consumer], { playing: false })).toEqual({
+      enter: true,
+      scheduleNext: true,
+      maySubmit: true,
+    });
+    consumer.authoredInputs.clear();
+    expect(plan([consumer], { playing: false }).scheduleNext).toBe(false);
+  });
+
   it("keeps a static parent and animated native child rendering together", () => {
     expect(plan([mount("static"), mount("animated")]).scheduleNext).toBe(true);
   });

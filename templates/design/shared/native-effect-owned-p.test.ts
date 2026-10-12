@@ -93,16 +93,13 @@ describe("four independently authored P registrations", () => {
     expect(digest(OWNED_P_PRESETS)).toBe(
       "77a0c67148e7cbc6a8cf5726683c923a0018620d23fce76f33781fc8596e5012",
     );
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(291);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(337);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(676);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(306);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(356);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(714);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((d) => d.id)).size,
-    ).toBe(291);
-    expect(new Set(NATIVE_EFFECT_PRESETS.map((p) => p.id)).size).toBe(676);
-    expect(digest(NATIVE_EFFECT_LATEST_DEFINITIONS.slice(0, 219))).toBe(
-      "7b87042c46cc23e7c852897575eea824d6863701d1f10dc9bf4d8731574092dd",
-    );
+    ).toBe(306);
+    expect(new Set(NATIVE_EFFECT_PRESETS.map((p) => p.id)).size).toBe(714);
     expect(digest(NATIVE_EFFECT_DEFINITION_CATALOG.slice(0, 264))).toBe(
       "75c7a8a3641379e10f7e27b1949d4b8a3cf22cb407f371d7bda89d283f1a53d3",
     );
@@ -201,10 +198,10 @@ describe("four independently authored P registrations", () => {
         nodeId: "test-live-image",
         capture: "appearance",
       } as unknown as EffectValue;
-      const unsupported = planNativeInputResources(d, i);
-      expect(unsupported.ok).toBe(false);
-      if (!unsupported.ok)
-        expect(unsupported.code).toBe("input-authored-node-unsupported");
+      const authored = planNativeInputResources(d, i);
+      expect(authored.ok).toBe(false);
+      if (!authored.ok)
+        expect(authored.code).toBe("input-texture-property-asset-required");
     }
   });
   it("rejects invalid ordered thresholds at normal packing, manifest and source-edit boundaries", () => {

@@ -3,6 +3,7 @@ import {
   callAction,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { authoredSourceBindingsAvailable } from "@shared/native-authored-source-bindings";
 import {
   NATIVE_EFFECT_DEFINITION_CATALOG,
   NATIVE_EFFECT_LATEST_DEFINITIONS,
@@ -291,6 +292,9 @@ export function NativeShaderLibraryBrowser({
           includeLibrary: true,
           includeSource: true,
           libraryEntryId: entry.id,
+          ...(designId && fileId
+            ? { source: { kind: "design-file", designId, fileId } }
+            : {}),
         },
         { method: "GET" },
       );
@@ -301,8 +305,23 @@ export function NativeShaderLibraryBrowser({
         Object.values(selected.preset.bindings ?? {}).some(
           (binding) => binding.kind === "authored-node",
         )
-      )
-        throw new Error(t("editPanel.shaders.librarySourceIncompatible"));
+      ) {
+        if (!designId || !fileId)
+          throw new Error(t("editPanel.shaders.librarySourceIncompatible"));
+        const current = await callAction<{ content?: string }>(
+          "read-source-file",
+          { designId, fileId },
+          { method: "GET" },
+        );
+        if (
+          typeof current.content !== "string" ||
+          !authoredSourceBindingsAvailable(
+            current.content,
+            selected.preset.bindings,
+          )
+        )
+          throw new Error(t("editPanel.shaders.librarySourceIncompatible"));
+      }
       if (await onApplySaved(selected.definition, selected.preset))
         await markUsed(entry.itemKey);
     } catch (error) {
@@ -440,7 +459,7 @@ export function NativeShaderLibraryBrowser({
                 if (!selected?.definition || !selected.preset)
                   throw new Error("Saved shader source is unavailable");
                 if (Object.keys(selected.preset.bindings ?? {}).length)
-                  throw new Error("Bound source needs the authored target");
+                  throw new Error("Preview needs the saved input's scene");
                 return {
                   key: entry.itemKey,
                   item: {

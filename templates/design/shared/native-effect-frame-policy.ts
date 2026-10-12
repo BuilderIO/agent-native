@@ -4,7 +4,20 @@ type NativeFrameMount = {
   animationCapability: NativeEffectAnimationCapability;
   clock: { paused: boolean; speed: number };
   provider: { needsContinuousFrames(): boolean } | null;
+  authoredInputs?: ReadonlyMap<
+    string,
+    { provider: { needsContinuousFrames(): boolean } }
+  >;
 };
+
+export function nativeMountNeedsContinuousSourceFrames(
+  mount: Pick<NativeFrameMount, "provider" | "authoredInputs">,
+): boolean {
+  if (mount.provider?.needsContinuousFrames()) return true;
+  for (const input of mount.authoredInputs?.values() ?? [])
+    if (input.provider.needsContinuousFrames()) return true;
+  return false;
+}
 
 export function planNativeSceneFrame(
   mounts: Iterable<NativeFrameMount>,
@@ -17,7 +30,7 @@ export function planNativeSceneFrame(
   let scheduleNext = benchmarkActive || previewDirty || draftPlaying === true;
   if (!scheduleNext)
     for (const mount of mounts) {
-      if (mount.provider?.needsContinuousFrames()) {
+      if (nativeMountNeedsContinuousSourceFrames(mount)) {
         scheduleNext = true;
         break;
       }

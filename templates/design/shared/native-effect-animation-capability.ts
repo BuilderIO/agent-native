@@ -249,6 +249,19 @@ const STATIC_BUILTIN_VERSIONS = new Set([
   "an-native-owned-folded-paper@4",
   "an-native-owned-crystal-lattice@4",
   "an-native-focal-color-field@1",
+  "an-native-pointer-magnifier@1",
+  "an-native-pointer-vortex@1",
+  "an-native-pointer-spotlight@1",
+  "an-native-pointer-prism@1",
+  "an-native-owned-w-axis-mirror@1",
+  "an-native-owned-w-elastic-stretch@1",
+  "an-native-owned-w-lit-spherize@1",
+  "an-native-owned-log-polar-reprojection@2",
+  "an-native-owned-s-parabolic-bend@2",
+  "an-native-owned-corner-perspective@2",
+  "an-native-frequency-separation@1",
+  "an-native-owned-x-high-pass-speckle@1",
+  "an-native-owned-x-drainage-field@1",
 ]);
 
 const ANIMATED_BUILTIN_VERSIONS = new Set([
@@ -348,6 +361,12 @@ const ANIMATED_BUILTIN_VERSIONS = new Set([
   "an-native-owned-gyroid-slice@3",
   "an-native-grain-gradient@4",
   "an-native-luminous-perimeter@1",
+  "an-native-pointer-ripples@1",
+  "an-native-pointer-iridescence@1",
+  "an-native-owned-x-wavelet-bands@1",
+  "an-native-owned-x-perlin-gradient-field@1",
+  "an-native-owned-x-simplex-lattice@1",
+  "an-native-curl-streamlines@2",
 ]);
 
 const canonicalPayloadByVersion = new Map(

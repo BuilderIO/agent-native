@@ -14,7 +14,10 @@ import {
   nativeEffectAnimationCapability,
   type NativeEffectAnimationCapability,
 } from "../../../../shared/native-effect-animation-capability";
-import { planNativeSceneFrame } from "../../../../shared/native-effect-frame-policy";
+import {
+  nativeMountNeedsContinuousSourceFrames,
+  planNativeSceneFrame,
+} from "../../../../shared/native-effect-frame-policy";
 import { NATIVE_EFFECT_DEFINITION_CATALOG } from "../../../../shared/native-effect-presets";
 import { planNativeEffectTransform } from "../../../../shared/native-effect-transform";
 import {
@@ -374,8 +377,16 @@ type NestedBackdropTransaction = {
   time: number;
   deterministic: boolean;
   active: Set<string>;
+  complete: Set<string>;
   staged: Map<string, { mount: Mount; texture: GPUTexture }>;
   noncontributing: Set<string>;
+};
+type AuthoredInputCapture = {
+  target: HTMLElement;
+  nodeId: string;
+  capture: "content" | "appearance";
+  provider: NativeSceneProvider;
+  surface: CompositionSurface;
 };
 type Mount = {
   instance: EffectInstance;
@@ -409,6 +420,7 @@ type Mount = {
   assetPending: Map<string, Promise<GPUTexture>>;
   assetFailures: Map<string, NativeSourceError>;
   assetAbort: AbortController;
+  authoredInputs: Map<string, AuthoredInputCapture>;
   outputTexture: GPUTexture | null;
   groupLocalCommittedChildren: Set<string>;
   groupLocalNoncontributingChildren: Set<string>;
@@ -503,6 +515,7 @@ type CompositionSurface = Pick<
   | "imageRasters"
   | "sourceDownsamples"
 > & {
+  budgetOwner?: Mount;
   instance?: EffectInstance;
   pixelRatio?: number;
   outputExtent?: NativeEffectExtentPlan | null;
@@ -2302,17 +2315,30 @@ class NativeShaderRuntime {
     const mounts = [...this.mounts.values()].map((mount) => ({
       id: mount.instance.id,
       sourceBytes: bytes(
-        [...mount.sourceTextures.values()].map((entry) => entry.texture),
+        [
+          ...mount.sourceTextures.values(),
+          ...[...mount.authoredInputs.values()].flatMap((input) => [
+            ...input.surface.sourceTextures.values(),
+          ]),
+        ].map((entry) => entry.texture),
       ),
       assetBytes: bytes(
         [...mount.assetTextures.values()].map((entry) => entry.texture),
       ),
       graphBytes: bytes([
         ...mount.resourceTextures.values(),
+        ...[...mount.authoredInputs.values()].flatMap((input) => [
+          ...input.surface.resourceTextures.values(),
+        ]),
         ...(mount.feedback?.textures ?? []),
       ]),
       isolationBytes: bytes(
-        [...mount.isolationTextures.values()].map((entry) => entry.texture),
+        [
+          ...mount.isolationTextures.values(),
+          ...[...mount.authoredInputs.values()].flatMap((input) => [
+            ...input.surface.isolationTextures.values(),
+          ]),
+        ].map((entry) => entry.texture),
       ),
       finalBytes: bytes([mount.outputTexture]),
       maskBytes: bytes([mount.maskTexture]),
@@ -3246,22 +3272,34 @@ class NativeShaderRuntime {
     mount: CompositionSurface,
     bytes: number,
   ): void {
+    const owner =
+      mount.budgetOwner ??
+      ("authoredInputs" in mount ? (mount as Mount) : null);
+    const surfaces: CompositionSurface[] = owner
+      ? [
+          owner,
+          ...[...owner.authoredInputs.values()].map((input) => input.surface),
+        ]
+      : [mount];
+    const budgetRecord = owner ?? mount;
     const budget = summarizeNativeCompositionBudget(
       {
-        resource: mount.resourceTextures.values(),
-        feedback: mount.feedback?.textures ?? [],
-        source: [...mount.sourceTextures.values()].map(
+        resource: surfaces.flatMap((surface) => [
+          ...surface.resourceTextures.values(),
+        ]),
+        feedback: budgetRecord.feedback?.textures ?? [],
+        source: surfaces.flatMap((surface) =>
+          [...surface.sourceTextures.values()].map((entry) => entry.texture),
+        ),
+        asset: [...(budgetRecord.assetTextures?.values() ?? [])].map(
           (entry) => entry.texture,
         ),
-        asset: [...(mount.assetTextures?.values() ?? [])].map(
-          (entry) => entry.texture,
-        ),
-        isolation: [...mount.isolationTextures.values()].map(
-          (entry) => entry.texture,
+        isolation: surfaces.flatMap((surface) =>
+          [...surface.isolationTextures.values()].map((entry) => entry.texture),
         ),
         compute: [
-          ...(mount.statelessBuffers ?? []),
-          ...(mount.statelessInputs?.keys() ?? []),
+          ...(budgetRecord.statelessBuffers ?? []),
+          ...(budgetRecord.statelessInputs?.keys() ?? []),
         ],
       },
       new Map<GPUTexture | GPUBuffer, number>([
@@ -3325,7 +3363,33 @@ class NativeShaderRuntime {
     );
   }
 
+  private releaseAuthoredInput(mount: Mount, resource: string): void {
+    const input = mount.authoredInputs.get(resource);
+    if (!input) return;
+    mount.authoredInputs.delete(resource);
+    input.provider.dispose();
+    const surface = input.surface;
+    const textures = new Set<GPUTexture>([
+      ...surface.resourceTextures.values(),
+      ...[...surface.sourceTextures.values()].map((entry) => entry.texture),
+      ...[...surface.isolationTextures.values()].map((entry) => entry.texture),
+    ]);
+    for (const texture of textures) this.destroyTexture(texture);
+    for (const binding of surface.drawBindings.values())
+      this.destroyUniform(binding.buffer);
+    surface.resourceTextures.clear();
+    surface.sourceTextures.clear();
+    surface.isolationTextures.clear();
+    surface.drawBindings.clear();
+  }
+
+  private releaseAuthoredInputs(mount: Mount): void {
+    for (const resource of [...mount.authoredInputs.keys()])
+      this.releaseAuthoredInput(mount, resource);
+  }
+
   private releaseMountTextures(mount: Mount): void {
+    this.releaseAuthoredInputs(mount);
     this.releaseSimulation(mount);
     this.releaseFeedback(mount);
     for (const asset of mount.assetTextures.values())
@@ -4038,6 +4102,11 @@ class NativeShaderRuntime {
       if (existing) {
         if (!rejectedIds.has(id)) existing.frozenReason = null;
         if (
+          JSON.stringify(existing.instance.bindings) !==
+          JSON.stringify(entry.instance.bindings)
+        )
+          this.releaseAuthoredInputs(existing);
+        if (
           existing.definitionHash !== entry.hash ||
           JSON.stringify(existing.instance) !==
             JSON.stringify(entry.instance) ||
@@ -4275,6 +4344,7 @@ class NativeShaderRuntime {
       assetPending: new Map(),
       assetFailures: new Map(),
       assetAbort: new AbortController(),
+      authoredInputs: new Map(),
       outputTexture: null,
       groupLocalCommittedChildren: new Set(),
       groupLocalNoncontributingChildren: new Set(),
@@ -4708,6 +4778,7 @@ class NativeShaderRuntime {
     ])
       if (!survivors.length) mount.target.removeAttribute(name);
     mount.provider?.dispose();
+    this.releaseAuthoredInputs(mount);
     mount.assetAbort.abort();
     for (const asset of mount.assetTextures.values())
       this.destroyTexture(asset.texture);
@@ -7622,6 +7693,275 @@ class NativeShaderRuntime {
     }
   }
 
+  private authoredInputTarget(nodeId: string): HTMLElement {
+    let target: HTMLElement | null = null;
+    for (const candidate of document.querySelectorAll<HTMLElement>(
+      "[data-agent-native-node-id]",
+    )) {
+      if (candidate.getAttribute("data-agent-native-node-id") !== nodeId)
+        continue;
+      if (target)
+        throw new NativeSourceError(
+          "input-authored-node-ambiguous",
+          `Authored input ${nodeId} has more than one live node.`,
+        );
+      target = candidate;
+    }
+    if (!target)
+      throw new NativeSourceError(
+        "input-authored-node-missing",
+        `Authored input ${nodeId} has no live node.`,
+      );
+    return target;
+  }
+
+  private async authoredInputTexture(
+    mount: Mount,
+    resource: string,
+    binding: { nodeId: string; capture: "content" | "appearance" },
+    time: number,
+    deterministic: boolean,
+    encoder: GPUCommandEncoder,
+    complete: Set<string>,
+    active: Set<string>,
+  ): Promise<GPUTexture> {
+    let target: HTMLElement;
+    try {
+      target = this.authoredInputTarget(binding.nodeId);
+    } catch (error) {
+      this.releaseAuthoredInput(mount, resource);
+      throw error;
+    }
+    const epoch = this.deviceEpoch;
+    const renderEpoch = this.renderEpoch;
+    const backdropOwners =
+      binding.capture === "appearance"
+        ? [...this.mounts.values()].filter(
+            (candidate) =>
+              candidate.target === target &&
+              candidate.instance.placement === "backdrop",
+          )
+        : [];
+    const nativeOwner =
+      binding.capture === "appearance"
+        ? ([...this.mounts.values()].find(
+            (candidate) =>
+              candidate.target === target &&
+              candidate.isTopLayer &&
+              candidate.instance.placement === "layer",
+          ) ??
+          [...this.mounts.values()].find(
+            (candidate) =>
+              candidate.target === target &&
+              candidate.isTopLayer &&
+              candidate.instance.placement === "fill",
+          ))
+        : undefined;
+    for (const backdrop of backdropOwners) {
+      if (backdrop.frozenReason)
+        throw new NativeSourceError(
+          backdrop.frozenReason.code,
+          backdrop.frozenReason.message,
+        );
+      if (active.has(backdrop.instance.id))
+        throw new NativeSourceError(
+          "effect-dependency-cycle",
+          `Authored appearance ${binding.nodeId} depends on its own active backdrop.`,
+        );
+      await this.renderMount(backdrop, time, deterministic, complete, active);
+      if (!backdrop.outputTexture || !backdrop.outputExtent)
+        throw new NativeSourceError(
+          "input-authored-appearance-unavailable",
+          `Authored appearance ${binding.nodeId} has no current backdrop output.`,
+        );
+    }
+    if (nativeOwner) {
+      if (nativeOwner.frozenReason)
+        throw new NativeSourceError(
+          nativeOwner.frozenReason.code,
+          nativeOwner.frozenReason.message,
+        );
+      if (active.has(nativeOwner.instance.id))
+        throw new NativeSourceError(
+          "effect-dependency-cycle",
+          `Authored appearance ${binding.nodeId} depends on its own active effect.`,
+        );
+      await this.renderMount(
+        nativeOwner,
+        time,
+        deterministic,
+        complete,
+        active,
+      );
+      if (!nativeOwner.outputTexture || !nativeOwner.outputExtent)
+        throw new NativeSourceError(
+          "input-authored-appearance-unavailable",
+          `Authored appearance ${binding.nodeId} has no current native output.`,
+        );
+    }
+    const extent = nativeOwner?.outputExtent;
+    const ratio = extent?.pixelRatio ?? mount.pixelRatio;
+    const width = extent?.width ?? Math.ceil(target.offsetWidth * ratio);
+    const height = extent?.height ?? Math.ceil(target.offsetHeight * ratio);
+    if (
+      !Number.isSafeInteger(width) ||
+      !Number.isSafeInteger(height) ||
+      width < 1 ||
+      height < 1 ||
+      width > MAX_DIMENSION ||
+      height > MAX_DIMENSION ||
+      width * height > MAX_PIXELS
+    )
+      throw new NativeSourceError(
+        "input-authored-node-size",
+        `Authored input ${binding.nodeId} has unavailable or oversized capture dimensions.`,
+      );
+    let capture = mount.authoredInputs.get(resource);
+    if (
+      capture &&
+      (capture.target !== target ||
+        capture.nodeId !== binding.nodeId ||
+        capture.capture !== binding.capture ||
+        capture.surface.width !== width ||
+        capture.surface.height !== height ||
+        capture.surface.pixelRatio !== ratio ||
+        (capture.surface.outputExtent?.left ?? 0) !== (extent?.left ?? 0) ||
+        (capture.surface.outputExtent?.top ?? 0) !== (extent?.top ?? 0))
+    ) {
+      this.releaseAuthoredInput(mount, resource);
+      capture = undefined;
+    }
+    if (!capture) {
+      const provider = createNativeSceneProvider(
+        target,
+        "layer",
+        this.requestSourceFrame,
+        undefined,
+        binding.capture,
+      );
+      if (!provider)
+        throw new NativeSourceError(
+          "input-authored-node-unavailable",
+          `Authored input ${binding.nodeId} cannot be captured.`,
+        );
+      capture = {
+        target,
+        nodeId: binding.nodeId,
+        capture: binding.capture,
+        provider,
+        surface: {
+          target,
+          width,
+          height,
+          pixelRatio: ratio,
+          outputExtent: extent ?? null,
+          budgetOwner: mount,
+          resourceTextures: new Map(),
+          isolationTextures: new Map(),
+          drawBindings: new Map(),
+          sourceTextures: new Map(),
+          imageRasters: 0,
+          sourceDownsamples: 0,
+        },
+      };
+      mount.authoredInputs.set(resource, capture);
+    }
+    capture.provider.setDensity(ratio);
+    const readStableScene = async (): Promise<{
+      scene: NativeSourceRecord[];
+      sourceEpoch: number;
+    }> => {
+      const before = capture.provider.sourceEpoch?.();
+      if (before === undefined)
+        throw new NativeSourceError(
+          "input-authored-source-stale",
+          `Authored input ${binding.nodeId} has no source revision.`,
+        );
+      const scene = await capture.provider.readScene(
+        undefined,
+        "dependency-refresh",
+      );
+      if (capture.provider.sourceEpoch?.() !== before)
+        throw new NativeSourceError(
+          "input-authored-source-stale",
+          `Authored input ${binding.nodeId} changed during source read.`,
+        );
+      return { scene, sourceEpoch: before };
+    };
+    let read = await readStableScene();
+    let scene = read.scene;
+    let refreshed = false;
+    for (const record of scene) {
+      if (!record.nativeInstanceId) continue;
+      const dependency = this.mounts.get(record.nativeInstanceId);
+      if (!dependency)
+        throw new NativeSourceError(
+          "native-dependency-missing",
+          `Authored input ${binding.nodeId} contains an unmounted native output.`,
+        );
+      if (dependency.frozenReason)
+        throw new NativeSourceError(
+          dependency.frozenReason.code,
+          dependency.frozenReason.message,
+        );
+      if (active.has(dependency.instance.id))
+        throw new NativeSourceError(
+          "effect-dependency-cycle",
+          `Authored input ${binding.nodeId} depends on an active effect.`,
+        );
+      await this.renderMount(dependency, time, deterministic, complete, active);
+      refreshed = true;
+    }
+    if (refreshed) {
+      read = await readStableScene();
+      scene = read.scene;
+    }
+    if (
+      nativeOwner &&
+      !scene.some(
+        (record) => record.nativeInstanceId === nativeOwner.instance.id,
+      )
+    )
+      throw new NativeSourceError(
+        "input-authored-appearance-unavailable",
+        `Authored appearance ${binding.nodeId} did not expose its current native output.`,
+      );
+    for (const backdrop of backdropOwners)
+      if (
+        !scene.some(
+          (record) => record.nativeInstanceId === backdrop.instance.id,
+        )
+      )
+        throw new NativeSourceError(
+          "input-authored-appearance-unavailable",
+          `Authored appearance ${binding.nodeId} did not expose its current backdrop output.`,
+        );
+    const texture = await this.composeScene(
+      capture.surface,
+      scene,
+      encoder,
+      "source",
+      this.colorPresented === "srgb" &&
+        this.dynamicRangePresented === "sdr" &&
+        scene.length > 1
+        ? "srgb-css-linear"
+        : "linear",
+    );
+    if (
+      this.deviceEpoch !== epoch ||
+      this.renderEpoch !== renderEpoch ||
+      this.mounts.get(mount.instance.id) !== mount ||
+      mount.authoredInputs.get(resource) !== capture ||
+      this.authoredInputTarget(binding.nodeId) !== target ||
+      capture.provider.sourceEpoch?.() !== read.sourceEpoch
+    )
+      throw new NativeSourceError(
+        "input-authored-source-stale",
+        `Authored input ${binding.nodeId} changed during capture.`,
+      );
+    return texture;
+  }
+
   private async effectPasses(
     mount: Mount,
     source: GPUTexture,
@@ -7631,6 +7971,7 @@ class NativeShaderRuntime {
     instance: EffectInstance = mount.instance,
     deterministic = false,
     sourceRevision = "",
+    dependencies?: { complete: Set<string>; active: Set<string> },
   ): Promise<GPUTexture> {
     assertNativeUniformTiming(time, "time");
     assertNativeUniformTiming(instance.timing.time, "initial-time");
@@ -7690,6 +8031,9 @@ class NativeShaderRuntime {
     const inputPlan = planNativeInputResources(definition, instance);
     if (!inputPlan.ok)
       throw new NativeSourceError(inputPlan.code, inputPlan.detail);
+    for (const resource of [...mount.authoredInputs.keys()])
+      if (inputPlan.inputs.get(resource)?.kind !== "authored-node")
+        this.releaseAuthoredInput(mount, resource);
     const resources = new Map<string, GPUTexture>();
     for (const [name, binding] of inputPlan.inputs) {
       let input: GPUTexture;
@@ -7702,7 +8046,23 @@ class NativeShaderRuntime {
           binding.mipmap,
         );
       else if (binding.kind === "fallback") input = this.transparent!;
-      else if (binding.source === "mask") {
+      else if (binding.kind === "authored-node") {
+        if (!dependencies)
+          throw new NativeSourceError(
+            "input-authored-context-unavailable",
+            "The authored input has no render dependency context.",
+          );
+        input = await this.authoredInputTexture(
+          mount,
+          name,
+          binding,
+          time,
+          deterministic,
+          encoder,
+          dependencies.complete,
+          dependencies.active,
+        );
+      } else if (binding.source === "mask") {
         input = await this.inputMask(mount, encoder);
         mount.inputMaskUsedFrame = this.renderEpoch;
       } else input = source;
@@ -8714,6 +9074,7 @@ class NativeShaderRuntime {
         child.instance,
         transaction.deterministic,
         `group-local:${parent.instance.id}:${this.renderEpoch}`,
+        { complete: transaction.complete, active: transaction.active },
       );
       const finished = await this.finish(
         child,
@@ -9030,6 +9391,7 @@ class NativeShaderRuntime {
             time,
             deterministic,
             active,
+            complete,
             staged: new Map(),
             noncontributing: new Set(),
           }
@@ -9301,7 +9663,7 @@ class NativeShaderRuntime {
       };
       const detachedCandidate =
         sourceEpoch !== undefined &&
-        !mount.provider!.needsContinuousFrames() &&
+        !nativeMountNeedsContinuousSourceFrames(mount) &&
         mount.isTopLayer &&
         visibleLayoutUnchanged &&
         mount.instance.placement === "layer" &&
@@ -9353,6 +9715,7 @@ class NativeShaderRuntime {
         activeInstance,
         deterministic,
         sourceRevision,
+        { complete, active },
       );
       if (hostWallPhases)
         hostWallPhases.effectPassesWallMs +=
@@ -13347,7 +13710,7 @@ class NativeShaderRuntime {
         )
       ) {
         const continuousMountIds = [...this.mounts.values()]
-          .filter((mount) => mount.provider?.needsContinuousFrames())
+          .filter(nativeMountNeedsContinuousSourceFrames)
           .map((mount) => mount.instance.id);
         this.publishIdleSourceDiagnostic(continuousMountIds);
         if (continuousMountIds.length) this.requestSourceFrame();
@@ -13355,9 +13718,7 @@ class NativeShaderRuntime {
         return;
       }
       if (
-        [...this.mounts.values()].some((mount) =>
-          mount.provider?.needsContinuousFrames(),
-        )
+        [...this.mounts.values()].some(nativeMountNeedsContinuousSourceFrames)
       )
         this.requestSourceFrame();
       else this.scheduleIdleSourcePoll();

@@ -244,6 +244,15 @@ export function getDefaultOverviewCanvasZoom(overviewZoomScale: number) {
   return getOverviewCanvasZoom(DEFAULT_OVERVIEW_ZOOM, overviewZoomScale);
 }
 
+export function resolveOverviewCanvasZoom(
+  explicitDisplayZoom: number | null,
+  overviewZoomScale: number,
+) {
+  return explicitDisplayZoom === null
+    ? getDefaultOverviewCanvasZoom(overviewZoomScale)
+    : getOverviewCanvasZoom(explicitDisplayZoom, overviewZoomScale);
+}
+
 export function resolveOverviewZoomBasisScreenId(args: {
   candidateFileId: string | null | undefined;
   boardFileId: string | null | undefined;

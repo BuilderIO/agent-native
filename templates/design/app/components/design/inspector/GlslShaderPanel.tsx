@@ -17,6 +17,7 @@ import { hashEffectDefinition } from "@shared/native-effect-trust";
 import {
   parseEffectsFromHtml,
   type EffectDefinition,
+  type EffectInputBinding,
   type EffectInstance,
   type EffectPreset,
   type EffectTransform2D,
@@ -90,6 +91,7 @@ import {
   InspectorControlField,
   InspectorControlPopoverContent,
 } from "./InspectorControlPopover";
+import { nativeAuthoredLayerOptions } from "./native-authored-input-options";
 import { nativeCatalogDefinitionKey } from "./native-catalog-display";
 import { sendNativeInstancePreviewMessage } from "./native-instance-preview-client";
 import { NativeInstanceScrubSession } from "./native-instance-scrub-session";
@@ -109,6 +111,7 @@ import {
 import { NativeEffectApproval } from "./NativeEffectApproval";
 import { NativeEffectControls } from "./NativeEffectControls";
 import { nativeEffectValuesEqual } from "./NativeEffectControls";
+import type { NativeEffectInputChoice } from "./NativeEffectInputControls";
 import { NativeShaderLibraryBrowser } from "./NativeShaderLibraryBrowser";
 import { ScrubInput, type ScrubInputChangeMeta } from "./ScrubInput";
 
@@ -987,6 +990,16 @@ export function GlslShaderPanel({
       ...(draftNativeParams ?? {}),
     } as Record<string, EffectValue>;
   }, [activeNativeDef, activeNativeInstance, draftNativeParams]);
+  const authoredLayerOptions = useMemo(
+    () =>
+      activeNativeInstance
+        ? nativeAuthoredLayerOptions(
+            screen.content,
+            activeNativeInstance.nodeId,
+          )
+        : [],
+    [screen.content, activeNativeInstance?.nodeId],
+  );
   useEffect(() => {
     setDraftNativeParams(null);
   }, [screen.content, activeNativeInstance?.id]);
@@ -1358,6 +1371,43 @@ export function GlslShaderPanel({
         }
       });
     }
+  };
+
+  const changeNativeInput = (
+    name: string,
+    binding: NativeEffectInputChoice,
+  ) => {
+    if (!activeNativeInstance || !activeNativeDef || multiTarget) return;
+    const nextBindings = { ...activeNativeInstance.bindings };
+    if (binding && binding.kind !== "authored-selector")
+      nextBindings[name] = binding;
+    else delete nextBindings[name];
+    const textureParams = Object.fromEntries(
+      Object.entries(activeNativeDef.properties)
+        .filter(
+          ([, property]) =>
+            property.type === "texture" && property.input === name,
+        )
+        .map(([propertyName]) => [propertyName, null]),
+    );
+    void persistNative({
+      kind: "set-instance",
+      instanceId: activeNativeInstance.id,
+      params: textureParams,
+      bindings: Object.keys(nextBindings).length ? nextBindings : null,
+      ...(binding?.kind === "authored-selector"
+        ? {
+            bindingTargets: {
+              [name]: {
+                selector: binding.selector,
+                capture: binding.capture,
+              },
+            },
+          }
+        : {}),
+    }).then((result) => {
+      if (result) void screen.refetch();
+    });
   };
 
   const changeNativeInstance = (
@@ -1861,6 +1911,9 @@ export function GlslShaderPanel({
             key={`${context.fileId}:${activeNativeInstance.id}`}
             definition={activeNativeDef}
             values={nativeValues}
+            bindings={activeNativeInstance.bindings}
+            layerOptions={authoredLayerOptions}
+            onInputChange={multiTarget ? undefined : changeNativeInput}
             mixedNames={mixedNativeProperties}
             disabled={disabled || busy}
             onValueChange={changeNativeParam}

@@ -5,6 +5,7 @@ import {
   clearNativeFillFromHtml,
   editNativeEffectHtml,
 } from "./native-effect-edits";
+import { SLAT_SHUTTER_CONTROL_EFFECT } from "./native-effect-owned-p-shutter";
 import {
   OWNED_INTRINSIC_IMAGE_TEST_EFFECT,
   OWNED_RENDERED_SURFACE_TEST_EFFECT,
@@ -463,6 +464,57 @@ describe("native effect source edits", () => {
     expect(
       parseEffectsFromHtml(cleared.html).document?.instances[0].transform,
     ).toBeUndefined();
+  });
+
+  it("switches a texture property to an authored input in one validated edit", () => {
+    const base = editNativeEffectHtml(twoTargets, {
+      kind: "apply",
+      nodeId: "hero",
+      placement: "layer",
+      definition: SLAT_SHUTTER_CONTROL_EFFECT,
+      params: { incoming: { kind: "asset", url: "/images/incoming.png" } },
+    });
+    expect(base.errors).toEqual([]);
+    const instanceId = base.instanceIds[0];
+    const binding = {
+      incoming: {
+        kind: "authored-node" as const,
+        nodeId: "second",
+        capture: "content" as const,
+      },
+    };
+    const rejected = editNativeEffectHtml(base.html, {
+      kind: "set-instance",
+      instanceId,
+      bindings: binding,
+    });
+    expect(rejected.errors.join(" ")).toContain("conflicts with input binding");
+    expect(rejected.html).toBe(base.html);
+    const updated = editNativeEffectHtml(base.html, {
+      kind: "set-instance",
+      instanceId,
+      params: { incoming: null },
+      bindings: binding,
+    });
+    expect(updated.errors).toEqual([]);
+    expect(
+      parseEffectsFromHtml(updated.html).document?.instances[0],
+    ).toMatchObject({
+      params: { incoming: null },
+      bindings: binding,
+    });
+    const unresolved = editNativeEffectHtml(base.html, {
+      kind: "set-instance",
+      instanceId,
+      params: { incoming: null },
+      bindingTargets: {
+        incoming: { selector: "main > img", capture: "content" },
+      },
+    });
+    expect(unresolved.errors).toContain(
+      "native effect binding targets need source resolution",
+    );
+    expect(unresolved.html).toBe(base.html);
   });
 
   it("rejects same id/version source conflicts while retaining existing pins", () => {

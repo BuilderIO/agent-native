@@ -154,6 +154,10 @@ import {
   OWNED_W_DISTORTION_DEFINITIONS,
   OWNED_W_DISTORTION_PRESETS,
 } from "./native-effect-owned-w-distortions";
+import {
+  OWNED_X_NOISE_DEFINITIONS,
+  OWNED_X_NOISE_PRESETS,
+} from "./native-effect-owned-x-noise";
 import { PARTICLE_FLOW_EFFECT } from "./native-effect-particle-flow";
 import {
   NATIVE_PERIMETER_FOCAL_DEFINITIONS,
@@ -515,39 +519,6 @@ const coordinateRandomCatalog = createCoordinateRandomCatalog(
 );
 export const NATIVE_COORDINATE_RANDOM_DEFINITIONS: readonly EffectDefinition[] =
   coordinateRandomCatalog.successors;
-export const NATIVE_EFFECT_LATEST_DEFINITIONS: readonly EffectDefinition[] = [
-  ...coordinateRandomCatalog.latest.filter(
-    (definition) =>
-      !OWNED_W_DISTORTION_DEFINITIONS.some(
-        (successor) =>
-          successor.id === definition.id &&
-          successor.version > definition.version,
-      ),
-  ),
-  ...NATIVE_PERIMETER_FOCAL_DEFINITIONS,
-  ...OWNED_O_GENERATOR_DEFINITIONS,
-  ...OWNED_O_EDGE_GLASS_DEFINITIONS.filter(
-    (definition) => definition.id !== "an-native-owned-o-edge-light-leak",
-  ),
-  OWNED_O_EDGE_LIGHT_LEAK_V2,
-  ...OWNED_P_DEFINITIONS,
-  ...OWNED_P2_DEFINITIONS,
-  ...OWNED_Q_DEFINITIONS,
-  ...OWNED_NEXT_SIX_R_DEFINITIONS,
-  ...STATEFUL_NINE_DEFINITIONS,
-  HIGHLIGHT_STREAKS_EFFECT,
-  ...OWNED_NEXT_TWELVE_S_DEFINITIONS.filter(
-    (definition) => definition.id !== "an-native-owned-s-parabolic-bend",
-  ),
-  ...OWNED_NEXT_TWELVE_T_DEFINITIONS,
-  ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
-  LUMA_DCT_EIGHT_EFFECT,
-  ...OWNED_V_FIELD_DEFINITIONS,
-  ...POINTER_EFFECT_DEFINITIONS,
-  ...OWNED_W_DISTORTION_DEFINITIONS,
-  FREQUENCY_SEPARATION_EFFECT,
-];
-
 export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
   ...NATIVE_EFFECT_DEFINITIONS_V1,
   ...NATIVE_EFFECT_DEFINITIONS,
@@ -574,7 +545,41 @@ export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
   ...POINTER_EFFECT_DEFINITIONS,
   ...OWNED_W_DISTORTION_DEFINITIONS,
   FREQUENCY_SEPARATION_EFFECT,
+  ...OWNED_X_NOISE_DEFINITIONS,
 ];
+
+const currentDefinitionCandidates: readonly EffectDefinition[] = [
+  ...coordinateRandomCatalog.latest,
+  ...NATIVE_PERIMETER_FOCAL_DEFINITIONS,
+  ...OWNED_O_GENERATOR_DEFINITIONS,
+  ...OWNED_O_EDGE_GLASS_DEFINITIONS,
+  OWNED_O_EDGE_LIGHT_LEAK_V2,
+  ...OWNED_P_DEFINITIONS,
+  ...OWNED_P2_DEFINITIONS,
+  ...OWNED_Q_DEFINITIONS,
+  ...OWNED_NEXT_SIX_R_DEFINITIONS,
+  ...STATEFUL_NINE_DEFINITIONS,
+  HIGHLIGHT_STREAKS_EFFECT,
+  ...OWNED_NEXT_TWELVE_S_DEFINITIONS,
+  ...OWNED_NEXT_TWELVE_T_DEFINITIONS,
+  ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
+  LUMA_DCT_EIGHT_EFFECT,
+  ...OWNED_V_FIELD_DEFINITIONS,
+  ...POINTER_EFFECT_DEFINITIONS,
+  ...OWNED_W_DISTORTION_DEFINITIONS,
+  FREQUENCY_SEPARATION_EFFECT,
+  ...OWNED_X_NOISE_DEFINITIONS,
+];
+const latestDefinitionById = new Map<string, EffectDefinition>();
+for (const definition of currentDefinitionCandidates) {
+  const prior = latestDefinitionById.get(definition.id);
+  if (!prior || definition.version > prior.version)
+    latestDefinitionById.set(definition.id, definition);
+}
+export const NATIVE_EFFECT_LATEST_DEFINITIONS: readonly EffectDefinition[] =
+  currentDefinitionCandidates.filter(
+    (definition) => latestDefinitionById.get(definition.id) === definition,
+  );
 
 const PINNED_V2_PRESETS: readonly EffectPreset[] = [
   {
@@ -699,4 +704,5 @@ export const NATIVE_EFFECT_PRESETS: readonly EffectPreset[] = [
   ...POINTER_EFFECT_PRESETS,
   ...OWNED_W_DISTORTION_PRESETS,
   ...FREQUENCY_SEPARATION_PRESETS,
+  ...OWNED_X_NOISE_PRESETS,
 ];
