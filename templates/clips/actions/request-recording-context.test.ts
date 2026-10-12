@@ -270,11 +270,11 @@ describe("request-recording-context", () => {
     expect(await countItems("rec_org", true)).toBe(0);
   });
 
-  it("accepts an endedAt 120 s either side of the Clip's start and refuses 121 s", async () => {
+  it("allows native startup delay while keeping client clock skew bounded", async () => {
     const at = (ms: number) =>
       new Date(Date.parse(RECORDING_CREATED_AT) + ms).toISOString();
 
-    for (const ms of [121_000, -121_000]) {
+    for (const ms of [-121_000, 10 * 60_000 + 1]) {
       await expect(
         action.run({ recordingId: "rec_1", seconds: 30, endedAt: at(ms) }),
       ).rejects.toMatchObject({
@@ -284,8 +284,24 @@ describe("request-recording-context", () => {
     }
     expect(await countItems("rec_1", true)).toBe(0);
 
+    await seedRecording(client, { id: "rec_slow", visibility: "private" });
+    mocks.roles.rec_slow = "owner";
     await expect(
-      action.run({ recordingId: "rec_1", seconds: 30, endedAt: at(-120_000) }),
+      action.run({
+        recordingId: "rec_slow",
+        seconds: 30,
+        endedAt: at(10 * 60_000),
+      }),
+    ).resolves.toMatchObject({ endedAt: at(10 * 60_000), status: "pending" });
+
+    await seedRecording(client, { id: "rec_skew", visibility: "private" });
+    mocks.roles.rec_skew = "owner";
+    await expect(
+      action.run({
+        recordingId: "rec_skew",
+        seconds: 30,
+        endedAt: at(-120_000),
+      }),
     ).resolves.toMatchObject({ endedAt: at(-120_000), status: "pending" });
   });
 
