@@ -146,15 +146,9 @@ export function renderEditorCanvasArea({
     effectiveLiveEditRegistrationCapabilitiesByScreenId,
     publicVisualEditConnectionId,
     activeFile,
-    setZoom,
-    handleZoomIn,
-    handleZoomOut,
   } = editorActiveScreenAndGeometry;
-  const {
-    hoveredElementScreenId,
-    handleZoomToFit,
-    handleCanvasBackgroundClick,
-  } = editorCanvasAndScreens;
+  const { hoveredElementScreenId, handleCanvasBackgroundClick } =
+    editorCanvasAndScreens;
   const {
     selectedCodeLayerNode,
     getContextCanvasPoint,
@@ -197,11 +191,8 @@ export function renderEditorCanvasArea({
     adoptDesignClipboardPayload,
     getCanvasClipboardEntries,
     handleContextMenuPaste,
-    handleZoomToSelectionFit,
     handleCopySelection,
     handlePasteOverSelection,
-    handleDuplicateSelection,
-    handleDeleteSelection,
     handleGroupSelection,
     handlePasteToReplace,
   } = editorClipboard;
@@ -226,8 +217,7 @@ export function renderEditorCanvasArea({
     handleFlipVertical,
   } = editorEditCommands;
   const { responsiveInteractActive, handlePinToolToggle } = editorModes;
-  const { handleSelectAllFrames, layersPanelRef, handleCopyAsPng } =
-    editorExportAndHandoff;
+  const { layersPanelRef, handleCopyAsPng } = editorExportAndHandoff;
   const {
     codeLayerOwnerByNodeId,
     canEditSelectedLiveLayer,
@@ -383,11 +373,6 @@ export function renderEditorCanvasArea({
         (hasCanvasClipboard || hasSystemClipboardImages) &&
         Boolean(activeFile)
       }
-      canSelectAll={files.length > 0}
-      canZoomToFit={Boolean(activeFile)}
-      canZoomToSelection={Boolean(
-        selectedElement || selectedScreenIds.length > 0,
-      )}
       canCopy={Boolean(
         selectedElement?.selector || selectedScreenIds.length > 0,
       )}
@@ -397,14 +382,6 @@ export function renderEditorCanvasArea({
         Boolean(activeFile)
       }
       canPasteOver={canEditDesign && hasCanvasClipboard && Boolean(activeFile)}
-      canDuplicate={Boolean(
-        canEditActiveVisualScreen &&
-        (selectedElement || selectedScreenIds.length > 0),
-      )}
-      canDelete={Boolean(
-        (canEditDesign && (selectedElement || selectedScreenIds.length > 0)) ||
-        (!canEditDesign && canEditSelectedLiveLayer),
-      )}
       canReorder={
         (canEditDesign || canEditSingleSelectedLiveLayer) &&
         Boolean(selectedElement)
@@ -471,22 +448,9 @@ export function renderEditorCanvasArea({
       onPasteHere={(details) =>
         void handleContextMenuPaste(details.point ?? undefined)
       }
-      onSelectAll={handleSelectAllFrames}
-      onZoomToFit={handleZoomToFit}
-      onZoomToSelection={() => {
-        if (viewMode === "overview") {
-          handleZoomToSelectionFit();
-          return;
-        }
-        if (selectedElement) setZoom(150);
-      }}
-      onZoomIn={handleZoomIn}
-      onZoomOut={handleZoomOut}
       onCopy={handleCopySelection}
       onPaste={() => void handleContextMenuPaste()}
       onPasteOver={handlePasteOverSelection}
-      onDuplicate={handleDuplicateSelection}
-      onDelete={handleDeleteSelection}
       onBringForward={() => changeSelectedZIndex("forward")}
       onBringToFront={() => changeSelectedZIndex("front")}
       onSendBackward={() => changeSelectedZIndex("backward")}

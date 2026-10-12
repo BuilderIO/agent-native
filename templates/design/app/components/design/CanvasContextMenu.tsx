@@ -20,7 +20,6 @@ import {
   ContextMenuGroup,
   ContextMenuItem,
   ContextMenuSeparator,
-  ContextMenuShortcut,
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
@@ -29,11 +28,11 @@ import {
 import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import { cn } from "@/lib/utils";
 
+import { CanvasMenuItem } from "./context-menu-item";
 import {
   MENU_CONTENT_CLASS,
   MENU_ITEM_CLASS,
   MENU_SEPARATOR_CLASS,
-  MENU_SHORTCUT_CLASS,
   MENU_SUB_TRIGGER_CLASS,
 } from "./context-menu-styles";
 import { IconText } from "./inspector/design-icons";
@@ -42,17 +41,10 @@ import type { CanvasLayerHitCandidate } from "./types";
 
 export type CanvasContextMenuAction =
   | "paste-here"
-  | "select-all"
-  | "zoom-to-fit"
-  | "zoom-to-selection"
-  | "zoom-in"
-  | "zoom-out"
   | "copy"
   | "paste"
   | "paste-over"
   | "paste-to-replace"
-  | "duplicate"
-  | "delete"
   | "bring-forward"
   | "bring-to-front"
   | "send-backward"
@@ -132,17 +124,10 @@ export interface CanvasContextMenuLabels {
   responsive: string;
   responsiveDescription: string;
   pasteHere: string;
-  selectAll: string;
-  zoomToFit: string;
-  zoomToSelection: string;
-  zoomIn: string;
-  zoomOut: string;
   copy: string;
   paste: string;
   pasteOver: string;
   pasteToReplace: string;
-  duplicate: string;
-  delete: string;
   order: string;
   bringForward: string;
   bringToFront: string;
@@ -177,17 +162,10 @@ export interface CanvasContextMenuLabels {
 
 export interface CanvasContextMenuShortcuts {
   pasteHere: string;
-  selectAll: string;
-  zoomToFit: string;
-  zoomToSelection: string;
-  zoomIn: string;
-  zoomOut: string;
   copy: string;
   paste: string;
   pasteOver: string;
   pasteToReplace: string;
-  duplicate: string;
-  delete: string;
   bringForward: string;
   bringToFront: string;
   sendBackward: string;
@@ -235,17 +213,10 @@ export interface CanvasContextMenuProps {
   isUiHidden?: boolean;
   isCommentsHidden?: boolean;
   canPasteHere?: boolean;
-  canSelectAll?: boolean;
-  canZoomToFit?: boolean;
-  canZoomToSelection?: boolean;
-  canZoomIn?: boolean;
-  canZoomOut?: boolean;
   canCopy?: boolean;
   canPaste?: boolean;
   canPasteOver?: boolean;
   canPasteToReplace?: boolean;
-  canDuplicate?: boolean;
-  canDelete?: boolean;
   canReorder?: boolean;
   canFrameSelection?: boolean;
   canAddAutoLayout?: boolean;
@@ -280,17 +251,10 @@ export interface CanvasContextMenuProps {
     details: CanvasContextMenuActionDetails,
   ) => void;
   onPasteHere?: CanvasContextMenuActionHandler;
-  onSelectAll?: CanvasContextMenuActionHandler;
-  onZoomToFit?: CanvasContextMenuActionHandler;
-  onZoomToSelection?: CanvasContextMenuActionHandler;
-  onZoomIn?: CanvasContextMenuActionHandler;
-  onZoomOut?: CanvasContextMenuActionHandler;
   onCopy?: CanvasContextMenuActionHandler;
   onPaste?: CanvasContextMenuActionHandler;
   onPasteOver?: CanvasContextMenuActionHandler;
   onPasteToReplace?: CanvasContextMenuActionHandler;
-  onDuplicate?: CanvasContextMenuActionHandler;
-  onDelete?: CanvasContextMenuActionHandler;
   onBringForward?: CanvasContextMenuActionHandler;
   onBringToFront?: CanvasContextMenuActionHandler;
   onSendBackward?: CanvasContextMenuActionHandler;
@@ -339,17 +303,10 @@ const DEFAULT_LABELS: CanvasContextMenuLabels = {
   responsive: "Make responsive",
   responsiveDescription: "Adapt to narrow widths",
   pasteHere: "Paste here",
-  selectAll: "Select all",
-  zoomToFit: "Zoom to fit",
-  zoomToSelection: "Zoom to selection",
-  zoomIn: "Zoom in",
-  zoomOut: "Zoom out",
   copy: "Copy",
   paste: "Paste",
   pasteOver: "Paste over",
   pasteToReplace: "Paste to replace",
-  duplicate: "Duplicate",
-  delete: "Delete",
   order: "Order",
   bringForward: "Bring forward",
   bringToFront: "Bring to front",
@@ -387,17 +344,10 @@ const DEFAULT_SHORTCUT_BINDINGS: Record<
   string
 > = {
   pasteHere: "$mod+v",
-  selectAll: "$mod+a",
-  zoomToFit: "shift+1",
-  zoomToSelection: "shift+2",
-  zoomIn: "+",
-  zoomOut: "-",
   copy: "$mod+c",
   paste: "$mod+v",
   pasteOver: "$mod+shift+v",
   pasteToReplace: "$mod+shift+r",
-  duplicate: "$mod+d",
-  delete: "backspace",
   bringForward: "$mod+]",
   bringToFront: "]",
   sendBackward: "$mod+[",
@@ -1202,53 +1152,6 @@ function CanvasLayerCandidateItem({
     >
       <Icon className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="min-w-0 truncate">{candidate.label}</span>
-    </ContextMenuItem>
-  );
-}
-
-function CanvasMenuItem({
-  hidden,
-  disabled,
-  destructive,
-  label,
-  description,
-  shortcut,
-  onSelect,
-}: {
-  hidden?: boolean;
-  disabled?: boolean;
-  destructive?: boolean;
-  label: string;
-  description?: string;
-  shortcut?: string;
-  onSelect: (event: Event) => void;
-}) {
-  if (hidden) return null;
-
-  return (
-    <ContextMenuItem
-      disabled={disabled}
-      onSelect={onSelect}
-      className={cn(
-        MENU_ITEM_CLASS,
-        description && "h-auto py-1",
-        destructive &&
-          "text-destructive focus:bg-destructive/10 focus:text-destructive",
-      )}
-    >
-      {description ? (
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="truncate">{label}</span>
-          <span className="truncate text-muted-foreground">{description}</span>
-        </span>
-      ) : (
-        <span className="flex-1 truncate">{label}</span>
-      )}
-      {shortcut ? (
-        <ContextMenuShortcut className={MENU_SHORTCUT_CLASS}>
-          {shortcut}
-        </ContextMenuShortcut>
-      ) : null}
     </ContextMenuItem>
   );
 }

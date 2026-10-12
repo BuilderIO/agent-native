@@ -45,11 +45,10 @@ import {
   type RefObject,
 } from "react";
 
+import { CanvasMenuItem } from "@/components/design/context-menu-item";
 import {
   MENU_CONTENT_CLASS,
-  MENU_ITEM_CLASS,
   MENU_SEPARATOR_CLASS,
-  MENU_SHORTCUT_CLASS,
   MENU_SUB_TRIGGER_CLASS,
 } from "@/components/design/context-menu-styles";
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
@@ -57,9 +56,7 @@ import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
   ContextMenuContent,
-  ContextMenuItem,
   ContextMenuSeparator,
-  ContextMenuShortcut,
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
@@ -182,10 +179,6 @@ export interface LayersPanelLabels {
   show: string;
   rename: string;
   copy: string;
-  pasteToReplace: string;
-  group: string;
-  ungroup: string;
-  frameSelection: string;
   bringToFront: string;
   sendToBack: string;
   flipHorizontal: string;
@@ -345,10 +338,6 @@ function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
     show: t("layersPanel.show"),
     rename: t("layersPanel.rename"),
     copy: t("layersPanel.copy"),
-    pasteToReplace: t("layersPanel.pasteToReplace"),
-    group: t("layersPanel.group"),
-    ungroup: t("layersPanel.ungroup"),
-    frameSelection: t("layersPanel.frameSelection"),
     bringToFront: t("layersPanel.bringToFront"),
     sendToBack: t("layersPanel.sendToBack"),
     flipHorizontal: t("layersPanel.flipHorizontal"),
@@ -2402,20 +2391,20 @@ const LayerRow = memo(function LayerRow({
           }}
         >
           {onCopyLayer ? (
-            <RowMenuItem
+            <CanvasMenuItem
               label={labels.copy}
               shortcut={shortcut("$mod+c")}
               onSelect={() => onCopyLayer(getContextMenuTargetIdsForRow())}
             />
           ) : null}
           {onCopyLink ? (
-            <RowMenuItem
+            <CanvasMenuItem
               label={labels.copyLink}
               onSelect={() => onCopyLink(node.id)}
             />
           ) : null}
           {onRename && node.renamable !== false ? (
-            <RowMenuItem
+            <CanvasMenuItem
               label={labels.menuRename}
               shortcut={shortcut("$mod+r")}
               onSelect={() => {
@@ -2432,14 +2421,14 @@ const LayerRow = memo(function LayerRow({
             <ContextMenuSeparator className={MENU_SEPARATOR_CLASS} />
           ) : null}
           {hideable ? (
-            <RowMenuItem
+            <CanvasMenuItem
               label={node.hidden ? labels.menuShow : labels.menuHide}
               shortcut={shortcut("$mod+shift+h")}
               onSelect={() => onToggleHidden?.(node.id, !node.hidden)}
             />
           ) : null}
           {lockable ? (
-            <RowMenuItem
+            <CanvasMenuItem
               label={node.locked ? labels.menuUnlock : labels.menuLock}
               shortcut={shortcut("$mod+shift+l")}
               onSelect={() => onToggleLocked?.(node.id, !node.locked)}
@@ -2455,14 +2444,14 @@ const LayerRow = memo(function LayerRow({
                 {labels.arrange}
               </ContextMenuSubTrigger>
               <ContextMenuSubContent className={MENU_CONTENT_CLASS}>
-                <RowMenuItem
+                <CanvasMenuItem
                   label={labels.bringToFront}
                   shortcut={shortcut("]")}
                   onSelect={() =>
                     onReorderLayer(getContextMenuTargetIdsForRow(), "front")
                   }
                 />
-                <RowMenuItem
+                <CanvasMenuItem
                   label={labels.sendToBack}
                   shortcut={shortcut("[")}
                   onSelect={() =>
@@ -2479,7 +2468,7 @@ const LayerRow = memo(function LayerRow({
               </ContextMenuSubTrigger>
               <ContextMenuSubContent className={MENU_CONTENT_CLASS}>
                 {onFlipHorizontal ? (
-                  <RowMenuItem
+                  <CanvasMenuItem
                     label={labels.flipHorizontal}
                     shortcut={shortcut("shift+h")}
                     onSelect={() =>
@@ -2488,7 +2477,7 @@ const LayerRow = memo(function LayerRow({
                   />
                 ) : null}
                 {onFlipVertical ? (
-                  <RowMenuItem
+                  <CanvasMenuItem
                     label={labels.flipVertical}
                     shortcut={shortcut("shift+v")}
                     onSelect={() =>
@@ -2689,25 +2678,4 @@ export function dropPlacementForEvent(
     return "after";
   }
   return canDropInside ? "inside" : "after";
-}
-
-function RowMenuItem({
-  label,
-  shortcut,
-  onSelect,
-}: {
-  label: string;
-  shortcut?: string;
-  onSelect: () => void;
-}) {
-  return (
-    <ContextMenuItem className={MENU_ITEM_CLASS} onSelect={onSelect}>
-      <span className="flex-1 truncate">{label}</span>
-      {shortcut ? (
-        <ContextMenuShortcut className={MENU_SHORTCUT_CLASS}>
-          {shortcut}
-        </ContextMenuShortcut>
-      ) : null}
-    </ContextMenuItem>
-  );
 }
