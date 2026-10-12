@@ -224,8 +224,11 @@ describe("DocsSidebar", () => {
     expect(html).toContain('href="/docs/plan-plugin/"');
   });
 
-  it("renders Toolkits as a top-level section with focused docs", () => {
+  it("groups Toolkit foundations after product-facing docs without same-page child links", () => {
     const html = renderSidebar("/docs/toolkit-collaboration");
+    const toolkitSection = getDocsNavSections("en-US").find(
+      (section) => section.id === "toolkits",
+    );
     const toolkitLinks = getDocsNavItems().filter(
       (item) =>
         item.to === "/docs/agent-native-toolkit/" ||
@@ -241,6 +244,29 @@ describe("DocsSidebar", () => {
 
     const activeLink = getLinkMarkup(html, "/docs/toolkit-collaboration/");
     expect(activeLink).toContain("is-active");
+
+    expect(toolkitSection?.items.map((item) => item.id)).toEqual([
+      "agent-native-toolkit",
+      "toolkit-feature-kits",
+      "toolkit-app-chrome",
+      "toolkit-capability-packages",
+      "toolkit-foundations",
+    ]);
+    const foundations = toolkitSection?.items.find(
+      (item) => item.id === "toolkit-foundations",
+    );
+    expect(foundations?.children?.map((item) => item.id)).toEqual([
+      "toolkit-ui",
+      "toolkit-editors-canvases",
+      "toolkit-context-knowledge",
+    ]);
+
+    const uiPrimitivesHtml = renderSidebar("/docs/toolkit-ui");
+    const editorsHtml = renderSidebar("/docs/toolkit-editors-canvases");
+    expect(uiPrimitivesHtml).toContain('href="/docs/toolkit-ui/"');
+    expect(uiPrimitivesHtml).not.toContain("Data Grid");
+    expect(editorsHtml).toContain('href="/docs/toolkit-editors-canvases/"');
+    expect(editorsHtml).not.toContain("Canvas Interactions");
   });
 
   it("expands the Apps section and the Plans group on a plan sub-doc", () => {
