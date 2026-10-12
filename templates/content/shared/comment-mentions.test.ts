@@ -157,7 +157,7 @@ describe("comment mentions", () => {
       name: "Sam",
     };
     const text =
-      "Ask @Sam, not `@Sam`, ``a `@Sam` b``, https://medium.com/@Sam, //cdn.example.com/@Sam, github.com/@Sam, (x.com/@Sam), or www.example.com/@Sam. A lone ` leaves @Sam";
+      "Ask @Sam, not `@Sam`, ``a `@Sam` b``, https://medium.com/@Sam, //cdn.example.com/@Sam, github.com/@Sam, (x.com/@Sam), [site](example.com/@Sam), or www.example.com/@Sam. A lone ` leaves @Sam";
 
     expect(findCommentMentions(text, [sam]).map(({ start }) => start)).toEqual([
       4,
@@ -204,6 +204,29 @@ describe("comment mentions", () => {
 
     expect(matches.map(({ mention }) => mention)).toEqual([people[7], sams[0]]);
     expect(elapsedMs).toBeLessThan(1_000);
+  });
+
+  it("reads name boundaries by code point, with combining marks", () => {
+    const person = (name: string) => ({
+      kind: "person" as const,
+      email: `${name}@example.com`,
+      name,
+    });
+    const sam = person("Sam");
+    const jose = person("Jose");
+    const deseret = person("Sam\u{10400}");
+    const starts = (text: string, mentions: CommentMention[]) =>
+      findCommentMentions(text, mentions).map(({ start, mention }) => [
+        start,
+        mention.name,
+      ]);
+
+    expect(starts("@Sam\u{10400}x and \u{10400}@Sam", [sam])).toEqual([]);
+    expect(starts("@José and é@Sam", [jose, sam])).toEqual([]);
+    expect(starts("@Sam\u{10400}, @Sam", [sam, deseret])).toEqual([
+      [0, "Sam\u{10400}"],
+      [8, "Sam"],
+    ]);
   });
 
   it("keeps agents on one model from different providers apart", () => {

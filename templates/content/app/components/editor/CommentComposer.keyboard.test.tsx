@@ -478,6 +478,37 @@ describe("CommentComposer rich recipient", () => {
     expect(before.toString()).toBe("Compare @GPT-5.6 Lunar, then ask ");
   });
 
+  it("restores a saved AI draft's chip only where a mention can start", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="restored-leading"
+          initialValue="Write to bob@GPT-5.6 Luna today, then ask @GPT-5.6 Luna"
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "suggest",
+          }}
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    const chips = editor().querySelectorAll(
+      '[data-mention-ref-type="content-comment-ai-recipient"]',
+    );
+    expect(chips).toHaveLength(1);
+    const before = document.createRange();
+    before.setStart(editor(), 0);
+    before.setEndBefore(chips[0]!);
+    expect(before.toString()).toBe(
+      "Write to bob@GPT-5.6 Luna today, then ask ",
+    );
+  });
+
   it("restores a saved AI draft's chip after a person chip with the same name", async () => {
     await act(async () =>
       root.render(

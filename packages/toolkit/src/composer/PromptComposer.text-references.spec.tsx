@@ -134,6 +134,19 @@ describe("composer text with chips", () => {
     ]);
     expect(text).toBe("word @Sam @Bo and @Cy x");
   });
+
+  it("spaces a chip from a combining mark and a letter past U+FFFF", async () => {
+    let text = "";
+    await render({ onTextChange: (next) => (text = next) });
+
+    await act(async () =>
+      composerRef.current!.setText("José@Sam\u{10400}", [
+        person(5, 9, "sam@example.test", "Sam"),
+      ]),
+    );
+
+    expect(text).toBe("José @Sam \u{10400}");
+  });
 });
 
 describe("inserting @ at the cursor", () => {

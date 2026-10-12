@@ -4,8 +4,8 @@ import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import { MentionChip } from "../MentionChip.js";
 import type { MentionItemMedia as MentionItemMediaValue } from "../types.js";
 
-const NAME_START = /^[\p{L}\p{N}_]/u;
-const NAME_END = /[\p{L}\p{N}_]$/u;
+const NAME_START = /^[\p{L}\p{M}\p{N}_]/u;
+const NAME_END = /[\p{L}\p{M}\p{N}_]$/u;
 
 function parseMentionItemMedia(
   value: string | null,

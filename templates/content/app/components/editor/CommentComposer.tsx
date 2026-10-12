@@ -12,6 +12,7 @@ import {
 import {
   commentMentionKey,
   findCommentMentions,
+  followsNameCharacter,
   isMentionNameAt,
   literalAtSignTest,
   type CommentAgentMention,
@@ -204,8 +205,8 @@ function textReferences(
     references.some(({ reference }) => reference.refType === AI_REFERENCE_TYPE)
   )
     return references;
-  // A draft saved before its mentions listed the AI chip. That chip is
-  // appended after the text, so it can follow a word directly.
+  // A draft saved before its mentions listed the AI chip. That chip was
+  // appended after the text, so at the end it can follow a word directly.
   const ai = aiReference(aiDraft);
   const isLiteral = literalAtSignTest(text);
   for (
@@ -216,6 +217,7 @@ function textReferences(
     const end = start + 1 + ai.label.length;
     if (
       !isLiteral(start) &&
+      (!followsNameCharacter(text, start) || !text.slice(end).trim()) &&
       isMentionNameAt(text, start, ai.label) &&
       !references.some(
         (reference) => reference.start < end && start < reference.end,

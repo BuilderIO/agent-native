@@ -152,17 +152,37 @@ export interface CommentMentionMatch {
   mention: CommentMention;
 }
 
-const NAME_CHARACTER = /[\p{L}\p{N}_]/u;
+// Read by code point: a letter past U+FFFF is two code units, and a combining
+// mark continues the name it follows.
+const NAME_CHARACTER = /[\p{L}\p{M}\p{N}_]/u;
 
-function isNameCharacter(character: string | undefined): boolean {
-  return character !== undefined && NAME_CHARACTER.test(character);
+function isNameCharacterAt(text: string, at: number): boolean {
+  const code = text.codePointAt(at);
+  return code !== undefined && NAME_CHARACTER.test(String.fromCodePoint(code));
 }
 
-// `//` starts a URL with or without its scheme, as in `//x.com/@Sam`, and a
-// run can open with a bare domain, as in `github.com/@Sam`. The domain is
-// matched only at the run's start: tried at every dot, its backtracking would
-// be quadratic in a run like `a.a.a.a`.
-const URL_START = /\/\/|\bwww\.|^[("'<[]*(?:[a-z\d-]+\.)+[a-z]{2,}\//i;
+function isNameCharacterBefore(text: string, at: number): boolean {
+  if (at <= 0) return false;
+  return isNameCharacterAt(
+    text,
+    at >= 2 && text.codePointAt(at - 2)! > 0xffff ? at - 2 : at - 1,
+  );
+}
+
+/**
+ * Whether the `@` at `at` follows a name character, as in `me@Sam.com`, so it
+ * belongs to a word rather than starting a mention.
+ */
+export function followsNameCharacter(text: string, at: number): boolean {
+  return isNameCharacterBefore(text, at);
+}
+
+// `//` starts a URL with or without its scheme, as in `//x.com/@Sam`. A bare
+// domain, as in `github.com/@Sam`, counts where a URL starts: at the run's
+// start or as a Markdown link's destination, `[site](x.com/@Sam)`. Anchoring
+// it there keeps it linear; tried at every dot, its backtracking would be
+// quadratic in a run like `a.a.a.a`.
+const URL_START = /\/\/|\bwww\.|(?:^[("'<[]*|\]\()(?:[a-z\d-]+\.)+[a-z]{2,}\//i;
 
 /**
  * Where URLs run in the text, as in `https://x.com/@Sam`: from just past a URL
@@ -233,8 +253,8 @@ export function isMentionNameAt(
   return (
     text.startsWith(name, at + 1) &&
     !(
-      isNameCharacter(name[name.length - 1]) &&
-      isNameCharacter(text[at + 1 + name.length])
+      isNameCharacterBefore(name, name.length) &&
+      isNameCharacterAt(text, at + 1 + name.length)
     )
   );
 }
@@ -279,7 +299,10 @@ function longestNameAt(
     node = next;
     if (
       node.name !== undefined &&
-      !(isNameCharacter(text[index]) && isNameCharacter(text[index + 1]))
+      !(
+        isNameCharacterBefore(text, index + 1) &&
+        isNameCharacterAt(text, index + 1)
+      )
     ) {
       longest = node.name;
     }
@@ -316,7 +339,7 @@ export function findCommentMentions(
   let start = text.indexOf("@");
   while (start !== -1) {
     const name =
-      isNameCharacter(text[start - 1]) || isLiteral(start)
+      followsNameCharacter(text, start) || isLiteral(start)
         ? undefined
         : longestNameAt(names, text, start);
     if (name === undefined) {
