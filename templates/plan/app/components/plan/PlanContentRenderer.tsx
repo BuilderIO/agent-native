@@ -50,8 +50,10 @@ import {
 } from "./CanvasArea";
 import { PlanBlockView } from "./DocumentArea";
 import {
+  findPlanBlock,
   hasPlanBlockStructureChange,
   isWideLayoutBlock,
+  updatePlanBlocks,
   visitPlanBlocks,
 } from "./plan-block-structure";
 import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
@@ -211,7 +213,7 @@ export function PlanContentRenderer({
     if (
       onContentPatch &&
       nextBlock.type === "rich-text" &&
-      findBlock(content.blocks, id)?.type === "rich-text"
+      findPlanBlock(content.blocks, id)?.type === "rich-text"
     ) {
       await onContentPatch({
         op: "update-rich-text",
@@ -234,13 +236,13 @@ export function PlanContentRenderer({
     }
     const next = {
       ...content,
-      blocks: updateBlocks(content.blocks, id, () => nextBlock),
+      blocks: updatePlanBlocks(content.blocks, id, () => nextBlock),
     };
     await onContentChange?.(next);
   };
 
   const updateRichTextBlock = async (blockId: string, markdown: string) => {
-    const block = findBlock(content.blocks, blockId);
+    const block = findPlanBlock(content.blocks, blockId);
     if (!block || block.type !== "rich-text") return;
     if (onContentPatch) {
       await onContentPatch({
@@ -1069,58 +1071,6 @@ function EditableHeaderText({
   ) : (
     <p {...commonProps}>{value}</p>
   );
-}
-
-function updateBlocks(
-  blocks: PlanBlock[],
-  id: string,
-  updater: (block: PlanBlock) => PlanBlock,
-): PlanBlock[] {
-  return blocks.map((block) => {
-    if (block.id === id) return updater(block);
-    if (block.type === "tabs") {
-      return {
-        ...block,
-        data: {
-          tabs: block.data.tabs.map((tab) => ({
-            ...tab,
-            blocks: updateBlocks(tab.blocks, id, updater),
-          })),
-        },
-      };
-    }
-    if (block.type === "columns") {
-      return {
-        ...block,
-        data: {
-          columns: block.data.columns.map((column) => ({
-            ...column,
-            blocks: updateBlocks(column.blocks, id, updater),
-          })),
-        },
-      };
-    }
-    return block;
-  });
-}
-
-function findBlock(blocks: PlanBlock[], id: string): PlanBlock | null {
-  for (const block of blocks) {
-    if (block.id === id) return block;
-    if (block.type === "tabs") {
-      for (const tab of block.data.tabs) {
-        const match = findBlock(tab.blocks, id);
-        if (match) return match;
-      }
-    }
-    if (block.type === "columns") {
-      for (const column of block.data.columns) {
-        const match = findBlock(column.blocks, id);
-        if (match) return match;
-      }
-    }
-  }
-  return null;
 }
 
 function computeRecapStats(

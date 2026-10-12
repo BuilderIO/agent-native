@@ -154,7 +154,7 @@ describe("BlockRenderErrorBoundary", () => {
 });
 
 describe("BlockRenderSuspenseFallback", () => {
-  it("shows a localized failure state for server-rendered blocks", () => {
+  it("keeps the server fallback neutral when a renderer errors", () => {
     function FailingRead() {
       throw new Error("renderer failed");
     }
@@ -180,15 +180,40 @@ describe("BlockRenderSuspenseFallback", () => {
         </AgentNativeI18nProvider>,
       );
 
-      expect(markup).toContain("data-block-render-error");
-      expect(markup).toContain("This block is temporarily unavailable.");
-      expect(markup).not.toContain("data-block-render-loading");
-      expect(markup.match(/<p role="alert"[^>]*>(.*?)<\/p>/)?.[1]).toBe(
-        "This block is temporarily unavailable.",
-      );
+      expect(markup).toContain("data-block-render-loading");
+      expect(markup).not.toContain("data-block-render-error");
+      expect(markup).not.toContain("This block is temporarily unavailable.");
     } finally {
       logError.mockRestore();
       vi.unstubAllGlobals();
     }
+  });
+
+  it("keeps the server fallback neutral while a renderer suspends", () => {
+    function SuspendedRead() {
+      throw new Promise<void>(() => {});
+    }
+
+    const markup = renderToString(
+      <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
+        <BlockView
+          spec={
+            {
+              type: "note",
+              label: "Note",
+              placement: [],
+              Read: SuspendedRead,
+            } as unknown as BlockSpec<{}>
+          }
+          block={{ id: "note-1", data: {} }}
+          editing={false}
+          ctx={{}}
+        />
+      </AgentNativeI18nProvider>,
+    );
+
+    expect(markup).toContain("data-block-render-loading");
+    expect(markup).not.toContain("data-block-render-error");
+    expect(markup).not.toContain("This block is temporarily unavailable.");
   });
 });

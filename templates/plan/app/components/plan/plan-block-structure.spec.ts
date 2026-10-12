@@ -2,9 +2,11 @@ import type { PlanBlock } from "@shared/plan-content";
 import { describe, expect, it } from "vitest";
 
 import {
+  findPlanBlock,
   hasPlanBlockStructureChange,
   isWideLayoutBlock,
   nestedPlanBlockLists,
+  updatePlanBlocks,
   visitPlanBlocks,
 } from "./plan-block-structure";
 
@@ -81,6 +83,45 @@ describe("hasPlanBlockStructureChange", () => {
     ).not.toThrow();
     expect(seen).toEqual(["tabs-2", "note-1"]);
     expect(nestedPlanBlockLists(blocks[0])).toHaveLength(1);
+  });
+});
+
+describe("guarded Plan block traversal", () => {
+  const note = {
+    id: "note-target",
+    type: "note",
+    data: { body: "before" },
+  } as unknown as PlanBlock;
+  const blocks = [
+    { id: "bad-tabs", type: "tabs", data: { tabs: null } },
+    {
+      id: "columns-1",
+      type: "columns",
+      data: {
+        columns: [{ id: "column-1", blocks: [note] }, null],
+      },
+    },
+  ] as unknown as PlanBlock[];
+
+  it("finds a later nested block after malformed tabs", () => {
+    expect(findPlanBlock(blocks, "note-target")).toEqual(note);
+  });
+
+  it("updates a later nested block and preserves malformed siblings", () => {
+    const updated = updatePlanBlocks(
+      blocks,
+      "note-target",
+      (block) =>
+        ({
+          ...block,
+          data: { body: "after" },
+        }) as PlanBlock,
+    );
+    const columns = updated[1] as Extract<PlanBlock, { type: "columns" }>;
+
+    expect(updated[0]).toBe(blocks[0]);
+    expect(columns.data.columns[0]?.blocks[0]?.data).toEqual({ body: "after" });
+    expect((columns.data.columns as unknown[])[1]).toBeNull();
   });
 });
 

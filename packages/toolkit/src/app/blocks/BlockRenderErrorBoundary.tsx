@@ -102,12 +102,9 @@ export function BlockRenderSuspenseFallback({
   blockType: string;
 }) {
   const t = useT();
-  if (typeof window === "undefined") {
-    return (
-      <BlockRenderUnavailableFallback blockId={blockId} blockType={blockType} />
-    );
-  }
 
+  // Server rendering routes both suspension and recoverable errors through
+  // this fallback, so it cannot identify a confirmed renderer failure.
   return (
     <div
       role="status"

@@ -58,6 +58,10 @@ import { Button } from "@/components/ui/button";
 import { usePlanImageUpload } from "../../hooks/use-plan-image-upload";
 import type { PlanBlocksRevision } from "../../lib/plan-block-save";
 import { PlanBlockView } from "../plan/DocumentArea";
+import {
+  findPlanBlock,
+  findPlanBlockRegionBlocks,
+} from "../plan/plan-block-structure";
 import { PlanImageNode } from "../plan/PlanImageNode";
 import { PlanBlockNode, PlanBlockDataProvider } from "./PlanBlockNode";
 import { buildPlanSlashCommands } from "./planSlashCommands";
@@ -140,6 +144,45 @@ type ColumnSideDropRequest = {
   regionId?: string;
 };
 
+type NestedPlanRegions = {
+  key: "tabs" | "columns";
+  data: Record<string, unknown>;
+  regions: unknown[];
+};
+
+function nestedPlanRegions(block: PlanBlock): NestedPlanRegions | null {
+  if (block.type !== "tabs" && block.type !== "columns") return null;
+  const data: unknown = block.data;
+  if (!data || typeof data !== "object") return null;
+  const record = data as Record<string, unknown>;
+  const key = block.type === "tabs" ? "tabs" : "columns";
+  return Array.isArray(record[key])
+    ? { key, data: record, regions: record[key] as unknown[] }
+    : null;
+}
+
+function withNestedPlanRegions(
+  block: PlanBlock,
+  nested: NestedPlanRegions,
+  regions: unknown[],
+): PlanBlock {
+  return {
+    ...block,
+    data: { ...nested.data, [nested.key]: regions },
+  } as PlanBlock;
+}
+
+function isNestedPlanRegion(
+  value: unknown,
+): value is Record<string, unknown> & { blocks: unknown[] } {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "blocks" in value &&
+    Array.isArray((value as { blocks?: unknown }).blocks)
+  );
+}
+
 function clonePlanBlock(block: PlanBlock): PlanBlock {
   if (typeof structuredClone === "function") {
     return structuredClone(block) as PlanBlock;
@@ -213,21 +256,7 @@ function findBlockInTree(
   blocks: PlanBlock[],
   blockId: string,
 ): PlanBlock | undefined {
-  for (const block of blocks) {
-    if (block.id === blockId) return block;
-    if (block.type === "tabs") {
-      for (const tab of block.data.tabs) {
-        const found = findBlockInTree(tab.blocks, blockId);
-        if (found) return found;
-      }
-    } else if (block.type === "columns") {
-      for (const column of block.data.columns) {
-        const found = findBlockInTree(column.blocks, blockId);
-        if (found) return found;
-      }
-    }
-  }
-  return undefined;
+  return findPlanBlock(blocks, blockId) ?? undefined;
 }
 
 function regionBlocksForInfo(
@@ -235,19 +264,7 @@ function regionBlocksForInfo(
   info: NestedRegionInfo,
 ): PlanBlock[] | null {
   const container = findBlockInTree(blocks, info.containerBlockId);
-  if (container?.type === "columns") {
-    return (
-      container.data.columns.find((column) => column.id === info.regionId)
-        ?.blocks ?? null
-    );
-  }
-  if (container?.type === "tabs") {
-    return (
-      container.data.tabs.find((tab) => tab.id === info.regionId)?.blocks ??
-      null
-    );
-  }
-  return null;
+  return findPlanBlockRegionBlocks(container, info.regionId);
 }
 
 function blocksForEditorView(
@@ -285,48 +302,67 @@ function removeBlockFromTree(
   let removed = false;
   const nextBlocks: PlanBlock[] = [];
 
-  for (const block of blocks) {
+  for (const value of blocks as unknown[]) {
+    if (!isTransferredPlanBlock(value)) {
+      nextBlocks.push(value as PlanBlock);
+      continue;
+    }
+    const block = value;
     if (block.id === blockId) {
       removed = true;
       continue;
     }
 
-    if (block.type === "tabs") {
-      let tabChanged = false;
-      const tabs = block.data.tabs.map((tab) => {
-        const result = removeBlockFromTree(tab.blocks, blockId);
-        if (result.removed) {
-          removed = true;
-          tabChanged = true;
-          return { ...tab, blocks: result.blocks };
-        }
-        return tab;
-      });
-      nextBlocks.push(tabChanged ? { ...block, data: { tabs } } : block);
+    const nested = nestedPlanRegions(block);
+    if (!nested) {
+      nextBlocks.push(block);
       continue;
     }
 
-    if (block.type === "columns") {
-      let columnChanged = false;
-      const columns = block.data.columns.flatMap((column) => {
-        const result = removeBlockFromTree(column.blocks, blockId);
-        if (!result.removed) return [column];
+    if (nested.key === "tabs") {
+      let regionsChanged = false;
+      const regions = nested.regions.map((region) => {
+        if (!isNestedPlanRegion(region)) return region;
+        const result = removeBlockFromTree(
+          region.blocks as PlanBlock[],
+          blockId,
+        );
+        if (result.removed) {
+          removed = true;
+          regionsChanged = true;
+          return { ...region, blocks: result.blocks };
+        }
+        return region;
+      });
+      nextBlocks.push(
+        regionsChanged ? withNestedPlanRegions(block, nested, regions) : block,
+      );
+      continue;
+    }
+
+    if (nested.key === "columns") {
+      let regionsChanged = false;
+      const regions = nested.regions.flatMap((region) => {
+        if (!isNestedPlanRegion(region)) return [region];
+        const result = removeBlockFromTree(
+          region.blocks as PlanBlock[],
+          blockId,
+        );
+        if (!result.removed) return [region];
         removed = true;
-        columnChanged = true;
+        regionsChanged = true;
         return result.blocks.length > 0
-          ? [{ ...column, blocks: result.blocks }]
+          ? [{ ...region, blocks: result.blocks }]
           : [];
       });
 
-      if (!columnChanged) {
+      if (!regionsChanged) {
         nextBlocks.push(block);
-      } else if (columns.length > 0) {
-        nextBlocks.push({ ...block, data: { columns } });
+      } else if (regions.length > 0) {
+        nextBlocks.push(withNestedPlanRegions(block, nested, regions));
       }
       continue;
     }
-
-    nextBlocks.push(block);
   }
 
   return { blocks: nextBlocks, removed };
@@ -341,17 +377,27 @@ function insertColumnInContainer(
 ): { blocks: PlanBlock[]; changed: boolean } {
   let changed = false;
 
-  const nextBlocks = blocks.map((block) => {
-    if (block.type === "columns" && block.id === request.containerBlockId) {
-      if (block.data.columns.length >= MAX_COLUMNS) return block;
-      const regionIndex = block.data.columns.findIndex(
-        (column) => column.id === request.regionId,
+  const nextBlocks = blocks.map((value) => {
+    if (!isTransferredPlanBlock(value)) return value as PlanBlock;
+    const block = value;
+    const nested = nestedPlanRegions(block);
+
+    if (nested?.key === "columns" && block.id === request.containerBlockId) {
+      if (nested.regions.length >= MAX_COLUMNS) return block;
+      const regionIndex = nested.regions.findIndex(
+        (region) =>
+          region !== null &&
+          typeof region === "object" &&
+          "id" in region &&
+          (region as { id?: unknown }).id === request.regionId,
       );
       if (regionIndex < 0) return block;
-      const targetColumn = block.data.columns[regionIndex];
+      const targetColumn = nested.regions[regionIndex];
       if (
-        !targetColumn?.blocks.some(
-          (child) => child.id === request.targetBlockId,
+        !isNestedPlanRegion(targetColumn) ||
+        !targetColumn.blocks.some(
+          (child) =>
+            isTransferredPlanBlock(child) && child.id === request.targetBlockId,
         )
       ) {
         return block;
@@ -363,49 +409,25 @@ function insertColumnInContainer(
         blocks: [clonePlanBlock(request.sourceBlock)],
       };
       changed = true;
-      return {
-        ...block,
-        data: {
-          columns: [
-            ...block.data.columns.slice(0, insertIndex),
-            nextColumn,
-            ...block.data.columns.slice(insertIndex),
-          ],
-        },
-      } as PlanBlock;
+      const columns = [...nested.regions];
+      columns.splice(insertIndex, 0, nextColumn);
+      return withNestedPlanRegions(block, nested, columns);
     }
 
-    if (block.type === "tabs") {
-      let childChanged = false;
-      const tabs = block.data.tabs.map((tab) => {
-        const result = insertColumnInContainer(tab.blocks, request);
-        if (result.changed) {
-          changed = true;
-          childChanged = true;
-          return { ...tab, blocks: result.blocks };
-        }
-        return tab;
-      });
-      return childChanged ? ({ ...block, data: { tabs } } as PlanBlock) : block;
-    }
-
-    if (block.type === "columns") {
-      let childChanged = false;
-      const columns = block.data.columns.map((column) => {
-        const result = insertColumnInContainer(column.blocks, request);
-        if (result.changed) {
-          changed = true;
-          childChanged = true;
-          return { ...column, blocks: result.blocks };
-        }
-        return column;
-      });
-      return childChanged
-        ? ({ ...block, data: { columns } } as PlanBlock)
-        : block;
-    }
-
-    return block;
+    if (!nested) return block;
+    let childChanged = false;
+    const regions = nested.regions.map((region) => {
+      if (!isNestedPlanRegion(region)) return region;
+      const result = insertColumnInContainer(
+        region.blocks as PlanBlock[],
+        request,
+      );
+      if (!result.changed) return region;
+      changed = true;
+      childChanged = true;
+      return { ...region, blocks: result.blocks };
+    });
+    return childChanged ? withNestedPlanRegions(block, nested, regions) : block;
   });
 
   return { blocks: nextBlocks, changed };
@@ -417,10 +439,17 @@ function wrapTopLevelTargetInColumns(
 ): PlanBlock[] | null {
   if (request.sourceBlock.type === "columns") return null;
   const targetIndex = blocks.findIndex(
-    (block) => block.id === request.targetBlockId,
+    (block) =>
+      isTransferredPlanBlock(block) && block.id === request.targetBlockId,
   );
   const targetBlock = blocks[targetIndex];
-  if (!targetBlock || targetBlock.type === "columns") return null;
+  if (
+    !targetBlock ||
+    !isTransferredPlanBlock(targetBlock) ||
+    targetBlock.type === "columns"
+  ) {
+    return null;
+  }
 
   const sourceColumn = {
     id: createPlanBlockId("column"),
@@ -476,7 +505,12 @@ function insertBlockBeside(
 ): { blocks: PlanBlock[]; inserted: boolean } {
   let inserted = false;
   const out: PlanBlock[] = [];
-  for (const block of blocks) {
+  for (const value of blocks as unknown[]) {
+    if (!isTransferredPlanBlock(value)) {
+      out.push(value as PlanBlock);
+      continue;
+    }
+    const block = value;
     if (!inserted && block.id === targetBlockId) {
       const clone = clonePlanBlock(sourceBlock);
       if (placement === "before") out.push(clone, block);
@@ -484,46 +518,23 @@ function insertBlockBeside(
       inserted = true;
       continue;
     }
-    if (!inserted && block.type === "tabs") {
+    const nested = nestedPlanRegions(block);
+    if (!inserted && nested) {
       let changed = false;
-      const tabs = block.data.tabs.map((tab) => {
-        if (inserted) return tab;
-        const r = insertBlockBeside(
-          tab.blocks,
+      const regions = nested.regions.map((region) => {
+        if (inserted || !isNestedPlanRegion(region)) return region;
+        const result = insertBlockBeside(
+          region.blocks as PlanBlock[],
           targetBlockId,
           sourceBlock,
           placement,
         );
-        if (r.inserted) {
-          inserted = true;
-          changed = true;
-          return { ...tab, blocks: r.blocks };
-        }
-        return tab;
+        if (!result.inserted) return region;
+        inserted = true;
+        changed = true;
+        return { ...region, blocks: result.blocks };
       });
-      out.push(changed ? ({ ...block, data: { tabs } } as PlanBlock) : block);
-      continue;
-    }
-    if (!inserted && block.type === "columns") {
-      let changed = false;
-      const columns = block.data.columns.map((column) => {
-        if (inserted) return column;
-        const r = insertBlockBeside(
-          column.blocks,
-          targetBlockId,
-          sourceBlock,
-          placement,
-        );
-        if (r.inserted) {
-          inserted = true;
-          changed = true;
-          return { ...column, blocks: r.blocks };
-        }
-        return column;
-      });
-      out.push(
-        changed ? ({ ...block, data: { columns } } as PlanBlock) : block,
-      );
+      out.push(changed ? withNestedPlanRegions(block, nested, regions) : block);
       continue;
     }
     out.push(block);
@@ -532,32 +543,35 @@ function insertBlockBeside(
 }
 
 function normalizeColumnBlocks(blocks: PlanBlock[]): PlanBlock[] {
-  return blocks.flatMap((block) => {
-    if (block.type === "tabs") {
-      return [
-        {
-          ...block,
-          data: {
-            tabs: block.data.tabs.map((tab) => ({
-              ...tab,
-              blocks: normalizeColumnBlocks(tab.blocks),
-            })),
-          },
-        } as PlanBlock,
-      ];
+  return blocks.flatMap((value) => {
+    if (!isTransferredPlanBlock(value)) return [value as PlanBlock];
+    const block = value;
+    const nested = nestedPlanRegions(block);
+    if (!nested) return [block];
+
+    if (nested.key === "tabs") {
+      const regions = nested.regions.map((region) =>
+        isNestedPlanRegion(region)
+          ? {
+              ...region,
+              blocks: normalizeColumnBlocks(region.blocks as PlanBlock[]),
+            }
+          : region,
+      );
+      return [withNestedPlanRegions(block, nested, regions)];
     }
-    if (block.type === "columns") {
-      const columns = block.data.columns
-        .map((column) => ({
-          ...column,
-          blocks: normalizeColumnBlocks(column.blocks),
-        }))
-        .filter((column) => column.blocks.length > 0);
-      if (columns.length === 0) return [];
-      if (columns.length === 1) return columns[0].blocks;
-      return [{ ...block, data: { columns } } as PlanBlock];
+
+    const regions = nested.regions.flatMap((region) => {
+      if (!isNestedPlanRegion(region)) return [region];
+      const nextBlocks = normalizeColumnBlocks(region.blocks as PlanBlock[]);
+      return nextBlocks.length > 0 ? [{ ...region, blocks: nextBlocks }] : [];
+    });
+    if (regions.length === 0) return [];
+    const validRegions = regions.filter(isNestedPlanRegion);
+    if (regions.length === 1 && validRegions.length === 1) {
+      return validRegions[0].blocks as PlanBlock[];
     }
-    return [block];
+    return [withNestedPlanRegions(block, nested, regions)];
   });
 }
 
