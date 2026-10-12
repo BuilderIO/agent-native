@@ -325,7 +325,7 @@ function renderSettings() {
         .join("");
   el.innerHTML = `<nav class="st-rail" aria-label="Settings">
       <button class="st-back" id="st-back">${ic("arrow-left", "s16")}Back to ${KIT_ST.app}</button>
-      <label class="st-search">${ic("search", "s14")}<input id="st-q" type="search" placeholder="Search settings" aria-label="Search settings" value="${ST.q}" autocomplete="off">${ST.q ? `<button class="icon-btn xs" id="st-clear" aria-label="Clear search">${ic("x", "s12")}</button>` : `<span class="kbd">/</span>`}</label>
+      <label class="st-search">${ic("search", "s14")}<input id="st-q" type="search" placeholder="Search settings" aria-label="Search settings" value="${ST.q.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}" autocomplete="off">${ST.q ? `<button class="icon-btn xs" id="st-clear" aria-label="Clear search">${ic("x", "s12")}</button>` : `<span class="kbd">/</span>`}</label>
       ${nav}
     </nav>
     <main class="st-main"><button class="icon-btn st-agent" title="Agent" data-st-toast="Opens the agent panel">${ic("sparkles")}</button>

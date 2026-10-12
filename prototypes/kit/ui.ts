@@ -180,6 +180,6 @@ function toast(t) {
 function copyText(text, msg) {
   (navigator.clipboard?.writeText(text) || Promise.reject()).then(
     () => toast(msg),
-    () => toast(msg),
+    () => toast("Couldn't copy."),
   );
 }
