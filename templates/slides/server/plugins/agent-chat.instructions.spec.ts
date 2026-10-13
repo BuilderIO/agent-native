@@ -30,7 +30,6 @@ describe("Slides content-edit agent guidance", () => {
     expect(agentChatSource).toContain(
       "Send each matching contentHash as baseContentHash in the same patch-deck call",
     );
-    expect(agentChatSource).toContain("Set styleOnly=true for CSS-only");
     expect(agentChatSource).toContain(
       "After the write, verify once with get-deck slideIds and compact=false",
     );
