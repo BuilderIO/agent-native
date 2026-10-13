@@ -36,7 +36,9 @@ import {
   readSourceIndex,
   sourceIndexScanCoverage,
   sourceIndexDictionaryEntries,
+  sourceIndexFreshness,
   type SourceIndexScanCoverage,
+  type SourceIndexFreshness,
 } from "./source-index-store";
 
 const DATA_DICTIONARY_KEY_PREFIX = "data-dict-";
@@ -145,6 +147,9 @@ export type AnalyticsQueryCatalogCandidate =
       sourceRevision?: string;
       sourceIndexGeneratedAt?: string;
       sourceIndexSources?: string;
+      sourceIndexAgeDays?: number;
+      sourceIndexStaleAfterDays?: number;
+      sourceIndexStale?: boolean;
     };
 
 export type AnalyticsQueryCatalogSearchResult = {
@@ -167,6 +172,7 @@ export type AnalyticsQueryCatalogSearchResult = {
   dictionarySearchStatus: "available" | "partial" | "unavailable";
   sourceIndexStatus: "not-configured" | "unavailable" | "invalid" | "available";
   sourceIndexScanCoverage: SourceIndexScanCoverage | null;
+  sourceIndexFreshness: SourceIndexFreshness | null;
 };
 
 export type AnalyticsDictionarySearchResult = {
@@ -180,6 +186,7 @@ export type AnalyticsDictionarySearchResult = {
   dictionarySearchStatus: "available" | "partial" | "unavailable";
   sourceIndexStatus: "not-configured" | "unavailable" | "invalid" | "available";
   sourceIndexScanCoverage: SourceIndexScanCoverage | null;
+  sourceIndexFreshness: SourceIndexFreshness | null;
 };
 
 function text(value: unknown): string {
@@ -418,9 +425,20 @@ function hasOrganizationIdentityKey(columns: string): boolean {
   return /\b(?:organization|org|workspace|team)\s+id\b/.test(columns);
 }
 
+function isStaleGeneratedSourceIndexEntry(
+  candidate: AnalyticsQueryCatalogCandidate,
+): boolean {
+  return (
+    candidate.kind === "data-dictionary" &&
+    candidate.origin === "source-index" &&
+    candidate.sourceIndexStale === true
+  );
+}
+
 function hasMembershipRosterEvidence(
   candidate: AnalyticsQueryCatalogCandidate,
 ): boolean {
+  if (isStaleGeneratedSourceIndexEntry(candidate)) return false;
   if (
     hasExplicitNonMembershipScope(candidate) ||
     hasExplicitActivityEvidence(candidate)
@@ -515,7 +533,12 @@ function hasMembershipRelationEvidence(value: string): boolean {
 function hasExplicitNonMembershipScope(
   candidate: AnalyticsQueryCatalogCandidate,
 ): boolean {
-  if (candidate.kind !== "data-dictionary") return false;
+  if (
+    candidate.kind !== "data-dictionary" ||
+    isStaleGeneratedSourceIndexEntry(candidate)
+  ) {
+    return false;
+  }
   const scope = candidate.semanticScope;
   return (
     typeof scope === "string" &&
@@ -673,6 +696,8 @@ function rosterCandidateSupportsRequestedDetail(
   candidate: AnalyticsQueryCatalogCandidate,
   search: string,
 ): boolean {
+  // Keep stale entries available as leads; ranking must not trust their claims.
+  if (isStaleGeneratedSourceIndexEntry(candidate)) return true;
   if (
     hasExplicitNonMembershipScope(candidate) ||
     hasExplicitActivityEvidence(candidate) ||
@@ -694,6 +719,9 @@ function rosterCandidateSupportsRequestedDetail(
 export function candidateSemanticScope(
   candidate: AnalyticsQueryCatalogCandidate,
 ): string {
+  if (isStaleGeneratedSourceIndexEntry(candidate)) {
+    return "unknown";
+  }
   if (candidate.kind === "data-dictionary") {
     const declared = candidate.semanticScope;
     if (declared && declared !== "unknown" && SEMANTIC_SCOPES.has(declared)) {
@@ -999,6 +1027,15 @@ function dictionaryCandidates(
         ...(text(entry.sourceIndexSources)
           ? { sourceIndexSources: text(entry.sourceIndexSources) }
           : {}),
+        ...(typeof entry.sourceIndexAgeDays === "number"
+          ? { sourceIndexAgeDays: entry.sourceIndexAgeDays }
+          : {}),
+        ...(typeof entry.sourceIndexStaleAfterDays === "number"
+          ? { sourceIndexStaleAfterDays: entry.sourceIndexStaleAfterDays }
+          : {}),
+        ...(typeof entry.sourceIndexStale === "boolean"
+          ? { sourceIndexStale: entry.sourceIndexStale }
+          : {}),
       },
     ];
   });
@@ -1108,26 +1145,35 @@ export function candidateQueryPriority(
       requestedScope === "membership_roster") &&
     requestsActiveMembers(rankingIntent);
   const requestedTerms = new Set(searchTerms(rankingIntent));
+  const staleSourceIndex = isStaleGeneratedSourceIndexEntry(candidate);
 
   return {
-    rosterSpecificity: rosterRequest
-      ? hasMembershipRosterEvidence(candidate) &&
-        (!requestsRoleDetail || hasMembershipRoleField(candidate))
-        ? 2
-        : !requestsRoleDetail && isRosterDimensionCandidate(candidate)
-          ? 1
-          : 0
-      : 0,
+    rosterSpecificity:
+      !staleSourceIndex && rosterRequest
+        ? hasMembershipRosterEvidence(candidate) &&
+          (!requestsRoleDetail || hasMembershipRoleField(candidate))
+          ? 2
+          : !requestsRoleDetail && isRosterDimensionCandidate(candidate)
+            ? 1
+            : 0
+        : 0,
     membershipRowSpecificity:
-      plainMembershipRequest && hasMembershipRosterEvidence(candidate) ? 1 : 0,
+      !staleSourceIndex &&
+      plainMembershipRequest &&
+      hasMembershipRosterEvidence(candidate)
+        ? 1
+        : 0,
     rankingTier: candidateQueryRankingTierForTerms(candidate, requestedTerms),
     trust: candidateTrustTier(candidate),
     activeSubsetSpecificity:
-      requestedActiveMembers && hasActiveOnlyMembershipEvidence(candidate)
+      !staleSourceIndex &&
+      requestedActiveMembers &&
+      hasActiveOnlyMembershipEvidence(candidate)
         ? 1
         : 0,
-    scope:
-      requestedScope === "unknown"
+    scope: staleSourceIndex
+      ? 0
+      : requestedScope === "unknown"
         ? 1
         : semanticScopeCompatibility(
             candidateSemanticScope(candidate),
@@ -1239,7 +1285,8 @@ export function rankAnalyticsQueryCatalogPage(args: {
           hasMembershipRoleContext(candidate),
         )
       : strongestScopeMatch === 2
-        ? eligibleCandidates.filter(({ scope, trust }) => {
+        ? eligibleCandidates.filter(({ candidate, scope, trust }) => {
+            if (isStaleGeneratedSourceIndexEntry(candidate)) return true;
             if (scope === 2) return true;
             if (requestedScope === "product_activity") {
               return scope === 1 && trust > bestScopeTrust;
@@ -1326,6 +1373,7 @@ async function listDictionaryEntries(args: {
   status: "available" | "partial" | "unavailable";
   sourceIndexStatus: "not-configured" | "unavailable" | "invalid" | "available";
   sourceIndexScanCoverage: SourceIndexScanCoverage | null;
+  sourceIndexFreshness: SourceIndexFreshness | null;
 }> {
   const entries: DictionaryEntry[] = [];
   const seen = new Map<string, number>();
@@ -1391,14 +1439,19 @@ async function listDictionaryEntries(args: {
     | "invalid"
     | "available" = "unavailable";
   let sourceIndexCoverage: SourceIndexScanCoverage | null = null;
+  let sourceIndexFreshnessMetadata: SourceIndexFreshness | null = null;
   if (sourceIndexResult.status === "fulfilled") {
     sourceIndexStatus = sourceIndexResult.value.status;
     if (sourceIndexResult.value.status === "available") {
+      sourceIndexFreshnessMetadata = sourceIndexFreshness(
+        sourceIndexResult.value.bundle.generatedAt,
+      );
       sourceIndexCoverage = sourceIndexScanCoverage(
         sourceIndexResult.value.bundle,
       );
       for (const entry of sourceIndexDictionaryEntries(
         sourceIndexResult.value.bundle,
+        sourceIndexFreshnessMetadata,
       )) {
         collect(entry);
       }
@@ -1445,6 +1498,7 @@ async function listDictionaryEntries(args: {
           : "unavailable",
     sourceIndexStatus,
     sourceIndexScanCoverage: sourceIndexCoverage,
+    sourceIndexFreshness: sourceIndexFreshnessMetadata,
   };
 }
 
@@ -1484,6 +1538,7 @@ export async function searchAnalyticsDictionaryCatalog(args: {
     dictionarySearchStatus: dictionary.status,
     sourceIndexStatus: dictionary.sourceIndexStatus,
     sourceIndexScanCoverage: dictionary.sourceIndexScanCoverage,
+    sourceIndexFreshness: dictionary.sourceIndexFreshness,
   };
 }
 
@@ -1792,6 +1847,10 @@ export async function searchAnalyticsQueryCatalog(args: {
     sourceIndexScanCoverage:
       dictionaryResult.status === "fulfilled"
         ? dictionaryResult.value.sourceIndexScanCoverage
+        : null,
+    sourceIndexFreshness:
+      dictionaryResult.status === "fulfilled"
+        ? dictionaryResult.value.sourceIndexFreshness
         : null,
   };
 }

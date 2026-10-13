@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  candidateQueryPriority,
   rankAnalyticsQueryCatalog,
   relevanceTerms,
   searchTerms,
@@ -151,6 +152,121 @@ describe("analytics query catalog", () => {
       id: "dbt-workspace-user-grain",
       sourceKind: "dbt",
     });
+  });
+
+  it("keeps stale source-index grain searchable without trusting it as current", () => {
+    const search = "workspace user membership";
+    const results = rankAnalyticsQueryCatalog({
+      search,
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "stale-workspace-member-role-bridge",
+          origin: "source-index",
+          metric: "Workspace user roles",
+          definition:
+            "One row per user-workspace membership, including the assigned role.",
+          table: "workspace_member_role_bridge",
+          columnsUsed: "user_id, workspace_id, role",
+          grain: "One row per user-workspace membership",
+          semanticScope: "membership",
+          sourceKind: "dbt",
+          sourceIndex: true,
+          sourceIndexStale: true,
+          sourceIndexAgeDays: 104,
+          sourceIndexStaleAfterDays: 90,
+          approved: false,
+          aiGenerated: true,
+        },
+        {
+          id: "fresh-workspace-member-role-bridge",
+          origin: "source-index",
+          metric: "Workspace user roles",
+          definition:
+            "One row per user-workspace membership, including the assigned role.",
+          table: "workspace_member_role_bridge",
+          columnsUsed: "user_id, workspace_id, role",
+          grain: "One row per user-workspace membership",
+          semanticScope: "membership",
+          sourceKind: "dbt",
+          sourceIndex: true,
+          sourceIndexStale: false,
+          sourceIndexAgeDays: 12,
+          sourceIndexStaleAfterDays: 90,
+          approved: false,
+          aiGenerated: true,
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "fresh-workspace-member-role-bridge",
+      sourceIndexStale: false,
+    });
+    const staleCandidate = results.find(
+      (candidate) =>
+        candidate.kind === "data-dictionary" &&
+        candidate.id === "stale-workspace-member-role-bridge",
+    );
+    const freshCandidate = results.find(
+      (candidate) =>
+        candidate.kind === "data-dictionary" &&
+        candidate.id === "fresh-workspace-member-role-bridge",
+    );
+    expect(staleCandidate).toMatchObject({
+      id: "stale-workspace-member-role-bridge",
+      sourceIndexStale: true,
+      sourceIndexAgeDays: 104,
+    });
+    expect(candidateQueryPriority(staleCandidate!, search)).toMatchObject({
+      rosterSpecificity: 0,
+      membershipRowSpecificity: 0,
+      trust: 0,
+      scope: 0,
+    });
+    expect(candidateQueryPriority(freshCandidate!, search)).toMatchObject({
+      rosterSpecificity: 0,
+      membershipRowSpecificity: 1,
+      trust: 3,
+      scope: 2,
+    });
+  });
+
+  it("keeps a stale source-index lead visible despite its outdated conflicting scope", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace member roster",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "stale-workspace-member-roster-lead",
+          metric: "Workspace Member Roster",
+          definition: "One row per synthetic user-workspace membership record.",
+          table: "workspace_member_roster_snapshot",
+          columnsUsed: "user_id, workspace_id",
+          grain: "One row per user_id per workspace_id",
+          semanticScope: "product_activity",
+          sourceKind: "dbt",
+          sourceIndex: true,
+          sourceIndexStale: true,
+          sourceIndexAgeDays: 140,
+          sourceIndexStaleAfterDays: 90,
+          approved: false,
+          aiGenerated: true,
+          origin: "source-index",
+        },
+      ],
+    });
+
+    expect(results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "stale-workspace-member-roster-lead",
+          sourceIndexStale: true,
+        }),
+      ]),
+    );
   });
 
   it("requires row-level role evidence for workspace roster questions", () => {

@@ -6,6 +6,11 @@ const mocks = vi.hoisted(() => ({
   listOrgSettings: vi.fn(async () => ({})),
   listSettingsByPrefix: vi.fn(async () => []),
   readSourceIndex: vi.fn(),
+  sourceIndexFreshness: vi.fn(() => ({
+    ageDays: 0,
+    staleAfterDays: 90,
+    stale: false,
+  })),
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
@@ -18,6 +23,7 @@ vi.mock("@agent-native/core/settings", () => ({
 vi.mock("./source-index-store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./source-index-store")>()),
   readSourceIndex: mocks.readSourceIndex,
+  sourceIndexFreshness: mocks.sourceIndexFreshness,
 }));
 
 const { searchAnalyticsDictionaryCatalog } =
@@ -95,6 +101,37 @@ describe("analytics query catalog scan coverage", () => {
       unsafeFieldsOmitted: null,
       truncatedFields: null,
       unresolvedTrackingCallSites: null,
+    });
+  });
+
+  it("returns freshness metadata and stamps generated candidates", async () => {
+    mocks.readSourceIndex.mockResolvedValueOnce({
+      status: "available",
+      bundle: baseBundle,
+    });
+    mocks.sourceIndexFreshness.mockReturnValueOnce({
+      ageDays: 104,
+      staleAfterDays: 90,
+      stale: true,
+    });
+
+    const result = await searchAnalyticsDictionaryCatalog({
+      search: "workspace members",
+      email: "admin@example.test",
+      orgId: "org_test",
+      limit: 8,
+    });
+
+    expect(result.sourceIndexFreshness).toEqual({
+      ageDays: 104,
+      staleAfterDays: 90,
+      stale: true,
+    });
+    expect(result.candidates[0]).toMatchObject({
+      origin: "source-index",
+      sourceIndexStale: true,
+      sourceIndexAgeDays: 104,
+      sourceIndexStaleAfterDays: 90,
     });
   });
 });

@@ -156,4 +156,45 @@ describe("find-data scan coverage", () => {
       "Treat missing source-index matches as incomplete",
     );
   });
+
+  it("warns when generated source-index references have aged past the refresh window", async () => {
+    mocks.searchAnalyticsQueryCatalog.mockResolvedValueOnce({
+      candidates: [],
+      searched: 0,
+      of: 0,
+      truncated: false,
+      nextPage: null,
+      searchedDashboardCount: 0,
+      dashboardSearchTruncated: false,
+      dashboardDetailHydrationTruncated: false,
+      dashboardPanelReferenceSearchStatus: "available",
+      dashboardPanelReferenceSearchTruncated: false,
+      dashboardPanelReferenceSearched: 0,
+      dashboardPanelReferenceOf: 0,
+      dashboardPanelReferenceNextPage: null,
+      dashboardSearchStatus: "available",
+      searchedDictionaryEntryCount: 0,
+      dictionarySearchTruncated: false,
+      dictionarySearchStatus: "available",
+      sourceIndexStatus: "available",
+      sourceIndexScanCoverage: null,
+      sourceIndexFreshness: {
+        ageDays: 104,
+        staleAfterDays: 90,
+        stale: true,
+      },
+    });
+
+    const result = await action.run({ question: "workspace users" });
+
+    expect(result.sourceIndexFreshness).toEqual({
+      ageDays: 104,
+      staleAfterDays: 90,
+      stale: true,
+    });
+    expect(result.guidance).toContain(
+      "The generated source index is stale (104 days old; refresh threshold 90 days)",
+    );
+    expect(result.guidance).toContain("Use its entries only to discover leads");
+  });
 });

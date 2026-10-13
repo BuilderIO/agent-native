@@ -384,6 +384,60 @@ describe("retrieveAnalyticsPromptReferences", () => {
     }
   });
 
+  it("labels stale generated entries as discovery leads in the prompt", async () => {
+    const stale: AnalyticsQueryCatalogCandidate = {
+      kind: "data-dictionary",
+      origin: "source-index",
+      matchedTerms: ["workspace", "member", "role"],
+      exactMatchedTerms: ["workspace", "member", "role"],
+      id: "stale-workspace-member-roles",
+      metric: "Workspace member roles",
+      definition:
+        "One row per user-workspace membership, including the assigned role.",
+      table: "workspace_member_role_bridge",
+      columnsUsed: "user_id, workspace_id, role",
+      grain: "One row per user-workspace membership",
+      semanticScope: "membership",
+      sourceKind: "dbt",
+      sourceIndexStale: true,
+      sourceIndexAgeDays: 104,
+      sourceIndexStaleAfterDays: 90,
+      approved: false,
+      aiGenerated: true,
+      score: 100,
+    };
+    mocks.searchAnalyticsDictionaryCatalog.mockResolvedValue({
+      candidates: [stale],
+      searched: 1,
+      of: 1,
+      truncated: false,
+      nextPage: null,
+      searchedDictionaryEntryCount: 1,
+      dictionarySearchTruncated: false,
+      dictionarySearchStatus: "available",
+      sourceIndexStatus: "available",
+    });
+    mocks.embed.mockImplementation(async (inputs: { text?: string }[]) =>
+      inputs.map(() => [1, 0]),
+    );
+
+    const result = await retrieveAnalyticsPromptReferences({
+      request: "current workspace member roles",
+      email: "owner@example.com",
+      orgId: "org-analytics",
+    });
+
+    expect(result.jevPromptCandidates[0]?.content).toContain(
+      "Stale generated metadata (104 days old; refresh threshold 90 days)",
+    );
+    expect(result.jevPromptCandidates[0]?.content).toContain(
+      "Treat this entry only as a search lead",
+    );
+    expect(result.jevPromptCandidates[0]?.content).toContain(
+      "Unverified scope claim from stale source-index metadata",
+    );
+  });
+
   it("keeps a row-level dbt membership bridge above an approved monthly aggregate", async () => {
     const dbtBridge: AnalyticsQueryCatalogCandidate = {
       kind: "data-dictionary",

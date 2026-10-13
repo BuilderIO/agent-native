@@ -152,7 +152,9 @@ export function dataDictionaryTrustRank(entry: {
   approved?: unknown;
   aiGenerated?: unknown;
   sourceKind?: unknown;
+  sourceIndexStale?: unknown;
 }): number {
+  if (entry.sourceIndexStale === true) return 0;
   if (entry.approved === true) return 4;
   if (entry.sourceKind === "dbt") return 3;
   if (entry.sourceKind === "code") return 2;

@@ -6,7 +6,10 @@ import {
 import { z } from "zod";
 
 import { searchAnalyticsQueryCatalog } from "../server/lib/analytics-query-catalog.js";
-import type { SourceIndexScanCoverage } from "../server/lib/source-index-store.js";
+import type {
+  SourceIndexFreshness,
+  SourceIndexScanCoverage,
+} from "../server/lib/source-index-store.js";
 
 function countLabel(
   count: number,
@@ -47,9 +50,17 @@ function sourceIndexScanGuidance(
   return "";
 }
 
+function sourceIndexFreshnessGuidance(
+  status: "not-configured" | "unavailable" | "invalid" | "available",
+  freshness: SourceIndexFreshness | null,
+): string {
+  if (status !== "available" || !freshness?.stale) return "";
+  return `The generated source index is stale (${freshness.ageDays} days old; refresh threshold ${freshness.staleAfterDays} days). Use its entries only to discover leads; do not treat its definitions, grain, joins, or omissions as current. Verify current schema and owner-approved definitions before querying.`;
+}
+
 export default defineAction({
   description:
-    "Find definitions, dashboard SQL, and source-index references. Returns ranked metadata and source-index scan coverage counts, never live values. Use `search-bigquery-schema` for exact columns or partitions, then run one live query before reporting values.",
+    "Find definitions, dashboard SQL, and source-index references. Returns ranked metadata, source-index freshness and scan coverage, never live values. Treat stale generated entries as discovery hints; use `search-bigquery-schema` for exact columns or partitions, then run one live query before reporting values.",
   schema: z.object({
     question: z
       .string()
@@ -88,6 +99,10 @@ export default defineAction({
       result.sourceIndexStatus,
       result.sourceIndexScanCoverage,
     );
+    const freshnessGuidance = sourceIndexFreshnessGuidance(
+      result.sourceIndexStatus,
+      result.sourceIndexFreshness,
+    );
     return {
       question,
       results: candidates,
@@ -97,6 +112,7 @@ export default defineAction({
         "Treat saved SQL and source-index entries as examples or unapproved metadata. Verify source scope, live schema, partitions, and current values before answering. If truncated is true and nextPage is present, continue with that cursor; if truncated is true and nextPage is null, refine the search or use an explicit dashboard/schema search because a source cap was reached.",
         sourceIndexGuidance,
         scanGuidance,
+        freshnessGuidance,
       ]
         .filter(Boolean)
         .join(" "),

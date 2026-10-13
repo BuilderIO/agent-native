@@ -70,7 +70,22 @@ const syntheticData = vi.hoisted(() => {
         semanticScope: "product_user",
         approved: true,
       },
+      "data-dict-fixture-current-workspace-user-assignments": {
+        id: "fixture-current-workspace-user-assignments",
+        metric: "Workspace User Assignments",
+        definition:
+          "Current synthetic user-to-workspace membership assignments, with each member's assigned role.",
+        source: "fixture_warehouse",
+        sourceKind: "dbt",
+        entryType: "model",
+        table: "fixture_warehouse.current_workspace_user_assignments",
+        columnsUsed: "user_id, workspace_id, role_code",
+        grain: "One row per user_id per workspace_id",
+        semanticScope: "membership",
+        approved: true,
+      },
     },
+    activeCaseId: null as string | null,
     sourceIndexBundle: {
       schemaVersion: 1,
       generatedAt,
@@ -161,6 +176,23 @@ const syntheticData = vi.hoisted(() => {
           columnsUsed: "user_key, event_name, event_timestamp",
           sourcePath: "fixtures/models/product_activity_events.sql",
         },
+        {
+          id: "fixture-stale-current-workspace-user-roster",
+          metric: "Current Workspace User Roster",
+          definition:
+            "One row per synthetic user-workspace membership, with its assigned role.",
+          source: "fixture_warehouse",
+          sourceKind: "dbt",
+          entryType: "model",
+          status: "active",
+          semanticScope: "membership",
+          grain: "One row per user_id per workspace_id",
+          primaryEntity: "workspace membership",
+          table: "fixture_warehouse.stale_workspace_user_roster_snapshot",
+          columnsUsed: "user_id, workspace_id, role_code",
+          sourcePath:
+            "fixtures/models/stale_workspace_user_roster_snapshot.sql",
+        },
       ],
       scanSummary: {
         unsafeEntriesOmitted: 1,
@@ -177,15 +209,35 @@ const storage = vi.hoisted(() => ({
     if (orgId !== "org_synthetic_eval") {
       throw new Error("Synthetic fixture received an unexpected org scope.");
     }
-    return key === "analytics-source-index"
-      ? syntheticData.sourceIndexBundle
-      : null;
+    if (key !== "analytics-source-index") return null;
+    const bundle = syntheticData.sourceIndexBundle;
+    return syntheticData.activeCaseId ===
+      "stale-generated-index-yields-to-current-source"
+      ? bundle
+      : {
+          ...bundle,
+          entries: bundle.entries.filter(
+            (entry) =>
+              entry.id !== "fixture-stale-current-workspace-user-roster",
+          ),
+        };
   }),
   listOrgSettings: vi.fn(async (orgId: string, prefix: string) => {
     if (orgId !== "org_synthetic_eval") {
       throw new Error("Synthetic fixture received an unexpected org scope.");
     }
-    return prefix === "data-dict-" ? syntheticData.dictionaryEntries : {};
+    if (prefix !== "data-dict-") return {};
+    if (
+      syntheticData.activeCaseId ===
+      "stale-generated-index-yields-to-current-source"
+    ) {
+      return syntheticData.dictionaryEntries;
+    }
+    const {
+      "data-dict-fixture-current-workspace-user-assignments": _,
+      ...base
+    } = syntheticData.dictionaryEntries;
+    return base;
   }),
   listSettingsByPrefix: vi.fn(async (prefix: string) => {
     if (prefix !== "u:synthetic-eval@example.invalid:data-dict-") {
@@ -234,8 +286,10 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v13";
-const BASELINE_GIT_REVISION = "afe2ee7e45f6f3f380571a6d18918fc49d71c6e1";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v14";
+const STALE_INDEX_CASE_ID = "stale-generated-index-yields-to-current-source";
+const STALE_INDEX_GENERATED_AT = "2000-01-01T00:00:00.000Z";
+const BASELINE_GIT_REVISION = "0fb4de3ed8bd4e317543575c9b188b93db392d26";
 const BASELINE_HARNESS_PATH =
   "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
 const CANDIDATE_HARNESS_REVISION_ENV = "ANALYTICS_EVAL_HARNESS_REVISION";
@@ -385,6 +439,12 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     prompt:
       "Find the catalog reference for sample product users active in the last 30 days. Metadata only; do not report live counts or values.",
     expectedTable: "fixture_warehouse.product_activity_events",
+  },
+  {
+    id: STALE_INDEX_CASE_ID,
+    prompt:
+      "Find the catalog reference for workspace users. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.current_workspace_user_assignments",
   },
 ];
 
@@ -894,6 +954,11 @@ async function runOnce(testCase: SyntheticCase) {
     await import("../production-context.js");
   const { invalidateSourceIndexCache } =
     await import("../../server/lib/source-index-store.js");
+  syntheticData.activeCaseId = testCase.id;
+  syntheticData.sourceIndexBundle.generatedAt =
+    testCase.id === STALE_INDEX_CASE_ID
+      ? STALE_INDEX_GENERATED_AT
+      : new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   invalidateSourceIndexCache(IDENTITY.orgId);
   const context = resolveProductionEvalContext(IDENTITY);
   const productionChatPath = context.productionChatPath;
@@ -1051,6 +1116,7 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       "active-product-users-map-to-activity",
       "sample-product-users-map-to-identities",
       "active-sample-product-users-map-to-activity",
+      STALE_INDEX_CASE_ID,
     ]);
     expect(() =>
       assertCandidateWorkingTreeStatus(
@@ -1181,6 +1247,35 @@ describe("Analytics synthetic production-path retrieval harness", () => {
         "1 entry was omitted by safety checks; 2 fields were omitted by safety checks; 3 fields were truncated; 4 tracking call sites have unresolved event names",
       );
     }
+  });
+
+  it("keeps stale source-index entries as marked leads below current definitions", async () => {
+    if (phase !== "after") return;
+    const staleCase = SYNTHETIC_CASES.find(
+      ({ id }) => id === STALE_INDEX_CASE_ID,
+    );
+    expect(staleCase).toBeDefined();
+    const { output } = await runOnce(staleCase!);
+    const result = getToolResult(output);
+    expect(result?.sourceIndexFreshness).toMatchObject({ stale: true });
+    const candidates = result?.results;
+    expect(Array.isArray(candidates)).toBe(true);
+    const candidateList = candidates as Array<Record<string, unknown>>;
+    const currentSourceIndex = candidateList.findIndex(
+      ({ table }) =>
+        table === "fixture_warehouse.current_workspace_user_assignments",
+    );
+    const staleSourceIndex = candidateList.findIndex(
+      ({ table }) =>
+        table === "fixture_warehouse.stale_workspace_user_roster_snapshot",
+    );
+    expect(currentSourceIndex).toBe(0);
+    expect(staleSourceIndex).toBeGreaterThan(0);
+    expect(candidateList[staleSourceIndex]).toMatchObject({
+      sourceIndexStale: true,
+      approved: false,
+    });
+    expect(result?.guidance).toContain("discover leads");
   });
 
   it("rejects attempts to serialize unapproved transcript or tool fields", () => {
