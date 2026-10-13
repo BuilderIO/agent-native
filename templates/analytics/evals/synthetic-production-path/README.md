@@ -31,6 +31,13 @@ before and
 `sha256:c7df9845d495ba9e296ecac87b2d0df0cba7a084a2858f7afcb3c67613afb957`
 after.
 
+The pinned baseline is current `origin/main`; the PR was based on
+`8ff15a5577e6530316d59c4e4b2aa751a8f56a63`. Between those revisions,
+`packages/core/src/agent/production-agent.ts` adds a retry for transient
+provider rate-limit errors. The synthetic engine does not generate provider
+errors, so that branch is not exercised in this comparison. This is an
+`origin/main`-to-candidate comparison, not a same-base comparison.
+
 Re-run the baseline from the repository root:
 
 ```sh
