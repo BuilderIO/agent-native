@@ -540,6 +540,64 @@ describe("createFetchToolEntry", () => {
     expect(result.searchResults).toContain("Population estimate");
   });
 
+  it("reports when a saved search scans only the first 500k source characters", async () => {
+    const lateMatch = "late-search-match";
+    const html = `<!doctype html><html><body><main><article><h1>Research</h1><p>${"x".repeat(510_000)} ${lateMatch}</p></article></main></body></html>`;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(html, { headers: { "content-type": "text/html" } }),
+    );
+
+    const result = JSON.parse(
+      String(
+        await runSavedWebRequest({
+          url: "https://example.com/research",
+          extract: "all-visible",
+          search: { query: lateMatch },
+          maxChars: 200_000,
+          saveToFile: "scratch/research.md",
+        }),
+      ),
+    );
+    const savedContent = String(mockWriteWorkspaceFile.mock.calls[0]?.[2]);
+
+    expect(savedContent).toContain(lateMatch);
+    expect(result.searchResults).not.toContain(lateMatch);
+    expect(result.searchResultsTruncated).toBe(false);
+    expect(result.searchSourceTruncated).toBe(true);
+  });
+
+  it("bounds failed HTML save error content by maxChars", async () => {
+    const html = `<!doctype html><html><head><title>Failed page</title></head><body><main><article><p>${"Failure detail. ".repeat(10_000)}</p></article></main></body></html>`;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(html, {
+        status: 500,
+        statusText: "Internal Server Error",
+        headers: { "content-type": "text/html" },
+      }),
+    );
+
+    let caught: unknown;
+    try {
+      await runSavedWebRequest({
+        url: "https://example.com/failed",
+        maxChars: 128,
+        saveToFile: "scratch/failed.md",
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toMatchObject({
+      errorCode: "http_500",
+      message: expect.stringContaining("...[truncated]"),
+    });
+    expect(String((caught as Error).message).length).toBeLessThan(250);
+    expect(String((caught as Error).message)).not.toContain(
+      "Failure detail. ".repeat(10),
+    );
+    expect(mockWriteWorkspaceFile).toHaveBeenCalledOnce();
+  });
+
   it("gives an actionable saveToFile hint for oversized inline JSON", async () => {
     const json = JSON.stringify({ payload: "j".repeat(1_500_000) });
     vi.spyOn(globalThis, "fetch").mockResolvedValue(

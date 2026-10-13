@@ -214,12 +214,12 @@ export function createFetchToolEntry(
             includeLinks: {
               type: "boolean",
               description:
-                "Whether extracted HTML responses should include a compact links list. Default: true for extracted pages.",
+                "Whether extracted HTML responses should include a compact links list. Default: true for inline responses and false when saveToFile is set.",
             },
             search: {
               type: "object",
               description:
-                "Optional post-fetch search over extracted content by default. Supports {query, queries, terms, regex, regexFlags, source:'extracted'|'raw', maxMatches, contextChars, caseSensitive}. Regex is safety-checked and bounded; prefer query/terms for simple grep-like searches.",
+                "Optional post-fetch search over extracted content by default. Searches at most the first 500,000 characters of the selected source; saved results report searchSourceTruncated when this limit is reached. Supports {query, queries, terms, regex, regexFlags, source:'extracted'|'raw', maxMatches, contextChars, caseSensitive}. Regex is safety-checked and bounded; prefer query/terms for simple grep-like searches.",
               properties: {
                 query: { type: "string" },
                 queries: { type: "array", items: { type: "string" } },
@@ -235,7 +235,7 @@ export function createFetchToolEntry(
             saveToFile: {
               type: "string",
               description:
-                "Workspace path to stage a response up to 20 MB (e.g. 'scratch/research/page.md'). HTML saves full extracted Markdown/text unless responseMode is raw; non-HTML and raw mode save the response body. With search, returns matches bounded by maxChars; without search, returns a preview.",
+                "Workspace path to stage a response up to 20 MB (e.g. 'scratch/research/page.md'). HTML saves full extracted Markdown/text unless responseMode is raw; non-HTML and raw mode save the response body. With search, returns matches bounded by maxChars and reports when source scanning was capped; without search, returns a preview.",
             },
           },
           required: ["url"],
@@ -525,6 +525,7 @@ export function createFetchToolEntry(
           let displayBody: string;
           let processedMode = "raw";
           let searchResultsTruncated = false;
+          let searchSourceTruncated = false;
           let fileContent = body;
           let fileContentType = contentType;
           const search = parseWebContentSearchOptions(args.search);
@@ -555,6 +556,7 @@ export function createFetchToolEntry(
               saveContentFormat,
             });
             processedMode = processed.mode;
+            searchSourceTruncated = processed.searchTruncated ?? false;
             displayBody = formatWebContentResult(processed);
 
             if (saveToFilePath && hasSearch && displayBody.length > maxChars) {
@@ -647,7 +649,7 @@ export function createFetchToolEntry(
               const preview = previewSource.slice(0, 2000);
               if (!response.ok)
                 fail(
-                  `HTTP ${response.status} ${response.statusText}\n\n${displayBody}`,
+                  `HTTP ${response.status} ${response.statusText}\n\n${truncateToolText(displayBody, maxChars)}`,
                   { errorCode: `http_${response.status}` },
                 );
               return JSON.stringify({
@@ -663,6 +665,7 @@ export function createFetchToolEntry(
                   ? {
                       searchResults: displayBody,
                       searchResultsTruncated,
+                      searchSourceTruncated,
                     }
                   : {
                       preview:
