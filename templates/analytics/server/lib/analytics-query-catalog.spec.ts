@@ -303,6 +303,33 @@ describe("analytics query catalog", () => {
     });
   });
 
+  it("keeps active-only aggregate metrics eligible for non-roster searches", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "monthly member count by organization",
+      limit: 5,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "monthly-active-member-count",
+          metric: "Monthly Active Member Count by Organization",
+          definition: "Monthly count of active organization memberships.",
+          table: "monthly_active_members_by_org",
+          columnsUsed: "month_start, organization_id, active_member_count",
+          grain: "One row per month_start per organization_id",
+          semanticScope: "membership",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results).toContainEqual(
+      expect.objectContaining({
+        kind: "data-dictionary",
+        id: "monthly-active-member-count",
+      }),
+    );
+  });
+
   it.each([
     "not active workspace members",
     "exclude active workspace members",
@@ -906,6 +933,37 @@ describe("analytics query catalog", () => {
     });
 
     expect(results).toEqual([]);
+  });
+
+  it("recognizes plural membership table names in dashboard roster panels", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current organization user roster with roles",
+      limit: 6,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "organization-memberships",
+          title: "Organization member roles",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "member-roles",
+                title: "Organization member roles",
+                sql: "SELECT user_id, organization_id, role FROM organization_memberships",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results).toContainEqual(
+      expect.objectContaining({
+        kind: "dashboard-panel",
+        dashboardId: "organization-memberships",
+      }),
+    );
   });
 
   it("does not treat monthly membership snapshots as a current roster", () => {

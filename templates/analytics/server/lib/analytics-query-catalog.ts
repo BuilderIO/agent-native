@@ -493,6 +493,9 @@ function dashboardQueryText(
 function hasMembershipRelationEvidence(value: string): boolean {
   return (
     /\bmembership\b/.test(value) ||
+    /\b(?:(?:user|member)\s+)?(?:organization|org|workspace|team)\s+memberships?\b/.test(
+      value,
+    ) ||
     /\b(?:workspace|team)\s+members?\b/.test(value) ||
     /\b(?:user|member)\s+(?:organization|org|workspace|team)\s+roles?\b/.test(
       value,
@@ -576,17 +579,30 @@ function hasActiveOnlyMembershipEvidence(
   );
 }
 
-function requestsActiveMembers(search: string): boolean {
+function activeMemberPhrasePolarity(search: string): {
+  positive: boolean;
+  negated: boolean;
+} {
   const intent = stripNonPositiveInstructions(search);
   const activeMemberPhrase =
     /\bactive\s+(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\b/gi;
   const negativeInstructionBeforePhrase =
     /\b(?:no|not|never|don't|do\s+not|cannot|can't|exclude|excluding|except|without|remove|omit|skip)\b(?:\s+[\p{L}\p{N}'-]+){0,4}\s*$/iu;
 
-  return Array.from(intent.matchAll(activeMemberPhrase)).some((match) => {
+  const matches = Array.from(intent.matchAll(activeMemberPhrase));
+  const negated = matches.some((match) => {
+    const prefix = intent.slice(0, match.index ?? 0);
+    return negativeInstructionBeforePhrase.test(prefix);
+  });
+  const positive = matches.some((match) => {
     const prefix = intent.slice(0, match.index ?? 0);
     return !negativeInstructionBeforePhrase.test(prefix);
   });
+  return { positive, negated };
+}
+
+function requestsActiveMembers(search: string): boolean {
+  return activeMemberPhrasePolarity(search).positive;
 }
 
 function isRosterDimensionCandidate(
@@ -625,12 +641,6 @@ function rosterCandidateSupportsRequestedDetail(
     hasExplicitNonMembershipScope(candidate) ||
     hasExplicitActivityEvidence(candidate) ||
     candidateSemanticScope(candidate) === "product_activity"
-  ) {
-    return false;
-  }
-  if (
-    hasActiveOnlyMembershipEvidence(candidate) &&
-    !requestsActiveMembers(search)
   ) {
     return false;
   }
@@ -1066,6 +1076,9 @@ export function rankAnalyticsQueryCatalogPage(args: {
     requestedTerms.size > 1 && hasExactQueryCoverage(candidate);
   const rosterRequest = isMembershipRosterRequest(rankingIntent);
   const requestsRoleDetail = requestsMembershipRoleDetail(rankingIntent);
+  const activeMemberIntent = activeMemberPhrasePolarity(rankingIntent);
+  const excludesActiveOnlyMembership =
+    !requestedActiveMembers && (rosterRequest || activeMemberIntent.negated);
   const roleBreakdownRequest =
     !rosterRequest && requestedScope === "membership" && requestsRoleDetail;
   // Strong definitions and proven panels outrank generic hits before coverage.
@@ -1115,7 +1128,10 @@ export function rankAnalyticsQueryCatalogPage(args: {
   }));
   const eligibleCandidates = rankedCandidates.filter(
     ({ candidate }) =>
-      !hasActiveOnlyMembershipEvidence(candidate) || requestedActiveMembers,
+      !(
+        excludesActiveOnlyMembership &&
+        hasActiveOnlyMembershipEvidence(candidate)
+      ),
   );
   const strongestScopeMatch = Math.max(
     ...eligibleCandidates.map(({ scope }) => scope),

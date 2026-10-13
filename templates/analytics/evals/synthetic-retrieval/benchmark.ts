@@ -4,10 +4,10 @@ import { fileURLToPath } from "node:url";
 import { rankAnalyticsQueryCatalog } from "../../server/lib/analytics-query-catalog";
 
 export const BENCHMARK_TITLE = "SYNTHETIC: Analytics retrieval benchmark";
-export const BASELINE_REVISION = "8ff15a5577e6530316d59c4e4b2aa751a8f56a63";
-export const FIXTURE_REVISION = "synthetic-retrieval-fixtures-v5";
+export const BASELINE_REVISION = "75e39e8547b408aa09605e54872d9a8ef6522df9";
+export const FIXTURE_REVISION = "synthetic-retrieval-fixtures-v6";
 export const CSV_PATH = fileURLToPath(
-  new URL("./SYNTHETIC-analytics-retrieval.csv", import.meta.url),
+  new URL("./SYNTHETIC-analytics-retrieval-v6.csv", import.meta.url),
 );
 
 type SyntheticDictionaryEntry = Record<string, unknown> & {
@@ -149,32 +149,35 @@ export const SYNTHETIC_CASES: SyntheticCase[] = [
     dashboards: [],
   },
   {
-    id: "organization-users-vs-connect",
-    query: "organization users",
+    id: "organization-product-users-vs-membership-grain",
+    query: "organization sample product users",
     expectedCandidateId: "dictionary:synthetic-membership-distribution",
-    note: "Synthetic retrieval case: organization membership should outrank an equally matching Connect-labelled example.",
+    note: "The user directory shares product-user terms but lacks organization grain; row-level membership evidence should win.",
     dictionaryEntries: [
       {
         id: "synthetic-membership-distribution",
-        metric: "User Distribution by Organization",
-        definition: "Users organization membership records.",
-        table: "synthetic_user_organization_role",
+        metric: "Sample Organization Membership",
+        definition:
+          "Synthetic organization membership records, one row per user and organization.",
+        table: "synthetic_user_organization_memberships",
+        columnsUsed: "user_id, organization_id, role_code",
+        grain: "One row per user_id per organization_id",
         semanticScope: "membership",
-        sourceKind: "sigma",
+        sourceKind: "code",
         sourceIndex: true,
         aiGenerated: true,
         approved: false,
       },
       {
-        id: "synthetic-connect-membership",
-        metric: "Users Organization Connection",
-        definition: "Users organization membership records.",
-        table: "synthetic_user_organization_role",
-        semanticScope: "membership",
-        sourceKind: "sigma",
-        sourceIndex: true,
-        aiGenerated: true,
-        approved: false,
+        id: "synthetic-product-user-directory",
+        metric: "Sample Product User Directory",
+        definition:
+          "Approved synthetic identity directory, one row per user, not keyed by organization.",
+        table: "synthetic_product_user_directory",
+        columnsUsed: "user_id, name, created_at",
+        grain: "One row per user_id",
+        semanticScope: "product_user",
+        approved: true,
       },
     ],
     dashboards: [],
@@ -324,6 +327,43 @@ export const SYNTHETIC_CASES: SyntheticCase[] = [
     dashboards: [],
   },
   {
+    id: "bare-active-members-vs-product-events",
+    query: "active members",
+    expectedCandidateId: "dictionary:synthetic-active-organization-members",
+    note: "A bare active-member lookup is membership intent; product activity must not become its default scope.",
+    dictionaryEntries: [
+      {
+        id: "synthetic-active-organization-members",
+        metric: "Active Organization Members",
+        definition:
+          "Current active synthetic organization memberships, one row per user and organization.",
+        source: "synthetic",
+        table: "synthetic_active_organization_memberships",
+        columnsUsed: "user_id, organization_id, role_code",
+        grain: "One row per user_id per organization_id",
+        semanticScope: "membership",
+        sourceIndex: true,
+        aiGenerated: true,
+        approved: false,
+      },
+      {
+        id: "synthetic-active-member-events",
+        metric: "Active Member Events",
+        definition:
+          "Product activity events associated with active synthetic members.",
+        source: "synthetic",
+        table: "synthetic_active_member_events",
+        columnsUsed: "user_id, event_name, event_time",
+        grain: "One row per event_id",
+        semanticScope: "product_activity",
+        sourceIndex: true,
+        aiGenerated: true,
+        approved: false,
+      },
+    ],
+    dashboards: [],
+  },
+  {
     id: "negated-count-instruction-keeps-membership-rows",
     query: "workspace users, no live counts",
     expectedCandidateId: "dictionary:synthetic-user-organization-role-bridge",
@@ -406,9 +446,12 @@ const MEASURED_ORIGIN_MAIN_RANKINGS: Record<string, string[]> = {
     "dictionary:synthetic-approved-workflow-completions",
     "dictionary:synthetic-generated-workflow-completions",
   ],
-  "organization-users-vs-connect": [
+  "organization-product-users-vs-membership-grain": [
+    "dictionary:synthetic-product-user-directory",
     "dictionary:synthetic-membership-distribution",
-    "dictionary:synthetic-connect-membership",
+  ],
+  "bare-active-members-vs-product-events": [
+    "dictionary:synthetic-active-member-events",
   ],
   "organization-roster-roles-vs-monthly-count": [
     "dictionary:synthetic-monthly-user-count",

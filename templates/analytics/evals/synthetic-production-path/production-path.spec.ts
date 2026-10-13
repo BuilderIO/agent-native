@@ -42,15 +42,15 @@ const syntheticData = vi.hoisted(() => {
         semanticScope: "membership",
         approved: true,
       },
-      "data-dict-fixture-builder-product-users": {
-        id: "fixture-builder-product-users",
-        metric: "Builder.io Product User Records",
+      "data-dict-fixture-sample-product-users": {
+        id: "fixture-sample-product-users",
+        metric: "Synthetic Product User Records",
         definition:
-          "Synthetic customer identity records for Builder.io product users.",
+          "Synthetic customer identity records for sample product users.",
         source: "fixture_warehouse",
         sourceKind: "code",
         entryType: "model",
-        table: "fixture_warehouse.builder_product_users",
+        table: "fixture_warehouse.synthetic_product_users",
         columnsUsed: "user_key, account_key, created_at",
         grain: "One row per user_key",
         semanticScope: "product_user",
@@ -188,8 +188,8 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v6";
-const BASELINE_GIT_REVISION = "70afdad34554c793777fccfa8778a639ee7cd0e7";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v7";
+const BASELINE_GIT_REVISION = "75e39e8547b408aa09605e54872d9a8ef6522df9";
 const BASELINE_HARNESS_PATH =
   "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
 const ACTION_ALLOWLIST = ["find-data"] as const;
@@ -244,21 +244,27 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     expectedTable: "fixture_warehouse.monthly_org_user_counts",
   },
   {
+    id: "bare-active-members-map-to-membership",
+    prompt:
+      "Find the catalog reference for active members. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.active_organization_member_roles",
+  },
+  {
     id: "active-product-users-map-to-activity",
     prompt:
       "Find the catalog reference for active product users. Metadata only; do not report live counts or values.",
     expectedTable: "fixture_warehouse.product_activity_events",
   },
   {
-    id: "builder-product-users-map-to-identities",
+    id: "sample-product-users-map-to-identities",
     prompt:
-      "Find the catalog reference for Builder.io product users. Metadata only; do not report live counts or values.",
-    expectedTable: "fixture_warehouse.builder_product_users",
+      "Find the catalog reference for sample product users. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.synthetic_product_users",
   },
   {
-    id: "active-builder-product-users-map-to-activity",
+    id: "active-sample-product-users-map-to-activity",
     prompt:
-      "Find the catalog reference for Builder.io product users active in the last 30 days. Metadata only; do not report live counts or values.",
+      "Find the catalog reference for sample product users active in the last 30 days. Metadata only; do not report live counts or values.",
     expectedTable: "fixture_warehouse.product_activity_events",
   },
 ];
@@ -410,6 +416,8 @@ async function codeRevision(): Promise<string> {
     hash.update(source.pathname.split("/").at(-1) ?? "source");
     hash.update(content);
   }
+  hash.update(BASELINE_HARNESS_PATH);
+  hash.update(await readFile(fileURLToPath(import.meta.url)));
   return `sha256:${hash.digest("hex")}`;
 }
 
@@ -427,6 +435,40 @@ async function assertBaselineSourceBytes(): Promise<void> {
     if (!checkoutBytes.equals(baselineBytes)) {
       throw new Error(
         "Before-phase output requires production source files to match the pinned baseline commit.",
+      );
+    }
+  }
+}
+
+function assertCandidateWorkingTreeStatus(statusOutput: string): void {
+  if (statusOutput !== "") {
+    throw new Error(
+      "After-phase output requires a clean candidate source tree.",
+    );
+  }
+}
+
+async function assertCandidateSourceIntegrity(
+  candidateRevision: string,
+): Promise<void> {
+  const statusOutput = execFileSync(
+    "git",
+    ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    { cwd: REPOSITORY_ROOT, encoding: "utf8" },
+  );
+  assertCandidateWorkingTreeStatus(statusOutput);
+  for (const source of [...SOURCE_FILES, new URL(import.meta.url)]) {
+    const sourcePath = fileURLToPath(source);
+    const repositoryRelativePath = path.relative(REPOSITORY_ROOT, sourcePath);
+    const committedBytes = execFileSync(
+      "git",
+      ["show", `${candidateRevision}:${repositoryRelativePath}`],
+      { cwd: REPOSITORY_ROOT },
+    );
+    const checkoutBytes = await readFile(sourcePath);
+    if (!checkoutBytes.equals(committedBytes)) {
+      throw new Error(
+        "After-phase output requires evaluated source files to match the candidate commit.",
       );
     }
   }
@@ -763,6 +805,8 @@ describe("Analytics synthetic production-path retrieval harness", () => {
     assertEvalProvenance(phase, actualGitRevision, gitRevision);
     if (phase === "before") {
       await assertBaselineSourceIntegrity();
+    } else {
+      await assertCandidateSourceIntegrity(gitRevision);
     }
     generateActionRegistryForProject(ANALYTICS_PROJECT_ROOT);
   });
@@ -778,10 +822,17 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       "full-workspace-roster-excludes-active-only-source",
       "nonpositive-count-instruction-keeps-member-rows",
       "monthly-organization-user-count",
+      "bare-active-members-map-to-membership",
       "active-product-users-map-to-activity",
-      "builder-product-users-map-to-identities",
-      "active-builder-product-users-map-to-activity",
+      "sample-product-users-map-to-identities",
+      "active-sample-product-users-map-to-activity",
     ]);
+    expect(() =>
+      assertCandidateWorkingTreeStatus(
+        " M templates/analytics/server/lib/source.ts\0",
+      ),
+    ).toThrow("clean candidate source tree");
+    expect(() => assertCandidateWorkingTreeStatus("")).not.toThrow();
     expect(
       SYNTHETIC_CASES.every(
         ({ prompt }) =>

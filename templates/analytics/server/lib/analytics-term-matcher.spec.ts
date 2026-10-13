@@ -81,6 +81,7 @@ describe("Analytics term matching", () => {
     expect(semanticScopeForSearch("active product users")).toBe(
       "product_activity",
     );
+    expect(semanticScopeForSearch("active members")).toBe("membership");
     expect(semanticScopeForSearch("active Builder users")).toBe(
       "product_activity",
     );
