@@ -1646,6 +1646,44 @@ describe("update-visual-plan comments", () => {
     expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
   });
 
+  it("returns a validation error for schema-invalid full replacements", async () => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    normalizePlanContentMock.mockImplementation((input: unknown) =>
+      storedPlanContentSchema.parse(input as never),
+    );
+    loadPlanBundleMock.mockResolvedValue(planBundle({ content: null }));
+    const action = updateVisualPlan as unknown as {
+      schema: { parse: (input: unknown) => unknown };
+      run: (input: unknown) => Promise<unknown>;
+    };
+    const args = action.schema.parse({
+      planId: "plan_public",
+      expectedUpdatedAt: baseUpdatedAt,
+      content: {
+        version: 2,
+        blocks: [
+          {
+            id: "invalid-checklist",
+            type: "checklist",
+            data: { items: "not-an-array" },
+          },
+        ],
+      },
+      contentPatches: [],
+      sections: [],
+      comments: [],
+      consumedCommentIds: [],
+    });
+
+    await expect(action.run(args)).rejects.toMatchObject({
+      errorCode: "invalid_plan_content",
+      statusCode: 422,
+      message: expect.stringContaining("items"),
+    });
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+  });
+
   it.each([
     [
       "checklist items",

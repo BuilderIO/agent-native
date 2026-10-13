@@ -751,9 +751,17 @@ export default defineAction({
     }
 
     if (args.content !== undefined) {
-      nextContent = normalizePlanContent(args.content as PlanContent, {
-        allowStoredLegacyDefaults: true,
-      });
+      try {
+        nextContent = normalizePlanContent(args.content as PlanContent, {
+          allowStoredLegacyDefaults: true,
+        });
+      } catch (error) {
+        if (!(error instanceof z.ZodError)) throw error;
+        fail(error.message, {
+          errorCode: "invalid_plan_content",
+          statusCode: 422,
+        });
+      }
       if (!nextContent) {
         fail("Full plan content must be a structured object.", {
           errorCode: "invalid_plan_content",
