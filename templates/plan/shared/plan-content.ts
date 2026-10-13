@@ -2024,9 +2024,18 @@ const requiredAuthoringDataFields: Partial<
 };
 
 export class PlanContentValidationError extends Error {
-  constructor(message: string) {
+  readonly issues?: Array<{
+    path: Array<string | number>;
+    message: string;
+  }>;
+
+  constructor(
+    message: string,
+    issues?: Array<{ path: Array<string | number>; message: string }>,
+  ) {
     super(message);
     this.name = "PlanContentValidationError";
+    if (issues?.length) this.issues = issues;
   }
 }
 
@@ -2210,7 +2219,15 @@ export function assertPlanContentAuthoringChanges(
       planContentSchema.parse(content);
     } catch (error) {
       if (!(error instanceof z.ZodError)) throw error;
-      throw new PlanContentValidationError(error.message);
+      throw new PlanContentValidationError(
+        error.message,
+        error.issues.map((issue) => ({
+          path: issue.path.map((segment) =>
+            typeof segment === "symbol" ? String(segment) : segment,
+          ),
+          message: issue.message,
+        })),
+      );
     }
     return;
   }
@@ -2260,6 +2277,7 @@ export function assertPlanContentAuthoringChanges(
     const location = first?.path.length ? ` at ${first.path.join(".")}` : "";
     throw new PlanContentValidationError(
       `Plan source edit contains invalid authored block data${location}: ${first?.message ?? "validation failed"}`,
+      issues,
     );
   }
 }
