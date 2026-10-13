@@ -669,6 +669,10 @@ const SOURCE_FILES = [
     "../../../../packages/core/src/eval/agent-runner.ts",
     import.meta.url,
   ),
+  new URL(
+    "../../../../packages/core/src/provider-api/index.ts",
+    import.meta.url,
+  ),
 ];
 
 async function codeRevision(): Promise<string> {
