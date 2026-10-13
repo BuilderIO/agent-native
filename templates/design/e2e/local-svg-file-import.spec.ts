@@ -50,7 +50,7 @@ test("imported local SVG remains editable after reopening the design", async ({
   await app.zoomToFit();
   await app.settled();
   const before = await app.savedNodes(designId);
-  await page.getByRole("button", { name: "Rectangle options" }).click();
+  await page.getByRole("button", { name: "Shapes options" }).click();
   await page.getByRole("menuitem", { name: "Image/video..." }).click();
   const fileInput = page.locator(
     '[data-design-bottom-toolbar] input[type="file"]',

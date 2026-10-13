@@ -155,7 +155,6 @@ test("changing a component's variant in the inspector saves that prop on the ins
   await postAction(page, "seed-e2e-component-variants", { designId: id });
   await openAndFit(app, id);
   await selectOnCanvas(app, "cta", "Variant CTA");
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   const componentSection = page.getByTestId("component-section");
   await expect(componentSection).toContainText("E2EButton");
   const variantSelect = componentSection.getByRole("combobox").first();
@@ -238,7 +237,6 @@ test("the Review audit lists the fixture's three a11y findings and Fix adds a fo
     const id = await app.seed(AUDIT_HTML);
     await openAndFit(app, id);
     await selectOnCanvas(app, "audit-focus", "Focus Button");
-    await page.getByRole("tab", { name: "Design", exact: true }).click();
     const review = page.getByTestId("review-panel");
     await review.scrollIntoViewIfNeeded();
     const before = await app.savedNodes(id);

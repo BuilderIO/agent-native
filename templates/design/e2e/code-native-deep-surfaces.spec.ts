@@ -121,7 +121,6 @@ async function seedDeep(app: App, indexHtml = DEEP_FIXTURE_HTML) {
 async function openDeep(app: App) {
   const ids = await seedDeep(app);
   await app.open(ids.designId);
-  await app.page.getByRole("tab", { name: "Design", exact: true }).click();
   return ids;
 }
 
@@ -232,7 +231,6 @@ test("component boolean and text prop controls persist through reload", async ({
   expectOnlyChanged(before, after, ["e2e-widget-button"]);
 
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await selectByText(page, "Widget Surface", { screenId: fileId });
   await expect(widget()).toHaveAttribute(
     "data-agent-native-prop-disabled",

@@ -13,6 +13,10 @@ import {
 import { type CanvasFrameGeometryById } from "@shared/canvas-frames";
 import { getFrameGroupBounds, type FrameBounds } from "@shared/canvas-math";
 import type { A11yFinding } from "@shared/design-review";
+import {
+  DEFAULT_INTERACT_THEME_MODE,
+  type InteractThemeMode,
+} from "@shared/preview-color-scheme";
 import { breakpointUpperBoundPx } from "@shared/responsive-classes";
 import {
   getResponsiveBreakpointHeightPx,
@@ -121,7 +125,6 @@ import {
 import {
   DEFAULT_INTERACT_DEVICE_PRESET,
   findInteractDevicePreset,
-  INTERACT_CUSTOM_DEVICE_NAME,
 } from "../responsive-interact";
 import { classifyDesignSaveFailure } from "../save-failure";
 import {
@@ -299,7 +302,6 @@ export function useEditorActiveScreenAndGeometry({
   } = editorCore;
   const {
     handleLiveScreenRuntimeReload,
-    setActiveInspectorTab,
     setActiveLeftPanel,
     setSelectedLayerIdsState,
     invalidateRenderedElementInfo,
@@ -322,6 +324,7 @@ export function useEditorActiveScreenAndGeometry({
   const {
     lastGeometryCommitAtRef,
     lastGeometryCommitSourceRef,
+    annotateLab,
     setDrawMode,
     setPinMode,
     setHasPendingGeneration,
@@ -401,6 +404,9 @@ export function useEditorActiveScreenAndGeometry({
     width: DEFAULT_INTERACT_DEVICE_PRESET.width,
     height: DEFAULT_INTERACT_DEVICE_PRESET.height,
   });
+  const [interactTheme, setInteractTheme] = useState<InteractThemeMode>(
+    DEFAULT_INTERACT_THEME_MODE,
+  );
   const [
     effectivePreviewTokensByScreenId,
     setEffectivePreviewTokensByScreenId,
@@ -1829,18 +1835,19 @@ export function useEditorActiveScreenAndGeometry({
     (command: DesignEditorCommand | Record<string, unknown>) =>
       runApplyDesignEditorCommand(
         {
+          annotateLab,
           canEditDesign,
           canvasFrameGeometryById,
           files,
           id,
           overviewScreens,
           setActiveFileId,
-          setActiveInspectorTab,
           setActiveLeftPanel,
           setActiveTool,
           setDrawMode,
           setInteractDeviceName,
           setInteractDeviceSize,
+          setInteractTheme,
           setMode,
           setOverviewSelectedScreenIds,
           setOverviewInteractScreenId,
@@ -1893,6 +1900,7 @@ export function useEditorActiveScreenAndGeometry({
         command,
       ),
     [
+      annotateLab,
       canEditDesign,
       canvasFrameGeometryById,
       deviceFrame,
@@ -1956,14 +1964,6 @@ export function useEditorActiveScreenAndGeometry({
     if (preset) {
       setInteractDeviceSize({ width: preset.width, height: preset.height });
     }
-  }, []);
-  const handleInteractWidthChange = useCallback((width: number) => {
-    setInteractDeviceSize((size) => ({ ...size, width }));
-    setInteractDeviceName(INTERACT_CUSTOM_DEVICE_NAME);
-  }, []);
-  const handleInteractHeightChange = useCallback((height: number) => {
-    setInteractDeviceSize((size) => ({ ...size, height }));
-    setInteractDeviceName(INTERACT_CUSTOM_DEVICE_NAME);
   }, []);
 
   const handleCycleFile = useCallback(
@@ -2069,6 +2069,8 @@ export function useEditorActiveScreenAndGeometry({
     setInteractDeviceName,
     interactDeviceSize,
     setInteractDeviceSize,
+    interactTheme,
+    setInteractTheme,
     effectivePreviewTokensByScreenId,
     effectiveLiveEditCapabilitiesByScreenId,
     effectiveLiveEditRegistrationCapabilitiesByScreenId,
@@ -2133,8 +2135,6 @@ export function useEditorActiveScreenAndGeometry({
     handleZoomIn,
     handleZoomOut,
     handleInteractDeviceChange,
-    handleInteractWidthChange,
-    handleInteractHeightChange,
     handleCycleFile,
     handleBreakpointBarRemove,
     handleOverviewRemoveBreakpoint,

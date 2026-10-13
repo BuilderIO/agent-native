@@ -1,7 +1,7 @@
 import { type Locator, type Page } from "@playwright/test";
 
 import { FIXTURE_HTML } from "./global-setup";
-import { designFrame, selectByText } from "./helpers";
+import { designFrame, selectByText, selectTool } from "./helpers";
 import {
   expect,
   expectOnlyChanged,
@@ -482,6 +482,7 @@ test.fixme("multi-selected text leaves share inspector styles, edits save to bot
 
 const TEXT_TOOL_SCREEN = `<!doctype html><html lang="en"><head><meta charset="utf-8" /></head><body data-agent-native-node-id="page" style="margin:0;background:#fff"><main data-agent-native-node-id="text-tool-canvas" style="position:relative;margin:80px;width:800px;height:600px"></main></body></html>`;
 
+// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("Line Height Enter returns a real Text-tool range to the editor", async ({
   app,
   page,
@@ -494,7 +495,7 @@ test("Line Height Enter returns a real Text-tool range to the editor", async ({
   const textTool = page.locator(
     '[data-design-bottom-toolbar] button[aria-label="Text"]',
   );
-  await textTool.click();
+  await selectTool(page, "Text");
   await expect(textTool).toHaveAttribute("aria-pressed", "true");
   const at = await app.pagePoint(200, 200);
   await page.mouse.click(at.x, at.y);
@@ -664,7 +665,6 @@ test("Auto ArrowUp uses the selected nested range's normal line-height", async (
     </body></html>`,
   );
 
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   const normalLineHeights = await designFrame(page)
     .locator("body")
     .evaluate((body) => {
@@ -774,7 +774,6 @@ test("text range caret follows the active text leaf and exits to whole-layer Mix
   );
   const seeded = await app.savedNodes(designId);
 
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await selectTextRange(page, "Nested E2E Parent suffix", "Nested E2E");
   const heading = designFrame(page).locator("h1").first();
   await expect(heading).toHaveAttribute("contenteditable", "true");

@@ -46,7 +46,6 @@ export interface LayerSelectionChangeArgs {
   effectiveCodeLayerState: EffectiveCodeLayerState;
   files: DesignFile[];
   getScreenContent: (screenId: string) => string;
-  focusDesignInspectorForSelection: () => void;
   overviewSelectedScreenIds: string[];
   pendingOverviewLayerSelectionRef: RefObject<string | null>;
   pendingOverviewScreenSelectionRef: RefObject<string | null>;
@@ -73,7 +72,6 @@ export function runLayerSelectionChange(
     effectiveCodeLayerState,
     files,
     getScreenContent,
-    focusDesignInspectorForSelection,
     overviewSelectedScreenIds,
     pendingOverviewLayerSelectionRef,
     pendingOverviewScreenSelectionRef,
@@ -266,7 +264,6 @@ export function runLayerSelectionChange(
       effectiveCodeLayerState.hiddenIds.has(selectedId);
     if (layerCanvasBlocked) {
       setSelectedElement(null);
-      focusDesignInspectorForSelection();
       setActiveTool(resolveToolAfterSelection);
       setMode("edit");
       return nextLayerIds;
@@ -279,7 +276,6 @@ export function runLayerSelectionChange(
         ownerFileId: codeLayerOwner.fileId,
       }),
     );
-    focusDesignInspectorForSelection();
     setActiveTool(resolveToolAfterSelection);
     setMode("edit");
     return nextLayerIds;

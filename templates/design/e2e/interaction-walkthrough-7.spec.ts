@@ -1,6 +1,6 @@
 import { type Locator, type Page } from "@playwright/test";
 
-import { appPath, childNodeIds, expandAllLayers } from "./helpers";
+import { appPath, childNodeIds, expandAllLayers, selectTool } from "./helpers";
 import {
   expect,
   expectOnlyChanged,
@@ -366,6 +366,7 @@ test.describe("card and container interactions", () => {
     expect(await selectionRect(app)).toEqual(button);
   });
 
+  // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
   // fixme: product bug: Teleport: the rectangle is saved into index.html with no position/left/top, so it renders at the screen's top-left (Inspector X 0 Y 0)
   test.fixme("step 3 [overview, outside the screen -> crosses into the screen]: a rectangle drawn on the board and dragged into the screen lands at the drop point, and one undo puts it back on the board", async ({
     app,
@@ -396,9 +397,7 @@ test.describe("card and container interactions", () => {
       y: screenBox.y + 40,
     };
 
-    await page
-      .locator('[data-design-bottom-toolbar] button[aria-label="Rectangle"]')
-      .click();
+    await selectTool(page, "Rectangle");
     await page.mouse.move(drawFrom.x, drawFrom.y);
     await page.mouse.down();
     await page.mouse.move(drawFrom.x + 60, drawFrom.y + 90, { steps: 16 });

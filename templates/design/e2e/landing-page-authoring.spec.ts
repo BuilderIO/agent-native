@@ -1,3 +1,4 @@
+import { selectTool, type ToolbarTool } from "./helpers";
 import {
   childrenOf,
   expect,
@@ -34,12 +35,13 @@ async function openDesign(
   return id;
 }
 
-async function useTool(app: App, name: string) {
-  const button = app.page.locator(
-    `[data-design-bottom-toolbar] button[aria-label="${name}"]`,
-  );
-  await button.click();
-  await expect(button).toHaveAttribute("aria-pressed", "true");
+async function useTool(app: App, name: ToolbarTool) {
+  await selectTool(app.page, name);
+  await expect(
+    app.page.locator(
+      `[data-design-bottom-toolbar] button[aria-label="${name}"]`,
+    ),
+  ).toHaveAttribute("aria-pressed", "true");
 }
 
 async function drawBox(app: App, tool: "Frame" | "Rectangle", box: Box) {

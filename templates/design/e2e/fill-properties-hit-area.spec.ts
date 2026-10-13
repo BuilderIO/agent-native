@@ -1,5 +1,15 @@
+import { type Page } from "@playwright/test";
+
 import { enterDirectMode, expandAllLayers } from "./helpers";
 import { expect, expectOnlyChanged, test, type App } from "./rails";
+
+/** The trigger of the nth existing fill layer, whatever its Fill field reads (`Linear`, `Image`, a color). */
+const layerTrigger = (page: Page, index: number) =>
+  page
+    .locator('[data-inspector-layout="drag-paint-row"]')
+    .nth(index)
+    .locator('button[aria-haspopup="dialog"]')
+    .first();
 
 const FIXTURE = `<!doctype html>
 <html lang="en">
@@ -120,6 +130,7 @@ async function expectSavedAsRendered(
   ).toEqual(await liveFill(app, nodeId));
 }
 
+// oracle: none — app fill-layer behavior with no native Figma counterpart; only how the row's trigger is located changed.
 test("gradient fill trigger stays inside its cell and opens from one click", async ({
   app,
   page,
@@ -151,9 +162,7 @@ test("gradient fill trigger stays inside its cell and opens from one click", asy
     )
     .toContain("linear-gradient");
 
-  const trigger = page
-    .getByRole("button", { name: /Linear gradient 1/ })
-    .first();
+  const trigger = layerTrigger(page, 0);
   await expect(trigger).toBeVisible();
   const row = trigger.locator(
     'xpath=ancestor::*[@data-inspector-layout="drag-paint-row"][1]',
@@ -193,6 +202,7 @@ test("gradient fill trigger stays inside its cell and opens from one click", asy
   expectOnlyChanged(before, await app.savedNodes(designId), []);
 });
 
+// oracle: none — gradient alpha persistence is app behavior with no native Figma counterpart; only the stop opacity locator changed.
 // fixme: product bug: The first PNG export POSTs render-export-png without the agent-native-ui-capability cookie and gets 403 (console error); the client then
 test.fixme("gradient fill opacity preserves stop alpha through zero and reload", async ({
   app,
@@ -221,9 +231,7 @@ test.fixme("gradient fill opacity preserves stop alpha through zero and reload",
     .getByRole("button", { name: "Gradient", exact: true })
     .first();
   await layer.click();
-  const trigger = page
-    .getByRole("button", { name: /Linear gradient 1/ })
-    .first();
+  const trigger = layerTrigger(page, 0);
   const row = trigger.locator(
     'xpath=ancestor::*[@data-inspector-layout="drag-paint-row"][1]',
   );
@@ -340,13 +348,15 @@ test.fixme("gradient fill opacity preserves stop alpha through zero and reload",
     )
     .toMatch(/rgb\(255, 0, 0\).*rgba\(0, 0, 255, 0\)/);
   await trigger.click();
+  // The Stops list has a row per stop: the first stop is the opaque red one.
   await expect(
-    page.getByRole("slider", { name: "Opacity", exact: true }),
-  ).toHaveAttribute("aria-valuenow", "100");
+    page.getByRole("textbox", { name: "Stop opacity" }).first(),
+  ).toHaveValue("100");
   await expectSavedAsRendered(app, designId, "fill-gradient");
   expectOnlyChanged(before, await app.savedNodes(designId), ["fill-gradient"]);
 });
 
+// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
 test("solid-to-gradient conversion keeps its picker open", async ({
   app,
   page,
@@ -369,7 +379,7 @@ test("solid-to-gradient conversion keeps its picker open", async ({
   ).toContainText("Solid");
 
   await page.getByRole("button", { name: "Open color picker" }).click();
-  await page.getByRole("button", { name: "Linear" }).click();
+  await page.getByRole("button", { name: "Gradient", exact: true }).click();
   await expect(
     page.locator('[role="group"][aria-label="Gradient stops"]'),
   ).toBeVisible();
@@ -404,6 +414,7 @@ test("solid-to-gradient conversion keeps its picker open", async ({
   expectOnlyChanged(before, await app.savedNodes(designId), ["fill-solid"]);
 });
 
+// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
 test("removing a converted Solid gradient closes its picker and preserves the sibling", async ({
   app,
   page,
@@ -441,9 +452,7 @@ test("removing a converted Solid gradient closes its picker and preserves the si
   const gradientRows = fillSection.locator(
     '[data-inspector-layout="drag-paint-row"]',
   );
-  const originalGradientRow = gradientRows.filter({
-    has: page.getByRole("button", { name: "Linear gradient 1" }),
-  });
+  const originalGradientRow = gradientRows.nth(0);
   await expect(originalGradientRow).toHaveCount(1);
 
   const preview = page
@@ -457,7 +466,7 @@ test("removing a converted Solid gradient closes its picker and preserves the si
   expect(originalGradient).toContain("linear-gradient");
 
   await baseFillRow.getByRole("button", { name: "Open color picker" }).click();
-  await page.getByRole("button", { name: "Linear", exact: true }).click();
+  await page.getByRole("button", { name: "Gradient", exact: true }).click();
 
   const gradientStops = page.getByRole("group", { name: "Gradient stops" });
   await expect(gradientStops).toBeVisible();
@@ -465,12 +474,10 @@ test("removing a converted Solid gradient closes its picker and preserves the si
   await expect(gradientRows).toHaveCount(2);
   await expect(baseFillRow).toHaveCount(0);
 
-  const convertedGradientRow = gradientRows.filter({
-    has: page.getByRole("button", { name: "Linear gradient 2" }),
-  });
+  const convertedGradientRow = gradientRows.nth(1);
   await expect(convertedGradientRow).toHaveCount(1);
   const convertedGradientTrigger = convertedGradientRow.getByRole("button", {
-    name: /Linear gradient 2/,
+    name: /Linear/,
   });
   await expect(convertedGradientTrigger).toHaveAttribute(
     "aria-expanded",
@@ -527,6 +534,7 @@ test("removing a converted Solid gradient closes its picker and preserves the si
   );
 });
 
+// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
 // fixme: product bug: The editor requests GET /design/&quot;https://example.test/image.png&quot; (404): a CSS url() is read with its HTML-entity quotes.
 test.fixme("converting the base solid appends it below sibling fills and keeps their arrays", async ({
   app,
@@ -550,14 +558,12 @@ test.fixme("converting the base solid appends it below sibling fills and keeps t
     .getByRole("button", { name: "Base with siblings", exact: true })
     .click();
   await page.getByRole("button", { name: "Open color picker" }).click();
-  await page.getByRole("button", { name: "Linear" }).click();
+  await page.getByRole("button", { name: "Gradient", exact: true }).click();
 
   await expect(
     page.locator('[role="group"][aria-label="Gradient stops"]'),
   ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: /Linear gradient 3/ }),
-  ).toBeVisible();
+  await expect(layerTrigger(page, 2)).toBeVisible();
 
   const preview = page
     .locator("iframe[data-design-preview-iframe]")
@@ -597,6 +603,7 @@ test.fixme("converting the base solid appends it below sibling fills and keeps t
   ]);
 });
 
+// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
 test("gradient-to-solid preserves sibling fill arrays and keeps the picker open", async ({
   app,
   page,
@@ -615,9 +622,7 @@ test("gradient-to-solid preserves sibling fill arrays and keeps the picker open"
   await expect(layer).toBeVisible();
   await layer.click();
 
-  const gradientTrigger = page
-    .getByRole("button", { name: /Linear gradient 1/ })
-    .first();
+  const gradientTrigger = layerTrigger(page, 0);
   await expect(gradientTrigger).toBeVisible();
   await gradientTrigger.click();
   await expect(
@@ -625,9 +630,7 @@ test("gradient-to-solid preserves sibling fill arrays and keeps the picker open"
   ).toBeVisible();
   await page.getByRole("button", { name: "Solid", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Hex" })).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: /#cc3366/i }).first(),
-  ).toContainText("20%");
+  await expect(layerTrigger(page, 0)).toContainText("20%");
 
   const preview = page
     .locator("iframe[data-design-preview-iframe]")
@@ -670,7 +673,7 @@ test("gradient-to-solid preserves sibling fill arrays and keeps the picker open"
     ),
   ).toBe(true);
 
-  await page.getByRole("button", { name: "Linear", exact: true }).click();
+  await page.getByRole("button", { name: "Gradient", exact: true }).click();
   await expect(
     page.locator('[role="group"][aria-label="Gradient stops"]'),
   ).toBeVisible();
@@ -717,13 +720,10 @@ test("gradient-to-solid preserves sibling fill arrays and keeps the picker open"
     .first();
   await expect(reselectedLayer).toBeVisible();
   await reselectedLayer.click();
-  await expect(
-    page.getByRole("button", { name: /#cc3366/i }).first(),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: /#cc3366/i })
-    .first()
-    .click();
+  const reselectedTrigger = layerTrigger(page, 0);
+  await expect(reselectedTrigger).toBeVisible();
+  await expect(reselectedTrigger).toContainText("20%");
+  await reselectedTrigger.click();
   await expect(page.getByRole("textbox", { name: "Hex" })).toBeVisible();
 });
 

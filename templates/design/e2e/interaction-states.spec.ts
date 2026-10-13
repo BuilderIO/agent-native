@@ -59,7 +59,6 @@ async function openWithAlphaSelected(app: App, html: string) {
   );
   await app.page.mouse.click(center.x, center.y);
   await expect.poll(() => app.selectedLayers()).toStrictEqual(["Alpha"]);
-  await app.page.getByRole("tab", { name: "Design", exact: true }).click();
   await expect(stateTrigger(app.page)).toHaveAttribute(
     "data-interaction-state",
     "default",
@@ -262,7 +261,7 @@ test("in Interact mode saved state rules follow real hover, click focus, keyboar
     .locator('[data-design-top-bar] [data-design-mode="interact"]')
     .click();
   await expect(
-    app.page.getByRole("button", { name: "Exit responsive preview" }),
+    app.page.locator("[data-design-top-bar] [data-design-interact-route]"),
   ).toBeVisible();
   const alpha = app.node("alpha");
   const clicks = () =>

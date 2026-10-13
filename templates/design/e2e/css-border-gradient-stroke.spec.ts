@@ -34,9 +34,12 @@ async function borderPixels(app: App) {
     const context = canvas.getContext("2d");
     if (!context) throw new Error("could not decode border screenshot");
     context.drawImage(image, 0, 0);
+    // The middle of the 6px left border, in screenshot pixels of the 192px-wide border box.
+    const borderMiddleX = Math.round((3 * image.width) / 192);
     const sample = (y: number) =>
-      Array.from(context.getImageData(3, y, 1, 1).data.slice(0, 3));
+      Array.from(context.getImageData(borderMiddleX, y, 1, 1).data.slice(0, 3));
     return {
+      width: image.width,
       firstStop: sample(Math.round(image.height * 0.1)),
       lastStop: sample(Math.round(image.height * 0.9)),
     };
@@ -55,6 +58,7 @@ async function selectBorderRectangle(page: Page) {
   await expect(row).toHaveAttribute("aria-selected", "true");
 }
 
+// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
 test("HTML rectangle border gradient paints, persists, reloads, and returns to solid", async ({
   app,
   page,
@@ -63,7 +67,6 @@ test("HTML rectangle border gradient paints, persists, reloads, and returns to s
   await app.open(designId);
   await app.settled();
   const before = await app.savedNodes(designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await expandAllLayers(page);
   await page.evaluate(() => {
     (window as any).__debugBridgeSelections = [];
@@ -107,9 +110,9 @@ test("HTML rectangle border gradient paints, persists, reloads, and returns to s
   expect(popoverId).toBeTruthy();
   const popover = page.locator(`[id="${popoverId}"]`);
   await expect(
-    popover.getByRole("button", { name: "Linear", exact: true }),
+    popover.getByRole("button", { name: "Gradient", exact: true }),
   ).toBeVisible();
-  await popover.getByRole("button", { name: "Linear", exact: true }).click();
+  await popover.getByRole("button", { name: "Gradient", exact: true }).click();
 
   await expect
     .poll(() => borderState(app))
@@ -120,7 +123,28 @@ test("HTML rectangle border gradient paints, persists, reloads, and returns to s
   await expect
     .poll(async () => (await borderState(app)).borderImageSource)
     .toContain("linear-gradient");
+  await page.keyboard.press("Escape");
+  await expect(popover).toBeHidden();
+  const fitted = JSON.stringify(
+    await app.node("border-rectangle").boundingBox(),
+  );
+  await page.keyboard.press("Shift+2");
+  let previous = "";
+  await expect
+    .poll(async () => {
+      const now = JSON.stringify(
+        await app.node("border-rectangle").boundingBox(),
+      );
+      const stable = now === previous && now !== fitted;
+      previous = now;
+      return stable;
+    })
+    .toBe(true);
   const renderedBorder = await borderPixels(app);
+  expect(
+    renderedBorder.width,
+    "zoomed to the rectangle, so its 6px border paints whole pixels clear of the selection outline",
+  ).toBeGreaterThanOrEqual(384);
   expect(renderedBorder.firstStop).not.toEqual(renderedBorder.lastStop);
   expect(renderedBorder.firstStop).not.toEqual([255, 255, 255]);
   expect(
@@ -137,7 +161,6 @@ test("HTML rectangle border gradient paints, persists, reloads, and returns to s
   expectOnlyChanged(before, gradient, ["border-rectangle"]);
 
   await page.reload();
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await selectBorderRectangle(page);
   await expect
     .poll(async () => (await borderState(app)).borderImageSource)

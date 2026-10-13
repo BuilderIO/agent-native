@@ -26,7 +26,6 @@ const BOXES = `<!doctype html><html><head><meta charset="utf-8"></head>
 async function openFixture(app: App, html = FIXTURE_HTML) {
   const id = await app.seed(html, { title: SEED_TITLE });
   await app.open(id);
-  await app.page.getByRole("tab", { name: "Design", exact: true }).click();
   return id;
 }
 
@@ -85,18 +84,26 @@ test("editor renders the toolbar and the design iframe content", async ({
   await openFixture(app);
   const page = app.page;
   const toolbar = page.locator("[data-design-bottom-toolbar]");
-  for (const tool of ["Move", "Frame", "Text", "Pen"]) {
+  for (const tool of [
+    "Move",
+    "Frame",
+    "Rectangle",
+    "Text",
+    "Pen",
+    "Pin comment",
+  ]) {
     await expect(
       toolbar.getByRole("button", { name: tool, exact: true }),
     ).toBeVisible();
   }
+  await expect(toolbar.getByRole("button", { name: /agent/i })).toHaveCount(0);
   const modeSwitch = page.locator(
     "[data-design-top-bar] [data-design-mode-switch]",
   );
+  // Annotate is behind a lab that is off by default (annotate-lab.spec.ts).
   await expect(modeSwitch.locator("[data-design-mode]")).toHaveText([
     "Interact",
     "Design",
-    "Annotate",
   ]);
   await expect(modeSwitch.locator('[data-design-mode="edit"]')).toHaveAttribute(
     "aria-pressed",
@@ -297,11 +304,14 @@ test("visual-edit route has no top bar and keeps Share, zoom and the mode tabs",
     rightPanel.getByRole("button", { name: /^\d+%$/ }),
   ).toBeVisible();
   const toolbar = page.locator("[data-design-bottom-toolbar]");
-  for (const tab of ["Annotate", "Edit", "Interact"]) {
+  for (const tab of ["Edit", "Interact"]) {
     await expect(
       toolbar.getByRole("button", { name: tab, exact: true }),
     ).toBeVisible();
   }
+  await expect(
+    toolbar.getByRole("button", { name: "Annotate", exact: true }),
+  ).toHaveCount(0);
 });
 
 test("top bar is 48px and keeps Share, presence and zoom inside the bar", async ({

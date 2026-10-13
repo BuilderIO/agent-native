@@ -133,7 +133,8 @@ async function visibleCanvas(app: App) {
     .boundingBox())!;
   const layers = (await app.page.locator("aside").first().boundingBox())!;
   const inspector = (await app.page
-    .locator("[data-design-inspector-tabs]")
+    .locator('[data-design-chrome-region="right-panel"]')
+    .first()
     .boundingBox())!;
   const x = layers.x + layers.width;
   return {

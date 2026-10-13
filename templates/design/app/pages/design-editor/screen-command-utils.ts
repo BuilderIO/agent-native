@@ -28,6 +28,20 @@ export function findDesignFileByScreenTarget(
   );
 }
 
+/**
+ * The screen a prototype link in Interact switches to: the one it names, unless
+ * that is the screen already showing. A link that names no screen of the
+ * design leads nowhere.
+ */
+export function findInteractLinkTarget(
+  files: DesignFile[],
+  target: string | null | undefined,
+  activeFileId: string | null,
+): DesignFile | null {
+  const file = findDesignFileByScreenTarget(files, target);
+  return file && file.id !== activeFileId ? file : null;
+}
+
 export function designEditorCommandFromSearchParams(
   designId: string,
   searchParams: URLSearchParams,
@@ -48,8 +62,6 @@ export function designEditorCommandFromSearchParams(
   const tool = normalizeDesignTool(searchParams.get("tool"));
   if (
     editorView !== "overview" &&
-    inspector !== "design" &&
-    inspector !== "tweaks" &&
     inspector !== "extensions" &&
     !leftPanel &&
     !screen &&
@@ -63,11 +75,7 @@ export function designEditorCommandFromSearchParams(
     issuedAt: 0,
   };
   if (editorView) command.editorView = editorView;
-  if (inspector === "design" || inspector === "tweaks") {
-    command.inspectorTab = inspector;
-  } else if (inspector === "extensions") {
-    command.leftPanel = "tools";
-  }
+  if (inspector === "extensions") command.leftPanel = "tools";
   if (leftPanel) command.leftPanel = leftPanel;
   if (screen) command.screen = screen;
   if (selection) command.selection = selection;

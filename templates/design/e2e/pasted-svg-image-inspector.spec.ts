@@ -60,7 +60,6 @@ test("image border and outline remain separate inside and outside strokes", asyn
 }) => {
   const { designId, screenId } = await createDesign(app, DUAL_STROKE_HTML);
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await expandAllLayers(page);
   await page
     .getByRole("treeitem")
@@ -309,7 +308,6 @@ test.fixme("pasted SVG is an editable sized layer and image scale mode writes ob
 }, testInfo) => {
   const { designId, screenId } = await createDesign(app);
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await expandAllLayers(page);
   const imageRow = page
     .getByRole("treeitem")
@@ -505,6 +503,7 @@ test.fixme("pasted SVG is an editable sized layer and image scale mode writes ob
   ).toHaveCSS("fill", "rgb(59, 130, 246)");
   await expect(siblingShape).toHaveCSS("fill", "rgb(22, 163, 74)");
 });
+
 // fixme: product bug: The pasted paths' ids 'first'/'second' are rewritten to copy-id-<uuid>, and Layers shows them as 'Copy Id 97d7cf34 0c8f 4820 B234
 test.fixme("stroke gradient edits stay on the selected nested pasted-SVG shape", async ({
   app,
@@ -512,7 +511,6 @@ test.fixme("stroke gradient edits stay on the selected nested pasted-SVG shape",
 }, testInfo) => {
   const { designId, screenId } = await createDesign(app);
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await expandAllLayers(page);
   const pasted = await designFrame(page, screenId)
     .locator("body")
@@ -564,7 +562,7 @@ test.fixme("stroke gradient edits stay on the selected nested pasted-SVG shape",
     .locator("xpath=ancestor::section");
   await stroke.getByRole("button", { name: "Add stroke" }).first().click();
   await stroke.getByRole("button", { name: "Open color picker" }).click();
-  await page.getByRole("button", { name: "Linear", exact: true }).click();
+  await page.getByRole("button", { name: "Gradient", exact: true }).click();
 
   const paint = async () =>
     paths.evaluateAll((elements) =>
@@ -630,7 +628,7 @@ test.fixme("stroke gradient edits stay on the selected nested pasted-SVG shape",
   await expect(
     page
       .locator(`[id="${reloadedPopoverId}"]`)
-      .getByRole("button", { name: "Linear", exact: true }),
+      .getByRole("button", { name: "Gradient", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await page.screenshot({
     path: testInfo.outputPath("nested-svg-stroke-gradient.png"),
@@ -643,7 +641,6 @@ test("clipboard SVG File paste in the parent editor stays editable after reload"
 }) => {
   const { designId, screenId } = await createDesign(app);
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await expandAllLayers(page);
   await page
     .locator(
@@ -679,7 +676,6 @@ test("pasting a 17 by 9 SVG keeps the selected layer at its copied size", async 
   const copiedSvg =
     '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="9" viewBox="0 0 17 9"><path d="M0 0h17v9H0z" fill="#111827"/></svg>';
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await expandAllLayers(page);
   await page
     .locator(
@@ -747,7 +743,6 @@ test("Figma frame paste uses the live Design scene and updates the selected fram
   );
 
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await expandAllLayers(page);
   const targetRow = page
     .getByRole("treeitem")
@@ -871,7 +866,6 @@ test("Figma paste plans can insert a frame into the Design board and persist it"
   );
 
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   const boardFrame = page
     .locator("[data-board-surface-layer] iframe[data-design-preview-iframe]")
     .contentFrame();
@@ -970,7 +964,6 @@ test("pasting a PNG identifies its image inspector and persists Fit, Crop, adjus
     }),
   );
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await expandAllLayers(page);
   await page
     .locator(
@@ -1110,7 +1103,6 @@ test("clipboard SVG File paste relayed from a Screen iframe stays in that Screen
   const { designId, screenId: firstScreenId } = await createDesign(app);
   const targetScreenId = await createSecondScreen(page, designId);
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await expandAllLayers(page);
 
   expect(

@@ -1,4 +1,4 @@
-import { appPath } from "./helpers";
+import { appPath, selectTool } from "./helpers";
 import {
   expect,
   expectOnlyChanged,
@@ -51,14 +51,6 @@ async function openScreenOnBoard(app: App) {
   await app.zoomToFit();
   await app.zoomTo100();
   return { id, screenId };
-}
-
-async function pickFrameMode(app: App, mode: "Frame" | "Screen") {
-  await app.page
-    .locator("[data-design-bottom-toolbar]")
-    .getByRole("button", { name: /^(Frame|Screen) options$/ })
-    .click();
-  await app.page.getByRole("menuitem").filter({ hasText: mode }).click();
 }
 
 async function dragOnCanvas(
@@ -187,7 +179,7 @@ test("after choosing Frame in the frame menu, pressing F again still draws board
 }) => {
   const { id } = await openScreenOnBoard(app);
   const files = await filenames(app, id);
-  await pickFrameMode(app, "Frame");
+  await selectTool(app.page, "Frame");
   await drawBoardFrame(app, id, { x: 440, y: -200, width: 120, height: 100 });
 
   await app.page.keyboard.press("f");
@@ -207,7 +199,7 @@ test.fixme("Screen mode draws one new top-level screen at the dragged box and no
   const before = await app.savedRecord(id);
   const boardBefore = await app.savedNodes(id, "__board__.html");
   await app.page.keyboard.press("f");
-  await pickFrameMode(app, "Screen");
+  await selectTool(app.page, "Screen");
 
   await drawBox(app, { x: 440, y: -200, width: 160, height: 120 });
 
@@ -257,7 +249,7 @@ test.fixme("after drawing a board frame in the light theme, the board stays ligh
   const { id } = await openScreenOnBoard(app);
   await expect(app.page.locator("html")).toHaveClass(/light/);
   await app.page.keyboard.press("f");
-  await pickFrameMode(app, "Frame");
+  await selectTool(app.page, "Frame");
 
   await drawBoardFrame(app, id, { x: 440, y: -200, width: 120, height: 100 });
 
@@ -279,7 +271,7 @@ test("Frame mode inside a screen adds a frame to that screen at the dragged box,
   const files = await filenames(app, id);
   const before = await app.savedNodes(id);
   await app.page.keyboard.press("f");
-  await pickFrameMode(app, "Frame");
+  await selectTool(app.page, "Frame");
 
   await drawBox(app, { x: 100, y: 100, width: 160, height: 120 });
 
@@ -304,7 +296,7 @@ test.fixme("a board frame dragged onto a screen moves into it with its centre at
 }) => {
   const { id } = await openScreenOnBoard(app);
   await app.page.keyboard.press("f");
-  await pickFrameMode(app, "Frame");
+  await selectTool(app.page, "Frame");
   const frame = await drawBoardFrame(app, id, {
     x: 440,
     y: -200,
@@ -353,7 +345,7 @@ test.fixme("a board frame dropped onto a larger board frame nests in it with its
 }) => {
   const { id } = await openScreenOnBoard(app);
   await app.page.keyboard.press("f");
-  await pickFrameMode(app, "Frame");
+  await selectTool(app.page, "Frame");
   const source = await drawBoardFrame(app, id, {
     x: 440,
     y: -200,
@@ -400,7 +392,7 @@ test.fixme("a board frame released over a locked screen stays on the board at th
     homeRow.getByRole("button", { name: "Unlock layer" }),
   ).toBeVisible();
   await app.page.keyboard.press("f");
-  await pickFrameMode(app, "Frame");
+  await selectTool(app.page, "Frame");
   const frame = await drawBoardFrame(app, id, {
     x: 440,
     y: -200,

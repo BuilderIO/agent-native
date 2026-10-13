@@ -1,6 +1,6 @@
 import { type Page } from "@playwright/test";
 
-import { appPath } from "./helpers";
+import { appPath, selectTool } from "./helpers";
 import { expect, styleOf, test, type App, type SavedNode } from "./rails";
 
 /** An empty design the app fixture owns: seeds one screen, then deletes it, leaving only the board. */
@@ -125,6 +125,7 @@ for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
     boardTextColor: "currentcolor",
   },
 ] as const) {
+  // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
   // fixme: light: board text committed with Escape is never saved; dark: fails in CI on current main: expect(received).toEqual(expect
   test.fixme(`${theme} theme: the canvas keeps its colour when the board gains its first shape`, async ({
     app,
@@ -157,7 +158,7 @@ for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
 
     const rectStart = { x: sampleX - 100, y: sampleY - 240 };
     const rectEnd = { x: rectStart.x + 200, y: rectStart.y + 140 };
-    await page.locator('button[aria-label="Rectangle"]').first().click();
+    await selectTool(page, "Rectangle");
     await expect(
       page.locator('button[aria-label="Rectangle"]').first(),
     ).toHaveAttribute("aria-pressed", "true");
@@ -195,7 +196,7 @@ for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
       `the rectangle covers the drag: ${JSON.stringify(drawn)}`,
     ).toBe(true);
 
-    await page.locator('button[aria-label="Text"]').first().click();
+    await selectTool(page, "Text");
     await expect(
       page.locator('button[aria-label="Text"]').first(),
     ).toHaveAttribute("aria-pressed", "true");

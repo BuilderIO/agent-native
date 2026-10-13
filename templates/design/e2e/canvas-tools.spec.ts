@@ -5,17 +5,21 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { ANNOTATE_LAB } from "../shared/labs";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML } from "./global-setup";
 import {
   dragCanvasByText,
   designFrame,
+  enableLab,
   enterDirectMode,
   gotoEditor,
   installBridge,
   pickFrameMode,
   selectByText,
   openAppMenuSubmenu,
+  selectTool,
+  type ToolbarTool,
 } from "./helpers";
 import { childrenOf, expect, expectOnlyChanged, styleOf, test } from "./rails";
 
@@ -113,6 +117,13 @@ test.beforeEach(async ({ app, page }, workerInfo) => {
 });
 
 test.use({ viewport: { width: 1440, height: 1000 } });
+
+let restoreAnnotateLab: (() => Promise<void>) | undefined;
+
+test.afterEach(async () => {
+  await restoreAnnotateLab?.();
+  restoreAnnotateLab = undefined;
+});
 
 function toolButton(page: Page, name: string): Locator {
   return page.locator(`button[aria-label="${name}"]`).first();
@@ -441,7 +452,7 @@ async function expectIframePaintStable(
 
 async function createDraftPrimitive(
   page: Page,
-  toolName: string,
+  toolName: ToolbarTool,
   selectionLabel: string,
   drag: {
     start: { x: number; y: number };
@@ -449,7 +460,7 @@ async function createDraftPrimitive(
   },
 ): Promise<void> {
   const before = await primitiveNodeIdsInDesign(page);
-  await toolButton(page, toolName).click();
+  await selectTool(page, toolName);
   await expect(toolButton(page, toolName)).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -939,7 +950,7 @@ async function insertTextByClick(
   const cardBox = await card.boundingBox();
   if (!cardBox) throw new Error("no screen card box");
 
-  await toolButton(page, "Text").click();
+  await selectTool(page, "Text");
   await expect(toolButton(page, "Text")).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -961,7 +972,7 @@ async function insertTextByDrag(
   const cardBox = await card.boundingBox();
   if (!cardBox) throw new Error("no screen card box");
 
-  await toolButton(page, "Text").click();
+  await selectTool(page, "Text");
   await expect(toolButton(page, "Text")).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -1199,18 +1210,22 @@ test.fixme("top bar modes toggle the editor mode buttons", async ({ page }) => {
     "aria-pressed",
     "false",
   );
-  await expect(modeButton(page, "annotate")).toHaveAttribute(
-    "aria-pressed",
-    "false",
-  );
+  // Annotate is behind a lab that is off by default (annotate-lab.spec.ts).
+  await expect(modeButton(page, "annotate")).toHaveCount(0);
 
   await modeButton(page, "interact").click();
-  const exitInteract = page.getByRole("button", {
-    name: "Exit responsive preview",
-  });
-  await expect(exitInteract).toBeVisible();
+  await expect(
+    page.locator("[data-design-top-bar] [data-design-interact-route]"),
+  ).toBeVisible();
+  // Interact has no bottom toolbar; the canvas tools return with Design.
+  const toolbarGroups = () =>
+    page
+      .locator("[data-design-bottom-toolbar] [data-design-toolbar-group]")
+      .evaluateAll((groups) =>
+        groups.map((group) => group.getAttribute("data-design-toolbar-group")),
+      );
   await expect(page.locator("[data-design-bottom-toolbar]")).toHaveCount(0);
-  await exitInteract.click();
+  await modeButton(page, "edit").click();
   await expect(modeButton(page, "edit")).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -1221,22 +1236,9 @@ test.fixme("top bar modes toggle the editor mode buttons", async ({ page }) => {
       "leaving the preview restores the camera",
     )
     .toEqual(homeBox);
-
-  await modeButton(page, "annotate").click();
-  await expect(modeButton(page, "annotate")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await expect(modeButton(page, "interact")).toHaveAttribute(
-    "aria-pressed",
-    "false",
-  );
-
-  await modeButton(page, "edit").click();
-  await expect(modeButton(page, "edit")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  await expect
+    .poll(toolbarGroups)
+    .toEqual(["move", "frame", "shapes", "text", "pen", "comment"]);
 });
 
 // fixme: fails on current main after the merge: Error: expect(received).toBeLessThanOrEqual(expected)
@@ -1272,7 +1274,7 @@ test.fixme("keyboard shortcuts dialog opens without remounting the overview ifra
 
   // A tool other than the default, so a stray Escape or hotkey that resets it
   // to Move is observable.
-  await toolButton(page, "Text").click();
+  await selectTool(page, "Text");
   await expect(toolButton(page, "Text")).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -1453,6 +1455,9 @@ test("keyboard shortcuts dialog fits a narrow window and stacks its categories",
 test("overview Annotate draws around screens with stable iframes and stroke undo redo", async ({
   page,
 }) => {
+  // Annotate is behind a lab; the lab is read when the editor loads.
+  restoreAnnotateLab = await enableLab(page, ANNOTATE_LAB.key);
+  await gotoEditor(page, designId);
   const shell = screenShell(page, "Home");
   const iframe = shell.locator("iframe[data-design-preview-iframe]").first();
   await expect(iframe).toBeVisible();
@@ -1719,6 +1724,7 @@ test.fixme("selection, same-screen move, text and style edits, undo redo, and zo
   await expectIframePaintStable(page, "focused-edit-stable");
 });
 
+// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("Hand and Scale shortcuts project the active move-group tool", async ({
   page,
 }) => {
@@ -1735,7 +1741,7 @@ test("Hand and Scale shortcuts project the active move-group tool", async ({
     "true",
   );
 
-  await page.getByRole("button", { name: "Hand options" }).click();
+  await page.getByRole("button", { name: "Move options" }).click();
   await expect(
     page.getByRole("menuitem").filter({ hasText: "Hand" }),
   ).toHaveText(/HandH$/);
@@ -1913,6 +1919,7 @@ test("click text creates auto-width text and survives reload", async ({
   ).toHaveCount(1);
 });
 
+// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("typing into a new text layer and clicking out renders it once, in order", async ({
   page,
 }) => {
@@ -1920,7 +1927,7 @@ test("typing into a new text layer and clicking out renders it once, in order", 
   const box = await card.boundingBox();
   if (!box) throw new Error("no home screen card box");
 
-  await toolButton(page, "Text").click();
+  await selectTool(page, "Text");
   await expect(toolButton(page, "Text")).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -3039,6 +3046,7 @@ test("frame drawn left of the first screen creates a new screen", async ({
     .toBeLessThan(0);
 });
 
+// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("rectangle drawn left of the first screen persists on the board", async ({
   page,
 }) => {
@@ -3059,7 +3067,7 @@ test("rectangle drawn left of the first screen persists on the board", async ({
     "rectangle",
   );
 
-  await toolButton(page, "Rectangle").click();
+  await selectTool(page, "Rectangle");
   await expect(toolButton(page, "Rectangle")).toHaveAttribute(
     "aria-pressed",
     "true",

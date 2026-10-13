@@ -219,7 +219,6 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   test.setTimeout(240_000);
   await page.setViewportSize({ width: 1728, height: 941 });
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await selectByText(page, "Alpha Button", { screenId: fileId });
 
   const launchMotion = page.getByRole("button", {
@@ -233,8 +232,8 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
   const dockRegion = page.locator('[role="region"][aria-label="Motion dock"]');
   await expect(dock).toBeVisible();
   await expect(
-    page.locator('[data-design-inspector-tab="motion"]'),
-  ).toHaveAttribute("data-state", "active");
+    page.locator('[data-design-inspector-section] h3[aria-label="Animations"]'),
+  ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Audio", exact: true }),
   ).toBeVisible();
@@ -354,7 +353,6 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
     [1, "1", undefined],
   ]);
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await selectByText(page, "Alpha Button", { screenId: fileId });
   await page.getByRole("button", { name: "Motion dock", exact: true }).click();
   const referenceDock = page
@@ -490,7 +488,6 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
     fileId,
   });
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await selectByText(page, "Alpha Button", { screenId: fileId });
   await page.getByRole("button", { name: "Motion dock", exact: true }).click();
   await expect(
@@ -1293,7 +1290,6 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
         .count(),
     )
     .toBe(1);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await selectByText(page, "Alpha Button", { screenId: fileId });
   await page.getByRole("button", { name: "Motion dock", exact: true }).click();
   await expect(dock.getByRole("textbox", { name: "Duration" })).toHaveValue(
@@ -1471,7 +1467,6 @@ test.fixme("Motion dock edits, saves, previews, and restores a CSS timeline", as
         .textContent(),
     )
     .toContain("cubic-bezier(0.42, 0, 1, 1)");
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await selectByText(page, "Alpha Button", { screenId: fileId });
   await page.getByRole("button", { name: "Motion dock", exact: true }).click();
   const restoredSpan = page.getByRole("slider", {

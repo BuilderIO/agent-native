@@ -7,6 +7,7 @@ import {
   designFrame,
   gotoEditor,
   pickFrameMode,
+  selectTool,
 } from "./helpers";
 import {
   type App,
@@ -406,11 +407,11 @@ async function drawInScreen(
   if (tool === "Frame") {
     await pickFrameMode(page, "Frame");
   } else {
-    const toolButton = page.locator(
-      `[data-design-bottom-toolbar] button[aria-label="${tool}"]`,
-    );
-    await toolButton.click();
-    await expect(toolButton).toHaveAttribute("aria-pressed", "true");
+    // Rectangle and Text sit in the Frame group's menu, not on the bar itself.
+    await selectTool(page, tool);
+    await expect(
+      page.locator(`[data-design-bottom-toolbar] button[aria-label="${tool}"]`),
+    ).toHaveAttribute("aria-pressed", "true");
   }
 
   let previousCamera: string | null = null;

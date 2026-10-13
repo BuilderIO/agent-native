@@ -1,5 +1,6 @@
 import { type Frame, type Page } from "@playwright/test";
 
+import { selectTool } from "./helpers";
 import {
   expect,
   expectOnlyChanged,
@@ -633,6 +634,8 @@ test("frame recorder continues while a preview document has no root", async ({
 });
 
 test.describe("canvas flash — transient capture, dark theme, multi-screen", () => {
+  // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
+  // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
   test("overview canvas never paints a light/white frame across drag-into-container, undo x2, alt-drag-out, new shape, single-screen round trip, and resize", async ({
     app,
   }) => {
@@ -690,7 +693,7 @@ test.describe("canvas flash — transient capture, dark theme, multi-screen", ()
     await capture(
       "draw-first-shape",
       async () => {
-        await page.locator('button[aria-label="Rectangle"]').first().click();
+        await selectTool(page, "Rectangle");
         await page.mouse.move(card.x - 220, card.y + 220);
         await page.mouse.down();
         await page.mouse.move(card.x - 120, card.y + 300, { steps: 12 });

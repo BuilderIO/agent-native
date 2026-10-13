@@ -1,4 +1,4 @@
-import { appPath, expandAllLayers } from "./helpers";
+import { appPath, expandAllLayers, selectTool } from "./helpers";
 import {
   childrenOf,
   expect,
@@ -141,10 +141,10 @@ async function laidOutSize(app: App, nodeId: string) {
 }
 
 async function draw(app: App, tool: "Rectangle" | "Frame", box: Box) {
+  await selectTool(app.page, tool);
   const button = app.page.locator(
     `[data-design-bottom-toolbar] button[aria-label="${tool}"]`,
   );
-  await button.click();
   await expect(button).toHaveAttribute("aria-pressed", "true");
   const start = await app.pagePoint(box.left, box.top);
   const end = await app.pagePoint(box.left + box.width, box.top + box.height);

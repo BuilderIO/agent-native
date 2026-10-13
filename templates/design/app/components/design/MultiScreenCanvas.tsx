@@ -656,6 +656,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   interactMode = false,
   interactScreenId = null,
   focusedInteractViewport = null,
+  focusedInteractCornerClass = null,
   readOnly = false,
   editableScreenIds,
   previewDeviceFrame = "none",
@@ -770,6 +771,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const surfaceRef = useRef<HTMLDivElement>(null);
   const panHitTestShieldRef = useRef<HTMLDivElement | null>(null);
   const panGestureActiveRef = useRef(false);
+  // Interact hands the focused screen to the page: the camera takes no wheel,
+  // drag or key then, and cancels none of them.
+  const focusedInteractRef = useRef(false);
   const panPreviousCursorRef = useRef<string | null>(null);
   const initialCanvasFocusPendingRef = useRef(true);
   const initialCanvasFocusAttemptedRef = useRef(false);
@@ -9558,6 +9562,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      if (focusedInteractRef.current) return;
       if (isCanvasOverlayInteractionTarget(e.target)) return;
       claimKeyboardFocus();
       suppressNextPick.current = false;
@@ -10292,7 +10297,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const handleWheelEvent = useCallback(
     (event: WheelEvent) => {
-      if (!event.isTrusted) return;
+      if (focusedInteractRef.current || !event.isTrusted) return;
       invalidateSnapGesture();
       if (event.cancelable) event.preventDefault();
       event.stopPropagation();
@@ -10327,6 +10332,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     const handleEmbeddedWheelMessage = (event: MessageEvent) => {
       if (!event.data || event.data.type !== "embedded-canvas-wheel") return;
+      if (focusedInteractRef.current) return;
       const surface = surfaceRef.current;
       if (!surface) return;
       const sourceIframe = Array.from(
@@ -10364,7 +10370,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (activePenPathRef.current) return;
+      if (activePenPathRef.current || focusedInteractRef.current) return;
       if (readOnly) return;
       if (!isArrowNudgeKey(event.key) || isEditableHotkeyTarget(event.target)) {
         return;
@@ -10477,7 +10483,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (activePenPathRef.current) return;
+      if (activePenPathRef.current || focusedInteractRef.current) return;
       if (readOnly) return;
       if (
         (event.key !== "Delete" && event.key !== "Backspace") ||
@@ -10573,7 +10579,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     if (!onDuplicate) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (readOnly) return;
+      if (readOnly || focusedInteractRef.current) return;
       if (activePenPathRef.current) return;
       if (
         !(event.metaKey || event.ctrlKey) ||
@@ -11043,6 +11049,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       ? canvasFrames.find(({ screen }) => screen.id === interactScreenId)
       : undefined;
   const focusedInteract = Boolean(focusedInteractFrame);
+  focusedInteractRef.current = focusedInteract;
   useLayoutEffect(() => {
     renderedFrameGeometryRef.current = Object.fromEntries(
       canvasFrames.map(({ screen, geometry }) => [screen.id, geometry]),
@@ -11744,7 +11751,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         contain: "layout paint",
         isolation: "isolate",
         overscrollBehavior: "none",
-        touchAction: "none",
+        // A touch scrolls the page in Interact; `none` would hand it to nobody.
+        touchAction: focusedInteract ? undefined : "none",
         visibility: focusedInteract ? "hidden" : undefined,
       }}
     >
@@ -12076,6 +12084,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               measuredIframeHeights={measuredIframeHeights}
               focusedInteract={
                 screen.id === interactScreenId && focusedInteract
+              }
+              interactCornerClass={
+                screen.id === interactScreenId && focusedInteract
+                  ? focusedInteractCornerClass
+                  : null
               }
               locked={lockedScreenIdSet.has(screen.id)}
               screenContent={screenContentById.get(screen.id)}
@@ -13536,6 +13549,7 @@ interface ScreenProps {
   isActive: boolean;
   interactMode: boolean;
   focusedInteract: boolean;
+  interactCornerClass: string | null;
   isSelected: boolean;
   elementSelectedInScreen: boolean;
   isTopScreen: boolean;
@@ -13613,6 +13627,7 @@ const Screen = memo(function Screen({
   isActive,
   interactMode,
   focusedInteract,
+  interactCornerClass,
   isSelected,
   elementSelectedInScreen,
   isTopScreen,
@@ -14012,6 +14027,7 @@ const Screen = memo(function Screen({
             e.stopPropagation();
             return;
           }
+          if (focusedInteract) return;
           if (creationToolActive) return;
           if (e.detail > 1) {
             e.stopPropagation();
@@ -14042,6 +14058,10 @@ const Screen = memo(function Screen({
         className={cn(
           "group/artboard relative block overflow-visible bg-background text-left outline-none transition-colors",
           "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+          // A device preview, not an artboard: rounded, and lifted off the canvas.
+          focusedInteract && interactCornerClass
+            ? cn(interactCornerClass, "shadow-md")
+            : null,
           emphasized
             ? "text-foreground"
             : cn(
@@ -14058,7 +14078,7 @@ const Screen = memo(function Screen({
             ? "transparent"
             : undefined,
           cursor: penActive || creationToolActive ? "crosshair" : "pointer",
-          touchAction: "none",
+          touchAction: focusedInteract ? undefined : "none",
         }}
       >
         <span
@@ -14078,14 +14098,21 @@ const Screen = memo(function Screen({
             )
               ? "transparent"
               : undefined,
-            borderRadius: screenRootComputedStyles?.borderRadius,
-            borderTopLeftRadius: screenRootComputedStyles?.borderTopLeftRadius,
-            borderTopRightRadius:
-              screenRootComputedStyles?.borderTopRightRadius,
-            borderBottomRightRadius:
-              screenRootComputedStyles?.borderBottomRightRadius,
-            borderBottomLeftRadius:
-              screenRootComputedStyles?.borderBottomLeftRadius,
+            // The device frame owns the corner in Interact; the page's own
+            // root radius would square it off or round it twice.
+            ...(focusedInteract
+              ? null
+              : {
+                  borderRadius: screenRootComputedStyles?.borderRadius,
+                  borderTopLeftRadius:
+                    screenRootComputedStyles?.borderTopLeftRadius,
+                  borderTopRightRadius:
+                    screenRootComputedStyles?.borderTopRightRadius,
+                  borderBottomRightRadius:
+                    screenRootComputedStyles?.borderBottomRightRadius,
+                  borderBottomLeftRadius:
+                    screenRootComputedStyles?.borderBottomLeftRadius,
+                }),
           }}
         >
           {!showStaticPreview ? (
@@ -14340,6 +14367,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     sameFrameGeometry(prev.geometry, next.geometry) &&
     prev.isActive === next.isActive &&
     prev.focusedInteract === next.focusedInteract &&
+    prev.interactCornerClass === next.interactCornerClass &&
     prev.isSelected === next.isSelected &&
     prev.elementSelectedInScreen === next.elementSelectedInScreen &&
     prev.isTopScreen === next.isTopScreen &&

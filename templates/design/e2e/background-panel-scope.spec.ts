@@ -9,6 +9,7 @@ const SCREEN = `<!doctype html><html><head><meta charset="utf-8"></head>
 const sectionTitle = (name: string) =>
   `h3.design-sidebar-section-title:text-is("${name}")`;
 
+// oracle: none — checks which scope the inspector addresses with nothing selected, not measured Figma behavior.
 test("with nothing selected in overview, the inspector shows the Canvas section and no Screen section", async ({
   app,
 }) => {
@@ -20,7 +21,8 @@ test("with nothing selected in overview, the inspector shows the Canvas section 
   await expect(app.page.locator(sectionTitle("Screen"))).toHaveCount(0);
 });
 
-test("Interact's Width and Height inputs sit fully right of the left panel and inside the viewport", async ({
+// oracle: none — checks where the Interact controls sit against the left panel, not measured Figma geometry.
+test("Interact has no inspector, and its device picker and zoom sit fully right of the left panel and inside the viewport", async ({
   app,
 }) => {
   await app.page.setViewportSize({ width: 1440, height: 900 });
@@ -28,19 +30,23 @@ test("Interact's Width and Height inputs sit fully right of the left panel and i
   await app.open(id);
   await enterInteractView(app.page);
 
+  await expect(
+    app.page.locator('[data-design-chrome-region="right-panel"]'),
+  ).toHaveCount(0);
   const leftShell = (await app.page
     .locator('[data-design-chrome-region="left-shell"]')
     .boundingBox())!;
-  for (const name of ["Width", "Height"]) {
-    const input = (await app.page
-      .getByRole("spinbutton", { name })
-      .boundingBox())!;
+  for (const [name, selector] of [
+    ["device picker", "[data-design-interact-device]"],
+    ["zoom", "[data-design-interact-zoom]"],
+  ] as const) {
+    const control = (await app.page.locator(selector).boundingBox())!;
     expect(
-      input.x,
+      control.x,
       `${name} starts right of the left panel`,
     ).toBeGreaterThanOrEqual(leftShell.x + leftShell.width);
     expect(
-      input.x + input.width,
+      control.x + control.width,
       `${name} ends inside the viewport`,
     ).toBeLessThanOrEqual(1440);
   }

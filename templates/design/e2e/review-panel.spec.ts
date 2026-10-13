@@ -13,7 +13,6 @@ test("clicking a review finding opens its details", async ({ app, page }) => {
   const restoreReviewPanel = await enableLab(page, DESIGN_REVIEW_TOOLS_LAB.key);
   try {
     await app.open(designId);
-    await page.getByRole("tab", { name: "Design", exact: true }).click();
     const panel = page.getByTestId("review-panel");
     await panel.scrollIntoViewIfNeeded();
     await expect(panel).toBeVisible();

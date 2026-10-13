@@ -36,7 +36,10 @@ import type {
 import { motionPathTrackForTarget } from "@/components/design/design-canvas/motion-types";
 import { inspectCodeDataForElement } from "@/components/design/edit-panel/inspect-code-source";
 import { type InspectCodeData } from "@/components/design/EditPanel";
-import { waitForShaderWriteToSettle } from "@/components/design/inspector/GlslShaderPanel";
+import {
+  waitForShaderWriteToSettle,
+  type ShaderSourceTransform,
+} from "@/components/design/inspector/GlslShaderPanel";
 import { type LocalhostWriteConsentPayload } from "@/components/design/LocalhostWriteConsentDialog";
 import { type MotionDockTrack } from "@/components/design/MotionDock";
 import type { ScreenProjectionNodeIdentity } from "@/components/design/multi-screen/types";
@@ -72,6 +75,7 @@ import {
 } from "../commands/linked-component-mutation";
 import { resolveLinkedComponentSelection } from "../commands/linked-component-structure";
 import { runOverviewPrimitiveReparent } from "../commands/overview-primitive-reparent";
+import { runShaderSourceEdit } from "../commands/shader-source-edit";
 import { runToggleMotionKeyframe } from "../commands/toggle-motion-keyframe";
 import { runtimeMultiplicityForElementProvenance } from "../editor-helpers";
 import {
@@ -155,8 +159,6 @@ export function useEditorContentAndComponents({
     activeFileIdRef,
   } = editorCore;
   const {
-    activeInspectorTab,
-    setActiveInspectorTab,
     setActiveLeftPanel,
     setMinimalUi,
     setSelectedLayerIdsState,
@@ -424,12 +426,7 @@ export function useEditorContentAndComponents({
   ]);
   useEffect(() => {
     clearShaderFillPreview();
-  }, [
-    activeInspectorTab,
-    clearShaderFillPreview,
-    location.pathname,
-    location.search,
-  ]);
+  }, [clearShaderFillPreview, location.pathname, location.search]);
   useEffect(() => {
     window.addEventListener("pagehide", clearShaderFillPreview);
     window.addEventListener("beforeunload", clearShaderFillPreview);
@@ -1314,6 +1311,8 @@ export function useEditorContentAndComponents({
 
   const applyFileContentUpdateRef = useRef(applyFileContentUpdate);
   applyFileContentUpdateRef.current = applyFileContentUpdate;
+  const getScreenContentRef = useRef(getScreenContent);
+  getScreenContentRef.current = getScreenContent;
   const linkedComponentQueueRuntimeRef =
     useRef<LinkedComponentQueueRuntime | null>(null);
   linkedComponentQueueRuntimeRef.current = id
@@ -1578,6 +1577,22 @@ export function useEditorContentAndComponents({
       }),
     [],
   );
+  // The board cannot go through the source actions the picker uses for
+  // screens, so a shader edit on a frame drawn there is made here.
+  const handleShaderSourceEdit = useCallback(
+    (fileId: string, transform: ShaderSourceTransform) =>
+      runShaderSourceEdit(
+        {
+          getScreenContent: (id) => getScreenContentRef.current(id),
+          applyFileContentUpdate: (id, content, options) =>
+            applyFileContentUpdateRef.current(id, content, options),
+          saveFailedMessage: t("editPanel.shaders.saveFailed"),
+        },
+        fileId,
+        transform,
+      ),
+    [t],
+  );
 
   const handleGoToMainComponentMenuAction = useCallback(() => {
     if (!id || !selectedInstanceActionNodeId) return;
@@ -1648,7 +1663,6 @@ export function useEditorContentAndComponents({
     if (!id || !selectedInstanceActionNodeId) return;
     setUiHidden(false);
     setMode("edit");
-    setActiveInspectorTab("design");
     setComponentSwapPickerRequest((request) => request + 1);
   }, [id, selectedInstanceActionNodeId]);
 
@@ -1811,6 +1825,7 @@ export function useEditorContentAndComponents({
     applyFileContentUpdate,
     handleComponentPropApplied,
     handleShaderSourceApplied,
+    handleShaderSourceEdit,
     handleGoToMainComponentMenuAction,
     handleDetachInstanceMenuAction,
     handleSwapInstanceMenuAction,

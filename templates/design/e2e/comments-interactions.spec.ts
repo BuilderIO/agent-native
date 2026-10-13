@@ -43,6 +43,35 @@ function threadPopover(page: Page) {
     .last();
 }
 
+/**
+ * Opens the left rail's Threads panel. A reload can restore it already open, and
+ * the rail item toggles, so it is clicked only while the panel is closed.
+ */
+async function openThreadsPanel(page: Page): Promise<void> {
+  const threadsItem = page.getByRole("button", {
+    name: "Threads",
+    exact: true,
+  });
+  if ((await threadsItem.getAttribute("aria-current")) !== "page") {
+    await threadsItem.click();
+  }
+  await expect(page.locator("[data-review-comments-panel]")).toBeVisible();
+}
+
+// oracle: none — verifies the comment flow, not measured Figma behavior.
+test("the Pin comment tool opens the Threads panel", async ({ app }) => {
+  const page = app.page;
+  await app.open(await app.seed(COMMENT_SCREEN));
+  await expect(page.locator("[data-review-comments-panel]")).toHaveCount(0);
+
+  await page
+    .locator('[data-design-bottom-toolbar] button[aria-label="Pin comment"]')
+    .click();
+
+  await expect(page.locator("[data-review-comments-panel]")).toBeVisible();
+});
+
+// oracle: none — verifies the comment flow, not measured Figma behavior.
 // fixme: product bug: (1) The pin is drawn centred at (412,263) for a click at (491,274): about 79px left, at roughly the button's left edge, as if the
 test.fixme("comments toolbar opens an anchored composer", async ({ app }) => {
   const page = app.page;
@@ -64,8 +93,8 @@ test.fixme("comments toolbar opens an anchored composer", async ({ app }) => {
   await app.open(id);
   await app.zoomToFit();
 
-  await page.getByRole("tab", { name: "Comments", exact: true }).click();
-  await expect(page.locator("[data-review-comments-panel]")).toBeVisible();
+  await openThreadsPanel(page);
+  await expect(page.getByRole("button", { name: "Filter" })).toBeVisible();
   await page
     .locator('[data-design-bottom-toolbar] button[aria-label="Pin comment"]')
     .click();
@@ -147,7 +176,7 @@ test.fixme("comments toolbar opens an anchored composer", async ({ app }) => {
     .toBeLessThanOrEqual(6);
 
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.getByRole("tab", { name: "Comments", exact: true }).click();
+  await openThreadsPanel(page);
   await expect
     .soft(
       page.locator("[data-review-pin]"),
@@ -156,6 +185,11 @@ test.fixme("comments toolbar opens an anchored composer", async ({ app }) => {
     .toHaveCount(1);
   await page.locator("[data-review-pin]").first().click();
   await expect(threadPopover(page)).toBeVisible();
+  await expect(
+    page
+      .locator("[data-review-comments-panel] article")
+      .getByText("Browser comment check @alice+e2e", { exact: true }),
+  ).toBeVisible();
   const replyInput = page.locator("textarea[data-review-reply-input]:visible");
   await replyInput.fill("Browser comment reply");
   const replyResponse = page.waitForResponse(

@@ -1,6 +1,11 @@
 import { type Page } from "@playwright/test";
 
-import { appPath, expandAllLayers } from "./helpers";
+import {
+  appPath,
+  expandAllLayers,
+  selectTool,
+  type ToolbarTool,
+} from "./helpers";
 import {
   childrenOf,
   expect,
@@ -50,12 +55,13 @@ async function selectLayer(app: App, name: string) {
   await expect.poll(() => app.selectedLayers()).toEqual([name]);
 }
 
-async function useTool(page: Page, name: string) {
-  const tool = page
-    .locator("[data-design-bottom-toolbar]")
-    .locator(`button[aria-label="${name}"]`);
-  await tool.click();
-  await expect(tool).toHaveAttribute("aria-pressed", "true");
+async function useTool(page: Page, name: ToolbarTool) {
+  await selectTool(page, name);
+  await expect(
+    page
+      .locator("[data-design-bottom-toolbar]")
+      .locator(`button[aria-label="${name}"]`),
+  ).toHaveAttribute("aria-pressed", "true");
 }
 
 /** Page pixels are whole numbers; this returns the design point the pointer really reaches. */

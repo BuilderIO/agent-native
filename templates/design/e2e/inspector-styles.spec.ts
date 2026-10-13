@@ -31,7 +31,6 @@ async function openInspector(app: App) {
   const id = await app.seed(FIXTURE);
   await app.open(id);
   await app.zoomToFit();
-  await app.page.getByRole("tab", { name: "Design", exact: true }).click();
   return id;
 }
 
@@ -80,14 +79,12 @@ test.fixme("text fills hide and restore without losing the original color", asyn
   const id = await openInspector(app);
   await select(app, "heading");
   const fillSection = inspectorSection(page, "Fill");
-  await fillSection.getByRole("button", { name: "Open color picker" }).click();
-  const fillOpacity = page.getByRole("spinbutton", {
-    name: "Opacity",
+  const fillOpacity = fillSection.getByRole("textbox", {
+    name: "Paint opacity",
     exact: true,
   });
   await fillOpacity.fill("50");
   await fillOpacity.press("Enter");
-  await page.keyboard.press("Escape");
   await app.settled();
   const halfOpaque = await app.savedNodes(id);
   expect(styleOf(halfOpaque.get("heading")).color).toBe(
@@ -108,7 +105,6 @@ test.fixme("text fills hide and restore without losing the original color", asyn
   ).toBe("color-mix(in srgb, rgba(17, 24, 39, 0.5) 0%, transparent)");
 
   await page.reload();
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await app.zoomToFit();
   await select(app, "heading");
   await fillSection.locator('button[aria-label="Show layer"]').click();
@@ -186,6 +182,7 @@ test("selection hide and Appearance visibility stay in sync with opacity", async
   expectOnlyChanged(before, after, ["heading"]);
 });
 
+// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
 test("text gradient apply and removal survive reselection; box gradient editor persists", async ({
   app,
 }) => {
@@ -195,7 +192,7 @@ test("text gradient apply and removal survive reselection; box gradient editor p
   await select(app, "heading");
   const fillSection = inspectorSection(page, "Fill");
   await fillSection.getByRole("button", { name: "Open color picker" }).click();
-  await page.getByRole("button", { name: "Linear", exact: true }).click();
+  await page.getByRole("button", { name: "Gradient", exact: true }).click();
   await page.keyboard.press("Escape");
   await app.settled();
   const withGradient = await savedStyle(app, id, "heading");
@@ -208,9 +205,9 @@ test("text gradient apply and removal survive reselection; box gradient editor p
   await select(app, "para");
   await select(app, "heading");
   await expect(
-    fillSection.getByRole("button", { name: "Linear gradient 1" }),
+    fillSection.getByRole("button", { name: /^Linear/ }),
   ).toBeVisible();
-  await fillSection.getByRole("button", { name: "Linear gradient 1" }).click();
+  await fillSection.getByRole("button", { name: /^Linear/ }).click();
   await expect(
     page.locator('input[aria-label="Gradient angle"]'),
   ).toBeVisible();
@@ -250,7 +247,7 @@ test("text gradient apply and removal survive reselection; box gradient editor p
   await select(app, "card");
   const cardFill = inspectorSection(page, "Fill");
   await cardFill.getByRole("button", { name: "Open color picker" }).click();
-  await page.getByRole("button", { name: "Linear", exact: true }).click();
+  await page.getByRole("button", { name: "Gradient", exact: true }).click();
   await page.keyboard.press("Escape");
   await app.settled();
   const cardGradient = await savedStyle(app, id, "card");
@@ -261,7 +258,7 @@ test("text gradient apply and removal survive reselection; box gradient editor p
 
   await select(app, "para");
   await select(app, "card");
-  await cardFill.getByRole("button", { name: "Linear gradient 1" }).click();
+  await cardFill.getByRole("button", { name: /^Linear/ }).click();
   await expect(
     page.locator('input[aria-label="Gradient angle"]'),
   ).toBeVisible();
@@ -424,7 +421,6 @@ test.fixme("search selects Lato Medium and keeps custom font names offline", asy
   );
 
   await page.reload();
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await app.zoomToFit();
   await select(app, "heading");
   await expect(

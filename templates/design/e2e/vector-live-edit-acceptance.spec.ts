@@ -141,7 +141,6 @@ test("grouped clipboard SVG keeps path identities and edits only the selected si
   const page = app.page;
   const { designId, screenId } = await seedScreen(app);
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await expandAllLayers(page);
   await page
     .locator(

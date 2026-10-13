@@ -1,3 +1,4 @@
+import { selectTool } from "./helpers";
 import {
   expect,
   expectOnlyChanged,
@@ -16,9 +17,7 @@ const SCREEN_HTML = `<!doctype html>
 const BOX = { x: 300, y: 200, width: 240, height: 160 };
 
 async function drawRectangle(app: App) {
-  await app.page
-    .getByRole("button", { name: "Rectangle", exact: true })
-    .click();
+  await selectTool(app.page, "Rectangle");
   const start = await app.pagePoint(BOX.x, BOX.y);
   const end = await app.pagePoint(BOX.x + BOX.width, BOX.y + BOX.height);
   await app.page.mouse.move(start.x, start.y);

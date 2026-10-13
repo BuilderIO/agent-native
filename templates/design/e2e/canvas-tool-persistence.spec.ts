@@ -1,4 +1,4 @@
-import { appPath } from "./helpers";
+import { appPath, selectTool } from "./helpers";
 import {
   expect,
   expectOnlyChanged,
@@ -96,22 +96,29 @@ async function expectSavedBox(app: App, node: SavedNode, expected: number[]) {
   ).toEqual([]);
 }
 
-test("after choosing Ellipse in the shape menu, the shape button draws ellipses again on its next use", async ({
+// oracle: none — verifies which shape the Shapes button keeps arming, not parity with a design reference.
+test("after choosing Ellipse in the Shapes menu, the Shapes button draws ellipses again on its next use", async ({
   app,
 }) => {
   const id = await openScreen(app);
   const before = await app.savedNodes(id);
   const toolbar = app.page.locator("[data-design-bottom-toolbar]");
 
-  await toolbar.getByRole("button", { name: "Rectangle options" }).click();
-  await app.page.getByRole("menuitem", { name: "Ellipse" }).click();
+  await selectTool(app.page, "Ellipse");
   await drawBox(app, { x: 300, y: 300, width: 90, height: 70 });
   const first = await app.savedNodes(id);
   expect(
     added(before, first).map((node) => node.attrs["data-an-primitive"]),
   ).toEqual(["ellipse"]);
 
-  await toolbar.getByRole("button", { name: "Ellipse", exact: true }).click();
+  const shapeButton = toolbar.getByRole("button", {
+    name: "Ellipse",
+    exact: true,
+  });
+  // Drawing hands the pointer back to Move, but the button still offers an Ellipse.
+  await expect(shapeButton).toHaveAttribute("aria-pressed", "false");
+  await shapeButton.click();
+  await expect(shapeButton).toHaveAttribute("aria-pressed", "true");
   await drawBox(app, { x: 500, y: 300, width: 90, height: 70 });
 
   const after = await app.savedNodes(id);

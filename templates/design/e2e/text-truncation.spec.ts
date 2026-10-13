@@ -2,7 +2,12 @@ import { writeFile } from "node:fs/promises";
 
 import { type Page } from "@playwright/test";
 
-import { cdpScreenshot, designFrame, selectByText } from "./helpers";
+import {
+  cdpScreenshot,
+  designFrame,
+  selectByText,
+  selectTool,
+} from "./helpers";
 import { expect, expectOnlyChanged, test, type App } from "./rails";
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
@@ -423,6 +428,7 @@ test(
   },
 );
 
+// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test(
   "a freshly created title keeps truncation controls in sync without reselection",
   {},
@@ -442,7 +448,7 @@ test(
     const textTool = page.locator(
       '[data-design-bottom-toolbar] button[aria-label="Text"]',
     );
-    await textTool.click();
+    await selectTool(page, "Text");
     await expect(textTool).toHaveAttribute("aria-pressed", "true");
     const click = await app.pagePoint(120, 120);
     await page.mouse.click(click.x, click.y);

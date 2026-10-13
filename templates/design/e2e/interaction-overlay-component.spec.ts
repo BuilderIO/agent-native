@@ -120,6 +120,7 @@ function expectNear(actual: Point, expected: Point, label: string) {
   ).toBeLessThanOrEqual(1.5);
 }
 
+// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("draws an overlaid play triangle, fills both, and converts the grouped layers to a component", async ({
   app,
 }) => {
@@ -134,7 +135,7 @@ test("draws an overlaid play triangle, fills both, and converts the grouped laye
   const ellipseTo = await snappedPagePoint(app, { x: 150, y: 290 });
   await page
     .locator("[data-design-bottom-toolbar]")
-    .getByRole("button", { name: "Rectangle options" })
+    .getByRole("button", { name: "Shapes options" })
     .click();
   await page.getByRole("menuitem", { name: "Ellipse" }).click();
   await page.mouse.move(ellipseFrom.page.x, ellipseFrom.page.y);

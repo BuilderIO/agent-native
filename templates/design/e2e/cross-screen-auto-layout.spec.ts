@@ -1,6 +1,6 @@
 import { type Page } from "@playwright/test";
 
-import { appPath, designFrame } from "./helpers";
+import { appPath, designFrame, selectTool } from "./helpers";
 import {
   expect,
   expectOnlyChanged,
@@ -510,6 +510,7 @@ async function expectUndoRedo(
 test.use({ viewport: { width: 1600, height: 1000 } });
 
 test.describe("physical cross-screen auto-layout behavior", () => {
+  // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
   test("board to Screen auto-layout keeps held target/source evidence and full undo-redo publication", async ({
     app,
   }) => {
@@ -523,7 +524,7 @@ test.describe("physical cross-screen auto-layout behavior", () => {
     const rectangleTool = page.locator(
       '[data-design-bottom-toolbar] button[aria-label="Rectangle"]',
     );
-    await rectangleTool.click();
+    await selectTool(page, "Rectangle");
     await expect(rectangleTool).toHaveAttribute("aria-pressed", "true");
     await page.mouse.move(boardPoint.x, boardPoint.y);
     await page.mouse.down();

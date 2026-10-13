@@ -1,5 +1,5 @@
 /**
- * Lightweight hit-test bridge — injected into every inline canvas iframe so the
+ * Lightweight hit-test bridge — injected into every inline Edit canvas iframe so the
  * parent editor can resolve drop-anchor positions via postMessage without a full
  * editor-chrome bridge in non-edit views (e.g. multi-screen overview).
  *

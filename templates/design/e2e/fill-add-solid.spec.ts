@@ -64,6 +64,7 @@ async function computedFromSaved(
   );
 }
 
+// oracle: none — app fill-layer behavior with no native Figma counterpart; only how the added row is located changed.
 // fixme: product bug: The in-iframe gradient overlay ([data-agent-native-edit-overlay=gradient]) stays visible, with green/magenta stop handles, while the
 test.fixme("Add fill puts a #123456 Solid layer on top, keeps the gradient layers' size, repeat and position aligned, and saves it", async ({
   app,
@@ -82,9 +83,9 @@ test.fixme("Add fill puts a #123456 Solid layer on top, keeps the gradient layer
 
   await expect(paintRows).toHaveCount(3);
   await expect(
-    paintRows.first().getByRole("button").filter({ hasText: "#123456" }),
+    paintRows.first().getByRole("button").filter({ hasText: "123456" }),
   ).toBeVisible();
-  await expect(paintRows.first()).not.toContainText("gradient");
+  await expect(paintRows.first()).not.toContainText(/Linear|Radial/);
   const picker = app.page.getByRole("dialog");
   await expect(
     picker.getByRole("button", { name: "Solid", exact: true }),

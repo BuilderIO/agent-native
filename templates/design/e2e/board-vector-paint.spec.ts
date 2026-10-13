@@ -398,6 +398,7 @@ test("Shift+X swaps a board SVG fill and stroke as one undoable edit", async ({
   expect(sourceAfterRedo?.stroke).toMatch(/218\s+218\s+218|218,\s*218,\s*218/i);
 });
 
+// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
 // fixme: product bug: After the Linear stroke gradient is saved, Cmd+Z leaves gradientCount 1 and the url() reference live. No update-file follows the undo
 test.fixme("vector stroke gradient is visible, persisted, undoable, and reloadable", async ({
   app,
@@ -432,7 +433,7 @@ test.fixme("vector stroke gradient is visible, persisted, undoable, and reloadab
   expect(strokePopoverId).toBeTruthy();
   await page
     .locator(`[id="${strokePopoverId}"]`)
-    .getByRole("button", { name: "Linear", exact: true })
+    .getByRole("button", { name: "Gradient", exact: true })
     .click();
 
   await expect
@@ -494,7 +495,7 @@ test.fixme("vector stroke gradient is visible, persisted, undoable, and reloadab
   await expect(
     page
       .locator(`[id="${reloadedStrokePopoverId}"]`)
-      .getByRole("button", { name: "Linear", exact: true }),
+      .getByRole("button", { name: "Gradient", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await expect
     .poll(async () => {
@@ -511,6 +512,7 @@ test.fixme("vector stroke gradient is visible, persisted, undoable, and reloadab
   });
 });
 
+// oracle: none — only the paint type controls changed (Gradient button, Type select); no Figma behavior is claimed.
 // fixme: product bug: The PNG export's first POST /_agent-native/actions/render-export-png returns 403 (console error 'Failed to load resource: 403') before
 test.fixme("vector fill gradient renders in the inspector, source, SVG and PNG exports", async ({
   app,
@@ -557,7 +559,7 @@ test.fixme("vector fill gradient renders in the inspector, source, SVG and PNG e
   expect(strokePopoverId).toBeTruthy();
   await page
     .locator(`[id="${strokePopoverId}"]`)
-    .getByRole("button", { name: "Linear", exact: true })
+    .getByRole("button", { name: "Gradient", exact: true })
     .click();
   await expect
     .poll(() => boardVectorFillGradient(page))
@@ -580,7 +582,7 @@ test.fixme("vector fill gradient renders in the inspector, source, SVG and PNG e
   expect(fillPopoverId).toBeTruthy();
   await page
     .locator(`[id="${fillPopoverId}"]`)
-    .getByRole("button", { name: "Linear", exact: true })
+    .getByRole("button", { name: "Gradient", exact: true })
     .click();
   const gradientDialog = page.getByRole("dialog");
   await expect(
@@ -609,9 +611,8 @@ test.fixme("vector fill gradient renders in the inspector, source, SVG and PNG e
 
   await fillSection.getByRole("button", { name: "Open color picker" }).click();
   await expect(gradientDialog).toBeVisible();
-  await gradientDialog
-    .getByRole("button", { name: "Radial", exact: true })
-    .click();
+  await gradientDialog.getByRole("combobox", { name: "Type" }).click();
+  await page.getByRole("option", { name: "Radial", exact: true }).click();
   await expect
     .poll(() => boardVectorFillGradient(page))
     .toMatchObject({ gradientCount: 1, gradientTag: "radialGradient" });
@@ -640,37 +641,27 @@ test.fixme("vector fill gradient renders in the inspector, source, SVG and PNG e
 
   await fillSection.getByRole("button", { name: "Open color picker" }).click();
   await expect(gradientDialog).toBeVisible();
-  await gradientDialog
-    .getByRole("button", { name: "Linear", exact: true })
-    .click();
+  await gradientDialog.getByRole("combobox", { name: "Type" }).click();
+  await page.getByRole("option", { name: "Linear", exact: true }).click();
   await expect
     .poll(() => boardVectorFillGradient(page))
     .toMatchObject({ gradientCount: 1, gradientTag: "linearGradient" });
-  const hex = gradientDialog.getByRole("textbox", {
-    name: "Hex",
-    exact: true,
+  // The Stops list has a row per stop, in position order: 0% first, 100% last.
+  const stopColor = gradientDialog.getByRole("textbox", {
+    name: "Stop color",
   });
-  await gradientDialog
-    .getByRole("button", { name: / at 0%$/ })
-    .first()
-    .click();
-  await hex.fill("ff0000");
-  await hex.press("Enter");
-  await expect.poll(() => hex.inputValue()).toMatch(/ff0000/i);
-  await gradientDialog
-    .getByRole("button", { name: / at 100%$/ })
-    .first()
-    .click();
-  await hex.fill("0000ff");
-  await hex.press("Enter");
-  await expect.poll(() => hex.inputValue()).toMatch(/0000ff/i);
-  const opacity = gradientDialog.getByRole("spinbutton", {
-    name: "Opacity",
-    exact: true,
+  const stopOpacity = gradientDialog.getByRole("textbox", {
+    name: "Stop opacity",
   });
-  await opacity.fill("100");
-  await opacity.press("Enter");
-  await expect.poll(() => opacity.inputValue()).toBe("100");
+  await stopColor.first().fill("ff0000");
+  await stopColor.first().press("Enter");
+  await expect.poll(() => stopColor.first().inputValue()).toMatch(/ff0000/i);
+  await stopColor.last().fill("0000ff");
+  await stopColor.last().press("Enter");
+  await expect.poll(() => stopColor.last().inputValue()).toMatch(/0000ff/i);
+  await stopOpacity.last().fill("100");
+  await stopOpacity.last().press("Enter");
+  await expect.poll(() => stopOpacity.last().inputValue()).toBe("100");
 
   await expect
     .poll(() => boardVectorFillGradient(page))
@@ -803,6 +794,7 @@ test.fixme("vector fill gradient renders in the inspector, source, SVG and PNG e
   });
 });
 
+// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
 test("converting a vector fill gradient to solid clears source metadata and round-trips through undo", async ({
   app,
   page,
@@ -838,7 +830,7 @@ test("converting a vector fill gradient to solid clears source metadata and roun
       .click();
     await expect(gradientDialog).toBeVisible();
     await gradientDialog
-      .getByRole("button", { name: "Linear", exact: true })
+      .getByRole("button", { name: "Gradient", exact: true })
       .click();
     await expect
       .poll(() => boardVectorFillGradient(page))

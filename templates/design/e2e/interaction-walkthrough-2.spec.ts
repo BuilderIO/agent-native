@@ -1,6 +1,6 @@
 import { type Locator, type Page } from "@playwright/test";
 
-import { appPath } from "./helpers";
+import { appPath, selectTool, type ToolbarTool } from "./helpers";
 import {
   childrenOf,
   expect,
@@ -130,15 +130,14 @@ async function openOnBoard(app: App, id: string) {
 
 async function drawWithTool(
   page: Page,
-  tool: string,
+  tool: ToolbarTool,
   from: { x: number; y: number },
   size: { width: number; height: number },
 ) {
-  const button = page.locator(
-    `[data-design-bottom-toolbar] button[aria-label="${tool}"]`,
-  );
-  await button.click();
-  await expect(button).toHaveAttribute("aria-pressed", "true");
+  await selectTool(page, tool);
+  await expect(
+    page.locator(`[data-design-bottom-toolbar] button[aria-label="${tool}"]`),
+  ).toHaveAttribute("aria-pressed", "true");
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
   await page.mouse.move(from.x + size.width, from.y + size.height, {

@@ -1,7 +1,12 @@
 import { type Page } from "@playwright/test";
 
 import { FIXTURE_HTML } from "./global-setup";
-import { appPath, enterDirectMode, enterInteractView } from "./helpers";
+import {
+  appPath,
+  enterDirectMode,
+  enterInteractView,
+  selectTool,
+} from "./helpers";
 import {
   childrenOf,
   expect,
@@ -200,7 +205,7 @@ async function sampleXY(
 }
 
 async function drawFirstRectangle(page: Page) {
-  await page.locator('button[aria-label="Rectangle"]').first().click();
+  await selectTool(page, "Rectangle");
   await expect(
     page.locator('button[aria-label="Rectangle"]').first(),
   ).toHaveAttribute("aria-pressed", "true");
@@ -360,6 +365,7 @@ test.fixme("dark: dragging a shape moves it by the drag and the canvas colour ne
   expect(await pixelAt(page, x, y)).toBe("26,26,26");
 });
 
+// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 // fixme: intermittent: Passed in its worker run and in a solo re-run, failed once in the full confirmation run (2 of 3).
 test.fixme("dark: grouping two shapes saves one group of both and the canvas colour never changes", async ({
   app,
@@ -369,7 +375,7 @@ test.fixme("dark: grouping two shapes saves one group of both and the canvas col
   await openTheme(app, "dark", designId);
   const { x, y } = await sampleXY(page);
   await drawFirstRectangle(page);
-  await page.locator('button[aria-label="Rectangle"]').first().click();
+  await selectTool(page, "Rectangle");
   await page.mouse.move(800, 600);
   await page.mouse.down();
   await page.mouse.move(1000, 740, { steps: 12 });

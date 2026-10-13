@@ -122,6 +122,7 @@ async function waitForGate(gate: Promise<void>, label: string) {
   }
 }
 
+// oracle: none — an upload race in app code with no native Figma counterpart; only the Choose image… button's name changed here.
 // fixme: product bug: The saved inline style is background-image:url(&quot;/api/qa-import-assets/...png&quot;) and the editor requests GET
 test.fixme("delayed Screen-root image upload stays with its original Screen", async ({
   app,
@@ -286,7 +287,7 @@ test.fixme("delayed Screen-root image upload stays with its original Screen", as
       .first();
     await fill.getByRole("button", { name: "Open color picker" }).click();
     await page.getByRole("button", { name: "Image", exact: true }).click();
-    await page.getByRole("button", { name: "Upload image" }).click();
+    await page.getByRole("button", { name: "Choose image…" }).click();
 
     await page.route(uploadRoute, async (route) => {
       try {
@@ -528,7 +529,7 @@ test.fixme("delayed Screen-root image upload stays with its original Screen", as
       .first();
     await retryFill.getByRole("button", { name: "Open color picker" }).click();
     await page.getByRole("button", { name: "Image", exact: true }).click();
-    await page.getByRole("button", { name: "Upload image" }).click();
+    await page.getByRole("button", { name: "Choose image…" }).click();
     const retryUploadResponsePromise = page.waitForResponse(
       (response) =>
         response.url().includes("/_agent-native/actions/upload-image"),
@@ -587,6 +588,7 @@ test.fixme("delayed Screen-root image upload stays with its original Screen", as
   }
 });
 
+// oracle: none — an upload race in app code with no native Figma counterpart; only the Choose image… button's name and how Interact is left and its frame swapped changed here.
 // fixme: product bug: After reload the client re-sends the rejected stale upload save (old #253b50 content + image URL) three times; the server answers 200
 test.fixme("active Screen upload conflict preserves SQL and live-collaboration source", async ({
   app,
@@ -778,7 +780,7 @@ test.fixme("active Screen upload conflict preserves SQL and live-collaboration s
       .first();
     await fill.getByRole("button", { name: "Open color picker" }).click();
     await page.getByRole("button", { name: "Image", exact: true }).click();
-    await page.getByRole("button", { name: "Upload image" }).click();
+    await page.getByRole("button", { name: "Choose image…" }).click();
     await page
       .locator('input[type="file"][accept="image/*"]')
       .setInputFiles(IMAGE_FIXTURE);
@@ -805,14 +807,9 @@ test.fixme("active Screen upload conflict preserves SQL and live-collaboration s
     await focusScreen.evaluate((element) => {
       (element as HTMLButtonElement).click();
     });
-    const screenAPreviewIframe = screenAShell
-      .locator("iframe[data-design-preview-iframe]")
-      .first();
-    await expect(screenAPreviewIframe).toBeVisible();
-    const screenAPreviewHandle = await screenAPreviewIframe.elementHandle();
-    if (!screenAPreviewHandle) {
-      throw new Error("Screen A preview iframe is missing after focus");
-    }
+    await expect(
+      screenAShell.locator("iframe[data-design-preview-iframe]").first(),
+    ).toBeVisible();
     await page
       .locator('[data-design-top-bar] [data-design-mode="interact"]')
       .click();
@@ -820,22 +817,24 @@ test.fixme("active Screen upload conflict preserves SQL and live-collaboration s
       "data-screen-interact-mode",
       "true",
     );
+    // Interact has no Exit button of its own: the mode switch is the way back.
+    const modeSwitch = page.locator(
+      "[data-design-top-bar] [data-design-mode-switch]",
+    );
     await expect(
-      page.getByRole("button", { name: "Exit responsive preview" }),
-    ).toBeVisible();
-    expect(
-      await screenAPreviewHandle.evaluate((before) =>
-        Boolean(
-          before
-            .closest("[data-screen-shell]")
-            ?.querySelector("iframe[data-design-preview-iframe]") === before,
-        ),
-      ),
-    ).toBe(true);
+      modeSwitch.locator('[data-design-mode="interact"]'),
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(
+      modeSwitch.locator('[data-design-mode="edit"]'),
+    ).toHaveAttribute("aria-pressed", "false");
+    await expect(modeSwitch.locator('[data-design-mode="edit"]')).toBeEnabled();
     await expect(
       page.locator(`[data-screen-shell][data-frame-id="${screenBId}"]`),
     ).toHaveAttribute("data-screen-interact-mode", "false");
+    // Entering Interact loads a new document, so the Edit frame must be gone
+    // and the one frame left must be the live Screen A document.
     const screenAIframeSelector = `iframe[data-screen-iframe-id="${screenAId}"]`;
+    await expect(page.locator(screenAIframeSelector)).toHaveCount(1);
     await expect(page.locator(screenAIframeSelector)).toBeVisible();
 
     const activeFrame = page.frameLocator(screenAIframeSelector);
@@ -1075,6 +1074,7 @@ test.fixme("active Screen upload conflict preserves SQL and live-collaboration s
   }
 });
 
+// oracle: none — an upload race in app code with no native Figma counterpart; only the Choose image… button's name changed here.
 // fixme: fails in CI on current main: app reported console.error: Failed to load resource: the server responded with a status of 404 (Not Found)
 test.fixme("accepted Screen-root image upload persists and renders its source", async ({
   app,
@@ -1183,7 +1183,7 @@ test.fixme("accepted Screen-root image upload persists and renders its source", 
       .first();
     await fill.getByRole("button", { name: "Open color picker" }).click();
     await page.getByRole("button", { name: "Image", exact: true }).click();
-    await page.getByRole("button", { name: "Upload image" }).click();
+    await page.getByRole("button", { name: "Choose image…" }).click();
 
     const uploadResponsePromise = page.waitForResponse(
       (response) =>
