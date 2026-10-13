@@ -127,6 +127,8 @@ describe("LookbackRow with Rewind off", () => {
   it("opens the explanation popover instead of the dropdown", () => {
     const handlers = render({ seconds: 30, rewindOn: false });
 
+    expect(document.querySelector(".rewind-off-popover-reveal")).toBeNull();
+
     act(() => trigger().click());
 
     expect(menuItemTexts()).toEqual([]);
@@ -147,6 +149,7 @@ describe("LookbackRow with Rewind off", () => {
     const turnOn = buttonWithText("Turn on Rewind");
     expect(turnOn).toBeDefined();
     act(() => turnOn?.click());
+    expect(document.querySelector(".rewind-off-popover-reveal")).toBeNull();
     expect(handlers.onTurnOnRewind).toHaveBeenCalledTimes(1);
     expect(handlers.onSecondsChange).not.toHaveBeenCalled();
   });
