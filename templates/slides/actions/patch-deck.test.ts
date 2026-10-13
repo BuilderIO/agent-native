@@ -5650,6 +5650,32 @@ describe("run() — patch-slide edits", () => {
     ]);
   });
 
+  it("applies several edits ops on one slide in order", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        operations: [
+          OperationSchema.parse({
+            op: "patch-slide",
+            slideId: "slide-1",
+            edits: [{ find: "#a85f43", replace: "#8a4a33" }],
+          }),
+          OperationSchema.parse({
+            op: "patch-slide",
+            slideId: "slide-1",
+            edits: [{ find: "Title", replace: "Renamed" }],
+          }),
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    const saved = JSON.parse(String(lastUpdatedDeckData));
+    expect(saved.slides[0].content).toBe(
+      eyebrow("#8a4a33").replace("Title", "Renamed"),
+    );
+  });
+
   it("rejects edits combined with fields.content", () => {
     expect(
       OperationSchema.safeParse({

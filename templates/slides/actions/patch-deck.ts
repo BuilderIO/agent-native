@@ -736,29 +736,53 @@ export function assertSourceImportSlidesCovered(
   );
 }
 
+// Content resolved from edits keeps the wrapper's padding as written, so a
+// wrapper background or --deck-* swap does not inline default padding.
+const editResolvedOperations = new WeakSet<Operation>();
+
 async function resolvePatchSlideEdits(
   operations: Operation[],
   slides: Array<{ id?: unknown; content?: unknown }>,
 ): Promise<Operation[]> {
-  return Promise.all(
-    operations.map(async (operation) => {
-      if (operation.op !== "patch-slide" || !operation.edits) return operation;
-      const slide = slides.find((entry) => entry?.id === operation.slideId);
-      if (!slide) return operation;
-      const currentContent = String(slide.content ?? "");
-      const { edits, ...rest } = operation;
-      const patched = await applySlideContentEdits(
-        currentContent,
-        edits as SlideContentEdit[],
-      );
-      return {
-        ...rest,
-        fields: { ...rest.fields, content: patched.content },
-        baseContentHash:
-          rest.baseContentHash ?? hashSlideContent(currentContent),
-      };
-    }),
-  );
+  // Each op builds on the content left by earlier ops on the same slide, so
+  // several edits ops in one batch do not discard each other.
+  const runningContents = new Map<string, string>();
+  const resolved: Operation[] = [];
+  for (const operation of operations) {
+    if (operation.op !== "patch-slide") {
+      resolved.push(operation);
+      continue;
+    }
+    if (!operation.edits) {
+      if (operation.fields.content !== undefined) {
+        runningContents.set(operation.slideId, operation.fields.content);
+      }
+      resolved.push(operation);
+      continue;
+    }
+    const slide = slides.find((entry) => entry?.id === operation.slideId);
+    if (!slide) {
+      resolved.push(operation);
+      continue;
+    }
+    const sourceContent = String(slide.content ?? "");
+    const currentContent =
+      runningContents.get(operation.slideId) ?? sourceContent;
+    const { edits, ...rest } = operation;
+    const patched = await applySlideContentEdits(
+      currentContent,
+      edits as SlideContentEdit[],
+    );
+    runningContents.set(operation.slideId, patched.content);
+    const next: Operation = {
+      ...rest,
+      fields: { ...rest.fields, content: patched.content },
+      baseContentHash: rest.baseContentHash ?? hashSlideContent(sourceContent),
+    };
+    editResolvedOperations.add(next);
+    resolved.push(next);
+  }
+  return resolved;
 }
 
 const AgentPatchDeckInputSchema = z.object({
@@ -966,10 +990,9 @@ export function applyOperation(
       if (fields.content !== undefined) {
         const previousContent =
           typeof slide.content === "string" ? slide.content : undefined;
-        const nextContent = normalizeSlidePaddingForWrite(
-          previousContent,
-          fields.content,
-        );
+        const nextContent = editResolvedOperations.has(op)
+          ? fields.content
+          : normalizeSlidePaddingForWrite(previousContent, fields.content);
         assertNoRenderArtifacts(previousContent ?? "", nextContent, op.slideId);
         slide.content = nextContent;
       }
@@ -1623,10 +1646,12 @@ export default defineAction({
             nextContent:
               op.fields.content === undefined
                 ? undefined
-                : normalizeSlidePaddingForWrite(
-                    contentsBeforeOperations.get(op.slideId),
-                    op.fields.content,
-                  ),
+                : editResolvedOperations.has(op)
+                  ? op.fields.content
+                  : normalizeSlidePaddingForWrite(
+                      contentsBeforeOperations.get(op.slideId),
+                      op.fields.content,
+                    ),
             nextNotes: op.fields.notes,
             preserveSource: op.preserveSource,
           });

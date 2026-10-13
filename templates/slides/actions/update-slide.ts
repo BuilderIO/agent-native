@@ -480,10 +480,9 @@ export default defineAction({
           edits as SlideContentEdit[],
           format,
         );
-        const nextContent = normalizeSlidePaddingForWrite(
-          previousContent,
-          patched.content,
-        );
+        // Targeted edits keep the wrapper's padding as written, so a wrapper
+        // background or --deck-* swap does not inline default padding.
+        const nextContent = patched.content;
         validateNextContent(nextContent);
         slide.content = nextContent;
         applied = patched.changed;
