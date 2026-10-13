@@ -588,15 +588,19 @@ function activeMemberPhrasePolarity(search: string): {
     /\bactive\s+(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\b/gi;
   const negativeInstructionBeforePhrase =
     /\b(?:no|not|never|don't|do\s+not|cannot|can't|exclude|excluding|except|without|remove|omit|skip)\b(?:\s+[\p{L}\p{N}'-]+){0,4}\s*$/iu;
+  const negativeInstructionAfterPhrase =
+    /^\s*(?:(?:are|were|will be|should be|must be|need to be|have been)\s+)?(?:excluded|omitted|removed|left\s+out|filtered\s+out|not\s+included)\b/iu;
 
   const matches = Array.from(intent.matchAll(activeMemberPhrase));
-  const negated = matches.some((match) => {
+  const isNegated = (match: RegExpMatchArray) => {
     const prefix = intent.slice(0, match.index ?? 0);
-    return negativeInstructionBeforePhrase.test(prefix);
-  });
+    if (negativeInstructionBeforePhrase.test(prefix)) return true;
+    const end = (match.index ?? 0) + match[0].length;
+    return negativeInstructionAfterPhrase.test(intent.slice(end));
+  };
+  const negated = matches.some(isNegated);
   const positive = matches.some((match) => {
-    const prefix = intent.slice(0, match.index ?? 0);
-    return !negativeInstructionBeforePhrase.test(prefix);
+    return !isNegated(match);
   });
   return { positive, negated };
 }
@@ -1061,7 +1065,7 @@ export function rankAnalyticsQueryCatalogPage(args: {
   const requestedScope = requestedSemanticScope(rankingIntent);
   const requestedActiveMembers = requestsActiveMembers(rankingIntent);
   const aggregateRequest =
-    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|daily|weekly|monthly|quarterly|yearly|day|week|month|quarter|year)\b/i.test(
+    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|breakdowns?|split\s+by|daily|weekly|monthly|quarterly|yearly|day|week|month|quarter|year)\b/i.test(
       rankingIntent,
     );
   const plainMembershipRequest =

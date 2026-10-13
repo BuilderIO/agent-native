@@ -334,6 +334,7 @@ describe("analytics query catalog", () => {
     "not active workspace members",
     "exclude active workspace members",
     "show all members; do not include active workspace users in a separate subset",
+    "all workspace members; active members are excluded",
   ])(
     "does not select active-only sources for a negated active-member request: %s",
     (search) => {
@@ -796,6 +797,37 @@ describe("analytics query catalog", () => {
           : candidate.dashboardId,
       ),
     ).toEqual(["dbt-workspace-member-role-bridge"]);
+  });
+
+  it.each([
+    "workspace users breakdown by role",
+    "workspace users split by role",
+  ])("keeps approved role aggregates for breakdown wording: %s", (search) => {
+    const results = rankAnalyticsQueryCatalog({
+      search,
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "approved-workspace-users-by-role",
+          metric: "Monthly workspace user breakdown by role",
+          definition: "Month-end breakdown of workspace users by role.",
+          table: "workspace_user_role_monthly_rollup",
+          columnsUsed: "workspace_id, month, role, user_count",
+          grain: "One row per workspace, month, and role",
+          semanticScope: "membership",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results).toContainEqual(
+      expect.objectContaining({
+        kind: "data-dictionary",
+        id: "approved-workspace-users-by-role",
+        approved: true,
+      }),
+    );
   });
 
   it("prefers an approved aggregate when it contains the requested role dimension", () => {

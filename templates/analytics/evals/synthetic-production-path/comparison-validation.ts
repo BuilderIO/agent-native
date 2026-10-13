@@ -137,6 +137,9 @@ function parseComparisonRows(csv: string): ComparisonRow[] {
       row.expected_rank === ""
         ? null
         : parseInteger(row.expected_rank, "expected rank");
+    if (expectedRank !== null && expectedRank < 1) {
+      throw new Error("Comparison CSV has an invalid expected rank.");
+    }
     const parsed: ComparisonRow = {
       case_id: caseId,
       phase,

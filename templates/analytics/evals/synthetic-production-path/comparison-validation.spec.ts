@@ -122,6 +122,20 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     ).toThrow("two runs per case and phase");
   });
 
+  it("rejects a zero-based candidate rank", () => {
+    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    const columns = rows[1]!.split(",");
+    columns[7] = "0";
+    columns[8] = "ranked_below_1";
+    columns[9] = "0";
+    columns[10] = "true";
+    rows[1] = columns.join(",");
+
+    expect(() => validateProductionPathComparisonCsv(rows.join("\n"))).toThrow(
+      "invalid expected rank",
+    );
+  });
+
   it("rejects a duplicate that misaligns the before/after case/run pairs", () => {
     const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
     const lastRow = rows.at(-1)!;
