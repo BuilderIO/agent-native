@@ -1673,11 +1673,11 @@ export default function RecordingPage() {
     );
     failAiRequestToast(
       transcriptNeedsRegeneration
-        ? t("recordingPage.silenceTranscriptNeedsTimestampsTitle")
+        ? t("recordingPage.silenceTranscriptUnavailableTitle")
         : t("recordingPage.aiRequestFailed"),
       {
         description: transcriptNeedsRegeneration
-          ? t("recordingPage.silenceTranscriptNeedsTimestampsDescription")
+          ? t("recordingPage.silenceTranscriptUnavailableDescription")
           : errorCode === "edits_unreadable"
             ? t("recordingPage.silenceEditsUnreadable")
             : (actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment")),

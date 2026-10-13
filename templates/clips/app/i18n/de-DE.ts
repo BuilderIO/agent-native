@@ -312,9 +312,10 @@ const messages = {
     transcriptNotReady: "Das Transkript ist noch nicht fertig",
     tryAfterTranscription:
       "Versuchen Sie es erneut, nachdem die Transkription abgeschlossen ist.",
-    silenceTranscriptNeedsTimestampsTitle: "Zeitstempel im Transkript fehlen",
-    silenceTranscriptNeedsTimestampsDescription:
-      "Erstellen Sie das Transkript neu, um Zeitstempel hinzuzufügen, und versuchen Sie dann erneut, die Stille zu entfernen.",
+    silenceTranscriptUnavailableTitle:
+      "Dieses Transkript kann nicht zum Entfernen von Stille verwendet werden",
+    silenceTranscriptUnavailableDescription:
+      "Versuchen Sie, ein neues Transkript zu erstellen, und entfernen Sie danach erneut die Stille.",
     titleGenerationQueued: "Titel wird erstellt…",
     descriptionQueued: "Beschreibung wird erstellt…",
     chapterQueued: "Kapitel werden erstellt…",

@@ -291,9 +291,9 @@ const messages = {
     transcriptionCompleted: "轉錄完成",
     transcriptNotReady: "逐字稿尚未準備好",
     tryAfterTranscription: "轉錄完成後重試。",
-    silenceTranscriptNeedsTimestampsTitle: "逐字稿缺少時間戳記",
-    silenceTranscriptNeedsTimestampsDescription:
-      "重新產生轉錄內容以加入時間戳記，然後再試一次移除靜音。",
+    silenceTranscriptUnavailableTitle: "無法使用這份逐字稿移除靜音片段",
+    silenceTranscriptUnavailableDescription:
+      "試著產生新的逐字稿，再次移除靜音片段。",
     titleGenerationQueued: "正在產生標題…",
     descriptionQueued: "正在產生描述…",
     chapterQueued: "正在產生章節…",
