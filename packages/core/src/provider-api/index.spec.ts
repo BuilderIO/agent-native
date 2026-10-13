@@ -1123,6 +1123,16 @@ describe("provider API runtime", () => {
   });
 
   it("marks missing Google Sheets connections as workspace connections", async () => {
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "ada@example.com",
+        displayName: "Ada",
+        tokens: {
+          access_token: "ungranted-sheets-access",
+          expiry_date: Date.now() + 300_000,
+        },
+      },
+    ]);
     const runtime = createProviderApiRuntime({
       appId: "analytics",
       providerIds: ["google_sheets"],
@@ -1144,6 +1154,61 @@ describe("provider API runtime", () => {
         label: "Google Sheets",
       },
     });
+    expect(listOAuthAccountsByOwner).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("uses an app-granted Sheets connection when the caller omits its id", async () => {
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "granted-sheets-connection",
+        label: "Google Sheets",
+        accountId: "ada@example.com",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
+        scopes: ["https://www.googleapis.com/auth/drive.file"],
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "ada@example.com",
+        displayName: "Ada",
+        tokens: {
+          access_token: "granted-sheets-access",
+          expiry_date: Date.now() + 300_000,
+        },
+      },
+    ]);
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["google_sheets"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "google_sheets",
+      path: "/spreadsheets",
+    });
+
+    expect(resolveWorkspaceConnectionForApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "analytics",
+        provider: "google_sheets",
+        requireConnected: true,
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://sheets.googleapis.com/v4/spreadsheets",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer granted-sheets-access",
+        }),
+      }),
+    );
   });
 
   it("rejects absolute URLs outside the Google Sheets API host", async () => {

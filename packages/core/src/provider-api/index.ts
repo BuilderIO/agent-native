@@ -378,6 +378,7 @@ export interface ProviderApiConfig {
   label: string;
   defaultBaseUrl: string;
   requiresConnectionId?: boolean;
+  requiresWorkspaceConnection?: boolean;
   baseUrlCredentialKey?: string;
   baseUrlConnectionConfigKey?: string;
   baseUrlMustMatchAllowedHost?: boolean;
@@ -1265,6 +1266,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     id: "google_sheets",
     label: "Google Sheets API",
     defaultBaseUrl: "https://sheets.googleapis.com/v4",
+    requiresWorkspaceConnection: true,
     auth: {
       type: "oauth-bearer",
       oauthProvider: "google_sheets",
@@ -4031,7 +4033,8 @@ async function resolveAuth(
     const oauthProvider =
       runtime.oauthProviderOverrides?.[config.id] ?? auth.oauthProvider;
     const credential =
-      auth.workspaceProvider && args.connectionId
+      auth.workspaceProvider &&
+      (args.connectionId || config.requiresWorkspaceConnection)
         ? await resolveConnectionBoundOAuthBearerToken({
             auth: { ...auth, oauthProvider },
             runtime,

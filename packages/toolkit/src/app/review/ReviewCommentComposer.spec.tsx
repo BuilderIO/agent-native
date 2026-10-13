@@ -210,6 +210,7 @@ describe("ReviewCommentComposer actions", () => {
     ).find((item) => item.textContent?.includes("Alice"));
     expect(aliceOption).toBeTruthy();
     act(() => aliceOption?.click());
+    expect(textarea!.value).toBe("@Alice");
   });
 
   it("ignores composing @ keys and email address boundaries", () => {

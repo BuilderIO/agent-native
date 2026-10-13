@@ -97,6 +97,7 @@ export function ReviewCommentComposer({
     null,
   );
   const mentionTokenEndRef = useRef<number | null>(null);
+  const preserveMentionAnchorOnOpenRef = useRef(false);
   const resetMention = () => {
     setMentionSearch("");
     setMentionTriggerIndex(null);
@@ -193,12 +194,21 @@ export function ReviewCommentComposer({
         open={mentionMenuOpen}
         onOpenChange={(open) => {
           if (open) {
-            setMentionSearch("");
-            setMentionTriggerIndex(null);
-            mentionTokenEndRef.current = null;
+            const preserveMentionAnchor =
+              preserveMentionAnchorOnOpenRef.current &&
+              mentionTriggerIndex !== null &&
+              value[mentionTriggerIndex] === "@" &&
+              mentionTokenEndRef.current !== null;
+            preserveMentionAnchorOnOpenRef.current = false;
+            if (!preserveMentionAnchor) {
+              setMentionSearch("");
+              setMentionTriggerIndex(null);
+              mentionTokenEndRef.current = null;
+            }
           }
           setMentionMenuOpen(open);
           if (!open) {
+            preserveMentionAnchorOnOpenRef.current = false;
             setMentionSearch("");
             setMentionTriggerIndex(null);
             mentionTokenEndRef.current = null;
@@ -384,6 +394,7 @@ export function ReviewCommentComposer({
             setMentionTriggerIndex(triggerIndex);
             mentionTokenEndRef.current = triggerIndex + 1;
             setMentionSearch("");
+            preserveMentionAnchorOnOpenRef.current = true;
             setMentionMenuOpen(true);
             requestAnimationFrame(() => {
               const textarea = textareaRef.current;
