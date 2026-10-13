@@ -24175,11 +24175,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     bridgeMoveController.pointerDown({
       kind: "move",
       objectIds: [getSelector(gestureEl)],
-      pointer: bridgeGesturePointer(
-        duplicatedForDrag && pointerStartParam
-          ? { ...e, ...pointerStartParam }
-          : e,
-      ),
+      pointer: { ...bridgeGesturePointer(e), x: startX, y: startY },
       viewport: gestureViewport,
       canvas: { width: gestureViewport.width, height: gestureViewport.height },
     });
@@ -24966,6 +24962,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     document.addEventListener(events.up, onUp, true);
     document.addEventListener("keydown", onMoveKeyDown, true);
     setActiveDragCancel(cancelMoveDrag, gestureStartedAt);
+    // A listener added mid-dispatch never sees the move that started the drag.
+    if (pointerStartParam) onMove(e);
   }
 
   var KSCALE_LENGTH_PROPERTIES = [

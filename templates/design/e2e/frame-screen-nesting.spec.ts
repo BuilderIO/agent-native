@@ -371,7 +371,8 @@ test.fixme("a board frame dropped onto a larger board frame nests in it with its
     { x: 40, y: 40, width: 80, height: 80 },
     "source inside the target",
   );
-  expect(after.get(target.id)).toEqual(before.get(target.id));
+  // The source was the board's first child, so leaving it moves the target up.
+  expect(after.get(target.id)).toEqual({ ...before.get(target.id), index: 0 });
   expectOnlyChanged(before, after, [source.id]);
 });
 

@@ -1196,7 +1196,7 @@ test.describe("absolute child exit from a plain frame", () => {
     };
     expect(release.x).toBeLessThan(laterBox.x);
     const expectedPosition = {
-      x: frameBox.x + frameBox.width,
+      x: release.x - grabOffset.x,
       y: release.y - grabOffset.y,
     };
 
