@@ -2866,6 +2866,7 @@ export async function runAuthoringFuzz(
               list: HTMLElement;
               item: HTMLElement;
               expectedMoves: Element[];
+              paragraphs: HTMLElement[];
               listStyles: Record<string, string>;
               listAttributes: string;
             };
@@ -3280,6 +3281,10 @@ export async function runAuthoringFuzz(
                   list: activeList,
                   item: activeItem,
                   expectedMoves,
+                  paragraphs: [
+                    ...(root.matches("p") ? [root] : []),
+                    ...root.querySelectorAll<HTMLElement>("p"),
+                  ],
                   listStyles: styleValues(activeList),
                   listAttributes: authoredAttributes(activeList),
                 };
@@ -5231,7 +5236,70 @@ export async function runAuthoringFuzz(
       [firstToken, secondToken],
     );
   };
+  const placeReplacementCaret = async () =>
+    editor.evaluate((root: HTMLElement) => {
+      if (document.activeElement !== root) root.focus();
+      const selection = window.getSelection();
+      if (!selection) throw new Error("replacement has no browser selection");
+      const isVisible = (element: HTMLElement) => {
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return (
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          style.visibility !== "collapse" &&
+          rect.width > 0 &&
+          rect.height > 0
+        );
+      };
+      let lastText: Text | null = null;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const text = node as Text;
+        if (
+          text.length &&
+          text.parentElement &&
+          isVisible(text.parentElement)
+        ) {
+          lastText = text;
+        }
+      }
+      const range = document.createRange();
+      if (lastText) {
+        range.setStart(lastText, lastText.length);
+        range.collapse(true);
+      } else {
+        const emptyBlock = [
+          ...(root.matches("p,div,li,blockquote,h1,h2,h3,h4,h5,h6,pre")
+            ? [root]
+            : []),
+          ...root.querySelectorAll<HTMLElement>(
+            "p,div,li,blockquote,h1,h2,h3,h4,h5,h6,pre",
+          ),
+        ]
+          .reverse()
+          .find(
+            (element) =>
+              !element.textContent?.replaceAll(/[\u200b\ufeff\s]/g, "") &&
+              isVisible(element),
+          );
+        range.selectNodeContents(emptyBlock ?? root);
+        range.collapse(false);
+      }
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const caretTarget =
+        range.startContainer instanceof Element
+          ? range.startContainer
+          : range.startContainer.parentElement;
+      caretTarget?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      if (!root.contains(selection.focusNode) || !selection.isCollapsed) {
+        throw new Error("replacement could not place a caret in the editor");
+      }
+    });
   const dispatchReplacement = async () => {
+    const initial = await inspectSelection();
+    if (!initial.inside || !initial.collapsed) await placeReplacementCaret();
     const before = await inspectSelection();
     if (!before.inside || !before.collapsed)
       throw new Error("replacement needs a caret in the editor");
@@ -5759,25 +5827,48 @@ export async function runAuthoringFuzz(
               (() => {
                 const state = window as Window & {
                   __authoringFuzzSiblingSnapshot?: {
-                    emptyListExit?: { item: HTMLElement };
+                    emptyListExit?: {
+                      item: HTMLElement;
+                      paragraphs: HTMLElement[];
+                    };
                   };
                 };
-                const item =
-                  state.__authoringFuzzSiblingSnapshot?.emptyListExit?.item;
+                const emptyListExit =
+                  state.__authoringFuzzSiblingSnapshot?.emptyListExit;
+                const item = emptyListExit?.item;
+                const existingParagraphs = new Set(
+                  emptyListExit?.paragraphs ?? [],
+                );
+                const list = Array.from(root.querySelectorAll("ul,ol")).find(
+                  (candidate) => candidate.textContent?.includes(expected),
+                );
+                const paragraph = list?.nextElementSibling;
+                const selection = window.getSelection();
+                const caretParagraph =
+                  selection?.focusNode instanceof Element
+                    ? selection.focusNode.closest("p")
+                    : selection?.focusNode?.parentElement?.closest("p");
                 return {
                   itemRemoved: !!item && !root.contains(item),
-                  listFollowedByParagraph: Array.from(
-                    root.querySelectorAll("ul,ol"),
-                  ).some(
-                    (list) =>
-                      list.textContent?.includes(expected) &&
-                      list.nextElementSibling?.tagName === "P",
-                  ),
+                  listFollowedByNewParagraph:
+                    paragraph?.tagName === "P" &&
+                    !existingParagraphs.has(paragraph as HTMLElement),
+                  caretInNewParagraph:
+                    paragraph?.tagName === "P" &&
+                    caretParagraph === paragraph &&
+                    selection?.isCollapsed === true &&
+                    root.contains(selection.focusNode),
+                  editorKeptFocus: document.activeElement === root,
                 };
               })(),
             secondToken,
           );
-          if (!result.itemRemoved || !result.listFollowedByParagraph)
+          if (
+            !result.itemRemoved ||
+            !result.listFollowedByNewParagraph ||
+            !result.caretInNewParagraph ||
+            !result.editorKeptFocus
+          )
             throw new Error(
               `Enter on an empty list item did not exit the list (${JSON.stringify(result)})`,
             );
