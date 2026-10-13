@@ -2227,8 +2227,11 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       breakpointFrame?.querySelector<HTMLElement>("[data-frame-label]");
     expect(breakpointFrame).not.toBeNull();
     expect(label).not.toBeNull();
-    expect(Number.parseFloat(label!.style.width)).toBeLessThanOrEqual(
-      Number.parseFloat(breakpointFrame!.style.width) * 0.13,
+    expect(
+      label!.style.getPropertyValue("--an-breakpoint-label-max-width"),
+    ).toContain("100% / var(--an-chrome-scale");
+    expect(label!.className).toContain(
+      "w-[var(--an-breakpoint-label-max-width)]",
     );
     expect(label!.style.visibility).toBe("hidden");
     expect(

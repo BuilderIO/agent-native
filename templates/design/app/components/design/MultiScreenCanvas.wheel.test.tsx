@@ -151,6 +151,55 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
     expect(view.scale).toBeLessThan(MAX_ZOOM_FACTOR_PER_FRAME);
   });
 
+  it("bounds responsive breakpoint labels with the live zoom scale", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+              breakpointWidths: [390],
+            },
+          ]}
+          zoom={100}
+          creation={{ activeTool: "move" }}
+          metadataById={{ "screen-a": { width: 1280, height: 640 } }}
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 1280, height: 640 },
+            },
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const label = container.querySelector<HTMLElement>(
+      "[data-breakpoint-frame] [data-frame-label]",
+    );
+    const surface = container.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-surface]",
+    );
+    expect(label).not.toBeNull();
+    expect(surface).not.toBeNull();
+    const width = label!.style.getPropertyValue(
+      "--an-breakpoint-label-max-width",
+    );
+    expect(width).toContain("100% / var(--an-chrome-scale");
+
+    const view = await applyTicks(surface!, [{ deltaY: 100, ctrlKey: true }]);
+
+    expect(view.scale).toBeLessThan(1);
+    expect(
+      Number(label!.style.getPropertyValue("--an-chrome-scale")),
+    ).toBeCloseTo(1 / view.scale, 6);
+    expect(
+      label!.style.getPropertyValue("--an-breakpoint-label-max-width"),
+    ).toBe(width);
+  });
+
   it("still runs a genuine trackpad pinch on the pinch curve", async () => {
     const surface = await renderSurface();
     const view = await applyTicks(surface, [

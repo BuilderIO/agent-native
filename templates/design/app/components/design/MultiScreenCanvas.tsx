@@ -14529,10 +14529,7 @@ function BreakpointPreviewRow({
         const frameScreenWidth = frameWidth / Math.max(chromeScale, 0.001);
         const showBreakpointWidth =
           frameScreenWidth >= BREAKPOINT_LABEL_WITH_WIDTH_MIN_SCREEN_WIDTH;
-        const frameLabelMaxWidth = Math.max(
-          0,
-          frameScreenWidth - BREAKPOINT_LABEL_END_RESERVE,
-        );
+        const frameLabelMaxWidth = `max(0px, calc(100% / var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}) - ${BREAKPOINT_LABEL_END_RESERVE}px))`;
         const frameLabelHidden =
           frameScreenWidth < BREAKPOINT_LABEL_MIN_SCREEN_WIDTH;
         const activateThisFrame = (e: React.MouseEvent<HTMLElement>) => {
@@ -14588,16 +14585,17 @@ function BreakpointPreviewRow({
             >
               <div
                 data-frame-label
-                className="absolute left-1 top-1/2 flex min-w-0 max-w-[calc(100%-28px)] items-center gap-1.5"
+                className="absolute left-1 top-1/2 flex min-w-0 w-[var(--an-breakpoint-label-max-width)] max-w-[var(--an-breakpoint-label-max-width)] items-center gap-1.5"
                 data-an-chrome-scale
-                style={{
-                  width: frameLabelMaxWidth,
-                  maxWidth: frameLabelMaxWidth,
-                  visibility: frameLabelHidden ? "hidden" : undefined,
-                  transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
-                  transformOrigin: "left center",
-                  transition: getChromeLabelTransition(chromeSettling),
-                }}
+                style={
+                  {
+                    "--an-breakpoint-label-max-width": frameLabelMaxWidth,
+                    visibility: frameLabelHidden ? "hidden" : undefined,
+                    transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
+                    transformOrigin: "left center",
+                    transition: getChromeLabelTransition(chromeSettling),
+                  } as CSSProperties
+                }
               >
                 <span
                   className={cn(
