@@ -45,4 +45,33 @@ describe("identityBootstrapCallbackHref", () => {
       "/_agent-native/identity/bootstrap?return=%2Fdispatch%2Fchat%2Fthread-1",
     );
   });
+
+  it("preserves Dispatch routes without relying on the OAuth route allowlist", () => {
+    expect(
+      identityBootstrapCallbackHref("/dispatch/automations", {
+        enabled: false,
+        bootstrapPath: "/_agent-native/identity/bootstrap",
+        origin: "https://dispatch.agent-native.com",
+      }),
+    ).toBe("/dispatch/automations");
+    expect(
+      identityBootstrapCallbackHref("/dispatch/automations", {
+        enabled: true,
+        bootstrapPath: "/_agent-native/identity/bootstrap",
+        origin: "https://dispatch.agent-native.com",
+      }),
+    ).toBe(
+      "/_agent-native/identity/bootstrap?return=%2Fdispatch%2Fautomations",
+    );
+  });
+
+  it("rejects a cross-origin callback target", () => {
+    expect(() =>
+      identityBootstrapCallbackHref("https://outside.example.test/path", {
+        enabled: false,
+        bootstrapPath: "/_agent-native/identity/bootstrap",
+        origin: "https://dispatch.agent-native.com",
+      }),
+    ).toThrow("Identity callback target must be same-origin");
+  });
 });

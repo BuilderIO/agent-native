@@ -25,7 +25,12 @@ export function identityBootstrapCallbackHref(
     (typeof window === "undefined"
       ? "http://agent-native.local"
       : window.location.origin);
-  const safeTarget = normalizeOAuthReturnPath(target, origin);
+  const appOrigin = new URL(origin);
+  const targetUrl = new URL(target || "/", appOrigin);
+  if (targetUrl.origin !== appOrigin.origin) {
+    throw new TypeError("Identity callback target must be same-origin");
+  }
+  const safeTarget = `${targetUrl.pathname}${targetUrl.search}${targetUrl.hash}`;
   if (!options.enabled || isAgentNativeDesktop(options.userAgent))
     return safeTarget;
 
@@ -63,7 +68,6 @@ export function normalizeOAuthReturnPath(
       const dispatchRoutes = new Set([
         "overview",
         "apps",
-        "chat",
         "settings",
         "admin",
         "metrics",

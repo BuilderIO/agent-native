@@ -6620,16 +6620,13 @@ function AgentKitRunFailure({
           session?.email &&
           session.emailVerified !== true &&
           typeof window !== "undefined"
-            ? identityBootstrapCallbackHref(
-                `${window.location.origin}${window.location.pathname}`,
-                {
-                  enabled: session.identitySsoEnabled === true,
-                  bootstrapPath: agentNativePath(
-                    "/_agent-native/identity/bootstrap",
-                  ),
-                  origin: window.location.origin,
-                },
-              )
+            ? identityBootstrapCallbackHref(window.location.pathname, {
+                enabled: session.identitySsoEnabled === true,
+                bootstrapPath: agentNativePath(
+                  "/_agent-native/identity/bootstrap",
+                ),
+                origin: window.location.origin,
+              })
             : undefined
         }
         onContinue={continueStoppedRun}
