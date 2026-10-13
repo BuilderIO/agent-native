@@ -89,6 +89,8 @@ export interface AgentChatRuntimeToolCallPart extends AgentChatRuntimeContentPar
   readonly toolName: string;
   readonly input?: unknown;
   readonly inputText?: string;
+  /** Keeps the exact approved invocation available within the continuation budget. */
+  readonly approvedReplay?: true;
 }
 
 export interface AgentChatRuntimeToolResultPart extends AgentChatRuntimeContentPartBase<"tool-result"> {
@@ -2380,11 +2382,9 @@ function boundedJsonStringify(
 
 function toolInputForStructuredHistory(
   input: unknown,
+  maxBytes = MAX_TOOL_HISTORY_VALUE_BYTES,
 ): { input: unknown } | { omissionText: string } {
-  const serialization = boundedJsonStringify(
-    input,
-    MAX_TOOL_HISTORY_VALUE_BYTES,
-  );
+  const serialization = boundedJsonStringify(input, maxBytes);
   if (serialization.status === "too-large") {
     return { omissionText: TOOL_INPUT_SIZE_OMISSION_TEXT };
   }
@@ -3254,7 +3254,12 @@ function nativeStructuredHistoryFromMessages(
           const input =
             part.input === undefined
               ? undefined
-              : toolInputForStructuredHistory(part.input);
+              : toolInputForStructuredHistory(
+                  part.input,
+                  part.approvedReplay === true
+                    ? MAX_ADDED_TOOL_HISTORY_BYTES
+                    : MAX_TOOL_HISTORY_VALUE_BYTES,
+                );
           if (input && "omissionText" in input) {
             addToolInputText(input.omissionText);
           }
@@ -3363,15 +3368,6 @@ interface BoundedPendingApprovalRuntimeMessages {
   toolHistoryOmitted: boolean;
 }
 
-function isApprovalPauseResult(result: string | undefined): boolean {
-  const normalized = result?.toLowerCase() ?? "";
-  return (
-    normalized.includes("did not execute") ||
-    normalized.includes("awaiting human approval") ||
-    normalized.includes("waiting for your approval")
-  );
-}
-
 function isPendingApprovedToolCall(
   part: Extract<ContentPart, { type: "tool-call" }>,
   approvedToolCallSet: ReadonlySet<string>,
@@ -3379,7 +3375,7 @@ function isPendingApprovedToolCall(
   return (
     part.approval !== undefined &&
     approvedToolCallSet.has(part.approval.approvalKey) &&
-    (part.result === undefined || isApprovalPauseResult(part.result))
+    (part.result === undefined || part.approvalPause === true)
   );
 }
 
@@ -3468,6 +3464,7 @@ function pendingApprovalRuntimeMessages(
           toolCallId: part.toolCallId,
           toolName: part.toolName,
           input: part.args,
+          approvedReplay: true,
         },
       ],
     });
@@ -3826,7 +3823,10 @@ function mapAgentNativeEvent(
     if (storedToolCall?.type === "tool-call") {
       const resultText = agentNativeToolResultText(ev.result);
       storedToolCall.result = resultText;
-      if (!isApprovalPauseResult(resultText)) {
+      if (ev.approvalPause === true) {
+        storedToolCall.approvalPause = true;
+      } else {
+        delete storedToolCall.approvalPause;
         delete storedToolCall.approval;
       }
       storedToolCall.isError = ev.isError === true || Boolean(ev.error);

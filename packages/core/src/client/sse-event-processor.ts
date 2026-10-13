@@ -43,6 +43,7 @@ export type ContentPart =
       args: Record<string, string>;
       result?: string;
       isError?: boolean;
+      approvalPause?: true;
       /**
        * Set when the stream ended while this tool was still in flight. We know
        * it started and NOT whether its side effect landed, so it is deliberately
@@ -107,6 +108,7 @@ export interface SSEEvent {
   result?: string;
   isError?: boolean;
   completedSideEffect?: boolean;
+  approvalPause?: true;
   artifacts?: ArtifactReceipt[];
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
@@ -743,15 +745,6 @@ function findCompletedToolCallIndex(
     }
   }
   return -1;
-}
-
-function isApprovalPauseResult(result: string | undefined): boolean {
-  const normalized = result?.toLowerCase() ?? "";
-  return (
-    normalized.includes("did not execute") ||
-    normalized.includes("awaiting human approval") ||
-    normalized.includes("waiting for your approval")
-  );
 }
 
 function appendActivityTrail(
@@ -1991,8 +1984,8 @@ export function processEvent(
       const completedPart = content[completedIndex];
       if (
         completedPart?.type === "tool-call" &&
-        isApprovalPauseResult(completedPart.result) &&
-        !isApprovalPauseResult(ev.result)
+        completedPart.approvalPause === true &&
+        ev.approvalPause !== true
       ) {
         approvedResumeIndex = completedIndex;
       } else {
@@ -2028,7 +2021,10 @@ export function processEvent(
       const part = content[doneIdx];
       if (part.type === "tool-call") {
         part.result = ev.result ?? "";
-        if (!isApprovalPauseResult(part.result)) {
+        if (ev.approvalPause === true) {
+          part.approvalPause = true;
+        } else {
+          delete part.approvalPause;
           delete part.approval;
         }
         if (ev.isError !== undefined) part.isError = ev.isError;

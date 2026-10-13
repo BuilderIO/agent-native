@@ -418,6 +418,7 @@ export type AgentChatEvent =
       isError?: boolean;
       errorCode?: string;
       completedSideEffect?: boolean;
+      approvalPause?: true;
       outcomeUnknown?: true;
       replayed?: true;
       fileMutation?: AgentFileMutationProof;

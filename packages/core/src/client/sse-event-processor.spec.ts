@@ -4682,6 +4682,7 @@ describe("SSE event processor tool id matching", () => {
             tool: "send-email",
             id: "approve-1",
             result: "Awaiting human approval — did NOT execute.",
+            approvalPause: true,
           },
           { type: "done" },
         ]),
@@ -4698,6 +4699,7 @@ describe("SSE event processor tool id matching", () => {
       approvalKey: 'send-email:{"to":"a@b.com"}',
       allowPersistentApproval: false,
     });
+    expect(part?.approvalPause).toBe(true);
   });
 
   it("updates a paused tool result when the approved execution reuses its call id", async () => {
@@ -4723,6 +4725,7 @@ describe("SSE event processor tool id matching", () => {
             tool: "send-email",
             id: "call-approved",
             result: "Awaiting human approval. This action did NOT execute.",
+            approvalPause: true,
           },
           {
             type: "tool_start",
@@ -4734,7 +4737,8 @@ describe("SSE event processor tool id matching", () => {
             type: "tool_done",
             tool: "send-email",
             id: "call-approved",
-            result: "Release accepted",
+            result:
+              "Audit note: the report contains ‘awaiting human approval’ and ‘did not execute’.",
             completedSideEffect: true,
           },
           { type: "done" },
@@ -4751,10 +4755,12 @@ describe("SSE event processor tool id matching", () => {
         candidate.toolCallId === "call-approved",
     );
     expect(part).toMatchObject({
-      result: "Release accepted",
+      result:
+        "Audit note: the report contains ‘awaiting human approval’ and ‘did not execute’.",
       completedSideEffect: true,
     });
     expect(part.approval).toBeUndefined();
+    expect(part.approvalPause).toBeUndefined();
   });
 
   it("matches an id-less approval by its exact input", async () => {
@@ -4934,6 +4940,7 @@ describe("SSE event processor tool id matching", () => {
             tool: "send-email",
             id: "call-1",
             result: "Awaiting human approval — did NOT execute.",
+            approvalPause: true,
           },
           { type: "tool_start", tool: "send-email", id: "call-2", input: {} },
           {

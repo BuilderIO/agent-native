@@ -7755,6 +7755,7 @@ export async function runAgentLoop(opts: {
             input: journalToolInput as Record<string, unknown>,
             result,
             completedSideEffect: false,
+            approvalPause: true,
           });
           recordToolResult(result, false);
           turnYieldedToUser = true;
@@ -12108,6 +12109,14 @@ export function createProductionAgentHandler(
       requestStructuredHistory,
       requestedApprovedToolCalls,
     );
+    if (requestedApprovedToolCalls?.length && !exactApprovedToolCall) {
+      setResponseStatus(event, 422);
+      return {
+        error: "The agent run failed.",
+        code: "approved_tool_call_history_missing",
+        retryable: false,
+      };
+    }
     const firstRequestPayloadDetail = buildFirstRequestPayloadDetail({
       isFirstRequest: requestHistory.length === 0,
       systemPrompt: requestSystemPrompt,

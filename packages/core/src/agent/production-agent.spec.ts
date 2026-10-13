@@ -3401,6 +3401,38 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("fails explicitly when an approved call is missing from structured history", async () => {
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved. Go ahead and run the requested action.",
+          approvedToolCalls: ['send-email:{"to":"a@b.com"}'],
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(event),
+    );
+
+    expect(event.res.status).toBe(422);
+    expect(result).toEqual({
+      error: "The agent run failed.",
+      code: "approved_tool_call_history_missing",
+      retryable: false,
+    });
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
   it("runs the required AI setup gate before a user turn even with a local engine selection", async () => {
     const setupRequired = Object.assign(new Error("AI setup is required"), {
       statusMessage: "Use Builder.io before chatting.",
@@ -16815,6 +16847,9 @@ describe("runAgentLoop", () => {
     )?.approvalKey as string;
     expect(approvalKey).toBeTruthy();
     expect(run).not.toHaveBeenCalled();
+    expect(events1).toContainEqual(
+      expect.objectContaining({ type: "tool_done", approvalPause: true }),
+    );
 
     const phase2 = approvalEngine();
     const events2: any[] = [];
