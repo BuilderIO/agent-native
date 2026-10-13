@@ -7,6 +7,7 @@ import {
   importPlaywright,
   launchChromium,
 } from "../server/lib/playwright-runtime.js";
+import { degradeWideColorsInHtml } from "../shared/export-color-fallback.js";
 
 const MAX_RENDER_SIDE = 16_384;
 const MAX_RENDER_PIXELS = 64 * 1024 * 1024;
@@ -484,7 +485,9 @@ export default defineAction({
         throwIfTimedOut();
 
         const page = await context.newPage();
-        await page.setContent(html, { waitUntil: "load" });
+        await page.setContent(degradeWideColorsInHtml(html), {
+          waitUntil: "load",
+        });
         throwIfTimedOut();
         await page.evaluate(async () => {
           await Promise.race([

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
@@ -8,8 +8,9 @@ import { defineConfig, devices } from "@playwright/test";
 const PORT = Number(process.env.E2E_PORT ?? 9333);
 const INSPECT_PORT = Number(process.env.E2E_INSPECT_PORT ?? 9229);
 const USE_SIDEBAR_LOOPBACK = process.env.E2E_AI_SIDEBAR_LOOPBACK === "1";
+// Keep test listeners out of Linux's default ephemeral port range.
 const LOOPBACK_PORT = Number(
-  process.env.E2E_LOOPBACK_PORT ?? 41000 + (process.pid % 1000),
+  process.env.E2E_LOOPBACK_PORT ?? randomInt(20_000, 30_000),
 );
 const BASE_URL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${PORT}`;
 const E2E_RUN_ID =

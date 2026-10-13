@@ -239,7 +239,6 @@ test("the inspector W/H fields update live while dragging a corner handle", asyn
   const id = await newDesign(page);
   await openEditor(page, id);
   await selectViaTree(page, "Box A");
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   const before = await geom(page, id, "box-a");
 
   const wField = page.getByLabel("W size in pixels");

@@ -157,7 +157,6 @@ test("Figma reference states match Motion inspector and timeline structure", asy
   await page.setViewportSize({ width: 1728, height: 941 });
   await page.addInitScript(() => localStorage.setItem("theme", "dark"));
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   const canvasZoom = page
     .getByRole("button")
     .filter({ hasText: /^\s*\d+%\s*$/ })
@@ -362,7 +361,6 @@ test("a new motion preset applies to every selected target", async ({
   await page.setViewportSize({ width: 1728, height: 941 });
   await page.addInitScript(() => localStorage.setItem("theme", "dark"));
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await selectByText(page, "Reference Rectangle", {
     screenId: fileId,
     clearPreviousSelection: true,

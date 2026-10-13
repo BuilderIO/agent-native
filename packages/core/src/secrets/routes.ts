@@ -458,6 +458,11 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
           errorCode: retryable
             ? SECRET_VALIDATION_UNAVAILABLE_ERROR_CODE
             : SECRET_REJECTED_ERROR_CODE,
+          ...(result !== null &&
+          typeof result === "object" &&
+          typeof result.validationCode === "string"
+            ? { validationCode: result.validationCode }
+            : {}),
           retryable,
         };
       }

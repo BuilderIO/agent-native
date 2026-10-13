@@ -43,6 +43,7 @@ import {
   resolveOverviewScreenSourceType,
   shouldUseRuntimeLayerProjection,
 } from "../pending-edits";
+import { findInteractLinkTarget } from "../screen-command-utils";
 import {
   getContentSignature,
   getOverviewScreenContentKey,
@@ -155,6 +156,7 @@ export function useEditorScreenRendering({
     liveRoutePathsByScreenId,
     liveRoutePathsByScreenIdRef,
     handleLiveRoutePathChange,
+    handlePreviewThemeStatus,
     runtimeStructureVerificationRequest,
     pendingVisualStyleBaselineResetRequest,
     handleTextEditingStateChangeForScreen,
@@ -312,8 +314,13 @@ export function useEditorScreenRendering({
     handleRuntimeLayerRenameApplied,
     runtimeLayerRenameForScreen,
   } = editorEditCommands;
-  const { suppressOverviewPopForExplicitZoomRef, handleExitReviewCommentMode } =
-    editorModes;
+  const {
+    suppressOverviewPopForExplicitZoomRef,
+    handleExitReviewCommentMode,
+    previewColorScheme,
+    screenReloadNonces,
+    handleModeChange,
+  } = editorModes;
   const { exportPreviewScreenId } = editorExportAndHandoff;
   const {
     getLayerSelectorsForFile,
@@ -439,6 +446,24 @@ export function useEditorScreenRendering({
     });
     window.dispatchEvent(event);
   }, []);
+
+  // A link to another screen in the Interact preview switches the previewed
+  // screen, keeping Interact and its device, the same hop the screen picker makes.
+  const handleInteractLinkNavigate = useCallback(
+    (screen: string) => {
+      const target = findInteractLinkTarget(
+        files,
+        screen,
+        activeFileIdRef.current,
+      );
+      if (!target) return;
+      handleModeChange("interact", {
+        targetFileId: target.id,
+        keepInteractDevice: true,
+      });
+    },
+    [files, handleModeChange],
+  );
 
   const handleKScaleStyleBatchChange = useCallback(
     (screenId: string, changes: KScaleStyleChange[]) => {
@@ -874,6 +899,14 @@ export function useEditorScreenRendering({
           onRoutePathChange={
             screenSnapshotOnly ? undefined : handleLiveRoutePathChange
           }
+          previewColorScheme={screenIsActive ? previewColorScheme : null}
+          previewReloadNonce={screenReloadNonces[screen.id] ?? 0}
+          onPreviewThemeStatus={handlePreviewThemeStatus}
+          onPrototypeNavigate={
+            mode === "interact" && screenIsActive
+              ? handleInteractLinkNavigate
+              : undefined
+          }
           publicVisualEdit={!screenSnapshotOnly && publicVisualEdit}
           externalSnapshotHtml={screenSnapshotOnly ? undefined : screenSnapshot}
           snapshotOnly={screenSnapshotOnly}
@@ -1143,6 +1176,10 @@ export function useEditorScreenRendering({
       handleRuntimeStructureDeleteRejected,
       handleRuntimeStructureRollbackResult,
       handleLiveRoutePathChange,
+      handlePreviewThemeStatus,
+      handleInteractLinkNavigate,
+      previewColorScheme,
+      screenReloadNonces,
       liveRoutePathsByScreenId,
       handleRuntimeStructureDeleteApplied,
       runtimeStructureVerificationRequest,

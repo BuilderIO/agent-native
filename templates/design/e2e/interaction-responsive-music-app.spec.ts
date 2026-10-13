@@ -12,6 +12,7 @@ import {
   expandAllLayers,
   gotoEditor,
   pickFrameMode,
+  selectTool,
 } from "./helpers";
 
 type DesignRecord = {
@@ -676,11 +677,11 @@ async function drawInScreen(
   if (tool === "Frame") {
     await pickFrameMode(page, "Frame");
   } else {
-    const toolButton = page.locator(
-      `[data-design-bottom-toolbar] button[aria-label="${tool}"]`,
-    );
-    await toolButton.click();
-    await expect(toolButton).toHaveAttribute("aria-pressed", "true");
+    // Rectangle and Text sit in the Frame group's menu, not on the bar itself.
+    await selectTool(page, tool);
+    await expect(
+      page.locator(`[data-design-bottom-toolbar] button[aria-label="${tool}"]`),
+    ).toHaveAttribute("aria-pressed", "true");
   }
 
   let previousCamera: string | null = null;
@@ -1315,7 +1316,7 @@ async function logNodeStage(
             button.textContent?.trim() ||
             "",
         )
-        .filter((label) => /^(?:W|H)(?: sizing mode| \d)/.test(label)),
+        .filter((label) => /^(?:W|H)(?: sizing mode| \d)/.exec(label)),
     );
   const evidence = {
     name,
@@ -1728,11 +1729,13 @@ async function sourceHasTransparentFill(page: Page, layerName: string) {
     ?.trim();
   const isTransparent = (value: string | undefined) =>
     value !== undefined &&
-    (/^transparent\s*$/i.test(value.trim()) ||
-      /^rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0(?:\.0+)?\s*\)$/i.test(value.trim()));
+    (/^transparent\s*$/i.exec(value.trim()) !== null ||
+      /^rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0(?:\.0+)?\s*\)$/i.exec(
+        value.trim(),
+      ) !== null);
   return (
     (isTransparent(color) || isTransparent(background)) &&
-    (!backgroundImage || /^none$/i.test(backgroundImage))
+    (!backgroundImage || /^none$/i.exec(backgroundImage) !== null)
   );
 }
 
@@ -1768,26 +1771,20 @@ async function addNativeArtworkGradient(page: Page, layerName: string) {
   await expect(paintRows).toHaveCount(previousRows + 1);
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
-  await page.getByRole("button", { name: "Linear", exact: true }).click();
+  await page.getByRole("button", { name: "Gradient", exact: true }).click();
   const stops = dialog.getByRole("group", { name: "Gradient stops" });
   await expect(stops).toBeVisible();
-  const hex = page.getByRole("textbox", { name: "Hex", exact: true });
-  const opacity = page.getByRole("spinbutton", {
-    name: "Opacity",
-    exact: true,
-  });
-  const topStop = dialog.getByRole("button", { name: / at 0%$/ }).first();
-  await topStop.click();
-  await hex.fill("000000");
-  await hex.press("Enter");
-  await opacity.fill("0");
-  await opacity.press("Enter");
-  const bottomStop = dialog.getByRole("button", { name: / at 100%$/ }).first();
-  await bottomStop.click();
-  await hex.fill("666666");
-  await hex.press("Enter");
-  await opacity.fill("100");
-  await opacity.press("Enter");
+  // The Stops list has a row per stop, in position order: 0% first, 100% last.
+  const stopColor = dialog.getByRole("textbox", { name: "Stop color" });
+  const stopOpacity = dialog.getByRole("textbox", { name: "Stop opacity" });
+  await stopColor.first().fill("000000");
+  await stopColor.first().press("Enter");
+  await stopOpacity.first().fill("0");
+  await stopOpacity.first().press("Enter");
+  await stopColor.last().fill("666666");
+  await stopColor.last().press("Enter");
+  await stopOpacity.last().fill("100");
+  await stopOpacity.last().press("Enter");
   const angle = page.getByRole("spinbutton", {
     name: "Gradient angle",
     exact: true,
@@ -1846,7 +1843,7 @@ async function setFillImage(page: Page, layerName: string, imagePath: string) {
   await fillSection.getByRole("button", { name: "Open color picker" }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("button", { name: "Image", exact: true }).click();
-  await dialog.getByRole("button", { name: "Upload image" }).click();
+  await dialog.getByRole("button", { name: "Choose image…" }).click();
   await page
     .locator('input[type="file"][accept="image/*"]')
     .setInputFiles(imagePath);

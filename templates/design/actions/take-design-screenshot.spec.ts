@@ -66,7 +66,10 @@ vi.mock("../server/lib/playwright-runtime.js", async (importOriginal) => {
   };
 });
 vi.mock("../server/source-workspace.js", () => ({
-  readLiveSourceFile: vi.fn(async () => ({ content: "<html></html>" })),
+  readLiveSourceFile: vi.fn(async () => ({
+    content:
+      '<html><body style="background: oklch(0.7 0.3 150)"></body></html>',
+  })),
 }));
 
 import { uploadFile } from "@agent-native/core/file-upload";
@@ -75,6 +78,7 @@ import action, {
   chromiumUnavailableReason,
   contrastRatio,
   isMissingBrowserError,
+  isUnreadableOpaqueColor,
   parseRgbColor,
   relativeLuminance,
   requiredContrastRatio,
@@ -153,6 +157,12 @@ describe("screenshot image handoff", () => {
       caller: "mcp",
       actionName: "export-png",
     });
+
+    // Chromium would clip a color outside sRGB; the page is rendered with its
+    // CSS Color 4 sRGB fallback instead.
+    const renderedHtml = String(page.setContent.mock.calls[0]?.[0]);
+    expect(renderedHtml).toContain("background: #00c248");
+    expect(renderedHtml).not.toContain("oklch(");
 
     expect(screenshotResult).not.toHaveProperty("_agentImages");
     expect(JSON.stringify(screenshotResult)).not.toContain(
@@ -294,6 +304,26 @@ describe("relativeLuminance + contrastRatio", () => {
   it("flags light-gray-on-white as failing normal-text AA (< 4.5)", () => {
     const ratio = contrastRatio([209, 213, 219], [255, 255, 255]);
     expect(ratio).toBeLessThan(4.5);
+  });
+});
+
+describe("isUnreadableOpaqueColor", () => {
+  it("flags wide-gamut backgrounds, which the contrast check cannot read", () => {
+    expect(isUnreadableOpaqueColor("oklch(0.2 0.05 250)")).toBe(true);
+    expect(isUnreadableOpaqueColor("color(display-p3 0.1 0.1 0.3)")).toBe(true);
+  });
+
+  it("does not flag backgrounds it reads or that are transparent", () => {
+    expect(isUnreadableOpaqueColor("rgb(10, 20, 30)")).toBe(false);
+    expect(isUnreadableOpaqueColor("rgba(10, 20, 30, 0.5)")).toBe(false);
+    expect(isUnreadableOpaqueColor("rgba(0, 0, 0, 0)")).toBe(false);
+    expect(isUnreadableOpaqueColor("transparent")).toBe(false);
+    expect(isUnreadableOpaqueColor("")).toBe(false);
+  });
+
+  it("treats a fully transparent wide color as transparent", () => {
+    expect(isUnreadableOpaqueColor("oklch(0.2 0.05 250 / 0)")).toBe(false);
+    expect(isUnreadableOpaqueColor("color(display-p3 0 0 0 / 0%)")).toBe(false);
   });
 });
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   dataSourceOAuthReturnPath,
   focusedDataSourceFromSearchParams,
+  getGoogleSheetsConnection,
   getSharedConnectionStatus,
   getConfiguredDataSources,
   isSourceConfigured,
@@ -17,6 +18,54 @@ import {
 import { dataSources } from "./data-sources";
 
 describe("data source status", () => {
+  it("uses the Google Sheets connection for Sheets exports", () => {
+    const status: DataSourceStatusResponse = {
+      workspaceConnections: {
+        appId: "analytics",
+        available: true,
+        error: null,
+        providers: [
+          {
+            provider: "google_sheets",
+            id: "google_sheets",
+            label: "Google Sheets",
+            grantState: "connected",
+            connectionCount: 1,
+            grantedConnectionCount: 1,
+            activeConnectionCount: 1,
+            hasWorkspaceConnection: true,
+            hasGrantedWorkspaceConnection: true,
+            hasActiveWorkspaceConnection: true,
+          },
+          {
+            provider: "google_drive",
+            id: "google_drive",
+            label: "Google Drive",
+            grantState: "connected",
+            connectionCount: 1,
+            grantedConnectionCount: 1,
+            activeConnectionCount: 1,
+            hasWorkspaceConnection: true,
+            hasGrantedWorkspaceConnection: true,
+            hasActiveWorkspaceConnection: true,
+          },
+        ],
+      },
+    };
+
+    expect(getGoogleSheetsConnection(status)?.grantState).toBe("connected");
+    expect(
+      getGoogleSheetsConnection({
+        workspaceConnections: {
+          ...status.workspaceConnections!,
+          providers: status.workspaceConnections!.providers.filter(
+            (provider) => provider.id === "google_drive",
+          ),
+        },
+      }),
+    ).toBeUndefined();
+  });
+
   it("does not require the optional BigQuery app events alias", () => {
     const bigquery = dataSources.find((source) => source.id === "bigquery");
 

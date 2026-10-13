@@ -29,7 +29,6 @@ export interface IframeContextMenuArgs {
   boardFileId: string | undefined;
   canvasContainerRef: RefObject<HTMLDivElement | null>;
   canvasContextMenuRef: RefObject<CanvasContextMenuHandle | null>;
-  focusDesignInspectorForSelection: () => void;
   getCodeLayerProjectionForScreen: (
     screenId: string,
   ) => CodeLayerProjection | null;
@@ -54,7 +53,6 @@ export function runIframeContextMenu(
     boardFileId,
     canvasContainerRef,
     canvasContextMenuRef,
-    focusDesignInspectorForSelection,
     getCodeLayerProjectionForScreen,
     handleScreenElementSelect,
     overviewCanvasZoom,
@@ -107,7 +105,6 @@ export function runIframeContextMenu(
         breakpointWidthPx: payload.breakpointWidthPx,
       });
     });
-    focusDesignInspectorForSelection();
   }
   const clientX =
     typeof payload.viewportClientX === "number"

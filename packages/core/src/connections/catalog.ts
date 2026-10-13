@@ -110,8 +110,8 @@ const GOOGLE_OAUTH_BASE = {
   tokenUrl: "https://oauth2.googleapis.com/token",
 } as const;
 
-function googleOAuth(scopes: readonly string[]) {
-  return { ...GOOGLE_OAUTH_BASE, scopes };
+function googleOAuth(scopes: readonly string[], provider = "google") {
+  return { ...GOOGLE_OAUTH_BASE, provider, scopes };
 }
 
 const GOOGLE_IDENTITY_SCOPES = ["openid", "email", "profile"] as const;
@@ -275,10 +275,10 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
     credentialKeys: GOOGLE_CREDENTIAL_KEYS,
     capabilities: ["search", "import", "docs"],
     recommendedTemplateUses: ["analytics", "brain", "content", "dispatch"],
-    oauth: googleOAuth([
-      ...GOOGLE_IDENTITY_SCOPES,
-      "https://www.googleapis.com/auth/spreadsheets.readonly",
-    ]),
+    oauth: googleOAuth(
+      [...GOOGLE_IDENTITY_SCOPES, "https://www.googleapis.com/auth/drive.file"],
+      "google_sheets",
+    ),
   }),
   defineWorkspaceConnectionProvider({
     id: "google_slides",

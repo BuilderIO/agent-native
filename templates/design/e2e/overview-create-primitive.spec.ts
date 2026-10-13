@@ -6,7 +6,7 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath } from "./helpers";
+import { appPath, selectTool } from "./helpers";
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SCREEN_HTML = `<!doctype html>
@@ -76,7 +76,7 @@ async function previewNodeCount(page: Page) {
 }
 
 async function drawRectangle(page: Page) {
-  await page.getByRole("button", { name: "Rectangle", exact: true }).click();
+  await selectTool(page, "Rectangle");
   const box = (await page.locator("[data-screen-card]").first().boundingBox())!;
   const x = Math.max(box.x, 0) + 60;
   const y = Math.max(box.y, 0) + 60;

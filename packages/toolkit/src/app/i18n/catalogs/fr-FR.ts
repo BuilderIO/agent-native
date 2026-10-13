@@ -892,6 +892,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyMore":
     "et {{count}} de plus sous Nouveau, ou ajoutez n'importe quelle clé personnalisée",
   "secrets.emptyTitle": "Aucune clé pour le moment.",
+  "secrets.figmaTokenMustBeToken":
+    "Collez un jeton d’accès Figma, pas une URL de fichier Figma.",
   "secrets.fromEnvironment": "Fourni par l'environnement de déploiement.",
   "secrets.managedInVault":
     "Géré dans le Vault de l'espace de travail. Chaque application de cet espace de travail utilise cette valeur.",

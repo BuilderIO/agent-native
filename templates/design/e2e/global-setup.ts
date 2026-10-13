@@ -413,23 +413,52 @@ export default async function globalSetup(config: FullConfig) {
 
     const warmupPage = await context.newPage();
     try {
-      await warmupPage.goto(`${baseURL}/design/${designId}`, {
-        waitUntil: "domcontentloaded",
-        timeout: 180_000,
-      });
-      await warmupPage
-        .getByRole("button", { name: "Move", exact: true })
-        .waitFor({ timeout: 180_000 });
-      // eslint-disable-next-line no-console
-      console.log("[e2e] editor warm");
-    } catch (error) {
-      // Not fatal — the suite still runs, the first test just pays the
-      // compile again. Say so out loud rather than reporting a warm editor.
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[e2e] editor warmup did not finish (${(error as Error).message.split("\n")[0]}); ` +
-          "the first test will pay the compile.",
-      );
+      try {
+        await warmupPage.goto(`${baseURL}/design/${designId}`, {
+          waitUntil: "domcontentloaded",
+          timeout: 180_000,
+        });
+        await warmupPage
+          .getByRole("button", { name: "Move", exact: true })
+          .waitFor({ timeout: 180_000 });
+        // eslint-disable-next-line no-console
+        console.log("[e2e] editor warm");
+      } catch (error) {
+        // Not fatal — the suite still runs, the first test just pays the
+        // compile again. Say so out loud rather than reporting a warm editor.
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[e2e] editor warmup did not finish (${(error as Error).message.split("\n")[0]}); ` +
+            "the first test will pay the compile.",
+        );
+      }
+
+      if (process.env.E2E_AI_SIDEBAR_LOOPBACK === "1") {
+        const homeURL = `${baseURL}/home`;
+        const homeComposer = warmupPage.locator("[data-design-home-composer]");
+        await warmupPage.goto(homeURL, {
+          waitUntil: "domcontentloaded",
+          timeout: 180_000,
+        });
+        try {
+          await homeComposer.waitFor({ state: "visible", timeout: 30_000 });
+        } catch (error) {
+          if (
+            !new URL(warmupPage.url()).searchParams.has(
+              "__an_vite_dev_recovery",
+            )
+          ) {
+            throw error;
+          }
+          await warmupPage.goto(homeURL, {
+            waitUntil: "domcontentloaded",
+            timeout: 180_000,
+          });
+          await homeComposer.waitFor({ state: "visible", timeout: 30_000 });
+        }
+        // eslint-disable-next-line no-console
+        console.log("[e2e] home composer warm");
+      }
     } finally {
       await warmupPage.close();
     }

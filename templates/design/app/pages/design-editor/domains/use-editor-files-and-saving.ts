@@ -165,7 +165,6 @@ export function useEditorFilesAndSaving({
     pendingVisualEditReloadedHandoffRef,
   } = editorCore;
   const {
-    setActiveInspectorTab,
     activeBreakpointWidthState,
     recordContentHistoryEntry,
     recordLocalContentHistoryEntry,
@@ -179,7 +178,6 @@ export function useEditorFilesAndSaving({
     publicVisualEdit,
     visualEditSnapshotPublicationState,
     creativeContextLab,
-    tweaksEnabled,
     canEditDesignRef,
     canPersistDesignSourceRef,
     rawServerFilesByIdRef,
@@ -778,23 +776,22 @@ export function useEditorFilesAndSaving({
 
   const handleTweakPromptOpenChange = useCallback(
     (open: boolean) => {
-      if (open && (!canEditDesign || !tweaksEnabled)) return;
+      if (open && !canEditDesign) return;
       setShowTweakPrompt(open);
       if (!open) {
         tweakPromptAnchorRef.current = null;
       }
     },
-    [canEditDesign, tweaksEnabled],
+    [canEditDesign],
   );
 
   const handleRequestTweaks = useCallback(
     (anchor: HTMLElement) => {
-      if (!canEditDesign || !tweaksEnabled) return;
+      if (!canEditDesign) return;
       tweakPromptAnchorRef.current = anchor;
-      setActiveInspectorTab("tweaks");
       setShowTweakPrompt(true);
     },
-    [canEditDesign, tweaksEnabled],
+    [canEditDesign],
   );
 
   useEffect(() => {

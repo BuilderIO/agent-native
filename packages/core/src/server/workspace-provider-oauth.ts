@@ -345,7 +345,8 @@ export async function handleWorkspaceProviderOAuthStart(
         state,
         challenge,
         loginHint: session.email,
-        includeGrantedScopes: providerId !== "google_calendar",
+        includeGrantedScopes:
+          providerId !== "google_calendar" && providerId !== "google_sheets",
         ...(salesforceLoginUrl
           ? {
               authorizationUrl: salesforceOAuthEndpoint(
@@ -513,8 +514,8 @@ export async function handleWorkspaceProviderOAuthCallback(
                   )),
         );
         const scopes = mergeWorkspaceOAuthValues(
-          existing?.scopes ?? [],
-          identity.scopes ?? tokenScopes(tokens, provider.oauth!.scopes),
+          identity.scopes ?? [],
+          tokenScopes(tokens, provider.oauth!.scopes),
         );
         const connectionConfig = {
           credentialMode: "oauth",

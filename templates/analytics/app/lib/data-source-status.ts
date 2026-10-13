@@ -166,12 +166,12 @@ export function dataSourceOAuthReturnPath(
   return query ? `/data-sources?${query}` : "/data-sources";
 }
 
-export function getGoogleDriveConnection(
+export function getGoogleSheetsConnection(
   data: DataSourceStatusResponse | undefined,
 ): WorkspaceConnectionProviderSummary | undefined {
   return data?.workspaceConnections?.providers.find(
     (provider) =>
-      provider.provider === "google_drive" || provider.id === "google_drive",
+      provider.provider === "google_sheets" || provider.id === "google_sheets",
   );
 }
 

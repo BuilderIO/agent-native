@@ -9,7 +9,13 @@ import {
 import { DESIGN_MOTION_LAB, DESIGN_REVIEW_TOOLS_LAB } from "../shared/labs";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML } from "./global-setup";
-import { designFrame, enableLab, gotoEditor, selectByText } from "./helpers";
+import {
+  designFrame,
+  enableLab,
+  gotoEditor,
+  selectByText,
+  openAppMenuSubmenu,
+} from "./helpers";
 
 let designId: string;
 let fileId: string;
@@ -66,7 +72,7 @@ async function setLabEnabled(
 }
 
 async function openMotionDockFromMenu(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "More", exact: true }).click();
+  await openAppMenuSubmenu(page, "View");
   await page.getByRole("menuitem", { name: "Motion", exact: true }).click();
 }
 
@@ -110,7 +116,6 @@ test.afterAll(async ({ request }) => {
 test.beforeEach(async ({ page }, testInfo) => {
   if (testInfo.title.startsWith("Motion ")) return;
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
 });
 
 test.afterEach(async () => {
@@ -269,7 +274,6 @@ test("inline component prop dropdown persists on the selected component", async 
   await expect.poll(() => selectedComponentVariant(page)).toBe("secondary");
 
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   await selectByText(page, "Variant CTA", { screenId: fileId });
   await expect(
     page.getByTestId("component-section").getByRole("combobox").first(),
@@ -308,7 +312,6 @@ test("Review panel runs an audit and applies an inline a11y fix", async ({
 });
 
 async function runReviewPanelAudit(page: Page): Promise<void> {
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
   const reviewHeading = page.getByRole("heading", {
     name: "Review",
     exact: true,
@@ -364,13 +367,13 @@ async function runReviewPanelAudit(page: Page): Promise<void> {
 test("Motion lab-off hides the dock and menu entry", async ({ page }) => {
   await prepareMotionTest(page, false);
   await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
-  await page.getByRole("button", { name: "More", exact: true }).click();
+  await openAppMenuSubmenu(page, "View");
+  await expect(
+    page.getByRole("menuitem", { name: "Zoom in", exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("menuitem", { name: "Motion", exact: true }),
   ).toHaveCount(0);
-  await expect(
-    page.getByRole("menuitem", { name: "Back to designs", exact: true }),
-  ).toBeVisible();
   await page.keyboard.press("Escape");
   const workspaceRail = page.locator('nav[aria-label="Design workspace"]');
   await expect(
@@ -516,7 +519,10 @@ test("Motion lab-off hides the dock after a saved track", async ({ page }) => {
   await gotoEditor(page, designId);
   await enterDesignEditMode(page);
   await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
-  await page.getByRole("button", { name: "More", exact: true }).click();
+  await openAppMenuSubmenu(page, "View");
+  await expect(
+    page.getByRole("menuitem", { name: "Zoom in", exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("menuitem", { name: "Motion", exact: true }),
   ).toHaveCount(0);

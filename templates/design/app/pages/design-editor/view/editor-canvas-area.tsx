@@ -1,5 +1,4 @@
 import { openAgentSidebar } from "@agent-native/toolkit/app/shared";
-import type { ReactElement } from "react";
 
 import { CanvasContextMenu } from "@/components/design/CanvasContextMenu";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
@@ -64,7 +63,6 @@ export function renderEditorCanvasArea({
   id,
   design,
   canApplyPendingVisualEditsWithAgent,
-  renderResponsiveInteractBar,
   leftChromeOverlayInset,
   rightSidebarVisible,
   chromeInsetLeft,
@@ -93,7 +91,6 @@ export function renderEditorCanvasArea({
   id: string;
   design: DesignData;
   canApplyPendingVisualEditsWithAgent: boolean;
-  renderResponsiveInteractBar: (floating: boolean) => ReactElement;
   leftChromeOverlayInset: string | undefined;
   rightSidebarVisible: boolean;
   chromeInsetLeft: number;
@@ -132,6 +129,7 @@ export function renderEditorCanvasArea({
     pinMode,
     canCommentDesign,
     drawMode,
+    annotateLab,
   } = editorGenerationAndAccess;
   const { layoutGrids, localhostPreviewTokenQuery, liveScreenSnapshotsById } =
     editorFilesAndSaving;
@@ -577,12 +575,6 @@ export function renderEditorCanvasArea({
               : undefined
           }
         >
-          {/* Interact's device chrome sits inside the canvas column so
-                    the workspace rails stay put — Interact is a different view
-                    of the same editor, not a chrome-free takeover. */}
-          {responsiveInteractActive && !minimalUi ? (
-            <div className="shrink-0">{renderResponsiveInteractBar(false)}</div>
-          ) : null}
           {/* Breakpoint targeting controls live in the selected Screen
                     inspector section instead of over the canvas. */}
           <div
@@ -743,7 +735,10 @@ export function renderEditorCanvasArea({
                       is separate from DesignCanvas's focused-screen batch. */}
             <SharedDrawOverlay
               visible={
-                viewMode === "overview" && drawMode && mode === "annotate"
+                viewMode === "overview" &&
+                drawMode &&
+                mode === "annotate" &&
+                annotateLab === "on"
               }
               clearSignal={overviewAnnotationResetSignal}
               scopeKey="overview"

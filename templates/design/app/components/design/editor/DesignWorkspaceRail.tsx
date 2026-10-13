@@ -5,6 +5,7 @@ import {
   IconAssembly,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconMessages,
   IconStack2,
   IconTimelineEvent,
 } from "@tabler/icons-react";
@@ -89,6 +90,11 @@ export function DesignWorkspaceRail({
       panel: "tokens",
       label: t("designEditor.leftRail.tokens"),
       icon: <IconAssembly className="size-5" stroke={1.5} />,
+    },
+    {
+      panel: "threads",
+      label: t("designEditor.leftRail.threads"),
+      icon: <IconMessages className="size-5" stroke={1.5} />,
     },
   ];
 

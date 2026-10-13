@@ -1514,7 +1514,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     ).toBe("same-preview-token");
   });
 
-  it("keeps a failed-bridge Interact preview interactive", async () => {
+  it("loads an Interact preview straight from the page, so a failing editor bridge never reaches it", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = requestInfoUrl(input);
       if (url.endsWith("/live-edit-bridge") || url.includes("/snapshot?")) {
@@ -1547,14 +1547,17 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       );
     });
 
-    await vi.waitFor(() => {
-      expect(container.textContent).toContain("Reconnect this screen");
-    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    );
+    expect(iframe?.getAttribute("src")).toBe("http://localhost:5173/account");
+    expect(iframe?.style.pointerEvents).toBe("");
+    expect(container.textContent).not.toContain("Reconnect this screen");
     expect(
-      container.querySelector<HTMLIFrameElement>(
-        "iframe[data-design-preview-iframe]",
-      )?.style.pointerEvents,
-    ).toBe("");
+      fetchMock.mock.calls.filter(([input]) =>
+        requestInfoUrl(input).endsWith("/live-edit-bridge"),
+      ),
+    ).toEqual([]);
   });
 
   it("allows Chrome local-network access on the raw localhost fallback", async () => {

@@ -339,6 +339,185 @@ describe("workspace connection store", () => {
     });
   });
 
+  it("requires reauthorization when an OAuth summary omits its provider", async () => {
+    const {
+      summarizeWorkspaceConnectionProviderForApp,
+      summarizeWorkspaceConnectionProviderReadiness,
+    } = await import("./store.js");
+    const { getWorkspaceConnectionProvider } =
+      await import("../connections/catalog.js");
+    const provider = getWorkspaceConnectionProvider("google_sheets");
+    if (!provider) throw new Error("Google Sheets provider is missing.");
+    const connection = {
+      id: "conn-google-sheets-legacy",
+      provider: "google_sheets",
+      label: "Google Sheets: Alice",
+      accountId: "alice-google-account",
+      accountLabel: "Alice",
+      status: "connected" as const,
+      scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+      config: { credentialMode: "oauth" },
+      allowedApps: [],
+      allowedUsers: [],
+      credentialRefs: [
+        { key: "GOOGLE_CLIENT_ID", scope: "workspace" as const },
+        { key: "GOOGLE_CLIENT_SECRET", scope: "workspace" as const },
+      ],
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+      lastCheckedAt: null,
+      lastError: null,
+    };
+
+    const appSummary = summarizeWorkspaceConnectionProviderForApp({
+      providerId: provider.id,
+      appId: "analytics",
+      connections: [connection],
+      includeConnections: "all",
+    });
+    const readiness = summarizeWorkspaceConnectionProviderReadiness({
+      provider,
+      appId: "analytics",
+      connections: [connection],
+    });
+
+    expect(appSummary).toMatchObject({
+      grantState: "granted",
+      activeConnectionCount: 0,
+      statuses: ["needs_reauth"],
+      connections: [{ id: connection.id, status: "needs_reauth" }],
+    });
+    expect(readiness).toMatchObject({
+      status: "needs_attention",
+      readyConnectionCount: 0,
+      appGrant: { statuses: ["needs_reauth"] },
+    });
+  });
+
+  it("keeps an API-token connection with an account ID active without an OAuth marker", async () => {
+    const {
+      summarizeWorkspaceConnectionProviderForApp,
+      summarizeWorkspaceConnectionProviderReadiness,
+    } = await import("./store.js");
+    const { getWorkspaceConnectionProvider } =
+      await import("../connections/catalog.js");
+    const catalogProvider = getWorkspaceConnectionProvider("hubspot");
+    if (!catalogProvider) throw new Error("HubSpot provider is missing.");
+    const provider = {
+      ...catalogProvider,
+      credentialKeys: [{ key: "HUBSPOT_PRIVATE_APP_TOKEN", required: true }],
+    };
+    const connection = {
+      id: "conn-hubspot-api-token",
+      provider: "hubspot",
+      label: "HubSpot: Acme",
+      accountId: "portal-42",
+      accountLabel: "Acme",
+      status: "connected" as const,
+      scopes: [],
+      config: {},
+      allowedApps: [],
+      allowedUsers: [],
+      credentialRefs: [
+        { key: "HUBSPOT_PRIVATE_APP_TOKEN", scope: "org" as const },
+      ],
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+      lastCheckedAt: null,
+      lastError: null,
+    };
+
+    const appSummary = summarizeWorkspaceConnectionProviderForApp({
+      providerId: provider.id,
+      provider,
+      appId: "analytics",
+      connections: [connection],
+      includeConnections: "all",
+    });
+    const readiness = summarizeWorkspaceConnectionProviderReadiness({
+      provider,
+      appId: "analytics",
+      connections: [connection],
+    });
+
+    expect(appSummary).toMatchObject({
+      grantState: "connected",
+      activeConnectionCount: 1,
+      statuses: ["connected"],
+    });
+    expect(readiness).toMatchObject({
+      status: "ready",
+      readyConnectionCount: 1,
+      missingRequiredCredentialKeys: [],
+    });
+  });
+
+  it("accepts Google's URL aliases for the OpenID email and profile scopes", async () => {
+    const {
+      summarizeWorkspaceConnectionProviderForApp,
+      summarizeWorkspaceConnectionProviderReadiness,
+    } = await import("./store.js");
+    const { getWorkspaceConnectionProvider } =
+      await import("../connections/catalog.js");
+    const provider = getWorkspaceConnectionProvider("google_sheets");
+    if (!provider) throw new Error("Google Sheets provider is missing.");
+    const connection = {
+      id: "conn-google-sheets-oidc-aliases",
+      provider: "google_sheets",
+      label: "Google Sheets: Alice",
+      accountId: "alice-google-account",
+      accountLabel: "Alice",
+      status: "connected" as const,
+      scopes: [
+        "openid",
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile",
+        "https://www.googleapis.com/auth/drive.file",
+      ],
+      config: {},
+      allowedApps: [],
+      allowedUsers: [],
+      credentialRefs: [
+        { key: "GOOGLE_CLIENT_ID", scope: "workspace" as const },
+        { key: "GOOGLE_CLIENT_SECRET", scope: "workspace" as const },
+      ],
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+      lastCheckedAt: null,
+      lastError: null,
+    };
+
+    const appSummary = summarizeWorkspaceConnectionProviderForApp({
+      providerId: provider.id,
+      provider,
+      appId: "analytics",
+      connections: [connection],
+      includeConnections: "all",
+    });
+    const readiness = summarizeWorkspaceConnectionProviderReadiness({
+      provider,
+      appId: "analytics",
+      connections: [connection],
+    });
+
+    expect(appSummary).toMatchObject({
+      activeConnectionCount: 1,
+      statuses: ["connected"],
+      connections: [{ id: connection.id, status: "connected" }],
+    });
+    expect(readiness).toMatchObject({
+      status: "ready",
+      readyConnectionCount: 1,
+      appGrant: { statuses: ["connected"] },
+    });
+  });
+
   it("scopes personal list, upsert, and delete to the request user", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");
@@ -425,6 +604,7 @@ describe("workspace connection store", () => {
           provider: "slack",
           label: "Team Slack",
           allowedApps: ["dispatch"],
+          scopes: ["channels:read"],
         }),
     );
 
@@ -449,12 +629,78 @@ describe("workspace connection store", () => {
         }),
     );
     expect(updated.label).toBe("Updated Team Slack");
+    expect(updated.scopes).toEqual(["channels:read"]);
+
+    const cleared = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        upsertWorkspaceConnection({
+          id: "conn-org",
+          provider: "slack",
+          label: "Updated Team Slack",
+          scopes: [],
+        }),
+    );
+    expect(cleared.scopes).toEqual([]);
 
     const otherOrg = await runWithRequestContext(
       { userEmail: "carol@example.com", orgId: "org-2" },
       () => getWorkspaceConnection("conn-org"),
     );
     expect(otherOrg).toBeNull();
+  });
+
+  it("clears OAuth scopes when a connection account changes without new scopes", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { upsertWorkspaceConnection } = await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      async () => {
+        const original = await upsertWorkspaceConnection({
+          id: "conn-account-rebind",
+          provider: "slack",
+          label: "Slack workspace",
+          accountId: "team-old",
+          scopes: ["channels:read"],
+        });
+        const sameAccount = await upsertWorkspaceConnection({
+          id: original.id,
+          provider: "slack",
+          label: "Renamed Slack workspace",
+          accountId: "team-old",
+        });
+
+        expect(sameAccount.scopes).toEqual(["channels:read"]);
+
+        const omittedAccount = await upsertWorkspaceConnection({
+          id: original.id,
+          provider: "slack",
+          label: "Updated Slack workspace",
+        });
+        expect(omittedAccount.accountId).toBe("team-old");
+        expect(omittedAccount.scopes).toEqual(["channels:read"]);
+
+        const rebound = await upsertWorkspaceConnection({
+          id: original.id,
+          provider: "slack",
+          label: "Other Slack workspace",
+          accountId: "team-new",
+        });
+        expect(rebound.accountId).toBe("team-new");
+        expect(rebound.scopes).toEqual([]);
+
+        const cleared = await upsertWorkspaceConnection({
+          id: original.id,
+          provider: "slack",
+          label: "No Slack workspace",
+          accountId: null,
+        });
+        expect(cleared.accountId).toBeNull();
+        expect(cleared.scopes).toEqual([]);
+      },
+    );
   });
 
   it("normalizes and enforces connection-level user allowlists", async () => {
@@ -1231,6 +1477,47 @@ describe("workspace connection store", () => {
       appAccess: null,
     });
     expect(missing.reason).toMatch(/not found/i);
+  });
+
+  it("blocks connected OAuth grants that no longer meet provider scopes", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { resolveWorkspaceConnectionForApp, upsertWorkspaceConnection } =
+      await import("./store.js");
+    const requestContext = {
+      userEmail: "alice@example.com",
+      orgId: "org-1",
+    };
+
+    await runWithRequestContext(requestContext, () =>
+      upsertWorkspaceConnection({
+        id: "conn-sheets-needs-reauth",
+        provider: "google_sheets",
+        label: "Google Sheets",
+        accountId: "alice-google-account",
+        status: "connected",
+        scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+        config: { credentialMode: "oauth" },
+      }),
+    );
+
+    const resolved = await runWithRequestContext(requestContext, () =>
+      resolveWorkspaceConnectionForApp({
+        appId: "analytics",
+        provider: "google_sheets",
+        connectionId: "conn-sheets-needs-reauth",
+        requireConnected: true,
+      }),
+    );
+
+    expect(resolved).toMatchObject({
+      available: false,
+      connection: {
+        id: "conn-sheets-needs-reauth",
+        status: "needs_reauth",
+      },
+    });
+    expect(resolved.reason).toMatch(/needs_reauth/);
   });
 
   it("builds a reusable provider catalog for one app", async () => {

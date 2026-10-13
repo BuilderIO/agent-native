@@ -1238,6 +1238,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyMore":
     "他{{count}}件は「新規」の下にあるか、任意のカスタムキーを追加できます",
   "secrets.emptyTitle": "キーはまだありません。",
+  "secrets.figmaTokenMustBeToken":
+    "Figma ファイル URL ではなく、Figma アクセストークンを貼り付けてください。",
   "secrets.fromEnvironment": "デプロイ環境から提供されています。",
   "secrets.managedInVault":
     "ワークスペースの Vault で管理されています。このワークスペース内のすべてのアプリがこの値を使用します。",
