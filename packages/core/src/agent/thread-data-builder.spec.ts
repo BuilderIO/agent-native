@@ -1085,6 +1085,99 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
+  it("reconstructs the approval pause from legacy journals", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "send-email-call",
+            tool: "send-email",
+            input: { to: "first@example.test" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "approval_required",
+            tool: "send-email",
+            toolCallId: "send-email-call",
+            approvalKey: 'send-email:{"to":"first@example.test"}',
+            input: { to: "first@example.test" },
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "tool_done",
+            id: "send-email-call",
+            tool: "send-email",
+            result: "Awaiting human approval.",
+          },
+        },
+      ],
+      "run-legacy-send-email-approval",
+    );
+
+    expect(message?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "send-email",
+        approvalPause: true,
+        approval: {
+          approvalKey: 'send-email:{"to":"first@example.test"}',
+        },
+      }),
+    ]);
+  });
+
+  it("keeps an explicit completion marker authoritative over approval_required", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "send-email-call",
+            tool: "send-email",
+            input: { to: "first@example.test" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "approval_required",
+            tool: "send-email",
+            toolCallId: "send-email-call",
+            approvalKey: 'send-email:{"to":"first@example.test"}',
+            input: { to: "first@example.test" },
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "tool_done",
+            id: "send-email-call",
+            tool: "send-email",
+            result: "The call completed after replay.",
+            approvalPause: false,
+          },
+        },
+      ],
+      "run-replayed-send-email",
+    );
+
+    const [part] = message?.content ?? [];
+    expect(part).toMatchObject({
+      type: "tool-call",
+      toolName: "send-email",
+      result: "The call completed after replay.",
+    });
+    expect(part).not.toHaveProperty("approvalPause");
+    expect(part).not.toHaveProperty("approval");
+  });
+
   it("does not attach a reader-local approval to a call with different input", () => {
     const message = buildAssistantMessage(
       [

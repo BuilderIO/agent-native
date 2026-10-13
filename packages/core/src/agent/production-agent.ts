@@ -5001,8 +5001,14 @@ export function findApprovedStructuredToolCall(
     }
   }
 
-  if (matches.length > 1) return { status: "ambiguous" };
-  const [toolCall] = matches;
+  if (
+    new Set(matches.map((match) => toolCallCacheKey(match.name, match.input)))
+      .size > 1
+  ) {
+    return { status: "ambiguous" };
+  }
+  // Repeated pauses for the same call key are superseded by the latest turn.
+  const toolCall = matches.at(-1);
   return toolCall ? { status: "found", toolCall } : { status: "missing" };
 }
 

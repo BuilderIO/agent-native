@@ -282,6 +282,7 @@ export function buildAssistantMessage(
 } | null {
   const content: ContentPart[] = [];
   const explicitUnknownOutcomes = new Set<ContentPart>();
+  const approvalPauseCandidates = new Set<ContentPart>();
   let toolCallCounter = 0;
   let runError: {
     message: string;
@@ -378,6 +379,7 @@ export function buildAssistantMessage(
             ? { allowPersistentApproval: false }
             : {}),
         };
+        approvalPauseCandidates.add(part);
       }
       continue;
     }
@@ -417,11 +419,17 @@ export function buildAssistantMessage(
       const part = content[matchingIndex];
       if (part?.type === "tool-call") {
         part.result = event.result ?? "";
-        if (event.approvalPause === true) {
+        // Older journals have approval_required but no pause marker on tool_done.
+        const inferredLegacyPause =
+          event.approvalPause === undefined &&
+          approvalPauseCandidates.has(part);
+        if (event.approvalPause === true || inferredLegacyPause) {
           part.approvalPause = true;
         } else {
           delete part.approvalPause;
+          delete part.approval;
         }
+        approvalPauseCandidates.delete(part);
         if (event.isError !== undefined) part.isError = event.isError;
         if (event.outcomeUnknown === true) {
           part.outcome = "unknown";

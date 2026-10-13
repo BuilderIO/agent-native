@@ -2408,7 +2408,7 @@ describe("buildUserContentWithAttachments", () => {
     });
   });
 
-  it("rejects ambiguous exact pending approval calls from structured history", () => {
+  it("selects the latest of repeated identical pending approvals", () => {
     const input = { to: "a@b.com" };
     const approvalKey = `send-email:${JSON.stringify(input)}`;
     expect(
@@ -2453,7 +2453,14 @@ describe("buildUserContentWithAttachments", () => {
         ],
         [approvalKey],
       ),
-    ).toEqual({ status: "ambiguous" });
+    ).toEqual({
+      status: "found",
+      toolCall: {
+        callId: "call-2",
+        name: "send-email",
+        input,
+      },
+    });
   });
 
   it("ignores completed outputs that mention approval when finding the pending call", () => {
@@ -3657,85 +3664,6 @@ describe("createProductionAgentHandler", () => {
       code: "approved_tool_call_count_unsupported",
       retryable: false,
     });
-    expect(engine.stream).not.toHaveBeenCalled();
-  });
-
-  it("rejects an approval key that matches multiple pending calls", async () => {
-    const engine = engineWithUncalledStream();
-    const runAction = vi.fn(async () => "sent");
-    const handler = createProductionAgentHandler({
-      systemPrompt: "Test",
-      engine,
-      actions: {
-        "send-email": {
-          ...actionEntry({ readOnly: false }),
-          run: runAction,
-        },
-      },
-    });
-    const input = { to: "a@b.com" };
-    const approvalKey = `send-email:${JSON.stringify(input)}`;
-    const event = mockEvent(
-      new Request("http://app.example.com/_agent-native/agent-chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          message: "Approved. Go ahead and run the requested action.",
-          approvedToolCalls: [approvalKey],
-          structuredHistory: [
-            {
-              role: "assistant",
-              content: [
-                { type: "tool-call", id: "call-1", name: "send-email", input },
-              ],
-            },
-            {
-              role: "user",
-              content: [
-                {
-                  type: "tool-result",
-                  toolCallId: "call-1",
-                  content:
-                    "Awaiting human approval. This action did NOT execute.",
-                  approvalPause: true,
-                },
-              ],
-            },
-            {
-              role: "assistant",
-              content: [
-                { type: "tool-call", id: "call-2", name: "send-email", input },
-              ],
-            },
-            {
-              role: "user",
-              content: [
-                {
-                  type: "tool-result",
-                  toolCallId: "call-2",
-                  content:
-                    "Awaiting human approval. This action did NOT execute.",
-                  approvalPause: true,
-                },
-              ],
-            },
-          ],
-        }),
-      }),
-    );
-
-    const result = await runWithRequestContext(
-      { userEmail: "alice@example.com", orgId: "acme", run: {} },
-      () => handler(event),
-    );
-
-    expect(event.res.status).toBe(422);
-    expect(result).toEqual({
-      error: "The agent run failed.",
-      code: "approved_tool_call_history_ambiguous",
-      retryable: false,
-    });
-    expect(runAction).not.toHaveBeenCalled();
     expect(engine.stream).not.toHaveBeenCalled();
   });
 
