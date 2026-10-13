@@ -10,6 +10,7 @@ vi.mock("../db/client.js", () => ({
 }));
 
 const ddlMocks = vi.hoisted(() => ({
+  ensureColumnExists: vi.fn(),
   ensureIndexExists: vi.fn(),
   ensureTableExists: vi.fn(),
 }));
@@ -31,6 +32,8 @@ describe("agent tool approval store", () => {
     vi.resetModules();
     dbMocks.execute.mockReset();
     dbMocks.execute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    ddlMocks.ensureColumnExists.mockReset();
+    ddlMocks.ensureColumnExists.mockResolvedValue(true);
     ddlMocks.ensureIndexExists.mockReset();
     ddlMocks.ensureIndexExists.mockResolvedValue(undefined);
     ddlMocks.ensureTableExists.mockReset();
@@ -66,7 +69,7 @@ describe("agent tool approval store", () => {
     const after = Date.now();
 
     const insertArgs = dbMocks.execute.mock.calls[0]?.[0].args as unknown[];
-    const expiresAt = insertArgs[8] as number;
+    const expiresAt = insertArgs[9] as number;
     expect(expiresAt - after).toBeGreaterThanOrEqual(30 * 60_000);
     expect(expiresAt - before).toBeLessThanOrEqual(60 * 60_000 + 1_000);
   });
@@ -154,6 +157,7 @@ describe("agent tool approval store", () => {
 
   it("stores and reads an action-type policy in the owner/org scope", async () => {
     dbMocks.execute
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
       .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
       .mockResolvedValueOnce({ rows: [{ allowed: 1 }], rowsAffected: 0 })
       .mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
@@ -183,7 +187,7 @@ describe("agent tool approval store", () => {
       }),
     ).resolves.toBe(false);
 
-    const policyRead = dbMocks.execute.mock.calls[1]?.[0] as {
+    const policyRead = dbMocks.execute.mock.calls[2]?.[0] as {
       sql: string;
       args: unknown[];
     };
@@ -193,6 +197,8 @@ describe("agent tool approval store", () => {
       binding.orgId,
       binding.orgId,
       binding.toolName,
+      null,
+      null,
     ]);
   });
 

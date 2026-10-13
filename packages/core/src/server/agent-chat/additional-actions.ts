@@ -27,6 +27,14 @@ export interface AgentChatAdditionalActionsDetails {
   event?: any;
   ownerEmail: string;
   orgId: string | null;
+  /**
+   * The chat thread and the turn the client asked to continue, and whether
+   * this request continues a turn already in progress. Chat only. An app that
+   * wants one tool set for a whole turn can key its own snapshot on these.
+   */
+  threadId?: string;
+  requestedTurnId?: string;
+  internalContinuation?: boolean;
 }
 
 export type ResolveAgentChatAdditionalActions = (
@@ -51,6 +59,7 @@ const EXTERNAL_SURFACES: readonly AgentChatAdditionalActionsExternalSurface[] =
 const ACTION_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_TITLE_CHARS = 120;
 const MAX_DESCRIPTION_CHARS = 2_000;
+const MAX_REVISION_CHARS = 200;
 const MAX_SCHEMA_JSON_CHARS = 64_000;
 const MAX_SCHEMA_DEPTH = 24;
 // Every entry is compiled on every request, so the whole registry is bounded,
@@ -170,6 +179,9 @@ export async function resolveAppAdditionalActions(
     event?: any;
     ownerEmail: string | null | undefined;
     orgId: string | null | undefined;
+    threadId?: string;
+    requestedTurnId?: string;
+    internalContinuation?: boolean;
   },
   registered: Record<string, ActionEntry>,
 ): Promise<Record<string, ActionEntry>> {
@@ -184,6 +196,13 @@ export async function resolveAppAdditionalActions(
     surface,
     event: details.event,
     ...principal,
+    ...(details.threadId ? { threadId: details.threadId } : {}),
+    ...(details.requestedTurnId
+      ? { requestedTurnId: details.requestedTurnId }
+      : {}),
+    ...(details.internalContinuation !== undefined
+      ? { internalContinuation: details.internalContinuation }
+      : {}),
   });
   if (!isPlainRecord(entries)) {
     throw new TypeError(
@@ -248,6 +267,14 @@ function rejectActionEntry(entry: unknown): string | null {
   if (!isPlainRecord(entry.tool)) return "has no tool definition";
   if (typeof entry.tool.description !== "string") {
     return "has no tool description";
+  }
+  if (
+    entry.revision !== undefined &&
+    (typeof entry.revision !== "string" ||
+      !entry.revision ||
+      entry.revision.length > MAX_REVISION_CHARS)
+  ) {
+    return `has a revision that is not a string of 1 to ${MAX_REVISION_CHARS} characters`;
   }
   return null;
 }

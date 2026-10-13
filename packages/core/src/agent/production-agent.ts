@@ -1166,6 +1166,12 @@ export interface ActionEntry {
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
   allowPersistentApproval?: boolean;
+  /**
+   * Identifies what this entry does under its name. Approvals, including
+   * "always allow", are bound to it, so a tool that keeps its name but changes
+   * revision must be approved again.
+   */
+  revision?: string;
   endsTurn?: boolean;
   frameworkGroup?: import("../framework-tools.js").FrameworkToolGroup;
 }
@@ -1790,6 +1796,9 @@ export interface ProductionAgentOptions {
     event: any;
     ownerEmail: string | null;
     orgId: string | null;
+    threadId?: string;
+    requestedTurnId?: string;
+    internalContinuation: boolean;
   }) => Record<string, ActionEntry> | Promise<Record<string, ActionEntry>>;
   systemPrompt: string | ((event: any) => string | Promise<string>);
   apiKey?: string;
@@ -4678,6 +4687,8 @@ export interface ExecuteAgentToolCallOptions {
 
 export interface AgentApprovalBinding {
   toolName: string;
+  /** The entry's `revision` when the call was made; null when it has none. */
+  toolRevision: string | null;
   input: unknown;
   callId: string;
   approvalKey: string;
@@ -4925,6 +4936,73 @@ function readToolSearchHistory(messages: EngineMessage[]): {
     }
   }
   return { names, unreadable };
+}
+
+export const TOOL_NO_LONGER_AVAILABLE_PREFIX =
+  "Error: Tool no longer available";
+const MAX_DROPPED_TOOL_NOTE_NAMES = 20;
+// History is client-supplied on some transports, so only tool-name-shaped
+// strings reach the prompt.
+const HISTORY_TOOL_NAME_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
+
+function readHistoryToolNames(
+  messages: EngineMessage[],
+  loadedNames: readonly unknown[],
+): Set<string> {
+  const names = new Set<string>();
+  for (const name of loadedNames) {
+    if (typeof name === "string") names.add(name);
+  }
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    for (const part of message.content) {
+      if (part.type === "tool-call") names.add(part.name);
+    }
+  }
+  return names;
+}
+
+function isHistoryToolName(name: unknown): name is string {
+  return typeof name === "string" && HISTORY_TOOL_NAME_PATTERN.test(name);
+}
+
+function formatDroppedToolsNote(names: readonly string[], max: number): string {
+  const shown = names.slice(0, max);
+  const more = names.length - shown.length;
+  return (
+    `Tools loaded earlier in this conversation are no longer available: ${shown.join(", ")}` +
+    (more > 0 ? ` (and ${more} more)` : "") +
+    ". Do not call them; use tool-search for alternatives."
+  );
+}
+
+function appendUserContextNote(messages: EngineMessage[], text: string): void {
+  const last = messages[messages.length - 1];
+  if (last?.role === "user") {
+    messages[messages.length - 1] = {
+      ...last,
+      content: [...last.content, { type: "text", text }],
+    };
+    return;
+  }
+  messages.push({ role: "user", content: [{ type: "text", text }] });
+}
+
+// The user approved a call whose tool has since gone; letting the model carry
+// on would have it improvise around an approval that no longer applies.
+function approvedToolUnavailableStop(name: string): TerminalActionStop {
+  return {
+    message: `${name} is no longer available, so the call you approved did not run.`,
+    errorCode: "tool_unavailable",
+  };
+}
+
+export function formatToolNoLongerAvailable(name: string): string {
+  return (
+    `${TOOL_NO_LONGER_AVAILABLE_PREFIX}: "${name}". It was available earlier in ` +
+    "this conversation, but it is not among this run's tools. It did NOT " +
+    "execute; do not retry it."
+  );
 }
 
 function normalizeToolInputSchema(
@@ -6156,6 +6234,19 @@ export async function runAgentLoop(opts: {
   }
   // Newest searches lead, so they win if history alone overflows the cap.
   expandActiveTools(priorSearches.names.reverse());
+  // Each run resolves the caller's current tools, so a tool the conversation
+  // already used or loaded can be gone now. Calls to it are told so rather
+  // than "Unknown tool", and loaded ones that went away are named up front.
+  const historyToolNames = readHistoryToolNames(messages, priorSearches.names);
+  const droppedToolNames = [...new Set(priorSearches.names)].filter(
+    (name) => isHistoryToolName(name) && !availableToolMap.has(name),
+  );
+  if (droppedToolNames.length > 0) {
+    appendUserContextNote(
+      messages,
+      formatDroppedToolsNote(droppedToolNames, MAX_DROPPED_TOOL_NOTE_NAMES),
+    );
+  }
 
   const processorChain =
     opts.processors && opts.processors.length > 0
@@ -7572,9 +7663,19 @@ export async function runAgentLoop(opts: {
       }
 
       if (!actionEntry) {
+        const noLongerAvailable = historyToolNames.has(toolCall.name);
         const result = finalizeToolErrorResult(
-          `Error: Unknown tool "${toolCall.name}"`,
+          noLongerAvailable
+            ? formatToolNoLongerAvailable(toolCall.name)
+            : `Error: Unknown tool "${toolCall.name}"`,
         );
+        if (
+          approvedToolCallKeys.has(
+            toolCallCacheKey(toolCall.name, toolCall.input),
+          )
+        ) {
+          requestedActionStop ??= approvedToolUnavailableStop(toolCall.name);
+        }
         send({
           type: "tool_start",
           id: toolCall.id,
@@ -7631,6 +7732,7 @@ export async function runAgentLoop(opts: {
       const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
       const approvalBinding: AgentApprovalBinding = {
         toolName: toolCall.name,
+        toolRevision: actionEntry.revision ?? null,
         input: toolCall.input,
         callId: toolCall.id,
         approvalKey,
@@ -11087,6 +11189,11 @@ export function createProductionAgentHandler(
         event,
         ownerEmail,
         orgId: getRequestOrgId() ?? null,
+        ...(threadId ? { threadId } : {}),
+        ...(typeof requestTurnId === "string" && requestTurnId.trim()
+          ? { requestedTurnId: requestTurnId.trim() }
+          : {}),
+        internalContinuation: Boolean(internalContinuation),
       });
       const turnAdditionalActionNames = isBackgroundWorker
         ? readPersistedAdditionalActionNames(body)
@@ -12250,6 +12357,7 @@ export function createProductionAgentHandler(
         threadId: effectiveThreadId,
         turnId: effectiveTurnId,
         toolName: binding.toolName,
+        toolRevision: binding.toolRevision,
         callId: binding.callId,
         approvalKey: binding.approvalKey,
       };
@@ -12268,6 +12376,7 @@ export function createProductionAgentHandler(
           ownerEmail,
           orgId: getRequestOrgId() ?? null,
           toolName: binding.toolName,
+          toolRevision: binding.toolRevision,
         });
       },
     };
@@ -13268,8 +13377,41 @@ export function createProductionAgentHandler(
           if (
             exactApprovedToolCall &&
             approvedToolCallsForExecution &&
-            requestActions[exactApprovedToolCall.name]
+            !requestActions[exactApprovedToolCall.name]
           ) {
+            const result = formatToolNoLongerAvailable(
+              exactApprovedToolCall.name,
+            );
+            const input = JSON.parse(
+              JSON.stringify(exactApprovedToolCall.input ?? {}),
+            );
+            send({
+              type: "tool_start",
+              id: exactApprovedToolCall.callId,
+              tool: exactApprovedToolCall.name,
+              input,
+            });
+            send({
+              type: "tool_done",
+              id: exactApprovedToolCall.callId,
+              tool: exactApprovedToolCall.name,
+              input,
+              result,
+              isError: true,
+              completedSideEffect: false,
+            });
+            const stop = approvedToolUnavailableStop(
+              exactApprovedToolCall.name,
+            );
+            send({
+              type: "error",
+              error: stop.message,
+              errorCode: stop.errorCode,
+              recoverable: false,
+            });
+            return;
+          }
+          if (exactApprovedToolCall && approvedToolCallsForExecution) {
             send({
               type: "activity",
               label: `Running approved ${exactApprovedToolCall.name} action`,

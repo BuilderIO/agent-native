@@ -253,6 +253,20 @@ arrière-plan, le callback s’exécute de nouveau, mais le tour conserve ses no
 d’origine : les nouvelles entrées restent à l’écart, et un nom qui a disparu
 renvoie une erreur lorsqu’il est appelé.
 
+Toute autre exécution voit les entrées actuelles de l’appelant, de sorte qu’un
+outil peut disparaître d’une exécution à l’autre. Un appel à un outil que la
+conversation a utilisé ou chargé plus tôt échoue alors avec
+`Error: Tool no longer available` au lieu de `Unknown tool`, et une exécution
+qui démarre après la disparition d’outils chargés indique au modèle lesquels. Si
+l’utilisateur avait approuvé cet appel, l’exécution s’arrête plutôt que de
+laisser le modèle continuer sans lui. Définissez `revision` sur une entrée pour
+lier les approbations à ce qu’elle fait : les approbations ponctuelles et
+« Toujours autoriser » enregistrent la révision pour laquelle elles ont été
+données, et une révision différente redemande à l’utilisateur. Pour le chat, le
+callback reçoit aussi `threadId`, `requestedTurnId` et `internalContinuation`,
+ce qui permet à une application qui veut un seul jeu d’outils pour tout un tour
+de conserver son propre instantané.
+
 Ces entrées sont des outils natifs réservés à la boucle de l’agent. Comme les
 outils MCP de l’appelant, elles ne sont pas accessibles depuis `run-code` ou
 `tool-orchestration`.

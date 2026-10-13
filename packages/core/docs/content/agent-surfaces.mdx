@@ -242,6 +242,18 @@ schema without type coercion. When a chat turn continues as a durable background
 run, the callback runs again but the turn keeps its original names: new entries
 stay out, and a name that disappeared returns an error when called.
 
+Every other run sees the caller's current entries, so a tool can disappear
+between runs. A call to a tool the conversation used or loaded earlier then
+fails with `Error: Tool no longer available` instead of `Unknown tool`, and a
+run that starts after loaded tools went away tells the model which ones. If
+the user had approved that call, the run stops rather than letting the model
+continue without it. Set `revision` on an entry to bind approvals to what it
+does: one-time approvals and "Always allow" record the revision they were
+given for, and a different revision asks the user again. For chat, the
+callback also receives `threadId`, `requestedTurnId`, and
+`internalContinuation`, so an app that wants one tool set for a whole turn can
+keep its own snapshot.
+
 These entries are native tools for the agent loop only. Like the caller's MCP
 tools, they aren't reachable from `run-code` or `tool-orchestration`.
 

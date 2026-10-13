@@ -1,14 +1,20 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { getDbExec } from "../db/client.js";
-import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import {
   AGENT_TOOL_APPROVAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL,
+  AGENT_TOOL_APPROVAL_POLICY_REVISION_COLUMN_SQL,
   AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL,
   AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL,
+  AGENT_TOOL_APPROVAL_REVISION_COLUMN_SQL,
   AGENT_TOOL_APPROVAL_TABLE_SQL,
 } from "./tool-approval-migrations.js";
 
@@ -24,6 +30,11 @@ export async function ensureAgentToolApprovalTable(): Promise<void> {
       await ensureTableExists(
         "agent_tool_approvals",
         AGENT_TOOL_APPROVAL_TABLE_SQL.postgres,
+      );
+      await ensureColumnExists(
+        "agent_tool_approvals",
+        "tool_revision",
+        AGENT_TOOL_APPROVAL_REVISION_COLUMN_SQL,
       );
       await ensureIndexExists(
         "idx_agent_tool_approvals_binding",
@@ -53,6 +64,11 @@ export async function ensureAgentToolApprovalPolicyTable(): Promise<void> {
         "agent_tool_approval_policies",
         AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL.postgres,
       );
+      await ensureColumnExists(
+        "agent_tool_approval_policies",
+        "tool_revision",
+        AGENT_TOOL_APPROVAL_POLICY_REVISION_COLUMN_SQL,
+      );
       await ensureIndexExists(
         "idx_agent_tool_approval_policies_scope",
         AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL,
@@ -74,6 +90,8 @@ export interface AgentToolApprovalBinding {
   threadId?: string | null;
   turnId?: string | null;
   toolName: string;
+  /** Null for entries without a revision, and for rows written before one existed. */
+  toolRevision?: string | null;
   callId: string;
   approvalKey: string;
   expiresAt?: number;
@@ -87,6 +105,7 @@ export interface AgentToolApprovalPolicyBinding {
   ownerEmail: string;
   orgId?: string | null;
   toolName: string;
+  toolRevision?: string | null;
 }
 
 function normalizeApprovalPolicyBinding(
@@ -100,6 +119,7 @@ function normalizeApprovalPolicyBinding(
     ownerEmail,
     orgId: binding.orgId?.trim() || null,
     toolName,
+    toolRevision: binding.toolRevision ?? null,
   };
 }
 
@@ -111,19 +131,30 @@ function approvalPolicyId(binding: AgentToolApprovalPolicyBinding): string {
     .digest("hex")}`;
 }
 
+/**
+ * Saves "always allow" for one tool name. The grant covers the revision the
+ * caller was most recently asked to approve under that name, read from the
+ * server's own pending approval rather than from the client, so it never
+ * covers a revision the user was not shown. With no pending approval it
+ * covers only an entry without a revision.
+ */
 export async function setAgentToolApprovalPolicy(input: {
-  binding: AgentToolApprovalPolicyBinding;
+  binding: Omit<AgentToolApprovalPolicyBinding, "toolRevision">;
   enabled: boolean;
 }): Promise<void> {
   const binding = normalizeApprovalPolicyBinding(input.binding);
   await ensureAgentToolApprovalPolicyTable();
+  const toolRevision = input.enabled
+    ? await readPendingApprovalRevision(binding)
+    : null;
   const now = Date.now();
   const id = approvalPolicyId(binding);
   await getDbExec().execute({
     sql: `INSERT INTO agent_tool_approval_policies
-      (id, owner_email, org_id, tool_name, enabled, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      (id, owner_email, org_id, tool_name, tool_revision, enabled, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
+        tool_revision = excluded.tool_revision,
         enabled = excluded.enabled,
         updated_at = excluded.updated_at`,
     args: [
@@ -131,11 +162,38 @@ export async function setAgentToolApprovalPolicy(input: {
       binding.ownerEmail,
       binding.orgId,
       binding.toolName,
+      toolRevision,
       input.enabled,
       now,
       now,
     ],
   });
+}
+
+async function readPendingApprovalRevision(
+  binding: AgentToolApprovalPolicyBinding,
+): Promise<string | null> {
+  await ensureAgentToolApprovalTable();
+  const result = await getDbExec().execute({
+    sql: `SELECT tool_revision FROM agent_tool_approvals
+      WHERE owner_email = ?
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
+        AND tool_name = ?
+        AND status = 'pending'
+        AND expires_at > ?
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    args: [
+      binding.ownerEmail,
+      binding.orgId,
+      binding.orgId,
+      binding.toolName,
+      Date.now(),
+    ],
+  });
+  const value = (result.rows?.[0] as { tool_revision?: unknown } | undefined)
+    ?.tool_revision;
+  return typeof value === "string" ? value : null;
 }
 
 export async function isAgentToolAlwaysAllowed(
@@ -148,9 +206,17 @@ export async function isAgentToolAlwaysAllowed(
       WHERE owner_email = ?
         AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
         AND tool_name = ?
+        AND ((tool_revision IS NULL AND CAST(? AS TEXT) IS NULL) OR tool_revision = ?)
         AND enabled = TRUE
       LIMIT 1`,
-    args: [binding.ownerEmail, binding.orgId, binding.orgId, binding.toolName],
+    args: [
+      binding.ownerEmail,
+      binding.orgId,
+      binding.orgId,
+      binding.toolName,
+      binding.toolRevision,
+      binding.toolRevision,
+    ],
   });
   return (result.rows ?? []).length > 0;
 }
@@ -211,9 +277,10 @@ export async function createAgentToolApproval(
   const id = `agent-tool-approval-${randomUUID()}`;
   await getDbExec().execute({
     sql: `INSERT INTO agent_tool_approvals
-      (id, owner_email, org_id, thread_id, turn_id, tool_name, call_id,
-       approval_key_hash, status, expires_at, consumed_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, ?, ?)`,
+      (id, owner_email, org_id, thread_id, turn_id, tool_name, tool_revision,
+       call_id, approval_key_hash, status, expires_at, consumed_at, created_at,
+       updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, ?, ?)`,
     args: [
       id,
       binding.ownerEmail,
@@ -221,6 +288,7 @@ export async function createAgentToolApproval(
       binding.threadId ?? null,
       binding.turnId ?? null,
       binding.toolName,
+      binding.toolRevision ?? null,
       binding.callId,
       hashAgentToolApprovalKey(binding.approvalKey),
       expiresAt,
@@ -267,6 +335,7 @@ export async function consumeAgentToolApproval(
           AND ((thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR thread_id = ?)
           AND ((turn_id IS NULL AND CAST(? AS TEXT) IS NULL) OR turn_id = ?)
           AND tool_name = ?
+          AND ((tool_revision IS NULL AND CAST(? AS TEXT) IS NULL) OR tool_revision = ?)
           AND approval_key_hash = ?
           AND status = 'pending'
           AND expires_at > ?
@@ -285,6 +354,8 @@ export async function consumeAgentToolApproval(
       binding.turnId ?? null,
       binding.turnId ?? null,
       binding.toolName,
+      binding.toolRevision ?? null,
+      binding.toolRevision ?? null,
       hashAgentToolApprovalKey(binding.approvalKey),
       now,
     ],

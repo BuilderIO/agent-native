@@ -234,6 +234,18 @@ durable background run के रूप में जारी रहता ह�
 turn अपने मूल नाम बनाए रखता है: नई entries बाहर रहती हैं, और जो नाम गायब हो गया
 वह call करने पर error लौटाता है।
 
+हर दूसरा run कॉलर की मौजूदा entries देखता है, इसलिए कोई tool runs के बीच गायब हो
+सकता है। जिस tool का conversation ने पहले उपयोग किया था या उसे load किया था, उसे
+call करने पर तब `Unknown tool` की जगह `Error: Tool no longer available` के साथ
+विफलता मिलती है, और load किए गए tools के गायब होने के बाद शुरू होने वाला run
+model को बताता है कि कौन-से गायब हुए। अगर उपयोगकर्ता ने उस call को स्वीकृत किया
+था, तो run रुक जाता है, model को उसके बिना आगे बढ़ने नहीं देता। approvals को
+entry के काम से जोड़ने के लिए उस पर `revision` सेट करें: एक-बार की approvals और
+"हमेशा अनुमति दें" उस revision को दर्ज करते हैं जिसके लिए वे दी गई थीं, और अलग
+revision होने पर उपयोगकर्ता से फिर पूछा जाता है। chat के लिए callback को
+`threadId`, `requestedTurnId` और `internalContinuation` भी मिलते हैं, ताकि जो ऐप
+पूरे turn के लिए एक ही tool set चाहता है, वह अपना snapshot रख सके।
+
 ये entries केवल agent loop के लिए native tools हैं। कॉलर के MCP tools की तरह, इन
 तक `run-code` या `tool-orchestration` से नहीं पहुँचा जा सकता।
 
