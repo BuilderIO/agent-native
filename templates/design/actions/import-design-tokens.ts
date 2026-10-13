@@ -2646,17 +2646,141 @@ function importedTokenGrammars(
   return null;
 }
 
+function importedTokenMathDimensions(
+  token: ImportedDesignToken,
+): ReadonlySet<CssMathDimension> | null {
+  const name = token.cssVar.slice(2).toLowerCase();
+  if (token.type === "spacing" || token.type === "radius") {
+    return new Set(["length", "length-percentage", "percentage", "unknown"]);
+  }
+  if (token.type === "typography") {
+    if (/weight/.test(name)) return new Set(["number", "unknown"]);
+    if (/font[-_]?family/.test(name)) return new Set();
+    if (/size|text/.test(name)) {
+      return new Set(["length", "length-percentage", "percentage", "unknown"]);
+    }
+    if (/line[-_]?height|leading/.test(name)) {
+      return new Set([
+        "number",
+        "length",
+        "length-percentage",
+        "percentage",
+        "unknown",
+      ]);
+    }
+    if (/tracking|letter[-_]?spacing/.test(name)) {
+      return new Set(["length", "unknown"]);
+    }
+    return null;
+  }
+  if (token.type === "motion") {
+    if (/duration|delay/.test(name)) return new Set(["time", "unknown"]);
+    if (/easing|ease|timing/.test(name)) {
+      return new Set(["number", "percentage", "unknown"]);
+    }
+  }
+  return null;
+}
+
+function importedTokenAttrTypes(
+  token: ImportedDesignToken,
+): ReadonlySet<string> | null {
+  const name = token.cssVar.slice(2).toLowerCase();
+  if (token.type === "spacing" || token.type === "radius") {
+    return new Set(["length", "length-percentage", "percentage"]);
+  }
+  if (token.type === "typography") {
+    if (/weight/.test(name)) return new Set(["integer", "number"]);
+    if (/font[-_]?family/.test(name)) return null;
+    if (/size|text/.test(name)) {
+      return new Set(["length", "length-percentage", "percentage"]);
+    }
+    if (/line[-_]?height|leading/.test(name)) {
+      return new Set([
+        "integer",
+        "length",
+        "length-percentage",
+        "number",
+        "percentage",
+      ]);
+    }
+    if (/tracking|letter[-_]?spacing/.test(name)) return new Set(["length"]);
+  }
+  if (token.type === "motion") {
+    if (/duration|delay/.test(name)) return new Set(["time"]);
+    if (/easing|ease|timing/.test(name)) {
+      return new Set(["integer", "number", "percentage"]);
+    }
+  }
+  return null;
+}
+
+function hasCompatibleCssMathDimensions(
+  token: ImportedDesignToken,
+  value: string,
+): boolean {
+  const expected = importedTokenMathDimensions(token);
+  if (expected === null) return true;
+  const mathRanges: { end: number; start: number }[] = [];
+  let valid = true;
+  csstree.tokenize(value, (type, start, end) => {
+    if (!valid || type !== csstree.tokenTypes.Function) return;
+    const name = csstree.ident
+      .decode(value.slice(start, end - 1))
+      .toLowerCase();
+    if (!cssMathFunctions.has(name)) return;
+    const functionValue = readCssFunctionAt(value, end);
+    if (!functionValue) {
+      valid = false;
+      return;
+    }
+    if (
+      mathRanges.some(
+        (range) => range.start < start && range.end >= functionValue.end,
+      )
+    ) {
+      return;
+    }
+    mathRanges.push({ start, end: functionValue.end });
+  });
+
+  if (!valid) return false;
+  return mathRanges.every(({ start, end }) => {
+    const dimension = cssMathExpressionDimension(value.slice(start, end));
+    return expected.has(dimension);
+  });
+}
+
+function hasCompatibleCssAttrSyntax(
+  token: ImportedDesignToken,
+  args: string,
+): boolean {
+  const expectedTypes = importedTokenAttrTypes(token);
+  if (!expectedTypes) return true;
+
+  const head = splitCssFunctionArguments(args)[0]?.trim() ?? "";
+  const syntax = head.match(
+    /^([^\s|]+)(?:\s*\|\s*([^\s|]+))?(?:\s+([\s\S]*))?$/,
+  )?.[3];
+  if (!syntax) return false;
+  const normalizedSyntax =
+    readSingleCssString(syntax) ?? syntax.trim().toLowerCase();
+  const components = normalizedSyntax
+    .split("|")
+    .map((component) => component.trim());
+  if (components.length !== 1) return false;
+  const component = components[0]!;
+  if (component.endsWith("+") || component.endsWith("#")) return false;
+  const type =
+    component.match(/^<([a-z-]+)>$/i)?.[1]?.toLowerCase() ?? component;
+  return expectedTypes.has(type);
+}
+
 function matchesImportedTokenGrammar(
   token: ImportedDesignToken,
   value: string,
 ): boolean {
-  if (
-    token.type === "spacing" &&
-    cssMathExpressionDimension(value) === "number" &&
-    csstree.lexer.matchType("number", value).matched !== null
-  ) {
-    return true;
-  }
+  if (!hasCompatibleCssMathDimensions(token, value)) return false;
   const grammars = importedTokenGrammars(token);
   if (!grammars) return true;
   return grammars.some(({ kind, name }) =>
@@ -2705,6 +2829,13 @@ function isValidTypedCssTokenValue(
     if (
       !functionValue ||
       !isValidCssSubstitutionFunction(name, functionValue.args)
+    ) {
+      valid = false;
+      return;
+    }
+    if (
+      name === "attr" &&
+      !hasCompatibleCssAttrSyntax(token, functionValue.args)
     ) {
       valid = false;
       return;

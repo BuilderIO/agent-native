@@ -1681,6 +1681,7 @@ Bad radius: 12px} body { color: red
         "Spacing var name malformed: calc(var(not-a-custom-property, 2px) + 1px)",
         "Spacing env malformed: calc(env() + 2px)",
         "Spacing attr malformed: calc(attr(, 2px) + 1px)",
+        "Spacing attr missing declaration syntax: calc(attr(data-gap, 2px) + 1px)",
         "Spacing dimension mismatch: calc(12px + 2)",
         "Spacing addition whitespace before: calc(12px+ 2px)",
         "Spacing addition whitespace after: calc(12px +2px)",
@@ -1699,11 +1700,12 @@ Bad radius: 12px} body { color: red
         "Spacing round length missing step: round(2px)",
         "Spacing round length missing step strategy: round(down, 2px)",
         "Spacing nested round mismatch: calc(round(2px, 1s) + 1px)",
+        "Spacing sqrt number dimension mismatch: sqrt(4)",
+        "Spacing round number dimension mismatch: round(2)",
         "Spacing var valid: calc(var(--spacing-gap, 2px) + 1px)",
         "Spacing var empty fallback: calc(var(--spacing-gap,) + 1px)",
         "Spacing env valid: calc(env(safe-area-inset-top, 2px) + 1px)",
         "Spacing env none: calc(env(none, 2px) + 1px)",
-        "Spacing attr valid: calc(attr(data-gap, 2px) + 1px)",
         "Spacing attr syntax valid: calc(attr(data-gap length, 2px) + 1px)",
         'Spacing attr quoted syntax valid: calc(attr(data-gap "length", 2px) + 1px)',
         "Spacing valid: calc((12px + 2px) * 2)",
@@ -1712,7 +1714,6 @@ Bad radius: 12px} body { color: red
         "Spacing length-percentage division: calc((100% - 32px) / 2)",
         "Spacing length-percentage multiplication: calc((100% - 32px) * 2)",
         "Spacing LP scalar-first multiplication: calc(2 * (100% - 32px))",
-        "Spacing sqrt valid: sqrt(4)",
         "Spacing hypot valid: hypot(3px, 4px)",
         "Spacing min valid: min(12px, 24px)",
         "Spacing round valid: round(down, 5px, 2px)",
@@ -1720,13 +1721,12 @@ Bad radius: 12px} body { color: red
         "Spacing nested clamp: calc(clamp(1px, 2px, 3px) + 1px)",
         "Spacing nested clamp none: calc(clamp(none, 2px, none) + 1px)",
         "Spacing nested round: calc(round(2px, 1px) + 1px)",
-        "Spacing round number default step: round(2)",
         "Spacing nested mod: calc(mod(5px, 2px) + 1px)",
         "Spacing nested rem: calc(rem(5px, 2px) + 1px)",
       ].join("\n"),
     });
-    expect(result.importedCount).toBe(24);
-    expect(result.rejectedCount).toBe(28);
+    expect(result.importedCount).toBe(21);
+    expect(result.rejectedCount).toBe(31);
     expect(result.tokens).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1744,10 +1744,6 @@ Bad radius: 12px} body { color: red
         expect.objectContaining({
           cssVar: "--spacing-env-none",
           value: "calc(env(none, 2px) + 1px)",
-        }),
-        expect.objectContaining({
-          cssVar: "--spacing-attr-valid",
-          value: "calc(attr(data-gap, 2px) + 1px)",
         }),
         expect.objectContaining({
           cssVar: "--spacing-attr-syntax-valid",
@@ -1782,10 +1778,6 @@ Bad radius: 12px} body { color: red
           value: "calc(2 * (100% - 32px))",
         }),
         expect.objectContaining({
-          cssVar: "--spacing-sqrt-valid",
-          value: "sqrt(4)",
-        }),
-        expect.objectContaining({
           cssVar: "--spacing-hypot-valid",
           value: "hypot(3px, 4px)",
         }),
@@ -1814,10 +1806,6 @@ Bad radius: 12px} body { color: red
           value: "calc(round(2px, 1px) + 1px)",
         }),
         expect.objectContaining({
-          cssVar: "--spacing-round-number-default-step",
-          value: "round(2)",
-        }),
-        expect.objectContaining({
           cssVar: "--spacing-nested-mod",
           value: "calc(mod(5px, 2px) + 1px)",
         }),
@@ -1834,6 +1822,46 @@ Bad radius: 12px} body { color: red
     );
     expect(JSON.parse(designStore.row.data).tweakSelections).not.toHaveProperty(
       "--spacing-math-fallback-malformed",
+    );
+  });
+
+  it("matches typed math and attr substitutions to token dimensions", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: [
+        "--font-weight-invalid: calc(12px)",
+        "--font-weight-valid: calc(400)",
+        "--duration-invalid: calc(12px)",
+        "--duration-valid: calc(1s)",
+        "--font-weight-fallback-invalid: var(--weight, calc(12px))",
+        "--font-weight-fallback-valid: var(--weight, calc(400))",
+        "--duration-fallback-invalid: var(--duration, calc(12px))",
+        "--duration-fallback-valid: var(--duration, calc(1s))",
+        "--spacing-attr-no-syntax: calc(attr(data-gap, 2px) + 1px)",
+        "--spacing-attr-explicit-syntax: calc(attr(data-gap length, 2px) + 1px)",
+      ].join("; "),
+    });
+
+    expect(result.importedCount).toBe(5);
+    expect(result.rejectedCount).toBe(5);
+    expect(result.tokens.map((token) => token.cssVar)).toEqual(
+      expect.arrayContaining([
+        "--font-weight-valid",
+        "--duration-valid",
+        "--font-weight-fallback-valid",
+        "--duration-fallback-valid",
+        "--spacing-attr-explicit-syntax",
+      ]),
+    );
+    expect(result.tokens.map((token) => token.cssVar)).not.toEqual(
+      expect.arrayContaining([
+        "--font-weight-invalid",
+        "--duration-invalid",
+        "--font-weight-fallback-invalid",
+        "--duration-fallback-invalid",
+        "--spacing-attr-no-syntax",
+      ]),
     );
   });
 
