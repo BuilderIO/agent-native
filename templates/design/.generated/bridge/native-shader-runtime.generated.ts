@@ -6168,6 +6168,59 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     return { ok: true, root: flatten(root), nodeCount };
   }
 
+  // shared/native-static-generator-pass-cache.ts
+  function nativeStaticGeneratorPassKey(input) {
+    const { definition, instance } = input;
+    if (definition.kind !== "generator" || instance.placement !== "fill" || input.reviewedCapability !== "static" || instance.animation || definition.interaction || definition.simulation || definition.feedback || definition.statelessCompute || definition.resourceGraph && definition.resourceGraph.abi !== "linear-resource-v1" || definition.sourceSizing || definition.optionalImage || input.draftActive || input.instancePreviewActive || Object.keys(definition.inputs ?? {}).length > 0 || Object.keys(instance.bindings ?? {}).length > 0 || Object.values(definition.properties).some(
+      (property) => property.type === "texture"
+    ) || definition.resources?.some((resource) => resource.external) || !/^[a-f0-9]{64}$/.test(input.executionHash) || !Number.isSafeInteger(input.width) || input.width < 1 || !Number.isSafeInteger(input.height) || input.height < 1 || !Number.isFinite(input.pixelRatio) || input.pixelRatio <= 0 || !Number.isSafeInteger(input.deviceEpoch) || !Number.isFinite(instance.seed))
+      return null;
+    const pass = definition.passes[0];
+    if (!pass || definition.passes.length !== 1) return null;
+    const shaderBody = pass.wgsl.replace("@group(0) @binding(2) var sourceTexture: texture_2d<f32>;", "").replace("@group(0) @binding(3) var maskTexture: texture_2d<f32>;", "");
+    const withoutSeedAndPixelRatio = shaderBody.replace(
+      /\\bglobals\\s*\\.\\s*clock\\s*\\.\\s*[yz]\\b/g,
+      ""
+    );
+    if (pass.kind !== "render" || pass.reads.length > 0 || pass.previousFrameReads?.length || pass.additionalOutputs?.length || /\\b(?:sourceTexture|maskTexture)\\b/.test(shaderBody) || /\\bglobals\\s*\\.\\s*clock\\b/.test(withoutSeedAndPixelRatio) || /@binding\\s*\\(\\s*(?:[2-9]|\\d{2,})\\s*\\)/.test(shaderBody) || (definition.output ?? pass.output) !== pass.output || Object.keys(instance.params).some(
+      (name) => !Object.prototype.hasOwnProperty.call(definition.properties, name)
+    ))
+      return null;
+    return JSON.stringify([
+      input.executionHash,
+      Object.entries(definition.properties).map(([name, property]) => [
+        name,
+        instance.params[name] ?? property.default
+      ]),
+      instance.seed,
+      input.width,
+      input.height,
+      input.pixelRatio,
+      input.workingFormat,
+      input.colorSpace,
+      input.dynamicRange,
+      input.deviceEpoch
+    ]);
+  }
+  var NativeStaticGeneratorPassCache = class {
+    constructor() {
+      __publicField(this, "committed", null);
+    }
+    read(key, retainedOutput) {
+      if (!key || !retainedOutput || this.committed?.key !== key || this.committed.value !== retainedOutput) {
+        this.committed = null;
+        return null;
+      }
+      return retainedOutput;
+    }
+    commit(key, output) {
+      this.committed = { key, value: output };
+    }
+    invalidate() {
+      this.committed = null;
+    }
+  };
+
   // shared/native-capture-cache.ts
   var NativeCaptureCacheError = class extends Error {
     constructor(code) {
@@ -21119,6 +21172,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       mount.graphPipelinePins.clear();
     }
     releaseMountTextures(mount) {
+      mount.staticGeneratorPassCache.invalidate();
       if (this.draft?.instanceId === mount.instance.id) this.clearDraftState();
       this.releaseGraphPipelinePins(mount);
       this.releaseAuthoredInputs(mount);
@@ -21536,6 +21590,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           instance.placement === "backdrop" ? canvas : void 0
         ),
         resourceTextures: /* @__PURE__ */ new Map(),
+        staticGeneratorPassCache: new NativeStaticGeneratorPassCache(),
         graphPipelinePins: /* @__PURE__ */ new Map(),
         statelessBuffers: /* @__PURE__ */ new Set(),
         statelessInputs: /* @__PURE__ */ new Map(),
@@ -22056,6 +22111,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         mount.canvas.style.zIndex = style.zIndex === "auto" ? "auto" : style.zIndex;
       }
       if (mount.width !== width || mount.height !== height) {
+        mount.staticGeneratorPassCache.invalidate();
         this.releaseSimulation(mount);
         this.releaseFeedback(mount);
         this.releaseStateful(mount);
@@ -27341,8 +27397,30 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           );
           mount.resourceTextures = frameResources.scratch;
         }
+        const staticPassKey = nativeStaticGeneratorPassKey({
+          definition: activeDefinition,
+          instance: activeInstance,
+          executionHash: mount.definitionHash,
+          reviewedCapability: builtinAnimationCapability(mount.definitionHash),
+          width: mount.width,
+          height: mount.height,
+          pixelRatio: mount.pixelRatio,
+          workingFormat: this.workingFormat,
+          colorSpace: this.colorPresented,
+          dynamicRange: this.dynamicRangePresented,
+          deviceEpoch: this.deviceEpoch,
+          draftActive: !!draft,
+          instancePreviewActive: this.instancePreview?.instanceId === mount.instance.id
+        });
+        const outputName = activeDefinition.output ?? activeDefinition.passes[0]?.output;
+        const retainedOutput = outputName ? mount.resourceTextures.get(outputName) ?? null : null;
+        const cachedOutput = mount.staticGeneratorPassCache.read(
+          staticPassKey,
+          retainedOutput
+        );
+        if (cachedOutput) mount.pendingGraphInputEpochs = /* @__PURE__ */ new Map();
         const effectPassesStarted = hostWallPhases ? performance.now() : 0;
-        const output = await this.effectPasses(
+        const output = cachedOutput ?? await this.effectPasses(
           mount,
           source,
           localTime,
@@ -27885,7 +27963,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           if (!twoSurface) throw error;
           this.issue("status-post-failed", String(error), mount.instance.id);
         }
+        if (staticPassKey)
+          mount.staticGeneratorPassCache.commit(staticPassKey, output);
       } catch (error) {
+        mount.staticGeneratorPassCache.invalidate();
         if (mirrorCandidate) this.publishedPresentationMirror.discard();
         if (frameResources) {
           mount.resourceTextures = frameResources.committed;

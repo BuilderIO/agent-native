@@ -722,6 +722,7 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "../../../../shared/native-optional-image",
     "../../../../shared/native-parameter-animation",
     "../../../../shared/native-pipeline-cache",
+    "../../../../shared/native-static-generator-pass-cache",
     "../../../../shared/native-pointer-history",
     "../../../../shared/native-pointer-input",
     "../../../../shared/native-presentation-fault-gate",

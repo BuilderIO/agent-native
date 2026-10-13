@@ -3,6 +3,7 @@ import { build } from "esbuild";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CATALOG_GENERATOR_CANDIDATES } from "../../../../shared/native-effect-catalog-generators";
+import { RADIAL_BURST_EFFECT } from "../../../../shared/native-effect-owned-bm-radial-burst";
 import { DESIGN_OWNED_STATEFUL_DEFINITIONS } from "../../../../shared/native-effect-owned-dynamics";
 import {
   OWNED_INTRINSIC_IMAGE_TEST_EFFECT,
@@ -4512,6 +4513,149 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
       }
       manifest.textContent = validStatelessManifest;
       await runtime!.scan();
+      const staticFillTarget = document.createElement("div");
+      staticFillTarget.dataset.agentNativeNodeId = "static-fill-node";
+      staticFillTarget.style.backgroundColor = "rgb(20, 30, 40)";
+      staticFillTarget.style.backgroundImage = "none";
+      staticFillTarget.style.border = "1px solid rgb(20, 30, 40)";
+      staticFillTarget.style.borderImageSource = "none";
+      Object.defineProperties(staticFillTarget, {
+        offsetWidth: { value: 8.25 },
+        offsetHeight: { value: 8.25 },
+      });
+      document.body.append(staticFillTarget);
+      const staticFillInstance: EffectInstance = {
+        id: "static-fill-instance",
+        nodeId: "static-fill-node",
+        definitionId: RADIAL_BURST_EFFECT.id,
+        definitionVersion: RADIAL_BURST_EFFECT.version,
+        placement: "fill",
+        params: {},
+        enabled: true,
+        opacity: 1,
+        seed: 5,
+        clip: "bounds",
+        blend: "normal",
+        timing: { speed: 1, paused: false, time: 0 },
+      };
+      const staticFillProbe = internal as typeof internal & {
+        mount(
+          instance: EffectInstance,
+          definition: EffectDefinition,
+          hash: string,
+          target: HTMLElement,
+        ): Promise<NonNullable<ReturnType<typeof internal.mounts.get>>>;
+        renderMount(
+          mount: object,
+          time: number,
+          deterministic: boolean,
+          complete: Set<string>,
+          active: Set<string>,
+        ): Promise<void>;
+        unmount(mount: object): void;
+        activeMounts: Set<object>;
+      };
+      const staticFill = await staticFillProbe.mount(
+        staticFillInstance,
+        RADIAL_BURST_EFFECT,
+        await hashEffectDefinition(RADIAL_BURST_EFFECT),
+        staticFillTarget,
+      );
+      let authoredFillCaptures = 0;
+      const fillSource = document.createElement("canvas");
+      const fillBox = { x: 0, y: 0, width: 8.25, height: 8.25 };
+      const fillProvider = (
+        staticFill as unknown as {
+          provider: {
+            readFillBoxPhase: (
+              paint: object,
+              phase: "background" | "border" | "coverage" | "inner-coverage",
+            ) => Promise<NativeSourceRecord[]>;
+          };
+        }
+      ).provider;
+      fillProvider.readFillBoxPhase = async (_paint, phase) => {
+        authoredFillCaptures += 1;
+        fillSource.width = (
+          staticFill as typeof staticFill & { width: number }
+        ).width;
+        fillSource.height = (
+          staticFill as typeof staticFill & { height: number }
+        ).height;
+        return [
+          {
+            key: authoredFillCaptures,
+            node: staticFillTarget,
+            kind: "image",
+            source: fillSource,
+            width: fillSource.width,
+            height: fillSource.height,
+            revision: authoredFillCaptures,
+            coordinateSpace: "target-local",
+            rect: fillBox,
+            localBox: fillBox,
+            localToTarget: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+            clip: fillBox,
+            clips: [],
+            groupClips: [],
+            isolationPath: [],
+            opacity: 1,
+            uv: { x: 0, y: 0, width: 1, height: 1 },
+          },
+        ];
+      };
+      staticFillProbe.mounts.set(staticFillInstance.id, staticFill);
+      try {
+        const drawFrame = () =>
+          staticFillProbe.renderMount(
+            staticFill,
+            0,
+            false,
+            new Set(),
+            new Set(),
+          );
+        await drawFrame();
+        const passOutput = staticFill.resourceTextures.get("color")!;
+        const firstPassDraws = rendered.filter(
+          (textureId) => textureId === passOutput.id,
+        ).length;
+        const firstTotalDraws = rendered.length;
+        await drawFrame();
+        expect(
+          rendered.filter((textureId) => textureId === passOutput.id),
+        ).toHaveLength(firstPassDraws);
+        expect(rendered.length).toBeGreaterThan(firstTotalDraws);
+        expect(authoredFillCaptures).toBe(8);
+        expect(staticFill.frameCount).toBe(2);
+        staticFill.instance = {
+          ...staticFill.instance,
+          params: { rayCount: 31 },
+        };
+        await drawFrame();
+        expect(
+          rendered.filter((textureId) => textureId === passOutput.id),
+        ).toHaveLength(firstPassDraws + 1);
+        staticFill.instance = {
+          ...staticFill.instance,
+          params: { rayCount: 32 },
+        };
+        nextValidationError = "static fill frame rejected";
+        await expect(drawFrame()).rejects.toMatchObject({
+          code: "gpu-validation",
+        });
+        const drawsAfterFailure = rendered.filter(
+          (textureId) => textureId === passOutput.id,
+        ).length;
+        await drawFrame();
+        expect(
+          rendered.filter((textureId) => textureId === passOutput.id),
+        ).toHaveLength(drawsAfterFailure + 1);
+      } finally {
+        staticFillProbe.activeMounts.delete(staticFill);
+        staticFillProbe.mounts.delete(staticFillInstance.id);
+        staticFillProbe.unmount(staticFill);
+        staticFillTarget.remove();
+      }
       const teardownProbe = internal as typeof internal & {
         statelessTextureLeases: Map<FakeTexture, number>;
         statelessDeviceLeases: Map<unknown, number>;

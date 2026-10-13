@@ -91,6 +91,10 @@ import {
   planStatelessCompute,
 } from "../../../../shared/native-stateless-compute";
 import {
+  NativeStaticGeneratorPassCache,
+  nativeStaticGeneratorPassKey,
+} from "../../../../shared/native-static-generator-pass-cache";
+import {
   assertNativeUniformTiming,
   NativeUniformTimingError,
   packNativeUniformClock,
@@ -467,6 +471,7 @@ type Mount = {
   presentationPair: NativePresentationPair<GPUCanvasContext> | null;
   provider: NativeSceneProvider | null;
   resourceTextures: Map<string, GPUTexture>;
+  staticGeneratorPassCache: NativeStaticGeneratorPassCache<GPUTexture>;
   graphPipelinePins: Map<string, () => void>;
   statelessBuffers: Set<GPUBuffer>;
   statelessInputs: Map<GPUTexture, number>;
@@ -3676,6 +3681,7 @@ class NativeShaderRuntime {
   }
 
   private releaseMountTextures(mount: Mount): void {
+    mount.staticGeneratorPassCache.invalidate();
     if (this.draft?.instanceId === mount.instance.id) this.clearDraftState();
     this.releaseGraphPipelinePins(mount);
     this.releaseAuthoredInputs(mount);
@@ -4720,6 +4726,8 @@ class NativeShaderRuntime {
         instance.placement === "backdrop" ? canvas : undefined,
       ),
       resourceTextures: new Map(),
+      staticGeneratorPassCache:
+        new NativeStaticGeneratorPassCache<GPUTexture>(),
       graphPipelinePins: new Map(),
       statelessBuffers: new Set(),
       statelessInputs: new Map(),
@@ -5334,6 +5342,7 @@ class NativeShaderRuntime {
         style.zIndex === "auto" ? "auto" : style.zIndex;
     }
     if (mount.width !== width || mount.height !== height) {
+      mount.staticGeneratorPassCache.invalidate();
       this.releaseSimulation(mount);
       this.releaseFeedback(mount);
       this.releaseStateful(mount);
@@ -11909,19 +11918,47 @@ class NativeShaderRuntime {
         );
         mount.resourceTextures = frameResources.scratch;
       }
-      const effectPassesStarted = hostWallPhases ? performance.now() : 0;
-      const output = await this.effectPasses(
-        mount,
-        source,
-        localTime,
-        encoder,
-        draft?.definition,
-        activeInstance,
-        deterministic,
-        sourceRevision,
-        { complete, active },
-        scene,
+      const staticPassKey = nativeStaticGeneratorPassKey({
+        definition: activeDefinition,
+        instance: activeInstance,
+        executionHash: mount.definitionHash,
+        reviewedCapability: builtinAnimationCapability(mount.definitionHash),
+        width: mount.width,
+        height: mount.height,
+        pixelRatio: mount.pixelRatio,
+        workingFormat: this.workingFormat,
+        colorSpace: this.colorPresented,
+        dynamicRange: this.dynamicRangePresented,
+        deviceEpoch: this.deviceEpoch,
+        draftActive: !!draft,
+        instancePreviewActive:
+          this.instancePreview?.instanceId === mount.instance.id,
+      });
+      const outputName =
+        activeDefinition.output ?? activeDefinition.passes[0]?.output;
+      const retainedOutput = outputName
+        ? (mount.resourceTextures.get(outputName) ?? null)
+        : null;
+      const cachedOutput = mount.staticGeneratorPassCache.read(
+        staticPassKey,
+        retainedOutput,
       );
+      if (cachedOutput) mount.pendingGraphInputEpochs = new Map();
+      const effectPassesStarted = hostWallPhases ? performance.now() : 0;
+      const output =
+        cachedOutput ??
+        (await this.effectPasses(
+          mount,
+          source,
+          localTime,
+          encoder,
+          draft?.definition,
+          activeInstance,
+          deterministic,
+          sourceRevision,
+          { complete, active },
+          scene,
+        ));
       if (hostWallPhases)
         hostWallPhases.effectPassesWallMs +=
           performance.now() - effectPassesStarted;
@@ -12521,7 +12558,10 @@ class NativeShaderRuntime {
         if (!twoSurface) throw error;
         this.issue("status-post-failed", String(error), mount.instance.id);
       }
+      if (staticPassKey)
+        mount.staticGeneratorPassCache.commit(staticPassKey, output);
     } catch (error) {
+      mount.staticGeneratorPassCache.invalidate();
       if (mirrorCandidate) this.publishedPresentationMirror.discard();
       if (frameResources) {
         mount.resourceTextures = frameResources.committed;
