@@ -252,10 +252,22 @@ Chaque entrée est liée à l’appelant pour lequel elle a été résolue. Chaq
 appel, quel que soit le dispatcher qui l’effectue, refuse de s’exécuter pour un
 autre utilisateur ou une autre organisation, applique la politique `access` de
 l’entrée et valide les arguments par rapport à son schéma sans coercition de
-type. Lorsqu’un tour de chat se poursuit sous forme d’exécution durable en
-arrière-plan, le callback s’exécute de nouveau, mais le tour conserve ses noms
-d’origine : les nouvelles entrées restent à l’écart, et un nom qui a disparu
-renvoie une erreur lorsqu’il est appelé.
+type.
+
+Les noms ne sont figés que lorsqu’un tour de chat hébergé se poursuit sous forme
+d’exécution durable en arrière-plan. Le callback s’exécute de nouveau, et le
+tour conserve ses noms d’origine pour ces entrées comme pour les outils MCP de
+l’appelant : les nouvelles entrées restent à l’écart, un nom qui a disparu
+renvoie une erreur lorsqu’il est appelé, et un nom qui subsiste exécute sa
+définition actuelle. Toute autre requête est résolue à nouveau, y compris chaque
+poursuite sur un sidecar local, et un stream interrompu qui se rattache à son
+exécution ne résout rien.
+
+Placez l’identité de la liaison dans le nom, par exemple un id de fenêtre ou une
+portée (`notes_window_42_insert`), afin qu’une nouvelle liaison se lise comme un
+outil qui disparaît et un autre qui apparaît. Les approbations « Toujours
+autoriser » suivent le nom de l’outil : elles sont donc conservées lorsque ce
+même nom désigne plus tard autre chose.
 
 Ces entrées sont des outils natifs réservés à la boucle de l’agent. Comme les
 outils MCP de l’appelant, elles ne sont pas accessibles depuis `run-code` ou

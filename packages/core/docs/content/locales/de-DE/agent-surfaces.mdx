@@ -252,10 +252,23 @@ Jeder Eintrag ist an den Aufrufer gebunden, für den er aufgelöst wurde. Jeder
 Aufruf, egal welcher Dispatcher ihn ausführt, weigert sich, für einen anderen
 Benutzer oder eine andere Organisation zu laufen, erzwingt die
 `access`-Richtlinie des Eintrags und validiert die Argumente ohne Typumwandlung
-gegen sein Schema. Setzt sich ein Chat-Turn als dauerhafter Hintergrundlauf
-fort, läuft der Callback erneut, aber der Turn behält seine ursprünglichen
-Namen: Neue Einträge bleiben draußen, und ein Name, der verschwunden ist,
-liefert beim Aufruf einen Fehler.
+gegen sein Schema.
+
+Namen werden nur festgeschrieben, wenn sich ein gehosteter Chat-Turn als
+dauerhafter Hintergrundlauf fortsetzt. Der Callback läuft erneut, und der Turn
+behält seine ursprünglichen Namen für diese Einträge ebenso wie für die
+MCP-Tools des Aufrufers: Neue Einträge bleiben draußen, ein Name, der
+verschwunden ist, liefert beim Aufruf einen Fehler, und ein Name, der
+geblieben ist, führt seine aktuelle Definition aus. Jede andere Anfrage wird
+neu aufgelöst, auch jede Fortsetzung auf einem lokalen Sidecar, und ein
+abgebrochener Stream, der sich wieder mit seinem Lauf verbindet, löst nichts
+auf.
+
+Nimm die Identität der Bindung in den Namen auf, etwa eine Fenster-ID oder
+einen Scope (`notes_window_42_insert`), damit ein erneutes Binden als ein Tool
+erscheint, das geht, und ein anderes, das hinzukommt. „Immer erlauben“-Freigaben
+folgen dem Tool-Namen und gelten deshalb weiter, wenn derselbe Name später
+etwas Neues bedeutet.
 
 Diese Einträge sind native Tools ausschließlich für die Agent-Schleife. Wie die
 MCP-Tools des Aufrufers sind sie aus `run-code` oder `tool-orchestration` nicht

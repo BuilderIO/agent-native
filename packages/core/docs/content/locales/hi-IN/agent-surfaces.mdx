@@ -233,10 +233,20 @@ schema की जाँची हुई copy दिखती है, और ज�
 हर entry उस कॉलर से बंधी होती है जिसके लिए उसे resolve किया गया था। हर call,
 चाहे कोई भी dispatcher उसे करे, किसी दूसरे उपयोगकर्ता या organization के लिए
 चलने से इनकार करता है, entry की `access` policy लागू करता है, और arguments को
-उसके schema के विरुद्ध type coercion के बिना validate करता है। जब कोई chat turn
-durable background run के रूप में जारी रहता है, तो callback फिर चलता है लेकिन
-turn अपने मूल नाम बनाए रखता है: नई entries बाहर रहती हैं, और जो नाम गायब हो गया
-वह call करने पर error लौटाता है।
+उसके schema के विरुद्ध type coercion के बिना validate करता है।
+
+नाम केवल तब pin होते हैं जब कोई hosted chat turn durable background run के रूप
+में जारी रहता है। callback फिर चलता है, और turn इन entries और कॉलर के MCP tools
+दोनों के लिए अपने मूल नाम बनाए रखता है: नई entries बाहर रहती हैं, जो नाम गायब हो
+गया वह call करने पर error लौटाता है, और जो नाम बना रहता है वह अपनी वर्तमान
+definition चलाता है। बाकी हर request नए सिरे से resolve होती है, जिसमें local
+sidecar पर हर continuation भी शामिल है, और जो टूटा हुआ stream अपने run से फिर
+जुड़ता है वह कुछ भी resolve नहीं करता।
+
+binding की पहचान नाम में रखें, जैसे कोई window id या scope
+(`notes_window_42_insert`), ताकि rebind ऐसा पढ़ा जाए कि एक tool जा रहा है और
+दूसरा आ रहा है। "हमेशा अनुमति दें" approvals tool के नाम का अनुसरण करते हैं, इसलिए
+जब वही नाम बाद में किसी नई चीज़ का अर्थ लेता है तब भी वे लागू रहते हैं।
 
 ये entries केवल agent loop के लिए native tools हैं। कॉलर के MCP tools की तरह, इन
 तक `run-code` या `tool-orchestration` से नहीं पहुँचा जा सकता।

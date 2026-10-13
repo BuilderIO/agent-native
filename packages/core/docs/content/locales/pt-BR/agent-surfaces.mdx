@@ -239,10 +239,22 @@ de metadados que um usuário registrou.
 Cada entrada fica vinculada ao chamador para o qual foi resolvida. Toda chamada,
 qualquer que seja o despachante que a faça, se recusa a executar para outro
 usuário ou organização, aplica a política `access` da entrada e valida os
-argumentos contra o esquema dela sem coerção de tipos. Quando um turno de chat
-continua como uma execução durável em segundo plano, o callback roda novamente,
-mas o turno mantém seus nomes originais: entradas novas ficam de fora, e um nome
-que desapareceu retorna um erro quando chamado.
+argumentos contra o esquema dela sem coerção de tipos.
+
+Os nomes só são fixados quando um turno de chat hospedado continua como uma
+execução durável em segundo plano. O callback roda novamente, e o turno mantém
+seus nomes originais tanto para essas entradas quanto para as ferramentas MCP de
+quem chama: entradas novas ficam de fora, um nome que desapareceu retorna um
+erro quando chamado, e um nome que permanece executa sua definição atual. Toda
+outra requisição é resolvida de novo, incluindo cada continuação em um sidecar
+local, e um stream interrompido que se reconecta à sua execução não resolve
+nada.
+
+Coloque a identidade do vínculo no nome, como um id de janela ou um escopo
+(`notes_window_42_insert`), para que um novo vínculo seja lido como uma
+ferramenta saindo e outra aparecendo. As aprovações de "Sempre permitir" seguem
+o nome da ferramenta, então continuam valendo quando o mesmo nome passa a
+significar algo novo.
 
 Essas entradas são ferramentas nativas apenas para o loop do agente. Como as
 ferramentas MCP de quem chama, elas não são acessíveis a partir de `run-code` ou

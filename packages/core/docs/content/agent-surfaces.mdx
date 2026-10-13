@@ -241,9 +241,20 @@ metadata a user registered.
 Each entry is bound to the caller it was resolved for. Every call, whichever
 dispatcher makes it, refuses to run for a different user or organization,
 enforces the entry's `access` policy, and validates the arguments against its
-schema without type coercion. When a chat turn continues as a durable background
-run, the callback runs again but the turn keeps its original names: new entries
-stay out, and a name that disappeared returns an error when called.
+schema without type coercion.
+
+Names are pinned only when a hosted chat turn continues as a durable background
+run. The callback runs again, and the turn keeps its original names for these
+entries and the caller's MCP tools alike: new entries stay out, a name that
+disappeared returns an error when called, and a name that remains runs its
+current definition. Every other request resolves fresh, including each
+continuation on a local sidecar, and a dropped stream that reattaches to its run
+resolves nothing.
+
+Put the binding's identity in the name, such as a window id or scope
+(`notes_window_42_insert`), so a rebind reads as one tool leaving and another
+appearing. "Always allow" approvals follow the tool name, so they carry over
+when the same name later means something new.
 
 These entries are native tools for the agent loop only. Like the caller's MCP
 tools, they aren't reachable from `run-code` or `tool-orchestration`.
