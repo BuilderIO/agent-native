@@ -259,10 +259,14 @@ export function useNativeLocalExportRequests(args: {
       if (registering || controller.signal.aborted) return;
       registering = true;
       try {
-        await callAction("register-native-render-context", {
-          designId,
-          documentId,
-        });
+        await callAction(
+          "register-native-render-context",
+          {
+            designId,
+            documentId,
+          },
+          { signal: controller.signal, timeoutMs: 8_000 },
+        );
         registrationFailures = 0;
       } catch (error) {
         registrationFailures += 1;
