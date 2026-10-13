@@ -16,6 +16,7 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,7 @@ import {
 } from "@/components/ui/popover";
 import {
   MAX_BROWSER_FIG_BYTES,
+  MAX_BROWSER_FIG_GB,
   MAX_BROWSER_FIG_MB,
   validateFigUploadFile,
 } from "@/lib/design-file-upload";
@@ -159,6 +161,11 @@ export function HomeImportButton() {
                 <DropdownMenuGroup>
                   <DropdownMenuItem onSelect={pickFile}>
                     {t("home.figmaFile")}
+                    <DropdownMenuShortcut>
+                      {t("home.figmaFileMaxSize", {
+                        max: formatters.formatNumber(MAX_BROWSER_FIG_GB),
+                      })}
+                    </DropdownMenuShortcut>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() => {

@@ -1200,7 +1200,7 @@ export default {
       figUploadProcessing: "Convirtiendo…",
       figImportWarningTitle: "Importación .fig grande",
       figImportWarningDescription:
-        "Este archivo contiene {{frames}} marcos y {{nodes}} capas. Importarlo todo puede ralentizar el editor. Elige los marcos que necesitas.",
+        "Este archivo contiene {{frames}} marcos y {{nodes}} capas. Importarlo todo puede ralentizar el editor. Elige las páginas que necesitas.",
       figImportFrameCount: "{{selected}} de {{total}} marcos seleccionados",
       figImportSelectAll: "Seleccionar todo",
       figImportClearAll: "Borrar todo",
@@ -1209,6 +1209,10 @@ export default {
       figImportAll: "Importar todo",
       figImportAnalyzing: "Analizando…",
       figImportSaving: "Guardando {{saved}} de {{total}} marcos",
+      figImportFrameLimit: "Elige páginas con {{max}} marcos o menos en total.",
+      figImportFramesSkippedWarning:
+        "Se omitieron {{count}} marcos demasiado complejos para importar: {{names}}",
+      figUploadLimits: "Hasta {{size}} GB · {{frames}} marcos por importación",
       figUploadDescriptionShort:
         "Importación local — sin cuota de la API de Figma. Se incluyen las imágenes incrustadas compatibles.",
       figUploadImagesSkippedWarning:
@@ -2110,6 +2114,7 @@ export default {
     figmaLink: "Enlace de Figma",
     importFromFigma: "Importar desde Figma",
     figmaFile: "Archivo de Figma (.fig)",
+    figmaFileMaxSize: "Hasta {{max}} GB",
     openImport: "Abrir importación",
     importSelectedFile: "Importar archivo seleccionado",
     starterSaasPrompt:

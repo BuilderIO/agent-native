@@ -38,6 +38,8 @@ export interface ImportResult {
   unresolvedImages?: number;
   unresolvedImageRefCount?: number;
   skippedEmbeddedImageCount?: number;
+  /** Names of .fig frames left out because their generated HTML was too large. */
+  skippedFrames?: string[];
   matchStatus?: "matched" | "ambiguous" | "none" | "error";
   rateLimitRetryAfter?: number;
   rateLimitPlanTier?: string;

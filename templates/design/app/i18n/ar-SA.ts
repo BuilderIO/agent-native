@@ -1179,7 +1179,7 @@ export default {
       figUploadProcessing: "جار التحويل…",
       figImportWarningTitle: "استيراد .fig كبير",
       figImportWarningDescription:
-        "يحتوي هذا الملف على {{frames}} إطارًا و{{nodes}} طبقة. قد يؤدي استيراد كل شيء إلى إبطاء المحرر. اختر الإطارات التي تحتاجها.",
+        "يحتوي هذا الملف على {{frames}} إطارًا و{{nodes}} طبقة. قد يؤدي استيراد كل شيء إلى إبطاء المحرر. اختر الصفحات التي تحتاجها.",
       figImportFrameCount: "تم تحديد {{selected}} من أصل {{total}} إطارًا",
       figImportSelectAll: "تحديد الكل",
       figImportClearAll: "مسح الكل",
@@ -1188,6 +1188,11 @@ export default {
       figImportAll: "استيراد الكل",
       figImportAnalyzing: "جار التحليل…",
       figImportSaving: "جار حفظ {{saved}} من أصل {{total}} إطارًا",
+      figImportFrameLimit: "اختر صفحات لا يتجاوز مجموع إطاراتها {{max}} إطار.",
+      figImportFramesSkippedWarning:
+        "تم تخطي {{count}} إطارًا لأنها معقدة جدًا للاستيراد: {{names}}",
+      figUploadLimits:
+        "حتى {{size}} غيغابايت · {{frames}} إطار لكل عملية استيراد",
       figUploadDescriptionShort:
         "استيراد محلي — بلا حصة من واجهة Figma. يتم تضمين الصور المضمّنة المدعومة.",
       figUploadImagesSkippedWarning:
@@ -2063,6 +2068,7 @@ export default {
     figmaLink: "رابط Figma",
     importFromFigma: "الاستيراد من Figma",
     figmaFile: "ملف Figma (.fig)",
+    figmaFileMaxSize: "حتى {{max}} غيغابايت",
     openImport: "فتح الاستيراد",
     importSelectedFile: "استيراد الملف المحدد",
     starterSaasPrompt:

@@ -1159,7 +1159,7 @@ export default {
       figUploadProcessing: "正在转换…",
       figImportWarningTitle: "大型 .fig 导入",
       figImportWarningDescription:
-        "此文件包含 {{frames}} 个画框和 {{nodes}} 个图层。全部导入可能会让编辑器变慢。请选择需要的画框。",
+        "此文件包含 {{frames}} 个画框和 {{nodes}} 个图层。全部导入可能会让编辑器变慢。请选择需要的页面。",
       figImportFrameCount: "已选择 {{selected}} / {{total}} 个画框",
       figImportSelectAll: "全选",
       figImportClearAll: "全部清除",
@@ -1168,6 +1168,10 @@ export default {
       figImportAll: "全部导入",
       figImportAnalyzing: "正在分析…",
       figImportSaving: "正在保存 {{saved}} / {{total}} 个画框",
+      figImportFrameLimit: "所选页面的画框总数不能超过 {{max}} 个。",
+      figImportFramesSkippedWarning:
+        "已跳过 {{count}} 个过于复杂、无法导入的画框：{{names}}",
+      figUploadLimits: "最大 {{size}} GB · 每次导入最多 {{frames}} 个画框",
       figUploadDescriptionShort:
         "本地导入 — 不使用 Figma API 配额。会包含受支持的嵌入图片。",
       figUploadImagesSkippedWarning:
@@ -2017,6 +2021,7 @@ export default {
     figmaLink: "Figma 链接",
     importFromFigma: "从 Figma 导入",
     figmaFile: "Figma 文件 (.fig)",
+    figmaFileMaxSize: "最大 {{max}} GB",
     openImport: "打开导入",
     importSelectedFile: "导入所选文件",
     starterSaasPrompt:

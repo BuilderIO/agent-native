@@ -1314,7 +1314,7 @@ export default {
       figUploadProcessing: "轉換中…",
       figImportWarningTitle: "大型 .fig 匯入",
       figImportWarningDescription:
-        "此檔案包含 {{frames}} 個畫框和 {{nodes}} 個圖層。全部匯入可能會讓編輯器變慢。請選擇需要的畫框。",
+        "此檔案包含 {{frames}} 個畫框和 {{nodes}} 個圖層。全部匯入可能會讓編輯器變慢。請選擇需要的頁面。",
       figImportFrameCount: "已選取 {{selected}} / {{total}} 個畫框",
       figImportSelectAll: "全選",
       figImportClearAll: "全部清除",
@@ -1323,6 +1323,10 @@ export default {
       figImportAll: "全部匯入",
       figImportAnalyzing: "分析中…",
       figImportSaving: "正在儲存 {{saved}} / {{total}} 個畫框",
+      figImportFrameLimit: "所選頁面的畫框總數不能超過 {{max}} 個。",
+      figImportFramesSkippedWarning:
+        "已略過 {{count}} 個過於複雜、無法匯入的畫框：{{names}}",
+      figUploadLimits: "最大 {{size}} GB · 每次匯入最多 {{frames}} 個畫框",
       figmaPasteBodyUnlimited:
         "不需要 Figma 權杖即可使用 — 幾何、版面和文字立即匯入。",
       figmaPasteBodyImages:
@@ -2120,6 +2124,7 @@ export default {
     figmaLink: "Figma 連結",
     importFromFigma: "從 Figma 匯入",
     figmaFile: "Figma 檔案 (.fig)",
+    figmaFileMaxSize: "最大 {{max}} GB",
     openImport: "開啟匯入",
     importSelectedFile: "匯入所選檔案",
     starterSaasPrompt:

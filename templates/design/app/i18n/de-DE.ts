@@ -1204,7 +1204,7 @@ export default {
       figUploadProcessing: "Wird konvertiert…",
       figImportWarningTitle: "Großer .fig-Import",
       figImportWarningDescription:
-        "Diese Datei enthält {{frames}} Frames und {{nodes}} Ebenen. Alles zu importieren kann den Editor verlangsamen. Wähle die benötigten Frames aus.",
+        "Diese Datei enthält {{frames}} Frames und {{nodes}} Ebenen. Alles zu importieren kann den Editor verlangsamen. Wähle die benötigten Seiten aus.",
       figImportFrameCount: "{{selected}} von {{total}} Frames ausgewählt",
       figImportSelectAll: "Alle auswählen",
       figImportClearAll: "Alle löschen",
@@ -1213,6 +1213,11 @@ export default {
       figImportAll: "Alle importieren",
       figImportAnalyzing: "Wird analysiert…",
       figImportSaving: "{{saved}} von {{total}} Frames werden gespeichert",
+      figImportFrameLimit:
+        "Wähle Seiten mit insgesamt höchstens {{max}} Frames aus.",
+      figImportFramesSkippedWarning:
+        "{{count}} Frames waren zu komplex für den Import und wurden übersprungen: {{names}}",
+      figUploadLimits: "Bis zu {{size}} GB · {{frames}} Frames pro Import",
       figUploadDescriptionShort:
         "Lokaler Import — kein Figma-API-Kontingent. Unterstützte eingebettete Bilder werden eingeschlossen.",
       figUploadImagesSkippedWarning:
@@ -2132,6 +2137,7 @@ export default {
     figmaLink: "Figma-Link",
     importFromFigma: "Aus Figma importieren",
     figmaFile: "Figma-Datei (.fig)",
+    figmaFileMaxSize: "Bis zu {{max}} GB",
     openImport: "Import öffnen",
     importSelectedFile: "Ausgewählte Datei importieren",
     starterSaasPrompt:

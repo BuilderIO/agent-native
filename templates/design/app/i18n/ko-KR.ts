@@ -1184,7 +1184,7 @@ export default {
       figUploadProcessing: "변환 중…",
       figImportWarningTitle: "대용량 .fig 가져오기",
       figImportWarningDescription:
-        "이 파일에는 프레임 {{frames}}개와 레이어 {{nodes}}개가 있습니다. 모두 가져오면 편집기가 느려질 수 있습니다. 필요한 프레임을 선택하세요.",
+        "이 파일에는 프레임 {{frames}}개와 레이어 {{nodes}}개가 있습니다. 모두 가져오면 편집기가 느려질 수 있습니다. 필요한 페이지를 선택하세요.",
       figImportFrameCount: "{{total}}개 중 {{selected}}개 프레임 선택",
       figImportSelectAll: "모두 선택",
       figImportClearAll: "모두 지우기",
@@ -1193,6 +1193,11 @@ export default {
       figImportAll: "모두 가져오기",
       figImportAnalyzing: "분석 중…",
       figImportSaving: "{{total}}개 중 {{saved}}개 프레임 저장 중",
+      figImportFrameLimit:
+        "프레임 합계가 {{max}}개 이하가 되도록 페이지를 선택하세요.",
+      figImportFramesSkippedWarning:
+        "너무 복잡해서 가져올 수 없는 프레임 {{count}}개를 건너뛰었습니다: {{names}}",
+      figUploadLimits: "최대 {{size}}GB · 가져오기당 프레임 {{frames}}개",
       figUploadDescriptionShort:
         "로컬 가져오기 — Figma API 할당량을 사용하지 않습니다. 지원되는 포함 이미지가 포함됩니다.",
       figUploadImagesSkippedWarning:
@@ -2083,6 +2088,7 @@ export default {
     figmaLink: "Figma 링크",
     importFromFigma: "Figma에서 가져오기",
     figmaFile: "Figma 파일 (.fig)",
+    figmaFileMaxSize: "최대 {{max}}GB",
     openImport: "가져오기 열기",
     importSelectedFile: "선택한 파일 가져오기",
     starterSaasPrompt:

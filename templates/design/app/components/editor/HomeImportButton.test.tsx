@@ -70,6 +70,8 @@ vi.mock("@/components/ui/input", () => ({
 
 let root: Root;
 let container: HTMLDivElement;
+// The .fig item shows its size limit beside the label.
+const FIG_MENU_ITEM = "home.figmaFilehome.figmaFileMaxSize";
 const figmaUrl =
   "https://www.figma.com/design/example-file/Example?node-id=1-2";
 async function click(text: string) {
@@ -188,7 +190,7 @@ describe("home Figma import", () => {
     await openMenu();
     expect(document.querySelector('[role="menu"]')).not.toBeNull();
     expect(picker).not.toHaveBeenCalled();
-    await click("home.figmaFile");
+    await click(FIG_MENU_ITEM);
     expect(picker).toHaveBeenCalledOnce();
     expect(input.accept).toBe(".fig");
     expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -208,13 +210,13 @@ describe("home Figma import", () => {
         document.querySelectorAll('[role="menuitem"]'),
         (item) => item.textContent,
       ),
-    ).toEqual(["home.figmaFile", "home.figmaLink"]);
+    ).toEqual([FIG_MENU_ITEM, "home.figmaLink"]);
     expect(
       Array.from(
         document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
       ).every((item) => !item.querySelector("svg")),
     ).toBe(true);
-    await click("home.figmaFile");
+    await click(FIG_MENU_ITEM);
     expect(picker).toHaveBeenCalledOnce();
     expect(document.querySelector('input[type="url"]')).toBeNull();
   });

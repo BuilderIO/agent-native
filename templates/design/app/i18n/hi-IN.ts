@@ -1182,7 +1182,7 @@ export default {
       figUploadProcessing: "बदला जा रहा है…",
       figImportWarningTitle: "बड़ा .fig आयात",
       figImportWarningDescription:
-        "इस फ़ाइल में {{frames}} फ़्रेम और {{nodes}} लेयर हैं। सब कुछ आयात करने से एडिटर धीमा हो सकता है। ज़रूरी फ़्रेम चुनें।",
+        "इस फ़ाइल में {{frames}} फ़्रेम और {{nodes}} लेयर हैं। सब कुछ आयात करने से एडिटर धीमा हो सकता है। ज़रूरी पेज चुनें।",
       figImportFrameCount: "{{total}} में से {{selected}} फ़्रेम चुने गए",
       figImportSelectAll: "सभी चुनें",
       figImportClearAll: "सभी हटाएँ",
@@ -1191,6 +1191,10 @@ export default {
       figImportAll: "सभी आयात करें",
       figImportAnalyzing: "विश्लेषण हो रहा है…",
       figImportSaving: "{{total}} में से {{saved}} फ़्रेम सहेजे जा रहे हैं",
+      figImportFrameLimit: "ऐसे पेज चुनें जिनमें कुल {{max}} या उससे कम फ़्रेम हों।",
+      figImportFramesSkippedWarning:
+        "आयात के लिए बहुत जटिल {{count}} फ़्रेम छोड़ दिए गए: {{names}}",
+      figUploadLimits: "अधिकतम {{size}} GB · प्रति आयात {{frames}} फ़्रेम",
       figUploadDescriptionShort:
         "स्थानीय आयात — Figma API कोटा नहीं। समर्थित एम्बेडेड छवियाँ शामिल की जाती हैं।",
       figUploadImagesSkippedWarning:
@@ -2070,6 +2074,7 @@ export default {
     figmaLink: "Figma लिंक",
     importFromFigma: "Figma से आयात करें",
     figmaFile: "Figma फ़ाइल (.fig)",
+    figmaFileMaxSize: "अधिकतम {{max}} GB",
     openImport: "आयात खोलें",
     importSelectedFile: "चुनी गई फ़ाइल आयात करें",
     starterSaasPrompt:

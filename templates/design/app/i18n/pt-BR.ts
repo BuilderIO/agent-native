@@ -1197,7 +1197,7 @@ export default {
       figUploadProcessing: "Convertendo…",
       figImportWarningTitle: "Importação de .fig grande",
       figImportWarningDescription:
-        "Este arquivo contém {{frames}} quadros e {{nodes}} camadas. Importar tudo pode deixar o editor lento. Escolha os quadros necessários.",
+        "Este arquivo contém {{frames}} quadros e {{nodes}} camadas. Importar tudo pode deixar o editor lento. Escolha as páginas necessárias.",
       figImportFrameCount: "{{selected}} de {{total}} quadros selecionados",
       figImportSelectAll: "Selecionar tudo",
       figImportClearAll: "Limpar tudo",
@@ -1206,6 +1206,11 @@ export default {
       figImportAll: "Importar tudo",
       figImportAnalyzing: "Analisando…",
       figImportSaving: "Salvando {{saved}} de {{total}} quadros",
+      figImportFrameLimit:
+        "Escolha páginas com {{max}} quadros ou menos no total.",
+      figImportFramesSkippedWarning:
+        "{{count}} quadros complexos demais para importar foram ignorados: {{names}}",
+      figUploadLimits: "Até {{size}} GB · {{frames}} quadros por importação",
       figUploadDescriptionShort:
         "Importação local — sem cota da API do Figma. As imagens incorporadas compatíveis são incluídas.",
       figUploadImagesSkippedWarning:
@@ -2107,6 +2112,7 @@ export default {
     figmaLink: "Link do Figma",
     importFromFigma: "Importar do Figma",
     figmaFile: "Arquivo do Figma (.fig)",
+    figmaFileMaxSize: "Até {{max}} GB",
     openImport: "Abrir importação",
     importSelectedFile: "Importar arquivo selecionado",
     starterSaasPrompt:
