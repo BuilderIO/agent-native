@@ -7,9 +7,19 @@ import { createDbExec, getDbExec, type DbExec } from "@agent-native/core/db";
 import { getAppConfig } from "@agent-native/core/server";
 import { ForbiddenError } from "@agent-native/core/sharing";
 
+import {
+  isThreadDebugNoiseEventType,
+  THREAD_DEBUG_NOISE_EVENT_TYPES,
+} from "../../shared/thread-debug-noise.js";
 import { isDispatchEnvironmentAdmin } from "./admin-config.js";
 import { currentOrgId, currentOwnerEmail } from "./dispatch-store.js";
 
+const NOISE_EVENT_SQL_FILTER = THREAD_DEBUG_NOISE_EVENT_TYPES.map(
+  () => "AND event_data NOT LIKE ?",
+).join("\n                ");
+const NOISE_EVENT_SQL_PARAMS = THREAD_DEBUG_NOISE_EVENT_TYPES.map(
+  (type) => `{"type":"${type}"%`,
+);
 const CONFIG_ENV_KEY = "AGENT_NATIVE_THREAD_DEBUG_DATABASES";
 const MAX_RAW_PREVIEW_CHARS = 1_500;
 const DEFAULT_SEARCH_LIMIT = 25;
@@ -1071,19 +1081,19 @@ export async function getAgentThreadDebug(input: {
                FROM agent_run_events
               WHERE run_id = ?
                 AND seq > ?
-                AND event_data NOT LIKE '{"type":"tool_input_delta"%'
-                AND event_data NOT LIKE '{"type":"thinking"%'
-                AND event_data NOT LIKE '{"type":"text"%'
-                AND event_data NOT LIKE '{"type":"stream_keepalive"%'
-                AND event_data NOT LIKE '{"type":"activity"%'
+                ${NOISE_EVENT_SQL_FILTER}
               ORDER BY seq ASC
               LIMIT ?`,
-            [run.id, lastSeq, maxEvents],
+            [run.id, lastSeq, ...NOISE_EVENT_SQL_PARAMS, maxEvents],
           )
         : [];
-    runs.push(
-      serializeRun(run, [...eventRows, ...laterRows].map(parseRunEvent)),
-    );
+    // The SQL prefix match is only a fast path; drop any noise event whose
+    // serialized keys did not start with "type".
+    const events = eventRows.map(parseRunEvent);
+    for (const entry of laterRows.map(parseRunEvent)) {
+      if (!isThreadDebugNoiseEventType(entry.event?.type)) events.push(entry);
+    }
+    runs.push(serializeRun(run, events));
   }
 
   const runIds = runRows.map((run) => run.id);

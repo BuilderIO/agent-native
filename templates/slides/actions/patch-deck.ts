@@ -769,25 +769,45 @@ async function resolvePatchSlideEdits(
   operations: Operation[],
   slides: Array<{ id?: unknown; content?: unknown }>,
 ): Promise<Operation[]> {
-  return Promise.all(
-    operations.map(async (operation) => {
-      if (operation.op !== "patch-slide" || !operation.edits) return operation;
-      const slide = slides.find((entry) => entry?.id === operation.slideId);
-      if (!slide) return operation;
-      const currentContent = String(slide.content ?? "");
-      const { edits, ...rest } = operation;
-      const patched = await applySlideContentEdits(
-        currentContent,
-        edits as SlideContentEdit[],
-      );
-      return {
-        ...rest,
-        fields: { ...rest.fields, content: patched.content },
-        baseContentHash:
-          rest.baseContentHash ?? hashSlideContent(currentContent),
-      };
-    }),
-  );
+  // Resolved in order so a later op on the same slide builds on the content
+  // an earlier op produced instead of clobbering it. baseContentHash still
+  // names the pre-batch content, which is what the stale check compares.
+  const pendingContent = new Map<string, string>();
+  const resolved: Operation[] = [];
+  for (const operation of operations) {
+    if (operation.op !== "patch-slide") {
+      resolved.push(operation);
+      continue;
+    }
+    if (!operation.edits) {
+      if (operation.fields.content !== undefined) {
+        pendingContent.set(operation.slideId, operation.fields.content);
+      }
+      resolved.push(operation);
+      continue;
+    }
+    const slide = slides.find((entry) => entry?.id === operation.slideId);
+    if (!slide) {
+      resolved.push(operation);
+      continue;
+    }
+    const originalContent = String(slide.content ?? "");
+    const currentContent =
+      pendingContent.get(operation.slideId) ?? originalContent;
+    const { edits, ...rest } = operation;
+    const patched = await applySlideContentEdits(
+      currentContent,
+      edits as SlideContentEdit[],
+    );
+    pendingContent.set(operation.slideId, patched.content);
+    resolved.push({
+      ...rest,
+      fields: { ...rest.fields, content: patched.content },
+      baseContentHash:
+        rest.baseContentHash ?? hashSlideContent(originalContent),
+    });
+  }
+  return resolved;
 }
 
 const AgentPatchDeckInputSchema = z.object({
