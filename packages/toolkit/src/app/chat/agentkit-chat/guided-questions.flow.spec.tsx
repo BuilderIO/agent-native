@@ -759,6 +759,38 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     }
   });
 
+  it("does not announce a submit whose send reports no delivery result", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), (key) =>
+          key === "guided-questions:tab123" ? JSON.stringify(payload) : "",
+        ),
+      ),
+    );
+    const announced: unknown[] = [];
+    const listener = (event: Event) => announced.push(event);
+    window.addEventListener(GUIDED_QUESTIONS_SUBMITTED_EVENT, listener);
+    const onSubmitMessage = vi.fn(() => undefined);
+    try {
+      const result = await renderFlow({
+        stateKey: "guided-questions",
+        queryKey: ["guided-questions"],
+        browserTabId: "tab123",
+        refetchInterval: false,
+        onSubmitMessage,
+      });
+      await act(async () => {
+        result.current().handleSubmit({ q1: "7d" });
+        await flush();
+      });
+      expect(onSubmitMessage).toHaveBeenCalledTimes(1);
+      expect(announced).toEqual([]);
+    } finally {
+      window.removeEventListener(GUIDED_QUESTIONS_SUBMITTED_EVENT, listener);
+    }
+  });
+
   it("still delivers the answers when an announcement listener throws", async () => {
     vi.stubGlobal(
       "fetch",

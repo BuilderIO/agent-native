@@ -1099,7 +1099,7 @@ export type PendingQuestionRefetchResult =
 
 /**
  * Window event dispatched once per human submit of a guided question card,
- * only when the flow's `onSubmitMessage` confirms delivery, so apps can
+ * only when the flow's `onSubmitMessage` resolves `{ delivered: true }`, so apps can
  * observe answers (for example, which option was picked) without owning the
  * flow.
  */
@@ -1276,8 +1276,8 @@ export function useGuidedQuestionFlow({
     ) => {
       if (submissionInFlightRef.current) return;
       const result = send();
+      // A synchronous send reports no delivery, so it is never announced.
       if (!result) {
-        onDelivered?.();
         clear();
         return;
       }
