@@ -93,10 +93,13 @@ const PINNED_EVALUATIONS = [
   {
     fixtureRevision: "synthetic-analytics-retrieval-v12",
     baselineRevision: "1999aef1ad68dcf9d44423fa95df1a7acb67e8c5",
-    baselineCodeRevision: `sha256:${"0".repeat(64)}`,
-    candidateRevision: "1111111111111111111111111111111111111111",
-    candidateCodeRevision: `sha256:${"1".repeat(64)}`,
-    harnessRevision: `sha256:${"2".repeat(64)}`,
+    baselineCodeRevision:
+      "sha256:5bf2d8b224e03b2fb8081a0f61e6e626d420a51c2a3de60c6d6d50595063e8f7",
+    candidateRevision: "35fdffa8f309e2a7820d6c6e1e5decad04ebf989",
+    candidateCodeRevision:
+      "sha256:7b4e074cb1b62a254e00af4924c37ac923ff280dfdf74b63fb000a207d929e38",
+    harnessRevision:
+      "sha256:ca70d1a86c17bff2777ac22b4428f4f4370e4d71ad96e60266f22a54a6ba2792",
     caseIds: V12_CASE_IDS,
   },
 ] as const satisfies readonly PinnedEvaluation[];
@@ -386,6 +389,21 @@ export function validateProductionPathComparisonCsv(
     ) {
       throw new Error(
         "Comparison CSV has an invalid successful production-path score.",
+      );
+    }
+    if (
+      ["rank_1", "ranked_below_1", "candidate_missing"].includes(
+        row.reason_code,
+      ) &&
+      (!row.completed ||
+        row.aborted ||
+        row.find_data_calls !== 1 ||
+        row.other_action_calls !== 0 ||
+        row.failed_action_calls !== 0 ||
+        row.llm_calls === 0)
+    ) {
+      throw new Error(
+        "Comparison CSV retrieval ranks require a complete, valid production-path run.",
       );
     }
     if (row.score === 0 && row.reason_code === "rank_1") {

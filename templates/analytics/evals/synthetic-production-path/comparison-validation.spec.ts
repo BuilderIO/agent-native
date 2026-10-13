@@ -26,6 +26,12 @@ const V11_COMPARISON_CSV = fileURLToPath(
     import.meta.url,
   ),
 );
+const V12_COMPARISON_CSV = fileURLToPath(
+  new URL(
+    "./SYNTHETIC-analytics-production-path-v12-before-after.csv",
+    import.meta.url,
+  ),
+);
 const CSV_COLUMNS = [
   "case_id",
   "phase",
@@ -170,6 +176,17 @@ describe("Analytics synthetic production-path comparison artifact", () => {
 
     expect(() => validateProductionPathComparisonCsv(rows.join("\n"))).toThrow(
       "invalid expected rank",
+    );
+  });
+
+  it("rejects retrieval ranks without a completed production-path action", () => {
+    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    const columns = rows[1]!.split(",");
+    columns[11] = "0";
+    rows[1] = columns.join(",");
+
+    expect(() => validateProductionPathComparisonCsv(rows.join("\n"))).toThrow(
+      "retrieval ranks require a complete, valid production-path run",
     );
   });
 
@@ -320,6 +337,37 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     });
     expect(result.before.revision).not.toBe(result.after.revision);
     expect(result.before.codeRevision).not.toBe(result.after.codeRevision);
+  });
+
+  it("validates the v12 measurement and reports its baseline misses", async () => {
+    const csv = await readFile(V12_COMPARISON_CSV, "utf8");
+    const result = validateProductionPathComparisonCsv(csv);
+
+    expect(result).toMatchObject({
+      cases: 20,
+      before: {
+        rows: 40,
+        top1: 6,
+        retrievalTop1: 6,
+        hitAt5: 18,
+        failedRuns: 34,
+        abortedRuns: 0,
+        revision: PRODUCTION_PATH_BASELINE_REVISION,
+        codeRevision: PRODUCTION_PATH_BASELINE_CODE_REVISION,
+        harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
+      },
+      after: {
+        rows: 40,
+        top1: 40,
+        retrievalTop1: 40,
+        hitAt5: 40,
+        failedRuns: 0,
+        abortedRuns: 0,
+        revision: PRODUCTION_PATH_CANDIDATE_REVISION,
+        codeRevision: PRODUCTION_PATH_CANDIDATE_CODE_REVISION,
+        harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
+      },
+    });
   });
 
 });

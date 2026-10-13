@@ -15,13 +15,52 @@ read credentials or call an embedding provider. The action allowlist contains
 only `find-data`; warehouse and connected-data actions are unavailable to the
 loop.
 
+## Current v12 comparison (candidate snapshot `35fdffa8`)
+
+The checked-in v12 artifact runs twenty synthetic cases twice in each phase
+through the same production agent loop. The baseline is `origin/main` at
+`1999aef1ad68dcf9d44423fa95df1a7acb67e8c5`; the candidate is
+`35fdffa8f309e2a7820d6c6e1e5decad04ebf989`. The fixture adds long exclusion
+phrases and independent or negated removal clauses to the existing retrieval
+cases. All prompts and identities are invented.
+
+The baseline passed both retrieval and production-path checks in 6/40 runs
+(15%) and retrieved the expected candidate in the top five in 18/40 (45%). The
+candidate passed 40/40 (100%) on both measures. All 80 runs completed without
+aborts; each made one `find-data` call and no other or failed action. Each run
+also exercised the production prompt, caller and organization context, final
+response guard, and usage capture. These are deterministic synthetic retrieval
+and path-integrity scores, not hosted-model answer quality, real production
+latency, or a re-run of private user transcripts.
+
+The fixture supplies nonzero synthetic source-index scan counts to check that
+the action reports omitted entries, omitted fields, truncated fields, and
+unresolved tracking call sites. It does not execute `build-source-index.ts` or
+measure production-index completeness. The CSV contains only case IDs,
+provenance, coded scores and ranks, action counts, completion state, usage
+totals, and elapsed time; it contains no prompts, tool inputs, SQL, identities,
+or source values. The artifact is
+[`SYNTHETIC-analytics-production-path-v12-before-after.csv`](./SYNTHETIC-analytics-production-path-v12-before-after.csv).
+
+Evaluated code hashes are
+`sha256:5bf2d8b224e03b2fb8081a0f61e6e626d420a51c2a3de60c6d6d50595063e8f7`
+before and
+`sha256:7b4e074cb1b62a254e00af4924c37ac923ff280dfdf74b63fb000a207d929e38`
+after. Both phases use the same harness bytes, hash
+`sha256:ca70d1a86c17bff2777ac22b4428f4f4370e4d71ad96e60266f22a54a6ba2792`.
+The harness checks source bytes against the pinned commits when producing the
+CSV. The checked-in validator checks the recorded hashes against reviewed
+constants; it does not recompute Git-object hashes.
+
+The validator keeps failed and aborted runs in the comparison with score zero,
+so a regression remains reportable instead of suppressing the CSV. A separate
+production-path test still fails when a candidate run does not pass.
+
 ## Historical v11 comparison (candidate snapshot `fb583843`)
 
-This is the latest checked-in comparison, but it measures candidate commit
-`fb583843666f597c9eced3d7f4f297fd5cdcec26`, not the current branch. Later
-ranking and source-index changes are not covered by its 32/32 after score. Treat
-v11 as historical evidence and do not use that score as a claim about current
-branch quality until a fresh comparison is recorded. Its fixture supplies a
+This historical comparison measures candidate commit
+`fb583843666f597c9eced3d7f4f297fd5cdcec26`. Later ranking and source-index
+changes are not covered by its 32/32 after score. Its fixture supplies a
 hard-coded synthetic source index and does not invoke `build-source-index.ts`.
 
 The v11 comparison adds the case `negated-counts-preserve-role-detail` to cover
@@ -37,8 +76,9 @@ before and
 `sha256:2b0445b08a32d9afabc18ba1e429ee07898ad7033c4575d70e46ac6f184f9358`
 after. Both phases use the candidate harness, whose hash is
 `sha256:b9acd1d7c3c9758d57a4485fd56a72c7954ad2b3fefe74f128fc16fb1ca18472`.
-The validator recomputes code and harness hashes from the pinned Git objects;
-it does not accept a hash just because it has valid SHA-256 syntax.
+Generation checks compare the harness and production source bytes with pinned
+Git objects. The checked-in validator compares the CSV's hash fields with its
+pinned constants; it does not independently read Git objects.
 
 Top-1 retrieval rose from 6/32 to 32/32 runs (18.75% to 100%). Hit@5 rose from
 18/32 to 32/32 (56.25% to 100%). The added role-detail case moved from rank 4
