@@ -2105,6 +2105,50 @@ describe("queryFirstPartyAnalytics", () => {
     );
   });
 
+  it("records query pressure when a cached query times out with no remaining waiters", async () => {
+    vi.useFakeTimers();
+    healthMocks.outcome.mockReturnValueOnce("timeout");
+    let markQueryStarted!: () => void;
+    const queryStarted = new Promise<void>((resolve) => {
+      markQueryStarted = resolve;
+    });
+    execute.mockImplementation(({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT result FROM first_party_analytics_cache")) {
+        return Promise.resolve({ rows: [], rowsAffected: 0 });
+      }
+      if (sql.includes("first_party_analytics_query")) {
+        markQueryStarted();
+        return new Promise(() => {});
+      }
+      return Promise.resolve({ rows: [], rowsAffected: 0 });
+    });
+
+    try {
+      const query = queryFirstPartyAnalytics(
+        "SELECT COUNT(*) AS count FROM analytics_events",
+        { userEmail: "cached-timeout@example.com", orgId: null },
+        { cache: true, timeoutMs: 100 },
+      );
+      const queryOutcome = query.then(
+        () => null,
+        (error: Error) => error,
+      );
+      await queryStarted;
+      await vi.advanceTimersByTimeAsync(100);
+
+      await expect(queryOutcome).resolves.toBeInstanceOf(
+        FirstPartyAnalyticsQueryTimeoutError,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(healthMocks.record).toHaveBeenCalledWith(
+      expect.objectContaining({ userEmail: "cached-timeout@example.com" }),
+      expect.objectContaining({ outcome: "timeout", queryClass: "raw-events" }),
+    );
+  });
+
   it("does not record query pressure when the uncached caller aborts", async () => {
     backendMocks.get.mockResolvedValueOnce({ sink: "postgres", table: null });
     let markQueryStarted!: () => void;

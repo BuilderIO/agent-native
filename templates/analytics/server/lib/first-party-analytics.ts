@@ -1593,7 +1593,10 @@ export async function queryFirstPartyAnalytics(
   const startedAt = Date.now();
   const deadlineAt = Date.now() + timeoutMs;
   const timeoutController = new AbortController();
-  const timeout = setTimeout(() => timeoutController.abort(), timeoutMs);
+  const timeout = setTimeout(
+    () => timeoutController.abort(new FirstPartyAnalyticsQueryTimeoutError()),
+    timeoutMs,
+  );
   const signal = options.signal
     ? AbortSignal.any([options.signal, timeoutController.signal])
     : timeoutController.signal;

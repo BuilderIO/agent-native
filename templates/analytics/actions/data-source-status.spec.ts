@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   resolveAnalyticsProviderCredential: vi.fn(),
   listWorkspaceConnectionGrants: vi.fn(async () => []),
   listWorkspaceConnections: vi.fn(async () => []),
+  workspaceProviderCatalog: [] as Array<Record<string, unknown>>,
   workspaceSummaryByProvider: {} as Record<string, Record<string, unknown>>,
   workspaceSummary: {
     appId: "analytics",
@@ -43,16 +44,8 @@ vi.mock("@agent-native/core/connections", () => ({
     credentialKeys: [],
     recommendedTemplateUses: ["analytics"],
   }),
-  listWorkspaceConnectionProvidersForTemplate: () => [
-    {
-      id: "hubspot",
-      label: "HubSpot",
-      description: null,
-      capabilities: [],
-      credentialKeys: [],
-      recommendedTemplateUses: ["analytics"],
-    },
-  ],
+  listWorkspaceConnectionProvidersForTemplate: () =>
+    mocks.workspaceProviderCatalog,
 }));
 
 vi.mock("@agent-native/core/workspace-connections", () => ({
@@ -95,6 +88,16 @@ describe("data-source-status", () => {
     mocks.listWorkspaceConnectionGrants.mockResolvedValue([]);
     mocks.listWorkspaceConnections.mockReset();
     mocks.listWorkspaceConnections.mockResolvedValue([]);
+    mocks.workspaceProviderCatalog = [
+      {
+        id: "hubspot",
+        label: "HubSpot",
+        description: null,
+        capabilities: [],
+        credentialKeys: [],
+        recommendedTemplateUses: ["analytics"],
+      },
+    ];
     mocks.workspaceSummaryByProvider = {};
     mocks.tryRequestCredentialContext.mockReturnValue({
       userEmail: "ada@example.com",
@@ -149,6 +152,62 @@ describe("data-source-status", () => {
       url: result.dataSourcesSetupLink,
       label: "Open Analytics data sources",
       view: "data-sources",
+    });
+  });
+
+  it("counts a connected workspace-only provider as configured", async () => {
+    mocks.workspaceProviderCatalog.push({
+      id: "dbt",
+      label: "dbt Cloud",
+      description: null,
+      capabilities: [],
+      credentialKeys: [],
+      recommendedTemplateUses: ["analytics"],
+    });
+    mocks.listWorkspaceConnections.mockResolvedValue([
+      { provider: "dbt" },
+    ] as any);
+    mocks.workspaceSummaryByProvider.dbt = {
+      ...mocks.workspaceSummary,
+      grantState: "connected",
+      grantAvailability: "available",
+      connectionCount: 1,
+      grantedConnectionCount: 1,
+      activeConnectionCount: 1,
+      hasWorkspaceConnection: true,
+      hasGrantedWorkspaceConnection: true,
+      hasActiveWorkspaceConnection: true,
+    };
+
+    const result = (await dataSourceStatus.run({})) as any;
+
+    expect(result).toMatchObject({
+      configuredDataSourceCount: 2,
+      configuredExternalDataSourceCount: 1,
+      configuredDataSources: expect.arrayContaining([
+        { provider: "dbt", label: "dbt Cloud", via: "workspace" },
+      ]),
+      connectedExternalDataSources: [
+        { provider: "dbt", label: "dbt Cloud", via: "workspace" },
+      ],
+      connectedExternalDataSourceCount: 1,
+    });
+    expect(result.providers).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ provider: "dbt" })]),
+    );
+
+    const focusedResult = (await dataSourceStatus.run({ key: "dbt" })) as any;
+    expect(focusedResult).toMatchObject({
+      configuredDataSourceCount: 2,
+      configuredExternalDataSourceCount: 1,
+      configuredDataSources: [
+        expect.objectContaining({ provider: "first-party", via: "built-in" }),
+        { provider: "dbt", label: "dbt Cloud", via: "workspace" },
+      ],
+      connectedExternalDataSources: [
+        { provider: "dbt", label: "dbt Cloud", via: "workspace" },
+      ],
+      connectedExternalDataSourceCount: 1,
     });
   });
 

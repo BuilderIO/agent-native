@@ -172,21 +172,22 @@ function waitUntilDeadline(
 
   entry.waiters += 1;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let waiterError: Error | undefined;
   const expired = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () =>
-        reject(
-          new Error(
-            `First-party analytics query timed out after ${timeoutMs}ms`,
-          ),
-        ),
-      remainingTimeoutMs(deadlineAt),
-    );
+    timer = setTimeout(() => {
+      waiterError = new Error(
+        `First-party analytics query timed out after ${timeoutMs}ms`,
+      );
+      reject(waiterError);
+    }, remainingTimeoutMs(deadlineAt));
   });
   let onAbort: (() => void) | undefined;
   const aborted = new Promise<never>((_, reject) => {
     if (!signal) return;
-    onAbort = () => reject(abortError(signal));
+    onAbort = () => {
+      waiterError = abortError(signal);
+      reject(waiterError);
+    };
     signal.addEventListener("abort", onAbort, { once: true });
     if (signal.aborted) onAbort();
   });
@@ -201,7 +202,9 @@ function waitUntilDeadline(
       !entry.settled &&
       !entry.controller.signal.aborted
     ) {
-      entry.controller.abort();
+      entry.controller.abort(
+        waiterError && isTimeoutError(waiterError) ? waiterError : undefined,
+      );
     }
   });
 }

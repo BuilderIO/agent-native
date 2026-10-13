@@ -41,6 +41,7 @@ function dataSourceSetupLink(provider: string): string {
 function requestedProviderIds(
   key: string | undefined,
   credentialKeys: string[],
+  workspaceProviders: Array<{ id: string; label: string }>,
 ): Set<string> | null {
   if (!key) return null;
 
@@ -53,6 +54,12 @@ function requestedProviderIds(
       normalize(provider.label) === normalizedKey,
   );
   if (directMatch) return new Set([directMatch.provider]);
+  const workspaceMatch = workspaceProviders.find(
+    (provider) =>
+      normalize(provider.id) === normalizedKey ||
+      normalize(provider.label) === normalizedKey,
+  );
+  if (workspaceMatch) return new Set([workspaceMatch.id]);
 
   const selectedKeys = new Set(credentialKeys);
   const associatedProviders = credentialProviderConfigs.filter((provider) =>
@@ -155,14 +162,22 @@ export default defineAction({
       });
     }
 
+    const workspaceCatalog =
+      listWorkspaceConnectionProvidersForTemplate(APP_ID);
+    const normalizedKey = args.key?.toLowerCase().replace(/[\s_-]+/g, "");
+    const workspaceProviderMatch = workspaceCatalog.some(
+      (provider) =>
+        provider.id.toLowerCase().replace(/[\s_-]+/g, "") ===
+          normalizedKey ||
+        provider.label.toLowerCase().replace(/[\s_-]+/g, "") ===
+          normalizedKey,
+    );
     const { configs, known } = resolveCredentialConfigs(args.key);
-    if (args.key && !known) {
+    if (args.key && !known && !workspaceProviderMatch) {
       return { error: `Unknown credential key: ${args.key}` };
     }
 
     const workspace = await listWorkspaceConnectionsForStatus();
-    const workspaceCatalog =
-      listWorkspaceConnectionProvidersForTemplate(APP_ID);
     const workspaceProviderIds = [
       ...new Set([
         ...workspaceCatalog.map((provider) => provider.id),
@@ -294,12 +309,33 @@ export default defineAction({
                   : "credentials",
         })),
     ];
-    const configuredExternalDataSources = configuredDataSources.filter(
-      (source) => source.provider !== BUILT_IN_FIRST_PARTY_PROVIDER.provider,
-    );
     const scopedProviderIds = requestedProviderIds(
       args.key,
       configs.map((config) => config.key),
+      workspaceProviderStatuses,
+    );
+    const configuredProviderIds = new Set(
+      configuredDataSources.map((source) => source.provider),
+    );
+    for (const provider of workspaceProviderStatuses) {
+      if (
+        (provider.grantState !== "connected" &&
+          provider.grantState !== "granted") ||
+        (scopedProviderIds && !scopedProviderIds.has(provider.id)) ||
+        configuredProviderIds.has(provider.id)
+      ) {
+        continue;
+      }
+      configuredDataSources.push({
+        provider: provider.id,
+        label: provider.label,
+        via:
+          provider.grantState === "connected" ? "workspace" : "workspace-grant",
+      });
+      configuredProviderIds.add(provider.id);
+    }
+    const configuredExternalDataSources = configuredDataSources.filter(
+      (source) => source.provider !== BUILT_IN_FIRST_PARTY_PROVIDER.provider,
     );
     // A credential being present is configuration, not a verified connection.
     // The workspace summary only reports "connected" when an app-accessible
