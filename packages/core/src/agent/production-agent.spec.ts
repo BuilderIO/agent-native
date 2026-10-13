@@ -46,6 +46,7 @@ import {
 import * as settingsStore from "../settings/store.js";
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { warnAgent } from "./action-warnings.js";
+import { approvalKeyForHistory } from "./approval-key.js";
 import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import type {
   AgentEngine,
@@ -459,6 +460,22 @@ describe("toolCallCacheKey", () => {
     expect(
       toolCallCacheKey("read-file", { query: "  Slides   generation " }),
     ).not.toBe(toolCallCacheKey("read-file", { query: "slides generation" }));
+  });
+});
+
+describe("approvalKeyForHistory", () => {
+  it("stores raw or malformed prefixed keys as opaque hashes", () => {
+    const rawKey = 'send-email:{"attachment":"data:image/png;base64,INLINE"}';
+    const storedKey = approvalKeyForHistory(rawKey);
+    const forgedKey = approvalKeyForHistory(
+      "agent-tool-approval-key-sha256:INLINE",
+    );
+
+    expect(storedKey).toMatch(/^agent-tool-approval-key-sha256:[a-f0-9]{64}$/);
+    expect(forgedKey).toMatch(/^agent-tool-approval-key-sha256:[a-f0-9]{64}$/);
+    expect(storedKey).not.toContain("INLINE");
+    expect(forgedKey).not.toContain("INLINE");
+    expect(approvalKeyForHistory(storedKey)).toBe(storedKey);
   });
 });
 
@@ -2478,7 +2495,7 @@ describe("buildUserContentWithAttachments", () => {
       },
     ];
     expect(
-      findApprovedStructuredToolCall(history, [approvalKey], ["ask-old"]),
+      findApprovedStructuredToolCall(history, ["stale-key"], ["ask-old"]),
     ).toEqual({
       status: "found",
       toolCall: {
@@ -2537,6 +2554,46 @@ describe("buildUserContentWithAttachments", () => {
         [approvalKey],
       ),
     ).toEqual({ status: "ambiguous" });
+  });
+
+  it("uses a persisted opaque approval key to select a legacy pending call", () => {
+    const approvalKey = approvalKeyForHistory(
+      'send-email:{"attachment":"data:image/png;base64,INLINE"}',
+    );
+    const history = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "call-1",
+            name: "send-email",
+            input: { attachment: "[inline image/png data omitted]" },
+            approvalKey,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            content: "The action paused before execution.",
+            approvalPause: true,
+          },
+        ],
+      },
+    ];
+
+    expect(findApprovedStructuredToolCall(history, [approvalKey])).toEqual({
+      status: "found",
+      toolCall: {
+        callId: "call-1",
+        name: "send-email",
+        input: { attachment: "[inline image/png data omitted]" },
+      },
+    });
   });
 
   it("ignores completed outputs that mention approval when finding the pending call", () => {
@@ -3778,6 +3835,94 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("fails closed when an approved call's input was redacted from history", async () => {
+    const engine = engineWithUncalledStream();
+    const runAction = vi.fn(async () => "sent");
+    const resolveApproval = vi.spyOn(
+      toolApprovalStore,
+      "resolveAgentToolApprovalTurnId",
+    );
+    const consumeApproval = vi.spyOn(
+      toolApprovalStore,
+      "consumeAgentToolApproval",
+    );
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: runAction,
+        },
+      },
+    });
+    const approvalKey = approvalKeyForHistory(
+      'send-email:{"attachment":"data:image/png;base64,INLINE"}',
+    );
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved. Continue.",
+          threadId: "thread-redacted-approval",
+          turnId: "turn-redacted-approval",
+          approvedToolCalls: [approvalKey],
+          approvedToolCallAskIds: ["ask-redacted-approval"],
+          structuredHistory: [
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  id: "call-redacted-approval",
+                  name: "send-email",
+                  input: { attachment: "[inline image/png data omitted]" },
+                  approvalKey,
+                  approvalAskId: "ask-redacted-approval",
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "call-redacted-approval",
+                  content: "Awaiting human approval.",
+                  approvalPause: true,
+                  approvalAskId: "ask-redacted-approval",
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(event.res.status).toBe(422);
+      expect(result).toEqual({
+        error: "The agent run failed.",
+        code: "approved_tool_call_input_unavailable",
+        retryable: false,
+      });
+      expect(resolveApproval).not.toHaveBeenCalled();
+      expect(consumeApproval).not.toHaveBeenCalled();
+      expect(engine.stream).not.toHaveBeenCalled();
+      expect(runAction).not.toHaveBeenCalled();
+    } finally {
+      resolveApproval.mockRestore();
+      consumeApproval.mockRestore();
+    }
+  });
+
   it("fails explicitly when an approved call is missing from structured history", async () => {
     const engine = engineWithUncalledStream();
     const handler = createProductionAgentHandler({

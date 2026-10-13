@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
+import { approvalKeyForHistory } from "./approval-key.js";
 import { LLM_MISSING_CREDENTIALS_MESSAGE } from "./engine/credential-errors.js";
 import {
   buildAssistantMessage,
@@ -1080,7 +1081,9 @@ describe("buildAssistantMessage", () => {
         result:
           'Awaiting human approval to run "create-builder-branch". ' +
           "This action did NOT execute.",
-        approval: { approvalKey: "create-builder-branch:approval" },
+        approval: {
+          approvalKey: approvalKeyForHistory("create-builder-branch:approval"),
+        },
       }),
     ]);
   });
@@ -1126,7 +1129,9 @@ describe("buildAssistantMessage", () => {
         toolName: "send-email",
         approvalPause: true,
         approval: {
-          approvalKey: 'send-email:{"to":"first@example.test"}',
+          approvalKey: approvalKeyForHistory(
+            'send-email:{"to":"first@example.test"}',
+          ),
         },
       }),
     ]);
@@ -1243,7 +1248,7 @@ describe("buildAssistantMessage", () => {
         type: "tool-call",
         toolName: "send-email",
         approval: {
-          approvalKey: "send-email:approval",
+          approvalKey: approvalKeyForHistory("send-email:approval"),
           allowPersistentApproval: false,
         },
       }),

@@ -2133,7 +2133,10 @@ function approvedToolHistoryParts(
 }
 
 function approvedToolHistoryError(
-  code: "approved_tool_call_history_missing" | "http_413",
+  code:
+    | "approved_tool_call_history_ambiguous"
+    | "approved_tool_call_history_missing"
+    | "http_413",
   status: 413 | 422,
 ): Error {
   return Object.assign(
@@ -3353,6 +3356,9 @@ function nativeStructuredHistoryFromMessages(
             ...(input && "input" in input ? { input: input.input } : {}),
             ...(part.approval?.askId
               ? { approvalAskId: part.approval.askId }
+              : {}),
+            ...(part.approval?.approvalKey
+              ? { approvalKey: part.approval.approvalKey }
               : {}),
           };
           if (part.approval?.askId) {
@@ -4966,17 +4972,24 @@ export function createAgentNativeChatRuntime(
         });
       }
       const messageState = messageStates.get(messageStateKey);
-      const approvalPart = [
+      const approvalParts = [
         ...(turnToContinue?.messages ?? []).flatMap(
           (message) => message.content,
         ),
         ...(messageState?.message.content ?? []),
-      ].find(
+      ].filter(
         (part) =>
           part.type === "tool-call" &&
           (part.approval?.askId === approval.id ||
             part.approval?.approvalKey === approval.id),
       );
+      if (approvalParts.length > 1) {
+        throw approvedToolHistoryError(
+          "approved_tool_call_history_ambiguous",
+          422,
+        );
+      }
+      const approvalPart = approvalParts[0];
       const approvalKey =
         approvalPart?.type === "tool-call"
           ? approvalPart.approval?.approvalKey

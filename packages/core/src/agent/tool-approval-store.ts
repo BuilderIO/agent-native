@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { getDbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { hashAgentToolApprovalKey } from "./approval-key.js";
 import {
   AGENT_TOOL_APPROVAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
@@ -11,6 +12,8 @@ import {
   AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL,
   AGENT_TOOL_APPROVAL_TABLE_SQL,
 } from "./tool-approval-migrations.js";
+
+export { hashAgentToolApprovalKey } from "./approval-key.js";
 
 const APPROVAL_TTL_MS = 60 * 60_000;
 const APPROVAL_CLEANUP_AGE_MS = 24 * 60 * 60_000;
@@ -78,10 +81,6 @@ export interface AgentToolApprovalBinding {
   approvalKey: string;
   approvalId?: string;
   expiresAt?: number;
-}
-
-export function hashAgentToolApprovalKey(approvalKey: string): string {
-  return createHash("sha256").update(approvalKey).digest("hex");
 }
 
 export interface AgentToolApprovalPolicyBinding {

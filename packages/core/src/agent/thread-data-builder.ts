@@ -26,6 +26,7 @@ import {
 } from "../shared/agent-chat-run-not-started.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
 import { toolInputsMatch } from "../shared/tool-inputs.js";
+import { approvalKeyForHistory } from "./approval-key.js";
 import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
 import {
   INTERRUPTED_TOOL_RESULT_MARKER as INTERRUPTED_TOOL_RESULT,
@@ -374,7 +375,7 @@ export function buildAssistantMessage(
       const part = content[matchingIndex];
       if (part?.type === "tool-call") {
         part.approval = {
-          approvalKey: event.approvalKey,
+          approvalKey: approvalKeyForHistory(event.approvalKey),
           ...(event.askId ? { askId: event.askId } : {}),
           ...(event.allowPersistentApproval === false
             ? { allowPersistentApproval: false }

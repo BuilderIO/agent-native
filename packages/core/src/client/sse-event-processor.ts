@@ -1977,9 +1977,14 @@ export function processEvent(
       const legacyApprovalPause =
         ev.approvalPause === undefined &&
         completedPart.approvalPauseCandidate === true;
+      const renewedApprovalPause =
+        ev.approvalPause === true &&
+        completedPart.approvalPause === true &&
+        completedPart.approvalPauseCandidate === true;
       if (
         (ev.approvalPause === true && completedPart.approvalPause !== true) ||
         legacyApprovalPause ||
+        renewedApprovalPause ||
         (completedPart.approvalPause === true &&
           completedPart.approvalResumeCandidate === true &&
           ev.approvalPause !== true)

@@ -4763,6 +4763,72 @@ describe("SSE event processor tool id matching", () => {
     expect(part.approvalPause).toBeUndefined();
   });
 
+  it("updates the pause result when an approved call pauses again", async () => {
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "publish-release",
+            id: "call-renewed-approval",
+            input: { version: "1.2.3" },
+          },
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            id: "call-renewed-approval",
+            approvalKey: 'publish-release:{"version":"1.2.3"}',
+            askId: "ask-first",
+            input: { version: "1.2.3" },
+          },
+          {
+            type: "tool_done",
+            tool: "publish-release",
+            id: "call-renewed-approval",
+            result: "Awaiting first approval. This action did NOT execute.",
+            approvalPause: true,
+          },
+          {
+            type: "tool_start",
+            tool: "publish-release",
+            id: "call-renewed-approval",
+            input: { version: "1.2.3" },
+          },
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            id: "call-renewed-approval",
+            approvalKey: 'publish-release:{"version":"1.2.3"}',
+            askId: "ask-renewed",
+            input: { version: "1.2.3" },
+          },
+          {
+            type: "tool_done",
+            tool: "publish-release",
+            id: "call-renewed-approval",
+            result: "Awaiting renewed approval. This action did NOT execute.",
+            approvalPause: true,
+          },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    expect(
+      content.find((part: any) => part.type === "tool-call"),
+    ).toMatchObject({
+      result: "Awaiting renewed approval. This action did NOT execute.",
+      approvalPause: true,
+      approval: {
+        askId: "ask-renewed",
+      },
+    });
+  });
+
   it("matches an id-less approval by its exact input", async () => {
     const content: any[] = [];
     await drain(

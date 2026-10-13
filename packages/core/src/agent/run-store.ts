@@ -24,6 +24,7 @@ import {
   stripInlineBytesFromJson,
 } from "../shared/inline-bytes.js";
 import { isRequestedStopAbortReason } from "./abort-reasons.js";
+import { approvalKeyForHistory } from "./approval-key.js";
 import {
   admitAutoContinue,
   admitManualContinue,
@@ -2413,8 +2414,14 @@ function persistedRunEventData(
   inputSource?: "execution",
 ): string {
   const stripped = stripInlineBytesFromJson(eventData, "placeholder");
-  if (stripped === eventData && inputSource !== "execution") return eventData;
   const original = JSON.parse(eventData);
+  if (original.type === "approval_required") {
+    return JSON.stringify({
+      ...JSON.parse(stripped),
+      approvalKey: approvalKeyForHistory(original.approvalKey),
+    });
+  }
+  if (stripped === eventData && inputSource !== "execution") return eventData;
   if (
     (original.type !== "tool_start" && original.type !== "tool_done") ||
     original.input === undefined ||

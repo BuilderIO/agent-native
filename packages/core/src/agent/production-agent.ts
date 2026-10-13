@@ -372,7 +372,10 @@ import {
   resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
-import { findCompletedJournalEntry } from "./tool-call-journal.js";
+import {
+  findCompletedJournalEntry,
+  isRedactedToolCallInput,
+} from "./tool-call-journal.js";
 import {
   redactSensitiveFields,
   sanitizeToolErrorText,
@@ -4992,7 +4995,12 @@ export function findApprovedStructuredToolCall(
   const approvedAskIds = new Set(approvedToolCallAskIds ?? []);
   const calls = new Map<
     string,
-    { name: string; input: unknown; approvalAskId?: string }
+    {
+      name: string;
+      input: unknown;
+      approvalKey?: string;
+      approvalAskId?: string;
+    }
   >();
   const matches: Array<{
     name: string;
@@ -5021,6 +5029,7 @@ export function findApprovedStructuredToolCall(
         calls.set(callId, {
           name,
           input: part.input ?? part.args ?? {},
+          ...(part.approvalKey ? { approvalKey: part.approvalKey } : {}),
           ...(part.approvalAskId ? { approvalAskId: part.approvalAskId } : {}),
         });
       }
@@ -5030,7 +5039,18 @@ export function findApprovedStructuredToolCall(
     for (const part of message.content) {
       if (part.type !== "tool-result") continue;
       const call = calls.get(part.toolCallId);
-      if (!call || !approved.has(toolCallCacheKey(call.name, call.input))) {
+      if (!call) {
+        continue;
+      }
+      const matchesApproval =
+        approvedAskIds.size > 0
+          ? Boolean(
+              call.approvalAskId && approvedAskIds.has(call.approvalAskId),
+            )
+          : approved.has(
+              call.approvalKey ?? toolCallCacheKey(call.name, call.input),
+            );
+      if (!matchesApproval) {
         continue;
       }
       if (part.approvalPause !== true) continue;
@@ -5050,7 +5070,8 @@ export function findApprovedStructuredToolCall(
         continue;
       }
       matches.push({
-        ...call,
+        name: call.name,
+        input: call.input,
         callId: part.toolCallId,
         ...((part.approvalAskId ?? call.approvalAskId)
           ? { approvalAskId: part.approvalAskId ?? call.approvalAskId }
@@ -10987,22 +11008,74 @@ export function createProductionAgentHandler(
         retryable: false,
       };
     }
+    const approvedToolCallLookup = findApprovedStructuredToolCall(
+      requestStructuredHistory,
+      requestedApprovedToolCalls,
+      requestedApprovedToolCallAskIds,
+    );
+    if (approvedToolCallLookup.status === "ambiguous") {
+      setResponseStatus(event, 422);
+      return {
+        error: "The agent run failed.",
+        code: "approved_tool_call_history_ambiguous",
+        retryable: false,
+      };
+    }
+    const exactApprovedToolCall =
+      approvedToolCallLookup.status === "found"
+        ? approvedToolCallLookup.toolCall
+        : undefined;
+    if (requestedApprovedToolCalls?.length && !exactApprovedToolCall) {
+      setResponseStatus(event, 422);
+      return {
+        error: "The agent run failed.",
+        code: "approved_tool_call_history_missing",
+        retryable: false,
+      };
+    }
+    if (
+      exactApprovedToolCall &&
+      isRedactedToolCallInput(exactApprovedToolCall.input)
+    ) {
+      setResponseStatus(event, 422);
+      return {
+        error: "The agent run failed.",
+        code: "approved_tool_call_input_unavailable",
+        retryable: false,
+      };
+    }
+    const approvedToolCallsForExecution = exactApprovedToolCall
+      ? [
+          toolCallCacheKey(
+            exactApprovedToolCall.name,
+            exactApprovedToolCall.input,
+          ),
+        ]
+      : requestedApprovedToolCalls;
     const resolvedApprovalTurnId =
       !isBackgroundWorker &&
       ownerEmail &&
       threadId &&
-      requestedApprovedToolCalls?.length
+      approvedToolCallsForExecution?.length
         ? await resolveAgentToolApprovalTurnId({
             ownerEmail,
             orgId: getRequestOrgId() ?? null,
             threadId,
             requestedTurnId: requestTurnId,
-            approvalKeys: requestedApprovedToolCalls,
+            approvalKeys: approvedToolCallsForExecution,
             ...(requestedApprovedToolCallAskIds
               ? { approvalId: requestedApprovedToolCallAskIds[0] }
               : {}),
           })
         : null;
+    if (requestedApprovedToolCallAskIds?.length && !resolvedApprovalTurnId) {
+      setResponseStatus(event, 409);
+      return {
+        error: "The agent run failed.",
+        code: "approved_tool_call_not_pending",
+        retryable: false,
+      };
+    }
     // The continuation marker is client-controlled. Defer setup admission only
     // for automatic successors when the named stop and turn can be checked
     // under the run-slot lock. A user's manual Continue starts new work and
@@ -12262,34 +12335,6 @@ export function createProductionAgentHandler(
     // may truncate tool arguments and intentionally assigns fresh replay ids.
     // The loop still consumes only a matching server-created grant for the
     // current owner/org/thread/turn/tool/input tuple.
-    const approvedToolCallLookup = findApprovedStructuredToolCall(
-      requestStructuredHistory,
-      requestedApprovedToolCalls,
-      requestedApprovedToolCallAskIds,
-    );
-    if (approvedToolCallLookup.status === "ambiguous") {
-      setResponseStatus(event, 422);
-      return {
-        error: "The agent run failed.",
-        code: "approved_tool_call_history_ambiguous",
-        retryable: false,
-      };
-    }
-    const exactApprovedToolCall =
-      approvedToolCallLookup.status === "found"
-        ? approvedToolCallLookup.toolCall
-        : undefined;
-    if (
-      requestedApprovedToolCalls?.length &&
-      approvedToolCallLookup.status === "missing"
-    ) {
-      setResponseStatus(event, 422);
-      return {
-        error: "The agent run failed.",
-        code: "approved_tool_call_history_missing",
-        retryable: false,
-      };
-    }
     const firstRequestPayloadDetail = buildFirstRequestPayloadDetail({
       isFirstRequest: requestHistory.length === 0,
       systemPrompt: requestSystemPrompt,
@@ -12307,7 +12352,7 @@ export function createProductionAgentHandler(
       !isBackgroundWorker &&
       internalContinuation === true &&
       !continueOf &&
-      !requestedApprovedToolCalls?.length &&
+      !approvedToolCallsForExecution?.length &&
       typeof message === "string" &&
       message.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT) &&
       typeof threadId === "string" &&
@@ -12383,7 +12428,7 @@ export function createProductionAgentHandler(
           replayCompletedTurn:
             typeof requestTurnId === "string" &&
             Boolean(requestTurnId.trim()) &&
-            !requestedApprovedToolCalls,
+            !approvedToolCallsForExecution,
           dispatchMode: dispatchToBackground
             ? "background"
             : foregroundSelfChainEligible
@@ -12470,7 +12515,6 @@ export function createProductionAgentHandler(
         });
       },
     };
-    const approvedToolCallsForExecution = requestedApprovedToolCalls;
     if (
       isBackgroundWorker &&
       (await isTurnAborted(effectiveThreadId, effectiveTurnId))

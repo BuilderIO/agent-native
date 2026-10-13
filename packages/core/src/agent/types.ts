@@ -178,6 +178,7 @@ export type AgentChatStructuredContentPart =
       toolName?: string;
       input?: unknown;
       args?: unknown;
+      approvalKey?: string;
       approvalAskId?: string;
     }
   | {

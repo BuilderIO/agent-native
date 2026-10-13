@@ -4967,6 +4967,7 @@ describe("createAgentNativeChatRuntime", () => {
               id: "call-1",
               name: "publish-release",
               input: approvedInput,
+              approvalKey,
               approvalAskId,
             },
           ],
@@ -5027,6 +5028,7 @@ describe("createAgentNativeChatRuntime", () => {
             id: "call-1",
             name: "publish-release",
             input: approvedInput,
+            approvalKey,
             approvalAskId,
           },
         ],
@@ -5210,6 +5212,7 @@ describe("createAgentNativeChatRuntime", () => {
               id: "call-publish-release",
               name: "publish-release",
               input: approvalInput,
+              approvalKey,
               approvalAskId: renewedAskId,
             },
           ],
@@ -5228,6 +5231,82 @@ describe("createAgentNativeChatRuntime", () => {
         },
       ]),
     );
+  });
+
+  it("rejects a key-only approval when multiple pending calls share its key", async () => {
+    const approvalInput = { destination: "release-channel" };
+    const approvalKey = `publish-release:${JSON.stringify(approvalInput)}`;
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      sseResponse([
+        {
+          type: "tool_start",
+          id: "call-publish-release-1",
+          tool: "publish-release",
+          input: approvalInput,
+        },
+        {
+          type: "approval_required",
+          tool: "publish-release",
+          input: approvalInput,
+          approvalKey,
+          toolCallId: "call-publish-release-1",
+        },
+        {
+          type: "tool_done",
+          id: "call-publish-release-1",
+          tool: "publish-release",
+          result: "Awaiting approval. This action did NOT execute.",
+          approvalPause: true,
+        },
+        {
+          type: "tool_start",
+          id: "call-publish-release-2",
+          tool: "publish-release",
+          input: approvalInput,
+        },
+        {
+          type: "approval_required",
+          tool: "publish-release",
+          input: approvalInput,
+          approvalKey,
+          toolCallId: "call-publish-release-2",
+        },
+        {
+          type: "tool_done",
+          id: "call-publish-release-2",
+          tool: "publish-release",
+          result: "Awaiting approval. This action did NOT execute.",
+          approvalPause: true,
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-ambiguous-approval",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      id: "thread-ambiguous-approval",
+      threadId: "thread-ambiguous-approval",
+    });
+    const turn = await session.startTurn({ prompt: "Publish the release" });
+    await drain(turn.events);
+
+    let continuationError: unknown;
+    try {
+      session.continueTurn?.({
+        turnId: turn.id,
+        approval: { id: approvalKey, approved: true },
+      });
+    } catch (error) {
+      continuationError = error;
+    }
+    expect(continuationError).toMatchObject({
+      code: "approved_tool_call_history_ambiguous",
+      status: 422,
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("does not replay stale approval metadata for a completed empty-result call", async () => {
@@ -6108,7 +6187,7 @@ describe("createAgentNativeChatRuntime", () => {
     );
   });
 
-  it("reserves history capacity for each approved call sharing one approval key", async () => {
+  it("rejects a key-only approval with many same-key pending calls", async () => {
     const approvalInput = { path: "skills/example/SKILL.md" };
     const approvalKey = `resources:${JSON.stringify(approvalInput)}`;
     const approvedCalls = Array.from({ length: 64 }, (_, index) => {
@@ -6163,28 +6242,20 @@ describe("createAgentNativeChatRuntime", () => {
     const first = await session.startTurn({ prompt: "Write the resource" });
     await drain(first.events);
 
-    const continuation = await session.continueTurn?.({
-      turnId: first.id,
-      approval: { id: approvalKey, approved: true },
+    let continuationError: unknown;
+    try {
+      session.continueTurn?.({
+        turnId: first.id,
+        approval: { id: approvalKey, approved: true },
+      });
+    } catch (error) {
+      continuationError = error;
+    }
+    expect(continuationError).toMatchObject({
+      code: "approved_tool_call_history_ambiguous",
+      status: 422,
     });
-    expect(continuation).toBeDefined();
-    await drain(continuation!.events);
-
-    const request = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
-    const calls = (
-      request.structuredHistory as Array<{
-        content: Array<{ type: string; id?: string; name?: string }>;
-      }>
-    )
-      .flatMap((message) => message.content)
-      .filter((part) => part.type === "tool-call");
-    expect(calls).toHaveLength(64);
-    expect(calls.map((part) => part.id)).toEqual(
-      expect.arrayContaining(
-        Array.from({ length: 64 }, (_, index) => `call-approved-${index}`),
-      ),
-    );
-    expect(calls.map((part) => part.id)).not.toContain("call-later-skipped");
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("bounds supplemental approval history and omits oversized metadata", async () => {
