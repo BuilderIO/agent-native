@@ -82,6 +82,50 @@ import {
   CHANNEL_THROW_PRESETS,
 } from "./native-effect-owned-bg-channel-throw";
 import {
+  HOLOGRAM_VOLUME_EFFECT,
+  HOLOGRAM_VOLUME_PRESETS,
+} from "./native-effect-owned-bh-hologram-volume";
+import {
+  SHAPE_FOIL_EFFECT,
+  SHAPE_FOIL_PRESETS,
+} from "./native-effect-owned-bi-shape-foil";
+import {
+  RAISED_CARBON_WEAVE_EFFECT,
+  RAISED_CARBON_WEAVE_PRESETS,
+} from "./native-effect-owned-bj-raised-carbon-weave";
+import {
+  EDGE_FROST_EFFECT,
+  EDGE_FROST_PRESETS,
+} from "./native-effect-owned-bk-edge-frost";
+import {
+  SOURCE_INVERT_EFFECT,
+  SOURCE_INVERT_PRESETS,
+} from "./native-effect-owned-bl-source-invert";
+import {
+  RADIAL_BURST_EFFECT,
+  RADIAL_BURST_PRESETS,
+} from "./native-effect-owned-bm-radial-burst";
+import {
+  SOURCE_CRYSTAL_EFFECT,
+  SOURCE_CRYSTAL_PRESETS,
+} from "./native-effect-owned-bn-source-crystal";
+import {
+  SOURCE_WATER_VOLUME_EFFECT,
+  SOURCE_WATER_VOLUME_PRESETS,
+} from "./native-effect-owned-bo-source-water-volume";
+import {
+  SHAPE_NEBULA_VOLUME_EFFECT,
+  SHAPE_NEBULA_VOLUME_PRESETS,
+} from "./native-effect-owned-bp-shape-nebula";
+import {
+  OBSIDIAN_SHAPE_GLASS_EFFECT,
+  OBSIDIAN_SHAPE_GLASS_PRESETS,
+} from "./native-effect-owned-bq-obsidian-shape-glass";
+import {
+  SIGNAL_VISUALIZER_EFFECT,
+  SIGNAL_VISUALIZER_PRESETS,
+} from "./native-effect-owned-br-signal-visualizer";
+import {
   POINTER_EFFECT_DEFINITIONS,
   POINTER_EFFECT_PRESETS,
 } from "./native-effect-pointer-catalog";
@@ -97,14 +141,14 @@ import { parseEffectsFromHtml, validateEffectDocument } from "./native-effects";
 
 describe("Design-owned catalog", () => {
   it("registers unique independently authored definitions and valid original recipes", () => {
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(346);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(357);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((item) => item.id)).size,
-    ).toBe(346);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(402);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(806);
+    ).toBe(357);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(413);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(828);
     expect(new Set(NATIVE_EFFECT_PRESETS.map((item) => item.id)).size).toBe(
-      806,
+      828,
     );
     for (const definition of NATIVE_EFFECT_LATEST_DEFINITIONS) {
       expect(definition.provenance?.origin).toBe("design-original");
@@ -128,7 +172,7 @@ describe("Design-owned catalog", () => {
     }
   });
 
-  it("registers AV through BG with localized controls and pinned predecessor versions", () => {
+  it("registers AV through BR with localized controls and pinned predecessor versions", () => {
     const newVersions = [
       [SOURCE_REACTION_DIFFUSION_EFFECT, SOURCE_REACTION_DIFFUSION_PRESETS],
       [TEMPORAL_FLOW_TRAIL_EFFECT, TEMPORAL_FLOW_TRAIL_PRESETS],
@@ -142,6 +186,17 @@ describe("Design-owned catalog", () => {
       [FRAME_MOSH_V2_EFFECT, FRAME_MOSH_V2_PRESETS],
       [SOURCE_VOXELS_V2_EFFECT, SOURCE_VOXELS_V2_PRESETS],
       [CHANNEL_THROW_EFFECT, CHANNEL_THROW_PRESETS],
+      [HOLOGRAM_VOLUME_EFFECT, HOLOGRAM_VOLUME_PRESETS],
+      [SHAPE_FOIL_EFFECT, SHAPE_FOIL_PRESETS],
+      [SOURCE_INVERT_EFFECT, SOURCE_INVERT_PRESETS],
+      [RADIAL_BURST_EFFECT, RADIAL_BURST_PRESETS],
+      [RAISED_CARBON_WEAVE_EFFECT, RAISED_CARBON_WEAVE_PRESETS],
+      [EDGE_FROST_EFFECT, EDGE_FROST_PRESETS],
+      [SOURCE_CRYSTAL_EFFECT, SOURCE_CRYSTAL_PRESETS],
+      [SOURCE_WATER_VOLUME_EFFECT, SOURCE_WATER_VOLUME_PRESETS],
+      [SIGNAL_VISUALIZER_EFFECT, SIGNAL_VISUALIZER_PRESETS],
+      [SHAPE_NEBULA_VOLUME_EFFECT, SHAPE_NEBULA_VOLUME_PRESETS],
+      [OBSIDIAN_SHAPE_GLASS_EFFECT, OBSIDIAN_SHAPE_GLASS_PRESETS],
     ] as const;
     for (const [definition, presets] of newVersions) {
       expect(
@@ -151,7 +206,12 @@ describe("Design-owned catalog", () => {
       ).toBe(definition);
       expect(nativeEffectAnimationCapability(definition)).toBe(
         definition === LAYER_MAP_DISPLACEMENT_EFFECT ||
-          definition === SOURCE_VOXELS_V2_EFFECT
+          definition === SOURCE_VOXELS_V2_EFFECT ||
+          definition === SOURCE_INVERT_EFFECT ||
+          definition === RADIAL_BURST_EFFECT ||
+          definition === RAISED_CARBON_WEAVE_EFFECT ||
+          definition === EDGE_FROST_EFFECT ||
+          definition === SOURCE_CRYSTAL_EFFECT
           ? "static"
           : "animated",
       );

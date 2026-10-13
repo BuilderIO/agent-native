@@ -274,6 +274,11 @@ const STATIC_BUILTIN_VERSIONS = new Set([
   "an-native-owned-ab-region-bounds@1",
   "an-native-owned-ac-coverage-atlas@1",
   "an-native-owned-ba-layer-map-displacement@1",
+  "an-native-owned-bl-source-invert@1",
+  "an-native-owned-bm-radial-burst@1",
+  "an-native-owned-bj-raised-carbon-weave@1",
+  "an-native-owned-bk-edge-frost@1",
+  "an-native-owned-bn-source-crystal@1",
 ]);
 
 const ANIMATED_BUILTIN_VERSIONS = new Set([
@@ -393,6 +398,12 @@ const ANIMATED_BUILTIN_VERSIONS = new Set([
   "an-native-owned-frame-mosh@1",
   "an-native-owned-frame-mosh@2",
   "an-native-owned-bg-channel-throw@1",
+  "an-native-owned-bh-hologram-volume@1",
+  "an-native-owned-bi-shape-foil@1",
+  "an-native-owned-bo-source-water-volume@1",
+  "an-native-owned-br-signal-visualizer@1",
+  "an-native-owned-bp-shape-nebula-volume@1",
+  "an-native-owned-bq-obsidian-shape-glass@1",
   "an-native-source-particle-drift@1",
   "an-native-pixel-transport@1",
   "an-native-pixel-transport@2",

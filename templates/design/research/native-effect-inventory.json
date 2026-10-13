@@ -9,38 +9,38 @@
     "graphMetadata": "normal source exports; full resources, pass graph fields except WGSL/original, definition graph metadata"
   },
   "counts": {
-    "distinctDefinitions": 346,
-    "exactVersions": 402,
-    "registeredPresets": 806,
-    "presetsTargetingLatestVersions": 723,
+    "distinctDefinitions": 357,
+    "exactVersions": 413,
+    "registeredPresets": 828,
+    "presetsTargetingLatestVersions": 745,
     "presetsTargetingHistoricalVersions": 83,
     "latestByKind": {
-      "generator": 157,
-      "processor": 182,
+      "generator": 159,
+      "processor": 191,
       "simulation": 7
     },
     "fullByKind": {
-      "generator": 199,
-      "processor": 195,
+      "generator": 201,
+      "processor": 204,
       "simulation": 8
     },
     "latestByAnimation": {
-      "animated": 112,
-      "static": 234
+      "animated": 118,
+      "static": 239
     },
     "fullByAnimation": {
-      "animated": 136,
-      "static": 266
+      "animated": 142,
+      "static": 271
     },
     "latestByPlacement": {
-      "fill": 160,
-      "layer": 190,
-      "backdrop": 151
+      "fill": 162,
+      "layer": 199,
+      "backdrop": 160
     },
     "fullByPlacement": {
-      "fill": 202,
-      "layer": 204,
-      "backdrop": 160
+      "fill": 204,
+      "layer": 213,
+      "backdrop": 169
     },
     "fullyValidatedDefinitions": 0
   },
@@ -18467,7 +18467,7 @@
     },
     {
       "id": "an-native-owned-n-double-grating-moire",
-      "name": "Double-Grating Moiré",
+      "name": "Double-Grating Moir\u00e9",
       "version": 1,
       "executionHash": "e0ba040c623785b73a70edff597d823eee744cd88cbee7d62920a4b40dd964ec",
       "kind": "generator",
@@ -21405,7 +21405,7 @@
             "bottomLeft"
           ],
           "minArea": 0.001,
-          "minCross": 0.00001
+          "minCross": 1e-05
         }
       ],
       "passes": [
@@ -27801,7 +27801,7 @@
           "min": 0,
           "max": 360,
           "step": 0.01,
-          "unit": "°",
+          "unit": "\u00b0",
           "advanced": true
         },
         "originX": {
@@ -27993,7 +27993,7 @@
           "min": 0,
           "max": 360,
           "step": 0.01,
-          "unit": "°"
+          "unit": "\u00b0"
         },
         "falloff": {
           "type": "float",
@@ -28078,7 +28078,7 @@
           "min": 0,
           "max": 360,
           "step": 0.01,
-          "unit": "°",
+          "unit": "\u00b0",
           "advanced": true
         },
         "originX": {
@@ -36249,7 +36249,7 @@
     },
     {
       "id": "an-native-owned-s-limacon-contours",
-      "name": "Limaçon Contours",
+      "name": "Lima\u00e7on Contours",
       "version": 1,
       "executionHash": "2d1846090c9da0d7c44d1c179a17a93066450fecad8c4a9cc6190cecdbd1c6d4",
       "kind": "generator",
@@ -37656,7 +37656,7 @@
     },
     {
       "id": "an-native-owned-u-mobius-reprojection",
-      "name": "Möbius Reprojection",
+      "name": "M\u00f6bius Reprojection",
       "version": 1,
       "executionHash": "354255631f917a74751d5970bf99c16f43aed1c72c346bd5c9393cdd6a046975",
       "kind": "processor",
@@ -38313,7 +38313,7 @@
     },
     {
       "id": "an-native-owned-u-thue-morse-weave",
-      "name": "Thue–Morse Weave",
+      "name": "Thue\u2013Morse Weave",
       "version": 1,
       "executionHash": "ca478cbe06e72e3672c4e76a0a133e873cb0554a38e6aeac16169be9d19de782",
       "kind": "generator",
@@ -38817,7 +38817,7 @@
     },
     {
       "id": "an-native-owned-v-luma-dct-eight",
-      "name": "8×8 Luma DCT",
+      "name": "8\u00d78 Luma DCT",
       "version": 1,
       "executionHash": "c7cb56bd502eb531b211fc73c2b49d0515bf3eac2dca31f17ec404ecedc50994",
       "kind": "processor",
@@ -51162,6 +51162,3891 @@
       "presetIds": [
         "an-preset-bg-channel-throw-light-current",
         "an-preset-bg-channel-throw-dark-loop"
+      ],
+      "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-bh-hologram-volume",
+      "name": "Hologram Volume",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "alphaThreshold": {
+          "type": "float",
+          "label": "Shape threshold",
+          "default": 0.1,
+          "min": 0.01,
+          "max": 0.9,
+          "step": 0.01
+        },
+        "volumeDepth": {
+          "type": "float",
+          "label": "Volume depth",
+          "default": 54,
+          "min": 1,
+          "max": 180,
+          "step": 1,
+          "unit": "px"
+        },
+        "volumeDensity": {
+          "type": "float",
+          "label": "Volume density",
+          "default": 1.3,
+          "min": 0.1,
+          "max": 4,
+          "step": 0.01
+        },
+        "volumeTilt": {
+          "type": "vec2",
+          "label": "Volume tilt",
+          "default": [
+            0.55,
+            -0.2
+          ],
+          "min": -1,
+          "max": 1
+        },
+        "scanFrequency": {
+          "type": "float",
+          "label": "Scan frequency",
+          "default": 0.08,
+          "min": 0.01,
+          "max": 0.5,
+          "step": 0.01
+        },
+        "edgeReach": {
+          "type": "float",
+          "label": "Edge reach",
+          "default": 7,
+          "min": 1,
+          "max": 40,
+          "step": 1,
+          "unit": "px"
+        },
+        "beamFalloff": {
+          "type": "float",
+          "label": "Beam falloff",
+          "default": 0.6,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        "scanSpeed": {
+          "type": "float",
+          "label": "Scan speed",
+          "default": 0.55,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        "hologramTint": {
+          "type": "color",
+          "label": "Hologram tint",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.22,
+              0.85,
+              1
+            ],
+            "alpha": 0.68
+          }
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 0.95,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "seed",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump0",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump1",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump2",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump3",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump4",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump5",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump6",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "nearest",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "seed-boundary",
+          "kind": "compute",
+          "reads": [
+            "source"
+          ],
+          "output": "seed",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-128",
+          "kind": "compute",
+          "reads": [
+            "seed"
+          ],
+          "output": "jump0",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-64",
+          "kind": "compute",
+          "reads": [
+            "jump0"
+          ],
+          "output": "jump1",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-32",
+          "kind": "compute",
+          "reads": [
+            "jump1"
+          ],
+          "output": "jump2",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-16",
+          "kind": "compute",
+          "reads": [
+            "jump2"
+          ],
+          "output": "jump3",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-8",
+          "kind": "compute",
+          "reads": [
+            "jump3"
+          ],
+          "output": "jump4",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-4",
+          "kind": "compute",
+          "reads": [
+            "jump4"
+          ],
+          "output": "jump5",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-2",
+          "kind": "compute",
+          "reads": [
+            "jump5"
+          ],
+          "output": "jump6",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-1",
+          "kind": "compute",
+          "reads": [
+            "jump6"
+          ],
+          "output": "nearest",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "integrate-volume",
+          "kind": "render",
+          "reads": [
+            "source",
+            "nearest"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "ac9fb2a85794ac87bc1c3754c8f755f25d3fa3e95c2c2355e67f28d5209ed341",
+      "presetIds": [
+        "an-preset-bh-blue-signal",
+        "an-preset-bh-amber-archive"
+      ],
+      "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-bi-shape-foil",
+      "name": "Shape Foil",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "alphaThreshold": {
+          "type": "float",
+          "label": "Shape threshold",
+          "default": 0.1,
+          "min": 0.01,
+          "max": 0.9,
+          "step": 0.01
+        },
+        "bevelWidth": {
+          "type": "float",
+          "label": "Bevel width",
+          "default": 12,
+          "min": 1,
+          "max": 60,
+          "step": 1,
+          "unit": "px"
+        },
+        "relief": {
+          "type": "float",
+          "label": "Relief",
+          "default": 1.2,
+          "min": 0.1,
+          "max": 5,
+          "step": 0.01
+        },
+        "foilAngle": {
+          "type": "float",
+          "label": "Foil angle",
+          "default": 0.35,
+          "min": -3.14,
+          "max": 3.14,
+          "step": 0.01
+        },
+        "diffractionPitch": {
+          "type": "float",
+          "label": "Diffraction pitch",
+          "default": 5,
+          "min": 0.5,
+          "max": 16,
+          "step": 0.1
+        },
+        "foilReflectance": {
+          "type": "float",
+          "label": "Foil reflectance",
+          "default": 0.78,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "glitterDensity": {
+          "type": "float",
+          "label": "Glitter density",
+          "default": 0.35,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "glitterSize": {
+          "type": "float",
+          "label": "Glitter size",
+          "default": 8,
+          "min": 2,
+          "max": 30,
+          "step": 1,
+          "unit": "px"
+        },
+        "foilLight": {
+          "type": "vec2",
+          "label": "Foil light",
+          "default": [
+            -0.45,
+            0.5
+          ],
+          "min": -1,
+          "max": 1
+        },
+        "foilMotion": {
+          "type": "float",
+          "label": "Foil motion",
+          "default": 0.25,
+          "min": 0,
+          "max": 2,
+          "step": 0.01
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 0.95,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "seed",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump0",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump1",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump2",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump3",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump4",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump5",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump6",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "nearest",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "seed-boundary",
+          "kind": "compute",
+          "reads": [
+            "source"
+          ],
+          "output": "seed",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-128",
+          "kind": "compute",
+          "reads": [
+            "seed"
+          ],
+          "output": "jump0",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-64",
+          "kind": "compute",
+          "reads": [
+            "jump0"
+          ],
+          "output": "jump1",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-32",
+          "kind": "compute",
+          "reads": [
+            "jump1"
+          ],
+          "output": "jump2",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-16",
+          "kind": "compute",
+          "reads": [
+            "jump2"
+          ],
+          "output": "jump3",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-8",
+          "kind": "compute",
+          "reads": [
+            "jump3"
+          ],
+          "output": "jump4",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-4",
+          "kind": "compute",
+          "reads": [
+            "jump4"
+          ],
+          "output": "jump5",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-2",
+          "kind": "compute",
+          "reads": [
+            "jump5"
+          ],
+          "output": "jump6",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-1",
+          "kind": "compute",
+          "reads": [
+            "jump6"
+          ],
+          "output": "nearest",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "shade-foil",
+          "kind": "render",
+          "reads": [
+            "source",
+            "nearest"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "a32a0a35025aef5c31b6c6c69c3043a7929f8e14fad071a2512ed528a6c5289c",
+      "presetIds": [
+        "an-preset-bi-prismatic-gold",
+        "an-preset-bi-spectrum-silver"
+      ],
+      "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-bl-source-invert",
+      "name": "Source Invert",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "whitePoint": {
+          "type": "float",
+          "label": "Inversion white point",
+          "default": 1,
+          "min": 0.1,
+          "max": 4,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "render"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "invert-source",
+          "kind": "render",
+          "reads": [
+            "source"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "cd62ecd3ae98fa58d0688a59b05eb0a16e64819849039dfbe8cb504c473e2925",
+      "presetIds": [
+        "an-preset-bl-full-negative",
+        "an-preset-bl-soft-negative"
+      ],
+      "animationCapability": "static"
+    },
+    {
+      "id": "an-native-owned-bm-radial-burst",
+      "name": "Radial Burst",
+      "version": 1,
+      "kind": "generator",
+      "placements": [
+        "fill"
+      ],
+      "properties": {
+        "center": {
+          "type": "vec2",
+          "label": "Burst center",
+          "default": [
+            0.5,
+            0.5
+          ],
+          "min": 0,
+          "max": 1
+        },
+        "rayCount": {
+          "type": "int",
+          "label": "Ray count",
+          "default": 18,
+          "min": 3,
+          "max": 128,
+          "step": 1
+        },
+        "sharpness": {
+          "type": "float",
+          "label": "Ray sharpness",
+          "default": 10,
+          "min": 1,
+          "max": 40,
+          "step": 0.01
+        },
+        "innerRadius": {
+          "type": "float",
+          "label": "Inner radius",
+          "default": 0.05,
+          "min": 0,
+          "max": 0.8,
+          "step": 0.01
+        },
+        "outerRadius": {
+          "type": "float",
+          "label": "Outer radius",
+          "default": 0.68,
+          "min": 0.05,
+          "max": 1.5,
+          "step": 0.01
+        },
+        "rotation": {
+          "type": "float",
+          "label": "Rotation",
+          "default": 0,
+          "min": -180,
+          "max": 180,
+          "step": 0.01
+        },
+        "rayStrength": {
+          "type": "float",
+          "label": "Ray strength",
+          "default": 0.88,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "rayFalloff": {
+          "type": "float",
+          "label": "Ray falloff",
+          "default": 1.4,
+          "min": 0.1,
+          "max": 8,
+          "step": 0.01
+        },
+        "coreColor": {
+          "type": "color",
+          "label": "Core color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              1,
+              0.83,
+              0.32
+            ],
+            "alpha": 1
+          }
+        },
+        "rimColor": {
+          "type": "color",
+          "label": "Rim color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.65,
+              0.18,
+              0.09
+            ],
+            "alpha": 1
+          }
+        },
+        "rayColor": {
+          "type": "color",
+          "label": "Ray color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              1,
+              0.97,
+              0.7
+            ],
+            "alpha": 0.85
+          }
+        },
+        "backgroundColor": {
+          "type": "color",
+          "label": "Background",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.025,
+              0.03,
+              0.09
+            ],
+            "alpha": 1
+          }
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "render"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "render-rays",
+          "kind": "render",
+          "reads": [],
+          "output": "color"
+        }
+      ],
+      "executionHash": "4d5293ed224ffdc61f5eb605c5caff575167eb963fc4222cb7cdd028b382a24b",
+      "presetIds": [
+        "an-preset-bm-amber-sunburst",
+        "an-preset-bm-blue-corona"
+      ],
+      "animationCapability": "static"
+    },
+    {
+      "id": "an-native-owned-bj-raised-carbon-weave",
+      "name": "Raised Carbon Weave",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "alphaThreshold": {
+          "type": "float",
+          "label": "Shape threshold",
+          "default": 0.08,
+          "min": 0.01,
+          "max": 0.8,
+          "step": 0.01
+        },
+        "weaveScale": {
+          "type": "float",
+          "label": "Tow density",
+          "default": 56,
+          "min": 8,
+          "max": 180,
+          "step": 1
+        },
+        "weaveMode": {
+          "type": "enum",
+          "label": "Weave",
+          "default": "plain",
+          "options": [
+            "plain",
+            "twill"
+          ]
+        },
+        "rotation": {
+          "type": "float",
+          "label": "Weave rotation",
+          "default": 0.4,
+          "min": -3.14,
+          "max": 3.14,
+          "step": 0.01
+        },
+        "relief": {
+          "type": "float",
+          "label": "Raised relief",
+          "default": 0.65,
+          "min": 0,
+          "max": 1.5,
+          "step": 0.01
+        },
+        "fiberSheen": {
+          "type": "float",
+          "label": "Fiber sheen",
+          "default": 0.8,
+          "min": 0,
+          "max": 2,
+          "step": 0.01
+        },
+        "sheenWidth": {
+          "type": "float",
+          "label": "Sheen width",
+          "default": 0.25,
+          "min": 0.04,
+          "max": 1,
+          "step": 0.01
+        },
+        "clearcoat": {
+          "type": "float",
+          "label": "Clearcoat",
+          "default": 0.8,
+          "min": 0,
+          "max": 2,
+          "step": 0.01
+        },
+        "studio": {
+          "type": "float",
+          "label": "Studio reflection",
+          "default": 1,
+          "min": 0,
+          "max": 2,
+          "step": 0.01
+        },
+        "bevelWidth": {
+          "type": "float",
+          "label": "Edge bevel",
+          "default": 7,
+          "min": 0.5,
+          "max": 36,
+          "step": 0.5
+        },
+        "lightAngle": {
+          "type": "float",
+          "label": "Light angle",
+          "default": -0.7,
+          "min": -3.14,
+          "max": 3.14,
+          "step": 0.01
+        },
+        "darkColor": {
+          "type": "color",
+          "label": "Resin",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.12,
+              0.16,
+              0.2
+            ],
+            "alpha": 1
+          }
+        },
+        "brightColor": {
+          "type": "color",
+          "label": "Fiber",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.55,
+              0.65,
+              0.74
+            ],
+            "alpha": 1
+          }
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "seed",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump0",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump1",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump2",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump3",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump4",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump5",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump6",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "nearest",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "seed-boundary",
+          "kind": "compute",
+          "reads": [
+            "source"
+          ],
+          "output": "seed",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-128",
+          "kind": "compute",
+          "reads": [
+            "seed"
+          ],
+          "output": "jump0",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-64",
+          "kind": "compute",
+          "reads": [
+            "jump0"
+          ],
+          "output": "jump1",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-32",
+          "kind": "compute",
+          "reads": [
+            "jump1"
+          ],
+          "output": "jump2",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-16",
+          "kind": "compute",
+          "reads": [
+            "jump2"
+          ],
+          "output": "jump3",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-8",
+          "kind": "compute",
+          "reads": [
+            "jump3"
+          ],
+          "output": "jump4",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-4",
+          "kind": "compute",
+          "reads": [
+            "jump4"
+          ],
+          "output": "jump5",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-2",
+          "kind": "compute",
+          "reads": [
+            "jump5"
+          ],
+          "output": "jump6",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-1",
+          "kind": "compute",
+          "reads": [
+            "jump6"
+          ],
+          "output": "nearest",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "shade-raised-weave",
+          "kind": "render",
+          "reads": [
+            "source",
+            "nearest"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "ed937b80441bcd5ceee85c82f3ae30ac215d63ec152d09385e707cee3dfaf0f3",
+      "presetIds": [
+        "an-preset-bj-graphite-lacquer",
+        "an-preset-bj-copper-twill"
+      ],
+      "animationCapability": "static"
+    },
+    {
+      "id": "an-native-owned-bk-edge-frost",
+      "name": "Edge Frost",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "alphaThreshold": {
+          "type": "float",
+          "label": "Shape threshold",
+          "default": 0.08,
+          "min": 0.01,
+          "max": 0.8,
+          "step": 0.01
+        },
+        "iceDepth": {
+          "type": "float",
+          "label": "Ice depth",
+          "default": 0.9,
+          "min": 0.1,
+          "max": 3,
+          "step": 0.01
+        },
+        "absorption": {
+          "type": "float",
+          "label": "Absorption",
+          "default": 0.7,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        "scattering": {
+          "type": "float",
+          "label": "Scattering",
+          "default": 0.8,
+          "min": 0,
+          "max": 2,
+          "step": 0.01
+        },
+        "crystalDensity": {
+          "type": "float",
+          "label": "Crystal density",
+          "default": 0.72,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "branchLength": {
+          "type": "float",
+          "label": "Crystal reach",
+          "default": 28,
+          "min": 1,
+          "max": 120,
+          "step": 1
+        },
+        "branchScale": {
+          "type": "float",
+          "label": "Branch scale",
+          "default": 9,
+          "min": 2,
+          "max": 40,
+          "step": 1
+        },
+        "roughness": {
+          "type": "float",
+          "label": "Crystal roughness",
+          "default": 0.45,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "sparkle": {
+          "type": "float",
+          "label": "Crystal glints",
+          "default": 0.8,
+          "min": 0,
+          "max": 2,
+          "step": 0.01
+        },
+        "lightAngle": {
+          "type": "float",
+          "label": "Light angle",
+          "default": -0.65,
+          "min": -3.14,
+          "max": 3.14,
+          "step": 0.01
+        },
+        "iceTint": {
+          "type": "color",
+          "label": "Ice tint",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.43,
+              0.83,
+              0.94
+            ],
+            "alpha": 1
+          }
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 0.95,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "seed",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump0",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump1",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump2",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump3",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump4",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump5",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump6",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "nearest",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "seed-boundary",
+          "kind": "compute",
+          "reads": [
+            "source"
+          ],
+          "output": "seed",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-128",
+          "kind": "compute",
+          "reads": [
+            "seed"
+          ],
+          "output": "jump0",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-64",
+          "kind": "compute",
+          "reads": [
+            "jump0"
+          ],
+          "output": "jump1",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-32",
+          "kind": "compute",
+          "reads": [
+            "jump1"
+          ],
+          "output": "jump2",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-16",
+          "kind": "compute",
+          "reads": [
+            "jump2"
+          ],
+          "output": "jump3",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-8",
+          "kind": "compute",
+          "reads": [
+            "jump3"
+          ],
+          "output": "jump4",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-4",
+          "kind": "compute",
+          "reads": [
+            "jump4"
+          ],
+          "output": "jump5",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-2",
+          "kind": "compute",
+          "reads": [
+            "jump5"
+          ],
+          "output": "jump6",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-1",
+          "kind": "compute",
+          "reads": [
+            "jump6"
+          ],
+          "output": "nearest",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "shade-edge-frost",
+          "kind": "render",
+          "reads": [
+            "source",
+            "nearest"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "6b196968b0b54beaa23e55307f4b3d829ff4a032f1d32c539a81744eef910264",
+      "presetIds": [
+        "an-preset-bk-blue-ice",
+        "an-preset-bk-rimed-glass"
+      ],
+      "animationCapability": "static"
+    },
+    {
+      "id": "an-native-owned-bn-source-crystal",
+      "name": "Faceted Source Crystal",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "alphaThreshold": {
+          "type": "float",
+          "label": "Shape threshold",
+          "default": 0.12,
+          "min": 0.01,
+          "max": 0.9,
+          "step": 0.01
+        },
+        "crystalDepth": {
+          "type": "float",
+          "label": "Crystal depth",
+          "default": 0.18,
+          "min": 0.03,
+          "max": 0.4,
+          "step": 0.01
+        },
+        "facetFrequency": {
+          "type": "float",
+          "label": "Facet frequency",
+          "default": 18,
+          "min": 3,
+          "max": 48,
+          "step": 1
+        },
+        "facetRise": {
+          "type": "float",
+          "label": "Facet rise",
+          "default": 0.65,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "crystalYaw": {
+          "type": "float",
+          "label": "Crystal yaw",
+          "default": 0.2,
+          "min": -0.8,
+          "max": 0.8,
+          "step": 0.01
+        },
+        "crystalPitch": {
+          "type": "float",
+          "label": "Crystal pitch",
+          "default": -0.12,
+          "min": -0.8,
+          "max": 0.8,
+          "step": 0.01
+        },
+        "refractiveIndex": {
+          "type": "float",
+          "label": "Refractive index",
+          "default": 1.48,
+          "min": 1.01,
+          "max": 2.2,
+          "step": 0.01
+        },
+        "internalReflection": {
+          "type": "float",
+          "label": "Internal reflection",
+          "default": 0.75,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "crystalAbsorption": {
+          "type": "color",
+          "label": "Crystal absorption",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.13,
+              0.28,
+              0.52
+            ],
+            "alpha": 0.55
+          }
+        },
+        "crystalRoughness": {
+          "type": "float",
+          "label": "Crystal roughness",
+          "default": 0.16,
+          "min": 0.02,
+          "max": 1,
+          "step": 0.01
+        },
+        "crystalLight": {
+          "type": "vec2",
+          "label": "Crystal light",
+          "default": [
+            -0.5,
+            0.6
+          ],
+          "min": -1,
+          "max": 1
+        },
+        "crystalTint": {
+          "type": "color",
+          "label": "Crystal tint",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.58,
+              0.86,
+              1
+            ],
+            "alpha": 0.3
+          }
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 0.94,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "seed",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump0",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump1",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump2",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump3",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump4",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump5",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump6",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "nearest",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "seed-boundary",
+          "kind": "compute",
+          "reads": [
+            "source"
+          ],
+          "output": "seed",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-128",
+          "kind": "compute",
+          "reads": [
+            "seed"
+          ],
+          "output": "jump0",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-64",
+          "kind": "compute",
+          "reads": [
+            "jump0"
+          ],
+          "output": "jump1",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-32",
+          "kind": "compute",
+          "reads": [
+            "jump1"
+          ],
+          "output": "jump2",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-16",
+          "kind": "compute",
+          "reads": [
+            "jump2"
+          ],
+          "output": "jump3",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-8",
+          "kind": "compute",
+          "reads": [
+            "jump3"
+          ],
+          "output": "jump4",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-4",
+          "kind": "compute",
+          "reads": [
+            "jump4"
+          ],
+          "output": "jump5",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-2",
+          "kind": "compute",
+          "reads": [
+            "jump5"
+          ],
+          "output": "jump6",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-1",
+          "kind": "compute",
+          "reads": [
+            "jump6"
+          ],
+          "output": "nearest",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "trace-crystal",
+          "kind": "render",
+          "reads": [
+            "source",
+            "nearest"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "418fbeedc27c87ca8732d86a367b8cee5e4bbe19652485a9a6396f68eedea902",
+      "presetIds": [
+        "an-preset-bn-ice-quartz",
+        "an-preset-bn-rose-prism"
+      ],
+      "animationCapability": "static"
+    },
+    {
+      "id": "an-native-owned-bo-source-water-volume",
+      "name": "Source Water Volume",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "alphaThreshold": {
+          "type": "float",
+          "label": "Shape threshold",
+          "default": 0.1,
+          "min": 0.01,
+          "max": 0.9,
+          "step": 0.01
+        },
+        "waterDepth": {
+          "type": "float",
+          "label": "Water depth",
+          "default": 32,
+          "min": 4,
+          "max": 120,
+          "step": 1,
+          "unit": "px"
+        },
+        "waveHeight": {
+          "type": "float",
+          "label": "Wave height",
+          "default": 5,
+          "min": 0,
+          "max": 24,
+          "step": 0.5,
+          "unit": "px"
+        },
+        "waveLength": {
+          "type": "float",
+          "label": "Wave length",
+          "default": 44,
+          "min": 8,
+          "max": 160,
+          "step": 1,
+          "unit": "px"
+        },
+        "windDirection": {
+          "type": "vec2",
+          "label": "Wind direction",
+          "default": [
+            0.8,
+            0.25
+          ],
+          "min": -1,
+          "max": 1
+        },
+        "windSpeed": {
+          "type": "float",
+          "label": "Wind speed",
+          "default": 0.65,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        "waterAbsorption": {
+          "type": "color",
+          "label": "Water absorption",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.58,
+              0.24,
+              0.12
+            ],
+            "alpha": 0.62
+          }
+        },
+        "waterRefraction": {
+          "type": "float",
+          "label": "Water refraction",
+          "default": 9,
+          "min": 0,
+          "max": 30,
+          "step": 0.5,
+          "unit": "px"
+        },
+        "waterFresnel": {
+          "type": "float",
+          "label": "Water Fresnel",
+          "default": 0.82,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "foamWidth": {
+          "type": "float",
+          "label": "Foam width",
+          "default": 8,
+          "min": 1,
+          "max": 36,
+          "step": 1,
+          "unit": "px"
+        },
+        "foamStrength": {
+          "type": "float",
+          "label": "Foam strength",
+          "default": 0.48,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "causticStrength": {
+          "type": "float",
+          "label": "Caustic strength",
+          "default": 0.55,
+          "min": 0,
+          "max": 2,
+          "step": 0.01
+        },
+        "waterTint": {
+          "type": "color",
+          "label": "Water tint",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.24,
+              0.78,
+              0.94
+            ],
+            "alpha": 0.38
+          }
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 0.92,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "seed",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump0",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump1",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump2",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump3",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump4",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump5",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump6",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "nearest",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "seed-boundary",
+          "kind": "compute",
+          "reads": [
+            "source"
+          ],
+          "output": "seed",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-128",
+          "kind": "compute",
+          "reads": [
+            "seed"
+          ],
+          "output": "jump0",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-64",
+          "kind": "compute",
+          "reads": [
+            "jump0"
+          ],
+          "output": "jump1",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-32",
+          "kind": "compute",
+          "reads": [
+            "jump1"
+          ],
+          "output": "jump2",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-16",
+          "kind": "compute",
+          "reads": [
+            "jump2"
+          ],
+          "output": "jump3",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-8",
+          "kind": "compute",
+          "reads": [
+            "jump3"
+          ],
+          "output": "jump4",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-4",
+          "kind": "compute",
+          "reads": [
+            "jump4"
+          ],
+          "output": "jump5",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-2",
+          "kind": "compute",
+          "reads": [
+            "jump5"
+          ],
+          "output": "jump6",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-1",
+          "kind": "compute",
+          "reads": [
+            "jump6"
+          ],
+          "output": "nearest",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "trace-water",
+          "kind": "render",
+          "reads": [
+            "source",
+            "nearest"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "02c55a9e8e85ee7c871c58fc9fdca35f569c0ec48e63e33a5d94c5024e76be23",
+      "presetIds": [
+        "an-preset-bo-tidal-glass",
+        "an-preset-bo-deep-current"
+      ],
+      "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-bp-shape-nebula-volume",
+      "name": "Shape Nebula Volume",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "alphaThreshold": {
+          "type": "float",
+          "label": "Shape threshold",
+          "default": 0.08,
+          "min": 0.01,
+          "max": 0.8,
+          "step": 0.01
+        },
+        "depth": {
+          "type": "float",
+          "label": "Volume depth",
+          "default": 0.22,
+          "min": 0.04,
+          "max": 0.5,
+          "step": 0.01
+        },
+        "gasScale": {
+          "type": "float",
+          "label": "Gas scale",
+          "default": 14,
+          "min": 2,
+          "max": 40,
+          "step": 0.5
+        },
+        "density": {
+          "type": "float",
+          "label": "Gas density",
+          "default": 1.2,
+          "min": 0,
+          "max": 4,
+          "step": 0.01
+        },
+        "cavities": {
+          "type": "float",
+          "label": "Dark cavities",
+          "default": 0.5,
+          "min": 0.1,
+          "max": 0.9,
+          "step": 0.01
+        },
+        "emission": {
+          "type": "float",
+          "label": "Emission",
+          "default": 1.2,
+          "min": 0,
+          "max": 4,
+          "step": 0.01
+        },
+        "stars": {
+          "type": "float",
+          "label": "Internal stars",
+          "default": 0.6,
+          "min": 0,
+          "max": 2,
+          "step": 0.01
+        },
+        "refraction": {
+          "type": "float",
+          "label": "Glass refraction",
+          "default": 3,
+          "min": 0,
+          "max": 12,
+          "step": 0.1
+        },
+        "motionSpeed": {
+          "type": "float",
+          "label": "Gas motion",
+          "default": 0.35,
+          "min": 0,
+          "max": 2,
+          "step": 0.01
+        },
+        "yaw": {
+          "type": "float",
+          "label": "Orbit yaw",
+          "default": 0.2,
+          "min": -0.8,
+          "max": 0.8,
+          "step": 0.01
+        },
+        "pitch": {
+          "type": "float",
+          "label": "Orbit pitch",
+          "default": -0.12,
+          "min": -0.8,
+          "max": 0.8,
+          "step": 0.01
+        },
+        "colorA": {
+          "type": "color",
+          "label": "Core color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.19,
+              0.42,
+              0.96
+            ],
+            "alpha": 1
+          }
+        },
+        "colorB": {
+          "type": "color",
+          "label": "Rim color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.94,
+              0.27,
+              0.68
+            ],
+            "alpha": 1
+          }
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 0.9,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "seed",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump0",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump1",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump2",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump3",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump4",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump5",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump6",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "nearest",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "seed-boundary",
+          "kind": "compute",
+          "reads": [
+            "source"
+          ],
+          "output": "seed",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-128",
+          "kind": "compute",
+          "reads": [
+            "seed"
+          ],
+          "output": "jump0",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-64",
+          "kind": "compute",
+          "reads": [
+            "jump0"
+          ],
+          "output": "jump1",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-32",
+          "kind": "compute",
+          "reads": [
+            "jump1"
+          ],
+          "output": "jump2",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-16",
+          "kind": "compute",
+          "reads": [
+            "jump2"
+          ],
+          "output": "jump3",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-8",
+          "kind": "compute",
+          "reads": [
+            "jump3"
+          ],
+          "output": "jump4",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-4",
+          "kind": "compute",
+          "reads": [
+            "jump4"
+          ],
+          "output": "jump5",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-2",
+          "kind": "compute",
+          "reads": [
+            "jump5"
+          ],
+          "output": "jump6",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-1",
+          "kind": "compute",
+          "reads": [
+            "jump6"
+          ],
+          "output": "nearest",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "integrate-volume",
+          "kind": "render",
+          "reads": [
+            "source",
+            "nearest"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "cfea69c43fa5ab8706cec1b9d6551c86e08b34f90bdb5cc5d99d99952107f9d8",
+      "presetIds": [
+        "an-preset-bp-electric-nebula",
+        "an-preset-bp-ember-cloud"
+      ],
+      "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-bq-obsidian-shape-glass",
+      "name": "Obsidian Shape Glass",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "alphaThreshold": {
+          "type": "float",
+          "label": "Shape threshold",
+          "default": 0.08,
+          "min": 0.01,
+          "max": 0.8,
+          "step": 0.01
+        },
+        "depth": {
+          "type": "float",
+          "label": "Glass depth",
+          "default": 0.2,
+          "min": 0.04,
+          "max": 0.45,
+          "step": 0.01
+        },
+        "bevel": {
+          "type": "float",
+          "label": "Edge bevel",
+          "default": 0.015,
+          "min": 0,
+          "max": 0.06,
+          "step": 0.001
+        },
+        "filmThickness": {
+          "type": "float",
+          "label": "Film thickness",
+          "default": 0.8,
+          "min": 0.1,
+          "max": 2,
+          "step": 0.01
+        },
+        "filmStrength": {
+          "type": "float",
+          "label": "Iridescence",
+          "default": 1.15,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        "filmFlow": {
+          "type": "float",
+          "label": "Film flow",
+          "default": 0.3,
+          "min": 0,
+          "max": 2,
+          "step": 0.01
+        },
+        "roughness": {
+          "type": "float",
+          "label": "Roughness",
+          "default": 0.17,
+          "min": 0.01,
+          "max": 1,
+          "step": 0.01
+        },
+        "refraction": {
+          "type": "float",
+          "label": "Refraction",
+          "default": 5,
+          "min": 0,
+          "max": 16,
+          "step": 0.1
+        },
+        "studio": {
+          "type": "float",
+          "label": "Studio reflection",
+          "default": 1.1,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        "yaw": {
+          "type": "float",
+          "label": "Orbit yaw",
+          "default": 0.22,
+          "min": -0.8,
+          "max": 0.8,
+          "step": 0.01
+        },
+        "pitch": {
+          "type": "float",
+          "label": "Orbit pitch",
+          "default": -0.12,
+          "min": -0.8,
+          "max": 0.8,
+          "step": 0.01
+        },
+        "bodyTint": {
+          "type": "color",
+          "label": "Glass body",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.08,
+              0.09,
+              0.17
+            ],
+            "alpha": 1
+          }
+        },
+        "filmA": {
+          "type": "color",
+          "label": "Film color A",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.15,
+              0.75,
+              0.96
+            ],
+            "alpha": 1
+          }
+        },
+        "filmB": {
+          "type": "color",
+          "label": "Film color B",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.95,
+              0.24,
+              0.66
+            ],
+            "alpha": 1
+          }
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 0.95,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "seed",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump0",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump1",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump2",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump3",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump4",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump5",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump6",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "nearest",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "seed-boundary",
+          "kind": "compute",
+          "reads": [
+            "source"
+          ],
+          "output": "seed",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-128",
+          "kind": "compute",
+          "reads": [
+            "seed"
+          ],
+          "output": "jump0",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-64",
+          "kind": "compute",
+          "reads": [
+            "jump0"
+          ],
+          "output": "jump1",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-32",
+          "kind": "compute",
+          "reads": [
+            "jump1"
+          ],
+          "output": "jump2",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-16",
+          "kind": "compute",
+          "reads": [
+            "jump2"
+          ],
+          "output": "jump3",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-8",
+          "kind": "compute",
+          "reads": [
+            "jump3"
+          ],
+          "output": "jump4",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-4",
+          "kind": "compute",
+          "reads": [
+            "jump4"
+          ],
+          "output": "jump5",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-2",
+          "kind": "compute",
+          "reads": [
+            "jump5"
+          ],
+          "output": "jump6",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-1",
+          "kind": "compute",
+          "reads": [
+            "jump6"
+          ],
+          "output": "nearest",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "shade-obsidian",
+          "kind": "render",
+          "reads": [
+            "source",
+            "nearest"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "3d18f5dfe164baa665cb303fb498f610e0f727fb597ec7dc15720b52fab95d0f",
+      "presetIds": [
+        "an-preset-bq-midnight-opal",
+        "an-preset-bq-ember-obsidian"
+      ],
+      "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-br-signal-visualizer",
+      "name": "Signal Visualizer",
+      "version": 1,
+      "kind": "generator",
+      "placements": [
+        "fill"
+      ],
+      "properties": {
+        "visualStyle": {
+          "type": "enum",
+          "label": "Visualizer style",
+          "default": "Equalizer Bars",
+          "options": [
+            "Equalizer Bars",
+            "Filled Wave",
+            "Oscilloscope Line",
+            "Dot Matrix"
+          ]
+        },
+        "signalMode": {
+          "type": "enum",
+          "label": "Signal mode",
+          "default": "Simulated",
+          "options": [
+            "Simulated",
+            "Level"
+          ]
+        },
+        "signalLevel": {
+          "type": "float",
+          "label": "Simulated level",
+          "default": 0.7,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "scalarLevel": {
+          "type": "float",
+          "label": "Scalar level",
+          "default": 0.75,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "amplitude": {
+          "type": "float",
+          "label": "Amplitude",
+          "default": 0.9,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "signalFrequency": {
+          "type": "float",
+          "label": "Signal frequency",
+          "default": 4,
+          "min": 0.25,
+          "max": 20,
+          "step": 0.05
+        },
+        "signalPhase": {
+          "type": "float",
+          "label": "Signal phase",
+          "default": 0,
+          "min": -6.28,
+          "max": 6.28,
+          "step": 0.01
+        },
+        "signalSpeed": {
+          "type": "float",
+          "label": "Signal speed",
+          "default": 0.7,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        "bandCount": {
+          "type": "int",
+          "label": "Band count",
+          "default": 32,
+          "min": 4,
+          "max": 128,
+          "step": 1
+        },
+        "lineWidth": {
+          "type": "float",
+          "label": "Line width",
+          "default": 2,
+          "min": 0.5,
+          "max": 12,
+          "step": 0.1,
+          "unit": "px"
+        },
+        "dotSize": {
+          "type": "float",
+          "label": "Dot size",
+          "default": 6,
+          "min": 1,
+          "max": 18,
+          "step": 0.5,
+          "unit": "px"
+        },
+        "signalColor": {
+          "type": "color",
+          "label": "Signal color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.09,
+              0.9,
+              0.65
+            ],
+            "alpha": 1
+          }
+        },
+        "peakColor": {
+          "type": "color",
+          "label": "Peak color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.82,
+              1,
+              0.78
+            ],
+            "alpha": 0.9
+          }
+        },
+        "backgroundColor": {
+          "type": "color",
+          "label": "Background",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.015,
+              0.035,
+              0.055
+            ],
+            "alpha": 1
+          }
+        },
+        "opacity": {
+          "type": "float",
+          "label": "Opacity",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "render"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "render-signal",
+          "kind": "render",
+          "reads": [],
+          "output": "color"
+        }
+      ],
+      "executionHash": "2b6c822159d03bd1a83dd9bb6563fc48815c8ec3a1f5dee688c1733c396bade7",
+      "presetIds": [
+        "an-preset-br-pulse-bars",
+        "an-preset-br-level-dots"
       ],
       "animationCapability": "animated"
     }

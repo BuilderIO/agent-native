@@ -43,6 +43,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "static"
     ],
     [
+      "02c55a9e8e85ee7c871c58fc9fdca35f569c0ec48e63e33a5d94c5024e76be23",
+      "animated"
+    ],
+    [
       "0309f0e8d0c9d9881babdfae82d4ad2ee505ce1158793f80e2fbbd970b6fb56a",
       "static"
     ],
@@ -307,6 +311,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "static"
     ],
     [
+      "2b6c822159d03bd1a83dd9bb6563fc48815c8ec3a1f5dee688c1733c396bade7",
+      "animated"
+    ],
+    [
       "2d1846090c9da0d7c44d1c179a17a93066450fecad8c4a9cc6190cecdbd1c6d4",
       "static"
     ],
@@ -419,6 +427,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "animated"
     ],
     [
+      "3d18f5dfe164baa665cb303fb498f610e0f727fb597ec7dc15720b52fab95d0f",
+      "animated"
+    ],
+    [
       "3ef4c6828a76d721207d8e88a96583abf08d90e6bde66bc2dc649aa4e971826f",
       "animated"
     ],
@@ -436,6 +448,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     ],
     [
       "40af2667a656a6d0b7751202a6599384fb194ecdafd4143fe15d36270c7b3476",
+      "static"
+    ],
+    [
+      "418fbeedc27c87ca8732d86a367b8cee5e4bbe19652485a9a6396f68eedea902",
       "static"
     ],
     [
@@ -500,6 +516,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     ],
     [
       "4d30ac81b5893b1ea149e8bd4e7fadd34a3573ff0593d0ccfd960d777359af21",
+      "static"
+    ],
+    [
+      "4d5293ed224ffdc61f5eb605c5caff575167eb963fc4222cb7cdd028b382a24b",
       "static"
     ],
     [
@@ -697,6 +717,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     [
       "6b168a2e9cc7635c6172816997d1370705b0982f21b36dc1a610812f09e551b6",
       "animated"
+    ],
+    [
+      "6b196968b0b54beaa23e55307f4b3d829ff4a032f1d32c539a81744eef910264",
+      "static"
     ],
     [
       "6b621bcb70f4e2f97f1954e3de9dbdd537a27be0bdfbe94b1fa274e5b1cbbe47",
@@ -1055,6 +1079,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "static"
     ],
     [
+      "a32a0a35025aef5c31b6c6c69c3043a7929f8e14fad071a2512ed528a6c5289c",
+      "animated"
+    ],
+    [
       "a5d6635d613e918ba7db70b734257fc009980b4af939fea23c87ad8c675e5609",
       "static"
     ],
@@ -1105,6 +1133,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     [
       "abaea5b7c5208ae7ceb0b05cd1d8d08a7610cf96486c8dee38a303873e9359a1",
       "static"
+    ],
+    [
+      "ac9fb2a85794ac87bc1c3754c8f755f25d3fa3e95c2c2355e67f28d5209ed341",
+      "animated"
     ],
     [
       "ad10f5b6c5994439bf139af78dd145a6ad05b6b82cb743796915128c9f375553",
@@ -1291,8 +1323,16 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "static"
     ],
     [
+      "cd62ecd3ae98fa58d0688a59b05eb0a16e64819849039dfbe8cb504c473e2925",
+      "static"
+    ],
+    [
       "ce57356dcb970466b3ae97c368cf5baefd59f80f0c933c57162a9ec450b70bd0",
       "static"
+    ],
+    [
+      "cfea69c43fa5ab8706cec1b9d6551c86e08b34f90bdb5cc5d99d99952107f9d8",
+      "animated"
     ],
     [
       "d01732a107a19aa1d194b3708186bae9f99703f50adc2b15bf3d6427d19de614",
@@ -1525,6 +1565,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     [
       "ed4c4ce8d152d8723939ea57266c993ebb5c9e75dbbaae6555775cc97057bf23",
       "animated"
+    ],
+    [
+      "ed937b80441bcd5ceee85c82f3ae30ac215d63ec152d09385e707cee3dfaf0f3",
+      "static"
     ],
     [
       "ed99476572de78f4312a07c7099aae942f20268cb8dc3fb66a07b3268dad605b",
