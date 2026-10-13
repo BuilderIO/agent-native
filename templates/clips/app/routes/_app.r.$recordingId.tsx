@@ -2247,6 +2247,7 @@ export default function RecordingPage() {
                 </div>
               ) : (
                 <StorageSetupCard
+                  connectSource="clips_recording_page_storage_setup_card"
                   title={
                     loomStorageSetupFailure
                       ? t("recordingPage.connectStorageImportLoomTitle")
