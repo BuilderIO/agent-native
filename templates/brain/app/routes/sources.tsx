@@ -2209,11 +2209,15 @@ export default function SourcesRoute() {
   const zoomMeetingIdsMissing =
     form.provider === "zoom" &&
     zoomFilterLines(form.zoomMeetingIds).length === 0;
-  const canManageZoom = connectionProvidersQuery.data?.canManageZoom === true;
-  const zoomSettingsLocked = form.provider === "zoom" && !canManageZoom;
+  // Undefined until the provider list loads; only a confirmed non-admin locks.
+  const canManageZoom = connectionProvidersQuery.data?.canManageZoom;
+  const zoomSettingsLocked =
+    form.provider === "zoom" && canManageZoom === false;
   const selectableProviders = providers.filter(
     (provider) =>
-      provider.value !== "zoom" || canManageZoom || form.provider === "zoom",
+      provider.value !== "zoom" ||
+      canManageZoom === true ||
+      (!!editingSource && form.provider === "zoom"),
   );
   const formConfigInvalid =
     slackChannelIssues.length > 0 ||
@@ -2331,8 +2335,11 @@ export default function SourcesRoute() {
       await updateSource.mutateAsync({
         id: editingSource.id,
         title: form.title.trim() || defaultTitle(form.provider, t),
-        status:
-          form.autoSync || sourceEnabled(editingSource) ? "active" : "paused",
+        status: zoomSettingsLocked
+          ? undefined
+          : form.autoSync || sourceEnabled(editingSource)
+            ? "active"
+            : "paused",
         config: zoomSettingsLocked ? undefined : config,
       });
     } else {
@@ -3496,6 +3503,7 @@ export default function SourcesRoute() {
                   </span>
                 </span>
                 <Switch
+                  disabled={zoomSettingsLocked}
                   checked={form.autoSync}
                   onCheckedChange={(autoSync) => updateForm({ autoSync })}
                 />
