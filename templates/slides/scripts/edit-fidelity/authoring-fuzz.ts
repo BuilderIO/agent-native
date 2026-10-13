@@ -5195,29 +5195,53 @@ export async function runAuthoringFuzz(
     );
   };
   const dispatchReplacement = async () => {
-    await newPlainLine("replacement");
     const before = await inspectSelection();
     if (!before.inside || !before.collapsed)
       throw new Error("replacement needs a caret in the editor");
     await typeText("teh");
-    const state = await inspectSelection();
-    if (!state.inside) throw new Error("autocorrect sample left the editor");
-    await selectToken("teh");
-    const selected = await inspectSelection();
+    const typed = await inspectSelection();
+    if (
+      !typed.inside ||
+      !typed.collapsed ||
+      typed.start !== before.start + "teh".length
+    )
+      throw new Error("autocorrect sample did not stay at the original caret");
+    const replacementStart = typed.start - "teh".length;
     const expected =
-      selected.text.slice(0, selected.start) +
+      typed.text.slice(0, replacementStart) +
       "the" +
-      selected.text.slice(selected.end);
-    await editor.evaluate((root: HTMLElement) => {
-      const selection = window.getSelection();
-      if (!selection?.rangeCount)
-        throw new Error("autocorrect selection is unavailable");
-      const target = selection.getRangeAt(0).cloneRange();
+      typed.text.slice(typed.start);
+    await editor.evaluate((root: HTMLElement, targetStart: number) => {
+      const points: Array<{ text: Text; offset: number }> = [];
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let visible = "";
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const text = node as Text;
+        for (let offset = 0; offset < text.length; offset += 1) {
+          if (text.data[offset] === "\u200b") continue;
+          points.push({ text, offset });
+          visible += text.data[offset] === "\u00a0" ? " " : text.data[offset];
+        }
+      }
+      if (visible.slice(targetStart, targetStart + 3) !== "teh") {
+        throw new Error(
+          "autocorrect sample could not be found at the typed caret",
+        );
+      }
+      const first = points[targetStart];
+      const last = points[targetStart + 2];
+      if (!first || !last)
+        throw new Error("autocorrect target range is unavailable");
+      const target = document.createRange();
+      target.setStart(first.text, first.offset);
+      target.setEnd(last.text, last.offset + 1);
       if (target.toString().replaceAll("\u200b", "") !== "teh") {
         throw new Error(
           "autocorrect target range did not select the typed token",
         );
       }
+      const selection = window.getSelection();
+      if (!selection) throw new Error("browser selection is unavailable");
       selection.collapse(root, root.childNodes.length);
       const event = new InputEvent("beforeinput", {
         inputType: "insertReplacementText",
@@ -5229,12 +5253,13 @@ export async function runAuthoringFuzz(
         value: () => [target],
       });
       root.dispatchEvent(event);
-    });
+    }, replacementStart);
     const after = await inspectSelection();
     if (
       !after.inside ||
+      !after.collapsed ||
       after.text !== expected ||
-      after.start !== selected.start + "the".length
+      after.start !== typed.start
     )
       throw new Error(
         "insertReplacementText did not replace the selected token at its range",
