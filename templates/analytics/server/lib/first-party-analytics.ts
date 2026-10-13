@@ -1733,6 +1733,7 @@ export async function queryFirstPartyAnalytics(
         const failure = normalizeFailure(error);
         const abandoned =
           computeSignal.aborted &&
+          !timeoutController.signal.aborted &&
           !isFirstPartyAnalyticsTimeoutError(computeSignal.reason);
         if (!abandoned) {
           void recordFirstPartyAnalyticsQueryPressure(scope, {

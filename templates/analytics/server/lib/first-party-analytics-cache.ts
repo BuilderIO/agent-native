@@ -22,9 +22,10 @@ interface InFlightEntry {
   controller: AbortController;
   waiters: number;
   settled: boolean;
+  deadlineAt: number;
 }
 
-const inFlight = new Map<string, InFlightEntry>();
+const inFlight = new Map<string, InFlightEntry[]>();
 
 function inFlightKey(key: string, timeoutMs?: number): string {
   return `${key}:${timeoutMs ?? "unbounded"}`;
@@ -215,8 +216,17 @@ export async function withFirstPartyCache(
   const deadlineAt = options.deadlineAt ?? Date.now() + timeoutMs;
 
   const requestKey = inFlightKey(key, options.timeoutMs);
-  const existing = inFlight.get(requestKey);
-  if (existing && !existing.controller.signal.aborted) {
+  // The shared computation is bounded by its creator's deadline, so a later
+  // caller may only join when its own deadline is no later.
+  const existing = inFlight
+    .get(requestKey)
+    ?.find(
+      (entry) =>
+        !entry.settled &&
+        !entry.controller.signal.aborted &&
+        deadlineAt <= entry.deadlineAt,
+    );
+  if (existing) {
     return waitUntilDeadline(existing, deadlineAt, timeoutMs, options.signal);
   }
 
@@ -255,9 +265,16 @@ export async function withFirstPartyCache(
     return result;
   })().finally(() => {
     entry.settled = true;
-    if (inFlight.get(requestKey) === entry) inFlight.delete(requestKey);
+    const entries = inFlight.get(requestKey);
+    if (entries) {
+      const remaining = entries.filter((candidate) => candidate !== entry);
+      if (remaining.length) inFlight.set(requestKey, remaining);
+      else inFlight.delete(requestKey);
+    }
   });
-  entry = { promise, controller, waiters: 0, settled: false };
-  inFlight.set(requestKey, entry);
+  entry = { promise, controller, waiters: 0, settled: false, deadlineAt };
+  const entries = inFlight.get(requestKey) ?? [];
+  entries.push(entry);
+  inFlight.set(requestKey, entries);
   return waitUntilDeadline(entry, deadlineAt, timeoutMs, options.signal);
 }

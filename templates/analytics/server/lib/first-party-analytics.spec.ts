@@ -155,6 +155,7 @@ import {
   touchPublicKeyLastUsedAt,
   validateFirstPartyAnalyticsSql,
 } from "./first-party-analytics";
+import { withFirstPartyCache } from "./first-party-analytics-cache";
 import {
   buildOnboardingJourneyEventsSql,
   buildOnboardingJourneyFollowupSql,
@@ -2084,6 +2085,53 @@ describe("queryFirstPartyAnalytics", () => {
     ).rejects.toBeInstanceOf(FirstPartyAnalyticsQueryTimeoutError);
   });
 
+  it("records query pressure for an uncached Postgres timeout", async () => {
+    healthMocks.classify.mockReturnValueOnce("raw-events");
+    healthMocks.outcome.mockReturnValueOnce("timeout");
+    backendMocks.get.mockResolvedValueOnce({ sink: "postgres", table: null });
+    execute.mockImplementation(() => new Promise(() => {}));
+
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT COUNT(*) AS count FROM analytics_events",
+        { userEmail: "alice@example.com", orgId: null },
+        { cache: false, timeoutMs: 20 },
+      ),
+    ).rejects.toBeInstanceOf(FirstPartyAnalyticsQueryTimeoutError);
+
+    expect(healthMocks.record).toHaveBeenCalledWith(
+      expect.objectContaining({ userEmail: "alice@example.com" }),
+      expect.objectContaining({ outcome: "timeout", queryClass: "raw-events" }),
+    );
+  });
+
+  it("does not record query pressure when the uncached caller aborts", async () => {
+    backendMocks.get.mockResolvedValueOnce({ sink: "postgres", table: null });
+    let markQueryStarted!: () => void;
+    const queryStarted = new Promise<void>((resolve) => {
+      markQueryStarted = resolve;
+    });
+    execute.mockImplementation(({ sql }: { sql: string }) => {
+      if (sql.includes("first_party_analytics_query")) {
+        markQueryStarted();
+        return new Promise(() => {});
+      }
+      return Promise.resolve({ rows: [], rowsAffected: 0 });
+    });
+
+    const controller = new AbortController();
+    const query = queryFirstPartyAnalytics(
+      "SELECT COUNT(*) AS count FROM analytics_events",
+      { userEmail: "alice@example.com", orgId: null },
+      { cache: false, signal: controller.signal },
+    );
+    await queryStarted;
+    controller.abort(new DOMException("caller left", "AbortError"));
+
+    await expect(query).rejects.toHaveProperty("name", "AbortError");
+    expect(healthMocks.record).not.toHaveBeenCalled();
+  });
+
   it("does not materialize the scoped raw event CTE on Postgres execution", async () => {
     execute.mockResolvedValue({ rows: [{ count: "1" }], rowsAffected: 0 });
 
@@ -2268,7 +2316,7 @@ describe("queryFirstPartyAnalytics", () => {
     }
   });
 
-  it("coalesces concurrent cached reads after verification takes different time", async () => {
+  it("does not coalesce cached reads when the joining deadline is later", async () => {
     let now = 5_000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
     expressionGuard.mockImplementation(async () => {
@@ -2312,7 +2360,7 @@ describe("queryFirstPartyAnalytics", () => {
         execute.mock.calls.filter(([input]) =>
           input.sql.includes("SELECT result FROM first_party_analytics_cache"),
         ),
-      ).toHaveLength(1);
+      ).toHaveLength(2);
     } finally {
       releaseCache();
       dateNow.mockRestore();
@@ -2320,6 +2368,8 @@ describe("queryFirstPartyAnalytics", () => {
   });
 
   it("keeps a coalesced query alive when one caller aborts", async () => {
+    const initialNow = Date.now();
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(initialNow);
     let releaseCache!: () => void;
     let markCacheStarted!: () => void;
     const cacheStarted = new Promise<void>((resolve) => {
@@ -2382,6 +2432,83 @@ describe("queryFirstPartyAnalytics", () => {
     } finally {
       releaseCache();
       releaseQuery();
+      dateNow.mockRestore();
+    }
+  });
+
+  it("lets a later-deadline cached query continue after the earlier one expires", async () => {
+    vi.useFakeTimers();
+    execute.mockResolvedValue({ rows: [], rowsAffected: 0 });
+
+    let markFirstStarted!: () => void;
+    let markSecondStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    const secondStarted = new Promise<void>((resolve) => {
+      markSecondStarted = resolve;
+    });
+    let resolveSecond!: (result: {
+      rows: Array<{ count: string }>;
+      schema: Array<{ name: string; type: string }>;
+    }) => void;
+    let firstSignal: AbortSignal | undefined;
+    let secondSignal: AbortSignal | undefined;
+    const compute = vi.fn((_timeoutMs: number, signal: AbortSignal) => {
+      return new Promise<{
+        rows: Array<{ count: string }>;
+        schema: Array<{ name: string; type: string }>;
+      }>((resolve, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+        });
+        if (!firstSignal) {
+          firstSignal = signal;
+          markFirstStarted();
+        } else {
+          secondSignal = signal;
+          resolveSecond = resolve;
+          markSecondStarted();
+        }
+      });
+    });
+
+    const key = `deadline-isolation-${Math.random()}`;
+    try {
+      const first = withFirstPartyCache(key, "SELECT 1", compute, {
+        timeoutMs: 100,
+        deadlineAt: Date.now() + 100,
+      });
+      const firstTimedOut = expect(first).rejects.toThrow(/timed out/);
+      await firstStarted;
+      await vi.advanceTimersByTimeAsync(50);
+      const second = withFirstPartyCache(key, "SELECT 1", compute, {
+        timeoutMs: 100,
+        deadlineAt: Date.now() + 150,
+      });
+      await secondStarted;
+      await vi.advanceTimersByTimeAsync(50);
+
+      await firstTimedOut;
+      expect(firstSignal?.aborted).toBe(true);
+      expect(secondSignal?.aborted).toBe(false);
+      resolveSecond({
+        rows: [{ count: "1" }],
+        schema: [{ name: "count", type: "string" }],
+      });
+      await expect(second).resolves.toEqual({
+        rows: [{ count: "1" }],
+        schema: [{ name: "count", type: "string" }],
+      });
+      expect(compute).toHaveBeenCalledTimes(2);
+    } finally {
+      if (secondSignal && !secondSignal.aborted) {
+        resolveSecond({
+          rows: [{ count: "1" }],
+          schema: [{ name: "count", type: "string" }],
+        });
+      }
+      vi.useRealTimers();
     }
   });
 
