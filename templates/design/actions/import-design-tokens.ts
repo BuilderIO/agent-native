@@ -307,6 +307,10 @@ const MAX_TOKEN_LABEL_LINE_LENGTH = 220;
 const TOKEN_LABEL_LINE =
   /^(?:[-*]\s*)?(?:\*\*)?([A-Za-z][\w\s/().&'’.-]{1,64}?)(?:\*\*)?\s*[:=]\s*(.+?)\s*$/;
 
+function isStructuralConfigOpeningLine(line: string): boolean {
+  return /^(?:[\w$-]+|"[\w$-]+"|'[\w$-]+')\s*:\s*[\[{]\s*$/.test(line.trim());
+}
+
 function isConfigStructureOpenerValue(value: string): boolean {
   return /^(?:\{|\[)\s*,?$/.test(value.trim());
 }
@@ -319,7 +323,13 @@ function parseNamedLines(
   for (const file of files) {
     for (const rawLine of file.content.split(/\r?\n/)) {
       const line = rawLine.trim();
-      if (!line || line.length > MAX_TOKEN_LABEL_LINE_LENGTH) continue;
+      if (
+        !line ||
+        line.length > MAX_TOKEN_LABEL_LINE_LENGTH ||
+        isStructuralConfigOpeningLine(line)
+      ) {
+        continue;
+      }
 
       const namedLine =
         line.startsWith("{") && line.endsWith("}")
@@ -435,8 +445,14 @@ function removeMalformedNamedLines(content: string): {
 } {
   let rejectedCount = 0;
   const lines = content.split(/\r?\n/).filter((line) => {
-    if (line.length > MAX_TOKEN_LABEL_LINE_LENGTH) return true;
-    const match = line.trim().match(TOKEN_LABEL_LINE);
+    const trimmed = line.trim();
+    if (
+      line.length > MAX_TOKEN_LABEL_LINE_LENGTH ||
+      isStructuralConfigOpeningLine(trimmed)
+    ) {
+      return true;
+    }
+    const match = trimmed.match(TOKEN_LABEL_LINE);
     if (
       !match ||
       isConfigStructureOpenerValue(match[2] ?? "") ||
@@ -1182,42 +1198,74 @@ export default defineAction({
             .select({ fileCount: sql<number>`count(*)::int` })
             .from(schema.designFiles)
             .where(eq(schema.designFiles.designId, designId));
-          const candidates = await tx
+          const candidateFilename = sql<string>`left(${schema.designFiles.filename}, ${DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS + 1})`;
+          const candidateContentBytes = sql<number>`octet_length(left(${schema.designFiles.content}, ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1}))`;
+          const boundedFilename = sql`char_length(${candidateFilename}) <= ${DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS}`;
+          const preferredCandidates = await tx
             .select({
               id: schema.designFiles.id,
-              filename: sql<string>`left(${schema.designFiles.filename}, ${DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS + 1})`,
-              contentBytes: sql<number>`octet_length(left(${schema.designFiles.content}, ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1}))`,
+              filename: candidateFilename,
+              contentBytes: candidateContentBytes,
             })
             .from(schema.designFiles)
             .where(
               and(
                 eq(schema.designFiles.designId, designId),
-                sql`char_length(left(${schema.designFiles.filename}, ${DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS + 1})) <= ${DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS}`,
-                sql`octet_length(left(${schema.designFiles.content}, ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1})) <= ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES}`,
+                boundedFilename,
+                sql`${candidateContentBytes} <= ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES}`,
+                sql`${schema.designFiles.filename} ~* '\\.(css|scss|less|json|md|mdx|txt)$'`,
               ),
             )
             .orderBy(
-              sql<number>`case when ${schema.designFiles.filename} ~* '\\.(css|scss|less|json|md|mdx|txt)$' then 0 else 1 end`,
-              asc(
-                sql<number>`octet_length(left(${schema.designFiles.content}, ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1}))`,
-              ),
+              asc(candidateContentBytes),
               asc(schema.designFiles.filename),
               asc(schema.designFiles.id),
             )
-            .limit(DESIGN_TOKEN_IMPORT_MAX_FILES + 1);
-          const selected = [];
+            .limit(DESIGN_TOKEN_IMPORT_MAX_FILES);
+          const selected: typeof preferredCandidates = [];
           let totalBytes = 0;
 
-          for (const candidate of candidates) {
-            if (selected.length >= DESIGN_TOKEN_IMPORT_MAX_FILES) break;
-            if (
-              candidate.contentBytes >
-              DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES - totalBytes
-            ) {
-              continue;
+          const addCandidates = (candidates: typeof preferredCandidates) => {
+            for (const candidate of candidates) {
+              if (selected.length >= DESIGN_TOKEN_IMPORT_MAX_FILES) break;
+              if (
+                candidate.contentBytes >
+                DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES - totalBytes
+              ) {
+                continue;
+              }
+              selected.push(candidate);
+              totalBytes += candidate.contentBytes;
             }
-            selected.push(candidate);
-            totalBytes += candidate.contentBytes;
+          };
+
+          addCandidates(preferredCandidates);
+          if (
+            selected.length < DESIGN_TOKEN_IMPORT_MAX_FILES &&
+            totalBytes < DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES
+          ) {
+            const fallbackCandidates = await tx
+              .select({
+                id: schema.designFiles.id,
+                filename: candidateFilename,
+                contentBytes: candidateContentBytes,
+              })
+              .from(schema.designFiles)
+              .where(
+                and(
+                  eq(schema.designFiles.designId, designId),
+                  boundedFilename,
+                  sql`${candidateContentBytes} <= ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES - totalBytes}`,
+                  sql`${schema.designFiles.filename} !~* '\\.(css|scss|less|json|md|mdx|txt)$'`,
+                ),
+              )
+              .orderBy(
+                asc(candidateContentBytes),
+                asc(schema.designFiles.filename),
+                asc(schema.designFiles.id),
+              )
+              .limit(DESIGN_TOKEN_IMPORT_MAX_FILES - selected.length);
+            addCandidates(fallbackCandidates);
           }
 
           const contents = selected.length

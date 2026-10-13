@@ -201,7 +201,7 @@ describe("import-design-tokens", () => {
       (_, index) => `:root { --spacing-gap-${index}: ${index + 1}px; }`,
     );
     const candidates = Array.from(
-      { length: DESIGN_TOKEN_IMPORT_MAX_FILES + 1 },
+      { length: DESIGN_TOKEN_IMPORT_MAX_FILES },
       (_, index) => ({
         id: `file-${index}`,
         filename: `tokens-${index}.css`,
@@ -225,7 +225,7 @@ describe("import-design-tokens", () => {
       source: "current-design",
     });
 
-    expect(mockLimit).toHaveBeenCalledWith(DESIGN_TOKEN_IMPORT_MAX_FILES + 1);
+    expect(mockLimit).toHaveBeenCalledWith(DESIGN_TOKEN_IMPORT_MAX_FILES);
     expect(mockOrderBy).toHaveBeenCalledOnce();
     expect(mockWhere.mock.calls[2]?.[0]).toMatchObject({
       kind: "inArray",
@@ -259,6 +259,7 @@ describe("import-design-tokens", () => {
           contentBytes: 10,
         },
       ])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         { id: "file-1", content: ":root { --spacing-gap: 8px; }" },
       ]);
@@ -272,19 +273,23 @@ describe("import-design-tokens", () => {
       | Record<string, { strings?: string[] }>
       | undefined;
     const candidateFilter = mockWhere.mock.calls[1]?.[0] as {
-      conditions?: { strings?: string[] }[];
-    };
-    const filePriority = mockOrderBy.mock.calls[0]?.[0] as {
-      strings?: string[];
+      conditions?: { strings?: string[]; values?: { strings?: string[] }[] }[];
     };
     expect(metadataSelection?.filename?.strings?.join("")).toContain("left(");
-    expect(candidateFilter.conditions?.[1]?.strings?.join("")).toContain(
-      "char_length(left(",
-    );
-    expect(filePriority.strings?.join("")).toContain("~*");
-    expect(filePriority.strings?.join("")).toContain(
+    expect(
+      candidateFilter.conditions?.[1]?.values?.[0]?.strings?.join(""),
+    ).toContain("left(");
+    expect(
+      candidateFilter.conditions?.[2]?.values?.[0]?.strings?.join(""),
+    ).toContain("octet_length(left(");
+    expect(candidateFilter.conditions?.[3]?.strings?.join("")).toContain("~*");
+    expect(candidateFilter.conditions?.[3]?.strings?.join("")).toContain(
       "css|scss|less|json|md|mdx|txt",
     );
+    const fileOrder = mockOrderBy.mock.calls[0]?.[0] as {
+      column?: { strings?: string[] };
+    };
+    expect(fileOrder.column?.strings?.join("")).toContain("octet_length(left(");
     expect(result.filesAnalyzed).toEqual(["tokens.css"]);
     expect(result.omittedFileCount).toBe(1);
   });
@@ -320,18 +325,19 @@ describe("import-design-tokens", () => {
       .mockResolvedValueOnce([{ fileCount: 2 }])
       .mockResolvedValueOnce([
         {
-          id: "first",
-          filename: "first.css",
-          contentBytes: DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES - 10,
-        },
-        {
           id: "second",
           filename: "second.css",
           contentBytes: 20,
         },
+        {
+          id: "first",
+          filename: "first.css",
+          contentBytes: DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES - 10,
+        },
       ])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
-        { id: "first", content: ":root { --spacing-gap: 8px; }" },
+        { id: "second", content: ":root { --spacing-gap: 8px; }" },
       ]);
 
     const result = await action.run({
@@ -339,11 +345,11 @@ describe("import-design-tokens", () => {
       source: "current-design",
     });
 
-    expect(mockWhere.mock.calls[2]?.[0]).toMatchObject({
+    expect(mockWhere.mock.calls[3]?.[0]).toMatchObject({
       kind: "inArray",
-      values: ["first"],
+      values: ["second"],
     });
-    expect(result.filesAnalyzed).toEqual(["first.css"]);
+    expect(result.filesAnalyzed).toEqual(["second.css"]);
     expect(result.omittedFileCount).toBe(1);
   });
 
@@ -362,6 +368,7 @@ describe("import-design-tokens", () => {
           contentBytes: 10,
         },
       ])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         { id: "small", content: "$gap: 8px; :root { --spacing-gap: $gap; }" },
       ]);
@@ -371,12 +378,60 @@ describe("import-design-tokens", () => {
       source: "current-design",
     });
 
-    expect(mockWhere.mock.calls[2]?.[0]).toMatchObject({
+    expect(mockWhere.mock.calls[3]?.[0]).toMatchObject({
       kind: "inArray",
       values: ["small"],
     });
     expect(result.filesAnalyzed).toEqual(["z-tokens.scss"]);
     expect(result.omittedFileCount).toBe(1);
+  });
+
+  it("falls back to smaller files after oversized preferred candidates", async () => {
+    const oversizedCandidates = Array.from(
+      { length: DESIGN_TOKEN_IMPORT_MAX_FILES + 1 },
+      (_, index) => ({
+        id: `large-${index}`,
+        filename: `tokens-${index}.css`,
+        contentBytes: DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1,
+      }),
+    );
+    mockWhere
+      .mockResolvedValueOnce([{ fileCount: DESIGN_TOKEN_IMPORT_MAX_FILES + 2 }])
+      .mockResolvedValueOnce(oversizedCandidates)
+      .mockResolvedValueOnce([
+        { id: "small", filename: "tokens.md", contentBytes: 10 },
+      ])
+      .mockResolvedValueOnce([
+        { id: "small", content: "Primary color: #2563eb" },
+      ]);
+
+    const result = await action.run({
+      designId: "design_1",
+      source: "current-design",
+    });
+
+    const preferredFilter = mockWhere.mock.calls[1]?.[0] as {
+      conditions?: { strings?: string[]; values?: { strings?: string[] }[] }[];
+    };
+    const fallbackFilter = mockWhere.mock.calls[2]?.[0] as {
+      conditions?: { strings?: string[] }[];
+    };
+    expect(
+      preferredFilter.conditions?.[2]?.values?.[0]?.strings?.join(""),
+    ).toContain("octet_length(left(");
+    expect(fallbackFilter.conditions?.[3]?.strings?.join("")).toContain("!~*");
+    expect(mockWhere.mock.calls[3]?.[0]).toMatchObject({
+      kind: "inArray",
+      values: ["small"],
+    });
+    expect(result.filesAnalyzed).toEqual(["tokens.md"]);
+    expect(result.omittedFileCount).toBe(DESIGN_TOKEN_IMPORT_MAX_FILES + 1);
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--color-primary",
+        value: "#2563eb",
+      }),
+    );
   });
 
   it("bounds pasted text by UTF-8 bytes before action execution", () => {
@@ -581,6 +636,7 @@ button:focus-visible {
           ).length,
         },
       ])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
           id: "file-1",
@@ -855,6 +911,28 @@ Bad radius: 12px} body { color: red
     );
     expect(result.importedCount).toBe(2);
     expect(result.rejectedCount).toBe(1);
+  });
+
+  it("ignores config object and array openers when counting rejected tokens", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "tailwind.config.ts",
+          content: `const theme = {
+  colors: {
+  },
+  fontFamily: [
+  ],
+};`,
+        },
+      ],
+    });
+
+    expect(result.filesAnalyzed).toEqual(["tailwind.config.ts"]);
+    expect(result.importedCount).toBe(0);
+    expect(result.rejectedCount).toBe(0);
   });
 
   it("skips long whitespace-heavy labels before matching them", async () => {
