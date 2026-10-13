@@ -16,6 +16,7 @@ const DEFAULT_SEARCH_LIMIT = 25;
 const MAX_SEARCH_LIMIT = 100;
 const DEFAULT_RUN_LIMIT = 20;
 const DEFAULT_EVENT_LIMIT = 600;
+const LATER_EVENT_SCAN_SEQ_SPAN = 20_000;
 const DEFAULT_TRACE_SPAN_LIMIT = 500;
 
 interface ThreadDebugSourceConfig {
@@ -1061,7 +1062,8 @@ export async function getAgentThreadDebug(input: {
       [run.id, maxEvents],
     );
     // Streamed tool input deltas can fill the window long before the run ends,
-    // hiding every later tool call; keep fetching the non-stream events past it.
+    // hiding every later tool call; keep fetching the non-stream events past it,
+    // within a seq span so the unindexed event_data filter scans a bounded range.
     const lastSeq = eventRows.at(-1)?.seq;
     const laterRows =
       eventRows.length === maxEvents && lastSeq != null
@@ -1071,6 +1073,7 @@ export async function getAgentThreadDebug(input: {
                FROM agent_run_events
               WHERE run_id = ?
                 AND seq > ?
+                AND seq <= ?
                 AND event_data NOT LIKE '{"type":"tool_input_delta"%'
                 AND event_data NOT LIKE '{"type":"thinking"%'
                 AND event_data NOT LIKE '{"type":"text"%'
@@ -1078,7 +1081,12 @@ export async function getAgentThreadDebug(input: {
                 AND event_data NOT LIKE '{"type":"activity"%'
               ORDER BY seq ASC
               LIMIT ?`,
-            [run.id, lastSeq, maxEvents],
+            [
+              run.id,
+              lastSeq,
+              Number(lastSeq) + LATER_EVENT_SCAN_SEQ_SPAN,
+              maxEvents,
+            ],
           )
         : [];
     runs.push(

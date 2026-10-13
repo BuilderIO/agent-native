@@ -756,7 +756,14 @@ async function resolvePatchSlideEdits(
     }
     if (!operation.edits) {
       if (operation.fields.content !== undefined) {
-        runningContents.set(operation.slideId, operation.fields.content);
+        const source = slides.find((entry) => entry?.id === operation.slideId);
+        runningContents.set(
+          operation.slideId,
+          normalizeSlidePaddingForWrite(
+            typeof source?.content === "string" ? source.content : undefined,
+            operation.fields.content,
+          ),
+        );
       }
       resolved.push(operation);
       continue;
