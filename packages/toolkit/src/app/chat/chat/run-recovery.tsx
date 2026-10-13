@@ -744,6 +744,7 @@ export function BuilderSetupCard({
 export function RunErrorRecoveryCard({
   info,
   verificationEmail,
+  verificationCallbackURL,
   onContinue,
   onRetry,
   onRetryWithoutAttachments,
@@ -756,6 +757,7 @@ export function RunErrorRecoveryCard({
 }: {
   info: RunErrorInfo;
   verificationEmail?: string | null;
+  verificationCallbackURL?: string;
   /** Absent when the stopped run can no longer be continued. */
   onContinue?: () => void;
   continueError?: string | null;
@@ -814,13 +816,14 @@ export function RunErrorRecoveryCard({
     try {
       await requestVerificationEmail(
         verificationEmail,
-        `${window.location.origin}${window.location.pathname}`,
+        verificationCallbackURL ??
+          `${window.location.origin}${window.location.pathname}`,
       );
       setVerificationEmailStatus("sent");
     } catch {
       setVerificationEmailStatus("failed");
     }
-  }, [verificationEmail, verificationEmailStatus]);
+  }, [verificationCallbackURL, verificationEmail, verificationEmailStatus]);
   // Rejected provider keys keep their setup path below — update/connect the
   // credential and the setup callback re-runs the turn. They ALSO get a retry
   // now, which the old comment here ruled out because "retry replays the same

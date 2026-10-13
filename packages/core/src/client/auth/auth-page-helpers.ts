@@ -11,6 +11,29 @@ export function isAgentNativeDesktop(
   return /AgentNativeDesktop/i.test(userAgent);
 }
 
+export function identityBootstrapCallbackHref(
+  target: string,
+  options: {
+    enabled: boolean;
+    bootstrapPath: string;
+    origin?: string;
+    userAgent?: string;
+  },
+): string {
+  if (!options.enabled || isAgentNativeDesktop(options.userAgent))
+    return target;
+
+  const origin =
+    options.origin ??
+    (typeof window === "undefined"
+      ? "http://agent-native.local"
+      : window.location.origin);
+  const safeTarget = normalizeOAuthReturnPath(target, origin);
+  const url = new URL(options.bootstrapPath, origin);
+  url.searchParams.set("return", safeTarget);
+  return `${url.pathname}${url.search}`;
+}
+
 export function isElectron(
   userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
 ): boolean {

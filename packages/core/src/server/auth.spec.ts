@@ -6730,6 +6730,41 @@ describe("server/auth", () => {
       expect(JSON.stringify(regular)).not.toContain("qa.acme.co");
     });
 
+    it("returns identity SSO availability for the current app host", async () => {
+      vi.stubEnv("AGENT_NATIVE_IDENTITY_HUB_URL", "");
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => ({ email: "person@example.test" }),
+      });
+      const sessionHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/session",
+      )?.[1];
+
+      const eventFor = (host: string) => {
+        const event = createMockEvent({
+          path: "/_agent-native/auth/session",
+          headers: { host },
+        });
+        const requestUrl = `https://${host}/_agent-native/auth/session`;
+        event.req.url = requestUrl;
+        event.url = new URL(requestUrl);
+        event.node.req.url = "/_agent-native/auth/session";
+        return event;
+      };
+
+      await expect(
+        sessionHandler(eventFor("design.agent-native.com")),
+      ).resolves.toMatchObject({
+        identitySsoEnabled: true,
+      });
+      await expect(
+        sessionHandler(eventFor("app.example.test")),
+      ).resolves.toMatchObject({
+        identitySsoEnabled: false,
+      });
+    });
+
     it("returns a retryable status when session resolution is unavailable", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
