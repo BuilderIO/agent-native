@@ -190,6 +190,42 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     );
   });
 
+  it.each(["production_path_failed", "unexpected_action"] as const)(
+    "rejects a %s row that claims a retrieval rank",
+    (reasonCode) => {
+      const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+      const columns = rows[1]!.split(",");
+      columns[7] = "0";
+      columns[8] = reasonCode;
+      columns[9] = "1";
+      columns[10] = "true";
+      if (reasonCode === "unexpected_action") {
+        columns[11] = "0";
+        columns[12] = "1";
+      }
+      rows[1] = columns.join(",");
+
+      expect(() =>
+        validateProductionPathComparisonCsv(rows.join("\n")),
+      ).toThrow("failure reasons cannot report a retrieval rank or hit");
+    },
+  );
+
+  it("rejects failure codes that contradict their observed action fields", () => {
+    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    const columns = rows[1]!.split(",");
+    columns[7] = "0";
+    columns[8] = "unexpected_action";
+    columns[9] = "";
+    columns[10] = "false";
+    columns[12] = "0";
+    rows[1] = columns.join(",");
+
+    expect(() => validateProductionPathComparisonCsv(rows.join("\n"))).toThrow(
+      "unexpected_action reason does not match its action fields",
+    );
+  });
+
   it("rejects an after phase that is not pinned to the candidate revision", () => {
     const stale = makeComparisonCsv().replaceAll(
       PRODUCTION_PATH_CANDIDATE_REVISION,
@@ -369,5 +405,4 @@ describe("Analytics synthetic production-path comparison artifact", () => {
       },
     });
   });
-
 });

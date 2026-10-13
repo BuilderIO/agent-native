@@ -598,8 +598,8 @@ function activeMemberPhrasePolarity(search: string): {
     /\b(?:exclud(?:e|ing|ed|es)|skip(?:ped|ping|s)?|omit(?:ted|ting|s)?|remov(?:e|ing|ed|es)|filter(?:s|ed|ing)?(?:\s+out)?|leav(?:e|ing)\s+out)\b/giu;
   const negatedRemovalOperatorBefore =
     /\b(?:(?:do|does|did)\s+not|don't|doesn't|didn't|never|cannot|can't|not(?:\s+to)?|without)\s*$/iu;
-  const exclusionExceptionBeforePhrase =
-    /\b(?:exclud(?:e|ing|ed|es)|skip(?:ped|ping|s)?|omit(?:ted|ting|s)?|remov(?:e|ing|ed|es)|filter(?:s|ed|ing)?(?:\s+out)?|leav(?:e|ing)\s+out)\b[^;.!?]*\b(?:but|except(?:\s+for)?|other\s+than|aside\s+from|apart\s+from)\s*$/iu;
+  const exceptionBeforePhrase =
+    /\b(?:but|except(?:\s+for)?|other\s+than|aside\s+from|apart\s+from)\s*$/iu;
   const negativeInstructionAfterPhrase =
     /^\s*(?:(?:are|were|will be|should be|must be|need to be|have been)\s+)?(?:excluded|omitted|removed|left\s+out|filtered\s+out|not\s+included)\b/iu;
   const positiveContinuation =
@@ -613,13 +613,18 @@ function activeMemberPhrasePolarity(search: string): {
     const scopedPrefix = lastContinuation
       ? prefix.slice((lastContinuation.index ?? 0) + lastContinuation[0].length)
       : prefix;
-    if (exclusionExceptionBeforePhrase.test(scopedPrefix)) return false;
     const removals = Array.from(scopedPrefix.matchAll(removalInstruction));
     const lastRemoval = removals[removals.length - 1];
     if (lastRemoval) {
       const beforeRemoval = scopedPrefix.slice(0, lastRemoval.index ?? 0);
-      return !negatedRemovalOperatorBefore.test(beforeRemoval);
+      const afterRemoval = scopedPrefix.slice(
+        (lastRemoval.index ?? 0) + lastRemoval[0].length,
+      );
+      if (exceptionBeforePhrase.test(afterRemoval)) return false;
+      if (!negatedRemovalOperatorBefore.test(beforeRemoval)) return true;
+      return negativeInstructionBeforePhrase.test(afterRemoval);
     }
+    if (exceptionBeforePhrase.test(scopedPrefix)) return true;
     if (negativeInstructionBeforePhrase.test(scopedPrefix)) return true;
     const end = (match.index ?? 0) + match[0].length;
     return negativeInstructionAfterPhrase.test(intent.slice(end));

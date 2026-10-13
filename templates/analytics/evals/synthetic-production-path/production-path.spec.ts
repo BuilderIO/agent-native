@@ -896,6 +896,13 @@ async function makeRows(
         const rank = expectedCandidateRank(output, testCase.expectedTable);
         const counts = actionCounts(output);
         const reasonCode = reasonForRun(testCase, output, receipt);
+        const measuredRank = [
+          "rank_1",
+          "ranked_below_1",
+          "candidate_missing",
+        ].includes(reasonCode)
+          ? rank
+          : null;
         const successful =
           reasonCode === "rank_1" && report.results[0]?.passed === true;
         rows.push({
@@ -908,8 +915,8 @@ async function makeRows(
           run,
           score: successful ? 1 : 0,
           reason_code: reasonCode,
-          expected_rank: rank,
-          hit_at_5: rank !== null && rank <= 5,
+          expected_rank: measuredRank,
+          hit_at_5: measuredRank !== null && measuredRank <= 5,
           find_data_calls: counts.findDataCalls,
           other_action_calls: counts.otherActionCalls,
           failed_action_calls: counts.failedActionCalls,

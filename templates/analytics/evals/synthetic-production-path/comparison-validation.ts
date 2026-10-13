@@ -152,6 +152,11 @@ const REASON_CODES = new Set([
   "usage_missing",
   "guard_not_applied",
 ]);
+const RANK_REASON_CODES = new Set([
+  "rank_1",
+  "ranked_below_1",
+  "candidate_missing",
+]);
 
 type Phase = "before" | "after";
 
@@ -366,7 +371,9 @@ export function validateProductionPathComparisonCsv(
     rowsByPhaseAndPair.set(key, row);
     const expectedHitAt5 = row.expected_rank !== null && row.expected_rank <= 5;
     if (row.hit_at_5 !== expectedHitAt5) {
-      throw new Error("Comparison CSV hit_at_5 does not match its measured rank.");
+      throw new Error(
+        "Comparison CSV hit_at_5 does not match its measured rank.",
+      );
     }
     if (
       row.aborted &&
@@ -374,6 +381,19 @@ export function validateProductionPathComparisonCsv(
     ) {
       throw new Error(
         "Comparison CSV aborts must count as production-path failures.",
+      );
+    }
+    if (row.completed && row.aborted) {
+      throw new Error(
+        "Comparison CSV runs cannot be completed and aborted at once.",
+      );
+    }
+    if (
+      !RANK_REASON_CODES.has(row.reason_code) &&
+      (row.score !== 0 || row.expected_rank !== null || row.hit_at_5)
+    ) {
+      throw new Error(
+        "Comparison CSV failure reasons cannot report a retrieval rank or hit.",
       );
     }
     if (
@@ -407,19 +427,78 @@ export function validateProductionPathComparisonCsv(
       );
     }
     if (row.score === 0 && row.reason_code === "rank_1") {
-      throw new Error("Comparison CSV rank_1 reason must have a passing score.");
+      throw new Error(
+        "Comparison CSV rank_1 reason must have a passing score.",
+      );
     }
     if (
       row.reason_code === "ranked_below_1" &&
       (row.expected_rank === null || row.expected_rank === 1)
     ) {
-      throw new Error("Comparison CSV ranked_below_1 reason has an invalid rank.");
+      throw new Error(
+        "Comparison CSV ranked_below_1 reason has an invalid rank.",
+      );
+    }
+    if (row.reason_code === "candidate_missing" && row.expected_rank !== null) {
+      throw new Error(
+        "Comparison CSV candidate_missing reason has a measured rank.",
+      );
     }
     if (
-      row.reason_code === "candidate_missing" &&
-      row.expected_rank !== null
+      row.reason_code === "find_data_missing" &&
+      (!row.completed || row.aborted || row.find_data_calls !== 0)
     ) {
-      throw new Error("Comparison CSV candidate_missing reason has a measured rank.");
+      throw new Error(
+        "Comparison CSV find_data_missing reason does not match its action fields.",
+      );
+    }
+    if (
+      row.reason_code === "unexpected_action" &&
+      (!row.completed ||
+        row.aborted ||
+        row.find_data_calls === 0 ||
+        row.other_action_calls === 0)
+    ) {
+      throw new Error(
+        "Comparison CSV unexpected_action reason does not match its action fields.",
+      );
+    }
+    if (
+      row.reason_code === "action_failed" &&
+      (!row.completed ||
+        row.aborted ||
+        row.find_data_calls === 0 ||
+        row.other_action_calls !== 0 ||
+        row.failed_action_calls === 0)
+    ) {
+      throw new Error(
+        "Comparison CSV action_failed reason does not match its action fields.",
+      );
+    }
+    if (
+      row.reason_code === "usage_missing" &&
+      (!row.completed ||
+        row.aborted ||
+        row.find_data_calls === 0 ||
+        row.other_action_calls !== 0 ||
+        row.failed_action_calls !== 0)
+    ) {
+      throw new Error(
+        "Comparison CSV usage_missing reason does not match its path fields.",
+      );
+    }
+    if (
+      row.reason_code === "guard_not_applied" &&
+      (!row.completed ||
+        row.aborted ||
+        row.find_data_calls === 0 ||
+        row.other_action_calls !== 0 ||
+        row.failed_action_calls !== 0 ||
+        row.llm_calls === 0)
+    ) {
+      throw new Error(
+        "Comparison CSV guard_not_applied reason does not match its path fields.",
+      );
     }
     if (!row.completed && row.reason_code !== "production_path_failed") {
       throw new Error(
