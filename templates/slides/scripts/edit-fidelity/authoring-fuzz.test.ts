@@ -2222,6 +2222,10 @@ it("does not let a completed same-kind request block abort correlation", () => {
     requestSourceIsMainFrame: true,
     requestFrameUrl: "http://localhost:34123/deck/slide-1#editing",
     finishedSuccessfully: false,
+    mainFrameNavigationRequestSequence: 10,
+    mainFrameNavigationStartedAt: 100,
+    requestSequence: 8,
+    requestStartedBeforeMainFrameCommit: false,
   };
   const outgoingDocumentUrl = "http://localhost:34123/deck/slide-1";
 
@@ -2245,6 +2249,20 @@ it("does not let a completed same-kind request block abort correlation", () => {
       request,
     ),
   ).toBe(false);
+  expect(
+    isCompetingOutgoingBrowserSessionRequest("poll", outgoingDocumentUrl, {
+      ...request,
+      requestSequence: 12,
+      requestStartedBeforeMainFrameCommit: false,
+    }),
+  ).toBe(false);
+  expect(
+    isCompetingOutgoingBrowserSessionRequest("poll", outgoingDocumentUrl, {
+      ...request,
+      requestSequence: 12,
+      requestStartedBeforeMainFrameCommit: true,
+    }),
+  ).toBe(true);
 });
 
 it("finalizes a deferred outgoing request before cleanup can discard it", () => {

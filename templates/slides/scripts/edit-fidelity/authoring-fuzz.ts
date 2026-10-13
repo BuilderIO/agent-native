@@ -564,13 +564,24 @@ export function isCompetingOutgoingBrowserSessionRequest(
     requestSourceIsMainFrame: boolean;
     requestFrameUrl: string | null;
     finishedSuccessfully: boolean;
+    mainFrameNavigationRequestSequence: number | null;
+    mainFrameNavigationStartedAt: number | null;
+    requestSequence: number;
+    requestStartedBeforeMainFrameCommit: boolean;
   },
 ) {
+  const belongsToReloadedDocument =
+    candidate.mainFrameNavigationStartedAt !== null &&
+    candidate.mainFrameNavigationRequestSequence !== null &&
+    candidate.requestSequence > candidate.mainFrameNavigationRequestSequence &&
+    !candidate.requestStartedBeforeMainFrameCommit;
+
   return (
     requestKind !== null &&
     candidate.outgoingRequestKind === requestKind &&
     candidate.requestSourceIsMainFrame &&
     !candidate.finishedSuccessfully &&
+    !belongsToReloadedDocument &&
     normalizeDocumentUrl(candidate.requestFrameUrl) !== null &&
     normalizeDocumentUrl(candidate.requestFrameUrl) ===
       normalizeDocumentUrl(outgoingDocumentUrl)
