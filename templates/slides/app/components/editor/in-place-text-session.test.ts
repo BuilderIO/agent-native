@@ -1444,14 +1444,14 @@ describe("in-place text session: Enter", () => {
     expect(session.element.querySelector("p")?.textContent).toBe("Plain line");
   });
 
-  it("splits a real list item inside a flex text box after a list command", () => {
+  it("splits a real list item inside a flex text box after a toolbar command", () => {
     const el = mount(
       '<div id="t" style="display:flex"><div><p></p></div></div>',
     );
     session = startInPlaceTextSession(el);
     caret(el.querySelector("p")!, 0);
 
-    expect(session.commands.applyAuthoringCommand("bulletList")).toBe(true);
+    expect(session.commands.toggleList("bullet")).toBe(true);
     type(session.element, "First");
     const firstItem = el.querySelector("ul > li");
     expect(firstItem?.textContent).toContain("First");

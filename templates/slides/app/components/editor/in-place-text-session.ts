@@ -4811,28 +4811,43 @@ export function startInPlaceTextSession(
         return true;
       }),
     toggleList: (kind) =>
-      command(() =>
-        keepingSelection(() => {
-          const range = selectionRange();
-          const rows = slideListRows(el, range);
-          const selectedRows = range
-            ? rows.filter((row) =>
-                range.collapsed
-                  ? row.contains(range.startContainer)
-                  : range.intersectsNode(row),
-              )
-            : [];
-          const selectedUnmarkedRows = range
-            ? Array.from(el.children).filter(
-                (child): child is HTMLElement =>
-                  child instanceof HTMLElement &&
-                  !isBulletRow(child) &&
-                  ["DIV", "LI", "P"].includes(child.tagName) &&
-                  (range.collapsed
-                    ? child.contains(range.startContainer)
-                    : range.intersectsNode(child)),
-              )
-            : [];
+      command(() => {
+        const range = selectionRange();
+        const rows = slideListRows(el, range);
+        const selectedRows = range
+          ? rows.filter((row) =>
+              range.collapsed
+                ? row.contains(range.startContainer)
+                : range.intersectsNode(row),
+            )
+          : [];
+        const selectedUnmarkedRows = range
+          ? Array.from(el.children).filter(
+              (child): child is HTMLElement =>
+                child instanceof HTMLElement &&
+                !isBulletRow(child) &&
+                ["DIV", "LI", "P"].includes(child.tagName) &&
+                (range.collapsed
+                  ? child.contains(range.startContainer)
+                  : range.intersectsNode(child)),
+            )
+          : [];
+        if (range?.collapsed) {
+          const block = commandBlock(range.startContainer);
+          const hasLegacyBulletAction =
+            kind === "bullet" &&
+            rows.length > 0 &&
+            selectedRows.length === 0 &&
+            selectedUnmarkedRows.length > 0;
+          if (
+            block !== el &&
+            selectedRows.length === 0 &&
+            !hasLegacyBulletAction
+          ) {
+            return toggleListAtBlock(block, kind);
+          }
+        }
+        return keepingSelection(() => {
           if (
             kind === "bullet" &&
             rows.length > 0 &&
@@ -4855,16 +4870,12 @@ export function startInPlaceTextSession(
             if (next !== el) rebind(next);
             return true;
           }
-          if (range?.collapsed) {
-            const block = commandBlock(range.startContainer);
-            if (block !== el) return toggleListAtBlock(block, kind);
-          }
           const next = toggleSlideList(el, kind);
           if (!next) return false;
           if (next !== el) rebind(next);
           return true;
-        }),
-      ),
+        });
+      }),
     applyAuthoringCommand,
   };
 
