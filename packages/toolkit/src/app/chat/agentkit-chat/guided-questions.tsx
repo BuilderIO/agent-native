@@ -1099,8 +1099,9 @@ export type PendingQuestionRefetchResult =
 
 /**
  * Window event dispatched once per human submit of a guided question card,
- * after the agent chat confirms delivery, so apps can observe answers (for example,
- * to record which option was picked) without owning the flow.
+ * only when the flow's `onSubmitMessage` confirms delivery, so apps can
+ * observe answers (for example, which option was picked) without owning the
+ * flow.
  */
 export const GUIDED_QUESTIONS_SUBMITTED_EVENT =
   "agentNative.guidedQuestionsSubmitted";
@@ -1343,12 +1344,12 @@ export function useGuidedQuestionFlow({
           announce,
         );
       } else {
+        // Fire-and-forget: there is no delivery signal to announce on.
         sendToAgentChat({
           message: resolvedSubmitMessage,
           context,
           submit: true,
         });
-        announce();
         clear();
       }
     },

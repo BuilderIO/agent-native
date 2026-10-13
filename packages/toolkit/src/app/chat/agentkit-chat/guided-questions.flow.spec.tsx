@@ -656,7 +656,7 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     );
   });
 
-  it("announces each delivered submit once, and never a skip or a blocked submit", async () => {
+  it("never announces a skip, a blocked submit, or an unconfirmed fire-and-forget submit", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) =>
@@ -705,14 +705,8 @@ describe("useGuidedQuestionFlow scoped reads", () => {
         open.current().handleSubmit({ q1: "7d" });
         await Promise.resolve();
       });
-      expect(announced).toEqual([
-        {
-          stateKey: "guided-questions",
-          questions: payload.questions,
-          answers: { q1: "7d" },
-        },
-      ]);
       expect(sendToAgentChatMock).toHaveBeenCalled();
+      expect(announced).toEqual([]);
     } finally {
       window.removeEventListener(GUIDED_QUESTIONS_SUBMITTED_EVENT, listener);
     }
@@ -779,18 +773,22 @@ describe("useGuidedQuestionFlow scoped reads", () => {
       .mockImplementation(() => {
         throw new Error("listener failed");
       });
+    const onSubmitMessage = vi.fn().mockResolvedValue({ delivered: true });
     const result = await renderFlow({
       stateKey: "guided-questions",
       queryKey: ["guided-questions"],
       browserTabId: "tab123",
       refetchInterval: false,
+      onSubmitMessage,
     });
+    expect(result.current().questions).toBeTruthy();
     await act(async () => {
       result.current().handleSubmit({ q1: "7d" });
-      await Promise.resolve();
+      await flush();
     });
     expect(dispatch).toHaveBeenCalled();
-    expect(sendToAgentChatMock).toHaveBeenCalledTimes(1);
+    expect(onSubmitMessage).toHaveBeenCalledTimes(1);
+    expect(result.current().questions).toBeFalsy();
   });
 
   function appStateFetchMock(store: Map<string, string>) {
