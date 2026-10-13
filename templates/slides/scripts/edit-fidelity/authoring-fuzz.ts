@@ -1529,6 +1529,20 @@ export function assertByteIdenticalHtml(
   }
 }
 
+export function requireUndoHistoryStats(
+  stats: Record<string, unknown> | null,
+): Record<string, unknown> {
+  if (!stats || typeof stats.initialStateEvicted !== "boolean") {
+    throw new Error(
+      "authoring fuzz could not inspect undo history before undo-all",
+    );
+  }
+  if (stats.initialStateEvicted) {
+    throw new Error("undo history evicted the original state before undo-all");
+  }
+  return stats;
+}
+
 export function assertAuthoringPersistence(
   persistence: AuthoringFuzzPersistence,
 ) {
@@ -6921,15 +6935,10 @@ export async function runAuthoringFuzz(
     const stableHistoryProbeLimit = 3;
     const maxHistoryCalls = historyLimit + stableHistoryProbeLimit;
     const beforeKeyboardUndo = await readHistoryState();
-    if (beforeKeyboardUndo.historyStats?.initialStateEvicted === true) {
-      throw new Error(
-        "undo history evicted the original state before undo-all",
-      );
-    }
-    const undoDepthBefore = historyDepthFromStats(
+    const historyStats = requireUndoHistoryStats(
       beforeKeyboardUndo.historyStats,
-      "undo",
     );
+    const undoDepthBefore = historyDepthFromStats(historyStats, "undo");
     let stableUndo = 0;
     let undoCalls = 0;
     await page.keyboard.press(`${modifier}+Z`);

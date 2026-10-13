@@ -5,6 +5,7 @@ import {
   assertByteIdenticalHtml,
   assertShortcutMarkupAdded,
   assertSlideIsScaled,
+  requireUndoHistoryStats,
   AUTHORING_FUZZ_STYLE_PROPERTIES,
   authoringFuzzPrecedingListMergePreservesIdentity,
   authoringFuzzListTagForOperation,
@@ -891,6 +892,21 @@ it("requires byte-identical HTML for undo and redo snapshots", () => {
       "undo-all",
     ),
   ).toThrow("undo-all did not restore byte-identical HTML");
+});
+
+it("requires undo-history diagnostics before the history replay gate", () => {
+  expect(() => requireUndoHistoryStats(null)).toThrow(
+    "authoring fuzz could not inspect undo history before undo-all",
+  );
+  expect(() => requireUndoHistoryStats({})).toThrow(
+    "authoring fuzz could not inspect undo history before undo-all",
+  );
+  expect(() => requireUndoHistoryStats({ initialStateEvicted: true })).toThrow(
+    "undo history evicted the original state before undo-all",
+  );
+  expect(requireUndoHistoryStats({ initialStateEvicted: false })).toMatchObject(
+    { initialStateEvicted: false },
+  );
 });
 
 it("creates reproducible authoring plans with full command coverage", () => {
