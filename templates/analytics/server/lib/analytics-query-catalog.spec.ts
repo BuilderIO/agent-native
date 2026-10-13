@@ -616,6 +616,20 @@ describe("analytics query catalog", () => {
             approved: false,
             aiGenerated: true,
           },
+          {
+            id: "active-workspace-membership-bridge",
+            metric: "Active workspace membership bridge",
+            definition:
+              "Current active workspace members with one row per user-workspace membership.",
+            table: "active_workspace_member_roles",
+            columnsUsed: "user_id, workspace_id, role",
+            grain: "One row per user-workspace membership",
+            semanticScope: "membership",
+            sourceKind: "dbt",
+            sourceIndex: true,
+            approved: false,
+            aiGenerated: true,
+          },
         ],
       });
 
@@ -662,6 +676,32 @@ describe("analytics query catalog", () => {
     expect(results[0]).toMatchObject({
       id: "approved-monthly-workspace-user-count",
       approved: true,
+    });
+  });
+
+  it("keeps active membership aggregates eligible for unqualified aggregate searches", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "monthly member count by org",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "approved-monthly-active-member-count",
+          metric: "Monthly Active Member Count",
+          definition:
+            "Monthly aggregate of active memberships by organization.",
+          table: "monthly_active_member_count",
+          columnsUsed: "month, organization_id, active_member_count",
+          grain: "One row per organization per month",
+          semanticScope: "membership",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "approved-monthly-active-member-count",
+      table: "monthly_active_member_count",
     });
   });
 

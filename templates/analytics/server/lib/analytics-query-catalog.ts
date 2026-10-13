@@ -1078,7 +1078,8 @@ export function rankAnalyticsQueryCatalogPage(args: {
   const requestsRoleDetail = requestsMembershipRoleDetail(rankingIntent);
   const activeMemberIntent = activeMemberPhrasePolarity(rankingIntent);
   const excludesActiveOnlyMembership =
-    !requestedActiveMembers && (rosterRequest || activeMemberIntent.negated);
+    !requestedActiveMembers &&
+    (rosterRequest || plainMembershipRequest || activeMemberIntent.negated);
   const roleBreakdownRequest =
     !rosterRequest && requestedScope === "membership" && requestsRoleDetail;
   // Strong definitions and proven panels outrank generic hits before coverage.
