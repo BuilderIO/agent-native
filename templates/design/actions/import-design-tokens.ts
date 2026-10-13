@@ -269,7 +269,7 @@ function friendlyName(cssVar: string): string {
 function normalizeValue(value: string): string {
   return value
     .trim()
-    .replace(/;$/, "")
+    .replace(/[;,]$/, "")
     .replace(/^["']|["']$/g, "")
     .trim();
 }

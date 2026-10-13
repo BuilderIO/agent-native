@@ -1104,6 +1104,24 @@ Bad radius: 12px} body { color: red
     );
   });
 
+  it.each([
+    ["Radius: '8px',", "--radius", "8px"],
+    ["Heading font: 'Inter',", "--font-heading-font", "Inter"],
+  ])(
+    "normalizes trailing commas after quoted named token values: %s",
+    async (content, cssVar, value) => {
+      const result = await action.run({
+        designId: "design_1",
+        source: "files",
+        files: [{ filename: "tokens.md", content }],
+      });
+
+      expect(result.tokens).toContainEqual(
+        expect.objectContaining({ cssVar, value }),
+      );
+    },
+  );
+
   it("skips malformed LESS while continuing to import other files", async () => {
     const result = await action.run({
       designId: "design_1",
