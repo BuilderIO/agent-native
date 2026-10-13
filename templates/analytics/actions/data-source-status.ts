@@ -238,18 +238,28 @@ export default defineAction({
                 : "credentials",
         })),
     ];
-    const connectedExternalDataSources = configuredDataSources.filter(
+    const configuredExternalDataSources = configuredDataSources.filter(
       (source) => source.provider !== BUILT_IN_FIRST_PARTY_PROVIDER.provider,
     );
-    const hasUnknownProviderStatus = providers.some(
-      (provider) => provider.configured === null,
+    // A credential being present is configuration, not a verified connection.
+    // The workspace summary only reports "connected" when an app-accessible
+    // grant has a healthy active connection.
+    const connectedExternalDataSources = workspaceProviderStatuses.filter(
+      (provider) => provider.grantState === "connected",
     );
+    const hasUnknownProviderStatus =
+      workspace.error !== null ||
+      providers.some((provider) => provider.configured === null);
     return {
       // Keep a compact, explicit summary first so models do not infer source
       // availability from the much larger per-credential list below.
       hasConfiguredDataSources: configuredDataSources.length > 0,
       configuredDataSourceCount: configuredDataSources.length,
+      configuredExternalDataSourceCount: configuredExternalDataSources.length,
       configuredDataSources,
+      connectedExternalDataSources: connectedExternalDataSources.map(
+        ({ id, label }) => ({ provider: id, label, via: "workspace" }),
+      ),
       hasConnectedExternalDataSources:
         connectedExternalDataSources.length > 0
           ? true

@@ -19,10 +19,10 @@ loop.
 
 The preserved v15 CSV is not valid evidence: all 46 baseline rows failed
 before `find-data` ran, so it measured a broken evaluation path rather than
-baseline retrieval. The comparison validator now rejects any artifact that
-has no completed production-path run in either phase. Keep this CSV only as a
+baseline retrieval. The comparison validator now requires at least 90% of the
+runs in each phase to complete the production path. Keep this CSV only as a
 record of the harness failure; use a comparison whose baseline and candidate
-both complete the production path.
+both meet that completion threshold.
 
 ## Historical v14 comparison (candidate snapshot `ba536105`)
 

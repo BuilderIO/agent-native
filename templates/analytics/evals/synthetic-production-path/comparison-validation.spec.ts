@@ -402,6 +402,38 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     });
   });
 
+  it("rejects a phase where most production-path runs fail", () => {
+    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    const afterStart = 1 + SYNTHETIC_PRODUCTION_PATH_CASE_IDS.length * 2;
+    const staleCases = new Set([
+      "stale-generated-index-yields-to-current-source",
+      "approved-stale-generated-entry-yields-to-current-roster",
+    ]);
+    for (let index = afterStart; index < rows.length; index += 1) {
+      const columns = rows[index]!.split(",");
+      if (staleCases.has(columns[0]!)) continue;
+      columns[7] = "0";
+      columns[8] = "production_path_failed";
+      columns[9] = "";
+      columns[10] = "false";
+      columns[11] = "0";
+      columns[12] = "0";
+      columns[13] = "0";
+      columns[14] = "false";
+      columns[15] = "true";
+      columns[16] = "0";
+      columns[17] = "0";
+      columns[18] = "0";
+      columns[19] = "0";
+      columns[20] = "false";
+      rows[index] = columns.join(",");
+    }
+
+    expect(() => validateProductionPathComparisonCsv(rows.join("\n"))).toThrow(
+      "At least 90% of each phase must complete the production path before comparison.",
+    );
+  });
+
   it("retains a completed retrieval miss for honest quality reporting", () => {
     const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
     const afterStart = 1 + SYNTHETIC_PRODUCTION_PATH_CASE_IDS.length * 2;
@@ -558,7 +590,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
   it("rejects the v15 artifact whose baseline never completed the production path", async () => {
     const csv = await readFile(V15_COMPARISON_CSV, "utf8");
     expect(() => validateProductionPathComparisonCsv(csv)).toThrow(
-      "completed production-path run in each phase",
+      "At least 90% of each phase must complete the production path",
     );
   });
 });

@@ -269,6 +269,27 @@ describe("compileSourceIndex", () => {
       ].join("\n"),
     );
     await writeFile(
+      path.join(mapping, "user_organization_aliases.sql"),
+      [
+        "select user_id as member_key, organization_id as workspace_key",
+        'from {{ ref("user_organization_role") }}',
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(mapping, "user_organization_quoted_aliases.sql"),
+      [
+        "select user_id as `member_key`, organization_id as `workspace_key`",
+        'from {{ ref("user_organization_role") }}',
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(mapping, "user_organization_ambiguous_aliases.sql"),
+      [
+        "select user_id as member_key, organization_id as member_key",
+        'from {{ ref("user_organization_role") }}',
+      ].join("\n"),
+    );
+    await writeFile(
       path.join(mapping, "user_organization_user_only.sql"),
       'select user_id from {{ ref("user_organization_role") }}',
     );
@@ -317,6 +338,30 @@ describe("compileSourceIndex", () => {
     expect(byMetric.get("model:user_id_to_org_id")).not.toHaveProperty(
       "columnsUsed",
     );
+    expect(byMetric.get("model:user_organization_aliases")).toMatchObject({
+      grain:
+        "Same row grain as user_organization_role: Expanded grain: one row per user-organization array entry from UNNEST(organizations)",
+      sqlProjectedColumns: "member_key, workspace_key",
+      inferredMembershipKeys: ["member_key", "workspace_key"],
+    });
+    expect(
+      byMetric.get("model:user_organization_quoted_aliases"),
+    ).toMatchObject({
+      grain:
+        "Same row grain as user_organization_role: Expanded grain: one row per user-organization array entry from UNNEST(organizations)",
+      sqlProjectedColumns: "member_key, workspace_key",
+      inferredMembershipKeys: ["member_key", "workspace_key"],
+    });
+    expect(
+      byMetric.get("model:user_organization_ambiguous_aliases"),
+    ).toMatchObject({
+      grain:
+        "Same row grain as user_organization_role: Expanded grain: one row per user-organization array entry from UNNEST(organizations)",
+      sqlProjectedColumns: "member_key",
+    });
+    expect(
+      byMetric.get("model:user_organization_ambiguous_aliases"),
+    ).not.toHaveProperty("inferredMembershipKeys");
     expect(byMetric.get("model:customer_items")).not.toHaveProperty("grain");
     expect(
       byMetric.get("model:user_organization_duplicate_source"),

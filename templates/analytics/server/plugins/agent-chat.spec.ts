@@ -1510,6 +1510,85 @@ describe("realDataFinalGuard", () => {
     });
   });
 
+  it("distinguishes configured credentials from healthy workspace connections in guard copy", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was the HubSpot pipeline amount last week?",
+        draftText: "HubSpot pipeline was $25,000 last week.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                },
+                { provider: "hubspot", label: "HubSpot", via: "credentials" },
+                { provider: "github", label: "GitHub", via: "workspace" },
+              ],
+              providers: [
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  configured: true,
+                  configuredKeys: ["HUBSPOT_PRIVATE_APP_TOKEN"],
+                  workspaceConnection: { grantState: "not_connected" },
+                },
+                {
+                  provider: "github",
+                  label: "GitHub",
+                  configured: true,
+                  configuredKeys: [],
+                  workspaceConnection: { grantState: "connected" },
+                },
+              ],
+              workspaceConnections: {
+                appId: "analytics",
+                available: true,
+                providers: [
+                  {
+                    id: "hubspot",
+                    provider: "hubspot",
+                    label: "HubSpot",
+                    grantState: "not_connected",
+                  },
+                  {
+                    id: "github",
+                    provider: "github",
+                    label: "GitHub",
+                    grantState: "connected",
+                  },
+                ],
+              },
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 2,
+      retryMessage: expect.stringContaining(
+        "configured sources without a healthy workspace connection: HubSpot",
+      ),
+      fallbackMessage: expect.stringContaining(
+        "configured sources without a healthy workspace connection: HubSpot",
+      ),
+      exhaustedDraftPrefix: expect.stringContaining(
+        "healthy workspace connections: GitHub",
+      ),
+    });
+    expect((result as { retryMessage: string }).retryMessage).toContain(
+      "healthy workspace connections: GitHub",
+    );
+    expect((result as { retryMessage: string }).retryMessage).not.toContain(
+      "connected sources: HubSpot",
+    );
+  });
+
   it("drops an unscoped absence claim after corpus retries are exhausted", () => {
     const result = realDataFinalGuard(
       guardContext({

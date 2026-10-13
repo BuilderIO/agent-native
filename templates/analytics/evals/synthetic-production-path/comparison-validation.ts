@@ -220,7 +220,7 @@ const RANK_REASON_CODES = new Set([
   "ranked_below_1",
   "candidate_missing",
 ]);
-
+const MIN_PRODUCTION_PATH_COMPLETION_RATE = 0.9;
 type Phase = "before" | "after";
 
 type ComparisonRow = {
@@ -634,10 +634,10 @@ export function validateProductionPathComparisonCsv(
 
   const before = summarizePhase("before", rows);
   const after = summarizePhase("after", rows);
-  const hasCompletedProductionPath = (phase: Phase) =>
-    rows.some(
+  const hasSufficientProductionPathCompletion = (phase: Phase) => {
+    const phaseRows = rows.filter((row) => row.phase === phase);
+    const completedRows = phaseRows.filter(
       (row) =>
-        row.phase === phase &&
         row.completed &&
         !row.aborted &&
         row.find_data_calls === 1 &&
@@ -645,12 +645,18 @@ export function validateProductionPathComparisonCsv(
         row.failed_action_calls === 0 &&
         row.llm_calls > 0,
     );
+    return (
+      phaseRows.length > 0 &&
+      completedRows.length / phaseRows.length >=
+        MIN_PRODUCTION_PATH_COMPLETION_RATE
+    );
+  };
   if (
-    !hasCompletedProductionPath("before") ||
-    !hasCompletedProductionPath("after")
+    !hasSufficientProductionPathCompletion("before") ||
+    !hasSufficientProductionPathCompletion("after")
   ) {
     throw new Error(
-      "Comparison CSV must include a completed production-path run in each phase.",
+      "At least 90% of each phase must complete the production path before comparison.",
     );
   }
   const expectedPhaseRows = pinnedEvaluation.caseIds.length * 2;

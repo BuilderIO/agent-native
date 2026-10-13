@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   getGitHubAccessToken: vi.fn(),
   tryRequestCredentialContext: vi.fn(),
   resolveAnalyticsProviderCredential: vi.fn(),
+  listWorkspaceConnectionGrants: vi.fn(async () => []),
+  listWorkspaceConnections: vi.fn(async () => []),
   workspaceSummary: {
     appId: "analytics",
     provider: "hubspot",
@@ -53,8 +55,8 @@ vi.mock("@agent-native/core/connections", () => ({
 }));
 
 vi.mock("@agent-native/core/workspace-connections", () => ({
-  listWorkspaceConnectionGrants: vi.fn(async () => []),
-  listWorkspaceConnections: vi.fn(async () => []),
+  listWorkspaceConnectionGrants: mocks.listWorkspaceConnectionGrants,
+  listWorkspaceConnections: mocks.listWorkspaceConnections,
   summarizeWorkspaceConnectionProviderForApp: vi.fn(
     ({ providerId }: { providerId: string }) => ({
       ...mocks.workspaceSummary,
@@ -87,6 +89,10 @@ describe("data-source-status", () => {
     mocks.getGitHubAccessToken.mockReset();
     mocks.tryRequestCredentialContext.mockReset();
     mocks.resolveAnalyticsProviderCredential.mockReset();
+    mocks.listWorkspaceConnectionGrants.mockReset();
+    mocks.listWorkspaceConnectionGrants.mockResolvedValue([]);
+    mocks.listWorkspaceConnections.mockReset();
+    mocks.listWorkspaceConnections.mockResolvedValue([]);
     mocks.tryRequestCredentialContext.mockReturnValue({
       userEmail: "ada@example.com",
       orgId: "org-1",
@@ -112,6 +118,8 @@ describe("data-source-status", () => {
     expect(result).toMatchObject({
       hasConfiguredDataSources: true,
       configuredDataSourceCount: 1,
+      configuredExternalDataSourceCount: 0,
+      connectedExternalDataSources: [],
       hasConnectedExternalDataSources: false,
       connectedExternalDataSourceCount: 0,
       dataSourcesSetupLink:
@@ -175,8 +183,9 @@ describe("data-source-status", () => {
     expect(result).toMatchObject({
       hasConfiguredDataSources: true,
       configuredDataSourceCount: 2,
-      hasConnectedExternalDataSources: true,
-      connectedExternalDataSourceCount: 1,
+      configuredExternalDataSourceCount: 1,
+      hasConnectedExternalDataSources: false,
+      connectedExternalDataSourceCount: 0,
       configuredDataSources: expect.arrayContaining([
         {
           provider: "first-party",
@@ -272,5 +281,68 @@ describe("data-source-status", () => {
         },
       ]),
     );
+    expect(result).toMatchObject({
+      configuredExternalDataSourceCount: 1,
+      connectedExternalDataSources: [
+        { provider: "hubspot", label: "HubSpot", via: "workspace" },
+      ],
+      hasConnectedExternalDataSources: true,
+      connectedExternalDataSourceCount: 1,
+    });
+  });
+
+  it("keeps configured credentials separate from a healthy workspace connection", async () => {
+    mocks.hasCredential.mockImplementation(async (key: string) =>
+      key === "HUBSPOT_PRIVATE_APP_TOKEN" ? true : false,
+    );
+    mocks.workspaceSummary = {
+      ...mocks.workspaceSummary,
+      grantState: "connected",
+      grantAvailability: "available",
+      connectionCount: 1,
+      grantedConnectionCount: 1,
+      activeConnectionCount: 1,
+      hasWorkspaceConnection: true,
+      hasGrantedWorkspaceConnection: true,
+      hasActiveWorkspaceConnection: true,
+    };
+
+    const result = (await dataSourceStatus.run({ key: "hubspot" })) as any;
+
+    expect(result.configuredDataSources).toContainEqual({
+      provider: "hubspot",
+      label: "HubSpot",
+      via: "credentials-and-workspace",
+    });
+    expect(result).toMatchObject({
+      configuredExternalDataSourceCount: 1,
+      connectedExternalDataSources: [
+        { provider: "hubspot", label: "HubSpot", via: "workspace" },
+      ],
+      hasConnectedExternalDataSources: true,
+      connectedExternalDataSourceCount: 1,
+    });
+  });
+
+  it("reports connection status as unknown when the workspace lookup fails", async () => {
+    mocks.hasCredential.mockImplementation(async (key: string) =>
+      key === "HUBSPOT_PRIVATE_APP_TOKEN" ? true : false,
+    );
+    mocks.listWorkspaceConnections.mockRejectedValueOnce(
+      new Error("workspace lookup unavailable"),
+    );
+
+    const result = (await dataSourceStatus.run({ key: "hubspot" })) as any;
+
+    expect(result).toMatchObject({
+      configuredExternalDataSourceCount: 1,
+      connectedExternalDataSources: [],
+      hasConnectedExternalDataSources: null,
+      connectedExternalDataSourceCount: 0,
+      workspaceConnections: {
+        available: false,
+        error: "workspace lookup unavailable",
+      },
+    });
   });
 });

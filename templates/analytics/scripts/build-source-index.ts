@@ -176,6 +176,10 @@ interface ModelDoc {
   sqlProjectedColumns?: string[];
   passThroughModel?: string;
   passThroughColumns?: string[] | "*";
+  passThroughProjections?: Array<{
+    inputColumn: string;
+    outputColumn: string;
+  }>;
   semanticModelEnabled?: boolean;
   semanticModelName?: string;
   group?: string;
@@ -2054,7 +2058,10 @@ function mergeModel(target: ModelDoc, source: ModelDoc): void {
   }
 }
 
-function sqlWithoutComments(sql: string): string {
+function sqlWithoutComments(
+  sql: string,
+  preserveBacktickIdentifiers = false,
+): string {
   let result = "";
   let quote: "'" | '"' | "`" | null = null;
   let escaped = false;
@@ -2085,6 +2092,25 @@ function sqlWithoutComments(sql: string): string {
       if (end >= 0) {
         result += sql.slice(index, end + 2);
         index = end + 1;
+        continue;
+      }
+    }
+    if (preserveBacktickIdentifiers && char === "`") {
+      let end = index + 1;
+      while (end < sql.length) {
+        if (sql[end] !== "`") {
+          end += 1;
+          continue;
+        }
+        if (sql[end + 1] === "`") {
+          end += 2;
+          continue;
+        }
+        break;
+      }
+      if (end < sql.length) {
+        result += sql.slice(index, end + 1);
+        index = end;
         continue;
       }
     }
@@ -2235,7 +2261,7 @@ function directProjection(projection: string):
   const alias = explicitAlias ?? implicitAlias;
   if (alias) {
     expression = alias[1]!.trim();
-    outputColumn = alias[2]!.replaceAll("`", "").toLowerCase();
+    outputColumn = alias[2]!.replace(/`/g, "").toLowerCase();
   }
   const normalizedExpression = expression.replace(/`([^`]+)`/g, "$1");
   if (!SQL_COLUMN_REFERENCE.test(normalizedExpression)) return undefined;
@@ -2262,13 +2288,13 @@ function projectedOutputColumn(projection: string): string | undefined {
     .match(new RegExp(String.raw`^(.+?)\s+as\s+(${outputIdentifier})$`, "i"));
   if (!alias) return undefined;
 
-  const outputColumn = safeIdentifier(alias[2]!.replaceAll("`", ""));
+  const outputColumn = safeIdentifier(alias[2]!.replace(/`/g, ""));
   if (!outputColumn) return undefined;
   return outputColumn.toLowerCase();
 }
 
 function projectedColumnsFromSql(sql: string): string[] {
-  const selectList = finalSelectList(sqlWithoutComments(sql));
+  const selectList = finalSelectList(sqlWithoutComments(sql, true));
   if (!selectList) return [];
   return [
     ...new Set(
@@ -2368,7 +2394,7 @@ function inferUnnestedMembershipGrain(
   ) {
     return undefined;
   }
-  const source = sqlWithoutComments(sql);
+  const source = sqlWithoutComments(sql, true);
   if (hasRowReducingSql(source) || hasCommaSeparatedFromSource(source)) {
     return undefined;
   }
@@ -2411,6 +2437,7 @@ function inferUnnestedMembershipGrain(
 interface PassThroughModel {
   modelName: string;
   columns: string[] | "*";
+  projections: Array<{ inputColumn: string; outputColumn: string }>;
 }
 
 function extractPassThroughModel(
@@ -2420,7 +2447,7 @@ function extractPassThroughModel(
   if (dependencies.length !== 1 || !dependencies[0]?.startsWith("ref:")) {
     return undefined;
   }
-  const source = sqlWithoutComments(sql);
+  const source = sqlWithoutComments(sql, true);
   if (
     (source.match(/\bselect\b/gi) ?? []).length !== 1 ||
     hasRowReducingSql(source) ||
@@ -2437,9 +2464,19 @@ function extractPassThroughModel(
   const columns = projections.map((projection) => projection!.inputColumn);
   const modelName = safeIdentifier(dependencies[0].slice("ref:".length));
   if (!modelName) return undefined;
-  if (columns.includes("*"))
-    return columns.length === 1 ? { modelName, columns: "*" } : undefined;
-  return { modelName, columns };
+  if (columns.includes("*")) {
+    return columns.length === 1
+      ? { modelName, columns: "*", projections: [] }
+      : undefined;
+  }
+  return {
+    modelName,
+    columns,
+    projections: projections.map((projection) => ({
+      inputColumn: projection!.inputColumn,
+      outputColumn: projection!.outputColumn,
+    })),
+  };
 }
 
 function isTestSql(relativePath: string): boolean {
@@ -2959,6 +2996,34 @@ function preservesUpstreamGrain(
   );
 }
 
+function projectedGrainKeyCandidates(
+  upstream: ModelDoc,
+  model: ModelDoc,
+): string[][] {
+  const candidates = grainKeyCandidates(upstream);
+  if (model.passThroughColumns === "*") return candidates;
+  if (!model.passThroughProjections?.length) return [];
+
+  return candidates.flatMap((candidate) => {
+    const translated = candidate.map((key) => {
+      const outputColumns = model
+        .passThroughProjections!.filter(
+          (projection) =>
+            projection.inputColumn.toLowerCase() === key.toLowerCase(),
+        )
+        .map((projection) => projection.outputColumn.toLowerCase());
+      return outputColumns.length === 1 ? outputColumns[0] : undefined;
+    });
+    if (
+      translated.some((column) => !column) ||
+      new Set(translated).size !== translated.length
+    ) {
+      return [];
+    }
+    return [translated as string[]];
+  });
+}
+
 function inheritPassThroughGrains(models: ModelDoc[]): void {
   const byName = new Map(models.map((model) => [model.name, model]));
   let changed = true;
@@ -2989,7 +3054,10 @@ function inheritPassThroughGrains(models: ModelDoc[]): void {
         continue;
       }
       model.inferredGrain = `Same row grain as ${upstream.name}: ${upstreamGrain}`;
-      model.inferredGrainKeyCandidates = grainKeyCandidates(upstream);
+      model.inferredGrainKeyCandidates = projectedGrainKeyCandidates(
+        upstream,
+        model,
+      );
       changed = true;
     }
   }
@@ -3037,11 +3105,16 @@ function modelEntries(
     ", ",
     scanSummary,
   );
+  const projectedColumnNames = new Set(
+    (model.sqlProjectedColumns ?? []).map((column) => column.toLowerCase()),
+  );
   const inferredMembershipKeys = model.inferredGrainKeyCandidates?.find(
-    (candidate) => {
-      const keys = new Set(candidate.map((column) => column.toLowerCase()));
-      return keys.has("user_id") && keys.has("organization_id");
-    },
+    (candidate) =>
+      candidate.length === 2 &&
+      new Set(candidate.map((column) => column.toLowerCase())).size === 2 &&
+      candidate.every((column) =>
+        projectedColumnNames.has(column.toLowerCase()),
+      ),
   );
   const modelGotchas = [
     ...[...model.tests].sort().map((test) => `model: ${test}`),
@@ -3225,6 +3298,7 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
         ? {
             passThroughModel: passThrough.modelName,
             passThroughColumns: passThrough.columns,
+            passThroughProjections: passThrough.projections,
           }
         : {}),
     };
