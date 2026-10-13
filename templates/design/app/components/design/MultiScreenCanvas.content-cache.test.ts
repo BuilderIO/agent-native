@@ -104,6 +104,40 @@ describe("getCachedScreenContentNode", () => {
     expect(calls.length).toBe(1);
   });
 
+  it("updates the cached editor node when compact overview presentation changes", () => {
+    const cache = new Map();
+    const { render, calls } = makeRender();
+    const screen = makeScreen("s1", "<html>a</html>");
+    const metadata = makeMetadata();
+    const geometry = makeGeometry();
+    const normal = getCachedScreenContentNode(
+      cache,
+      screen,
+      metadata,
+      geometry,
+      render,
+    );
+    const compact = getCachedScreenContentNode(
+      cache,
+      screen,
+      metadata,
+      geometry,
+      render,
+      { overviewNativePreviewCompact: true },
+    );
+    const promoted = getCachedScreenContentNode(
+      cache,
+      screen,
+      metadata,
+      geometry,
+      render,
+      { overviewNativePreviewCompact: false },
+    );
+    expect(compact).not.toBe(normal);
+    expect(promoted).not.toBe(compact);
+    expect(calls).toHaveLength(3);
+  });
+
   it("reuses the cached node when only geometry x/y change (move-drag)", () => {
     const cache = new Map();
     const { render, calls } = makeRender();

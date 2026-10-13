@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
 
 import { SESSION_REPLAY_IFRAME_PROBE } from "@agent-native/core/client/host";
+import { GRAIN_GRADIENT_EFFECT } from "@shared/native-effect-presets";
+import {
+  applyNativeEffectToHtml,
+  parseEffectsFromHtml,
+  updateNativeInstanceInHtml,
+} from "@shared/native-effects";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -232,6 +238,111 @@ describe("DesignCanvas inline boot", () => {
     await post(SESSION_REPLAY_IFRAME_PROBE);
     expect(onBootReady).not.toHaveBeenCalled();
     await post("agent-native:editor-chrome-ready");
+    expect(onBootReady).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a compact native boot slot until its first GPU frame", async () => {
+    const onBootReady = vi.fn();
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content={
+            '<html><script type="application/x-agent-native-effects">{}</script><body>Scene</body></html>'
+          }
+          contentKey="compact-native-boot"
+          screenId="compact-native-boot"
+          overviewNativePreviewCompact
+          onBootReady={onBootReady}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    )!;
+    const post = async (data: Record<string, unknown>) =>
+      act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data,
+            origin: "null",
+            source: iframe.contentWindow,
+          }),
+        );
+      });
+    await act(async () => iframe.dispatchEvent(new Event("load")));
+    await post({ type: "agent-native:editor-chrome-ready" });
+    expect(onBootReady).not.toHaveBeenCalled();
+    const status = {
+      type: "native-shader-status",
+      schemaVersion: 1,
+      runtimeEpoch: "compact-epoch",
+      instanceId: "effect-1",
+      nodeId: "node-1",
+      status: "ready",
+      backend: "webgpu",
+      sourceCaptures: 1,
+      estimatedResourceBytes: 4096,
+    };
+    await post({ ...status, frames: 0 });
+    expect(onBootReady).not.toHaveBeenCalled();
+    await post({ ...status, frames: 1 });
+    expect(onBootReady).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases compact boot on editor readiness when every native instance is disabled", async () => {
+    const applied = applyNativeEffectToHtml(
+      '<html><body><div data-agent-native-node-id="hero">Scene</div></body></html>',
+      {
+        nodeId: "hero",
+        definition: GRAIN_GRADIENT_EFFECT,
+        placement: "fill",
+      },
+    );
+    expect(applied.errors).toEqual([]);
+    const instanceId = parseEffectsFromHtml(applied.html).document!.instances[0]
+      .id;
+    const disabled = updateNativeInstanceInHtml(applied.html, instanceId, {
+      enabled: false,
+    });
+    expect(disabled.errors).toEqual([]);
+    const onBootReady = vi.fn();
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content={disabled.html}
+          contentKey="disabled-native-boot"
+          screenId="disabled-native-boot"
+          overviewNativePreviewCompact
+          onBootReady={onBootReady}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    )!;
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:editor-chrome-ready" },
+          origin: "null",
+          source: iframe.contentWindow,
+        }),
+      );
+    });
     expect(onBootReady).toHaveBeenCalledTimes(1);
   });
 });

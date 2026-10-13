@@ -67,6 +67,8 @@ function selectLayer(args: {
   const ownerFileId = args.ownerFileId ?? "screen-a";
   let content = currentHTML;
   let selectedLayerIds: string[] = [];
+  const viewModeRef = { current: "single" as "single" | "overview" };
+  const setViewMode = vi.fn();
   const state: { selectedElement: ElementInfo | null } = {
     selectedElement: null,
   };
@@ -168,8 +170,8 @@ function selectLayer(args: {
       setSelectedLayerIdsState: (value) => {
         selectedLayerIds = typeof value === "function" ? value([]) : value;
       },
-      setViewMode: vi.fn(),
-      viewModeRef: { current: "single" },
+      setViewMode,
+      viewModeRef,
     },
     selectionIds,
     {
@@ -183,6 +185,8 @@ function selectLayer(args: {
     content,
     selectedElement: state.selectedElement,
     selectedLayerIds,
+    viewMode: viewModeRef.current,
+    setViewMode,
     node,
     projections: [projection, secondProjection],
     update,
@@ -300,6 +304,12 @@ describe("Layers selection source identity", () => {
     expect(result.selectedElement?.selector).toContain(
       `data-agent-native-node-id="${selectedStableIds[1]}"`,
     );
+  });
+
+  it("keeps single-screen edit mounted when selecting a layer in the active Screen", () => {
+    const result = selectLayer({ sourceHTML: RICH_HTML });
+    expect(result.viewMode).toBe("single");
+    expect(result.setViewMode).not.toHaveBeenCalledWith("overview");
   });
 
   it("preserves a matching rich runtime selection from the same Screen", () => {

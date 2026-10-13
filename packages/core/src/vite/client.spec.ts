@@ -2753,6 +2753,44 @@ describe("app changelog raw imports", () => {
     expect(ignored(path.join(app, "node_modules", "x", "index.js"))).toBe(true);
     expect(ignored(path.join(app, ".data", "base", "1"))).toBe(true);
   });
+
+  it("watches generated bridge modules without watching other generated files", () => {
+    const app = path.join(os.tmpdir(), "repo", "templates", "design");
+    const ignored = defaultViteWatchIgnored(app);
+
+    expect(
+      ignored(path.join(app, ".generated", "bridge", "native.generated.ts")),
+    ).toBe(false);
+    expect(
+      ignored(path.join(app, ".generated", "bridge", "metadata.generated.ts")),
+    ).toBe(false);
+    expect(ignored(path.join(app, ".generated", "bridge", "native.ts"))).toBe(
+      true,
+    );
+    expect(
+      ignored(
+        path.join(app, ".generated", "bridge", "nested", "native.generated.ts"),
+      ),
+    ).toBe(true);
+    expect(ignored(path.join(app, ".generated", "other.generated.ts"))).toBe(
+      true,
+    );
+    expect(ignored(path.join(app, ".generated", "bridge"))).toBe(true);
+    expect(ignored(path.join(app, "app", "page.tsx"))).toBe(false);
+
+    const windowsRoot = "C:\\repo\\templates\\design";
+    const windowsIgnored = defaultViteWatchIgnored(windowsRoot);
+    expect(
+      windowsIgnored(
+        "C:\\repo\\templates\\design\\.generated\\bridge\\native.generated.ts",
+      ),
+    ).toBe(false);
+    expect(
+      windowsIgnored(
+        "C:\\repo\\templates\\design\\.generated\\other.generated.ts",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("Vite runtime data watcher", () => {

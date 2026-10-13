@@ -364,17 +364,28 @@ export function getOverviewEnterTarget(args: {
 
 export function getSidebarCodeLayerSelectionState(args: {
   currentViewMode: "single" | "overview";
+  currentFileId?: string | null;
   ownerFileId?: string | null;
   overviewSelectedScreenIds: string[];
   screenFileIds?: string[];
 }) {
-  const { ownerFileId, overviewSelectedScreenIds, screenFileIds } = args;
+  const {
+    currentFileId,
+    ownerFileId,
+    overviewSelectedScreenIds,
+    screenFileIds,
+  } = args;
   const ownerScreenId =
     ownerFileId && (!screenFileIds || screenFileIds.includes(ownerFileId))
       ? ownerFileId
       : null;
   return {
-    viewMode: "overview" as const,
+    viewMode:
+      args.currentViewMode === "single" &&
+      ownerScreenId !== null &&
+      ownerScreenId === currentFileId
+        ? ("single" as const)
+        : ("overview" as const),
     overviewSelectedScreenIds: ownerScreenId
       ? [ownerScreenId]
       : ownerFileId

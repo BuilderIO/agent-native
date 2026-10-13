@@ -34,7 +34,7 @@ describe("DesignCanvas live embedded-frame offset", () => {
         dynamicRange: "sdr",
       },
     ] as const;
-    const render = (policy: (typeof policies)[number]) => (
+    const render = (policy: (typeof policies)[number], compact = false) => (
       <>
         {["screen-a", "screen-b"].map((screenId) => (
           <DesignCanvas
@@ -48,6 +48,7 @@ describe("DesignCanvas live embedded-frame offset", () => {
             editMode
             registerRuntimeBridge={false}
             editorNativePreviewPolicy={policy}
+            overviewNativePreviewCompact={compact}
             onElementSelect={() => {}}
             onElementHover={() => {}}
             tweakValues={{}}
@@ -89,6 +90,20 @@ describe("DesignCanvas live embedded-frame offset", () => {
       expect(nextFrames[1]).toBe(frames[1]);
       for (const messages of sent)
         expect(messages).toHaveBeenCalledWith(policyMessage(policies[1]), "*");
+
+      await act(async () => root.render(render(policies[1], true)));
+      expect(
+        container.querySelectorAll("iframe[data-design-preview-iframe]")[0],
+      ).toBe(frames[0]);
+      for (const messages of sent)
+        expect(messages).toHaveBeenCalledWith(
+          {
+            type: "native-shader-overview-preview-mode",
+            schemaVersion: 1,
+            compact: true,
+          },
+          "*",
+        );
 
       await act(async () => {
         for (const frame of frames) frame.dispatchEvent(new Event("load"));

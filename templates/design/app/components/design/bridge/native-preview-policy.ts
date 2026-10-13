@@ -31,6 +31,14 @@ export class NativePreviewPolicyController {
   private slowFrames = 0;
   private fastFrames = 0;
   private lastSubmittedAt = 0;
+  private overviewCompact = false;
+
+  setOverviewCompact(compact: boolean): boolean {
+    if (this.overviewCompact === compact) return false;
+    this.overviewCompact = compact;
+    this.lastSubmittedAt = 0;
+    return true;
+  }
 
   setPolicy(policy: EffectPreviewPolicy): boolean {
     if (
@@ -65,20 +73,31 @@ export class NativePreviewPolicyController {
       requestedQuality: this.policy.quality,
       frameRateTarget: this.policy.frameRateTarget,
       devicePixelRatio,
-      effectivePixelRatio: Math.max(0.5, capped * scale),
-      targetFrameIntervalMs: 1000 / this.policy.frameRateTarget,
+      effectivePixelRatio: Math.max(
+        0.5,
+        this.overviewCompact ? Math.min(0.75, capped * scale) : capped * scale,
+      ),
+      targetFrameIntervalMs: this.overviewCompact
+        ? 1000 / 15
+        : 1000 / this.policy.frameRateTarget,
       ...(renderWallMs === undefined ? {} : { renderWallMs }),
       ...(rafIntervalMs === undefined ? {} : { rafIntervalMs }),
     };
   }
 
   shouldSubmit(now: number, dirty: boolean): boolean {
-    if (dirty || !this.lastSubmittedAt || now < this.lastSubmittedAt) {
+    if (
+      (!this.overviewCompact && dirty) ||
+      !this.lastSubmittedAt ||
+      now < this.lastSubmittedAt
+    ) {
       this.lastSubmittedAt = now;
       return true;
     }
-    if (now - this.lastSubmittedAt + 0.25 < 1000 / this.policy.frameRateTarget)
-      return false;
+    const interval = this.overviewCompact
+      ? 1000 / 15
+      : 1000 / this.policy.frameRateTarget;
+    if (now - this.lastSubmittedAt + 0.25 < interval) return false;
     this.lastSubmittedAt = now;
     return true;
   }
@@ -99,7 +118,9 @@ export class NativePreviewPolicyController {
       wallMs < 0
     )
       return false;
-    const budget = 1000 / this.policy.frameRateTarget;
+    const budget = this.overviewCompact
+      ? 1000 / 15
+      : 1000 / this.policy.frameRateTarget;
     if (wallMs > budget * 0.85) {
       this.slowFrames += 1;
       this.fastFrames = 0;

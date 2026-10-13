@@ -416,6 +416,7 @@ import {
   getOverscannedViewportCanvasBounds,
   isFrameWithinOverscannedViewport,
   orderByViewportDistance,
+  OVERVIEW_LIVE_EDITOR_MIN_SCREEN_PX,
   OVERVIEW_LIVE_SCREEN_BUDGET,
   OVERVIEW_STATIC_PREVIEW_OVERSCAN_FACTOR,
   resolveLiveEditorScreenIds,
@@ -1449,6 +1450,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     new Map(),
   );
   const bootTimeoutByScreenIdRef = useRef<Map<string, number>>(new Map());
+  const bootGenerationByScreenIdRef = useRef<Map<string, number>>(new Map());
   const bootStartCallbackByFrameIdRef = useRef<Map<string, () => void>>(
     new Map(),
   );
@@ -1553,11 +1555,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     (screenId: string) => setStaticPreviewPainted(screenId, false),
     [setStaticPreviewPainted],
   );
+  const drawnEditorIdsRef = useRef<Set<string>>(new Set());
+  const markScreenBootTimedOut = useCallback((screenId: string) => {
+    if (bootStatusByScreenIdRef.current.get(screenId) !== "booting") return;
+    bootTimeoutByScreenIdRef.current.delete(screenId);
+    bootReadyFrameIdsByScreenIdRef.current.delete(screenId);
+    drawnEditorIdsRef.current.delete(screenId);
+    bootStatusByScreenIdRef.current.set(screenId, "timed-out");
+    setBootStatusRevision((revision) => revision + 1);
+  }, []);
   const markScreenBootReady = useCallback(
     (screenId: string, frameId?: string) => {
       if (!bootFrameCountByScreenIdRef.current.has(screenId)) return;
       const status = bootStatusByScreenIdRef.current.get(screenId);
-      if (status === "ready") return;
+      if (status !== "booting") return;
       if (frameId !== undefined) {
         const readyFrameIds =
           bootReadyFrameIdsByScreenIdRef.current.get(screenId) ?? new Set();
@@ -1590,27 +1601,35 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (!frameId) readyFrameIds.clear();
       bootReadyFrameIdsByScreenIdRef.current.set(screenId, readyFrameIds);
       if (status === "booting" && !frameWasReady) return;
+      bootGenerationByScreenIdRef.current.set(
+        screenId,
+        (bootGenerationByScreenIdRef.current.get(screenId) ?? 0) + 1,
+      );
+      for (const key of bridgeReadyCallbackByFrameIdRef.current.keys()) {
+        if (key.startsWith(`${screenId}\0`)) {
+          bridgeReadyCallbackByFrameIdRef.current.delete(key);
+        }
+      }
       const timeoutId = bootTimeoutByScreenIdRef.current.get(screenId);
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
       const nextTimeoutId = window.setTimeout(
-        () => markScreenBootReady(screenId),
+        () => markScreenBootTimedOut(screenId),
         8_000,
       );
       bootTimeoutByScreenIdRef.current.set(screenId, nextTimeoutId);
       bootStatusByScreenIdRef.current.set(screenId, "booting");
       setBootStatusRevision((revision) => revision + 1);
     },
-    [markScreenBootReady],
+    [markScreenBootTimedOut],
   );
-  // Filled only by an editor's own ready signal, never by the boot timeout:
-  // the timeout frees a boot slot, it does not mean the editor has drawn.
-  const drawnEditorIdsRef = useRef<Set<string>>(new Set());
   const getScreenBootStartCallback = useCallback(
     (screenId: string, frameId = "primary") => {
       const callbackKey = `${screenId}\0${frameId}`;
       const existing = bootStartCallbackByFrameIdRef.current.get(callbackKey);
       if (existing) return existing;
       const callback = () => {
+        if (bootStatusByScreenIdRef.current.get(screenId) === "timed-out")
+          return;
         if (frameId === "primary") drawnEditorIdsRef.current.delete(screenId);
         markScreenBootStart(screenId, frameId);
       };
@@ -1624,7 +1643,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const callbackKey = `${screenId}\0${frameId}`;
       const existing = bridgeReadyCallbackByFrameIdRef.current.get(callbackKey);
       if (existing) return existing;
+      const generation = bootGenerationByScreenIdRef.current.get(screenId) ?? 0;
       const callback = () => {
+        if (
+          (bootGenerationByScreenIdRef.current.get(screenId) ?? 0) !==
+          generation
+        )
+          return;
+        if (bootStatusByScreenIdRef.current.get(screenId) !== "booting") return;
         if (frameId === "primary" && !drawnEditorIdsRef.current.has(screenId)) {
           drawnEditorIdsRef.current.add(screenId);
           setBootStatusRevision((revision) => revision + 1);
@@ -10738,6 +10764,32 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   ]);
   const largeBoard = canvasFrames.length > OVERVIEW_LIVE_SCREEN_BUDGET;
   const levelOfDetail = largeBoard && !interactMode;
+  const compactNativePreviewIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (interactMode || focusedInteract) return ids;
+    for (const { screen, geometry } of canvasFrames) {
+      if (
+        screen.content.includes("application/x-agent-native-effects") &&
+        geometry.width * (canvasZoom / 100) <
+          OVERVIEW_LIVE_EDITOR_MIN_SCREEN_PX &&
+        !editorProtectedScreenIds.has(screen.id) &&
+        screen.id !== directlyHoveredScreenId &&
+        screen.id !== hoveredChildScreenId &&
+        screen.id !== exportPreviewScreenId
+      )
+        ids.add(screen.id);
+    }
+    return ids;
+  }, [
+    canvasFrames,
+    canvasZoom,
+    directlyHoveredScreenId,
+    editorProtectedScreenIds,
+    exportPreviewScreenId,
+    focusedInteract,
+    hoveredChildScreenId,
+    interactMode,
+  ]);
   const liveEditorScreenIdsRef = useRef<ReadonlySet<string>>(new Set());
   const warmLiveEditorIdsRef = useRef<readonly string[]>([]);
   const liveEditorScreenIds = useMemo(() => {
@@ -10797,7 +10849,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (
         largeBoard
           ? liveEditorScreenIds && !liveEditorScreenIds.has(screen.id)
-          : !isRunningAppSourceType(metadata.source)
+          : !isRunningAppSourceType(metadata.source) &&
+            !compactNativePreviewIds.has(screen.id)
       ) {
         continue;
       }
@@ -10809,7 +10862,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       );
     }
     return counts;
-  }, [canvasFrames, largeBoard, liveEditorScreenIds, screenCullTierById]);
+  }, [
+    canvasFrames,
+    compactNativePreviewIds,
+    largeBoard,
+    liveEditorScreenIds,
+    screenCullTierById,
+  ]);
   bootFrameCountByScreenIdRef.current = liveBootFrameCountByScreenId;
   const liveBootCandidates = useMemo(
     () =>
@@ -10823,6 +10882,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       admitBootBudget({
         candidates: liveBootCandidates,
         bootStatusById: bootStatusByScreenIdRef.current,
+        bootBudget: compactNativePreviewIds.size > 0 ? 1 : undefined,
         costById: liveBootFrameCountByScreenId,
         protectedIds: protectedLiveScreenIds,
       }),
@@ -10830,9 +10890,28 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       bootStatusRevision,
       liveBootCandidates,
       liveBootFrameCountByScreenId,
+      compactNativePreviewIds,
       protectedLiveScreenIds,
     ],
   );
+  const previousProtectedLiveScreenIdsRef = useRef<ReadonlySet<string>>(
+    new Set(protectedLiveScreenIds),
+  );
+  const previousHoverPromotedScreenIdRef = useRef(hoverPromotedScreenId);
+  useEffect(() => {
+    for (const screenId of protectedLiveScreenIds) {
+      if (
+        (!previousProtectedLiveScreenIdsRef.current.has(screenId) ||
+          (hoverPromotedScreenId === screenId &&
+            previousHoverPromotedScreenIdRef.current !== screenId)) &&
+        bootStatusByScreenIdRef.current.get(screenId) === "timed-out"
+      ) {
+        markScreenBootStart(screenId);
+      }
+    }
+    previousProtectedLiveScreenIdsRef.current = new Set(protectedLiveScreenIds);
+    previousHoverPromotedScreenIdRef.current = hoverPromotedScreenId;
+  }, [hoverPromotedScreenId, markScreenBootStart, protectedLiveScreenIds]);
   useEffect(() => {
     let changed = false;
     for (const screenId of bootAdmittedScreenIds) {
@@ -10840,14 +10919,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       bootStatusByScreenIdRef.current.set(screenId, "booting");
       bootReadyFrameIdsByScreenIdRef.current.set(screenId, new Set());
       const timeoutId = window.setTimeout(
-        () => markScreenBootReady(screenId),
+        () => markScreenBootTimedOut(screenId),
         8_000,
       );
       bootTimeoutByScreenIdRef.current.set(screenId, timeoutId);
       changed = true;
     }
     if (changed) setBootStatusRevision((revision) => revision + 1);
-  }, [bootAdmittedScreenIds, markScreenBootReady]);
+  }, [bootAdmittedScreenIds, markScreenBootTimedOut]);
   useEffect(() => {
     let changed = false;
     for (const screenId of bootStatusByScreenIdRef.current.keys()) {
@@ -10949,6 +11028,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (tier === "placeholder" || tier === "evicted") return;
       if (liveEditorScreenIds && !liveEditorScreenIds.has(screen.id)) return;
       if (bootDeferredScreenIds.has(screen.id)) return;
+      if (bootStatusByScreenIdRef.current.get(screen.id) === "timed-out")
+        return;
       ids.add(screen.id);
     });
     return ids;
@@ -10956,6 +11037,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     canvasFrames,
     exportPreviewScreenId,
     bootDeferredScreenIds,
+    bootStatusRevision,
     liveEditorScreenIds,
     renderScreenContent,
     screenCullTierById,
@@ -11048,6 +11130,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     for (const id of contentScreenIdsRef.current) {
       if (
         !editorScreenIds.has(id) &&
+        bootStatusByScreenIdRef.current.get(id) !== "timed-out" &&
         wanted.has(id) &&
         !paintedStaticPreviewIds.has(id)
       ) {
@@ -11055,7 +11138,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
     }
     return ids;
-  }, [editorScreenIds, iframeAdmissionOrder, paintedStaticPreviewIds]);
+  }, [
+    bootStatusRevision,
+    editorScreenIds,
+    iframeAdmissionOrder,
+    paintedStaticPreviewIds,
+  ]);
   // Swapping a screen between its preview and its editor blanks it until the
   // newcomer paints, so the outgoing one stays mounted until then.
   const staticPreviewHandoffById = useMemo(() => {
@@ -11105,7 +11193,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             onBootReady: getScreenBootReadyCallback(screen.id),
             onBootStart: getScreenBootStartCallback(screen.id),
             onRuntimeReload: getScreenRuntimeReloadCallback(screen.id),
-            cacheKey: screenContentRenderKey,
+            cacheKey:
+              (bootGenerationByScreenIdRef.current.get(screen.id) ?? 0) > 0
+                ? `${String(screenContentRenderKey)}\0${bootGenerationByScreenIdRef.current.get(screen.id)}`
+                : screenContentRenderKey,
+            overviewNativePreviewCompact: compactNativePreviewIds.has(
+              screen.id,
+            ),
           },
         ),
       );
@@ -11118,6 +11212,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     return next;
   }, [
     canvasFrames,
+    bootStatusRevision,
+    compactNativePreviewIds,
     editorScreenIds,
     getScreenBootReadyCallback,
     getScreenBootStartCallback,
@@ -13166,9 +13262,13 @@ const Screen = memo(function Screen({
     !penActive &&
     !creationToolActive &&
     !canvasGestureActive;
+  const nativeEffectScreen = screen.content.includes(
+    "application/x-agent-native-effects",
+  );
   const showStaticPreview =
-    (Boolean(staticPreviewHandoff) && !previewUrl) ||
-    (!screenContent &&
+    (!nativeEffectScreen && Boolean(staticPreviewHandoff) && !previewUrl) ||
+    (!nativeEffectScreen &&
+      !screenContent &&
       iframeAdmitted &&
       (shouldMountContent ? !bootDeferred || !previewUrl : staticPreview));
   const staticSrcdocNeeded =
@@ -13207,7 +13307,10 @@ const Screen = memo(function Screen({
   ]);
 
   const deferredSnapshot =
-    cullTier === "visible" && bootDeferred && snapshotHtml ? (
+    !nativeEffectScreen &&
+    cullTier === "visible" &&
+    bootDeferred &&
+    snapshotHtml ? (
       <iframe
         data-screen-snapshot
         aria-hidden="true"

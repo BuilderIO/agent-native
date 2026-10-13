@@ -155,7 +155,7 @@ export function admitIframesProgressively({
   return next;
 }
 
-export type LiveScreenBootStatus = "booting" | "ready";
+export type LiveScreenBootStatus = "booting" | "ready" | "timed-out";
 
 export function admitBootBudget({
   candidates,

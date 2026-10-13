@@ -26,6 +26,7 @@ import {
 } from "@shared/canvas-math";
 import { editedStableSourceElement } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
+import { memoizeByContent } from "@shared/memoize-by-content";
 import { NATIVE_EFFECT_DEFINITION_CATALOG } from "@shared/native-effect-presets";
 import { hashEffectDefinition } from "@shared/native-effect-trust";
 import {
@@ -591,6 +592,7 @@ interface DesignCanvasProps {
   connectionId?: string;
   nativePreviewActive?: boolean;
   editorNativePreviewPolicy?: EffectPreviewPolicy | null;
+  overviewNativePreviewCompact?: boolean;
   sharedSnapshotPollActive?: boolean;
   externalSnapshotHtml?: string;
   snapshotOnly?: boolean;
@@ -1157,6 +1159,14 @@ function sourceHeadInnerHtml(html: string): string {
 
 const NO_SELECTORS = Object.freeze([]) as unknown as string[];
 const NO_SELECTOR_GROUPS = Object.freeze([]) as unknown as string[][];
+const nativeBootNeedsFrame = memoizeByContent(16, (content: string) => {
+  if (!content.includes("application/x-agent-native-effects")) return false;
+  const parsed = parseEffectsFromHtml(content);
+  return (
+    parsed.errors.length > 0 ||
+    parsed.document?.instances.some((instance) => instance.enabled) === true
+  );
+});
 
 function contentHash(value: string): string {
   let hash = 0;
@@ -1316,6 +1326,7 @@ export function DesignCanvas({
   connectionId,
   nativePreviewActive = true,
   editorNativePreviewPolicy,
+  overviewNativePreviewCompact = false,
   sharedSnapshotPollActive = true,
   externalSnapshotHtml,
   snapshotOnly = false,
@@ -3782,6 +3793,8 @@ export function DesignCanvas({
     bootReadyRef.current = true;
     onBootReady();
   }, [onBootReady]);
+  const waitForNativeFrame =
+    overviewNativePreviewCompact && nativeBootNeedsFrame(content);
   const markExternalPreviewDocumentLoaded = useCallback(() => {
     const documentIdentity = iframeDocumentIdentityRef.current;
     loadedPreviewDocumentIdentityRef.current = documentIdentity;
@@ -3917,6 +3930,17 @@ export function DesignCanvas({
       if (!trusted) {
         return;
       }
+      if (trustedCurrentFrame && waitForNativeFrame) {
+        const nativeStatus = readNativeShaderRuntimeStatus(e.data);
+        if (
+          nativeStatus &&
+          ((nativeStatus.frames > 0 &&
+            (nativeStatus.status === "ready" ||
+              nativeStatus.status === "last-good")) ||
+            nativeStatus.status === "error")
+        )
+          markPreviewFrameReady();
+      }
       if (
         trustedCurrentFrame &&
         e.data?.type === "agent-native:canvas-tab-navigation" &&
@@ -3994,6 +4018,7 @@ export function DesignCanvas({
         trustedCurrentFrame &&
         e.data?.type === "agent-native:editor-chrome-ready" &&
         !externalPreviewUrl &&
+        !waitForNativeFrame &&
         onBootReady &&
         !bootReadyRef.current
       ) {
@@ -5488,6 +5513,7 @@ export function DesignCanvas({
     refreshRuntimeLayerSnapshotAfterReady,
     onBootReady,
     markPreviewFrameReady,
+    waitForNativeFrame,
     onBootStart,
     onRuntimeReload,
     externalPreviewUrl,
@@ -5568,6 +5594,14 @@ export function DesignCanvas({
         "*",
       );
     }
+    iframe.contentWindow?.postMessage(
+      {
+        type: "native-shader-overview-preview-mode",
+        schemaVersion: 1,
+        compact: overviewNativePreviewCompact,
+      },
+      "*",
+    );
     iframe.contentWindow?.postMessage(
       {
         type: "set-editor-chrome-scale",
@@ -5718,6 +5752,7 @@ export function DesignCanvas({
     );
   }, [
     editorNativePreviewPolicy,
+    overviewNativePreviewCompact,
     handToolActive,
     effectiveEditorChromeScaleX,
     effectiveEditorChromeScaleY,
@@ -7748,7 +7783,8 @@ export function DesignCanvas({
               }
             }
             markExternalPreviewDocumentLoaded();
-            if (!liveEditFrameRequiresBridge) markPreviewFrameReady();
+            if (!liveEditFrameRequiresBridge && !waitForNativeFrame)
+              markPreviewFrameReady();
             sendBridgeToContainer();
             focusScrollSurface(true);
             event.currentTarget.contentWindow?.postMessage(

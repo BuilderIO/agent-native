@@ -167,6 +167,7 @@ export interface ScreenContentRenderOptions {
   onBootStart?: () => void;
   onBootReady?: () => void;
   onRuntimeReload?: () => void;
+  overviewNativePreviewCompact?: boolean;
   cacheKey?: string | number | null;
 }
 
@@ -543,6 +544,7 @@ export interface ScreenContentCacheEntry {
     MultiScreenCanvasProps["renderScreenContent"]
   >;
   renderKey: string | number | null | undefined;
+  overviewNativePreviewCompact: boolean;
   contentNode: ReactNode;
 }
 

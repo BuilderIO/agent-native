@@ -133,12 +133,15 @@ export function getCachedScreenContentNode(
   const width = Math.max(1, Math.round(geometry.width));
   const height = Math.max(1, Math.round(geometry.height));
   const renderKey = options?.cacheKey;
+  const overviewNativePreviewCompact =
+    options?.overviewNativePreviewCompact === true;
   const prior = cache.get(screen.id);
   if (
     prior &&
     prior.screen === screen &&
     prior.renderScreenContent === renderScreenContent &&
     prior.renderKey === renderKey &&
+    prior.overviewNativePreviewCompact === overviewNativePreviewCompact &&
     sameResolvedMetadata(prior.metadata, metadata) &&
     prior.width === width &&
     prior.height === height
@@ -153,6 +156,7 @@ export function getCachedScreenContentNode(
     height,
     renderScreenContent,
     renderKey,
+    overviewNativePreviewCompact,
     contentNode,
   });
   return contentNode;

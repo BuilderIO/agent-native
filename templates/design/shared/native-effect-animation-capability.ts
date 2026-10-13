@@ -284,6 +284,8 @@ const STATIC_BUILTIN_VERSIONS = new Set([
   "an-native-owned-bx-seeded-scatter-blur@1",
   "an-native-owned-by-corner-page-curl@1",
   "an-native-owned-bz-source-tint@1",
+  "an-native-owned-cd-fiber-relief@1",
+  "an-native-owned-ce-stone-relief@1",
 ]);
 
 const ANIMATED_BUILTIN_VERSIONS = new Set([
@@ -412,6 +414,9 @@ const ANIMATED_BUILTIN_VERSIONS = new Set([
   "an-native-owned-bs-lit-blob@1",
   "an-native-owned-bt-orthogonal-grid@1",
   "an-native-owned-bw-retained-pointer-stroke@1",
+  "an-native-owned-ca-layered-swirl@1",
+  "an-native-owned-cb-flowing-gradient@1",
+  "an-native-owned-cc-source-glints@1",
   "an-native-source-particle-drift@1",
   "an-native-pixel-transport@1",
   "an-native-pixel-transport@2",

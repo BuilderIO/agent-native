@@ -61,6 +61,89 @@ describe("MultiScreenCanvas live boot budget", () => {
     container.remove();
   });
 
+  it("boots tiny native screens serially while retaining their live editors", async () => {
+    const screens = Array.from({ length: 3 }, (_, index) => ({
+      id: `native-${index}`,
+      filename: `native-${index}.html`,
+      content:
+        '<html><script type="application/x-agent-native-effects">{}</script><body>scene</body></html>',
+    }));
+    const readyById = new Map<string, () => void>();
+    const compactById = new Map<string, boolean>();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={screens}
+          zoom={4}
+          activeTool="move"
+          geometryById={Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              { x: index * 10, y: 0, width: 320, height: 640 },
+            ]),
+          )}
+          renderScreenContent={(screen, _metadata, _geometry, options) => {
+            if (options?.onBootReady)
+              readyById.set(screen.id, options.onBootReady);
+            compactById.set(
+              screen.id,
+              options?.overviewNativePreviewCompact === true,
+            );
+            return <div data-live-screen={screen.id} />;
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+    expect(container.querySelectorAll("[data-live-screen]")).toHaveLength(1);
+    expect(
+      container.querySelectorAll("[data-screen-static-preview]"),
+    ).toHaveLength(0);
+    expect([...compactById.values()]).toEqual([true]);
+    await act(async () => readyById.values().next().value?.());
+    await vi.waitFor(() =>
+      expect(container.querySelectorAll("[data-live-screen]")).toHaveLength(2),
+    );
+  });
+
+  it("releases a compact boot slot on timeout without claiming a frame", async () => {
+    const screens = Array.from({ length: 2 }, (_, index) => ({
+      id: `native-timeout-${index}`,
+      filename: `native-timeout-${index}.html`,
+      content:
+        '<html><script type="application/x-agent-native-effects">{}</script><body>scene</body></html>',
+    }));
+    const readyById = new Map<string, () => void>();
+    vi.useFakeTimers();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={screens}
+          zoom={4}
+          activeTool="move"
+          geometryById={Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              { x: index * 10, y: 0, width: 320, height: 640 },
+            ]),
+          )}
+          renderScreenContent={(screen, _metadata, _geometry, options) => {
+            if (options?.onBootReady)
+              readyById.set(screen.id, options.onBootReady);
+            return <div data-live-screen={screen.id} />;
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+    expect(liveScreenIds()).toEqual(["native-timeout-0"]);
+    await act(async () => vi.advanceTimersByTime(8_001));
+    expect(liveScreenIds()).toEqual(["native-timeout-1"]);
+    await act(async () => readyById.get("native-timeout-0")?.());
+    expect(liveScreenIds()).toEqual(["native-timeout-1"]);
+    vi.useRealTimers();
+  });
+
   it("mounts four live screens, shows snapshots for deferred screens, and frees a slot on ready", async () => {
     const screens = Array.from({ length: 8 }, (_, index) => ({
       id: `live-${index}`,
@@ -407,13 +490,22 @@ describe("MultiScreenCanvas live boot budget", () => {
     vi.useFakeTimers();
     await act(async () => root.render(render("inline-2")));
     await vi.waitFor(() => expect(liveScreenIds()).toContain("inline-2"));
+    const staleReady = readyById.get("inline-2");
     await act(async () => {
       vi.advanceTimersByTime(9_000);
     });
     expect(staticPreview()).toBe(preview);
-    expect(preview.className).toContain("z-[1]");
+    expect(preview.className).not.toContain("z-[1]");
+    expect(liveScreenIds()).not.toContain("inline-2");
 
     vi.useRealTimers();
+    await act(async () => staleReady?.());
+    expect(staticPreview()).toBe(preview);
+    await act(async () => root.render(render("inline-1")));
+    await act(async () => root.render(render("inline-2")));
+    await vi.waitFor(() => expect(liveScreenIds()).toContain("inline-2"));
+    await act(async () => staleReady?.());
+    expect(staticPreview()).toBe(preview);
     await act(async () => readyById.get("inline-2")?.());
     await vi.waitFor(() => expect(staticPreview()).toBeNull());
   });

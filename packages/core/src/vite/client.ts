@@ -3811,12 +3811,23 @@ const DEFAULT_VITE_WATCH_IGNORED_DIRS = new Set([
 export function defaultViteWatchIgnored(
   root: string,
 ): (file: string) => boolean {
-  return (file) =>
-    path
-      .relative(root, file)
-      .split(/[\\/]/)
+  const normalizedRoot = root.replace(/\\/g, "/");
+  return (file) => {
+    const segments = path.posix
+      .relative(normalizedRoot, file.replace(/\\/g, "/"))
+      .split("/");
+    if (
+      segments.length === 3 &&
+      segments[0] === ".generated" &&
+      segments[1] === "bridge" &&
+      segments[2]?.endsWith(".generated.ts")
+    ) {
+      return false;
+    }
+    return segments
       .slice(0, -1)
       .some((segment) => DEFAULT_VITE_WATCH_IGNORED_DIRS.has(segment));
+  };
 }
 
 function forceServeOnly(pluginOrPreset: any): any {

@@ -25578,6 +25578,9 @@ function DesignEditor() {
         <DesignCanvas
           nativeApprovalsEnabled={isSignedIn}
           editorNativePreviewPolicy={editorNativePreviewPolicy}
+          overviewNativePreviewCompact={
+            renderOptions?.overviewNativePreviewCompact
+          }
           layoutGridStep={layoutGrids[screen.id]?.size ?? 1}
           content={screenContent}
           contentKey={screenContentKey}

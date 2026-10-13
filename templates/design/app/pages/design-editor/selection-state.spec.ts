@@ -8,6 +8,7 @@ import {
   getOverviewScreenExportGeometryById,
   elementInfoForSelectionSnapshot,
   getOverviewScreenContentKey,
+  getSidebarCodeLayerSelectionState,
   hasSelectableCodeLayerParent,
   isDocumentShellCodeLayerNode,
   isUserOriginatedSelectionIntent,
@@ -20,6 +21,25 @@ import {
   shouldClearSelectionForReviewThreadTarget,
   shouldEscapeToOverview,
 } from "./selection-state";
+
+describe("Layers selection view", () => {
+  it("keeps cross-screen and board layer picks in overview", () => {
+    const base = {
+      currentViewMode: "single" as const,
+      currentFileId: "screen-a",
+      overviewSelectedScreenIds: [],
+      screenFileIds: ["screen-a", "screen-b"],
+    };
+    expect(
+      getSidebarCodeLayerSelectionState({ ...base, ownerFileId: "screen-b" })
+        .viewMode,
+    ).toBe("overview");
+    expect(
+      getSidebarCodeLayerSelectionState({ ...base, ownerFileId: "board" })
+        .viewMode,
+    ).toBe("overview");
+  });
+});
 
 describe("overview screen export geometry", () => {
   it("uses the live natural height only for explicit Hug screens", () => {

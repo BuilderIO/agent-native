@@ -246,6 +246,7 @@ export function runLayerSelectionChange(
     }
     const nextSelectionState = getSidebarCodeLayerSelectionState({
       currentViewMode: viewModeRef.current,
+      currentFileId: activeFile?.id,
       ownerFileId: codeLayerOwner.fileId,
       overviewSelectedScreenIds,
       screenFileIds,

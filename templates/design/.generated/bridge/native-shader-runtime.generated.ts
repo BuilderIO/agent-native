@@ -743,6 +743,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "static"
     ],
     [
+      "6b681ab20034491ffa320b8b802dfaf7fe7748fd8c9504d4d4eb40a86f8fd725",
+      "animated"
+    ],
+    [
       "6c2d409a7b0a424b84b3e280269baa304e76115192c46d4709db33368259d5fb",
       "static"
     ],
@@ -1083,6 +1087,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "static"
     ],
     [
+      "a0b45897ce74c0ff355fc2f6cca53a7e5867362631d9b07aec55f8e2ddfa2694",
+      "animated"
+    ],
+    [
       "a0f7b6222fed3c316921b29bc10ed0e7dbdffc59020db12fd54b7edb808fca0b",
       "animated"
     ],
@@ -1264,6 +1272,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     ],
     [
       "be2a02e532f6b45682ccf2c20e5f3cad77a07e3a5f6b190d0dbde440931ffb7f",
+      "animated"
+    ],
+    [
+      "be55c3b4879a4b2709de22bf47045ae68b32723ee51bb7fb20d531d58351c889",
       "animated"
     ],
     [
@@ -1635,6 +1647,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "static"
     ],
     [
+      "f0895a39669ebe6f50e215035e2f092905681083cb12befde2d02027c85e68ce",
+      "static"
+    ],
+    [
       "f0cac8ec1bfec02733b1c5c89f6df2cd7b64cfdcacb10d8a61736c14bc7160b2",
       "animated"
     ],
@@ -1652,6 +1668,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     ],
     [
       "f606639df17a0d94d46e53e57082d2f2b54c6fe41e21a80a21ec15c8d7097220",
+      "static"
+    ],
+    [
+      "f75e02e88dd723b69c42acf38e032fee35e5f7402d295a359a2b811b02aa05ce",
       "static"
     ],
     [
@@ -14733,6 +14753,13 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
       this.slowFrames = 0;
       this.fastFrames = 0;
       this.lastSubmittedAt = 0;
+      this.overviewCompact = false;
+    }
+    setOverviewCompact(compact) {
+      if (this.overviewCompact === compact) return false;
+      this.overviewCompact = compact;
+      this.lastSubmittedAt = 0;
+      return true;
     }
     setPolicy(policy) {
       if (this.policy.quality === policy.quality && this.policy.frameRateTarget === policy.frameRateTarget)
@@ -14753,19 +14780,22 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
         requestedQuality: this.policy.quality,
         frameRateTarget: this.policy.frameRateTarget,
         devicePixelRatio: devicePixelRatio2,
-        effectivePixelRatio: Math.max(0.5, capped * scale),
-        targetFrameIntervalMs: 1e3 / this.policy.frameRateTarget,
+        effectivePixelRatio: Math.max(
+          0.5,
+          this.overviewCompact ? Math.min(0.75, capped * scale) : capped * scale
+        ),
+        targetFrameIntervalMs: this.overviewCompact ? 1e3 / 15 : 1e3 / this.policy.frameRateTarget,
         ...renderWallMs === void 0 ? {} : { renderWallMs },
         ...rafIntervalMs === void 0 ? {} : { rafIntervalMs }
       };
     }
     shouldSubmit(now, dirty) {
-      if (dirty || !this.lastSubmittedAt || now < this.lastSubmittedAt) {
+      if (!this.overviewCompact && dirty || !this.lastSubmittedAt || now < this.lastSubmittedAt) {
         this.lastSubmittedAt = now;
         return true;
       }
-      if (now - this.lastSubmittedAt + 0.25 < 1e3 / this.policy.frameRateTarget)
-        return false;
+      const interval = this.overviewCompact ? 1e3 / 15 : 1e3 / this.policy.frameRateTarget;
+      if (now - this.lastSubmittedAt + 0.25 < interval) return false;
       this.lastSubmittedAt = now;
       return true;
     }
@@ -14780,7 +14810,7 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
     observeRenderWall(wallMs) {
       if (this.policy.quality !== "auto" || !Number.isFinite(wallMs) || wallMs < 0)
         return false;
-      const budget = 1e3 / this.policy.frameRateTarget;
+      const budget = this.overviewCompact ? 1e3 / 15 : 1e3 / this.policy.frameRateTarget;
       if (wallMs > budget * 0.85) {
         this.slowFrames += 1;
         this.fastFrames = 0;
@@ -19406,6 +19436,16 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           this.editorPreviewPolicy = nextPolicy === null ? null : { ...nextPolicy };
           this.previewDirty = true;
           this.requestScan();
+          return;
+        }
+        if (data.type === "native-shader-overview-preview-mode") {
+          if (window.parent === window || event.source !== window.parent) return;
+          if (data.schemaVersion !== 1 || typeof data.compact !== "boolean") return;
+          if (!this.previewPolicy.setOverviewCompact(data.compact)) return;
+          this.sceneBudgetFault = null;
+          this.previewDirty = true;
+          this.updatePreviewAttributes();
+          this.requestSourceFrame();
           return;
         }
         if (data.type === "native-effect-set-instance" || data.type === "native-effect-clear-instance") {

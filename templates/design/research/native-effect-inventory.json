@@ -9,38 +9,38 @@
     "graphMetadata": "normal source exports; full resources, pass graph fields except WGSL/original, definition graph metadata"
   },
   "counts": {
-    "distinctDefinitions": 364,
-    "exactVersions": 421,
-    "registeredPresets": 844,
-    "presetsTargetingLatestVersions": 759,
+    "distinctDefinitions": 369,
+    "exactVersions": 426,
+    "registeredPresets": 854,
+    "presetsTargetingLatestVersions": 769,
     "presetsTargetingHistoricalVersions": 85,
     "latestByKind": {
-      "generator": 161,
-      "processor": 196,
+      "generator": 163,
+      "processor": 199,
       "simulation": 7
     },
     "fullByKind": {
-      "generator": 203,
-      "processor": 210,
+      "generator": 205,
+      "processor": 213,
       "simulation": 8
     },
     "latestByAnimation": {
-      "animated": 121,
-      "static": 243
+      "animated": 124,
+      "static": 245
     },
     "fullByAnimation": {
-      "animated": 145,
-      "static": 276
+      "animated": 148,
+      "static": 278
     },
     "latestByPlacement": {
-      "fill": 164,
-      "layer": 204,
-      "backdrop": 166
+      "fill": 166,
+      "layer": 207,
+      "backdrop": 169
     },
     "fullByPlacement": {
-      "fill": 206,
-      "layer": 219,
-      "backdrop": 175
+      "fill": 208,
+      "layer": 222,
+      "backdrop": 178
     },
     "fullyValidatedDefinitions": 0
   },
@@ -56237,6 +56237,718 @@
         "an-preset-bz-rose-luminance"
       ],
       "animationCapability": "static"
+    },
+    {
+      "id": "an-native-owned-ca-layered-swirl",
+      "name": "Layered Swirl",
+      "version": 1,
+      "kind": "generator",
+      "placements": [
+        "fill"
+      ],
+      "properties": {
+        "layers": {
+          "type": "int",
+          "label": "Flow layers",
+          "default": 5,
+          "min": 2,
+          "max": 8,
+          "step": 1
+        },
+        "radius": {
+          "type": "float",
+          "label": "Vortex radius",
+          "default": 0.42,
+          "min": 0.08,
+          "max": 0.9,
+          "step": 0.01
+        },
+        "twist": {
+          "type": "float",
+          "label": "Twist",
+          "default": 2.1,
+          "min": -5,
+          "max": 5,
+          "step": 0.01
+        },
+        "speed": {
+          "type": "float",
+          "label": "Flow speed",
+          "default": 0.65,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        "drift": {
+          "type": "float",
+          "label": "Center drift",
+          "default": 0.45,
+          "min": 0,
+          "max": 1.5,
+          "step": 0.01
+        },
+        "bandFrequency": {
+          "type": "float",
+          "label": "Band frequency",
+          "default": 3.5,
+          "min": 0.5,
+          "max": 12,
+          "step": 0.1
+        },
+        "contrast": {
+          "type": "float",
+          "label": "Band contrast",
+          "default": 1.2,
+          "min": 0.1,
+          "max": 3,
+          "step": 0.01
+        },
+        "center": {
+          "type": "vec2",
+          "label": "Flow center",
+          "default": [
+            0.5,
+            0.5
+          ],
+          "min": 0,
+          "max": 1
+        },
+        "colorA": {
+          "type": "color",
+          "label": "Low color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.055,
+              0.16,
+              0.37
+            ],
+            "alpha": 1
+          }
+        },
+        "colorB": {
+          "type": "color",
+          "label": "High color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.18,
+              0.76,
+              0.84
+            ],
+            "alpha": 1
+          }
+        },
+        "colorC": {
+          "type": "color",
+          "label": "Accent color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.9,
+              0.41,
+              0.67
+            ],
+            "alpha": 1
+          }
+        },
+        "opacity": {
+          "type": "float",
+          "label": "Opacity",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "render"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "draw-layered-swirl",
+          "kind": "render",
+          "reads": [],
+          "output": "color"
+        }
+      ],
+      "executionHash": "a0b45897ce74c0ff355fc2f6cca53a7e5867362631d9b07aec55f8e2ddfa2694",
+      "presetIds": [
+        "an-preset-ca-tidal-bloom",
+        "an-preset-ca-copper-cyclone"
+      ],
+      "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-cb-flowing-gradient",
+      "name": "Flowing Gradient",
+      "version": 1,
+      "kind": "generator",
+      "placements": [
+        "fill"
+      ],
+      "properties": {
+        "scale": {
+          "type": "float",
+          "label": "Field scale",
+          "default": 1,
+          "min": 0.3,
+          "max": 4,
+          "step": 0.01
+        },
+        "firstWarp": {
+          "type": "float",
+          "label": "First warp",
+          "default": 0.18,
+          "min": 0,
+          "max": 0.65,
+          "step": 0.01
+        },
+        "secondWarp": {
+          "type": "float",
+          "label": "Second warp",
+          "default": 0.14,
+          "min": 0,
+          "max": 0.65,
+          "step": 0.01
+        },
+        "warpFrequency": {
+          "type": "float",
+          "label": "Warp frequency",
+          "default": 1.9,
+          "min": 0.2,
+          "max": 7,
+          "step": 0.01
+        },
+        "speed": {
+          "type": "float",
+          "label": "Flow speed",
+          "default": 0.8,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        "angle": {
+          "type": "float",
+          "label": "Band angle",
+          "default": 0.6,
+          "min": -3.14,
+          "max": 3.14,
+          "step": 0.01
+        },
+        "bandFrequency": {
+          "type": "float",
+          "label": "Band frequency",
+          "default": 2.7,
+          "min": 0.3,
+          "max": 12,
+          "step": 0.01
+        },
+        "softness": {
+          "type": "float",
+          "label": "Band softness",
+          "default": 0.06,
+          "min": 0.005,
+          "max": 0.2,
+          "step": 0.005
+        },
+        "colorA": {
+          "type": "color",
+          "label": "First color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.08,
+              0.1,
+              0.31
+            ],
+            "alpha": 1
+          }
+        },
+        "colorB": {
+          "type": "color",
+          "label": "Second color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.19,
+              0.54,
+              0.88
+            ],
+            "alpha": 1
+          }
+        },
+        "colorC": {
+          "type": "color",
+          "label": "Third color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.69,
+              0.78,
+              0.92
+            ],
+            "alpha": 1
+          }
+        },
+        "colorD": {
+          "type": "color",
+          "label": "Fourth color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.94,
+              0.4,
+              0.55
+            ],
+            "alpha": 1
+          }
+        },
+        "opacity": {
+          "type": "float",
+          "label": "Opacity",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "render"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "draw-flowing-gradient",
+          "kind": "render",
+          "reads": [],
+          "output": "color"
+        }
+      ],
+      "executionHash": "be55c3b4879a4b2709de22bf47045ae68b32723ee51bb7fb20d531d58351c889",
+      "presetIds": [
+        "an-preset-cb-lagoon-folds",
+        "an-preset-cb-molten-strata"
+      ],
+      "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-cc-source-glints",
+      "name": "Source Glints",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "spacing": {
+          "type": "float",
+          "label": "Glint spacing",
+          "default": 42,
+          "min": 16,
+          "max": 120,
+          "step": 1
+        },
+        "threshold": {
+          "type": "float",
+          "label": "Brightness threshold",
+          "default": 0.68,
+          "min": 0,
+          "max": 2,
+          "step": 0.01
+        },
+        "intensity": {
+          "type": "float",
+          "label": "Glint intensity",
+          "default": 1.2,
+          "min": 0,
+          "max": 4,
+          "step": 0.01
+        },
+        "rayLength": {
+          "type": "float",
+          "label": "Ray length",
+          "default": 10,
+          "min": 2,
+          "max": 24,
+          "step": 0.5
+        },
+        "twinkleSpeed": {
+          "type": "float",
+          "label": "Twinkle speed",
+          "default": 2,
+          "min": 0,
+          "max": 8,
+          "step": 0.1
+        },
+        "tint": {
+          "type": "color",
+          "label": "Glint tint",
+          "default": {
+            "space": "srgb",
+            "components": [
+              1,
+              0.85,
+              0.55
+            ],
+            "alpha": 0.35
+          }
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "glint-bright-source",
+          "kind": "render",
+          "reads": [
+            "source"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "6b681ab20034491ffa320b8b802dfaf7fe7748fd8c9504d4d4eb40a86f8fd725",
+      "presetIds": [
+        "an-preset-cc-fine-spark",
+        "an-preset-cc-slow-stars"
+      ],
+      "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-cd-fiber-relief",
+      "name": "Fiber Relief",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "direction": {
+          "type": "float",
+          "label": "Fiber direction",
+          "default": 0.45,
+          "min": -3.14,
+          "max": 3.14,
+          "step": 0.01
+        },
+        "threadScale": {
+          "type": "float",
+          "label": "Thread scale",
+          "default": 7,
+          "min": 2,
+          "max": 24,
+          "step": 0.5
+        },
+        "relief": {
+          "type": "float",
+          "label": "Thread relief",
+          "default": 1.5,
+          "min": 0,
+          "max": 5,
+          "step": 0.05
+        },
+        "displacement": {
+          "type": "float",
+          "label": "Fiber displacement",
+          "default": 2,
+          "min": 0,
+          "max": 12,
+          "step": 0.1
+        },
+        "lightAngle": {
+          "type": "float",
+          "label": "Light angle",
+          "default": -0.7,
+          "min": -3.14,
+          "max": 3.14,
+          "step": 0.01
+        },
+        "sheen": {
+          "type": "float",
+          "label": "Fiber sheen",
+          "default": 0.35,
+          "min": 0,
+          "max": 2,
+          "step": 0.01
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "shade-displaced-fibers",
+          "kind": "render",
+          "reads": [
+            "source"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "f75e02e88dd723b69c42acf38e032fee35e5f7402d295a359a2b811b02aa05ce",
+      "presetIds": [
+        "an-preset-cd-soft-linen",
+        "an-preset-cd-satin-weave"
+      ],
+      "animationCapability": "unknown"
+    },
+    {
+      "id": "an-native-owned-ce-stone-relief",
+      "name": "Stone Relief",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "cellSize": {
+          "type": "float",
+          "label": "Stone cell size",
+          "default": 32,
+          "min": 8,
+          "max": 100,
+          "step": 1
+        },
+        "relief": {
+          "type": "float",
+          "label": "Stone relief",
+          "default": 3,
+          "min": 0,
+          "max": 10,
+          "step": 0.1
+        },
+        "displacement": {
+          "type": "float",
+          "label": "Stone displacement",
+          "default": 4,
+          "min": 0,
+          "max": 16,
+          "step": 0.1
+        },
+        "fissureWidth": {
+          "type": "float",
+          "label": "Fissure width",
+          "default": 0.08,
+          "min": 0,
+          "max": 0.3,
+          "step": 0.005
+        },
+        "grain": {
+          "type": "float",
+          "label": "Mineral grain",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "lightAngle": {
+          "type": "float",
+          "label": "Light angle",
+          "default": -0.8,
+          "min": -3.14,
+          "max": 3.14,
+          "step": 0.01
+        },
+        "mineralTint": {
+          "type": "color",
+          "label": "Mineral tint",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.8,
+              0.72,
+              0.64
+            ],
+            "alpha": 0.4
+          }
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "shade-source-geology",
+          "kind": "render",
+          "reads": [
+            "source"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "f0895a39669ebe6f50e215035e2f092905681083cb12befde2d02027c85e68ce",
+      "presetIds": [
+        "an-preset-ce-sandstone-cut",
+        "an-preset-ce-slate-facets"
+      ],
+      "animationCapability": "unknown"
     }
   ],
   "defaultCanvasGpuEvidence": {

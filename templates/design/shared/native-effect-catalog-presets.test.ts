@@ -158,6 +158,26 @@ import {
   SOURCE_TINT_PRESETS,
 } from "./native-effect-owned-bz-source-tint";
 import {
+  LAYERED_SWIRL_EFFECT,
+  LAYERED_SWIRL_PRESETS,
+} from "./native-effect-owned-ca-layered-swirl";
+import {
+  FLOWING_GRADIENT_EFFECT,
+  FLOWING_GRADIENT_PRESETS,
+} from "./native-effect-owned-cb-flowing-gradient";
+import {
+  SOURCE_GLINTS_EFFECT,
+  SOURCE_GLINTS_PRESETS,
+} from "./native-effect-owned-cc-source-glints";
+import {
+  FIBER_RELIEF_EFFECT,
+  FIBER_RELIEF_PRESETS,
+} from "./native-effect-owned-cd-fiber-relief";
+import {
+  STONE_RELIEF_EFFECT,
+  STONE_RELIEF_PRESETS,
+} from "./native-effect-owned-ce-stone-relief";
+import {
   POINTER_EFFECT_DEFINITIONS,
   POINTER_EFFECT_PRESETS,
 } from "./native-effect-pointer-catalog";
@@ -173,14 +193,14 @@ import { parseEffectsFromHtml, validateEffectDocument } from "./native-effects";
 
 describe("Design-owned catalog", () => {
   it("registers unique independently authored definitions and valid original recipes", () => {
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(364);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(369);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((item) => item.id)).size,
-    ).toBe(364);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(421);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(844);
+    ).toBe(369);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(426);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(854);
     expect(new Set(NATIVE_EFFECT_PRESETS.map((item) => item.id)).size).toBe(
-      844,
+      854,
     );
     for (const definition of NATIVE_EFFECT_LATEST_DEFINITIONS) {
       expect(definition.provenance?.origin).toBe("design-original");
@@ -204,7 +224,7 @@ describe("Design-owned catalog", () => {
     }
   });
 
-  it("registers AV through BZ with localized controls and pinned predecessor versions", () => {
+  it("registers AV through CE with localized controls and pinned predecessor versions", () => {
     const newVersions = [
       [SOURCE_REACTION_DIFFUSION_EFFECT, SOURCE_REACTION_DIFFUSION_PRESETS],
       [TEMPORAL_FLOW_TRAIL_EFFECT, TEMPORAL_FLOW_TRAIL_PRESETS],
@@ -237,6 +257,11 @@ describe("Design-owned catalog", () => {
       [SEEDED_SCATTER_BLUR_EFFECT, SEEDED_SCATTER_BLUR_PRESETS],
       [CORNER_PAGE_CURL_EFFECT, CORNER_PAGE_CURL_PRESETS],
       [SOURCE_TINT_EFFECT, SOURCE_TINT_PRESETS],
+      [LAYERED_SWIRL_EFFECT, LAYERED_SWIRL_PRESETS],
+      [FLOWING_GRADIENT_EFFECT, FLOWING_GRADIENT_PRESETS],
+      [SOURCE_GLINTS_EFFECT, SOURCE_GLINTS_PRESETS],
+      [FIBER_RELIEF_EFFECT, FIBER_RELIEF_PRESETS],
+      [STONE_RELIEF_EFFECT, STONE_RELIEF_PRESETS],
     ] as const;
     for (const [definition, presets] of newVersions) {
       expect(
@@ -256,7 +281,9 @@ describe("Design-owned catalog", () => {
           definition === SOURCE_CONTOURS_EFFECT ||
           definition === SEEDED_SCATTER_BLUR_EFFECT ||
           definition === CORNER_PAGE_CURL_EFFECT ||
-          definition === SOURCE_TINT_EFFECT
+          definition === SOURCE_TINT_EFFECT ||
+          definition === FIBER_RELIEF_EFFECT ||
+          definition === STONE_RELIEF_EFFECT
           ? "static"
           : "animated",
       );

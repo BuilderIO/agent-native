@@ -37,6 +37,56 @@ const options = (id: string) => ({
 });
 
 describe("shared native thumbnail work queue", () => {
+  it("reports an untrusted builtin thumbnail without waiting for the frame deadline", async () => {
+    const service = new NativeThumbnailService();
+    services.push(service);
+    const target = document.createElement("div");
+    target.setAttribute("data-an-native-status", "error");
+    target.setAttribute("data-an-native-error", "definition-untrusted");
+    const executionHash = "a".repeat(64);
+    const internal = service as unknown as {
+      awaitReady(
+        targets: readonly HTMLElement[],
+        executionHashes: readonly string[],
+        approvedExecutionHashes: readonly string[],
+        signal: AbortSignal,
+      ): Promise<void>;
+    };
+    await expect(
+      internal.awaitReady(
+        [target],
+        [executionHash],
+        [],
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({ code: "definition-untrusted" });
+  });
+
+  it("allows an approved thumbnail to recover after its approval message arrives", async () => {
+    const service = new NativeThumbnailService();
+    services.push(service);
+    const target = document.createElement("div");
+    target.setAttribute("data-an-native-status", "error");
+    target.setAttribute("data-an-native-error", "definition-untrusted");
+    const executionHash = "a".repeat(64);
+    const internal = service as unknown as {
+      awaitReady(
+        targets: readonly HTMLElement[],
+        executionHashes: readonly string[],
+        approvedExecutionHashes: readonly string[],
+        signal: AbortSignal,
+      ): Promise<void>;
+    };
+    const pending = internal.awaitReady(
+      [target],
+      [executionHash],
+      [executionHash],
+      new AbortController().signal,
+    );
+    target.setAttribute("data-an-native-status", "ready");
+    await expect(pending).resolves.toBeUndefined();
+  });
+
   it("places one fixed synthetic asset registry only in the isolated renderer document", async () => {
     const service = new NativeThumbnailService();
     services.push(service);

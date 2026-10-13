@@ -15988,6 +15988,16 @@ class NativeShaderRuntime {
       this.requestScan();
       return;
     }
+    if (data.type === "native-shader-overview-preview-mode") {
+      if (window.parent === window || event.source !== window.parent) return;
+      if (data.schemaVersion !== 1 || typeof data.compact !== "boolean") return;
+      if (!this.previewPolicy.setOverviewCompact(data.compact)) return;
+      this.sceneBudgetFault = null;
+      this.previewDirty = true;
+      this.updatePreviewAttributes();
+      this.requestSourceFrame();
+      return;
+    }
     if (
       data.type === "native-effect-set-instance" ||
       data.type === "native-effect-clear-instance"

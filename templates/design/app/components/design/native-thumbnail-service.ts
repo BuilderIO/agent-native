@@ -846,9 +846,12 @@ export class NativeThumbnailService {
 
   private async awaitReady(
     targets: readonly HTMLElement[],
+    executionHashes: readonly string[],
+    approvedExecutionHashes: readonly string[],
     signal: AbortSignal,
   ): Promise<void> {
     const until = performance.now() + FRAME_TIMEOUT_MS;
+    const approved = new Set(approvedExecutionHashes);
     while (performance.now() < until) {
       aborted(signal);
       const statuses = targets.map((target) => ({
@@ -858,11 +861,14 @@ export class NativeThumbnailService {
       }));
       if (statuses.every((entry) => entry.status === "ready")) return;
       const failure = statuses.find(
-        (entry) =>
+        (entry, index) =>
           entry.status === "error" &&
           entry.code !== "approvals-pending" &&
           entry.code !== "approvals-unreadable" &&
-          entry.code !== "definition-untrusted",
+          !(
+            entry.code === "definition-untrusted" &&
+            approved.has(executionHashes[index])
+          ),
       );
       if (failure)
         throw new NativeThumbnailError(
@@ -1002,7 +1008,12 @@ export class NativeThumbnailService {
           FRAME_TIMEOUT_MS,
           "validation-scan-timeout",
         );
-        await this.awaitReady(scene.targets, signal);
+        await this.awaitReady(
+          scene.targets,
+          [entry.executionHash],
+          job.options.approvedExecutionHashes,
+          signal,
+        );
         if (nativeEffectRequiresStateSession(entry.item.definition))
           sessionId = (
             await runtime.beginSimulationExportSession({
@@ -1266,7 +1277,12 @@ export class NativeThumbnailService {
           job.controller.abort(error);
           throw error;
         }
-        await this.awaitReady(scene.targets, signal);
+        await this.awaitReady(
+          scene.targets,
+          misses.map((entry) => entry.executionHash),
+          job.options.approvedExecutionHashes,
+          signal,
+        );
         const hasStatefulEffect = misses.some((entry) =>
           nativeEffectRequiresStateSession(entry.item.definition),
         );

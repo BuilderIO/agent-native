@@ -92,6 +92,20 @@ describe("native preview policy", () => {
     expect(policy.shouldSubmit(208.4, false)).toBe(true);
   });
 
+  it("bounds compact overview presentation and restores live quality on promotion", () => {
+    const policy = new NativePreviewPolicyController();
+    expect(policy.setOverviewCompact(true)).toBe(true);
+    expect(policy.setOverviewCompact(true)).toBe(false);
+    expect(policy.status(2).effectivePixelRatio).toBe(0.75);
+    expect(policy.status(2).targetFrameIntervalMs).toBeCloseTo(1000 / 15);
+    expect(policy.shouldSubmit(100, false)).toBe(true);
+    expect(policy.shouldSubmit(120, true)).toBe(false);
+    expect(policy.shouldSubmit(167, true)).toBe(true);
+    expect(policy.setOverviewCompact(false)).toBe(true);
+    expect(policy.status(2).effectivePixelRatio).toBe(2);
+    expect(policy.shouldSubmit(168, true)).toBe(true);
+  });
+
   it("resets adaptive density when the authored policy changes", () => {
     const policy = new NativePreviewPolicyController();
     for (let index = 0; index < 8; index += 1) policy.observeRenderWall(20);
