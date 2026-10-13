@@ -6,6 +6,7 @@ import {
   assertShortcutMarkupAdded,
   assertSlideIsScaled,
   AUTHORING_FUZZ_STYLE_PROPERTIES,
+  authoringFuzzPrecedingListMergePreservesIdentity,
   authoringFuzzListTagForOperation,
   createRetiredBrowserSessionErrorCorrelator,
   browserSessionNavigationRequestIdentity,
@@ -994,6 +995,24 @@ it("classifies only semantic list commands for adjacent-list merge checks", () =
       result: "bullet",
     }),
   ).toBeNull();
+});
+
+it("requires an adjacent-list merge to carry a preceding list id forward", () => {
+  expect(
+    authoringFuzzPrecedingListMergePreservesIdentity(
+      "source-list",
+      "source-list",
+    ),
+  ).toBe(true);
+  expect(
+    authoringFuzzPrecedingListMergePreservesIdentity("source-list", null),
+  ).toBe(false);
+  expect(
+    authoringFuzzPrecedingListMergePreservesIdentity(
+      "source-list",
+      "other-list",
+    ),
+  ).toBe(false);
 });
 
 it("runs vertical caret fidelity in the committed absolute profile", () => {

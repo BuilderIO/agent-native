@@ -1455,6 +1455,13 @@ export function authoringFuzzListTagForOperation(
     : null;
 }
 
+export function authoringFuzzPrecedingListMergePreservesIdentity(
+  candidateId: string,
+  resultId: string | null,
+) {
+  return resultId === candidateId;
+}
+
 export async function canonicalizeAuthoringFuzzPersistence(
   persistence: AuthoringFuzzPersistence,
   canonicalize: (html: string) => string | Promise<string>,
@@ -2816,8 +2823,8 @@ export async function runAuthoringFuzz(
     phase: "capture" | "assert",
     operation: AuthoringFuzzOperation,
     requireMerge = false,
-  ) =>
-    page.evaluate(
+  ) => {
+    const result = await page.evaluate(
       ({
         selector,
         phase,
@@ -3413,13 +3420,17 @@ export async function runAuthoringFuzz(
             listMerge,
             merge,
           };
-          return [];
+          return { failures: [], listIdentityChecks: [] };
         }
         const baseline = previous;
         if (!baseline) {
           throw new Error("editor sibling snapshot was not captured");
         }
         const failures: string[] = [];
+        const listIdentityChecks: Array<{
+          candidateId: string;
+          resultId: string | null;
+        }> = [];
         const mergeAssertion =
           baseline.merge &&
           ((operation.kind === "backspace-block-edge" &&
@@ -3492,6 +3503,16 @@ export async function runAuthoringFuzz(
                 authoredAttributes(candidate.node) === candidate.attributes;
               const listWasMerged =
                 candidate.node === activeList || !root.contains(candidate.node);
+              if (
+                candidate.side === "before" &&
+                candidate.node.hasAttribute("id") &&
+                listWasMerged
+              ) {
+                listIdentityChecks.push({
+                  candidateId: candidate.node.getAttribute("id") ?? "",
+                  resultId: activeList.getAttribute("id"),
+                });
+              }
               const leftListCarriesIdentity =
                 candidate.side !== "after" ||
                 !candidate.node.hasAttribute("id");
@@ -3851,9 +3872,12 @@ export async function runAuthoringFuzz(
         ) {
           failures.push("reordered sibling blocks");
         }
-        return failures.length
-          ? [...failures, `authoring targets: ${targetPaths}`]
-          : failures;
+        return {
+          failures: failures.length
+            ? [...failures, `authoring targets: ${targetPaths}`]
+            : failures,
+          listIdentityChecks,
+        };
       },
       {
         selector: editorSelector,
@@ -3864,6 +3888,19 @@ export async function runAuthoringFuzz(
         styleProperties: AUTHORING_FUZZ_STYLE_PROPERTIES,
       },
     );
+    return [
+      ...result.failures,
+      ...result.listIdentityChecks.flatMap(
+        (check: { candidateId: string; resultId: string | null }) =>
+          authoringFuzzPrecedingListMergePreservesIdentity(
+            check.candidateId,
+            check.resultId,
+          )
+            ? []
+            : ["adjacent-list merge lost the preceding list's authored id"],
+      ),
+    ];
+  };
   const assertOutsideUnchanged = async () => {
     await page.evaluate(
       () =>
