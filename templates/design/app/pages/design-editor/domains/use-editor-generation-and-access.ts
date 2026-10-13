@@ -48,6 +48,10 @@ import {
   type ClipboardContentMutationOrigin,
   type ClipboardContentMutationPublication,
 } from "@/lib/clipboard-content-lineage";
+import {
+  useDesignReadyViewTracking,
+  useDesignVariantPickTracking,
+} from "@/lib/design-funnel-tracking";
 import { isContentIndependentDesignQuery } from "@/lib/design-sync-invalidation";
 import {
   clearPendingGeneration,
@@ -117,6 +121,8 @@ type RequestDesignAccessResult = {
   requestId?: string;
   message: string;
 };
+
+const EMPTY_READY_VIEW_FILES: readonly DesignFile[] = [];
 
 type ActiveBreakpointWrite = {
   designId: string;
@@ -265,6 +271,7 @@ export function useEditorGenerationAndAccess({
   const pendingQuestionsVisibleRef = useRef(false);
   const generationRunConfirmedRef = useRef(false);
   const generationCompleteTimerRef = useRef<number | null>(null);
+  const generationStopCountRef = useRef(0);
   const autoRetryTimerRef = useRef<number | null>(null);
   const storedRunLivenessTimerRef = useRef<number | null>(null);
   const clearGenerationCompleteTimer = useCallback(() => {
@@ -349,6 +356,7 @@ export function useEditorGenerationAndAccess({
     }, 4000);
   }, [clearGenerationCompleteTimer, id, rememberPendingGenerationForRetry, t]);
   const handleGenerationStopped = useCallback(() => {
+    generationStopCountRef.current += 1;
     clearGenerationCompleteTimer();
     clearAutoRetryTimer();
     clearStoredRunLivenessTimer();
@@ -655,6 +663,15 @@ export function useEditorGenerationAndAccess({
     pendingNodeRewriteStateKeys.map((key) => `app-state:${key}`),
   );
   const designAccessRole = design?.accessRole;
+  useDesignReadyViewTracking({
+    designId: id,
+    isOwner: !shellMode && designAccessRole === "owner",
+    designLoaded: Boolean(design),
+    generationActive: pendingGenerationActive || generating,
+    files: design?.files ?? EMPTY_READY_VIEW_FILES,
+    stopCountRef: generationStopCountRef,
+  });
+  useDesignVariantPickTracking(shellMode ? undefined : id);
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
   const designQueryErrorStatus =
