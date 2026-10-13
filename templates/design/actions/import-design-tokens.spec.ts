@@ -538,16 +538,11 @@ describe("import-design-tokens", () => {
     expect(result.omittedFileCount).toBe(1);
   });
 
-  it("continues past an oversized current-design file", async () => {
+  it("continues with eligible candidates after oversized current-design files", async () => {
     mockWhere
       .mockResolvedValueOnce([{ fileCount: 2 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
-        {
-          id: "large",
-          filename: "a-large.css",
-          contentBytes: DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1,
-        },
         {
           id: "small",
           filename: "z-tokens.scss",
@@ -572,25 +567,52 @@ describe("import-design-tokens", () => {
     expect(result.omittedFileCount).toBe(1);
   });
 
-  it("falls back to smaller files after oversized preferred candidates", async () => {
-    const oversizedCandidates = Array.from(
-      { length: DESIGN_TOKEN_IMPORT_MAX_FILES + 1 },
-      (_, index) => ({
-        id: `large-${index}`,
-        filename: `tokens-${index}.css`,
-        contentBytes: DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1,
-      }),
+  it("falls back to smaller files when preferred candidates exceed remaining bytes", async () => {
+    const makeCss = (name: string, bytes: number) => {
+      const declaration = `:root { --spacing-${name}: 1px; }`;
+      return declaration + " ".repeat(bytes - declaration.length);
+    };
+    const preferred = Array.from(
+      { length: DESIGN_TOKEN_IMPORT_MAX_FILES },
+      (_, index) => {
+        const bytes =
+          index === DESIGN_TOKEN_IMPORT_MAX_FILES - 1 ? 40_000 : 25_000;
+        const content = makeCss(`preferred-${index}`, bytes);
+        return {
+          id: `preferred-${index}`,
+          filename: `tokens-${index}.css`,
+          content,
+          contentBytes: new TextEncoder().encode(content).length,
+        };
+      },
     );
+    const selectedPreferred = preferred.slice(0, -1);
+    const fallback = {
+      id: "small",
+      filename: "tokens.md",
+      content: "Primary color: #2563eb",
+    };
     mockWhere
-      .mockResolvedValueOnce([{ fileCount: DESIGN_TOKEN_IMPORT_MAX_FILES + 2 }])
+      .mockResolvedValueOnce([{ fileCount: DESIGN_TOKEN_IMPORT_MAX_FILES + 1 }])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce(oversizedCandidates)
+      .mockResolvedValueOnce(
+        preferred.map(({ id, filename, contentBytes }) => ({
+          id,
+          filename,
+          contentBytes,
+        })),
+      )
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
-        { id: "small", filename: "tokens.md", contentBytes: 10 },
+        {
+          id: fallback.id,
+          filename: fallback.filename,
+          contentBytes: new TextEncoder().encode(fallback.content).length,
+        },
       ])
       .mockResolvedValueOnce([
-        { id: "small", content: "Primary color: #2563eb" },
+        ...selectedPreferred.map(({ id, content }) => ({ id, content })),
+        { id: fallback.id, content: fallback.content },
       ]);
 
     const result = await action.run({
@@ -610,10 +632,11 @@ describe("import-design-tokens", () => {
     expect(fallbackFilter.conditions?.[4]?.strings?.join("")).toContain("!~*");
     expect(mockWhere.mock.calls[5]?.[0]).toMatchObject({
       kind: "inArray",
-      values: ["small"],
+      values: [...selectedPreferred.map(({ id }) => id), fallback.id],
     });
-    expect(result.filesAnalyzed).toEqual(["tokens.md"]);
-    expect(result.omittedFileCount).toBe(DESIGN_TOKEN_IMPORT_MAX_FILES + 1);
+    expect(result.filesAnalyzed).toHaveLength(DESIGN_TOKEN_IMPORT_MAX_FILES);
+    expect(result.filesAnalyzed).toContain("tokens.md");
+    expect(result.omittedFileCount).toBe(1);
     expect(result.tokens).toContainEqual(
       expect.objectContaining({
         cssVar: "--color-primary",
@@ -1867,10 +1890,12 @@ Bad radius: 12px} body { color: red
       text: `:root {
   --color-rgb-channels: rgb(var(--channels));
   --color-rgb-fallback: rgb(var(--channels, 0 0 0));
+  --color-rgb-nested-fallback: rgb(var(--channels, var(--inner, 0 0 0)));
   --color-hsl-channel: hsl(var(--hue) 50% 50%);
   --color-mix-substitution: color-mix(in srgb, var(--color-base), red);
   --color-invalid-rgb-substitution: rgb(var(--channels) nope);
   --color-invalid-rgb-fallback: rgb(var(--channels, nope));
+  --color-invalid-rgb-nested-fallback: rgb(var(--channels, var(--inner, nope)));
   --color-invalid-rgb-word: rgb(not-a-color);
 }`,
     });
@@ -1879,6 +1904,7 @@ Bad radius: 12px} body { color: red
       expect.arrayContaining([
         expect.objectContaining({ cssVar: "--color-rgb-channels" }),
         expect.objectContaining({ cssVar: "--color-rgb-fallback" }),
+        expect.objectContaining({ cssVar: "--color-rgb-nested-fallback" }),
         expect.objectContaining({ cssVar: "--color-hsl-channel" }),
         expect.objectContaining({ cssVar: "--color-mix-substitution" }),
       ]),
@@ -1887,10 +1913,34 @@ Bad radius: 12px} body { color: red
       expect.arrayContaining([
         expect.objectContaining({ cssVar: "--color-invalid-rgb-substitution" }),
         expect.objectContaining({ cssVar: "--color-invalid-rgb-fallback" }),
+        expect.objectContaining({
+          cssVar: "--color-invalid-rgb-nested-fallback",
+        }),
         expect.objectContaining({ cssVar: "--color-invalid-rgb-word" }),
       ]),
     );
-    expect(result.rejectedCount).toBe(3);
+    expect(result.rejectedCount).toBe(4);
+  });
+
+  it("accepts local image fragments, MIME descriptors, and gradient substitutions", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: `:root {
+  --custom-image-fragment: image("#icon");
+  --custom-image-set-fragment: image-set("#icon" 1x type("image/png"));
+  --custom-gradient-image-set: image-set(linear-gradient(var(--color-from), red) 2x type("image/png"));
+}`,
+    });
+
+    expect(result.rejectedCount).toBe(0);
+    expect(result.tokens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ cssVar: "--custom-image-fragment" }),
+        expect.objectContaining({ cssVar: "--custom-image-set-fragment" }),
+        expect.objectContaining({ cssVar: "--custom-gradient-image-set" }),
+      ]),
+    );
   });
 
   it("rejects malformed colors, markup, URL payloads, and oversized values", async () => {
@@ -1935,11 +1985,12 @@ Bad radius: 12px} body { color: red
   --custom-filename-image-set: image-set("theme.png" 2x);
   --custom-image-var: image(var(--image-source));
   --custom-image-set-var: image-set(var(--image-source) 1x);
+  --custom-image-attr-url: attr(data-image url);
 }`,
     });
 
     expect(result.importedCount).toBe(0);
-    expect(result.rejectedCount).toBe(13);
+    expect(result.rejectedCount).toBe(14);
     expect(result.tokens).toEqual([]);
   });
 

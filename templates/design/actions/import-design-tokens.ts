@@ -2204,6 +2204,12 @@ function isValidCssColor(value: string): boolean {
       return isValidRelativeCssColor(normalized);
     }
   }
+  if (hasCssSubstitutionFunction(normalized)) {
+    return (
+      hasValidCssMathFunctionSyntax(normalized) &&
+      isValidCssColorWithSubstitutions(normalized)
+    );
+  }
   if (csstree.lexer.matchType("color", normalized).matched) return true;
 
   if (isValidRelativeCssColor(normalized)) return true;
@@ -2224,7 +2230,8 @@ function isValidCssColor(value: string): boolean {
   );
 }
 
-function isValidCssColorWithSubstitutions(value: string): boolean {
+function isValidCssColorWithSubstitutions(value: string, depth = 0): boolean {
+  if (depth > 5) return false;
   const ranges: { end: number; fallback?: string; start: number }[] = [];
   let valid = true;
 
@@ -2253,7 +2260,10 @@ function isValidCssColorWithSubstitutions(value: string): boolean {
     });
   });
 
-  if (!valid || ranges.length === 0) return false;
+  if (!valid) return false;
+  if (ranges.length === 0) {
+    return csstree.lexer.matchType("color", value).matched !== null;
+  }
 
   const outermostRanges: { end: number; fallback?: string; start: number }[] =
     [];
@@ -2302,10 +2312,18 @@ function isValidCssColorWithSubstitutions(value: string): boolean {
   };
 
   for (const [index, range] of outermostRanges.entries()) {
+    if (range.fallback === undefined) continue;
     if (
-      range.fallback !== undefined &&
       !hasCssSubstitutionFunction(range.fallback) &&
       !hasValidReplacement(0, [], index, range.fallback)
+    ) {
+      return false;
+    }
+    if (
+      !isValidCssColorWithSubstitutions(
+        value.slice(0, range.start) + range.fallback + value.slice(range.end),
+        depth + 1,
+      )
     ) {
       return false;
     }
@@ -2462,6 +2480,21 @@ function hasUnsafeCssValueFunction(value: string): boolean {
     csstree.walk(csstree.parse(value, { context: "value" }), (node) => {
       if (node.type !== "Function") return;
       const functionName = csstree.ident.decode(node.name).toLowerCase();
+      if (functionName === "attr") {
+        const firstArgument = node.children
+          .toArray()
+          .filter(
+            (child) => child.type !== "WhiteSpace" && child.type !== "Comment",
+          )
+          .slice(0, 2);
+        if (
+          firstArgument[1]?.type === "Identifier" &&
+          csstree.ident.decode(firstArgument[1].name).toLowerCase() === "url"
+        ) {
+          unsafe = true;
+        }
+        return;
+      }
       if (
         !/^(?:image|image-set|-(?:webkit|moz|ms|o)-image-set)$/.test(
           functionName,
@@ -2471,11 +2504,40 @@ function hasUnsafeCssValueFunction(value: string): boolean {
 
       csstree.walk(node, (child) => {
         if (child.type === "Function") {
-          const childName = csstree.ident.decode(child.name).toLowerCase();
-          if (["var", "env", "attr"].includes(childName)) unsafe = true;
+          const functionName = csstree.ident.decode(child.name).toLowerCase();
+          if (functionName === "image") {
+            const source = child.children
+              .toArray()
+              .find(
+                (descendant) =>
+                  descendant.type !== "WhiteSpace" &&
+                  descendant.type !== "Comment",
+              );
+            if (source && isUnsafeCssImageSource(source)) unsafe = true;
+            return;
+          }
+          if (
+            !/^(?:image-set|-(?:webkit|moz|ms|o)-image-set)$/.test(functionName)
+          ) {
+            return;
+          }
+          let firstInCandidate = true;
+          for (const descendant of child.children.toArray()) {
+            if (descendant.type === "Operator" && descendant.value === ",") {
+              firstInCandidate = true;
+              continue;
+            }
+            if (
+              !firstInCandidate ||
+              descendant.type === "WhiteSpace" ||
+              descendant.type === "Comment"
+            ) {
+              continue;
+            }
+            firstInCandidate = false;
+            if (isUnsafeCssImageSource(descendant)) unsafe = true;
+          }
         }
-        if (child.type !== "String") return;
-        unsafe = true;
       });
     });
   } catch (error) {
@@ -2483,6 +2545,24 @@ function hasUnsafeCssValueFunction(value: string): boolean {
     throw error;
   }
 
+  return unsafe;
+}
+
+function isUnsafeCssImageSource(node: csstree.CssNode): boolean {
+  if (node.type === "String") {
+    return !csstree.string.decode(node.value).trim().startsWith("#");
+  }
+  if (node.type !== "Function") return false;
+  const name = csstree.ident.decode(node.name).toLowerCase();
+  if (/^(?:repeating-)?(?:linear|radial|conic)-gradient$/.test(name)) {
+    return false;
+  }
+  let unsafe = false;
+  csstree.walk(node, (child) => {
+    if (child.type !== "Function") return;
+    const functionName = csstree.ident.decode(child.name).toLowerCase();
+    if (["var", "env", "attr"].includes(functionName)) unsafe = true;
+  });
   return unsafe;
 }
 

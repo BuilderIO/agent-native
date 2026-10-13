@@ -148,6 +148,27 @@ describe("getTokenImportStatus", () => {
 });
 
 describe("readImportFiles", () => {
+  it("skips empty selected files before submission", async () => {
+    const result = await readImportFiles([
+      {
+        name: "empty.json",
+        size: 0,
+        text: async () => "",
+      } as File,
+      {
+        name: "tokens.json",
+        size: 2,
+        text: async () => "{}",
+      } as File,
+    ]);
+
+    expect(result).toEqual({
+      files: [{ filename: "tokens.json", content: "{}" }],
+      omittedFileCount: 0,
+      readFailureCount: 0,
+    });
+  });
+
   it("reports selected files beyond the client-side import cap", async () => {
     const files = Array.from(
       { length: DESIGN_TOKEN_IMPORT_MAX_FILES + 1 },

@@ -781,6 +781,7 @@ export async function readImportFiles(selectedFiles: File[]): Promise<{
 
     readBytes += file.size;
     contentBytes += encodedSize;
+    if (content.length === 0) continue;
     files.push({
       filename,
       content,
