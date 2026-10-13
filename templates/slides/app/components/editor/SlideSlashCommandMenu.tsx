@@ -655,7 +655,11 @@ export function SlideSlashCommandMenu({
                     <CommandItem
                       key={item.kind}
                       value={item.kind}
-                      onMouseEnter={() => setActiveIndex(index)}
+                      onPointerMove={(event) => {
+                        if (event.pointerType !== "touch") {
+                          setActiveIndex(index);
+                        }
+                      }}
                       onMouseDown={(event) => event.preventDefault()}
                       onPointerDown={(event) => event.preventDefault()}
                       onSelect={() => {

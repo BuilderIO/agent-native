@@ -796,6 +796,16 @@ describe("slide slash command menu", () => {
     );
   });
 
+  it("updates the active command when the pointer moves over an option", () => {
+    const { editingEl } = renderWithTypedSlash("");
+    const heading2 = screen.getByRole("option", { name: /Heading 2/ });
+
+    fireEvent.pointerMove(heading2, { pointerType: "mouse" });
+
+    expect(heading2.getAttribute("aria-selected")).toBe("true");
+    expectActiveOption(editingEl, heading2);
+  });
+
   it("uses the translated Blocks label as the listbox accessible name", () => {
     const originalLabel = labels["slideSlashMenu.blocks"];
     labels["slideSlashMenu.blocks"] = "Bloques";
