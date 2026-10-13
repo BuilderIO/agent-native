@@ -135,6 +135,7 @@ export {
 export {
   createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
+  getBetterAuthUserIdForEmail,
   hasGoogleAuthIdentity,
   setBetterAuthSessionCookie,
 } from "./better-auth-instance.js";
