@@ -100,6 +100,22 @@ const syntheticData = vi.hoisted(() => {
           sourcePath: "fixtures/models/active_organization_member_roles.sql",
         },
         {
+          id: "fixture-monthly-organization-member-role-counts",
+          metric: "Monthly Workspace Users by Role",
+          definition:
+            "Monthly count of workspace users grouped by their assigned role.",
+          source: "fixture_warehouse",
+          sourceKind: "code",
+          entryType: "model",
+          status: "active",
+          semanticScope: "membership",
+          grain: "One row per month_start, organization_id, and role_code",
+          primaryEntity: "organization membership aggregate",
+          table: "fixture_warehouse.monthly_workspace_users_by_role",
+          columnsUsed: "month_start, organization_id, role_code, user_count",
+          sourcePath: "fixtures/models/monthly_workspace_users_by_role.sql",
+        },
+        {
           id: "fixture-product-activity-events",
           metric: "Product Activity Event Records",
           definition:
@@ -188,8 +204,8 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v8";
-const BASELINE_GIT_REVISION = "75e39e8547b408aa09605e54872d9a8ef6522df9";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v9";
+const BASELINE_GIT_REVISION = "d0caebd20464a2a00ad417c78943d81438d9333a";
 const BASELINE_HARNESS_PATH =
   "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
 const CANDIDATE_HARNESS_REVISION_ENV = "ANALYTICS_EVAL_HARNESS_REVISION";
@@ -233,6 +249,12 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     expectedTable: "fixture_warehouse.active_organization_member_roles",
   },
   {
+    id: "exclude-inactive-show-active-members",
+    prompt:
+      "Find the catalog reference for workspace users; exclude inactive users and show active members. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.active_organization_member_roles",
+  },
+  {
     id: "full-workspace-roster-excludes-active-only-source",
     prompt:
       "Find the catalog reference for a full workspace member roster. Do not use active workspace members as a filtered subset. Metadata only; do not report live counts or values.",
@@ -255,6 +277,12 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     prompt:
       "Find the catalog reference for monthly user counts by organization. Metadata only; do not report live counts or values.",
     expectedTable: "fixture_warehouse.monthly_org_user_counts",
+  },
+  {
+    id: "monthly-workspace-users-by-role",
+    prompt:
+      "Find the catalog reference for monthly workspace users by role. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.monthly_workspace_users_by_role",
   },
   {
     id: "bare-active-members-map-to-membership",
@@ -883,10 +911,12 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       "current-organization-role-roster",
       "active-workspace-member-roster-with-roles",
       "active-workspace-users-map-to-membership",
+      "exclude-inactive-show-active-members",
       "full-workspace-roster-excludes-active-only-source",
       "nonpositive-count-instruction-keeps-member-rows",
       "negated-counts-keep-positive-monthly-trend",
       "monthly-organization-user-count",
+      "monthly-workspace-users-by-role",
       "bare-active-members-map-to-membership",
       "active-product-users-map-to-activity",
       "sample-product-users-map-to-identities",

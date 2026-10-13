@@ -107,9 +107,12 @@ describe("Analytics term matching", () => {
     expect(semanticScopeForSearch("monthly user count by organization")).toBe(
       "membership",
     );
-    expect(
-      semanticScopeForSearch("workspace users breakdown by role"),
-    ).toBe("membership");
+    expect(semanticScopeForSearch("workspace users breakdown by role")).toBe(
+      "membership",
+    );
+    expect(semanticScopeForSearch("monthly workspace users by role")).toBe(
+      "membership",
+    );
     expect(semanticScopeForSearch("workspace users split by role")).toBe(
       "membership",
     );

@@ -279,7 +279,7 @@ export function semanticScopeForSearch(value: string): string {
       intent,
     );
   const asksForAggregate =
-    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|breakdowns?|split\s+by)\b/i.test(
+    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|breakdowns?|split\s+by|daily|weekly|monthly|quarterly|yearly|annually)\b|\bper\s+(?:day|week|month|quarter|year)\b/i.test(
       intent,
     );
   if (

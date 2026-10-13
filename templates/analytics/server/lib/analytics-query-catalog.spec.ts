@@ -330,6 +330,67 @@ describe("analytics query catalog", () => {
     );
   });
 
+  it("keeps monthly workspace user-by-role aggregates out of roster filtering", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "monthly workspace users by role",
+      limit: 5,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "monthly-workspace-users-by-role",
+          metric: "Monthly Workspace Users by Role",
+          definition: "Monthly count of workspace users grouped by role.",
+          table: "monthly_workspace_users_by_role",
+          columnsUsed: "month_start, workspace_id, role, user_count",
+          grain: "One row per month_start, workspace_id, and role",
+          semanticScope: "membership",
+          approved: true,
+          sourceKind: "dbt",
+        },
+      ],
+    });
+
+    expect(results).toContainEqual(
+      expect.objectContaining({
+        kind: "data-dictionary",
+        id: "monthly-workspace-users-by-role",
+      }),
+    );
+  });
+
+  it("does not let an inactive-user exclusion negate a later positive active-member request", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "exclude inactive users and show active members",
+      limit: 5,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "active-members-by-workspace",
+          metric: "Active workspace members",
+          definition: "Current active workspace members and their roles.",
+          table: "active_members_by_workspace",
+          columnsUsed: "user_id, workspace_id, role",
+          grain: "One row per user-workspace membership",
+          semanticScope: "membership",
+        },
+        {
+          id: "all-workspace-members",
+          metric: "Workspace member roles",
+          definition: "Current roles for all workspace memberships.",
+          table: "workspace_member_roles",
+          columnsUsed: "user_id, workspace_id, role",
+          grain: "One row per user-workspace membership",
+          semanticScope: "membership",
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      kind: "data-dictionary",
+      id: "active-members-by-workspace",
+    });
+  });
+
   it.each([
     "not active workspace members",
     "exclude active workspace members",

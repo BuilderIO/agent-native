@@ -27,10 +27,12 @@ export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = [
   "current-organization-role-roster",
   "active-workspace-member-roster-with-roles",
   "active-workspace-users-map-to-membership",
+  "exclude-inactive-show-active-members",
   "full-workspace-roster-excludes-active-only-source",
   "nonpositive-count-instruction-keeps-member-rows",
   "negated-counts-keep-positive-monthly-trend",
   "monthly-organization-user-count",
+  "monthly-workspace-users-by-role",
   "bare-active-members-map-to-membership",
   "active-product-users-map-to-activity",
   "sample-product-users-map-to-identities",
@@ -38,9 +40,11 @@ export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = [
 ] as const;
 
 export const PRODUCTION_PATH_BASELINE_REVISION =
-  "75e39e8547b408aa09605e54872d9a8ef6522df9";
+  "d0caebd20464a2a00ad417c78943d81438d9333a";
+export const PRODUCTION_PATH_CANDIDATE_REVISION =
+  "0000000000000000000000000000000000000000";
 export const PRODUCTION_PATH_FIXTURE_REVISION =
-  "synthetic-analytics-retrieval-v8";
+  "synthetic-analytics-retrieval-v9";
 const REASON_CODES = new Set([
   "rank_1",
   "ranked_below_1",
@@ -97,7 +101,11 @@ function parseInteger(value: string, field: string): number {
   if (!/^(?:0|[1-9]\d*)$/.test(value)) {
     throw new Error("Comparison CSV has an invalid " + field + ".");
   }
-  return Number(value);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error("Comparison CSV has an invalid " + field + ".");
+  }
+  return parsed;
 }
 
 function parseBoolean(value: string, field: string): boolean {
@@ -288,9 +296,11 @@ export function validateProductionPathComparisonCsv(
   }
   if (
     before.revision !== PRODUCTION_PATH_BASELINE_REVISION ||
-    after.revision === PRODUCTION_PATH_BASELINE_REVISION
+    after.revision !== PRODUCTION_PATH_CANDIDATE_REVISION
   ) {
-    throw new Error("Comparison CSV revisions do not match the pinned phases.");
+    throw new Error(
+      "Comparison CSV revisions do not match the pinned baseline and candidate phases.",
+    );
   }
   if (before.harnessRevision !== after.harnessRevision) {
     throw new Error(

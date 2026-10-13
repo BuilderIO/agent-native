@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   PRODUCTION_PATH_BASELINE_REVISION,
+  PRODUCTION_PATH_CANDIDATE_REVISION,
   PRODUCTION_PATH_FIXTURE_REVISION,
   SYNTHETIC_PRODUCTION_PATH_CASE_IDS,
   validateProductionPathComparisonCsv,
@@ -12,7 +13,7 @@ import {
 
 const COMPARISON_CSV = fileURLToPath(
   new URL(
-    "./SYNTHETIC-analytics-production-path-v8-before-after.csv",
+    "./SYNTHETIC-analytics-production-path-v9-before-after.csv",
     import.meta.url,
   ),
 );
@@ -61,7 +62,7 @@ function makeComparisonCsv(): string {
           git_revision:
             phase === "before"
               ? PRODUCTION_PATH_BASELINE_REVISION
-              : "b".repeat(40),
+              : PRODUCTION_PATH_CANDIDATE_REVISION,
           code_revision:
             phase === "before"
               ? "sha256:" + "a".repeat(64)
@@ -95,17 +96,17 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     const result = validateProductionPathComparisonCsv(makeComparisonCsv());
 
     expect(result).toMatchObject({
-      cases: 11,
+      cases: 13,
       before: {
-        rows: 22,
+        rows: 26,
         top1: 4,
         hitAt5: 12,
         harnessRevision: "sha256:" + "c".repeat(64),
       },
       after: {
-        rows: 22,
-        top1: 22,
-        hitAt5: 22,
+        rows: 26,
+        top1: 26,
+        hitAt5: 26,
         harnessRevision: "sha256:" + "c".repeat(64),
       },
     });
@@ -136,6 +137,28 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     );
   });
 
+  it("rejects an after phase that is not pinned to the candidate revision", () => {
+    const stale = makeComparisonCsv().replaceAll(
+      PRODUCTION_PATH_CANDIDATE_REVISION,
+      "b".repeat(40),
+    );
+
+    expect(() => validateProductionPathComparisonCsv(stale)).toThrow(
+      "pinned baseline and candidate phases",
+    );
+  });
+
+  it("rejects integers outside the safe numeric range", () => {
+    const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
+    const columns = rows[1]!.split(",");
+    columns[19] = "9007199254740992";
+    rows[1] = columns.join(",");
+
+    expect(() => validateProductionPathComparisonCsv(rows.join("\n"))).toThrow(
+      "invalid latency_ms",
+    );
+  });
+
   it("rejects a duplicate that misaligns the before/after case/run pairs", () => {
     const rows = makeComparisonCsv().trimEnd().split(/\r?\n/);
     const lastRow = rows.at(-1)!;
@@ -151,7 +174,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
   it("rejects a mismatched before/after fixture", () => {
     const csv = makeComparisonCsv();
     const changed = csv.replace(
-      "synthetic-analytics-retrieval-v8",
+      "synthetic-analytics-retrieval-v9",
       "synthetic-analytics-retrieval-v6",
     );
 
@@ -179,9 +202,9 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     const result = validateProductionPathComparisonCsv(csv);
 
     expect(result).toMatchObject({
-      cases: 11,
-      before: { rows: 22, top1: 6, hitAt5: 14 },
-      after: { rows: 22, top1: 22, hitAt5: 22 },
+      cases: 13,
+      before: { rows: 26 },
+      after: { rows: 26, top1: 26, hitAt5: 26 },
     });
     expect(result.before.revision).not.toBe(result.after.revision);
     expect(result.before.codeRevision).not.toBe(result.after.codeRevision);

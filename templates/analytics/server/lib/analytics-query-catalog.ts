@@ -590,11 +590,18 @@ function activeMemberPhrasePolarity(search: string): {
     /\b(?:no|not|never|don't|do\s+not|cannot|can't|exclude|excluding|except|without|remove|omit|skip)\b(?:\s+[\p{L}\p{N}'-]+){0,4}\s*$/iu;
   const negativeInstructionAfterPhrase =
     /^\s*(?:(?:are|were|will be|should be|must be|need to be|have been)\s+)?(?:excluded|omitted|removed|left\s+out|filtered\s+out|not\s+included)\b/iu;
+  const positiveContinuation =
+    /(?:^|[;,.!?]|\b(?:but|and)\b)\s*(?:please\s+)?(?:show|include|report|return|provide|display|list|find|compare|calculate|summarize)\b/giu;
 
   const matches = Array.from(intent.matchAll(activeMemberPhrase));
   const isNegated = (match: RegExpMatchArray) => {
     const prefix = intent.slice(0, match.index ?? 0);
-    if (negativeInstructionBeforePhrase.test(prefix)) return true;
+    const continuations = Array.from(prefix.matchAll(positiveContinuation));
+    const lastContinuation = continuations[continuations.length - 1];
+    const scopedPrefix = lastContinuation
+      ? prefix.slice((lastContinuation.index ?? 0) + lastContinuation[0].length)
+      : prefix;
+    if (negativeInstructionBeforePhrase.test(scopedPrefix)) return true;
     const end = (match.index ?? 0) + match[0].length;
     return negativeInstructionAfterPhrase.test(intent.slice(end));
   };
