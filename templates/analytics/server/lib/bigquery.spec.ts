@@ -963,8 +963,8 @@ describe("runQuery cancellation", () => {
     abortError.name = "AbortError";
     let receivedSignal: AbortSignal | undefined;
     getBigQueryAccessToken.mockImplementationOnce(
-      async (signal?: AbortSignal) => {
-        receivedSignal = signal;
+      async (options?: { signal?: AbortSignal }) => {
+        receivedSignal = options?.signal;
         throw abortError;
       },
     );
