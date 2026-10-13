@@ -1394,11 +1394,16 @@ export function useEditorLayerActions({
   );
 
   const handleCopyLayerLink = useCallback(
-    (nodeId: string) => {
+    (nodeId?: string) => {
       const url = new URL(window.location.href);
-      url.searchParams.set("selection", nodeId);
-      const ownerFileId = codeLayerOwnerByNodeId.get(nodeId)?.fileId;
-      if (ownerFileId) url.searchParams.set("screen", ownerFileId);
+      url.searchParams.delete("selection");
+      if (nodeId && files.some((file) => file.id === nodeId)) {
+        url.searchParams.set("screen", nodeId);
+      } else if (nodeId) {
+        url.searchParams.set("selection", nodeId);
+        const ownerFileId = codeLayerOwnerByNodeId.get(nodeId)?.fileId;
+        if (ownerFileId) url.searchParams.set("screen", ownerFileId);
+      }
       if (!navigator.clipboard) {
         toast.error(t("review.copyLinkFailed"));
         return;
@@ -1408,7 +1413,7 @@ export function useEditorLayerActions({
         .then(() => toast.success(t("review.linkCopied")))
         .catch(() => toast.error(t("review.copyLinkFailed")));
     },
-    [codeLayerOwnerByNodeId, t],
+    [codeLayerOwnerByNodeId, files, t],
   );
 
   const layerPanelHandlers = {

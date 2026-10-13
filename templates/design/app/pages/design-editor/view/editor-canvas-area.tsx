@@ -549,22 +549,13 @@ export function renderEditorCanvasArea({
       onBooleanSubtract={
         canOfferBooleanSubtract ? handleBooleanSubtractSelection : undefined
       }
-      onCopyLink={() => {
+      onCopyLink={({ emptyCanvas }) => {
         const layerIds = selectedLayerIdsState.filter(
           (id) => !id.startsWith("__"),
         );
-        if (layerIds.length === 1) {
-          handleCopyLayerLink(layerIds[0]!);
-          return;
-        }
-        if (!navigator.clipboard) {
-          toast.error(t("review.copyLinkFailed"));
-          return;
-        }
-        void navigator.clipboard
-          .writeText(window.location.href)
-          .then(() => toast.success(t("review.linkCopied")))
-          .catch(() => toast.error(t("review.copyLinkFailed")));
+        handleCopyLayerLink(
+          !emptyCanvas && layerIds.length === 1 ? layerIds[0] : undefined,
+        );
       }}
     >
       {designIsEmpty &&

@@ -91,6 +91,7 @@ export interface CanvasContextMenuActionDetails {
   action: CanvasContextMenuAction;
   point: CanvasContextMenuPoint | null;
   selectedCount: number;
+  emptyCanvas: boolean;
   originalEvent: Event;
 }
 
@@ -631,12 +632,13 @@ export const CanvasContextMenu = forwardRef<
         action,
         point,
         selectedCount,
+        emptyCanvas: emptyCanvasTarget,
         originalEvent,
       };
       onAction?.(action, details);
       callbacks[action]?.(details);
     },
-    [callbacks, onAction, point, selectedCount],
+    [callbacks, emptyCanvasTarget, onAction, point, selectedCount],
   );
 
   const canRun = useCallback(
@@ -656,7 +658,8 @@ export const CanvasContextMenu = forwardRef<
     return <>{children}</>;
   }
 
-  const hasSelection = selectedCount > 0 && !emptyCanvasTarget;
+  const hasSelection =
+    (selectedCount > 0 || selectedLayerCount > 0) && !emptyCanvasTarget;
   const multipleLayers = selectedLayerCount > 1;
   const singleLayerCreationActions = !multipleLayers && !isComponentInstance;
 
@@ -762,6 +765,7 @@ export const CanvasContextMenu = forwardRef<
                             action: "edit-with-agent",
                             point,
                             selectedCount,
+                            emptyCanvas: emptyCanvasTarget,
                             originalEvent: event,
                           });
                         }}
