@@ -1,10 +1,20 @@
+// @vitest-environment happy-dom
+
 import {
   Children,
+  act,
+  createElement,
   isValidElement,
   type ReactElement,
   type ReactNode,
 } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { createRoot } from "react-dom/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+} from "@/components/ui/dropdown-menu";
 
 import type { EditorActiveScreenAndGeometry } from "../domains/use-editor-active-screen-and-geometry";
 import type { EditorCore } from "../domains/use-editor-core";
@@ -12,6 +22,11 @@ import type { EditorExportAndHandoff } from "../domains/use-editor-export-and-ha
 import type { EditorFilesAndSaving } from "../domains/use-editor-files-and-saving";
 import type { EditorGenerationAndAccess } from "../domains/use-editor-generation-and-access";
 import { ExportMenuItems } from "./export-submenu-content";
+
+Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
+  configurable: true,
+  value: true,
+});
 
 function disabledByLabel(screenCount: number) {
   const noop = vi.fn();
@@ -23,11 +38,14 @@ function disabledByLabel(screenCount: number) {
     editorGenerationAndAccess: {
       exportHtmlMutation: { isPending: false },
       exportZipMutation: { isPending: false },
+      generating: false,
+      pendingGenerationActive: false,
     } as unknown as EditorGenerationAndAccess,
     editorFilesAndSaving: {
       overviewScreens: Array.from({ length: screenCount }, (_, index) => ({
         id: `screen-${index + 1}`,
       })),
+      canvasFrameGeometryById: {},
     } as unknown as EditorFilesAndSaving,
     editorActiveScreenAndGeometry: {
       activeFile: { id: "screen-1" },
@@ -60,6 +78,74 @@ function disabledByLabel(screenCount: number) {
   );
 }
 
+type ExportMenuItemsProps = Parameters<typeof ExportMenuItems>[0];
+
+function props({ generating }: { generating: boolean }): ExportMenuItemsProps {
+  return {
+    editorCore: {
+      t: (key: string) => key,
+      viewMode: "overview",
+    } as unknown as EditorCore,
+    editorGenerationAndAccess: {
+      exportHtmlMutation: { isPending: false },
+      exportZipMutation: { isPending: false },
+      generating,
+      pendingGenerationActive: false,
+    } as unknown as EditorGenerationAndAccess,
+    editorFilesAndSaving: {
+      overviewScreens: [{ id: "first" }, { id: "second" }],
+      canvasFrameGeometryById: {},
+    } as unknown as EditorFilesAndSaving,
+    editorActiveScreenAndGeometry: {
+      activeFile: { id: "first" },
+    } as unknown as EditorActiveScreenAndGeometry,
+    editorExportAndHandoff: {
+      handleDownloadHtml: vi.fn(),
+      handleDownloadPng: vi.fn(),
+      pngExporting: false,
+      handleDownloadSvg: vi.fn(),
+      svgExporting: false,
+      handleDownloadFigmaSvg: vi.fn(),
+      figmaSvgExporting: false,
+      handleDownloadZip: vi.fn(),
+      handleDownloadAllScreensPdf: vi.fn(),
+      handleCopyCodingHandoff: vi.fn(),
+      codingHandoffLoading: false,
+    } as unknown as EditorExportAndHandoff,
+    alwaysShowPdf: true,
+  };
+}
+
+let cleanup: (() => Promise<void>) | undefined;
+afterEach(async () => {
+  await cleanup?.();
+  cleanup = undefined;
+});
+
+async function mount(generating: boolean) {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      createElement(
+        DropdownMenu,
+        { open: true },
+        createElement(
+          DropdownMenuContent,
+          null,
+          createElement(ExportMenuItems, props({ generating })),
+        ),
+      ),
+    );
+  });
+  cleanup = async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  };
+  return host;
+}
+
 describe("Design export menu", () => {
   it("disables exports until a screen exists", () => {
     expect(disabledByLabel(0)).toEqual({
@@ -82,5 +168,25 @@ describe("Design export menu", () => {
       "designEditor.downloadZip": false,
       "designEditor.copyCodingHandoff": false,
     });
+  });
+
+  it("disables every export while initial generation has no canvas frames", async () => {
+    await mount(true);
+    const items = document.querySelectorAll('[role="menuitem"]');
+
+    expect(items).toHaveLength(7);
+    expect(
+      [...items].every((item) => item.getAttribute("aria-disabled") === "true"),
+    ).toBe(true);
+  });
+
+  it("keeps frame-less exports available outside generation", async () => {
+    await mount(false);
+    const items = document.querySelectorAll('[role="menuitem"]');
+
+    expect(items).toHaveLength(7);
+    expect(
+      [...items].every((item) => item.getAttribute("aria-disabled") !== "true"),
+    ).toBe(true);
   });
 });

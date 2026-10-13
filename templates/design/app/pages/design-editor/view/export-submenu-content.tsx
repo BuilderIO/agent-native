@@ -9,6 +9,7 @@ import type { EditorCore } from "../domains/use-editor-core";
 import type { EditorExportAndHandoff } from "../domains/use-editor-export-and-handoff";
 import type { EditorFilesAndSaving } from "../domains/use-editor-files-and-saving";
 import type { EditorGenerationAndAccess } from "../domains/use-editor-generation-and-access";
+import { shouldDisableExportsUntilCanvasFramesExist } from "../selection-state";
 
 export function ExportMenuItems({
   editorCore,
@@ -26,8 +27,13 @@ export function ExportMenuItems({
   alwaysShowPdf?: boolean;
 }) {
   const { t, viewMode } = editorCore;
-  const { exportHtmlMutation, exportZipMutation } = editorGenerationAndAccess;
-  const { overviewScreens } = editorFilesAndSaving;
+  const {
+    exportHtmlMutation,
+    exportZipMutation,
+    generating,
+    pendingGenerationActive,
+  } = editorGenerationAndAccess;
+  const { overviewScreens, canvasFrameGeometryById } = editorFilesAndSaving;
   const { activeFile } = editorActiveScreenAndGeometry;
   const {
     handleDownloadHtml,
@@ -46,39 +52,65 @@ export function ExportMenuItems({
   const canExportAllScreens =
     viewMode === "overview" && overviewScreens.length >= 2;
   const hasExportableScreen = overviewScreens.length > 0;
+  const exportsUnavailable = shouldDisableExportsUntilCanvasFramesExist({
+    canvasFrameCount: Object.keys(canvasFrameGeometryById).length,
+    generating,
+    pendingGenerationActive,
+  });
 
   return (
     <>
       <DropdownMenuItem
         onClick={handleDownloadHtml}
         disabled={
-          !hasExportableScreen || !activeFile || exportHtmlMutation.isPending
+          !hasExportableScreen ||
+          !activeFile ||
+          exportsUnavailable ||
+          exportHtmlMutation.isPending
         }
       >
         {t("designEditor.downloadHtml")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => void handleDownloadPng()}
-        disabled={!hasExportableScreen || !activeFile || pngExporting}
+        disabled={
+          !hasExportableScreen ||
+          !activeFile ||
+          exportsUnavailable ||
+          pngExporting
+        }
       >
         {t("designEditor.downloadPng")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => void handleDownloadSvg()}
-        disabled={!hasExportableScreen || !activeFile || svgExporting}
+        disabled={
+          !hasExportableScreen ||
+          !activeFile ||
+          exportsUnavailable ||
+          svgExporting
+        }
       >
         {t("designEditor.downloadSvg")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => void handleDownloadFigmaSvg()}
-        disabled={!hasExportableScreen || !activeFile || figmaSvgExporting}
+        disabled={
+          !hasExportableScreen ||
+          !activeFile ||
+          exportsUnavailable ||
+          figmaSvgExporting
+        }
       >
         {t("designEditor.downloadFigmaSvg")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={handleDownloadZip}
         disabled={
-          !hasExportableScreen || !activeFile || exportZipMutation.isPending
+          !hasExportableScreen ||
+          !activeFile ||
+          exportsUnavailable ||
+          exportZipMutation.isPending
         }
       >
         {t("designEditor.downloadZip")}
@@ -87,7 +119,10 @@ export function ExportMenuItems({
         <DropdownMenuItem
           onClick={() => void handleDownloadAllScreensPdf()}
           disabled={
-            !hasExportableScreen || !canExportAllScreens || pngExporting
+            !hasExportableScreen ||
+            !canExportAllScreens ||
+            exportsUnavailable ||
+            pngExporting
           }
         >
           {t("designEditor.downloadPdfAllScreens")}
@@ -96,7 +131,12 @@ export function ExportMenuItems({
       <DropdownMenuSeparator />
       <DropdownMenuItem
         onClick={handleCopyCodingHandoff}
-        disabled={!hasExportableScreen || !activeFile || codingHandoffLoading}
+        disabled={
+          !hasExportableScreen ||
+          !activeFile ||
+          exportsUnavailable ||
+          codingHandoffLoading
+        }
       >
         {t("designEditor.copyCodingHandoff")}
       </DropdownMenuItem>

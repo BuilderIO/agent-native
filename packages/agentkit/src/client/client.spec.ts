@@ -565,7 +565,7 @@ describe("AgentKitClient", () => {
       messages.find((message) => message.id === "assistant-first")?.parts,
     ).toContainEqual({
       type: "text",
-      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+      text: "Some tool-call history could not be included in the history supplied for this turn.",
     });
   });
 
@@ -603,7 +603,7 @@ describe("AgentKitClient", () => {
           (part) =>
             part.type === "text" &&
             part.text ===
-              "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+              "Some tool-call history could not be included in the history supplied for this turn.",
         ),
     );
     const userMessageIndex = messages.findIndex(
@@ -658,7 +658,7 @@ describe("AgentKitClient", () => {
     expect(statusReads).toBeLessThanOrEqual(4_096);
     expect(messages.at(-2)?.parts).toContainEqual({
       type: "text",
-      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+      text: "Some tool-call history could not be included in the history supplied for this turn.",
     });
   });
 
@@ -1663,11 +1663,11 @@ describe("AgentKitClient", () => {
     ).toHaveLength(64 * 2);
     expect(earlierAssistantMessage?.parts).toContainEqual({
       type: "text",
-      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+      text: "Some tool-call history could not be included in the history supplied for this turn.",
     });
     expect(assistantMessage?.parts).not.toContainEqual({
       type: "text",
-      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+      text: "Some tool-call history could not be included in the history supplied for this turn.",
     });
     expect(assistantMessage?.parts).not.toContainEqual(
       expect.objectContaining({
@@ -1924,6 +1924,22 @@ describe("AgentKitClient", () => {
       expect(messages.at(-2)?.id).not.toBe("assistant-1");
     },
   );
+
+  it("reports completed tool-call history without an assistant message link", async () => {
+    const messages = await assistantPartsAfterToolHistory({
+      beforeFollowup(client) {
+        delete client.getThread("thread-1").tools["call-search"]!.messageId;
+      },
+      finalParts: [{ type: "text", text: "The release is ready." }],
+    });
+
+    expect(
+      messages.find((message) => message.id === "assistant-1")?.parts,
+    ).toContainEqual({
+      type: "text",
+      text: "Some tool-call history could not be included in the history supplied for this turn.",
+    });
+  });
 
   it("keeps the user's prompt last when unorderable tool history is omitted", async () => {
     const messages = await assistantPartsAfterToolHistory({
@@ -2338,7 +2354,7 @@ describe("AgentKitClient", () => {
     expect(dataParts?.[0]).toMatchObject({ data: { id: "call-2" } });
     expect(assistantMessage?.parts).toContainEqual({
       type: "text",
-      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+      text: "Some tool-call history could not be included in the history supplied for this turn.",
     });
     await client.shutdown();
   });
@@ -2735,7 +2751,7 @@ describe("AgentKitClient", () => {
     expect(dataParts?.[0]).toMatchObject({ data: { id: "call-1" } });
     expect(assistantMessage?.parts).toContainEqual({
       type: "text",
-      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+      text: "Some tool-call history could not be included in the history supplied for this turn.",
     });
     await client.shutdown();
   });
@@ -2941,7 +2957,7 @@ describe("AgentKitClient", () => {
         message.parts.some(
           (part) =>
             part.type === "text" &&
-            part.text.includes("Some tool-call history was omitted"),
+            part.text.includes("Some tool-call history could not be included"),
         ),
       ),
     ).toBe(true);
@@ -3038,7 +3054,7 @@ describe("AgentKitClient", () => {
       );
       expect(assistantMessage?.parts).toContainEqual({
         type: "text",
-        text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+        text: "Some tool-call history could not be included in the history supplied for this turn.",
       });
       expect(
         assistantMessage?.parts.filter((part) => part.type === "data"),

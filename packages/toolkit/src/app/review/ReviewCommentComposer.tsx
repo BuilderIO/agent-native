@@ -98,10 +98,13 @@ export function ReviewCommentComposer({
   );
   const mentionTokenEndRef = useRef<number | null>(null);
   const preserveMentionAnchorOnOpenRef = useRef(false);
-  const resetMention = () => {
+  const resetMentionSearch = () => {
     setMentionSearch("");
     setMentionTriggerIndex(null);
     mentionTokenEndRef.current = null;
+  };
+  const resetMention = () => {
+    resetMentionSearch();
     setMentionMenuOpen(false);
   };
   const filteredMentionOptions = mentionOptions.filter((mention) => {
@@ -228,6 +231,9 @@ export function ReviewCommentComposer({
             aria-hidden={!showCommentTools}
             aria-label={mentionLabel}
             tabIndex={showCommentTools ? undefined : -1}
+            onClick={() => {
+              resetMentionSearch();
+            }}
           >
             <IconAt className="size-4" />
           </Button>

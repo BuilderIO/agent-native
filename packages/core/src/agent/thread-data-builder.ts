@@ -1813,6 +1813,24 @@ function preferIncomingSnapshotEntry(
   );
 }
 
+function withToolCallMessageIdFallback(preferred: any, fallback: any): any {
+  const preferredMessageId = preferred?.messageId;
+  if (
+    typeof preferredMessageId === "string" &&
+    preferredMessageId.trim().length > 0
+  ) {
+    return preferred;
+  }
+  const fallbackMessageId = fallback?.messageId;
+  if (
+    typeof fallbackMessageId === "string" &&
+    fallbackMessageId.trim().length > 0
+  ) {
+    return { ...preferred, messageId: fallbackMessageId };
+  }
+  return preferred;
+}
+
 function mergeAgentKitHistoryArray(
   existing: unknown,
   incoming: unknown,
@@ -1869,7 +1887,12 @@ function mergeAgentKitHistoryArray(
         textIndex !== undefined &&
         !preferIncomingSnapshotEntry(kind, entry, merged[index]);
       if (preferIncoming || preferCurrentMessageId) {
-        merged[index] = entry;
+        merged[index] =
+          kind === "toolCall"
+            ? withToolCallMessageIdFallback(entry, merged[index])
+            : entry;
+      } else if (kind === "toolCall") {
+        merged[index] = withToolCallMessageIdFallback(merged[index], entry);
       }
     }
   }

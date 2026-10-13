@@ -163,9 +163,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivationChecking":
     "Vérification de la disponibilité de la création de compte.",
   "onboarding.builderActivationUnavailable":
-    "La création de compte n’est pas activée pour cette application. Vous pouvez connecter un compte existant.",
+    "Créez un compte ou connectez-vous pour vous connecter à Builder.io.",
   "onboarding.builderActivationUnavailableInMode":
-    "L’activation d’un nouveau compte n’est pas disponible dans ce mode. Vous pouvez toujours connecter un compte existant.",
+    "Créez un compte ou connectez-vous pour vous connecter à Builder.io.",
   "onboarding.builderActivationCheckFailed":
     "Impossible de vérifier si cette application peut créer de nouveaux comptes.",
 
@@ -180,6 +180,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "Politique de confidentialité",
   "onboarding.builderConsentAnd": "et",
   "onboarding.builderExistingAccount": "J’ai un compte Builder.io",
+  "onboarding.builderConnect": "Connecter Builder.io",
   "onboarding.builderActivating": "Activation des crédits gratuits Builder.io",
   "onboarding.builderConnecting":
     "Configuration des crédits gratuits de Builder.io",

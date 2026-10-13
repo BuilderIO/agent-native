@@ -155,9 +155,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivationChecking":
     "جارٍ التحقق مما إذا كان إنشاء حساب جديد متاحًا.",
   "onboarding.builderActivationUnavailable":
-    "إنشاء حساب جديد غير مفعّل لهذا التطبيق. يمكنك ربط حساب موجود.",
+    "أنشئ حسابًا أو سجّل الدخول للاتصال بـ Builder.io.",
   "onboarding.builderActivationUnavailableInMode":
-    "تفعيل حساب جديد غير متاح في هذا الوضع. لا يزال بإمكانك ربط حساب موجود.",
+    "أنشئ حسابًا أو سجّل الدخول للاتصال بـ Builder.io.",
   "onboarding.builderActivationCheckFailed":
     "تعذّر التحقق مما إذا كان هذا التطبيق يتيح إنشاء حسابات جديدة.",
 
@@ -171,6 +171,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "سياسة الخصوصية",
   "onboarding.builderConsentAnd": "و",
   "onboarding.builderExistingAccount": "لديّ حساب Builder.io",
+  "onboarding.builderConnect": "الاتصال بـ Builder.io",
   "onboarding.builderActivating": "جارٍ تفعيل أرصدة Builder.io المجانية",
   "onboarding.builderConnecting": "جارٍ إعداد أرصدة Builder.io المجانية",
   "onboarding.builderProvisioningDescription":

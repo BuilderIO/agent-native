@@ -474,6 +474,26 @@ export const runBrainMigrations = runMigrations(
       name: "brain-sensitivity-classifier-failure-reason",
       sql: `ALTER TABLE brain_sensitivity_events ADD COLUMN IF NOT EXISTS classifier_failure_reason TEXT`,
     },
+    {
+      version: 29,
+      name: "brain-zoom-audit-events",
+      sql: [
+        `CREATE TABLE IF NOT EXISTS brain_zoom_audit_events (
+  id TEXT PRIMARY KEY,
+  org_id TEXT,
+  source_id TEXT NOT NULL,
+  actor_email TEXT,
+  event TEXT NOT NULL,
+  decision TEXT,
+  meeting_id TEXT,
+  meeting_uuid TEXT,
+  detail_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+)`,
+        `CREATE INDEX IF NOT EXISTS brain_zoom_audit_org_created_idx ON brain_zoom_audit_events (org_id, created_at)`,
+        `CREATE INDEX IF NOT EXISTS brain_zoom_audit_source_created_idx ON brain_zoom_audit_events (source_id, created_at)`,
+      ].join(";\n"),
+    },
   ],
   { table: "brain_migrations" },
 );

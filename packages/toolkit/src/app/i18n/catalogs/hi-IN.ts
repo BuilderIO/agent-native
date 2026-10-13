@@ -154,9 +154,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivationChecking":
     "जाँचा जा रहा है कि नया खाता बनाना उपलब्ध है या नहीं।",
   "onboarding.builderActivationUnavailable":
-    "इस ऐप में नया खाता बनाना सक्षम नहीं है। आप मौजूदा खाता कनेक्ट कर सकते हैं।",
+    "Builder.io से जुड़ने के लिए खाता बनाएँ या साइन इन करें।",
   "onboarding.builderActivationUnavailableInMode":
-    "इस मोड में नया खाता सक्रिय करना उपलब्ध नहीं है। आप फिर भी मौजूदा खाता कनेक्ट कर सकते हैं।",
+    "Builder.io से जुड़ने के लिए खाता बनाएँ या साइन इन करें।",
   "onboarding.builderActivationCheckFailed":
     "यह जाँचा नहीं जा सका कि यह ऐप नए खाते बना सकता है या नहीं।",
 
@@ -170,6 +170,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "गोपनीयता नीति",
   "onboarding.builderConsentAnd": "और",
   "onboarding.builderExistingAccount": "मेरे पास Builder.io खाता है",
+  "onboarding.builderConnect": "Builder.io से कनेक्ट करें",
   "onboarding.builderActivating": "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
   "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट सेट अप हो रहे हैं",
   "onboarding.builderProvisioningDescription":

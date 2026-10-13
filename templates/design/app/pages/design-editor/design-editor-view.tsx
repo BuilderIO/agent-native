@@ -29,11 +29,9 @@ import {
   IconPhoto,
   IconCheck,
   IconDownload,
-  IconClipboard,
   IconLayoutSidebar,
   IconDeviceFloppy,
   IconExternalLink,
-  IconTerminal2,
   IconLink,
   IconMessageCircle,
 } from "@tabler/icons-react";
@@ -113,6 +111,7 @@ import {
   resolveSelectedMotionTargets,
 } from "./motion-state";
 import { mergePresenceUsers } from "./presence-users";
+import { shouldDisableExportsUntilCanvasFramesExist } from "./selection-state";
 import { getDesignBottomToolbarMode } from "./tool-state";
 import { TOP_BAR_HEIGHT_PX, isTopBarVisible } from "./top-bar";
 import { type EditorMode } from "./types";
@@ -131,6 +130,7 @@ import { renderResponsiveInteractToolbar } from "./view/responsive-interact-tool
 import { renderRightRail } from "./view/right-rail";
 import { renderRightSidebarActions } from "./view/right-sidebar-actions";
 import { ShareExportMenu } from "./view/share-export-menu";
+import { ShareSendToTab } from "./view/share-send-to-tab";
 import { renderSignedOutPersistenceActions } from "./view/signed-out-persistence-actions";
 import { renderZoomMenu } from "./view/zoom-menu";
 import { VisualEditWebMcp } from "./VisualEditWebMcp";
@@ -269,6 +269,7 @@ export function renderDesignEditorView({
     handleQuestionsSkip,
     pendingQuestionsVisible,
     pendingGenerationActive,
+    generating,
     designLoading,
     refetchDesign,
     designAccessStatus,
@@ -318,6 +319,7 @@ export function renderDesignEditorView({
     boardFileId,
     hasLocalhostScreens,
     editorShareUrl,
+    canvasFrameGeometryById,
   } = editorFilesAndSaving;
   const {
     responsiveEditScope,
@@ -549,6 +551,11 @@ export function renderDesignEditorView({
     runtimeLayerSnapshotReadiness.readiness.status === "error";
   const pendingVisualStyleWarningOpen =
     pendingVisualStyleNavigationBlocker.state === "blocked";
+  const exportsUnavailable = shouldDisableExportsUntilCanvasFramesExist({
+    canvasFrameCount: Object.keys(canvasFrameGeometryById).length,
+    generating,
+    pendingGenerationActive,
+  });
 
   const shareExportOptions: Array<{
     value: ShareExportFormat;
@@ -568,7 +575,8 @@ export function renderDesignEditorView({
         // i18n-ignore share export description
         "One self-contained file that works offline.",
       Icon: IconCode,
-      disabled: !activeFile || exportHtmlMutation.isPending,
+      disabled:
+        !activeFile || exportsUnavailable || exportHtmlMutation.isPending,
       onDownload: handleDownloadHtml,
     },
     {
@@ -579,7 +587,7 @@ export function renderDesignEditorView({
         // i18n-ignore share export description
         "Snapshot of the current screen.",
       Icon: IconPhoto,
-      disabled: !activeFile || pngExporting,
+      disabled: !activeFile || exportsUnavailable || pngExporting,
       onDownload: () => void handleDownloadPng(),
     },
     {
@@ -590,7 +598,7 @@ export function renderDesignEditorView({
         // i18n-ignore share export description
         "Scalable snapshot of the current screen.",
       Icon: IconCode,
-      disabled: !activeFile || svgExporting,
+      disabled: !activeFile || exportsUnavailable || svgExporting,
       onDownload: () => void handleDownloadSvg(),
     },
     {
@@ -601,7 +609,8 @@ export function renderDesignEditorView({
         // i18n-ignore share export description
         "Every file in this design, zipped.",
       Icon: IconArchive,
-      disabled: !activeFile || exportZipMutation.isPending,
+      disabled:
+        !activeFile || exportsUnavailable || exportZipMutation.isPending,
       onDownload: handleDownloadZip,
     },
   ];
@@ -680,38 +689,12 @@ export function renderDesignEditorView({
     </div>
   );
   const shareSendToTab = (
-    <div className="space-y-3">
-      <div className="overflow-hidden rounded-md border border-neutral-800 bg-neutral-950 shadow-sm">
-        <div className="flex h-8 items-center border-b border-neutral-800 px-3">
-          <div className="flex items-center gap-2">
-            {/* guard:allow-raw-color — the terminal illustration's window controls are fixed colors */}
-            <span className="size-2.5 rounded-full bg-red-500" />
-            <span className="size-2.5 rounded-full bg-yellow-400" />
-            {/* guard:allow-raw-color — the terminal illustration's window controls are fixed colors */}
-            <span className="size-2.5 rounded-full bg-green-500" />
-          </div>
-          <div className="min-w-0 flex-1 truncate text-center text-[12px] font-medium text-neutral-400">
-            {"Your agent" /* i18n-ignore terminal title */}
-          </div>
-          <IconTerminal2 className="size-3.5 text-neutral-500" />
-        </div>
-        <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words px-3 py-3 font-mono text-[12px] leading-5 text-neutral-100">
-          {`> ${codingHandoffPreviewText}`}
-        </pre>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          onClick={() => void handleCopyCodingHandoff()}
-          disabled={codingHandoffLoading}
-          className="h-8 gap-1.5 rounded-md px-3 text-[12px]"
-        >
-          <IconClipboard className="size-3.5" />
-          {"Copy agent prompt" /* i18n-ignore share send action */}
-        </Button>
-      </div>
-    </div>
+    <ShareSendToTab
+      codingHandoffPreviewText={codingHandoffPreviewText}
+      exportsUnavailable={exportsUnavailable}
+      codingHandoffLoading={codingHandoffLoading}
+      onCopyCodingHandoff={handleCopyCodingHandoff}
+    />
   );
   const designSharePopoverClassName =
     "z-[100010] !w-[min(620px,calc(100vw-32px))] !p-3 " +

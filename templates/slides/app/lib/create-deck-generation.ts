@@ -15,6 +15,7 @@ import { createDeckAgentMessage } from "@/lib/agent-visible-message";
 import { canAddInlineImageToPayload } from "@/lib/image-drop-to-agent";
 import {
   importUploadedDeckIntoDeck,
+  validateUploadedDeckImport,
   type ImportedSourceDeck,
 } from "@/lib/import-uploaded-deck";
 import {
@@ -618,6 +619,49 @@ export async function startDeckGeneration({
   const filesForSourceImprovement = filesForGeneration.filter(
     (file) => !referenceFilePaths.has(file.path),
   );
+  const sourceImprovementRequest = isSourceImprovementRequest(
+    prompt,
+    filesForSourceImprovement,
+  );
+  let sourceDeckPaths: string[] = [];
+  if (sourceImprovementRequest) {
+    try {
+      sourceDeckPaths = validateUploadedDeckImport(
+        filesForSourceImprovement,
+      ).map((file) => file.path);
+    } catch (error) {
+      onSetupFailure?.(prompt, filesForGeneration, error);
+      return "failed";
+    }
+  }
+
+  let referenceHydration: Awaited<ReturnType<typeof hydrateReferenceDocuments>>;
+  try {
+    referenceHydration = await hydrateReferenceDocuments(filesForGeneration, {
+      excludePaths: [
+        ...(referenceSelection.importedReferenceFilePath
+          ? [referenceSelection.importedReferenceFilePath]
+          : []),
+        ...sourceDeckPaths,
+      ],
+    });
+  } catch (error) {
+    onSetupFailure?.(prompt, filesForGeneration, error);
+    return "failed";
+  }
+  if (referenceHydration.status === "unreadable") {
+    onSetupFailure?.(
+      prompt,
+      filesForGeneration,
+      new Error(referenceHydration.message),
+    );
+    return "failed";
+  }
+  const referenceDocumentContext =
+    referenceHydration.status === "hydrated" ? referenceHydration.context : "";
+  const hasHydratedReferenceDesign =
+    referenceHydration.status === "hydrated" &&
+    referenceHydration.measuredDesignCount > 0;
   const selectedDesignSystem = designSystemId
     ? designSystems.find((designSystem) => designSystem.id === designSystemId)
     : undefined;
@@ -641,44 +685,27 @@ export async function startDeckGeneration({
   }
 
   let importedSourceDeck: ImportedSourceDeck | null = null;
-  if (isSourceImprovementRequest(prompt, filesForSourceImprovement)) {
+  let sourceImportMayHaveWrittenSlides = false;
+  if (sourceImprovementRequest) {
     try {
       importedSourceDeck = await importUploadedDeckIntoDeck(
         filesForSourceImprovement,
         deckId,
+        {
+          onImportStarted: () => {
+            sourceImportMayHaveWrittenSlides = true;
+          },
+          onImportCleanupSafe: () => {
+            sourceImportMayHaveWrittenSlides = false;
+          },
+        },
       );
     } catch (error) {
-      deleteDeck(deckId);
+      if (!sourceImportMayHaveWrittenSlides) deleteDeck(deckId);
       onSetupFailure?.(prompt, filesForGeneration, error);
       return "failed";
     }
   }
-
-  const referenceHydration = await hydrateReferenceDocuments(
-    filesForGeneration,
-    {
-      excludePaths: [
-        ...(referenceSelection.importedReferenceFilePath
-          ? [referenceSelection.importedReferenceFilePath]
-          : []),
-        ...(importedSourceDeck ? [importedSourceDeck.file.path] : []),
-      ],
-    },
-  );
-  if (referenceHydration.status === "unreadable") {
-    deleteDeck(deckId);
-    onSetupFailure?.(
-      prompt,
-      filesForGeneration,
-      new Error(referenceHydration.message),
-    );
-    return "failed";
-  }
-  const referenceDocumentContext =
-    referenceHydration.status === "hydrated" ? referenceHydration.context : "";
-  const hasHydratedReferenceDesign =
-    referenceHydration.status === "hydrated" &&
-    referenceHydration.measuredDesignCount > 0;
 
   const trimmedPrompt = prompt.trim();
   const hasImportedGoogleDocContext = trimmedPrompt.includes("<google-doc ");

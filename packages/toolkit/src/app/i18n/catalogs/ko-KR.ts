@@ -156,9 +156,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivationChecking":
     "새 계정 생성이 가능한지 확인하는 중입니다.",
   "onboarding.builderActivationUnavailable":
-    "이 앱에서는 새 계정 생성이 활성화되어 있지 않습니다. 기존 계정은 연결할 수 있습니다.",
+    "Builder.io에 연결하려면 계정을 만들거나 로그인하세요.",
   "onboarding.builderActivationUnavailableInMode":
-    "이 모드에서는 새 계정을 활성화할 수 없습니다. 기존 계정은 계속 연결할 수 있습니다.",
+    "Builder.io에 연결하려면 계정을 만들거나 로그인하세요.",
   "onboarding.builderActivationCheckFailed":
     "이 앱에서 새 계정을 만들 수 있는지 확인하지 못했습니다.",
 
@@ -172,6 +172,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "개인정보 처리방침",
   "onboarding.builderConsentAnd": "및",
   "onboarding.builderExistingAccount": "Builder.io 계정이 있어요",
+  "onboarding.builderConnect": "Builder.io 연결",
   "onboarding.builderActivating": "Builder.io 무료 크레딧 활성화 중",
   "onboarding.builderConnecting": "Builder.io 무료 크레딧 설정 중",
   "onboarding.builderProvisioningDescription":

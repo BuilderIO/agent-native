@@ -156,9 +156,9 @@ const messages = {
   "onboarding.builderActivationChecking":
     "Checking whether new account activation is available.",
   "onboarding.builderActivationUnavailable":
-    "New account creation isn't enabled for this app. You can still connect an existing account.",
+    "Create a Builder.io account or sign in to connect.",
   "onboarding.builderActivationUnavailableInMode":
-    "New account activation isn't available in this mode. You can still connect an existing account.",
+    "Create a Builder.io account or sign in to connect.",
   "onboarding.builderActivationCheckFailed":
     "Couldn't check whether this app can create new accounts.",
 
@@ -167,6 +167,7 @@ const messages = {
   "onboarding.builderOrgActivationDescription":
     "We'll create your Builder.io account in one click so your organization can use it.",
   "onboarding.builderCreateAndActivate": "Create and activate",
+  "onboarding.builderConnect": "Connect Builder.io",
   "onboarding.builderConsentPrefix":
     "By creating a Builder.io account, you agree to our",
   "onboarding.builderTerms": "Terms of Service",
