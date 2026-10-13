@@ -2584,7 +2584,53 @@ describe("buildUserContentWithAttachments", () => {
     });
   });
 
-  it("preserves explicit approval-pause markers through structured history and backfill", () => {
+  it("preserves approval identity and pause markers through structured history and backfill", () => {
+    const approvalAskId = "approval-ask-1";
+    const input = { to: "a@b.com" };
+    const messages = structuredHistoryToEngineMessages([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "call-1",
+            name: "send-email",
+            input,
+            approvalAskId,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            content: "Neutral pause text.",
+            approvalAskId,
+            approvalPause: true,
+          },
+        ],
+      },
+    ]);
+
+    expect(messages?.[1]?.content[0]).toMatchObject({
+      type: "tool-result",
+      toolCallId: "call-1",
+      approvalPause: true,
+      approvalAskId,
+    });
+    expect(
+      findApprovedToolResultLocation(messages ?? [], {
+        name: "send-email",
+        input,
+        callId: "call-1",
+        approvalAskId,
+      }),
+    ).toEqual({ messageIndex: 1, contentIndex: 0 });
+  });
+
+  it("preserves explicit false approval-pause markers through structured history and backfill", () => {
     const messages = structuredHistoryToEngineMessages([
       {
         role: "assistant",
@@ -2598,8 +2644,8 @@ describe("buildUserContentWithAttachments", () => {
           {
             type: "tool-result",
             toolCallId: "call-1",
-            content: "Neutral pause text.",
-            approvalPause: true,
+            content: "Neutral completed text.",
+            approvalPause: false,
           },
         ],
       },
@@ -2608,7 +2654,7 @@ describe("buildUserContentWithAttachments", () => {
     expect(messages?.[1]?.content[0]).toMatchObject({
       type: "tool-result",
       toolCallId: "call-1",
-      approvalPause: true,
+      approvalPause: false,
     });
   });
 

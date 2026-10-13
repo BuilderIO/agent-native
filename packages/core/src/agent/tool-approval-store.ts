@@ -147,7 +147,7 @@ export async function isAgentToolAlwaysAllowed(
   const result = await getDbExec().execute({
     sql: `SELECT 1 FROM agent_tool_approval_policies
       WHERE owner_email = ?
-        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
         AND tool_name = ?
         AND enabled = TRUE
       LIMIT 1`,
@@ -171,13 +171,15 @@ export async function resolveAgentToolApprovalTurnId(binding: {
   const now = Date.now();
   const hashes = approvalKeys.map(hashAgentToolApprovalKey);
   const placeholders = hashes.map(() => "?").join(", ");
+  const exactApprovalFilter = binding.approvalId ? "AND id = ?" : "";
+  const approvalIdArgs = binding.approvalId ? [binding.approvalId] : [];
   const result = await getDbExec().execute({
     sql: `SELECT turn_id FROM agent_tool_approvals
       WHERE owner_email = ?
-        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
-        AND ((thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR thread_id = ?)
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
+        AND ((thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR thread_id = CAST(? AS TEXT))
         AND approval_key_hash IN (${placeholders})
-        AND (? IS NULL OR id = ?)
+        ${exactApprovalFilter}
         AND status = 'pending'
         AND expires_at > ?
         AND turn_id IS NOT NULL`,
@@ -188,8 +190,7 @@ export async function resolveAgentToolApprovalTurnId(binding: {
       binding.threadId,
       binding.threadId,
       ...hashes,
-      binding.approvalId ?? null,
-      binding.approvalId ?? null,
+      ...approvalIdArgs,
       now,
     ],
   });
@@ -277,9 +278,9 @@ export async function consumeAgentToolApproval(
       WHERE id = (
         SELECT MIN(id) FROM agent_tool_approvals
         WHERE owner_email = ?
-          AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
-          AND ((thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR thread_id = ?)
-          AND ((turn_id IS NULL AND CAST(? AS TEXT) IS NULL) OR turn_id = ?)
+          AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
+          AND ((thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR thread_id = CAST(? AS TEXT))
+          AND ((turn_id IS NULL AND CAST(? AS TEXT) IS NULL) OR turn_id = CAST(? AS TEXT))
           AND tool_name = ?
           AND approval_key_hash = ?
           ${exactApprovalFilter}

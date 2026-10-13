@@ -88,6 +88,12 @@ describe("agent tool approval store", () => {
         approvalKeys: [binding.approvalKey],
       }),
     ).resolves.toBe("turn-1");
+    const recoveryQuery = dbMocks.execute.mock.calls[0]?.[0] as {
+      sql: string;
+      args: unknown[];
+    };
+    expect(recoveryQuery.sql).not.toContain("AND id = ?");
+    expect(recoveryQuery.args).not.toContain(null);
   });
 
   it("resolves an approval turn by the exact pending approval row id", async () => {
@@ -111,7 +117,7 @@ describe("agent tool approval store", () => {
     ).resolves.toBe("turn-1");
     expect(dbMocks.execute).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        sql: expect.stringContaining("AND (? IS NULL OR id = ?)"),
+        sql: expect.stringContaining("AND id = ?"),
         args: expect.arrayContaining([approvalId]),
       }),
     );
