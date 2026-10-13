@@ -14,6 +14,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import * as csstree from "css-tree";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { parse as parseHtml } from "parse5";
 import postcss from "postcss";
 import postcssLess from "postcss-less";
 import postcssScss from "postcss-scss";
@@ -953,6 +954,144 @@ function isValidImportFile(file: {
   return false;
 }
 
+function prepareHtmlImport(content: string): {
+  proseContent: string;
+  stylesheets: string[];
+  rejectedStylesheetCount: number;
+} {
+  interface HtmlNode {
+    attrs?: { name: string; value: string }[];
+    childNodes?: HtmlNode[];
+    tagName?: string;
+    sourceCodeLocation?: {
+      attrs?: Record<string, { endOffset: number; startOffset: number }>;
+      endTag?: { endOffset: number; startOffset: number };
+      startOffset: number;
+      startTag?: { endOffset: number };
+    } | null;
+  }
+
+  const sourceRanges: {
+    end: number;
+    start: number;
+  }[] = [];
+  const stylesheets: string[] = [];
+  let rejectedStylesheetCount = 0;
+  const duplicateAttributeOffsets: number[] = [];
+  const document = parseHtml(content, {
+    sourceCodeLocationInfo: true,
+    onParseError(error) {
+      if (error.code === "duplicate-attribute") {
+        duplicateAttributeOffsets.push(error.startOffset);
+      }
+    },
+  }) as unknown as HtmlNode;
+
+  const duplicateStyleAttributeRangeAt = (errorOffset: number) => {
+    let start = errorOffset;
+    while (start > 0 && /[^\t\n\f\r />=]/.test(content[start - 1]!)) {
+      start -= 1;
+    }
+    let nameEnd = start;
+    while (
+      nameEnd < content.length &&
+      /[^\t\n\f\r />=]/.test(content[nameEnd]!)
+    ) {
+      nameEnd += 1;
+    }
+    if (content.slice(start, nameEnd).toLowerCase() !== "style") return null;
+
+    let cursor = nameEnd;
+    while (/\s/.test(content[cursor] ?? "")) cursor += 1;
+    if (content[cursor] !== "=") return null;
+    cursor += 1;
+    while (/\s/.test(content[cursor] ?? "")) cursor += 1;
+
+    const quote = content[cursor];
+    if (quote === "'" || quote === '"') {
+      const closingQuote = content.indexOf(quote, cursor + 1);
+      return {
+        start,
+        end: closingQuote < 0 ? content.length : closingQuote + 1,
+      };
+    }
+
+    while (cursor < content.length && !/[\s>]/.test(content[cursor]!)) {
+      cursor += 1;
+    }
+    return { start, end: cursor };
+  };
+
+  for (const offset of duplicateAttributeOffsets) {
+    const range = duplicateStyleAttributeRangeAt(offset);
+    if (!range) continue;
+    sourceRanges.push(range);
+    rejectedStylesheetCount += 1;
+  }
+
+  const collectEmbeddedStyles = (node: HtmlNode) => {
+    if (node.tagName === "style" && node.sourceCodeLocation?.startTag) {
+      const start = node.sourceCodeLocation.startOffset;
+      const contentStart = node.sourceCodeLocation.startTag.endOffset;
+      const contentEnd =
+        node.sourceCodeLocation.endTag?.startOffset ?? content.length;
+      const end = node.sourceCodeLocation.endTag?.endOffset ?? content.length;
+      const stylesheet = content.slice(contentStart, contentEnd);
+      sourceRanges.push({ start, end });
+      if (!node.sourceCodeLocation.endTag) {
+        rejectedStylesheetCount += 1;
+      } else {
+        try {
+          postcss.parse(stylesheet);
+          stylesheets.push(stylesheet);
+        } catch (error) {
+          if (!(error instanceof Error) || error.name !== "CssSyntaxError") {
+            throw error;
+          }
+          rejectedStylesheetCount += 1;
+        }
+      }
+    }
+
+    const styleAttribute = node.attrs?.find(
+      (attribute) => attribute.name.toLowerCase() === "style",
+    );
+    const styleAttributeLocation =
+      node.sourceCodeLocation?.attrs?.style ??
+      node.sourceCodeLocation?.attrs?.STYLE;
+    if (node.tagName !== "style" && styleAttribute && styleAttributeLocation) {
+      sourceRanges.push({
+        start: styleAttributeLocation.startOffset,
+        end: styleAttributeLocation.endOffset,
+      });
+      const stylesheet = `:root { ${styleAttribute.value} }`;
+      try {
+        postcss.parse(stylesheet);
+        stylesheets.push(stylesheet);
+      } catch (error) {
+        if (!(error instanceof Error) || error.name !== "CssSyntaxError") {
+          throw error;
+        }
+        rejectedStylesheetCount += 1;
+      }
+    }
+
+    for (const child of node.childNodes ?? []) collectEmbeddedStyles(child);
+  };
+  collectEmbeddedStyles(document);
+
+  let proseContent = "";
+  let cursor = 0;
+  sourceRanges.sort((left, right) => left.start - right.start);
+  for (const range of sourceRanges) {
+    proseContent += content.slice(cursor, range.start) + "\n";
+    cursor = range.end;
+  }
+  proseContent += content.slice(cursor);
+
+  return { proseContent, stylesheets, rejectedStylesheetCount };
+}
+
 function readSingleCssFunctionArguments(
   value: string,
   functionName: string,
@@ -1197,33 +1336,95 @@ const cssMathFunctions = new Set([
   "sign",
 ]);
 
-function isValidCssMathExpression(value: string): boolean {
-  const substitutions: { start: number; end: number }[] = [];
+type CssMathDimension =
+  | "angle"
+  | "frequency"
+  | "flex"
+  | "length"
+  | "length-percentage"
+  | "number"
+  | "percentage"
+  | "resolution"
+  | "time"
+  | "unknown"
+  | "invalid"
+  | (string & {});
+
+type CssMathReplacement = {
+  start: number;
+  end: number;
+  dimension?: "number" | "unknown";
+};
+
+function parseCssMathExpression(
+  value: string,
+  allowedIdentifiers?: ReadonlySet<string>,
+): { parsed: csstree.CssNode; unknownRanges: CssMathReplacement[] } | null {
+  const replacements: CssMathReplacement[] = [];
   try {
     csstree.tokenize(value, (type, start, end) => {
+      if (type === csstree.tokenTypes.Ident) {
+        const identifier = csstree.ident
+          .decode(value.slice(start, end))
+          .toLowerCase();
+        if (allowedIdentifiers?.has(identifier)) {
+          replacements.push({ start, end, dimension: "number" });
+        }
+        return;
+      }
       if (type !== csstree.tokenTypes.Function) return;
       const name = csstree.ident
         .decode(value.slice(start, end - 1))
         .toLowerCase();
       if (name !== "var" && name !== "env" && name !== "attr") return;
       const functionValue = readCssFunctionAt(value, end);
+      if (!functionValue) return;
       if (
-        functionValue &&
-        !substitutions.some(
-          (substitution) =>
-            substitution.start < start && substitution.end >= functionValue.end,
+        !replacements.some(
+          (replacement) =>
+            replacement.start < start && replacement.end >= functionValue.end,
         )
       ) {
-        substitutions.push({ start, end: functionValue.end });
+        replacements.push({
+          start,
+          end: functionValue.end,
+          dimension: "unknown",
+        });
       }
     });
   } catch (error) {
-    if (error instanceof Error && error.name === "SyntaxError") return false;
+    if (error instanceof Error && error.name === "SyntaxError") return null;
     throw error;
   }
+
+  for (const replacement of replacements.filter((candidate) =>
+    allowedIdentifiers?.size
+      ? replacements.some(
+          (substitution) =>
+            substitution.start < candidate.start &&
+            substitution.end >= candidate.end,
+        )
+      : false,
+  )) {
+    replacements.splice(replacements.indexOf(replacement), 1);
+  }
+
+  replacements.sort((left, right) => left.start - right.start);
+  const unknownRanges: CssMathReplacement[] = [];
+  let offsetDelta = 0;
+  for (const replacement of replacements) {
+    const outputStart = replacement.start + offsetDelta;
+    unknownRanges.push({
+      start: outputStart,
+      end: outputStart + 1,
+      dimension: replacement.dimension,
+    });
+    offsetDelta += 1 - (replacement.end - replacement.start);
+  }
+
   let mathValue = value;
-  for (let index = substitutions.length - 1; index >= 0; index -= 1) {
-    const substitution = substitutions[index]!;
+  for (let index = replacements.length - 1; index >= 0; index -= 1) {
+    const substitution = replacements[index]!;
     mathValue =
       mathValue.slice(0, substitution.start) +
       "1" +
@@ -1232,33 +1433,312 @@ function isValidCssMathExpression(value: string): boolean {
 
   let parsed: csstree.CssNode;
   try {
-    parsed = csstree.parse(mathValue, { context: "value" });
+    parsed = csstree.parse(mathValue, { context: "value", positions: true });
   } catch (error) {
-    if (error instanceof Error && error.name === "SyntaxError") return false;
+    if (error instanceof Error && error.name === "SyntaxError") return null;
     throw error;
   }
-  if (parsed.type !== "Value") return false;
+  if (parsed.type !== "Value") return null;
 
-  return csstree.lexer.matchType("calc-sum", parsed).matched !== null;
+  return { parsed, unknownRanges };
+}
+
+function compatibleCssMathDimensions(
+  left: CssMathDimension,
+  right: CssMathDimension,
+): CssMathDimension {
+  if (left === "invalid" || right === "invalid") return "invalid";
+  if (left === "unknown" || right === "unknown") return "unknown";
+  if (left === right) return left;
+  if (
+    (left === "length" && right === "percentage") ||
+    (left === "percentage" && right === "length") ||
+    (left === "length-percentage" &&
+      (right === "length" || right === "percentage")) ||
+    (right === "length-percentage" &&
+      (left === "length" || left === "percentage"))
+  ) {
+    return "length-percentage";
+  }
+  return "invalid";
+}
+
+type CssMathBaseDimension =
+  | "angle"
+  | "frequency"
+  | "flex"
+  | "length"
+  | "percentage"
+  | "resolution"
+  | "time";
+
+function cssMathDimensionVector(
+  dimension: CssMathDimension,
+): Map<CssMathBaseDimension, number> | null {
+  if (dimension === "number") return new Map();
+  if (
+    dimension === "unknown" ||
+    dimension === "invalid" ||
+    dimension === "length-percentage"
+  ) {
+    return null;
+  }
+
+  const vector = new Map<CssMathBaseDimension, number>();
+  const terms = dimension.startsWith("product:")
+    ? dimension.slice("product:".length).split("*")
+    : [`${dimension}^1`];
+  for (const term of terms) {
+    const match = term.match(
+      /^(angle|frequency|flex|length|percentage|resolution|time)\^(-?\d+)$/,
+    );
+    if (!match) return null;
+    const base = match[1] as CssMathBaseDimension;
+    const exponent = Number(match[2]);
+    if (!Number.isInteger(exponent)) return null;
+    vector.set(base, (vector.get(base) ?? 0) + exponent);
+  }
+  return vector;
+}
+
+function cssMathDimensionFromVector(
+  vector: Map<CssMathBaseDimension, number>,
+): CssMathDimension {
+  const entries = [...vector.entries()]
+    .filter(([, exponent]) => exponent !== 0)
+    .sort(([left], [right]) => left.localeCompare(right));
+  if (entries.length === 0) return "number";
+  if (entries.length === 1 && entries[0]![1] === 1) return entries[0]![0];
+  return `product:${entries.map(([base, exponent]) => `${base}^${exponent}`).join("*")}`;
+}
+
+function combineCssMathDimensions(
+  left: CssMathDimension,
+  right: CssMathDimension,
+  sign: 1 | -1,
+): CssMathDimension {
+  if (left === "invalid" || right === "invalid") return "invalid";
+  if (left === "unknown" || right === "unknown") return "unknown";
+  const leftVector = cssMathDimensionVector(left);
+  const rightVector = cssMathDimensionVector(right);
+  if (!leftVector || !rightVector) return "invalid";
+  for (const [base, exponent] of rightVector) {
+    leftVector.set(base, (leftVector.get(base) ?? 0) + sign * exponent);
+  }
+  return cssMathDimensionFromVector(leftVector);
+}
+
+function cssMathDimensionForNode(
+  node: csstree.CssNode,
+  unknownRanges: CssMathReplacement[],
+): CssMathDimension {
+  const offset = node.loc?.start.offset;
+  if (typeof offset === "number") {
+    const replacement = unknownRanges.find((range) => range.start === offset);
+    if (replacement) return replacement.dimension ?? "unknown";
+  }
+
+  if (node.type === "Number") return "number";
+  if (node.type === "Percentage") return "percentage";
+  if (node.type === "Dimension") {
+    const unit = csstree.ident.decode(node.unit).toLowerCase();
+    if (
+      /^(?:px|cm|mm|q|in|pt|pc|em|rem|ex|rex|ch|rch|cap|rcap|ic|ric|lh|rlh|vw|vh|vi|vb|vmin|vmax|svw|svh|svi|svb|svmin|svmax|lvw|lvh|lvi|lvb|lvmin|lvmax|dvw|dvh|dvi|dvb|dvmin|dvmax|cqw|cqh|cqi|cqb|cqmin|cqmax)$/.test(
+        unit,
+      )
+    ) {
+      return "length";
+    }
+    if (/^(?:deg|grad|rad|turn)$/.test(unit)) return "angle";
+    if (/^(?:s|ms)$/.test(unit)) return "time";
+    if (/^(?:hz|khz)$/.test(unit)) return "frequency";
+    if (/^(?:dpi|dpcm|dppx|x)$/.test(unit)) return "resolution";
+    if (unit === "fr") return "flex";
+    return "invalid";
+  }
+  if (node.type === "Identifier") {
+    const identifier = csstree.ident.decode(node.name).toLowerCase();
+    return /^(?:e|pi|infinity|nan|-infinity)$/.test(identifier)
+      ? "number"
+      : "invalid";
+  }
+  if (node.type === "Parentheses") {
+    return cssMathDimensionForNodes([...node.children], unknownRanges);
+  }
+  if (node.type === "Function") {
+    const name = csstree.ident.decode(node.name).toLowerCase();
+    if (name === "calc") {
+      return cssMathDimensionForNodes([...node.children], unknownRanges);
+    }
+    if (name === "abs") {
+      return cssMathDimensionForNodes([...node.children], unknownRanges);
+    }
+    if (/^(?:asin|acos|atan|atan2)$/.test(name)) return "angle";
+    if (/^(?:sign|sin|cos|tan|log|exp|pow)$/.test(name)) {
+      return "number";
+    }
+    if (name === "sqrt") {
+      const dimension = cssMathDimensionForNodes(
+        [...node.children],
+        unknownRanges,
+      );
+      return dimension === "number" || dimension === "unknown"
+        ? "number"
+        : "invalid";
+    }
+    if (name === "min" || name === "max" || name === "hypot") {
+      const args = splitCssMathNodeArguments([...node.children]);
+      if (args.length === 0) return "invalid";
+      const dimensions = args.map((argument) =>
+        cssMathDimensionForNodes(argument, unknownRanges),
+      );
+      return dimensions
+        .slice(1)
+        .reduce(
+          (dimension, next) => compatibleCssMathDimensions(dimension, next),
+          dimensions[0]!,
+        );
+    }
+    return "invalid";
+  }
+
+  return "invalid";
+}
+
+function splitCssMathNodeArguments(
+  nodes: csstree.CssNode[],
+): csstree.CssNode[][] {
+  const arguments_: csstree.CssNode[][] = [[]];
+  for (const node of nodes) {
+    if (node.type === "Operator" && node.value.trim() === ",") {
+      arguments_.push([]);
+    } else {
+      arguments_[arguments_.length - 1]!.push(node);
+    }
+  }
+  return arguments_;
+}
+
+function cssMathDimensionForNodes(
+  nodes: csstree.CssNode[],
+  unknownRanges: CssMathReplacement[],
+): CssMathDimension {
+  let total: CssMathDimension | null = null;
+  let term: CssMathDimension | null = null;
+  let multiplicativeOperator: "*" | "/" | null = null;
+
+  for (const node of nodes) {
+    if (node.type === "Operator") {
+      const operator = node.value.trim();
+      if (operator === "+" || operator === "-") {
+        if (!/^\s/.test(node.value) || !/\s$/.test(node.value)) {
+          return "invalid";
+        }
+        if (term === null) continue;
+        total =
+          total === null ? term : compatibleCssMathDimensions(total, term);
+        if (total === "invalid") return total;
+        term = null;
+        continue;
+      }
+      if (operator === "*" || operator === "/") {
+        if (term === null || multiplicativeOperator !== null) return "invalid";
+        multiplicativeOperator = operator;
+        continue;
+      }
+      return "invalid";
+    }
+
+    const operand = cssMathDimensionForNode(node, unknownRanges);
+    if (term === null) {
+      term = operand;
+    } else if (multiplicativeOperator === "*") {
+      term = combineCssMathDimensions(term, operand, 1);
+      if (term === "invalid") return term;
+      multiplicativeOperator = null;
+    } else if (multiplicativeOperator === "/") {
+      term = combineCssMathDimensions(term, operand, -1);
+      if (term === "invalid") return term;
+      multiplicativeOperator = null;
+    } else {
+      return "invalid";
+    }
+  }
+
+  if (multiplicativeOperator !== null) return "invalid";
+  if (term === null) return "invalid";
+  if (total === null) return term;
+  return compatibleCssMathDimensions(total, term);
+}
+
+function cssMathExpressionDimension(
+  value: string,
+  allowedIdentifiers?: ReadonlySet<string>,
+): CssMathDimension {
+  const expression = parseCssMathExpression(value, allowedIdentifiers);
+  if (!expression || expression.parsed.type !== "Value") return "invalid";
+  return cssMathDimensionForNodes(
+    [...expression.parsed.children],
+    expression.unknownRanges,
+  );
 }
 
 const cssRoundingStrategies = new Set(["nearest", "up", "down", "to-zero"]);
 
-function isValidCssMathFunction(name: string, parts: string[]): boolean {
-  const allPartsValid = parts.every(isValidCssMathExpression);
+function isValidCssMathFunction(
+  name: string,
+  parts: string[],
+  allowedIdentifiers?: ReadonlySet<string>,
+): boolean {
+  const dimensions = parts.map((part) =>
+    name === "clamp" && part.trim().toLowerCase() === "none"
+      ? "unknown"
+      : cssMathExpressionDimension(part, allowedIdentifiers),
+  );
+  const allPartsValid = dimensions.every(
+    (dimension) => dimension !== "invalid",
+  );
+  const isSupportedResultDimension = (dimension: CssMathDimension) =>
+    dimension !== "invalid" && !dimension.startsWith("product:");
+  const argumentsCompatible = (values: CssMathDimension[]) =>
+    values
+      .slice(1)
+      .every((dimension) =>
+        values.length > 0
+          ? compatibleCssMathDimensions(values[0]!, dimension) !== "invalid"
+          : true,
+      );
 
-  if (name === "calc") return parts.length === 1 && allPartsValid;
+  if (name === "calc") {
+    return (
+      parts.length === 1 &&
+      allPartsValid &&
+      isSupportedResultDimension(dimensions[0]!)
+    );
+  }
   if (name === "min" || name === "max" || name === "hypot") {
-    return parts.length > 0 && allPartsValid;
+    return (
+      parts.length > 0 &&
+      allPartsValid &&
+      dimensions.every(isSupportedResultDimension) &&
+      argumentsCompatible(dimensions)
+    );
   }
   if (name === "clamp") {
-    const isCalculationOrNone = (part: string) =>
-      part.trim().toLowerCase() === "none" || isValidCssMathExpression(part);
+    const isCalculationOrNone = (part: string, dimension: CssMathDimension) =>
+      part.trim().toLowerCase() === "none" || dimension !== "invalid";
+    const clampDimensions = parts
+      .map((part, index) =>
+        part.trim().toLowerCase() === "none" ? "unknown" : dimensions[index]!,
+      )
+      .filter((_, index) => parts[index]!.trim().toLowerCase() !== "none");
     return (
       parts.length === 3 &&
-      isCalculationOrNone(parts[0]!) &&
-      isValidCssMathExpression(parts[1]!) &&
-      isCalculationOrNone(parts[2]!)
+      isCalculationOrNone(parts[0]!, dimensions[0]!) &&
+      isCalculationOrNone(parts[1]!, dimensions[1]!) &&
+      isCalculationOrNone(parts[2]!, dimensions[2]!) &&
+      dimensions.every(isSupportedResultDimension) &&
+      argumentsCompatible(clampDimensions)
     );
   }
   if (name === "round") {
@@ -1268,34 +1748,182 @@ function isValidCssMathFunction(name: string, parts: string[]): boolean {
     );
     if (parts.length === 3 && !hasStrategy) return false;
     const calculationParts = hasStrategy ? parts.slice(1) : parts;
+    const calculationDimensions = hasStrategy
+      ? dimensions.slice(1)
+      : dimensions;
     return (
       calculationParts.length > 0 &&
       calculationParts.length <= 2 &&
-      calculationParts.every(isValidCssMathExpression)
+      calculationDimensions.every((dimension) => dimension !== "invalid") &&
+      calculationDimensions.every(isSupportedResultDimension) &&
+      argumentsCompatible(calculationDimensions)
     );
   }
   if (name === "log") {
-    return (parts.length === 1 || parts.length === 2) && allPartsValid;
+    return (
+      (parts.length === 1 || parts.length === 2) &&
+      dimensions.every(
+        (dimension) => dimension === "number" || dimension === "unknown",
+      )
+    );
   }
-  if (["mod", "rem", "atan2", "pow"].includes(name)) {
-    return parts.length === 2 && allPartsValid;
+  if (name === "pow") {
+    return (
+      parts.length === 2 &&
+      dimensions.every(
+        (dimension) => dimension === "number" || dimension === "unknown",
+      )
+    );
+  }
+  if (["mod", "rem", "atan2"].includes(name)) {
+    if (name === "atan2") {
+      return (
+        parts.length === 2 &&
+        allPartsValid &&
+        dimensions.every(isSupportedResultDimension) &&
+        argumentsCompatible(dimensions)
+      );
+    }
+    return (
+      parts.length === 2 &&
+      allPartsValid &&
+      dimensions.every(isSupportedResultDimension) &&
+      argumentsCompatible(dimensions)
+    );
+  }
+  if (["sin", "cos", "tan"].includes(name)) {
+    return (
+      parts.length === 1 &&
+      (dimensions[0] === "number" ||
+        dimensions[0] === "angle" ||
+        dimensions[0] === "unknown")
+    );
+  }
+  if (["asin", "acos", "atan", "exp"].includes(name)) {
+    return (
+      parts.length === 1 &&
+      (dimensions[0] === "number" || dimensions[0] === "unknown")
+    );
+  }
+  if (name === "sign") return parts.length === 1 && allPartsValid;
+  if (name === "sqrt") {
+    return (
+      parts.length === 1 &&
+      (dimensions[0] === "number" || dimensions[0] === "unknown")
+    );
   }
   return (
-    [
-      "sin",
-      "cos",
-      "tan",
-      "asin",
-      "acos",
-      "atan",
-      "sqrt",
-      "exp",
-      "abs",
-      "sign",
-    ].includes(name) &&
+    name === "abs" &&
     parts.length === 1 &&
-    allPartsValid
+    allPartsValid &&
+    isSupportedResultDimension(dimensions[0]!)
   );
+}
+
+const relativeCssColorChannels = new Map<string, ReadonlySet<string>>([
+  ["rgb", new Set(["r", "g", "b", "alpha"])],
+  ["rgba", new Set(["r", "g", "b", "alpha"])],
+  ["hsl", new Set(["h", "s", "l", "alpha"])],
+  ["hsla", new Set(["h", "s", "l", "alpha"])],
+  ["hwb", new Set(["h", "w", "b", "alpha"])],
+  ["lab", new Set(["l", "a", "b", "alpha"])],
+  ["lch", new Set(["l", "c", "h", "alpha"])],
+  ["oklab", new Set(["l", "a", "b", "alpha"])],
+  ["oklch", new Set(["l", "c", "h", "alpha"])],
+  ["color", new Set(["r", "g", "b", "x", "y", "z", "alpha"])],
+  ["alpha", new Set(["alpha"])],
+]);
+
+const relativeColorRgbChannels = new Set(["r", "g", "b", "alpha"]);
+const relativeColorXyzChannels = new Set(["x", "y", "z", "alpha"]);
+
+function relativeColorChannelIdentifiers(
+  name: string,
+  components: string[],
+): ReadonlySet<string> | undefined {
+  if (name === "color") {
+    const space = components[2]?.toLowerCase();
+    if (
+      /^(?:srgb|srgb-linear|display-p3|display-p3-linear|a98-rgb|prophoto-rgb|rec2020)$/.test(
+        space ?? "",
+      )
+    ) {
+      return relativeColorRgbChannels;
+    }
+    if (/^(?:xyz|xyz-d50|xyz-d65)$/.test(space ?? "")) {
+      return relativeColorXyzChannels;
+    }
+    return undefined;
+  }
+  return relativeCssColorChannels.get(name);
+}
+
+function splitCssSpaceComponents(value: string): string[] {
+  const components: string[] = [];
+  let start = 0;
+  let depth = 0;
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+
+  const push = (end: number) => {
+    const component = value.slice(start, end).trim();
+    if (component) components.push(component);
+  };
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index]!;
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === "(" || char === "[") {
+      depth += 1;
+      continue;
+    }
+    if (char === ")" || char === "]") {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (depth !== 0) continue;
+    if (/\s/.test(char)) {
+      push(index);
+      start = index + 1;
+    } else if (char === "/") {
+      push(index);
+      components.push("/");
+      start = index + 1;
+    }
+  }
+  push(value.length);
+  return components;
+}
+
+function relativeColorMathIdentifiersAt(
+  value: string,
+  mathStart: number,
+  mathEnd: number,
+): ReadonlySet<string> | undefined {
+  let identifiers: ReadonlySet<string> | undefined;
+  csstree.tokenize(value, (type, start, end) => {
+    if (type !== csstree.tokenTypes.Function || start >= mathStart) return;
+    const name = csstree.ident
+      .decode(value.slice(start, end - 1))
+      .toLowerCase();
+    const functionValue = readCssFunctionAt(value, end);
+    if (!functionValue || functionValue.end < mathEnd) return;
+    const components = splitCssSpaceComponents(functionValue.args);
+    const channels = relativeColorChannelIdentifiers(name, components);
+    if (channels && components[0]?.toLowerCase() === "from") {
+      identifiers = channels;
+    }
+  });
+  return identifiers;
 }
 
 function hasValidCssMathFunctionSyntax(value: string): boolean {
@@ -1322,7 +1950,12 @@ function hasValidCssMathFunctionSyntax(value: string): boolean {
     }
 
     const parts = splitCssFunctionArguments(functionValue.args);
-    valid = isValidCssMathFunction(name, parts);
+    const allowedIdentifiers = relativeColorMathIdentifiersAt(
+      value,
+      start,
+      functionValue.end,
+    );
+    valid = isValidCssMathFunction(name, parts, allowedIdentifiers);
   });
 
   return valid;
@@ -1330,7 +1963,21 @@ function hasValidCssMathFunctionSyntax(value: string): boolean {
 
 function isValidCssColor(value: string): boolean {
   const normalized = value.trim();
+  const openParen = normalized.indexOf("(");
+  const functionName =
+    openParen > 0 ? normalized.slice(0, openParen).trim().toLowerCase() : "";
+  if (relativeCssColorChannels.has(functionName)) {
+    const args = readSingleCssFunctionArguments(normalized, functionName);
+    if (
+      args !== null &&
+      splitCssSpaceComponents(args)[0]?.toLowerCase() === "from"
+    ) {
+      return isValidRelativeCssColor(normalized);
+    }
+  }
   if (csstree.lexer.matchType("color", normalized).matched) return true;
+
+  if (isValidRelativeCssColor(normalized)) return true;
 
   const args = readSingleCssFunctionArguments(normalized, "var");
   if (args === null) return false;
@@ -1339,6 +1986,122 @@ function isValidCssColor(value: string): boolean {
   return (
     fallbackParts.length === 0 || isValidCssColor(fallbackParts.join(", "))
   );
+}
+
+function isValidRelativeCssColor(value: string): boolean {
+  const input = value.trim();
+  const openParen = input.indexOf("(");
+  if (openParen <= 0) return false;
+  const name = input.slice(0, openParen).trim().toLowerCase();
+  const args = readSingleCssFunctionArguments(input, name);
+  if (args === null) return false;
+
+  const components = splitCssSpaceComponents(args);
+  if (components[0]?.toLowerCase() !== "from") return false;
+  const origin = components[1];
+  if (!origin || !isValidCssColor(origin)) return false;
+
+  if (name === "alpha") {
+    if (components.length === 2) return true;
+    return (
+      components.length === 4 &&
+      components[2] === "/" &&
+      isValidRelativeColorComponent(
+        components[3]!,
+        relativeCssColorChannels.get("alpha")!,
+        new Set(["number", "percentage"]),
+      )
+    );
+  }
+
+  const colorFunction = name === "color";
+  const channels = relativeColorChannelIdentifiers(name, components);
+  if (!channels) return false;
+  const componentStart = colorFunction ? 3 : 2;
+  if (colorFunction) {
+    const colorSpace = components[2]?.toLowerCase();
+    if (
+      !colorSpace ||
+      !/^(?:srgb|srgb-linear|display-p3|display-p3-linear|a98-rgb|prophoto-rgb|rec2020|xyz|xyz-d50|xyz-d65)$/.test(
+        colorSpace,
+      )
+    ) {
+      return false;
+    }
+  }
+
+  const slashIndex = components.indexOf("/");
+  const hasAlpha = slashIndex !== -1;
+  const channelEnd = hasAlpha ? slashIndex : components.length;
+  if (
+    (hasAlpha && slashIndex !== components.length - 2) ||
+    channelEnd - componentStart !== 3
+  ) {
+    return false;
+  }
+
+  const channelValues = components.slice(componentStart, channelEnd);
+  if (
+    !channelValues.every((component, index) =>
+      isValidRelativeColorComponent(
+        component,
+        channels,
+        relativeColorComponentDimensions(name, index),
+      ),
+    )
+  ) {
+    return false;
+  }
+  return (
+    !hasAlpha ||
+    isValidRelativeColorComponent(
+      components[components.length - 1]!,
+      channels,
+      new Set(["number", "percentage"]),
+    )
+  );
+}
+
+function relativeColorComponentDimensions(
+  name: string,
+  index: number,
+): ReadonlySet<CssMathDimension> {
+  if (
+    ((name === "hsl" || name === "hsla" || name === "hwb") && index === 0) ||
+    ((name === "lch" || name === "oklch") && index === 2)
+  ) {
+    return new Set(["angle", "number"]);
+  }
+  return new Set(["number", "percentage"]);
+}
+
+function isValidRelativeColorComponent(
+  component: string,
+  channels: ReadonlySet<string>,
+  dimensions: ReadonlySet<CssMathDimension>,
+): boolean {
+  const normalized = component.trim().toLowerCase();
+  if (normalized === "none" || channels.has(normalized)) return true;
+
+  const mathFunction = component.match(/^([\w-]+)\(/)?.[1]?.toLowerCase();
+  if (mathFunction && cssMathFunctions.has(mathFunction)) {
+    const dimension = cssMathExpressionDimension(component, channels);
+    return dimension === "unknown" || dimensions.has(dimension);
+  }
+  try {
+    const parsed = csstree.parse(component, { context: "value" });
+    if (parsed.type !== "Value" || parsed.children.size !== 1) return false;
+    const node = parsed.children.first;
+    if (!node) return false;
+    if (node.type === "Number") return dimensions.has("number");
+    if (node.type === "Percentage") return dimensions.has("percentage");
+    if (node.type !== "Dimension") return false;
+    const unit = csstree.ident.decode(node.unit).toLowerCase();
+    return dimensions.has("angle") && /^(?:deg|grad|rad|turn)$/.test(unit);
+  } catch (error) {
+    if (error instanceof Error && error.name === "SyntaxError") return false;
+    throw error;
+  }
 }
 
 function hasUnsafeCssValueFunction(value: string): boolean {
@@ -1430,9 +2193,15 @@ function tokensFromFiles(
 
   let malformedNamedLineCount = 0;
   const validFiles = accepted.filter(isValidImportFile).map((file) => {
-    const content = /\.(scss|less)$/i.test(file.filename)
+    let content = /\.(scss|less)$/i.test(file.filename)
       ? stripScssLessLineComments(file.content)
       : file.content;
+    const isHtml = /\.html?$/i.test(file.filename);
+    const htmlImport = isHtml ? prepareHtmlImport(content) : null;
+    if (htmlImport) {
+      content = htmlImport.proseContent;
+      malformedNamedLineCount += htmlImport.rejectedStylesheetCount;
+    }
     const isStylesheet = /\.(css|scss|less)$/i.test(file.filename);
     const isPastedStylesheet =
       file.filename.toLowerCase() === "pasted-tokens.txt" &&
@@ -1442,7 +2211,11 @@ function tokensFromFiles(
         ? { content, rejectedCount: 0 }
         : removeMalformedNamedLines(content);
     malformedNamedLineCount += sanitized.rejectedCount;
-    return { ...file, content: sanitized.content };
+    return {
+      ...file,
+      content: sanitized.content,
+      embeddedStylesheets: htmlImport?.stylesheets ?? [],
+    };
   });
   const state = createCodeAnalysisState();
   for (const file of validFiles) {
@@ -1453,6 +2226,10 @@ function tokensFromFiles(
         : file.filename;
     analyzeCodeFile(state, analysisFilename, file.content);
     addLooseTextSignals(state, file.filename, file.content);
+    for (const stylesheet of file.embeddedStylesheets) {
+      analyzeCodeFile(state, "embedded-style.css", stylesheet);
+      addLooseTextSignals(state, "embedded-style.css", stylesheet);
+    }
   }
 
   const tokens: ImportedDesignToken[] = parseNamedLines(validFiles);

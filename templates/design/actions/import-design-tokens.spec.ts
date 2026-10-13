@@ -606,6 +606,119 @@ button:focus-visible {
     },
   );
 
+  it("preserves multiline CSS inside HTML screen style blocks", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "screen.html",
+          content: `<style>
+.card {
+  background: linear-gradient(
+    #ffffff,
+    #000000
+  );
+}
+</style>`,
+        },
+      ],
+    });
+
+    expect(result.rejectedCount).toBe(0);
+    expect(result.tokens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ value: "#ffffff", type: "color" }),
+        expect.objectContaining({ value: "#000000", type: "color" }),
+      ]),
+    );
+  });
+
+  it("does not extract custom properties from a malformed HTML style block", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "screen.html",
+          content: `<style>
+:root {
+  font-family: "Inter;
+  --color-panel: #020617;
+}
+</style>`,
+        },
+      ],
+    });
+
+    expect(result.rejectedCount).toBe(1);
+    expect(result.tokens).not.toContainEqual(
+      expect.objectContaining({ cssVar: "--color-panel" }),
+    );
+  });
+
+  it("extracts valid declarations from HTML style attributes", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "screen.html",
+          content:
+            '<div style="--color-inline-panel: #020617; color: #ffffff"></div>',
+        },
+      ],
+    });
+
+    expect(result.rejectedCount).toBe(0);
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--color-inline-panel",
+        value: "#020617",
+      }),
+    );
+  });
+
+  it("does not extract custom properties from a malformed HTML style attribute", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "screen.html",
+          content: `<div style="
+font-family: 'Inter;
+--color-inline-panel: #020617;
+"></div>`,
+        },
+      ],
+    });
+
+    expect(result.rejectedCount).toBe(1);
+    expect(result.tokens).not.toContainEqual(
+      expect.objectContaining({ cssVar: "--color-inline-panel" }),
+    );
+  });
+
+  it("does not scan duplicate HTML style attributes as prose", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "screen.html",
+          content:
+            '<div style="color: #000" style="font-family: \'Inter; --color-inline-panel: #020617;"></div>',
+        },
+      ],
+    });
+
+    expect(result.rejectedCount).toBe(1);
+    expect(result.tokens).not.toContainEqual(
+      expect.objectContaining({ cssVar: "--color-inline-panel" }),
+    );
+  });
+
   it("keeps motion and elevation tokens instead of dropping them", async () => {
     const result = await action.run({
       designId: "design_1",
@@ -1104,7 +1217,6 @@ Bad radius: 12px} body { color: red
         "--color-x: #000;",
       ].join("\n"),
     });
-
     expect(result.tokens).toContainEqual(
       expect.objectContaining({
         cssVar: "--color-accent",
@@ -1182,6 +1294,18 @@ Bad radius: 12px} body { color: red
         "Spacing var name malformed: calc(var(not-a-custom-property, 2px) + 1px)",
         "Spacing env malformed: calc(env() + 2px)",
         "Spacing attr malformed: calc(attr(, 2px) + 1px)",
+        "Spacing dimension mismatch: calc(12px + 2)",
+        "Spacing addition whitespace before: calc(12px+ 2px)",
+        "Spacing addition whitespace after: calc(12px +2px)",
+        "Spacing addition whitespace missing: calc(12px+2px)",
+        "Spacing multiply mismatch: calc(12px * 2px)",
+        "Spacing min mismatch: min(12px, 2)",
+        "Spacing min unit mismatch: min(12px, 2s)",
+        "Spacing atan mismatch: calc(atan(1) + 1)",
+        "Spacing sqrt mismatch: sqrt(1px)",
+        "Spacing sqrt dimension mismatch: sqrt(1px * 1px)",
+        "Spacing unknown identifier: calc(foo + 1px)",
+        "Spacing unknown unit: calc(1foo + 1px)",
         "Spacing attr syntax malformed: calc(attr(data-gap <length> nonsense) + 1px)",
         "Spacing attr syntax malformed words: calc(attr(data-gap length nonsense) + 1px)",
         "Spacing round malformed: round(1px,)",
@@ -1192,14 +1316,17 @@ Bad radius: 12px} body { color: red
         "Spacing attr syntax valid: calc(attr(data-gap length, 2px) + 1px)",
         'Spacing attr quoted syntax valid: calc(attr(data-gap "length", 2px) + 1px)',
         "Spacing valid: calc((12px + 2px) * 2)",
+        "Spacing compatible units: calc(1px + 1em)",
+        "Spacing dimension cancellation: calc(1px * 1s / 1s)",
+        "Spacing sqrt valid: sqrt(4)",
+        "Spacing hypot valid: hypot(3px, 4px)",
         "Spacing min valid: min(12px, 24px)",
         "Spacing round valid: round(down, 5px, 2px)",
         "Spacing clamp none: clamp(none, 5px, none)",
       ].join("\n"),
     });
-
-    expect(result.importedCount).toBe(10);
-    expect(result.rejectedCount).toBe(10);
+    expect(result.importedCount).toBe(14);
+    expect(result.rejectedCount).toBe(22);
     expect(result.tokens).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1229,6 +1356,22 @@ Bad radius: 12px} body { color: red
         expect.objectContaining({
           cssVar: "--spacing-valid",
           value: "calc((12px + 2px) * 2)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-compatible-units",
+          value: "calc(1px + 1em)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-dimension-cancellation",
+          value: "calc(1px * 1s / 1s)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-sqrt-valid",
+          value: "sqrt(4)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-hypot-valid",
+          value: "hypot(3px, 4px)",
         }),
         expect.objectContaining({
           cssVar: "--spacing-min-valid",
@@ -1267,6 +1410,35 @@ Bad radius: 12px} body { color: red
     expect(result.rejectedCount).toBeGreaterThan(0);
   });
 
+  it("imports valid relative CSS colors and channel math", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: `:root {
+  --color-oklch-relative: oklch(from red l c h);
+  --color-rgb-relative: rgb(from #2563eb r g b / 50%);
+  --color-oklch-relative-math: oklch(from var(--color-base) l calc(c * 0.9) h);
+  --color-alpha-relative: alpha(from rgb(0 0 0 / 50%));
+  --color-alpha-relative-math: alpha(from red / calc(alpha * 0.5));
+  --color-xyz-relative: color(from red xyz-d65 x y z);
+  --color-p3-relative: color(from red display-p3 r g b);
+}`,
+    });
+
+    expect(result.rejectedCount).toBe(0);
+    expect(result.tokens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ cssVar: "--color-oklch-relative" }),
+        expect.objectContaining({ cssVar: "--color-rgb-relative" }),
+        expect.objectContaining({ cssVar: "--color-oklch-relative-math" }),
+        expect.objectContaining({ cssVar: "--color-alpha-relative" }),
+        expect.objectContaining({ cssVar: "--color-alpha-relative-math" }),
+        expect.objectContaining({ cssVar: "--color-xyz-relative" }),
+        expect.objectContaining({ cssVar: "--color-p3-relative" }),
+      ]),
+    );
+  });
+
   it("rejects malformed colors, markup, URL payloads, and oversized values", async () => {
     const longValue = "a".repeat(301);
     const result = await action.run({
@@ -1274,12 +1446,18 @@ Bad radius: 12px} body { color: red
       source: "paste",
       text: `:root {
   --color-invalid-hex: #GGGGGG;
+  --color-invalid-relative-unit: oklch(from var(--color-base) 2px c h);
+  --color-invalid-rgb-unit: rgb(from var(--color-base) 1px 2px 3px);
+  --color-invalid-relative-math-unit: oklch(from var(--color-base) l calc(c + 1px) h);
+  --color-invalid-relative-identifier: oklch(from var(--color-base) l calc(foo + 1) h);
+  --color-invalid-xyz-channels: color(from var(--color-base) xyz-d65 r g b);
+  --color-invalid-rgb-channels: color(from var(--color-base) display-p3 x y z);
+  --color-invalid-alpha-unit: alpha(from var(--color-base) / 1px);
   --color-html: "</style><script>alert(1)</script>";
   --color-url: url(javascript:alert(1));
   --spacing-too-long: ${longValue};
 }`,
     });
-
     expect(result.importedCount).toBe(0);
     expect(result.rejectedCount).toBeGreaterThanOrEqual(4);
     expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({});
