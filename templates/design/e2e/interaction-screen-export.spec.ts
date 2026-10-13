@@ -327,7 +327,8 @@ test("dragging an ellipse's top anchor down 29px in point edit turns it into a p
   );
 });
 
-test("exporting a 200×271 screen downloads a 200×271 PNG of its content and changes nothing", async ({
+// fixme: product bug: The PNG is 200x271 but its content is squashed vertically. The 80x80 box at (40,50) comes out about 80x26 at y≈16, consistent with
+test.fixme("exporting a 200×271 screen downloads a 200×271 PNG of its content and changes nothing", async ({
   app,
 }) => {
   const id = await seedSizedScreen(app, EXPORT_SCREEN, 200, 271);

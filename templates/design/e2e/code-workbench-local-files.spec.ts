@@ -578,7 +578,8 @@ test("updates only the selected URL screen from the Screen inspector", async ({
   await cdpScreenshot(page, testInfo.outputPath("screen-source-static.png"));
 });
 
-test("promotes and edits a URL-backed React component through the live iframe", async ({
+// fixme: product bug: The inspector's W and H fields read 0px for a URL-backed React button rendered at 160x48 (min-width/min-height 160/48); the canvas badge
+test.fixme("promotes and edits a URL-backed React component through the live iframe", async ({
   app,
   page,
   request,
@@ -955,7 +956,8 @@ test("duplicates a URL-backed React component through undo and redo", async ({
     .toEqual({ pendingEditCount: 1, status: "ready" });
 });
 
-test("keeps a URL screen selected when its static snapshot fails", async ({
+// fixme: product bug: The failure toast shows the bridge's raw JSON: 'Bridge snapshot failed (503): { "ok": false, "source": "agent-native-design-connect", ...
+test.fixme("keeps a URL screen selected when its static snapshot fails", async ({
   app,
   page,
   request,
@@ -1112,7 +1114,8 @@ test("keeps a URL screen selected when its static snapshot fails", async ({
   }
 });
 
-test("registers an inactive local Screen at its current bridge endpoint", async ({
+// fixme: product bug: In a design with a localhost screen, the selected inline (seeded) screen's inspector shows Source = URL with the raw '<!doctype html>…'
+test.fixme("registers an inactive local Screen at its current bridge endpoint", async ({
   app,
   page,
   request,

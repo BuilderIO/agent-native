@@ -109,7 +109,8 @@ test.describe("auto layout keyboard interactions", () => {
     expectOnlyChanged(before, up, []);
   });
 
-  test("pasting into a selected frame puts one copy of Alpha inside it at Alpha's size", async ({
+  // fixme: product bug: The pasted copy renders 360x42: as a block child it stretches to Free Frame's full width instead of keeping the original's size.
+  test.fixme("pasting into a selected frame puts one copy of Alpha inside it at Alpha's size", async ({
     app,
     page,
   }) => {

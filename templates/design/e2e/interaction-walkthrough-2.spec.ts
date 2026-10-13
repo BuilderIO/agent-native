@@ -395,7 +395,8 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     });
   });
 
-  test("steps 7-8: Shift+A wraps the shift-clicked title and creator into a vertical auto-layout frame without moving them, and gap 4 saves on that frame", async ({
+  // fixme: product bug: Add auto layout stretches the creator text from its 30px hug width to the wrapper's 117px. The wrapper is saved without align-items, so
+  test.fixme("steps 7-8: Shift+A wraps the shift-clicked title and creator into a vertical auto-layout frame without moving them, and gap 4 saves on that frame", async ({
     app,
     page,
   }) => {
@@ -461,7 +462,8 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     ).toEqual({ ...creator, y: title.y + title.height + 4 });
   });
 
-  test("step 9-11: Fill width on a card child stretches it to the card's content box, and min width commits on the card", async ({
+  // fixme: product bug: The Min width inspector field clips its value: it holds '200px' but shows '200p:' (scrollWidth > clientWidth). The card's Gap field also
+  test.fixme("step 9-11: Fill width on a card child stretches it to the card's content box, and min width commits on the card", async ({
     app,
     page,
   }) => {

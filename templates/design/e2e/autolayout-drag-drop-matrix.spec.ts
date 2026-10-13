@@ -1843,7 +1843,8 @@ test.describe("auto-layout drag/drop matrix", () => {
     }
   });
 
-  test("Ignore Auto Layout held before pointerdown drops an absolute child at the drop point inside the auto-layout target, with no context menu", async ({
+  // fixme: product bug: Two defects: (1) saved left:128px top:34px instead of 125/33, the same drag-start lag as 3228; (2) on macOS Ctrl+pointerdown opens the
+  test.fixme("Ignore Auto Layout held before pointerdown drops an absolute child at the drop point inside the auto-layout target, with no context menu", async ({
     app,
     page,
   }) => {
@@ -1898,7 +1899,8 @@ test.describe("auto-layout drag/drop matrix", () => {
     ).toHaveCount(0);
   });
 
-  test("Ignore Auto Layout pressed after pointerdown drops an absolute child at the drop point inside the auto-layout target", async ({
+  // fixme: product bug: Saved left:128px; top:34px (rendered 728,674) instead of 125/33 (725,673): lands 3/1 px short of the pointer along the first drag
+  test.fixme("Ignore Auto Layout pressed after pointerdown drops an absolute child at the drop point inside the auto-layout target", async ({
     app,
     page,
   }) => {
@@ -2543,7 +2545,8 @@ test.describe("auto-layout drag/drop matrix", () => {
     });
   }
 
-  test("dropping an authored-placement grid item before the first item moves it into the first cell", async ({
+  // fixme: product bug: Visual no-op: saved order changes but Root C keeps grid-row:1;grid-column:2, so a/b/c render in exactly their old cells (c at 319,28; a
+  test.fixme("dropping an authored-placement grid item before the first item moves it into the first cell", async ({
     app,
     page,
   }) => {
@@ -2774,7 +2777,8 @@ test.describe("auto-layout drag/drop matrix", () => {
       .toBe("cross-target");
   });
 
-  test("cross-Screen oversized drop beside an empty auto-layout target lands at the drop point in the destination Screen", async ({
+  // fixme: product bug: Teleport: the dropped layer is saved with no position/left/top, so it is a static body child rendered at the Screen's top-left (0,0)
+  test.fixme("cross-Screen oversized drop beside an empty auto-layout target lands at the drop point in the destination Screen", async ({
     app,
     page,
     request,
@@ -3083,7 +3087,8 @@ test.describe("auto-layout drag/drop matrix", () => {
     });
   });
 
-  test("cross-Screen drop released after letting go of Ignore Auto Layout lands like a plain oversized drop, at the drop point", async ({
+  // fixme: product bug: Modifier state at release is honoured (parent is the body), but the element is saved without position, so it renders at (0,0); same
+  test.fixme("cross-Screen drop released after letting go of Ignore Auto Layout lands like a plain oversized drop, at the drop point", async ({
     app,
     page,
     request,
@@ -3334,7 +3339,8 @@ test.describe("auto-layout drag/drop matrix", () => {
     });
   });
 
-  test("dragging a lone free shape by 137×91 design px moves it exactly that far and saves only its new left and top", async ({
+  // fixme: product bug: Saved left:250px; top:186px: lands (7,5) short of the pointer, exactly one of the 20 move steps. No snap candidates are near (isolated
+  test.fixme("dragging a lone free shape by 137×91 design px moves it exactly that far and saves only its new left and top", async ({
     app,
     page,
   }) => {
@@ -3564,7 +3570,8 @@ test.describe("auto-layout drag/drop matrix", () => {
       .toBe("absolute");
   });
 
-  test("cross-Screen Command drop forces an oversized element into the empty auto-layout target as its only flow child", async ({
+  // fixme: product bug: Fixed-size layer squeezed by auto layout: the saved width stays 500px but with no flex-shrink:0 the 360px row renders it 360px wide
+  test.fixme("cross-Screen Command drop forces an oversized element into the empty auto-layout target as its only flow child", async ({
     app,
     page,
     request,

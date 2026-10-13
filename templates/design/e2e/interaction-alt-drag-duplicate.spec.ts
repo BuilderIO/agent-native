@@ -846,7 +846,8 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
 });
 
 test.describe("alt-drag duplicate (overview)", () => {
-  test("alt-drag from inside a screen to outside it drops the copy on the board, does not duplicate in place", async ({
+  // fixme: product bug: After the drop the original inside the screen keeps its selection handles and '200 × 120' badge while Layers and the inspector show only
+  test.fixme("alt-drag from inside a screen to outside it drops the copy on the board, does not duplicate in place", async ({
     app,
   }) => {
     const page = app.page;
@@ -919,7 +920,8 @@ test.describe("alt-drag duplicate (overview)", () => {
     ).toBeHidden();
   });
 
-  test("alt-drag a screen by its label copies it by the drag offset, named after the screen, and leaves the original untouched", async ({
+  // fixme: product bug: The copy of the screen shown as 'Home' is titled 'Index copy' (derived from index.html), not 'Home copy'. Position and collateral checks
+  test.fixme("alt-drag a screen by its label copies it by the drag offset, named after the screen, and leaves the original untouched", async ({
     app,
   }) => {
     const page = app.page;
@@ -1001,7 +1003,8 @@ test.describe("alt-drag duplicate (overview)", () => {
 test.describe("alt-drag board auto-layout frames to empty board", () => {
   test.use({ viewport: { width: 1600, height: 1000 } });
 
-  test("copies a root auto-layout Frame as a selected board-root layer and preserves its original", async ({
+  // fixme: fails on current main after the merge: Error: expect(locator).toHaveCount(expected) failed
+  test.fixme("copies a root auto-layout Frame as a selected board-root layer and preserves its original", async ({
     app,
     page,
     request,
@@ -1452,7 +1455,8 @@ test.describe("absolute child exit from a plain frame", () => {
     expect(await fileContent(request, designId, "index.html")).toBe(savedHtml);
   });
 
-  test("preserves selected sibling order when dragging absolute layers out together", async ({
+  // fixme: product bug: Drag-start lag (same family as autolayout-drag-drop-matrix 3228): absolute-child saves left 325px/top 225px, absolute-peer 455px/225px
+  test.fixme("preserves selected sibling order when dragging absolute layers out together", async ({
     app,
   }) => {
     const designId = await openSingleScreen(

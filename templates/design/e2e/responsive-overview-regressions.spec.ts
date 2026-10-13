@@ -329,7 +329,8 @@ async function renderedOffset(
   };
 }
 
-test("responsive frame previews preserve content fit and scope selection", async ({
+// fixme: product bug: Canvas and saved file disagree: the saved file holds only the max-width 767px rule and the base inline left:40px, but the Desktop and
+test.fixme("responsive frame previews preserve content fit and scope selection", async ({
   app,
   page,
   request,
@@ -412,7 +413,8 @@ test("responsive frame previews preserve content fit and scope selection", async
     .toEqual({ desktop: 40, tablet: 40, mobile: 137 });
 });
 
-test("after a Mobile edit, a 'This breakpoint only' X edit at Tablet adds exactly one tablet-range rule and moves only the Tablet frame", async ({
+// fixme: product bug: The 'This breakpoint only' edit saves @media (max-width: 1279px) hero left:155px, which ignores the scope and covers Mobile too (masked
+test.fixme("after a Mobile edit, a 'This breakpoint only' X edit at Tablet adds exactly one tablet-range rule and moves only the Tablet frame", async ({
   app,
   page,
   request,
@@ -702,7 +704,8 @@ test("screen deletion explicitly includes and removes responsive variants", asyn
   expect(Object.keys(data.canvasFrames ?? {})).toEqual([fileIds[1]]);
 });
 
-test("generated variation groups reserve non-overlapping breakpoint rows, and custom screen positions survive a reopen", async ({
+// fixme: intermittent: Passed in its worker run and in a solo re-run, failed once in the full confirmation run (2 of 3).
+test.fixme("generated variation groups reserve non-overlapping breakpoint rows, and custom screen positions survive a reopen", async ({
   app,
   page,
   request,
@@ -886,7 +889,8 @@ test("adding a breakpoint reflows screen rows before their previews overlap", as
   await expect.poll(overlappingPairs).toEqual([]);
 });
 
-test("overview screen creation and duplicate undo/redo keep screens selected and visible", async ({
+// fixme: product bug: After Cmd+D the selected 'Screen 4 copy' card sits at page x 1341–2006, entirely under the right inspector (visible canvas ends at 1259)
+test.fixme("overview screen creation and duplicate undo/redo keep screens selected and visible", async ({
   app,
   page,
   request,

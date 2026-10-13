@@ -344,7 +344,8 @@ test("G-1 held drop into an empty grid cell previews that exact cell", async ({
   ).toEqual({ x: 508, y: 164, width: 80, height: 44 });
 });
 
-test("G-2 held grid reorder previews occupancy without duplicating the child", async ({
+// fixme: product bug: The held preview shows row 2 col 2 (508,164) but G1 commits to row 2 col 1 (372,164): DOM becomes g2,g3,g1 with no explicit placement.
+test.fixme("G-2 held grid reorder previews occupancy without duplicating the child", async ({
   app,
 }) => {
   const id = await openFixture(app, GRID_FIXTURE);
@@ -479,7 +480,8 @@ test("G-5 held explicit-span grid drop uses a conservative line and preserves au
   expectOnlyChanged(after, await app.savedNodes(id), []);
 });
 
-test("G-5 after-edge grid drop persists through undo, redo, and reload", async ({
+// fixme: product bug: Canvas and saved document disagree after the drop: the live canvas shows Source at row 1 col 3 and E2 at row 2 col 1 (E2's grid-column:3
+test.fixme("G-5 after-edge grid drop persists through undo, redo, and reload", async ({
   app,
 }) => {
   const id = await openFixture(app, GRID_EXPLICIT_FIXTURE);

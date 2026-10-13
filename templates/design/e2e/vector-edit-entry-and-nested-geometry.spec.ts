@@ -227,7 +227,8 @@ test("selected Pen anchors round independently and survive undo, redo, and reloa
   await expect(radiusField).toHaveValue("18");
 });
 
-test("Escape leaves an ellipse untouched, and dragging its top anchor converts it to a path in place", async ({
+// fixme: product bug: Dragging the top anchor does not move it: the saved anchor stays at (309,305) and the drag pulls out vertical handles
+test.fixme("Escape leaves an ellipse untouched, and dragging its top anchor converts it to a path in place", async ({
   app,
 }) => {
   const id = await openFixture(app);

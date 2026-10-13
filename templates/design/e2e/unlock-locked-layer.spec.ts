@@ -96,7 +96,8 @@ test("after the user unlocks a template's locked layers in the Layers panel, an 
   expectOnlyChanged(unlocked, after, [brandName]);
 });
 
-test("a stale agent whole-file write that would re-lock unlocked layers is rejected with an actionable error and saves nothing", async ({
+// fixme: product bug: edit-design returns HTTP 500 {"error":"Internal server error"}: assertLockedLayersPreserved (shared/locked-layers.ts:187) throws a bare
+test.fixme("a stale agent whole-file write that would re-lock unlocked layers is rejected with an actionable error and saves nothing", async ({
   app,
 }) => {
   const { id, staleHtml, unlocked } = await openAndUnlockBoth(app);

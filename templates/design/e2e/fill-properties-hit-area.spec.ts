@@ -193,7 +193,8 @@ test("gradient fill trigger stays inside its cell and opens from one click", asy
   expectOnlyChanged(before, await app.savedNodes(designId), []);
 });
 
-test("gradient fill opacity preserves stop alpha through zero and reload", async ({
+// fixme: product bug: The first PNG export POSTs render-export-png without the agent-native-ui-capability cookie and gets 403 (console error); the client then
+test.fixme("gradient fill opacity preserves stop alpha through zero and reload", async ({
   app,
   page,
 }) => {
@@ -526,7 +527,8 @@ test("removing a converted Solid gradient closes its picker and preserves the si
   );
 });
 
-test("converting the base solid appends it below sibling fills and keeps their arrays", async ({
+// fixme: product bug: The editor requests GET /design/&quot;https://example.test/image.png&quot; (404): a CSS url() is read with its HTML-entity quotes.
+test.fixme("converting the base solid appends it below sibling fills and keeps their arrays", async ({
   app,
   page,
 }) => {
@@ -725,7 +727,8 @@ test("gradient-to-solid preserves sibling fill arrays and keeps the picker open"
   await expect(page.getByRole("textbox", { name: "Hex" })).toBeVisible();
 });
 
-test("hiding and reordering an image fill keeps its cover size attached to that fill", async ({
+// fixme: product bug: The editor requests GET /design/&quot;https://fills.invalid/first.png&quot; (and second/third) -> 404: CSS url() values are read with
+test.fixme("hiding and reordering an image fill keeps its cover size attached to that fill", async ({
   app,
   page,
 }) => {

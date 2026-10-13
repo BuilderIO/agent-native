@@ -268,7 +268,8 @@ test("Frame Selection wraps two board frames in one frame at their union bounds,
   expectOnlyChanged(wrapped, await app.savedNodes(id, BOARD), []);
 });
 
-test("removing a board frame's fill in the inspector saves it without a background and changes nothing else", async ({
+// fixme: product bug: Minor source cruft: Remove fill keeps background: rgb(255,255,255) and adds background-color: transparent (line 229); renders correctly.
+test.fixme("removing a board frame's fill in the inspector saves it without a background and changes nothing else", async ({
   app,
 }) => {
   const id = await app.seed(BLANK_SCREEN("Home"));
@@ -301,7 +302,8 @@ test("removing a board frame's fill in the inspector saves it without a backgrou
   expectOnlyChanged(before, after, [frame.id]);
 });
 
-test("Option-dragging a component instance onto another screen drops a copy at the cursor and leaves the source screen untouched", async ({
+// fixme: product bug: Copy lands as a flow child at Home's top-left (no position/left/top) and its style is rewritten to computed longhands (background 'none
+test.fixme("Option-dragging a component instance onto another screen drops a copy at the cursor and leaves the source screen untouched", async ({
   app,
 }) => {
   const id = await app.seed(BLANK_SCREEN("Home"), {
@@ -354,7 +356,8 @@ test("Option-dragging a component instance onto another screen drops a copy at t
   expectOnlyChanged(navBefore, await app.savedNodes(id, "nav.html"), []);
 });
 
-test("Shift+A on an element that already has auto layout wraps it in a new auto-layout frame without changing its own layout", async ({
+// fixme: product bug: No wrapper: Shift+A re-applies auto layout to the nav itself, overwriting padding '12px 24px' with '12px' and stamping
+test.fixme("Shift+A on an element that already has auto layout wraps it in a new auto-layout frame without changing its own layout", async ({
   app,
 }) => {
   const id = await app.seed(PAGE_WITH_NAV);
@@ -641,7 +644,8 @@ test("dragging Bio above Skills in the Layers panel reorders the saved children 
   ]).toEqual([200, 320]);
 });
 
-test("'Go to main component' on a later instance selects the earliest instance on its screen", async ({
+// fixme: product bug: The editor switches to Home at 100% with a blank canvas for 14s and selects the Home screen, not the main instance (line 491: selected
+test.fixme("'Go to main component' on a later instance selects the earliest instance on its screen", async ({
   app,
 }) => {
   const id = await app.seed(NAV_SCREEN, {

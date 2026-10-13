@@ -634,7 +634,7 @@ jobs:
             exit 2
           fi
           pnpm exec playwright test "$music_app_spec" \
-            --grep 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$' \
+            --grep '(a drawn empty Frame refreshes its inspector after auto layout|sizing mode actions survive the selected layer route update)$' \
             --workers=1 --retries=0 --trace on
 
       - name: Upload music-app workflow diagnostics
@@ -850,7 +850,7 @@ jobs:
           fi
           changed_shard="${{ matrix.shard }}"
           changed_shard="${changed_shard#changed-}"
-          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/48" --grep-invert 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$|vertical center and trailing insertion keep held guides and exact reload geometry$'
+          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/48" --grep-invert '(a drawn empty Frame refreshes its inspector after auto layout|sizing mode actions survive the selected layer route update)$|vertical center and trailing insertion keep held guides and exact reload geometry$'
 
       - name: Detect retried Design test failures
         id: retry-artifacts

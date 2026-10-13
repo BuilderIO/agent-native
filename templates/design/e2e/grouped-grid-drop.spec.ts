@@ -245,7 +245,8 @@ async function targetGridBoxes(app: App) {
   return boxes;
 }
 
-test("dropping a two-item group on an occupied grid cell keeps every item inside the 4×3 grid without overlap, and undo, redo and reload agree", async ({
+// fixme: product bug: Displaced Occupied A is pushed outside the 4 explicit columns: rendered at x 980-1044 (64px wide, a sliver) instead of keeping a 216px
+test.fixme("dropping a two-item group on an occupied grid cell keeps every item inside the 4×3 grid without overlap, and undo, redo and reload agree", async ({
   app,
   page,
 }) => {

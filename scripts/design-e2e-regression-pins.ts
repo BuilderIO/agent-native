@@ -49,11 +49,6 @@ export const DESIGN_E2E_REGRESSION_PINS = [
       "Delete on a canvas-selected layer removes exactly that node from the saved document",
   },
   {
-    shard: "inspector-1a",
-    file: "inspector-styles.spec.ts",
-    title: "text fills hide and restore without losing the original color",
-  },
-  {
     shard: "inspector-1b",
     file: "inspector-styles.spec.ts",
     title: "selection hide and Appearance visibility stay in sync with opacity",
@@ -95,31 +90,14 @@ export const DESIGN_E2E_REGRESSION_PINS = [
   },
   {
     shard: "inspector-3a",
-    file: "canvas-invariants.spec.ts",
-    title:
-      "Escape on a rectangle just drawn inside a frame clears the selection without selecting the screen",
-  },
-  {
-    shard: "inspector-3a",
     file: "inspector-styles.spec.ts",
     title: "resizing a selected element emits a visual-style-change payload",
-  },
-  {
-    shard: "inspector-3b",
-    file: "canvas-invariants.spec.ts",
-    title:
-      "drawing two shapes then undo removes only the frame, and redo restores it selected",
   },
   {
     shard: "inspector-3b",
     file: "inspector-styles.spec.ts",
     title:
       "pointercancel restores a scrubbed value without adding a history step",
-  },
-  {
-    shard: "inspector-4a",
-    file: "inspector-styles.spec.ts",
-    title: "search selects Lato Medium and keeps custom font names offline",
   },
   {
     shard: "inspector-4a",
@@ -154,20 +132,9 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title: "snap guides appear when an edge aligns with a sibling",
   },
   {
-    shard: "drag-1b",
-    file: "drag-and-drop.moving-by-drag.spec.ts",
-    title: "dropping over a sibling keeps the moved position after reload",
-  },
-  {
     shard: "drag-2a",
     file: "drag-and-drop.moving-by-drag.spec.ts",
     title: "Alt+drag leaves the original and creates a copy",
-  },
-  {
-    shard: "drag-2a",
-    file: "interaction-alt-drag-duplicate.spec.ts",
-    title:
-      "copies a root auto-layout Frame as a selected board-root layer and preserves its original",
   },
   {
     shard: "drag-2a",

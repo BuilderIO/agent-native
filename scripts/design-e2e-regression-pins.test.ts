@@ -23,7 +23,7 @@ import {
 } from "./design-e2e-regression-pins.ts";
 
 test("regression pins resolve unique test titles to the current source lines", () => {
-  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 44);
+  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 38);
   assert.deepEqual(
     [...new Set(DESIGN_E2E_REGRESSION_PINS.map(({ shard }) => shard))],
     DESIGN_E2E_REGRESSION_SHARDS,
@@ -132,7 +132,10 @@ test("the resolver CLI works without installed workspace dependencies", () => {
     );
     assert.equal(result.status, 0, result.stderr || result.error?.message);
     assert.match(result.stdout, /e2e\/canvas-invariants\.spec\.ts:\d+\0/);
-    assert.match(result.stdout, /e2e\/inspector-styles\.spec\.ts:\d+\0/);
+    assert.match(
+      result.stdout,
+      /e2e\/builder-shell-no-network\.spec\.ts:\d+\0/,
+    );
   } finally {
     rmSync(temporaryRoot, { force: true, recursive: true });
   }

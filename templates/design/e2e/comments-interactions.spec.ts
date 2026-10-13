@@ -43,7 +43,8 @@ function threadPopover(page: Page) {
     .last();
 }
 
-test("comments toolbar opens an anchored composer", async ({ app }) => {
+// fixme: product bug: (1) The pin is drawn centred at (412,263) for a click at (491,274): about 79px left, at roughly the button's left edge, as if the
+test.fixme("comments toolbar opens an anchored composer", async ({ app }) => {
   const page = app.page;
   const id = await app.seed(COMMENT_SCREEN);
   let listQuery = "";

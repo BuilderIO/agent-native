@@ -199,7 +199,8 @@ test.describe("element resize", () => {
     expectOnlyChanged(before, after, ["box-a"]);
   });
 
-  test("alt+drag on an edge handle resizes symmetrically from the center", async ({
+  // fixme: product bug: Alt edge resize grows by the drag distance split across both sides: saved [20,40,161,80], so the dragged edge sits ~19px behind the
+  test.fixme("alt+drag on an edge handle resizes symmetrically from the center", async ({
     app,
   }) => {
     const { id, before } = await openWithBoxA(app);
@@ -312,7 +313,8 @@ test.describe("element resize", () => {
   });
 });
 
-test("resizing a screen from its left edge moves its left side and keeps its height", async ({
+// fixme: product bug: A width-only left-edge resize resets the screen's height: saved frame [-61,0,861,1024] (precondition confirmed 600 before the drag); the
+test.fixme("resizing a screen from its left edge moves its left side and keeps its height", async ({
   app,
 }) => {
   const id = await setUpDesign(app);

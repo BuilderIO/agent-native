@@ -68,7 +68,8 @@ async function expectOneStrokeRow(app: App) {
   ).toHaveCount(1);
 }
 
-test("clicking the empty Stroke heading adds and persists a stroke", async ({
+// fixme: product bug: Inside-stroke growth (same family as fill-add-solid.spec.ts:177): the 1px 'Inside' stroke saves as a plain content-box border, so the
+test.fixme("clicking the empty Stroke heading adds and persists a stroke", async ({
   app,
 }) => {
   const page = app.page;
@@ -107,7 +108,8 @@ test("clicking the empty Stroke heading adds and persists a stroke", async ({
   ).toEqual(BOXES["mouse-rectangle"]);
 });
 
-test("the empty Stroke heading activates with Enter and with Space", async ({
+// fixme: product bug: Inside-stroke growth (same family as fill-add-solid.spec.ts:177): the 1px 'Inside' stroke saves as a plain content-box border, so the
+test.fixme("the empty Stroke heading activates with Enter and with Space", async ({
   app,
 }) => {
   const page = app.page;

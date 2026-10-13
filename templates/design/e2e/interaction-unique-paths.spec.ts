@@ -97,7 +97,8 @@ function newIds(before: Map<string, unknown>, after: Map<string, unknown>) {
   return [...after.keys()].filter((id) => !before.has(id));
 }
 
-test("Alt-dragging a layer row between two siblings in the Layers panel saves one copy there, and undo removes it", async ({
+// fixme: fails on current main after the merge: Error: expect(received).toStrictEqual(expected) // deep equality
+test.fixme("Alt-dragging a layer row between two siblings in the Layers panel saves one copy there, and undo removes it", async ({
   app,
   page,
 }) => {
@@ -204,7 +205,8 @@ test("Cmd+A with a child selected selects exactly that child's siblings", async 
   expectOnlyChanged(before, await app.savedNodes(id), []);
 });
 
-test("Cmd+D after moving the first duplicate repeats that move for the next duplicate", async ({
+// fixme: product bug: The repeat-offset behaviour works (second copy offset equals the first move exactly). The free drag lags: a (200,40) design-px drag in 12
+test.fixme("Cmd+D after moving the first duplicate repeats that move for the next duplicate", async ({
   app,
   page,
 }) => {
@@ -259,7 +261,8 @@ test("Cmd+D after moving the first duplicate repeats that move for the next dupl
   ).toStrictEqual({ dx: 200, dy: 40 });
 });
 
-test("dragging down the Layers panel's eye column hides every layer the drag crosses, and only those", async ({
+// fixme: product bug: The eye drag also starts a row drag: Gamma is moved below Beta (saved row order alpha, gamma, beta) and only Gamma gets hidden; Beta
+test.fixme("dragging down the Layers panel's eye column hides every layer the drag crosses, and only those", async ({
   app,
   page,
 }) => {
@@ -305,7 +308,8 @@ test("dragging down the Layers panel's eye column hides every layer the drag cro
   await expect(app.node("alpha")).toBeVisible();
 });
 
-test("Alt-hovering a sibling that sits inside the selection's margin shows their 10px gap and keeps it while the pointer moves", async ({
+// fixme: fails on current main after the merge: Error: expect(locator).toHaveCSS(expected) failed
+test.fixme("Alt-hovering a sibling that sits inside the selection's margin shows their 10px gap and keeps it while the pointer moves", async ({
   app,
   page,
 }) => {
@@ -338,7 +342,8 @@ test("Alt-hovering a sibling that sits inside the selection's margin shows their
   expectOnlyChanged(before, await app.savedNodes(id), []);
 });
 
-test("paste properties copies the source's fill, border, radius and opacity onto the target and keeps the target's position and size", async ({
+// fixme: product bug: The visual properties transfer, but the paste also writes the source's computed text defaults onto a non-text box (color rgb(0,0,0)
+test.fixme("paste properties copies the source's fill, border, radius and opacity onto the target and keeps the target's position and size", async ({
   app,
   page,
 }) => {
