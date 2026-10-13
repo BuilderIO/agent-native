@@ -122,4 +122,19 @@ describe("tabs block renderers", () => {
       ),
     ).not.toThrow();
   });
+
+  it("exposes tab settings for empty legacy vertical tabs", () => {
+    const data = { orientation: "vertical" } as unknown as TabsData;
+    const markup = renderToStaticMarkup(
+      createElement(TabsBlockEditor, {
+        data,
+        onChange: () => undefined,
+        editable: true,
+        blockId: "tabs-legacy-vertical",
+        ctx: {},
+      }),
+    );
+
+    expect(markup).toContain('aria-label="Edit tabs"');
+  });
 });

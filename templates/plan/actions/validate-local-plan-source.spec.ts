@@ -82,6 +82,28 @@ describe("validate-local-plan-source", () => {
     expect(result.issues.length).toBeGreaterThan(0);
   });
 
+  it("rejects omitted required MDX fields instead of accepting parser defaults", async () => {
+    const result = await validateLocalPlanSource.run({
+      mdx: {
+        "plan.mdx": [
+          "---",
+          'title: "Missing required field"',
+          'kind: "plan"',
+          "---",
+          "",
+          '<Checklist id="checklist" />',
+          "",
+        ].join("\n"),
+      },
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.issues).toContainEqual({
+      path: "blocks[0].data.items",
+      message: "Authoring checklist blocks require data.items.",
+    });
+  });
+
   it("returns the renderer's schema-path issue for a nested checklist missing an id", async () => {
     const result = await validateLocalPlanSource.run({
       mdx: { "plan.mdx": NESTED_CHECKLIST_MISSING_ID },

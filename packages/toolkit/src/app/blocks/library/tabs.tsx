@@ -361,6 +361,17 @@ export function TabsBlockEditor({
               );
             })}
           </div>
+          {editable && vertical && tabs.length === 0 && (
+            <TabsSettingsPopover
+              active={active}
+              orientation={orientation}
+              tabs={tabs}
+              onRename={renameTab}
+              onOrientationChange={setOrientation}
+              onAdd={addTab}
+              onRemove={removeTab}
+            />
+          )}
           {editable && !vertical && (
             <TabsSettingsPopover
               active={active}
