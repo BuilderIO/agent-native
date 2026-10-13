@@ -670,6 +670,9 @@ export function useEditorLayerActions({
   const selectedDomLayerOwners = selectedDomLayerIds.map((layerId) =>
     codeLayerOwnerByNodeId.get(layerId),
   );
+  const selectedLayersInActiveFile = selectedDomLayerOwners.every(
+    (owner) => !owner || owner.fileId === activeFile?.id,
+  );
   const selectedRuntimeLayerOwners = selectedDomLayerOwners.filter(
     (owner) => owner?.runtimeOnly,
   );
@@ -1532,6 +1535,7 @@ export function useEditorLayerActions({
     selectedDomLayerIds,
     selectedActiveFileNodeIds,
     selectedLayersUseCompatibleSourceBackend,
+    selectedLayersInActiveFile,
     canUngroup,
     handleCanvasLayerMarqueeSelectionChange,
     handleScreenElementMarqueeSelect,

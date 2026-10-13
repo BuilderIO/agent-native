@@ -1,6 +1,5 @@
 import { openAgentSidebar } from "@agent-native/toolkit/app/shared";
 import type { ReactElement } from "react";
-import { toast } from "sonner";
 
 import { CanvasContextMenu } from "@/components/design/CanvasContextMenu";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
@@ -134,12 +133,8 @@ export function renderEditorCanvasArea({
     canCommentDesign,
     drawMode,
   } = editorGenerationAndAccess;
-  const {
-    layoutGrids,
-    localhostPreviewTokenQuery,
-    liveScreenSnapshotsById,
-    files,
-  } = editorFilesAndSaving;
+  const { layoutGrids, localhostPreviewTokenQuery, liveScreenSnapshotsById } =
+    editorFilesAndSaving;
   const {
     activeScreenSnapshotOnly,
     activeOverviewScreen,
@@ -223,7 +218,6 @@ export function renderEditorCanvasArea({
     canEditSelectedLiveLayer,
     canEditSingleSelectedLiveLayer,
     getSingleSelectedRenamableLayerId,
-    selectedLayerIds,
     designIsEmpty,
   } = editorLayerModels;
   const { canvasBackground } = editorScreenInspector;
@@ -231,6 +225,7 @@ export function renderEditorCanvasArea({
     selectedActiveFileNodeIds,
     selectedDomLayerIds,
     selectedLayersUseCompatibleSourceBackend,
+    selectedLayersInActiveFile,
     activeLayerLocked,
     activeLayerHidden,
     activeLayerId,
@@ -462,11 +457,8 @@ export function renderEditorCanvasArea({
       }
       canFrameSelection={
         canEditDesign &&
-        selectedLayerIds.filter(
-          (layerId) =>
-            !layerId.startsWith("__") &&
-            !files.some((file) => file.id === layerId),
-        ).length >= 1
+        selectedDomLayerIds.length >= 1 &&
+        selectedLayersInActiveFile
       }
       canCreateComponent={
         canEditDesign &&
@@ -481,11 +473,8 @@ export function renderEditorCanvasArea({
       canFlipVertical={canEditDesign && Boolean(selectedElement)}
       canAddAutoLayout={
         canEditDesign &&
-        selectedLayerIds.filter(
-          (layerId) =>
-            !layerId.startsWith("__") &&
-            !files.some((file) => file.id === layerId),
-        ).length >= 1
+        selectedDomLayerIds.length >= 1 &&
+        selectedLayersInActiveFile
       }
       canSuggestAutoLayout={canSuggestAutoLayout}
       isUiHidden={uiHidden}
