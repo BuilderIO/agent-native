@@ -11056,10 +11056,7 @@ export function createProductionAgentHandler(
         ]
       : requestedApprovedToolCalls;
     const resolvedApprovalTurnId =
-      !isBackgroundWorker &&
-      ownerEmail &&
-      threadId &&
-      approvedToolCallsForExecution?.length
+      ownerEmail && threadId && approvedToolCallsForExecution?.length
         ? await resolveAgentToolApprovalTurnId({
             ownerEmail,
             orgId: getRequestOrgId() ?? null,
