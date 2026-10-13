@@ -2093,6 +2093,12 @@ describe("mergeThreadDataForClientSave", () => {
       role: "user",
       parts: [{ type: "text", text: "Explain this result" }],
     };
+    const earlierReply = {
+      id: "assistant-earlier",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "The result" }],
+    };
     const partial = {
       id: "assistant-partial",
       role: "assistant",
@@ -2119,13 +2125,13 @@ describe("mergeThreadDataForClientSave", () => {
     const merged = mergeThreadDataForClientSave(
       {
         agentKit: {
-          messages: [prompt, partial],
+          messages: [prompt, earlierReply, partial],
           runs: [run("running", 168, partial.id)],
         },
       },
       {
         agentKit: {
-          messages: [prompt, partial, completed],
+          messages: [prompt, earlierReply, partial, completed],
           runs: [run("completed", 856, completed.id)],
           events: [
             {
@@ -2140,7 +2146,7 @@ describe("mergeThreadDataForClientSave", () => {
       },
     );
 
-    expect(merged.agentKit.messages).toEqual([prompt, completed]);
+    expect(merged.agentKit.messages).toEqual([prompt, earlierReply, completed]);
   });
 
   it("keeps a prefix that has its own completion event", () => {
@@ -2162,19 +2168,22 @@ describe("mergeThreadDataForClientSave", () => {
       parts: [{ type: "text", text: "The result shows a clear increase." }],
     };
 
+    const run = (
+      status: "running" | "completed",
+      lastSequence: number,
+      activeMessageId: string,
+    ) => ({
+      id: "run-1",
+      status,
+      lastSequence,
+      activeMessageId,
+    });
+
     const merged = mergeThreadDataForClientSave(
-      {},
       {
         agentKit: {
-          messages: [prompt, partial, completed],
-          runs: [
-            {
-              id: "run-1",
-              status: "completed",
-              lastSequence: 856,
-              activeMessageId: completed.id,
-            },
-          ],
+          messages: [prompt, partial],
+          runs: [run("running", 500, partial.id)],
           events: [
             {
               id: "run-1:500",
@@ -2183,6 +2192,14 @@ describe("mergeThreadDataForClientSave", () => {
               type: "message.completed",
               message: { id: partial.id, role: "assistant" },
             },
+          ],
+        },
+      },
+      {
+        agentKit: {
+          messages: [prompt, partial, completed],
+          runs: [run("completed", 856, completed.id)],
+          events: [
             {
               id: "run-1:852",
               runId: "run-1",
