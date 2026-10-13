@@ -1,15 +1,24 @@
 import { describe, expect, it } from "vitest";
 
 import type { NativeEffectAnimationCapability } from "./native-effect-animation-capability";
-import { planNativeSceneFrame } from "./native-effect-frame-policy";
+import {
+  nativeMountNeedsContinuousSourceFrames,
+  planNativeSceneFrame,
+} from "./native-effect-frame-policy";
 
 function mount(
   animationCapability: NativeEffectAnimationCapability,
-  options: { paused?: boolean; speed?: number; liveSource?: boolean } = {},
+  options: {
+    paused?: boolean;
+    speed?: number;
+    liveSource?: boolean;
+    frozen?: boolean;
+  } = {},
 ) {
   return {
     animationCapability,
     clock: { paused: options.paused ?? false, speed: options.speed ?? 1 },
+    frozenReason: options.frozen ? { code: "manifest-invalid" } : null,
     provider: { needsContinuousFrames: () => options.liveSource ?? false },
   };
 }
@@ -42,11 +51,20 @@ describe("native scene RAF policy", () => {
     });
   });
 
+  it("does not enter RAF before any mount exists", () => {
+    expect(plan([], { benchmarkActive: true, previewDirty: true })).toEqual({
+      enter: false,
+      scheduleNext: false,
+      maySubmit: false,
+    });
+  });
+
   it("preserves video, authored animation, and late play in a static provider", () => {
     let playing = false;
     const source = {
       animationCapability: "static" as const,
       clock: { paused: false, speed: 1 },
+      frozenReason: null,
       provider: { needsContinuousFrames: () => playing },
     };
     expect(plan([source]).scheduleNext).toBe(false);
@@ -75,6 +93,25 @@ describe("native scene RAF policy", () => {
 
   it("keeps a static parent and animated native child rendering together", () => {
     expect(plan([mount("static"), mount("animated")]).scheduleNext).toBe(true);
+  });
+
+  it("stops frozen animation and live-source frames while valid siblings continue", () => {
+    const frozenAnimated = mount("animated", { frozen: true });
+    const frozenSource = mount("static", { frozen: true, liveSource: true });
+    expect(nativeMountNeedsContinuousSourceFrames(frozenSource)).toBe(false);
+    expect(plan([frozenAnimated, frozenSource])).toEqual({
+      enter: false,
+      scheduleNext: false,
+      maySubmit: false,
+    });
+    expect(
+      plan([frozenAnimated, frozenSource], { previewDirty: true }),
+    ).toEqual({ enter: false, scheduleNext: false, maySubmit: false });
+    expect(
+      plan([frozenAnimated, frozenSource, mount("animated")]).scheduleNext,
+    ).toBe(true);
+    frozenSource.frozenReason = null;
+    expect(plan([frozenAnimated, frozenSource]).scheduleNext).toBe(true);
   });
 
   it("treats unreviewed custom definitions conservatively", () => {

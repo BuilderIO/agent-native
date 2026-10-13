@@ -2673,15 +2673,17 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
 
   // shared/native-effect-frame-policy.ts
   function nativeMountNeedsContinuousSourceFrames(mount) {
+    if (mount.frozenReason) return false;
     if (mount.provider?.needsContinuousFrames()) return true;
     for (const input of mount.authoredInputs?.values() ?? [])
       if (input.provider.needsContinuousFrames()) return true;
     return false;
   }
   function planNativeSceneFrame(mounts, playing, draftPlaying, benchmarkActive, previewDirty, renderBusy) {
-    let scheduleNext = benchmarkActive || previewDirty || draftPlaying === true;
+    const activeMounts = [...mounts].filter((mount) => !mount.frozenReason);
+    let scheduleNext = activeMounts.length > 0 && (benchmarkActive || previewDirty || draftPlaying === true);
     if (!scheduleNext)
-      for (const mount of mounts) {
+      for (const mount of activeMounts) {
         if (nativeMountNeedsContinuousSourceFrames(mount)) {
           scheduleNext = true;
           break;
@@ -2691,7 +2693,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           break;
         }
       }
-    const enter = draftPlaying === null ? playing || scheduleNext : draftPlaying || scheduleNext;
+    const enter = activeMounts.length > 0 && (draftPlaying === null ? playing || scheduleNext : draftPlaying || scheduleNext);
     return { enter, scheduleNext, maySubmit: enter && !renderBusy };
   }
 
@@ -17180,7 +17182,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             }
           }
         }
-        this.requestSourceFrame();
+        if (this.hasCameraConsumer()) this.requestSourceFrame();
       });
       this.positionedParents = /* @__PURE__ */ new Map();
       this.presentationSheet = null;
@@ -19721,6 +19723,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         }
       };
       this.requestSourceFrame = () => {
+        if (this.mounts.size > 0 && ![...this.mounts.values()].some((mount) => !mount.frozenReason))
+          return;
         this.previewDirty = true;
         if (this.presentationFaultHold) return;
         if (this.disposed || this.compositionAbort || this.compositionPixelBusy || this.simulationExportSession || this.simulationExportStarting)
@@ -21475,7 +21479,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         provider: createNativeSceneProvider(
           target,
           instance.placement,
-          this.requestSourceFrame,
+          () => {
+            const current = this.mounts.get(instance.id);
+            if (current && !current.frozenReason) this.requestSourceFrame();
+          },
           instance.placement === "backdrop" ? canvas : void 0
         ),
         resourceTextures: /* @__PURE__ */ new Map(),
@@ -24791,7 +24798,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         const provider = createNativeSceneProvider(
           target,
           "layer",
-          this.requestSourceFrame,
+          () => {
+            if (!mount.frozenReason) this.requestSourceFrame();
+          },
           void 0,
           binding.capture
         );
@@ -25488,7 +25497,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
     }
     hasCameraConsumer() {
       return [...this.mounts.values()].some((mount) => {
-        if (mount.instance.enabled === false) return false;
+        if (mount.instance.enabled === false || mount.frozenReason) return false;
         const plan = planNativeInputResources(mount.definition, mount.instance);
         return plan.ok && [...plan.inputs.values()].some((input) => input.kind === "camera");
       });
@@ -29238,7 +29247,6 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       clearTimeout(this.deviceRetryTimer);
       if (this.scenePresentation)
         this.unpublishScenePresentation(this.scenePresentation);
-      this.deviceLifecycle.dispose();
       const pending = [];
       if (this.compositionDone) pending.push(this.compositionDone);
       if (this.scanning) pending.push(this.scanning);

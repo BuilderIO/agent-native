@@ -3,6 +3,7 @@ import type { NativeEffectAnimationCapability } from "./native-effect-animation-
 type NativeFrameMount = {
   animationCapability: NativeEffectAnimationCapability;
   clock: { paused: boolean; speed: number };
+  frozenReason?: { code: string } | null;
   provider: { needsContinuousFrames(): boolean } | null;
   authoredInputs?: ReadonlyMap<
     string,
@@ -11,8 +12,9 @@ type NativeFrameMount = {
 };
 
 export function nativeMountNeedsContinuousSourceFrames(
-  mount: Pick<NativeFrameMount, "provider" | "authoredInputs">,
+  mount: Pick<NativeFrameMount, "provider" | "authoredInputs" | "frozenReason">,
 ): boolean {
+  if (mount.frozenReason) return false;
   if (mount.provider?.needsContinuousFrames()) return true;
   for (const input of mount.authoredInputs?.values() ?? [])
     if (input.provider.needsContinuousFrames()) return true;
@@ -27,9 +29,12 @@ export function planNativeSceneFrame(
   previewDirty: boolean,
   renderBusy: boolean,
 ): { enter: boolean; scheduleNext: boolean; maySubmit: boolean } {
-  let scheduleNext = benchmarkActive || previewDirty || draftPlaying === true;
+  const activeMounts = [...mounts].filter((mount) => !mount.frozenReason);
+  let scheduleNext =
+    activeMounts.length > 0 &&
+    (benchmarkActive || previewDirty || draftPlaying === true);
   if (!scheduleNext)
-    for (const mount of mounts) {
+    for (const mount of activeMounts) {
       if (nativeMountNeedsContinuousSourceFrames(mount)) {
         scheduleNext = true;
         break;
@@ -45,8 +50,9 @@ export function planNativeSceneFrame(
       }
     }
   const enter =
-    draftPlaying === null
+    activeMounts.length > 0 &&
+    (draftPlaying === null
       ? playing || scheduleNext
-      : draftPlaying || scheduleNext;
+      : draftPlaying || scheduleNext);
   return { enter, scheduleNext, maySubmit: enter && !renderBusy };
 }

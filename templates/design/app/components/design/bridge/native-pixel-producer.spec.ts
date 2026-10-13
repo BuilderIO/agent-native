@@ -385,6 +385,17 @@ function fakeGpu(
   let pendingMapReject: ((error: Error) => void) | undefined;
   const device = {
     features: new Set<string>(),
+    limits: {
+      maxSampledTexturesPerShaderStage: 16,
+      maxComputeWorkgroupsPerDimension: 65_535,
+      maxStorageBufferBindingSize: 1 << 27,
+      maxBufferSize: 1 << 28,
+      maxTextureDimension2D: 8_192,
+      maxComputeWorkgroupSizeX: 256,
+      maxComputeWorkgroupSizeY: 256,
+      maxComputeWorkgroupSizeZ: 64,
+      maxComputeInvocationsPerWorkgroup: 256,
+    },
     lost: new Promise(() => {}),
     queue: {
       writeTexture() {},
@@ -4933,6 +4944,83 @@ it("stops static RAF after ready, retries paused dirty frames, wakes late source
   pendingPoll!();
   expect(raf).toHaveBeenCalledTimes(beforeDispose);
   expect(render).toHaveBeenCalledTimes(4);
+});
+
+it("keeps a frozen manifest last-good without scheduling source or animation frames", async () => {
+  fakeGpu();
+  const active = await startRuntime(true);
+  const wood = NATIVE_EFFECT_LATEST_DEFINITIONS.find(
+    (definition) => definition.id === "an-native-owned-c-wood-endgrain",
+  );
+  expect(wood).toBeDefined();
+  const manifest = document.querySelector<HTMLScriptElement>(
+    'script[type="application/x-agent-native-effects"]',
+  );
+  const target = document.querySelector<HTMLElement>(
+    '[data-agent-native-node-id="test-target"]',
+  );
+  expect(manifest).not.toBeNull();
+  const authored = JSON.parse(manifest!.textContent) as {
+    definitions: unknown[];
+    instances: { definitionId: string; definitionVersion: number }[];
+  };
+  authored.definitions = [wood];
+  authored.instances[0]!.definitionId = wood!.id;
+  authored.instances[0]!.definitionVersion = wood!.version;
+  manifest!.textContent = JSON.stringify(authored);
+  await active.scan();
+  await active.renderAt(0);
+  expect(target?.getAttribute("data-an-native-status")).toBe("ready");
+  const framesBefore = target?.getAttribute("data-an-native-frames");
+  const duplicate = manifest!.cloneNode(true);
+  document.body.append(duplicate);
+  await active.scan();
+  expect(target?.getAttribute("data-an-native-status")).toBe("last-good");
+  expect(target?.getAttribute("data-an-native-error")).toBe(
+    "manifest-duplicate",
+  );
+
+  const internal = active as PixelRuntime & {
+    raf: number;
+    previewDirty: boolean;
+    mounts: Map<
+      string,
+      {
+        animationCapability: "animated" | "static" | "unknown";
+        provider: { needsContinuousFrames(): boolean } | null;
+      }
+    >;
+    frame(): void;
+    requestSourceFrame(): void;
+    clearIdleSourcePoll(): void;
+    renderInternal(time: number, strict: boolean): Promise<unknown>;
+  };
+  if (internal.raf) cancelAnimationFrame(internal.raf);
+  internal.raf = 0;
+  internal.clearIdleSourcePoll();
+  internal.previewDirty = false;
+  const mount = [...internal.mounts.values()][0]!;
+  mount.animationCapability = "animated";
+  expect(mount.provider).not.toBeNull();
+  mount.provider!.needsContinuousFrames = () => true;
+  const render = vi.spyOn(internal, "renderInternal");
+  const raf = vi.spyOn(window, "requestAnimationFrame").mockReturnValue(7);
+  internal.requestSourceFrame();
+  internal.frame();
+  expect(raf).not.toHaveBeenCalled();
+  expect(render).not.toHaveBeenCalled();
+  expect(target?.getAttribute("data-an-native-frames")).toBe(framesBefore);
+
+  render.mockRestore();
+  duplicate.parentNode?.removeChild(duplicate);
+  await active.scan();
+  expect(target?.getAttribute("data-an-native-status")).toBe("ready");
+  if (internal.raf) cancelAnimationFrame(internal.raf);
+  internal.raf = 0;
+  internal.previewDirty = false;
+  const wakeBefore = raf.mock.calls.length;
+  internal.requestSourceFrame();
+  expect(raf).toHaveBeenCalledTimes(wakeBefore + 1);
 });
 
 describe("reported status sibling boundaries", () => {

@@ -1467,7 +1467,7 @@ class NativeShaderRuntime {
         }
       }
     }
-    this.requestSourceFrame();
+    if (this.hasCameraConsumer()) this.requestSourceFrame();
   });
   private positionedParents = new Map<HTMLElement, number>();
   private presentationSheet: CSSStyleSheet | null = null;
@@ -4651,7 +4651,10 @@ class NativeShaderRuntime {
       provider: createNativeSceneProvider(
         target,
         instance.placement,
-        this.requestSourceFrame,
+        () => {
+          const current = this.mounts.get(instance.id);
+          if (current && !current.frozenReason) this.requestSourceFrame();
+        },
         instance.placement === "backdrop" ? canvas : undefined,
       ),
       resourceTextures: new Map(),
@@ -8629,7 +8632,9 @@ class NativeShaderRuntime {
       const provider = createNativeSceneProvider(
         target,
         "layer",
-        this.requestSourceFrame,
+        () => {
+          if (!mount.frozenReason) this.requestSourceFrame();
+        },
         undefined,
         binding.capture,
       );
@@ -9511,7 +9516,7 @@ class NativeShaderRuntime {
 
   private hasCameraConsumer(): boolean {
     return [...this.mounts.values()].some((mount) => {
-      if (mount.instance.enabled === false) return false;
+      if (mount.instance.enabled === false || mount.frozenReason) return false;
       const plan = planNativeInputResources(mount.definition, mount.instance);
       return (
         plan.ok &&
@@ -16434,6 +16439,11 @@ class NativeShaderRuntime {
   };
 
   private requestSourceFrame = (): void => {
+    if (
+      this.mounts.size > 0 &&
+      ![...this.mounts.values()].some((mount) => !mount.frozenReason)
+    )
+      return;
     this.previewDirty = true;
     if (this.presentationFaultHold) return;
     if (
@@ -16632,7 +16642,6 @@ class NativeShaderRuntime {
     clearTimeout(this.deviceRetryTimer);
     if (this.scenePresentation)
       this.unpublishScenePresentation(this.scenePresentation);
-    this.deviceLifecycle.dispose();
     const pending: Promise<unknown>[] = [];
     if (this.compositionDone) pending.push(this.compositionDone);
     if (this.scanning) pending.push(this.scanning);
