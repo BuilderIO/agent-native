@@ -443,6 +443,10 @@ export const nativeBuiltinExecutionMetadata = [
     "static",
   ],
   [
+    "40ce86b9c8a35851cf6cd314b9488d8ca59587d3e385faf629aa96c80e8fde5c",
+    "animated",
+  ],
+  [
     "418fbeedc27c87ca8732d86a367b8cee5e4bbe19652485a9a6396f68eedea902",
     "static",
   ],
@@ -476,6 +480,10 @@ export const nativeBuiltinExecutionMetadata = [
   ],
   [
     "46adf14010c1bb3f33c2f334c9d281490fe803a7d7bda8e7a4677569ad29420f",
+    "static",
+  ],
+  [
+    "4726603384b4bc4e34ef9d0ea48b5cbe8807863b71dcf924843b7b1b3b11b082",
     "static",
   ],
   [
@@ -619,6 +627,10 @@ export const nativeBuiltinExecutionMetadata = [
     "static",
   ],
   [
+    "5e480be8bc2150fb3d977fbd63403e3a228db0403555dd2b5585aaf5dad39f18",
+    "static",
+  ],
+  [
     "5e7c361c2df4cb72c4da3f4ec9641a4d7eb8f6929818ec11326a0195e98d7d79",
     "animated",
   ],
@@ -641,6 +653,10 @@ export const nativeBuiltinExecutionMetadata = [
   [
     "60c176f846f721b2beee5f6c0abb80dd95cd8930f81b54bb7c4cf77e04b68dca",
     "animated",
+  ],
+  [
+    "60f5f43b6aee101a04aa5bef857982aa8ea70702341ec173cc666405854a4234",
+    "static",
   ],
   [
     "612f6890a142de97b874f5560367ce9334370103836b8062b7e3f1b38e9a388d",
@@ -1243,6 +1259,10 @@ export const nativeBuiltinExecutionMetadata = [
     "animated",
   ],
   [
+    "be70254bf7d87df2ef0805f2955e0d4f4d27fe5f2ef48074c159080b714a71b1",
+    "animated",
+  ],
+  [
     "bf7d133eca97384c06457959b1a9b747fac32181fc70a1b22328f1df4ef68f9d",
     "static",
   ],
@@ -1316,6 +1336,10 @@ export const nativeBuiltinExecutionMetadata = [
   ],
   [
     "cd62ecd3ae98fa58d0688a59b05eb0a16e64819849039dfbe8cb504c473e2925",
+    "static",
+  ],
+  [
+    "cdc4aecfac907a7968b672aa04417e73a42ba0c931edbcd4382835d90b10efba",
     "static",
   ],
   [
@@ -1483,6 +1507,10 @@ export const nativeBuiltinExecutionMetadata = [
     "static",
   ],
   [
+    "e493d90448066c3ae919fafa197392146596240d5c0479d8f9cfec2c94fa9f0d",
+    "animated",
+  ],
+  [
     "e541d18709325e1e82701f72eab1383af5fefb5dc7e069b0650866b2aea2b7db",
     "static",
   ],
@@ -1648,6 +1676,10 @@ export const nativeBuiltinExecutionMetadata = [
   ],
   [
     "fe3e2b7a18778d25dc8a6073299a87ae8ad9e3c36ca6a988a49184c2b730f1c4",
+    "static",
+  ],
+  [
+    "fe79cd30ab2b648e637bfe8d72416a1a7bcec708519c48fd120b818168ffbd13",
     "static",
   ],
   [

@@ -126,6 +126,38 @@ import {
   SIGNAL_VISUALIZER_PRESETS,
 } from "./native-effect-owned-br-signal-visualizer";
 import {
+  LIT_BLOB_EFFECT,
+  LIT_BLOB_PRESETS,
+} from "./native-effect-owned-bs-lit-blob";
+import {
+  ORTHOGONAL_GRID_EFFECT,
+  ORTHOGONAL_GRID_PRESETS,
+} from "./native-effect-owned-bt-orthogonal-grid";
+import {
+  PERSPECTIVE_BEND_EFFECT,
+  PERSPECTIVE_BEND_PRESETS,
+} from "./native-effect-owned-bu-perspective-bend";
+import {
+  SOURCE_CONTOURS_EFFECT,
+  SOURCE_CONTOURS_PRESETS,
+} from "./native-effect-owned-bv-source-contours";
+import {
+  RETAINED_POINTER_STROKE_EFFECT,
+  RETAINED_POINTER_STROKE_PRESETS,
+} from "./native-effect-owned-bw-retained-pointer-stroke";
+import {
+  SEEDED_SCATTER_BLUR_EFFECT,
+  SEEDED_SCATTER_BLUR_PRESETS,
+} from "./native-effect-owned-bx-scatter-blur";
+import {
+  CORNER_PAGE_CURL_EFFECT,
+  CORNER_PAGE_CURL_PRESETS,
+} from "./native-effect-owned-by-corner-page-curl";
+import {
+  SOURCE_TINT_EFFECT,
+  SOURCE_TINT_PRESETS,
+} from "./native-effect-owned-bz-source-tint";
+import {
   POINTER_EFFECT_DEFINITIONS,
   POINTER_EFFECT_PRESETS,
 } from "./native-effect-pointer-catalog";
@@ -141,14 +173,14 @@ import { parseEffectsFromHtml, validateEffectDocument } from "./native-effects";
 
 describe("Design-owned catalog", () => {
   it("registers unique independently authored definitions and valid original recipes", () => {
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(357);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(364);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((item) => item.id)).size,
-    ).toBe(357);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(413);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(828);
+    ).toBe(364);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(421);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(844);
     expect(new Set(NATIVE_EFFECT_PRESETS.map((item) => item.id)).size).toBe(
-      828,
+      844,
     );
     for (const definition of NATIVE_EFFECT_LATEST_DEFINITIONS) {
       expect(definition.provenance?.origin).toBe("design-original");
@@ -172,7 +204,7 @@ describe("Design-owned catalog", () => {
     }
   });
 
-  it("registers AV through BR with localized controls and pinned predecessor versions", () => {
+  it("registers AV through BZ with localized controls and pinned predecessor versions", () => {
     const newVersions = [
       [SOURCE_REACTION_DIFFUSION_EFFECT, SOURCE_REACTION_DIFFUSION_PRESETS],
       [TEMPORAL_FLOW_TRAIL_EFFECT, TEMPORAL_FLOW_TRAIL_PRESETS],
@@ -197,6 +229,14 @@ describe("Design-owned catalog", () => {
       [SIGNAL_VISUALIZER_EFFECT, SIGNAL_VISUALIZER_PRESETS],
       [SHAPE_NEBULA_VOLUME_EFFECT, SHAPE_NEBULA_VOLUME_PRESETS],
       [OBSIDIAN_SHAPE_GLASS_EFFECT, OBSIDIAN_SHAPE_GLASS_PRESETS],
+      [LIT_BLOB_EFFECT, LIT_BLOB_PRESETS],
+      [ORTHOGONAL_GRID_EFFECT, ORTHOGONAL_GRID_PRESETS],
+      [PERSPECTIVE_BEND_EFFECT, PERSPECTIVE_BEND_PRESETS],
+      [SOURCE_CONTOURS_EFFECT, SOURCE_CONTOURS_PRESETS],
+      [RETAINED_POINTER_STROKE_EFFECT, RETAINED_POINTER_STROKE_PRESETS],
+      [SEEDED_SCATTER_BLUR_EFFECT, SEEDED_SCATTER_BLUR_PRESETS],
+      [CORNER_PAGE_CURL_EFFECT, CORNER_PAGE_CURL_PRESETS],
+      [SOURCE_TINT_EFFECT, SOURCE_TINT_PRESETS],
     ] as const;
     for (const [definition, presets] of newVersions) {
       expect(
@@ -211,7 +251,12 @@ describe("Design-owned catalog", () => {
           definition === RADIAL_BURST_EFFECT ||
           definition === RAISED_CARBON_WEAVE_EFFECT ||
           definition === EDGE_FROST_EFFECT ||
-          definition === SOURCE_CRYSTAL_EFFECT
+          definition === SOURCE_CRYSTAL_EFFECT ||
+          definition === PERSPECTIVE_BEND_EFFECT ||
+          definition === SOURCE_CONTOURS_EFFECT ||
+          definition === SEEDED_SCATTER_BLUR_EFFECT ||
+          definition === CORNER_PAGE_CURL_EFFECT ||
+          definition === SOURCE_TINT_EFFECT
           ? "static"
           : "animated",
       );

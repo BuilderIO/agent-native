@@ -9,6 +9,7 @@ import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PARTICLE_FLOW_EFFECT } from "../../../shared/native-effect-particle-flow";
+import { hashEffectDefinition } from "../../../shared/native-effect-trust";
 import { writeEffectsToHtml } from "../../../shared/native-effects";
 import {
   DEFAULT_NATIVE_VIDEO_SETTINGS,
@@ -159,8 +160,29 @@ describe("selected native straight PNG exports", () => {
     runtime.nextCameraClipFrame = vi.fn(async () => {
       throw new Error("No camera clip was recorded");
     });
+    const executionHash = await hashEffectDefinition(PARTICLE_FLOW_EFFECT);
+    runtime.capturePointerHistories = vi.fn(() => [
+      {
+        instanceId: instance.id,
+        nodeId: instance.nodeId,
+        definitionId: instance.definitionId,
+        definitionVersion: instance.definitionVersion,
+        executionHash,
+        instanceJson: JSON.stringify(instance),
+        timing: { ...instance.timing },
+        history: { mode: "authored-static" as const },
+      },
+    ]);
+    const viewedFrame = document.createElement("iframe");
+    viewedFrame.setAttribute("data-screen-iframe-id", "file-1");
+    document.body.appendChild(viewedFrame);
+    Object.assign(viewedFrame.contentWindow!, {
+      __anNativeShaders: runtime,
+      __agentNativeSourceProvenance: { versionHash: "v1" },
+    });
     const blob = await renderSelectedNativeSceneMp4Blob({
       ...args,
+      viewedFrame,
       settings: {
         ...DEFAULT_NATIVE_VIDEO_SETTINGS,
         durationSeconds: 0.1,
@@ -168,7 +190,27 @@ describe("selected native straight PNG exports", () => {
     });
     expect(blob.type).toBe("video/mp4");
     expect(runtime.nextCameraClipFrame).not.toHaveBeenCalled();
+    expect(runtime.beginSimulationExportSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pointerReplay: expect.arrayContaining([
+          expect.objectContaining({ instanceId: instance.id }),
+        ]),
+      }),
+    );
+    viewedFrame.remove();
   });
+  it("rejects MP4 when an interactive source has no matching viewed pointer timeline", async () => {
+    const runtime = preparedFrame();
+    await expect(
+      renderSelectedNativeSceneMp4Blob({
+        ...args,
+        viewedFrame: document.createElement("iframe"),
+        settings: { ...DEFAULT_NATIVE_VIDEO_SETTINGS, durationSeconds: 0.1 },
+      }),
+    ).rejects.toMatchObject({ code: "interaction-history-unavailable" });
+    expect(runtime.beginSimulationExportSession).not.toHaveBeenCalled();
+  });
+
   it("freezes the committed preview pixels for PNG without replaying persistent state", async () => {
     const runtime = preparedFrame();
     runtime.captureCommittedCompositionPixels = vi.fn(async () => ({

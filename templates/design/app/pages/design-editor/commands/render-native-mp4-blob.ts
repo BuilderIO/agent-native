@@ -146,6 +146,7 @@ export async function runRenderNativeMp4Blob(args: {
     designId: args.designId,
     fileId: target.sourceFileId,
     expectedVersionHash: sourcePin.expectedVersionHash,
+    viewedFrame: target.iframe,
     assertStillViewed,
     viewport: {
       width: crop?.width ?? sourceViewport.width,

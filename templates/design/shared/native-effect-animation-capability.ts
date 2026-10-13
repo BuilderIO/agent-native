@@ -279,6 +279,11 @@ const STATIC_BUILTIN_VERSIONS = new Set([
   "an-native-owned-bj-raised-carbon-weave@1",
   "an-native-owned-bk-edge-frost@1",
   "an-native-owned-bn-source-crystal@1",
+  "an-native-owned-s-parabolic-bend@3",
+  "an-native-owned-bv-source-contours@1",
+  "an-native-owned-bx-seeded-scatter-blur@1",
+  "an-native-owned-by-corner-page-curl@1",
+  "an-native-owned-bz-source-tint@1",
 ]);
 
 const ANIMATED_BUILTIN_VERSIONS = new Set([
@@ -404,6 +409,9 @@ const ANIMATED_BUILTIN_VERSIONS = new Set([
   "an-native-owned-br-signal-visualizer@1",
   "an-native-owned-bp-shape-nebula-volume@1",
   "an-native-owned-bq-obsidian-shape-glass@1",
+  "an-native-owned-bs-lit-blob@1",
+  "an-native-owned-bt-orthogonal-grid@1",
+  "an-native-owned-bw-retained-pointer-stroke@1",
   "an-native-source-particle-drift@1",
   "an-native-pixel-transport@1",
   "an-native-pixel-transport@2",

@@ -28,6 +28,11 @@ import { parseEffectsFromHtml } from "../../../shared/native-effects";
 import { planNativeInputResources } from "../../../shared/native-input-resources";
 import { nativeVideoCodedDimensions } from "../../../shared/native-local-export";
 import {
+  NativePointerHistoryError,
+  validateNativePointerHistorySnapshot,
+  type NativePointerReplayEntry,
+} from "../../../shared/native-pointer-history";
+import {
   buildNativeCodePackage,
   buildNativeStandaloneHtml,
 } from "./native-code-package";
@@ -188,10 +193,24 @@ export type NativePixelRuntime = {
     omittedMounts: number;
     omittedRecords: number;
   };
+  capturePointerHistories?: (options: {
+    expectedInstances: readonly {
+      instanceId: string;
+      nodeId: string;
+      definitionId: string;
+      definitionVersion: number;
+      executionHash: string;
+      instanceJson: string;
+    }[];
+    fps: number;
+    totalFrames: number;
+    startTimeSeconds: number;
+  }) => NativePointerReplayEntry[];
   beginSimulationExportSession?: (options: {
     fps: number;
     totalFrames: number;
     startTimeSeconds: 0;
+    pointerReplay?: readonly NativePointerReplayEntry[];
     signal?: AbortSignal;
     timeoutMs?: number;
   }) => Promise<{ sessionId: string }>;
@@ -282,7 +301,8 @@ export class NativeSceneExportError extends Error {
       | "format-unavailable"
       | "video-unavailable"
       | "camera-unavailable"
-      | "camera-recording-unavailable",
+      | "camera-recording-unavailable"
+      | "interaction-history-unavailable",
     message: string,
   ) {
     super(message);
@@ -829,6 +849,7 @@ export async function withNativeSimulationSession<T>(args: {
   fps: number;
   frameCount: number;
   startTimeSeconds: number;
+  pointerReplay?: readonly NativePointerReplayEntry[];
   signal: AbortSignal;
   run: (sessionId: string) => Promise<T>;
 }): Promise<T> {
@@ -849,6 +870,7 @@ export async function withNativeSimulationSession<T>(args: {
     fps: args.fps,
     totalFrames: args.frameCount,
     startTimeSeconds: 0,
+    ...(args.pointerReplay && { pointerReplay: args.pointerReplay }),
     signal: args.signal,
   });
   let failed = false;
@@ -1946,6 +1968,146 @@ export async function renderSelectedNativeHybridPdf(
   );
 }
 
+async function captureViewedNativePointerReplay(
+  args: Pick<
+    SelectedNativeSceneArgs,
+    "fileId" | "expectedVersionHash" | "viewedFrame" | "assertStillViewed"
+  >,
+  scene: PreparedNativeScene,
+  fps: number,
+  totalFrames: number,
+  startTimeSeconds: number,
+): Promise<NativePointerReplayEntry[] | undefined> {
+  const parsed = parseEffectsFromHtml(scene.html);
+  if (parsed.errors.length || !parsed.document)
+    throw new NativeSceneExportError(
+      "scene-unreadable",
+      "The saved native effect manifest is unreadable for video export.",
+    );
+  const definitions = new Map(
+    parsed.document.definitions.map((definition) => [
+      `${definition.id}:${definition.version}`,
+      definition,
+    ]),
+  );
+  const mountedIds = new Set(
+    scene.instanceTargets.map((target) => target.instanceId),
+  );
+  const interactive = parsed.document.instances.filter((instance) => {
+    if (!instance.enabled || !mountedIds.has(instance.id)) return false;
+    const definition = definitions.get(
+      `${instance.definitionId}:${instance.definitionVersion}`,
+    );
+    return !!(definition?.interaction || definition?.simulation);
+  });
+  if (!interactive.length) return undefined;
+  const viewedFrame =
+    args.viewedFrame ??
+    findViewedNativeFrame(args.fileId, args.expectedVersionHash);
+  const viewedWindow = viewedFrame?.contentWindow as
+    | (Window & {
+        __anNativeShaders?: NativePixelRuntime;
+        __agentNativeSourceProvenance?: { versionHash?: string };
+      })
+    | null;
+  if (
+    !viewedFrame?.isConnected ||
+    !args.expectedVersionHash ||
+    !viewedWindow ||
+    viewedWindow.__agentNativeSourceProvenance?.versionHash !==
+      args.expectedVersionHash ||
+    typeof viewedWindow.__anNativeShaders?.capturePointerHistories !==
+      "function"
+  )
+    throw new NativeSceneExportError(
+      "interaction-history-unavailable",
+      "The matching mounted preview has no timestamped pointer history.",
+    );
+  const expectedInstances = await Promise.all(
+    interactive.map(async (instance) => {
+      const definition = definitions.get(
+        `${instance.definitionId}:${instance.definitionVersion}`,
+      )!;
+      return {
+        instanceId: instance.id,
+        nodeId: instance.nodeId,
+        definitionId: definition.id,
+        definitionVersion: definition.version,
+        executionHash: await hashEffectDefinition(definition),
+        instanceJson: JSON.stringify(instance),
+      };
+    }),
+  );
+  args.assertStillViewed?.();
+  let replay: NativePointerReplayEntry[];
+  try {
+    replay = viewedWindow.__anNativeShaders.capturePointerHistories({
+      expectedInstances,
+      fps,
+      totalFrames,
+      startTimeSeconds,
+    });
+  } catch (error) {
+    if (
+      (error as { code?: string })?.code !== "interaction-history-unavailable"
+    )
+      throw error;
+    throw new NativeSceneExportError(
+      "interaction-history-unavailable",
+      "The mounted pointer history does not cover the requested video timeline.",
+    );
+  }
+  args.assertStillViewed?.();
+  if (
+    !viewedFrame.isConnected ||
+    viewedWindow.__agentNativeSourceProvenance?.versionHash !==
+      args.expectedVersionHash ||
+    !Array.isArray(replay) ||
+    replay.length !== expectedInstances.length
+  )
+    throw new NativeSceneExportError(
+      "interaction-history-unavailable",
+      "The pointer replay no longer matches the selected native scene.",
+    );
+  for (const expected of expectedInstances) {
+    const entry = replay.find(
+      (candidate) => candidate?.instanceId === expected.instanceId,
+    );
+    const instance = interactive.find(
+      (candidate) => candidate.id === expected.instanceId,
+    )!;
+    if (
+      !entry ||
+      Object.entries(expected).some(
+        ([key, value]) => entry[key as keyof typeof expected] !== value,
+      ) ||
+      JSON.stringify(entry.timing) !== JSON.stringify(instance.timing)
+    )
+      throw new NativeSceneExportError(
+        "interaction-history-unavailable",
+        "The pointer replay target changed before video capture.",
+      );
+    const firstTime =
+      instance.timing.time +
+      (instance.timing.paused ? 0 : startTimeSeconds * instance.timing.speed);
+    const lastTime =
+      instance.timing.time +
+      (instance.timing.paused
+        ? 0
+        : (startTimeSeconds + (totalFrames - 1) / fps) * instance.timing.speed);
+    try {
+      validateNativePointerHistorySnapshot(entry.history, firstTime, lastTime);
+    } catch (error) {
+      if (!(error instanceof NativePointerHistoryError)) throw error;
+      throw new NativeSceneExportError(
+        "interaction-history-unavailable",
+        "The pointer replay is incomplete for the requested video timeline.",
+      );
+    }
+  }
+  return replay;
+}
+
 export async function renderSelectedNativeSceneMp4Blob(
   args: Omit<SelectedNativeSceneArgs, "pixelRatio"> & {
     settings: NativeVideoSettings;
@@ -1975,6 +2137,13 @@ export async function renderSelectedNativeSceneMp4Blob(
       },
     },
     async (runtime, scene, signal) => {
+      const pointerReplay = await captureViewedNativePointerReplay(
+        args,
+        scene,
+        args.settings.fps,
+        frameCount,
+        args.settings.startTimeSeconds,
+      );
       const selectedTargetIds = new Set(
         scene.instanceTargets.map((target) => target.instanceId),
       );
@@ -2037,12 +2206,16 @@ export async function renderSelectedNativeSceneMp4Blob(
             appendFrame: (frame) =>
               writer.appendFrame(padNativeVideoFrame(frame, size)),
           });
-        if (sceneRequiresNativeStateSession(scene.html))
+        if (
+          sceneRequiresNativeStateSession(scene.html) ||
+          pointerReplay?.length
+        )
           await withNativeSimulationSession({
             runtime,
             fps: args.settings.fps,
             frameCount,
             startTimeSeconds: args.settings.startTimeSeconds,
+            ...(pointerReplay && { pointerReplay }),
             signal,
             run: capture,
           });

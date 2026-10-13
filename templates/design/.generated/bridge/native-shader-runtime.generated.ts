@@ -451,6 +451,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "static"
     ],
     [
+      "40ce86b9c8a35851cf6cd314b9488d8ca59587d3e385faf629aa96c80e8fde5c",
+      "animated"
+    ],
+    [
       "418fbeedc27c87ca8732d86a367b8cee5e4bbe19652485a9a6396f68eedea902",
       "static"
     ],
@@ -484,6 +488,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     ],
     [
       "46adf14010c1bb3f33c2f334c9d281490fe803a7d7bda8e7a4677569ad29420f",
+      "static"
+    ],
+    [
+      "4726603384b4bc4e34ef9d0ea48b5cbe8807863b71dcf924843b7b1b3b11b082",
       "static"
     ],
     [
@@ -627,6 +635,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "static"
     ],
     [
+      "5e480be8bc2150fb3d977fbd63403e3a228db0403555dd2b5585aaf5dad39f18",
+      "static"
+    ],
+    [
       "5e7c361c2df4cb72c4da3f4ec9641a4d7eb8f6929818ec11326a0195e98d7d79",
       "animated"
     ],
@@ -649,6 +661,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     [
       "60c176f846f721b2beee5f6c0abb80dd95cd8930f81b54bb7c4cf77e04b68dca",
       "animated"
+    ],
+    [
+      "60f5f43b6aee101a04aa5bef857982aa8ea70702341ec173cc666405854a4234",
+      "static"
     ],
     [
       "612f6890a142de97b874f5560367ce9334370103836b8062b7e3f1b38e9a388d",
@@ -1251,6 +1267,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "animated"
     ],
     [
+      "be70254bf7d87df2ef0805f2955e0d4f4d27fe5f2ef48074c159080b714a71b1",
+      "animated"
+    ],
+    [
       "bf7d133eca97384c06457959b1a9b747fac32181fc70a1b22328f1df4ef68f9d",
       "static"
     ],
@@ -1324,6 +1344,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     ],
     [
       "cd62ecd3ae98fa58d0688a59b05eb0a16e64819849039dfbe8cb504c473e2925",
+      "static"
+    ],
+    [
+      "cdc4aecfac907a7968b672aa04417e73a42ba0c931edbcd4382835d90b10efba",
       "static"
     ],
     [
@@ -1491,6 +1515,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "static"
     ],
     [
+      "e493d90448066c3ae919fafa197392146596240d5c0479d8f9cfec2c94fa9f0d",
+      "animated"
+    ],
+    [
       "e541d18709325e1e82701f72eab1383af5fefb5dc7e069b0650866b2aea2b7db",
       "static"
     ],
@@ -1656,6 +1684,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     ],
     [
       "fe3e2b7a18778d25dc8a6073299a87ae8ad9e3c36ca6a988a49184c2b730f1c4",
+      "static"
+    ],
+    [
+      "fe79cd30ab2b648e637bfe8d72416a1a7bcec708519c48fd120b818168ffbd13",
       "static"
     ],
     [
@@ -5724,6 +5756,96 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       this.pins.clear();
     }
   };
+
+  // shared/native-pointer-history.ts
+  var MAX_NATIVE_POINTER_HISTORY_EVENTS = 36e3;
+  var MAX_NATIVE_POINTER_HISTORY_SECONDS = 600;
+  var NativePointerHistoryError = class extends Error {
+    constructor() {
+      super(
+        "The live pointer gesture has no complete timestamped replay for this export window."
+      );
+      __publicField(this, "code", "interaction-history-unavailable");
+      this.name = "NativePointerHistoryError";
+    }
+  };
+  function finitePointer(value) {
+    return !!value && typeof value === "object" && Number.isFinite(value.x) && Number.isFinite(value.y) && value.x >= 0 && value.x <= 1 && value.y >= 0 && value.y <= 1 && typeof value.active === "boolean";
+  }
+  var NativePointerHistory = class {
+    constructor(startTime) {
+      __publicField(this, "startTime");
+      __publicField(this, "events", []);
+      __publicField(this, "unavailable", false);
+      __publicField(this, "observed", false);
+      if (!Number.isFinite(startTime) || startTime < 0)
+        throw new NativePointerHistoryError();
+      this.startTime = startTime;
+    }
+    invalidate(observedInput = false) {
+      if (observedInput) this.observed = true;
+      if (this.observed) this.unavailable = true;
+    }
+    reset(startTime) {
+      if (!Number.isFinite(startTime) || startTime < 0)
+        throw new NativePointerHistoryError();
+      this.startTime = startTime;
+      this.events = [];
+      this.unavailable = this.unavailable || this.observed;
+    }
+    record(time, pointer) {
+      this.observed = true;
+      if (this.unavailable || !Number.isFinite(time) || time < this.startTime || time - this.startTime > MAX_NATIVE_POINTER_HISTORY_SECONDS || !finitePointer(pointer) || this.events.length > 0 && time < this.events[this.events.length - 1].time || this.events.length >= MAX_NATIVE_POINTER_HISTORY_EVENTS && (this.events.length === 0 || this.events[this.events.length - 1].x !== pointer.x || this.events[this.events.length - 1].y !== pointer.y || this.events[this.events.length - 1].active !== pointer.active)) {
+        this.unavailable = true;
+        return;
+      }
+      const previous = this.events[this.events.length - 1];
+      if (previous && previous.x === pointer.x && previous.y === pointer.y && previous.active === pointer.active)
+        return;
+      this.events.push({
+        time,
+        x: pointer.x,
+        y: pointer.y,
+        active: pointer.active
+      });
+    }
+    snapshot(startTime, endTime, observedUntil) {
+      if (!this.observed) return { mode: "authored-static" };
+      if (this.unavailable || !Number.isFinite(startTime) || !Number.isFinite(endTime) || !Number.isFinite(observedUntil) || startTime < this.startTime - 1e-6 || endTime < startTime || endTime - this.startTime > MAX_NATIVE_POINTER_HISTORY_SECONDS || endTime > observedUntil + 1e-6 || this.events.length === 0)
+        throw new NativePointerHistoryError();
+      return {
+        mode: "recorded",
+        startTime: this.startTime,
+        endTime: observedUntil,
+        events: this.events.map((event) => ({ ...event }))
+      };
+    }
+  };
+  function validateNativePointerHistorySnapshot(value, startTime, endTime) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      throw new NativePointerHistoryError();
+    const snapshot = value;
+    if (snapshot.mode === "authored-static") return;
+    if (snapshot.mode !== "recorded" || !Array.isArray(snapshot.events) || !Number.isFinite(snapshot.startTime) || !Number.isFinite(snapshot.endTime) || startTime < snapshot.startTime - 1e-6 || endTime > snapshot.endTime + 1e-6 || endTime < startTime || endTime - snapshot.startTime > MAX_NATIVE_POINTER_HISTORY_SECONDS || snapshot.events.length < 1 || snapshot.events.length > MAX_NATIVE_POINTER_HISTORY_EVENTS || snapshot.events.some(
+      (event, index) => !finitePointer(event) || !Number.isFinite(event.time) || event.time < snapshot.startTime || event.time > snapshot.endTime || index > 0 && event.time < snapshot.events[index - 1].time
+    ))
+      throw new NativePointerHistoryError();
+  }
+  function sampleNativePointerHistory(snapshot, time, initial) {
+    if (snapshot.mode === "authored-static") return initial;
+    if (!Number.isFinite(time) || time < 0 || time > snapshot.endTime + 1e-6)
+      throw new NativePointerHistoryError();
+    if (time < snapshot.startTime) return initial;
+    let low = 0;
+    let high = snapshot.events.length;
+    while (low < high) {
+      const middle = low + high >>> 1;
+      if (snapshot.events[middle].time <= time + 1e-6) low = middle + 1;
+      else high = middle;
+    }
+    const pointer = low ? snapshot.events[low - 1] : initial;
+    return { x: pointer.x, y: pointer.y, active: pointer.active };
+  }
 
   // shared/native-pointer-input.ts
   var NativePointerInputError = class extends Error {
@@ -17708,17 +17830,25 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
                 now,
                 (existing.instance.timing.seekRevision ?? 0) !== (next.seekRevision ?? 0)
               );
+              existing.pointerHistory?.reset(existing.clock.local);
             }
             if (existing.definitionHash !== entry.hash) {
               existing.pointerState = null;
+              existing.pointerHistory = null;
             }
             existing.animationCapability = entry.instance.animation ? "animated" : builtinAnimationCapability(entry.hash);
             existing.instance = entry.instance;
             existing.definition = entry.definition;
             existing.definitionHash = entry.hash;
-            if (entry.definition.simulation || entry.definition.interaction)
+            if (entry.definition.simulation || entry.definition.interaction) {
+              existing.pointerHistory ?? (existing.pointerHistory = new NativePointerHistory(
+                existing.clock.local
+              ));
               this.attachPointer(existing);
-            else this.detachPointer(existing);
+            } else {
+              existing.pointerHistory = null;
+              this.detachPointer(existing);
+            }
             if (!entry.definition.simulation && existing.simulation)
               this.releaseSimulation(existing);
             existing.previousLayerId = entry.previousLayerId;
@@ -18381,6 +18511,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         this.timeOverride = time;
         for (const { mount, clock } of clocks) {
           mount.clock = clock;
+          mount.pointerHistory?.reset(clock.local);
           this.markMountRenderPending(mount);
         }
         await this.renderAt(time);
@@ -18532,6 +18663,29 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         options,
         async (rendered) => rendered
       );
+      this.capturePointerHistories = (options) => {
+        if (!Number.isSafeInteger(options.fps) || options.fps < 1 || options.fps > 120 || !Number.isSafeInteger(options.totalFrames) || options.totalFrames < 1 || options.totalFrames > 3600 || !Number.isFinite(options.startTimeSeconds) || options.startTimeSeconds < 0 || options.expectedInstances.length > 128 || new Set(options.expectedInstances.map((item) => item.instanceId)).size !== options.expectedInstances.length)
+          throw new NativePointerHistoryError();
+        const now = this.currentTime();
+        return options.expectedInstances.map((item) => {
+          const mount = this.mounts.get(item.instanceId);
+          if (!mount || !mount.pointerHistory || mount.instance.nodeId !== item.nodeId || mount.definition.id !== item.definitionId || mount.definition.version !== item.definitionVersion || mount.definitionHash !== item.executionHash || JSON.stringify(mount.instance) !== item.instanceJson || !(mount.definition.interaction || mount.definition.simulation))
+            throw new NativePointerHistoryError();
+          const timing = mount.instance.timing;
+          const startTime = timing.time + (timing.paused ? 0 : options.startTimeSeconds * timing.speed);
+          const endTime = timing.time + (timing.paused ? 0 : (options.startTimeSeconds + (options.totalFrames - 1) / options.fps) * timing.speed);
+          const observedUntil = mount.clock.paused ? mount.clock.local : mount.clock.local + (now - mount.clock.global) * mount.clock.speed;
+          return {
+            ...item,
+            timing: { ...timing },
+            history: mount.pointerHistory.snapshot(
+              startTime,
+              endTime,
+              observedUntil
+            )
+          };
+        });
+      };
       this.beginSimulationExportSession = async (options) => {
         this.assertCompositionIdle();
         if (this.simulationExportStarting || this.simulationExportSession)
@@ -18553,6 +18707,43 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             "The held render session target is missing or exceeds its bound."
           );
         const targetInstances = new Set(targetInstanceIds);
+        if (options.pointerReplay !== void 0 && (!Array.isArray(options.pointerReplay) || options.pointerReplay.length > 128 || options.pointerReplay.some(
+          (entry) => !entry || typeof entry !== "object" || typeof entry.instanceId !== "string" || !entry.history || entry.history.mode !== "authored-static" && (entry.history.mode !== "recorded" || !Array.isArray(entry.history.events))
+        )))
+          throw new NativePointerHistoryError();
+        const pointerReplay = options.pointerReplay === void 0 ? null : new Map(
+          options.pointerReplay.map((entry) => [
+            entry.instanceId,
+            {
+              ...entry,
+              timing: { ...entry.timing },
+              history: entry.history.mode === "recorded" ? {
+                ...entry.history,
+                events: entry.history.events.map(
+                  (event) => ({
+                    ...event
+                  })
+                )
+              } : { mode: "authored-static" }
+            }
+          ])
+        );
+        if (pointerReplay && (pointerReplay.size !== options.pointerReplay.length || pointerReplay.size > 128 || [...pointerReplay.keys()].some((id) => !this.mounts.has(id))))
+          throw new NativePointerHistoryError();
+        for (const mount of this.mounts.values()) {
+          if (pointerReplay && (mount.definition.interaction || mount.definition.simulation)) {
+            const entry = pointerReplay.get(mount.instance.id);
+            if (!entry || entry.nodeId !== mount.instance.nodeId || entry.definitionId !== mount.definition.id || entry.definitionVersion !== mount.definition.version || entry.executionHash !== mount.definitionHash || entry.instanceJson !== JSON.stringify(mount.instance) || JSON.stringify(entry.timing) !== JSON.stringify(mount.instance.timing))
+              throw new NativePointerHistoryError();
+            const firstTime = mount.instance.timing.time + (mount.instance.timing.paused ? 0 : options.startTimeSeconds * mount.instance.timing.speed);
+            const lastTime = mount.instance.timing.time + (mount.instance.timing.paused ? 0 : (options.startTimeSeconds + (options.totalFrames - 1) / options.fps) * mount.instance.timing.speed);
+            validateNativePointerHistorySnapshot(
+              entry.history,
+              firstTime,
+              lastTime
+            );
+          }
+        }
         for (const mount of this.mounts.values()) {
           const spec = mount.definition.simulation;
           const feedback = mount.definition.feedback;
@@ -18672,7 +18863,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             );
           snapshot = this.suspendForComposition();
           const saved = [...this.mounts.values()].filter(
-            (mount) => !!mount.definition.simulation || !!mount.definition.feedback || isStatefulResourceGraph(mount.definition.resourceGraph) || targetInstances.has(mount.instance.id)
+            (mount) => !!mount.definition.simulation || !!mount.definition.feedback || isStatefulResourceGraph(mount.definition.resourceGraph) || pointerReplay?.has(mount.instance.id) || targetInstances.has(mount.instance.id)
           ).map((mount) => {
             const entry = {
               mount,
@@ -18703,7 +18894,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             saved,
             failed: false,
             sourceStale: false,
-            deviceEpoch: this.deviceEpoch
+            deviceEpoch: this.deviceEpoch,
+            pointerReplay
           };
           return { sessionId: id };
         } catch (error) {
@@ -19084,17 +19276,29 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             const finalTime = (options.startTimeSeconds ?? 0) + options.frameIndex / options.fps;
             const clocks = [...this.mounts.values()].flatMap((mount) => {
               const graph = mount.definition.resourceGraph;
-              if (!isStatefulResourceGraph(graph) || graph.sourceHistory !== "sequential-captures")
-                return [];
-              return [
-                {
-                  completedStep: mount.stateful?.executor.lastCompletedStep ?? -1,
-                  fixedDt: graph.timing.fixedDt,
-                  timeOffset: mount.instance.timing.time,
-                  speed: mount.instance.timing.speed,
-                  paused: mount.instance.timing.paused
-                }
-              ];
+              const timing = mount.instance.timing;
+              if (isStatefulResourceGraph(graph) && graph.sourceHistory === "sequential-captures")
+                return [
+                  {
+                    completedStep: mount.stateful?.executor.lastCompletedStep ?? -1,
+                    fixedDt: graph.timing.fixedDt,
+                    timeOffset: timing.time,
+                    speed: timing.speed,
+                    paused: timing.paused
+                  }
+                ];
+              const feedback = mount.definition.feedback;
+              if (feedback?.pointer === "interaction-v1" && simulationSession?.pointerReplay?.get(mount.instance.id)?.history.mode === "recorded")
+                return [
+                  {
+                    completedStep: mount.feedback?.executor.lastCompletedStep ?? 0,
+                    fixedDt: feedback.timing.fixedDt,
+                    timeOffset: timing.time,
+                    speed: timing.speed,
+                    paused: timing.paused
+                  }
+                ];
+              return [];
             });
             const captureTimes = planNativeStatefulSourceCaptureTimes(
               clocks,
@@ -20444,6 +20648,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         this.releaseSimulationExportSaved(this.simulationExportSession);
       }
       for (const mount of this.mounts.values()) {
+        mount.pointerHistory?.invalidate();
         this.showOriginal(mount);
         mount.target.setAttribute("data-an-native-status", "error");
         mount.target.setAttribute("data-an-native-error", code);
@@ -20891,6 +21096,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
     }
     releaseSimulation(mount) {
       if (!mount.simulation) return;
+      mount.pointerHistory?.invalidate();
       const simulation = mount.simulation;
       for (const buffer of simulation.buffers)
         this.destroySimulationBuffer(buffer);
@@ -20952,6 +21158,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       };
     }
     releaseStateful(mount) {
+      if (mount.stateful) mount.pointerHistory?.invalidate();
       mount.statefulFrame?.abandon();
       mount.statefulFrame = null;
       mount.stateful?.executor.dispose();
@@ -21013,6 +21220,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       );
     }
     releaseFeedback(mount) {
+      if (mount.feedback) mount.pointerHistory?.invalidate();
       mount.feedbackFrame?.abandon();
       mount.feedbackFrame = null;
       this.clearFeedbackTelemetry(mount);
@@ -21262,6 +21470,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         pointerListener: null,
         pointerLeaveListener: null,
         pointerState: null,
+        pointerHistory: definition.simulation || definition.interaction ? new NativePointerHistory(instance.timing.time) : null,
         simulationCaughtUp: true,
         feedback: null,
         feedbackFrame: null,
@@ -21271,6 +21480,17 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       if (definition.simulation || definition.interaction)
         this.attachPointer(mounted);
       return mounted;
+    }
+    pointerLocalTime(mount) {
+      const now = this.currentTime();
+      return mount.clock.paused ? mount.clock.local : mount.clock.local + (now - mount.clock.global) * mount.clock.speed;
+    }
+    recordLivePointer(mount, pointer) {
+      mount.pointerHistory?.record(this.pointerLocalTime(mount), {
+        x: Math.max(0, Math.min(1, pointer.x)),
+        y: Math.max(0, Math.min(1, pointer.y)),
+        active: pointer.active
+      });
     }
     attachPointer(mount) {
       if (mount.pointerListener) return;
@@ -21286,6 +21506,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             mount.instance.id
           );
           if (mount.simulation) mount.simulation.pointer.active = false;
+          mount.pointerHistory?.invalidate(true);
           this.clearInteractionPointer(mount);
           return;
         }
@@ -21307,10 +21528,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         if (!mapped.ok) {
           this.issue(mapped.code, mapped.detail, mount.instance.id);
           if (mount.simulation) mount.simulation.pointer.active = false;
+          mount.pointerHistory?.invalidate(true);
           this.clearInteractionPointer(mount);
           return;
         }
         const { x, y, active } = mapped.pointer;
+        this.recordLivePointer(mount, mapped.pointer);
         const prior2 = mount.simulation?.pointer;
         if (mount.simulation)
           mount.simulation.pointer = {
@@ -21328,6 +21551,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         }
       };
       const leave = () => {
+        const prior2 = mount.pointerState ?? mount.simulation?.pointer;
+        if (prior2?.active)
+          this.recordLivePointer(mount, { ...prior2, active: false });
         if (mount.simulation) mount.simulation.pointer.active = false;
         this.clearInteractionPointer(mount);
       };
@@ -23590,7 +23816,19 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         const read = state.buffers[state.readIndex];
         const writeIndex = 1 - state.readIndex;
         const write = state.buffers[writeIndex];
-        const pointer = deterministic ? { ...spec.idlePointer, vx: 0, vy: 0, active: false } : state.pointer;
+        const replay = deterministic ? this.replayPointer(mount, stepIndex * spec.fixedDt, {
+          ...spec.idlePointer,
+          active: false
+        }) : null;
+        const priorReplay = replay && stepIndex > 0 ? this.replayPointer(mount, (stepIndex - 1) * spec.fixedDt, {
+          ...spec.idlePointer,
+          active: false
+        }) : null;
+        const pointer = replay ? {
+          ...replay,
+          vx: replay.active && priorReplay?.active ? replay.x - priorReplay.x : 0,
+          vy: replay.active && priorReplay?.active ? replay.y - priorReplay.y : 0
+        } : deterministic ? { ...spec.idlePointer, vx: 0, vy: 0, active: false } : state.pointer;
         const interaction2 = this.simulationUniform(
           new Float32Array([
             pointer.x,
@@ -24005,10 +24243,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             stepTime
           );
           data.set(
-            packNativePointerProperties(
+            this.packPointerForTime(
+              mount,
               definition,
               values,
-              mount.pointerState,
+              stepTime,
               deterministic
             ),
             8
@@ -24123,11 +24362,17 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         output = this.texture(source.width, source.height, "rgba16float");
         mount.resourceTextures.set(outputName, output);
       }
+      const pointerPosition = definition.interaction ? instance.params[definition.interaction.positionProperty] ?? definition.properties[definition.interaction.positionProperty].default : null;
+      const replay = deterministic && pointerPosition ? this.replayPointer(mount, time, {
+        x: pointerPosition[0],
+        y: pointerPosition[1],
+        active: false
+      }) : null;
       const pointer = adapted.definition.pointer ? resolveNativeFeedbackPointerInput(
         definition,
         instance.params,
-        mount.pointerState,
-        deterministic,
+        replay ?? mount.pointerState,
+        deterministic && !replay,
         feedback.pointerPosition
       ) : void 0;
       const frame = feedback.executor.encode({
@@ -24258,10 +24503,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           4
         );
         data.set(
-          packNativePointerProperties(
+          this.packPointerForTime(
+            mount,
             definition,
             instance.params,
-            mount.pointerState,
+            time,
             deterministic
           ),
           8
@@ -24894,10 +25140,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             4
           );
           data.set(
-            packNativePointerProperties(
+            this.packPointerForTime(
+              mount,
               definition,
               instance.params,
-              mount.pointerState,
+              time,
               deterministic
             ),
             8
@@ -25632,10 +25879,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           4
         );
         data.set(
-          packNativePointerProperties(
+          this.packPointerForTime(
+            mount,
             definition,
             instance.params,
-            mount.pointerState,
+            time,
             deterministic
           ),
           8
@@ -28093,6 +28341,28 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       } finally {
         signal.removeEventListener("abort", onAbort);
       }
+    }
+    replayPointer(mount, time, initial) {
+      const entry = this.simulationExportSession?.pointerReplay?.get(
+        mount.instance.id
+      );
+      if (!entry || entry.history.mode === "authored-static") return null;
+      return sampleNativePointerHistory(entry.history, time, initial);
+    }
+    packPointerForTime(mount, definition, params, time, deterministic) {
+      const interaction = definition.interaction;
+      const position = interaction ? params[interaction.positionProperty] ?? definition.properties[interaction.positionProperty].default : null;
+      const replay = deterministic && position ? this.replayPointer(mount, time, {
+        x: position[0],
+        y: position[1],
+        active: false
+      }) : null;
+      return packNativePointerProperties(
+        definition,
+        params,
+        replay ?? mount.pointerState,
+        deterministic && !replay
+      );
     }
     async readMountedOutput(target, signal) {
       if (signal.aborted) throw signal.reason;

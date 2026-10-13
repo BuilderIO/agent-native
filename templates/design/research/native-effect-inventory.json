@@ -9,38 +9,38 @@
     "graphMetadata": "normal source exports; full resources, pass graph fields except WGSL/original, definition graph metadata"
   },
   "counts": {
-    "distinctDefinitions": 357,
-    "exactVersions": 413,
-    "registeredPresets": 828,
-    "presetsTargetingLatestVersions": 745,
-    "presetsTargetingHistoricalVersions": 83,
+    "distinctDefinitions": 364,
+    "exactVersions": 421,
+    "registeredPresets": 844,
+    "presetsTargetingLatestVersions": 759,
+    "presetsTargetingHistoricalVersions": 85,
     "latestByKind": {
-      "generator": 159,
-      "processor": 191,
+      "generator": 161,
+      "processor": 196,
       "simulation": 7
     },
     "fullByKind": {
-      "generator": 201,
-      "processor": 204,
+      "generator": 203,
+      "processor": 210,
       "simulation": 8
     },
     "latestByAnimation": {
-      "animated": 118,
-      "static": 239
+      "animated": 121,
+      "static": 243
     },
     "fullByAnimation": {
-      "animated": 142,
-      "static": 271
+      "animated": 145,
+      "static": 276
     },
     "latestByPlacement": {
-      "fill": 162,
-      "layer": 199,
-      "backdrop": 160
+      "fill": 164,
+      "layer": 204,
+      "backdrop": 166
     },
     "fullByPlacement": {
-      "fill": 204,
-      "layer": 213,
-      "backdrop": 169
+      "fill": 206,
+      "layer": 219,
+      "backdrop": 175
     },
     "fullyValidatedDefinitions": 0
   },
@@ -18467,7 +18467,7 @@
     },
     {
       "id": "an-native-owned-n-double-grating-moire",
-      "name": "Double-Grating Moir\u00e9",
+      "name": "Double-Grating Moiré",
       "version": 1,
       "executionHash": "e0ba040c623785b73a70edff597d823eee744cd88cbee7d62920a4b40dd964ec",
       "kind": "generator",
@@ -21405,7 +21405,7 @@
             "bottomLeft"
           ],
           "minArea": 0.001,
-          "minCross": 1e-05
+          "minCross": 0.00001
         }
       ],
       "passes": [
@@ -27801,7 +27801,7 @@
           "min": 0,
           "max": 360,
           "step": 0.01,
-          "unit": "\u00b0",
+          "unit": "°",
           "advanced": true
         },
         "originX": {
@@ -27993,7 +27993,7 @@
           "min": 0,
           "max": 360,
           "step": 0.01,
-          "unit": "\u00b0"
+          "unit": "°"
         },
         "falloff": {
           "type": "float",
@@ -28078,7 +28078,7 @@
           "min": 0,
           "max": 360,
           "step": 0.01,
-          "unit": "\u00b0",
+          "unit": "°",
           "advanced": true
         },
         "originX": {
@@ -36249,7 +36249,7 @@
     },
     {
       "id": "an-native-owned-s-limacon-contours",
-      "name": "Lima\u00e7on Contours",
+      "name": "Limaçon Contours",
       "version": 1,
       "executionHash": "2d1846090c9da0d7c44d1c179a17a93066450fecad8c4a9cc6190cecdbd1c6d4",
       "kind": "generator",
@@ -37656,7 +37656,7 @@
     },
     {
       "id": "an-native-owned-u-mobius-reprojection",
-      "name": "M\u00f6bius Reprojection",
+      "name": "Möbius Reprojection",
       "version": 1,
       "executionHash": "354255631f917a74751d5970bf99c16f43aed1c72c346bd5c9393cdd6a046975",
       "kind": "processor",
@@ -38313,7 +38313,7 @@
     },
     {
       "id": "an-native-owned-u-thue-morse-weave",
-      "name": "Thue\u2013Morse Weave",
+      "name": "Thue–Morse Weave",
       "version": 1,
       "executionHash": "ca478cbe06e72e3672c4e76a0a133e873cb0554a38e6aeac16169be9d19de782",
       "kind": "generator",
@@ -38817,7 +38817,7 @@
     },
     {
       "id": "an-native-owned-v-luma-dct-eight",
-      "name": "8\u00d78 Luma DCT",
+      "name": "8×8 Luma DCT",
       "version": 1,
       "executionHash": "c7cb56bd502eb531b211fc73c2b49d0515bf3eac2dca31f17ec404ecedc50994",
       "kind": "processor",
@@ -55049,6 +55049,1194 @@
         "an-preset-br-level-dots"
       ],
       "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-bs-lit-blob",
+      "name": "Lit Blob",
+      "version": 1,
+      "kind": "generator",
+      "placements": [
+        "fill"
+      ],
+      "properties": {
+        "blobCount": {
+          "type": "int",
+          "label": "Lobes",
+          "default": 7,
+          "min": 3,
+          "max": 9,
+          "step": 1
+        },
+        "radius": {
+          "type": "float",
+          "label": "Body radius",
+          "default": 0.42,
+          "min": 0.16,
+          "max": 0.7,
+          "step": 0.01
+        },
+        "merge": {
+          "type": "float",
+          "label": "Soft union",
+          "default": 0.18,
+          "min": 0.01,
+          "max": 0.45,
+          "step": 0.01
+        },
+        "deformation": {
+          "type": "float",
+          "label": "Deformation",
+          "default": 0.75,
+          "min": 0,
+          "max": 1.5,
+          "step": 0.01
+        },
+        "speed": {
+          "type": "float",
+          "label": "Motion speed",
+          "default": 0.7,
+          "min": 0,
+          "max": 2.5,
+          "step": 0.01
+        },
+        "yaw": {
+          "type": "float",
+          "label": "Orbit yaw",
+          "default": 0.2,
+          "min": -0.8,
+          "max": 0.8,
+          "step": 0.01
+        },
+        "pitch": {
+          "type": "float",
+          "label": "Orbit pitch",
+          "default": -0.1,
+          "min": -0.8,
+          "max": 0.8,
+          "step": 0.01
+        },
+        "roughness": {
+          "type": "float",
+          "label": "Roughness",
+          "default": 0.28,
+          "min": 0.02,
+          "max": 1,
+          "step": 0.01
+        },
+        "rim": {
+          "type": "float",
+          "label": "Rim light",
+          "default": 0.72,
+          "min": 0,
+          "max": 2,
+          "step": 0.01
+        },
+        "lightAngle": {
+          "type": "float",
+          "label": "Light angle",
+          "default": -0.65,
+          "min": -3.14,
+          "max": 3.14,
+          "step": 0.01
+        },
+        "colorA": {
+          "type": "color",
+          "label": "Shadow color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.16,
+              0.27,
+              0.83
+            ],
+            "alpha": 1
+          }
+        },
+        "colorB": {
+          "type": "color",
+          "label": "Lit color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.86,
+              0.43,
+              0.76
+            ],
+            "alpha": 1
+          }
+        },
+        "background": {
+          "type": "color",
+          "label": "Background",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.025,
+              0.035,
+              0.08
+            ],
+            "alpha": 0
+          }
+        },
+        "opacity": {
+          "type": "float",
+          "label": "Opacity",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "center": {
+          "type": "vec2",
+          "label": "Center",
+          "default": [
+            0.5,
+            0.5
+          ],
+          "min": 0,
+          "max": 1
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "render"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "raymarch-lit-blob",
+          "kind": "render",
+          "reads": [],
+          "output": "color"
+        }
+      ],
+      "executionHash": "40ce86b9c8a35851cf6cd314b9488d8ca59587d3e385faf629aa96c80e8fde5c",
+      "presetIds": [
+        "an-preset-bs-orchid-glass",
+        "an-preset-bs-amber-pearl"
+      ],
+      "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-bt-orthogonal-grid",
+      "name": "Orthogonal Grid",
+      "version": 1,
+      "kind": "generator",
+      "placements": [
+        "fill"
+      ],
+      "properties": {
+        "center": {
+          "type": "vec2",
+          "label": "Grid center",
+          "default": [
+            0.5,
+            0.5
+          ],
+          "min": 0,
+          "max": 1
+        },
+        "spacingX": {
+          "type": "float",
+          "label": "Column spacing",
+          "default": 36,
+          "min": 4,
+          "max": 256,
+          "step": 1
+        },
+        "spacingY": {
+          "type": "float",
+          "label": "Row spacing",
+          "default": 36,
+          "min": 4,
+          "max": 256,
+          "step": 1
+        },
+        "weightX": {
+          "type": "float",
+          "label": "Column weight",
+          "default": 1.5,
+          "min": 0.2,
+          "max": 16,
+          "step": 0.1
+        },
+        "weightY": {
+          "type": "float",
+          "label": "Row weight",
+          "default": 1.5,
+          "min": 0.2,
+          "max": 16,
+          "step": 0.1
+        },
+        "angle": {
+          "type": "float",
+          "label": "Grid angle",
+          "default": 0,
+          "min": -3.14,
+          "max": 3.14,
+          "step": 0.01
+        },
+        "motionX": {
+          "type": "float",
+          "label": "Horizontal motion",
+          "default": 0,
+          "min": -80,
+          "max": 80,
+          "step": 0.1
+        },
+        "motionY": {
+          "type": "float",
+          "label": "Vertical motion",
+          "default": 0,
+          "min": -80,
+          "max": 80,
+          "step": 0.1
+        },
+        "columnColor": {
+          "type": "color",
+          "label": "Column color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.38,
+              0.68,
+              0.92
+            ],
+            "alpha": 1
+          }
+        },
+        "rowColor": {
+          "type": "color",
+          "label": "Row color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.38,
+              0.68,
+              0.92
+            ],
+            "alpha": 1
+          }
+        },
+        "intersectionColor": {
+          "type": "color",
+          "label": "Intersection color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.77,
+              0.91,
+              1
+            ],
+            "alpha": 1
+          }
+        },
+        "background": {
+          "type": "color",
+          "label": "Background",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.025,
+              0.045,
+              0.085
+            ],
+            "alpha": 1
+          }
+        },
+        "opacity": {
+          "type": "float",
+          "label": "Opacity",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "render"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "draw-orthogonal-grid",
+          "kind": "render",
+          "reads": [],
+          "output": "color"
+        }
+      ],
+      "executionHash": "be70254bf7d87df2ef0805f2955e0d4f4d27fe5f2ef48074c159080b714a71b1",
+      "presetIds": [
+        "an-preset-bt-blueprint-grid",
+        "an-preset-bt-kinetic-lattice"
+      ],
+      "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-s-parabolic-bend",
+      "name": "Perspective Bend",
+      "version": 3,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "strength": {
+          "type": "float",
+          "label": "Bend strength",
+          "default": 0.75,
+          "min": -1,
+          "max": 1,
+          "step": 0.01
+        },
+        "endFalloff": {
+          "type": "float",
+          "label": "End falloff",
+          "default": 0.4,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "axisAngle": {
+          "type": "float",
+          "label": "Bend axis",
+          "default": 0,
+          "min": -3.14,
+          "max": 3.14,
+          "step": 0.01
+        },
+        "cameraDistance": {
+          "type": "float",
+          "label": "Camera distance",
+          "default": 2.4,
+          "min": 1.8,
+          "max": 5,
+          "step": 0.01
+        },
+        "center": {
+          "type": "vec2",
+          "label": "Bend center",
+          "default": [
+            0.5,
+            0.5
+          ],
+          "min": 0,
+          "max": 1
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "inverse-perspective-bend",
+          "kind": "render",
+          "reads": [
+            "source"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "cdc4aecfac907a7968b672aa04417e73a42ba0c931edbcd4382835d90b10efba",
+      "presetIds": [
+        "an-preset-bu-convex-display",
+        "an-preset-bu-receding-curl"
+      ],
+      "animationCapability": "static"
+    },
+    {
+      "id": "an-native-owned-bv-source-contours",
+      "name": "Source Contours",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "channel": {
+          "type": "enum",
+          "label": "Contour source",
+          "default": "Luminance",
+          "options": [
+            "Luminance",
+            "Alpha"
+          ]
+        },
+        "levels": {
+          "type": "int",
+          "label": "Contour levels",
+          "default": 12,
+          "min": 2,
+          "max": 64,
+          "step": 1
+        },
+        "lineWidth": {
+          "type": "float",
+          "label": "Line width",
+          "default": 2,
+          "min": 0.2,
+          "max": 12,
+          "step": 0.1
+        },
+        "distribution": {
+          "type": "float",
+          "label": "Level distribution",
+          "default": 1,
+          "min": 0.3,
+          "max": 3,
+          "step": 0.01
+        },
+        "invert": {
+          "type": "bool",
+          "label": "Invert levels",
+          "default": false
+        },
+        "softness": {
+          "type": "float",
+          "label": "Line softness",
+          "default": 0.65,
+          "min": 0.05,
+          "max": 6,
+          "step": 0.05
+        },
+        "colorMode": {
+          "type": "enum",
+          "label": "Color mode",
+          "default": "Source",
+          "options": [
+            "Source",
+            "Custom"
+          ]
+        },
+        "lineColor": {
+          "type": "color",
+          "label": "Contour color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.91,
+              0.96,
+              1
+            ],
+            "alpha": 1
+          }
+        },
+        "backgroundColor": {
+          "type": "color",
+          "label": "Background color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.04,
+              0.09,
+              0.16
+            ],
+            "alpha": 1
+          }
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "trace-source-contours",
+          "kind": "render",
+          "reads": [
+            "source"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "fe79cd30ab2b648e637bfe8d72416a1a7bcec708519c48fd120b818168ffbd13",
+      "presetIds": [
+        "an-preset-bv-topographic-ink",
+        "an-preset-bv-alpha-elevation"
+      ],
+      "animationCapability": "static"
+    },
+    {
+      "id": "an-native-owned-bw-retained-pointer-stroke",
+      "name": "Retained Pointer Stroke",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "strokeWidth": {
+          "type": "float",
+          "label": "Stroke width",
+          "default": 18,
+          "min": 1,
+          "max": 90,
+          "step": 0.01,
+          "unit": "px"
+        },
+        "anchorSpacing": {
+          "type": "float",
+          "label": "Anchor spacing",
+          "default": 8,
+          "min": 1,
+          "max": 28,
+          "step": 0.01,
+          "unit": "px"
+        },
+        "trailLifetime": {
+          "type": "float",
+          "label": "Trail lifetime",
+          "default": 1.1,
+          "min": 0.1,
+          "max": 4,
+          "step": 0.01
+        },
+        "ageFalloff": {
+          "type": "float",
+          "label": "Age falloff",
+          "default": 1.4,
+          "min": 0.2,
+          "max": 4,
+          "step": 0.01
+        },
+        "strokeColor": {
+          "type": "color",
+          "label": "Stroke color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.96,
+              0.65,
+              0.28
+            ],
+            "alpha": 0.85
+          }
+        },
+        "colorMix": {
+          "type": "float",
+          "label": "Stroke color mix",
+          "default": 0.4,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 0.85,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "pointerPosition": {
+          "type": "vec2",
+          "label": "Pointer position",
+          "default": [
+            0.5,
+            0.5
+          ],
+          "min": 0,
+          "max": 1
+        },
+        "pointerActive": {
+          "type": "bool",
+          "label": "Pointer active",
+          "default": true
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "points",
+          "kind": "buffer",
+          "usage": [
+            "storage"
+          ],
+          "persistent": true,
+          "size": "fixed",
+          "byteLength": 1024
+        },
+        {
+          "name": "cursor",
+          "kind": "buffer",
+          "usage": [
+            "storage"
+          ],
+          "persistent": true,
+          "size": "fixed",
+          "byteLength": 16
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "stateful-resource-v1",
+        "timing": {
+          "fixedDt": 0.016666666666666666,
+          "maxStepsPerCall": 16,
+          "maxStepIndex": 36000
+        },
+        "stateResources": [
+          "points",
+          "cursor"
+        ],
+        "sourceHistory": "sequential-captures"
+      },
+      "interaction": {
+        "positionProperty": "pointerPosition",
+        "activeProperty": "pointerActive"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "advance-stroke",
+          "kind": "compute",
+          "reads": [],
+          "previousFrameReads": [
+            "points",
+            "cursor"
+          ],
+          "output": "points",
+          "dispatch": {
+            "elements": "output-buffer",
+            "workgroupSize": [
+              64,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "id": "capture-cursor",
+          "kind": "compute",
+          "reads": [],
+          "previousFrameReads": [
+            "cursor"
+          ],
+          "output": "cursor",
+          "dispatch": {
+            "elements": "output-buffer",
+            "workgroupSize": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "id": "resolve-stroke",
+          "kind": "render",
+          "reads": [
+            "source",
+            "points"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "e493d90448066c3ae919fafa197392146596240d5c0479d8f9cfec2c94fa9f0d",
+      "presetIds": [
+        "an-preset-bw-retained-pointer-amber-ink",
+        "an-preset-bw-retained-pointer-source-thread"
+      ],
+      "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-bx-seeded-scatter-blur",
+      "name": "Seeded Scatter Blur",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "scatterRadius": {
+          "type": "float",
+          "label": "Scatter radius",
+          "default": 12,
+          "min": 0,
+          "max": 120,
+          "step": 0.5,
+          "unit": "px"
+        },
+        "scatterSeed": {
+          "type": "int",
+          "label": "Scatter seed",
+          "default": 17,
+          "min": 0,
+          "max": 10000,
+          "step": 1
+        },
+        "sampleCount": {
+          "type": "int",
+          "label": "Sample count",
+          "default": 24,
+          "min": 8,
+          "max": 32,
+          "step": 1
+        },
+        "edgeMode": {
+          "type": "enum",
+          "label": "Edge mode",
+          "default": "Clamp",
+          "options": [
+            "Transparent",
+            "Clamp",
+            "Repeat",
+            "Mirror"
+          ]
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "render"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "scatter-gather",
+          "kind": "render",
+          "reads": [
+            "source"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "60f5f43b6aee101a04aa5bef857982aa8ea70702341ec173cc666405854a4234",
+      "presetIds": [
+        "an-preset-bx-soft-scatter",
+        "an-preset-bx-prismatic-haze"
+      ],
+      "animationCapability": "static"
+    },
+    {
+      "id": "an-native-owned-by-corner-page-curl",
+      "name": "Corner Page Curl",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "progress": {
+          "type": "float",
+          "label": "Curl progress",
+          "default": 0.32,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "corner": {
+          "type": "enum",
+          "label": "Curl corner",
+          "default": "bottom-right",
+          "options": [
+            "top-left",
+            "top-right",
+            "bottom-left",
+            "bottom-right"
+          ]
+        },
+        "curlRadius": {
+          "type": "float",
+          "label": "Curl radius",
+          "default": 0.16,
+          "min": 0.02,
+          "max": 0.35,
+          "step": 0.01
+        },
+        "curvature": {
+          "type": "float",
+          "label": "Curl curvature",
+          "default": 0.7,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "backShade": {
+          "type": "float",
+          "label": "Backface shade",
+          "default": 0.58,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "sheen": {
+          "type": "float",
+          "label": "Curl sheen",
+          "default": 0.4,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "contactShadow": {
+          "type": "float",
+          "label": "Contact shadow",
+          "default": 0.6,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "destinationImage": {
+          "type": "texture",
+          "label": "Destination image",
+          "default": null,
+          "input": "destination"
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        },
+        "destination": {
+          "kind": "texture-2d",
+          "resource": "destination"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "destination",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport",
+          "sampleEncoding": "srgb-color-premultiplied"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "curl-corner",
+          "kind": "render",
+          "reads": [
+            "source",
+            "destination"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "4726603384b4bc4e34ef9d0ea48b5cbe8807863b71dcf924843b7b1b3b11b082",
+      "presetIds": [
+        "an-preset-by-corner-page-curl-satin-turn",
+        "an-preset-by-corner-page-curl-deep-curl"
+      ],
+      "animationCapability": "static"
+    },
+    {
+      "id": "an-native-owned-bz-source-tint",
+      "name": "Source Tint",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "tint": {
+          "type": "color",
+          "label": "Tint color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.3,
+              0.7,
+              1
+            ],
+            "alpha": 1
+          }
+        },
+        "tintMode": {
+          "type": "enum",
+          "label": "Tint mode",
+          "default": "Multiply",
+          "options": [
+            "Multiply",
+            "Preserve luminosity"
+          ]
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "render"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "tint-source",
+          "kind": "render",
+          "reads": [
+            "source"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "5e480be8bc2150fb3d977fbd63403e3a228db0403555dd2b5585aaf5dad39f18",
+      "presetIds": [
+        "an-preset-bz-cobalt-wash",
+        "an-preset-bz-rose-luminance"
+      ],
+      "animationCapability": "static"
     }
   ],
   "defaultCanvasGpuEvidence": {

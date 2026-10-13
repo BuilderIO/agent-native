@@ -4,6 +4,12 @@ import { POINTER_RUN_SORT_DEFINITIONS } from "./native-effect-owned-an-pointer-s
 import { GRAIN_GRADIENT_EFFECT } from "./native-effect-presets";
 import { packNativeProperties, type EffectDefinition } from "./native-effects";
 import {
+  NativePointerHistory,
+  NativePointerHistoryError,
+  sampleNativePointerHistory,
+  validateNativePointerHistorySnapshot,
+} from "./native-pointer-history";
+import {
   mapNativePointerInput,
   packNativePointerProperties,
   resolveNativeFeedbackPointerInput,
@@ -180,5 +186,57 @@ describe("native pointer input", () => {
         null,
       ),
     ).toEqual({ x: 0.3, y: 0.6, dx: 0, dy: 0, active: false });
+  });
+});
+
+describe("bounded native pointer history", () => {
+  it("replays active, motion positions, and leave at fixed-step timestamps", () => {
+    const history = new NativePointerHistory(0);
+    history.record(0.04, { x: 0.2, y: 0.3, active: true });
+    history.record(0.08, { x: 0.7, y: 0.3, active: true });
+    history.record(0.12, { x: 0.7, y: 0.3, active: false });
+    const snapshot = history.snapshot(0, 0.14, 0.15);
+    validateNativePointerHistorySnapshot(snapshot, 0, 0.14);
+    const initial = { x: 0.5, y: 0.5, active: false };
+    expect(sampleNativePointerHistory(snapshot, 0, initial)).toEqual(initial);
+    expect(sampleNativePointerHistory(snapshot, 0.05, initial)).toEqual({
+      x: 0.2,
+      y: 0.3,
+      active: true,
+    });
+    expect(sampleNativePointerHistory(snapshot, 0.09, initial)).toEqual({
+      x: 0.7,
+      y: 0.3,
+      active: true,
+    });
+    expect(sampleNativePointerHistory(snapshot, 0.14, initial)).toEqual({
+      x: 0.7,
+      y: 0.3,
+      active: false,
+    });
+  });
+
+  it("distinguishes known authored-static input from missing or invalidated live history", () => {
+    const staticHistory = new NativePointerHistory(0);
+    expect(staticHistory.snapshot(0, 1, 1)).toEqual({
+      mode: "authored-static",
+    });
+    staticHistory.invalidate();
+    staticHistory.reset(0);
+    expect(staticHistory.snapshot(0, 1, 1)).toEqual({
+      mode: "authored-static",
+    });
+    const history = new NativePointerHistory(0);
+    history.record(0.5, { x: 0.3, y: 0.5, active: true });
+    expect(() => history.snapshot(0, 2, 1)).toThrow(NativePointerHistoryError);
+    history.invalidate();
+    expect(() => history.snapshot(0, 1, 1)).toThrow(NativePointerHistoryError);
+    history.reset(0);
+    expect(() => history.snapshot(0, 1, 1)).toThrow(NativePointerHistoryError);
+    const unreadableInput = new NativePointerHistory(0);
+    unreadableInput.invalidate(true);
+    expect(() => unreadableInput.snapshot(0, 1, 1)).toThrow(
+      NativePointerHistoryError,
+    );
   });
 });

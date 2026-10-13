@@ -56,6 +56,14 @@ import { resolveNativeParameterAnimation } from "../../../../shared/native-param
 import { NativePipelineCache } from "../../../../shared/native-pipeline-cache";
 import { NativePipelineCacheCapacityError } from "../../../../shared/native-pipeline-cache";
 import {
+  NativePointerHistory,
+  NativePointerHistoryError,
+  sampleNativePointerHistory,
+  validateNativePointerHistorySnapshot,
+  type NativePointerHistoryEvent,
+  type NativePointerReplayEntry,
+} from "../../../../shared/native-pointer-history";
+import {
   mapNativePointerInput,
   packNativePointerProperties,
   resolveNativeFeedbackPointerInput,
@@ -528,6 +536,7 @@ type Mount = {
   pointerListener: ((event: PointerEvent) => void) | null;
   pointerLeaveListener: (() => void) | null;
   pointerState: NativePointerState | null;
+  pointerHistory: NativePointerHistory | null;
   simulationCaughtUp: boolean;
   feedback: {
     executor: NativeTextureFeedbackExecutor;
@@ -673,6 +682,7 @@ type NativeSimulationExportSession = {
   failed: boolean;
   sourceStale: boolean;
   deviceEpoch: number;
+  pointerReplay: Map<string, NativePointerReplayEntry> | null;
 };
 type RuntimeCompositionOptions = Pick<
   NativeCompositionFrameOptions,
@@ -3065,6 +3075,7 @@ class NativeShaderRuntime {
       this.releaseSimulationExportSaved(this.simulationExportSession);
     }
     for (const mount of this.mounts.values()) {
+      mount.pointerHistory?.invalidate();
       this.showOriginal(mount);
       mount.target.setAttribute("data-an-native-status", "error");
       mount.target.setAttribute("data-an-native-error", code);
@@ -3727,6 +3738,7 @@ class NativeShaderRuntime {
 
   private releaseSimulation(mount: Mount): void {
     if (!mount.simulation) return;
+    mount.pointerHistory?.invalidate();
     const simulation = mount.simulation;
     for (const buffer of simulation.buffers)
       this.destroySimulationBuffer(buffer);
@@ -3795,6 +3807,7 @@ class NativeShaderRuntime {
   }
 
   private releaseStateful(mount: Mount): void {
+    if (mount.stateful) mount.pointerHistory?.invalidate();
     mount.statefulFrame?.abandon();
     mount.statefulFrame = null;
     mount.stateful?.executor.dispose();
@@ -3862,6 +3875,7 @@ class NativeShaderRuntime {
   }
 
   private releaseFeedback(mount: Mount): void {
+    if (mount.feedback) mount.pointerHistory?.invalidate();
     mount.feedbackFrame?.abandon();
     mount.feedbackFrame = null;
     this.clearFeedbackTelemetry(mount);
@@ -4428,9 +4442,11 @@ class NativeShaderRuntime {
             (existing.instance.timing.seekRevision ?? 0) !==
               (next.seekRevision ?? 0),
           );
+          existing.pointerHistory?.reset(existing.clock.local);
         }
         if (existing.definitionHash !== entry.hash) {
           existing.pointerState = null;
+          existing.pointerHistory = null;
         }
         existing.animationCapability = entry.instance.animation
           ? "animated"
@@ -4438,9 +4454,15 @@ class NativeShaderRuntime {
         existing.instance = entry.instance;
         existing.definition = entry.definition;
         existing.definitionHash = entry.hash;
-        if (entry.definition.simulation || entry.definition.interaction)
+        if (entry.definition.simulation || entry.definition.interaction) {
+          existing.pointerHistory ??= new NativePointerHistory(
+            existing.clock.local,
+          );
           this.attachPointer(existing);
-        else this.detachPointer(existing);
+        } else {
+          existing.pointerHistory = null;
+          this.detachPointer(existing);
+        }
         if (!entry.definition.simulation && existing.simulation)
           this.releaseSimulation(existing);
         existing.previousLayerId = entry.previousLayerId;
@@ -4698,6 +4720,10 @@ class NativeShaderRuntime {
       pointerListener: null,
       pointerLeaveListener: null,
       pointerState: null,
+      pointerHistory:
+        definition.simulation || definition.interaction
+          ? new NativePointerHistory(instance.timing.time)
+          : null,
       simulationCaughtUp: true,
       feedback: null,
       feedbackFrame: null,
@@ -4707,6 +4733,21 @@ class NativeShaderRuntime {
     if (definition.simulation || definition.interaction)
       this.attachPointer(mounted);
     return mounted;
+  }
+
+  private pointerLocalTime(mount: Mount): number {
+    const now = this.currentTime();
+    return mount.clock.paused
+      ? mount.clock.local
+      : mount.clock.local + (now - mount.clock.global) * mount.clock.speed;
+  }
+
+  private recordLivePointer(mount: Mount, pointer: NativePointerState): void {
+    mount.pointerHistory?.record(this.pointerLocalTime(mount), {
+      x: Math.max(0, Math.min(1, pointer.x)),
+      y: Math.max(0, Math.min(1, pointer.y)),
+      active: pointer.active,
+    });
   }
 
   private attachPointer(mount: Mount): void {
@@ -4723,6 +4764,7 @@ class NativeShaderRuntime {
           mount.instance.id,
         );
         if (mount.simulation) mount.simulation.pointer.active = false;
+        mount.pointerHistory?.invalidate(true);
         this.clearInteractionPointer(mount);
         return;
       }
@@ -4747,10 +4789,12 @@ class NativeShaderRuntime {
       if (!mapped.ok) {
         this.issue(mapped.code, mapped.detail, mount.instance.id);
         if (mount.simulation) mount.simulation.pointer.active = false;
+        mount.pointerHistory?.invalidate(true);
         this.clearInteractionPointer(mount);
         return;
       }
       const { x, y, active } = mapped.pointer;
+      this.recordLivePointer(mount, mapped.pointer);
       const prior = mount.simulation?.pointer;
       if (mount.simulation)
         mount.simulation.pointer = {
@@ -4773,6 +4817,9 @@ class NativeShaderRuntime {
       }
     };
     const leave = (): void => {
+      const prior = mount.pointerState ?? mount.simulation?.pointer;
+      if (prior?.active)
+        this.recordLivePointer(mount, { ...prior, active: false });
       if (mount.simulation) mount.simulation.pointer.active = false;
       this.clearInteractionPointer(mount);
     };
@@ -7428,9 +7475,34 @@ class NativeShaderRuntime {
       const read = state.buffers[state.readIndex];
       const writeIndex = (1 - state.readIndex) as 0 | 1;
       const write = state.buffers[writeIndex];
-      const pointer = deterministic
-        ? { ...spec.idlePointer, vx: 0, vy: 0, active: false }
-        : state.pointer;
+      const replay = deterministic
+        ? this.replayPointer(mount, stepIndex * spec.fixedDt, {
+            ...spec.idlePointer,
+            active: false,
+          })
+        : null;
+      const priorReplay =
+        replay && stepIndex > 0
+          ? this.replayPointer(mount, (stepIndex - 1) * spec.fixedDt, {
+              ...spec.idlePointer,
+              active: false,
+            })
+          : null;
+      const pointer = replay
+        ? {
+            ...replay,
+            vx:
+              replay.active && priorReplay?.active
+                ? replay.x - priorReplay.x
+                : 0,
+            vy:
+              replay.active && priorReplay?.active
+                ? replay.y - priorReplay.y
+                : 0,
+          }
+        : deterministic
+          ? { ...spec.idlePointer, vx: 0, vy: 0, active: false }
+          : state.pointer;
       const interaction = this.simulationUniform(
         new Float32Array([
           pointer.x,
@@ -7942,10 +8014,11 @@ class NativeShaderRuntime {
           stepTime,
         );
         data.set(
-          packNativePointerProperties(
+          this.packPointerForTime(
+            mount,
             definition,
             values,
-            mount.pointerState,
+            stepTime,
             deterministic,
           ),
           8,
@@ -8099,12 +8172,25 @@ class NativeShaderRuntime {
       output = this.texture(source.width, source.height, "rgba16float");
       mount.resourceTextures.set(outputName, output);
     }
+    const pointerPosition = definition.interaction
+      ? ((instance.params[definition.interaction.positionProperty] ??
+          definition.properties[definition.interaction.positionProperty]
+            .default) as [number, number])
+      : null;
+    const replay =
+      deterministic && pointerPosition
+        ? this.replayPointer(mount, time, {
+            x: pointerPosition[0],
+            y: pointerPosition[1],
+            active: false,
+          })
+        : null;
     const pointer = adapted.definition.pointer
       ? resolveNativeFeedbackPointerInput(
           definition,
           instance.params,
-          mount.pointerState,
-          deterministic,
+          replay ?? mount.pointerState,
+          deterministic && !replay,
           feedback.pointerPosition,
         )
       : undefined;
@@ -8274,10 +8360,11 @@ class NativeShaderRuntime {
         4,
       );
       data.set(
-        packNativePointerProperties(
+        this.packPointerForTime(
+          mount,
           definition,
           instance.params,
-          mount.pointerState,
+          time,
           deterministic,
         ),
         8,
@@ -9063,10 +9150,11 @@ class NativeShaderRuntime {
           4,
         );
         data.set(
-          packNativePointerProperties(
+          this.packPointerForTime(
+            mount,
             definition,
             instance.params,
-            mount.pointerState,
+            time,
             deterministic,
           ),
           8,
@@ -9970,10 +10058,11 @@ class NativeShaderRuntime {
         4,
       );
       data.set(
-        packNativePointerProperties(
+        this.packPointerForTime(
+          mount,
           definition,
           instance.params,
-          mount.pointerState,
+          time,
           deterministic,
         ),
         8,
@@ -13705,6 +13794,7 @@ class NativeShaderRuntime {
     this.timeOverride = time;
     for (const { mount, clock } of clocks) {
       mount.clock = clock;
+      mount.pointerHistory?.reset(clock.local);
       this.markMountRenderPending(mount);
     }
     await this.renderAt(time);
@@ -13984,11 +14074,122 @@ class NativeShaderRuntime {
       async (rendered) => rendered,
     );
 
+  capturePointerHistories = (options: {
+    expectedInstances: readonly {
+      instanceId: string;
+      nodeId: string;
+      definitionId: string;
+      definitionVersion: number;
+      executionHash: string;
+      instanceJson: string;
+    }[];
+    fps: number;
+    totalFrames: number;
+    startTimeSeconds: number;
+  }): NativePointerReplayEntry[] => {
+    if (
+      !Number.isSafeInteger(options.fps) ||
+      options.fps < 1 ||
+      options.fps > 120 ||
+      !Number.isSafeInteger(options.totalFrames) ||
+      options.totalFrames < 1 ||
+      options.totalFrames > 3600 ||
+      !Number.isFinite(options.startTimeSeconds) ||
+      options.startTimeSeconds < 0 ||
+      options.expectedInstances.length > 128 ||
+      new Set(options.expectedInstances.map((item) => item.instanceId)).size !==
+        options.expectedInstances.length
+    )
+      throw new NativePointerHistoryError();
+    const now = this.currentTime();
+    return options.expectedInstances.map((item) => {
+      const mount = this.mounts.get(item.instanceId);
+      if (
+        !mount ||
+        !mount.pointerHistory ||
+        mount.instance.nodeId !== item.nodeId ||
+        mount.definition.id !== item.definitionId ||
+        mount.definition.version !== item.definitionVersion ||
+        mount.definitionHash !== item.executionHash ||
+        JSON.stringify(mount.instance) !== item.instanceJson ||
+        !(mount.definition.interaction || mount.definition.simulation)
+      )
+        throw new NativePointerHistoryError();
+      const timing = mount.instance.timing;
+      const startTime =
+        timing.time +
+        (timing.paused ? 0 : options.startTimeSeconds * timing.speed);
+      const endTime =
+        timing.time +
+        (timing.paused
+          ? 0
+          : (options.startTimeSeconds +
+              (options.totalFrames - 1) / options.fps) *
+            timing.speed);
+      const observedUntil = mount.clock.paused
+        ? mount.clock.local
+        : mount.clock.local + (now - mount.clock.global) * mount.clock.speed;
+      return {
+        ...item,
+        timing: { ...timing },
+        history: mount.pointerHistory.snapshot(
+          startTime,
+          endTime,
+          observedUntil,
+        ),
+      };
+    });
+  };
+
+  private replayPointer(
+    mount: Mount,
+    time: number,
+    initial: NativePointerState,
+  ): NativePointerState | null {
+    const entry = this.simulationExportSession?.pointerReplay?.get(
+      mount.instance.id,
+    );
+    if (!entry || entry.history.mode === "authored-static") return null;
+    return sampleNativePointerHistory(entry.history, time, initial);
+  }
+
+  private packPointerForTime(
+    mount: Mount,
+    definition: EffectDefinition,
+    params: EffectInstance["params"],
+    time: number,
+    deterministic: boolean,
+  ): Float32Array {
+    const interaction = definition.interaction;
+    const position = interaction
+      ? ((params[interaction.positionProperty] ??
+          definition.properties[interaction.positionProperty].default) as [
+          number,
+          number,
+        ])
+      : null;
+    const replay =
+      deterministic && position
+        ? this.replayPointer(mount, time, {
+            x: position[0],
+            y: position[1],
+            active: false,
+          })
+        : null;
+    return packNativePointerProperties(
+      definition,
+      params,
+      replay ?? mount.pointerState,
+      deterministic && !replay,
+    );
+  }
+
   beginSimulationExportSession = async (options: {
     fps: number;
     totalFrames: number;
     startTimeSeconds: number;
     targetInstanceIds?: string[];
+    pointerReplay?: readonly NativePointerReplayEntry[];
     signal?: AbortSignal;
     timeoutMs?: number;
   }): Promise<{ sessionId: string }> => {
@@ -14027,6 +14228,87 @@ class NativeShaderRuntime {
         "The held render session target is missing or exceeds its bound.",
       );
     const targetInstances = new Set(targetInstanceIds);
+    if (
+      options.pointerReplay !== undefined &&
+      (!Array.isArray(options.pointerReplay) ||
+        options.pointerReplay.length > 128 ||
+        options.pointerReplay.some(
+          (entry) =>
+            !entry ||
+            typeof entry !== "object" ||
+            typeof entry.instanceId !== "string" ||
+            !entry.history ||
+            (entry.history.mode !== "authored-static" &&
+              (entry.history.mode !== "recorded" ||
+                !Array.isArray(entry.history.events))),
+        ))
+    )
+      throw new NativePointerHistoryError();
+    const pointerReplay =
+      options.pointerReplay === undefined
+        ? null
+        : new Map(
+            options.pointerReplay.map((entry) => [
+              entry.instanceId,
+              {
+                ...entry,
+                timing: { ...entry.timing },
+                history:
+                  entry.history.mode === "recorded"
+                    ? {
+                        ...entry.history,
+                        events: entry.history.events.map(
+                          (event: NativePointerHistoryEvent) => ({
+                            ...event,
+                          }),
+                        ),
+                      }
+                    : { mode: "authored-static" as const },
+              },
+            ]),
+          );
+    if (
+      pointerReplay &&
+      (pointerReplay.size !== options.pointerReplay!.length ||
+        pointerReplay.size > 128 ||
+        [...pointerReplay.keys()].some((id) => !this.mounts.has(id)))
+    )
+      throw new NativePointerHistoryError();
+    for (const mount of this.mounts.values()) {
+      if (
+        pointerReplay &&
+        (mount.definition.interaction || mount.definition.simulation)
+      ) {
+        const entry = pointerReplay.get(mount.instance.id);
+        if (
+          !entry ||
+          entry.nodeId !== mount.instance.nodeId ||
+          entry.definitionId !== mount.definition.id ||
+          entry.definitionVersion !== mount.definition.version ||
+          entry.executionHash !== mount.definitionHash ||
+          entry.instanceJson !== JSON.stringify(mount.instance) ||
+          JSON.stringify(entry.timing) !== JSON.stringify(mount.instance.timing)
+        )
+          throw new NativePointerHistoryError();
+        const firstTime =
+          mount.instance.timing.time +
+          (mount.instance.timing.paused
+            ? 0
+            : options.startTimeSeconds * mount.instance.timing.speed);
+        const lastTime =
+          mount.instance.timing.time +
+          (mount.instance.timing.paused
+            ? 0
+            : (options.startTimeSeconds +
+                (options.totalFrames - 1) / options.fps) *
+              mount.instance.timing.speed);
+        validateNativePointerHistorySnapshot(
+          entry.history,
+          firstTime,
+          lastTime,
+        );
+      }
+    }
     for (const mount of this.mounts.values()) {
       const spec = mount.definition.simulation;
       const feedback = mount.definition.feedback;
@@ -14184,6 +14466,7 @@ class NativeShaderRuntime {
             !!mount.definition.simulation ||
             !!mount.definition.feedback ||
             isStatefulResourceGraph(mount.definition.resourceGraph) ||
+            pointerReplay?.has(mount.instance.id) ||
             targetInstances.has(mount.instance.id),
         )
         .map((mount) => {
@@ -14217,6 +14500,7 @@ class NativeShaderRuntime {
         failed: false,
         sourceStale: false,
         deviceEpoch: this.deviceEpoch,
+        pointerReplay,
       };
       return { sessionId: id };
     } catch (error) {
@@ -15172,20 +15456,36 @@ class NativeShaderRuntime {
           (options.startTimeSeconds ?? 0) + options.frameIndex / options.fps;
         const clocks = [...this.mounts.values()].flatMap((mount) => {
           const graph = mount.definition.resourceGraph;
+          const timing = mount.instance.timing;
           if (
-            !isStatefulResourceGraph(graph) ||
-            graph.sourceHistory !== "sequential-captures"
+            isStatefulResourceGraph(graph) &&
+            graph.sourceHistory === "sequential-captures"
           )
-            return [];
-          return [
-            {
-              completedStep: mount.stateful?.executor.lastCompletedStep ?? -1,
-              fixedDt: graph.timing.fixedDt,
-              timeOffset: mount.instance.timing.time,
-              speed: mount.instance.timing.speed,
-              paused: mount.instance.timing.paused,
-            },
-          ];
+            return [
+              {
+                completedStep: mount.stateful?.executor.lastCompletedStep ?? -1,
+                fixedDt: graph.timing.fixedDt,
+                timeOffset: timing.time,
+                speed: timing.speed,
+                paused: timing.paused,
+              },
+            ];
+          const feedback = mount.definition.feedback;
+          if (
+            feedback?.pointer === "interaction-v1" &&
+            simulationSession?.pointerReplay?.get(mount.instance.id)?.history
+              .mode === "recorded"
+          )
+            return [
+              {
+                completedStep: mount.feedback?.executor.lastCompletedStep ?? 0,
+                fixedDt: feedback.timing.fixedDt,
+                timeOffset: timing.time,
+                speed: timing.speed,
+                paused: timing.paused,
+              },
+            ];
+          return [];
         });
         const captureTimes = planNativeStatefulSourceCaptureTimes(
           clocks,
