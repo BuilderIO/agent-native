@@ -472,6 +472,57 @@ interface DataSourceStatusSummary {
   setupLink: string;
 }
 
+function inferRequiredCredentialsConfigured(
+  providerId: unknown,
+  record: Record<string, unknown>,
+  configured: boolean | null,
+  workspaceGrantState: string | undefined,
+): boolean | null {
+  if (typeof record.credentialsConfigured === "boolean") {
+    return record.credentialsConfigured;
+  }
+
+  const rawMissingRequiredKeys = record.missingRequiredKeys;
+  if (
+    Array.isArray(rawMissingRequiredKeys) &&
+    rawMissingRequiredKeys.every((key) => typeof key === "string")
+  ) {
+    return rawMissingRequiredKeys.length === 0;
+  }
+
+  const configuredKeys = Array.isArray(record.configuredKeys)
+    ? record.configuredKeys.filter(
+        (key): key is string => typeof key === "string",
+      )
+    : null;
+  if (configuredKeys && typeof providerId === "string") {
+    const providerConfig = credentialProviderConfigs.find(
+      (provider) => provider.provider === providerId,
+    );
+    if (providerConfig) {
+      const configuredKeySet = new Set(
+        configuredKeys.map((key) => key.trim().toUpperCase()),
+      );
+      const requiredMode = providerConfig.requiredMode ?? "all";
+      return requiredMode === "any"
+        ? providerConfig.requiredKeys.some((key) =>
+            configuredKeySet.has(key.toUpperCase()),
+          )
+        : providerConfig.requiredKeys.every((key) =>
+            configuredKeySet.has(key.toUpperCase()),
+          );
+    }
+  }
+
+  if (
+    workspaceGrantState === "granted" ||
+    workspaceGrantState === "connected"
+  ) {
+    return null;
+  }
+  return configured === true ? true : null;
+}
+
 const GENERIC_EXTERNAL_SOURCE_REQUEST_TERMS = /\b(warehouse|crm|payments?)\b/i;
 
 const EXTERNAL_SOURCE_PROVIDER_ALIASES = [
@@ -560,6 +611,15 @@ function hasMissingRequestedExternalSource(
         matchingStatuses.some(
           (source) =>
             source.workspaceGrantState === "granted" &&
+            source.credentialsConfigured !== true,
+        )
+      ) {
+        return true;
+      }
+      if (
+        matchingStatuses.some(
+          (source) =>
+            source.workspaceGrantState === "needs_grant" &&
             source.credentialsConfigured === false,
         )
       ) {
@@ -614,22 +674,15 @@ function dataSourceStatusSummary(
           : existing.configured === null || configured === null
             ? null
             : false;
-      if (
-        details?.workspaceGrantState &&
-        (!existing.workspaceGrantState ||
-          details.workspaceGrantState === "connected")
-      ) {
+      if (details?.workspaceGrantState) {
         existing.workspaceGrantState = details.workspaceGrantState;
       }
       if (details?.credentialsConfigured !== undefined) {
-        existing.credentialsConfigured =
-          existing.credentialsConfigured === true ||
-          details.credentialsConfigured === true
-            ? true
-            : existing.credentialsConfigured === false ||
-                details.credentialsConfigured === false
-              ? false
-              : null;
+        // The compact configuredDataSources entry is only a hint: its `via`
+        // value can include optional credentials. The provider record carries
+        // the authoritative required-credential result and must be allowed to
+        // correct that inference in either direction.
+        existing.credentialsConfigured = details.credentialsConfigured;
       }
       existing.aliases = [...new Set([...existing.aliases, ...aliases])];
       if (!existing.label && typeof label === "string" && label.trim()) {
@@ -754,11 +807,11 @@ function dataSourceStatusSummary(
           : via === "workspace" || via === "credentials-and-workspace"
             ? "connected"
             : undefined;
-      const credentialsConfigured = via.includes("credentials")
-        ? true
-        : via === "workspace" || via === "workspace-grant"
-          ? false
-          : undefined;
+      // `credentials-and-workspace-grant` is not evidence that required keys
+      // are present: the compact summary can include optional-only keys.
+      // Leave required-credential readiness unknown until the provider detail
+      // supplies its explicit result (or enough required-key metadata).
+      const credentialsConfigured = via === "credentials" ? true : undefined;
       addAvailableExternalSource(
         record.provider,
         label,
@@ -799,24 +852,37 @@ function dataSourceStatusSummary(
         typeof workspaceConnection?.grantState === "string"
           ? workspaceConnection.grantState
           : undefined;
-      const credentialsConfigured =
-        typeof record.credentialsConfigured === "boolean"
-          ? record.credentialsConfigured
-          : workspaceGrantState === "granted"
-            ? Array.isArray(record.configuredKeys) &&
-              record.configuredKeys.length > 0
-            : configured === true
-              ? true
-              : null;
+      const credentialsConfigured = inferRequiredCredentialsConfigured(
+        record.provider,
+        record,
+        configured,
+        workspaceGrantState,
+      );
+      const requiredCredentialsMissingWithoutGrant =
+        workspaceGrantState === "needs_grant" &&
+        credentialsConfigured === false;
+      const effectiveConfigured = requiredCredentialsMissingWithoutGrant
+        ? false
+        : configured;
       addAvailableExternalSource(
         record.provider,
         label,
-        configured,
+        effectiveConfigured,
         record.setupLink,
         { workspaceGrantState, credentialsConfigured },
       );
-      if (configured === true && typeof label === "string" && label.trim()) {
+      if (
+        effectiveConfigured === true &&
+        typeof label === "string" &&
+        label.trim()
+      ) {
         configuredSourceLabels.add(label.trim());
+      } else if (
+        effectiveConfigured === false &&
+        typeof label === "string" &&
+        label.trim()
+      ) {
+        configuredSourceLabels.delete(label.trim());
       }
       if (
         workspaceConnection?.grantState === "connected" &&
@@ -890,9 +956,12 @@ function requestedExternalSourceSetup(
   for (const candidate of summary.availableExternalSources) {
     const needsReview =
       candidate.workspaceGrantState === "granted" &&
+      candidate.credentialsConfigured !== true;
+    const needsConnect =
+      candidate.workspaceGrantState === "needs_grant" &&
       candidate.credentialsConfigured === false;
     if (
-      (candidate.configured !== false && !needsReview) ||
+      (candidate.configured !== false && !needsReview && !needsConnect) ||
       !candidate.setupLink
     )
       continue;

@@ -43,18 +43,27 @@ export function sourceHealthState(
     );
   const statuses = new Set(connection?.statuses ?? []);
 
-  if (statuses.has("error")) return "error";
-  if (statuses.has("needs_reauth")) return "needs_reauth";
-  // Status labels describe connection health; only grantState proves that the
-  // Analytics app has been granted access to use this provider.
-  if (connection?.grantState === "connected") return "connected";
+  const grantState = connection?.grantState;
+  // The core status list includes connections granted to other apps. The
+  // Analytics grant state must therefore decide whether those statuses apply
+  // to this app before the status labels can influence health.
+  if (grantState === "connected") return "connected";
+  if (grantState === "needs_grant") {
+    const missingRequiredKeys = provider?.missingRequiredKeys;
+    const requiredCredentialsConfigured =
+      typeof provider?.credentialsConfigured === "boolean"
+        ? provider.credentialsConfigured
+        : Array.isArray(missingRequiredKeys) &&
+          missingRequiredKeys.length === 0;
+    return requiredCredentialsConfigured ? "configured" : "not_connected";
+  }
   if (data.workspaceConnections?.available === false) return "error";
   if (provider?.configured === null) return "error";
-  if (
-    provider?.configured === true ||
-    connection?.grantState === "granted" ||
-    statuses.has("checking")
-  ) {
+  if (grantState === "granted") {
+    if (statuses.has("needs_reauth")) return "needs_reauth";
+    if (statuses.has("error")) return "error";
+  }
+  if (provider?.configured === true || grantState === "granted") {
     return "configured";
   }
   return "not_connected";

@@ -267,15 +267,21 @@ export default defineAction({
             workspace.grants,
           );
         const workspaceGrantState = workspaceConnection.grantState;
-        const hasWorkspaceGrant =
+        const configured =
+          hasRequiredCredentials ||
           workspaceGrantState === "connected" ||
           workspaceGrantState === "granted";
-        const configured = hasRequiredCredentials || hasWorkspaceGrant;
+        const ready = hasRequiredCredentials
+          ? true
+          : workspace.error
+            ? null
+            : workspaceGrantState === "connected";
         return {
           provider: provider.provider,
           label: provider.label,
           setupLink: dataSourceSetupLink(provider.provider),
           configured: configured ? true : workspace.error ? null : false,
+          ready,
           credentialsConfigured:
             hasRequiredCredentials && configuredProviderKeys.length > 0,
           configuredKeys: configuredProviderKeys,

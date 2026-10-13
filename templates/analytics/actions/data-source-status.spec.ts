@@ -320,6 +320,8 @@ describe("data-source-status", () => {
 
     expect(hubspot).toMatchObject({
       configured: true,
+      ready: true,
+      credentialsConfigured: false,
       configuredKeys: [],
       setupLink:
         "/_agent-native/open?app=analytics&view=data-sources&to=%2Fdata-sources%3Fsource%3Dhubspot%26returnTo%3Dask",
@@ -353,7 +355,7 @@ describe("data-source-status", () => {
     });
   });
 
-  it("counts a granted but unhealthy HubSpot connection as configured only", async () => {
+  it("keeps an unhealthy HubSpot grant configured without marking it ready", async () => {
     mocks.workspaceSummary = {
       ...mocks.workspaceSummary,
       grantState: "granted",
@@ -364,6 +366,7 @@ describe("data-source-status", () => {
       hasWorkspaceConnection: true,
       hasGrantedWorkspaceConnection: true,
       hasActiveWorkspaceConnection: false,
+      statuses: ["error"],
     };
 
     const result = (await dataSourceStatus.run({ key: "hubspot" })) as any;
@@ -373,12 +376,14 @@ describe("data-source-status", () => {
 
     expect(hubspot).toMatchObject({
       configured: true,
+      ready: false,
       credentialsConfigured: false,
       configuredKeys: [],
       workspaceConnection: {
         grantState: "granted",
         connectionCount: 1,
         activeConnectionCount: 0,
+        statuses: ["error"],
       },
     });
     expect(result.configuredDataSources).toContainEqual({

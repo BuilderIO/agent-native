@@ -95,6 +95,7 @@ import {
   getOptionalCredentialKeys,
   getSharedConnectionStatus,
   getGoogleSheetsConnection,
+  hasExistingWorkspaceConnection,
   isWorkspaceOAuthSource,
   isSourceReady,
   isSourceLocallyConfigured,
@@ -1352,7 +1353,7 @@ function DataSourceDetail({
         <WorkspaceOAuthView
           provider={source.id}
           label={source.name}
-          connected={sharedConnectionStatus?.kind === "needs_grant"}
+          connected={hasExistingWorkspaceConnection(sharedConnectionStatus)}
           returnPath={oauthReturnPath}
         />
       ) : preferWorkspaceSetup ? (

@@ -1205,7 +1205,7 @@ describe("realDataFinalGuard", () => {
                 {
                   provider: "hubspot",
                   label: "HubSpot",
-                  via: "workspace-grant",
+                  via: "credentials-and-workspace-grant",
                 },
               ],
               providers: [
@@ -1257,6 +1257,163 @@ describe("realDataFinalGuard", () => {
     );
     expect((result as { retryMessage: string }).retryMessage).not.toContain(
       `[Connect HubSpot](${hubspotSetupLink})`,
+    );
+    expect(
+      (result as { fallbackMessage: string }).fallbackMessage,
+    ).not.toContain(`[Connect HubSpot](${hubspotSetupLink})`);
+  });
+
+  it("reviews an inactive BigQuery grant in an older optional-key-only status", () => {
+    const bigquerySetupLink =
+      "/_agent-native/open?app=analytics&view=data-sources&to=%2Fdata-sources%3Fsource%3Dbigquery%26returnTo%3Dask";
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "show me our BigQuery usage",
+        draftText: "BigQuery is not connected yet.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                },
+                {
+                  provider: "bigquery",
+                  label: "BigQuery",
+                  via: "credentials-and-workspace-grant",
+                },
+              ],
+              providers: [
+                {
+                  provider: "bigquery",
+                  label: "BigQuery",
+                  configured: true,
+                  configuredKeys: ["ANALYTICS_BIGQUERY_EVENTS_TABLE"],
+                  optionalKeys: ["ANALYTICS_BIGQUERY_EVENTS_TABLE"],
+                  setupLink: bigquerySetupLink,
+                  workspaceConnection: {
+                    grantState: "granted",
+                    activeConnectionCount: 0,
+                  },
+                },
+              ],
+              dataSourcesSetupLink:
+                "/_agent-native/open?app=analytics&view=data-sources",
+              workspaceConnections: {
+                appId: "analytics",
+                available: true,
+                error: null,
+                providers: [
+                  {
+                    id: "bigquery",
+                    label: "BigQuery",
+                    grantState: "granted",
+                    activeConnectionCount: 0,
+                    statuses: ["error"],
+                  },
+                ],
+              },
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        `[Review BigQuery connection](${bigquerySetupLink})`,
+      ),
+      fallbackMessage: expect.stringContaining(
+        `[Review BigQuery connection](${bigquerySetupLink})`,
+      ),
+    });
+    expect((result as { retryMessage: string }).retryMessage).toContain(
+      "already has an Analytics workspace grant, but no healthy connection is active",
+    );
+    expect((result as { retryMessage: string }).retryMessage).not.toContain(
+      `[Connect BigQuery](${bigquerySetupLink})`,
+    );
+    expect(
+      (result as { fallbackMessage: string }).fallbackMessage,
+    ).not.toContain(`[Connect BigQuery](${bigquerySetupLink})`);
+  });
+
+  it("offers Connect when a legacy needs-grant provider is missing required credentials", () => {
+    const hubspotSetupLink =
+      "/_agent-native/open?app=analytics&view=data-sources&to=%2Fdata-sources%3Fsource%3Dhubspot%26returnTo%3Dask";
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "show me our HubSpot pipeline",
+        draftText: "HubSpot is not connected yet.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                },
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  via: "credentials-and-workspace-grant",
+                },
+              ],
+              providers: [
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  configured: true,
+                  credentialsConfigured: false,
+                  configuredKeys: [],
+                  missingRequiredKeys: ["HUBSPOT_PRIVATE_APP_TOKEN"],
+                  optionalKeys: [],
+                  setupLink: hubspotSetupLink,
+                  workspaceConnection: {
+                    grantState: "needs_grant",
+                    activeConnectionCount: 0,
+                  },
+                },
+              ],
+              workspaceConnections: {
+                appId: "analytics",
+                available: true,
+                error: null,
+                providers: [
+                  {
+                    id: "hubspot",
+                    label: "HubSpot",
+                    grantState: "needs_grant",
+                    activeConnectionCount: 0,
+                    statuses: ["error"],
+                  },
+                ],
+              },
+              dataSourcesSetupLink:
+                "/_agent-native/open?app=analytics&view=data-sources",
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        `[Connect HubSpot](${hubspotSetupLink})`,
+      ),
+      fallbackMessage: expect.stringContaining(
+        `[Connect HubSpot](${hubspotSetupLink})`,
+      ),
+    });
+    expect((result as { retryMessage: string }).retryMessage).not.toContain(
+      "configured sources without a healthy workspace connection: HubSpot",
     );
   });
 

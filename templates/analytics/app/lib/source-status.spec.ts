@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { DataSourceStatusResponse } from "./data-source-status";
+import type {
+  DataSourceStatusResponse,
+  WorkspaceConnectionProviderSummary,
+} from "./data-source-status";
 import { sourceHealthState } from "./source-status";
 
 function statusData(
@@ -157,6 +160,7 @@ describe("sourceHealthState", () => {
               provider: "github",
               label: "GitHub",
               configured: false,
+              credentialsConfigured: false,
               configuredKeys: [],
               missingRequiredKeys: [],
               optionalKeys: [],
@@ -180,6 +184,159 @@ describe("sourceHealthState", () => {
         }),
       ),
     ).toBe("not_connected");
+  });
+
+  it("does not treat another app's checking connection as an Analytics grant", () => {
+    const checkingWithoutGrant = {
+      provider: "github",
+      grantState: "needs_grant" as const,
+      connectionCount: 1,
+      grantedConnectionCount: 0,
+      activeConnectionCount: 0,
+      hasWorkspaceConnection: true,
+      hasGrantedWorkspaceConnection: false,
+      hasActiveWorkspaceConnection: false,
+      statuses: ["checking" as const],
+    };
+
+    expect(
+      sourceHealthState(
+        "github",
+        statusData({
+          providers: [
+            {
+              provider: "github",
+              label: "GitHub",
+              configured: false,
+              configuredKeys: [],
+              missingRequiredKeys: ["GITHUB_ACCESS_TOKEN"],
+              optionalKeys: [],
+              workspaceConnection: checkingWithoutGrant,
+            },
+          ],
+        }),
+      ),
+    ).toBe("not_connected");
+
+    expect(
+      sourceHealthState(
+        "github",
+        statusData({
+          providers: [
+            {
+              provider: "github",
+              label: "GitHub",
+              configured: true,
+              credentialsConfigured: false,
+              configuredKeys: [],
+              missingRequiredKeys: ["GITHUB_ACCESS_TOKEN"],
+              optionalKeys: [],
+              workspaceConnection: checkingWithoutGrant,
+            },
+          ],
+        }),
+      ),
+    ).toBe("not_connected");
+
+    expect(
+      sourceHealthState(
+        "github",
+        statusData({
+          providers: [
+            {
+              provider: "github",
+              label: "GitHub",
+              configured: false,
+              configuredKeys: [],
+              missingRequiredKeys: ["GITHUB_ACCESS_TOKEN"],
+              optionalKeys: [],
+            },
+          ],
+          workspaceConnections: {
+            appId: "analytics",
+            available: true,
+            error: null,
+            providers: [checkingWithoutGrant],
+          },
+        }),
+      ),
+    ).toBe("not_connected");
+  });
+
+  it("scopes connection errors to Analytics grants and checks required-key evidence", () => {
+    const connectedWithOtherAppError: WorkspaceConnectionProviderSummary = {
+      provider: "github",
+      grantState: "connected" as const,
+      connectionCount: 2,
+      grantedConnectionCount: 1,
+      activeConnectionCount: 1,
+      hasWorkspaceConnection: true,
+      hasGrantedWorkspaceConnection: true,
+      hasActiveWorkspaceConnection: true,
+      statuses: ["connected", "error"],
+    };
+    expect(
+      sourceHealthState(
+        "github",
+        statusData({
+          workspaceConnections: {
+            appId: "analytics",
+            available: true,
+            error: null,
+            providers: [connectedWithOtherAppError],
+          },
+        }),
+      ),
+    ).toBe("connected");
+
+    const needsGrantWithOtherAppError: WorkspaceConnectionProviderSummary = {
+      provider: "github",
+      grantState: "needs_grant" as const,
+      connectionCount: 1,
+      grantedConnectionCount: 0,
+      activeConnectionCount: 0,
+      hasWorkspaceConnection: true,
+      hasGrantedWorkspaceConnection: false,
+      hasActiveWorkspaceConnection: false,
+      statuses: ["needs_reauth", "error"],
+    };
+    expect(
+      sourceHealthState(
+        "github",
+        statusData({
+          providers: [
+            {
+              provider: "github",
+              label: "GitHub",
+              configured: true,
+              missingRequiredKeys: ["GITHUB_ACCESS_TOKEN"],
+              configuredKeys: [],
+              optionalKeys: [],
+              workspaceConnection: needsGrantWithOtherAppError,
+            },
+          ],
+        }),
+      ),
+    ).toBe("not_connected");
+
+    expect(
+      sourceHealthState(
+        "github",
+        statusData({
+          providers: [
+            {
+              provider: "github",
+              label: "GitHub",
+              configured: true,
+              missingRequiredKeys: [],
+              configuredKeys: [],
+              optionalKeys: [],
+              workspaceConnection: needsGrantWithOtherAppError,
+            },
+          ],
+        }),
+      ),
+    ).toBe("configured");
   });
 
   it("preserves reauthorization and connection errors", () => {
