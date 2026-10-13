@@ -5253,21 +5253,27 @@ describe("createAgentNativeChatRuntime", () => {
   });
 
   it("replays the approved call when its paused result was not streamed", async () => {
-    const approvalInput = { resourceId: "resource-42" };
-    const approvalKey = 'write-resource:{"resourceId":"resource-42"}';
+    const approvalContent = `# Shared skill\n\n${"x".repeat(2600)}`;
+    const approvalInput = {
+      action: "write",
+      content: approvalContent,
+      path: "skills/example/SKILL.md",
+      scope: "shared",
+    };
+    const approvalKey = `resources:${JSON.stringify(approvalInput)}`;
     const skippedToolEvents = Array.from({ length: 64 }, (_, index) => {
       const id = `call-skipped-${index}`;
       return [
         {
           type: "tool_start",
           id,
-          tool: "write-resource",
-          input: { resourceId: `resource-skipped-${index}` },
+          tool: "resources",
+          input: { ...approvalInput, path: `skills/skipped-${index}/SKILL.md` },
         },
         {
           type: "tool_done",
           id,
-          tool: "write-resource",
+          tool: "resources",
           result:
             "Not executed: write-resource was called after an earlier action paused this turn.",
           completedSideEffect: false,
@@ -5281,18 +5287,18 @@ describe("createAgentNativeChatRuntime", () => {
           {
             type: "tool_start",
             id: "call-unapproved-pending",
-            tool: "write-resource",
-            input: { resourceId: "resource-41" },
+            tool: "resources",
+            input: { ...approvalInput, path: "skills/other/SKILL.md" },
           },
           {
             type: "tool_start",
             id: "call-approved-pending",
-            tool: "write-resource",
+            tool: "resources",
             input: approvalInput,
           },
           {
             type: "approval_required",
-            tool: "write-resource",
+            tool: "resources",
             input: approvalInput,
             approvalKey,
             toolCallId: "call-approved-pending",
@@ -5340,7 +5346,7 @@ describe("createAgentNativeChatRuntime", () => {
       expect.objectContaining({
         type: "tool-call",
         id: "call-approved-pending",
-        name: "write-resource",
+        name: "resources",
         input: approvalInput,
       }),
     );
