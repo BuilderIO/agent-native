@@ -4839,6 +4839,83 @@ describe("createAgentNativeChatRuntime", () => {
     );
   });
 
+  it("keeps large approved inputs within the structured-history budget", async () => {
+    const input = { payload: "x".repeat(140 * 1024) };
+    const approvalKey = `send-large-data:${JSON.stringify(input)}`;
+    const approvalAskId = "large-approval-ask";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "tool_start",
+            id: "call-large-input",
+            tool: "send-large-data",
+            input,
+          },
+          {
+            type: "approval_required",
+            tool: "send-large-data",
+            input,
+            approvalKey,
+            askId: approvalAskId,
+            toolCallId: "call-large-input",
+          },
+          {
+            type: "tool_done",
+            id: "call-large-input",
+            tool: "send-large-data",
+            result: "Awaiting human approval. This action did NOT execute.",
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-large-approval-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      id: "thread-large-approval-history",
+      threadId: "thread-large-approval-history",
+    });
+    const first = await session.startTurn({ prompt: "Send the large data" });
+    await drain(first.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      approval: { id: approvalAskId, approved: true },
+    });
+    expect(continuation).toBeDefined();
+    await drain(continuation!.events);
+
+    const request = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(request.approvedToolCalls).toEqual([approvalKey]);
+    expect(request.approvedToolCallAskIds).toEqual([approvalAskId]);
+    const callPart = (
+      request.structuredHistory as Array<{
+        content: Array<Record<string, unknown>>;
+      }>
+    )
+      .flatMap((message) => message.content)
+      .find(
+        (part) => part.type === "tool-call" && part.id === "call-large-input",
+      );
+    expect(callPart).toMatchObject({
+      type: "tool-call",
+      id: "call-large-input",
+      name: "send-large-data",
+      input,
+      approvalAskId,
+    });
+    expect(callPart).not.toHaveProperty("approvalKey");
+    expect(
+      new TextEncoder().encode(JSON.stringify(request.structuredHistory))
+        .byteLength,
+    ).toBeLessThanOrEqual(256 * 1024);
+  });
+
   it("resumes the exact approved tool call with false-valued arguments", async () => {
     const approvedInput = { dryRun: false };
     const approvalKey = 'publish-release:{"dryRun":false}';
@@ -4967,7 +5044,6 @@ describe("createAgentNativeChatRuntime", () => {
               id: "call-1",
               name: "publish-release",
               input: approvedInput,
-              approvalKey,
               approvalAskId,
             },
           ],
@@ -5028,7 +5104,6 @@ describe("createAgentNativeChatRuntime", () => {
             id: "call-1",
             name: "publish-release",
             input: approvedInput,
-            approvalKey,
             approvalAskId,
           },
         ],
@@ -5212,7 +5287,6 @@ describe("createAgentNativeChatRuntime", () => {
               id: "call-publish-release",
               name: "publish-release",
               input: approvalInput,
-              approvalKey,
               approvalAskId: renewedAskId,
             },
           ],

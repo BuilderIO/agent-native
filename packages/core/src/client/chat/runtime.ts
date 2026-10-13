@@ -3415,7 +3415,8 @@ function nativeStructuredHistoryFromMessages(
             ...(part.approval?.askId
               ? { approvalAskId: part.approval.askId }
               : {}),
-            ...(part.approval?.approvalKey
+            // The ask ID selects this call server-side; its key repeats large inputs.
+            ...(part.approval?.approvalKey && !part.approval.askId
               ? { approvalKey: part.approval.approvalKey }
               : {}),
           };
