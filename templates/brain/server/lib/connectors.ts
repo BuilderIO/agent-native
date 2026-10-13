@@ -30,6 +30,11 @@ import {
   resolveSourceCredential,
 } from "./source-credentials.js";
 import {
+  isBrainAdmin,
+  recordZoomAuditEvent,
+  type ZoomAuditEvent,
+} from "./zoom-governance.js";
+import {
   ZoomHttpError,
   downloadZoomTranscript,
   getZoomMeetingRecordings,
@@ -51,11 +56,6 @@ import {
   zoomSummaryMatchesUsers,
   type ZoomMeetingSummary,
 } from "./zoom.js";
-import {
-  isBrainAdmin,
-  recordZoomAuditEvent,
-  type ZoomAuditEvent,
-} from "./zoom-governance.js";
 
 export interface ConnectorSyncResult {
   runId: string;
