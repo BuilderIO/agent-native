@@ -1262,12 +1262,29 @@ function resolveMarkdownRunIds(
     firstMarkdownBlockId?: string;
     markdownBlockIds?: string[];
     markdownBlocks?: MarkdownBlockState[];
+    previousBlocks?: PlanBlock[];
+    usedBlockIds?: ReadonlySet<string>;
   } = {},
 ): string[] {
   const stateBlocks: MarkdownBlockState[] =
     options.markdownBlocks && options.markdownBlocks.length > 0
       ? options.markdownBlocks
       : (options.markdownBlockIds?.map((id) => ({ id })) ?? []);
+
+  const previousIdsByMarkdown = new Map<string, string[]>();
+  if (stateBlocks.length === 0) {
+    const usedBlockIds = new Set(options.usedBlockIds);
+    if (options.firstMarkdownBlockId) {
+      usedBlockIds.add(options.firstMarkdownBlockId);
+    }
+    for (const block of options.previousBlocks ?? []) {
+      if (block.type !== "rich-text" || usedBlockIds.has(block.id)) continue;
+      const markdown = block.data.markdown.trim();
+      const ids = previousIdsByMarkdown.get(markdown) ?? [];
+      ids.push(block.id);
+      previousIdsByMarkdown.set(markdown, ids);
+    }
+  }
 
   const hasHashes = stateBlocks.some((block) => block.hash);
   if (!hasHashes && stateBlocks.length === markdowns.length) {
@@ -1289,6 +1306,8 @@ function resolveMarkdownRunIds(
     if (index === 0 && options.firstMarkdownBlockId) {
       return options.firstMarkdownBlockId;
     }
+    const previousId = previousIdsByMarkdown.get(markdown.trim())?.shift();
+    if (previousId) return previousId;
     return createPlanBlockId("markdown");
   });
 }
@@ -1411,7 +1430,15 @@ function parseBlocksFromNodes(
         node.type === "markdown",
     )
     .map((node) => node.markdown);
-  const markdownIds = resolveMarkdownRunIds(markdowns, options);
+  const usedBlockIds = new Set<string>();
+  for (const node of parsedNodes) {
+    if (node.type === "block") usedBlockIds.add(node.block.id);
+  }
+  const markdownIds = resolveMarkdownRunIds(markdowns, {
+    ...options,
+    previousBlocks: options.previousBlocks,
+    usedBlockIds,
+  });
   let markdownIndex = 0;
   const blocks = parsedNodes.map((node) => {
     if (node.type === "block") return node.block;

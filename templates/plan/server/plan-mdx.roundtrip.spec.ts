@@ -2344,6 +2344,69 @@ version: 2
     expect(second[".plan-state.json"]).toBe(folder[".plan-state.json"]);
   });
 
+  it("reuses unchanged bare markdown IDs from previous content without plan state", async () => {
+    const makeFolder = (intro: string) => ({
+      "plan.mdx": [
+        "---",
+        'title: "Markdown without state"',
+        "version: 2",
+        "---",
+        "",
+        intro,
+        "",
+        '<Checklist id="separator" items={[]} />',
+        "",
+        "Tail prose.",
+      ].join("\n"),
+    });
+    const previousFolder = makeFolder("Intro prose.");
+    const previous = await parsePlanMdxFolder(previousFolder);
+    const editedFolder = makeFolder("Updated intro.");
+    const parsed = await parsePlanMdxFolder(editedFolder, {
+      validateAuthoringChangesAgainst: previous,
+    });
+
+    expect(previousFolder[".plan-state.json"]).toBeUndefined();
+    expect(editedFolder[".plan-state.json"]).toBeUndefined();
+    expect(parsed.blocks).toHaveLength(3);
+    expect(parsed.blocks[0]?.id).not.toBe(previous.blocks[0]?.id);
+    expect(parsed.blocks[1]?.id).toBe(previous.blocks[1]?.id);
+    expect(parsed.blocks[2]?.id).toBe(previous.blocks[2]?.id);
+  });
+
+  it("does not reuse prior markdown IDs already claimed by explicit rich text", async () => {
+    const previousFolder = {
+      "plan.mdx": [
+        "---",
+        'title: "Claimed markdown ID"',
+        "version: 2",
+        "---",
+        "",
+        '<RichText id="retained">',
+        "",
+        "Tail prose.",
+        "",
+        "</RichText>",
+      ].join("\n"),
+    };
+    const editedFolder = {
+      "plan.mdx": [
+        ...previousFolder["plan.mdx"].split("\n"),
+        "",
+        "Tail prose.",
+      ].join("\n"),
+    };
+    const previous = await parsePlanMdxFolder(previousFolder);
+    const parsed = await parsePlanMdxFolder(editedFolder, {
+      validateAuthoringChangesAgainst: previous,
+    });
+
+    expect(parsed.blocks).toHaveLength(2);
+    expect(parsed.blocks[0]?.id).toBe("retained");
+    expect(parsed.blocks[1]?.id).not.toBe("retained");
+    expect(new Set(parsed.blocks.map((block) => block.id)).size).toBe(2);
+  });
+
   it("recovers unchanged bare markdown ids by hash when hand edits add a new run", async () => {
     const folder = await exportPlanContentToMdxFolder({
       content: {

@@ -39,6 +39,33 @@ import {
 import { type PlanContent } from "../shared/plan-content.js";
 import type { PlanKind } from "../shared/types.js";
 
+const salvagedBlockPrefix = "\u200b__unknown_block__:";
+
+function containsSalvagedBlock(
+  blocks: PlanContent["blocks"] | undefined,
+): boolean {
+  return (
+    blocks?.some((block) => {
+      if (
+        block.type === "callout" &&
+        block.data.tone === "warning" &&
+        block.data.body.startsWith(salvagedBlockPrefix)
+      ) {
+        return true;
+      }
+      if (block.type === "tabs") {
+        return block.data.tabs.some((tab) => containsSalvagedBlock(tab.blocks));
+      }
+      if (block.type === "columns") {
+        return block.data.columns.some((column) =>
+          containsSalvagedBlock(column.blocks),
+        );
+      }
+      return false;
+    }) ?? false
+  );
+}
+
 export default defineAction({
   description:
     "Create or replace a plan from source-control friendly MDX files (repo check-in workflows). Use ONLY when working with exported MDX source files; for live plans prefer update-visual-plan with contentPatches. The MDX folder is the authoring/export surface; the runtime model remains normalized structured JSON. When replacing an existing plan, pass expectedUpdatedAt to guard against concurrent edits.",
@@ -189,15 +216,17 @@ export default defineAction({
       });
 
       const bundle = await loadPlanBundle(args.planId);
-      const local = isLocalPlanRuntime()
-        ? await writePlanLocalFiles({
-            planId: bundle.plan.id,
-            title: bundle.plan.title,
-            brief: bundle.plan.brief,
-            content: bundle.plan.content,
-            url: planPath(bundle.plan.id, bundle.plan.kind),
-          })
-        : null;
+      const local =
+        isLocalPlanRuntime() &&
+        !containsSalvagedBlock(bundle.plan.content?.blocks)
+          ? await writePlanLocalFiles({
+              planId: bundle.plan.id,
+              title: bundle.plan.title,
+              brief: bundle.plan.brief,
+              content: bundle.plan.content,
+              url: planPath(bundle.plan.id, bundle.plan.kind),
+            })
+          : null;
       return {
         ...bundle,
         planId: bundle.plan.id,
@@ -270,15 +299,17 @@ export default defineAction({
       blockCount: bundle.plan.content?.blocks.length ?? 0,
       ownerEmail: bundle.access.ownerEmail,
     });
-    const local = isLocalPlanRuntime()
-      ? await writePlanLocalFiles({
-          planId: bundle.plan.id,
-          title: bundle.plan.title,
-          brief: bundle.plan.brief,
-          content: bundle.plan.content,
-          url: planPath(bundle.plan.id, bundle.plan.kind),
-        })
-      : null;
+    const local =
+      isLocalPlanRuntime() &&
+      !containsSalvagedBlock(bundle.plan.content?.blocks)
+        ? await writePlanLocalFiles({
+            planId: bundle.plan.id,
+            title: bundle.plan.title,
+            brief: bundle.plan.brief,
+            content: bundle.plan.content,
+            url: planPath(bundle.plan.id, bundle.plan.kind),
+          })
+        : null;
     return {
       ...bundle,
       planId: id,

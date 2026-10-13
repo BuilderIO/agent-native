@@ -7,13 +7,19 @@ const {
   assertPlanEditorMock,
   createPlanVersionSnapshotMock,
   writeEventMock,
+  writePlanLocalFilesMock,
 } = vi.hoisted(() => ({
-  state: { content: null as unknown, kind: "plan" as "plan" | "recap" },
+  state: {
+    content: null as unknown,
+    kind: "plan" as "plan" | "recap",
+    isLocalRuntime: false,
+  },
   updateMock: vi.fn(),
   insertMock: vi.fn(),
   assertPlanEditorMock: vi.fn(),
   createPlanVersionSnapshotMock: vi.fn(),
   writeEventMock: vi.fn(),
+  writePlanLocalFilesMock: vi.fn(),
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -44,13 +50,13 @@ vi.mock("../server/lib/guest-abuse.js", () => ({
 }));
 
 vi.mock("../server/lib/local-identity.js", () => ({
-  isLocalPlanRuntime: () => false,
+  isLocalPlanRuntime: () => state.isLocalRuntime,
   resolvePlanOrgIdForWrite: vi.fn(),
   requirePlanOwnerEmailForWrite: vi.fn(),
 }));
 
 vi.mock("../server/lib/local-plan-files.js", () => ({
-  writePlanLocalFiles: vi.fn(),
+  writePlanLocalFiles: (...args: unknown[]) => writePlanLocalFilesMock(...args),
 }));
 
 vi.mock("../server/lib/plan-assets.js", () => ({
@@ -134,6 +140,7 @@ describe("import-visual-plan-source stored legacy defaults", () => {
   beforeEach(() => {
     state.content = legacyContent();
     state.kind = "plan";
+    state.isLocalRuntime = false;
     updateMock.mockReset();
     insertMock.mockReset().mockImplementation(() => ({
       values: async (values: { content: string }) => {
@@ -153,6 +160,11 @@ describe("import-visual-plan-source stored legacy defaults", () => {
       .mockReset()
       .mockResolvedValue({ created: true });
     writeEventMock.mockReset().mockResolvedValue(undefined);
+    writePlanLocalFilesMock.mockReset().mockResolvedValue({
+      written: true,
+      folder: "/plans/review-recap",
+      files: ["plan.mdx"],
+    });
   });
 
   it("replaces an exported legacy plan while preserving its defaulted blocks", async () => {
@@ -189,6 +201,7 @@ describe("import-visual-plan-source stored legacy defaults", () => {
   });
 
   it("salvages missing required fields when creating recap imports", async () => {
+    state.isLocalRuntime = true;
     const result = await runAction({
       kind: "recap",
       mdx: {
@@ -221,10 +234,12 @@ describe("import-visual-plan-source stored legacy defaults", () => {
         },
       ],
     });
+    expect(writePlanLocalFilesMock).not.toHaveBeenCalled();
   });
 
   it("uses the stored recap kind when replacing source without a kind override", async () => {
     state.kind = "recap";
+    state.isLocalRuntime = true;
 
     const result = await runAction({
       planId: "existing-recap",
@@ -258,6 +273,27 @@ describe("import-visual-plan-source stored legacy defaults", () => {
         },
       ],
     });
+    expect(writePlanLocalFilesMock).not.toHaveBeenCalled();
+  });
+
+  it("mirrors local recap source when the import did not salvage any blocks", async () => {
+    state.isLocalRuntime = true;
+    await runAction({
+      kind: "recap",
+      mdx: {
+        "plan.mdx": [
+          "---",
+          'title: "Review recap"',
+          'kind: "recap"',
+          "version: 2",
+          "---",
+          "",
+          "The review completed.",
+        ].join("\n"),
+      },
+    });
+
+    expect(writePlanLocalFilesMock).toHaveBeenCalledOnce();
   });
 
   it("rejects missing required fields in fresh ordinary imports", async () => {
