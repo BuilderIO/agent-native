@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   enqueueTransactionalEmail: vi.fn(),
   ensureTransactionalEmailEnabled: vi.fn(),
   ownerEmailMatches: vi.fn(),
+  track: vi.fn(),
+  getBetterAuthUserIdForEmail: vi.fn(),
 }));
 
 const tables = vi.hoisted(() => ({
@@ -42,6 +44,10 @@ const tables = vi.hoisted(() => ({
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
+  getRequestHeader: (
+    event: { headers: Record<string, string> },
+    name: string,
+  ) => event.headers[name],
   getRequestIP: (...args: unknown[]) => mocks.getRequestIP(...args),
   setResponseStatus: (...args: unknown[]) => mocks.setResponseStatus(...args),
 }));
@@ -68,6 +74,8 @@ vi.mock("@agent-native/core/event-bus", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  getBetterAuthUserIdForEmail: (...args: unknown[]) =>
+    mocks.getBetterAuthUserIdForEmail(...args),
   getSession: (...args: unknown[]) => mocks.getSession(...args),
   readBodyWithSizeLimit: (...args: unknown[]) =>
     mocks.readBodyWithSizeLimit(...args),
@@ -79,6 +87,12 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: (...args: unknown[]) => mocks.resolveAccess(...args),
+}));
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mocks.track(...args),
+  readAnalyticsAnonymousId: (cookieHeader: string | undefined) =>
+    cookieHeader?.match(/(?:^|; )an_aid=([^;]+)/)?.[1],
 }));
 
 vi.mock("../../db/index.js", () => ({
@@ -120,7 +134,7 @@ interface FakeViewer {
 
 function makeEvent(
   body: Record<string, unknown> = {},
-  options: { ip?: string; contentLength?: number } = {},
+  options: { ip?: string; contentLength?: number; cookie?: string } = {},
 ) {
   return {
     body: {
@@ -132,7 +146,14 @@ function makeEvent(
     ip: options.ip ?? "203.0.113.10",
     contentLength: options.contentLength,
     status: 200,
-    headers: { "x-forwarded-for": "198.51.100.99" },
+    pending: [] as Promise<unknown>[],
+    waitUntil(promise: Promise<unknown>) {
+      this.pending.push(promise);
+    },
+    headers: {
+      "x-forwarded-for": "198.51.100.99",
+      ...(options.cookie ? { cookie: options.cookie } : {}),
+    },
   };
 }
 
@@ -310,6 +331,7 @@ describe("POST /api/view-event", () => {
       enabledAt: "2000-01-01T00:00:00.000Z",
     });
     mocks.ownerEmailMatches.mockReturnValue({ type: "owner-email-match" });
+    mocks.getBetterAuthUserIdForEmail.mockResolvedValue("owner-auth-id");
   });
 
   it("rejects declared and actual oversized bodies before database access", async () => {
@@ -599,5 +621,149 @@ describe("POST /api/view-event", () => {
     expect(new Set(state.events.map((event) => event.viewerId))).toEqual(
       new Set([state.viewer?.id]),
     );
+  });
+
+  describe("clip_view_counted", () => {
+    function uncountedViewer(overrides: Partial<FakeViewer> = {}): FakeViewer {
+      return {
+        id: "viewer-1",
+        recordingId: "rec-example",
+        viewerKey: "anon:session-example",
+        viewerEmail: null,
+        viewerName: "anon:session-example",
+        totalWatchMs: 0,
+        completedPct: 0,
+        countedView: false,
+        ctaClicked: false,
+        ...overrides,
+      };
+    }
+
+    async function send(
+      body: Record<string, unknown>,
+      options: { cookie?: string } = {},
+    ) {
+      const event = makeEvent(body, options);
+      const result = await handler(event as any);
+      await Promise.all(event.pending);
+      return { event, result };
+    }
+
+    function viewCountedCalls() {
+      return mocks.track.mock.calls.filter(
+        ([name]) => name === "clip_view_counted",
+      );
+    }
+
+    it("fires once, keyed to the owner's auth id and the viewer's anonymous id, when a signed-out viewer first reaches a counted view", async () => {
+      const { db } = createStatefulDb(uncountedViewer());
+      mocks.getDb.mockReturnValue(db);
+      const cookie = "an_sid=sid-1; an_aid=anon-abc";
+
+      await send({ kind: "watch-progress", totalWatchMs: 2000 }, { cookie });
+      expect(viewCountedCalls()).toHaveLength(0);
+
+      await send({ kind: "watch-progress", totalWatchMs: 5000 }, { cookie });
+      await send({ kind: "watch-progress", totalWatchMs: 9000 }, { cookie });
+
+      expect(mocks.getBetterAuthUserIdForEmail).toHaveBeenCalledWith(
+        "owner@example.com",
+      );
+      expect(viewCountedCalls()).toEqual([
+        [
+          "clip_view_counted",
+          {
+            app_name: "clips",
+            template_name: "clips",
+            output_id: "rec-example",
+            output_type: "clip",
+            viewer_id: "viewer-1",
+            owner_auth_user_id: "owner-auth-id",
+            viewer_signed_in: false,
+          },
+          { userId: undefined, anonymousId: "anon-abc" },
+        ],
+      ]);
+    });
+
+    it("attributes a signed-in non-owner view to the viewer", async () => {
+      mocks.getSession.mockResolvedValue({ email: "teammate@example.com" });
+      const { db } = createStatefulDb(
+        uncountedViewer({
+          viewerKey: "teammate@example.com",
+          viewerEmail: "teammate@example.com",
+        }),
+      );
+      mocks.getDb.mockReturnValue(db);
+
+      await send({ totalWatchMs: 5000 }, { cookie: "an_aid=anon-abc" });
+
+      expect(viewCountedCalls()).toHaveLength(1);
+      expect(viewCountedCalls()[0][1]).toMatchObject({
+        viewer_signed_in: true,
+      });
+      expect(viewCountedCalls()[0][2]).toEqual({
+        userId: "teammate@example.com",
+        anonymousId: "anon-abc",
+      });
+    });
+
+    it("does not fire for the owner, an already-counted viewer, or a view below the threshold", async () => {
+      mocks.getSession.mockResolvedValue({ email: "OWNER@example.com" });
+      const owner = createStatefulDb(
+        uncountedViewer({
+          viewerKey: "OWNER@example.com",
+          viewerEmail: "OWNER@example.com",
+        }),
+      );
+      mocks.getDb.mockReturnValue(owner.db);
+      await send({ totalWatchMs: 5000 });
+
+      mocks.getSession.mockResolvedValue(null);
+      const counted = createStatefulDb(
+        uncountedViewer({ totalWatchMs: 5000, countedView: true }),
+      );
+      mocks.getDb.mockReturnValue(counted.db);
+      await send({ totalWatchMs: 6000 });
+
+      const brief = createStatefulDb(uncountedViewer());
+      mocks.getDb.mockReturnValue(brief.db);
+      await send({ totalWatchMs: 4999, completedPct: 74 });
+
+      expect(viewCountedCalls()).toHaveLength(0);
+      expect(mocks.getBetterAuthUserIdForEmail).not.toHaveBeenCalled();
+    });
+
+    it("responds without waiting for the owner lookup", async () => {
+      mocks.getBetterAuthUserIdForEmail.mockReturnValue(new Promise(() => {}));
+      const { db } = createStatefulDb(uncountedViewer());
+      mocks.getDb.mockReturnValue(db);
+
+      const event = makeEvent({ totalWatchMs: 5000 });
+      const result = await handler(event as any);
+
+      expect(result).toMatchObject({ ok: true, countedView: true });
+      expect(event.pending).toHaveLength(1);
+      expect(viewCountedCalls()).toHaveLength(0);
+    });
+
+    it("keeps the view response and first-view email when tracking throws", async () => {
+      mocks.track.mockImplementation(() => {
+        throw new Error("tracker down");
+      });
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { db } = createStatefulDb(uncountedViewer());
+      mocks.getDb.mockReturnValue(db);
+
+      const { result } = await send({ totalWatchMs: 5000 });
+
+      expect(result).toMatchObject({ ok: true, countedView: true });
+      expect(mocks.enqueueTransactionalEmail).toHaveBeenCalledOnce();
+      expect(warn).toHaveBeenCalledWith(
+        "[clips] clip_view_counted track failed:",
+        expect.any(Error),
+      );
+      warn.mockRestore();
+    });
   });
 });

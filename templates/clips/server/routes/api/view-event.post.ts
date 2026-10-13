@@ -6,10 +6,17 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { readAnalyticsAnonymousId } from "@agent-native/core/tracking";
 import { and, asc, eq, isNull, not, or, sql } from "drizzle-orm";
-import { defineEventHandler, getRequestIP, setResponseStatus } from "h3";
+import {
+  defineEventHandler,
+  getRequestHeader,
+  getRequestIP,
+  setResponseStatus,
+} from "h3";
 
 import { getDb, schema } from "../../db/index.js";
+import { trackClipEventForOwner } from "../../lib/clip-funnel-tracking.js";
 import {
   nanoid,
   ownerEmailMatches,
@@ -385,6 +392,26 @@ export default defineEventHandler(async (event) => {
       const viewerIsOwner =
         Boolean(viewerEmail && ownerEmail) &&
         viewerEmail!.trim().toLowerCase() === ownerEmail!.toLowerCase();
+      if (transitionedToCountedView && !viewerIsOwner) {
+        // Two in-flight progress posts from one viewer can both observe the
+        // counted transition, so consumers dedupe on viewer_id.
+        trackClipEventForOwner(
+          event,
+          "clip_view_counted",
+          ownerEmail,
+          {
+            output_id: recordingId,
+            viewer_id: viewerId,
+            viewer_signed_in: Boolean(viewerEmail),
+          },
+          {
+            userId: viewerEmail ?? undefined,
+            anonymousId: readAnalyticsAnonymousId(
+              getRequestHeader(event, "cookie"),
+            ),
+          },
+        );
+      }
       if (transitionedToCountedView && ownerEmail && !viewerIsOwner) {
         try {
           const { enabledAt } = await transactionalEmailStore.ensureEnabledAt();
