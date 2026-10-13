@@ -24,14 +24,12 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE = 120;
 
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
-const bigQueryProjectIdByRequest = new WeakMap<
-  object,
-  Promise<string | undefined>
->();
-const bigQueryOAuthCredentialByRequest = new WeakMap<
-  object,
-  Promise<AnalyticsProviderCredential | null>
->();
+type RequestValueCache<T> = WeakMap<object, Map<string, Promise<T>>>;
+
+const bigQueryProjectIdByRequest: RequestValueCache<string | undefined> =
+  new WeakMap();
+const bigQueryOAuthCredentialByRequest: RequestValueCache<AnalyticsProviderCredential | null> =
+  new WeakMap();
 
 const GOOGLE_REQUEST_MAX_ATTEMPTS = 4;
 const GOOGLE_REQUEST_TIMEOUT_MS = 30_000;
@@ -325,6 +323,7 @@ export async function getBigQueryAccessToken(
   const { signal } = options;
   const ctx = requireRequestCredentialContext("BIGQUERY_PROJECT_ID");
   const requestContext = getRequestContext();
+  const cacheScope = credentialCacheScope("BIGQUERY_PROJECT_ID", ctx);
   const projectId =
     options.projectId ??
     (await raceWithAbort(
@@ -332,6 +331,7 @@ export async function getBigQueryAccessToken(
         ? getRequestMemoizedPromise(
             bigQueryProjectIdByRequest,
             requestContext,
+            cacheScope,
             () => resolveCredential("BIGQUERY_PROJECT_ID", ctx),
           )
         : resolveCredential("BIGQUERY_PROJECT_ID", ctx),
@@ -347,6 +347,7 @@ export async function getBigQueryAccessToken(
             ? getRequestMemoizedPromise(
                 bigQueryOAuthCredentialByRequest,
                 requestContext,
+                cacheScope,
                 () =>
                   resolveAnalyticsProviderCredential({
                     provider: "bigquery",
@@ -368,17 +369,27 @@ export async function getBigQueryAccessToken(
 }
 
 function getRequestMemoizedPromise<T>(
-  cache: WeakMap<object, Promise<T>>,
+  cache: RequestValueCache<T>,
   requestContext: object,
+  cacheScope: string,
   resolve: () => Promise<T>,
 ): Promise<T> {
-  const cached = cache.get(requestContext);
+  let values = cache.get(requestContext);
+  if (!values) {
+    values = new Map();
+    cache.set(requestContext, values);
+  }
+
+  const cached = values.get(cacheScope);
   if (cached) return cached;
 
   const pending = resolve();
-  cache.set(requestContext, pending);
+  values.set(cacheScope, pending);
   void pending.catch(() => {
-    if (cache.get(requestContext) === pending) cache.delete(requestContext);
+    if (values?.get(cacheScope) === pending) values.delete(cacheScope);
+    if (values?.size === 0 && cache.get(requestContext) === values) {
+      cache.delete(requestContext);
+    }
   });
   return pending;
 }

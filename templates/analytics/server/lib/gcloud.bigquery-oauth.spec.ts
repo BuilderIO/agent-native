@@ -58,4 +58,17 @@ describe("getBigQueryAccessToken", () => {
 
     expect(mocks.resolveAnalyticsProviderCredential).toHaveBeenCalledTimes(2);
   });
+
+  it("keeps default and org grants separate within one request", async () => {
+    await getBigQueryAccessToken();
+    mocks.credentialContext = {
+      userEmail: "analyst@example.com",
+      orgId: "customer-org",
+      credentialScope: "org",
+    };
+    await getBigQueryAccessToken();
+
+    expect(mocks.resolveCredential).toHaveBeenCalledTimes(2);
+    expect(mocks.resolveAnalyticsProviderCredential).toHaveBeenCalledTimes(2);
+  });
 });
