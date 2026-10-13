@@ -5,6 +5,10 @@ import {
 } from "@agent-native/core/provider-api";
 import { getCredentialContext } from "@agent-native/core/server";
 import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import {
   findWorkspaceDispatchAgent,
   getBuiltinAgents,
 } from "@agent-native/core/server/agent-discovery";
@@ -23,6 +27,7 @@ import {
   inspectSourceCredentialAvailability,
   type SourceCredentialAvailability,
 } from "../server/lib/source-credentials.js";
+import { isBrainAdmin } from "../server/lib/zoom-governance.js";
 
 const APP_ID = "brain";
 
@@ -358,7 +363,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async () => {
-    const [sourceRows, workspace] = await Promise.all([
+    const [sourceRows, workspace, canManageZoom] = await Promise.all([
       getDb()
         .select({ provider: schema.brainSources.provider })
         .from(schema.brainSources)
@@ -369,6 +374,7 @@ export default defineAction({
           ),
         ),
       listWorkspaceConnectionsForCatalog(),
+      isBrainAdmin(getRequestUserEmail(), getRequestOrgId()),
     ]);
     const sourceCounts = new Map<string, number>();
     for (const row of sourceRows) {
@@ -381,78 +387,81 @@ export default defineAction({
       catalogProviders.map((provider) => provider.id),
     );
     const providers = await Promise.all(
-      providersWithBrainLocal(catalogProviders).map(async (provider) => {
-        const configuredSourceCount = sourceCounts.get(provider.id) ?? 0;
-        const sourceProviderSupported = SUPPORTED_SOURCE_PROVIDERS.has(
-          provider.id,
-        );
-        const workspaceConnection = provider.workspaceConnection;
-        const credentialHealth = await credentialHealthForProvider(provider);
-        const providerApi = isProviderApiId(provider.id)
-          ? (listProviderApiCatalog(provider.id)[0] ?? null)
-          : null;
-        const providerApiIsConfigured = providerApiConfigured({
-          credentialHealth,
-          providerApi,
-          workspace: workspaceConnection,
-        });
-        return {
-          id: provider.id,
-          label: provider.label,
-          description: provider.description,
-          capabilities: [...provider.capabilities],
-          credentialKeys: provider.credentialKeys.map((credential) => ({
-            key: credential.key,
-            label: credential.label,
-            description: credential.description,
-            required: credential.required ?? false,
-          })),
-          configuredSourceCount,
-          hasConfiguredSources: configuredSourceCount > 0,
-          sourceProviderSupported,
-          configured:
-            providerApiIsConfigured ??
-            (sourceProviderSupported ? credentialHealth.available : null),
-          setupLink: catalogProviderIds.has(provider.id)
-            ? dispatchIntegrationsHref(provider.id, dispatchHref)
-            : undefined,
-          credentialHealth,
-          providerHealth: providerHealthForProvider({
+      providersWithBrainLocal(catalogProviders)
+        .filter((provider) => canManageZoom || provider.id !== "zoom")
+        .map(async (provider) => {
+          const configuredSourceCount = sourceCounts.get(provider.id) ?? 0;
+          const sourceProviderSupported = SUPPORTED_SOURCE_PROVIDERS.has(
+            provider.id,
+          );
+          const workspaceConnection = provider.workspaceConnection;
+          const credentialHealth = await credentialHealthForProvider(provider);
+          const providerApi = isProviderApiId(provider.id)
+            ? (listProviderApiCatalog(provider.id)[0] ?? null)
+            : null;
+          const providerApiIsConfigured = providerApiConfigured({
             credentialHealth,
             providerApi,
-            providerApiIsConfigured,
-            sourceProviderSupported,
             workspace: workspaceConnection,
-          }),
-          rawProviderApi: providerApi
-            ? {
-                available: true,
-                actionNames: [
-                  "provider-api-catalog",
-                  "provider-api-docs",
-                  "provider-api-request",
-                ],
-                docsUrls: providerApi.docsUrls,
-                specUrls: providerApi.specUrls,
-                auth: providerApi.auth,
-                examples: providerApi.examples,
-              }
-            : {
-                available: false,
-                actionNames: [],
-                docsUrls: [],
-                specUrls: [],
-                auth: null,
-                examples: [],
-              },
-          workspaceConnection,
-        };
-      }),
+          });
+          return {
+            id: provider.id,
+            label: provider.label,
+            description: provider.description,
+            capabilities: [...provider.capabilities],
+            credentialKeys: provider.credentialKeys.map((credential) => ({
+              key: credential.key,
+              label: credential.label,
+              description: credential.description,
+              required: credential.required ?? false,
+            })),
+            configuredSourceCount,
+            hasConfiguredSources: configuredSourceCount > 0,
+            sourceProviderSupported,
+            configured:
+              providerApiIsConfigured ??
+              (sourceProviderSupported ? credentialHealth.available : null),
+            setupLink: catalogProviderIds.has(provider.id)
+              ? dispatchIntegrationsHref(provider.id, dispatchHref)
+              : undefined,
+            credentialHealth,
+            providerHealth: providerHealthForProvider({
+              credentialHealth,
+              providerApi,
+              providerApiIsConfigured,
+              sourceProviderSupported,
+              workspace: workspaceConnection,
+            }),
+            rawProviderApi: providerApi
+              ? {
+                  available: true,
+                  actionNames: [
+                    "provider-api-catalog",
+                    "provider-api-docs",
+                    "provider-api-request",
+                  ],
+                  docsUrls: providerApi.docsUrls,
+                  specUrls: providerApi.specUrls,
+                  auth: providerApi.auth,
+                  examples: providerApi.examples,
+                }
+              : {
+                  available: false,
+                  actionNames: [],
+                  docsUrls: [],
+                  specUrls: [],
+                  auth: null,
+                  examples: [],
+                },
+            workspaceConnection,
+          };
+        }),
     );
 
     return {
       count: providers.length,
       appId: APP_ID,
+      canManageZoom,
       workspaceConnections: {
         appId: APP_ID,
         available: !workspace.error,
