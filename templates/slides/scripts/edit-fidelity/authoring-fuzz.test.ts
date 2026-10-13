@@ -6,6 +6,7 @@ import {
   assertShortcutMarkupAdded,
   assertSlideIsScaled,
   AUTHORING_FUZZ_STYLE_PROPERTIES,
+  authoringFuzzListTagForOperation,
   createRetiredBrowserSessionErrorCorrelator,
   browserSessionNavigationRequestIdentity,
   browserSessionIdAfterRequest,
@@ -946,6 +947,53 @@ it("creates reproducible authoring plans with full command coverage", () => {
     createAuthoringFuzzPlan(Number.MAX_SAFE_INTEGER + 1, 500),
   ).toThrow("safe integer");
   expect(() => createAuthoringFuzzPlan(42, 0)).toThrow("positive integer");
+});
+
+it("classifies only semantic list commands for adjacent-list merge checks", () => {
+  expect(authoringFuzzListTagForOperation({ kind: "list", value: "ul" })).toBe(
+    "UL",
+  );
+  expect(authoringFuzzListTagForOperation({ kind: "list", value: "ol" })).toBe(
+    "OL",
+  );
+  expect(
+    authoringFuzzListTagForOperation({ kind: "list", value: "styled" }),
+  ).toBeNull();
+  expect(
+    authoringFuzzListTagForOperation({
+      kind: "slash",
+      value: "bulletList",
+      result: "bullet list",
+    }),
+  ).toBe("UL");
+  expect(
+    authoringFuzzListTagForOperation({
+      kind: "slash",
+      value: "orderedList",
+      result: "numbered list",
+    }),
+  ).toBe("OL");
+  expect(
+    authoringFuzzListTagForOperation({
+      kind: "slash",
+      value: "paragraph",
+      result: "paragraph",
+    }),
+  ).toBeNull();
+  expect(
+    authoringFuzzListTagForOperation({
+      kind: "shortcut",
+      value: "1. ",
+      result: "ordered",
+    }),
+  ).toBe("OL");
+  expect(
+    authoringFuzzListTagForOperation({
+      kind: "shortcut",
+      value: "- ",
+      result: "bullet",
+    }),
+  ).toBeNull();
 });
 
 it("runs vertical caret fidelity in the committed absolute profile", () => {

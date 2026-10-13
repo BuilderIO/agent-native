@@ -1433,6 +1433,28 @@ export interface AuthoringFuzzPersistence {
   reloadedHtml: string;
 }
 
+export function authoringFuzzListTagForOperation(
+  operation: AuthoringFuzzOperation,
+): "OL" | "UL" | null {
+  if (operation.kind === "list") {
+    return operation.value === "ul"
+      ? "UL"
+      : operation.value === "ol"
+        ? "OL"
+        : null;
+  }
+  if (operation.kind === "slash") {
+    return operation.value === "bulletList"
+      ? "UL"
+      : operation.value === "orderedList"
+        ? "OL"
+        : null;
+  }
+  return operation.kind === "shortcut" && operation.result === "ordered"
+    ? "OL"
+    : null;
+}
+
 export async function canonicalizeAuthoringFuzzPersistence(
   persistence: AuthoringFuzzPersistence,
   canonicalize: (html: string) => string | Promise<string>,
@@ -2801,14 +2823,14 @@ export async function runAuthoringFuzz(
         phase,
         operation,
         requireMerge,
-        operationIndex,
+        listTag,
         styleProperties,
       }: {
         selector: string;
         phase: "capture" | "assert";
         operation: AuthoringFuzzOperation;
         requireMerge: boolean;
-        operationIndex: number;
+        listTag: "OL" | "UL" | null;
         styleProperties: string[];
       }) => {
         const root = document.querySelector(selector);
@@ -2839,6 +2861,17 @@ export async function runAuthoringFuzz(
               expectedMoves: Element[];
               listStyles: Record<string, string>;
               listAttributes: string;
+            };
+            listMerge?: {
+              tagName: "OL" | "UL";
+              originalRows: Element[];
+              adjacent: Array<{
+                side: "before" | "after";
+                node: HTMLElement;
+                rows: HTMLElement[];
+                attributes: string;
+                styles: Record<string, string>;
+              }>;
             };
             merge?: {
               direction: "backward" | "forward";
@@ -2934,7 +2967,8 @@ export async function runAuthoringFuzz(
           phase === "assert" &&
           (operation.kind === "backspace-block-edge" ||
             operation.kind === "delete-block-edge" ||
-            operation.kind === "empty-list-exit") &&
+            operation.kind === "empty-list-exit" ||
+            previous?.listMerge) &&
           previous?.root === root
         ) {
           targets = previous.targets;
@@ -3246,6 +3280,57 @@ export async function runAuthoringFuzz(
             : phase === "assert"
               ? previous?.emptyListExit
               : undefined;
+        const listMerge =
+          phase === "capture" &&
+          listTag &&
+          targets[0] instanceof HTMLElement &&
+          targets[0] !== root &&
+          !targets[0].closest("li,ol,ul")
+            ? (() => {
+                const target = targets[0] as HTMLElement;
+                const adjacent = [
+                  {
+                    side: "before" as const,
+                    node: target.previousElementSibling,
+                  },
+                  {
+                    side: "after" as const,
+                    node: target.nextElementSibling,
+                  },
+                ]
+                  .filter(
+                    (
+                      candidate,
+                    ): candidate is {
+                      side: "before" | "after";
+                      node: HTMLElement;
+                    } =>
+                      candidate.node instanceof HTMLElement &&
+                      candidate.node.tagName === listTag,
+                  )
+                  .map(({ side, node }) => ({
+                    side,
+                    node,
+                    rows: Array.from(node.children).filter(
+                      (child): child is HTMLElement =>
+                        child instanceof HTMLElement && child.tagName === "LI",
+                    ),
+                    attributes: authoredAttributes(node),
+                    styles: styleValues(node),
+                  }));
+                return adjacent.length
+                  ? {
+                      tagName: listTag,
+                      originalRows: Array.from(
+                        root.querySelectorAll<HTMLElement>("li"),
+                      ),
+                      adjacent,
+                    }
+                  : undefined;
+              })()
+            : phase === "assert"
+              ? previous?.listMerge
+              : undefined;
         const isEmptyAuthorStyleSpan = (element: Element): boolean =>
           isEditorInlineStyleSpan(element) &&
           !element.textContent &&
@@ -3325,6 +3410,7 @@ export async function runAuthoringFuzz(
             targets: [...targets],
             originalListRows: [...originalListRows],
             emptyListExit,
+            listMerge,
             merge,
           };
           return [];
@@ -3349,6 +3435,88 @@ export async function runAuthoringFuzz(
         ) {
           failures.push("block-edge operation did not capture its block pair");
         }
+        const mergedListContainers = new Set<Element>();
+        const mergedListRows = new Set<Element>();
+        const mergedListContainerContentChanges = new Set<Element>();
+        if (
+          baseline.listMerge &&
+          listTag === baseline.listMerge.tagName &&
+          activeList?.tagName === baseline.listMerge.tagName &&
+          activeItem
+        ) {
+          const resultRows = Array.from(activeList.children).filter(
+            (child) => child.tagName === "LI",
+          );
+          const generatedRows = resultRows.filter(
+            (row) => !baseline.listMerge?.originalRows.includes(row),
+          );
+          const expectedGeneratedRows = operation.kind === "list" ? 2 : 1;
+          const generatedIndexes = generatedRows.map((row) =>
+            resultRows.indexOf(row),
+          );
+          const generatedRowsAreContiguous = generatedIndexes.every(
+            (index, position) =>
+              position === 0 || index === generatedIndexes[position - 1]! + 1,
+          );
+          const generatedRowsContainCaret = generatedRows.includes(activeItem);
+          const compatibleAttributes = (element: Element) =>
+            Array.from(element.attributes)
+              .filter(({ name }) => name !== "id")
+              .map(({ name, value }) => `${name}=${value}`)
+              .sort()
+              .join("\n");
+          if (
+            generatedRows.length === expectedGeneratedRows &&
+            generatedRowsAreContiguous &&
+            generatedRowsContainCaret
+          ) {
+            const firstGeneratedIndex = generatedIndexes[0] ?? -1;
+            const lastGeneratedIndex = generatedIndexes.at(-1) ?? -1;
+            for (const candidate of baseline.listMerge.adjacent) {
+              const rowIndexes = candidate.rows.map((row) =>
+                resultRows.indexOf(row),
+              );
+              const rowsPreserved = rowIndexes.every(
+                (index, position) =>
+                  index >= 0 &&
+                  (position === 0 || index === rowIndexes[position - 1]! + 1),
+              );
+              const rowsOnExpectedSide =
+                candidate.side === "before"
+                  ? rowIndexes.every((index) => index < firstGeneratedIndex)
+                  : rowIndexes.every((index) => index > lastGeneratedIndex);
+              const sameListAttributes =
+                compatibleAttributes(candidate.node) ===
+                compatibleAttributes(activeList);
+              const sourceAttributesPreserved =
+                authoredAttributes(candidate.node) === candidate.attributes;
+              const listWasMerged =
+                candidate.node === activeList || !root.contains(candidate.node);
+              const leftListCarriesIdentity =
+                candidate.side !== "after" ||
+                !candidate.node.hasAttribute("id");
+              const resultStyleMatches =
+                changedStyleProperties(activeList, candidate.styles).length ===
+                0;
+              if (
+                candidate.node.tagName === baseline.listMerge.tagName &&
+                sameListAttributes &&
+                sourceAttributesPreserved &&
+                listWasMerged &&
+                leftListCarriesIdentity &&
+                rowsPreserved &&
+                rowsOnExpectedSide &&
+                resultStyleMatches
+              ) {
+                mergedListContainers.add(candidate.node);
+                candidate.rows.forEach((row) => mergedListRows.add(row));
+                if (candidate.node === activeList) {
+                  mergedListContainerContentChanges.add(candidate.node);
+                }
+              }
+            }
+          }
+        }
         const path = (node: Node) => {
           const parts: string[] = [];
           for (
@@ -3370,6 +3538,13 @@ export async function runAuthoringFuzz(
         const equivalentReplacements = new Set<Element>();
         for (const record of baseline.records) {
           if (isTarget(record.node)) continue;
+          if (
+            record.node instanceof Element &&
+            mergedListContainers.has(record.node) &&
+            record.node !== activeList
+          ) {
+            continue;
+          }
           if (!root.contains(record.node)) {
             if (
               mergeAssertion &&
@@ -3448,11 +3623,16 @@ export async function runAuthoringFuzz(
             isListContainer(record.parent) &&
             record.node.parentNode &&
             isListContainer(record.node.parentNode);
+          const expectedListMergeMove =
+            record.node instanceof Element &&
+            mergedListRows.has(record.node) &&
+            record.node.parentNode === activeList;
           if (
             moved &&
             !(
               promotedHeadingLine ||
               wrappedSiblingText ||
+              expectedListMergeMove ||
               (listShortcut &&
                 record.node instanceof Element &&
                 originalListRows.has(record.node) &&
@@ -3519,11 +3699,8 @@ export async function runAuthoringFuzz(
             if (structureIndex >= 0) changes.splice(structureIndex, 1);
           }
           if (
-            operation.kind === "empty-list-exit" &&
-            record.node instanceof HTMLElement &&
-            /^(OL|UL)$/.test(record.node.tagName) &&
-            record.node.textContent?.includes(`list${operationIndex}`) &&
-            record.node.nextElementSibling?.tagName === "P"
+            record.node instanceof Element &&
+            mergedListContainerContentChanges.has(record.node)
           ) {
             const textIndex = changes.indexOf("text");
             if (textIndex >= 0) changes.splice(textIndex, 1);
@@ -3683,7 +3860,7 @@ export async function runAuthoringFuzz(
         phase,
         operation,
         requireMerge,
-        operationIndex: activeIndex,
+        listTag: authoringFuzzListTagForOperation(operation),
         styleProperties: AUTHORING_FUZZ_STYLE_PROPERTIES,
       },
     );
@@ -4175,6 +4352,20 @@ export async function runAuthoringFuzz(
         }
       }
       if (!range) {
+        const textBlocks = Array.from(
+          root.querySelectorAll<HTMLElement>(
+            "li,blockquote,pre,h1,h2,h3,h4,h5,h6,ol,ul",
+          ),
+        ).reverse();
+        for (const block of textBlocks) {
+          const candidate = blockEdgeRange(block, true);
+          if (isVisible(candidate)) {
+            range = candidate;
+            break;
+          }
+        }
+      }
+      if (!range) {
         range = document.createRange();
         range.selectNodeContents(root);
         range.collapse(false);
@@ -4232,7 +4423,15 @@ export async function runAuthoringFuzz(
       const selection = window.getSelection();
       if (!selection?.rangeCount || !root.contains(selection.focusNode))
         return null;
-      const rect = selection.getRangeAt(0).getBoundingClientRect();
+      const range = selection.getRangeAt(0);
+      const rangeRect = range.getBoundingClientRect();
+      const anchor =
+        range.startContainer instanceof Element
+          ? range.startContainer
+          : range.startContainer.parentElement;
+      const rect =
+        rangeRect.height > 0 ? rangeRect : anchor?.getBoundingClientRect();
+      if (!rect) return null;
       return {
         left: rect.left,
         top: rect.top,
