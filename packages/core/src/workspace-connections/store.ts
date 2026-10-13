@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  getWorkspaceConnectionProvider,
   listWorkspaceConnectionProviders,
   type WorkspaceConnectionCapability,
   type WorkspaceConnectionProvider,
@@ -259,6 +260,9 @@ export interface WorkspaceConnectionProviderReadiness {
 export interface WorkspaceConnectionProviderLike {
   id: string;
   label?: string;
+  oauth?: {
+    scopes: readonly string[];
+  };
   credentialKeys?: readonly {
     key: string;
     required?: boolean;
@@ -267,6 +271,7 @@ export interface WorkspaceConnectionProviderLike {
 
 export interface SummarizeWorkspaceConnectionProviderForAppOptions {
   providerId: string;
+  provider?: WorkspaceConnectionProviderLike;
   appId: string;
   connections: SerializedWorkspaceConnection[];
   grants?: SerializedWorkspaceConnectionGrant[];
@@ -982,11 +987,30 @@ function connectionForApp(
   );
   return {
     ...connection,
+    status: connectionStatusForProvider(
+      getWorkspaceConnectionProvider(connection.provider),
+      connection,
+    ),
     appAccess,
     explicitGrant:
       explicitGrantForConnection(connection.id, grants, normalizedAppId) ??
       null,
   };
+}
+
+function connectionStatusForProvider(
+  provider: WorkspaceConnectionProviderLike | null | undefined,
+  connection: SerializedWorkspaceConnection,
+): WorkspaceConnectionStatus {
+  if (
+    connection.status === "connected" &&
+    (connection.accountId !== null ||
+      connection.config.credentialMode === "oauth") &&
+    provider?.oauth?.scopes.some((scope) => !connection.scopes.includes(scope))
+  ) {
+    return "needs_reauth";
+  }
+  return connection.status;
 }
 
 function serializeConnectionForApp(
@@ -1057,6 +1081,7 @@ function grantAvailabilityMessage(
 
 export function summarizeWorkspaceConnectionProviderForApp({
   providerId,
+  provider,
   appId,
   connections,
   grants = [],
@@ -1073,7 +1098,8 @@ export function summarizeWorkspaceConnectionProviderForApp({
         .available,
   );
   const connectedConnections = grantedConnections.filter(
-    (connection) => connection.status === "connected",
+    (connection) =>
+      connectionStatusForProvider(provider, connection) === "connected",
   );
   const ungrantedConnectionCount =
     allConnections.length - grantedConnections.length;
@@ -1140,10 +1166,19 @@ export function summarizeWorkspaceConnectionProviderForApp({
     hasActiveWorkspaceConnection: connectedConnections.length > 0,
     lastUsedAt,
     statuses: uniqueStrings(
-      allConnections.map((connection) => connection.status),
+      allConnections.map((connection) =>
+        connectionStatusForProvider(provider, connection),
+      ),
     ) as WorkspaceConnectionStatus[],
     connections: visibleConnections.map((connection) =>
-      serializeConnectionForApp(connection, normalizedAppId, grants),
+      serializeConnectionForApp(
+        {
+          ...connection,
+          status: connectionStatusForProvider(provider, connection),
+        },
+        normalizedAppId,
+        grants,
+      ),
     ),
   };
 }
@@ -1192,8 +1227,8 @@ export function summarizeWorkspaceConnectionProviderReadiness({
   );
   const attentionConnections = activeConnections.filter(
     (connection) =>
-      connection.status === "error" ||
-      connection.status === "needs_reauth" ||
+      connectionStatusForProvider(provider, connection) === "error" ||
+      connectionStatusForProvider(provider, connection) === "needs_reauth" ||
       Boolean(connection.lastError),
   );
   const missingKeys = uniqueStrings(
@@ -1207,7 +1242,7 @@ export function summarizeWorkspaceConnectionProviderReadiness({
   );
   const readyConnections = activeConnections.filter(
     (connection) =>
-      connection.status === "connected" &&
+      connectionStatusForProvider(provider, connection) === "connected" &&
       missingRequiredCredentialKeys(
         provider,
         connection,
@@ -1241,6 +1276,7 @@ export function summarizeWorkspaceConnectionProviderReadiness({
     appGrant: appId
       ? summarizeWorkspaceConnectionProviderForApp({
           providerId: provider.id,
+          provider,
           appId,
           connections,
           grants,
@@ -1274,6 +1310,7 @@ export async function listWorkspaceConnectionProviderCatalogForApp({
     .map((item) => {
       const workspaceConnection = summarizeWorkspaceConnectionProviderForApp({
         providerId: item.id,
+        provider: item,
         appId,
         connections,
         grants,

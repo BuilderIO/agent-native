@@ -575,6 +575,7 @@ const PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS = new Set([
   "unauthorized_client",
   "invalid_client",
 ]);
+const GOOGLE_SHEETS_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
@@ -4549,17 +4550,48 @@ async function resolveOAuthBearerToken(options: {
       legacyTokens?.access_token ?? legacyTokens?.accessToken;
     const legacyExpiresAt =
       legacyTokens?.expiry_date ?? legacyTokens?.expiresAt;
+    const legacyRefreshToken =
+      legacyTokens?.refresh_token ?? legacyTokens?.refreshToken;
+    const legacyScopes = new Set(
+      typeof legacyTokens?.scope === "string"
+        ? legacyTokens.scope.split(/[\s,]+/).filter(Boolean)
+        : [],
+    );
     if (
       legacyAccount &&
+      legacyTokens &&
       typeof legacyAccessToken === "string" &&
       legacyAccessToken &&
+      legacyScopes.has(GOOGLE_SHEETS_DRIVE_SCOPE) &&
       typeof legacyExpiresAt === "number" &&
       Number.isFinite(legacyExpiresAt) &&
-      legacyExpiresAt > Date.now() + 60_000
+      (legacyExpiresAt > Date.now() + 60_000 ||
+        (typeof legacyRefreshToken === "string" && legacyRefreshToken))
     ) {
+      let accessToken = legacyAccessToken;
+      if (legacyExpiresAt <= Date.now() + 60_000) {
+        try {
+          accessToken = await getValidOAuthAccessToken({
+            oauthProvider: "google",
+            accountId: legacyAccount.accountId,
+            ownerEmail,
+            tokens: legacyTokens,
+          });
+        } catch (error) {
+          if (!isPermanentGoogleOAuthRefreshFailure(error)) throw error;
+          return throwWorkspaceConnectionRequired({
+            runtime: options.runtime,
+            provider: options.auth.workspaceProvider ?? "google_sheets",
+            connectionId: options.connectionId,
+            message:
+              "Google Sheets needs to be reconnected because its Google authorization has expired.",
+            reason: "reauthorize",
+          });
+        }
+      }
       return {
         key: "GOOGLE_OAUTH_TOKEN",
-        value: legacyAccessToken,
+        value: accessToken,
         source: "oauth_token",
         provider: "google",
         accountId: legacyAccount.accountId,
@@ -4571,7 +4603,7 @@ async function resolveOAuthBearerToken(options: {
       provider: options.auth.workspaceProvider ?? "google_sheets",
       connectionId: options.connectionId,
       message:
-        "Google Sheets needs to be reconnected because its saved access token is missing or expired.",
+        "Google Sheets needs to be reconnected because its saved access token is missing, expired, or lacks file-level access.",
       reason: "reauthorize",
     });
   }
@@ -4719,9 +4751,7 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
   }
   if (
     options.workspaceProvider === "google_sheets" &&
-    !resolved.connection.scopes.includes(
-      "https://www.googleapis.com/auth/drive.file",
-    )
+    !resolved.connection.scopes.includes(GOOGLE_SHEETS_DRIVE_SCOPE)
   ) {
     return throwWorkspaceConnectionRequired({
       runtime: options.runtime,
@@ -4766,6 +4796,15 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
     connectionId: endpointOwner.connectionId,
     connectionLabel: resolved.connection.label,
   };
+}
+
+function isPermanentGoogleOAuthRefreshFailure(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const oauthError = (error as { oauthError?: unknown }).oauthError;
+  return (
+    typeof oauthError === "string" &&
+    PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(oauthError)
+  );
 }
 
 async function getValidOAuthAccessToken(options: {
@@ -5517,7 +5556,11 @@ async function refreshGoogleOAuthToken(
       await deleteOAuthTokens(options.oauthProvider, options.accountId);
     }
     const detail = data?.error_description ?? data?.error ?? lastStatusText;
-    throw new Error(`Google OAuth refresh failed: ${detail}`);
+    const error = new Error(`Google OAuth refresh failed: ${detail}`);
+    if (data?.error && PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(data.error)) {
+      Object.assign(error, { oauthError: data.error });
+    }
+    throw error;
   }
   const merged: OAuthTokens = {
     ...options.tokens,

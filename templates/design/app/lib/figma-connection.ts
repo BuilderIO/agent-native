@@ -161,10 +161,21 @@ export async function saveFigmaAccessToken(
     throw new Error(redactSubmittedSecret(message, token));
   }
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: unknown;
-      validationCode?: unknown;
-    } | null;
+    let payload: { error?: unknown; validationCode?: unknown } | null;
+    try {
+      payload = (await response.json()) as {
+        error?: unknown;
+        validationCode?: unknown;
+      } | null;
+    } catch (cause) {
+      if (!(cause instanceof SyntaxError)) throw cause;
+      throw new Error(
+        redactSubmittedSecret(
+          `Could not connect Figma (${response.status})`,
+          token,
+        ),
+      );
+    }
     if (payload?.validationCode === FIGMA_FILE_URL_TOKEN_VALIDATION_CODE) {
       throw new FigmaFileUrlUsedAsTokenError();
     }

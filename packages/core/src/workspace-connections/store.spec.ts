@@ -339,6 +339,64 @@ describe("workspace connection store", () => {
     });
   });
 
+  it("requires reauthorization when a Google Sheets grant lacks required scopes", async () => {
+    const {
+      summarizeWorkspaceConnectionProviderForApp,
+      summarizeWorkspaceConnectionProviderReadiness,
+    } = await import("./store.js");
+    const { getWorkspaceConnectionProvider } =
+      await import("../connections/catalog.js");
+    const provider = getWorkspaceConnectionProvider("google_sheets");
+    if (!provider) throw new Error("Google Sheets provider is missing.");
+    const connection = {
+      id: "conn-google-sheets-legacy",
+      provider: "google_sheets",
+      label: "Google Sheets: Alice",
+      accountId: "alice-google-account",
+      accountLabel: "Alice",
+      status: "connected" as const,
+      scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+      config: {},
+      allowedApps: [],
+      allowedUsers: [],
+      credentialRefs: [
+        { key: "GOOGLE_CLIENT_ID", scope: "workspace" as const },
+        { key: "GOOGLE_CLIENT_SECRET", scope: "workspace" as const },
+      ],
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+      lastCheckedAt: null,
+      lastError: null,
+    };
+
+    const appSummary = summarizeWorkspaceConnectionProviderForApp({
+      providerId: provider.id,
+      provider,
+      appId: "analytics",
+      connections: [connection],
+      includeConnections: "all",
+    });
+    const readiness = summarizeWorkspaceConnectionProviderReadiness({
+      provider,
+      appId: "analytics",
+      connections: [connection],
+    });
+
+    expect(appSummary).toMatchObject({
+      grantState: "granted",
+      activeConnectionCount: 0,
+      statuses: ["needs_reauth"],
+      connections: [{ id: connection.id, status: "needs_reauth" }],
+    });
+    expect(readiness).toMatchObject({
+      status: "needs_attention",
+      readyConnectionCount: 0,
+      appGrant: { statuses: ["needs_reauth"] },
+    });
+  });
+
   it("scopes personal list, upsert, and delete to the request user", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");
