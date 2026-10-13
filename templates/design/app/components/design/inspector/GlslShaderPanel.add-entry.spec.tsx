@@ -8,12 +8,16 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 const source = vi.hoisted(() => ({ content: "" }));
+const edits = vi.hoisted(() => ({
+  callAction: vi.fn(),
+  mutateAsync: vi.fn(),
+}));
 vi.mock("@agent-native/core/client/hooks", () => ({
   actionErrorMessage: vi.fn(),
-  callAction: vi.fn(),
+  callAction: edits.callAction,
   getBrowserTabId: () => "add-entry-tab",
   setClientAppState: vi.fn().mockResolvedValue(undefined),
-  useActionMutation: () => ({ mutateAsync: vi.fn() }),
+  useActionMutation: () => ({ mutateAsync: edits.mutateAsync }),
   useActionQuery: () => ({
     data: { content: source.content },
     refetch: vi.fn(),
@@ -45,6 +49,11 @@ let host: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal("matchMedia", () => ({
+    matches: false,
+    addEventListener() {},
+    removeEventListener() {},
+  }));
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -80,9 +89,47 @@ beforeEach(() => {
       ],
     },
   );
+  edits.callAction.mockReset().mockImplementation(async () => ({
+    content: source.content,
+    versionHash: "source-version",
+  }));
+  edits.mutateAsync.mockReset().mockImplementation(async () => ({
+    content: source.content,
+    instanceIds: ["existing-lift"],
+  }));
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
+});
+
+it("toggles a native effect from its row through the existing edit action", async () => {
+  await act(async () =>
+    root.render(
+      <TooltipProvider>
+        <GlslShaderEffectSection
+          context={context}
+          pickerOpen={false}
+          onPickerOpenChange={vi.fn()}
+        />
+      </TooltipProvider>,
+    ),
+  );
+  const toggle = host.querySelector(
+    '[aria-label="editPanel.shaders.enabled"]',
+  ) as HTMLButtonElement;
+  expect(toggle.disabled).toBe(false);
+  expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  await act(async () => toggle.click());
+  expect(edits.mutateAsync).toHaveBeenCalledWith(
+    expect.objectContaining({
+      expectedVersionHash: "source-version",
+      operation: {
+        kind: "set-instance",
+        instanceId: "existing-lift",
+        enabled: false,
+      },
+    }),
+  );
 });
 afterEach(() => {
   act(() => root.unmount());

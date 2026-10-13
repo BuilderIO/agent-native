@@ -42,6 +42,7 @@ import {
   IconChevronDown,
   IconCode,
   IconEye,
+  IconEyeOff,
   IconMinus,
   IconSearch,
   IconTrash,
@@ -84,7 +85,10 @@ import {
   readNativeShaderRuntimeStatus,
   type NativeShaderRuntimeStatus,
 } from "../design-canvas/native-status-bridge";
-import { SectionIconButton } from "../edit-panel/inspector-controls";
+import {
+  SectionIconButton,
+  SectionIconToggle,
+} from "../edit-panel/inspector-controls";
 import {
   InspectorGridCell,
   InspectorPaintRow,
@@ -2568,6 +2572,16 @@ export function GlslShaderEffectSection({
     });
   };
 
+  const toggleNativeEffect = (instance: EffectInstance) => {
+    void persistNative({
+      kind: "set-instance",
+      instanceId: instance.id,
+      enabled: !instance.enabled,
+    }).then((result) => {
+      if (result) void screen.refetch();
+    });
+  };
+
   if (!effectMount && nativeEffects.length === 0 && !pickerOpen) return null;
 
   return (
@@ -2605,13 +2619,18 @@ export function GlslShaderEffectSection({
                 </PopoverTrigger>
               </InspectorGridCell>
               <InspectorGridCell span={4} className="flex justify-center">
-                <SectionIconButton
+                <SectionIconToggle
                   label={t("editPanel.shaders.enabled")}
-                  disabled
-                  className="disabled:opacity-100"
+                  active={instance.enabled}
+                  disabled={disabled || busy || nativeBusy || multiTarget}
+                  onClick={() => toggleNativeEffect(instance)}
                 >
-                  <IconEye className="size-3.5" />
-                </SectionIconButton>
+                  {instance.enabled ? (
+                    <IconEye className="size-3.5" />
+                  ) : (
+                    <IconEyeOff className="size-3.5" />
+                  )}
+                </SectionIconToggle>
               </InspectorGridCell>
               <InspectorGridCell span={4} className="flex justify-center">
                 <SectionIconButton
