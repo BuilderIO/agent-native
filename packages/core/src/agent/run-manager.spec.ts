@@ -20,6 +20,10 @@ const RUN_TERMINAL_LOOKUP_FAILED_ERROR_CODE = "run_terminal_lookup_failed";
 
 const runStoreTestState = vi.hoisted(() => ({ runRecordMissingGraceMs: 0 }));
 
+const mockInsertRunEvent = vi.hoisted(() =>
+  vi.fn((..._args: unknown[]) => Promise.resolve()),
+);
+
 vi.mock("./run-store.js", () => ({
   RUN_RECORD_MISSING_ERROR_EVENT: {
     type: "error",
@@ -46,7 +50,18 @@ vi.mock("./run-store.js", () => ({
     return runStoreTestState.runRecordMissingGraceMs;
   },
   insertRun: vi.fn(() => Promise.resolve()),
-  insertRunEvent: vi.fn(() => Promise.resolve()),
+  insertRunEvent: mockInsertRunEvent,
+  // Row-by-row so per-event order, failure, and retry assertions still apply.
+  insertRunEvents: vi.fn(
+    async (
+      runId: string,
+      events: Array<{ seq: number; eventData: string }>,
+    ) => {
+      for (const { seq, eventData } of events) {
+        await mockInsertRunEvent(runId, seq, eventData);
+      }
+    },
+  ),
   updateRunStatus: vi.fn(() => Promise.resolve()),
   updateRunStatusIfRunning: vi.fn(() => Promise.resolve(true)),
   getRunStatus: vi.fn(() => Promise.resolve("running")),
@@ -207,6 +222,7 @@ import {
   getRunStatus,
   insertRun,
   insertRunEvent,
+  insertRunEvents,
   getRunById,
   getRunByThread,
   getRunEventsSince,
@@ -4793,6 +4809,51 @@ describe("run manager soft timeout", () => {
     await vi.waitFor(() => expect(persistOrder).toContain(1));
 
     expect(persistOrder.indexOf(0)).toBeLessThan(persistOrder.indexOf(1));
+  });
+
+  it("batches events queued behind a write without persisting past a tool event", async () => {
+    let releaseToolStart!: () => void;
+    const toolStartBarrier = new Promise<void>((resolve) => {
+      releaseToolStart = resolve;
+    });
+    const durableOrder: number[] = [];
+    vi.mocked(insertRunEvent).mockImplementation(async (_runId, seq, data) => {
+      if (JSON.parse(String(data)).type === "tool_start") {
+        await toolStartBarrier;
+      }
+      durableOrder.push(seq);
+    });
+    vi.mocked(insertRunEvents).mockClear();
+
+    const run = startRun(
+      "run-persist-batch",
+      "thread-persist-batch",
+      async (send) => {
+        send({ type: "tool_start", id: "t1", tool: "write", input: {} });
+        send({ type: "text", text: "a" });
+        send({ type: "text", text: "b" });
+        send({ type: "text", text: "c" });
+        send({ type: "tool_done", id: "t1", tool: "write", result: "ok" });
+        send({ type: "text", text: "d" });
+        send({ type: "text", text: "e" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add(() => {});
+
+    releaseToolStart();
+    await vi.waitFor(() => expect(durableOrder).toContain(6));
+
+    expect(durableOrder.slice(0, 7)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(
+      vi
+        .mocked(insertRunEvents)
+        .mock.calls.map(([, events]) => events.map(({ seq }) => seq)),
+    ).toEqual([
+      [1, 2, 3],
+      [5, 6],
+    ]);
   });
 
   it("retries a failed sequence before persisting later events", async () => {
