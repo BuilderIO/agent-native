@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { getDb } from "../server/db/index.js";
 import {
   createSource,
   nanoid,
@@ -96,25 +97,33 @@ export default defineAction({
       config.sourceKey = args.sourceKey;
       config.ingestTokenHash = await sha256Hex(ingestToken);
     }
-    const source = await createSource({
+    const values = {
       id: args.id,
       title: args.title,
       provider: args.provider,
       config,
       visibility: args.visibility,
-    });
-    if (zoomAdmin) {
-      await recordZoomAuditEvent({
-        orgId: source.orgId ?? zoomAdmin.orgId,
-        sourceId: source.id,
-        actorEmail: zoomAdmin.email,
-        event: "allowlist-changed",
-        detail: {
-          created: true,
-          ...zoomAllowlistChange({}, objectRecord(config.zoom)),
-        },
-      });
-    }
+    };
+    const source = zoomAdmin
+      ? await getDb().transaction(async (tx) => {
+          const db = tx as unknown as ReturnType<typeof getDb>;
+          const created = await createSource(values, db);
+          await recordZoomAuditEvent(
+            {
+              orgId: created.orgId ?? zoomAdmin.orgId,
+              sourceId: created.id,
+              actorEmail: zoomAdmin.email,
+              event: "allowlist-changed",
+              detail: {
+                created: true,
+                ...zoomAllowlistChange({}, objectRecord(config.zoom)),
+              },
+            },
+            db,
+          );
+          return created;
+        })
+      : await createSource(values);
     return { source: serializeSource(source), ingestToken };
   },
 });

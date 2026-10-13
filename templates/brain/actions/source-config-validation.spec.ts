@@ -243,6 +243,7 @@ describe("create-source config validation", () => {
       expect.objectContaining({
         config: { zoom: { meetingIds: ["123 4567 8901"] } },
       }),
+      expect.anything(),
     );
   });
 
@@ -267,7 +268,11 @@ describe("create-source config validation", () => {
           added: ["12345678901", "98765432101"],
         }),
       }),
+      expect.anything(),
     );
+    const txDb = (mocks.createSource.mock.calls[0] as unknown[])[1];
+    expect(txDb).toBeDefined();
+    expect(mocks.recordZoomAuditEvent.mock.calls[0][1]).toBe(txDb);
   });
 
   it("refuses to create a Zoom source for a non-admin", async () => {

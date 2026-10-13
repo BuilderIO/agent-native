@@ -4743,6 +4743,45 @@ describe("Brain connector smoke coverage", () => {
     ]);
   });
 
+  it("keeps a successful Zoom sync when the completion audit cannot be written", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        return Response.json({ meetings: [] });
+      }),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const insert = mocks.db.insert;
+    mocks.db.insert = ((tableRef: Row) =>
+      tableRef === mocks.schema.brainZoomAuditEvents
+        ? {
+            values: () => {
+              throw new Error("audit store down");
+            },
+          }
+        : insert(tableRef)) as never;
+    const source = seedSource({
+      id: "zoom-audit-down-source",
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: approvedZoom }),
+    });
+
+    try {
+      const result = await runConnectorSync(source as never);
+
+      expect(result).toMatchObject({ status: "success" });
+      expect(source).toMatchObject({ status: "active", lastError: null });
+      expect(warn).toHaveBeenCalledOnce();
+    } finally {
+      mocks.db.insert = insert;
+      warn.mockRestore();
+    }
+  });
+
   it("rewinds the Zoom window when the meeting filter changes", async () => {
     const listFromDates: string[] = [];
     vi.stubGlobal(

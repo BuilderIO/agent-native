@@ -3213,6 +3213,12 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       meetingUuid: summary.meeting_uuid,
       detail: { content: "summary", ...detail },
     });
+  // The run row already holds the outcome, so a failed completion audit must
+  // not turn a committed sync into an error.
+  const auditSyncFinished = (detail: Record<string, unknown>) =>
+    audit({ event: "sync-finished", detail }).catch((error) =>
+      console.warn("[brain] Could not record Zoom sync-finished audit", error),
+    );
   let refused = false;
   const refuse = async (reason: string, message: string): Promise<never> => {
     refused = true;
@@ -3557,14 +3563,11 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       stats,
       summaryError,
     );
-    await audit({
-      event: "sync-finished",
-      detail: {
-        runId,
-        status: summaryError ? "error" : "success",
-        capturesCreated: captures.length,
-        meetingsSkippedByFilter: stats.meetingsSkippedByFilter ?? 0,
-      },
+    await auditSyncFinished({
+      runId,
+      status: summaryError ? "error" : "success",
+      capturesCreated: captures.length,
+      meetingsSkippedByFilter: stats.meetingsSkippedByFilter ?? 0,
     });
     return {
       runId,
@@ -3610,14 +3613,11 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       );
     await finishRun(run, "error", stats, message);
     if (!refused) {
-      await audit({
-        event: "sync-finished",
-        detail: {
-          runId,
-          status: "error",
-          capturesCreated: captures.length,
-          rateLimited: isRateLimit,
-        },
+      await auditSyncFinished({
+        runId,
+        status: "error",
+        capturesCreated: captures.length,
+        rateLimited: isRateLimit,
       });
     }
     return {
