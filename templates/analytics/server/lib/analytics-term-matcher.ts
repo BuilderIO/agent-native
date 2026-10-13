@@ -342,12 +342,7 @@ export function stripNonPositiveInstructions(value: string): string {
       .filter((candidate): candidate is RegExpExecArray => candidate !== null)
       .sort((left, right) => left.index - right.index)[0];
     const retainedContinuation = continuation
-      ? match
-          .slice(continuation.index)
-          .trim()
-          .split(/\s+/)
-          .slice(0, 12)
-          .join(" ")
+      ? match.slice(continuation.index).trim()
       : "";
     return retainedContinuation ? ` ${retainedContinuation}` : " ";
   };
