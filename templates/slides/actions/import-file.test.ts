@@ -157,6 +157,7 @@ vi.mock("./patch-deck.js", () => ({
   withDeckLock: (_deckId: string, fn: () => unknown) => fn(),
 }));
 
+import { SOURCE_IMPORT_NO_WRITE_ERROR_CODE } from "../shared/source-import-errors.js";
 import action from "./import-file";
 
 beforeEach(() => {
@@ -794,6 +795,45 @@ describe("import-file PDF source extraction", () => {
       slideCount: 1,
       aspectRatio: "4:3",
     });
+  });
+
+  it("returns a typed no-write failure when a source PPTX cannot be parsed", async () => {
+    mockParsePptx.mockRejectedValue(new Error("Invalid PPTX archive"));
+
+    await expect(
+      action.run({
+        filePath: "source.pptx",
+        format: "pptx",
+        deckId: "deck-1",
+        importIntoDeck: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+      message: expect.stringContaining("No slides were written"),
+    });
+
+    expect(mockUploadPptxSlideImages).not.toHaveBeenCalled();
+    expect(mockGetDb).not.toHaveBeenCalled();
+  });
+
+  it("preserves an already typed PPTX parse failure", async () => {
+    const typedError = Object.assign(new Error("Parser unavailable"), {
+      errorCode: "pptx_parser_unavailable",
+      statusCode: 503,
+    });
+    mockParsePptx.mockRejectedValue(typedError);
+
+    await expect(
+      action.run({
+        filePath: "source.pptx",
+        format: "pptx",
+        deckId: "deck-1",
+        importIntoDeck: true,
+      }),
+    ).rejects.toBe(typedError);
+
+    expect(mockUploadPptxSlideImages).not.toHaveBeenCalled();
+    expect(mockGetDb).not.toHaveBeenCalled();
   });
 
   it("retains source provenance when appending to a nonempty deck", async () => {

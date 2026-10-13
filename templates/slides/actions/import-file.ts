@@ -234,7 +234,18 @@ export default defineAction({
     if (detectedFormat === "pptx") {
       const { parsePptx } =
         await import("../server/handlers/import/pptx-parser.js");
-      const presentation = await parsePptx(fileBuffer);
+      let presentation: Awaited<ReturnType<typeof parsePptx>>;
+      try {
+        presentation = await parsePptx(fileBuffer);
+      } catch (error) {
+        if (importIntoDeck && !hasTypedImportError(error)) {
+          fail(
+            "Slides could not read this PowerPoint file. No slides were written to the deck.",
+            { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
+          );
+        }
+        throw error;
+      }
       const fallbackTitle = titleFromPath(filename);
       const title = presentation.title || "";
 
@@ -1019,4 +1030,13 @@ function safeParseDeckData(raw: string): Record<string, unknown> {
 
 function stripTags(html: string): string {
   return html.replace(/<[^>]+>/g, "");
+}
+
+function hasTypedImportError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const typedError = error as { errorCode?: unknown; statusCode?: unknown };
+  return (
+    typeof typedError.errorCode === "string" ||
+    typeof typedError.statusCode === "number"
+  );
 }

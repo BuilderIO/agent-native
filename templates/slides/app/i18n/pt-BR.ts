@@ -809,7 +809,8 @@ const messages = {
     generationFailed:
       "Os slides não foram criados. Confira os detalhes no chat e tente novamente.",
     generationOutcomeUnresolved:
-      "Não foi possível confirmar se os slides foram criados. Confira a apresentação ou o chat e tente novamente.",
+      "Não foi possível confirmar se os slides foram criados. Confira a apresentação antes de tentar novamente.",
+    checkedDeckTryAgain: "Verifiquei a apresentação. Tentar novamente",
     deckHasNoSlides: "Esta apresentação não contém slides.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",

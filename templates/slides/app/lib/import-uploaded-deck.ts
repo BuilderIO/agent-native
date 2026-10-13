@@ -15,10 +15,7 @@ export const IMPORT_ACTION_TIMEOUT_MS = 5 * 60 * 1000;
 
 export interface ImportUploadedDeckOptions {
   onImportStarted?: () => void;
-  onImportResultKnown?: (result: {
-    slideCount: number;
-    imagesSkipped: number;
-  }) => void;
+  onImportCleanupSafe?: () => void;
 }
 
 function sourceFormat(file: UploadedFile): "pdf" | "pptx" | null {
@@ -86,7 +83,7 @@ export async function importUploadedDeckIntoDeck(
       "errorCode" in error &&
       error.errorCode === SOURCE_IMPORT_NO_WRITE_ERROR_CODE
     ) {
-      options.onImportResultKnown?.({ slideCount: 0, imagesSkipped: 0 });
+      options.onImportCleanupSafe?.();
     }
     throw error;
   }
@@ -117,8 +114,8 @@ export async function importUploadedDeckIntoDeck(
       `The ${format.toUpperCase()} import did not report a reliable image count, so no source-preserving improvement was started.`,
     );
   }
-  options.onImportResultKnown?.({ slideCount, imagesSkipped });
   if (slideCount < 1) {
+    options.onImportCleanupSafe?.();
     throw new Error(
       `The ${format.toUpperCase()} source deck contained no importable slides.`,
     );
@@ -130,5 +127,6 @@ export async function importUploadedDeckIntoDeck(
     );
   }
 
+  options.onImportCleanupSafe?.();
   return { file, format, slideCount, imagesSkipped };
 }

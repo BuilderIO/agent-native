@@ -685,7 +685,7 @@ export async function startDeckGeneration({
   }
 
   let importedSourceDeck: ImportedSourceDeck | null = null;
-  let sourceImportResultUnknown = false;
+  let sourceImportMayHaveWrittenSlides = false;
   if (sourceImprovementRequest) {
     try {
       importedSourceDeck = await importUploadedDeckIntoDeck(
@@ -693,15 +693,15 @@ export async function startDeckGeneration({
         deckId,
         {
           onImportStarted: () => {
-            sourceImportResultUnknown = true;
+            sourceImportMayHaveWrittenSlides = true;
           },
-          onImportResultKnown: () => {
-            sourceImportResultUnknown = false;
+          onImportCleanupSafe: () => {
+            sourceImportMayHaveWrittenSlides = false;
           },
         },
       );
     } catch (error) {
-      if (!sourceImportResultUnknown) deleteDeck(deckId);
+      if (!sourceImportMayHaveWrittenSlides) deleteDeck(deckId);
       onSetupFailure?.(prompt, filesForGeneration, error);
       return "failed";
     }

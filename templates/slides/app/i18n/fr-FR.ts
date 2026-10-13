@@ -822,7 +822,8 @@ const messages = {
     generationFailed:
       "Les diapositives n’ont pas été créées. Consultez les détails dans le chat, puis réessayez.",
     generationOutcomeUnresolved:
-      "Nous n’avons pas pu confirmer si les diapositives ont été créées. Vérifiez la présentation ou le chat, puis réessayez.",
+      "Nous n’avons pas pu confirmer si les diapositives ont été créées. Vérifiez la présentation avant de réessayer.",
+    checkedDeckTryAgain: "J’ai vérifié la présentation. Réessayer",
     deckHasNoSlides: "Cette présentation ne contient aucune diapositive.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",

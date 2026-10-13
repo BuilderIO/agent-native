@@ -126,7 +126,8 @@ export async function importPptxBufferToDeck(args: {
     imageFallbacks,
     parsedPresentation,
   } = args;
-  const presentation = parsedPresentation ?? (await parsePptx(fileBuffer));
+  const presentation =
+    parsedPresentation ?? (await parsePptxBeforeDeckWrite(fileBuffer));
   applyImageFallbacks(presentation, imageFallbacks);
   const requestedTitle = title?.trim() || presentation.title || "";
   const ownerEmail = getRequestUserEmail();
@@ -421,4 +422,27 @@ function safeParseDeckData(raw: string): Record<string, unknown> {
     );
   }
   return parsed as Record<string, unknown>;
+}
+
+async function parsePptxBeforeDeckWrite(
+  fileBuffer: Buffer,
+): Promise<ParsedPresentation> {
+  try {
+    return await parsePptx(fileBuffer);
+  } catch (error) {
+    if (hasTypedImportError(error)) throw error;
+    fail(
+      "Slides could not read this PowerPoint file. No slides were written to the deck.",
+      { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
+    );
+  }
+}
+
+function hasTypedImportError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const typedError = error as { errorCode?: unknown; statusCode?: unknown };
+  return (
+    typeof typedError.errorCode === "string" ||
+    typeof typedError.statusCode === "number"
+  );
 }

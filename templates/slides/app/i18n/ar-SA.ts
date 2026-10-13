@@ -811,7 +811,8 @@ const messages = {
     generationFailed:
       "لم يتم إنشاء الشرائح. راجع التفاصيل في الدردشة، ثم حاول مرة أخرى.",
     generationOutcomeUnresolved:
-      "تعذر علينا التأكد مما إذا كانت الشرائح قد أُنشئت. تحقق من العرض أو الدردشة، ثم حاول مرة أخرى.",
+      "تعذر علينا التأكد مما إذا كانت الشرائح قد أُنشئت. تحقق من العرض قبل المحاولة مرة أخرى.",
+    checkedDeckTryAgain: "تحققت من العرض. حاول مرة أخرى",
     deckHasNoSlides: "لا توجد شرائح في هذا العرض التقديمي.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",

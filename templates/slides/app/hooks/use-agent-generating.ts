@@ -94,6 +94,7 @@ export function useAgentGenerating(options?: {
   const [recentlyGenerating, setRecentlyGenerating] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
   const [runError, setRunError] = useState(false);
+  const [runErrorCode, setRunErrorCode] = useState<string | null>(null);
   const serverRunState = useRunStuckDetection({
     threadId: hasTabScope ? scopedTabId : null,
     enabled: hasTabScope && timedOut,
@@ -170,6 +171,7 @@ export function useAgentGenerating(options?: {
     clearWatchdog();
     setRecentlyGenerating(false);
     setRunError(true);
+    setRunErrorCode(null);
   }, [clearStopDebounce, clearWatchdog, serverConfirmedIdleAfterTimeout]);
 
   useEffect(() => {
@@ -181,6 +183,7 @@ export function useAgentGenerating(options?: {
     setRecentlyGenerating(false);
     setTimedOut(false);
     setRunError(false);
+    setRunErrorCode(null);
   }, [clearStopDebounce, clearWatchdog, hasTabScope, scopedTabId]);
 
   useEffect(() => {
@@ -190,6 +193,7 @@ export function useAgentGenerating(options?: {
     setRecentlyGenerating(false);
     setTimedOut(false);
     setRunError(false);
+    setRunErrorCode(null);
   }, [clearStopDebounce, clearWatchdog, providerMissing]);
 
   useEffect(() => {
@@ -234,6 +238,9 @@ export function useAgentGenerating(options?: {
       setRecentlyGenerating(false);
       setTimedOut(false);
       setRunError(true);
+      setRunErrorCode(
+        typeof detail.errorCode === "string" ? detail.errorCode : null,
+      );
       toast.error(detail.message, {
         id:
           typeof detail.runId === "string"
@@ -362,6 +369,7 @@ export function useAgentGenerating(options?: {
         `slides-submit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       setTimedOut(false);
       setRunError(false);
+      setRunErrorCode(null);
       resetWatchdog();
       activeSubmitRef.current = submitMessageId;
       activeGenerationAttemptRef.current =
@@ -414,6 +422,7 @@ export function useAgentGenerating(options?: {
         `slides-submit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       setTimedOut(false);
       setRunError(false);
+      setRunErrorCode(null);
       resetWatchdog();
       activeSubmitRef.current = submitMessageId;
       activeTabRef.current = null;
@@ -437,6 +446,7 @@ export function useAgentGenerating(options?: {
             setRecentlyGenerating(false);
             setTimedOut(false);
             setRunError(false);
+            setRunErrorCode(null);
           }
           return;
         }
@@ -475,6 +485,7 @@ export function useAgentGenerating(options?: {
       (generating || recentlyGenerating) &&
       !runError,
     runError,
+    runErrorCode,
     stopReason,
     observedRun,
     timedOut,

@@ -1442,12 +1442,12 @@ describe("Slides prompt-led home", () => {
     });
   });
 
-  it("removes an incomplete source deck when import reports skipped images", async () => {
+  it("preserves a partial source deck when PDF import reports skipped images", async () => {
     const uploadedFile = {
-      path: "/uploads/source.pptx",
-      originalName: "source.pptx",
-      filename: "source.pptx",
-      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      path: "/uploads/source.pdf",
+      originalName: "source.pdf",
+      filename: "source.pdf",
+      type: "application/pdf",
       size: 32,
     };
     callAction.mockResolvedValue({
@@ -1485,11 +1485,16 @@ describe("Slides prompt-led home", () => {
       }),
     );
     expect(callAction).toHaveBeenCalledWith(
-      "import-pptx",
-      { filePath: uploadedFile.path, deckId: "new-deck" },
+      "import-file",
+      {
+        filePath: uploadedFile.path,
+        format: "pdf",
+        deckId: "new-deck",
+        importIntoDeck: true,
+      },
       expect.objectContaining({ timeoutMs: expect.any(Number) }),
     );
-    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(deleteDeck).not.toHaveBeenCalled();
     expect(agentSubmit).not.toHaveBeenCalled();
   });
 

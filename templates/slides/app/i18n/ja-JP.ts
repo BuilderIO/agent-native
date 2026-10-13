@@ -800,7 +800,8 @@ const messages = {
     generationFailed:
       "スライドを作成できませんでした。チャットで詳細を確認して、もう一度お試しください。",
     generationOutcomeUnresolved:
-      "スライドが作成されたか確認できませんでした。デッキまたはチャットを確認してから、もう一度お試しください。",
+      "スライドが作成されたか確認できません。再試行する前にデッキを確認してください。",
+    checkedDeckTryAgain: "デッキを確認しました。再試行",
     deckHasNoSlides: "このデッキにはスライドがありません。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",

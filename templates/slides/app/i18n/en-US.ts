@@ -797,7 +797,8 @@ const messages = {
     generationFailed:
       "Slides weren't created. Check the chat for details, then try again.",
     generationOutcomeUnresolved:
-      "We couldn't confirm whether slides were created. Check the deck or chat, then try again.",
+      "We couldn't confirm whether slides were created. Check the deck before trying again.",
+    checkedDeckTryAgain: "I checked the deck. Try again",
     deckHasNoSlides: "Deck has no slides.",
     pdfRenderFailed: "Could not render PDF.",
     buildingDeck: "Building deck",

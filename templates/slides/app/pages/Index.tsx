@@ -1301,7 +1301,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     const generationAttemptId = nanoid();
     const generationStartedAt = Date.now();
     let generationFailureTracked = false;
-    let sourceImportResultUnknown = false;
+    let sourceImportMayHaveWrittenSlides = false;
     const generationSubmitMessageId = nanoid();
     trackEvent("generation_started", {
       app_name: "slides",
@@ -1358,7 +1358,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       setNewDeckRetryModelSelection(modelSelection);
       setIsStartingNewDeck(false);
       clearStartedGenerationAttempt(generationAttemptId, deckId);
-      if (!sourceImportResultUnknown) deleteDeck(deckId);
+      if (!sourceImportMayHaveWrittenSlides) deleteDeck(deckId);
       toast.error(t("home.generationStartFailed"), { description });
       if (
         typeof window !== "undefined" &&
@@ -1513,10 +1513,10 @@ export default function Index({ active = true }: { active?: boolean }) {
           deckId,
           {
             onImportStarted: () => {
-              sourceImportResultUnknown = true;
+              sourceImportMayHaveWrittenSlides = true;
             },
-            onImportResultKnown: () => {
-              sourceImportResultUnknown = false;
+            onImportCleanupSafe: () => {
+              sourceImportMayHaveWrittenSlides = false;
             },
           },
         );

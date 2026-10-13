@@ -793,7 +793,8 @@ const messages = {
     generationFailed:
       "슬라이드를 만들지 못했습니다. 채팅에서 세부 정보를 확인한 뒤 다시 시도하세요.",
     generationOutcomeUnresolved:
-      "슬라이드가 생성되었는지 확인할 수 없습니다. 덱이나 채팅을 확인한 다음 다시 시도하세요.",
+      "슬라이드가 만들어졌는지 확인할 수 없습니다. 다시 시도하기 전에 덱을 확인하세요.",
+    checkedDeckTryAgain: "덱을 확인했습니다. 다시 시도",
     deckHasNoSlides: "덱에 슬라이드가 없습니다.",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",

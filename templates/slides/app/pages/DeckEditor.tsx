@@ -1233,6 +1233,7 @@ export default function DeckEditor() {
     attempt: {
       observedRun: attemptObservedRun,
       runError: attemptRunError,
+      runErrorCode: attemptRunErrorCode,
       stopReason: attemptStopReason,
       timedOut: attemptTimedOut,
       canContinueAfterStall: attemptCanContinueAfterStall,
@@ -2105,18 +2106,20 @@ export default function DeckEditor() {
         }
         const settledSlideCount = outcomeRefreshResult.deck.slides.length;
         const failureCode =
-          attemptStopReason === "stopped"
-            ? "cancelled"
-            : attemptTimedOut
-              ? "timeout"
-              : attemptRunError
-                ? "agent_error"
-                : settledSlideCount === 0
-                  ? "no_output"
-                  : targetSlideCount !== null &&
-                      settledSlideCount < targetSlideCount
-                    ? "incomplete_output"
-                    : null;
+          attemptRunErrorCode === "write_tool_outcome_unknown"
+            ? "outcome_unresolved"
+            : attemptStopReason === "stopped"
+              ? "cancelled"
+              : attemptTimedOut
+                ? "timeout"
+                : attemptRunError
+                  ? "agent_error"
+                  : settledSlideCount === 0
+                    ? "no_output"
+                    : targetSlideCount !== null &&
+                        settledSlideCount < targetSlideCount
+                      ? "incomplete_output"
+                      : null;
         if (failureCode && settledSlideCount === 0 && generationContext) {
           updateDeck(id, {
             generationContext: {
@@ -4623,7 +4626,9 @@ export default function DeckEditor() {
                   disabled={!canEdit || generationRetryPending}
                   onClick={() => void retryEmptyGeneration()}
                 >
-                  {t("deckEditor.tryAgain")}
+                  {generationRecoveryState === "outcome_unresolved"
+                    ? t("deckEditor.checkedDeckTryAgain")
+                    : t("deckEditor.tryAgain")}
                 </Button>
               </div>
             </div>

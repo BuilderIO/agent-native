@@ -40,12 +40,12 @@ describe("importUploadedDeckIntoDeck", () => {
       slideCount: 8,
     });
     const onImportStarted = vi.fn();
-    const onImportResultKnown = vi.fn();
+    const onImportCleanupSafe = vi.fn();
 
     await expect(
       importUploadedDeckIntoDeck([pptxFile], "deck-1", {
         onImportStarted,
-        onImportResultKnown,
+        onImportCleanupSafe,
       }),
     ).resolves.toMatchObject({
       format: "pptx",
@@ -53,10 +53,7 @@ describe("importUploadedDeckIntoDeck", () => {
       file: pptxFile,
     });
     expect(onImportStarted).toHaveBeenCalledOnce();
-    expect(onImportResultKnown).toHaveBeenCalledWith({
-      slideCount: 8,
-      imagesSkipped: 0,
-    });
+    expect(onImportCleanupSafe).toHaveBeenCalledOnce();
     expect(mockCallAction).toHaveBeenCalledWith(
       "import-pptx",
       {
@@ -108,48 +105,48 @@ describe("importUploadedDeckIntoDeck", () => {
       imagesSkipped: 2,
     });
 
+    const onImportCleanupSafe = vi.fn();
+
     await expect(
-      importUploadedDeckIntoDeck([pptxFile], "deck-1"),
+      importUploadedDeckIntoDeck([pdfFile], "deck-1", { onImportCleanupSafe }),
     ).rejects.toThrow("could not preserve 2 image(s)");
+    expect(onImportCleanupSafe).not.toHaveBeenCalled();
   });
 
-  it("reports a resolved empty import before rejecting it", async () => {
+  it("allows cleanup after a resolved empty import", async () => {
     mockCallAction.mockResolvedValue({
       imported: true,
       deckId: "deck-1",
       slideCount: 0,
     });
     const onImportStarted = vi.fn();
-    const onImportResultKnown = vi.fn();
+    const onImportCleanupSafe = vi.fn();
 
     await expect(
       importUploadedDeckIntoDeck([pptxFile], "deck-1", {
         onImportStarted,
-        onImportResultKnown,
+        onImportCleanupSafe,
       }),
     ).rejects.toThrow("contained no importable slides");
 
     expect(onImportStarted).toHaveBeenCalledOnce();
-    expect(onImportResultKnown).toHaveBeenCalledWith({
-      slideCount: 0,
-      imagesSkipped: 0,
-    });
+    expect(onImportCleanupSafe).toHaveBeenCalledOnce();
   });
 
   it("leaves an import result unknown when the action fails", async () => {
     mockCallAction.mockRejectedValue(new Error("import failed"));
     const onImportStarted = vi.fn();
-    const onImportResultKnown = vi.fn();
+    const onImportCleanupSafe = vi.fn();
 
     await expect(
       importUploadedDeckIntoDeck([pptxFile], "deck-1", {
         onImportStarted,
-        onImportResultKnown,
+        onImportCleanupSafe,
       }),
     ).rejects.toThrow("import failed");
 
     expect(onImportStarted).toHaveBeenCalledOnce();
-    expect(onImportResultKnown).not.toHaveBeenCalled();
+    expect(onImportCleanupSafe).not.toHaveBeenCalled();
   });
 
   it("marks an explicit no-write action failure as a known empty import", async () => {
@@ -158,17 +155,14 @@ describe("importUploadedDeckIntoDeck", () => {
         errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
       }),
     );
-    const onImportResultKnown = vi.fn();
+    const onImportCleanupSafe = vi.fn();
 
     await expect(
       importUploadedDeckIntoDeck([pptxFile], "deck-1", {
-        onImportResultKnown,
+        onImportCleanupSafe,
       }),
     ).rejects.toThrow("No slides were written.");
 
-    expect(onImportResultKnown).toHaveBeenCalledWith({
-      slideCount: 0,
-      imagesSkipped: 0,
-    });
+    expect(onImportCleanupSafe).toHaveBeenCalledOnce();
   });
 });
