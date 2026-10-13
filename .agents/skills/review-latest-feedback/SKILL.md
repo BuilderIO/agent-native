@@ -19,7 +19,7 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
    before investigating any of it.
 1. **Answer the people who answered you.** Older open questions first.
 2. **Fix** what the evidence actually proves, at the owning boundary.
-3. **Reply**, under a hard question budget, then recap.
+3. **Reply** with useful questions, then recap.
 
 Output is fixes. Reply in-thread for every workflow reaction added this run;
 continuing work gets a concrete progress reply, and resolved work gets a final
@@ -83,12 +83,13 @@ wait for details that would not change the reproduction attempt. Phase 2's
 local reproduction procedure applies to all defect reports, not only bashes.
 
 If no safe repo-owned fix is evident after reproduction, record the evidence
-limit. Ask only when reporter input changes reproduction or unblocks the fix.
-Ask a direct question naming the exact item or action and why it gates the fix;
-do not merely describe the need or label the thread **Open**. Inspect supplied
-run IDs, logs, links, and artifacts yourself. Keep internal access, config,
-observability, and deployment gaps internal; never ask reporters for developer
-traces. After four days unanswered, record **Abandoned - no answer in 4 days**.
+limit. For each defect where reporter input changes reproduction or unblocks a
+fix, ask one direct question naming the missing detail or action and why it
+gates the next step. Inspect supplied run IDs, logs, links, and artifacts
+yourself. Keep internal access, config, observability, and deployment gaps
+internal; never ask reporters for developer traces. Do not label the thread
+**Open** instead of asking. After four days unanswered, record **Abandoned - no
+answer in 4 days**.
 
 Use **Skipped** only for non-defects, never breakage. **Open - no question**
 means you found neither a fix nor a useful question; state why in the thread.
@@ -573,7 +574,7 @@ Messages: product N · QA N · dev N (total N)
 Deployment cursor: <timestamp> · carried active run IDs/rows: <ids/count>
 Release lanes: N inspected · failed/stale N · target verified N
 Reaction-gated skips: N · claimed N · answered N
-Questions asked: N/3 · Dropped at 4 days: N
+Questions asked: N · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
 
