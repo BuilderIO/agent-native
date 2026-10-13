@@ -1693,6 +1693,36 @@ function cssMathExpressionDimension(
   );
 }
 
+function hasValidCssMathSubstitutionFallbacks(
+  value: string,
+  allowedIdentifiers?: ReadonlySet<string>,
+): boolean {
+  let valid = true;
+
+  csstree.tokenize(value, (type, start, end) => {
+    if (!valid || type !== csstree.tokenTypes.Function) return;
+    const name = csstree.ident
+      .decode(value.slice(start, end - 1))
+      .toLowerCase();
+    if (name !== "var") return;
+
+    const functionValue = readCssFunctionAt(value, end);
+    if (!functionValue) {
+      valid = false;
+      return;
+    }
+    const parts = splitCssFunctionArguments(functionValue.args);
+    if (parts.length < 2) return;
+    const fallback = parts.slice(1).join(",").trim();
+    if (!fallback) return;
+
+    const dimension = cssMathExpressionDimension(fallback, allowedIdentifiers);
+    valid = dimension !== "invalid" && !dimension.startsWith("product:");
+  });
+
+  return valid;
+}
+
 const cssRoundingStrategies = new Set(["nearest", "up", "down", "to-zero"]);
 
 function isValidCssMathFunction(
@@ -1700,6 +1730,14 @@ function isValidCssMathFunction(
   parts: string[],
   allowedIdentifiers?: ReadonlySet<string>,
 ): boolean {
+  if (
+    !parts.every((part) =>
+      hasValidCssMathSubstitutionFallbacks(part, allowedIdentifiers),
+    )
+  ) {
+    return false;
+  }
+
   const dimensions = parts.map((part) =>
     name === "clamp" && part.trim().toLowerCase() === "none"
       ? "unknown"

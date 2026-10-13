@@ -1192,6 +1192,8 @@ export default {
         "{{count}}개 토큰을 가져왔습니다. 잘못된 값 또는 파일 {{skipped}}개를 건너뛰었습니다.",
       importedWithOmissions:
         "{{count}}개 토큰을 가져왔습니다. 잘못된 항목 {{skipped}}개를 건너뛰었습니다. 가져오기 제한으로 미처리된 수 (토큰: {{omittedTokens}}, 파일: {{omittedFiles}}).",
+      importedWithReadFailures:
+        "파일 {{readFailures}}개를 읽지 못했습니다. 다시 선택해 시도하세요.",
       noTokensFound:
         "유효한 토큰을 찾지 못했습니다. 파일 형식과 토큰 값을 확인하세요.",
       count: "토큰 {{count}}개",

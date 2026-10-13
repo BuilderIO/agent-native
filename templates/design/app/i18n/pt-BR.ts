@@ -1203,6 +1203,8 @@ export default {
         "{{count}} tokens importados. {{skipped}} valores ou arquivos inválidos foram ignorados.",
       importedWithOmissions:
         "{{count}} tokens importados. {{skipped}} itens inválidos foram ignorados. Não processados devido aos limites (tokens: {{omittedTokens}}, arquivos: {{omittedFiles}}).",
+      importedWithReadFailures:
+        "Não foi possível ler {{readFailures}} arquivo(s). Selecione novamente e tente outra vez.",
       noTokensFound:
         "Nenhum token válido foi encontrado. Verifique o formato do arquivo e os valores.",
       count: "{{count}} tokens",

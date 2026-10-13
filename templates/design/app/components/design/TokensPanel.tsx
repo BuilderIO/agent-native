@@ -111,20 +111,26 @@ export function getTokenImportStatus(result: {
     | "designEditor.tokens.importedCount"
     | "designEditor.tokens.importedWithSkipped"
     | "designEditor.tokens.importedWithOmissions"
+    | "designEditor.tokens.importedWithReadFailures"
     | "designEditor.tokens.noTokensFound";
   values?: {
     count: number;
     skipped?: number;
     omittedTokens?: number;
     omittedFiles?: number;
+    readFailures?: number;
   };
 } {
-  const skippedCount =
-    (result.skippedCount ?? 0) +
-    (result.rejectedCount ?? 0) +
-    (result.readFailureCount ?? 0);
+  const skippedCount = (result.skippedCount ?? 0) + (result.rejectedCount ?? 0);
+  const readFailureCount = result.readFailureCount ?? 0;
   const omittedTokenCount = result.omittedTokenCount ?? 0;
   const omittedFileCount = result.omittedFileCount ?? 0;
+  if (readFailureCount > 0) {
+    return {
+      key: "designEditor.tokens.importedWithReadFailures",
+      values: { readFailures: readFailureCount },
+    };
+  }
   if (omittedTokenCount > 0 || omittedFileCount > 0) {
     return {
       key: "designEditor.tokens.importedWithOmissions",

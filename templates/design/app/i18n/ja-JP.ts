@@ -1205,6 +1205,8 @@ export default {
         "{{count}} 個のトークンをインポートしました。無効な値またはファイルを {{skipped}} 件スキップしました。",
       importedWithOmissions:
         "{{count}} 個のトークンをインポートしました。無効な項目を {{skipped}} 件スキップしました。上限により未処理（トークン数：{{omittedTokens}}、ファイル数：{{omittedFiles}}）。",
+      importedWithReadFailures:
+        "ファイルを {{readFailures}} 件読み込めませんでした。再選択してもう一度お試しください。",
       noTokensFound:
         "有効なトークンが見つかりません。ファイル形式と値を確認してください。",
       count: "{{count}} 個のトークン",

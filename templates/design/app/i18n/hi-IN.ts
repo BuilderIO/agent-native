@@ -1189,6 +1189,8 @@ export default {
         "{{count}} टोकन इम्पोर्ट हुए। {{skipped}} अमान्य मान या फाइलें छोड़ी गईं।",
       importedWithOmissions:
         "{{count}} टोकन इम्पोर्ट हुए। {{skipped}} अमान्य आइटम छोड़े गए। सीमा के कारण प्रोसेस नहीं हुए (टोकन: {{omittedTokens}}, फाइलें: {{omittedFiles}})।",
+      importedWithReadFailures:
+        "{{readFailures}} फ़ाइलें पढ़ी नहीं जा सकीं। उन्हें फिर से चुनकर दोबारा कोशिश करें।",
       noTokensFound: "कोई मान्य टोकन नहीं मिला। फाइल के फ़ॉर्मैट और टोकन मान जांचें।",
       count: "{{count}} टोकन",
       search: "टोकन खोजें",

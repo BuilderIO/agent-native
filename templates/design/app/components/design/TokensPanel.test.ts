@@ -103,15 +103,18 @@ describe("getTokenImportStatus", () => {
     });
   });
 
-  it("reports unreadable files as skipped rather than omitted by limits", () => {
+  it("reports unreadable files separately from skipped and limited files", () => {
     expect(
       getTokenImportStatus({
         importedCount: 1,
+        omittedFileCount: 1,
+        rejectedCount: 2,
         readFailureCount: 2,
+        skippedCount: 1,
       }),
     ).toEqual({
-      key: "designEditor.tokens.importedWithSkipped",
-      values: { count: 1, skipped: 2 },
+      key: "designEditor.tokens.importedWithReadFailures",
+      values: { readFailures: 2 },
     });
   });
 

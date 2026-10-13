@@ -1314,6 +1314,7 @@ Bad radius: 12px} body { color: red
         "Spacing min malformed: min(12px,)",
         "Spacing clamp malformed: clamp(1px, 2px)",
         "Spacing fallback malformed: var(--spacing, calc(1px +))",
+        "Spacing math fallback malformed: calc(var(--spacing, 1px + ) + 1px)",
         "Spacing var name malformed: calc(var(not-a-custom-property, 2px) + 1px)",
         "Spacing env malformed: calc(env() + 2px)",
         "Spacing attr malformed: calc(attr(, 2px) + 1px)",
@@ -1333,6 +1334,7 @@ Bad radius: 12px} body { color: red
         "Spacing attr syntax malformed words: calc(attr(data-gap length nonsense) + 1px)",
         "Spacing round malformed: round(1px,)",
         "Spacing var valid: calc(var(--spacing-gap, 2px) + 1px)",
+        "Spacing var empty fallback: calc(var(--spacing-gap,) + 1px)",
         "Spacing env valid: calc(env(safe-area-inset-top, 2px) + 1px)",
         "Spacing env none: calc(env(none, 2px) + 1px)",
         "Spacing attr valid: calc(attr(data-gap, 2px) + 1px)",
@@ -1351,13 +1353,17 @@ Bad radius: 12px} body { color: red
         "Spacing clamp none: clamp(none, 5px, none)",
       ].join("\n"),
     });
-    expect(result.importedCount).toBe(17);
-    expect(result.rejectedCount).toBe(22);
+    expect(result.importedCount).toBe(18);
+    expect(result.rejectedCount).toBe(23);
     expect(result.tokens).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           cssVar: "--spacing-var-valid",
           value: "calc(var(--spacing-gap, 2px) + 1px)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-var-empty-fallback",
+          value: "calc(var(--spacing-gap,) + 1px)",
         }),
         expect.objectContaining({
           cssVar: "--spacing-env-valid",
@@ -1424,6 +1430,14 @@ Bad radius: 12px} body { color: red
           value: "clamp(none, 5px, none)",
         }),
       ]),
+    );
+    expect(result.tokens).not.toContainEqual(
+      expect.objectContaining({
+        cssVar: "--spacing-math-fallback-malformed",
+      }),
+    );
+    expect(JSON.parse(designStore.row.data).tweakSelections).not.toHaveProperty(
+      "--spacing-math-fallback-malformed",
     );
   });
 
@@ -1607,6 +1621,26 @@ Bad radius: 12px} body { color: red
         expect.objectContaining({ cssVar: "--spacing", value: "12px" }),
         expect.objectContaining({ cssVar: "--radius", value: "8px" }),
       ]),
+    );
+  });
+
+  it("keeps quoted config tokens before apostrophes in trailing comments", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "tailwind.config.ts",
+          content: `const theme = {
+  Accent: "#2563eb", // brand's primary color
+};`,
+        },
+      ],
+    });
+
+    expect(result.rejectedCount).toBe(0);
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({ cssVar: "--color-accent", value: "#2563eb" }),
     );
   });
 
