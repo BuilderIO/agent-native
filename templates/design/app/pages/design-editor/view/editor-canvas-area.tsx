@@ -380,6 +380,9 @@ export function renderEditorCanvasArea({
         flipHorizontal: t("layersPanel.flipHorizontal"),
         flipVertical: t("layersPanel.flipVertical"),
         copyLink: t("layersPanel.copyLink"),
+        sendTo: t("canvasMenu.sendTo"),
+        sendToAgents: t("canvasMenu.sendToAgents"),
+        copyAgentPrompt: t("canvasMenu.copyAgentPrompt"),
       }}
       // U4/U8: hasCanvasClipboard only reflects copies made in THIS
       // tab/window. Peek the live system clipboard right as the menu
