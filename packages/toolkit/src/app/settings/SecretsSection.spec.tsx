@@ -399,6 +399,51 @@ describe("SecretsSection", () => {
     );
   });
 
+  it("shows the HTTP status when a secret save response is not JSON", async () => {
+    const fetchMock = vi.fn<typeof fetch>((input, init) => {
+      const url = String(input);
+      if (url.endsWith("/org/me"))
+        return Promise.resolve(Response.json(adminOrgMe));
+      if (url.endsWith("/secrets/adhoc"))
+        return Promise.resolve(Response.json([]));
+      if (url.endsWith("/secrets/OPENAI_API_KEY") && init?.method === "POST") {
+        return Promise.resolve(
+          new Response("<html>Bad gateway</html>", {
+            status: 502,
+            headers: { "Content-Type": "text/html" },
+          }),
+        );
+      }
+      return Promise.resolve(Response.json(registeredSecrets));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      renderSecretsSection(root);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await openRow("OpenAI API key");
+    await click(findButton("Rotate"));
+
+    const input = container.querySelector<HTMLInputElement>(
+      'input[aria-label="OpenAI API key"]',
+    );
+    expect(input).toBeTruthy();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "replacement-test-key");
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click(findButton("Save"));
+
+    expect(container.textContent).toContain("Save failed (502)");
+    expect(container.textContent).not.toContain(
+      "Couldn't load this. Please try again.",
+    );
+  });
+
   it("aborts the request on unmount without logging a load error", async () => {
     vi.useFakeTimers();
     const consoleError = vi

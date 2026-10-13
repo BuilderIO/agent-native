@@ -1602,9 +1602,15 @@ export async function upsertWorkspaceConnection(
   const now = Date.now();
   const label = input.label?.trim() || input.accountLabel?.trim() || provider;
   const status = normalizeStatus(input.status);
+  const accountId = input.accountId ?? null;
+  const sameAccount =
+    existingConnection?.provider === provider &&
+    existingConnection.accountId === accountId;
   const scopes =
     input.scopes === undefined
-      ? (existingConnection?.scopes ?? [])
+      ? sameAccount
+        ? (existingConnection?.scopes ?? [])
+        : []
       : normalizeStringArray(input.scopes);
   const config = sanitizeConfig(input.config);
   const allowedApps = normalizeStringArray(input.allowedApps);
@@ -1634,7 +1640,7 @@ export async function upsertWorkspaceConnection(
     args: [
       provider,
       label,
-      input.accountId ?? null,
+      accountId,
       input.accountLabel ?? null,
       status,
       JSON.stringify(scopes),
@@ -1665,7 +1671,7 @@ export async function upsertWorkspaceConnection(
           id,
           provider,
           label,
-          input.accountId ?? null,
+          accountId,
           input.accountLabel ?? null,
           status,
           JSON.stringify(scopes),

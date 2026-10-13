@@ -650,6 +650,51 @@ describe("workspace connection store", () => {
     expect(otherOrg).toBeNull();
   });
 
+  it("clears OAuth scopes when a connection account changes without new scopes", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { upsertWorkspaceConnection } = await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      async () => {
+        const original = await upsertWorkspaceConnection({
+          id: "conn-account-rebind",
+          provider: "slack",
+          label: "Slack workspace",
+          accountId: "team-old",
+          scopes: ["channels:read"],
+        });
+        const sameAccount = await upsertWorkspaceConnection({
+          id: original.id,
+          provider: "slack",
+          label: "Renamed Slack workspace",
+          accountId: "team-old",
+        });
+
+        expect(sameAccount.scopes).toEqual(["channels:read"]);
+
+        const rebound = await upsertWorkspaceConnection({
+          id: original.id,
+          provider: "slack",
+          label: "Other Slack workspace",
+          accountId: "team-new",
+        });
+        expect(rebound.accountId).toBe("team-new");
+        expect(rebound.scopes).toEqual([]);
+
+        const cleared = await upsertWorkspaceConnection({
+          id: original.id,
+          provider: "slack",
+          label: "No Slack workspace",
+          accountId: null,
+        });
+        expect(cleared.accountId).toBeNull();
+        expect(cleared.scopes).toEqual([]);
+      },
+    );
+  });
+
   it("normalizes and enforces connection-level user allowlists", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");
