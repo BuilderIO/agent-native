@@ -5,17 +5,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { designDataForAccessRole } from "../server/lib/design-data-access.js";
-import {
-  trackDesignExported,
-  withDesignExportFailureTracking,
-} from "../server/lib/design-export-tracking.js";
 import { injectHiddenLayerExportStyle } from "../server/lib/design-export.js";
+import { trackDesign } from "../server/lib/design-tracking.js";
 import { isBoardFile } from "../shared/board-file.js";
 import "../server/db/index.js";
-
-const trackPdfExportFailures = withDesignExportFailureTracking<{ id: string }>(
-  "pdf",
-);
 
 export default defineAction({
   description:
@@ -26,10 +19,9 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
-  run: trackPdfExportFailures(async ({ id }, ctx, facts) => {
+  run: async ({ id }, ctx) => {
     const access = await resolveAccess("design", id);
     if (!access) throw new Error(`Design not found: ${id}`);
-    facts.designId = id;
 
     const row = access.resource;
     const db = getDb();
@@ -39,10 +31,17 @@ export default defineAction({
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id));
     const exportFiles = files.filter((file) => !isBoardFile(file.filename));
-    facts.fileCount = exportFiles.length;
 
-    trackDesignExported(
-      { ...facts, exportFormat: "pdf", status: "completed" },
+    // This only hands render data to a client; the PDF itself is produced and
+    // recorded as `design_exported` by whoever renders it.
+    trackDesign(
+      "design_export_prepared",
+      {
+        output_id: id,
+        output_type: "design",
+        export_format: "pdf",
+        file_count: exportFiles.length,
+      },
       ctx,
     );
 
@@ -66,5 +65,5 @@ export default defineAction({
         note: "The Design editor renders the active artboard as a single-page raster PDF at its fixed authored size. This preserves visual appearance but does not provide selectable/vector text; export separate screens individually.",
       },
     };
-  }),
+  },
 });

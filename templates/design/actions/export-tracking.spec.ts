@@ -92,7 +92,6 @@ const fileActions = [
   ["html", exportHtml, { id: "design-1" }],
   ["zip", exportZip, { id: "design-1" }],
   ["svg", exportSvg, { id: "design-1", width: 100, height: 100 }],
-  ["pdf", exportPdf, { id: "design-1" }],
   ["coding_handoff", exportCodingHandoff, { id: "design-1" }],
 ] as const;
 
@@ -158,6 +157,40 @@ describe.each(fileActions)("export %s", (format, action, args) => {
     await expect(
       (action.run as (a: unknown, c: unknown) => Promise<unknown>)(args, ctx),
     ).resolves.toBeTruthy();
+  });
+});
+
+describe("export-pdf", () => {
+  it("records preparing render data, never a PDF export", async () => {
+    await (exportPdf.run as (a: unknown, c: unknown) => Promise<unknown>)(
+      { id: "design-1" },
+      ctx,
+    );
+
+    expect(exportEvents()).toEqual([]);
+    const prepared = mocks.track.mock.calls.filter(
+      ([name]) => name === "design_export_prepared",
+    );
+    expect(prepared).toHaveLength(1);
+    expect(prepared[0]![1]).toMatchObject({
+      output_id: "design-1",
+      export_format: "pdf",
+      file_count: 1,
+      caller: "frontend",
+    });
+  });
+
+  it("records nothing when it cannot read the design", async () => {
+    const error = new Error("db down");
+    mocks.dbRows.mockRejectedValue(error);
+
+    await expect(
+      (exportPdf.run as (a: unknown, c: unknown) => Promise<unknown>)(
+        { id: "design-1" },
+        ctx,
+      ),
+    ).rejects.toBe(error);
+    expect(mocks.track).not.toHaveBeenCalled();
   });
 });
 
