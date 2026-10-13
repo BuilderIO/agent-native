@@ -2946,7 +2946,7 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
                 value[field] === undefined || typeof value[field] === "boolean",
             ) &&
             (value.approvalPause === undefined ||
-              value.approvalPause === true) &&
+              typeof value.approvalPause === "boolean") &&
             (value.outcomeUnknown === undefined ||
               value.outcomeUnknown === true))
       );

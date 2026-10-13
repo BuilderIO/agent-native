@@ -10833,6 +10833,15 @@ export function createProductionAgentHandler(
             .filter((key: unknown): key is string => typeof key === "string")
             .slice(0, 200)
         : undefined;
+    // The approval fast path replays one call, so reject batches before any key can be dropped.
+    if (requestedApprovedToolCalls && requestedApprovedToolCalls.length > 1) {
+      setResponseStatus(event, 422);
+      return {
+        error: "The agent run failed.",
+        code: "approved_tool_call_count_unsupported",
+        retryable: false,
+      };
+    }
     const resolvedApprovalTurnId =
       !isBackgroundWorker &&
       ownerEmail &&

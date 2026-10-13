@@ -3774,6 +3774,7 @@ function mapAgentNativeEvent(
       toolCall.args = ev.input ?? {};
       toolCall.argsText = JSON.stringify(toolCall.args);
       if (structuredMeta) toolCall.structuredMeta = structuredMeta;
+      delete toolCall.approvalPauseCandidate;
     } else {
       input.message.content.push({
         type: "tool-call",
@@ -3823,12 +3824,16 @@ function mapAgentNativeEvent(
     if (storedToolCall?.type === "tool-call") {
       const resultText = agentNativeToolResultText(ev.result);
       storedToolCall.result = resultText;
-      if (ev.approvalPause === true) {
+      const legacyApprovalPause =
+        ev.approvalPause === undefined &&
+        storedToolCall.approvalPauseCandidate === true;
+      if (ev.approvalPause === true || legacyApprovalPause) {
         storedToolCall.approvalPause = true;
       } else {
         delete storedToolCall.approvalPause;
         delete storedToolCall.approval;
       }
+      delete storedToolCall.approvalPauseCandidate;
       storedToolCall.isError = ev.isError === true || Boolean(ev.error);
       storedToolCall.completedSideEffect = ev.completedSideEffect === true;
       if (ev.mcpApp) storedToolCall.mcpApp = ev.mcpApp;
@@ -3925,6 +3930,7 @@ function mapAgentNativeEvent(
             ? { allowPersistentApproval: false }
             : {}),
         };
+        part.approvalPauseCandidate = true;
       }
     }
     return [

@@ -4882,13 +4882,27 @@ describe("createAgentNativeChatRuntime", () => {
             id: "call-1",
             tool: "publish-release",
             result: "Awaiting human approval. This action did NOT execute.",
-            approvalPause: true,
           },
           { type: "done" },
         ]),
       )
       .mockResolvedValueOnce(
         sseResponse([
+          {
+            type: "tool_start",
+            id: "call-1",
+            tool: "publish-release",
+            input: approvedInput,
+          },
+          {
+            type: "tool_done",
+            id: "call-1",
+            tool: "publish-release",
+            result:
+              "Audit note: the report contains ‘awaiting human approval’ and ‘did not execute’.",
+            completedSideEffect: true,
+            approvalPause: false,
+          },
           { type: "text", text: "Release published." },
           { type: "done" },
         ]),
@@ -5072,6 +5086,7 @@ describe("createAgentNativeChatRuntime", () => {
             tool: "publish-release",
             result: "",
             completedSideEffect: true,
+            approvalPause: false,
           },
           { type: "done" },
         ]),

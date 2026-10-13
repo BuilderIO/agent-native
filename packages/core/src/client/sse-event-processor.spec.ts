@@ -4725,7 +4725,6 @@ describe("SSE event processor tool id matching", () => {
             tool: "send-email",
             id: "call-approved",
             result: "Awaiting human approval. This action did NOT execute.",
-            approvalPause: true,
           },
           {
             type: "tool_start",
@@ -4740,6 +4739,7 @@ describe("SSE event processor tool id matching", () => {
             result:
               "Audit note: the report contains ‘awaiting human approval’ and ‘did not execute’.",
             completedSideEffect: true,
+            approvalPause: false,
           },
           { type: "done" },
         ]),

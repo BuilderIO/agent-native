@@ -44,6 +44,8 @@ export type ContentPart =
       result?: string;
       isError?: boolean;
       approvalPause?: true;
+      approvalPauseCandidate?: true;
+      approvalResumeCandidate?: true;
       /**
        * Set when the stream ended while this tool was still in flight. We know
        * it started and NOT whether its side effect landed, so it is deliberately
@@ -108,7 +110,7 @@ export interface SSEEvent {
   result?: string;
   isError?: boolean;
   completedSideEffect?: boolean;
-  approvalPause?: true;
+  approvalPause?: boolean;
   artifacts?: ArtifactReceipt[];
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
@@ -1868,7 +1870,15 @@ export function processEvent(
   if (ev.type === "tool_start") {
     const args = (ev.input ?? {}) as Record<string, string>;
     const tool = ev.tool ?? "unknown";
-    if (findCompletedToolCallIndex(content, ev.id) >= 0) {
+    const completedIndex = findCompletedToolCallIndex(content, ev.id);
+    if (completedIndex >= 0) {
+      const completedPart = content[completedIndex];
+      if (completedPart?.type === "tool-call") {
+        if (completedPart.approvalPause === true) {
+          completedPart.approvalResumeCandidate = true;
+        }
+        delete completedPart.approvalPauseCandidate;
+      }
       return { action: "continue" };
     }
     if (typeof window !== "undefined") {
@@ -1964,6 +1974,8 @@ export function processEvent(
               ? { allowPersistentApproval: false }
               : {}),
           };
+          part.approvalPauseCandidate = true;
+          delete part.approvalResumeCandidate;
         }
       }
     }
@@ -1982,10 +1994,18 @@ export function processEvent(
     let approvedResumeIndex = -1;
     if (completedIndex >= 0) {
       const completedPart = content[completedIndex];
+      if (completedPart?.type !== "tool-call") {
+        return { action: "continue" };
+      }
+      const legacyApprovalPause =
+        ev.approvalPause === undefined &&
+        completedPart.approvalPauseCandidate === true;
       if (
-        completedPart?.type === "tool-call" &&
-        completedPart.approvalPause === true &&
-        ev.approvalPause !== true
+        (ev.approvalPause === true && completedPart.approvalPause !== true) ||
+        legacyApprovalPause ||
+        (completedPart.approvalPause === true &&
+          completedPart.approvalResumeCandidate === true &&
+          ev.approvalPause !== true)
       ) {
         approvedResumeIndex = completedIndex;
       } else {
@@ -2021,12 +2041,17 @@ export function processEvent(
       const part = content[doneIdx];
       if (part.type === "tool-call") {
         part.result = ev.result ?? "";
-        if (ev.approvalPause === true) {
+        const legacyApprovalPause =
+          ev.approvalPause === undefined &&
+          part.approvalPauseCandidate === true;
+        if (ev.approvalPause === true || legacyApprovalPause) {
           part.approvalPause = true;
         } else {
           delete part.approvalPause;
           delete part.approval;
         }
+        delete part.approvalPauseCandidate;
+        delete part.approvalResumeCandidate;
         if (ev.isError !== undefined) part.isError = ev.isError;
         if (ev.completedSideEffect !== undefined) {
           part.completedSideEffect = ev.completedSideEffect;

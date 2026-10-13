@@ -3433,6 +3433,66 @@ describe("createProductionAgentHandler", () => {
     expect(engine.stream).not.toHaveBeenCalled();
   });
 
+  it("rejects multiple approvals instead of replaying only one", async () => {
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved. Go ahead and run the requested action.",
+          approvedToolCalls: [
+            'send-email:{"to":"a@b.com"}',
+            'delete-records:{"id":"42"}',
+          ],
+          structuredHistory: [
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  id: "call-1",
+                  name: "send-email",
+                  input: { to: "a@b.com" },
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "call-1",
+                  toolName: "send-email",
+                  toolInput: '{"to":"a@b.com"}',
+                  content: "Awaiting human approval to run send-email.",
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(event),
+    );
+
+    expect(event.res.status).toBe(422);
+    expect(result).toEqual({
+      error: "The agent run failed.",
+      code: "approved_tool_call_count_unsupported",
+      retryable: false,
+    });
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
   it("runs the required AI setup gate before a user turn even with a local engine selection", async () => {
     const setupRequired = Object.assign(new Error("AI setup is required"), {
       statusMessage: "Use Builder.io before chatting.",

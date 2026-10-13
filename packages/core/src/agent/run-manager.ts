@@ -1453,7 +1453,15 @@ export function startRun(
   const send = (event: AgentChatEvent) => {
     if (run.status === "aborted" && abort.signal.aborted) return;
 
-    const runEvent: RunEvent = { seq: run.events.length, event };
+    // Explicit false distinguishes current completions from legacy pauses.
+    const normalizedEvent =
+      event.type === "tool_done" && event.approvalPause === undefined
+        ? { ...event, approvalPause: false }
+        : event;
+    const runEvent: RunEvent = {
+      seq: run.events.length,
+      event: normalizedEvent,
+    };
     if (isTerminalRunEvent(event)) {
       pendingTerminalEvent = runEvent;
       return;
