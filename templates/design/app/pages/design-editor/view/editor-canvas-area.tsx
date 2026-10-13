@@ -236,6 +236,7 @@ export function renderEditorCanvasArea({
     activeLayerId,
     handleToggleLayerLocked,
     handleToggleLayerHidden,
+    handleCopyLayerLink,
   } = editorLayerActions;
   const { handleBooleanSubtractSelection } = editorSourceAndSync;
 
@@ -332,6 +333,53 @@ export function renderEditorCanvasArea({
         swapInstance: t("designEditor.componentInstances.swap"),
         detachInstance: t("designEditor.componentInstances.detach"),
         suggestAutoLayout: t("designEditor.autoLayoutSuggestion.menuLabel"),
+        editWithAgent: t("canvasMenu.editWithAgent"),
+        exploreWithAgent: t("canvasMenu.exploreWithAgent"),
+        group: t("canvasMenu.group"),
+        inspiration: t("canvasMenu.inspiration"),
+        inspirationDescription: t("canvasMenu.inspirationDescription"),
+        polish: t("canvasMenu.polish"),
+        polishDescription: t("canvasMenu.polishDescription"),
+        debug: t("canvasMenu.debug"),
+        debugDescription: t("canvasMenu.debugDescription"),
+        states: t("canvasMenu.states"),
+        statesDescription: t("canvasMenu.statesDescription"),
+        responsive: t("canvasMenu.responsive"),
+        responsiveDescription: t("canvasMenu.responsiveDescription"),
+        paste: t("canvasMenu.paste"),
+        pasteOver: t("canvasMenu.pasteOver"),
+        order: t("canvasMenu.order"),
+        createComponent: t("canvasMenu.createComponent"),
+        addAutoLayout: t("canvasMenu.addAutoLayout"),
+        copyAs: t("canvasMenu.copyAs"),
+        copyProps: t("canvasMenu.copyProps"),
+        pasteProps: t("canvasMenu.pasteProps"),
+        copyAsPng: t("canvasMenu.copyAsPng"),
+        rotateClockwise: t("canvasMenu.rotateClockwise"),
+        toggleUiShow: t("canvasMenu.toggleUiShow"),
+        toggleUiHide: t("canvasMenu.toggleUiHide"),
+        toggleCommentsShow: t("canvasMenu.toggleCommentsShow"),
+        toggleCommentsHide: t("canvasMenu.toggleCommentsHide"),
+        arrange: t("layersPanel.arrange"),
+        transform: t("layersPanel.transform"),
+        booleanOperations: t("layersPanel.booleanOperations"),
+        subtract: t("layersPanel.subtract"),
+        pasteHere: t("layersPanel.pasteHere"),
+        copy: t("layersPanel.copy"),
+        pasteToReplace: t("layersPanel.pasteToReplace"),
+        bringForward: t("layersPanel.bringForward"),
+        bringToFront: t("layersPanel.bringToFront"),
+        sendBackward: t("layersPanel.sendBackward"),
+        sendToBack: t("layersPanel.sendToBack"),
+        frameSelection: t("layersPanel.frameSelection"),
+        rename: t("layersPanel.menuRename"),
+        lock: t("layersPanel.menuLock"),
+        unlock: t("layersPanel.menuUnlock"),
+        hide: t("layersPanel.menuHide"),
+        show: t("layersPanel.menuShow"),
+        flipHorizontal: t("layersPanel.flipHorizontal"),
+        flipVertical: t("layersPanel.flipVertical"),
+        copyLink: t("layersPanel.copyLink"),
       }}
       // U4/U8: hasCanvasClipboard only reflects copies made in THIS
       // tab/window. Peek the live system clipboard right as the menu
@@ -504,14 +552,21 @@ export function renderEditorCanvasArea({
         canOfferBooleanSubtract ? handleBooleanSubtractSelection : undefined
       }
       onCopyLink={() => {
+        const layerIds = selectedLayerIdsState.filter(
+          (id) => !id.startsWith("__"),
+        );
+        if (layerIds.length === 1) {
+          handleCopyLayerLink(layerIds[0]!);
+          return;
+        }
         if (!navigator.clipboard) {
-          toast.error(t("common.genericError"));
+          toast.error(t("review.copyLinkFailed"));
           return;
         }
         void navigator.clipboard
           .writeText(window.location.href)
           .then(() => toast.success(t("review.linkCopied")))
-          .catch(() => toast.error(t("common.genericError")));
+          .catch(() => toast.error(t("review.copyLinkFailed")));
       }}
     >
       {designIsEmpty &&

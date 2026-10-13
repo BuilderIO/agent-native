@@ -1051,11 +1051,12 @@ export function useEditorLayoutAndStructure({
         context: [
           id ? `Design id: ${id}` : "",
           screenId ? `Screen id: ${screenId}` : "",
-          selectedLayerIds.length > 1
+          selectedLayerIds.length > 0
             ? `Selected layers: ${selectedLayerIds.join(", ")}`
-            : selectedElement?.selector
-              ? `Selected element: ${selectedElement.selector}`
-              : "",
+            : "",
+          selectedLayerIds.length <= 1 && selectedElement?.selector
+            ? `Selected element: ${selectedElement.selector}`
+            : "",
         ]
           .filter(Boolean)
           .join("\n"),

@@ -1506,6 +1506,7 @@ export function useEditorLayerActions({
     editableLiveScreenIds,
     handleJoinPublishWaitlist,
     activeLayerId,
+    handleCopyLayerLink,
     fullViewScreenIds,
     gradientEditTarget,
     inScreenGradientEditTarget,
