@@ -1,5 +1,17 @@
 # @agent-native/scheduling
 
+## 0.2.26
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [77c15ee]
+- Updated dependencies [e913bfb]
+- Updated dependencies [1c4a192]
+- Updated dependencies [4452c7f]
+  - @agent-native/toolkit@0.207.1
+
 ## 0.2.25
 
 ### Patch Changes
@@ -1070,10 +1082,4 @@
 - Updated dependencies [e375642]
   - @agent-native/core@0.8.0
 
-## 0.1.2
-
-### Patch Changes
-
-- 4e3631b: Add `publishConfig.provenance: true` so `pnpm publish` (called by `changeset publish` from the auto-publish workflow) requests an OIDC token from GitHub Actions and publishes via npm trusted publisher. Without this, `pnpm publish` looked for token-based auth and failed with `ENEEDAUTH`.
-- Updated dependencies [4e3631b]
-  - @agent-native/core@0.7.85
+For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

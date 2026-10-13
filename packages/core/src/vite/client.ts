@@ -94,6 +94,7 @@ import {
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 import { migrationDiagnosticPlugin } from "./migration-diagnostic-plugin.js";
+import { motionSourceProvenancePlugin } from "./motion-source-provenance-plugin.js";
 import { resolveAgentNativePackageVersions } from "./package-versions.js";
 import {
   createSentrySourceMapUploadPlugin,
@@ -4589,6 +4590,7 @@ function createAgentNativePlugins(
 
   return [
     migrationDiagnosticPlugin(),
+    motionSourceProvenancePlugin(),
     persistent5xxRecovery(),
     presetMarkerPlugin,
     ssrStubPlugin([

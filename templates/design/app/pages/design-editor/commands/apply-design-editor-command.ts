@@ -141,11 +141,13 @@ export function runApplyDesignEditorCommand(
 
   const inspectorTab =
     command.inspectorTab === "design" ||
+    command.inspectorTab === "motion" ||
     command.inspectorTab === "comments" ||
     command.inspectorTab === "tweaks" ||
     command.inspectorTab === "code"
       ? command.inspectorTab
       : command.inspector === "design" ||
+          command.inspector === "motion" ||
           command.inspector === "comments" ||
           command.inspector === "tweaks" ||
           command.inspector === "code"

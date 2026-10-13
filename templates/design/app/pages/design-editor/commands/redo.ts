@@ -172,6 +172,7 @@ export interface RedoArgs {
       refreshPreview?: boolean;
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
+      allowPreviewNodeSwap?: boolean;
       immediateSave?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
@@ -316,7 +317,7 @@ export interface RedoArgs {
   replacePreviewContent: (
     nextContent: string,
     selector?: string | null,
-    options?: { forceFullDocument?: boolean },
+    options?: { forceFullDocument?: boolean; allowSourceNodeSwap?: boolean },
   ) => PreviewContentReplaceResult;
   restoreSelectionSnapshot: (
     selection: GeometryHistorySelection | undefined,
@@ -951,6 +952,7 @@ export function runRedo({
         ? applyLocalContentUpdate(clipboardPasteRedo.after, {
             recordHistory: false,
             forcePreviewFullDocument: true,
+            allowPreviewNodeSwap: true,
             immediateSave: true,
             clipboardMutation,
           })
@@ -1012,6 +1014,7 @@ export function runRedo({
           previewContentReplaceNeedsRenderFallback(
             replacePreviewContent(next, null, {
               forceFullDocument: true,
+              allowSourceNodeSwap: true,
             }),
           )
         ) {
@@ -1094,6 +1097,7 @@ export function runRedo({
             applyLocalContentUpdate(entry.after, {
               refreshPreview: false,
               forcePreviewFullDocument: true,
+              allowPreviewNodeSwap: true,
               immediateSave: true,
               recordHistory: false,
             });
@@ -1192,6 +1196,7 @@ export function runRedo({
                   historyBeforeContent: prepared.historyBeforeContent,
                   refreshPreview: false,
                   forcePreviewFullDocument: true,
+                  allowPreviewNodeSwap: true,
                   immediateSave: true,
                   recordHistory: false,
                 })

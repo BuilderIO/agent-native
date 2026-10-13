@@ -1,4 +1,5 @@
 import { memoizeByContent } from "./memoize-by-content";
+import { commonPrefixLength, commonSuffixLength } from "./string-diff.js";
 
 export type SourceEdit =
   | {
@@ -24,6 +25,43 @@ const memoizedSourceContentHash = memoizeByContent(64, hashSourceContent);
 
 export function sourceContentHash(content: string): string {
   return memoizedSourceContentHash(content);
+}
+
+/** One splice that turns a known base document into `resultHash`'s content. */
+export interface SourceContentPatch {
+  start: number;
+  deleteCount: number;
+  text: string;
+  resultHash: string;
+}
+
+export function sourceContentPatch(
+  base: string,
+  next: string,
+): SourceContentPatch {
+  const start = commonPrefixLength(base, next);
+  const suffix = commonSuffixLength(
+    base,
+    next,
+    Math.min(base.length, next.length) - start,
+  );
+  return {
+    start,
+    deleteCount: base.length - start - suffix,
+    text: next.slice(start, next.length - suffix),
+    resultHash: sourceContentHash(next),
+  };
+}
+
+export function applySourceContentPatch(
+  base: string,
+  patch: SourceContentPatch,
+): string {
+  return (
+    base.slice(0, patch.start) +
+    patch.text +
+    base.slice(patch.start + patch.deleteCount)
+  );
 }
 
 export function normalizeInlineSourcePath(path: string): string {
@@ -100,26 +138,6 @@ function lineNumberAtOffset(content: string, offset: number): number {
   return line;
 }
 
-function commonPrefixLength(a: string, b: string): number {
-  const max = Math.min(a.length, b.length);
-  let index = 0;
-  while (index < max && a[index] === b[index]) index += 1;
-  return index;
-}
-
-function commonSuffixLength(
-  a: string,
-  b: string,
-  prefixLength: number,
-): number {
-  const max = Math.min(a.length, b.length) - prefixLength;
-  let index = 0;
-  while (index < max && a[a.length - 1 - index] === b[b.length - 1 - index]) {
-    index += 1;
-  }
-  return index;
-}
-
 function excerpt(value: string, max = 1200): string {
   if (value.length <= max) return value;
   return `${value.slice(0, max)}\n...`;
@@ -139,7 +157,11 @@ export function previewSourceDiff(before: string, after: string) {
   }
 
   const prefix = commonPrefixLength(before, after);
-  const suffix = commonSuffixLength(before, after, prefix);
+  const suffix = commonSuffixLength(
+    before,
+    after,
+    Math.min(before.length, after.length) - prefix,
+  );
   const beforeEnd = before.length - suffix;
   const afterEnd = after.length - suffix;
   const lineStart = lineNumberAtOffset(before, prefix);

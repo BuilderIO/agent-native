@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "此區塊暫時無法使用。",
+  "block.loading": "正在載入區塊。",
   "composer.contextUrlLabel": "網址",
   "composer.contextInvalidUrl": "請輸入有效的 HTTP 或 HTTPS 網址。",
   "composer.contextAttach": "附加",
@@ -148,9 +150,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderAccountExistsDescription": "登入以使用您的帳戶。",
   "onboarding.builderActivationChecking": "正在確認是否可以建立新帳戶。",
   "onboarding.builderActivationUnavailable":
-    "此應用程式未啟用新帳戶建立功能。你仍可連結現有帳戶。",
+    "建立帳戶或登入以連線至 Builder.io。",
   "onboarding.builderActivationUnavailableInMode":
-    "此模式無法啟用新帳戶。你仍可連結現有帳戶。",
+    "建立帳戶或登入以連線至 Builder.io。",
   "onboarding.builderActivationCheckFailed":
     "無法確認此應用程式是否可以建立新帳戶。",
 
@@ -164,6 +166,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "隱私權政策",
   "onboarding.builderConsentAnd": "和",
   "onboarding.builderExistingAccount": "我有 Builder.io 帳戶",
+  "onboarding.builderConnect": "連線至 Builder.io",
   "onboarding.builderActivating": "正在啟用 Builder.io 免費額度",
   "onboarding.builderConnecting": "正在設定 Builder.io 免費額度",
   "onboarding.builderProvisioningDescription":

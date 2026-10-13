@@ -9,6 +9,11 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Analytics finds data definitions faster and identifies user-organization relationships more clearly.
 
+### Fixed
+
+- Create private Design storyboards for session replay screenshot exports.
+- Replay screenshots wait for the fonts used in the captured frame
+
 ## 2026-10-10
 
 ### Improved

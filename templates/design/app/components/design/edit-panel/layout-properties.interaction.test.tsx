@@ -22,6 +22,56 @@ import {
 } from "./layout-properties";
 
 describe("LayoutContextProperties interactions", () => {
+  it("exposes width and height motion keyframes beside their size controls", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onToggle = vi.fn();
+    const element = {
+      tagName: "span",
+      classes: [],
+      computedStyles: { display: "block", width: "120px", height: "80px" },
+      inlineStyles: { width: "120px", height: "80px" },
+      boundingRect: { x: 0, y: 0, width: 120, height: 80 },
+      isFlexChild: false,
+      isFlexContainer: false,
+      isGridContainer: false,
+      hasOwnText: true,
+      childElementCount: 0,
+      sourceId: "motion-size",
+    } as ElementInfo;
+
+    await act(async () => {
+      root.render(
+        <LayoutContextProperties
+          element={element}
+          onStyleChange={vi.fn()}
+          motionKeyframeContext={{
+            hasTimeline: true,
+            keyframedProperties: [],
+            onToggle,
+          }}
+        />,
+      );
+    });
+
+    const widthDiamond = container.querySelector<HTMLButtonElement>(
+      'button[data-motion-css-property="width"]',
+    );
+    const heightDiamond = container.querySelector<HTMLButtonElement>(
+      'button[data-motion-css-property="height"]',
+    );
+    expect(widthDiamond).not.toBeNull();
+    expect(heightDiamond).not.toBeNull();
+
+    await act(async () => widthDiamond?.click());
+    await act(async () => heightDiamond?.click());
+    expect(onToggle.mock.calls).toEqual([["width"], ["height"]]);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("re-clicking Grid on an existing grid invokes no command at all, preserving authored custom tracks untouched", async () => {
     const container = document.createElement("div");
     document.body.append(container);

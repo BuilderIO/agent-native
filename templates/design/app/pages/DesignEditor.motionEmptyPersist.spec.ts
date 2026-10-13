@@ -25,9 +25,12 @@ describe("motion empty-track persistence (Item 2)", () => {
 
   it("routes the empty-tracks autosave case through removeMotionTimeline", () => {
     const emptyBranchIdx = autosaveSrc.indexOf(
-      "if (motionTracks.length === 0)",
+      "motionTracks.length === 0 &&\n    !motionTextDocument",
     );
     expect(emptyBranchIdx).toBeGreaterThan(-1);
+    expect(autosaveSrc).toContain("motionAnimationStyles.length === 0");
+    expect(autosaveSrc).toContain("motionNativeStyles.length === 0");
+    expect(autosaveSrc).toContain("motionEasingVariables.length === 0");
     const removeCallIdx = autosaveSrc.indexOf(
       "removeMotionTimeline(",
       emptyBranchIdx,
@@ -40,8 +43,13 @@ describe("motion empty-track persistence (Item 2)", () => {
     expect(autosaveSrc).toContain("if (!motionTimelineId) {");
   });
 
-  it("does NOT loosen apply-motion-edit's min(1) tracks schema", () => {
+  it("allows empty CSS tracks for timelines with authored Motion content", () => {
     const actionSrc = readSource("../../actions/apply-motion-edit.ts");
-    expect(actionSrc).toContain("z.array(trackSchema).min(1)");
+    expect(actionSrc).toContain("z.array(trackSchema)");
+    expect(actionSrc).toContain("inputTracks.length === 0 &&");
+    expect(actionSrc).toContain("!textDocument");
+    expect(actionSrc).toContain("animationStyles.length === 0");
+    expect(actionSrc).toContain("nativeStyles.length === 0");
+    expect(actionSrc).toContain(".animations");
   });
 });

@@ -1,4 +1,3 @@
-// @vitest-environment happy-dom
 import type { PersistedClient } from "@tanstack/query-persist-client-core";
 import {
   QueryClient,
@@ -8,6 +7,9 @@ import {
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { expect, it, vi } from "vitest";
+
+// @vitest-environment happy-dom
+import { cacheBuster } from "./action-query-cache.test-fixtures.js";
 
 interface Designs {
   designs: Array<{ title: string }>;
@@ -79,7 +81,7 @@ it("continues persistence only for eligible queries from an accepted cold restor
   const queryHash = sourceQuery!.queryHash;
   const persisted: PersistedClient = {
     timestamp: Date.now(),
-    buster: "action-query-cache-v1",
+    buster: cacheBuster(),
     clientState: dehydrate(sourceClient, {
       shouldDehydrateQuery: sourceAction.isBrowserPersistableActionQuery,
       shouldDehydrateMutation: () => false,

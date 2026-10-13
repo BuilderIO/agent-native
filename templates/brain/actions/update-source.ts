@@ -16,6 +16,11 @@ import {
   assertSourceWorkspaceConnectionAvailable,
 } from "../server/lib/source-credentials.js";
 import { withSourceAnswerPolicy } from "../server/lib/source-policy.js";
+import {
+  assertBrainAdmin,
+  recordZoomAuditEvent,
+  zoomAllowlistChange,
+} from "../server/lib/zoom-governance.js";
 import { normalizeSlackChannelConfig } from "../shared/slack-source-config.js";
 import {
   optionalJsonRecordSchema,
@@ -26,6 +31,12 @@ import {
   mergeSourceConfigJson,
   sourceConfigJsonSchema,
 } from "./_source-config.js";
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
 
 export default defineAction({
   description:
@@ -65,6 +76,11 @@ export default defineAction({
         { errorCode: "no_source_changes" },
       );
     }
+    const zoomAdmin =
+      existing.provider === "zoom" &&
+      (config !== undefined || args.cursor !== undefined)
+        ? await assertBrainAdmin(existing.orgId)
+        : undefined;
     if (config !== undefined) {
       assertValidSourceConfig(existing.provider, config);
     }
@@ -120,10 +136,47 @@ export default defineAction({
         ...args.cursor,
       });
     }
-    await getDb()
-      .update(schema.brainSources)
-      .set(updates)
-      .where(eq(schema.brainSources.id, args.id));
+    const zoomChange =
+      zoomAdmin &&
+      config &&
+      Object.prototype.hasOwnProperty.call(config, "zoom")
+        ? zoomAllowlistChange(
+            objectRecord(
+              parseJson<Record<string, unknown>>(existing.configJson, {}).zoom,
+            ),
+            objectRecord(config.zoom),
+          )
+        : undefined;
+    if (
+      zoomAdmin &&
+      zoomChange &&
+      (zoomChange.added.length ||
+        zoomChange.removed.length ||
+        zoomChange.changedSettings.length)
+    ) {
+      await getDb().transaction(async (tx) => {
+        const db = tx as unknown as ReturnType<typeof getDb>;
+        await db
+          .update(schema.brainSources)
+          .set(updates)
+          .where(eq(schema.brainSources.id, args.id));
+        await recordZoomAuditEvent(
+          {
+            orgId: existing.orgId,
+            sourceId: existing.id,
+            actorEmail: zoomAdmin.email,
+            event: "allowlist-changed",
+            detail: zoomChange,
+          },
+          db,
+        );
+      });
+    } else {
+      await getDb()
+        .update(schema.brainSources)
+        .set(updates)
+        .where(eq(schema.brainSources.id, args.id));
+    }
     const [source] = await getDb()
       .select()
       .from(schema.brainSources)

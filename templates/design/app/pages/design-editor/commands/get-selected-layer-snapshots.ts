@@ -146,6 +146,8 @@ export function runGetSelectedLayerSnapshots({
           html,
         ),
         node,
+        repeat: selectedInfo?.repeat,
+        styleSnapshotReadOnDemand: selectedInfo?.styleSnapshotReadOnDemand,
         sourceIndex: node.source.start,
         tree: (tree ??= buildCodeLayerTree(projection)),
       });
@@ -195,6 +197,8 @@ export function runGetSelectedLayerSnapshots({
           html,
         ),
         node,
+        repeat: selectedElement.repeat,
+        styleSnapshotReadOnDemand: selectedElement.styleSnapshotReadOnDemand,
         sourceIndex: node.source?.start ?? Number.MAX_SAFE_INTEGER,
         tree,
       });

@@ -1,3 +1,6 @@
+import fs from "fs";
+import path from "path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -27,6 +30,12 @@ vi.mock("../server/db/index.js", () => ({}));
 import PptxGenJS from "pptxgenjs";
 
 import { asGoogleSlidesBuildStep } from "../server/lib/deck-export-tracking";
+import {
+  pptxDeckBindingPath,
+  pptxExportRevisionKey,
+  safeGeneratedFilename,
+  tenantExportDir,
+} from "../server/lib/tenant-files";
 import exportPptx, {
   applyDeckIdentity,
   assertServerPptxExportable,
@@ -44,8 +53,12 @@ describe("export-pptx action", () => {
   beforeEach(() => {
     mocks.track.mockReset();
     vi.stubEnv("NETLIFY", "1");
+    vi.spyOn(fs, "readdirSync").mockReturnValue([] as never);
+    vi.spyOn(fs, "mkdirSync").mockImplementation(() => undefined);
+    vi.spyOn(fs, "writeFileSync").mockImplementation(() => undefined);
   });
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
 
@@ -117,6 +130,213 @@ describe("export-pptx action", () => {
       status: "completed",
       slide_count: 1,
     });
+  });
+
+  it("returns a download link instead of file bytes to tool callers", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: false },
+      { caller: "tool" } as never,
+    );
+
+    const downloadUrl = new URL(result.downloadUrl);
+    expect(downloadUrl.pathname).toBe(`/api/exports/${result.filename}`);
+    expect(downloadUrl.searchParams.get("deckId")).toBe("deck-1");
+    expect(downloadUrl.searchParams.get("includeNotes")).toBe("false");
+    expect(result).not.toHaveProperty("buffer");
+    expect(result).not.toHaveProperty("filePath");
+  });
+
+  it("does not return binary internals to generic HTTP action callers", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: true },
+      { caller: "http" } as never,
+    );
+
+    expect(result.downloadUrl).toContain("/api/exports/");
+    expect(result).not.toHaveProperty("buffer");
+    expect(result).not.toHaveProperty("filePath");
+  });
+
+  it("returns bytes without persisting for a direct Slides download", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: true },
+      {
+        caller: "http",
+        slidesPptxDownload: true,
+        slidesPptxDownloadFilename: "requested-export.pptx",
+      } as never,
+    );
+
+    expect(result.buffer).toBeInstanceOf(Buffer);
+    expect(result.filename).toBe("requested-export.pptx");
+    expect(result).not.toHaveProperty("filePath");
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+    expect(fs.mkdirSync).not.toHaveBeenCalled();
+  });
+
+  it("persists authenticated download regeneration for later GET requests", async () => {
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("K_SERVICE", "slides");
+    const filename = safeGeneratedFilename(
+      "requested-export",
+      ".pptx",
+      "deck-1",
+    );
+    const data = JSON.stringify({
+      slides: [{ id: "s1", content: importedSlide("") }],
+    });
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data,
+      },
+    });
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: true },
+      {
+        caller: "http",
+        slidesPptxDownload: true,
+        slidesPptxDownloadFilename: filename,
+        slidesPptxDownloadPersist: true,
+        slidesPptxDownloadExpectedRevision: pptxExportRevisionKey(
+          "deck-1",
+          null,
+          "Deck",
+          data,
+          true,
+        ),
+      } as never,
+    );
+    const exportDir = tenantExportDir("local@example.com");
+
+    expect(result.buffer).toBeInstanceOf(Buffer);
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      path.join(exportDir, filename),
+      expect.any(Buffer),
+    );
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      pptxDeckBindingPath(exportDir, filename),
+      pptxExportRevisionKey("deck-1", null, "Deck", data, true),
+    );
+    expect(new URL(result.downloadUrl).searchParams.get("exportRevision")).toBe(
+      pptxExportRevisionKey("deck-1", null, "Deck", data, true),
+    );
+  });
+
+  it("rejects regeneration when the deck no longer matches the export revision", async () => {
+    const data = JSON.stringify({
+      slides: [{ id: "s1", content: importedSlide("") }],
+    });
+    const previousData = JSON.stringify({
+      slides: [{ id: "s1", content: importedSlide("Earlier slide content") }],
+    });
+    const previousRevision = pptxExportRevisionKey(
+      "deck-1",
+      null,
+      "Deck",
+      previousData,
+      true,
+    );
+    mocks.resolveAccess.mockResolvedValue({
+      resource: { title: "Deck", data },
+    });
+
+    await expect(
+      exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+        caller: "http",
+        slidesPptxDownload: true,
+        slidesPptxDownloadFilename: "requested-export.pptx",
+        slidesPptxDownloadPersist: true,
+        slidesPptxDownloadExpectedRevision: previousRevision,
+      } as never),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "export_revision_stale",
+    });
+
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+    expect(fs.mkdirSync).not.toHaveBeenCalled();
+  });
+
+  it("persists exports in the hosted runtime directory for later downloads", async () => {
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("K_SERVICE", "slides");
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: true },
+      { caller: "tool" } as never,
+    );
+    const exportDir = tenantExportDir("local@example.com");
+
+    expect(fs.mkdirSync).toHaveBeenCalledWith(exportDir, { recursive: true });
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      path.join(exportDir, result.filename),
+      expect.any(Buffer),
+    );
+  });
+
+  it("reports hosted export cleanup failures without failing the export", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      resource: {
+        title: "Deck",
+        data: JSON.stringify({
+          slides: [{ id: "s1", content: importedSlide("") }],
+        }),
+      },
+    });
+    const cleanupError = new Error("temporary directory is unavailable");
+    vi.mocked(fs.readdirSync).mockImplementationOnce(() => {
+      throw cleanupError;
+    });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await exportPptx.run(
+      { deckId: "deck-1", includeNotes: true },
+      { caller: "tool" } as never,
+    );
+
+    expect(result.downloadUrl).toContain("/api/exports/");
+    expect(fs.writeFileSync).toHaveBeenCalled();
+    expect(warning).toHaveBeenCalledWith(
+      "[export-pptx] Could not prune hosted PPTX exports",
+      cleanupError,
+    );
   });
 
   it("does not let a caller pass an analytics opt-out", () => {

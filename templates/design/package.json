@@ -59,6 +59,7 @@
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-router": "^8.1.0",
+    "typescript": "catalog:",
     "yjs": "catalog:",
     "zod": "^4.3.6"
   },
@@ -118,7 +119,6 @@
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "catalog:",
     "tsx": "^4.20.3",
-    "typescript": "catalog:",
     "typescript-7": "catalog:",
     "vaul": "^1.1.2",
     "vite": "catalog:",

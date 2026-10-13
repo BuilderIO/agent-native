@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-query";
 import type {
   Query,
+  QueryClient,
   UseQueryOptions,
   UseMutationOptions,
 } from "@tanstack/react-query";
@@ -1083,6 +1084,56 @@ function trackActionCircuitTrip(
 
 // Identical keys in another client or auth scope must earn their own permission.
 const browserPersistableActionQueries = new WeakSet<Query>();
+const browserPersistableActionQueryBindings = new WeakMap<Query, object>();
+const actionQueryCacheRevokers = new WeakMap<QueryClient, () => void>();
+const actionQueryCacheBindingRevokers = new WeakMap<object, () => void>();
+let actionQueryCacheBindingToken: object | undefined;
+
+export function registerActionQueryCacheRevoker(
+  client: QueryClient,
+  revoke: () => void,
+  bindingToken?: object,
+): void {
+  actionQueryCacheRevokers.set(client, revoke);
+  if (bindingToken) actionQueryCacheBindingRevokers.set(bindingToken, revoke);
+}
+
+function revokeActionQueryCacheForClient(
+  client: QueryClient,
+  bindingToken?: object,
+): void {
+  const bindingRevoker = bindingToken
+    ? actionQueryCacheBindingRevokers.get(bindingToken)
+    : undefined;
+  (bindingRevoker ?? actionQueryCacheRevokers.get(client))?.();
+}
+
+/** @internal set only by the scoped action-query cache binder. */
+export function setActionQueryCacheBindingToken(
+  token: object | undefined,
+): void {
+  actionQueryCacheBindingToken = token;
+}
+
+const accessDeniedActionQueryBindings = new WeakMap<Query, object>();
+
+export function setAccessDeniedActionQueryBinding(
+  query: Query,
+  token: object | undefined,
+): void {
+  if (token) accessDeniedActionQueryBindings.set(query, token);
+  else accessDeniedActionQueryBindings.delete(query);
+}
+
+export function getAccessDeniedActionQueryBinding(
+  query: Query,
+): object | undefined {
+  return accessDeniedActionQueryBindings.get(query);
+}
+
+export function clearAccessDeniedActionQueryBinding(query: Query): void {
+  accessDeniedActionQueryBindings.delete(query);
+}
 
 /** @internal read by the persisted query cache. */
 export function isBrowserPersistableActionQuery(query: Query): boolean {
@@ -1093,13 +1144,30 @@ export function isBrowserPersistableActionQuery(query: Query): boolean {
   );
 }
 
+/** @internal a response is persistable only in the binding active at fetch start. */
+export function isBrowserPersistableActionQueryForBinding(
+  query: Query,
+  token: object,
+): boolean {
+  return (
+    isBrowserPersistableActionQuery(query) &&
+    browserPersistableActionQueryBindings.get(query) === token
+  );
+}
+
 /** @internal used only after a persisted action result is accepted and hydrated. */
-export function markRestoredBrowserPersistableActionQuery(query: Query): void {
+export function markRestoredBrowserPersistableActionQuery(
+  query: Query,
+  token?: object,
+): void {
   browserPersistableActionQueries.add(query);
+  if (token) browserPersistableActionQueryBindings.set(query, token);
+  else browserPersistableActionQueryBindings.delete(query);
 }
 
 export function revokeBrowserPersistableActionQuery(query: Query): void {
   browserPersistableActionQueries.delete(query);
+  browserPersistableActionQueryBindings.delete(query);
 }
 
 export function useActionQuery<
@@ -1137,20 +1205,53 @@ export function useActionQuery<
     queryFn: async ({ signal, client }) => {
       const key = circuitKey();
       const query = client.getQueryCache().find({ queryKey, exact: true });
+      const bindingTokenAtFetch = actionQueryCacheBindingToken;
       assertActionCircuitClosed(key);
       let browserPersist = false;
-      const result = await actionFetch<R>(actionName, "GET", params, {
-        signal,
-        onResponse: (response) => {
-          browserPersist =
-            response.headers.get(ACTION_BROWSER_PERSIST_HEADER) ===
-            ACTION_BROWSER_PERSIST_ALLOW;
-        },
-      });
+      let result: R;
+      try {
+        result = await actionFetch<R>(actionName, "GET", params, {
+          signal,
+          onResponse: (response) => {
+            browserPersist =
+              response.headers.get(ACTION_BROWSER_PERSIST_HEADER) ===
+              ACTION_BROWSER_PERSIST_ALLOW;
+          },
+        });
+      } catch (error) {
+        const status = actionErrorStatus(error);
+        if (
+          !signal.aborted &&
+          (status === 401 || status === 403 || status === 404)
+        ) {
+          if (query) {
+            setAccessDeniedActionQueryBinding(query, bindingTokenAtFetch);
+            revokeBrowserPersistableActionQuery(query);
+            query.setState({ data: undefined, dataUpdatedAt: 0 });
+          }
+          revokeActionQueryCacheForClient(client, bindingTokenAtFetch);
+        }
+        throw error;
+      }
       resetActionFailureCircuit(key);
       if (query && !signal.aborted) {
-        if (browserPersist) browserPersistableActionQueries.add(query);
-        else browserPersistableActionQueries.delete(query);
+        clearAccessDeniedActionQueryBinding(query);
+        if (browserPersist) {
+          browserPersistableActionQueries.add(query);
+          if (
+            bindingTokenAtFetch !== undefined &&
+            actionQueryCacheBindingToken === bindingTokenAtFetch
+          ) {
+            browserPersistableActionQueryBindings.set(
+              query,
+              bindingTokenAtFetch,
+            );
+          } else {
+            browserPersistableActionQueryBindings.delete(query);
+          }
+        } else {
+          revokeBrowserPersistableActionQuery(query);
+        }
       }
       return result;
     },

@@ -169,71 +169,53 @@ older Google provider connections. `GOOGLE_SERVICE_ACCOUNT_KEY` and
 `GOOGLE_APPLICATION_CREDENTIALS` are server-side service-account options for
 specific Google API integrations; they are not required for browser sign-in.
 
-## Optional AI, search, and email fallbacks
+## LLM provider keys {#llm-provider-keys}
 
-### LLM provider keys {#llm-provider-keys}
+Use a provider key for local development or as an app-wide fallback on a
+self-hosted deployment. You can also connect with **Use Builder.io** or add a
+personal or organization key through **Custom keys** in the app.
 
-For local development, put a supported provider key in the app's `.env` file
-before starting `pnpm dev`. For example:
+- **Local development:** Add the key to the app's `.env` file before running
+  `pnpm dev`.
+- **Self-hosted fallback:** Set the key in the server-side environment. Signed-in
+  users without a personal, organization, or workspace key can use it, and usage
+  is billed to the deployment account. Scoped keys take precedence. Anonymous
+  public runs and synthetic traffic do not use the fallback. Production
+  Hosted-workspace runtimes block it.
+- **Scoped key:** **Custom keys** stores personal or organization credentials
+  in the app's encrypted database-backed credential store.
+- **Builder connection:** **Use Builder.io** uses the managed Builder connection
+  instead of one of these provider keys.
 
-```dotenv
-ANTHROPIC_API_KEY=replace-with-your-key
-```
+Choose the model in Settings. `OPENAI_BASE_URL` configures an OpenAI-compatible
+endpoint and is used with `OPENAI_API_KEY`.
 
-For an app-wide fallback, set a supported provider key in the server-side
-environment of a self-hosted app. This also works with a remote PostgreSQL
-database. Any signed-in user without a personal, organization-scoped, or
-workspace-scoped provider key can use the deployment's provider account, and
-usage is billed to that account. Anonymous public runs and synthetic traffic do
-not receive this fallback. Personal, organization, and workspace-scoped keys
-take precedence. Setting a deployment key opts in to
-app-wide access and billing; no extra shared-key flag is needed. Production
-Hosted-workspace runtimes block deployment provider-key fallbacks.
+| Variable                       | What it controls                                 | Format                                              |
+| ------------------------------ | ------------------------------------------------ | --------------------------------------------------- |
+| `ANTHROPIC_API_KEY`            | Anthropic Claude model fallback.                 | Anthropic API key                                   |
+| `OPENAI_API_KEY`               | OpenAI model fallback.                           | OpenAI API key                                      |
+| `OPENROUTER_API_KEY`           | OpenRouter model fallback.                       | OpenRouter API key                                  |
+| `OPENAI_BASE_URL`              | OpenAI-compatible endpoint for `OPENAI_API_KEY`. | Absolute `http(s)` URL without embedded credentials |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Google Gemini model fallback.                    | Google AI API key                                   |
 
-To keep a key scoped, select **Custom keys** in the app's LLM setup. In a
-PostgreSQL app, a personal key stays with its user; organization scope shares a
-key with the active organization and is available to admins. The app stores
-these saved keys in its encrypted database-backed credential store.
+Additional provider variables are listed in the [full environment-variable inventory on GitHub](https://github.com/BuilderIO/agent-native/blob/main/docs/environment-variables.md#authentication-provider-and-integration-variables).
 
-To use Builder's managed provider, connect with **Use Builder.io** in the app's
-LLM setup. This uses the Builder connection instead of a provider API key from
-the table below.
+## Search and email fallbacks
 
-The table below lists optional deployment-level fallbacks for self-hosted apps.
-See the LLM guidance above for which users can use the deployment provider key
-and how usage is billed. Production Hosted-workspace runtimes block deployment
-provider-key fallbacks.
+These optional keys provide web search or transactional email for apps that
+use those features.
 
-Every provider key below selects its engine on its own: dropping one in is
-enough, and `AGENT_ENGINE` is only needed to pick between several.
-
-Supported models span Anthropic Claude, OpenAI (GPT-5 family), Google Gemini,
-and any provider that speaks the OpenAI API shape via `OPENAI_BASE_URL`,
-including OpenAI-compatible gateways like LiteLLM. The model is chosen in
-Settings, so switching providers is a configuration change, not a code
-rewrite. Claude is the framework's most heavily tested path and the default
-recommendation.
-
-| Variable                       | What it controls                                         | Supported values or format                              |
-| ------------------------------ | -------------------------------------------------------- | ------------------------------------------------------- |
-| `ANTHROPIC_API_KEY`            | Claude model fallback for the built-in AI engine.        | An Anthropic API key.                                   |
-| `OPENAI_API_KEY`               | OpenAI model, realtime voice, or transcription fallback. | An OpenAI API key.                                      |
-| `OPENAI_BASE_URL`              | OpenAI-compatible endpoint used with `OPENAI_API_KEY`.   | An absolute `http(s)` URL without embedded credentials. |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini model fallback for the built-in AI engine.        | A Google AI API key.                                    |
-| `GEMINI_API_KEY`               | Gemini transcription fallback.                           | A Google AI API key.                                    |
-| `OPENROUTER_API_KEY`           | OpenRouter model fallback.                               | An OpenRouter API key.                                  |
-| `GROQ_API_KEY`                 | Groq model or transcription fallback.                    | A Groq API key.                                         |
-| `MISTRAL_API_KEY`              | Mistral model fallback.                                  | A Mistral API key.                                      |
-| `COHERE_API_KEY`               | Cohere model fallback.                                   | A Cohere API key.                                       |
-| `BRAVE_SEARCH_API_KEY`         | Brave web-search fallback.                               | A Brave Search API key.                                 |
-| `TAVILY_API_KEY`               | Tavily web-search fallback.                              | A Tavily API key.                                       |
-| `EXA_API_KEY`                  | Exa web-search fallback.                                 | An Exa API key.                                         |
-| `FIRECRAWL_API_KEY`            | Firecrawl web-search fallback.                           | A Firecrawl API key.                                    |
-| `RESEND_API_KEY`               | Resend transactional email delivery.                     | A Resend API key.                                       |
-| `SENDGRID_API_KEY`             | SendGrid transactional email delivery.                   | A SendGrid API key.                                     |
-| `EMAIL_FROM`                   | Sender address used for transactional email.             | A valid email address or display-name address.          |
-| `EMAIL_AGENT_ADDRESS`          | Inbound address used by email-enabled apps.              | A valid email address.                                  |
-| `EMAIL_INBOUND_WEBHOOK_SECRET` | Verifies inbound email webhook signatures.               | A stable random secret.                                 |
+| Variable                       | What it controls                           | Format                              |
+| ------------------------------ | ------------------------------------------ | ----------------------------------- |
+| `BRAVE_SEARCH_API_KEY`         | Brave web search.                          | Brave Search API key                |
+| `TAVILY_API_KEY`               | Tavily web search.                         | Tavily API key                      |
+| `EXA_API_KEY`                  | Exa web search.                            | Exa API key                         |
+| `FIRECRAWL_API_KEY`            | Firecrawl web search.                      | Firecrawl API key                   |
+| `RESEND_API_KEY`               | Resend transactional email delivery.       | Resend API key                      |
+| `SENDGRID_API_KEY`             | SendGrid transactional email delivery.     | SendGrid API key                    |
+| `EMAIL_FROM`                   | Sender address for transactional email.    | Valid email or display-name address |
+| `EMAIL_AGENT_ADDRESS`          | Inbound address for email-enabled apps.    | Valid email address                 |
+| `EMAIL_INBOUND_WEBHOOK_SECRET` | Verifies inbound email webhook signatures. | Stable random secret                |
 
 ## Per-app values in a workspace
 

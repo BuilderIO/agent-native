@@ -262,10 +262,13 @@ test("[journey] [slides-import] slides: Import > PDF creates a deck that opens a
             (response) => response.url().includes("/api/uploads/status"),
             { timeout: 90_000 },
           )
-          .then(async (response) => ({
-            status: response.status(),
-            text: await response.text(),
-          }));
+          .then(async (response) => {
+            console.info("[slides-pdf] storage-status response", {
+              status: response.status(),
+              method: response.request().method(),
+            });
+            return { status: response.status(), text: await response.text() };
+          });
         storageStatus.catch(() => undefined);
         await page.goto(`${origin}/home`, {
           waitUntil: "domcontentloaded",

@@ -809,7 +809,8 @@ const messages = {
     generationFailed:
       "Os slides não foram criados. Confira os detalhes no chat e tente novamente.",
     generationOutcomeUnresolved:
-      "Não foi possível confirmar se os slides foram criados. Confira a apresentação ou o chat e tente novamente.",
+      "Não foi possível confirmar se os slides foram criados. Confira a apresentação antes de tentar novamente.",
+    checkedDeckTryAgain: "Verifiquei a apresentação. Tentar novamente",
     deckHasNoSlides: "Esta apresentação não contém slides.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
@@ -846,7 +847,7 @@ const messages = {
     sourceMixed: "Várias fontes",
     sourceBuilder: "Inteligência de sistemas de design do Builder",
     sourceIndexingDescription:
-      "O Builder ainda está processando esta fonte. Os resultados aparecerão aqui quando estiverem prontos.",
+      "O estilo da sua marca ainda está sendo preparado. Aguarde até que fique pronto e tente novamente.",
     sourceIndexedDescription:
       "{{docs}} documentos · {{tokens}} tokens indexados",
     sourceIndexedDocsOnly: "{{docs}} documentos indexados",
@@ -1058,6 +1059,8 @@ const messages = {
     generationStartFailed: "Não foi possível iniciar a geração do deck",
     generationStartFailedDescription:
       "O novo deck não terminou de salvar, então o agente não foi iniciado contra um deck ausente. Seu prompt foi salvo para você tentar novamente.",
+    generationContextUnavailableDescription:
+      "Não foi possível carregar o estilo da sua marca ou a apresentação de referência escolhida. Confira se você consegue abrir o arquivo e se a conexão com a internet está funcionando, depois tente novamente.",
     showAllDecks: "Mostrar todos os decks",
     all: "Todos",
     showMineDecks: "Mostrar decks criados por mim",

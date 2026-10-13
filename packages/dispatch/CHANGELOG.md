@@ -1,5 +1,17 @@
 # @agent-native/dispatch
 
+## 0.40.21
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [77c15ee]
+- Updated dependencies [e913bfb]
+- Updated dependencies [1c4a192]
+- Updated dependencies [4452c7f]
+  - @agent-native/toolkit@0.207.1
+
 ## 0.40.20
 
 ### Patch Changes
@@ -1233,12 +1245,5 @@
 
 - bc5f350: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
 - bc5f350: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
-
-## 0.27.14
-
-### Patch Changes
-
-- 6e56b98: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-- 6e56b98: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

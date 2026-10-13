@@ -1316,14 +1316,14 @@ function MotionPresetsPanel({ context }: MotionPresetsPanelProps) {
   const handleAskAgent = () => {
     sendToDesignAgentChat({
       message:
-        "Apply a motion preset to the selected element. Suggest fade-in, slide-up, pulse, bounce, or spin, then call apply-motion-edit to write the keyframes atomically.",
+        "Apply a motion preset to the selected element. Suggest fade-in, slide-up, pulse, bounce, or spin, then call apply-motion-edit to save the keyframes to the Design source.",
       context: [
         `Design id: ${context.designId}`,
         context.activeFileId ? `Active file id: ${context.activeFileId}` : null,
         context.selectedElement
           ? `Selected element: ${JSON.stringify({ selector: context.selectedElement.selector, sourceId: context.selectedElement.sourceId }, null, 2)}`
           : "No element selected — ask the user to click an element first.",
-        "Call get-motion-timeline to check for an existing timeline, then preview-motion-frame first, then apply-motion-edit for the atomic write.",
+        "Call get-motion-timeline to check for an existing timeline, then preview-motion-frame, and call apply-motion-edit to save the timeline and generated CSS to the inline Design source.",
       ]
         .filter(Boolean)
         .join("\n"),

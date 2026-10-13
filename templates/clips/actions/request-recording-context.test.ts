@@ -252,7 +252,7 @@ describe("request-recording-context", () => {
     ).rejects.toThrow(/unique/i);
   });
 
-  it("refuses an endedAt far from the Clip's start, before it changes the Clip", async () => {
+  it("refuses an endedAt outside the allowed range before it changes the Clip", async () => {
     await seedRecording(client, { id: "rec_org", visibility: "org" });
     mocks.roles = { rec_org: "owner" };
 
@@ -263,6 +263,8 @@ describe("request-recording-context", () => {
         endedAt: "2026-10-01T11:00:00.000Z",
       }),
     ).rejects.toMatchObject({
+      message:
+        "The requested screen history must end between 2 minutes before and 10 minutes after this Clip was created.",
       errorCode: "recording_context_invalid_window",
       statusCode: 400,
     });
@@ -270,11 +272,11 @@ describe("request-recording-context", () => {
     expect(await countItems("rec_org", true)).toBe(0);
   });
 
-  it("accepts an endedAt 120 s either side of the Clip's start and refuses 121 s", async () => {
+  it("allows native startup delay while keeping client clock skew bounded", async () => {
     const at = (ms: number) =>
       new Date(Date.parse(RECORDING_CREATED_AT) + ms).toISOString();
 
-    for (const ms of [121_000, -121_000]) {
+    for (const ms of [-121_000, 10 * 60_000 + 1]) {
       await expect(
         action.run({ recordingId: "rec_1", seconds: 30, endedAt: at(ms) }),
       ).rejects.toMatchObject({
@@ -284,8 +286,24 @@ describe("request-recording-context", () => {
     }
     expect(await countItems("rec_1", true)).toBe(0);
 
+    await seedRecording(client, { id: "rec_slow", visibility: "private" });
+    mocks.roles.rec_slow = "owner";
     await expect(
-      action.run({ recordingId: "rec_1", seconds: 30, endedAt: at(-120_000) }),
+      action.run({
+        recordingId: "rec_slow",
+        seconds: 30,
+        endedAt: at(10 * 60_000),
+      }),
+    ).resolves.toMatchObject({ endedAt: at(10 * 60_000), status: "pending" });
+
+    await seedRecording(client, { id: "rec_skew", visibility: "private" });
+    mocks.roles.rec_skew = "owner";
+    await expect(
+      action.run({
+        recordingId: "rec_skew",
+        seconds: 30,
+        endedAt: at(-120_000),
+      }),
     ).resolves.toMatchObject({ endedAt: at(-120_000), status: "pending" });
   });
 

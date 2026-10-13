@@ -1,5 +1,18 @@
 # @agent-native/toolkit
 
+## 0.207.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 77c15ee: Recover AgentKit run cursors from trusted protocol metadata, compact omitted event ranges, and retry transient first-run status failures.
+- e913bfb: Scrubbing a numeric design control after a typed edit now starts from the committed value instead of the previous one.
+- 1c4a192: Add an explicit cancellation hook for active visual scrub inputs.
+- 4452c7f: Selecting the current workspace now saves it as the active workspace.
+- Updated dependencies
+- Updated dependencies [77c15ee]
+  - @agent-native/agentkit@0.207.1
+
 ## 0.207.0
 
 ### Minor Changes
@@ -1182,11 +1195,5 @@
 ### Patch Changes
 
 - 16a9d1a: Keep editor block drag previews aligned with the point where the block was grabbed, then clear incidental selection and focus after a successful drop.
-
-## 0.10.9
-
-### Patch Changes
-
-- cbc6936: Show only the connect actions in the composer model picker when no LLM provider is configured, instead of a list of unpickable "needs API key" models, and surface Builder connect failures instead of leaving the "Connect Builder.io" button looking dead when the popup is blocked.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

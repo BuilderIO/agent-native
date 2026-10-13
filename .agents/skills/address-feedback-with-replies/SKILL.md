@@ -36,9 +36,9 @@ surprised by a change in their area. Naming them is a courtesy, not a gate.
 Either workflow may complete an upvoted improvement and record the terminal
 **Shipped** disposition. Everything in this file about voice, evidence, and
 verification applies to an upvoted item unchanged.
-Even when invoked alone, this workflow asks at most three new clarification
-questions per run across all threads, ranked by which answer would unblock a
-safe fix.
+For each distinct defect, ask one direct question when reporter input changes
+reproduction or unblocks a safe fix. There is no per-run question cap; keep one
+pending question per thread.
 
 If this workflow eyed an out-of-scope item, keep the eye and post one concise
 **Skipped** reply if needed. Apply `review-latest-feedback`'s Reaction gate
@@ -178,14 +178,12 @@ for one specific, non-repeating detail that still blocks a clear-bug fix; never
 ask for a subjective product choice or evidence already present. For an
 inaccessible artifact, request access or a replacement link.
 
-### The standalone question budget
+### One pending question per thread
 
-This workflow inherits the hard cap from `review-latest-feedback`: at most
-three new clarification questions per invocation across all threads. When run
-alone, rank candidates by whether the answer would unblock a safe fix, handle
-existing clarification requests first, and leave candidates below the cut
-open without asking. Never turn the per-item question rule into an unbounded
-batch.
+There is no per-run question cap. After inspecting supplied evidence and
+attempting reproduction, ask for each specific reporter detail or action that
+would change the next step. Do not leave a useful question unasked because
+other threads also need questions.
 
 There may be only one unanswered clarification request per thread. Before
 posting, re-read the complete thread for an earlier question from this

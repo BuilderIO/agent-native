@@ -157,6 +157,10 @@ vi.mock("./patch-deck.js", () => ({
   withDeckLock: (_deckId: string, fn: () => unknown) => fn(),
 }));
 
+import {
+  InvalidPptxSourceError,
+  SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+} from "../shared/source-import-errors.js";
 import action from "./import-file";
 
 beforeEach(() => {
@@ -796,6 +800,64 @@ describe("import-file PDF source extraction", () => {
     });
   });
 
+  it("returns a typed no-write failure when a source PPTX cannot be parsed", async () => {
+    mockParsePptx.mockRejectedValue(
+      new InvalidPptxSourceError(new Error("Invalid PPTX: broken archive")),
+    );
+
+    await expect(
+      action.run({
+        filePath: "source.pptx",
+        format: "pptx",
+        deckId: "deck-1",
+        importIntoDeck: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+      message: expect.stringContaining("No slides were written"),
+    });
+
+    expect(mockUploadPptxSlideImages).not.toHaveBeenCalled();
+    expect(mockGetDb).not.toHaveBeenCalled();
+  });
+
+  it("preserves an already typed PPTX parse failure", async () => {
+    const typedError = Object.assign(new Error("Parser unavailable"), {
+      errorCode: "pptx_parser_unavailable",
+      statusCode: 503,
+    });
+    mockParsePptx.mockRejectedValue(typedError);
+
+    await expect(
+      action.run({
+        filePath: "source.pptx",
+        format: "pptx",
+        deckId: "deck-1",
+        importIntoDeck: true,
+      }),
+    ).rejects.toBe(typedError);
+
+    expect(mockUploadPptxSlideImages).not.toHaveBeenCalled();
+    expect(mockGetDb).not.toHaveBeenCalled();
+  });
+
+  it("preserves unexpected PPTX parser failures", async () => {
+    const parserError = new Error("Unexpected parser failure");
+    mockParsePptx.mockRejectedValue(parserError);
+
+    await expect(
+      action.run({
+        filePath: "source.pptx",
+        format: "pptx",
+        deckId: "deck-1",
+        importIntoDeck: true,
+      }),
+    ).rejects.toBe(parserError);
+
+    expect(mockUploadPptxSlideImages).not.toHaveBeenCalled();
+    expect(mockGetDb).not.toHaveBeenCalled();
+  });
+
   it("retains source provenance when appending to a nonempty deck", async () => {
     mockPdfText.mockResolvedValue({
       pages: [{ num: 1, text: "Appended source page" }],
@@ -916,6 +978,28 @@ describe("import-file PDF source extraction", () => {
       colorsByName: { accent1: "#FFAB40", accent5: "#0097A7" },
       fonts: ["Arial"],
     });
+  });
+
+  it("returns a typed no-write failure when source images cannot be preserved", async () => {
+    const db = pptxDeckHarness([]);
+    mockUploadPptxSlideImages.mockResolvedValue({
+      urls: {},
+      imageSkippedCount: 1,
+    });
+
+    await expect(
+      action.run({
+        filePath: "themed.pptx",
+        format: "pptx",
+        deckId: "deck-1",
+        importIntoDeck: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "source_import_no_write",
+      message: expect.stringContaining("No slides were written"),
+    });
+
+    expect(db.update).not.toHaveBeenCalled();
   });
 
   it("does not restyle an existing deck's theme when appending slides onto it", async () => {
