@@ -1190,6 +1190,16 @@ describe("resolveAppAdditionalActions", () => {
       await expect(
         asAlice(() => large.run({ xs: Array.from({ length: 100 }, () => 1) })),
       ).resolves.toBe("ran");
+      // The walk stops once the queue is over budget, before reading the rest.
+      const unread = Array.from({ length: 6_000 }, () => 1);
+      Object.defineProperty(unread, 5_500, {
+        get() {
+          throw new Error("read past the budget");
+        },
+      });
+      await expect(asAlice(() => large.run({ xs: unread }))).rejects.toThrow(
+        /too large to validate/,
+      );
     });
 
     it("keeps the agent loop from coercing arguments before the strict check", async () => {

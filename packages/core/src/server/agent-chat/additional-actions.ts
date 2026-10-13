@@ -730,10 +730,19 @@ function inputFitsUnits(input: unknown, maxUnits: number): boolean {
         ? 1 + Math.floor(node.length / INPUT_STRING_CHARS_PER_UNIT)
         : 1;
     if (units > maxUnits) return false;
+    // Every queued node costs at least one unit, so stop queuing as soon as
+    // the queue alone is over budget rather than after copying a huge node.
     if (Array.isArray(node)) {
-      for (const child of node) pending.push(child);
+      for (let i = 0; i < node.length; i += 1) {
+        pending.push(node[i]);
+        if (units + pending.length > maxUnits) return false;
+      }
     } else if (node && typeof node === "object") {
-      for (const [key, child] of Object.entries(node)) pending.push(key, child);
+      for (const key in node) {
+        if (!Object.hasOwn(node, key)) continue;
+        pending.push(key, (node as Record<string, unknown>)[key]);
+        if (units + pending.length > maxUnits) return false;
+      }
     }
   }
   return true;
