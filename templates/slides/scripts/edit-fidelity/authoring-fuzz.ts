@@ -6921,6 +6921,11 @@ export async function runAuthoringFuzz(
     const stableHistoryProbeLimit = 3;
     const maxHistoryCalls = historyLimit + stableHistoryProbeLimit;
     const beforeKeyboardUndo = await readHistoryState();
+    if (beforeKeyboardUndo.historyStats?.initialStateEvicted === true) {
+      throw new Error(
+        "undo history evicted the original state before undo-all",
+      );
+    }
     const undoDepthBefore = historyDepthFromStats(
       beforeKeyboardUndo.historyStats,
       "undo",

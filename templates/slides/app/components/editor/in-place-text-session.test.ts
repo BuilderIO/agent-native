@@ -2543,6 +2543,32 @@ describe("in-place text session: undo", () => {
     expect(session.historyStats().byteEvictions).toBe(0);
   });
 
+  it("keeps the initial state undoable across sustained byte pressure", () => {
+    const previousByteLimit = 128 * 1024 * 1024;
+    const operationCount = 512;
+    const originalText = "x".repeat(280_000);
+    const el = mount(`<p id="t">${originalText}</p>`);
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, originalText.slice(0, 16)), 0);
+    const originalHtml = el.innerHTML;
+    const aligns = ["left", "right"] as const;
+
+    for (let i = 0; i < operationCount; i++) {
+      session.commands.align(aligns[i % 2]);
+    }
+
+    const history = session.historyStats();
+    expect(history.peakBytes).toBeGreaterThan(previousByteLimit);
+    expect(history.peakBytes).toBeLessThan(IN_PLACE_TEXT_UNDO_BYTE_LIMIT);
+    expect(history.initialStateEvicted).toBe(false);
+    expect(history.byteEvictions).toBe(0);
+
+    let undone = 0;
+    while (session.undo()) undone++;
+    expect(undone).toBe(operationCount);
+    expect(el.innerHTML).toBe(originalHtml);
+  });
+
   it("keeps redo available after a no-op Tab command", () => {
     const el = mount('<ul id="t"><li>One</li><li>Two</li></ul>');
     session = startInPlaceTextSession(el);
