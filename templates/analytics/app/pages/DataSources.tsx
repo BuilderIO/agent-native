@@ -90,6 +90,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { getIdToken } from "@/lib/auth";
 import {
+  canConnectWorkspaceOAuth,
   dataSourceOAuthReturnPath,
   focusedDataSourceFromSearchParams,
   getOptionalCredentialKeys,
@@ -1371,11 +1372,28 @@ function DataSourceDetail({
           <SharedConnectionStatusRow status={sharedConnectionStatus} />
         )}
       {locallyConfigured ? (
-        <ConnectedView
-          source={source}
-          onSaved={onSaved}
-          envStatus={envStatus}
-        />
+        <>
+          <ConnectedView
+            source={source}
+            onSaved={onSaved}
+            envStatus={envStatus}
+          />
+          {source.id === "bigquery" && hasOrg && (
+            <WorkspaceOAuthView
+              provider="bigquery"
+              label={source.name}
+              connected={
+                sharedConnectionStatus?.connection?.grantState ===
+                  "connected" ||
+                sharedConnectionStatus?.kind === "needs_grant" ||
+                sharedConnectionStatus?.kind === "needs_reauth"
+              }
+              returnPath={oauthReturnPath}
+              scope="user"
+              showDescription={false}
+            />
+          )}
+        </>
       ) : readyViaWorkspace && !showCredentialSetup ? (
         <WorkspaceReadyView
           source={source}
@@ -1388,7 +1406,8 @@ function DataSourceDetail({
         />
       ) : workspaceRoleLoading ? (
         <Skeleton className="h-9 w-full rounded-md" />
-      ) : preferWorkspaceSetup && (canManageOrg || source.id === "bigquery") ? (
+      ) : preferWorkspaceSetup &&
+        canConnectWorkspaceOAuth(source, canManageOrg, hasOrg) ? (
         <WorkspaceOAuthView
           provider={source.id}
           label={source.name}

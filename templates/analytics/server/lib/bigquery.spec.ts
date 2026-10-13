@@ -1549,33 +1549,19 @@ describe("runQuery cancellation", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("isolates cached results by default member and organization-only scope", async () => {
+  it("isolates default and org credential scopes while sharing org results", async () => {
     useCacheDatabase();
+    const queryResult = jsonResponse({
+      jobComplete: true,
+      schema: { fields: [] },
+      rows: [],
+      totalBytesProcessed: "0",
+    });
     const fetchMock = mockQueryJobs(
-      jsonResponse({
-        jobComplete: true,
-        schema: { fields: [] },
-        rows: [],
-        totalBytesProcessed: "0",
-      }),
-      jsonResponse({
-        jobComplete: true,
-        schema: { fields: [] },
-        rows: [],
-        totalBytesProcessed: "0",
-      }),
-      jsonResponse({
-        jobComplete: true,
-        schema: { fields: [] },
-        rows: [],
-        totalBytesProcessed: "0",
-      }),
-      jsonResponse({
-        jobComplete: true,
-        schema: { fields: [] },
-        rows: [],
-        totalBytesProcessed: "0",
-      }),
+      queryResult,
+      queryResult,
+      queryResult,
+      queryResult,
     );
     vi.stubGlobal("fetch", fetchMock);
     const sql = "SELECT 9743 AS credential_scope_cache_test";
@@ -1586,6 +1572,20 @@ describe("runQuery cancellation", () => {
       orgId: "customer-org",
     });
     await runQuery(sql);
+    getCredentialContext.mockReturnValue({
+      userEmail: "scope-switch@example.com",
+      orgId: "customer-org",
+    });
+    await runQuery(sql);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    getCredentialContext.mockReturnValue({
+      userEmail: "scope-switch@example.com",
+      orgId: "customer-org",
+      credentialScope: "org",
+    });
+    await runQuery(sql);
+    expect(fetchMock).toHaveBeenCalledTimes(8);
+
     getCredentialContext.mockReturnValue({
       userEmail: "admin-a@example.com",
       orgId: "customer-org",

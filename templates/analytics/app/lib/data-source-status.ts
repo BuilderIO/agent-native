@@ -93,6 +93,14 @@ export function isWorkspaceOAuthSource(source: DataSource): boolean {
   return workspaceOAuthSourceIds.has(source.id);
 }
 
+export function canConnectWorkspaceOAuth(
+  source: DataSource,
+  canManageOrg: boolean,
+  hasOrg: boolean,
+): boolean {
+  return source.id === "bigquery" ? hasOrg : canManageOrg;
+}
+
 export function shouldShowWorkspaceOAuthSetup(
   source: DataSource,
   status: SharedConnectionStatus | null,

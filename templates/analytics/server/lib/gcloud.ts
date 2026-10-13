@@ -1,3 +1,5 @@
+import { getRequestContext } from "@agent-native/core/server";
+
 import { resolveCredential } from "./credentials";
 import {
   credentialCacheScope,
@@ -22,6 +24,14 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE = 120;
 
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
+const bigQueryProjectIdByRequest = new WeakMap<
+  object,
+  Promise<string | undefined>
+>();
+const bigQueryOAuthCredentialByRequest = new WeakMap<
+  object,
+  Promise<AnalyticsProviderCredential | null>
+>();
 
 const GOOGLE_REQUEST_MAX_ATTEMPTS = 4;
 const GOOGLE_REQUEST_TIMEOUT_MS = 30_000;
@@ -314,10 +324,17 @@ export async function getBigQueryAccessToken(
 ): Promise<string> {
   const { signal } = options;
   const ctx = requireRequestCredentialContext("BIGQUERY_PROJECT_ID");
+  const requestContext = getRequestContext();
   const projectId =
     options.projectId ??
     (await raceWithAbort(
-      resolveCredential("BIGQUERY_PROJECT_ID", ctx),
+      requestContext
+        ? getRequestMemoizedPromise(
+            bigQueryProjectIdByRequest,
+            requestContext,
+            () => resolveCredential("BIGQUERY_PROJECT_ID", ctx),
+          )
+        : resolveCredential("BIGQUERY_PROJECT_ID", ctx),
       signal,
     ));
   throwIfSignalAborted(signal);
@@ -326,17 +343,44 @@ export async function getBigQueryAccessToken(
   const oauthCredential =
     options.oauthCredential === undefined
       ? await raceWithAbort(
-          resolveAnalyticsProviderCredential({
-            provider: "bigquery",
-            keys: [],
-            ctx,
-          }),
+          requestContext
+            ? getRequestMemoizedPromise(
+                bigQueryOAuthCredentialByRequest,
+                requestContext,
+                () =>
+                  resolveAnalyticsProviderCredential({
+                    provider: "bigquery",
+                    keys: [],
+                    ctx,
+                  }),
+              )
+            : resolveAnalyticsProviderCredential({
+                provider: "bigquery",
+                keys: [],
+                ctx,
+              }),
           signal,
         )
       : options.oauthCredential;
   if (oauthCredential) return oauthCredential.value;
 
   return getAccessToken(signal);
+}
+
+function getRequestMemoizedPromise<T>(
+  cache: WeakMap<object, Promise<T>>,
+  requestContext: object,
+  resolve: () => Promise<T>,
+): Promise<T> {
+  const cached = cache.get(requestContext);
+  if (cached) return cached;
+
+  const pending = resolve();
+  cache.set(requestContext, pending);
+  void pending.catch(() => {
+    if (cache.get(requestContext) === pending) cache.delete(requestContext);
+  });
+  return pending;
 }
 
 function cacheSet(key: string, data: unknown) {

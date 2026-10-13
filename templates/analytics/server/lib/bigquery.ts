@@ -5,6 +5,7 @@ import { getDbExec } from "@agent-native/core/db";
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { resolveCredential } from "./credentials";
 import {
+  credentialCacheScope,
   requireRequestCredentialContext,
   type CredentialContext,
 } from "./credentials-context";
@@ -31,7 +32,7 @@ async function getProjectContext(signal?: AbortSignal): Promise<{
 }
 
 function cacheScopeForContext(ctx: CredentialContext): string {
-  return `u:${ctx.userEmail}:o:${ctx.orgId ?? "none"}`;
+  return credentialCacheScope("BIGQUERY_PROJECT_ID", ctx);
 }
 
 export async function getBigQueryProjectId(

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canConnectWorkspaceOAuth,
   dataSourceOAuthReturnPath,
   focusedDataSourceFromSearchParams,
   getGoogleSheetsConnection,
@@ -18,6 +19,16 @@ import {
 import { dataSources } from "./data-sources";
 
 describe("data source status", () => {
+  it("only offers personal BigQuery OAuth inside an organization", () => {
+    const bigquery = dataSources.find((source) => source.id === "bigquery")!;
+    const notion = dataSources.find((source) => source.id === "notion")!;
+
+    expect(canConnectWorkspaceOAuth(bigquery, false, false)).toBe(false);
+    expect(canConnectWorkspaceOAuth(bigquery, false, true)).toBe(true);
+    expect(canConnectWorkspaceOAuth(notion, false, true)).toBe(false);
+    expect(canConnectWorkspaceOAuth(notion, true, true)).toBe(true);
+  });
+
   it("uses the Google Sheets connection for Sheets exports", () => {
     const status: DataSourceStatusResponse = {
       workspaceConnections: {
