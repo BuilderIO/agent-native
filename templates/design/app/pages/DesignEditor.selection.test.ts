@@ -1518,6 +1518,17 @@ describe("DesignEditor URL state", () => {
     );
   });
 
+  it("preserves an explicitly requested single-screen edit mode", () => {
+    expect(
+      getDesignEditorStateUrlSearch({
+        currentSearch: "?editorView=single&screen=screen-123&mode=interact",
+        viewMode: "single",
+        screenId: "screen-123",
+        mode: "edit",
+      }),
+    ).toBe("?editorView=single&screen=screen-123&mode=edit");
+  });
+
   it("drops a conflicting legacy view when serializing the canonical editor view", () => {
     expect(
       getDesignEditorStateUrlSearch({

@@ -154,6 +154,20 @@ import {
   FLOWING_SHAPE_CHROME_PRESET_LABEL_SOURCE_IDS,
 } from "./native-effect-owned-bd-flowing-shape-chrome";
 import {
+  FRAME_MOSH_V2_EFFECT,
+  FRAME_MOSH_V2_PRESETS,
+  FRAME_MOSH_V2_PRESET_LABEL_SOURCE_IDS,
+} from "./native-effect-owned-be-frame-mosh";
+import {
+  SOURCE_VOXELS_V2_EFFECT,
+  SOURCE_VOXELS_V2_PRESETS,
+  SOURCE_VOXELS_V2_PRESET_LABEL_SOURCE_IDS,
+} from "./native-effect-owned-bf-source-voxels";
+import {
+  CHANNEL_THROW_EFFECT,
+  CHANNEL_THROW_PRESETS,
+} from "./native-effect-owned-bg-channel-throw";
+import {
   BREADTH_A_DEFINITIONS,
   BREADTH_A_PRESETS,
 } from "./native-effect-owned-breadth-a";
@@ -719,6 +733,9 @@ export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
   PROJECTED_DYE_FLOW_EFFECT,
   SHAPE_GOO_3D_EFFECT,
   FLOWING_SHAPE_CHROME_EFFECT,
+  FRAME_MOSH_V2_EFFECT,
+  SOURCE_VOXELS_V2_EFFECT,
+  CHANNEL_THROW_EFFECT,
   SOURCE_IRRADIANCE_EFFECT,
 ];
 
@@ -774,6 +791,9 @@ const currentDefinitionCandidates: readonly EffectDefinition[] = [
   PROJECTED_DYE_FLOW_EFFECT,
   SHAPE_GOO_3D_EFFECT,
   FLOWING_SHAPE_CHROME_EFFECT,
+  FRAME_MOSH_V2_EFFECT,
+  SOURCE_VOXELS_V2_EFFECT,
+  CHANNEL_THROW_EFFECT,
   SOURCE_IRRADIANCE_EFFECT,
 ];
 const latestDefinitionById = new Map<string, EffectDefinition>();
@@ -902,6 +922,8 @@ export const NATIVE_PRESET_LABEL_SOURCE_IDS: Readonly<Record<string, string>> =
     ...CURSOR_WAVE_RIPPLES_PRESET_LABEL_SOURCE_IDS,
     ...SHAPE_GOO_3D_PRESET_LABEL_SOURCE_IDS,
     ...FLOWING_SHAPE_CHROME_PRESET_LABEL_SOURCE_IDS,
+    ...FRAME_MOSH_V2_PRESET_LABEL_SOURCE_IDS,
+    ...SOURCE_VOXELS_V2_PRESET_LABEL_SOURCE_IDS,
   };
 export const NATIVE_EFFECT_PRESETS: readonly EffectPreset[] = [
   ...PRE_COORDINATE_RANDOM_PRESETS,
@@ -956,5 +978,8 @@ export const NATIVE_EFFECT_PRESETS: readonly EffectPreset[] = [
   ...PROJECTED_DYE_FLOW_PRESETS,
   ...SHAPE_GOO_3D_PRESETS,
   ...FLOWING_SHAPE_CHROME_PRESETS,
+  ...FRAME_MOSH_V2_PRESETS,
+  ...SOURCE_VOXELS_V2_PRESETS,
+  ...CHANNEL_THROW_PRESETS,
   ...SOURCE_IRRADIANCE_PRESETS,
 ];

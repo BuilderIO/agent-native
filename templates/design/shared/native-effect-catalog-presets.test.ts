@@ -70,6 +70,18 @@ import {
   FLOWING_SHAPE_CHROME_PRESETS,
 } from "./native-effect-owned-bd-flowing-shape-chrome";
 import {
+  FRAME_MOSH_V2_EFFECT,
+  FRAME_MOSH_V2_PRESETS,
+} from "./native-effect-owned-be-frame-mosh";
+import {
+  SOURCE_VOXELS_V2_EFFECT,
+  SOURCE_VOXELS_V2_PRESETS,
+} from "./native-effect-owned-bf-source-voxels";
+import {
+  CHANNEL_THROW_EFFECT,
+  CHANNEL_THROW_PRESETS,
+} from "./native-effect-owned-bg-channel-throw";
+import {
   POINTER_EFFECT_DEFINITIONS,
   POINTER_EFFECT_PRESETS,
 } from "./native-effect-pointer-catalog";
@@ -85,14 +97,14 @@ import { parseEffectsFromHtml, validateEffectDocument } from "./native-effects";
 
 describe("Design-owned catalog", () => {
   it("registers unique independently authored definitions and valid original recipes", () => {
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(345);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(346);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((item) => item.id)).size,
-    ).toBe(345);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(399);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(800);
+    ).toBe(346);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(402);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(806);
     expect(new Set(NATIVE_EFFECT_PRESETS.map((item) => item.id)).size).toBe(
-      800,
+      806,
     );
     for (const definition of NATIVE_EFFECT_LATEST_DEFINITIONS) {
       expect(definition.provenance?.origin).toBe("design-original");
@@ -116,7 +128,7 @@ describe("Design-owned catalog", () => {
     }
   });
 
-  it("registers AV through BD with localized controls and pinned predecessor versions", () => {
+  it("registers AV through BG with localized controls and pinned predecessor versions", () => {
     const newVersions = [
       [SOURCE_REACTION_DIFFUSION_EFFECT, SOURCE_REACTION_DIFFUSION_PRESETS],
       [TEMPORAL_FLOW_TRAIL_EFFECT, TEMPORAL_FLOW_TRAIL_PRESETS],
@@ -127,6 +139,9 @@ describe("Design-owned catalog", () => {
       [PROJECTED_DYE_FLOW_EFFECT, PROJECTED_DYE_FLOW_PRESETS],
       [SHAPE_GOO_3D_EFFECT, SHAPE_GOO_3D_PRESETS],
       [FLOWING_SHAPE_CHROME_EFFECT, FLOWING_SHAPE_CHROME_PRESETS],
+      [FRAME_MOSH_V2_EFFECT, FRAME_MOSH_V2_PRESETS],
+      [SOURCE_VOXELS_V2_EFFECT, SOURCE_VOXELS_V2_PRESETS],
+      [CHANNEL_THROW_EFFECT, CHANNEL_THROW_PRESETS],
     ] as const;
     for (const [definition, presets] of newVersions) {
       expect(
@@ -135,7 +150,10 @@ describe("Design-owned catalog", () => {
         ),
       ).toBe(definition);
       expect(nativeEffectAnimationCapability(definition)).toBe(
-        definition === LAYER_MAP_DISPLACEMENT_EFFECT ? "static" : "animated",
+        definition === LAYER_MAP_DISPLACEMENT_EFFECT ||
+          definition === SOURCE_VOXELS_V2_EFFECT
+          ? "static"
+          : "animated",
       );
       expect(nativeCatalogDefinitionKey(definition)).not.toBeNull();
       expect(planEffectGraph(definition).errors).toEqual([]);
@@ -160,6 +178,8 @@ describe("Design-owned catalog", () => {
     for (const definition of [
       TEMPORAL_FLOW_TRAIL_EFFECT,
       COORDINATE_PIXEL_SORT_EFFECT,
+      FRAME_MOSH_V2_EFFECT,
+      SOURCE_VOXELS_V2_EFFECT,
     ])
       expect(
         NATIVE_EFFECT_DEFINITION_CATALOG.filter(

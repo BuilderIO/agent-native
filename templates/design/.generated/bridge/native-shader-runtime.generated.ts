@@ -1119,6 +1119,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "static"
     ],
     [
+      "ad99f662448f79a60b02c42302cb76a3b8817da0c5af590f0cf98e008a9d5a1b",
+      "animated"
+    ],
+    [
       "adde4eb13825f15dfe7c0895fed679d178fce05664234a90bc75f4537252a7c7",
       "static"
     ],
@@ -1259,6 +1263,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "static"
     ],
     [
+      "c7ddcab4d895976265fcd03de50e59bc6dcd88de360716eab9e523f092722007",
+      "animated"
+    ],
+    [
       "c8a8882c07c2235a48d5a327c263ca2d7fae7c7d2d0febe5020908593a25bf8c",
       "animated"
     ],
@@ -1292,6 +1300,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     ],
     [
       "d0391f7881c8caa54310d706e4b6b1d0c302fddd06f6315bd441f6d8e77fcde7",
+      "static"
+    ],
+    [
+      "d0a3e73331f1ab2b95e99da9e8d7b168b0da1ad604ed9722e385eb7cdfe172d7",
       "static"
     ],
     [
@@ -18856,8 +18868,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             mount,
             output: mount.outputTexture,
             frameCount: mount.frameCount,
-            instancePayload: scene ? scenePayloads?.get(mount.instance.id) ?? null : mount.committedInstancePayload !== null && mount.committedLocalTime !== null ? {
+            instancePayload: scene ? scenePayloads?.get(mount.instance.id) ?? null : mount.committedInstancePayload !== null && mount.committedDefinitionHash !== null && mount.committedLocalTime !== null ? {
               payload: mount.committedInstancePayload,
+              definitionHash: mount.committedDefinitionHash,
               localTime: mount.committedLocalTime
             } : null,
             sourceEpoch: mount.committedSourceEpoch,
@@ -18868,6 +18881,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             if (!entry.output || !entry.instancePayload || !sameInstanceIdentity(
               JSON.parse(entry.instancePayload.payload),
               expectedInstances.get(mount.instance.id)
+            ) || entry.instancePayload.definitionHash !== expected.get(
+              \`\${mount.definition.id}:\${mount.definition.version}\`
             ) || !mount.suppressed || mount.frozenReason || mount.target.getAttribute("data-an-native-status") !== "ready" || !frozenSource && (entry.sourceEpoch === null || mount.provider?.sourceEpoch?.() !== entry.sourceEpoch) || !expected.has(\`\${mount.definition.id}:\${mount.definition.version}\`) || await hashEffectDefinition(mount.definition) !== expected.get(\`\${mount.definition.id}:\${mount.definition.version}\`))
               throw new NativeSourceError(
                 "composition-preview-stale",
@@ -18924,7 +18939,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               instancePayload,
               sourceEpoch,
               inputEpochs
-            }) => this.mounts.get(mount.instance.id) !== mount || mount.outputTexture !== output || mount.frameCount !== frameCount || !scene && (mount.committedInstancePayload !== instancePayload?.payload || mount.committedLocalTime !== instancePayload?.localTime) || mount.target.getAttribute("data-an-native-status") !== "ready" || !frozenSource && mount.provider?.sourceEpoch?.() !== sourceEpoch || !frozenSource && [...inputEpochs].some(
+            }) => this.mounts.get(mount.instance.id) !== mount || mount.outputTexture !== output || mount.frameCount !== frameCount || !scene && (mount.committedInstancePayload !== instancePayload?.payload || mount.committedDefinitionHash !== instancePayload?.definitionHash || mount.committedLocalTime !== instancePayload?.localTime) || mount.target.getAttribute("data-an-native-status") !== "ready" || !frozenSource && mount.provider?.sourceEpoch?.() !== sourceEpoch || !frozenSource && [...inputEpochs].some(
               ([name, { capture, sourceEpoch: epoch }]) => mount.authoredInputs.get(name) !== capture || capture.provider.sourceEpoch?.() !== epoch
             )
           ) || scene && (scene.surface.resourceTextures.get("source") !== frozenSource || scene.committedInstancePayloads !== scenePayloads))
@@ -19869,11 +19884,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         scene.committedInstances = committedInstances;
         scene.committedInstancePayloads = new Map(
           [...this.mounts.values()].flatMap(
-            (mounted) => mounted.committedInstancePayload !== null && mounted.committedLocalTime !== null ? [
+            (mounted) => mounted.committedInstancePayload !== null && mounted.committedDefinitionHash !== null && mounted.committedLocalTime !== null ? [
               [
                 mounted.instance.id,
                 {
                   payload: mounted.committedInstancePayload,
+                  definitionHash: mounted.committedDefinitionHash,
                   localTime: mounted.committedLocalTime
                 }
               ]
@@ -21171,6 +21187,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         frameCount: 0,
         committedSourceEpoch: null,
         committedInstancePayload: null,
+        committedDefinitionHash: null,
         committedLocalTime: null,
         committedInputEpochs: /* @__PURE__ */ new Map(),
         imageRasters: 0,
@@ -27168,8 +27185,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           );
         }
         mount.committedSourceEpoch = sourceEpoch ?? null;
-        mount.committedInstancePayload = JSON.stringify(mount.instance);
-        mount.committedLocalTime = mount.clock.local;
+        mount.committedInstancePayload = JSON.stringify(activeInstance);
+        mount.committedDefinitionHash = draft?.executionHash ?? mount.definitionHash;
+        mount.committedLocalTime = localTime;
         mount.committedInputEpochs = new Map(mount.pendingGraphInputEpochs ?? []);
         mount.frameCount += 1;
         mount.target.setAttribute(

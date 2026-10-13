@@ -487,6 +487,7 @@ type Mount = {
   frameCount: number;
   committedSourceEpoch: number | null;
   committedInstancePayload: string | null;
+  committedDefinitionHash: string | null;
   committedLocalTime: number | null;
   committedInputEpochs: Map<
     string,
@@ -1474,7 +1475,7 @@ class NativeShaderRuntime {
     committedInstances: Set<string>;
     committedInstancePayloads: Map<
       string,
-      { payload: string; localTime: number }
+      { payload: string; definitionHash: string; localTime: number }
     >;
     committedSourceEpoch: number | null;
     onViewportChange: () => void;
@@ -2158,12 +2159,14 @@ class NativeShaderRuntime {
       scene.committedInstancePayloads = new Map(
         [...this.mounts.values()].flatMap((mounted) =>
           mounted.committedInstancePayload !== null &&
+          mounted.committedDefinitionHash !== null &&
           mounted.committedLocalTime !== null
             ? [
                 [
                   mounted.instance.id,
                   {
                     payload: mounted.committedInstancePayload,
+                    definitionHash: mounted.committedDefinitionHash,
                     localTime: mounted.committedLocalTime,
                   },
                 ] as const,
@@ -4658,6 +4661,7 @@ class NativeShaderRuntime {
       frameCount: 0,
       committedSourceEpoch: null,
       committedInstancePayload: null,
+      committedDefinitionHash: null,
       committedLocalTime: null,
       committedInputEpochs: new Map(),
       imageRasters: 0,
@@ -11998,8 +12002,10 @@ class NativeShaderRuntime {
         );
       }
       mount.committedSourceEpoch = sourceEpoch ?? null;
-      mount.committedInstancePayload = JSON.stringify(mount.instance);
-      mount.committedLocalTime = mount.clock.local;
+      mount.committedInstancePayload = JSON.stringify(activeInstance);
+      mount.committedDefinitionHash =
+        draft?.executionHash ?? mount.definitionHash;
+      mount.committedLocalTime = localTime;
       mount.committedInputEpochs = new Map(mount.pendingGraphInputEpochs ?? []);
       mount.frameCount += 1;
       mount.target.setAttribute(
@@ -14478,9 +14484,11 @@ class NativeShaderRuntime {
         instancePayload: scene
           ? (scenePayloads?.get(mount.instance.id) ?? null)
           : mount.committedInstancePayload !== null &&
+              mount.committedDefinitionHash !== null &&
               mount.committedLocalTime !== null
             ? {
                 payload: mount.committedInstancePayload,
+                definitionHash: mount.committedDefinitionHash,
                 localTime: mount.committedLocalTime,
               }
             : null,
@@ -14496,6 +14504,10 @@ class NativeShaderRuntime {
             JSON.parse(entry.instancePayload.payload) as EffectInstance,
             expectedInstances.get(mount.instance.id),
           ) ||
+          entry.instancePayload.definitionHash !==
+            expected.get(
+              `${mount.definition.id}:${mount.definition.version}`,
+            ) ||
           !mount.suppressed ||
           mount.frozenReason ||
           mount.target.getAttribute("data-an-native-status") !== "ready" ||
@@ -14576,6 +14588,8 @@ class NativeShaderRuntime {
             mount.frameCount !== frameCount ||
             (!scene &&
               (mount.committedInstancePayload !== instancePayload?.payload ||
+                mount.committedDefinitionHash !==
+                  instancePayload?.definitionHash ||
                 mount.committedLocalTime !== instancePayload?.localTime)) ||
             mount.target.getAttribute("data-an-native-status") !== "ready" ||
             (!frozenSource &&
