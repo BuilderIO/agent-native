@@ -19087,8 +19087,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       var childTag = (child.tagName || "").toLowerCase();
       if (
         BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 &&
-        !INLINE_TEXT_TAGS.has(childTag) &&
-        BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1
+        !INLINE_TEXT_TAGS.has(childTag)
       ) {
         return false;
       }
