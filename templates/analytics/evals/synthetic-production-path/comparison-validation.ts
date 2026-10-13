@@ -24,9 +24,8 @@ const CSV_COLUMNS = [
   "latency_ms",
 ] as const;
 
-// Keep aligned with the production-path harness. A case-set change needs a new
-// before/after run so both phases still measure identical prompts.
-export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = [
+// Keep each immutable case set aligned with its production-path harness run.
+const V10_CASE_IDS = [
   "current-organization-role-roster",
   "active-workspace-member-roster-with-roles",
   "active-workspace-users-map-to-membership",
@@ -44,12 +43,47 @@ export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = [
   "active-sample-product-users-map-to-activity",
 ] as const;
 
+const V11_CASE_IDS = [
+  ...V10_CASE_IDS,
+  "negated-counts-preserve-role-detail",
+] as const;
+
+export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = V11_CASE_IDS;
+
+type PinnedEvaluation = {
+  fixtureRevision: string;
+  baselineRevision: string;
+  candidateRevision: string;
+  caseIds: readonly string[];
+};
+
+const PINNED_EVALUATIONS = [
+  {
+    fixtureRevision: "synthetic-analytics-retrieval-v10",
+    baselineRevision: "d0caebd20464a2a00ad417c78943d81438d9333a",
+    candidateRevision: "595a07f9a507bba5ba43d6478969c6e19bea9ac2",
+    caseIds: V10_CASE_IDS,
+  },
+  {
+    fixtureRevision: "synthetic-analytics-retrieval-v11",
+    baselineRevision: "d0caebd20464a2a00ad417c78943d81438d9333a",
+    candidateRevision: "fb583843666f597c9eced3d7f4f297fd5cdcec26",
+    caseIds: V11_CASE_IDS,
+  },
+] as const satisfies readonly PinnedEvaluation[];
+const PINNED_EVALUATIONS_BY_FIXTURE = new Map(
+  PINNED_EVALUATIONS.map(
+    (evaluation) => [evaluation.fixtureRevision, evaluation] as const,
+  ),
+);
+
+const CURRENT_EVALUATION = PINNED_EVALUATIONS.at(-1)!;
 export const PRODUCTION_PATH_BASELINE_REVISION =
-  "d0caebd20464a2a00ad417c78943d81438d9333a";
+  CURRENT_EVALUATION.baselineRevision;
 export const PRODUCTION_PATH_CANDIDATE_REVISION =
-  "595a07f9a507bba5ba43d6478969c6e19bea9ac2";
+  CURRENT_EVALUATION.candidateRevision;
 export const PRODUCTION_PATH_FIXTURE_REVISION =
-  "synthetic-analytics-retrieval-v10";
+  CURRENT_EVALUATION.fixtureRevision;
 const PRODUCTION_PATH_HARNESS_PATH =
   "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
 
@@ -72,7 +106,10 @@ const REPOSITORY_ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], {
   encoding: "utf8",
 }).trim();
 
-function codeRevisionForSourceCommit(sourceRevision: string): string {
+function codeRevisionForSourceCommit(
+  sourceRevision: string,
+  harnessRevision: string,
+): string {
   const hash = createHash("sha256");
   for (const repositoryRelativePath of PRODUCTION_PATH_SOURCE_PATHS) {
     const content = execFileSync(
@@ -85,10 +122,7 @@ function codeRevisionForSourceCommit(sourceRevision: string): string {
   }
   const harness = execFileSync(
     "git",
-    [
-      "show",
-      `${PRODUCTION_PATH_CANDIDATE_REVISION}:${PRODUCTION_PATH_HARNESS_PATH}`,
-    ],
+    ["show", `${harnessRevision}:${PRODUCTION_PATH_HARNESS_PATH}`],
     { cwd: REPOSITORY_ROOT },
   );
   hash.update(PRODUCTION_PATH_HARNESS_PATH);
@@ -96,10 +130,43 @@ function codeRevisionForSourceCommit(sourceRevision: string): string {
   return `sha256:${hash.digest("hex")}`;
 }
 
+function harnessRevisionForCommit(revision: string): string {
+  const harness = execFileSync(
+    "git",
+    ["show", `${revision}:${PRODUCTION_PATH_HARNESS_PATH}`],
+    { cwd: REPOSITORY_ROOT },
+  );
+  return `sha256:${createHash("sha256").update(harness).digest("hex")}`;
+}
+
+const CODE_REVISIONS_BY_FIXTURE = new Map(
+  PINNED_EVALUATIONS.map(
+    (evaluation) =>
+      [
+        evaluation.fixtureRevision,
+        {
+          baseline: codeRevisionForSourceCommit(
+            evaluation.baselineRevision,
+            evaluation.candidateRevision,
+          ),
+          candidate: codeRevisionForSourceCommit(
+            evaluation.candidateRevision,
+            evaluation.candidateRevision,
+          ),
+          harness: harnessRevisionForCommit(evaluation.candidateRevision),
+        },
+      ] as const,
+  ),
+);
+
+const CURRENT_CODE_REVISIONS = CODE_REVISIONS_BY_FIXTURE.get(
+  PRODUCTION_PATH_FIXTURE_REVISION,
+)!;
 export const PRODUCTION_PATH_BASELINE_CODE_REVISION =
-  codeRevisionForSourceCommit(PRODUCTION_PATH_BASELINE_REVISION);
+  CURRENT_CODE_REVISIONS.baseline;
 export const PRODUCTION_PATH_CANDIDATE_CODE_REVISION =
-  codeRevisionForSourceCommit(PRODUCTION_PATH_CANDIDATE_REVISION);
+  CURRENT_CODE_REVISIONS.candidate;
+export const PRODUCTION_PATH_HARNESS_REVISION = CURRENT_CODE_REVISIONS.harness;
 
 const REASON_CODES = new Set([
   "rank_1",
@@ -236,7 +303,7 @@ function parseComparisonRows(csv: string): ComparisonRow[] {
       !/^[a-f0-9]{40}$/.test(parsed.git_revision) ||
       !/^sha256:[a-f0-9]{64}$/.test(parsed.code_revision) ||
       !/^sha256:[a-f0-9]{64}$/.test(parsed.harness_revision) ||
-      parsed.fixture_revision !== PRODUCTION_PATH_FIXTURE_REVISION ||
+      !/^synthetic-analytics-retrieval-v\d+$/.test(parsed.fixture_revision) ||
       (parsed.score !== 0 && parsed.score !== 1) ||
       !REASON_CODES.has(parsed.reason_code)
     ) {
@@ -284,12 +351,27 @@ export function validateProductionPathComparisonCsv(
   csv: string,
 ): ProductionPathComparisonSummary {
   const rows = parseComparisonRows(csv);
-  const expectedRows = SYNTHETIC_PRODUCTION_PATH_CASE_IDS.length * 2 * 2;
+  const fixtureRevisions = new Set(rows.map((row) => row.fixture_revision));
+  if (fixtureRevisions.size !== 1) {
+    throw new Error("Comparison CSV mixes fixture revisions.");
+  }
+  const fixtureRevision = rows[0]?.fixture_revision;
+  const pinnedEvaluation = fixtureRevision
+    ? PINNED_EVALUATIONS_BY_FIXTURE.get(fixtureRevision)
+    : undefined;
+  if (!pinnedEvaluation) {
+    throw new Error("Comparison CSV fixture revision is not pinned.");
+  }
+  const pinnedCodeRevisions = CODE_REVISIONS_BY_FIXTURE.get(fixtureRevision);
+  if (!pinnedCodeRevisions) {
+    throw new Error("Comparison CSV fixture revision is not pinned.");
+  }
+  const expectedCaseIds = new Set<string>(pinnedEvaluation.caseIds);
+  const expectedRows = pinnedEvaluation.caseIds.length * 2 * 2;
   if (rows.length !== expectedRows) {
     throw new Error("Comparison CSV must have two runs per case and phase.");
   }
 
-  const expectedCaseIds = new Set<string>(SYNTHETIC_PRODUCTION_PATH_CASE_IDS);
   const phases: Phase[] = ["before", "after"];
   const rowsByPhaseAndPair = new Map<string, ComparisonRow>();
   for (const row of rows) {
@@ -333,7 +415,7 @@ export function validateProductionPathComparisonCsv(
   }
 
   for (const phase of phases) {
-    for (const caseId of SYNTHETIC_PRODUCTION_PATH_CASE_IDS) {
+    for (const caseId of pinnedEvaluation.caseIds) {
       for (const run of [1, 2]) {
         if (!rowsByPhaseAndPair.has(phase + ":" + caseId + ":" + run)) {
           throw new Error("Comparison CSV before/after pairs do not align.");
@@ -344,23 +426,23 @@ export function validateProductionPathComparisonCsv(
 
   const before = summarizePhase("before", rows);
   const after = summarizePhase("after", rows);
-  const expectedPhaseRows = SYNTHETIC_PRODUCTION_PATH_CASE_IDS.length * 2;
+  const expectedPhaseRows = pinnedEvaluation.caseIds.length * 2;
   if (before.rows !== expectedPhaseRows || after.rows !== expectedPhaseRows) {
     throw new Error(
       "Comparison CSV must have two runs per case in each phase.",
     );
   }
   if (
-    before.revision !== PRODUCTION_PATH_BASELINE_REVISION ||
-    after.revision !== PRODUCTION_PATH_CANDIDATE_REVISION
+    before.revision !== pinnedEvaluation.baselineRevision ||
+    after.revision !== pinnedEvaluation.candidateRevision
   ) {
     throw new Error(
       "Comparison CSV revisions do not match the pinned baseline and candidate phases.",
     );
   }
   if (
-    before.codeRevision !== PRODUCTION_PATH_BASELINE_CODE_REVISION ||
-    after.codeRevision !== PRODUCTION_PATH_CANDIDATE_CODE_REVISION
+    before.codeRevision !== pinnedCodeRevisions.baseline ||
+    after.codeRevision !== pinnedCodeRevisions.candidate
   ) {
     throw new Error(
       "Comparison CSV code hashes do not match the pinned source revisions.",
@@ -371,11 +453,16 @@ export function validateProductionPathComparisonCsv(
       "Before and after phases must use identical harness bytes.",
     );
   }
+  if (before.harnessRevision !== pinnedCodeRevisions.harness) {
+    throw new Error(
+      "Comparison CSV harness hash does not match the pinned candidate harness.",
+    );
+  }
   if (after.top1 !== expectedPhaseRows || after.hitAt5 !== expectedPhaseRows) {
     throw new Error(
       `Candidate production-path retrieval is not ${expectedPhaseRows}/${expectedPhaseRows} top-1.`,
     );
   }
 
-  return { before, after, cases: SYNTHETIC_PRODUCTION_PATH_CASE_IDS.length };
+  return { before, after, cases: pinnedEvaluation.caseIds.length };
 }

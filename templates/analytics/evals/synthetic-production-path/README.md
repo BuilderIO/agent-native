@@ -15,7 +15,46 @@ read credentials or call an embedding provider. The action allowlist contains
 only `find-data`; warehouse and connected-data actions are unavailable to the
 loop.
 
-## Reproduce the evaluation
+## Latest measured comparison (v11)
+
+The v11 comparison adds the case `negated-counts-preserve-role-detail` to cover
+the review finding where a negated count request lost the following role
+detail. It uses the same production path and synthetic fixtures as the earlier
+v10 comparison, with sixteen cases run twice in each phase. The before phase is
+pinned to `d0caebd20464a2a00ad417c78943d81438d9333a`; the after phase measures
+the Analytics source changes at `fb583843666f597c9eced3d7f4f297fd5cdcec26`.
+
+The evaluated code hashes are
+`sha256:a31ae9051b291723b73c09752df3711dcea125df319de7b96483a52769def191`
+before and
+`sha256:2b0445b08a32d9afabc18ba1e429ee07898ad7033c4575d70e46ac6f184f9358`
+after. Both phases use the candidate harness, whose hash is
+`sha256:b9acd1d7c3c9758d57a4485fd56a72c7954ad2b3fefe74f128fc16fb1ca18472`.
+The validator recomputes code and harness hashes from the pinned Git objects;
+it does not accept a hash just because it has valid SHA-256 syntax.
+
+Top-1 retrieval rose from 6/32 to 32/32 runs (18.75% to 100%). Hit@5 rose from
+18/32 to 32/32 (56.25% to 100%). The added role-detail case moved from rank 4
+before to rank 1 after. All 64 runs completed without aborts; each made one
+`find-data` call and no other or failed action. These scores use the
+deterministic synthetic engine, so they measure retrieval and production-path
+integrity rather than hosted-model answer quality or production latency. The
+v11 artifact is
+`SYNTHETIC-analytics-production-path-v11-before-after.csv`.
+
+To reproduce the v11 comparison, run the harness from candidate commit
+`fb583843666f597c9eced3d7f4f297fd5cdcec26` twice: once against production
+source files pinned to baseline commit
+`d0caebd20464a2a00ad417c78943d81438d9333a`, and once with all evaluated source
+files at the candidate commit. Set `ANALYTICS_EVAL_HARNESS_REVISION` to the
+candidate commit for both runs and retain the emitted CSV only after verifying
+that the before/after rows share the harness hash and fixture revision.
+
+The v10 artifact and its original provenance remain unchanged for historical
+comparison; the validator continues to check both versions against their own
+pinned cases and commits.
+
+## Historical v10 reproduction
 
 The before phase is pinned to the exact `origin/main` snapshot
 `d0caebd20464a2a00ad417c78943d81438d9333a`. The candidate source revision is
@@ -67,7 +106,7 @@ the validator's mismatch tests, run:
 pnpm --filter analytics exec vitest run evals/synthetic-production-path/comparison-validation.spec.ts
 ```
 
-## Results
+### Historical v10 results
 
 Top-1 retrieval rose from 6/30 to 30/30 runs (20% to 100%). Hit@5 rose from
 16/30 to 30/30 (53.3% to 100%). All 60 runs completed without aborts; each made
