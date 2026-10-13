@@ -401,6 +401,17 @@ export function shouldLimitEditorChromeUntilContentReady(args: {
   );
 }
 
+export function shouldDisableExportsUntilCanvasFramesExist(args: {
+  canvasFrameCount: number;
+  generating: boolean;
+  pendingGenerationActive: boolean;
+}) {
+  return (
+    args.canvasFrameCount === 0 &&
+    (args.generating || args.pendingGenerationActive)
+  );
+}
+
 export function shouldEscapeToOverview(args: {
   activeTool: DesignTool;
   drawMode: boolean;

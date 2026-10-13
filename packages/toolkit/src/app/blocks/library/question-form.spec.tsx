@@ -6,7 +6,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { QuestionFormRead } from "./question-form.js";
+import { QuestionFormEdit, QuestionFormRead } from "./question-form.js";
 
 function menuSurface({
   trigger,
@@ -235,5 +235,35 @@ describe("QuestionFormRead handoff state", () => {
     expect(
       choices.map((choice) => choice.getAttribute("aria-pressed")),
     ).toEqual(["true", "false"]);
+  });
+
+  it("renders an empty legacy question form without questions", async () => {
+    await act(async () => {
+      root.render(
+        <QuestionFormRead
+          blockId="questions-legacy"
+          data={{} as unknown as QuestionFormData}
+          ctx={{}}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("0/0 answered");
+  });
+
+  it("opens an empty editor for a legacy question form without questions", async () => {
+    await act(async () => {
+      root.render(
+        <QuestionFormEdit
+          blockId="questions-legacy"
+          data={{} as unknown as QuestionFormData}
+          onChange={vi.fn()}
+          editable
+          ctx={{}}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Add question");
   });
 });

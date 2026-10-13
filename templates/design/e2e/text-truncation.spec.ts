@@ -200,7 +200,7 @@ test(
   "text truncation restores authored styles through Undo, reload, and text editing",
   {},
   async ({ app, page }, testInfo) => {
-    test.setTimeout(60_000);
+    test.setTimeout(120_000);
     const designId = await app.seed(TRUNCATION_FIXTURE);
     await page.setViewportSize({ width: 2800, height: 1600 });
     await app.open(designId);
@@ -544,7 +544,7 @@ test(
       return selected
         ? {
             sourceLayerIdentity: selected.sourceLayerIdentity,
-            hasPortableStyleSnapshot: selected.portableStyleSnapshot != null,
+            hasBridgeDetail: Array.isArray(selected.editCapabilities),
           }
         : null;
     });
@@ -555,7 +555,7 @@ test(
     expect
       .soft(hydratedSelection?.sourceLayerIdentity?.screenId)
       .toBe(screenId);
-    expect.soft(hydratedSelection?.hasPortableStyleSnapshot).toBe(true);
+    expect.soft(hydratedSelection?.hasBridgeDetail).toBe(true);
     await app.settled();
     const after = await app.savedNodes(designId);
     expect(

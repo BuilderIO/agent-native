@@ -8,6 +8,8 @@ export interface ContentMemo<T> {
   has(content: string): boolean;
   /** Stores a result computed elsewhere, such as in a worker. */
   prime(content: string, value: T): void;
+  /** The memo's result, derived from `previousContent`'s when that is cached. */
+  derivedFrom(previousContent: string, content: string): T;
 }
 
 // Keyed on the whole string, not a hash: a collision would hand one document's
@@ -54,6 +56,17 @@ export function memoizeByContent<T>(
   memo.has = (content) => cache.has(content);
   memo.prime = (content, value) => {
     if (!cache.has(content)) store(content, value);
+  };
+  memo.derivedFrom = (previousContent, content) => {
+    if (derive && !cache.has(content) && cache.has(previousContent)) {
+      const derived = derive(
+        previousContent,
+        cache.get(previousContent) as T,
+        content,
+      );
+      if (derived !== null) store(content, derived);
+    }
+    return memo(content);
   };
   return memo;
 }

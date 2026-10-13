@@ -575,6 +575,7 @@ afterEach(async () => {
   });
   container.remove();
   document.body.replaceChildren();
+  vi.useRealTimers();
 });
 
 it("does not query or apply a default system when workflows are disabled", async () => {
@@ -887,6 +888,76 @@ describe("Index skip to editor", () => {
     await act(async () => root.render(<Index />));
     expect(container.textContent).toContain("Generated dashboard");
     expect(container.textContent).not.toContain("Another dashboard");
+  });
+
+  it("shows clickable fallback suggestions when loading never settles", async () => {
+    await act(async () => root.render(null));
+    vi.useFakeTimers();
+    mocks.suggestionPending = true;
+    await act(async () => root.render(<Index />));
+
+    let bar = container.querySelector<HTMLElement>(
+      '[aria-label="home.suggestedPrompts"]',
+    );
+    expect(bar?.getAttribute("aria-busy")).toBe("true");
+    expect(
+      bar?.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(3);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+
+    bar = container.querySelector<HTMLElement>(
+      '[aria-label="home.suggestedPrompts"]',
+    );
+    expect(bar?.getAttribute("aria-busy")).toBeNull();
+    expect(
+      bar?.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(0);
+    expect(container.textContent).toContain("chat.suggestionLandingPage");
+    expect(
+      [...(bar?.querySelectorAll<HTMLButtonElement>("button") ?? [])].every(
+        (button) => !button.disabled,
+      ),
+    ).toBe(true);
+  });
+
+  it("restarts the suggestion timeout when returning to a previous identity", async () => {
+    await act(async () => root.render(null));
+    vi.useFakeTimers();
+    mocks.suggestionPending = true;
+    await act(async () => root.render(<Index />));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+    expect(container.textContent).toContain("chat.suggestionLandingPage");
+
+    mocks.suggestionSession = {
+      authUserId: "viewer-b",
+      userId: "viewer-b",
+      email: "viewer-b@example.test",
+      orgId: "org-b",
+    };
+    await act(async () => root.render(<Index />));
+
+    mocks.suggestionSession = {
+      authUserId: "viewer-a",
+      userId: "viewer-a",
+      email: "viewer-a@example.test",
+      orgId: "org-a",
+    };
+    await act(async () => root.render(<Index />));
+
+    const bar = container.querySelector<HTMLElement>(
+      '[aria-label="home.suggestedPrompts"]',
+    );
+    expect(bar?.getAttribute("aria-busy")).toBe("true");
+    expect(
+      bar?.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(3);
+    expect(container.textContent).not.toContain("chat.suggestionLandingPage");
   });
 
   it("keeps the suggestion slot while readiness recovers", async () => {

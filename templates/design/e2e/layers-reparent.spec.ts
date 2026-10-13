@@ -132,7 +132,7 @@ test.describe("layers menu structure operations", () => {
     await layerRowButton(page, "Beta Button").click({ modifiers: [MOD] });
     await expect
       .poll(() => app.selectedLayers())
-      .toEqual(["Beta Button", "Alpha Button"]);
+      .toEqual(["Alpha Button", "Beta Button"]);
     await expect.poll(() => canvasSelectionBoxes(app)).toEqual([ALPHA, BETA]);
 
     await layerRowButton(page, "Beta Button").click({ modifiers: [MOD] });
@@ -143,7 +143,7 @@ test.describe("layers menu structure operations", () => {
     await layerRowButton(page, "Beta Button").click({ modifiers: ["Shift"] });
     await expect
       .poll(() => app.selectedLayers())
-      .toEqual(["Beta Button", "Alpha Button"]);
+      .toEqual(["Alpha Button", "Beta Button"]);
     await expect.poll(() => canvasSelectionBoxes(app)).toEqual([ALPHA, BETA]);
   });
 
@@ -157,8 +157,8 @@ test.describe("layers menu structure operations", () => {
 
     await dragRowOnto(
       page,
-      layerRow(page, "Alpha Button"),
       layerRow(page, "Beta Button"),
+      layerRow(page, "Alpha Button"),
       "top",
     );
     await app.settled();
@@ -171,8 +171,8 @@ test.describe("layers menu structure operations", () => {
 
     await dragRowOnto(
       page,
-      layerRow(page, "Beta Button"),
       layerRow(page, "Alpha Button"),
+      layerRow(page, "Beta Button"),
       "top",
     );
     await app.settled();
@@ -271,7 +271,7 @@ test.describe("layers menu structure operations", () => {
       .poll(() => app.selectedLayers(), {
         message: "a locked layer can still be selected in Layers",
       })
-      .toEqual(["Beta Button", "Alpha Button"]);
+      .toEqual(["Alpha Button", "Beta Button"]);
 
     await layerRowButton(page, "Alpha Button").click();
     await expect.poll(() => app.selectedLayers()).toEqual(["Alpha Button"]);
@@ -312,7 +312,7 @@ test.describe("layers menu structure operations", () => {
       .poll(() => app.selectedLayers(), {
         message: "a hidden layer can still be selected in Layers",
       })
-      .toEqual(["Beta Button", "Alpha Button"]);
+      .toEqual(["Alpha Button", "Beta Button"]);
 
     await layerRowButton(page, "Alpha Button").click();
     await expect.poll(() => app.selectedLayers()).toEqual(["Alpha Button"]);

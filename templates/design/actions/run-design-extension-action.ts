@@ -105,17 +105,17 @@ const CAPABILITY_ROUTES: Record<string, CapabilityRoute> = {
   "design.motion-presets:apply": {
     action: "apply-motion-edit",
     paramHint:
-      "Call apply-motion-edit with { designId, fileId?, timeline: { tracks, durationMs } } for an atomic managed CSS timeline save.",
+      "Call apply-motion-edit with { designId, fileId?, tracks, durationMs, defaultEase, playbackMode? } for inline HTML. For supported localhost React/JSX, pass the selected screen as sourceRef and localSource { connectionId, modulePath, moduleVersionHash } from the live preview. That path checks the current bridge version and target structure and requires explicit user write consent; other localhost formats and Fusion source writes are unsupported.",
     readOnly: false,
   },
   "design.motion-presets:write-source": {
     action: "apply-motion-edit",
     paramHint:
-      "Real-source CSS module write-back is planned for fusion tier.  Today apply-motion-edit writes to the managed <style> block for inline designs.",
+      "Generic extension source writes are not exposed. The dedicated apply-motion-edit path supports only proven, version-checked localhost React/JSX targets after explicit user write consent; other localhost formats and Fusion source writes are unsupported.",
     readOnly: false,
     gated: true,
     gateReason:
-      "CSS module write-back is planned pending fusion bridge hardening.",
+      "This generic extension route cannot authorize a source-file target or its current version. Only the dedicated apply-motion-edit localhost React/JSX path can write supported targets after explicit consent.",
   },
 };
 

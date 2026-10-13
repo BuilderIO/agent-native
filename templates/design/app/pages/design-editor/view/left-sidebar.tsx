@@ -1,6 +1,6 @@
 import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 import { IconClipboard } from "@tabler/icons-react";
-import type { ReactElement } from "react";
+import { memo, type ReactElement } from "react";
 import { Link } from "react-router";
 
 import { CodeWorkbenchLoader } from "@/components/design/code-workbench/CodeWorkbenchLoader";
@@ -43,6 +43,10 @@ import {
   SHOW_DESIGN_SECONDARY_LEFT_PANELS,
   SHOW_DESIGN_CODE_LEFT_PANEL,
 } from "../types";
+
+// The editor re-renders on every selection while the chat stays mounted, so
+// its props must stay referentially stable for this memo to hold.
+const MemoAgentChatSurface = memo(AgentChatSurface);
 
 export function renderLeftSidebar({
   editorCore,
@@ -95,6 +99,7 @@ export function renderLeftSidebar({
 }) {
   const {
     searchParams,
+    hostOwnsChrome,
     hostEmbeddedEditor,
     activeFileId,
     viewMode,
@@ -112,11 +117,15 @@ export function renderLeftSidebar({
   const {
     activeLeftPanel,
     setActiveLeftPanel,
+    setActiveInspectorTab,
+    collapseLeftPanel,
     leftSidebarContentRef,
     layerPanelExpandedIds,
     setExpandedLayerIds,
     codeWorkbenchOpenedRef,
     startSidebarResize,
+    motionDockOpen,
+    setMotionDockOpenAnimated,
   } = editorHistory;
   const { canEditDesign, browserTabId } = editorGenerationAndAccess;
   const { handleTokensApplied } = editorFilesAndSaving;
@@ -177,6 +186,18 @@ export function renderLeftSidebar({
           <DesignWorkspaceRail
             account={hostEmbeddedEditor ? null : session}
             activePanel={activeLeftPanel}
+            motionOpen={motionDockOpen}
+            onMotionToggle={
+              !hostOwnsChrome &&
+              SHOW_DESIGN_SECONDARY_LEFT_PANELS &&
+              !initialGenerationChromeLimited &&
+              activeFileId
+                ? () => {
+                    if (!motionDockOpen) setActiveInspectorTab("motion");
+                    setMotionDockOpenAnimated(!motionDockOpen);
+                  }
+                : undefined
+            }
             disabledPanels={
               initialGenerationChromeLimited
                 ? INITIAL_GENERATION_DISABLED_LEFT_PANELS
@@ -263,14 +284,14 @@ export function renderLeftSidebar({
               {hostEmbeddedEditor ? (
                 <div ref={attachHostChatSlot} className="min-h-0 flex-1" />
               ) : canApplyPendingVisualEditsWithAgent ? (
-                <AgentChatSurface
+                <MemoAgentChatSurface
                   composerContextProvider={
                     isSignedIn ? DesignComposerContextProvider : undefined
                   }
                   mode="panel"
                   className="min-h-0 min-w-0 flex-1 border-0 bg-transparent shadow-none"
                   chatOnly={true}
-                  onCollapse={() => setActiveLeftPanel(null)}
+                  onCollapse={collapseLeftPanel}
                   storageKey={DESIGN_CHAT_STORAGE_KEY}
                   emptyStateText={t("chat.emptyState")}
                   suggestions={designAgentSuggestions}
@@ -297,14 +318,12 @@ export function renderLeftSidebar({
                     ) : null
                   }
                   composerSlot={
-                    <>
-                      {detectedFigmaComposerLink ? (
-                        <FigmaLinkComposerBubble
-                          link={detectedFigmaComposerLink}
-                          designId={id}
-                        />
-                      ) : null}
-                    </>
+                    detectedFigmaComposerLink ? (
+                      <FigmaLinkComposerBubble
+                        link={detectedFigmaComposerLink}
+                        designId={id}
+                      />
+                    ) : null
                   }
                 />
               ) : isVisualEditSurface &&

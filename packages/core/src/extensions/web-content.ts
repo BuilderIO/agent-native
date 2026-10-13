@@ -160,6 +160,7 @@ export async function processWebContent(
   const search = options.search ?? null;
   const html = isHtmlResponse(contentType, options.body);
   const mode = resolveMode(requestedMode, html, search);
+  const emptyHtmlBody = html && !options.body.trim();
   const maxChars = normalizeBoundedNumber(
     options.maxChars,
     DEFAULT_MAX_CONTENT_CHARS,
@@ -168,7 +169,7 @@ export async function processWebContent(
   );
 
   const extracted =
-    html && (mode !== "raw" || hasWebContentSearch(search))
+    html && !emptyHtmlBody && (mode !== "raw" || hasWebContentSearch(search))
       ? await extractHtml(
           options.body,
           options.url,
@@ -183,6 +184,19 @@ export async function processWebContent(
     contentType,
     ...metadataFromExtraction(extracted),
   };
+
+  if (
+    emptyHtmlBody &&
+    mode !== "raw" &&
+    mode !== "links" &&
+    mode !== "metadata" &&
+    mode !== "matches"
+  ) {
+    result.content = "(empty response body)";
+    result.truncated = false;
+    if (options.includeLinks) result.links = [];
+    return result;
+  }
 
   if (mode === "links") {
     result.links = extracted?.links ?? [];
@@ -491,7 +505,10 @@ function parseFullDocument(
   html: string,
   parseDocument: (html: string) => Document,
 ): Document {
-  return parseDocument(html);
+  const document = parseDocument(html);
+  return document.documentElement
+    ? document
+    : parseHtmlFragment(html, parseDocument);
 }
 
 function parseHtmlFragment(

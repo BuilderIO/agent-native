@@ -1,7 +1,9 @@
-// @vitest-environment happy-dom
 import type { PersistedClient } from "@tanstack/query-persist-client-core";
 import { QueryClient, dehydrate } from "@tanstack/react-query";
 import { expect, it, vi } from "vitest";
+
+// @vitest-environment happy-dom
+import { cacheBuster } from "./action-query-cache.test-fixtures.js";
 
 function persistedFor(
   queryKey: readonly unknown[],
@@ -11,7 +13,7 @@ function persistedFor(
   source.setQueryData(queryKey, data);
   return {
     timestamp: Date.now(),
-    buster: "action-query-cache-v1",
+    buster: cacheBuster(),
     clientState: dehydrate(source),
   };
 }
@@ -115,7 +117,7 @@ it("keeps data mapping aligned across undefined and pending queries", async () =
 
   const scopeRecord: PersistedClient = {
     timestamp: Date.now(),
-    buster: "action-query-cache-v1",
+    buster: cacheBuster(),
     clientState,
   };
   const records = new Map([[scope, scopeRecord]]);

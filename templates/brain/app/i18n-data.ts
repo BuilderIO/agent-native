@@ -451,6 +451,8 @@ const enUS = {
       "Not valid Zoom meeting IDs: {{entries}}. Use the number from the meeting invite, like 123 4567 8901.",
     zoomDescription:
       "Every hour, Brain imports transcripts (and summaries, if turned on) only from the approved series. Other meetings in the Zoom account are never downloaded. Changing the list re-scans the lookback window.",
+    zoomAdminOnly:
+      "Only organization owners and admins can change Zoom settings. You can still rename this source.",
     approvedRepositories: "Approved repositories",
     githubRepositoriesDescription:
       "Brain imports bounded issue and pull request context from these repositories using the workspace GitHub credential.",
@@ -7235,6 +7237,8 @@ const zoomSourceLocalizationOverrides: Partial<
         "معرّفات اجتماعات Zoom غير صالحة: {{entries}}. استخدم الرقم الموجود في دعوة الاجتماع، مثل 123 4567 8901.",
       zoomDescription:
         "كل ساعة، يستورد Brain النصوص (والملخصات إذا كانت مفعّلة) من السلاسل المعتمدة فقط. لا يتم تنزيل أي اجتماعات أخرى في حساب Zoom. يؤدي تغيير القائمة إلى إعادة فحص فترة الرجوع.",
+      zoomAdminOnly:
+        "يمكن لمالكي المؤسسة ومسؤوليها فقط تغيير إعدادات Zoom. لا يزال بإمكانك إعادة تسمية هذا المصدر.",
     },
   },
   "de-DE": {
@@ -7248,6 +7252,8 @@ const zoomSourceLocalizationOverrides: Partial<
         "Keine gültigen Zoom-Meeting-IDs: {{entries}}. Verwende die Nummer aus der Meeting-Einladung, z. B. 123 4567 8901.",
       zoomDescription:
         "Brain importiert stündlich Transkripte (und, falls aktiviert, Zusammenfassungen) nur aus den freigegebenen Serien. Andere Meetings im Zoom-Konto werden nie heruntergeladen. Eine Änderung der Liste durchsucht den Rückblickzeitraum erneut.",
+      zoomAdminOnly:
+        "Nur Organisationsinhaber und -administratoren können Zoom-Einstellungen ändern. Du kannst diese Quelle weiterhin umbenennen.",
     },
   },
   "es-ES": {
@@ -7261,6 +7267,8 @@ const zoomSourceLocalizationOverrides: Partial<
         "ID de reunión de Zoom no válidos: {{entries}}. Usa el número de la invitación, como 123 4567 8901.",
       zoomDescription:
         "Cada hora, Brain importa transcripciones (y resúmenes, si están activados) solo de las series aprobadas. Nunca se descargan otras reuniones de la cuenta de Zoom. Al cambiar la lista se vuelve a revisar el periodo hacia atrás.",
+      zoomAdminOnly:
+        "Solo los propietarios y administradores de la organización pueden cambiar la configuración de Zoom. Aún puedes cambiar el nombre de esta fuente.",
     },
   },
   "fr-FR": {
@@ -7274,6 +7282,8 @@ const zoomSourceLocalizationOverrides: Partial<
         "ID de réunion Zoom non valides : {{entries}}. Utilisez le numéro de l'invitation, par exemple 123 4567 8901.",
       zoomDescription:
         "Chaque heure, Brain importe les transcriptions (et les résumés, s'ils sont activés) uniquement des séries approuvées. Les autres réunions du compte Zoom ne sont jamais téléchargées. Modifier la liste réanalyse la période d'historique.",
+      zoomAdminOnly:
+        "Seuls les propriétaires et administrateurs de l'organisation peuvent modifier les paramètres Zoom. Vous pouvez toujours renommer cette source.",
     },
   },
   "hi-IN": {
@@ -7287,6 +7297,8 @@ const zoomSourceLocalizationOverrides: Partial<
         "अमान्य Zoom मीटिंग ID: {{entries}}। आमंत्रण में दिया नंबर इस्तेमाल करें, जैसे 123 4567 8901।",
       zoomDescription:
         "Brain हर घंटे केवल स्वीकृत सीरीज़ से ट्रांसक्रिप्ट (और चालू होने पर सारांश) आयात करता है। Zoom खाते की अन्य मीटिंग कभी डाउनलोड नहीं होतीं। सूची बदलने पर पीछे देखने की अवधि फिर से स्कैन होती है।",
+      zoomAdminOnly:
+        "केवल संगठन के मालिक और एडमिन Zoom सेटिंग्स बदल सकते हैं। आप अब भी इस स्रोत का नाम बदल सकते हैं।",
     },
   },
   "ja-JP": {
@@ -7300,6 +7312,8 @@ const zoomSourceLocalizationOverrides: Partial<
         "無効な Zoom ミーティング ID: {{entries}}。招待に記載された番号（例: 123 4567 8901）を使用してください。",
       zoomDescription:
         "Brain は 1 時間ごとに、承認済みの定期ミーティングからのみ文字起こし（有効な場合は要約も）を取り込みます。Zoom アカウント内のほかのミーティングはダウンロードしません。一覧を変更すると、さかのぼる期間を再スキャンします。",
+      zoomAdminOnly:
+        "Zoom の設定を変更できるのは組織のオーナーと管理者のみです。このソースの名前は引き続き変更できます。",
     },
   },
   "ko-KR": {
@@ -7313,6 +7327,8 @@ const zoomSourceLocalizationOverrides: Partial<
         "유효하지 않은 Zoom 회의 ID: {{entries}}. 초대장의 번호(예: 123 4567 8901)를 사용하세요.",
       zoomDescription:
         "Brain은 매시간 승인된 시리즈에서만 대본(켜져 있으면 요약도)을 가져옵니다. Zoom 계정의 다른 회의는 다운로드하지 않습니다. 목록을 변경하면 조회 기간을 다시 검사합니다.",
+      zoomAdminOnly:
+        "조직 소유자와 관리자만 Zoom 설정을 변경할 수 있습니다. 이 소스의 이름은 계속 변경할 수 있습니다.",
     },
   },
   "pt-BR": {
@@ -7326,6 +7342,8 @@ const zoomSourceLocalizationOverrides: Partial<
         "IDs de reunião do Zoom inválidos: {{entries}}. Use o número do convite, como 123 4567 8901.",
       zoomDescription:
         "A cada hora, o Brain importa transcrições (e resumos, se ativados) somente das séries aprovadas. Outras reuniões da conta do Zoom nunca são baixadas. Alterar a lista verifica novamente o período de retrospectiva.",
+      zoomAdminOnly:
+        "Somente proprietários e administradores da organização podem alterar as configurações do Zoom. Você ainda pode renomear esta fonte.",
     },
   },
   "zh-CN": {
@@ -7339,6 +7357,8 @@ const zoomSourceLocalizationOverrides: Partial<
         "无效的 Zoom 会议 ID：{{entries}}。请使用会议邀请中的号码，例如 123 4567 8901。",
       zoomDescription:
         "Brain 每小时仅从已批准的系列导入转录（开启后也导入摘要）。Zoom 账户中的其他会议绝不会被下载。更改列表会重新扫描回溯期。",
+      zoomAdminOnly:
+        "只有组织所有者和管理员可以更改 Zoom 设置。你仍然可以重命名此来源。",
     },
   },
 };

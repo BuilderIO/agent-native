@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import {
   readFileSync,
   readdirSync,
+  copyFileSync,
   renameSync,
   rmSync,
   cpSync,
@@ -102,6 +103,7 @@ if (existsSync("dist")) {
       join("dist", "client", entry),
     );
   }
+  copyFileSync("src/client/motion-text.css", "dist/client/motion-text.css");
 }
 
 const distTemplatesDir = "dist/templates";

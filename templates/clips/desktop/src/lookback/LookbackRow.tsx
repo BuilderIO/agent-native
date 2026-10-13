@@ -187,15 +187,16 @@ export function LookbackRow({
       <PopoverContent
         align="start"
         side="bottom"
+        collisionPadding={8}
         sideOffset={6}
         data-popover-resize-overlay="true"
-        className="w-[248px] p-3"
+        className="max-h-[var(--radix-popover-content-available-height)] w-[248px] overflow-y-auto p-3"
       >
         <div className="grid gap-2">
           <span className="text-xs font-medium">
             {t("lookbackContext.rewindOffTitle")}
           </span>
-          <p className="text-xs text-[var(--fg-subtle)]">
+          <p className="text-xs text-[var(--fg-muted)]">
             {t("lookbackContext.rewindOffBody")}
           </p>
           <Button

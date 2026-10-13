@@ -302,6 +302,68 @@ describe("useOrgMembers", () => {
     });
     expect(invalidate).toHaveBeenCalledTimes(1);
   });
+
+  it("runs the persisted callback before ordered refresh without skipping refresh on callback errors", async () => {
+    const order: string[] = [];
+    let finishSessionRead!: () => void;
+    vi.mocked(notifySessionInvalidated).mockImplementationOnce(() => {
+      order.push("session");
+      return new Promise<void>((resolve) => {
+        finishSessionRead = resolve;
+      });
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        order.push("put");
+        return Response.json({ success: true });
+      }),
+    );
+    const invalidate = vi
+      .spyOn(queryClient, "invalidateQueries")
+      .mockImplementation(async () => {
+        order.push("invalidate");
+      });
+    const logError = vi.spyOn(console, "error").mockImplementation(() => {});
+    let switchOrg!: (orgId: string) => Promise<unknown>;
+
+    function Probe() {
+      switchOrg = useSwitchOrg({
+        onPersisted: () => {
+          order.push("persisted");
+          throw new Error("test callback failure");
+        },
+      }).mutateAsync;
+      return null;
+    }
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe />
+        </QueryClientProvider>,
+      );
+    });
+
+    let switching!: Promise<unknown>;
+    await act(async () => {
+      switching = switchOrg("org-2");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(order).toEqual(["put", "persisted", "session"]);
+    expect(invalidate).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishSessionRead();
+      await switching;
+    });
+
+    expect(order).toEqual(["put", "persisted", "session", "invalidate"]);
+    expect(logError).toHaveBeenCalledWith(
+      "The organization persistence callback failed.",
+    );
+    logError.mockRestore();
+  });
 });
 
 describe("useOrg while the action cache restore holds queries", () => {

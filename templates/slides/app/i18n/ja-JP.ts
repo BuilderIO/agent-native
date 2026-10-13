@@ -800,7 +800,8 @@ const messages = {
     generationFailed:
       "スライドを作成できませんでした。チャットで詳細を確認して、もう一度お試しください。",
     generationOutcomeUnresolved:
-      "スライドが作成されたか確認できませんでした。デッキまたはチャットを確認してから、もう一度お試しください。",
+      "スライドが作成されたか確認できません。再試行する前にデッキを確認してください。",
+    checkedDeckTryAgain: "デッキを確認しました。再試行",
     deckHasNoSlides: "このデッキにはスライドがありません。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",
@@ -836,7 +837,7 @@ const messages = {
     sourceMixed: "複数のソース",
     sourceBuilder: "Builderデザインシステムインテリジェンス",
     sourceIndexingDescription:
-      "Builderはこのソースを処理中です。準備ができた結果はここに表示されます。",
+      "ブランドのスタイルを準備中です。準備ができるまで待ってから、もう一度お試しください。",
     sourceIndexedDescription:
       "{{docs}}件のドキュメント · {{tokens}}件のトークンをインデックス済み",
     sourceIndexedDocsOnly: "{{docs}}件のドキュメントをインデックス済み",
@@ -1047,6 +1048,8 @@ const messages = {
     generationStartFailed: "デッキ生成を開始できませんでした",
     generationStartFailedDescription:
       "新しいデッキの保存が完了しなかったため、存在しないデッキに対してエージェントを開始しませんでした。プロンプトは保存されたので再試行できます。",
+    generationContextUnavailableDescription:
+      "選択したブランドスタイルまたは参考プレゼンテーションを読み込めませんでした。開けることとインターネット接続を確認して、もう一度お試しください。",
     showAllDecks: "すべてのデッキを表示",
     all: "すべて",
     showMineDecks: "自分が作成したデッキを表示",

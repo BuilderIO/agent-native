@@ -207,9 +207,9 @@ test.describe("interaction: layers panel", () => {
         "    Panel",
         "      Panel Child",
         "  Nav",
-        "    Contact",
-        "    About",
         "    Shop",
+        "    About",
+        "    Contact",
         "  Site Header",
       ]);
   });
@@ -236,17 +236,17 @@ test.describe("interaction: layers panel", () => {
 
     const after = await app.savedNodes(id);
     expect(childrenOf(after, "nav")).toStrictEqual([
-      "nav-shop",
       "nav-contact",
+      "nav-shop",
       "nav-about",
     ]);
     expectOnlyChanged(before, after, []);
     await expect
       .poll(() => rowsUnder(page, "Nav"))
-      .toStrictEqual(["About", "Contact", "Shop"]);
+      .toStrictEqual(["Contact", "Shop", "About"]);
     await expect
       .poll(() => liveChildIds(app, "nav"))
-      .toStrictEqual(["nav-shop", "nav-contact", "nav-about"]);
+      .toStrictEqual(["nav-contact", "nav-shop", "nav-about"]);
   });
 
   test("dropping a row onto a container row reparents it as the topmost child", async ({

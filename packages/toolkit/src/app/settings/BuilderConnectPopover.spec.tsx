@@ -107,7 +107,7 @@ async function finishLazyLoad() {
 }
 
 describe("BuilderConnectPopover", () => {
-  it("shows the same chooser when one-click provisioning is unavailable", async () => {
+  it("offers one connect action when provisioning is unavailable", async () => {
     const onConnect = vi.fn();
     const flow = {
       connecting: false,
@@ -123,8 +123,7 @@ describe("BuilderConnectPopover", () => {
           flow,
           onConnect,
           contentTestId: "consent",
-          primaryTestId: "create",
-          secondaryTestId: "sign-in",
+          primaryTestId: "connect",
         },
         trigger(),
       ),
@@ -137,22 +136,19 @@ describe("BuilderConnectPopover", () => {
 
     let consent = document.querySelector("[data-testid='consent']");
     expect(consent).not.toBeNull();
-    expect(consent?.querySelector("[data-testid='create']")).not.toBeNull();
-    expect(consent?.querySelector("[data-testid='sign-in']")).not.toBeNull();
-    expect(
-      consent?.querySelector<HTMLButtonElement>("[data-testid='create']")
-        ?.disabled,
-    ).toBe(true);
-    expect(consent?.textContent).toContain(
-      "New account creation isn't enabled for this app.",
+    const connect = consent?.querySelector<HTMLButtonElement>(
+      "[data-testid='connect']",
     );
+    expect(connect?.disabled).toBe(false);
+    expect(consent?.querySelector("[data-testid='sign-in']")).toBeNull();
+    expect(consent?.textContent).toContain(
+      "Create a Builder.io account or sign in to connect.",
+    );
+    expect(connect?.textContent).toContain("Connect Builder.io");
 
-    click(consent?.querySelector("[data-testid='create']") as HTMLElement);
-    expect(onConnect).not.toHaveBeenCalled();
-    expect(flow.start).not.toHaveBeenCalled();
-
-    click(consent?.querySelector("[data-testid='sign-in']") as HTMLElement);
+    click(connect!);
     expect(onConnect).toHaveBeenLastCalledWith(false);
+    expect(flow.start).not.toHaveBeenCalled();
   });
 
   it("opens immediately while Builder status is unresolved", () => {
@@ -173,8 +169,7 @@ describe("BuilderConnectPopover", () => {
           flow,
           onConnect,
           contentTestId: "consent",
-          primaryTestId: "create",
-          secondaryTestId: "sign-in",
+          primaryTestId: "connect",
         },
         trigger(),
       ),
@@ -183,9 +178,12 @@ describe("BuilderConnectPopover", () => {
 
     expect(document.querySelector("[data-testid='consent']")).not.toBeNull();
     expect(
-      document.querySelector<HTMLButtonElement>("[data-testid='create']")
+      document.querySelector<HTMLButtonElement>("[data-testid='connect']")
         ?.disabled,
-    ).toBe(true);
+    ).toBe(false);
+    expect(document.querySelector("[data-testid='sign-in']")).toBeNull();
+    click(document.querySelector("[data-testid='connect']") as HTMLElement);
+    expect(onConnect).toHaveBeenCalledExactlyOnceWith(false);
     expect(retry).not.toHaveBeenCalled();
     expect(flow.start).not.toHaveBeenCalled();
   });
@@ -205,8 +203,7 @@ describe("BuilderConnectPopover", () => {
         {
           flow,
           contentTestId: "consent",
-          primaryTestId: "create",
-          secondaryTestId: "sign-in",
+          primaryTestId: "connect",
         },
         trigger(),
       ),
@@ -216,17 +213,19 @@ describe("BuilderConnectPopover", () => {
 
     const consent = document.querySelector("[data-testid='consent']");
     expect(consent?.textContent).toContain(
-      "New account activation isn't available in this mode.",
+      "Create a Builder.io account or sign in to connect.",
     );
     expect(consent?.textContent).not.toContain("Checking whether");
     expect(
-      consent?.querySelector<HTMLButtonElement>("[data-testid='create']")
+      consent?.querySelector<HTMLButtonElement>("[data-testid='connect']")
         ?.disabled,
-    ).toBe(true);
+    ).toBe(false);
+    expect(consent?.querySelector("[data-testid='sign-in']")).toBeNull();
   });
 
-  it("offers a retry after a Builder status read fails", () => {
+  it("keeps one connect action available after a Builder status read fails", () => {
     const retry = vi.fn(() => true);
+    const onConnect = vi.fn();
     const flow = {
       connecting: false,
       start: vi.fn(),
@@ -243,9 +242,9 @@ describe("BuilderConnectPopover", () => {
         BuilderConnectPopover,
         {
           flow,
+          onConnect,
           contentTestId: "consent",
-          primaryTestId: "create",
-          secondaryTestId: "sign-in",
+          primaryTestId: "connect",
         },
         trigger(),
       ),
@@ -257,17 +256,21 @@ describe("BuilderConnectPopover", () => {
       "Couldn't read the Builder.io connections.",
     );
     expect(consent?.textContent).not.toContain("Retrying.");
-    expect(consent?.querySelector("[data-testid='sign-in']")).not.toBeNull();
+    expect(consent?.querySelector("[data-testid='sign-in']")).toBeNull();
+    const connect = consent?.querySelector<HTMLButtonElement>(
+      "[data-testid='connect']",
+    );
+    expect(connect?.textContent).toContain("Connect Builder.io");
+    expect(connect?.disabled).toBe(false);
     click(
       [...(consent?.querySelectorAll("button") ?? [])].find(
         (button) => button.textContent === "Retry",
       ) as HTMLElement,
     );
     expect(retry).toHaveBeenCalledOnce();
-    expect(
-      consent?.querySelector<HTMLButtonElement>("[data-testid='create']")
-        ?.disabled,
-    ).toBe(true);
+    click(connect!);
+    expect(onConnect).toHaveBeenCalledExactlyOnceWith(false);
+    expect(flow.start).not.toHaveBeenCalled();
   });
 
   it("shows a connection error after an earlier status read failure", () => {

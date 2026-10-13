@@ -63,6 +63,7 @@ import {
   flushCommitsOnInput,
 } from "../commit-after-paint";
 import {
+  clearAcknowledgedDesignDataOperationsThroughRevision,
   rebaseDesignDataWithPendingOperations,
   type PendingDesignDataOperations,
 } from "../data-operations";
@@ -97,6 +98,7 @@ import {
 import {
   classifyDesignSaveFailure,
   designSaveErrorMessage,
+  reportDesignSaveFailure,
 } from "../save-failure";
 import {
   designFileCodeLayerSource,
@@ -108,6 +110,30 @@ import type { EditorCore } from "./use-editor-core";
 import type { EditorGenerationAndAccess } from "./use-editor-generation-and-access";
 import type { EditorHistory } from "./use-editor-history";
 import { useTweaks } from "./use-tweaks";
+
+function codeLayerSourceForDesignFile(args: {
+  designData: Record<string, unknown>;
+  designId: string | undefined;
+  fileId: string;
+  filename: string | undefined;
+  kind?: "design-file" | "inline-html";
+}): CodeLayerSource {
+  const source = designFileCodeLayerSource(
+    args.designId,
+    args.fileId,
+    args.filename,
+    args.kind,
+  );
+  const screenMetadata = getDesignDataRecord(
+    getDesignDataRecord(args.designData, "screenMetadata"),
+    args.fileId,
+  );
+  const connectionId =
+    typeof screenMetadata.connectionId === "string"
+      ? screenMetadata.connectionId.trim()
+      : "";
+  return connectionId ? { ...source, connectionId } : source;
+}
 
 export function useEditorFilesAndSaving({
   editorCore,
@@ -188,6 +214,8 @@ export function useEditorFilesAndSaving({
   );
   const pendingFrameGeometryOperationsForUnloadRef =
     useRef<PendingDesignDataOperations>({});
+  const frameGeometryOperationsInFlightRef =
+    useRef<PendingDesignDataOperations>({});
   const [showPrompt, setShowPrompt] = useState(false);
   const [showTweakPrompt, setShowTweakPrompt] = useState(false);
   const tweakPromptAnchorRef = useRef<HTMLElement | null>(null);
@@ -230,6 +258,26 @@ export function useEditorFilesAndSaving({
       id: "design-save-outbox-discarded",
     });
   }, [readOnlyWidget, t]);
+
+  const reportSaveFailure = useCallback(
+    (error: unknown) =>
+      reportDesignSaveFailure(error, navigator.onLine, {
+        warnChangesWillRetry,
+        showConflict: () => {
+          if (readOnlyWidget) return;
+          toast.error(t("designEditor.toasts.saveConflict"), {
+            id: "design-save-error",
+          });
+        },
+        showError: (message) => {
+          if (readOnlyWidget) return;
+          toast.error(message ?? t("common.genericError"), {
+            id: "design-save-error",
+          });
+        },
+      }),
+    [readOnlyWidget, t, warnChangesWillRetry],
+  );
 
   const journalOutboxEntry = useCallback(
     async (entry: DesignSaveOutboxEntry) => {
@@ -284,6 +332,16 @@ export function useEditorFilesAndSaving({
         ...result.rebased.map(({ entry }) => entry),
         ...result.dropped.map(({ entry }) => entry),
       ]) {
+        if (
+          entry.actionName === "update-design" &&
+          entry.operationSource === designSaveOperationSourceRef.current
+        ) {
+          frameGeometryOperationsInFlightRef.current =
+            clearAcknowledgedDesignDataOperationsThroughRevision(
+              frameGeometryOperationsInFlightRef.current,
+              entry.operationRevision,
+            );
+        }
         if (
           shouldClearLatestUnloadSaveForOutboxEntry(
             latestFileSaveForUnloadRef.current[entry.resourceId],
@@ -817,6 +875,14 @@ export function useEditorFilesAndSaving({
   );
 
   const serverFiles = resolveServerFiles(design);
+  const designDataJson = useMemo(
+    () =>
+      rebaseDesignDataWithPendingOperations(
+        parseDesignDataJson(design?.data),
+        frameGeometryOperationsInFlightRef.current,
+      ),
+    [design?.data],
+  );
   rawServerFilesByIdRef.current = new Map(
     serverFiles.map((file) => [file.id, file]),
   );
@@ -847,13 +913,18 @@ export function useEditorFilesAndSaving({
         const prepared = prepareCanonicalSourceContent(sourceContent, {
           fileId: file.id,
           fileType: file.fileType,
-          source: designFileCodeLayerSource(id, file.id, file.filename),
+          source: codeLayerSourceForDesignFile({
+            designData: designDataJson,
+            designId: id,
+            fileId: file.id,
+            filename: file.filename,
+          }),
         });
         return prepared.content === file.content
           ? file
           : { ...file, content: prepared.content };
       }),
-    [id, pendingLocalFileContentsSnapshot, serverFiles],
+    [designDataJson, id, pendingLocalFileContentsSnapshot, serverFiles],
   );
   const getComponentExpectedFiles = useCallback(
     () =>
@@ -872,13 +943,14 @@ export function useEditorFilesAndSaving({
       screenId: string,
       kind: "design-file" | "inline-html" = "design-file",
     ): CodeLayerSource =>
-      designFileCodeLayerSource(
-        id,
-        screenId,
-        files.find((file) => file.id === screenId)?.filename,
+      codeLayerSourceForDesignFile({
+        designData: designDataJson,
+        designId: id,
+        fileId: screenId,
+        filename: files.find((file) => file.id === screenId)?.filename,
         kind,
-      ),
-    [files, id],
+      }),
+    [designDataJson, files, id],
   );
   const [pendingNodeRewriteProposals, setPendingNodeRewriteProposals] =
     useState<NodeRewriteProposal[]>([]);
@@ -1022,10 +1094,6 @@ export function useEditorFilesAndSaving({
       }
     }
   }, [serverFiles]);
-  const designDataJson = useMemo(
-    () => parseDesignDataJson(design?.data),
-    [design?.data],
-  );
   const designSourceType = useMemo(
     () =>
       normalizeDesignSourceType(designDataJson.sourceType as unknown) ??
@@ -1550,6 +1618,7 @@ export function useEditorFilesAndSaving({
     setOptimisticFrameGeometryById,
     designSaveOperationSourceRef,
     pendingFrameGeometryOperationsForUnloadRef,
+    frameGeometryOperationsInFlightRef,
     showPrompt,
     showTweakPrompt,
     setShowTweakPrompt,
@@ -1565,7 +1634,7 @@ export function useEditorFilesAndSaving({
     fileSaveOperationRevisionRef,
     latestFileSaveForUnloadRef,
     fileSaveTimersRef,
-    warnChangesWillRetry,
+    reportSaveFailure,
     journalOutboxEntry,
     acknowledgeOutboxEntry,
     retryDesignSaveOutbox,

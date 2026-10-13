@@ -33,6 +33,8 @@ const mocks = vi.hoisted(() => ({
   pendingUnloadGuard: vi.fn(),
   attemptGenerating: false,
   attemptObservedRun: false,
+  attemptRunError: false,
+  attemptRunErrorCode: null as string | null,
   attemptTimedOut: false,
   attemptCanContinueAfterStall: false,
   targetTabId: "target-tab",
@@ -113,7 +115,8 @@ vi.mock("@/hooks/use-agent-generating", async (importOriginal) => {
         generating: isTargetTab
           ? mocks.attemptGenerating
           : options === undefined && mocks.broadGenerating,
-        runError: false,
+        runError: isTargetTab && mocks.attemptRunError,
+        runErrorCode: isTargetTab ? mocks.attemptRunErrorCode : null,
         stopReason: null,
         observedRun: isTargetTab && mocks.attemptObservedRun,
         timedOut: mocks.attemptTimedOut,
@@ -441,6 +444,8 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.deck.slides = [];
     mocks.deck.generationContext.generationMode = undefined;
     mocks.deck.generationContext.generationAttemptId = "attempt-1";
+    delete (mocks.deck.generationContext as Record<string, unknown>)
+      .generationFailureCode;
     Object.assign(mocks, {
       broadGenerating: true,
       showInlineEditTrigger: false,
@@ -452,6 +457,8 @@ describe("DeckEditor generation signal wiring", () => {
       guidedQuestionPayload: null,
       attemptGenerating: false,
       attemptObservedRun: false,
+      attemptRunError: false,
+      attemptRunErrorCode: null,
       targetTabId: "target-tab",
       attemptTimedOut: false,
       attemptCanContinueAfterStall: false,
@@ -833,10 +840,12 @@ describe("DeckEditor generation signal wiring", () => {
       expect.anything(),
     );
     expect(
-      screen.getByRole("button", { name: "deckEditor.tryAgain" }),
+      screen.getByRole("button", { name: "deckEditor.checkedDeckTryAgain" }),
     ).toBeTruthy();
     await act(async () => {
-      screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+      screen
+        .getByRole("button", { name: "deckEditor.checkedDeckTryAgain" })
+        .click();
     });
     expect(mocks.guidedQuestionRefetchPending).toHaveBeenCalledTimes(2);
     expect(mocks.submitAndConfirm).not.toHaveBeenCalled();
@@ -1432,7 +1441,7 @@ describe("DeckEditor generation signal wiring", () => {
       screen.getByText("deckEditor.generationOutcomeUnresolved"),
     ).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "deckEditor.tryAgain" }),
+      screen.getByRole("button", { name: "deckEditor.checkedDeckTryAgain" }),
     ).toBeTruthy();
     const recoveryKey = "slides:empty-generation-retry-recovery:deck-1";
     await waitFor(() =>
@@ -1457,7 +1466,7 @@ describe("DeckEditor generation signal wiring", () => {
       screen.getByText("deckEditor.generationOutcomeUnresolved"),
     ).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "deckEditor.tryAgain" }),
+      screen.getByRole("button", { name: "deckEditor.checkedDeckTryAgain" }),
     ).toBeTruthy();
   });
 
@@ -2041,6 +2050,52 @@ describe("DeckEditor generation signal wiring", () => {
     expect(screen.queryByText("deckEditor.deckHasNoSlides")).toBeNull();
   });
 
+  it("keeps an uncertain write outcome distinct and asks before retrying", async () => {
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    mocks.attemptRunError = true;
+    mocks.attemptRunErrorCode = "write_tool_outcome_unknown";
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() =>
+      expect(
+        (mocks.deck.generationContext as Record<string, unknown>)
+          .generationFailureCode,
+      ).toBe("outcome_unresolved"),
+    );
+    expect(
+      screen.getByText("deckEditor.generationOutcomeUnresolved"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "deckEditor.checkedDeckTryAgain",
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByText("deckEditor.agentRunFailed")).toBeNull();
+  });
+
   it("explains when generation ends without creating slides", () => {
     Object.assign(mocks.deck.generationContext, {
       generationFailureCode: "no_output",
@@ -2240,7 +2295,9 @@ describe("DeckEditor generation signal wiring", () => {
       expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1"),
     );
     act(() => {
-      screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+      screen
+        .getByRole("button", { name: "deckEditor.checkedDeckTryAgain" })
+        .click();
     });
     await waitFor(() => expect(mocks.flushDeckSave).toHaveBeenCalledTimes(2));
     const retryAttemptId = mocks.deck.generationContext.generationAttemptId;

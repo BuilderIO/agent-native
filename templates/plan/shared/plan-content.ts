@@ -943,7 +943,7 @@ const elNameSchema = z.enum([
 
 const WIREFRAME_MAX_DEPTH = 8;
 const WIREFRAME_MAX_NODES = 400;
-const PLAN_BLOCK_MAX_DEPTH = 40;
+export const PLAN_BLOCK_MAX_DEPTH = 40;
 const PLAN_BLOCK_MAX_VISITS = 5_000;
 
 const wireframeNodeSchema: z.ZodType<PlanWireframeNode> = z.lazy(() =>
@@ -1256,7 +1256,7 @@ const planQuestionSchema: z.ZodType<PlanQuestion> = z.object({
 
 export const questionFormDataSchema: z.ZodType<PlanQuestionFormBlock["data"]> =
   z.object({
-    questions: z.array(planQuestionSchema).min(1).max(40),
+    questions: z.array(planQuestionSchema).max(40).default([]),
     submitLabel: z.string().trim().max(400).optional(),
   });
 
@@ -1297,7 +1297,8 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
               note: z.string().trim().max(800).optional(),
             }),
           )
-          .max(200),
+          .max(200)
+          .default([]),
       }),
     }),
     baseBlockSchema.extend({
@@ -1379,8 +1380,8 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
               blocks: z.array(planBlockSchema).max(40),
             }),
           )
-          .min(1)
-          .max(12),
+          .max(12)
+          .default([]),
         orientation: z.enum(["horizontal", "vertical"]).optional(),
       }),
     }),
@@ -1519,8 +1520,8 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
                 .max(80),
             }),
           )
-          .min(1)
-          .max(60),
+          .max(60)
+          .default([]),
         relations: z
           .array(
             z.object({
@@ -1586,7 +1587,7 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
       data: z.object({
         filename: z.string().trim().max(400).optional(),
         language: z.string().trim().max(40).optional(),
-        code: z.string().max(100_000),
+        code: z.string().max(100_000).default(""),
         annotations: z
           .array(
             z.object({
@@ -1664,23 +1665,27 @@ export const agentPlanBlockSchema = z.object({
     ),
 });
 
-const agentPlanBlockSchemaTerse = z.object({
-  id: idSchema.describe(
-    "Stable block id (short, unique within the plan) — required.",
-  ),
-  type: z
-    .enum(PLAN_BLOCK_TYPES)
-    .describe(
-      "Block type — same options as content.blocks. Call get-plan-blocks " +
-        "for the per-type `data` field shapes.",
+const agentPlanBlockSchemaTerse = z
+  .object({
+    id: idSchema.describe(
+      "Stable block id (short, unique within the plan) — required.",
     ),
-  title: z.string().trim().max(180).optional(),
-  summary: z.string().trim().max(600).optional(),
-  editable: z.boolean().optional(),
-  data: z
-    .record(z.string(), z.unknown())
-    .describe("Type-specific fields — call get-plan-blocks for the shape."),
-});
+    type: z
+      .enum(PLAN_BLOCK_TYPES)
+      .describe(
+        "Block type — same options as content.blocks. Call get-plan-blocks " +
+          "for the per-type `data` field shapes.",
+      ),
+    title: z.string().trim().max(180).optional(),
+    summary: z.string().trim().max(600).optional(),
+    editable: z.boolean().optional(),
+    data: z
+      .record(z.string(), z.unknown())
+      .describe("Type-specific fields — call get-plan-blocks for the shape."),
+  })
+  .superRefine((block, context) => {
+    validateAuthoringBlock(block, [], context);
+  });
 
 const annotationPlacementSchema = z.enum([
   "top",
@@ -1999,6 +2004,284 @@ const planContentObjectSchema = z.object({
   blocks: z.array(planBlockSchema).max(200).default([]),
 });
 
+type PlanContentValidationContext = {
+  addIssue(issue: {
+    code: "custom";
+    path: Array<string | number>;
+    message: string;
+  }): void;
+};
+
+const requiredAuthoringDataFields: Partial<
+  Record<PlanBlockType, { field: string; nonEmpty?: boolean }>
+> = {
+  checklist: { field: "items" },
+  "question-form": { field: "questions", nonEmpty: true },
+  "visual-questions": { field: "questions", nonEmpty: true },
+  tabs: { field: "tabs", nonEmpty: true },
+  "data-model": { field: "entities", nonEmpty: true },
+  "annotated-code": { field: "code" },
+};
+
+export class PlanContentValidationError extends Error {
+  readonly issues?: Array<{
+    path: Array<string | number>;
+    message: string;
+  }>;
+
+  constructor(
+    message: string,
+    issues?: Array<{ path: Array<string | number>; message: string }>,
+  ) {
+    super(message);
+    this.name = "PlanContentValidationError";
+    if (issues?.length) this.issues = issues;
+  }
+}
+
+export function getPlanContentValidationMessage(error: unknown): string | null {
+  return error instanceof PlanContentValidationError ||
+    error instanceof z.ZodError
+    ? error.message
+    : null;
+}
+
+function validateAuthoringBlocks(
+  roots: Array<{ block: unknown; path: Array<string | number> }>,
+  context: PlanContentValidationContext,
+  previousBlocks?: Map<string, PlanBlock>,
+): boolean {
+  const stack = roots.map((root) => ({ ...root, depth: 0 })).reverse();
+  let visits = 0;
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) continue;
+    visits += 1;
+    if (
+      current.depth > PLAN_BLOCK_MAX_DEPTH ||
+      visits > PLAN_BLOCK_MAX_VISITS
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: current.path,
+        message:
+          current.depth > PLAN_BLOCK_MAX_DEPTH
+            ? `Plan blocks exceed max depth ${PLAN_BLOCK_MAX_DEPTH}.`
+            : `Plan blocks exceed max visits ${PLAN_BLOCK_MAX_VISITS}.`,
+      });
+      return true;
+    }
+
+    if (!current.block || typeof current.block !== "object") continue;
+    const block = current.block as Record<string, unknown>;
+    const type = block.type;
+    const data = block.data;
+
+    if (typeof type === "string" && data && typeof data === "object") {
+      const required = requiredAuthoringDataFields[type as PlanBlockType];
+      if (required) {
+        const fieldValue = (data as Record<string, unknown>)[required.field];
+        const fieldPath = [...current.path, "data", required.field];
+        const previousBlock =
+          typeof block.id === "string" ? previousBlocks?.get(block.id) : null;
+        const previousFieldValue =
+          previousBlock?.type === type
+            ? (previousBlock.data as Record<string, unknown>)[required.field]
+            : undefined;
+        const previousFieldIsLegacyDefault =
+          (Array.isArray(previousFieldValue) &&
+            previousFieldValue.length === 0) ||
+          previousFieldValue === "";
+        const preservesLegacyDefault =
+          previousBlock?.type === type &&
+          previousFieldIsLegacyDefault &&
+          (fieldValue === undefined ||
+            (required.nonEmpty &&
+              Array.isArray(fieldValue) &&
+              fieldValue.length === 0));
+        if (fieldValue === undefined && !preservesLegacyDefault) {
+          context.addIssue({
+            code: "custom",
+            path: fieldPath,
+            message: `Authoring ${type} blocks require data.${required.field}.`,
+          });
+        } else if (
+          required.nonEmpty &&
+          Array.isArray(fieldValue) &&
+          fieldValue.length === 0 &&
+          !preservesLegacyDefault
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: fieldPath,
+            message: `Authoring ${type} blocks require at least one ${required.field} entry.`,
+          });
+        }
+      }
+    }
+
+    if (!data || typeof data !== "object") continue;
+    const record = data as Record<string, unknown>;
+    const nestedKey =
+      type === "tabs" ? "tabs" : type === "columns" ? "columns" : null;
+    const groups = nestedKey ? record[nestedKey] : undefined;
+    if (!nestedKey || !Array.isArray(groups)) continue;
+
+    for (let groupIndex = groups.length - 1; groupIndex >= 0; groupIndex -= 1) {
+      const group = groups[groupIndex];
+      if (!group || typeof group !== "object") continue;
+      const children = (group as Record<string, unknown>).blocks;
+      if (!Array.isArray(children)) continue;
+      for (
+        let childIndex = children.length - 1;
+        childIndex >= 0;
+        childIndex -= 1
+      ) {
+        stack.push({
+          block: children[childIndex],
+          path: [
+            ...current.path,
+            "data",
+            nestedKey,
+            groupIndex,
+            "blocks",
+            childIndex,
+          ],
+          depth: current.depth + 1,
+        });
+      }
+    }
+  }
+
+  return false;
+}
+
+function validateAuthoringBlock(
+  value: unknown,
+  path: Array<string | number>,
+  context: PlanContentValidationContext,
+) {
+  return validateAuthoringBlocks([{ block: value, path }], context);
+}
+
+function validateAuthoringPlanContent(
+  value: unknown,
+  context: PlanContentValidationContext,
+) {
+  if (!value || typeof value !== "object") return;
+  const blocks = (value as Record<string, unknown>).blocks;
+  if (Array.isArray(blocks)) {
+    validateAuthoringBlocks(
+      blocks.map((block, index) => ({ block, path: ["blocks", index] })),
+      context,
+    );
+  }
+}
+
+export function parsePlanContentAuthoringChanges(
+  input: unknown,
+  previous: PlanContent,
+): PlanContent {
+  const parsed = storedPlanContentSchema.parse(migratePlanContent(input));
+  assertPlanContentAuthoringInput(input, parsed, previous);
+  return parsed;
+}
+
+export function assertPlanContentAuthoringInput(
+  input: unknown,
+  normalized: PlanContent,
+  previous: PlanContent | null | undefined,
+): void {
+  let authoringInput = input;
+  if (typeof input === "string") {
+    try {
+      authoringInput = JSON.parse(input);
+    } catch {
+      authoringInput = normalized;
+    }
+  }
+  const candidate =
+    authoringInput &&
+    typeof authoringInput === "object" &&
+    Array.isArray((authoringInput as { blocks?: unknown }).blocks)
+      ? (authoringInput as PlanContent)
+      : normalized;
+  assertPlanContentAuthoringChanges(candidate, previous);
+}
+
+export function assertPlanContentAuthoringChanges(
+  content: PlanContent,
+  previous: PlanContent | null | undefined,
+): void {
+  if (!previous) {
+    try {
+      planContentSchema.parse(content);
+    } catch (error) {
+      if (!(error instanceof z.ZodError)) throw error;
+      throw new PlanContentValidationError(
+        error.message,
+        error.issues.map((issue) => ({
+          path: issue.path.map((segment) =>
+            typeof segment === "symbol" ? String(segment) : segment,
+          ),
+          message: issue.message,
+        })),
+      );
+    }
+    return;
+  }
+
+  const previousBlocks = new Map<string, PlanBlock>();
+  const stack = previous.blocks.map((block) => ({ block, depth: 0 }));
+  let visits = 0;
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current || !current.block || typeof current.block !== "object")
+      continue;
+    visits += 1;
+    if (
+      current.depth > PLAN_BLOCK_MAX_DEPTH ||
+      visits > PLAN_BLOCK_MAX_VISITS
+    ) {
+      throw new PlanContentValidationError(
+        "Previous plan exceeds authoring validation bounds.",
+      );
+    }
+
+    const block = current.block;
+    previousBlocks.set(block.id, block);
+    const groups =
+      block.type === "tabs"
+        ? block.data.tabs
+        : block.type === "columns"
+          ? block.data.columns
+          : [];
+    for (const group of groups) {
+      for (const child of group.blocks) {
+        stack.push({ block: child, depth: current.depth + 1 });
+      }
+    }
+  }
+
+  const issues: Array<{ path: Array<string | number>; message: string }> = [];
+  validateAuthoringBlocks(
+    content.blocks.map((block, index) => ({ block, path: ["blocks", index] })),
+    {
+      addIssue: ({ path, message }) => issues.push({ path, message }),
+    },
+    previousBlocks,
+  );
+  if (issues.length > 0) {
+    const first = issues[0];
+    const location = first?.path.length ? ` at ${first.path.join(".")}` : "";
+    throw new PlanContentValidationError(
+      `Plan source edit contains invalid authored block data${location}: ${first?.message ?? "validation failed"}`,
+      issues,
+    );
+  }
+}
+
 const agentCanvasSchema = canvasSchema.extend({
   frames: z
     .array(agentArtboardSchema)
@@ -2009,98 +2292,120 @@ const agentCanvasSchema = canvasSchema.extend({
     ),
 });
 
-export const agentPlanContentSchema = planContentObjectSchema.extend({
-  canvas: agentCanvasSchema.optional(),
-  blocks: z
-    .array(agentPlanBlockSchema)
-    .max(200)
-    .default([])
-    .describe(
-      "Plan content blocks, in document order. Call get-plan-blocks first.",
-    ),
-});
+export const agentPlanContentSchema = planContentObjectSchema
+  .extend({
+    canvas: agentCanvasSchema.optional(),
+    blocks: z
+      .array(agentPlanBlockSchema)
+      .max(200)
+      .default([])
+      .describe(
+        "Plan content blocks, in document order. Call get-plan-blocks first.",
+      ),
+  })
+  .superRefine((content, context) =>
+    validateAuthoringPlanContent(content, context),
+  );
+
+function refinePlanContent(
+  content: PlanContent,
+  context: PlanContentValidationContext,
+) {
+  const checkUniqueIds = (
+    items: Array<{ id: string }> | undefined,
+    label: string,
+    path: Array<string | number>,
+  ) => {
+    const seen = new Set<string>();
+    for (const [index, item] of (items ?? []).entries()) {
+      if (seen.has(item.id)) {
+        context.addIssue({
+          code: "custom",
+          path: [...path, index, "id"],
+          message: `Duplicate ${label} id: ${item.id}`,
+        });
+      }
+      seen.add(item.id);
+    }
+  };
+
+  const seen = new Set<string>();
+  const blocksById = new Map<string, PlanBlock>();
+  const visit = (block: PlanBlock) => {
+    if (seen.has(block.id)) {
+      context.addIssue({
+        code: "custom",
+        path: ["blocks"],
+        message: `Duplicate block id: ${block.id}`,
+      });
+    }
+    seen.add(block.id);
+    blocksById.set(block.id, block);
+    if (block.type === "tabs") {
+      for (const tab of block.data.tabs) {
+        for (const child of tab.blocks) {
+          visit(child);
+        }
+      }
+    }
+    if (block.type === "columns") {
+      for (const column of block.data.columns) {
+        for (const child of column.blocks) {
+          visit(child);
+        }
+      }
+    }
+  };
+
+  for (const block of content.blocks) {
+    visit(block);
+  }
+
+  if (content.canvas) {
+    checkUniqueIds(content.canvas.sections, "canvas section", [
+      "canvas",
+      "sections",
+    ]);
+    checkUniqueIds(content.canvas.frames, "canvas frame", ["canvas", "frames"]);
+    for (const [index, frame] of content.canvas.frames.entries()) {
+      if (!frame.blockId) continue;
+      const block = blocksById.get(frame.blockId);
+      if (block?.type === "wireframe" || block?.type === "legacy-wireframe") {
+        continue;
+      }
+      context.addIssue({
+        code: "custom",
+        path: ["canvas", "frames", index, "blockId"],
+        message: `Canvas frame ${frame.id} references missing or non-wireframe block: ${frame.blockId}`,
+      });
+    }
+    checkUniqueIds(content.canvas.annotations, "canvas annotation", [
+      "canvas",
+      "annotations",
+    ]);
+    checkUniqueIds(content.canvas.notes, "canvas note", ["canvas", "notes"]);
+  }
+}
+
+export const storedPlanContentSchema: z.ZodType<PlanContent> = z
+  .preprocess(preflightPlanContentInput, planContentObjectSchema)
+  .superRefine(refinePlanContent) as unknown as z.ZodType<PlanContent>;
+
+export const planAuthoringBlockSchema: z.ZodType<PlanBlock> = z.preprocess(
+  (block, context) => {
+    if (validateAuthoringBlock(block, [], context)) return null;
+    return block;
+  },
+  planBlockSchema,
+) as unknown as z.ZodType<PlanBlock>;
 
 export const planContentSchema: z.ZodType<PlanContent> = z
-  .preprocess(preflightPlanContentInput, planContentObjectSchema)
-  .superRefine((content, context) => {
-    const checkUniqueIds = (
-      items: Array<{ id: string }> | undefined,
-      label: string,
-      path: Array<string | number>,
-    ) => {
-      const seen = new Set<string>();
-      for (const [index, item] of (items ?? []).entries()) {
-        if (seen.has(item.id)) {
-          context.addIssue({
-            code: "custom",
-            path: [...path, index, "id"],
-            message: `Duplicate ${label} id: ${item.id}`,
-          });
-        }
-        seen.add(item.id);
-      }
-    };
-
-    const seen = new Set<string>();
-    const blocksById = new Map<string, PlanBlock>();
-    const visit = (block: PlanBlock) => {
-      if (seen.has(block.id)) {
-        context.addIssue({
-          code: "custom",
-          path: ["blocks"],
-          message: `Duplicate block id: ${block.id}`,
-        });
-      }
-      seen.add(block.id);
-      blocksById.set(block.id, block);
-      if (block.type === "tabs") {
-        for (const tab of block.data.tabs) {
-          for (const child of tab.blocks) {
-            visit(child);
-          }
-        }
-      }
-      if (block.type === "columns") {
-        for (const column of block.data.columns) {
-          for (const child of column.blocks) {
-            visit(child);
-          }
-        }
-      }
-    };
-
-    for (const block of content.blocks) {
-      visit(block);
-    }
-
-    if (content.canvas) {
-      checkUniqueIds(content.canvas.sections, "canvas section", [
-        "canvas",
-        "sections",
-      ]);
-      checkUniqueIds(content.canvas.frames, "canvas frame", [
-        "canvas",
-        "frames",
-      ]);
-      for (const [index, frame] of content.canvas.frames.entries()) {
-        if (!frame.blockId) continue;
-        const block = blocksById.get(frame.blockId);
-        if (block?.type === "wireframe" || block?.type === "legacy-wireframe") {
-          continue;
-        }
-        context.addIssue({
-          code: "custom",
-          path: ["canvas", "frames", index, "blockId"],
-          message: `Canvas frame ${frame.id} references missing or non-wireframe block: ${frame.blockId}`,
-        });
-      }
-      checkUniqueIds(content.canvas.annotations, "canvas annotation", [
-        "canvas",
-        "annotations",
-      ]);
-      checkUniqueIds(content.canvas.notes, "canvas note", ["canvas", "notes"]);
-    }
-  }) as unknown as z.ZodType<PlanContent>;
+  .preprocess((input, context) => {
+    const prepared = preflightPlanContentInput(input);
+    validateAuthoringPlanContent(prepared, context);
+    return prepared;
+  }, planContentObjectSchema)
+  .superRefine(refinePlanContent) as unknown as z.ZodType<PlanContent>;
 
 export type PlanContentInput = z.input<typeof planContentSchema>;
 
@@ -2334,6 +2639,8 @@ const prototypeScreenPatchSchema = z
     message: "Patch must include at least one prototype screen field.",
   });
 
+const rawPlanBlockSchema = z.record(z.string(), z.unknown());
+
 const planContentPatchUnion = z.discriminatedUnion("op", [
   z
     .object({
@@ -2400,7 +2707,7 @@ const planContentPatchUnion = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("replace-block"),
     blockId: idSchema,
-    block: planBlockSchema,
+    block: rawPlanBlockSchema,
   }),
   z.object({
     op: z.literal("update-block"),
@@ -2409,7 +2716,7 @@ const planContentPatchUnion = z.discriminatedUnion("op", [
   }),
   z.object({
     op: z.literal("replace-blocks"),
-    blocks: z.array(planBlockSchema).max(200),
+    blocks: z.array(rawPlanBlockSchema).max(200),
   }),
   z.object({
     op: z.literal("update-rich-text"),
@@ -2500,7 +2807,7 @@ const planContentPatchUnion = z.discriminatedUnion("op", [
   }),
   z.object({
     op: z.literal("append-block"),
-    block: planBlockSchema,
+    block: planAuthoringBlockSchema,
     afterBlockId: idSchema.optional(),
     parent: z
       .union([
@@ -2610,14 +2917,53 @@ export const agentPlanIncrementalContentPatchesSchema = z
       "resend the full plan; use get-visual-plan for context and keep each call incremental.",
   );
 
+function assertReplacementPatchAuthoringInput(
+  patches: unknown,
+  previous: PlanContent,
+) {
+  if (!Array.isArray(patches)) return;
+
+  const assertBlock = (block: unknown) => {
+    assertPlanContentAuthoringChanges(
+      { version: previous.version, blocks: [block] } as PlanContent,
+      previous,
+    );
+  };
+
+  for (const patch of patches) {
+    if (!patch || typeof patch !== "object") continue;
+    const record = patch as Record<string, unknown>;
+    if (record.op === "replace-block") {
+      assertBlock(record.block);
+    } else if (record.op === "replace-blocks" && Array.isArray(record.blocks)) {
+      for (const block of record.blocks) assertBlock(block);
+    }
+  }
+}
+
 export function applyPlanContentPatches(
   content: PlanContent,
   patches: PlanContentPatch[],
 ): PlanContent {
-  const next = cloneJson(planContentSchema.parse(content));
+  const previous = storedPlanContentSchema.parse(content);
+  const next = cloneJson(previous);
   let pendingVisualRenderMode: PlanVisualCanvasMode | undefined;
+  assertReplacementPatchAuthoringInput(patches, previous);
 
-  for (const patch of planContentPatchesSchema.parse(patches)) {
+  const parsedPatches = planContentPatchesSchema.parse(patches).map((patch) => {
+    if (patch.op === "replace-block") {
+      return { ...patch, block: planBlockSchema.parse(patch.block) };
+    }
+    if (patch.op === "replace-blocks") {
+      return {
+        ...patch,
+        blocks: patch.blocks.map((block) => planBlockSchema.parse(block)),
+      };
+    }
+    return patch;
+  });
+
+  for (const patch of parsedPatches) {
     if (patch.op === "set-metadata") {
       if (patch.title !== undefined) next.title = patch.title;
       if (patch.brief !== undefined) next.brief = patch.brief;
@@ -2711,7 +3057,7 @@ export function applyPlanContentPatches(
             ...patch.patch.data,
           };
         }
-        return planBlockSchema.parse(merged);
+        return merged;
       }).blocks;
       continue;
     }
@@ -2957,7 +3303,8 @@ export function applyPlanContentPatches(
     setVisualRenderMode(next, pendingVisualRenderMode);
   }
   syncCanvasWireframes(next);
-  return planContentSchema.parse(next);
+  assertPlanContentAuthoringChanges(next, previous);
+  return storedPlanContentSchema.parse(next);
 }
 
 function cloneJson<T>(value: T): T {

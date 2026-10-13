@@ -17,7 +17,7 @@ const messages = {
     turnOnRewind: "Rewind 켜기",
     rewindOffTitle: "Rewind 켜기",
     rewindOffBody:
-      "Rewind는 화면의 로컬 기록을 보관하므로 녹화 전 마지막 몇 분을 포함할 수 있습니다. 영상은 포함하거나 승인한 경우에만 업로드됩니다.",
+      "기본적으로 꺼져 있습니다. 화면 기록은 녹화에 포함하거나 공유 요청을 승인할 때까지 이 기기에 보관됩니다.",
     requestFailed:
       "이전 화면 시간을 포함하지 못했습니다. 녹화는 이 부분 없이 계속됩니다.",
     localOnlyUnavailable:

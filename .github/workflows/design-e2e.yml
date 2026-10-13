@@ -80,15 +80,17 @@ jobs:
         with:
           restore-dist-cache: "true"
 
+      # The runtime budget needs full Chromium: the headless shell runs every
+      # frame in one renderer, while Chrome isolates the sandboxed previews.
       - name: Restore Playwright browser cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ runner.os }}-
+          key: ${{ matrix.shard == 'runtime-budget' && 'playwright-chromium' || 'playwright' }}-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ${{ matrix.shard == 'runtime-budget' && 'playwright-chromium' || 'playwright' }}-${{ runner.os }}-
 
       - name: Install Playwright Chromium
-        run: pnpm exec playwright install --only-shell --with-deps chromium
+        run: pnpm exec playwright install ${{ matrix.shard == 'runtime-budget' && '--no-shell' || '--only-shell' }} --with-deps chromium
 
       - name: Allow the downloaded Chromium sandbox
         run: |

@@ -1120,17 +1120,17 @@ test("reordering flow cards in the Layers panel saves, undoes and redoes in plac
   const id = await app.seed(PODCAST_ROW);
   await app.open(id);
   await app.zoomToFit();
-  await clickCenter(app, "card-a");
-  await expect.poll(() => app.selectedLayers()).toEqual(["Podcast card A"]);
+  await clickCenter(app, "card-b");
+  await expect.poll(() => app.selectedLayers()).toEqual(["Podcast card B"]);
   const before = await app.savedNodes(id);
   expect(childrenOf(before, "podcast-row")).toEqual(["card-a", "card-b"]);
   const cardA = layerRow(page, "Podcast card A");
   const cardB = layerRow(page, "Podcast card B");
   const rowY = async (row: Locator) => (await row.boundingBox())!.y;
   expect(
-    await rowY(cardB),
-    "the panel lists the last child first",
-  ).toBeLessThan(await rowY(cardA));
+    await rowY(cardA),
+    "the panel lists auto-layout children in layout order",
+  ).toBeLessThan(await rowY(cardB));
   await app.node("podcast-row").evaluate(() => {
     (window as unknown as { __screenDocument: string }).__screenDocument =
       "original";
@@ -1147,13 +1147,13 @@ test("reordering flow cards in the Layers panel saves, undoes and redoes in plac
     (await app.designRect("card-b")).x,
   ];
 
-  await cardA.dragTo(cardB, { targetPosition: { x: 24, y: 2 } });
+  await cardB.dragTo(cardA, { targetPosition: { x: 24, y: 2 } });
   await app.settled();
   const moved = await app.savedNodes(id);
   expect(childrenOf(moved, "podcast-row")).toEqual(["card-b", "card-a"]);
   expectOnlyChanged(before, moved, []);
   expect(await cardXs()).toEqual([280, 24]);
-  await expect.poll(() => app.selectedLayers()).toEqual(["Podcast card A"]);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Podcast card B"]);
 
   await page.keyboard.press("ControlOrMeta+z");
   await app.settled();
@@ -1168,7 +1168,7 @@ test("reordering flow cards in the Layers panel saves, undoes and redoes in plac
   expect(childrenOf(redone, "podcast-row")).toEqual(["card-b", "card-a"]);
   expectOnlyChanged(before, redone, []);
   expect(await cardXs()).toEqual([280, 24]);
-  await expect.poll(() => app.selectedLayers()).toEqual(["Podcast card A"]);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Podcast card B"]);
   expect(
     await screenDocument(),
     "the Screen iframe kept its document through move, undo and redo",

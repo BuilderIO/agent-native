@@ -7,6 +7,7 @@ import {
   clearActionQueryCache,
   setActionQueryCacheStorage,
 } from "./action-query-cache.js";
+import { cacheBuster } from "./action-query-cache.test-fixtures.js";
 import { isBrowserPersistableActionQuery } from "./use-action.js";
 
 function persistedRecord(
@@ -17,7 +18,7 @@ function persistedRecord(
   source.setQueryData(queryKey, data, { updatedAt: Date.now() - 100 });
   return {
     timestamp: Date.now(),
-    buster: "action-query-cache-v1",
+    buster: cacheBuster(),
     clientState: dehydrate(source),
   };
 }

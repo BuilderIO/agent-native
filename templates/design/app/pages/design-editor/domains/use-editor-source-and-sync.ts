@@ -59,6 +59,7 @@ import {
   reconcileLayerStateIds,
   sourceLayerStateIds,
 } from "../layer-state-scope";
+import type { LocalhostWriteConsentRequestOutcome } from "../localhost-consent-request";
 import {
   clearPendingEditSessionMarker,
   writePendingEditSessionMarker,
@@ -1708,29 +1709,36 @@ export function useEditorSourceAndSync({
 
   const requestLocalhostWrite = useCallback(
     (opts: {
+      connectionId?: string;
       files: string[];
       onGranted: LocalhostWriteConsentPayload["onGranted"];
       onCancel?: () => void;
-    }) => {
-      if (!id || !canEditDesign) return;
-      if (!activeLocalhostConnectionId) {
+      onError?: LocalhostWriteConsentPayload["onError"];
+    }): LocalhostWriteConsentRequestOutcome => {
+      if (!id || !canEditDesign) return "not-editable";
+      const connectionId = opts.connectionId ?? activeLocalhostConnectionId;
+      if (!connectionId) {
         toast.error(NO_LOCALHOST_CONNECTION_MESSAGE);
-        return;
+        return "missing-connection";
       }
 
       const rootPath =
-        activeLocalhostConnectionRootPath ??
-        activeScreenRouteSourceFile ??
-        activeLocalhostConnectionId;
+        localhostConnectionRootPathByIdRef.current.get(connectionId) ??
+        (connectionId === activeLocalhostConnectionId
+          ? (activeLocalhostConnectionRootPath ?? activeScreenRouteSourceFile)
+          : undefined) ??
+        connectionId;
 
-      setLocalhostConsentConnectionId(activeLocalhostConnectionId);
+      setLocalhostConsentConnectionId(connectionId);
       setLocalhostWriteConsentPayload({
         rootPath,
         files: opts.files,
         onGranted: opts.onGranted,
         onCancel: opts.onCancel ?? (() => {}),
+        onError: opts.onError,
       });
       setLocalhostWriteConsentOpen(true);
+      return "opened";
     },
     [
       activeLocalhostConnectionId,
@@ -1738,6 +1746,7 @@ export function useEditorSourceAndSync({
       activeScreenRouteSourceFile,
       canEditDesign,
       id,
+      localhostConnectionRootPathByIdRef,
     ],
   );
   requestLocalhostWriteRef.current = requestLocalhostWrite;

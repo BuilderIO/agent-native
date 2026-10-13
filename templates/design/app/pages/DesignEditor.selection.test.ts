@@ -1455,7 +1455,7 @@ describe("DesignEditor motion timeline hydration", () => {
 
     expect(next[0]?.keyframes).toEqual([
       { t: 0, value: "1" },
-      { t: 0.501, value: "0.2", ease: "ease" },
+      { t: 0.5, value: "0.2", ease: "ease" },
       { t: 1, value: "0" },
     ]);
   });

@@ -698,8 +698,8 @@ test.describe("Layers-panel auto-layout interaction", () => {
     );
     const result = await heldPanelDrag(
       page,
-      "H Middle",
       "H Last",
+      "H Middle",
       "leading",
       async () => {
         expect(await directChildren(page, "hrow")).toEqual([
@@ -770,7 +770,7 @@ test.describe("Layers-panel auto-layout interaction", () => {
     await expect
       .poll(() => directChildren(page, "hrow"))
       .toEqual(["h-first", "h-last", "h-middle"]);
-    await expect(layerRow(page, "H Middle")).toHaveAttribute(
+    await expect(layerRow(page, "H Last")).toHaveAttribute(
       "aria-selected",
       "true",
     );
@@ -789,8 +789,8 @@ test.describe("Layers-panel auto-layout interaction", () => {
     const original = await fileHtml(request, design.id, design.primaryId);
     const result = await heldPanelDrag(
       page,
-      "Inner First",
       "Inner Last",
+      "Inner First",
       "leading",
       async () => {
         expect(await directChildren(page, "nested-inner")).toEqual(before);
@@ -811,7 +811,7 @@ test.describe("Layers-panel auto-layout interaction", () => {
         nodeIsInsideSection(html, "nested-inner", "inner-first") &&
         nodeIsBefore(html, "inner-last", "inner-first"),
     );
-    await expect(layerRow(page, "Inner First")).toHaveAttribute(
+    await expect(layerRow(page, "Inner Last")).toHaveAttribute(
       "aria-selected",
       "true",
     );
@@ -913,8 +913,8 @@ test.describe("Layers-panel auto-layout interaction", () => {
     const savedBefore = await app.savedNodes(design.id);
     const result = await heldPanelDrag(
       page,
-      "V Middle",
       "V Last",
+      "V Middle",
       "leading",
       async () => {
         expect(await directChildren(page, "vcol")).toEqual(before);
@@ -935,7 +935,7 @@ test.describe("Layers-panel auto-layout interaction", () => {
       "v-middle",
     ]);
     expectOnlyChanged(savedBefore, savedAfter, []);
-    await expect(layerRow(page, "V Middle")).toHaveAttribute(
+    await expect(layerRow(page, "V Last")).toHaveAttribute(
       "aria-selected",
       "true",
     );

@@ -18,6 +18,7 @@ export interface DeckExportFacts {
 }
 
 const pptxBuildForGoogleSlides = new AsyncLocalStorage<true>();
+const pptxDownloadRegeneration = new AsyncLocalStorage<true>();
 
 /**
  * Runs the PPTX build behind a Google Slides export. That export reports its
@@ -33,6 +34,13 @@ export function inGoogleSlidesBuildStep(): boolean {
   return pptxBuildForGoogleSlides.getStore() === true;
 }
 
+/** A link regeneration is not a second user-requested export. */
+export function asPptxDownloadRegeneration<T>(
+  run: () => Promise<T>,
+): Promise<T> {
+  return pptxDownloadRegeneration.run(true, run);
+}
+
 export function trackDeckExported(
   event: DeckExportFacts & {
     deckId?: string;
@@ -46,7 +54,9 @@ export function trackDeckExported(
   if (
     event.exportFormat === "pptx" &&
     event.renderLocation === "server" &&
-    inGoogleSlidesBuildStep()
+    (inGoogleSlidesBuildStep() ||
+      (event.status === "completed" &&
+        pptxDownloadRegeneration.getStore() === true))
   ) {
     return;
   }

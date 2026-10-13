@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "Este bloco está temporariamente indisponível.",
+  "block.loading": "Carregando bloco.",
   "composer.contextUrlLabel": "Endereço URL",
   "composer.contextInvalidUrl": "Insira uma URL HTTP ou HTTPS válida.",
   "composer.contextAttach": "Anexar",
@@ -156,9 +158,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivationChecking":
     "Verificando se a criação de uma nova conta está disponível.",
   "onboarding.builderActivationUnavailable":
-    "A criação de novas contas não está ativada neste app. Você ainda pode conectar uma conta existente.",
+    "Crie uma conta ou faça login para se conectar ao Builder.io.",
   "onboarding.builderActivationUnavailableInMode":
-    "A ativação de uma nova conta não está disponível neste modo. Você ainda pode conectar uma conta existente.",
+    "Crie uma conta ou faça login para se conectar ao Builder.io.",
   "onboarding.builderActivationCheckFailed":
     "Não foi possível verificar se este app pode criar novas contas.",
 
@@ -173,6 +175,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "Política de Privacidade",
   "onboarding.builderConsentAnd": "e",
   "onboarding.builderExistingAccount": "Tenho uma conta Builder.io",
+  "onboarding.builderConnect": "Conectar Builder.io",
   "onboarding.builderActivating":
     "Ativando os créditos gratuitos do Builder.io",
   "onboarding.builderConnecting":
