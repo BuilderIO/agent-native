@@ -17,8 +17,10 @@ import exportPptxAction from "../../../../actions/export-pptx.js";
 import { resolveSlidesRequestAuth } from "../../../handlers/request-auth-context.js";
 import { asPptxDownloadRegeneration } from "../../../lib/deck-export-tracking.js";
 import {
+  HOSTED_PPTX_EXPORT_TTL_MS,
   PPTX_DECK_BINDING_FILE_SUFFIX,
   deckBindingFromPptxFilename,
+  isHostedSlidesRuntime,
   pptxDeckBindingKey,
   pptxDeckBindingPath,
   tenantExportDir,
@@ -61,17 +63,23 @@ export default defineEventHandler(async (event) => {
   const query = getQuery(event);
   const ext = path.extname(filename).toLowerCase();
   const deckId = typeof query.deckId === "string" ? query.deckId : "";
+  const exportRevision =
+    typeof query.exportRevision === "string" ? query.exportRevision : "";
   const pptxDeckBinding =
     ext === ".pptx" ? deckBindingFromPptxFilename(filename) : null;
 
   if (ext === ".pptx") {
-    if (!deckId) {
+    if (!deckId || !pptxDeckBinding) {
       setResponseStatus(event, 404);
       return { error: "Not found" };
     }
-    if (pptxDeckBinding && pptxDeckBinding !== pptxDeckBindingKey(deckId)) {
+    if (pptxDeckBinding !== pptxDeckBindingKey(deckId)) {
       setResponseStatus(event, 404);
       return { error: "Not found" };
+    }
+    if (!/^[a-f0-9]{64}$/i.test(exportRevision)) {
+      setResponseStatus(event, 409);
+      return { error: "Export revision is missing. Export the deck again." };
     }
   }
 
@@ -80,17 +88,16 @@ export default defineEventHandler(async (event) => {
     return { error: "Forbidden" };
   }
 
-  const regeneratePptx = async (persistFilename?: string) => {
+  const regeneratePptx = async (persistFilename: string) => {
     try {
       const actionContext = {
         caller: "http" as const,
         userEmail: session.email,
         orgId: session.orgId,
         slidesPptxDownload: true as const,
-        ...(persistFilename
-          ? { slidesPptxDownloadFilename: persistFilename }
-          : {}),
+        slidesPptxDownloadFilename: persistFilename,
         slidesPptxDownloadPersist: true as const,
+        slidesPptxDownloadExpectedRevision: exportRevision,
       };
       const result = await runWithRequestContext(
         { userEmail: session.email, orgId: session.orgId },
@@ -109,6 +116,9 @@ export default defineEventHandler(async (event) => {
 
       if (!result.buffer) {
         throw new Error("PPTX export did not produce downloadable bytes");
+      }
+      if (result.filename !== persistFilename) {
+        throw new Error("PPTX export did not repair the requested cache file");
       }
 
       return new Response(new Uint8Array(result.buffer), {
@@ -136,45 +146,51 @@ export default defineEventHandler(async (event) => {
     }
   };
 
-  let fileExists = true;
+  let cachedFile: Awaited<ReturnType<typeof stat>> | undefined;
   try {
-    await stat(filepath);
+    cachedFile = await stat(filepath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
       setResponseStatus(event, 500);
       return { error: "Could not read cached export." };
     }
-    fileExists = false;
   }
 
-  if (!fileExists) {
+  if (!cachedFile) {
     if (ext !== ".pptx") {
       setResponseStatus(event, 404);
       return { error: "Not found" };
     }
-    return regeneratePptx(pptxDeckBinding ? filename : undefined);
-  }
-
-  if (ext === ".pptx" && !pptxDeckBinding) {
-    return regeneratePptx();
+    return regeneratePptx(filename);
   }
 
   if (ext === ".pptx") {
-    let cachedDeckBinding: string;
+    if (isHostedSlidesRuntime()) {
+      const modifiedAt = Number(cachedFile.mtimeMs);
+      if (!Number.isFinite(modifiedAt)) {
+        setResponseStatus(event, 500);
+        return { error: "Could not verify cached export expiry." };
+      }
+      if (Date.now() - modifiedAt > HOSTED_PPTX_EXPORT_TTL_MS) {
+        return regeneratePptx(filename);
+      }
+    }
+
+    let cachedExportRevision: string;
     try {
-      cachedDeckBinding = await readFile(
+      cachedExportRevision = await readFile(
         pptxDeckBindingPath(exportsDir, filename),
         "utf8",
       );
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return regeneratePptx();
+        return regeneratePptx(filename);
       }
       setResponseStatus(event, 500);
       return { error: "Could not verify cached export binding." };
     }
-    if (cachedDeckBinding !== pptxDeckBinding) {
-      return regeneratePptx();
+    if (cachedExportRevision !== exportRevision) {
+      return regeneratePptx(filename);
     }
 
     try {

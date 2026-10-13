@@ -133,6 +133,27 @@ export function pptxDeckBindingKey(deckId: string): string {
     .slice(0, PPTX_DECK_BINDING_HEX_LENGTH);
 }
 
+export function pptxExportRevisionKey(
+  deckId: string,
+  updatedAt: string | null | undefined,
+  title: string,
+  data: string,
+  includeNotes: boolean,
+): string {
+  return crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify({
+        deckId,
+        updatedAt: updatedAt ?? null,
+        title,
+        data,
+        includeNotes,
+      }),
+    )
+    .digest("hex");
+}
+
 export function deckBindingFromPptxFilename(filename: string): string | null {
   const match = filename.match(
     new RegExp(`-([a-f0-9]{${PPTX_DECK_BINDING_HEX_LENGTH}})\\.pptx$`, "i"),

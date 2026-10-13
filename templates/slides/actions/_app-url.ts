@@ -40,7 +40,11 @@ export function getDeckUrl(deckId: string): string {
 
 export function getExportUrl(
   filename: string,
-  options?: { deckId?: string; includeNotes?: boolean },
+  options?: {
+    deckId?: string;
+    includeNotes?: boolean;
+    exportRevision?: string;
+  },
 ): string {
   const url = new URL(
     `${getSlidesAppUrl()}/api/exports/${encodeURIComponent(filename)}`,
@@ -48,6 +52,9 @@ export function getExportUrl(
   if (options?.deckId) url.searchParams.set("deckId", options.deckId);
   if (options?.includeNotes !== undefined) {
     url.searchParams.set("includeNotes", String(options.includeNotes));
+  }
+  if (options?.exportRevision) {
+    url.searchParams.set("exportRevision", options.exportRevision);
   }
   return url.toString();
 }

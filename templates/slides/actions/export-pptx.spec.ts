@@ -31,8 +31,8 @@ import PptxGenJS from "pptxgenjs";
 
 import { asGoogleSlidesBuildStep } from "../server/lib/deck-export-tracking";
 import {
-  pptxDeckBindingKey,
   pptxDeckBindingPath,
+  pptxExportRevisionKey,
   safeGeneratedFilename,
   tenantExportDir,
 } from "../server/lib/tenant-files";
@@ -209,12 +209,13 @@ describe("export-pptx action", () => {
       ".pptx",
       "deck-1",
     );
+    const data = JSON.stringify({
+      slides: [{ id: "s1", content: importedSlide("") }],
+    });
     mocks.resolveAccess.mockResolvedValue({
       resource: {
         title: "Deck",
-        data: JSON.stringify({
-          slides: [{ id: "s1", content: importedSlide("") }],
-        }),
+        data,
       },
     });
 
@@ -225,6 +226,13 @@ describe("export-pptx action", () => {
         slidesPptxDownload: true,
         slidesPptxDownloadFilename: filename,
         slidesPptxDownloadPersist: true,
+        slidesPptxDownloadExpectedRevision: pptxExportRevisionKey(
+          "deck-1",
+          null,
+          "Deck",
+          data,
+          true,
+        ),
       } as never,
     );
     const exportDir = tenantExportDir("local@example.com");
@@ -236,8 +244,46 @@ describe("export-pptx action", () => {
     );
     expect(fs.writeFileSync).toHaveBeenCalledWith(
       pptxDeckBindingPath(exportDir, filename),
-      pptxDeckBindingKey("deck-1"),
+      pptxExportRevisionKey("deck-1", null, "Deck", data, true),
     );
+    expect(new URL(result.downloadUrl).searchParams.get("exportRevision")).toBe(
+      pptxExportRevisionKey("deck-1", null, "Deck", data, true),
+    );
+  });
+
+  it("rejects regeneration when the deck no longer matches the export revision", async () => {
+    const data = JSON.stringify({
+      slides: [{ id: "s1", content: importedSlide("") }],
+    });
+    const previousData = JSON.stringify({
+      slides: [{ id: "s1", content: importedSlide("Earlier slide content") }],
+    });
+    const previousRevision = pptxExportRevisionKey(
+      "deck-1",
+      null,
+      "Deck",
+      previousData,
+      true,
+    );
+    mocks.resolveAccess.mockResolvedValue({
+      resource: { title: "Deck", data },
+    });
+
+    await expect(
+      exportPptx.run({ deckId: "deck-1", includeNotes: true }, {
+        caller: "http",
+        slidesPptxDownload: true,
+        slidesPptxDownloadFilename: "requested-export.pptx",
+        slidesPptxDownloadPersist: true,
+        slidesPptxDownloadExpectedRevision: previousRevision,
+      } as never),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "export_revision_stale",
+    });
+
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+    expect(fs.mkdirSync).not.toHaveBeenCalled();
   });
 
   it("persists exports in the hosted runtime directory for later downloads", async () => {

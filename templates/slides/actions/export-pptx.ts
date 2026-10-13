@@ -18,8 +18,8 @@ import { generationAttemptIdOf } from "../server/lib/slides-tracking.js";
 import {
   isHostedSlidesRuntime,
   pruneHostedPptxExports,
-  pptxDeckBindingKey,
   pptxDeckBindingPath,
+  pptxExportRevisionKey,
   safeGeneratedFilename,
   tenantExportDir,
 } from "../server/lib/tenant-files.js";
@@ -1650,6 +1650,7 @@ type SlidesPptxDownloadContext = {
   slidesPptxDownload?: true;
   slidesPptxDownloadFilename?: string;
   slidesPptxDownloadPersist?: true;
+  slidesPptxDownloadExpectedRevision?: string;
 };
 
 function slidesPptxDownloadContext(
@@ -1683,6 +1684,7 @@ export default defineAction({
   }),
   run: trackPptxExportFailures(async (args, ctx, facts) => {
     const { deckId, includeNotes } = args;
+    const downloadContext = slidesPptxDownloadContext(ctx);
     const userEmail = getRequestUserEmail();
     if (!userEmail)
       fail("no authenticated user", {
@@ -1699,6 +1701,22 @@ export default defineAction({
 
     facts.deckId = deckId;
     const row = access.resource;
+    const exportRevision = pptxExportRevisionKey(
+      deckId,
+      row.updatedAt,
+      row.title,
+      row.data,
+      includeNotes,
+    );
+    if (
+      downloadContext?.slidesPptxDownloadExpectedRevision &&
+      downloadContext.slidesPptxDownloadExpectedRevision !== exportRevision
+    ) {
+      fail("Deck changed after this export link was created. Export again.", {
+        errorCode: "export_revision_stale",
+        statusCode: 409,
+      });
+    }
     const deckData = JSON.parse(row.data);
     const slides = deckData.slides || [];
     facts.slideCount = slides.length;
@@ -1954,7 +1972,6 @@ export default defineAction({
       (await pptx.write({ outputType: "nodebuffer" })) as Buffer,
       { themeColors: deckThemeColors(deckData), slideGradients },
     );
-    const downloadContext = slidesPptxDownloadContext(ctx);
     const filename = isSafePptxFilename(
       downloadContext?.slidesPptxDownloadFilename,
     )
@@ -1969,7 +1986,7 @@ export default defineAction({
       fs.writeFileSync(path.join(exportDir, filename), buffer);
       fs.writeFileSync(
         pptxDeckBindingPath(exportDir, filename),
-        pptxDeckBindingKey(deckId),
+        exportRevision,
       );
     }
     if (isHostedSlidesRuntime()) {
@@ -1999,7 +2016,11 @@ export default defineAction({
     );
 
     return {
-      downloadUrl: getExportUrl(filename, { deckId, includeNotes }),
+      downloadUrl: getExportUrl(filename, {
+        deckId,
+        includeNotes,
+        exportRevision,
+      }),
       ...(downloadContext ? { buffer } : {}),
       filename,
       slideCount: slides.length,

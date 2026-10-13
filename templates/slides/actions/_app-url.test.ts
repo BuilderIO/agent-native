@@ -53,9 +53,10 @@ describe("slides app URLs", () => {
       getExportUrl("quarterly-review.pptx", {
         deckId: "deck 1",
         includeNotes: false,
+        exportRevision: "a".repeat(64),
       }),
     ).toBe(
-      "https://workspace.example.test/slides/api/exports/quarterly-review.pptx?deckId=deck+1&includeNotes=false",
+      `https://workspace.example.test/slides/api/exports/quarterly-review.pptx?deckId=deck+1&includeNotes=false&exportRevision=${"a".repeat(64)}`,
     );
   });
 

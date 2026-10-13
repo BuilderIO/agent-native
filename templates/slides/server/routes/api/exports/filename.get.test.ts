@@ -1,10 +1,21 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  HOSTED_PPTX_EXPORT_TTL_MS,
   PPTX_DECK_BINDING_FILE_SUFFIX,
   pptxDeckBindingKey,
+  pptxExportRevisionKey,
   safeGeneratedFilename,
 } from "../../../lib/tenant-files.js";
+
+const deckData = JSON.stringify({ slides: [{ id: "s1", content: "" }] });
+const exportRevision = pptxExportRevisionKey(
+  "deck-1",
+  null,
+  "Deck",
+  deckData,
+  false,
+);
 
 const mocks = vi.hoisted(() => ({
   stat: vi.fn(),
@@ -60,12 +71,21 @@ describe("slides hosted PPTX download route", () => {
     mocks.stat.mockRejectedValue(
       Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
     );
-    mocks.readFile.mockResolvedValue(pptxDeckBindingKey("deck-1"));
-    mocks.query.mockReturnValue({ deckId: "deck-1", includeNotes: "false" });
-    mocks.run.mockResolvedValue({
-      buffer: Buffer.from("pptx-bytes"),
-      filename: "deck-export.pptx",
+    mocks.readFile.mockResolvedValue(exportRevision);
+    mocks.query.mockReturnValue({
+      deckId: "deck-1",
+      includeNotes: "false",
+      exportRevision,
     });
+    mocks.run.mockImplementation(
+      async (
+        _args: unknown,
+        context: { slidesPptxDownloadFilename: string },
+      ) => ({
+        buffer: Buffer.from("pptx-bytes"),
+        filename: context.slidesPptxDownloadFilename,
+      }),
+    );
     mocks.resolveAuth.mockResolvedValue({
       ok: true,
       context: { email: "user@example.com", orgId: "org-1" },
@@ -73,7 +93,11 @@ describe("slides hosted PPTX download route", () => {
     mocks.resolveAccess.mockResolvedValue({ resource: { id: "deck-1" } });
   });
 
-  it("regenerates a missing serverless export after checking the user session", async () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("regenerates a missing serverless export under the requested filename after checking the user session", async () => {
     expect(mocks.filename).toContain(`-${pptxDeckBindingKey("deck-1")}.pptx`);
     const handler = (await import("./[filename].get.js")).default as (
       event: unknown,
@@ -86,7 +110,7 @@ describe("slides hosted PPTX download route", () => {
       "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     );
     expect(response.headers.get("content-disposition")).toBe(
-      'attachment; filename="deck-export.pptx"',
+      `attachment; filename="${mocks.filename}"`,
     );
     expect(Buffer.from(await response.arrayBuffer()).toString()).toBe(
       "pptx-bytes",
@@ -100,16 +124,18 @@ describe("slides hosted PPTX download route", () => {
         slidesPptxDownload: true,
         slidesPptxDownloadFilename: mocks.filename,
         slidesPptxDownloadPersist: true,
+        slidesPptxDownloadExpectedRevision: exportRevision,
       },
     );
   });
 
   it("reuses a persisted export after the first authenticated regeneration", async () => {
+    vi.stubEnv("NETLIFY", "true");
     mocks.stat
       .mockRejectedValueOnce(
         Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
       )
-      .mockResolvedValueOnce({ size: 12 });
+      .mockResolvedValueOnce({ size: 12, mtimeMs: Date.now() });
     const handler = (await import("./[filename].get.js")).default as (
       event: unknown,
     ) => Promise<unknown>;
@@ -127,8 +153,50 @@ describe("slides hosted PPTX download route", () => {
     expect(mocks.resolveAccess).toHaveBeenCalledWith("deck", "deck-1");
   });
 
+  it("regenerates an expired hosted cache entry under the same revision-bound URL", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    mocks.stat.mockResolvedValue({
+      size: 12,
+      mtimeMs: Date.now() - HOSTED_PPTX_EXPORT_TTL_MS - 1,
+    });
+    const handler = (await import("./[filename].get.js")).default as (
+      event: unknown,
+    ) => Promise<Response>;
+
+    const response = await handler({});
+
+    expect(response).toBeInstanceOf(Response);
+    expect(mocks.run).toHaveBeenCalledWith(
+      { deckId: "deck-1", includeNotes: false },
+      expect.objectContaining({
+        slidesPptxDownloadFilename: mocks.filename,
+        slidesPptxDownloadExpectedRevision: exportRevision,
+      }),
+    );
+    expect(mocks.readFile).not.toHaveBeenCalled();
+    expect(mocks.createReadStream).not.toHaveBeenCalled();
+    expect(mocks.streamFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects old download URLs that do not identify an export revision", async () => {
+    mocks.query.mockReturnValue({ deckId: "deck-1", includeNotes: "false" });
+    const handler = (await import("./[filename].get.js")).default as (
+      event: unknown,
+    ) => Promise<unknown>;
+
+    const event = {};
+    const response = await handler(event);
+
+    expect(response).toEqual({
+      error: "Export revision is missing. Export the deck again.",
+    });
+    expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 409);
+    expect(mocks.run).not.toHaveBeenCalled();
+    expect(mocks.createReadStream).not.toHaveBeenCalled();
+  });
+
   it("does not stream a cached export after deck access is revoked", async () => {
-    mocks.stat.mockResolvedValue({ size: 12 });
+    mocks.stat.mockResolvedValue({ size: 12, mtimeMs: Date.now() });
     mocks.resolveAccess.mockResolvedValue(null);
     const handler = (await import("./[filename].get.js")).default as (
       event: unknown,
@@ -151,7 +219,7 @@ describe("slides hosted PPTX download route", () => {
       ".pptx",
       "deck-2",
     );
-    mocks.stat.mockResolvedValue({ size: 12 });
+    mocks.stat.mockResolvedValue({ size: 12, mtimeMs: Date.now() });
     const handler = (await import("./[filename].get.js")).default as (
       event: unknown,
     ) => Promise<unknown>;
@@ -167,35 +235,24 @@ describe("slides hosted PPTX download route", () => {
     expect(mocks.run).not.toHaveBeenCalled();
   });
 
-  it("regenerates legacy cached filenames instead of streaming unbound files", async () => {
+  it("rejects legacy filenames that cannot be bound to a deck", async () => {
     mocks.filename = "legacy-export.pptx";
-    mocks.stat.mockResolvedValue({ size: 12 });
     const handler = (await import("./[filename].get.js")).default as (
       event: unknown,
-    ) => Promise<Response>;
+    ) => Promise<unknown>;
 
-    const response = await handler({});
+    const event = {};
+    const response = await handler(event);
 
-    expect(response).toBeInstanceOf(Response);
-    expect(Buffer.from(await response.arrayBuffer()).toString()).toBe(
-      "pptx-bytes",
-    );
-    expect(mocks.run).toHaveBeenCalledWith(
-      { deckId: "deck-1", includeNotes: false },
-      {
-        caller: "http",
-        userEmail: "user@example.com",
-        orgId: "org-1",
-        slidesPptxDownload: true,
-        slidesPptxDownloadPersist: true,
-      },
-    );
+    expect(response).toEqual({ error: "Not found" });
+    expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 404);
+    expect(mocks.run).not.toHaveBeenCalled();
     expect(mocks.createReadStream).not.toHaveBeenCalled();
     expect(mocks.streamFile).not.toHaveBeenCalled();
   });
 
   it("regenerates a bound filename when its cached deck marker is missing", async () => {
-    mocks.stat.mockResolvedValue({ size: 12 });
+    mocks.stat.mockResolvedValue({ size: 12, mtimeMs: Date.now() });
     mocks.readFile.mockRejectedValue(
       Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
     );
@@ -213,16 +270,18 @@ describe("slides hosted PPTX download route", () => {
         userEmail: "user@example.com",
         orgId: "org-1",
         slidesPptxDownload: true,
+        slidesPptxDownloadFilename: mocks.filename,
         slidesPptxDownloadPersist: true,
+        slidesPptxDownloadExpectedRevision: exportRevision,
       },
     );
     expect(mocks.createReadStream).not.toHaveBeenCalled();
     expect(mocks.streamFile).not.toHaveBeenCalled();
   });
 
-  it("regenerates instead of streaming a cache marked for another deck", async () => {
-    mocks.stat.mockResolvedValue({ size: 12 });
-    mocks.readFile.mockResolvedValue(pptxDeckBindingKey("deck-2"));
+  it("regenerates instead of streaming a cache marked for another export revision", async () => {
+    mocks.stat.mockResolvedValue({ size: 12, mtimeMs: Date.now() });
+    mocks.readFile.mockResolvedValue("other-export-revision");
     const handler = (await import("./[filename].get.js")).default as (
       event: unknown,
     ) => Promise<Response>;
@@ -231,6 +290,13 @@ describe("slides hosted PPTX download route", () => {
 
     expect(response).toBeInstanceOf(Response);
     expect(mocks.run).toHaveBeenCalledTimes(1);
+    expect(mocks.run).toHaveBeenCalledWith(
+      { deckId: "deck-1", includeNotes: false },
+      expect.objectContaining({
+        slidesPptxDownloadFilename: mocks.filename,
+        slidesPptxDownloadExpectedRevision: exportRevision,
+      }),
+    );
     expect(mocks.createReadStream).not.toHaveBeenCalled();
     expect(mocks.streamFile).not.toHaveBeenCalled();
   });
