@@ -674,6 +674,14 @@ describe("workspace connection store", () => {
 
         expect(sameAccount.scopes).toEqual(["channels:read"]);
 
+        const omittedAccount = await upsertWorkspaceConnection({
+          id: original.id,
+          provider: "slack",
+          label: "Updated Slack workspace",
+        });
+        expect(omittedAccount.accountId).toBe("team-old");
+        expect(omittedAccount.scopes).toEqual(["channels:read"]);
+
         const rebound = await upsertWorkspaceConnection({
           id: original.id,
           provider: "slack",

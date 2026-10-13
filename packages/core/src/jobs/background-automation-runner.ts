@@ -1338,6 +1338,9 @@ async function executeBackgroundAutomation(
                   softTimeoutMs,
                   { backgroundFunction: true },
                   control,
+                  (usage) => {
+                    usageRef.current = usage;
+                  },
                 );
               } catch (error) {
                 if (error instanceof AgentLoopAbortedError) {

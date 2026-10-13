@@ -266,6 +266,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
   softTimeoutMs?: number,
   timeoutOptions?: ResolveRunSoftTimeoutOptions,
   control?: RunChunkControl,
+  onUsage?: (usage: Awaited<ReturnType<typeof runAgentLoop>>) => void,
 ): Promise<Awaited<ReturnType<typeof runAgentLoop>>> {
   const finalResponseGuardRequestText =
     opts.finalResponseGuardRequestText ??
@@ -367,8 +368,10 @@ export async function runAgentLoopDirectWithSoftTimeout(
     model: opts.model,
   };
 
-  const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) =>
+  const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) => {
     mergeAgentLoopUsage(usage, next);
+    onUsage?.({ ...usage });
+  };
 
   const localTurnEvents: AgentChatEvent[] = [];
   const continueFromChunkBoundary = async (

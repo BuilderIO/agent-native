@@ -4755,6 +4755,29 @@ export class AgentKitClient implements AgentKitController {
           runId,
         });
         this.restoreConnectionAfterTerminalCatchUp(key);
+      } else if (this.hasTerminalRunCatchUp(threadId, runId)) {
+        const catchUp = this.terminalRunCatchUps.get(key);
+        if (catchUp) {
+          const terminalThread = this.preserveTerminalRunDuringCatchUp(
+            this.getThread(threadId),
+            catchUp,
+          );
+          const run = terminalThread.runs[runId];
+          this.setThread(
+            threadId,
+            run
+              ? settleRunProjection(
+                  terminalThread,
+                  runId,
+                  "failed",
+                  run.completedAt ?? this.now(),
+                  run.activeMessageId,
+                  catchUp.run.status,
+                )
+              : terminalThread,
+          );
+        }
+        this.fail(error, "run_stream_failed");
       } else {
         this.markRunFailed(threadId, runId, runError);
         this.fail(error, "run_stream_failed");

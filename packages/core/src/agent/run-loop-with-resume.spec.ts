@@ -580,6 +580,42 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     });
   });
 
+  it("reports accumulated usage when a later continuation attempt fails", async () => {
+    let attempts = 0;
+    const reports: Awaited<ReturnType<typeof runAgentLoop>>[] = [];
+    const usage = {
+      inputTokens: 19,
+      outputTokens: 7,
+      cacheReadTokens: 2,
+      cacheWriteTokens: 1,
+      engineName: "test",
+      model: "test-model",
+    };
+    mockRunAgentLoop.mockImplementation(async (opts) => {
+      attempts++;
+      if (attempts === 1) {
+        opts.send({ type: "auto_continue", reason: "no_progress" });
+        return usage;
+      }
+      throw new Error("later continuation failed");
+    });
+
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+        ),
+        60_000,
+        undefined,
+        undefined,
+        (nextUsage) => reports.push(nextUsage),
+      ),
+    ).rejects.toThrow("later continuation failed");
+
+    expect(reports).toEqual([expect.objectContaining(usage)]);
+  });
+
   it("keeps a reported attempt's usage flag and first-event timing across a continuation", async () => {
     let attempts = 0;
     mockRunAgentLoop.mockImplementation(async (opts) => {

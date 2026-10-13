@@ -5443,7 +5443,7 @@ describe("AgentKitClient", () => {
       );
 
       expect(client.getThread("thread-1").runs["run-approval"]).toMatchObject({
-        status: "failed",
+        status: "completed",
         lastSequence: 3,
       });
       expect(client.getThread("thread-1").activeRunIds).toEqual([]);
@@ -5493,7 +5493,7 @@ describe("AgentKitClient", () => {
         expect.objectContaining({ message: "Temporary upstream failure" }),
       );
       expect(client.getThread("thread-1").runs["run-approval"]).toMatchObject({
-        status: "failed",
+        status: "completed",
       });
       expect(reports).not.toContainEqual(
         expect.objectContaining({ code: "run_missing_terminal" }),
@@ -6146,7 +6146,7 @@ describe("AgentKitClient", () => {
       expect(thread.connectionRequestRunIds["connection-1"]).toBe("run-1");
     });
 
-    it("drops it after terminal catch-up transport failure", async () => {
+    it("keeps it open after terminal catch-up transport failure", async () => {
       const transport = createTransport([]);
       transport.getThreadSnapshot = async () => ({
         id: "thread-1",
@@ -6200,9 +6200,9 @@ describe("AgentKitClient", () => {
         expect(thread.messages).toContainEqual(
           expect.objectContaining({ id: "assistant-1", status: "error" }),
         );
-        expect(thread.runs["run-1"]?.status).toBe("failed");
-        expect(thread.connectionRequests).toEqual({});
-        expect(thread.connectionRequestRunIds).toEqual({});
+        expect(thread.runs["run-1"]?.status).toBe("completed");
+        expect(thread.connectionRequests["connection-1"]).toEqual(openRequest);
+        expect(thread.connectionRequestRunIds["connection-1"]).toBe("run-1");
       } finally {
         await client.dispose();
       }

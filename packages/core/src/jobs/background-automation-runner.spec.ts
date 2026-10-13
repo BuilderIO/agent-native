@@ -2170,6 +2170,50 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
     });
   });
 
+  it("records usage accumulated before a later continuation fails", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const automation = precondition("failed-continuation-usage");
+    const usage = {
+      inputTokens: 19,
+      outputTokens: 7,
+      cacheReadTokens: 2,
+      cacheWriteTokens: 1,
+      engineName: "test",
+      model: "test-model",
+    };
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (_opts, _timeout, _timeoutOptions, _control, onUsage) => {
+        onUsage?.(usage);
+        throw new Error("later continuation failed");
+      },
+    );
+
+    await expect(
+      runBackgroundAutomation(runOptions(automation), standardDeps),
+    ).rejects.toThrow("later continuation failed");
+
+    const recorded = (await pglite
+      .prepare(
+        `SELECT input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
+         FROM token_usage WHERE label = ?`,
+      )
+      .get("recurring-job:failed-continuation-usage")) as
+      | {
+          input_tokens: number;
+          output_tokens: number;
+          cache_read_tokens: number;
+          cache_write_tokens: number;
+        }
+      | undefined;
+    expect(recorded).toEqual({
+      input_tokens: 19,
+      output_tokens: 7,
+      cache_read_tokens: 2,
+      cache_write_tokens: 1,
+    });
+  });
+
   it.each(["journal", "delivery evidence", "thread", "transcript", "claim"])(
     "keeps unfinished history retryable after a temporary %s storage failure",
     async (failureAt) => {

@@ -1602,7 +1602,10 @@ export async function upsertWorkspaceConnection(
   const now = Date.now();
   const label = input.label?.trim() || input.accountLabel?.trim() || provider;
   const status = normalizeStatus(input.status);
-  const accountId = input.accountId ?? null;
+  const accountId =
+    input.accountId === undefined
+      ? (existingConnection?.accountId ?? null)
+      : input.accountId;
   const sameAccount =
     existingConnection?.provider === provider &&
     existingConnection.accountId === accountId;
