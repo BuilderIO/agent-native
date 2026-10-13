@@ -22,7 +22,9 @@ interface InFlightEntry {
   controller: AbortController;
   waiters: number;
   settled: boolean;
-  deadlineAt: number;
+  sharedDeadlineAt: number;
+  maxSharedDeadlineAt: number;
+  extendSharedDeadline: (deadlineAt: number) => void;
 }
 
 const inFlight = new Map<string, InFlightEntry[]>();
@@ -138,6 +140,17 @@ function remainingTimeoutMs(deadlineAt: number): number {
   return Math.max(0, deadlineAt - Date.now());
 }
 
+function isTimeoutError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = (error as Error & { code?: unknown }).code;
+  return (
+    error.name === "FirstPartyAnalyticsQueryTimeoutError" ||
+    error.name === "DbTimeoutError" ||
+    code === "CONNECT_TIMEOUT" ||
+    /^First-party analytics query timed out after \d+ms$/.test(error.message)
+  );
+}
+
 function cacheIoTimeoutMs(deadlineAt: number): number {
   return Math.max(
     1,
@@ -214,24 +227,46 @@ export async function withFirstPartyCache(
 
   const timeoutMs = Math.max(1, options.timeoutMs ?? CACHE_IO_TIMEOUT_MS);
   const deadlineAt = options.deadlineAt ?? Date.now() + timeoutMs;
+  const maxSharedDeadlineAt = deadlineAt + timeoutMs;
 
   const requestKey = inFlightKey(key, options.timeoutMs);
-  // The shared computation is bounded by its creator's deadline, so a later
-  // caller may only join when its own deadline is no later.
   const existing = inFlight
     .get(requestKey)
     ?.find(
       (entry) =>
         !entry.settled &&
         !entry.controller.signal.aborted &&
-        deadlineAt <= entry.deadlineAt,
+        deadlineAt <= entry.maxSharedDeadlineAt,
     );
   if (existing) {
+    existing.extendSharedDeadline(deadlineAt);
     return waitUntilDeadline(existing, deadlineAt, timeoutMs, options.signal);
   }
 
   const controller = new AbortController();
   let entry!: InFlightEntry;
+  let sharedDeadlineAt = deadlineAt;
+  let sharedTimeout: ReturnType<typeof setTimeout> | undefined;
+  const armSharedTimeout = () => {
+    if (sharedTimeout) clearTimeout(sharedTimeout);
+    const queryTimeoutMs = remainingTimeoutMs(sharedDeadlineAt);
+    sharedTimeout = setTimeout(
+      () =>
+        controller.abort(
+          new Error(
+            `First-party analytics query timed out after ${queryTimeoutMs}ms`,
+          ),
+        ),
+      queryTimeoutMs,
+    );
+  };
+  const extendSharedDeadline = (nextDeadlineAt: number) => {
+    const boundedDeadlineAt = Math.min(nextDeadlineAt, maxSharedDeadlineAt);
+    if (boundedDeadlineAt <= sharedDeadlineAt) return;
+    sharedDeadlineAt = boundedDeadlineAt;
+    if (entry) entry.sharedDeadlineAt = sharedDeadlineAt;
+    armSharedTimeout();
+  };
   const promise = (async () => {
     const l2Hit = await getL2(key, deadlineAt);
     if (controller.signal.aborted) {
@@ -241,29 +276,37 @@ export async function withFirstPartyCache(
       setL1(key, l2Hit);
       return l2Hit;
     }
-    const queryTimeoutMs = remainingTimeoutMs(deadlineAt);
-    if (queryTimeoutMs <= 0) {
-      throw new Error(
-        `First-party analytics query timed out after ${timeoutMs}ms`,
-      );
-    }
-    const timeoutError = new Error(
-      `First-party analytics query timed out after ${queryTimeoutMs}ms`,
-    );
-    const computeTimeout = setTimeout(
-      () => controller.abort(timeoutError),
-      queryTimeoutMs,
-    );
     let result: AnalyticsQueryResult;
-    try {
-      result = await compute(queryTimeoutMs, controller.signal);
-    } finally {
-      clearTimeout(computeTimeout);
+    while (true) {
+      if (controller.signal.aborted) throw abortError(controller.signal);
+      const attemptDeadlineAt = entry.sharedDeadlineAt;
+      const queryTimeoutMs = remainingTimeoutMs(attemptDeadlineAt);
+      if (queryTimeoutMs <= 0) {
+        throw new Error(
+          `First-party analytics query timed out after ${timeoutMs}ms`,
+        );
+      }
+      try {
+        result = await compute(queryTimeoutMs, controller.signal);
+        break;
+      } catch (error) {
+        const retryDeadlineAt = entry.sharedDeadlineAt;
+        if (
+          controller.signal.aborted ||
+          entry.waiters === 0 ||
+          !isTimeoutError(error) ||
+          retryDeadlineAt <= attemptDeadlineAt ||
+          retryDeadlineAt <= Date.now()
+        ) {
+          throw error;
+        }
+      }
     }
     setL1(key, result);
-    void setL2(key, sql, result, deadlineAt);
+    void setL2(key, sql, result, entry.sharedDeadlineAt);
     return result;
   })().finally(() => {
+    if (sharedTimeout) clearTimeout(sharedTimeout);
     entry.settled = true;
     const entries = inFlight.get(requestKey);
     if (entries) {
@@ -272,9 +315,18 @@ export async function withFirstPartyCache(
       else inFlight.delete(requestKey);
     }
   });
-  entry = { promise, controller, waiters: 0, settled: false, deadlineAt };
+  entry = {
+    promise,
+    controller,
+    waiters: 0,
+    settled: false,
+    sharedDeadlineAt,
+    maxSharedDeadlineAt,
+    extendSharedDeadline,
+  };
   const entries = inFlight.get(requestKey) ?? [];
   entries.push(entry);
   inFlight.set(requestKey, entries);
+  armSharedTimeout();
   return waitUntilDeadline(entry, deadlineAt, timeoutMs, options.signal);
 }

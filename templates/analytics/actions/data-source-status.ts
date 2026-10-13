@@ -253,9 +253,11 @@ export default defineAction({
             workspace.connections,
             workspace.grants,
           );
-        const configured =
-          hasRequiredCredentials ||
-          workspaceConnection.grantState === "connected";
+        const workspaceGrantState = workspaceConnection.grantState;
+        const hasWorkspaceGrant =
+          workspaceGrantState === "connected" ||
+          workspaceGrantState === "granted";
+        const configured = hasRequiredCredentials || hasWorkspaceGrant;
         return {
           provider: provider.provider,
           label: provider.label,
@@ -285,7 +287,11 @@ export default defineAction({
               ? "credentials-and-workspace"
               : provider.workspaceConnection.grantState === "connected"
                 ? "workspace"
-                : "credentials",
+                : provider.workspaceConnection.grantState === "granted"
+                  ? provider.configuredKeys.length > 0
+                    ? "credentials-and-workspace-grant"
+                    : "workspace-grant"
+                  : "credentials",
         })),
     ];
     const configuredExternalDataSources = configuredDataSources.filter(

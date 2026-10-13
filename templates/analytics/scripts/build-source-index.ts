@@ -3164,7 +3164,10 @@ function modelEntries(
     scanSummary,
   );
   const projectedColumnNames = new Set(
-    (model.sqlProjectedColumns ?? []).map((column) => column.toLowerCase()),
+    (sqlProjectedColumns ?? "")
+      .split(", ")
+      .filter((column) => !column.startsWith("… ["))
+      .map((column) => column.toLowerCase()),
   );
   const inferredMembershipKeyRoles = model.inferredMembershipKeyRoles;
   const hasProjectedMembershipKeyRoles =

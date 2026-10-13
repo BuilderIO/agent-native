@@ -463,6 +463,49 @@ describe("compileSourceIndex", () => {
     );
   });
 
+  it("omits membership roles when a wide model truncates one projected key", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    await mkdir(path.join(dbtRoot, "models"), { recursive: true });
+    const fillers = Array.from(
+      { length: 130 },
+      (_, index) =>
+        `  exploded_users.filler_${index} as s_filler_${String(index).padStart(3, "0")}_${"x".repeat(80)}`,
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "user_organization_wide.sql"),
+      [
+        "with exploded_users as (",
+        "  select users.user_id, organization",
+        "  from users",
+        "  cross join unnest(users.organizations) as organization",
+        ")",
+        "select",
+        [
+          "  exploded_users.organization as organization_id",
+          ...fillers,
+          "  exploded_users.user_id as user_id",
+        ].join(",\n"),
+        "from exploded_users",
+      ].join("\n"),
+    );
+
+    const bundle = await compileSourceIndex({
+      dbtRoots: [dbtRoot],
+      generatedAt: "2026-10-13T00:00:00.000Z",
+    });
+    const model = bundle.entries.find(
+      (entry) => entry.metric === "model:user_organization_wide",
+    );
+
+    expect(model?.sqlProjectedColumns).toContain("organization_id");
+    expect(model?.sqlProjectedColumns).toContain("additional entries omitted");
+    expect(model?.sqlProjectedColumns).not.toContain("user_id");
+    expect(model).not.toHaveProperty("inferredMembershipKeys");
+    expect(model).not.toHaveProperty("inferredMembershipKeyRoles");
+    expect(sourceIndexBundleSchema.parse(bundle)).toEqual(bundle);
+  });
+
   it("does not infer membership grain through aggregates or grouped projections", async () => {
     const root = await temporaryDirectory();
     const dbtRoot = path.join(root, "dbt");

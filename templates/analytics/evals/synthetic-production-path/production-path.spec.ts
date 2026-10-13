@@ -382,12 +382,12 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v16";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v17";
 const STALE_INDEX_CASE_ID = "stale-generated-index-yields-to-current-source";
 const APPROVED_STALE_INDEX_CASE_ID =
   "approved-stale-generated-entry-yields-to-current-roster";
 const STALE_INDEX_GENERATED_AT = "2000-01-01T00:00:00.000Z";
-const BASELINE_GIT_REVISION = "db2f859fae3e5c9bab5ad5d1257d24a5ef152a8f";
+const BASELINE_GIT_REVISION = "fadfb1b593c71e6a03282269dcb0c9df946188d1";
 const BASELINE_HARNESS_PATH =
   "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
 const CANDIDATE_HARNESS_REVISION_ENV = "ANALYTICS_EVAL_HARNESS_REVISION";

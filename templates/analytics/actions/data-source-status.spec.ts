@@ -294,6 +294,46 @@ describe("data-source-status", () => {
     });
   });
 
+  it("counts a granted but unhealthy HubSpot connection as configured only", async () => {
+    mocks.workspaceSummary = {
+      ...mocks.workspaceSummary,
+      grantState: "granted",
+      grantAvailability: "available",
+      connectionCount: 1,
+      grantedConnectionCount: 1,
+      activeConnectionCount: 0,
+      hasWorkspaceConnection: true,
+      hasGrantedWorkspaceConnection: true,
+      hasActiveWorkspaceConnection: false,
+    };
+
+    const result = (await dataSourceStatus.run({ key: "hubspot" })) as any;
+    const hubspot = result.providers.find(
+      (provider: any) => provider.provider === "hubspot",
+    );
+
+    expect(hubspot).toMatchObject({
+      configured: true,
+      configuredKeys: [],
+      workspaceConnection: {
+        grantState: "granted",
+        connectionCount: 1,
+        activeConnectionCount: 0,
+      },
+    });
+    expect(result.configuredDataSources).toContainEqual({
+      provider: "hubspot",
+      label: "HubSpot",
+      via: "workspace-grant",
+    });
+    expect(result).toMatchObject({
+      configuredExternalDataSourceCount: 1,
+      connectedExternalDataSources: [],
+      hasConnectedExternalDataSources: false,
+      connectedExternalDataSourceCount: 0,
+    });
+  });
+
   it("scopes the connected-source summary to the requested provider", async () => {
     mocks.listWorkspaceConnections.mockResolvedValue([
       { provider: "bigquery" },

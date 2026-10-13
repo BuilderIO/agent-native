@@ -2316,7 +2316,7 @@ describe("queryFirstPartyAnalytics", () => {
     }
   });
 
-  it("does not coalesce cached reads when the joining deadline is later", async () => {
+  it("coalesces cached reads when the joining deadline is later", async () => {
     let now = 5_000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
     expressionGuard.mockImplementation(async () => {
@@ -2360,7 +2360,12 @@ describe("queryFirstPartyAnalytics", () => {
         execute.mock.calls.filter(([input]) =>
           input.sql.includes("SELECT result FROM first_party_analytics_cache"),
         ),
-      ).toHaveLength(2);
+      ).toHaveLength(1);
+      expect(
+        execute.mock.calls.filter(([input]) =>
+          input.sql.includes("first_party_analytics_query"),
+        ),
+      ).toHaveLength(1);
     } finally {
       releaseCache();
       dateNow.mockRestore();
@@ -2436,40 +2441,28 @@ describe("queryFirstPartyAnalytics", () => {
     }
   });
 
-  it("lets a later-deadline cached query continue after the earlier one expires", async () => {
+  it("keeps a later-deadline coalesced query alive after the earlier waiter expires", async () => {
     vi.useFakeTimers();
-    execute.mockResolvedValue({ rows: [], rowsAffected: 0 });
-
-    let markFirstStarted!: () => void;
-    let markSecondStarted!: () => void;
-    const firstStarted = new Promise<void>((resolve) => {
-      markFirstStarted = resolve;
+    let markComputeStarted!: () => void;
+    const computeStarted = new Promise<void>((resolve) => {
+      markComputeStarted = resolve;
     });
-    const secondStarted = new Promise<void>((resolve) => {
-      markSecondStarted = resolve;
-    });
-    let resolveSecond!: (result: {
+    let resolveCompute!: (result: {
       rows: Array<{ count: string }>;
       schema: Array<{ name: string; type: string }>;
     }) => void;
-    let firstSignal: AbortSignal | undefined;
-    let secondSignal: AbortSignal | undefined;
+    let computeSignal: AbortSignal | undefined;
     const compute = vi.fn((_timeoutMs: number, signal: AbortSignal) => {
       return new Promise<{
         rows: Array<{ count: string }>;
         schema: Array<{ name: string; type: string }>;
       }>((resolve, reject) => {
+        computeSignal = signal;
+        resolveCompute = resolve;
+        markComputeStarted();
         signal.addEventListener("abort", () => reject(signal.reason), {
           once: true,
         });
-        if (!firstSignal) {
-          firstSignal = signal;
-          markFirstStarted();
-        } else {
-          secondSignal = signal;
-          resolveSecond = resolve;
-          markSecondStarted();
-        }
       });
     });
 
@@ -2480,19 +2473,18 @@ describe("queryFirstPartyAnalytics", () => {
         deadlineAt: Date.now() + 100,
       });
       const firstTimedOut = expect(first).rejects.toThrow(/timed out/);
-      await firstStarted;
+      await computeStarted;
       await vi.advanceTimersByTimeAsync(50);
       const second = withFirstPartyCache(key, "SELECT 1", compute, {
         timeoutMs: 100,
         deadlineAt: Date.now() + 150,
       });
-      await secondStarted;
+      await vi.advanceTimersByTimeAsync(0);
       await vi.advanceTimersByTimeAsync(50);
 
       await firstTimedOut;
-      expect(firstSignal?.aborted).toBe(true);
-      expect(secondSignal?.aborted).toBe(false);
-      resolveSecond({
+      expect(computeSignal?.aborted).toBe(false);
+      resolveCompute({
         rows: [{ count: "1" }],
         schema: [{ name: "count", type: "string" }],
       });
@@ -2500,14 +2492,144 @@ describe("queryFirstPartyAnalytics", () => {
         rows: [{ count: "1" }],
         schema: [{ name: "count", type: "string" }],
       });
-      expect(compute).toHaveBeenCalledTimes(2);
+      expect(compute).toHaveBeenCalledTimes(1);
     } finally {
-      if (secondSignal && !secondSignal.aborted) {
-        resolveSecond({
+      if (computeSignal && !computeSignal.aborted) {
+        resolveCompute({
           rows: [{ count: "1" }],
           schema: [{ name: "count", type: "string" }],
         });
       }
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries a timed-out coalesced query within the later waiter's deadline", async () => {
+    vi.useFakeTimers();
+    const result = {
+      rows: [{ count: "1" }],
+      schema: [{ name: "count", type: "string" }],
+    };
+    const timeoutError = new Error(
+      "First-party analytics query timed out after 100ms",
+    );
+    let markFirstAttemptStarted!: () => void;
+    const firstAttemptStarted = new Promise<void>((resolve) => {
+      markFirstAttemptStarted = resolve;
+    });
+    let rejectFirstAttempt!: (error: Error) => void;
+    const compute = vi.fn();
+    compute
+      .mockImplementationOnce(
+        (_timeoutMs: number, signal: AbortSignal) =>
+          new Promise<typeof result>((_resolve, reject) => {
+            rejectFirstAttempt = reject;
+            markFirstAttemptStarted();
+            signal.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            });
+          }),
+      )
+      .mockResolvedValueOnce(result);
+
+    const key = `deadline-retry-${Math.random()}`;
+    try {
+      const first = withFirstPartyCache(key, "SELECT 1", compute, {
+        timeoutMs: 100,
+        deadlineAt: Date.now() + 100,
+      });
+      const firstTimedOut = expect(first).rejects.toThrow(/timed out/);
+      await firstAttemptStarted;
+      await vi.advanceTimersByTimeAsync(50);
+
+      const second = withFirstPartyCache(key, "SELECT 1", compute, {
+        timeoutMs: 100,
+        deadlineAt: Date.now() + 100,
+      });
+      const secondResult = expect(second).resolves.toEqual(result);
+      await vi.advanceTimersByTimeAsync(50);
+      await firstTimedOut;
+      rejectFirstAttempt(timeoutError);
+
+      await secondResult;
+      expect(compute).toHaveBeenCalledTimes(2);
+      expect(compute.mock.calls.map(([timeoutMs]) => timeoutMs)).toEqual([
+        100, 50,
+      ]);
+    } finally {
+      rejectFirstAttempt(timeoutError);
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves shared-query errors after the creator's waiter times out", async () => {
+    vi.useFakeTimers();
+
+    let markQueryStarted!: () => void;
+    const queryStarted = new Promise<void>((resolve) => {
+      markQueryStarted = resolve;
+    });
+    let markSecondVerification!: () => void;
+    const secondVerification = new Promise<void>((resolve) => {
+      markSecondVerification = resolve;
+    });
+    let verificationCount = 0;
+    expressionGuard.mockImplementation(async () => {
+      verificationCount += 1;
+      if (verificationCount === 3) markSecondVerification();
+    });
+
+    const sharedFailure = new Error("shared database read failed");
+    let rejectQuery!: (error: Error) => void;
+    let cacheReadCount = 0;
+    let queryCount = 0;
+    execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT result FROM first_party_analytics_cache")) {
+        cacheReadCount += 1;
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (sql.includes("first_party_analytics_query")) {
+        queryCount += 1;
+        markQueryStarted();
+        return await new Promise((_, reject) => {
+          rejectQuery = reject;
+        });
+      }
+      return { rows: [], rowsAffected: 0 };
+    });
+
+    const scope = { userEmail: "shared-timeout@example.test", orgId: null };
+    try {
+      const first = queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events",
+        scope,
+        { cache: true, timeoutMs: 100 },
+      );
+      const firstOutcome = first.then(
+        () => null,
+        (error: Error) => error,
+      );
+      await queryStarted;
+
+      await vi.advanceTimersByTimeAsync(50);
+      const second = queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events",
+        scope,
+        { cache: true, timeoutMs: 100 },
+      );
+      await secondVerification;
+      await vi.advanceTimersByTimeAsync(50);
+
+      const firstError = await firstOutcome;
+      expect(firstError?.message).toMatch(/timed out/);
+      expect(cacheReadCount).toBe(1);
+      expect(queryCount).toBe(1);
+
+      rejectQuery(sharedFailure);
+      await expect(second).rejects.toBe(sharedFailure);
+      expect(healthMocks.outcome).toHaveBeenCalledWith(sharedFailure);
+    } finally {
+      if (queryCount && rejectQuery) rejectQuery(sharedFailure);
       vi.useRealTimers();
     }
   });
