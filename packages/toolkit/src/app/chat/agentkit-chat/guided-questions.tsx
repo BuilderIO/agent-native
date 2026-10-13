@@ -1097,6 +1097,34 @@ export type PendingQuestionRefetchResult =
   | { status: "none" }
   | { status: "error"; error: unknown };
 
+/**
+ * Window event dispatched once per human submit of a guided question card
+ * that is delivered to the agent, so apps can observe answers (for example,
+ * to record which option was picked) without owning the flow.
+ */
+export const GUIDED_QUESTIONS_SUBMITTED_EVENT =
+  "agentNative.guidedQuestionsSubmitted";
+
+export interface GuidedQuestionsSubmittedDetail {
+  stateKey: string;
+  questions: GuidedQuestion[];
+  answers: GuidedQuestionAnswers;
+}
+
+function announceGuidedQuestionsSubmitted(
+  detail: GuidedQuestionsSubmittedDetail,
+): void {
+  // Listeners are observers; a throwing one must never block the submit.
+  try {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent(GUIDED_QUESTIONS_SUBMITTED_EVENT, { detail }),
+    );
+  } catch {
+    // coercion-ok: an observer failure must not affect delivering the answers.
+  }
+}
+
 function payloadBelongsToThread(
   payload: GuidedQuestionPayload,
   threadId: string | undefined,
@@ -1276,6 +1304,11 @@ export function useGuidedQuestionFlow({
         return;
       }
       if (isSubmissionBlocked) return;
+      announceGuidedQuestionsSubmitted({
+        stateKey,
+        questions: visiblePayload?.questions ?? [],
+        answers,
+      });
       const formattedAnswers = formatGuidedAnswersForAgent(
         answers,
         visiblePayload?.questions,
@@ -1315,6 +1348,7 @@ export function useGuidedQuestionFlow({
       onSubmitMessage,
       sendAndClearOnDelivery,
       isSubmissionBlocked,
+      stateKey,
       visiblePayload,
       submitMessage,
     ],

@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   askUserQuestion,
+  GUIDED_QUESTIONS_SUBMITTED_EVENT,
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
 } from "./guided-questions.js";
@@ -653,6 +654,96 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(context).toContain(
       "Treat every question below as settled: do not ask it again",
     );
+  });
+
+  it("announces each delivered submit once, and never a skip or a blocked submit", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), (key) =>
+          key === "guided-questions:tab123" ? JSON.stringify(payload) : "",
+        ),
+      ),
+    );
+    const announced: unknown[] = [];
+    const listener = (event: Event) =>
+      announced.push((event as CustomEvent).detail);
+    window.addEventListener(GUIDED_QUESTIONS_SUBMITTED_EVENT, listener);
+    try {
+      const result = await renderFlow({
+        stateKey: "guided-questions",
+        queryKey: ["guided-questions"],
+        browserTabId: "tab123",
+        refetchInterval: false,
+      });
+      await act(async () => {
+        result.current().handleSkip();
+        await Promise.resolve();
+      });
+      expect(announced).toEqual([]);
+
+      const blocked = await renderFlow({
+        stateKey: "guided-questions",
+        queryKey: ["guided-questions", "blocked"],
+        browserTabId: "tab123",
+        providerStatus: "missing",
+        refetchInterval: false,
+      });
+      await act(async () => {
+        blocked.current().handleSubmit({ q1: "7d" });
+        await Promise.resolve();
+      });
+      expect(announced).toEqual([]);
+
+      const open = await renderFlow({
+        stateKey: "guided-questions",
+        queryKey: ["guided-questions", "open"],
+        browserTabId: "tab123",
+        refetchInterval: false,
+      });
+      await act(async () => {
+        open.current().handleSubmit({ q1: "7d" });
+        await Promise.resolve();
+      });
+      expect(announced).toEqual([
+        {
+          stateKey: "guided-questions",
+          questions: payload.questions,
+          answers: { q1: "7d" },
+        },
+      ]);
+      expect(sendToAgentChatMock).toHaveBeenCalled();
+    } finally {
+      window.removeEventListener(GUIDED_QUESTIONS_SUBMITTED_EVENT, listener);
+    }
+  });
+
+  it("still delivers the answers when an announcement listener throws", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), (key) =>
+          key === "guided-questions:tab123" ? JSON.stringify(payload) : "",
+        ),
+      ),
+    );
+    const dispatch = vi
+      .spyOn(window, "dispatchEvent")
+      .mockImplementation(() => {
+        throw new Error("listener failed");
+      });
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      browserTabId: "tab123",
+      refetchInterval: false,
+    });
+    await act(async () => {
+      result.current().handleSubmit({ q1: "7d" });
+      await Promise.resolve();
+    });
+    expect(dispatch).toHaveBeenCalled();
+    expect(sendToAgentChatMock).toHaveBeenCalledTimes(1);
   });
 
   function appStateFetchMock(store: Map<string, string>) {
