@@ -8787,6 +8787,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       this.transforms = /* @__PURE__ */ new Map();
       this.viewportAffines = /* @__PURE__ */ new Map();
       this.matrices = /* @__PURE__ */ new Map();
+      this.sceneFrameEntries = /* @__PURE__ */ new Map();
     }
     matches(target, space) {
       return this.target === target && this.space === space;
@@ -8798,6 +8799,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       this.transforms.clear();
       this.viewportAffines.clear();
       this.matrices.clear();
+      this.sceneFrameEntries.clear();
     }
   };
   function runSourceWalkSteps(steps, memo) {
@@ -10184,7 +10186,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       let plannedPaint = "";
       let result;
       try {
-        plannedSnapshot = this.sceneFrameSnapshot(leaf.element, metrics);
+        plannedSnapshot = this.sceneFrameSnapshot(leaf.element, metrics, memo);
         plannedPaint = this.rasterPaintSnapshot(leaf.element, phase, metrics);
         if (leaf.capturedPaintSnapshot !== null && leaf.capturedPaintSnapshot !== plannedPaint)
           leaf.invalidate("explicit");
@@ -10220,33 +10222,38 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         finish();
       }
     }
-    sceneFrameSnapshot(element, metrics) {
+    sceneFrameSnapshot(element, metrics, memo) {
       const stop = this.placement === "backdrop" ? document.documentElement : this.target;
       const entries = [];
       for (let current = element; current; current = current.parentElement) {
-        if (metrics) {
-          metrics.recordDirectRectReads += 1;
-          metrics.recordDirectStyleReads += 1;
+        let entry = memo?.sceneFrameEntries.get(current);
+        if (!entry) {
+          if (metrics) {
+            metrics.recordDirectRectReads += 1;
+            metrics.recordDirectStyleReads += 1;
+          }
+          const rect = current.getBoundingClientRect();
+          const style = getComputedStyle(current);
+          entry = [
+            rect.left,
+            rect.top,
+            rect.width,
+            rect.height,
+            style.transform,
+            style.translate,
+            style.rotate,
+            style.scale,
+            style.overflowX,
+            style.overflowY,
+            style.clipPath,
+            style.borderTopLeftRadius,
+            style.borderTopRightRadius,
+            style.borderBottomRightRadius,
+            style.borderBottomLeftRadius
+          ];
+          memo?.sceneFrameEntries.set(current, entry);
         }
-        const rect = current.getBoundingClientRect();
-        const style = getComputedStyle(current);
-        entries.push([
-          rect.left,
-          rect.top,
-          rect.width,
-          rect.height,
-          style.transform,
-          style.translate,
-          style.rotate,
-          style.scale,
-          style.overflowX,
-          style.overflowY,
-          style.clipPath,
-          style.borderTopLeftRadius,
-          style.borderTopRightRadius,
-          style.borderBottomRightRadius,
-          style.borderBottomLeftRadius
-        ]);
+        entries.push(entry);
         if (current === stop) break;
       }
       return JSON.stringify(entries);
@@ -20335,11 +20342,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         ),
         graphBytes: bytes([
           ...mount.resourceTextures.values(),
+          ...this.draft?.instanceId === mount.instance.id ? this.draft.statefulResources.values() : [],
           ...[...mount.authoredInputs.values()].flatMap((input) => [
             ...input.surface.resourceTextures.values()
           ]),
           ...mount.feedback?.textures ?? [],
-          ...mount.stateful?.textures ?? []
+          ...mount.stateful?.textures ?? [],
+          ...this.draft?.instanceId === mount.instance.id ? this.draft.stateful?.textures ?? [] : []
         ]),
         isolationBytes: bytes(
           [
@@ -20730,6 +20739,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       };
     }
     clearDeviceResources(code, message) {
+      this.clearDraftState();
       this.cameraSource.stop();
       this.clearCameraClip();
       this.releaseCameraTexture();
@@ -20992,12 +21002,16 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       const budgetRecord = owner ?? mount;
       const budget = summarizeNativeCompositionBudget(
         {
-          resource: surfaces.flatMap((surface) => [
-            ...surface.resourceTextures.values()
-          ]),
+          resource: [
+            ...surfaces.flatMap((surface) => [
+              ...surface.resourceTextures.values()
+            ]),
+            ...owner && this.draft?.instanceId === owner.instance.id ? this.draft.statefulResources.values() : []
+          ],
           feedback: [
             ...budgetRecord.feedback?.textures ?? [],
-            ...("stateful" in budgetRecord ? budgetRecord.stateful?.textures : void 0) ?? []
+            ...("stateful" in budgetRecord ? budgetRecord.stateful?.textures : void 0) ?? [],
+            ...owner && this.draft?.instanceId === owner.instance.id ? this.draft.stateful?.textures ?? [] : []
           ],
           source: surfaces.flatMap(
             (surface) => [...surface.sourceTextures.values()].map((entry) => entry.texture)
@@ -21011,7 +21025,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           compute: [
             ...budgetRecord.statelessBuffers ?? [],
             ...budgetRecord.statelessInputs?.keys() ?? [],
-            ...("stateful" in budgetRecord ? budgetRecord.stateful?.buffers : void 0) ?? []
+            ...("stateful" in budgetRecord ? budgetRecord.stateful?.buffers : void 0) ?? [],
+            ...owner && this.draft?.instanceId === owner.instance.id ? this.draft.stateful?.buffers ?? [] : []
           ]
         },
         new Map([
@@ -21097,6 +21112,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       mount.graphPipelinePins.clear();
     }
     releaseMountTextures(mount) {
+      if (this.draft?.instanceId === mount.instance.id) this.clearDraftState();
       this.releaseGraphPipelinePins(mount);
       this.releaseAuthoredInputs(mount);
       this.releaseSimulation(mount);
@@ -23755,6 +23771,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       assertNativeUniformTiming(time, "time");
       assertNativeUniformTiming(instance.timing.time, "initial-time");
       assertNativeUniformTiming(instance.timing.speed, "speed");
+      if (this.draft?.showDraft && this.draft.instanceId === mount.instance.id)
+        throw new NativeSourceError(
+          "simulation-draft-unsupported",
+          "Particle simulation drafts need an isolated simulation session."
+        );
       const spec = definition.simulation;
       if (!spec)
         throw new NativeSourceError(
@@ -24093,11 +24114,18 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
     }
     async statefulResourcePasses(mount, source, time, encoder, definition, instance, sourceRevision, deterministic, sourceIdentity, sourceReplaySafety, externalTextures, inputEpochs) {
       const graph = definition.resourceGraph;
-      if (definition !== mount.definition || !isStatefulResourceGraph(graph))
+      if (!isStatefulResourceGraph(graph))
         throw new NativeSourceError(
           "stateful-definition-invalid",
-          "A stateful draft needs an isolated graph session."
+          "The stateful graph definition is invalid."
         );
+      const draft = this.draft?.showDraft && this.draft.instanceId === instance.id && this.draft.definition === definition ? this.draft : null;
+      if (definition !== mount.definition && !draft)
+        throw new NativeSourceError(
+          "stateful-definition-invalid",
+          "The draft graph session is unavailable."
+        );
+      const definitionHash = draft?.executionHash ?? mount.definitionHash;
       const plan = planEffectGraph(definition);
       if (plan.errors.length)
         throw new NativeSourceError(
@@ -24119,12 +24147,14 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       const resetPropertyValues = (graph.resetProperties ?? []).map(
         (name) => [name, readNumber(name)]
       );
-      const prior2 = mount.stateful;
-      if (prior2 && (prior2.definitionHash !== mount.definitionHash || prior2.seed !== instance.seed || prior2.sourceIdentity !== sourceIdentity || prior2.sourceWidth !== source.width || prior2.sourceHeight !== source.height || prior2.seekRevision !== (instance.timing.seekRevision ?? 0) || nativeFeedbackResetValuesChanged(
+      const prior2 = draft ? draft.stateful : mount.stateful;
+      if (prior2 && (prior2.definitionHash !== definitionHash || prior2.seed !== instance.seed || prior2.sourceIdentity !== sourceIdentity || prior2.sourceWidth !== source.width || prior2.sourceHeight !== source.height || prior2.seekRevision !== (instance.timing.seekRevision ?? 0) || nativeFeedbackResetValuesChanged(
         prior2.resetPropertyValues,
         resetPropertyValues
-      )))
-        this.releaseStateful(mount);
+      ))) {
+        if (draft) this.releaseDraftStateful(draft);
+        else this.releaseStateful(mount);
+      }
       const pipelines = /* @__PURE__ */ new Map();
       const device = this.device;
       const epoch = this.deviceEpoch;
@@ -24155,7 +24185,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         );
       if (!mount.pendingGraphInputEpochs)
         mount.pendingGraphInputEpochs = /* @__PURE__ */ new Map();
-      if (!mount.stateful) {
+      if (!(draft ? draft.stateful : mount.stateful)) {
         const stateNames = new Set(graph.stateResources);
         const plannedBytes = plan.passes.reduce((sum, pass) => {
           const spec = declared.get(pass.output);
@@ -24200,9 +24230,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           mount.width,
           mount.height
         );
-        mount.stateful = {
+        const stateful2 = {
           executor,
-          definitionHash: mount.definitionHash,
+          definitionHash,
           seed: instance.seed,
           resetPropertyValues,
           seekRevision: instance.timing.seekRevision ?? 0,
@@ -24216,8 +24246,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           textures,
           buffers
         };
+        if (draft) draft.stateful = stateful2;
+        else mount.stateful = stateful2;
       }
-      const stateful = mount.stateful;
+      const stateful = draft ? draft.stateful : mount.stateful;
       const completed = stateful.executor.lastCompletedStep;
       const target = resolveNativeStatefulTargetStep(
         time,
@@ -24236,7 +24268,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "Sequential source history must begin at the first fixed step."
         );
       if (target < completed) {
-        this.releaseStateful(mount);
+        if (draft) this.releaseDraftStateful(draft);
+        else this.releaseStateful(mount);
         return this.statefulResourcePasses(
           mount,
           source,
@@ -24281,7 +24314,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         );
       const outputFormat = outputSpec.format;
       const output = acquireNativeStatefulOutput(
-        mount.resourceTextures,
+        draft?.statefulResources ?? mount.resourceTextures,
         definition.output,
         mount.outputTexture,
         source,
@@ -24359,12 +24392,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       });
       stateful.pendingSourceRevision = sourceRevision;
       stateful.pendingDroppedSteps = !deterministic && graph.sourceHistory === "sequential-captures" ? Math.max(0, target - Math.max(0, completed + 1)) : 0;
-      mount.statefulFrame = frame;
+      if (draft) draft.statefulFrame = frame;
+      else mount.statefulFrame = frame;
       mount.simulationCaughtUp = frame.completedStep >= target;
       return frame.output;
     }
     async feedbackPasses(mount, source, time, encoder, definition, instance, sourceRevision, deterministic, sourceIdentity) {
-      if (definition !== mount.definition)
+      if (definition !== mount.definition || this.draft?.showDraft && this.draft.instanceId === mount.instance.id)
         throw new NativeSourceError(
           "feedback-draft-unsupported",
           "A feedback draft needs an isolated state session."
@@ -27240,12 +27274,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         const localTime = draft ? draft.playing ? (performance.now() - draft.clockOrigin) / 1e3 : draft.time : deterministic ? mount.instance.timing.time + (mount.instance.timing.paused ? 0 : time * mount.instance.timing.speed) : mount.clock.paused ? mount.clock.local : mount.clock.local + (time - mount.clock.global) * mount.clock.speed;
         const sourceEpoch = mount.provider?.sourceEpoch?.();
         const assertStatelessCurrent = () => {
-          const statefulFrame = !!(draft?.definition ?? mount.definition).simulation || !!(draft?.definition ?? mount.definition).feedback || isStatefulResourceGraph(
+          const statefulFrame2 = !!(draft?.definition ?? mount.definition).simulation || !!(draft?.definition ?? mount.definition).feedback || isStatefulResourceGraph(
             (draft?.definition ?? mount.definition).resourceGraph
           );
-          if (!statelessFrame && !statefulFrame) return;
+          if (!statelessFrame && !statefulFrame2) return;
           assertCurrentPresentation();
-          if (statefulFrame && sourceEpoch !== void 0 && mount.provider?.sourceEpoch?.() !== sourceEpoch)
+          if (statefulFrame2 && sourceEpoch !== void 0 && mount.provider?.sourceEpoch?.() !== sourceEpoch)
             throw new NativeSourceError(
               "source-epoch-stale",
               "The authored source changed before GPU submission."
@@ -27499,7 +27533,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         if (hostWallPhases)
           hostWallPhases.submitCallWallMs += performance.now() - submitStarted;
         submitted = true;
-        mount.statefulFrame?.markSubmitted();
+        (draft?.statefulFrame ?? mount.statefulFrame)?.markSubmitted();
         if (gpuSample) {
           this.gpuProfiler?.afterSubmit(gpuSample);
           profileSubmitted = true;
@@ -27594,14 +27628,15 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             }
           );
         }
-        if (mount.statefulFrame) {
-          const frame = mount.statefulFrame;
-          const stateful = mount.stateful;
-          await frame.commit(() => {
+        const statefulFrame = draft?.statefulFrame ?? mount.statefulFrame;
+        if (statefulFrame) {
+          const stateful = draft ? draft.stateful : mount.stateful;
+          await statefulFrame.commit(() => {
             assertCaptureOriginCurrent();
             assertStatelessCurrent();
           });
-          mount.statefulFrame = null;
+          if (draft) draft.statefulFrame = null;
+          else mount.statefulFrame = null;
           stateful.sourceRevision = stateful.pendingSourceRevision ?? "";
           stateful.pendingSourceRevision = null;
           stateful.droppedSteps += stateful.pendingDroppedSteps;
@@ -27610,7 +27645,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             "data-an-native-stateful-dropped-steps",
             String(stateful.droppedSteps)
           );
-          const fixedDt = isStatefulResourceGraph(mount.definition.resourceGraph) ? mount.definition.resourceGraph.timing.fixedDt : 0;
+          const activeGraph = (draft?.definition ?? mount.definition).resourceGraph;
+          const fixedDt = isStatefulResourceGraph(activeGraph) ? activeGraph.timing.fixedDt : 0;
           mount.target.setAttribute(
             "data-an-native-stateful-dropped-seconds",
             (stateful.droppedSteps * fixedDt).toFixed(3)
@@ -27866,17 +27902,20 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               mount.target.setAttribute(name, value);
           }
         }
-        if (mount.definition.simulation) this.releaseSimulation(mount);
-        const statefulFrame = mount.statefulFrame;
-        mount.statefulFrame = null;
-        if (mount.stateful) {
-          mount.stateful.pendingSourceRevision = null;
-          mount.stateful.pendingDroppedSteps = 0;
+        if (!draft && mount.definition.simulation) this.releaseSimulation(mount);
+        const statefulFrame = draft?.statefulFrame ?? mount.statefulFrame;
+        if (draft) draft.statefulFrame = null;
+        else mount.statefulFrame = null;
+        const stateful = draft ? draft.stateful : mount.stateful;
+        if (stateful) {
+          stateful.pendingSourceRevision = null;
+          stateful.pendingDroppedSteps = 0;
         }
         if (statefulFrame) {
           if (submitted) await statefulFrame.rejectSubmitted(error);
           else statefulFrame.abandon();
-          this.releaseStateful(mount);
+          if (draft) this.releaseDraftStateful(draft);
+          else this.releaseStateful(mount);
         }
         const feedbackFrame = mount.feedbackFrame;
         mount.feedbackFrame = null;
@@ -28032,9 +28071,19 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         buffer.destroy();
       }
     }
+    releaseDraftStateful(draft) {
+      draft.statefulFrame?.abandon();
+      draft.statefulFrame = null;
+      draft.stateful?.executor.dispose();
+      draft.stateful = null;
+      for (const texture of draft.statefulResources.values())
+        this.textureRetirement.push(texture);
+      draft.statefulResources.clear();
+    }
     clearDraftState() {
       const draft = this.draft;
       if (!draft) return;
+      this.releaseDraftStateful(draft);
       const mount = this.mounts.get(draft.instanceId);
       if (mount && draft.showDraft && draft.publishedTexture) {
         if (mount.outputTexture) this.textureRetirement.push(mount.outputTexture);
@@ -28348,7 +28397,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       }
       const previous = this.draft;
       if (previous && previous.instanceId !== instanceId) this.clearDraftState();
-      else if (previous && !previous.showDraft && previous.lastGoodTexture && mount.outputTexture) {
+      else if (previous) this.releaseDraftStateful(previous);
+      if (previous && previous.instanceId === instanceId && !previous.showDraft && previous.lastGoodTexture && mount.outputTexture) {
         previous.publishedTexture = mount.outputTexture;
         mount.outputTexture = previous.lastGoodTexture;
         previous.lastGoodTexture = null;
@@ -28367,7 +28417,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         clockOrigin: performance.now() - request.time * 1e3,
         publishedTexture: previous?.instanceId === instanceId ? previous.publishedTexture : null,
         lastGoodTexture: null,
-        failedReason: null
+        failedReason: null,
+        stateful: null,
+        statefulFrame: null,
+        statefulResources: /* @__PURE__ */ new Map()
       };
       const started = performance.now();
       const strictTime = !!definition.simulation || !!definition.feedback || isStatefulResourceGraph(definition.resourceGraph);

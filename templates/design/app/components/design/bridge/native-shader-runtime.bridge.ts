@@ -604,6 +604,9 @@ type DraftPreview = {
   publishedTexture: GPUTexture | null;
   lastGoodTexture: GPUTexture | null;
   failedReason: NativeDraftPreviewDiagnostic | null;
+  stateful: Mount["stateful"];
+  statefulFrame: NativeStatefulEncodedFrame | null;
+  statefulResources: Map<string, GPUTexture>;
 };
 type CompositionSurface = Pick<
   Mount,
@@ -2550,11 +2553,17 @@ class NativeShaderRuntime {
       ),
       graphBytes: bytes([
         ...mount.resourceTextures.values(),
+        ...(this.draft?.instanceId === mount.instance.id
+          ? this.draft.statefulResources.values()
+          : []),
         ...[...mount.authoredInputs.values()].flatMap((input) => [
           ...input.surface.resourceTextures.values(),
         ]),
         ...(mount.feedback?.textures ?? []),
         ...(mount.stateful?.textures ?? []),
+        ...(this.draft?.instanceId === mount.instance.id
+          ? (this.draft.stateful?.textures ?? [])
+          : []),
       ]),
       isolationBytes: bytes(
         [
@@ -3081,6 +3090,7 @@ class NativeShaderRuntime {
   }
 
   private clearDeviceResources(code: string, message: string): void {
+    this.clearDraftState();
     this.cameraSource.stop();
     this.clearCameraClip();
     this.releaseCameraTexture();
@@ -3517,14 +3527,22 @@ class NativeShaderRuntime {
     const budgetRecord = owner ?? mount;
     const budget = summarizeNativeCompositionBudget(
       {
-        resource: surfaces.flatMap((surface) => [
-          ...surface.resourceTextures.values(),
-        ]),
+        resource: [
+          ...surfaces.flatMap((surface) => [
+            ...surface.resourceTextures.values(),
+          ]),
+          ...(owner && this.draft?.instanceId === owner.instance.id
+            ? this.draft.statefulResources.values()
+            : []),
+        ],
         feedback: [
           ...(budgetRecord.feedback?.textures ?? []),
           ...(("stateful" in budgetRecord
             ? budgetRecord.stateful?.textures
             : undefined) ?? []),
+          ...(owner && this.draft?.instanceId === owner.instance.id
+            ? (this.draft.stateful?.textures ?? [])
+            : []),
         ],
         source: surfaces.flatMap((surface) =>
           [...surface.sourceTextures.values()].map((entry) => entry.texture),
@@ -3541,6 +3559,9 @@ class NativeShaderRuntime {
           ...(("stateful" in budgetRecord
             ? budgetRecord.stateful?.buffers
             : undefined) ?? []),
+          ...(owner && this.draft?.instanceId === owner.instance.id
+            ? (this.draft.stateful?.buffers ?? [])
+            : []),
         ],
       },
       new Map<GPUTexture | GPUBuffer, number>([
@@ -3638,6 +3659,7 @@ class NativeShaderRuntime {
   }
 
   private releaseMountTextures(mount: Mount): void {
+    if (this.draft?.instanceId === mount.instance.id) this.clearDraftState();
     this.releaseGraphPipelinePins(mount);
     this.releaseAuthoredInputs(mount);
     this.releaseSimulation(mount);
@@ -7291,6 +7313,11 @@ class NativeShaderRuntime {
     assertNativeUniformTiming(time, "time");
     assertNativeUniformTiming(instance.timing.time, "initial-time");
     assertNativeUniformTiming(instance.timing.speed, "speed");
+    if (this.draft?.showDraft && this.draft.instanceId === mount.instance.id)
+      throw new NativeSourceError(
+        "simulation-draft-unsupported",
+        "Particle simulation drafts need an isolated simulation session.",
+      );
     const spec = definition.simulation;
     if (!spec)
       throw new NativeSourceError(
@@ -7729,11 +7756,23 @@ class NativeShaderRuntime {
     inputEpochs?: ReadonlyMap<string, number | null>,
   ): Promise<GPUTexture> {
     const graph = definition.resourceGraph;
-    if (definition !== mount.definition || !isStatefulResourceGraph(graph))
+    if (!isStatefulResourceGraph(graph))
       throw new NativeSourceError(
         "stateful-definition-invalid",
-        "A stateful draft needs an isolated graph session.",
+        "The stateful graph definition is invalid.",
       );
+    const draft =
+      this.draft?.showDraft &&
+      this.draft.instanceId === instance.id &&
+      this.draft.definition === definition
+        ? this.draft
+        : null;
+    if (definition !== mount.definition && !draft)
+      throw new NativeSourceError(
+        "stateful-definition-invalid",
+        "The draft graph session is unavailable.",
+      );
+    const definitionHash = draft?.executionHash ?? mount.definitionHash;
     const plan = planEffectGraph(definition);
     if (plan.errors.length)
       throw new NativeSourceError(
@@ -7756,10 +7795,10 @@ class NativeShaderRuntime {
     const resetPropertyValues = (graph.resetProperties ?? []).map(
       (name) => [name, readNumber(name)] as const,
     );
-    const prior = mount.stateful;
+    const prior = draft ? draft.stateful : mount.stateful;
     if (
       prior &&
-      (prior.definitionHash !== mount.definitionHash ||
+      (prior.definitionHash !== definitionHash ||
         prior.seed !== instance.seed ||
         prior.sourceIdentity !== sourceIdentity ||
         prior.sourceWidth !== source.width ||
@@ -7769,8 +7808,10 @@ class NativeShaderRuntime {
           prior.resetPropertyValues,
           resetPropertyValues,
         ))
-    )
-      this.releaseStateful(mount);
+    ) {
+      if (draft) this.releaseDraftStateful(draft);
+      else this.releaseStateful(mount);
+    }
     const pipelines = new Map<string, GPURenderPipeline | GPUComputePipeline>();
     const device = this.device!;
     const epoch = this.deviceEpoch;
@@ -7805,7 +7846,7 @@ class NativeShaderRuntime {
       );
     if (!mount.pendingGraphInputEpochs)
       mount.pendingGraphInputEpochs = new Map();
-    if (!mount.stateful) {
+    if (!(draft ? draft.stateful : mount.stateful)) {
       const stateNames = new Set(graph.stateResources);
       const plannedBytes = plan.passes.reduce((sum, pass) => {
         const spec = declared.get(pass.output)!;
@@ -7865,9 +7906,9 @@ class NativeShaderRuntime {
         mount.width,
         mount.height,
       );
-      mount.stateful = {
+      const stateful: NonNullable<Mount["stateful"]> = {
         executor,
-        definitionHash: mount.definitionHash,
+        definitionHash,
         seed: instance.seed,
         resetPropertyValues,
         seekRevision: instance.timing.seekRevision ?? 0,
@@ -7881,8 +7922,10 @@ class NativeShaderRuntime {
         textures,
         buffers,
       };
+      if (draft) draft.stateful = stateful;
+      else mount.stateful = stateful;
     }
-    const stateful = mount.stateful;
+    const stateful = (draft ? draft.stateful : mount.stateful)!;
     const completed = stateful.executor.lastCompletedStep;
     const target = resolveNativeStatefulTargetStep(
       time,
@@ -7907,7 +7950,8 @@ class NativeShaderRuntime {
         "Sequential source history must begin at the first fixed step.",
       );
     if (target < completed) {
-      this.releaseStateful(mount);
+      if (draft) this.releaseDraftStateful(draft);
+      else this.releaseStateful(mount);
       return this.statefulResourcePasses(
         mount,
         source,
@@ -7966,7 +8010,7 @@ class NativeShaderRuntime {
       );
     const outputFormat = outputSpec.format;
     const output = acquireNativeStatefulOutput(
-      mount.resourceTextures,
+      draft?.statefulResources ?? mount.resourceTextures,
       definition.output!,
       mount.outputTexture,
       source,
@@ -8057,7 +8101,8 @@ class NativeShaderRuntime {
       !deterministic && graph.sourceHistory === "sequential-captures"
         ? Math.max(0, target - Math.max(0, completed + 1))
         : 0;
-    mount.statefulFrame = frame;
+    if (draft) draft.statefulFrame = frame;
+    else mount.statefulFrame = frame;
     mount.simulationCaughtUp = frame.completedStep >= target;
     return frame.output;
   }
@@ -8073,7 +8118,10 @@ class NativeShaderRuntime {
     deterministic: boolean,
     sourceIdentity: string,
   ): Promise<GPUTexture> {
-    if (definition !== mount.definition)
+    if (
+      definition !== mount.definition ||
+      (this.draft?.showDraft && this.draft.instanceId === mount.instance.id)
+    )
       throw new NativeSourceError(
         "feedback-draft-unsupported",
         "A feedback draft needs an isolated state session.",
@@ -12062,7 +12110,7 @@ class NativeShaderRuntime {
       if (hostWallPhases)
         hostWallPhases.submitCallWallMs += performance.now() - submitStarted;
       submitted = true;
-      mount.statefulFrame?.markSubmitted();
+      (draft?.statefulFrame ?? mount.statefulFrame)?.markSubmitted();
       if (gpuSample) {
         this.gpuProfiler?.afterSubmit(gpuSample);
         profileSubmitted = true;
@@ -12167,14 +12215,15 @@ class NativeShaderRuntime {
           },
         );
       }
-      if (mount.statefulFrame) {
-        const frame = mount.statefulFrame;
-        const stateful = mount.stateful!;
-        await frame.commit(() => {
+      const statefulFrame = draft?.statefulFrame ?? mount.statefulFrame;
+      if (statefulFrame) {
+        const stateful = (draft ? draft.stateful : mount.stateful)!;
+        await statefulFrame.commit(() => {
           assertCaptureOriginCurrent();
           assertStatelessCurrent();
         });
-        mount.statefulFrame = null;
+        if (draft) draft.statefulFrame = null;
+        else mount.statefulFrame = null;
         stateful.sourceRevision = stateful.pendingSourceRevision ?? "";
         stateful.pendingSourceRevision = null;
         stateful.droppedSteps += stateful.pendingDroppedSteps;
@@ -12183,8 +12232,10 @@ class NativeShaderRuntime {
           "data-an-native-stateful-dropped-steps",
           String(stateful.droppedSteps),
         );
-        const fixedDt = isStatefulResourceGraph(mount.definition.resourceGraph)
-          ? mount.definition.resourceGraph.timing.fixedDt
+        const activeGraph = (draft?.definition ?? mount.definition)
+          .resourceGraph;
+        const fixedDt = isStatefulResourceGraph(activeGraph)
+          ? activeGraph.timing.fixedDt
           : 0;
         mount.target.setAttribute(
           "data-an-native-stateful-dropped-seconds",
@@ -12479,17 +12530,20 @@ class NativeShaderRuntime {
             mount.target.setAttribute(name, value);
         }
       }
-      if (mount.definition.simulation) this.releaseSimulation(mount);
-      const statefulFrame = mount.statefulFrame;
-      mount.statefulFrame = null;
-      if (mount.stateful) {
-        mount.stateful.pendingSourceRevision = null;
-        mount.stateful.pendingDroppedSteps = 0;
+      if (!draft && mount.definition.simulation) this.releaseSimulation(mount);
+      const statefulFrame = draft?.statefulFrame ?? mount.statefulFrame;
+      if (draft) draft.statefulFrame = null;
+      else mount.statefulFrame = null;
+      const stateful = draft ? draft.stateful : mount.stateful;
+      if (stateful) {
+        stateful.pendingSourceRevision = null;
+        stateful.pendingDroppedSteps = 0;
       }
       if (statefulFrame) {
         if (submitted) await statefulFrame.rejectSubmitted(error);
         else statefulFrame.abandon();
-        this.releaseStateful(mount);
+        if (draft) this.releaseDraftStateful(draft);
+        else this.releaseStateful(mount);
       }
       const feedbackFrame = mount.feedbackFrame;
       mount.feedbackFrame = null;
@@ -13422,9 +13476,20 @@ class NativeShaderRuntime {
     }
   };
 
+  private releaseDraftStateful(draft: DraftPreview): void {
+    draft.statefulFrame?.abandon();
+    draft.statefulFrame = null;
+    draft.stateful?.executor.dispose();
+    draft.stateful = null;
+    for (const texture of draft.statefulResources.values())
+      this.textureRetirement.push(texture);
+    draft.statefulResources.clear();
+  }
+
   private clearDraftState(): void {
     const draft = this.draft;
     if (!draft) return;
+    this.releaseDraftStateful(draft);
     const mount = this.mounts.get(draft.instanceId);
     if (mount && draft.showDraft && draft.publishedTexture) {
       if (mount.outputTexture) this.textureRetirement.push(mount.outputTexture);
@@ -13818,8 +13883,10 @@ class NativeShaderRuntime {
     }
     const previous = this.draft;
     if (previous && previous.instanceId !== instanceId) this.clearDraftState();
-    else if (
+    else if (previous) this.releaseDraftStateful(previous);
+    if (
       previous &&
+      previous.instanceId === instanceId &&
       !previous.showDraft &&
       previous.lastGoodTexture &&
       mount.outputTexture
@@ -13844,6 +13911,9 @@ class NativeShaderRuntime {
         previous?.instanceId === instanceId ? previous.publishedTexture : null,
       lastGoodTexture: null,
       failedReason: null,
+      stateful: null,
+      statefulFrame: null,
+      statefulResources: new Map(),
     };
     const started = performance.now();
     const strictTime =

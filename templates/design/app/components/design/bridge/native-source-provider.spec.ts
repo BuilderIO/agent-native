@@ -2020,11 +2020,11 @@ describe("processed native layer source geometry", () => {
         getPropertyValue: () => "0px",
       } as unknown as CSSStyleDeclaration;
     });
-    let mutateSecondLabelDuringCapture = false;
+    let mutateAfterFirstPaintCapture = false;
     vi.spyOn(CachedLeaf.prototype, "read").mockImplementation(
       function (this: CachedLeaf) {
         const source = document.createElement("canvas");
-        if (mutateSecondLabelDuringCapture && this.element === secondLabel)
+        if (mutateAfterFirstPaintCapture && this.element === board)
           return Promise.resolve().then(() => {
             secondLabelZIndex = "-2";
             return source;
@@ -2034,7 +2034,9 @@ describe("processed native layer source geometry", () => {
     );
     const provider = createNativeSceneProvider(board, "layer");
     try {
-      const records = await provider!.readScene();
+      const metrics = emptyNativeSourceReadSceneMetrics();
+      const records = await provider!.readScene(metrics);
+      expect(metrics.recordDirectRectReads).toBe(6);
       expect(cardStyleReads).toBeLessThan(29);
       expect(provider!.diagnosticSnapshot()).toMatchObject({
         readSceneCalls: 1,
@@ -2123,10 +2125,12 @@ describe("processed native layer source geometry", () => {
           ],
         },
       ]);
-      mutateSecondLabelDuringCapture = true;
-      await expect(provider!.readScene()).rejects.toMatchObject({
+      mutateAfterFirstPaintCapture = true;
+      const changedMetrics = emptyNativeSourceReadSceneMetrics();
+      await expect(provider!.readScene(changedMetrics)).rejects.toMatchObject({
         code: "source-stacking-order",
       });
+      expect(changedMetrics.recordDirectRectReads).toBeGreaterThan(6);
     } finally {
       provider?.dispose();
     }

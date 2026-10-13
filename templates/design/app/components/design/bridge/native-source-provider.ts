@@ -1769,6 +1769,7 @@ class SourceGeometryMemo {
   readonly transforms = new Map<HTMLElement, NativeAffine2D>();
   readonly viewportAffines = new Map<HTMLElement, NativeAffine2D>();
   readonly matrices = new Map<HTMLElement, NativeAffine2D>();
+  readonly sceneFrameEntries = new Map<Element, readonly (number | string)[]>();
 
   constructor(
     private readonly target: Element,
@@ -1789,6 +1790,7 @@ class SourceGeometryMemo {
     this.transforms.clear();
     this.viewportAffines.clear();
     this.matrices.clear();
+    this.sceneFrameEntries.clear();
   }
 }
 
@@ -3719,7 +3721,7 @@ class SceneProvider implements NativeSceneProvider {
     let plannedPaint = "";
     let result: HTMLCanvasElement | Promise<HTMLCanvasElement>;
     try {
-      plannedSnapshot = this.sceneFrameSnapshot(leaf.element, metrics);
+      plannedSnapshot = this.sceneFrameSnapshot(leaf.element, metrics, memo);
       plannedPaint = this.rasterPaintSnapshot(leaf.element, phase, metrics);
       if (
         leaf.capturedPaintSnapshot !== null &&
@@ -3769,38 +3771,44 @@ class SceneProvider implements NativeSceneProvider {
   private sceneFrameSnapshot(
     element: Element,
     metrics?: NativeSourceReadSceneMetrics,
+    memo?: SourceGeometryMemo,
   ): string {
     const stop =
       this.placement === "backdrop" ? document.documentElement : this.target;
-    const entries: unknown[] = [];
+    const entries: (readonly (number | string)[])[] = [];
     for (
       let current: Element | null = element;
       current;
       current = current.parentElement
     ) {
-      if (metrics) {
-        metrics.recordDirectRectReads += 1;
-        metrics.recordDirectStyleReads += 1;
+      let entry = memo?.sceneFrameEntries.get(current);
+      if (!entry) {
+        if (metrics) {
+          metrics.recordDirectRectReads += 1;
+          metrics.recordDirectStyleReads += 1;
+        }
+        const rect = current.getBoundingClientRect();
+        const style = getComputedStyle(current);
+        entry = [
+          rect.left,
+          rect.top,
+          rect.width,
+          rect.height,
+          style.transform,
+          style.translate,
+          style.rotate,
+          style.scale,
+          style.overflowX,
+          style.overflowY,
+          style.clipPath,
+          style.borderTopLeftRadius,
+          style.borderTopRightRadius,
+          style.borderBottomRightRadius,
+          style.borderBottomLeftRadius,
+        ];
+        memo?.sceneFrameEntries.set(current, entry);
       }
-      const rect = current.getBoundingClientRect();
-      const style = getComputedStyle(current);
-      entries.push([
-        rect.left,
-        rect.top,
-        rect.width,
-        rect.height,
-        style.transform,
-        style.translate,
-        style.rotate,
-        style.scale,
-        style.overflowX,
-        style.overflowY,
-        style.clipPath,
-        style.borderTopLeftRadius,
-        style.borderTopRightRadius,
-        style.borderBottomRightRadius,
-        style.borderBottomLeftRadius,
-      ]);
+      entries.push(entry);
       if (current === stop) break;
     }
     return JSON.stringify(entries);

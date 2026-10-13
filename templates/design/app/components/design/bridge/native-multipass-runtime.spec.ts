@@ -11,7 +11,10 @@ import {
 import { OWNED_FEEDBACK_TEST_DEFINITION } from "../../../../shared/native-effect-owned-test-fixtures";
 import { planNativeEffectTransform } from "../../../../shared/native-effect-transform";
 import { hashEffectDefinition } from "../../../../shared/native-effect-trust";
-import { nativeRenderExtraTextureBindings } from "../../../../shared/native-effect-wgsl";
+import {
+  NATIVE_GRAPH_GLOBALS,
+  nativeRenderExtraTextureBindings,
+} from "../../../../shared/native-effect-wgsl";
 import type {
   EffectDefinition,
   EffectInstance,
@@ -1074,6 +1077,7 @@ describe("native multipass texture bindings", () => {
         renderInternal(
           time: number,
           deterministic: boolean,
+          draftTarget?: { instanceId: string; strictTime: boolean },
         ): Promise<{
           failures: { code: string }[];
         }>;
@@ -3996,6 +4000,327 @@ describe("native multipass texture bindings", () => {
           ).statelessRetirements,
         ]);
       }
+      const statefulCompute = `${NATIVE_GRAPH_GLOBALS}
+@group(0) @binding(2) var sourceTexture: texture_2d<f32>;
+@group(0) @binding(3) var previousHistory: texture_2d<f32>;
+@group(0) @binding(18) var nextHistory: texture_storage_2d<rgba16float, write>;
+@compute @workgroup_size(8, 8, 1)
+fn cs(@builtin(global_invocation_id) id: vec3u) {
+  if (any(id.xy >= textureDimensions(nextHistory))) { return; }
+  let prior = textureLoad(previousHistory, vec2i(id.xy), 0);
+  let source = textureLoad(sourceTexture, vec2i(0), 0);
+  textureStore(nextHistory, vec2i(id.xy), source + prior * globals.clock.w);
+}`;
+      const statefulResolve = `${NATIVE_GRAPH_GLOBALS}
+@group(0) @binding(2) var sourceTexture: texture_2d<f32>;
+@group(0) @binding(3) var historyTexture: texture_2d<f32>;
+struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
+@vertex fn vs(@builtin(vertex_index) index: u32) -> VertexOut {
+  var xy = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  var out: VertexOut;
+  out.position = vec4f(xy[index], 0.0, 1.0);
+  out.uv = xy[index] * vec2f(0.5, -0.5) + vec2f(0.5);
+  return out;
+}
+@fragment fn fs(input: VertexOut) -> @location(0) vec4f {
+  return textureSample(sourceTexture, effectSampler, input.uv) +
+    textureSample(historyTexture, effectSampler, input.uv) * globals.params[0].x;
+}`;
+      const publishedStatefulDefinition: EffectDefinition = {
+        ...definition,
+        id: "stateful-draft-session-test",
+        name: "Stateful draft session test",
+        properties: {
+          amount: {
+            type: "float",
+            label: "Amount",
+            default: 0.5,
+            min: 0,
+            max: 1,
+            step: 0.01,
+          },
+        },
+        resourceGraph: {
+          abi: "stateful-resource-v1",
+          timing: { fixedDt: 1 / 60, maxStepsPerCall: 8, maxStepIndex: 600 },
+          stateResources: ["history"],
+        },
+        resources: [
+          {
+            name: "source",
+            kind: "texture-2d",
+            external: true,
+            usage: ["sampled"],
+          },
+          {
+            name: "history",
+            kind: "texture-2d",
+            size: "fixed",
+            width: 8,
+            height: 8,
+            format: "rgba16float",
+            usage: ["sampled", "storage"],
+            persistent: true,
+          },
+          {
+            name: "color",
+            kind: "texture-2d",
+            size: "viewport",
+            format: "rgba16float",
+            usage: ["sampled", "render"],
+          },
+        ],
+        output: "color",
+        passes: [
+          {
+            id: "update-history",
+            kind: "compute",
+            reads: ["source"],
+            previousFrameReads: ["history"],
+            output: "history",
+            dispatch: { elements: "output-texture", workgroupSize: [8, 8, 1] },
+            wgsl: statefulCompute,
+          },
+          {
+            id: "resolve-history",
+            kind: "render",
+            reads: ["source", "history"],
+            output: "color",
+            wgsl: statefulResolve,
+          },
+        ],
+      };
+      const publishedStatefulHash = await hashEffectDefinition(
+        publishedStatefulDefinition,
+      );
+      const publishedStatefulInstance: EffectInstance = {
+        ...pairMount.instance,
+        definitionId: publishedStatefulDefinition.id,
+        definitionVersion: publishedStatefulDefinition.version,
+        params: { amount: 0.5 },
+        timing: { speed: 1, paused: true, time: 0 },
+      };
+      manifest.textContent = JSON.stringify({
+        schemaVersion: 2,
+        definitions: [publishedStatefulDefinition],
+        instances: [publishedStatefulInstance],
+      });
+      approval.textContent = JSON.stringify({
+        schemaVersion: 1,
+        hashes: [publishedStatefulHash],
+      });
+      internal.loadStandaloneApprovals();
+      await runtime!.scan();
+      if (internal.running) await internal.running;
+      expect((await internal.renderInternal(0, true)).failures).toEqual([]);
+      pairMount = internal.mounts.get(
+        "two-texture-instance",
+      ) as typeof pairMount;
+      const statefulProbe = internal as typeof internal & {
+        draft: {
+          stateful: {
+            executor: { lastCompletedStep: number };
+            textures: Set<FakeTexture>;
+          } | null;
+          statefulResources: Map<string, FakeTexture>;
+          publishedTexture: FakeTexture | null;
+        } | null;
+      };
+      const publishedStateful = (
+        pairMount as typeof pairMount & {
+          stateful: {
+            executor: { lastCompletedStep: number };
+            textures: Set<FakeTexture>;
+          };
+        }
+      ).stateful;
+      expect(publishedStateful.executor.lastCompletedStep).toBe(0);
+      const accountingProbe = internal as typeof internal & {
+        textureAccounting(): {
+          mounts: { id: string; graphBytes: number }[];
+        };
+      };
+      const publishedGraphBytes = accountingProbe
+        .textureAccounting()
+        .mounts.find((item) => item.id === "two-texture-instance")!.graphBytes;
+      const statefulDraftDefinition: EffectDefinition = {
+        ...publishedStatefulDefinition,
+        passes: publishedStatefulDefinition.passes.map((pass) => ({
+          ...pass,
+          wgsl: `${pass.wgsl}
+// draft candidate`,
+        })),
+      };
+      const statefulDraftHash = await hashEffectDefinition(
+        statefulDraftDefinition,
+      );
+      internal.draftGeneration = 101;
+      await internal.previewDraft(
+        {
+          requestId: "stateful-candidate",
+          runtimeEpoch: runtime!.epoch,
+          instanceId: "two-texture-instance",
+          nodeId: "two-texture-node",
+          baseExecutionHash: publishedStatefulHash,
+          expectedExecutionHash: statefulDraftHash,
+          draftDefinition: statefulDraftDefinition,
+          params: { amount: 0.75 },
+          seed: publishedStatefulInstance.seed,
+          time: 0,
+        },
+        101,
+      );
+      expect(draftResults[draftResults.length - 1]?.slice(0, 4)).toEqual([
+        "stateful-candidate",
+        "two-texture-instance",
+        "ready",
+        [],
+      ]);
+      const candidateStateful = statefulProbe.draft?.stateful;
+      expect(candidateStateful).toBeDefined();
+      expect(candidateStateful).not.toBe(publishedStateful);
+      expect(statefulProbe.draft?.publishedTexture).toBeDefined();
+      expect(statefulProbe.draft?.publishedTexture).not.toBe(
+        pairMount.outputTexture,
+      );
+      expect(statefulProbe.draft?.statefulResources.size).toBe(1);
+      expect(
+        accountingProbe
+          .textureAccounting()
+          .mounts.find((item) => item.id === "two-texture-instance")!
+          .graphBytes,
+      ).toBeGreaterThan(publishedGraphBytes);
+      let publishedStepAfterPreview =
+        publishedStateful.executor.lastCompletedStep;
+      const firstCandidateOutput = pairMount.outputTexture;
+      internal.draftGeneration = 102;
+      await internal.controlDraft(
+        {
+          requestId: "stateful-candidate-show-published",
+          runtimeEpoch: runtime!.epoch,
+          instanceId: "two-texture-instance",
+          baseExecutionHash: publishedStatefulHash,
+          command: "show-published",
+        },
+        102,
+      );
+      expect(draftResults[draftResults.length - 1]?.[2]).toBe("ready");
+      expect(statefulProbe.draft?.publishedTexture).toBeNull();
+      expect(statefulProbe.draft?.stateful).toBe(candidateStateful);
+      expect(pairMount.outputTexture).not.toBe(firstCandidateOutput);
+      internal.draftGeneration = 103;
+      await internal.controlDraft(
+        {
+          requestId: "stateful-candidate-show-draft",
+          runtimeEpoch: runtime!.epoch,
+          instanceId: "two-texture-instance",
+          baseExecutionHash: publishedStatefulHash,
+          command: "show-draft",
+        },
+        103,
+      );
+      expect(draftResults[draftResults.length - 1]?.[2]).toBe("ready");
+      expect(statefulProbe.draft?.publishedTexture).toBeDefined();
+      expect(statefulProbe.draft?.stateful).toBe(candidateStateful);
+      publishedStepAfterPreview = publishedStateful.executor.lastCompletedStep;
+      internal.draftGeneration = 104;
+      await internal.controlDraft(
+        {
+          requestId: "stateful-candidate-step",
+          runtimeEpoch: runtime!.epoch,
+          instanceId: "two-texture-instance",
+          baseExecutionHash: publishedStatefulHash,
+          command: "set-time",
+          time: 1 / 60,
+        },
+        104,
+      );
+      expect(draftResults[draftResults.length - 1]?.[2]).toBe("ready");
+      expect(statefulProbe.draft?.stateful?.executor.lastCompletedStep).toBe(1);
+      expect(publishedStateful.executor.lastCompletedStep).toBe(
+        publishedStepAfterPreview,
+      );
+      const candidateOutput = pairMount.outputTexture;
+      const candidateBanks = [...statefulProbe.draft!.stateful!.textures];
+      const publishedBanks = [...publishedStateful.textures];
+      internal.draftGeneration = 105;
+      await internal.controlDraft(
+        {
+          requestId: "stateful-candidate-over-limit",
+          runtimeEpoch: runtime!.epoch,
+          instanceId: "two-texture-instance",
+          baseExecutionHash: publishedStatefulHash,
+          command: "set-time",
+          time: 601 / 60,
+        },
+        105,
+      );
+      expect(draftResults[draftResults.length - 1]?.[2]).toBe("last-good");
+      expect(
+        (draftResults[draftResults.length - 1]?.[3] as { code: string }[])[0]
+          ?.code,
+      ).toBe("stateful-step-limit");
+      expect(pairMount.outputTexture).toBe(candidateOutput);
+      expect(
+        (pairMount as typeof pairMount & { stateful: unknown }).stateful,
+      ).toBe(publishedStateful);
+      const invalidCandidateDefinition: EffectDefinition = {
+        ...statefulDraftDefinition,
+        passes: statefulDraftDefinition.passes.map((pass) => ({
+          ...pass,
+          wgsl: `${pass.wgsl}\n// INVALID_DRAFT`,
+        })),
+      };
+      const invalidCandidateHash = await hashEffectDefinition(
+        invalidCandidateDefinition,
+      );
+      internal.draftGeneration = 106;
+      await internal.previewDraft(
+        {
+          requestId: "stateful-candidate-compile-failure",
+          runtimeEpoch: runtime!.epoch,
+          instanceId: "two-texture-instance",
+          nodeId: "two-texture-node",
+          baseExecutionHash: publishedStatefulHash,
+          expectedExecutionHash: invalidCandidateHash,
+          draftDefinition: invalidCandidateDefinition,
+          params: { amount: 0.75 },
+          seed: publishedStatefulInstance.seed,
+          time: 0,
+        },
+        106,
+      );
+      expect(draftResults[draftResults.length - 1]?.[2]).toBe("last-good");
+      expect(pairMount.outputTexture).toBe(candidateOutput);
+      internal.draftGeneration = 107;
+      await internal.controlDraft(
+        {
+          requestId: "stateful-candidate-clear",
+          runtimeEpoch: runtime!.epoch,
+          instanceId: "two-texture-instance",
+          baseExecutionHash: publishedStatefulHash,
+          command: "clear",
+        },
+        107,
+      );
+      expect(draftResults[draftResults.length - 1]?.[2]).toBe("ready");
+      expect(statefulProbe.draft).toBeNull();
+      expect(
+        (pairMount as typeof pairMount & { stateful: unknown }).stateful,
+      ).toBe(publishedStateful);
+      expect(
+        publishedStateful.executor.lastCompletedStep,
+      ).toBeGreaterThanOrEqual(publishedStepAfterPreview);
+      expect(pairMount.outputTexture).toBeDefined();
+      expect(pairMount.outputTexture).not.toBe(candidateOutput);
+      expect(target.getAttribute("data-an-native-status")).toBe("ready");
+      expect(
+        candidateBanks.every((texture) => destroyed.includes(texture.id)),
+      ).toBe(true);
+      expect(
+        publishedBanks.every((texture) => !destroyed.includes(texture.id)),
+      ).toBe(true);
+
       // Test-only private ABI consumer; no catalog or oracle promotion.
       const statelessProbe = internal as typeof internal & {
         approvedHashes: Set<string>;
