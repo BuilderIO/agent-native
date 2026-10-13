@@ -24,8 +24,10 @@ import type { NativeMountedBenchmarkRun } from "./native-mounted-benchmark";
 import type { NativePlaybackClock } from "./native-playback-clock";
 import {
   createNativeSceneProvider,
+  NativeSourceError,
   type NativeSourceRecord,
 } from "./native-source-provider";
+import { resolveNativeStatefulTargetStep } from "./native-stateful-resource";
 
 const wgsl = `
 struct Globals { viewport: vec4f, clock: vec4f, params: array<vec4f, 32> };
@@ -1807,6 +1809,190 @@ describe("native multipass texture bindings", () => {
         "error",
         [expect.objectContaining({ code: "draft-session-stale" })],
       ]);
+      const draftTimeProbe = internal as typeof internal & {
+        renderMount(
+          mount: typeof mounted,
+          time: number,
+          deterministic: boolean,
+          complete: Set<string>,
+          active: Set<string>,
+        ): Promise<void>;
+        mountDeterministicTime(
+          mount: typeof mounted,
+          deterministic: boolean,
+        ): boolean;
+      };
+      const liveStatefulMounts = ["live-stateful-a", "live-stateful-b"].map(
+        (id) =>
+          ({
+            ...mounted,
+            definition: OWNED_FEEDBACK_TEST_DEFINITION,
+            instance: { ...mounted.instance, id, nodeId: id },
+            isTopLayer: false,
+          }) as typeof mounted,
+      );
+      const originalRenderMount =
+        draftTimeProbe.renderMount.bind(draftTimeProbe);
+      const draftModes: { id: string; deterministic: boolean }[] = [];
+      const renderMountSpy = vi
+        .spyOn(draftTimeProbe, "renderMount")
+        .mockImplementation(
+          async (candidate, time, deterministic, complete, active) => {
+            if (liveStatefulMounts.includes(candidate)) {
+              const strict = draftTimeProbe.mountDeterministicTime(
+                candidate,
+                deterministic,
+              );
+              draftModes.push({
+                id: candidate.instance.id,
+                deterministic: strict,
+              });
+              if (
+                strict &&
+                resolveNativeStatefulTargetStep(time, 1 / 60, 36_000, true) ===
+                  null
+              )
+                throw new NativeSourceError(
+                  "stateful-step-limit",
+                  "The requested fixed step is outside the graph limit.",
+                );
+              complete.add(candidate.instance.id);
+              return;
+            }
+            return originalRenderMount(
+              candidate,
+              time,
+              deterministic,
+              complete,
+              active,
+            );
+          },
+        );
+      for (const stateful of liveStatefulMounts)
+        internal.mounts.set(stateful.instance.id, stateful);
+      try {
+        internal.draftGeneration = 6;
+        await internal.previewDraft(
+          {
+            requestId: "draft-with-live-stateful-siblings",
+            runtimeEpoch: runtime!.epoch,
+            instanceId: "two-texture-instance",
+            nodeId: "two-texture-node",
+            baseExecutionHash,
+            expectedExecutionHash,
+            draftDefinition,
+            params: {},
+            seed: 1,
+            time: 0,
+          },
+          6,
+        );
+        expect(draftResults[draftResults.length - 1]?.slice(0, 4)).toEqual([
+          "draft-with-live-stateful-siblings",
+          "two-texture-instance",
+          "ready",
+          [],
+        ]);
+        expect(draftModes).toEqual(
+          liveStatefulMounts.map((stateful) => ({
+            id: stateful.instance.id,
+            deterministic: false,
+          })),
+        );
+        draftModes.length = 0;
+        const writesBeforeSeek = writtenUniforms.length;
+        internal.draftGeneration = 7;
+        await internal.controlDraft(
+          {
+            requestId: "seek-static-draft-with-live-stateful-siblings",
+            runtimeEpoch: runtime!.epoch,
+            instanceId: "two-texture-instance",
+            baseExecutionHash,
+            command: "set-time",
+            time: 2.5,
+          },
+          7,
+        );
+        expect(draftResults[draftResults.length - 1]?.slice(0, 4)).toEqual([
+          "seek-static-draft-with-live-stateful-siblings",
+          "two-texture-instance",
+          "ready",
+          [],
+        ]);
+        expect(
+          writtenUniforms
+            .slice(writesBeforeSeek)
+            .some((values) => values.length === 136 && values[4] === 2.5),
+        ).toBe(true);
+        expect(draftModes).toEqual(
+          liveStatefulMounts.map((stateful) => ({
+            id: stateful.instance.id,
+            deterministic: false,
+          })),
+        );
+        draftModes.length = 0;
+        const strictTarget = liveStatefulMounts[0]!;
+        const strictSibling = liveStatefulMounts[1]!;
+        expect(
+          (
+            await internal.renderInternal(601, false, {
+              instanceId: strictTarget.instance.id,
+              strictTime: true,
+            })
+          ).failures,
+        ).toEqual([
+          expect.objectContaining({
+            message: "The requested fixed step is outside the graph limit.",
+          }),
+        ]);
+        expect(draftModes).toEqual([
+          { id: strictTarget.instance.id, deterministic: true },
+          { id: strictSibling.instance.id, deterministic: false },
+        ]);
+        draftModes.length = 0;
+        expect((await internal.renderInternal(601, true)).failures).toEqual([
+          expect.objectContaining({
+            message: "The requested fixed step is outside the graph limit.",
+          }),
+          expect.objectContaining({
+            message: "The requested fixed step is outside the graph limit.",
+          }),
+        ]);
+        expect(draftModes).toEqual(
+          liveStatefulMounts.map((stateful) => ({
+            id: stateful.instance.id,
+            deterministic: true,
+          })),
+        );
+        draftModes.length = 0;
+        internal.draftGeneration = 8;
+        await internal.controlDraft(
+          {
+            requestId: "clear-with-live-stateful-siblings",
+            runtimeEpoch: runtime!.epoch,
+            instanceId: "two-texture-instance",
+            baseExecutionHash,
+            command: "clear",
+          },
+          8,
+        );
+        expect(draftResults[draftResults.length - 1]?.slice(0, 4)).toEqual([
+          "clear-with-live-stateful-siblings",
+          "two-texture-instance",
+          "ready",
+          [],
+        ]);
+        expect(draftModes).toEqual(
+          liveStatefulMounts.map((stateful) => ({
+            id: stateful.instance.id,
+            deterministic: false,
+          })),
+        );
+      } finally {
+        renderMountSpy.mockRestore();
+        for (const stateful of liveStatefulMounts)
+          internal.mounts.delete(stateful.instance.id);
+      }
       const parentDescriptor = Object.getOwnPropertyDescriptor(
         window,
         "parent",

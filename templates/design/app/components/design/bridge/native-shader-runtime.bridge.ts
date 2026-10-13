@@ -1543,6 +1543,7 @@ class NativeShaderRuntime {
   private raf = 0;
   private idleSourceTimer = 0;
   private running: Promise<NativeRenderResult> | null = null;
+  private scopedDraftTimeInstanceId: string | null = null;
   private disposed = false;
   private started = false;
   private rescanObserver: MutationObserver | null = null;
@@ -11131,7 +11132,11 @@ class NativeShaderRuntime {
       pass.setBindGroup(0, bind);
       pass.draw(6);
       pass.end();
-      const childTime = transaction.deterministic
+      const childDeterministic = this.mountDeterministicTime(
+        child,
+        transaction.deterministic,
+      );
+      const childTime = childDeterministic
         ? child.instance.timing.time +
           (child.instance.timing.paused
             ? 0
@@ -11147,7 +11152,7 @@ class NativeShaderRuntime {
         encoder,
         child.definition,
         child.instance,
-        transaction.deterministic,
+        childDeterministic,
         `group-local:${parent.instance.id}:${this.renderEpoch}`,
         { complete: transaction.complete, active: transaction.active },
       );
@@ -11172,6 +11177,15 @@ class NativeShaderRuntime {
     }
   }
 
+  private mountDeterministicTime(
+    mount: Mount,
+    deterministic: boolean,
+  ): boolean {
+    return this.scopedDraftTimeInstanceId
+      ? this.scopedDraftTimeInstanceId === mount.instance.id
+      : deterministic;
+  }
+
   private async renderMount(
     mount: Mount,
     time: number,
@@ -11179,6 +11193,7 @@ class NativeShaderRuntime {
     complete: Set<string>,
     active: Set<string>,
   ): Promise<void> {
+    deterministic = this.mountDeterministicTime(mount, deterministic);
     if (complete.has(mount.instance.id)) return;
     if (mount.instance.placement === "backdrop") {
       const enclosingLayers = this.enclosingLayerMounts(mount.target);
@@ -12551,6 +12566,7 @@ class NativeShaderRuntime {
   private renderInternal = async (
     time: number,
     deterministic: boolean,
+    draftTarget?: { instanceId: string; strictTime: boolean },
   ): Promise<NativeRenderResult> => {
     if (!Number.isFinite(time) || time < 0)
       throw new Error("Native shader time must be a finite nonnegative value.");
@@ -12590,6 +12606,9 @@ class NativeShaderRuntime {
         }
       : null;
     this.mountedBenchmarkRenderMetrics = benchmarkMetrics;
+    this.scopedDraftTimeInstanceId = draftTarget?.strictTime
+      ? draftTarget.instanceId
+      : null;
     let sceneBudgetExceeded = false;
     this.running = (async () => {
       const started = performance.now();
@@ -12609,7 +12628,11 @@ class NativeShaderRuntime {
         }
         const mountsStarted = benchmarkMetrics ? performance.now() : 0;
         for (const mount of this.mounts.values()) {
-          if (!deterministic && this.offscreen(mount)) {
+          if (
+            !deterministic &&
+            mount.instance.id !== draftTarget?.instanceId &&
+            this.offscreen(mount)
+          ) {
             mount.target.setAttribute("data-an-native-culled", "true");
             continue;
           }
@@ -12840,6 +12863,7 @@ class NativeShaderRuntime {
       throw error;
     } finally {
       this.mountedBenchmarkRenderMetrics = null;
+      this.scopedDraftTimeInstanceId = null;
       this.authoredInputReuse = new WeakMap();
       this.authoredInputReuseEpoch = -1;
       for (const mount of this.mounts.values())
@@ -13822,7 +13846,14 @@ class NativeShaderRuntime {
       failedReason: null,
     };
     const started = performance.now();
-    const result = await this.renderInternal(this.currentTime(), true);
+    const strictTime =
+      !!definition.simulation ||
+      !!definition.feedback ||
+      isStatefulResourceGraph(definition.resourceGraph);
+    const result = await this.renderInternal(this.currentTime(), false, {
+      instanceId,
+      strictTime,
+    });
     if (generation !== this.draftGeneration) {
       fail("draft-superseded", "A newer draft request superseded this one.");
       return;
@@ -13951,8 +13982,19 @@ class NativeShaderRuntime {
         draft.time = (performance.now() - draft.clockOrigin) / 1000;
       draft.playing = false;
     }
+    if (request.command !== "clear") draft.generation = generation;
     const started = performance.now();
-    const result = await this.renderInternal(this.currentTime(), true);
+    const activeDraft = request.command !== "clear" && draft.showDraft;
+    const definition = activeDraft ? draft.definition : mount.definition;
+    const strictTime =
+      activeDraft &&
+      (!!definition.simulation ||
+        !!definition.feedback ||
+        isStatefulResourceGraph(definition.resourceGraph));
+    const result = await this.renderInternal(this.currentTime(), false, {
+      instanceId,
+      strictTime,
+    });
     const failure = result.failures.find(
       (item) => !item.instanceId || item.instanceId === instanceId,
     );

@@ -17225,6 +17225,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       this.raf = 0;
       this.idleSourceTimer = 0;
       this.running = null;
+      this.scopedDraftTimeInstanceId = null;
       this.disposed = false;
       this.started = false;
       this.rescanObserver = null;
@@ -18008,7 +18009,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           instancePaused: mount.clock.paused
         };
       };
-      this.renderInternal = async (time, deterministic) => {
+      this.renderInternal = async (time, deterministic, draftTarget) => {
         if (!Number.isFinite(time) || time < 0)
           throw new Error("Native shader time must be a finite nonnegative value.");
         assertNativeUniformTiming(time, "time");
@@ -18045,6 +18046,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           sourceReadDetail: emptyNativeSourceReadSceneMetrics()
         } : null;
         this.mountedBenchmarkRenderMetrics = benchmarkMetrics;
+        this.scopedDraftTimeInstanceId = draftTarget?.strictTime ? draftTarget.instanceId : null;
         let sceneBudgetExceeded = false;
         this.running = (async () => {
           const started = performance.now();
@@ -18061,7 +18063,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             }
             const mountsStarted = benchmarkMetrics ? performance.now() : 0;
             for (const mount of this.mounts.values()) {
-              if (!deterministic && this.offscreen(mount)) {
+              if (!deterministic && mount.instance.id !== draftTarget?.instanceId && this.offscreen(mount)) {
                 mount.target.setAttribute("data-an-native-culled", "true");
                 continue;
               }
@@ -18249,6 +18251,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           throw error;
         } finally {
           this.mountedBenchmarkRenderMetrics = null;
+          this.scopedDraftTimeInstanceId = null;
           this.authoredInputReuse = /* @__PURE__ */ new WeakMap();
           this.authoredInputReuseEpoch = -1;
           for (const mount of this.mounts.values())
@@ -26768,7 +26771,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         pass.setBindGroup(0, bind);
         pass.draw(6);
         pass.end();
-        const childTime = transaction.deterministic ? child.instance.timing.time + (child.instance.timing.paused ? 0 : transaction.time * child.instance.timing.speed) : child.clock.paused ? child.clock.local : child.clock.local + (transaction.time - child.clock.global) * child.clock.speed;
+        const childDeterministic = this.mountDeterministicTime(
+          child,
+          transaction.deterministic
+        );
+        const childTime = childDeterministic ? child.instance.timing.time + (child.instance.timing.paused ? 0 : transaction.time * child.instance.timing.speed) : child.clock.paused ? child.clock.local : child.clock.local + (transaction.time - child.clock.global) * child.clock.speed;
         const result = await this.effectPasses(
           child,
           source,
@@ -26776,7 +26783,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           encoder,
           child.definition,
           child.instance,
-          transaction.deterministic,
+          childDeterministic,
           \`group-local:\${parent.instance.id}:\${this.renderEpoch}\`,
           { complete: transaction.complete, active: transaction.active }
         );
@@ -26798,7 +26805,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         transaction.active.delete(child.instance.id);
       }
     }
+    mountDeterministicTime(mount, deterministic) {
+      return this.scopedDraftTimeInstanceId ? this.scopedDraftTimeInstanceId === mount.instance.id : deterministic;
+    }
     async renderMount(mount, time, deterministic, complete, active) {
+      deterministic = this.mountDeterministicTime(mount, deterministic);
       if (complete.has(mount.instance.id)) return;
       if (mount.instance.placement === "backdrop") {
         const enclosingLayers = this.enclosingLayerMounts(mount.target);
@@ -28359,7 +28370,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         failedReason: null
       };
       const started = performance.now();
-      const result = await this.renderInternal(this.currentTime(), true);
+      const strictTime = !!definition.simulation || !!definition.feedback || isStatefulResourceGraph(definition.resourceGraph);
+      const result = await this.renderInternal(this.currentTime(), false, {
+        instanceId,
+        strictTime
+      });
       if (generation !== this.draftGeneration) {
         fail("draft-superseded", "A newer draft request superseded this one.");
         return;
@@ -28463,8 +28478,15 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           draft.time = (performance.now() - draft.clockOrigin) / 1e3;
         draft.playing = false;
       }
+      if (request.command !== "clear") draft.generation = generation;
       const started = performance.now();
-      const result = await this.renderInternal(this.currentTime(), true);
+      const activeDraft = request.command !== "clear" && draft.showDraft;
+      const definition = activeDraft ? draft.definition : mount.definition;
+      const strictTime = activeDraft && (!!definition.simulation || !!definition.feedback || isStatefulResourceGraph(definition.resourceGraph));
+      const result = await this.renderInternal(this.currentTime(), false, {
+        instanceId,
+        strictTime
+      });
       const failure2 = result.failures.find(
         (item) => !item.instanceId || item.instanceId === instanceId
       );
