@@ -7258,11 +7258,25 @@ export async function runAgentLoop(opts: {
       | undefined;
     let turnYieldedToUser = false;
 
-    const noteToolCallSucceeded = (actionEntry: ActionEntry) => {
+    const noteToolCallSucceeded = (
+      actionEntry: ActionEntry,
+      toolName: string,
+      toolInput: unknown,
+    ) => {
       if (actionEntry.endsTurn !== true) return;
       turnYieldedToUser = true;
+      const question =
+        toolName === "ask-question" &&
+        typeof toolInput === "object" &&
+        toolInput !== null &&
+        "question" in toolInput &&
+        typeof toolInput.question === "string"
+          ? toolInput.question.trim()
+          : "";
       requestedActionStop ??= {
-        message: "Waiting for your answer before continuing.",
+        message: question
+          ? `Waiting for your answer before continuing: ${question}`
+          : "Waiting for your answer before continuing.",
         errorCode: "awaiting-user-input",
       };
     };
@@ -7755,7 +7769,7 @@ export async function runAgentLoop(opts: {
               : {}),
           });
           recordToolResult(result, false, journaled.artifacts);
-          noteToolCallSucceeded(actionEntry);
+          noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
           resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
           return {
             type: "tool-result" as const,
@@ -7840,7 +7854,7 @@ export async function runAgentLoop(opts: {
                 : {}),
             });
             recordToolResult(result, false, ledgerResult.artifacts);
-            noteToolCallSucceeded(actionEntry);
+            noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
             resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
             return {
               type: "tool-result" as const,
@@ -8524,7 +8538,7 @@ export async function runAgentLoop(opts: {
         });
         recordToolResult(result, isError, toolArtifacts, receipt);
         if (!isError) {
-          noteToolCallSucceeded(actionEntry);
+          noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
           if (cacheKey) {
             readOnlyToolResultCache.set(cacheKey, {
               content: result,

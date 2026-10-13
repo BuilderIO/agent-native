@@ -17328,7 +17328,7 @@ describe("runAgentLoop endsTurn", () => {
       {
         state: "input_required",
         code: "awaiting_user_input",
-        message: "Waiting for your answer before continuing.",
+        message: "Waiting for your answer before continuing: Which range?",
       },
     ]);
   });
