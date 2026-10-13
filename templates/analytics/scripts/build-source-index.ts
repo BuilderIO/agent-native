@@ -2389,7 +2389,12 @@ function hasOnlyMembershipJoins(
 function inferUnnestedMembershipGrain(
   sql: string,
   modelName: string,
-): string | undefined {
+):
+  | {
+      grain: string;
+      membershipKeyRoles: { user: string; organization: string };
+    }
+  | undefined {
   if (
     !/(?:user|member)/i.test(modelName) ||
     !/(?:org|organization)/i.test(modelName)
@@ -2417,23 +2422,42 @@ function inferUnnestedMembershipGrain(
   }
   const selectList = finalSelectList(source);
   if (!selectList) return undefined;
-  const projections = splitTopLevelSqlList(selectList)
-    .map(directProjection)
-    .filter((projection): projection is NonNullable<typeof projection> =>
-      Boolean(projection),
+  const selectProjections = splitTopLevelSqlList(selectList);
+  if (selectProjections.includes("*")) return undefined;
+  const projections = selectProjections.map(directProjection);
+
+  const outputColumnCounts = new Map<string, number>();
+  for (const projection of selectProjections) {
+    const outputColumn = projectedOutputColumn(projection);
+    if (!outputColumn) return undefined;
+    outputColumnCounts.set(
+      outputColumn,
+      (outputColumnCounts.get(outputColumn) ?? 0) + 1,
     );
-  const hasUserId = projections.some(
-    (projection) =>
-      projection.outputColumn === "user_id" &&
-      projection.inputColumn === "user_id",
-  );
-  const hasOrganizationId = projections.some(
-    (projection) =>
-      projection.outputColumn === "organization_id" &&
-      projection.inputColumn === unnestedAlias.toLowerCase(),
-  );
-  if (!hasUserId || !hasOrganizationId) return undefined;
-  return `Expanded grain: one row per user-organization array entry from UNNEST(${safeArrayName})`;
+  }
+
+  const uniqueOutputForInput = (inputColumn: string): string | undefined => {
+    const matches = projections
+      .filter(
+        (projection) =>
+          projection?.inputColumn.toLowerCase() === inputColumn.toLowerCase(),
+      )
+      .flatMap((projection) =>
+        projection ? [projection.outputColumn.toLowerCase()] : [],
+      );
+    if (matches.length !== 1) return undefined;
+    const outputColumn = matches[0]!;
+    return outputColumnCounts.get(outputColumn) === 1
+      ? outputColumn
+      : undefined;
+  };
+  const user = uniqueOutputForInput("user_id");
+  const organization = uniqueOutputForInput(unnestedAlias.toLowerCase());
+  if (!user || !organization || user === organization) return undefined;
+  return {
+    grain: `Expanded grain: one row per user-organization array entry from UNNEST(${safeArrayName})`,
+    membershipKeyRoles: { user, organization },
+  };
 }
 
 interface PassThroughModel {
@@ -3332,7 +3356,7 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
       scanSummary.unsafeEntriesOmitted += 1;
       continue;
     }
-    const inferredGrain = inferUnnestedMembershipGrain(sql, modelName);
+    const inferredMembership = inferUnnestedMembershipGrain(sql, modelName);
     const passThrough = extractPassThroughModel(sql, dependencies);
     const sqlProjectedColumns = projectedColumnsFromSql(sql);
     const model: ModelDoc = {
@@ -3343,16 +3367,22 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
       dependencies: new Set(dependencies),
       grainHints: [],
       ...(sqlProjectedColumns.length ? { sqlProjectedColumns } : {}),
-      ...(inferredGrain ? { inferredGrain } : {}),
-      ...(inferredGrain
-        ? { inferredGrainKeyCandidates: [["user_id", "organization_id"]] }
+      ...(inferredMembership
+        ? { inferredGrain: inferredMembership.grain }
         : {}),
-      ...(inferredGrain
+      ...(inferredMembership
         ? {
-            inferredMembershipKeyRoles: {
-              user: "user_id",
-              organization: "organization_id",
-            },
+            inferredGrainKeyCandidates: [
+              [
+                inferredMembership.membershipKeyRoles.user,
+                inferredMembership.membershipKeyRoles.organization,
+              ],
+            ],
+          }
+        : {}),
+      ...(inferredMembership
+        ? {
+            inferredMembershipKeyRoles: inferredMembership.membershipKeyRoles,
           }
         : {}),
       ...(passThrough

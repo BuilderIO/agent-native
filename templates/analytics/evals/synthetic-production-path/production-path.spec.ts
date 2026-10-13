@@ -1417,7 +1417,9 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       );
       return;
     }
-    expect(tables).toContain("fixture_warehouse.aliased_workspace_member_roster");
+    expect(tables).toContain(
+      "fixture_warehouse.aliased_workspace_member_roster",
+    );
   }, 120_000);
 
   it("keeps stale source-index entries as marked leads below current definitions", async () => {

@@ -1589,6 +1589,74 @@ describe("realDataFinalGuard", () => {
     );
   });
 
+  it("treats granted-but-not-connected workspace sources as configured and unverified", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was our GitHub issue volume last week?",
+        draftText: "GitHub had 42 issues last week.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              providers: [
+                {
+                  provider: "github",
+                  label: "GitHub",
+                  configured: false,
+                  setupLink: "/data-sources?source=github",
+                  workspaceConnection: { grantState: "granted" },
+                },
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  configured: true,
+                  workspaceConnection: { grantState: "connected" },
+                },
+              ],
+              workspaceConnections: {
+                appId: "analytics",
+                available: true,
+                providers: [
+                  {
+                    id: "github",
+                    provider: "github",
+                    label: "GitHub",
+                    grantState: "granted",
+                  },
+                  {
+                    id: "hubspot",
+                    provider: "hubspot",
+                    label: "HubSpot",
+                    grantState: "connected",
+                  },
+                ],
+              },
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        "configured sources without a healthy workspace connection: GitHub",
+      ),
+      fallbackMessage: expect.stringContaining(
+        "configured sources without a healthy workspace connection: GitHub",
+      ),
+    });
+    expect((result as { retryMessage: string }).retryMessage).toContain(
+      "healthy workspace connections: HubSpot",
+    );
+    expect((result as { retryMessage: string }).retryMessage).not.toContain(
+      "requested external source is not connected",
+    );
+    expect((result as { retryMessage: string }).retryMessage).not.toContain(
+      "Connect GitHub",
+    );
+  });
+
   it("drops an unscoped absence claim after corpus retries are exhausted", () => {
     const result = realDataFinalGuard(
       guardContext({

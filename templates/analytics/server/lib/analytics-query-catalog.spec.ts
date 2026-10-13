@@ -474,11 +474,9 @@ describe("analytics query catalog", () => {
         {
           id: "dbt-aliased-membership",
           metric: "model:user_organization_aliases",
-          definition:
-            "Expanded array-backed membership rows with role detail.",
+          definition: "Expanded array-backed membership rows with role detail.",
           table: "user_organization_aliases",
-          grain:
-            "One row per member-workspace membership",
+          grain: "One row per member-workspace membership",
           semanticScope: "membership",
           sqlProjectedColumns: "member_key, workspace_key, role_code",
           inferredMembershipKeys: ["member_key", "workspace_key"],
@@ -497,6 +495,45 @@ describe("analytics query catalog", () => {
 
     expect(results[0]).toMatchObject({
       id: "dbt-aliased-membership",
+      inferredMembershipKeyRoles: {
+        user: "member_key",
+        organization: "workspace_key",
+      },
+    });
+  });
+
+  it("ranks direct UNNEST membership rows with aliased identity keys", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "dbt-direct-aliased-membership",
+          metric: "model:user_organization_aliased_base",
+          definition: "Expanded array-backed membership rows with role detail.",
+          table: "user_organization_aliased_base",
+          grain:
+            "Expanded grain: one row per user-organization array entry from UNNEST(organizations)",
+          semanticScope: "membership",
+          sqlProjectedColumns: "member_key, role_codes, workspace_key",
+          inferredMembershipKeys: ["member_key", "workspace_key"],
+          inferredMembershipKeyRoles: {
+            user: "member_key",
+            organization: "workspace_key",
+          },
+          sourceKind: "dbt",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+          origin: "source-index",
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "dbt-direct-aliased-membership",
+      inferredMembershipKeys: ["member_key", "workspace_key"],
       inferredMembershipKeyRoles: {
         user: "member_key",
         organization: "workspace_key",

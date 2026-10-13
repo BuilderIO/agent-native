@@ -60,7 +60,9 @@ function loadMeasuredComparisonCsv(): string {
 
 describe("Analytics synthetic production-path comparison artifact", () => {
   it("validates the measured v16 production-path comparison", () => {
-    const result = validateProductionPathComparisonCsv(loadMeasuredComparisonCsv());
+    const result = validateProductionPathComparisonCsv(
+      loadMeasuredComparisonCsv(),
+    );
 
     expect(result).toMatchObject({
       cases: 24,

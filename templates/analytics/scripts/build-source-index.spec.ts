@@ -258,6 +258,31 @@ describe("compileSourceIndex", () => {
       ].join("\n"),
     );
     await writeFile(
+      path.join(intermediate, "user_organization_aliased_base.sql"),
+      [
+        "with exploded_users as (",
+        '  select * from {{ ref("users") }} users',
+        "  cross join unnest(users.organizations) as organization",
+        ")",
+        "select exploded_users.user_id as member_key,",
+        "  exploded_users.organization as workspace_key,",
+        "  exploded_users.organization_roles as role_codes",
+        "from exploded_users",
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(intermediate, "user_organization_ambiguous_base.sql"),
+      [
+        "with exploded_users as (",
+        '  select * from {{ ref("users") }} users',
+        "  cross join unnest(users.organizations) as organization",
+        ")",
+        "select exploded_users.user_id as member_key,",
+        "  exploded_users.organization as member_key",
+        "from exploded_users",
+      ].join("\n"),
+    );
+    await writeFile(
       path.join(mapping, "user_id_to_org_id.sql"),
       [
         '{{ config(schema="dbt_mapping", materialized="table") }}',
@@ -339,6 +364,25 @@ describe("compileSourceIndex", () => {
     expect(byMetric.get("model:user_organization_role")).not.toHaveProperty(
       "columnsUsed",
     );
+    expect(byMetric.get("model:user_organization_aliased_base")).toMatchObject({
+      grain:
+        "Expanded grain: one row per user-organization array entry from UNNEST(organizations)",
+      sqlProjectedColumns: "member_key, role_codes, workspace_key",
+      inferredMembershipKeys: ["member_key", "workspace_key"],
+      inferredMembershipKeyRoles: {
+        user: "member_key",
+        organization: "workspace_key",
+      },
+    });
+    expect(
+      byMetric.get("model:user_organization_ambiguous_base"),
+    ).not.toHaveProperty("grain");
+    expect(
+      byMetric.get("model:user_organization_ambiguous_base"),
+    ).not.toHaveProperty("inferredMembershipKeys");
+    expect(
+      byMetric.get("model:user_organization_ambiguous_base"),
+    ).not.toHaveProperty("inferredMembershipKeyRoles");
     expect(byMetric.get("model:user_id_to_org_id")).toMatchObject({
       grain:
         "Same row grain as user_organization_role: Expanded grain: one row per user-organization array entry from UNNEST(organizations)",

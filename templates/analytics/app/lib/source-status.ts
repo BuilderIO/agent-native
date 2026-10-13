@@ -45,9 +45,9 @@ export function sourceHealthState(
 
   if (statuses.has("error")) return "error";
   if (statuses.has("needs_reauth")) return "needs_reauth";
-  if (connection?.grantState === "connected" || statuses.has("connected")) {
-    return "connected";
-  }
+  // Status labels describe connection health; only grantState proves that the
+  // Analytics app has been granted access to use this provider.
+  if (connection?.grantState === "connected") return "connected";
   if (data.workspaceConnections?.available === false) return "error";
   if (provider?.configured === null) return "error";
   if (

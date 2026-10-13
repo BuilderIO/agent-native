@@ -780,10 +780,11 @@ function dataSourceStatusSummary(
       const grantState =
         typeof record.grantState === "string" ? record.grantState : null;
       const configured =
-        record.configured === true || grantState === "connected"
+        record.configured === true ||
+        grantState === "connected" ||
+        grantState === "granted"
           ? true
           : record.configured === false ||
-              grantState === "granted" ||
               grantState === "needs_grant" ||
               grantState === "not_connected"
             ? false

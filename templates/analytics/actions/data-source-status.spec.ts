@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   resolveAnalyticsProviderCredential: vi.fn(),
   listWorkspaceConnectionGrants: vi.fn(async () => []),
   listWorkspaceConnections: vi.fn(async () => []),
+  workspaceSummaryByProvider: {} as Record<string, Record<string, unknown>>,
   workspaceSummary: {
     appId: "analytics",
     provider: "hubspot",
@@ -59,7 +60,8 @@ vi.mock("@agent-native/core/workspace-connections", () => ({
   listWorkspaceConnections: mocks.listWorkspaceConnections,
   summarizeWorkspaceConnectionProviderForApp: vi.fn(
     ({ providerId }: { providerId: string }) => ({
-      ...mocks.workspaceSummary,
+      ...(mocks.workspaceSummaryByProvider[providerId] ??
+        mocks.workspaceSummary),
       provider: providerId,
     }),
   ),
@@ -93,6 +95,7 @@ describe("data-source-status", () => {
     mocks.listWorkspaceConnectionGrants.mockResolvedValue([]);
     mocks.listWorkspaceConnections.mockReset();
     mocks.listWorkspaceConnections.mockResolvedValue([]);
+    mocks.workspaceSummaryByProvider = {};
     mocks.tryRequestCredentialContext.mockReturnValue({
       userEmail: "ada@example.com",
       orgId: "org-1",
@@ -285,6 +288,39 @@ describe("data-source-status", () => {
       configuredExternalDataSourceCount: 1,
       connectedExternalDataSources: [
         { provider: "hubspot", label: "HubSpot", via: "workspace" },
+      ],
+      hasConnectedExternalDataSources: true,
+      connectedExternalDataSourceCount: 1,
+    });
+  });
+
+  it("scopes the connected-source summary to the requested provider", async () => {
+    mocks.listWorkspaceConnections.mockResolvedValue([
+      { provider: "bigquery" },
+    ] as any);
+    mocks.workspaceSummaryByProvider.bigquery = {
+      ...mocks.workspaceSummary,
+      grantState: "connected",
+      grantAvailability: "available",
+      connectionCount: 1,
+      grantedConnectionCount: 1,
+      activeConnectionCount: 1,
+      hasWorkspaceConnection: true,
+      hasGrantedWorkspaceConnection: true,
+      hasActiveWorkspaceConnection: true,
+    };
+
+    const focused = (await dataSourceStatus.run({ key: "hubspot" })) as any;
+    expect(focused).toMatchObject({
+      connectedExternalDataSources: [],
+      hasConnectedExternalDataSources: false,
+      connectedExternalDataSourceCount: 0,
+    });
+
+    const unfiltered = (await dataSourceStatus.run({})) as any;
+    expect(unfiltered).toMatchObject({
+      connectedExternalDataSources: [
+        { provider: "bigquery", label: "bigquery", via: "workspace" },
       ],
       hasConnectedExternalDataSources: true,
       connectedExternalDataSourceCount: 1,

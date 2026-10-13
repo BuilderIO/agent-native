@@ -135,6 +135,53 @@ describe("sourceHealthState", () => {
     expect(sourceHealthState("sigma", data)).toBe("not_connected");
   });
 
+  it("does not report connected from status labels when the Analytics grant is needed", () => {
+    const needsGrant = {
+      provider: "github",
+      grantState: "needs_grant" as const,
+      connectionCount: 1,
+      grantedConnectionCount: 0,
+      activeConnectionCount: 0,
+      hasWorkspaceConnection: true,
+      hasGrantedWorkspaceConnection: false,
+      hasActiveWorkspaceConnection: false,
+      statuses: ["connected" as const],
+    };
+
+    expect(
+      sourceHealthState(
+        "github",
+        statusData({
+          providers: [
+            {
+              provider: "github",
+              label: "GitHub",
+              configured: false,
+              configuredKeys: [],
+              missingRequiredKeys: [],
+              optionalKeys: [],
+              workspaceConnection: needsGrant,
+            },
+          ],
+        }),
+      ),
+    ).toBe("not_connected");
+
+    expect(
+      sourceHealthState(
+        "github",
+        statusData({
+          workspaceConnections: {
+            appId: "analytics",
+            available: true,
+            error: null,
+            providers: [needsGrant],
+          },
+        }),
+      ),
+    ).toBe("not_connected");
+  });
+
   it("preserves reauthorization and connection errors", () => {
     const base = {
       id: "github",

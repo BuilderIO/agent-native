@@ -38,6 +38,56 @@ function dataSourceSetupLink(provider: string): string {
   });
 }
 
+function requestedProviderIds(
+  key: string | undefined,
+  credentialKeys: string[],
+): Set<string> | null {
+  if (!key) return null;
+
+  const normalize = (value: string) =>
+    value.toLowerCase().replace(/[\s_-]+/g, "");
+  const normalizedKey = normalize(key);
+  const directMatch = credentialProviderConfigs.find(
+    (provider) =>
+      normalize(provider.provider) === normalizedKey ||
+      normalize(provider.label) === normalizedKey,
+  );
+  if (directMatch) return new Set([directMatch.provider]);
+
+  const selectedKeys = new Set(credentialKeys);
+  const associatedProviders = credentialProviderConfigs.filter((provider) =>
+    [...provider.requiredKeys, ...(provider.optionalKeys ?? [])].some((key) =>
+      selectedKeys.has(key),
+    ),
+  );
+  const completeProviders = associatedProviders.filter((provider) => {
+    const matchedRequiredKeys = provider.requiredKeys.filter((providerKey) =>
+      selectedKeys.has(providerKey),
+    ).length;
+    return (provider.requiredMode ?? "all") === "any"
+      ? matchedRequiredKeys > 0
+      : matchedRequiredKeys === provider.requiredKeys.length;
+  });
+
+  if (completeProviders.length === 0) {
+    return new Set(associatedProviders.map((provider) => provider.provider));
+  }
+
+  // Provider aliases can expand to shared credentials (for example BigQuery
+  // also includes a Google Cloud credential). Prefer the most specific
+  // provider whose required keys are all part of the requested lookup.
+  const mostSpecificKeyCount = Math.max(
+    ...completeProviders.map((provider) => provider.requiredKeys.length),
+  );
+  return new Set(
+    completeProviders
+      .filter(
+        (provider) => provider.requiredKeys.length === mostSpecificKeyCount,
+      )
+      .map((provider) => provider.provider),
+  );
+}
+
 const BUILT_IN_FIRST_PARTY_PROVIDER = {
   provider: "first-party",
   label: "First-party Analytics",
@@ -241,11 +291,17 @@ export default defineAction({
     const configuredExternalDataSources = configuredDataSources.filter(
       (source) => source.provider !== BUILT_IN_FIRST_PARTY_PROVIDER.provider,
     );
+    const scopedProviderIds = requestedProviderIds(
+      args.key,
+      configs.map((config) => config.key),
+    );
     // A credential being present is configuration, not a verified connection.
     // The workspace summary only reports "connected" when an app-accessible
     // grant has a healthy active connection.
     const connectedExternalDataSources = workspaceProviderStatuses.filter(
-      (provider) => provider.grantState === "connected",
+      (provider) =>
+        provider.grantState === "connected" &&
+        (scopedProviderIds === null || scopedProviderIds.has(provider.id)),
     );
     const hasUnknownProviderStatus =
       workspace.error !== null ||

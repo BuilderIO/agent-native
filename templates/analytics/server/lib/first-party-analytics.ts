@@ -1684,19 +1684,30 @@ export async function queryFirstPartyAnalytics(
     const statement = readAgentPostgresStatement(wrappedSql);
     const cacheKey = firstPartyCacheKey(wrappedSql, scoped.args, scope);
     const compute = async (
-      queryTimeoutMs = timeoutMs,
+      queryTimeoutMs = remainingTime(),
+      computeSignal: AbortSignal = signal,
     ): Promise<AnalyticsQueryResult> => {
       const queryStartedAt = Date.now();
+      const queryDeadlineAt = queryStartedAt + queryTimeoutMs;
+      const remainingQueryTime = () => {
+        const remainingMs = queryDeadlineAt - Date.now();
+        if (remainingMs <= 0) {
+          throw new FirstPartyAnalyticsQueryTimeoutError();
+        }
+        return remainingMs;
+      };
       try {
         const result = await withVerifiedPostgresQuery(
           statement,
-          Math.min(queryTimeoutMs, remainingTime()),
+          Math.min(queryTimeoutMs, remainingQueryTime()),
           (transaction) =>
             transaction.execute({ sql: wrappedSql, args: scoped.args }),
-          signal,
+          computeSignal,
         );
-        if (timeoutController.signal.aborted) {
-          throw new FirstPartyAnalyticsQueryTimeoutError();
+        if (computeSignal.aborted) {
+          throw computeSignal.reason instanceof Error
+            ? computeSignal.reason
+            : new DOMException("The operation was aborted", "AbortError");
         }
         void recordFirstPartyAnalyticsQueryPressure(scope, {
           durationMs: Date.now() - queryStartedAt,
@@ -1720,7 +1731,10 @@ export async function queryFirstPartyAnalytics(
         };
       } catch (error) {
         const failure = normalizeFailure(error);
-        if (!options.signal?.aborted) {
+        const abandoned =
+          computeSignal.aborted &&
+          !isFirstPartyAnalyticsTimeoutError(computeSignal.reason);
+        if (!abandoned) {
           void recordFirstPartyAnalyticsQueryPressure(scope, {
             durationMs: Date.now() - queryStartedAt,
             outcome: queryOutcomeFromError(failure),
@@ -1752,6 +1766,7 @@ export async function queryFirstPartyAnalytics(
       withFirstPartyCache(cacheKey, wrappedSql, compute, {
         timeoutMs,
         deadlineAt,
+        signal,
       }),
       signal,
     );

@@ -2319,6 +2319,72 @@ describe("queryFirstPartyAnalytics", () => {
     }
   });
 
+  it("keeps a coalesced query alive when one caller aborts", async () => {
+    let releaseCache!: () => void;
+    let markCacheStarted!: () => void;
+    const cacheStarted = new Promise<void>((resolve) => {
+      markCacheStarted = resolve;
+    });
+    const cacheGate = new Promise<void>((resolve) => {
+      releaseCache = resolve;
+    });
+    let releaseQuery!: () => void;
+    let markQueryStarted!: () => void;
+    const queryStarted = new Promise<void>((resolve) => {
+      markQueryStarted = resolve;
+    });
+    const queryGate = new Promise<void>((resolve) => {
+      releaseQuery = resolve;
+    });
+    execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT result FROM first_party_analytics_cache")) {
+        markCacheStarted();
+        await cacheGate;
+        return { rows: [], rowsAffected: 0 };
+      }
+      markQueryStarted();
+      await queryGate;
+      return { rows: [{ count: "1" }], rowsAffected: 0 };
+    });
+
+    const query = "SELECT COUNT(*) FROM analytics_events";
+    const scope = { userEmail: "shared-cancel@example.test", orgId: null };
+    const firstController = new AbortController();
+    try {
+      const first = queryFirstPartyAnalytics(query, scope, {
+        cache: true,
+        signal: firstController.signal,
+      });
+      await cacheStarted;
+      const second = queryFirstPartyAnalytics(query, scope, { cache: true });
+      await vi.waitFor(() => expect(expressionGuard).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      releaseCache();
+      await queryStarted;
+
+      firstController.abort(new DOMException("caller left", "AbortError"));
+      await expect(first).rejects.toHaveProperty("name", "AbortError");
+      releaseQuery();
+
+      await expect(second).resolves.toMatchObject({
+        rows: [{ count: "1" }],
+      });
+      expect(
+        execute.mock.calls.filter(([input]) =>
+          input.sql.includes("SELECT result FROM first_party_analytics_cache"),
+        ),
+      ).toHaveLength(1);
+      expect(
+        execute.mock.calls.filter(([input]) =>
+          input.sql.includes("first_party_analytics_query"),
+        ),
+      ).toHaveLength(1);
+    } finally {
+      releaseCache();
+      releaseQuery();
+    }
+  });
+
   it("bounds a coalesced cached read by the joining caller's own deadline", async () => {
     let now = 5_000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
