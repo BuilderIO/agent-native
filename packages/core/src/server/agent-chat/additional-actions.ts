@@ -62,31 +62,41 @@ const MAX_REPORTED_SKIPS = 1_000;
 // subschemas after expansion, not on the schema's written size.
 const MAX_SCHEMA_EXPANDED_NODES = 5_000;
 const MAX_TOTAL_SCHEMA_EXPANDED_NODES = 20_000;
+// Without recursion, validation evaluates each expanded subschema at most once
+// per input value, so a call is refused before Ajv runs when the product of the
+// two passes this. Ajv validates synchronously; nothing can interrupt it.
+const MAX_VALIDATION_WORK = 20_000_000;
+// Long strings cost length checks in proportion to their length.
+const INPUT_STRING_CHARS_PER_UNIT = 32;
 // C0/C1 controls other than tab and newline, zero-width characters, and bidi
 // overrides: invisible in logs and tool lists, but read by the model.
 const HIDDEN_TEXT_PATTERN = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F​-‏‪-‮⁠-⁩﻿]/g;
 
-const strictAjv = new Ajv({
+// Formats are annotations here: no format validators are installed.
+const strictAjvOptions = {
   strict: false,
   allErrors: true,
   coerceTypes: false,
   useDefaults: false,
   removeAdditional: false,
-});
-const strictAjv2020 = new Ajv2020({
-  strict: false,
-  allErrors: true,
-  coerceTypes: false,
-  useDefaults: false,
-  removeAdditional: false,
-});
+  validateFormats: false,
+} as const;
+const strictAjv = new Ajv(strictAjvOptions);
+const strictAjv2020 = new Ajv2020(strictAjvOptions);
 
 const validateAnyObject = strictAjv.compile({ type: "object" });
 
-// Keywords whose values hold subschemas, by shape.
-const SUBSCHEMA_KEYWORDS = [
-  "additionalProperties",
+// The keywords app schemas may use, by the shape of their value. Every other
+// key in a schema is refused by name rather than ignored. Ajv's identifier scan
+// walks every key it does not know, so an unknown key can hide a `$id` that
+// rebases `$ref`s onto parts of the schema nobody checked. Keywords left out on
+// purpose: `pattern`/`patternProperties` (regexes run synchronously),
+// `uniqueItems` (quadratic in the input), `$async` (validation that returns a
+// promise), identifiers and anchors (registered in Ajv's shared state), and
+// the `unevaluated*` and `dependent*` keywords.
+const SCHEMA_KEYWORDS = new Set([
   "additionalItems",
+  "additionalProperties",
   "contains",
   "else",
   "if",
@@ -94,36 +104,52 @@ const SUBSCHEMA_KEYWORDS = [
   "not",
   "propertyNames",
   "then",
-  "unevaluatedItems",
-  "unevaluatedProperties",
-];
-const SUBSCHEMA_LIST_KEYWORDS = [
+]);
+const SCHEMA_LIST_KEYWORDS = new Set([
   "allOf",
   "anyOf",
   "items",
   "oneOf",
   "prefixItems",
-];
-const SUBSCHEMA_MAP_KEYWORDS = [
+]);
+const SCHEMA_MAP_KEYWORDS = new Set([
   "$defs",
   "definitions",
   "dependencies",
-  "dependentSchemas",
   "properties",
-];
-// Regex keywords run user-chosen patterns synchronously on the event loop, so
-// one catastrophic pattern stalls every request in the process. Schema
-// identifiers register globally in Ajv and collide across requests and callers.
-const FORBIDDEN_SCHEMA_KEYWORDS = [
-  "pattern",
-  "patternProperties",
-  "$id",
-  "$anchor",
-  "$dynamicAnchor",
-  "$dynamicRef",
-  "$recursiveAnchor",
-  "$recursiveRef",
-];
+]);
+const VALUE_KEYWORDS = new Set([
+  "$comment",
+  "$ref",
+  "$schema",
+  "const",
+  "contentEncoding",
+  "contentMediaType",
+  "default",
+  "deprecated",
+  "description",
+  "enum",
+  "examples",
+  "exclusiveMaximum",
+  "exclusiveMinimum",
+  "format",
+  "maxContains",
+  "maxItems",
+  "maxLength",
+  "maxProperties",
+  "maximum",
+  "minContains",
+  "minItems",
+  "minLength",
+  "minProperties",
+  "minimum",
+  "multipleOf",
+  "readOnly",
+  "required",
+  "title",
+  "type",
+  "writeOnly",
+]);
 
 // Insertion-ordered, so the oldest key is evicted first once the cap is hit.
 const reportedSkips = new Set<string>();
@@ -264,13 +290,13 @@ function prepareActionEntry(
     typeof entry.tool.title === "string"
       ? cleanText(entry.tool.title, MAX_TITLE_CHARS)
       : undefined;
-  const parameters = entry.tool.parameters;
-  let validate: ValidateFunction;
-  if (parameters === undefined) {
-    validate = validateAnyObject;
-  } else {
-    const rejection = rejectParameterSchema(parameters, schemaBudget);
-    if (rejection) return rejection;
+  let validate: ValidateFunction = validateAnyObject;
+  let expandedSize = 1;
+  let parameters: Record<string, unknown> | undefined;
+  if (entry.tool.parameters !== undefined) {
+    const checked = checkParameterSchema(entry.tool.parameters, schemaBudget);
+    if (typeof checked === "string") return checked;
+    ({ schema: parameters, expanded: expandedSize } = checked);
     try {
       validate = compileStrict(parameters);
     } catch (error) {
@@ -280,16 +306,32 @@ function prepareActionEntry(
   const { title: _untrustedTitle, ...tool } = entry.tool;
   const run = entry.run;
   const access = entry.access;
-  const inputError = (input: unknown): string | null =>
-    validate(input)
+  const maxInputUnits = Math.floor(MAX_VALIDATION_WORK / expandedSize);
+  const inputError = (input: unknown): string | null => {
+    if (!inputFitsUnits(input, maxInputUnits)) {
+      return `arguments are too large to validate against this tool's schema; send less data`;
+    }
+    return validate(input)
       ? null
       : strictAjv.errorsText(validate.errors, {
           dataVar: "input",
           separator: "; ",
         });
+  };
   const prepared: ActionEntry = {
     ...entry,
-    tool: { ...tool, ...(title ? { title } : {}), description },
+    // The model sees exactly the schema that was checked and compiled.
+    tool: {
+      ...tool,
+      ...(parameters
+        ? {
+            parameters:
+              parameters as unknown as ActionEntry["tool"]["parameters"],
+          }
+        : {}),
+      ...(title ? { title } : {}),
+      description,
+    },
     run: async (args: unknown, ctx?: ActionRunContext) => {
       const caller = assertBoundCaller(name, principal, ctx);
       const input = args === undefined ? {} : args;
@@ -344,50 +386,55 @@ function assertBoundCaller(
   return { userEmail, orgId };
 }
 
-function rejectParameterSchema(
+/**
+ * Copies the app's schema into plain JSON data, checks it, and returns the copy
+ * with its size after `$ref` expansion. Everything after this point, the
+ * keyword check, Ajv, and the tool list the model sees, uses the copy, so a
+ * getter, prototype, or proxy in the app's object cannot show the checks one
+ * schema and Ajv another.
+ */
+function checkParameterSchema(
   parameters: unknown,
   schemaBudget: SchemaBudget,
-): string | null {
-  if (!isPlainRecord(parameters))
-    return "has a tool schema that is not an object";
-  if (parameters.type !== "object") {
-    return 'has a tool schema whose root type is not "object"';
-  }
-  if (
-    parameters.properties !== undefined &&
-    !isPlainRecord(parameters.properties)
-  ) {
-    return "has a tool schema whose properties are not an object";
-  }
+): { schema: Record<string, unknown>; expanded: number } | string {
   // Both request budgets are charged for the work done, accepted or not, so
   // entries that each fail late cannot each spend a full per-schema budget.
   const limit = Math.min(MAX_SCHEMA_JSON_CHARS, schemaBudget.remaining);
-  const measured = measureSchema(parameters, limit);
-  schemaBudget.remaining -= measured.size;
-  if (measured.failure === "not-json") {
-    return "has a tool schema that is not JSON";
-  }
-  if (measured.failure === "too-deep") {
+  const copied = copyJsonValue(parameters, limit);
+  schemaBudget.remaining -= copied.size;
+  if (copied.failure === "too-deep") {
     return `has a tool schema nested deeper than ${MAX_SCHEMA_DEPTH} levels`;
   }
-  if (measured.failure === "too-large") {
+  if (copied.failure === "too-large") {
     return limit < MAX_SCHEMA_JSON_CHARS
       ? `has a tool schema that exceeds the ${MAX_TOTAL_SCHEMA_JSON_CHARS}-character budget shared by this request's schemas`
       : `has a tool schema larger than ${MAX_SCHEMA_JSON_CHARS} characters`;
   }
+  if (copied.failure) {
+    return `has a tool schema that is not plain JSON data (${copied.failure})`;
+  }
+  const schema = copied.value;
+  if (!isPlainRecord(schema)) return "has a tool schema that is not an object";
+  if (schema.type !== "object") {
+    return 'has a tool schema whose root type is not "object"';
+  }
+  if (schema.properties !== undefined && !isPlainRecord(schema.properties)) {
+    return "has a tool schema whose properties are not an object";
+  }
   const walk: SchemaWalk = {
     expanded: 0,
     limit: Math.min(MAX_SCHEMA_EXPANDED_NODES, schemaBudget.expandedRemaining),
-    refStack: new Set([parameters]),
+    refStack: new Set([schema]),
   };
-  const rejection = rejectSchemaKeywords(parameters, parameters, walk);
+  const rejection = rejectSchemaKeywords(schema, schema, walk);
   schemaBudget.expandedRemaining -= walk.expanded;
   if (rejection === "too-expanded") {
     return walk.limit < MAX_SCHEMA_EXPANDED_NODES
       ? `has a tool schema that exceeds the ${MAX_TOTAL_SCHEMA_EXPANDED_NODES}-subschema budget shared by this request's schemas`
       : `has a tool schema that expands to more than ${MAX_SCHEMA_EXPANDED_NODES} subschemas through $ref`;
   }
-  return rejection;
+  if (rejection) return rejection;
+  return { schema, expanded: walk.expanded };
 }
 
 interface SchemaBudget {
@@ -402,48 +449,89 @@ interface SchemaWalk {
   refStack: Set<object>;
 }
 
+type CopyFailure =
+  | "too-large"
+  | "too-deep"
+  | "a value that is not JSON"
+  | "an object with a custom prototype"
+  | "a getter or setter"
+  | "a __proto__ key"
+  | "an array with holes";
+
 /**
- * Approximates the schema's JSON length without serializing it, and stops as
- * soon as it passes `limit` or `MAX_SCHEMA_DEPTH`, so an oversized or cyclic
- * schema costs no more than the budget it is rejected for.
+ * Copies own data properties of plain objects and dense arrays, approximating
+ * the JSON length as it goes and stopping as soon as it passes `limit` or
+ * `MAX_SCHEMA_DEPTH`, so an oversized or cyclic value costs no more than the
+ * budget it is rejected for.
  */
-function measureSchema(
+function copyJsonValue(
   value: unknown,
   limit: number,
-): { size: number; failure: "too-large" | "too-deep" | "not-json" | null } {
+): { value?: unknown; size: number; failure: CopyFailure | null } {
   let size = 0;
-  const visit = (
-    node: unknown,
-    depth: number,
-  ): "too-large" | "too-deep" | "not-json" | null => {
-    if (depth > MAX_SCHEMA_DEPTH) return "too-deep";
-    if (node === null || typeof node === "boolean") size += 5;
-    else if (typeof node === "number") size += 24;
-    else if (typeof node === "string") size += node.length + 2;
-    else if (typeof node !== "object") return "not-json";
-    else {
-      size += 2;
-      const isArray = Array.isArray(node);
-      for (const key in node) {
-        if (!Object.hasOwn(node, key)) continue;
-        const child = (node as Record<string, unknown>)[key];
-        if (child === undefined && !isArray) continue;
-        size += (isArray ? 0 : key.length + 3) + 1;
-        if (size > limit) return "too-large";
-        const failure = visit(child, depth + 1);
-        if (failure) return failure;
-      }
-    }
-    return size > limit ? "too-large" : null;
+  let failure: CopyFailure | null = null;
+  const fail = (reason: CopyFailure) => {
+    failure = reason;
+    return undefined;
   };
-  const failure = visit(value, 0);
-  return { size, failure };
+  const copy = (node: unknown, depth: number): unknown => {
+    if (depth > MAX_SCHEMA_DEPTH) return fail("too-deep");
+    if (node === null || typeof node === "boolean") {
+      size += 5;
+      return node;
+    }
+    if (typeof node === "number") {
+      if (!Number.isFinite(node)) return fail("a value that is not JSON");
+      size += 24;
+      return node;
+    }
+    if (typeof node === "string") {
+      size += node.length + 2;
+      return size > limit ? fail("too-large") : node;
+    }
+    if (typeof node !== "object") return fail("a value that is not JSON");
+    const prototype = Object.getPrototypeOf(node);
+    size += 2;
+    if (Array.isArray(node)) {
+      if (prototype !== Array.prototype) {
+        return fail("an object with a custom prototype");
+      }
+      const out: unknown[] = [];
+      for (let index = 0; index < node.length; index += 1) {
+        size += 1;
+        if (size > limit) return fail("too-large");
+        const descriptor = Object.getOwnPropertyDescriptor(node, index);
+        if (!descriptor) return fail("an array with holes");
+        if (!("value" in descriptor)) return fail("a getter or setter");
+        out.push(copy(descriptor.value, depth + 1));
+        if (failure) return undefined;
+      }
+      return out;
+    }
+    if (prototype !== Object.prototype && prototype !== null) {
+      return fail("an object with a custom prototype");
+    }
+    const out: Record<string, unknown> = {};
+    for (const key in node) {
+      if (!Object.hasOwn(node, key)) continue;
+      if (key === "__proto__") return fail("a __proto__ key");
+      const descriptor = Object.getOwnPropertyDescriptor(node, key)!;
+      if (!("value" in descriptor)) return fail("a getter or setter");
+      if (descriptor.value === undefined) continue;
+      size += key.length + 4;
+      if (size > limit) return fail("too-large");
+      out[key] = copy(descriptor.value, depth + 1);
+      if (failure) return undefined;
+    }
+    return out;
+  };
+  const copied = copy(value, 0);
+  return failure ? { size, failure } : { value: copied, size, failure: null };
 }
 
 /**
- * Walks every location Ajv may evaluate as a schema: the subschema keywords
- * and the target of each local `$ref`, which can point anywhere in the
- * document, including under keys no keyword names.
+ * Walks every location Ajv evaluates as a schema, refusing keys outside the
+ * allowlist and following each local `$ref`.
  *
  * Each `$ref` is expanded where it is used, as validation evaluates it, so a
  * small schema that references the same definition several times per level
@@ -458,47 +546,88 @@ function rejectSchemaKeywords(
   root: Record<string, unknown>,
   walk: SchemaWalk,
 ): string | null {
-  if (schema === undefined) return null;
   // Boolean subschemas are compiled and evaluated too, so they count.
   walk.expanded += 1;
   if (walk.expanded > walk.limit) return "too-expanded";
-  if (!isPlainRecord(schema)) return null;
-  for (const keyword of FORBIDDEN_SCHEMA_KEYWORDS) {
-    if (Object.hasOwn(schema, keyword)) {
-      return `has a tool schema that uses "${keyword}", which app actions may not use`;
-    }
+  if (typeof schema === "boolean") return null;
+  if (!isPlainRecord(schema)) {
+    return "has a tool schema with a subschema that is not an object or boolean";
   }
-  if (Object.hasOwn(schema, "$ref")) {
-    const target = resolveLocalRef(root, schema.$ref);
-    if (target === undefined) {
-      return 'has a tool schema with a $ref that is not "#" or an unencoded JSON pointer inside the schema';
+  for (const [keyword, value] of Object.entries(schema)) {
+    let rejection: string | null = null;
+    if (keyword === "items" && Array.isArray(value)) {
+      rejection = rejectEach(value, root, walk);
+    } else if (SCHEMA_KEYWORDS.has(keyword)) {
+      rejection = rejectSchemaKeywords(value, root, walk);
+    } else if (SCHEMA_LIST_KEYWORDS.has(keyword)) {
+      rejection = Array.isArray(value)
+        ? rejectEach(value, root, walk)
+        : `has a tool schema whose "${keyword}" is not an array`;
+    } else if (SCHEMA_MAP_KEYWORDS.has(keyword)) {
+      rejection = isPlainRecord(value)
+        ? rejectEach(
+            // `dependencies` maps a property to a schema or to required names.
+            Object.values(value).filter(
+              (child) => !(keyword === "dependencies" && Array.isArray(child)),
+            ),
+            root,
+            walk,
+          )
+        : `has a tool schema whose "${keyword}" is not an object`;
+    } else if (keyword === "$ref") {
+      rejection = rejectRef(value, root, walk);
+    } else if (keyword === "$schema" && schema !== root) {
+      rejection = 'has a tool schema that sets "$schema" below its root';
+    } else if (keyword === "enum" || keyword === "const") {
+      // Each listed value is compared against the input.
+      walk.expanded += countJsonNodes(value);
+      if (walk.expanded > walk.limit) return "too-expanded";
+    } else if (!VALUE_KEYWORDS.has(keyword)) {
+      rejection = `has a tool schema that uses "${keyword.slice(0, 80)}", which app actions may not use`;
     }
-    // Only objects can recurse, but every target, boolean ones included, is
-    // evaluated where the $ref is used and counts toward the budget.
-    const recursive = isPlainRecord(target);
-    if (recursive && walk.refStack.has(target)) {
-      return "has a tool schema with a recursive $ref";
-    }
-    if (recursive) walk.refStack.add(target);
-    const rejection = rejectSchemaKeywords(target, root, walk);
-    if (recursive) walk.refStack.delete(target);
     if (rejection) return rejection;
   }
-  const children: unknown[] = [];
-  for (const keyword of SUBSCHEMA_KEYWORDS) children.push(schema[keyword]);
-  for (const keyword of SUBSCHEMA_LIST_KEYWORDS) {
-    if (Array.isArray(schema[keyword])) children.push(...schema[keyword]);
-  }
-  for (const keyword of SUBSCHEMA_MAP_KEYWORDS) {
-    if (isPlainRecord(schema[keyword])) {
-      children.push(...Object.values(schema[keyword]));
-    }
-  }
-  for (const child of children) {
+  return null;
+}
+
+function rejectEach(
+  schemas: readonly unknown[],
+  root: Record<string, unknown>,
+  walk: SchemaWalk,
+): string | null {
+  for (const child of schemas) {
     const rejection = rejectSchemaKeywords(child, root, walk);
     if (rejection) return rejection;
   }
   return null;
+}
+
+function rejectRef(
+  ref: unknown,
+  root: Record<string, unknown>,
+  walk: SchemaWalk,
+): string | null {
+  const target = resolveLocalRef(root, ref);
+  if (target === undefined) {
+    return 'has a tool schema with a $ref that is not "#" or an unencoded JSON pointer inside the schema';
+  }
+  // Only objects can recurse, but every target, boolean ones included, is
+  // evaluated where the $ref is used and counts toward the budget.
+  const recursive = isPlainRecord(target);
+  if (recursive && walk.refStack.has(target)) {
+    return "has a tool schema with a recursive $ref";
+  }
+  if (recursive) walk.refStack.add(target);
+  const rejection = rejectSchemaKeywords(target, root, walk);
+  if (recursive) walk.refStack.delete(target);
+  return rejection;
+}
+
+function countJsonNodes(value: unknown): number {
+  if (!value || typeof value !== "object") return 1;
+  let count = 1;
+  for (const child of Object.values(value)) count += countJsonNodes(child);
+  return count;
 }
 
 /**
@@ -527,18 +656,44 @@ function resolveLocalRef(root: Record<string, unknown>, ref: unknown): unknown {
   return target;
 }
 
-function compileStrict(schema: object): ValidateFunction {
-  const declared = (schema as { $schema?: unknown }).$schema;
+/**
+ * Counts the input's values (long strings count once per
+ * `INPUT_STRING_CHARS_PER_UNIT` characters) and stops at `maxUnits`. The walk
+ * is iterative because the model controls how deeply its arguments nest.
+ */
+function inputFitsUnits(input: unknown, maxUnits: number): boolean {
+  let units = 0;
+  const pending: unknown[] = [input];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    units +=
+      typeof node === "string"
+        ? 1 + Math.floor(node.length / INPUT_STRING_CHARS_PER_UNIT)
+        : 1;
+    if (units > maxUnits) return false;
+    if (node && typeof node === "object") {
+      for (const child of Object.values(node)) pending.push(child);
+    }
+  }
+  return true;
+}
+
+function compileStrict(schema: Record<string, unknown>): ValidateFunction {
+  const declared = schema.$schema;
   const dialect =
     typeof declared === "string" ? declared.replace(/#$/, "") : undefined;
   const ajv =
     dialect === "https://json-schema.org/draft/2020-12/schema"
       ? strictAjv2020
       : strictAjv;
-  // Resolvers usually build fresh schema objects per request; Ajv keeps every
-  // compiled schema in a strong cache, so drop it once the validator exists.
+  // Each request compiles a fresh copy; Ajv keeps every compiled schema in a
+  // strong cache, so drop it once the validator exists.
   try {
-    return ajv.compile(schema);
+    const validate = ajv.compile(schema);
+    if ((validate as { $async?: unknown }).$async) {
+      throw new Error("the schema validates asynchronously");
+    }
+    return validate;
   } finally {
     ajv.removeSchema(schema);
   }

@@ -225,9 +225,13 @@ letras, dígitos, `_` ou `-`; quando o nome pertence a qualquer ação de templa
 do framework, de desenvolvimento ou do MCP, inclusive ações ocultas do agente;
 quando é um nome `mcp__` que o chamador não pode ver; ou quando a definição da
 ferramenta é inutilizável. As descrições perdem caracteres de controle ocultos e
-têm tamanho limitado. `parameters` deve ser um esquema JSON limitado com raiz
-`object` que não use `pattern`, `patternProperties`, `$id`, âncoras nem um
-`$ref` que seja recursivo ou aponte para fora do esquema. Flags como `readOnly`
+têm tamanho limitado. `parameters` deve ser um esquema limitado de dados JSON
+simples com raiz `object`, usando apenas palavras-chave comuns de validação e de
+anotação. Palavras-chave desconhecidas, `pattern`, `patternProperties`,
+`uniqueItems`, `$async`, `$id`, âncoras e qualquer `$ref` que seja recursivo ou
+aponte para fora do esquema são recusados. O modelo vê a cópia verificada do
+esquema, e uma chamada cujos argumentos sejam grandes demais para validar com
+ele é recusada. Flags como `readOnly`
 e `access` são declarações do próprio app, nas quais o framework confia assim
 como confia em `run`: defina-as com base no que seu código faz, nunca a partir
 de metadados que um usuário registrou.

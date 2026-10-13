@@ -219,9 +219,13 @@ createAgentChatPlugin({
 `-` का न हो; जब वह नाम किसी template, framework, dev या MCP action का हो, उन
 actions सहित जो agent से छिपे हैं; जब वह ऐसा `mcp__` नाम हो जिसे कॉलर नहीं देख
 सकता; या जब उसकी tool definition उपयोग योग्य न हो। descriptions से छिपे control
-characters हटा दिए जाते हैं और उनकी लंबाई सीमित की जाती है। `parameters` एक
-सीमित JSON schema होना चाहिए जिसकी root `object` हो और जो `pattern`,
-`patternProperties`, `$id`, anchors, या recursive अथवा schema के बाहर इंगित करने वाले `$ref` का उपयोग न करे।
+characters हटा दिए जाते हैं और उनकी लंबाई सीमित की जाती है। `parameters` सादे
+JSON data का एक सीमित schema होना चाहिए जिसकी root `object` हो, और जो केवल सामान्य
+validation और annotation keywords का उपयोग करे। अज्ञात keywords, `pattern`,
+`patternProperties`, `uniqueItems`, `$async`, `$id`, anchors, और recursive अथवा
+schema के बाहर इंगित करने वाला कोई भी `$ref` अस्वीकार कर दिया जाता है। model को
+schema की जाँची हुई copy दिखती है, और जिस call के arguments उसके विरुद्ध validate
+करने के लिए बहुत बड़े हों, वह अस्वीकार कर दी जाती है।
 `readOnly` और `access` जैसे flags आपके ऐप की अपनी घोषणाएँ हैं, जिन पर framework
 वैसे ही भरोसा करता है जैसे `run` पर: इन्हें इस आधार पर set करें कि आपका code
 क्या करता है, किसी उपयोगकर्ता द्वारा register किए गए metadata से कभी नहीं।

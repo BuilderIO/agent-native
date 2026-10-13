@@ -237,9 +237,13 @@ einschließlich vor dem Agenten verborgener Actions; wenn es ein `mcp__`-Name
 ist, den der Aufrufer nicht sehen kann; oder wenn seine Tool-Definition
 unbrauchbar ist. Aus Beschreibungen werden verborgene Steuerzeichen entfernt,
 und sie werden in der Länge begrenzt. `parameters` muss ein begrenztes
-JSON-Schema mit einem `object`-Wurzelelement sein, das weder `pattern`,
-`patternProperties`, `$id`, Anker noch ein `$ref` verwendet, das rekursiv ist
-oder außerhalb des Schemas verweist. Flags wie `readOnly` und `access` sind die
+Schema aus reinen JSON-Daten mit einem `object`-Wurzelelement sein, das nur
+gängige Validierungs- und Annotations-Schlüsselwörter verwendet. Unbekannte
+Schlüsselwörter, `pattern`, `patternProperties`, `uniqueItems`, `$async`, `$id`,
+Anker und jedes `$ref`, das rekursiv ist oder außerhalb des Schemas verweist,
+werden abgelehnt. Das Modell sieht die geprüfte Kopie des Schemas, und ein
+Aufruf, dessen Argumente zu groß sind, um dagegen validiert zu werden, wird
+abgelehnt. Flags wie `readOnly` und `access` sind die
 eigenen Deklarationen deiner App, denen das Framework so vertraut wie `run`:
 Setze sie anhand dessen, was dein Code tut, niemals anhand von Metadaten, die
 ein Benutzer registriert hat.

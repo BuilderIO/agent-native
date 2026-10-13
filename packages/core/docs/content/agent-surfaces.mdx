@@ -228,9 +228,12 @@ logs a warning once, when its name is not 1–64 letters, digits, `_`, or `-`;
 when the name belongs to any template, framework, dev, or MCP action, including
 actions hidden from the agent; when it is an `mcp__` name the caller cannot
 see; or when its tool definition is unusable. Descriptions lose hidden control
-characters and are capped. `parameters` must be a bounded JSON schema with an
-`object` root that does not use `pattern`, `patternProperties`, `$id`, anchors,
-or a `$ref` that is recursive or points outside the schema. Flags such as
+characters and are capped. `parameters` must be a bounded schema of plain JSON
+data with an `object` root, using only common validation and annotation
+keywords. Unknown keywords, `pattern`, `patternProperties`, `uniqueItems`,
+`$async`, `$id`, anchors, and any `$ref` that is recursive or points outside
+the schema are refused. The model sees the checked copy of the schema, and a
+call whose arguments are too large to validate against it is refused. Flags such as
 `readOnly` and `access` are your app's own declarations, which the framework
 trusts as it trusts `run`: set them from what your code does, never from
 metadata a user registered.

@@ -236,9 +236,13 @@ pas composé de 1 à 64 lettres, chiffres, `_` ou `-` ; lorsque le nom appartien
 actions masquées à l’agent ; lorsqu’il s’agit d’un nom `mcp__` que l’appelant ne
 peut pas voir ; ou lorsque la définition de son outil est inutilisable. Les
 descriptions perdent leurs caractères de contrôle cachés et sont plafonnées.
-`parameters` doit être un schéma JSON borné dont la racine est de type `object`
-et qui n’utilise ni `pattern`, ni `patternProperties`, ni `$id`, ni ancres, ni
-`$ref` récursif ou pointant hors du schéma. Les indicateurs comme `readOnly` et
+`parameters` doit être un schéma borné de données JSON simples dont la racine
+est de type `object` et qui n’utilise que des mots-clés courants de validation et
+d’annotation. Les mots-clés inconnus, `pattern`, `patternProperties`,
+`uniqueItems`, `$async`, `$id`, les ancres et tout `$ref` récursif ou pointant
+hors du schéma sont refusés. Le modèle voit la copie vérifiée du schéma, et un
+appel dont les arguments sont trop volumineux pour être validés par rapport à
+celui-ci est refusé. Les indicateurs comme `readOnly` et
 `access` sont les propres déclarations de votre application, auxquelles le
 framework fait confiance comme il fait confiance à `run` : définissez-les
 d’après ce que fait votre code, jamais à partir de métadonnées enregistrées par

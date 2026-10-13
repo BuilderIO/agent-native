@@ -238,9 +238,13 @@ acción de plantilla, del framework, de desarrollo o de MCP, incluidas las
 acciones ocultas para el agente; cuando es un nombre `mcp__` que quien llama no
 puede ver; o cuando la definición de su herramienta no es utilizable. Las
 descripciones pierden los caracteres de control ocultos y se limitan en
-longitud. `parameters` debe ser un esquema JSON acotado con raíz `object` que no
-use `pattern`, `patternProperties`, `$id`, anclas ni un `$ref` que sea recursivo
-o apunte fuera del esquema. Los indicadores como `readOnly` y `access` son
+longitud. `parameters` debe ser un esquema acotado de datos JSON simples con raíz
+`object` que use solo palabras clave comunes de validación y de anotación. Se
+rechazan las palabras clave desconocidas, `pattern`, `patternProperties`,
+`uniqueItems`, `$async`, `$id`, las anclas y cualquier `$ref` que sea recursivo
+o apunte fuera del esquema. El modelo ve la copia verificada del esquema, y se
+rechaza una llamada cuyos argumentos sean demasiado grandes para validarlos con
+él. Los indicadores como `readOnly` y `access` son
 declaraciones propias de tu aplicación, en las que el framework confía igual que
 en `run`: establécelos según lo que hace tu código, nunca a partir de metadatos
 que haya registrado un usuario.

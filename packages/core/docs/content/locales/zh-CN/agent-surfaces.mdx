@@ -212,8 +212,10 @@ createAgentChatPlugin({
 当名称属于任何模板、框架、开发或 MCP 操作（包括对智能体隐藏的操作）时，当它是调
 用方看不到的 `mcp__` 名称时，或当其工具定义无法使用时，框架会忽略该条目，并只记
 录一次警告。描述中的隐藏控制字符会被移除并限制长度。`parameters` 必须是根为
-`object` 的有界 JSON schema，且不得使用 `pattern`、`patternProperties`、`$id`、
-锚点，或递归的或指向 schema 之外的 `$ref`。`readOnly` 和 `access` 等标志是你的应
+`object`、描述纯 JSON 数据的有界 schema，且只能使用常见的校验和注解关键字。未知关键
+字、`pattern`、`patternProperties`、`uniqueItems`、`$async`、`$id`、锚点，以及任
+何递归的或指向 schema 之外的 `$ref` 都会被拒绝。模型看到的是经过检查的 schema 副本，
+参数过大而无法据此校验的调用会被拒绝。`readOnly` 和 `access` 等标志是你的应
 用自己的声明，框架会像信任 `run` 一样信任它们：请根据你的代码实际执行的操作来设置
 它们，切勿依据用户注册的元数据来设置。
 
