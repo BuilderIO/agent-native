@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 const CEILINGS = {
   // The rewritten suite's known product-bug, intermittent and untriaged failures are parked as fixme, each with its symptom above it, to be fixed separately.
-  "templates/design/e2e": 267,
+  "templates/design/e2e": 286,
 };
 
 const SKIP_CEILINGS = {

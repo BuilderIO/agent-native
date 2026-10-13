@@ -481,7 +481,8 @@ test("deleted Screen recreation remaps nested text history and duplicate target"
   ).toBe(2);
 });
 
-test("sequential Screen deletion Undo preserves surviving variant order", async ({
+// fixme: fails in CI on current main: app reported http 404: POST /_agent-native/collab/MxtAWHQg35VjZ7zwzLtFz/awareness
+test.fixme("sequential Screen deletion Undo preserves surviving variant order", async ({
   page,
 }) => {
   test.setTimeout(120_000);

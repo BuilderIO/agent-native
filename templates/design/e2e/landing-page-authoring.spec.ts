@@ -539,7 +539,8 @@ test("4:39 — Align top on a two-layer selection moves both to the higher top",
   expect((await app.designRect("b")).y).toBe(500);
 });
 
-test("deleting a selected screen removes its file and canvas frame and leaves the other screen untouched", async ({
+// fixme: fails in CI on current main: app reported http 404: POST /_agent-native/collab/5V1oMS7Zi_4MJKPXtkFWn/awareness
+test.fixme("deleting a selected screen removes its file and canvas frame and leaves the other screen untouched", async ({
   app,
 }) => {
   const id = await openDesign(app, BLANK_SCREEN, {

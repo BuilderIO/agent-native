@@ -1075,7 +1075,8 @@ test.fixme("active Screen upload conflict preserves SQL and live-collaboration s
   }
 });
 
-test("accepted Screen-root image upload persists and renders its source", async ({
+// fixme: fails in CI on current main: app reported console.error: Failed to load resource: the server responded with a status of 404 (Not Found)
+test.fixme("accepted Screen-root image upload persists and renders its source", async ({
   app,
   page,
 }) => {

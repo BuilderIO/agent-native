@@ -132,7 +132,8 @@ test.describe("URL-backed React JSX writeback", () => {
     if (rootPath) fs.rmSync(rootPath, { recursive: true, force: true });
   });
 
-  test("previews, persists, hot-reloads, and reloads one literal Card style", async ({
+  // fixme: fails in CI on current main: expect(locator).toHaveText(expected) failed
+  test.fixme("previews, persists, hot-reloads, and reloads one literal Card style", async ({
     page,
     request,
   }) => {

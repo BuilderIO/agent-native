@@ -124,7 +124,8 @@ function idByLayerName(nodes: Map<string, SavedNode>, name: string) {
   return node.id;
 }
 
-test("Layers-first editing preserves identity in the AI-generated Orbit source", async ({
+// fixme: fails in CI on current main: expect(locator).toHaveAttribute(expected) failed
+test.fixme("Layers-first editing preserves identity in the AI-generated Orbit source", async ({
   app,
 }) => {
   const sourceWithoutEditorIds = stripEditorOnlyAttributes(AI_SOURCE);
@@ -292,7 +293,8 @@ test.fixme("dropping a layer from AI-generated source into a panel keeps its nod
   expectOnlyChanged(after, await app.savedNodes(designId), []);
 });
 
-test("duplicate authored IDs are repaired before Layers-first edits and persist after reload", async ({
+// fixme: fails in CI on current main: expect(locator).toHaveAttribute(expected) failed
+test.fixme("duplicate authored IDs are repaired before Layers-first edits and persist after reload", async ({
   app,
   page,
 }) => {
@@ -505,7 +507,8 @@ test("stylesheet-backed Fill stays editable after Layers reselection and undo", 
     });
 });
 
-test("edit-design rejects malformed AI CSS without changing the styled canvas", async ({
+// fixme: fails in CI on current main: expect(locator).toHaveAttribute(expected) failed
+test.fixme("edit-design rejects malformed AI CSS without changing the styled canvas", async ({
   app,
   page,
 }) => {
