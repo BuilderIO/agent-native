@@ -7,6 +7,8 @@ import {
   DESIGN_HTML_INTEGRITY_ERROR_CODE,
   inspectDesignHtmlDocumentIntegrity,
 } from "./html-integrity";
+import { GRAIN_GRADIENT_EFFECT } from "./native-effect-presets";
+import { applyNativeEffectToHtml } from "./native-effects";
 
 const DOCUMENT = `<!doctype html>
 <html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script><style data-agent-native-breakpoints>
@@ -14,6 +16,46 @@ const DOCUMENT = `<!doctype html>
 </style></head><body x-data="{ open: true }"><template x-if="open"><p>Hi</p></template></body></html>`;
 
 describe("Design HTML integrity", () => {
+  it("rejects duplicate native definition and instance records in otherwise well-formed HTML", () => {
+    const source = `<html><body><main data-agent-native-node-id="hero">Source</main></body></html>`;
+    const applied = applyNativeEffectToHtml(source, {
+      nodeId: "hero",
+      definition: GRAIN_GRADIENT_EFFECT,
+      placement: "fill",
+    });
+    expect(applied.errors).toEqual([]);
+    const body = applied.html.match(
+      /<script type="application\/x-agent-native-effects">([\s\S]*?)<\/script>/,
+    )?.[1];
+    expect(body).toBeDefined();
+    const document = JSON.parse(body!) as {
+      definitions: unknown[];
+      instances: unknown[];
+    };
+    const invalid = applied.html.replace(
+      body!,
+      JSON.stringify({
+        ...document,
+        definitions: [...document.definitions, document.definitions[0]],
+        instances: [...document.instances, document.instances[0]],
+      }),
+    );
+    expect(() =>
+      assertDesignHtmlEditIntegrity({
+        previousContent: applied.html,
+        nextContent: invalid,
+        fileType: "html",
+      }),
+    ).toThrow("native effect manifest is invalid");
+    expect(() =>
+      assertDesignHtmlEditIntegrity({
+        previousContent: invalid,
+        nextContent: applied.html,
+        fileType: "html",
+      }),
+    ).not.toThrow();
+  });
+
   it("rejects a malformed AI CSS replacement and accepts its repair", () => {
     const before =
       "<style>\n:root{--primary:#0F766E;--accent:#ccfbf1}\nbody{font:16px Inter}\n</style><main>Orbit</main>";

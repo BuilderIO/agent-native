@@ -1,4 +1,8 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import {
+  NATIVE_EFFECT_SCRIPT_TYPE,
+  parseEffectsFromHtml,
+} from "@shared/native-effects";
 import { sourceContentHash } from "@shared/source-workspace";
 import type { QueryClient } from "@tanstack/react-query";
 import type { Dispatch, RefObject, SetStateAction } from "react";
@@ -371,6 +375,11 @@ export function runSaveFileContent(
       keepBothInsertionsAtSamePoint: true,
     });
     if (merged === null) return null;
+    if (
+      merged.includes(NATIVE_EFFECT_SCRIPT_TYPE) &&
+      parseEffectsFromHtml(merged).errors.length > 0
+    )
+      return null;
     const theirsHash = sourceContentHash(theirs);
     const mergedRequest: FileContentSaveRequest = {
       ...request,

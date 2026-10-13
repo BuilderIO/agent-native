@@ -77,11 +77,12 @@ describe("edit-native-shader", () => {
     mocks.snapshotDesignBeforeAgentEdit.mockResolvedValue(undefined);
     mocks.readAppState.mockResolvedValue(null);
     mocks.compareAndSetAppState.mockResolvedValue(true);
-    mocks.writeInlineSourceFile.mockResolvedValue({
+    mocks.writeInlineSourceFile.mockImplementation(async ({ content }) => ({
+      content,
       changed: true,
       versionHash: "hash-2",
       updatedAt: "2026-10-07",
-    });
+    }));
   });
 
   it("applies a definition and stamps a selected source in one write", async () => {
@@ -121,6 +122,37 @@ describe("edit-native-shader", () => {
       nodeId: stamped,
       capture: "content",
     });
+  });
+
+  it("acknowledges the authoritative merged source instead of the requested HTML", async () => {
+    mocks.writeInlineSourceFile.mockImplementation(async ({ content }) => ({
+      content: content.replace("</body>", "<p>Independent edit</p></body>"),
+      changed: true,
+      versionHash: "authoritative-hash",
+      updatedAt: "2026-10-07",
+    }));
+    const result = await action.run({
+      designId: "design-1",
+      fileId: "file-1",
+      expectedVersionHash: "hash-1",
+      operation: {
+        kind: "apply",
+        nodeId: "hero",
+        placement: "layer",
+        definitionId: HALFTONE_EFFECT.id,
+        definitionVersion: HALFTONE_EFFECT.version,
+      },
+    });
+    expect(result.content).toContain("<p>Independent edit</p>");
+    expect(result.versionHash).toBe("authoritative-hash");
+    expect(result.instanceIds).toEqual(
+      parseEffectsFromHtml(result.content).document?.instances.map(
+        (item) => item.id,
+      ),
+    );
+    expect(mocks.writeInlineSourceFile.mock.calls[0]![0].content).not.toContain(
+      "Independent edit",
+    );
   });
 
   it("stamps an unannotated source layer and saves its authored binding in one source write", async () => {

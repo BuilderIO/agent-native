@@ -12,6 +12,7 @@ vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 import { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as Y from "yjs";
 
 import {
   createPersistedContentHostSyncHandler,
@@ -222,6 +223,91 @@ describe("shader-locked source publication", () => {
     expect(localWriterArgs.queueFileContentSave).not.toHaveBeenCalled();
     expect(toast.error).not.toHaveBeenCalled();
     queryClient.clear();
+  });
+
+  it("does not replay a committed shader insertion into stale local collaboration text", () => {
+    shaderState.inFlight = true;
+    const server = new Y.Doc();
+    server.getText("content").insert(0, PERSISTED_BASE);
+    const client = new Y.Doc();
+    Y.applyUpdate(client, Y.encodeStateAsUpdate(server));
+    server
+      .getText("content")
+      .insert(
+        PERSISTED_BASE.indexOf("</main>"),
+        '<span data-agent-native-node-id="effect">Effect</span>',
+      );
+    const committed = server.getText("content").toString();
+    const queryClient = new QueryClient();
+    const localWriterArgs = localArgs(queryClient, PERSISTED_BASE);
+    localWriterArgs.ydoc = client;
+    localWriterArgs.isSynced = true;
+    const args = fileArgs({
+      activeFileId: "active",
+      getScreenContent: () => PERSISTED_BASE,
+      queryClient,
+      applyLocalContentUpdate: (content, options) =>
+        runApplyLocalContentUpdate(localWriterArgs, content, options),
+    });
+    const hostSync = createPersistedContentHostSyncHandler({
+      activeFileIdRef: { current: "active" },
+      applyFileContentUpdateRef: {
+        current: (fileId, content, options) => {
+          runApplyFileContentUpdate(args, fileId, content, options);
+        },
+      },
+      shaderWriteCompletion: true,
+    });
+
+    hostSync("active", committed, "T2", PERSISTED_BASE);
+    expect(client.getText("content").toString()).toBe(PERSISTED_BASE);
+    expect(localWriterArgs.collabContentRef.current).toBe(committed);
+    expect(localWriterArgs.queueFileContentSave).not.toHaveBeenCalled();
+    Y.applyUpdate(client, Y.encodeStateAsUpdate(server));
+    expect(client.getText("content").toString()).toBe(committed);
+    client.destroy();
+    server.destroy();
+    queryClient.clear();
+  });
+
+  it("does not replay a committed shader insertion into stale overview collaboration text", () => {
+    shaderState.inFlight = true;
+    const server = new Y.Doc();
+    server.getText("content").insert(0, PERSISTED_BASE);
+    const client = new Y.Doc();
+    Y.applyUpdate(client, Y.encodeStateAsUpdate(server));
+    server
+      .getText("content")
+      .insert(
+        PERSISTED_BASE.indexOf("</main>"),
+        '<span data-agent-native-node-id="effect">Effect</span>',
+      );
+    const committed = server.getText("content").toString();
+    const args = fileArgs({
+      activeFileId: "other",
+      getScreenContent: () => PERSISTED_BASE,
+    });
+    args.overviewYdoc = client;
+    args.overviewIsSynced = true;
+    args.overviewPresenceFileId = "screen";
+    const hostSync = createPersistedContentHostSyncHandler({
+      activeFileIdRef: { current: "other" },
+      applyFileContentUpdateRef: {
+        current: (fileId, content, options) => {
+          runApplyFileContentUpdate(args, fileId, content, options);
+        },
+      },
+      shaderWriteCompletion: true,
+    });
+
+    hostSync("screen", committed, "T2", PERSISTED_BASE);
+    expect(client.getText("content").toString()).toBe(PERSISTED_BASE);
+    expect(args.queueFileContentSave).not.toHaveBeenCalled();
+    Y.applyUpdate(client, Y.encodeStateAsUpdate(server));
+    expect(client.getText("content").toString()).toBe(committed);
+    client.destroy();
+    server.destroy();
+    args.queryClient.clear();
   });
 
   it("records a persisted shader edit in a non-active source as one file history entry", () => {

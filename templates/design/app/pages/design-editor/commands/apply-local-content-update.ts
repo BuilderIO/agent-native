@@ -195,6 +195,7 @@ export function runApplyLocalContentUpdate(
   });
   const writeLiveDoc =
     !needsIdentityMigration &&
+    !(options.persist === false && options.updatedAt !== undefined) &&
     canWriteCollabText(ydoc, isSynced, previousContent);
   const yjsHistoryAvailable = Boolean(
     shouldRecordHistory &&

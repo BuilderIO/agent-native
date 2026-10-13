@@ -555,6 +555,7 @@ export default defineAction({
     if (next.html !== live.content)
       await snapshotDesignBeforeAgentEdit(designId, context);
     let write: {
+      content: string;
       changed: boolean;
       versionHash: string;
       updatedAt: string | null;
@@ -563,6 +564,7 @@ export default defineAction({
       write =
         next.html === live.content
           ? {
+              content: live.content,
               changed: false,
               versionHash: live.versionHash,
               updatedAt: file.updatedAt,
@@ -584,17 +586,30 @@ export default defineAction({
         );
       throw error;
     }
+    const committed = parseEffectsFromHtml(write.content);
+    if (
+      committed.errors.length ||
+      (next.instanceIds.length > 0 && !committed.document)
+    )
+      fail("Committed native effect manifest could not be read back.", {
+        errorCode: "native_effect_manifest_unreadable",
+        statusCode: 422,
+      });
     return {
       designId,
       fileId,
       path: file.filename,
-      content: next.html,
+      content: write.content,
       changed: write.changed,
       versionHash: write.versionHash,
       updatedAt: write.updatedAt,
-      instanceIds: next.instanceIds,
-      nodeIds: next.nodeIds,
-      diff: previewSourceDiff(live.content, next.html),
+      instanceIds: committed.document?.instances.map((item) => item.id) ?? [],
+      nodeIds: [
+        ...new Set(
+          committed.document?.instances.map((item) => item.nodeId) ?? [],
+        ),
+      ],
+      diff: previewSourceDiff(live.content, write.content),
       validation: { cpuSchemaAndGraph: "passed" as const, gpuCompiled: false },
     };
   },

@@ -27,6 +27,7 @@ import {
   sourceContentHash,
 } from "../shared/source-workspace.js";
 import { getDb, schema } from "./db/index.js";
+import { verifiedNativeTextureSourceReferences } from "./lib/design-native-texture-assets.js";
 import {
   bindNativeTextureGrantsInSourceTransaction,
   preflightNativeTextureGrants,
@@ -492,7 +493,12 @@ export async function writeInlineSourceFile(args: {
   operationSource?: string;
   operationRevision?: number;
   allowUrlBackedTransition?: boolean;
-}): Promise<{ versionHash: string; changed: boolean; updatedAt: string }> {
+}): Promise<{
+  content: string;
+  versionHash: string;
+  changed: boolean;
+  updatedAt: string;
+}> {
   const nativeTextureGrants = await preflightNativeTextureGrants({
     designId: args.designId,
     fileId: args.file.id,
@@ -626,6 +632,7 @@ export async function writeInlineSourceFile(args: {
         if (exactPersistedOperation) {
           await validatePreparedNoop();
           return {
+            content: current.content,
             versionHash: candidateHash,
             changed: false,
             updatedAt: currentFile.updatedAt ?? new Date().toISOString(),
@@ -674,6 +681,7 @@ export async function writeInlineSourceFile(args: {
       if (!changed && !identityOnly) {
         await validatePreparedNoop();
         return {
+          content: current.content,
           versionHash: current.versionHash,
           changed: false,
           updatedAt: currentFile.updatedAt ?? updatedAt,
@@ -740,6 +748,31 @@ export async function writeInlineSourceFile(args: {
         throw new SourceWorkspaceEditConflictError(
           "Source file changed while the edit was being applied. Re-read the file and retry.",
         );
+      }
+
+      if (!identityOnly && authoritativeContent !== args.content) {
+        assertLockedLayersPreserved(current.content, authoritativeContent);
+      }
+      if (authoritativeContent !== args.content) {
+        const fileType = currentFile.fileType ?? args.file.fileType;
+        const requestedReferences = verifiedNativeTextureSourceReferences(
+          fileType,
+          args.content,
+        );
+        const authoritativeReferences = verifiedNativeTextureSourceReferences(
+          fileType,
+          authoritativeContent,
+        );
+        if (
+          requestedReferences.length !== authoritativeReferences.length ||
+          requestedReferences.some(
+            (reference, index) => reference !== authoritativeReferences[index],
+          )
+        ) {
+          throw new SourceWorkspaceEditConflictError(
+            "Native texture bindings changed while the source was saved. Re-read and retry.",
+          );
+        }
       }
 
       const identityLineageWhere = identityOnly
@@ -849,6 +882,7 @@ export async function writeInlineSourceFile(args: {
         .where(eq(schema.designs.id, args.designId));
 
       return {
+        content: authoritativeContent,
         versionHash: sourceContentHash(authoritativeContent),
         changed: authoritativeContent !== current.content,
         updatedAt,

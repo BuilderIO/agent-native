@@ -228,6 +228,7 @@ export function runApplyFileContentUpdate(
     overviewPresenceFileId,
     overviewDocConnected:
       !needsIdentityMigration &&
+      !(options.persist === false && options.updatedAt !== undefined) &&
       canWriteCollabText(overviewYdoc, overviewIsSynced, previousContent),
   });
   if (writeLiveDoc && overviewYdoc) {

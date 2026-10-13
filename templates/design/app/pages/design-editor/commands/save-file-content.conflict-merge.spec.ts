@@ -1,9 +1,16 @@
+import { GRAIN_GRADIENT_EFFECT } from "@shared/native-effect-presets";
+import {
+  applyNativeEffectToHtml,
+  parseEffectsFromHtml,
+  writeEffectsToHtml,
+} from "@shared/native-effects";
 import { sourceContentHash } from "@shared/source-workspace";
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { FileContentSaveRequest } from "@/pages/design-editor/editor-state";
+import { threeWayMergeContent } from "@/pages/design-editor/three-way-merge";
 
 import {
   __clearKnownSaveContentsForTests,
@@ -124,6 +131,48 @@ describe("runSaveFileContent concurrent edit merge", () => {
     expect(rollbackPendingLocalFileContent).not.toHaveBeenCalled();
     expect(errorToast).not.toHaveBeenCalled();
     expect(args.latestFileSaveForUnloadRef.current[pending.id]).toBeUndefined();
+  });
+
+  it("refuses a raw conflict merge that duplicates native effect records", async () => {
+    const source = `<html><body><main data-agent-native-node-id="hero">Source</main></body></html>`;
+    const base = writeEffectsToHtml(source, {
+      schemaVersion: 2,
+      definitions: [GRAIN_GRADIENT_EFFECT],
+      instances: [],
+    });
+    const applied = applyNativeEffectToHtml(base, {
+      nodeId: "hero",
+      definition: GRAIN_GRADIENT_EFFECT,
+      placement: "fill",
+    });
+    expect(applied.errors).toEqual([]);
+    const document = parseEffectsFromHtml(applied.html).document!;
+    const theirs = writeEffectsToHtml(base, {
+      ...document,
+      instances: [
+        { ...document.instances[0], seed: document.instances[0].seed + 1 },
+      ],
+    });
+    const rawMerge = threeWayMergeContent({
+      base,
+      mine: applied.html,
+      theirs,
+      keepBothInsertionsAtSamePoint: true,
+    });
+    expect(rawMerge).not.toBeNull();
+    expect(parseEffectsFromHtml(rawMerge!).errors.length).toBeGreaterThan(0);
+    const { args, pending, mutateAsync } = setup({
+      base,
+      live: async () => theirs,
+      mutate: async () => {
+        throw conflict();
+      },
+    });
+    pending.content = applied.html;
+    pending.expectedVersionHash = sourceContentHash(base);
+
+    await expect(runSaveFileContent(args, pending)).resolves.toBe("conflict");
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a same-spot conflict loud and sends nothing newer", async () => {
