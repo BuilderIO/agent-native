@@ -713,9 +713,10 @@ function resolveLocalRef(root: Record<string, unknown>, ref: unknown): unknown {
 }
 
 /**
- * Counts the input's values (long strings count once per
- * `INPUT_STRING_CHARS_PER_UNIT` characters) and stops at `maxUnits`. The walk
- * is iterative because the model controls how deeply its arguments nest.
+ * Counts the input's values and object keys (long strings count once per
+ * `INPUT_STRING_CHARS_PER_UNIT` characters; `propertyNames` checks keys like
+ * strings) and stops at `maxUnits`. The walk is iterative because the model
+ * controls how deeply its arguments nest.
  */
 function inputFitsUnits(input: unknown, maxUnits: number): boolean {
   let units = 0;
@@ -727,8 +728,10 @@ function inputFitsUnits(input: unknown, maxUnits: number): boolean {
         ? 1 + Math.floor(node.length / INPUT_STRING_CHARS_PER_UNIT)
         : 1;
     if (units > maxUnits) return false;
-    if (node && typeof node === "object") {
-      for (const child of Object.values(node)) pending.push(child);
+    if (Array.isArray(node)) {
+      for (const child of node) pending.push(child);
+    } else if (node && typeof node === "object") {
+      for (const [key, child] of Object.entries(node)) pending.push(key, child);
     }
   }
   return true;

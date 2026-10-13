@@ -1092,6 +1092,39 @@ describe("resolveAppAdditionalActions", () => {
       ).resolves.toBe("ran");
     });
 
+    it("charges object keys, which propertyNames checks like strings", async () => {
+      const run = vi.fn(async () => "ran");
+      const added = await resolveAppAdditionalActions(
+        config({
+          resolver: () => ({
+            "key-length-checks": entry("x", {
+              run,
+              tool: {
+                description: "x",
+                parameters: {
+                  type: "object",
+                  propertyNames: {
+                    allOf: Array.from({ length: 1_000 }, () => ({
+                      minLength: 1,
+                    })),
+                  },
+                } as never,
+              },
+            }),
+          }),
+        }),
+        alice,
+        {},
+      );
+      const tool = added["key-length-checks"]!;
+
+      await expect(
+        asAlice(() => tool.run({ ["k".repeat(600_000)]: 1 })),
+      ).rejects.toThrow(/too large to validate/);
+      expect(run).not.toHaveBeenCalled();
+      await expect(asAlice(() => tool.run({ short: 1 }))).resolves.toBe("ran");
+    });
+
     it("refuses arguments too large to validate against a large schema", async () => {
       const run = vi.fn(async () => "ran");
       // About 4,300 subschemas once the shared $ref is expanded.
