@@ -153,6 +153,7 @@ vi.mock("../server/lib/design-data-mutation.js", () => ({
   mutateDesignData: mocks.mutateDesignData,
 }));
 
+import { variantPickFromGuidedSubmit } from "../app/lib/design-funnel-tracking.js";
 import { DESIGN_HTML_INTEGRITY_ERROR_CODE } from "../shared/html-integrity.js";
 import {
   MAX_SANE_FRAME_ASPECT_RATIO,
@@ -1515,7 +1516,7 @@ describe("present-design-variants", () => {
     });
 
     it("records one started and one completed event for a saved set", async () => {
-      await action.run({
+      const result = await action.run({
         designId: "design_123",
         prompt: "Pick a direction",
         brief: "A calm finance dashboard",
@@ -1547,10 +1548,39 @@ describe("present-design-variants", () => {
           output_id: "design_123",
           variant_count: 2,
           generation_attempt_id: started.generation_attempt_id,
+          variant_set_id: result.variantSetId,
           app_name: "design",
         }),
       ]);
+      expect(events("generation_completed")[0]).toMatchObject({
+        variant_set_id: result.variantSetId,
+      });
       expect(JSON.stringify(track.mock.calls)).not.toContain("finance");
+    });
+
+    it("writes pick options the client's variant-pick parser joins back to this set", async () => {
+      const result = await action.run({
+        designId: "design_123",
+        prompt: "Pick a direction",
+        variants,
+      });
+      const payload = guidedQuestionsPayload<{
+        questions: { id: string; options: { value: string }[] }[];
+      }>();
+      const question = payload.questions.find((item) => item.id === "variant");
+      const picked = question?.options[1]?.value;
+
+      expect(
+        variantPickFromGuidedSubmit({
+          questions: payload.questions,
+          answers: { variant: picked },
+        }),
+      ).toEqual({
+        variantCount: question?.options.length,
+        pickedIndex: 1,
+        variantSetId: result.variantSetId,
+        designId: "design_123",
+      });
     });
 
     it("records nothing when the caller cannot edit the design", async () => {
