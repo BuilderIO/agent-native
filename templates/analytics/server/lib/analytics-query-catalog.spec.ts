@@ -303,6 +303,51 @@ describe("analytics query catalog", () => {
     });
   });
 
+  it("respects explicit membership scope for active-only metadata without role fields", () => {
+    const dictionaryEntries = [
+      {
+        id: "active-members-no-role",
+        metric: "Active workspace members",
+        definition: "Current active workspace members.",
+        table: "active_workspace_members",
+        columnsUsed: "user_id, workspace_id",
+        grain: "One row per user-workspace membership",
+        semanticScope: "membership",
+      },
+      {
+        id: "event-members-no-role",
+        metric: "Active workspace members from events",
+        definition: "Workspace members who triggered an event.",
+        table: "event_members_by_workspace",
+        columnsUsed: "user_id, workspace_id",
+        grain: "One row per user-workspace membership",
+        semanticScope: "membership",
+      },
+    ];
+    const activeResults = rankAnalyticsQueryCatalog({
+      search: "list active workspace members",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries,
+    });
+    const unfilteredResults = rankAnalyticsQueryCatalog({
+      search: "list workspace members",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries,
+    });
+
+    const ids = (results: typeof activeResults) =>
+      results.map((candidate) =>
+        candidate.kind === "data-dictionary"
+          ? candidate.id
+          : candidate.dashboardId,
+      );
+    expect(ids(activeResults)).toContain("active-members-no-role");
+    expect(ids(activeResults)).not.toContain("event-members-no-role");
+    expect(ids(unfilteredResults)).not.toContain("active-members-no-role");
+  });
+
   it("keeps an approved roster definition ahead of an unapproved active-only source", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "list active workspace members with roles",

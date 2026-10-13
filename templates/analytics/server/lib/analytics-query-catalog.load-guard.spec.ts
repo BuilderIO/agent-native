@@ -262,6 +262,51 @@ describe("searchAnalyticsQueryCatalog", () => {
     expect(state.listOrgSettings).not.toHaveBeenCalled();
   });
 
+  it("uses positive intent for dashboard discovery and hydration relevance", async () => {
+    const query =
+      "workspace users, do not report live counts but show the monthly trend";
+    state.summaries = Array.from({ length: 26 }, (_, index) => {
+      const relevant = index === 0;
+      const name = relevant
+        ? "Workspace users monthly trend"
+        : `Live counts dashboard ${index + 1}`;
+      return {
+        ...savedRevenueSummary(),
+        id: `dashboard-${String(index + 1).padStart(2, "0")}`,
+        name,
+        configName: name,
+        description: relevant
+          ? "Monthly trend in workspace users"
+          : "Live counts for unrelated records",
+      };
+    });
+    state.dashboardConfigs.set("dashboard-01", {
+      panels: [
+        {
+          id: "workspace-user-trend",
+          title: "Workspace users monthly trend",
+          source: "bigquery",
+          sql: "SELECT month, user_count FROM synthetic_workspace_user_trend",
+        },
+      ],
+    });
+
+    const result = await searchAnalyticsQueryCatalog({
+      search: query,
+      email: "alice@example.com",
+      orgId: null,
+      limit: 6,
+    });
+
+    expect(state.searchDashboardReferencesPage).toHaveBeenCalledWith(
+      { email: "alice@example.com", orgId: null },
+      "workspace users but show the monthly trend",
+      24,
+    );
+    expect(state.loadCalls[0]).toContain("dashboard-01");
+    expect(result.dashboardDetailHydrationTruncated).toBe(false);
+  });
+
   it("searches dictionary metadata with pagination and no dashboard reads", async () => {
     state.userSettings = [
       {

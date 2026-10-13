@@ -190,11 +190,17 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
 
 const FIXTURE_REVISION = "synthetic-analytics-retrieval-v4";
 const BASELINE_GIT_REVISION = "8ff15a5577e6530316d59c4e4b2aa751a8f56a63";
+const BASELINE_HARNESS_PATH =
+  "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
 const ACTION_ALLOWLIST = ["find-data"] as const;
 const ANALYTICS_PROJECT_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../..",
 );
+const REPOSITORY_ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+  cwd: ANALYTICS_PROJECT_ROOT,
+  encoding: "utf8",
+}).trim();
 const IDENTITY: EvalProductionIdentity = {
   ownerEmail: syntheticData.ownerEmail,
   orgId: syntheticData.orgId,
@@ -358,6 +364,20 @@ function assertEvalProvenance(
   }
 }
 
+/** Accept only the copied harness as an untracked file in the baseline tree. */
+function assertBaselineWorkingTreeStatus(statusOutput: string): void {
+  const entries = statusOutput.split("\0").filter(Boolean);
+  if (
+    entries.length === 0 ||
+    (entries.length === 1 && entries[0] === `?? ${BASELINE_HARNESS_PATH}`)
+  ) {
+    return;
+  }
+  throw new Error(
+    "Before-phase output requires a clean baseline source tree; only the copied production-path harness may be untracked.",
+  );
+}
+
 const SOURCE_FILES = [
   new URL("../production-context.ts", import.meta.url),
   new URL("../../actions/find-data.ts", import.meta.url),
@@ -385,6 +405,35 @@ async function codeRevision(): Promise<string> {
     hash.update(content);
   }
   return `sha256:${hash.digest("hex")}`;
+}
+
+/** Ensure the files that define the evaluated production path are baseline bytes. */
+async function assertBaselineSourceBytes(): Promise<void> {
+  for (const source of SOURCE_FILES) {
+    const sourcePath = fileURLToPath(source);
+    const repositoryRelativePath = path.relative(REPOSITORY_ROOT, sourcePath);
+    const baselineBytes = execFileSync(
+      "git",
+      ["show", `${BASELINE_GIT_REVISION}:${repositoryRelativePath}`],
+      { cwd: REPOSITORY_ROOT },
+    );
+    const checkoutBytes = await readFile(sourcePath);
+    if (!checkoutBytes.equals(baselineBytes)) {
+      throw new Error(
+        "Before-phase output requires production source files to match the pinned baseline commit.",
+      );
+    }
+  }
+}
+
+async function assertBaselineSourceIntegrity(): Promise<void> {
+  const statusOutput = execFileSync(
+    "git",
+    ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    { cwd: REPOSITORY_ROOT, encoding: "utf8" },
+  );
+  assertBaselineWorkingTreeStatus(statusOutput);
+  await assertBaselineSourceBytes();
 }
 
 function csvCell(value: string | number | boolean | null): string {
@@ -697,7 +746,18 @@ async function makeRows(
 }
 
 describe("Analytics synthetic production-path retrieval harness", () => {
-  beforeAll(() => {
+  let phase: EvalPhase;
+  let gitRevision: string;
+  let actualGitRevision: string;
+
+  beforeAll(async () => {
+    phase = requestedEvalPhase(process.env.ANALYTICS_EVAL_PHASE);
+    actualGitRevision = currentGitRevision();
+    gitRevision = process.env.ANALYTICS_EVAL_GIT_REVISION ?? actualGitRevision;
+    assertEvalProvenance(phase, actualGitRevision, gitRevision);
+    if (phase === "before") {
+      await assertBaselineSourceIntegrity();
+    }
     generateActionRegistryForProject(ANALYTICS_PROJECT_ROOT);
   });
 
@@ -721,7 +781,6 @@ describe("Analytics synthetic production-path retrieval harness", () => {
           !/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(prompt),
       ),
     ).toBe(true);
-    const actualGitRevision = currentGitRevision();
     if (actualGitRevision === BASELINE_GIT_REVISION) {
       expect(() =>
         assertEvalProvenance("after", actualGitRevision, actualGitRevision),
@@ -731,10 +790,6 @@ describe("Analytics synthetic production-path retrieval harness", () => {
         assertEvalProvenance("before", actualGitRevision, actualGitRevision),
       ).toThrow("Before-phase output requires the pinned baseline");
     }
-    const phase = requestedEvalPhase(process.env.ANALYTICS_EVAL_PHASE);
-    const gitRevision =
-      process.env.ANALYTICS_EVAL_GIT_REVISION ?? actualGitRevision;
-    assertEvalProvenance(phase, actualGitRevision, gitRevision);
     const rows = await makeRows(gitRevision, phase);
     expect(rows).toHaveLength(SYNTHETIC_CASES.length * 2);
     expect(rows.every((row) => row.phase === phase)).toBe(true);
@@ -867,5 +922,32 @@ describe("Analytics synthetic production-path retrieval harness", () => {
     expect(() =>
       renderPrivacySafeEvalCsv([mislabeled as unknown as PrivacySafeEvalRow]),
     ).toThrow("invalid metric value");
+  });
+
+  it("rejects dirty baseline sources and permits only the copied harness", () => {
+    expect(() => assertBaselineWorkingTreeStatus("")).not.toThrow();
+    expect(() =>
+      assertBaselineWorkingTreeStatus(`?? ${BASELINE_HARNESS_PATH}\0`),
+    ).not.toThrow();
+    expect(() =>
+      assertBaselineWorkingTreeStatus(
+        " M templates/analytics/server/lib/analytics-term-matcher.ts\0",
+      ),
+    ).toThrow("clean baseline source tree");
+    expect(() =>
+      assertBaselineWorkingTreeStatus(
+        "M  templates/analytics/server/lib/analytics-term-matcher.ts\0",
+      ),
+    ).toThrow("clean baseline source tree");
+    expect(() =>
+      assertBaselineWorkingTreeStatus(
+        "?? templates/analytics/actions/local.ts\0",
+      ),
+    ).toThrow("clean baseline source tree");
+    expect(() =>
+      assertBaselineWorkingTreeStatus(
+        `?? ${BASELINE_HARNESS_PATH}\0?? templates/analytics/actions/local.ts\0`,
+      ),
+    ).toThrow("clean baseline source tree");
   });
 });

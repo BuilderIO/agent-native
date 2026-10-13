@@ -535,11 +535,21 @@ function hasExplicitActivityEvidence(
     .join(" ")
     .toLowerCase()
     .replace(/[_-]+/g, " ");
-  return (
-    /\b(?:events?|activities?|usage logs?|sessions?|funnels?|conversions?)\b/.test(
+  if (
+    /\b(?:events?|activities?|usage(?: logs?)?|sessions?|funnels?|conversions?)\b/.test(
       searchable,
-    ) || inferSemanticScope(searchable) === "product_activity"
-  );
+    )
+  ) {
+    return true;
+  }
+  if (
+    candidate.kind === "data-dictionary" &&
+    (candidate.semanticScope === "membership" ||
+      candidate.semanticScope === "membership_roster")
+  ) {
+    return false;
+  }
+  return inferSemanticScope(searchable) === "product_activity";
 }
 
 function hasActiveOnlyMembershipEvidence(
@@ -1429,6 +1439,7 @@ export async function searchAnalyticsQueryCatalog(args: {
   signal?: AbortSignal;
 }): Promise<AnalyticsQueryCatalogSearchResult> {
   args.signal?.throwIfAborted();
+  const rankingIntent = stripNonPositiveInstructions(args.search);
   const [
     summariesResult,
     dictionaryResult,
@@ -1449,7 +1460,7 @@ export async function searchAnalyticsQueryCatalog(args: {
     listFavoriteDashboardIds(args.email),
     searchDashboardReferencesPage(
       { email: args.email, orgId: args.orgId },
-      args.search,
+      rankingIntent,
       MAX_CATALOG_DASHBOARD_HYDRATION,
     ),
   ]);
@@ -1538,7 +1549,7 @@ export async function searchAnalyticsQueryCatalog(args: {
   );
 
   const shortlistedSummaries = shortlistDashboardSummaries(
-    args.search,
+    rankingIntent,
     searchedSummaries,
     args.limit,
     favoriteIds,
@@ -1565,7 +1576,7 @@ export async function searchAnalyticsQueryCatalog(args: {
   const shortlistedIdSet = new Set(shortlistedIds);
   const omittedSummaryMatch = searchedSummaries.some(
     (dashboard) =>
-      dashboardSummaryRelevance(args.search, dashboard) > 0 &&
+      dashboardSummaryRelevance(rankingIntent, dashboard) > 0 &&
       !shortlistedIdSet.has(dashboard.id),
   );
   const omittedDashboardReference = dashboardReferences.some(

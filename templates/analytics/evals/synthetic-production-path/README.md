@@ -24,9 +24,13 @@ pnpm --filter analytics exec vitest run evals/synthetic-production-path/producti
 
 The `before` phase is accepted only when the checkout is exactly pinned to
 `8ff15a5577e6530316d59c4e4b2aa751a8f56a63`; the supplied Git revision must
-match `git rev-parse HEAD`. The `after` phase also requires the supplied
-revision to match the current checkout and rejects that baseline commit. This
-prevents a phase label from silently rerunning one code version twice.
+match `git rev-parse HEAD`. It also requires a clean baseline source tree and
+checks every production-path source file against the pinned commit's bytes.
+The only allowed untracked file is the copied `production-path.spec.ts` harness
+shown below. The `after` phase also requires the supplied revision to match the
+current checkout and rejects that baseline commit. These checks prevent dirty
+source from being labeled as baseline and prevent a phase label from silently
+rerunning one code version twice.
 
 To reproduce the baseline, create a detached worktree at the pinned revision,
 copy this harness into it, install that revision's locked dependencies, then
