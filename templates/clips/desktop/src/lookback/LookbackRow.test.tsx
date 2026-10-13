@@ -145,6 +145,18 @@ describe("LookbackRow with Rewind off", () => {
     expect(buttonWithText("What is this?")?.className).toContain(
       "justify-center",
     );
+    expect(buttonWithText("What is this?")?.className).toContain(
+      "focus-visible:ring-inset",
+    );
+    expect(buttonWithText("What is this?")?.className).toContain(
+      "focus-visible:ring-offset-0",
+    );
+    expect(buttonWithText("Turn on Rewind")?.className).toContain(
+      "focus-visible:ring-inset",
+    );
+    expect(buttonWithText("Turn on Rewind")?.className).toContain(
+      "focus-visible:ring-offset-0",
+    );
 
     const turnOn = buttonWithText("Turn on Rewind");
     expect(turnOn).toBeDefined();

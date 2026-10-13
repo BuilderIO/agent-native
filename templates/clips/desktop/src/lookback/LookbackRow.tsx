@@ -207,6 +207,7 @@ export function LookbackRow({
               <Button
                 type="button"
                 size="sm"
+                className="focus-visible:ring-inset focus-visible:ring-offset-0"
                 onClick={() => {
                   setRewindOffOpen(false);
                   onTurnOnRewind();
@@ -218,7 +219,7 @@ export function LookbackRow({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="w-full justify-center"
+                className="w-full justify-center focus-visible:ring-inset focus-visible:ring-offset-0"
                 onClick={() => {
                   setRewindOffOpen(false);
                   openHelp();
