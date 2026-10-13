@@ -1746,6 +1746,9 @@ export default {
     toggleUiHide: "隐藏 UI",
     toggleCommentsShow: "显示评论",
     toggleCommentsHide: "隐藏评论",
+    sendTo: "发送到",
+    sendToAgents: "智能体",
+    copyAgentPrompt: "复制智能体提示词",
   },
   layersPanel: {
     title: "图层",

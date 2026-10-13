@@ -1789,6 +1789,9 @@ export default {
     toggleUiHide: "UI छिपाएँ",
     toggleCommentsShow: "टिप्पणियाँ दिखाएँ",
     toggleCommentsHide: "टिप्पणियाँ छिपाएँ",
+    sendTo: "इसे भेजें",
+    sendToAgents: "एजेंट",
+    copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
   },
   layersPanel: {
     title: "परतें",

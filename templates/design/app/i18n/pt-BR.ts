@@ -1823,6 +1823,9 @@ export default {
     toggleUiHide: "Ocultar UI",
     toggleCommentsShow: "Mostrar comentários",
     toggleCommentsHide: "Ocultar comentários",
+    sendTo: "Enviar para",
+    sendToAgents: "Agents",
+    copyAgentPrompt: "Copiar prompt do agente",
   },
   layersPanel: {
     title: "Camadas",

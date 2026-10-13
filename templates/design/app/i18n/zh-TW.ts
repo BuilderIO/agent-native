@@ -1838,6 +1838,9 @@ export default {
     toggleUiHide: "隱藏 UI",
     toggleCommentsShow: "顯示留言",
     toggleCommentsHide: "隱藏留言",
+    sendTo: "傳送到",
+    sendToAgents: "智慧代理",
+    copyAgentPrompt: "複製智慧代理提示詞",
   },
   layersPanel: {
     title: "圖層",

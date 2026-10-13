@@ -1825,6 +1825,9 @@ export default {
     toggleUiHide: "UIを非表示",
     toggleCommentsShow: "コメントを表示",
     toggleCommentsHide: "コメントを非表示",
+    sendTo: "送信先",
+    sendToAgents: "エージェント",
+    copyAgentPrompt: "エージェント用プロンプトをコピー",
   },
   layersPanel: {
     title: "レイヤー",

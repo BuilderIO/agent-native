@@ -1739,6 +1739,9 @@ export default {
     toggleUiHide: "Hide UI",
     toggleCommentsShow: "Show comments",
     toggleCommentsHide: "Hide comments",
+    sendTo: "Send to",
+    sendToAgents: "Agents",
+    copyAgentPrompt: "Copy agent prompt",
   },
   layersPanel: {
     title: "Layers",

@@ -1784,6 +1784,9 @@ export default {
     toggleUiHide: "إخفاء واجهة المستخدم",
     toggleCommentsShow: "إظهار التعليقات",
     toggleCommentsHide: "إخفاء التعليقات",
+    sendTo: "إرسال إلى",
+    sendToAgents: "الوكلاء",
+    copyAgentPrompt: "نسخ موجّه الوكيل",
   },
   layersPanel: {
     title: "الطبقات",

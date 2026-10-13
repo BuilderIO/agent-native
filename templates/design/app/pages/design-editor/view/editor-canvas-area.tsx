@@ -212,7 +212,12 @@ export function renderEditorCanvasArea({
     handleFlipVertical,
   } = editorEditCommands;
   const { responsiveInteractActive, handlePinToolToggle } = editorModes;
-  const { layersPanelRef, handleCopyAsPng } = editorExportAndHandoff;
+  const {
+    layersPanelRef,
+    handleCopyAsPng,
+    handleCopyCodingHandoff,
+    handleSendCodingHandoff,
+  } = editorExportAndHandoff;
   const {
     codeLayerOwnerByNodeId,
     canEditSelectedLiveLayer,
@@ -546,6 +551,11 @@ export function renderEditorCanvasArea({
           !emptyCanvas && layerIds.length === 1 ? layerIds[0] : undefined,
         );
       }}
+      onSendTo={(target) =>
+        target === "prompt"
+          ? void handleCopyCodingHandoff()
+          : void handleSendCodingHandoff(target)
+      }
     >
       {designIsEmpty &&
       (generating || pendingGenerationActive || generationIssue) ? (

@@ -1,3 +1,4 @@
+import type { AgentShareDestination } from "@agent-native/toolkit/sharing";
 import {
   IconComponents,
   IconFrame,
@@ -19,6 +20,7 @@ import {
   ContextMenuContent,
   ContextMenuGroup,
   ContextMenuItem,
+  ContextMenuLabel,
   ContextMenuSeparator,
   ContextMenuSub,
   ContextMenuSubContent,
@@ -159,6 +161,9 @@ export interface CanvasContextMenuLabels {
   toggleCommentsHide: string;
   exploreWithAgent: string;
   copyLink: string;
+  sendTo: string;
+  sendToAgents: string;
+  copyAgentPrompt: string;
 }
 
 export interface CanvasContextMenuShortcuts {
@@ -207,6 +212,7 @@ export interface CanvasContextMenuProps {
     preset: CanvasAgentPreset,
     details: CanvasContextMenuActionDetails,
   ) => void;
+  onSendTo?: (target: AgentShareDestination | "prompt") => void;
   hasClipboard?: boolean;
   hasPropsClipboard?: boolean;
   isLocked?: boolean;
@@ -338,6 +344,9 @@ const DEFAULT_LABELS: CanvasContextMenuLabels = {
   toggleCommentsHide: "Hide comments",
   exploreWithAgent: "Explore with Agent",
   copyLink: "Copy link",
+  sendTo: "Send to",
+  sendToAgents: "Agents",
+  copyAgentPrompt: "Copy agent prompt",
 };
 
 const DEFAULT_SHORTCUT_BINDINGS: Record<
@@ -412,6 +421,15 @@ export function dispatchContextMenuAt(
 const CANVAS_CONTENT_TARGET_SELECTOR =
   "[data-frame-shell],[data-design-preview-iframe],[data-frame-selection-box],[data-draft-id]";
 
+const SEND_TO_AGENTS: readonly {
+  id: AgentShareDestination;
+  label: string;
+}[] = [
+  { id: "claude", label: "Claude" },
+  { id: "claude-code", label: "Claude Code" }, // i18n-ignore: product name
+  { id: "codex", label: "Codex" },
+];
+
 const AGENT_PRESET_IDS: readonly CanvasAgentPreset[] = [
   "inspiration",
   "polish",
@@ -434,6 +452,7 @@ export const CanvasContextMenu = forwardRef<
     layerCandidates = [],
     onSelectLayer,
     onAgentPreset,
+    onSendTo,
     hasClipboard = false,
     hasPropsClipboard = false,
     isLocked = false,
@@ -771,6 +790,30 @@ export const CanvasContextMenu = forwardRef<
                         }}
                       />
                     ))}
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+              ) : null}
+              {onSendTo ? (
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger className={MENU_SUB_TRIGGER_CLASS}>
+                    {labels.sendTo}
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent className={MENU_CONTENT_CLASS}>
+                    <ContextMenuLabel className="px-2 py-1 text-[11px] font-normal text-muted-foreground">
+                      {labels.sendToAgents}
+                    </ContextMenuLabel>
+                    {SEND_TO_AGENTS.map(({ id, label }) => (
+                      <CanvasMenuItem
+                        key={id}
+                        label={label}
+                        onSelect={() => onSendTo(id)}
+                      />
+                    ))}
+                    <CanvasMenuSeparator />
+                    <CanvasMenuItem
+                      label={labels.copyAgentPrompt}
+                      onSelect={() => onSendTo("prompt")}
+                    />
                   </ContextMenuSubContent>
                 </ContextMenuSub>
               ) : null}

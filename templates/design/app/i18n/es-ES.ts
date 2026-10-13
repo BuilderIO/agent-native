@@ -1825,6 +1825,9 @@ export default {
     toggleUiHide: "Ocultar UI",
     toggleCommentsShow: "Mostrar comentarios",
     toggleCommentsHide: "Ocultar comentarios",
+    sendTo: "Enviar a",
+    sendToAgents: "Agents",
+    copyAgentPrompt: "Copiar prompt del agente",
   },
   layersPanel: {
     title: "Capas",

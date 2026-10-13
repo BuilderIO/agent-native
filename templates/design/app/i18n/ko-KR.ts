@@ -1802,6 +1802,9 @@ export default {
     toggleUiHide: "UI 숨기기",
     toggleCommentsShow: "댓글 표시",
     toggleCommentsHide: "댓글 숨기기",
+    sendTo: "보내기",
+    sendToAgents: "에이전트",
+    copyAgentPrompt: "에이전트 프롬프트 복사",
   },
   layersPanel: {
     title: "레이어",

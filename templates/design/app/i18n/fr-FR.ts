@@ -1839,6 +1839,9 @@ export default {
     toggleUiHide: "Masquer l'UI",
     toggleCommentsShow: "Afficher les commentaires",
     toggleCommentsHide: "Masquer les commentaires",
+    sendTo: "Envoyer à",
+    sendToAgents: "Agents",
+    copyAgentPrompt: "Copier le prompt de l'agent",
   },
   layersPanel: {
     title: "Calques",

@@ -1841,6 +1841,9 @@ export default {
     toggleUiHide: "UI ausblenden",
     toggleCommentsShow: "Kommentare einblenden",
     toggleCommentsHide: "Kommentare ausblenden",
+    sendTo: "Senden an",
+    sendToAgents: "Agents",
+    copyAgentPrompt: "Agent-Prompt kopieren",
   },
   layersPanel: {
     title: "Ebenen",

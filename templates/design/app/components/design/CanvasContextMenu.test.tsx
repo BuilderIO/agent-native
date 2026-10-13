@@ -72,6 +72,9 @@ vi.mock("@/components/ui/context-menu", () => {
     ContextMenuContent: Content,
     ContextMenuGroup: Container,
     ContextMenuItem: Item,
+    ContextMenuLabel: ({ children }: { children?: React.ReactNode }) => (
+      <div>{children}</div>
+    ),
     ContextMenuSeparator: () => <hr />,
     ContextMenuShortcut: Container,
     ContextMenuSub: Container,
@@ -629,6 +632,25 @@ describe("CanvasContextMenu empty canvas", () => {
 
     expect(view.findButton("Bring to front")).toBeDefined();
     expect(view.findButton("Explore with Agent")).toBeUndefined();
+    await view.cleanup();
+  });
+});
+
+describe("CanvasContextMenu send to", () => {
+  it("sends to an agent or copies the prompt", async () => {
+    const onSendTo = vi.fn();
+    const view = await renderContextMenu({ selectedCount: 1, onSendTo });
+
+    await act(async () => view.findButton("Claude Code")?.click());
+    await act(async () => view.findButton("Copy agent prompt")?.click());
+    expect(onSendTo.mock.calls).toEqual([["claude-code"], ["prompt"]]);
+    await view.cleanup();
+  });
+
+  it("hides Send to when no handler is wired", async () => {
+    const view = await renderContextMenu({ selectedCount: 1 });
+
+    expect(view.container.textContent).not.toContain("Copy agent prompt");
     await view.cleanup();
   });
 });

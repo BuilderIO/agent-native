@@ -1,6 +1,10 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
+  buildAgentShareDeepLink,
+  type AgentShareDestination,
+} from "@agent-native/toolkit/sharing";
+import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
 } from "@shared/code-layer";
@@ -301,13 +305,17 @@ export function useEditorExportAndHandoff({
     [],
   );
 
+  const refreshCodingHandoffText = useCallback(async () => {
+    const text = getCodingHandoffClipboardText(
+      await ensureCodingHandoff({ refresh: true }),
+    );
+    if (!text) toast.error(t("designEditor.toasts.codingHandoffError"));
+    return text;
+  }, [ensureCodingHandoff, getCodingHandoffClipboardText, t]);
+
   const handleCopyCodingHandoff = useCallback(async () => {
-    const result = await ensureCodingHandoff({ refresh: true });
-    const text = getCodingHandoffClipboardText(result);
-    if (!text) {
-      toast.error(t("designEditor.toasts.codingHandoffError"));
-      return;
-    }
+    const text = await refreshCodingHandoffText();
+    if (!text) return;
     try {
       if (!(await writeClipboardText(text))) {
         toast.error(t("designEditor.toasts.clipboardBlocked"));
@@ -317,7 +325,16 @@ export function useEditorExportAndHandoff({
     } catch {
       toast.error(t("designEditor.toasts.clipboardBlocked"));
     }
-  }, [ensureCodingHandoff, getCodingHandoffClipboardText, t]);
+  }, [refreshCodingHandoffText, t]);
+
+  const handleSendCodingHandoff = useCallback(
+    async (destination: AgentShareDestination) => {
+      const text = await refreshCodingHandoffText();
+      if (text)
+        window.location.assign(buildAgentShareDeepLink(destination, text));
+    },
+    [refreshCodingHandoffText],
+  );
   const pendingVisualStyleScreenSourceTypes = useMemo(
     () =>
       new Map<string, unknown>(
@@ -1271,6 +1288,7 @@ export function useEditorExportAndHandoff({
     handleFindLayers,
     getCodingHandoffClipboardText,
     handleCopyCodingHandoff,
+    handleSendCodingHandoff,
     showPendingVisualStyleApply,
     pendingVisualStylePrompt,
     visualEditPromptResult,
