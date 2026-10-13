@@ -13,7 +13,7 @@ import {
 
 const COMPARISON_CSV = fileURLToPath(
   new URL(
-    "./SYNTHETIC-analytics-production-path-v9-before-after.csv",
+    "./SYNTHETIC-analytics-production-path-v10-before-after.csv",
     import.meta.url,
   ),
 );
@@ -96,17 +96,17 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     const result = validateProductionPathComparisonCsv(makeComparisonCsv());
 
     expect(result).toMatchObject({
-      cases: 13,
+      cases: 15,
       before: {
-        rows: 26,
+        rows: 30,
         top1: 4,
         hitAt5: 12,
         harnessRevision: "sha256:" + "c".repeat(64),
       },
       after: {
-        rows: 26,
-        top1: 26,
-        hitAt5: 26,
+        rows: 30,
+        top1: 30,
+        hitAt5: 30,
         harnessRevision: "sha256:" + "c".repeat(64),
       },
     });
@@ -174,7 +174,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
   it("rejects a mismatched before/after fixture", () => {
     const csv = makeComparisonCsv();
     const changed = csv.replace(
-      "synthetic-analytics-retrieval-v9",
+      "synthetic-analytics-retrieval-v10",
       "synthetic-analytics-retrieval-v6",
     );
 
@@ -202,9 +202,9 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     const result = validateProductionPathComparisonCsv(csv);
 
     expect(result).toMatchObject({
-      cases: 13,
-      before: { rows: 26, top1: 6, hitAt5: 16 },
-      after: { rows: 26, top1: 26, hitAt5: 26 },
+      cases: 15,
+      before: { rows: 30, top1: 6, hitAt5: 16 },
+      after: { rows: 30, top1: 30, hitAt5: 30 },
     });
     expect(result.before.revision).not.toBe(result.after.revision);
     expect(result.before.codeRevision).not.toBe(result.after.codeRevision);

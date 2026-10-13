@@ -28,6 +28,8 @@ export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = [
   "active-workspace-member-roster-with-roles",
   "active-workspace-users-map-to-membership",
   "exclude-inactive-show-active-members",
+  "not-excluding-active-members",
+  "exclude-everyone-but-active-members",
   "full-workspace-roster-excludes-active-only-source",
   "nonpositive-count-instruction-keeps-member-rows",
   "negated-counts-keep-positive-monthly-trend",
@@ -42,9 +44,9 @@ export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = [
 export const PRODUCTION_PATH_BASELINE_REVISION =
   "d0caebd20464a2a00ad417c78943d81438d9333a";
 export const PRODUCTION_PATH_CANDIDATE_REVISION =
-  "910d2c585496ef2f8540870ad9d05bf9be2c5288";
+  "595a07f9a507bba5ba43d6478969c6e19bea9ac2";
 export const PRODUCTION_PATH_FIXTURE_REVISION =
-  "synthetic-analytics-retrieval-v9";
+  "synthetic-analytics-retrieval-v10";
 const REASON_CODES = new Set([
   "rank_1",
   "ranked_below_1",
