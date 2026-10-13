@@ -154,6 +154,11 @@ import {
   FLOWING_SHAPE_CHROME_PRESET_LABEL_SOURCE_IDS,
 } from "./native-effect-owned-bd-flowing-shape-chrome";
 import {
+  FLOWING_SHAPE_CHROME_V2_EFFECT,
+  FLOWING_SHAPE_CHROME_V2_PRESETS,
+  FLOWING_SHAPE_CHROME_V2_PRESET_LABEL_SOURCE_IDS,
+} from "./native-effect-owned-bd-flowing-shape-chrome-v2";
+import {
   FRAME_MOSH_V2_EFFECT,
   FRAME_MOSH_V2_PRESETS,
   FRAME_MOSH_V2_PRESET_LABEL_SOURCE_IDS,
@@ -401,7 +406,19 @@ import {
   OWNED_O_GENERATOR_DEFINITIONS,
   OWNED_O_GENERATOR_PRESETS,
 } from "./native-effect-owned-o-generators";
+import {
+  OWNED_O_OPTICAL_GHOST_V2,
+  OWNED_O_OPTICAL_GHOST_V2_PRESETS,
+} from "./native-effect-owned-o-optical-ghost-v2";
+import {
+  SOURCE_SHAPE_GLASS_EFFECT,
+  SOURCE_SHAPE_GLASS_PRESETS,
+} from "./native-effect-owned-o-source-shape-glass";
 import { OWNED_P_DEFINITIONS, OWNED_P_PRESETS } from "./native-effect-owned-p";
+import {
+  DENSITY_HEATMAP_V4_EFFECT,
+  DENSITY_HEATMAP_V4_PRESETS,
+} from "./native-effect-owned-p-density-heatmap-v4";
 import {
   OWNED_P2_DEFINITIONS,
   OWNED_P2_PRESETS,
@@ -817,7 +834,10 @@ export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
   ...OWNED_O_GENERATOR_DEFINITIONS,
   ...OWNED_O_EDGE_GLASS_DEFINITIONS,
   OWNED_O_EDGE_LIGHT_LEAK_V2,
+  OWNED_O_OPTICAL_GHOST_V2,
+  SOURCE_SHAPE_GLASS_EFFECT,
   ...OWNED_P_DEFINITIONS,
+  DENSITY_HEATMAP_V4_EFFECT,
   ...OWNED_P2_DEFINITIONS,
   ...OWNED_Q_DEFINITIONS,
   ...OWNED_NEXT_SIX_R_DEFINITIONS,
@@ -863,6 +883,7 @@ export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
   PROJECTED_DYE_FLOW_EFFECT,
   SHAPE_GOO_3D_EFFECT,
   FLOWING_SHAPE_CHROME_EFFECT,
+  FLOWING_SHAPE_CHROME_V2_EFFECT,
   FRAME_MOSH_V2_EFFECT,
   SOURCE_VOXELS_V2_EFFECT,
   CHANNEL_THROW_EFFECT,
@@ -905,7 +926,10 @@ const currentDefinitionCandidates: readonly EffectDefinition[] = [
   ...OWNED_O_GENERATOR_DEFINITIONS,
   ...OWNED_O_EDGE_GLASS_DEFINITIONS,
   OWNED_O_EDGE_LIGHT_LEAK_V2,
+  OWNED_O_OPTICAL_GHOST_V2,
+  SOURCE_SHAPE_GLASS_EFFECT,
   ...OWNED_P_DEFINITIONS,
+  DENSITY_HEATMAP_V4_EFFECT,
   ...OWNED_P2_DEFINITIONS,
   ...OWNED_Q_DEFINITIONS,
   ...OWNED_NEXT_SIX_R_DEFINITIONS,
@@ -951,6 +975,7 @@ const currentDefinitionCandidates: readonly EffectDefinition[] = [
   PROJECTED_DYE_FLOW_EFFECT,
   SHAPE_GOO_3D_EFFECT,
   FLOWING_SHAPE_CHROME_EFFECT,
+  FLOWING_SHAPE_CHROME_V2_EFFECT,
   FRAME_MOSH_V2_EFFECT,
   SOURCE_VOXELS_V2_EFFECT,
   CHANNEL_THROW_EFFECT,
@@ -1097,6 +1122,18 @@ export const NATIVE_PRESET_LABEL_SOURCE_IDS: Readonly<Record<string, string>> =
     ...NATIVE_V3_PRESET_LABEL_SOURCE_IDS,
     ...coordinateRandomRecipes.labelSources,
     ...OWNED_O_EDGE_LIGHT_LEAK_V2_PRESET_LABEL_SOURCE_IDS,
+    "an-preset-owned-o-ghost-chain-v2-aperture-star":
+      "an-preset-owned-o-ghost-chain-v2-aperture-star",
+    "an-preset-owned-o-ghost-chain-v2-chromatic-sweep":
+      "an-preset-owned-o-ghost-chain-v2-chromatic-sweep",
+    "an-preset-o-source-shape-glass-cut-crystal":
+      "an-preset-o-source-shape-glass-cut-crystal",
+    "an-preset-o-source-shape-glass-soft-silica":
+      "an-preset-o-source-shape-glass-soft-silica",
+    "an-preset-density-v4-infrared-relief":
+      "an-preset-density-v4-infrared-relief",
+    "an-preset-density-v4-topographic-density":
+      "an-preset-density-v4-topographic-density",
     ...STATEFUL_NINE_PRESET_LABEL_SOURCE_IDS,
     ...FEATURE_PURSUIT_PRESET_LABEL_SOURCE_IDS,
     ...SOURCE_SHARDS_PRESET_LABEL_SOURCE_IDS,
@@ -1112,6 +1149,7 @@ export const NATIVE_PRESET_LABEL_SOURCE_IDS: Readonly<Record<string, string>> =
     ...CURSOR_WAVE_RIPPLES_PRESET_LABEL_SOURCE_IDS,
     ...SHAPE_GOO_3D_PRESET_LABEL_SOURCE_IDS,
     ...FLOWING_SHAPE_CHROME_PRESET_LABEL_SOURCE_IDS,
+    ...FLOWING_SHAPE_CHROME_V2_PRESET_LABEL_SOURCE_IDS,
     ...FRAME_MOSH_V2_PRESET_LABEL_SOURCE_IDS,
     ...SOURCE_VOXELS_V2_PRESET_LABEL_SOURCE_IDS,
     ...RAISED_CARBON_WEAVE_PRESET_LABEL_SOURCE_IDS,
@@ -1132,7 +1170,10 @@ export const NATIVE_EFFECT_PRESETS: readonly EffectPreset[] = [
   ...OWNED_O_GENERATOR_PRESETS,
   ...OWNED_O_EDGE_GLASS_PRESETS,
   ...OWNED_O_EDGE_LIGHT_LEAK_V2_PRESETS,
+  ...OWNED_O_OPTICAL_GHOST_V2_PRESETS,
+  ...SOURCE_SHAPE_GLASS_PRESETS,
   ...OWNED_P_PRESETS,
+  ...DENSITY_HEATMAP_V4_PRESETS,
   ...OWNED_P2_PRESETS,
   ...OWNED_Q_PRESETS,
   ...OWNED_NEXT_SIX_R_PRESETS,
@@ -1178,6 +1219,7 @@ export const NATIVE_EFFECT_PRESETS: readonly EffectPreset[] = [
   ...PROJECTED_DYE_FLOW_PRESETS,
   ...SHAPE_GOO_3D_PRESETS,
   ...FLOWING_SHAPE_CHROME_PRESETS,
+  ...FLOWING_SHAPE_CHROME_V2_PRESETS,
   ...FRAME_MOSH_V2_PRESETS,
   ...SOURCE_VOXELS_V2_PRESETS,
   ...CHANNEL_THROW_PRESETS,

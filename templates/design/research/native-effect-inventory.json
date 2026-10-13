@@ -9,38 +9,38 @@
     "graphMetadata": "normal source exports; full resources, pass graph fields except WGSL/original, definition graph metadata"
   },
   "counts": {
-    "distinctDefinitions": 375,
-    "exactVersions": 432,
-    "registeredPresets": 866,
-    "presetsTargetingLatestVersions": 781,
-    "presetsTargetingHistoricalVersions": 85,
+    "distinctDefinitions": 376,
+    "exactVersions": 436,
+    "registeredPresets": 874,
+    "presetsTargetingLatestVersions": 783,
+    "presetsTargetingHistoricalVersions": 91,
     "latestByKind": {
       "generator": 166,
-      "processor": 202,
+      "processor": 203,
       "simulation": 7
     },
     "fullByKind": {
-      "generator": 208,
-      "processor": 216,
+      "generator": 209,
+      "processor": 219,
       "simulation": 8
     },
     "latestByAnimation": {
       "animated": 127,
-      "static": 248
+      "static": 249
     },
     "fullByAnimation": {
-      "animated": 151,
-      "static": 281
+      "animated": 152,
+      "static": 284
     },
     "latestByPlacement": {
       "fill": 169,
-      "layer": 210,
+      "layer": 211,
       "backdrop": 172
     },
     "fullByPlacement": {
-      "fill": 211,
-      "layer": 225,
-      "backdrop": 181
+      "fill": 212,
+      "layer": 228,
+      "backdrop": 183
     },
     "fullyValidatedDefinitions": 0
   },
@@ -28718,6 +28718,174 @@
       "animationCapability": "static"
     },
     {
+      "id": "an-native-owned-o-ghost-chain",
+      "name": "Optical Ghost Chain",
+      "version": 2,
+      "kind": "generator",
+      "placements": [
+        "fill"
+      ],
+      "properties": {
+        "lightX": {
+          "type": "float",
+          "label": "Emitter X",
+          "default": 0.22,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "lightY": {
+          "type": "float",
+          "label": "Emitter Y",
+          "default": 0.2,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "size": {
+          "type": "float",
+          "label": "Aperture size",
+          "default": 54,
+          "min": 1,
+          "max": 160,
+          "step": 1,
+          "unit": "px"
+        },
+        "spread": {
+          "type": "float",
+          "label": "Ghost spread",
+          "default": 0.82,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "ghosts": {
+          "type": "float",
+          "label": "Ghost count",
+          "default": 5,
+          "min": 1,
+          "max": 6,
+          "step": 1
+        },
+        "intensity": {
+          "type": "float",
+          "label": "Intensity",
+          "default": 0.75,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "halo": {
+          "type": "float",
+          "label": "Halo",
+          "default": 0.35,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "haloRadius": {
+          "type": "float",
+          "label": "Halo radius",
+          "default": 130,
+          "min": 1,
+          "max": 500,
+          "step": 1,
+          "unit": "px"
+        },
+        "burst": {
+          "type": "float",
+          "label": "Starburst",
+          "default": 0.46,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "rayCount": {
+          "type": "float",
+          "label": "Starburst rays",
+          "default": 8,
+          "min": 4,
+          "max": 12,
+          "step": 1
+        },
+        "streak": {
+          "type": "float",
+          "label": "Axis streak",
+          "default": 0.28,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "chromaticSeparation": {
+          "type": "float",
+          "label": "Chromatic separation",
+          "default": 0.28,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "warm": {
+          "type": "color",
+          "label": "Warm flare",
+          "default": {
+            "space": "srgb",
+            "components": [
+              1,
+              0.42,
+              0.17
+            ],
+            "alpha": 1
+          }
+        },
+        "cool": {
+          "type": "color",
+          "label": "Cool flare",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.18,
+              0.48,
+              1
+            ],
+            "alpha": 1
+          }
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "output": "color",
+      "passes": [
+        {
+          "id": "render",
+          "kind": "render",
+          "reads": [],
+          "output": "color"
+        }
+      ],
+      "executionHash": "6ee453e60b1ec263a00cccfcbe5d58e9deefb467962e5906545ffe8b60be827f",
+      "presetIds": [
+        "an-preset-owned-o-ghost-chain-v2-aperture-star",
+        "an-preset-owned-o-ghost-chain-v2-chromatic-sweep"
+      ],
+      "animationCapability": "static"
+    },
+    {
       "id": "an-native-owned-o-edge-light-leak",
       "name": "Edge Light Leak",
       "version": 1,
@@ -29383,6 +29551,215 @@
       "presetIds": [
         "an-preset-owned-p-density-heatmap-1",
         "an-preset-owned-p-density-heatmap-2"
+      ],
+      "animationCapability": "static"
+    },
+    {
+      "id": "an-native-owned-p-density-heatmap",
+      "name": "Image Density Heatmap",
+      "version": 4,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "radius": {
+          "type": "float",
+          "label": "Density radius",
+          "default": 10,
+          "min": 0,
+          "max": 64,
+          "step": 0.1,
+          "unit": "px"
+        },
+        "low": {
+          "type": "float",
+          "label": "Low density",
+          "default": 0.12,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "middle": {
+          "type": "float",
+          "label": "Middle density",
+          "default": 0.44,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "high": {
+          "type": "float",
+          "label": "High density",
+          "default": 0.78,
+          "min": 0,
+          "max": 0.99,
+          "step": 0.01
+        },
+        "shadow": {
+          "type": "color",
+          "label": "Shadow color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.04,
+              0.08,
+              0.28
+            ],
+            "alpha": 1
+          }
+        },
+        "cool": {
+          "type": "color",
+          "label": "Cool color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.1,
+              0.42,
+              0.8
+            ],
+            "alpha": 1
+          }
+        },
+        "warm": {
+          "type": "color",
+          "label": "Warm color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.97,
+              0.67,
+              0.18
+            ],
+            "alpha": 1
+          }
+        },
+        "hot": {
+          "type": "color",
+          "label": "Hot color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              1,
+              0.18,
+              0.06
+            ],
+            "alpha": 1
+          }
+        },
+        "contourColor": {
+          "type": "color",
+          "label": "Contour color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.02,
+              0.025,
+              0.09
+            ],
+            "alpha": 1
+          }
+        },
+        "bands": {
+          "type": "int",
+          "label": "Contour bands",
+          "default": 9,
+          "min": 2,
+          "max": 32,
+          "step": 1
+        },
+        "contourWidth": {
+          "type": "float",
+          "label": "Contour width",
+          "default": 0.065,
+          "min": 0.005,
+          "max": 0.25,
+          "step": 0.005
+        },
+        "contourStrength": {
+          "type": "float",
+          "label": "Contour strength",
+          "default": 0.55,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "amount": {
+          "type": "float",
+          "label": "Heatmap amount",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "parameterConstraints": [
+        {
+          "kind": "ordered-floats",
+          "lesser": "low",
+          "greater": "middle",
+          "minGap": 0.001
+        },
+        {
+          "kind": "ordered-floats",
+          "lesser": "middle",
+          "greater": "high",
+          "minGap": 0.001
+        }
+      ],
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "passes": [
+        {
+          "id": "density-transfer",
+          "kind": "render",
+          "reads": [
+            "source"
+          ],
+          "output": "color"
+        }
+      ],
+      "output": "color",
+      "executionHash": "9bedf8a1b95a2150bdb0fa18977d2c3bed3ea529856ae67a7d4bb9d67a3ba953",
+      "presetIds": [
+        "an-preset-density-v4-infrared-relief",
+        "an-preset-density-v4-topographic-density"
       ],
       "animationCapability": "static"
     },
@@ -50437,6 +50814,486 @@
       "animationCapability": "animated"
     },
     {
+      "id": "an-native-owned-bd-flowing-shape-chrome",
+      "name": "Flowing Shape Chrome",
+      "version": 2,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "alphaThreshold": {
+          "type": "float",
+          "label": "Shape threshold",
+          "default": 0.12,
+          "min": 0.01,
+          "max": 0.9,
+          "step": 0.01
+        },
+        "depth": {
+          "type": "float",
+          "label": "Extrusion depth",
+          "default": 0.14,
+          "min": 0.04,
+          "max": 0.35,
+          "step": 0.01
+        },
+        "foldFrequency": {
+          "type": "float",
+          "label": "Fold frequency",
+          "default": 16,
+          "min": 3,
+          "max": 35,
+          "step": 0.5
+        },
+        "foldStrength": {
+          "type": "float",
+          "label": "Fold strength",
+          "default": 0.045,
+          "min": 0,
+          "max": 0.12,
+          "step": 0.005
+        },
+        "motionSpeed": {
+          "type": "float",
+          "label": "Motion speed",
+          "default": 0.8,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        "yaw": {
+          "type": "float",
+          "label": "Orbit yaw",
+          "default": 0.18,
+          "min": -0.8,
+          "max": 0.8,
+          "step": 0.01
+        },
+        "pitch": {
+          "type": "float",
+          "label": "Orbit pitch",
+          "default": -0.1,
+          "min": -0.8,
+          "max": 0.8,
+          "step": 0.01
+        },
+        "metalness": {
+          "type": "float",
+          "label": "Metalness",
+          "default": 0.82,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "roughness": {
+          "type": "float",
+          "label": "Roughness",
+          "default": 0.22,
+          "min": 0.03,
+          "max": 1,
+          "step": 0.01
+        },
+        "refraction": {
+          "type": "float",
+          "label": "Refraction",
+          "default": 5,
+          "min": 0,
+          "max": 30,
+          "step": 0.5,
+          "unit": "px"
+        },
+        "dispersion": {
+          "type": "float",
+          "label": "Dispersion",
+          "default": 1.4,
+          "min": 0,
+          "max": 8,
+          "step": 0.1,
+          "unit": "px"
+        },
+        "studioRotation": {
+          "type": "float",
+          "label": "Studio rotation",
+          "default": 0.2,
+          "min": -3.14,
+          "max": 3.14,
+          "step": 0.01
+        },
+        "studioIntensity": {
+          "type": "float",
+          "label": "Studio intensity",
+          "default": 1.1,
+          "min": 0,
+          "max": 3,
+          "step": 0.01
+        },
+        "tint": {
+          "type": "color",
+          "label": "Surface tint",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.62,
+              0.82,
+              1
+            ],
+            "alpha": 0.36
+          }
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 0.9,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "environmentMode": {
+          "type": "enum",
+          "label": "Reflection source",
+          "default": "studio",
+          "options": [
+            "studio",
+            "image"
+          ]
+        },
+        "environmentImage": {
+          "type": "texture",
+          "label": "Environment image",
+          "default": null,
+          "input": "environment"
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        },
+        "environment": {
+          "kind": "texture-2d",
+          "resource": "environment",
+          "enabledWhen": {
+            "property": "environmentMode",
+            "equals": "image"
+          },
+          "fallback": "transparent-data"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "seed",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump0",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump1",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump2",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump3",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump4",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump5",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump6",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "nearest",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "environment",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport",
+          "sampleEncoding": "srgb-color-premultiplied"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "passes": [
+        {
+          "id": "seed-boundary",
+          "kind": "compute",
+          "reads": [
+            "source"
+          ],
+          "output": "seed",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-128",
+          "kind": "compute",
+          "reads": [
+            "seed"
+          ],
+          "output": "jump0",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-64",
+          "kind": "compute",
+          "reads": [
+            "jump0"
+          ],
+          "output": "jump1",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-32",
+          "kind": "compute",
+          "reads": [
+            "jump1"
+          ],
+          "output": "jump2",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-16",
+          "kind": "compute",
+          "reads": [
+            "jump2"
+          ],
+          "output": "jump3",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-8",
+          "kind": "compute",
+          "reads": [
+            "jump3"
+          ],
+          "output": "jump4",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-4",
+          "kind": "compute",
+          "reads": [
+            "jump4"
+          ],
+          "output": "jump5",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-2",
+          "kind": "compute",
+          "reads": [
+            "jump5"
+          ],
+          "output": "jump6",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-1",
+          "kind": "compute",
+          "reads": [
+            "jump6"
+          ],
+          "output": "nearest",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "shade-chrome",
+          "kind": "render",
+          "reads": [
+            "source",
+            "nearest",
+            "environment"
+          ],
+          "output": "color"
+        }
+      ],
+      "output": "color",
+      "executionHash": "f6534b72c2c665a44838078e1380c4285e04f1345bd00bb7eb2dd51c8133fef0",
+      "presetIds": [
+        "an-preset-bd-v2-studio-silver",
+        "an-preset-bd-v2-reflected-aurora"
+      ],
+      "animationCapability": "animated"
+    },
+    {
       "id": "an-native-owned-frame-mosh",
       "name": "Frame Mosh",
       "version": 2,
@@ -57795,6 +58652,396 @@
         "an-preset-ck-copper-crosswind"
       ],
       "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-source-shape-glass",
+      "name": "Source Shape Glass",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer"
+      ],
+      "properties": {
+        "shapeThreshold": {
+          "type": "float",
+          "label": "Shape threshold",
+          "default": 0.1,
+          "min": 0.01,
+          "max": 0.9,
+          "step": 0.01
+        },
+        "thickness": {
+          "type": "float",
+          "label": "Thickness",
+          "default": 30,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "unit": "px"
+        },
+        "edgeSoftness": {
+          "type": "float",
+          "label": "Edge softness",
+          "default": 14,
+          "min": 1,
+          "max": 80,
+          "step": 1,
+          "unit": "px"
+        },
+        "bend": {
+          "type": "float",
+          "label": "Bend",
+          "default": 9,
+          "min": 0,
+          "max": 30,
+          "step": 0.5,
+          "unit": "px"
+        },
+        "dispersion": {
+          "type": "float",
+          "label": "Dispersion",
+          "default": 1.5,
+          "min": 0,
+          "max": 8,
+          "step": 0.5,
+          "unit": "px"
+        },
+        "fresnel": {
+          "type": "float",
+          "label": "Reflection",
+          "default": 0.36,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "glassTint": {
+          "type": "color",
+          "label": "Glass tint",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.76,
+              0.9,
+              0.98
+            ],
+            "alpha": 0.2
+          }
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 0.9,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "seed",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump0",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump1",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump2",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump3",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump4",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump5",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "jump6",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "nearest",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "sampled",
+            "storage"
+          ],
+          "size": "fixed",
+          "width": 256,
+          "height": 256
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "passes": [
+        {
+          "id": "seed-boundary",
+          "kind": "compute",
+          "reads": [
+            "source"
+          ],
+          "output": "seed",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-128",
+          "kind": "compute",
+          "reads": [
+            "seed"
+          ],
+          "output": "jump0",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-64",
+          "kind": "compute",
+          "reads": [
+            "jump0"
+          ],
+          "output": "jump1",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-32",
+          "kind": "compute",
+          "reads": [
+            "jump1"
+          ],
+          "output": "jump2",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-16",
+          "kind": "compute",
+          "reads": [
+            "jump2"
+          ],
+          "output": "jump3",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-8",
+          "kind": "compute",
+          "reads": [
+            "jump3"
+          ],
+          "output": "jump4",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-4",
+          "kind": "compute",
+          "reads": [
+            "jump4"
+          ],
+          "output": "jump5",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-2",
+          "kind": "compute",
+          "reads": [
+            "jump5"
+          ],
+          "output": "jump6",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "jump-1",
+          "kind": "compute",
+          "reads": [
+            "jump6"
+          ],
+          "output": "nearest",
+          "dispatch": {
+            "elements": "output-texture",
+            "workgroupSize": [
+              8,
+              8,
+              1
+            ]
+          }
+        },
+        {
+          "id": "refract-shape",
+          "kind": "render",
+          "reads": [
+            "source",
+            "nearest"
+          ],
+          "output": "color"
+        }
+      ],
+      "output": "color",
+      "executionHash": "567f803d711c6864879459feb2b6431999748e925791bc5e078cbf29707e07d1",
+      "presetIds": [
+        "an-preset-o-source-shape-glass-cut-crystal",
+        "an-preset-o-source-shape-glass-soft-silica"
+      ],
+      "animationCapability": "static"
     }
   ],
   "defaultCanvasGpuEvidence": {
