@@ -1102,6 +1102,8 @@ export function summarizeWorkspaceConnectionProviderForApp({
 }: SummarizeWorkspaceConnectionProviderForAppOptions): WorkspaceConnectionProviderAppSummary {
   const normalizedProviderId = providerId.trim();
   const normalizedAppId = appId.trim();
+  const providerDefinition =
+    provider ?? getWorkspaceConnectionProvider(normalizedProviderId);
   const allConnections = connections.filter(
     (connection) => connection.provider === normalizedProviderId,
   );
@@ -1112,7 +1114,8 @@ export function summarizeWorkspaceConnectionProviderForApp({
   );
   const connectedConnections = grantedConnections.filter(
     (connection) =>
-      connectionStatusForProvider(provider, connection) === "connected",
+      connectionStatusForProvider(providerDefinition, connection) ===
+      "connected",
   );
   const ungrantedConnectionCount =
     allConnections.length - grantedConnections.length;
@@ -1180,14 +1183,14 @@ export function summarizeWorkspaceConnectionProviderForApp({
     lastUsedAt,
     statuses: uniqueStrings(
       allConnections.map((connection) =>
-        connectionStatusForProvider(provider, connection),
+        connectionStatusForProvider(providerDefinition, connection),
       ),
     ) as WorkspaceConnectionStatus[],
     connections: visibleConnections.map((connection) =>
       serializeConnectionForApp(
         {
           ...connection,
-          status: connectionStatusForProvider(provider, connection),
+          status: connectionStatusForProvider(providerDefinition, connection),
         },
         normalizedAppId,
         grants,

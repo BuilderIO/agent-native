@@ -339,7 +339,7 @@ describe("workspace connection store", () => {
     });
   });
 
-  it("requires reauthorization when a Google Sheets grant lacks required scopes", async () => {
+  it("requires reauthorization when a Google Sheets summary omits its provider", async () => {
     const {
       summarizeWorkspaceConnectionProviderForApp,
       summarizeWorkspaceConnectionProviderReadiness,
@@ -373,7 +373,6 @@ describe("workspace connection store", () => {
 
     const appSummary = summarizeWorkspaceConnectionProviderForApp({
       providerId: provider.id,
-      provider,
       appId: "analytics",
       connections: [connection],
       includeConnections: "all",
