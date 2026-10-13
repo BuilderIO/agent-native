@@ -102,6 +102,7 @@ it("does not mutate source, destination, or history while either moved file is s
       activeFile: sourceFile,
       applyFileContentUpdate: writes,
       boardFileId: undefined,
+      canvasFrameGeometryById: {},
       codeLayerOwnerByNodeId: new Map([
         [
           moving.id,
@@ -180,6 +181,7 @@ function moveBoardLayerIntoLiveScreenBody(
       return publication;
     },
     boardFileId: SOURCE_ID,
+    canvasFrameGeometryById: {},
     codeLayerOwnerByNodeId: ownerMap,
     effectiveCodeLayerState: { lockedIds: new Set(), hiddenIds: new Set() },
     files: [sourceFile, targetFile],
@@ -273,6 +275,7 @@ describe("runLayerMoveToScreen: live body layout", () => {
         return publication;
       },
       boardFileId: undefined,
+      canvasFrameGeometryById: {},
       codeLayerOwnerByNodeId: ownerMap,
       effectiveCodeLayerState: { lockedIds: new Set(), hiddenIds: new Set() },
       files: [sourceFile, targetFile],
@@ -352,6 +355,7 @@ describe("runLayerMoveToScreen: live body layout", () => {
         return publication;
       },
       boardFileId: undefined,
+      canvasFrameGeometryById: {},
       codeLayerOwnerByNodeId: ownerMap,
       effectiveCodeLayerState: { lockedIds: new Set(), hiddenIds: new Set() },
       files: [sourceFile, targetFile],

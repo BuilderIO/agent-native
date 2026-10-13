@@ -58,6 +58,7 @@ import {
   stampContentHistorySelectionAfter,
 } from "@/pages/design-editor/history";
 import {
+  authoredAbsoluteChildOriginForNode,
   getAbsolutePositioningForNodeInHtml,
   setAbsolutePositioningForNodeInHtml,
 } from "@/pages/design-editor/html-layer-positioning";
@@ -876,9 +877,12 @@ export function runLayerMove(
         continue;
       }
       nextDestContent = patch.content;
+      const flowsIntoEmptyParent =
+        !sourceIsOutOfFlow && newParentOwnerNode?.children.length === 0;
       if (
         isCrossParent &&
         newParentId &&
+        !flowsIntoEmptyParent &&
         (!destinationIsAutoLayout || sourceWasIgnoredInAutoLayout)
       ) {
         const movedNodeAttrId =
@@ -898,15 +902,15 @@ export function runLayerMove(
           prevContentForRebase,
           draggedAttrId,
         );
-        const targetPosition = getAbsolutePositioningForNodeInHtml(
+        const childOrigin = authoredAbsoluteChildOriginForNode(
           prevContentForRebase,
           newParentAttrId,
         );
-        if (sourcePosition && targetPosition) {
+        if (sourcePosition && childOrigin) {
           nextDestContent = setAbsolutePositioningForNodeInHtml(
             nextDestContent,
             movedNodeAttrId,
-            computeReparentedChildPosition(sourcePosition, targetPosition),
+            computeReparentedChildPosition(sourcePosition, childOrigin),
           );
         }
       }
