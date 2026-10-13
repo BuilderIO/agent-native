@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { parseDtcgTokens } from "./dtcg-tokens.js";
+import { parseDtcgFiles } from "./dtcg-tokens.js";
+
+/** Parses one file and drops `source`, which every test here shares. */
+function parseDtcgTokens(content: string) {
+  const { tokens, dtcgFiles } = parseDtcgFiles([
+    { filename: "tokens.json", content },
+  ]);
+  return dtcgFiles.size > 0
+    ? tokens.map(({ source: _, ...token }) => token)
+    : null;
+}
 
 describe("parseDtcgTokens", () => {
   it("returns null for content that is not a DTCG file", () => {
@@ -91,6 +101,41 @@ describe("parseDtcgTokens", () => {
         value: "var(--brand)",
         type: "color",
         references: ["--brand"],
+      },
+    ]);
+  });
+
+  it("resolves references to tokens declared in another file", () => {
+    const { tokens, dtcgFiles } = parseDtcgFiles([
+      {
+        filename: "primitives.json",
+        content: JSON.stringify({
+          blue: { 500: { $type: "color", $value: "#2563eb" } },
+        }),
+      },
+      {
+        filename: "semantic.json",
+        content: JSON.stringify({
+          accent: { $type: "color", $value: "{blue.500}" },
+        }),
+      },
+      { filename: "theme.css", content: ":root { --a: 1px; }" },
+    ]);
+
+    expect([...dtcgFiles]).toEqual(["primitives.json", "semantic.json"]);
+    expect(tokens).toEqual([
+      {
+        cssVar: "--blue-500",
+        source: "primitives.json",
+        value: "#2563eb",
+        type: "color",
+      },
+      {
+        cssVar: "--accent",
+        source: "semantic.json",
+        value: "var(--blue-500)",
+        type: "color",
+        references: ["--blue-500"],
       },
     ]);
   });

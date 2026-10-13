@@ -28,7 +28,7 @@ import {
 } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
-  parseDtcgTokens,
+  parseDtcgFiles,
   toKebab,
   withoutDanglingReferences,
 } from "../server/lib/dtcg-tokens.js";
@@ -256,26 +256,22 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
   const tokens: ImportedDesignToken[] = [];
   const declared = new Map<ImportedDesignToken, DesignTokenType>();
   const references = new Map<ImportedDesignToken, string[]>();
-  const looseFiles: { filename: string; content: string }[] = [];
-  for (const file of accepted) {
-    const dtcgTokens = parseDtcgTokens(file.content);
-    if (!dtcgTokens) {
-      looseFiles.push(file);
-      continue;
-    }
-    for (const token of dtcgTokens) {
-      const imported: ImportedDesignToken = {
-        name: friendlyTokenName(token.cssVar),
-        cssVar: token.cssVar,
-        value: token.value,
-        type: token.type ?? guessTokenType(token.cssVar, token.value),
-        source: file.filename,
-      };
-      tokens.push(imported);
-      if (token.type) declared.set(imported, token.type);
-      if (token.references) references.set(imported, token.references);
-    }
+  const dtcg = parseDtcgFiles(accepted);
+  for (const token of dtcg.tokens) {
+    const imported: ImportedDesignToken = {
+      name: friendlyTokenName(token.cssVar),
+      cssVar: token.cssVar,
+      value: token.value,
+      type: token.type ?? guessTokenType(token.cssVar, token.value),
+      source: token.source,
+    };
+    tokens.push(imported);
+    if (token.type) declared.set(imported, token.type);
+    if (token.references) references.set(imported, token.references);
   }
+  const looseFiles = accepted.filter(
+    (file) => !dtcg.dtcgFiles.has(file.filename),
+  );
 
   const state = createCodeAnalysisState();
   for (const file of looseFiles) {

@@ -11,6 +11,8 @@ import {
 
 export interface DtcgToken {
   cssVar: string;
+  /** Filename of the DTCG file that declared the token. */
+  source: string;
   value: string;
   /** Absent when the DTCG token has no `$type`; the caller guesses one. */
   type?: DesignTokenType;
@@ -37,6 +39,7 @@ interface RawToken {
   path: string[];
   type?: string;
   value: Json;
+  source: string;
 }
 
 const REFERENCE = /^\{([^{}]+)\}$/;
@@ -53,16 +56,17 @@ function collect(
   node: Record<string, Json>,
   path: string[],
   inheritedType: string | undefined,
+  source: string,
   out: RawToken[],
 ): void {
   const type = typeof node.$type === "string" ? node.$type : inheritedType;
   if ("$value" in node) {
-    out.push({ path, type, value: node.$value });
+    out.push({ path, type, value: node.$value, source });
     return;
   }
   for (const [key, child] of Object.entries(node)) {
     if (key.startsWith("$") || !isRecord(child)) continue;
-    collect(child, [...path, key], type, out);
+    collect(child, [...path, key], type, source, out);
   }
 }
 
@@ -228,24 +232,37 @@ const TYPOGRAPHY_PARTS: {
   },
 ];
 
-/**
- * Returns the tokens in a DTCG file, or `null` when the content is not a DTCG
- * file at all, so the caller can fall back to its generic parsers. Tokens whose
- * type or value cannot be expressed as one CSS value (border, gradient,
- * transition, unresolvable references) are left out.
- */
-export function parseDtcgTokens(content: string): DtcgToken[] | null {
+function readDtcgDocument(content: string): Record<string, Json> | null {
   let json: Json;
   try {
     json = JSON.parse(content);
-    // coercion-ok: non-JSON content is "not DTCG" (null), distinct from an empty DTCG file ([]); callers fall back to the CSS/Tailwind parsers.
+    // coercion-ok: non-JSON content is "not DTCG" (null), distinct from an empty DTCG file; callers send those files to the CSS/Tailwind parsers.
   } catch {
     return null;
   }
-  if (!hasDtcgToken(json)) return null;
+  return hasDtcgToken(json) ? (json as Record<string, Json>) : null;
+}
 
+/**
+ * Parses every DTCG file in `files` as one token set, so a reference in one
+ * file can point at a token declared in another (primitives and aliases are
+ * usually split across files). `dtcgFiles` names the files that were DTCG;
+ * the rest are for the caller's generic parsers. Tokens whose type or value
+ * cannot be expressed as one CSS value (border, gradient, transition,
+ * unresolvable references) are left out.
+ */
+export function parseDtcgFiles(
+  files: { filename: string; content: string }[],
+): { tokens: DtcgToken[]; dtcgFiles: Set<string> } {
   const raw: RawToken[] = [];
-  collect(json as Record<string, Json>, [], undefined, raw);
+  const dtcgFiles = new Set<string>();
+  for (const file of files) {
+    const doc = readDtcgDocument(file.content);
+    if (!doc) continue;
+    dtcgFiles.add(file.filename);
+    collect(doc, [], undefined, file.filename, raw);
+  }
+
   const byPath = new Map(raw.map((token) => [token.path.join("."), token]));
 
   // References become `var(--…)` so the imported tokens keep their links.
@@ -271,9 +288,10 @@ export function parseDtcgTokens(content: string): DtcgToken[] | null {
     if (value === undefined) continue;
     const withRefs = () =>
       currentRefs.size > 0 ? { references: [...currentRefs] } : {};
+    const source = token.source;
     const push = (formatted: string | null, type?: DesignTokenType) => {
       if (formatted) {
-        tokens.push({ cssVar, value: formatted, type, ...withRefs() });
+        tokens.push({ cssVar, source, value: formatted, type, ...withRefs() });
       }
     };
 
@@ -324,6 +342,7 @@ export function parseDtcgTokens(content: string): DtcgToken[] | null {
           if (formatted) {
             tokens.push({
               cssVar: `${cssVar}-${part.type}`,
+              source,
               value: formatted,
               type: part.type,
               ...withRefs(),
@@ -338,7 +357,10 @@ export function parseDtcgTokens(content: string): DtcgToken[] | null {
         break;
     }
   }
-  return withoutDanglingReferences(tokens, (token) => token.references);
+  return {
+    tokens: withoutDanglingReferences(tokens, (token) => token.references),
+    dtcgFiles,
+  };
 }
 
 /**
