@@ -160,7 +160,7 @@ const mockGetSlotHoldingRunId = vi.hoisted(() =>
   vi.fn(async (): Promise<string | undefined> => undefined),
 );
 const mockInsertRun = vi.hoisted(() => vi.fn(async () => undefined));
-const mockInsertRunEvent = vi.hoisted(() => vi.fn(async () => undefined));
+const mockPersistRunEventsInMemory = vi.hoisted(() => ({ enabled: false }));
 const mockFireInternalDispatch = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("../db/ddl-guard.js", () => ({
@@ -203,18 +203,30 @@ vi.mock("../settings/store.js", async (importOriginal) => ({
   },
 }));
 
-vi.mock("./run-manager.js", async () => ({
-  ...(await vi.importActual<typeof import("./run-manager.js")>(
-    "./run-manager.js",
-  )),
-  tryClaimRunSlot: mockTryClaimRunSlot,
-  getSlotHoldingRunId: mockGetSlotHoldingRunId,
-}));
+vi.mock("./run-manager.js", async () => {
+  const actual =
+    await vi.importActual<typeof import("./run-manager.js")>(
+      "./run-manager.js",
+    );
+  return {
+    ...actual,
+    startRun: (...args: Parameters<typeof actual.startRun>) => {
+      if (!mockPersistRunEventsInMemory.enabled)
+        return actual.startRun(...args);
+      const [runId, threadId, runFn, onComplete, options] = args;
+      return actual.startRun(runId, threadId, runFn, onComplete, {
+        ...options,
+        persistEvent: async () => {},
+      });
+    },
+    tryClaimRunSlot: mockTryClaimRunSlot,
+    getSlotHoldingRunId: mockGetSlotHoldingRunId,
+  };
+});
 
 vi.mock("./run-store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./run-store.js")>()),
   insertRun: (...args: any[]) => mockInsertRun(...args),
-  insertRunEvent: (...args: any[]) => mockInsertRunEvent(...args),
 }));
 
 vi.mock("../server/self-dispatch.js", async (importOriginal) => ({
@@ -3818,7 +3830,7 @@ describe("createProductionAgentHandler", () => {
     const consumeApproval = vi
       .spyOn(toolApprovalStore, "consumeAgentToolApproval")
       .mockResolvedValue(true);
-    mockInsertRunEvent.mockClear();
+    mockPersistRunEventsInMemory.enabled = true;
     const onRunComplete = vi.fn();
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
@@ -3834,50 +3846,50 @@ describe("createProductionAgentHandler", () => {
     });
     const input = {};
     const approvalKey = toolCallCacheKey("publish", input);
-    const response = await runWithRequestContext(
-      { userEmail: "alice@example.com", orgId: "acme", run: {} },
-      () =>
-        handler(
-          mockEvent(
-            new Request("http://app.example.com/_agent-native/agent-chat", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                message: "Approved. Continue.",
-                approvedToolCalls: [approvalKey],
-                structuredHistory: [
-                  {
-                    role: "assistant",
-                    content: [
-                      {
-                        type: "tool-call",
-                        id: "call-publish",
-                        name: "publish",
-                        input,
-                      },
-                    ],
-                  },
-                  {
-                    role: "user",
-                    content: [
-                      {
-                        type: "tool-result",
-                        toolCallId: "call-publish",
-                        toolName: "publish",
-                        toolInput: "{}",
-                        content: "Awaiting human approval.",
-                        approvalPause: true,
-                      },
-                    ],
-                  },
-                ],
-              }),
-            }),
-          ),
-        ),
-    );
-
     try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () =>
+          handler(
+            mockEvent(
+              new Request("http://app.example.com/_agent-native/agent-chat", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  message: "Approved. Continue.",
+                  approvedToolCalls: [approvalKey],
+                  structuredHistory: [
+                    {
+                      role: "assistant",
+                      content: [
+                        {
+                          type: "tool-call",
+                          id: "call-publish",
+                          name: "publish",
+                          input,
+                        },
+                      ],
+                    },
+                    {
+                      role: "user",
+                      content: [
+                        {
+                          type: "tool-result",
+                          toolCallId: "call-publish",
+                          toolName: "publish",
+                          toolInput: "{}",
+                          content: "Awaiting human approval.",
+                          approvalPause: true,
+                        },
+                      ],
+                    },
+                  ],
+                }),
+              }),
+            ),
+          ),
+      );
+
       expect(response).toBeInstanceOf(ReadableStream);
       if (response instanceof ReadableStream) {
         await new Response(response).text();
@@ -3901,6 +3913,7 @@ describe("createProductionAgentHandler", () => {
       expect(outerStream).not.toHaveBeenCalled();
     } finally {
       consumeApproval.mockRestore();
+      mockPersistRunEventsInMemory.enabled = false;
     }
   });
 
