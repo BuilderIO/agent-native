@@ -777,6 +777,25 @@ describe("slide slash command menu", () => {
     expect(document.activeElement).toBe(editingEl);
   });
 
+  it("keeps repeated keyboard navigation on the active command", () => {
+    const { editingEl, applyAuthoringCommand } = renderWithTypedSlash("");
+
+    keyDown(editingEl, "ArrowDown");
+    keyDown(editingEl, "ArrowDown");
+    keyDown(editingEl, "ArrowDown");
+
+    const heading3 = screen.getByRole("option", { name: /Heading 3/ });
+    expect(heading3.getAttribute("aria-selected")).toBe("true");
+    expectActiveOption(editingEl, heading3);
+
+    keyDown(editingEl, "Enter");
+
+    expect(applyAuthoringCommand).toHaveBeenCalledWith(
+      "heading3" satisfies InPlaceTextAuthoringCommand,
+      expect.any(Range),
+    );
+  });
+
   it("uses the translated Blocks label as the listbox accessible name", () => {
     const originalLabel = labels["slideSlashMenu.blocks"];
     labels["slideSlashMenu.blocks"] = "Bloques";

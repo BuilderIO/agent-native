@@ -9,6 +9,7 @@ import {
   AUTHORING_FUZZ_STYLE_PROPERTIES,
   authoringFuzzPrecedingListMergePreservesIdentity,
   authoringFuzzListTagForOperation,
+  authoringFuzzSlashArrowDownCount,
   createRetiredBrowserSessionErrorCorrelator,
   browserSessionNavigationRequestIdentity,
   browserSessionIdAfterRequest,
@@ -906,6 +907,15 @@ it("requires undo-history diagnostics before the history replay gate", () => {
   );
   expect(requireUndoHistoryStats({ initialStateEvicted: false })).toMatchObject(
     { initialStateEvicted: false },
+  );
+});
+
+it("navigates slash choices from the menu's current active command", () => {
+  expect(authoringFuzzSlashArrowDownCount("paragraph", "heading1")).toBe(1);
+  expect(authoringFuzzSlashArrowDownCount("heading1", "paragraph")).toBe(7);
+  expect(authoringFuzzSlashArrowDownCount("quote", "quote")).toBe(0);
+  expect(() => authoringFuzzSlashArrowDownCount(null, "paragraph")).toThrow(
+    "slash menu did not expose its active command",
   );
 });
 

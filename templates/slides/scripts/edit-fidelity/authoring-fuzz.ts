@@ -1589,6 +1589,25 @@ const SLASH_COMMANDS = [
   ["divider", "divider"],
 ] as const;
 
+export function authoringFuzzSlashArrowDownCount(
+  activeCommand: string | null,
+  targetCommand: string,
+) {
+  const activeIndex = SLASH_COMMANDS.findIndex(
+    ([value]) => value === activeCommand,
+  );
+  const targetIndex = SLASH_COMMANDS.findIndex(
+    ([value]) => value === targetCommand,
+  );
+  if (activeIndex < 0)
+    throw new Error("slash menu did not expose its active command");
+  if (targetIndex < 0)
+    throw new Error(`unknown slash command ${targetCommand}`);
+  return (
+    (targetIndex - activeIndex + SLASH_COMMANDS.length) % SLASH_COMMANDS.length
+  );
+}
+
 const RANDOM_KINDS: AuthoringFuzzOperation["kind"][] = [
   "type",
   "shortcut",
@@ -4735,21 +4754,54 @@ export async function runAuthoringFuzz(
     key: "Enter" | "Tab" = "Enter",
   ) => {
     const listbox = await openSlashMenu();
-    const commandIndex = SLASH_COMMANDS.findIndex(
-      ([value]) => value === command,
+    const currentOptionId = await editor.getAttribute("aria-activedescendant");
+    const activeCommand = await listbox
+      .locator('[role="option"]')
+      .evaluateAll(
+        (options: Element[], activeId: string | null) =>
+          options
+            .find((option) => option.getAttribute("id") === activeId)
+            ?.getAttribute("data-value") ?? null,
+        currentOptionId,
+      );
+    const arrowDownCount = authoringFuzzSlashArrowDownCount(
+      activeCommand,
+      command,
     );
-    if (commandIndex < 0) throw new Error(`unknown slash command ${command}`);
     tracePhase(`slash.navigate:start:${command}`);
-    for (let index = 0; index < commandIndex; index += 1)
+    let selectedIndex = SLASH_COMMANDS.findIndex(
+      ([value]) => value === activeCommand,
+    );
+    for (let index = 0; index < arrowDownCount; index += 1) {
+      selectedIndex = (selectedIndex + 1) % SLASH_COMMANDS.length;
+      const expectedCommand = SLASH_COMMANDS[selectedIndex][0];
       await page.keyboard.press("ArrowDown");
+      await page.waitForFunction(
+        ({ selector, value }: { selector: string; value: string }) => {
+          const editingEl = document.querySelector<HTMLElement>(selector);
+          const activeId = editingEl?.getAttribute("aria-activedescendant");
+          const activeOption = activeId
+            ? document.getElementById(activeId)
+            : null;
+          return activeOption?.getAttribute("data-value") === value;
+        },
+        { selector: editorSelector, value: expectedCommand },
+        { timeout: 1500 },
+      );
+    }
     const activeOptionId = await listbox
       .locator(`[role="option"][data-value="${command}"]`)
       .getAttribute("id");
+    const selectedCommand = await listbox
+      .locator('[role="option"][aria-selected="true"]')
+      .getAttribute("data-value");
     if (
       !activeOptionId ||
       (await editor.getAttribute("aria-activedescendant")) !== activeOptionId
     ) {
-      throw new Error(`slash menu did not select ${command}`);
+      throw new Error(
+        `slash menu did not select ${command} (started at ${activeCommand}, moved ${arrowDownCount}, selected ${selectedCommand ?? "none"})`,
+      );
     }
     const withTrigger = await inspectSelection();
     const listboxId = await slashListboxId(listbox);
