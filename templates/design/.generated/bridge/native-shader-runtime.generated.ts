@@ -18341,10 +18341,6 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
                 code: "runtime-disposed",
                 message: "runtime-disposed"
               });
-            const retirementStarted = benchmarkMetrics ? performance.now() : 0;
-            this.retireBindings();
-            if (benchmarkMetrics)
-              benchmarkMetrics.fullFrameWallPhases.frame.retirementWallMs += performance.now() - retirementStarted;
           } catch (error) {
             this.releaseScenePresentation();
             const message = error instanceof Error ? error.message : String(error);
@@ -18373,6 +18369,17 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             this.issue(code, message);
             if (!this.device && !this.deviceLifecycle.exhausted())
               this.scheduleDeviceRetry();
+          } finally {
+            const retirementStarted = benchmarkMetrics ? performance.now() : 0;
+            try {
+              this.retireBindings();
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              failures.push({ code: "gpu-retirement", message });
+              this.issue("gpu-retirement", message);
+            }
+            if (benchmarkMetrics)
+              benchmarkMetrics.fullFrameWallPhases.frame.retirementWallMs += performance.now() - retirementStarted;
           }
           if (deterministic)
             for (const target of this.rejectedTargets) {
@@ -22529,13 +22536,14 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       }
       if (this.retirementPending || !this.retirement.length && !this.textureRetirement.length || !this.device)
         return;
-      this.retirementPending = true;
       const device = this.device;
+      const submittedWork = device.queue.onSubmittedWorkDone();
+      this.retirementPending = true;
       const buffers = this.retirement.splice(0);
       const textures = this.textureRetirement.splice(0);
       for (const texture of textures)
         this.retirementInFlightTextures.add(texture);
-      void device.queue.onSubmittedWorkDone().then(
+      void submittedWork.then(
         () => {
           for (const buffer of buffers) this.destroyUniform(buffer);
           for (const texture of textures) {

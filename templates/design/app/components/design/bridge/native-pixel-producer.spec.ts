@@ -1093,6 +1093,58 @@ it("does not start after a legacy runtime throws during synchronous disposal", a
   }
 });
 
+it("retires queued textures when scene presentation fails", async () => {
+  fakeGpu();
+  const active = await startRuntime(true);
+  active.pause();
+  await active.renderAt(0);
+  const internal = active as unknown as {
+    mounts: Map<string, { instance: { placement: string } }>;
+    texture(
+      width: number,
+      height: number,
+    ): { destroy: ReturnType<typeof vi.fn> };
+    textureRetirement: Array<{ destroy: ReturnType<typeof vi.fn> }>;
+    device: { queue: { onSubmittedWorkDone(): Promise<void> } };
+    renderMount(...args: unknown[]): Promise<void>;
+    presentScene(): Promise<void>;
+    renderInternal(
+      time: number,
+      deterministic: boolean,
+    ): Promise<{
+      failures: { code: string }[];
+    }>;
+  };
+  const mount = internal.mounts.get("test-instance");
+  if (!mount) throw new Error("Native mount unavailable.");
+  mount.instance.placement = "backdrop";
+  vi.spyOn(internal, "renderMount").mockResolvedValue();
+  vi.spyOn(internal, "presentScene").mockRejectedValue(
+    new Error("scene presentation failed"),
+  );
+  const retired = internal.texture(2, 2);
+  internal.textureRetirement.push(retired);
+  const queueFence = vi
+    .spyOn(internal.device.queue, "onSubmittedWorkDone")
+    .mockImplementationOnce(() => {
+      throw new Error("retirement fence unavailable");
+    });
+  const first = await internal.renderInternal(0, false);
+  expect(first.failures).toEqual([
+    expect.objectContaining({ code: "webgpu-unavailable" }),
+    expect.objectContaining({ code: "gpu-retirement" }),
+  ]);
+  expect(internal.textureRetirement).toContain(retired);
+  expect(retired.destroy).not.toHaveBeenCalled();
+  queueFence.mockRestore();
+  const second = await internal.renderInternal(0, false);
+  expect(second.failures).toEqual([
+    expect.objectContaining({ code: "webgpu-unavailable" }),
+  ]);
+  await vi.waitFor(() => expect(retired.destroy).toHaveBeenCalledOnce());
+  expect(internal.textureRetirement).not.toContain(retired);
+});
+
 describe("atomic backdrop scene presentation", () => {
   const nestedClipFixture = async (initiallyClipped: boolean) => {
     const gpu = fakeGpu({ completeCanvasConfiguration: true });
