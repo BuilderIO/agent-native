@@ -576,6 +576,21 @@ const PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS = new Set([
   "invalid_client",
 ]);
 const GOOGLE_SHEETS_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+const GOOGLE_SHEETS_LEGACY_ALLOWED_SCOPES = new Set([
+  GOOGLE_SHEETS_DRIVE_SCOPE,
+  "openid",
+  "email",
+  "profile",
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+]);
+
+function hasIsolatedGoogleSheetsScopes(scopes: ReadonlySet<string>): boolean {
+  return (
+    scopes.has(GOOGLE_SHEETS_DRIVE_SCOPE) &&
+    [...scopes].every((scope) => GOOGLE_SHEETS_LEGACY_ALLOWED_SCOPES.has(scope))
+  );
+}
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
@@ -1261,7 +1276,6 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       "https://developers.google.com/workspace/sheets/api/reference/rest",
     ],
     specUrls: ["https://sheets.googleapis.com/$discovery/rest?version=v4"],
-    allowedHostSuffixes: ["googleapis.com"],
     templateUses: ["analytics"],
     examples: [
       { label: "Create a spreadsheet", method: "POST", path: "/spreadsheets" },
@@ -4562,7 +4576,7 @@ async function resolveOAuthBearerToken(options: {
       legacyTokens &&
       typeof legacyAccessToken === "string" &&
       legacyAccessToken &&
-      legacyScopes.has(GOOGLE_SHEETS_DRIVE_SCOPE) &&
+      hasIsolatedGoogleSheetsScopes(legacyScopes) &&
       typeof legacyExpiresAt === "number" &&
       Number.isFinite(legacyExpiresAt) &&
       (legacyExpiresAt > Date.now() + 60_000 ||
@@ -4576,6 +4590,7 @@ async function resolveOAuthBearerToken(options: {
             accountId: legacyAccount.accountId,
             ownerEmail,
             tokens: legacyTokens,
+            preserveTokensOnPermanentFailure: true,
           });
         } catch (error) {
           if (!isPermanentGoogleOAuthRefreshFailure(error)) throw error;
@@ -4812,6 +4827,7 @@ async function getValidOAuthAccessToken(options: {
   accountId: string;
   ownerEmail: string;
   tokens: OAuthTokens;
+  preserveTokensOnPermanentFailure?: boolean;
   salesforceLoginUrl?: string | null;
 }): Promise<string> {
   const accessToken =
@@ -5462,6 +5478,7 @@ async function refreshGoogleOAuthToken(
     accountId: string;
     ownerEmail: string;
     tokens: OAuthTokens;
+    preserveTokensOnPermanentFailure?: boolean;
   },
   refreshToken: string,
 ): Promise<string> {
@@ -5553,7 +5570,9 @@ async function refreshGoogleOAuthToken(
 
   if (!data?.access_token) {
     if (data?.error && PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(data.error)) {
-      await deleteOAuthTokens(options.oauthProvider, options.accountId);
+      if (!options.preserveTokensOnPermanentFailure) {
+        await deleteOAuthTokens(options.oauthProvider, options.accountId);
+      }
     }
     const detail = data?.error_description ?? data?.error ?? lastStatusText;
     const error = new Error(`Google OAuth refresh failed: ${detail}`);

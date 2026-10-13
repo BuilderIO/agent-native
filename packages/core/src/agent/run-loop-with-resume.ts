@@ -568,6 +568,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
         if (cooldownResult === "chunk_aborted") {
           const chunkBoundaryReason = recoverableChunkBoundary();
           if (chunkBoundaryReason) {
+            appendAgentLoopContinuation(
+              opts.messages,
+              chunkBoundaryReason,
+              actionPreparationContinuationOptions(localTurnEvents),
+            );
             chunkSignal = control?.beginChunk() ?? chunkSignal;
             continue;
           }

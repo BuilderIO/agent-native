@@ -1956,6 +1956,14 @@ describe("chunk-boundary recovery", () => {
 
       expect(resumedBeforeCooldown).toBe(true);
       expect(attempts).toBe(2);
+      const continuationTexts = messages
+        .map((message) =>
+          message.content[0]?.type === "text" ? message.content[0].text : "",
+        )
+        .filter((text) => text.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
+      expect(continuationTexts).toHaveLength(2);
+      expect(continuationTexts[0]).toContain("temporarily rate limited");
+      expect(continuationTexts[1]).toContain("stopped producing progress");
       expect(
         messages.filter((message) =>
           message.content.some(

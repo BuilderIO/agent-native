@@ -1002,15 +1002,28 @@ function connectionStatusForProvider(
   provider: WorkspaceConnectionProviderLike | null | undefined,
   connection: SerializedWorkspaceConnection,
 ): WorkspaceConnectionStatus {
+  const grantedScopes = new Set(connection.scopes.map(normalizeOAuthScope));
   if (
     connection.status === "connected" &&
     (connection.accountId !== null ||
       connection.config.credentialMode === "oauth") &&
-    provider?.oauth?.scopes.some((scope) => !connection.scopes.includes(scope))
+    provider?.oauth?.scopes.some(
+      (scope) => !grantedScopes.has(normalizeOAuthScope(scope)),
+    )
   ) {
     return "needs_reauth";
   }
   return connection.status;
+}
+
+function normalizeOAuthScope(scope: string): string {
+  if (scope === "https://www.googleapis.com/auth/userinfo.email") {
+    return "email";
+  }
+  if (scope === "https://www.googleapis.com/auth/userinfo.profile") {
+    return "profile";
+  }
+  return scope;
 }
 
 function serializeConnectionForApp(

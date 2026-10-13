@@ -1146,6 +1146,27 @@ describe("provider API runtime", () => {
     });
   });
 
+  it("rejects absolute URLs outside the Google Sheets API host", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["google_sheets"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const failure = await runtime
+      .executeRequest({
+        provider: "google_sheets",
+        path: "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+      })
+      .catch((error) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toMatch(/configured provider host/);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(listOAuthAccountsByOwner).not.toHaveBeenCalled();
+  });
+
   it("uses an unexpired legacy Google token for an existing Sheets connection", async () => {
     resolveWorkspaceConnectionForApp.mockResolvedValue({
       available: true,
@@ -1169,7 +1190,8 @@ describe("provider API runtime", () => {
               tokens: {
                 access_token: "legacy-google-access",
                 expiry_date: Date.now() + 300_000,
-                scope: "https://www.googleapis.com/auth/drive.file",
+                scope:
+                  "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/drive.file",
               },
             },
           ]
@@ -1347,6 +1369,74 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("preserves the shared Google token when a legacy Sheets refresh is permanently rejected", async () => {
+    resolveSecret.mockImplementation(async (key: string) =>
+      key === "GOOGLE_CLIENT_ID"
+        ? "google-client-id"
+        : key === "GOOGLE_CLIENT_SECRET"
+          ? "google-client-secret"
+          : null,
+    );
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "sheets-connection",
+        label: "Google Sheets",
+        accountId: "ada@example.com",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
+        scopes: ["https://www.googleapis.com/auth/drive.file"],
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    listOAuthAccountsByOwner.mockImplementation(async (provider: string) =>
+      provider === "google"
+        ? [
+            {
+              accountId: "ada@example.com",
+              displayName: "Ada",
+              tokens: {
+                access_token: "expired-legacy-google-access",
+                refresh_token: "legacy-google-refresh",
+                expiry_date: Date.now() - 1,
+                scope: "https://www.googleapis.com/auth/drive.file",
+              },
+            },
+          ]
+        : [],
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ error: "invalid_grant" }), {
+          status: 400,
+        }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["google_sheets"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const failure = await runtime
+      .executeRequest({
+        provider: "google_sheets",
+        path: "/spreadsheets/sheet-1/values/A1",
+        connectionId: "sheets-connection",
+      })
+      .catch((error) => error);
+
+    expect(failure).toMatchObject({
+      agentConnectionRequired: true,
+      provider: "google_sheets",
+      reason: "reauthorize",
+      appId: "analytics",
+    });
+    expect(deleteOAuthTokens).not.toHaveBeenCalled();
+    expect(saveOAuthTokens).not.toHaveBeenCalled();
+  });
+
   it("requires Google Sheets reauthorization when a legacy token lacks drive.file", async () => {
     resolveWorkspaceConnectionForApp.mockResolvedValue({
       available: true,
@@ -1371,6 +1461,61 @@ describe("provider API runtime", () => {
                 access_token: "legacy-google-access",
                 expiry_date: Date.now() + 300_000,
                 scope: "https://www.googleapis.com/auth/gmail.readonly",
+              },
+            },
+          ]
+        : [],
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["google_sheets"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const failure = await runtime
+      .executeRequest({
+        provider: "google_sheets",
+        path: "/spreadsheets/sheet-1/values/A1",
+        connectionId: "sheets-connection",
+      })
+      .catch((error) => error);
+
+    expect(failure).toMatchObject({
+      agentConnectionRequired: true,
+      provider: "google_sheets",
+      reason: "reauthorize",
+      appId: "analytics",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(saveOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it("requires reauthorization instead of using a legacy token with broader Google scopes", async () => {
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "sheets-connection",
+        label: "Google Sheets",
+        accountId: "ada@example.com",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
+        scopes: ["https://www.googleapis.com/auth/drive.file"],
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    listOAuthAccountsByOwner.mockImplementation(async (provider: string) =>
+      provider === "google"
+        ? [
+            {
+              accountId: "ada@example.com",
+              displayName: "Ada",
+              tokens: {
+                access_token: "broader-legacy-google-access",
+                expiry_date: Date.now() + 300_000,
+                scope:
+                  "openid email profile https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.readonly",
               },
             },
           ]

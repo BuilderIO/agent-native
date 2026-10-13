@@ -397,6 +397,68 @@ describe("workspace connection store", () => {
     });
   });
 
+  it("accepts Google's URL aliases for the OpenID email and profile scopes", async () => {
+    const {
+      summarizeWorkspaceConnectionProviderForApp,
+      summarizeWorkspaceConnectionProviderReadiness,
+    } = await import("./store.js");
+    const { getWorkspaceConnectionProvider } =
+      await import("../connections/catalog.js");
+    const provider = getWorkspaceConnectionProvider("google_sheets");
+    if (!provider) throw new Error("Google Sheets provider is missing.");
+    const connection = {
+      id: "conn-google-sheets-oidc-aliases",
+      provider: "google_sheets",
+      label: "Google Sheets: Alice",
+      accountId: "alice-google-account",
+      accountLabel: "Alice",
+      status: "connected" as const,
+      scopes: [
+        "openid",
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile",
+        "https://www.googleapis.com/auth/drive.file",
+      ],
+      config: {},
+      allowedApps: [],
+      allowedUsers: [],
+      credentialRefs: [
+        { key: "GOOGLE_CLIENT_ID", scope: "workspace" as const },
+        { key: "GOOGLE_CLIENT_SECRET", scope: "workspace" as const },
+      ],
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+      lastCheckedAt: null,
+      lastError: null,
+    };
+
+    const appSummary = summarizeWorkspaceConnectionProviderForApp({
+      providerId: provider.id,
+      provider,
+      appId: "analytics",
+      connections: [connection],
+      includeConnections: "all",
+    });
+    const readiness = summarizeWorkspaceConnectionProviderReadiness({
+      provider,
+      appId: "analytics",
+      connections: [connection],
+    });
+
+    expect(appSummary).toMatchObject({
+      activeConnectionCount: 1,
+      statuses: ["connected"],
+      connections: [{ id: connection.id, status: "connected" }],
+    });
+    expect(readiness).toMatchObject({
+      status: "ready",
+      readyConnectionCount: 1,
+      appGrant: { statuses: ["connected"] },
+    });
+  });
+
   it("scopes personal list, upsert, and delete to the request user", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");
