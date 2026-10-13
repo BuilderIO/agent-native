@@ -2,31 +2,40 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   track: vi.fn(),
+  flushTracking: vi.fn(),
   getBetterAuthUserIdForEmail: vi.fn(),
+  platformWaitUntil: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
   getBetterAuthUserIdForEmail: (...args: unknown[]) =>
     mocks.getBetterAuthUserIdForEmail(...args),
+  platformWaitUntil: (...args: unknown[]) => mocks.platformWaitUntil(...args),
 }));
 
 vi.mock("@agent-native/core/tracking", () => ({
   track: (...args: unknown[]) => mocks.track(...args),
+  flushTracking: (...args: unknown[]) => mocks.flushTracking(...args),
 }));
 
 import { trackClipEventForOwner } from "./clip-funnel-tracking.js";
 
 function makeEvent() {
   const pending: Promise<unknown>[] = [];
-  return {
-    pending,
-    waitUntil: (promise: Promise<unknown>) => pending.push(promise),
-  };
+  const req = { kind: "request" };
+  mocks.platformWaitUntil.mockImplementation((forReq: unknown) =>
+    forReq === req
+      ? (promise: Promise<unknown>) => pending.push(promise)
+      : undefined,
+  );
+  return { pending, req };
 }
 
 describe("trackClipEventForOwner", () => {
   beforeEach(() => {
     mocks.track.mockReset();
+    mocks.flushTracking.mockReset().mockResolvedValue([]);
+    mocks.platformWaitUntil.mockReset();
     mocks.getBetterAuthUserIdForEmail
       .mockReset()
       .mockResolvedValue("owner-auth-id");
@@ -56,6 +65,23 @@ describe("trackClipEventForOwner", () => {
       },
       { anonymousId: "anon-1" },
     );
+  });
+
+  it("hands the platform's waitUntil a chain that ends in a provider flush", async () => {
+    const event = makeEvent();
+    let flushedAfterTrack = false;
+    mocks.flushTracking.mockImplementation(async () => {
+      flushedAfterTrack = mocks.track.mock.calls.length === 1;
+      return [];
+    });
+
+    trackClipEventForOwner(event as never, "clip_agent_viewed", "o@x.com", {});
+
+    expect(mocks.platformWaitUntil).toHaveBeenCalledWith(event.req);
+    expect(event.pending).toHaveLength(1);
+    await Promise.all(event.pending);
+    expect(mocks.flushTracking).toHaveBeenCalledOnce();
+    expect(flushedAfterTrack).toBe(true);
   });
 
   it("still tracks, without an owner id, when the clip has no owner email", async () => {
