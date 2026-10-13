@@ -1209,7 +1209,7 @@ export default {
       importedWithOmissions:
         "Se importaron {{count}} tokens. Se omitieron {{skipped}} elementos no válidos. No procesados por los límites (tokens: {{omittedTokens}}, archivos: {{omittedFiles}}).",
       importedWithReadFailures:
-        "No se pudieron leer {{readFailures}} archivos. Vuelve a seleccionarlos e inténtalo de nuevo.",
+        "Se importaron {{count}} tokens, pero no se pudieron leer {{readFailures}} archivos. Vuelve a seleccionarlos e inténtalo de nuevo.",
       noTokensFound:
         "No se encontraron tokens válidos. Revisa el formato del archivo y los valores.",
       count: "{{count}} tokens",

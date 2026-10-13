@@ -128,7 +128,7 @@ export function getTokenImportStatus(result: {
   if (readFailureCount > 0) {
     return {
       key: "designEditor.tokens.importedWithReadFailures",
-      values: { readFailures: readFailureCount },
+      values: { count: result.importedCount, readFailures: readFailureCount },
     };
   }
   if (omittedTokenCount > 0 || omittedFileCount > 0) {

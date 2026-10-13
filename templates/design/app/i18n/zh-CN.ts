@@ -1167,7 +1167,7 @@ export default {
       importedWithOmissions:
         "已导入 {{count}} 个令牌，已跳过 {{skipped}} 个无效项。因导入限制未处理的数量：令牌 {{omittedTokens}}，文件 {{omittedFiles}}。",
       importedWithReadFailures:
-        "无法读取 {{readFailures}} 个文件。请重新选择并重试。",
+        "已导入 {{count}} 个令牌，但无法读取 {{readFailures}} 个文件。请重新选择并重试。",
       noTokensFound: "未找到有效令牌。请检查文件格式和令牌值。",
       count: "{{count}} 个令牌",
       search: "搜索令牌",

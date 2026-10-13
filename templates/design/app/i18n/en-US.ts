@@ -1129,7 +1129,7 @@ export default {
       importedWithOmissions:
         "Imported {{count}} tokens. Skipped {{skipped}} invalid items. Not processed due to limits (tokens: {{omittedTokens}}, files: {{omittedFiles}}).",
       importedWithReadFailures:
-        "Could not read {{readFailures}} files. Reselect them and try again.",
+        "Imported {{count}} tokens. Could not read {{readFailures}} files. Reselect them and try again.",
       noTokensFound:
         "No valid tokens were found. Check the file format and token values.",
       count: "{{count}} tokens",

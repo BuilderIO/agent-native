@@ -114,7 +114,7 @@ describe("getTokenImportStatus", () => {
       }),
     ).toEqual({
       key: "designEditor.tokens.importedWithReadFailures",
-      values: { readFailures: 2 },
+      values: { count: 1, readFailures: 2 },
     });
   });
 

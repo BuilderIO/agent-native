@@ -1214,7 +1214,7 @@ export default {
       importedWithOmissions:
         "{{count}} Tokens importiert. {{skipped}} ungültige Elemente übersprungen. Wegen der Importlimits nicht verarbeitet (Tokens: {{omittedTokens}}, Dateien: {{omittedFiles}}).",
       importedWithReadFailures:
-        "{{readFailures}} Dateien konnten nicht gelesen werden. Wähle sie erneut aus und versuche es noch einmal.",
+        "{{count}} Tokens importiert. {{readFailures}} Dateien konnten nicht gelesen werden. Wähle sie erneut aus und versuche es noch einmal.",
       noTokensFound:
         "Keine gültigen Tokens gefunden. Prüfe das Dateiformat und die Tokenwerte.",
       count: "{{count}} Tokens",

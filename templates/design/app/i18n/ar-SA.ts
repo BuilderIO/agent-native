@@ -1187,7 +1187,7 @@ export default {
       importedWithOmissions:
         "تم استيراد {{count}} من الرموز. تم تخطي {{skipped}} من العناصر غير الصالحة. لم تتم المعالجة بسبب الحدود (الرموز: {{omittedTokens}}، الملفات: {{omittedFiles}}).",
       importedWithReadFailures:
-        "تعذرت قراءة {{readFailures}} من الملفات. أعد تحديدها ثم حاول مرة أخرى.",
+        "تم استيراد {{count}} من الرموز، وتعذرت قراءة {{readFailures}} من الملفات. أعد تحديدها ثم حاول مرة أخرى.",
       noTokensFound:
         "لم يتم العثور على رموز صالحة. تحقق من تنسيق الملف والقيم.",
       count: "{{count}} رمز",
