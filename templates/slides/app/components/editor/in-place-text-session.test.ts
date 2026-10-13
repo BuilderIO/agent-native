@@ -4939,6 +4939,45 @@ describe("in-place text session: Content authoring parity", () => {
     );
   });
 
+  it.each([
+    [
+      "bold",
+      '<span style="font-weight: 700">**bold*</span>',
+      "*",
+      "bold",
+      'span[style*="font-weight"]',
+    ],
+    [
+      "italic",
+      '<span style="font-style: italic">*italic</span>',
+      "*",
+      "italic",
+      'span[style*="font-style"]',
+    ],
+    [
+      "strike",
+      '<span style="text-decoration-line: line-through">~~strike~</span>',
+      "~",
+      "strike",
+      'span[style*="text-decoration"]',
+    ],
+    ["code", "<code>`code</code>", "`", "code", "code"],
+  ])(
+    "keeps active %s formatting when its Markdown shortcut is typed",
+    (_format, markup, trigger, result, selector) => {
+      const el = mount(`<div id="t"><p>${markup}</p></div>`);
+      session = startInPlaceTextSession(el);
+      const prefix = markup.replace(/<[^>]+>/g, "");
+      const text = textOf(el, prefix);
+      caret(text, text.length);
+
+      type(el, trigger);
+
+      expect(el.textContent).toBe(result);
+      expect(el.querySelector(selector)?.textContent).toBe(result);
+    },
+  );
+
   it("keeps markdown bold on and following typing outside its mark in a styled list", () => {
     const el = mount(
       '<ol id="t"><li><strong style="font-weight: 700">Re-segment the book.</strong> <span style="color: #1684a7">Every account has a clear path.</span></li></ol>',

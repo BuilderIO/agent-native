@@ -32,6 +32,7 @@ import {
   toggleSlideList,
 } from "./list-editing";
 import {
+  applyInlineTextFormat,
   applyInlineTextStyle,
   type InlineTextFormat,
   type InlineTextStyleApplication,
@@ -4713,7 +4714,7 @@ export function startInPlaceTextSession(
               : "700";
           formatted = applyInlineTextStyle(el, { fontWeight });
         } else {
-          formatted = toggleInlineTextFormat(el, inline.format);
+          formatted = applyInlineTextFormat(el, inline.format);
         }
         const applied = formatted.scope === "selection";
         if (applied && formatted.range) {
