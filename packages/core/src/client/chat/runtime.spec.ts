@@ -9,6 +9,7 @@ import {
   vi,
 } from "vitest";
 
+import { approvalKeyForHistory } from "../../agent/approval-key.js";
 import { isLlmCredentialError } from "../../agent/engine/credential-errors.js";
 import {
   AgentChatAiSetupRequiredError,
@@ -5527,6 +5528,155 @@ describe("createAgentNativeChatRuntime", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    {
+      label: "ask-ID approval",
+      approval: {
+        approvalKey: "send-large-data:approved-input",
+        askId: "missing-input-ask",
+      },
+      metadata: {
+        agentNativeApprovedToolCalls: ["send-large-data:approved-input"],
+        agentNativeApprovedToolCallAskIds: ["missing-input-ask"],
+      },
+      resultAskId: "missing-input-ask",
+      selector: "ask-id",
+    },
+    {
+      label: "legacy key-only approval",
+      approval: {
+        approvalKey: "send-large-data:approved-input",
+        askId: undefined,
+      },
+      metadata: {
+        agentNativeApprovedToolCalls: ["send-large-data:approved-input"],
+        agentNativeApprovedToolCallAskIds: undefined,
+      },
+      resultAskId: undefined,
+      selector: "legacy",
+    },
+  ])(
+    "fails closed when an approved replay has no input ($label)",
+    async ({ approval, metadata, resultAskId, selector }) => {
+      const fetchMock = vi.fn();
+      const runtime = createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: `thread-missing-approved-input-${selector}`,
+        fetch: fetchMock as typeof fetch,
+      });
+      const session = await runtime.createSession();
+      const toolCallId = "call-missing-approved-input";
+
+      await expect(
+        Promise.resolve().then(() =>
+          session.startTurn({
+            prompt: "Approve sending the data",
+            metadata,
+            messages: [
+              {
+                id: "old-approved-call",
+                role: "assistant",
+                content: [
+                  {
+                    type: "tool-call",
+                    toolCallId,
+                    toolName: "send-large-data",
+                    approval,
+                  },
+                ],
+              },
+              {
+                id: "old-approved-result",
+                role: "user",
+                content: [
+                  {
+                    type: "tool-result",
+                    toolCallId,
+                    toolName: "send-large-data",
+                    result:
+                      "Awaiting human approval. This action did NOT execute.",
+                    approvalPause: true,
+                    ...(resultAskId ? { approvalAskId: resultAskId } : {}),
+                  },
+                ],
+              },
+            ],
+          }),
+        ),
+      ).rejects.toMatchObject({
+        code: "approved_tool_call_input_unavailable",
+        status: 422,
+        retryable: false,
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps an explicit empty input for an approved replay", async () => {
+    const approvalKey = "send-large-data:{}";
+    const approvalAskId = "empty-input-ask";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-explicit-empty-approved-input",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+    const turn = await session.startTurn({
+      prompt: "Approve sending the data",
+      metadata: {
+        agentNativeApprovedToolCalls: [approvalKey],
+        agentNativeApprovedToolCallAskIds: [approvalAskId],
+      },
+      messages: [
+        {
+          id: "old-approved-call",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-empty-approved-input",
+              toolName: "send-large-data",
+              input: {},
+              approval: { approvalKey, askId: approvalAskId },
+            },
+          ],
+        },
+        {
+          id: "old-approved-result",
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call-empty-approved-input",
+              toolName: "send-large-data",
+              result: "Awaiting human approval. This action did NOT execute.",
+              approvalPause: true,
+              approvalAskId,
+            },
+          ],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const parts = (
+      request.structuredHistory as Array<{
+        content: Array<Record<string, unknown>>;
+      }>
+    ).flatMap((message) => message.content);
+    expect(parts).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        id: "call-empty-approved-input",
+        input: {},
+      }),
+    );
+  });
+
   it("fails explicitly when an approved input cannot fit its history envelope", async () => {
     const input = { payload: "x".repeat(262_000) };
     const approvalAskId = "agent-tool-approval-large-input";
@@ -6050,6 +6200,7 @@ describe("createAgentNativeChatRuntime", () => {
   it("preserves only the selected oversized input when reloaded history repeats its approval key", async () => {
     const approvedInput = { payload: "x".repeat(78 * 1024) };
     const approvalKey = `send-large-data:${JSON.stringify(approvedInput)}`;
+    const approvalHistoryKey = approvalKeyForHistory(approvalKey);
     const approvalAskId = "selected-reloaded-large-approval";
     const siblingApprovalAskId = "completed-sibling-large-approval";
     const fetchMock = vi
@@ -6067,7 +6218,7 @@ describe("createAgentNativeChatRuntime", () => {
     const turn = await session.startTurn({
       prompt: "Approve sending the data",
       metadata: {
-        agentNativeApprovedToolCalls: [approvalKey],
+        agentNativeApprovedToolCalls: [approvalHistoryKey],
         agentNativeApprovedToolCallAskIds: [approvalAskId],
         agentNativeContinuationTurnId: "prior-turn",
         agentNativeInternalContinuation: true,
@@ -6082,7 +6233,10 @@ describe("createAgentNativeChatRuntime", () => {
               toolCallId: "call-other-large",
               toolName: "send-large-data",
               input: approvedInput,
-              approval: { approvalKey, askId: siblingApprovalAskId },
+              approval: {
+                approvalKey: approvalHistoryKey,
+                askId: siblingApprovalAskId,
+              },
             },
           ],
         },
@@ -6109,7 +6263,10 @@ describe("createAgentNativeChatRuntime", () => {
               toolCallId: "call-approved-large",
               toolName: "send-large-data",
               input: approvedInput,
-              approval: { approvalKey, askId: approvalAskId },
+              approval: {
+                approvalKey: approvalHistoryKey,
+                askId: approvalAskId,
+              },
             },
           ],
         },
@@ -6142,7 +6299,7 @@ describe("createAgentNativeChatRuntime", () => {
         content: Array<Record<string, unknown>>;
       }>
     ).flatMap((message) => message.content);
-    expect(request.approvedToolCalls).toEqual([approvalKey]);
+    expect(request.approvedToolCalls).toEqual([approvalHistoryKey]);
     expect(request.approvedToolCallAskIds).toEqual([approvalAskId]);
     expect(parts).toContainEqual(
       expect.objectContaining({

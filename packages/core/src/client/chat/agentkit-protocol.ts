@@ -43,6 +43,7 @@ import {
   resumeOptionId,
 } from "@agent-native/agentkit/protocol";
 
+import { approvalKeyForHistory } from "../../agent/approval-key.js";
 import {
   AUTO_CONTINUE_OF_RUN_METADATA_KEY,
   AUTO_CONTINUE_PROMPT,
@@ -889,7 +890,11 @@ function runtimePartToProtocolPart(
           input: part.input,
           inputText: part.inputText,
           ...(part.approval?.approvalKey
-            ? { approvalKey: part.approval.approvalKey }
+            ? {
+                approvalKey: part.approval.askId
+                  ? approvalKeyForHistory(part.approval.approvalKey)
+                  : part.approval.approvalKey,
+              }
             : {}),
           ...(part.approval?.askId
             ? { approvalAskId: part.approval.askId }

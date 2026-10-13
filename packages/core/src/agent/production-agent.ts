@@ -13492,6 +13492,11 @@ export function createProductionAgentHandler(
           ...(approvedToolCallsForExecution
             ? { approvedToolCalls: approvedToolCallsForExecution }
             : {}),
+          ...(requestedApprovedToolCallAskIds
+            ? {
+                approvedToolCallAskId: requestedApprovedToolCallAskIds[0],
+              }
+            : {}),
           onApprovalRequired: approvalHooks.onApprovalRequired,
           consumeApproval: approvalHooks.consumeApproval,
           isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
@@ -13563,6 +13568,7 @@ export function createProductionAgentHandler(
               execution,
             );
             agentLoopOpts.approvedToolCalls = undefined;
+            agentLoopOpts.approvedToolCallAskId = undefined;
           }
           try {
             const { getObservabilityConfig, instrumentAgentLoop } =

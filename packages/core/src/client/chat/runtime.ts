@@ -2136,6 +2136,7 @@ function approvedToolHistoryError(
   code:
     | "approved_tool_call_history_ambiguous"
     | "approved_tool_call_history_missing"
+    | "approved_tool_call_input_unavailable"
     | "http_413",
   status: 413 | 422,
 ): Error {
@@ -3393,11 +3394,15 @@ function nativeStructuredHistoryFromMessages(
               (approvedToolCallAskIdSet.size === 0 ||
                 (part.approval.askId !== undefined &&
                   approvedToolCallAskIdSet.has(part.approval.askId))));
+          if (approvedReplay && part.input === undefined) {
+            throw approvedToolHistoryError(
+              "approved_tool_call_input_unavailable",
+              422,
+            );
+          }
           const input =
             part.input === undefined
-              ? approvedReplay
-                ? { input: {} }
-                : undefined
+              ? undefined
               : toolInputForStructuredHistory(
                   part.input,
                   approvedReplay

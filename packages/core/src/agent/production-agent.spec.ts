@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { readFileSync } from "node:fs";
 import os from "node:os";
@@ -473,6 +474,9 @@ describe("approvalKeyForHistory", () => {
     );
 
     expect(storedKey).toMatch(/^agent-tool-approval-key-sha256:[a-f0-9]{64}$/);
+    expect(storedKey).toBe(
+      `agent-tool-approval-key-sha256:${createHash("sha256").update(rawKey).digest("hex")}`,
+    );
     expect(forgedKey).toMatch(/^agent-tool-approval-key-sha256:[a-f0-9]{64}$/);
     expect(storedKey).not.toContain("INLINE");
     expect(forgedKey).not.toContain("INLINE");
