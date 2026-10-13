@@ -1782,6 +1782,13 @@ export default function DeckEditor() {
       };
       queueMicrotask(() => {
         if (generationLifecycleAttemptKeyRef.current === attemptKey) return;
+        if (
+          state.settling &&
+          generationSettlingAttemptRef.current === generationAttemptId &&
+          generationTerminalAttemptRef.current !== generationAttemptId
+        ) {
+          return;
+        }
         recordExit("route_exit", state);
       });
     };
