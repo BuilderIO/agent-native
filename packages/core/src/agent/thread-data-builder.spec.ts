@@ -2002,6 +2002,149 @@ describe("buildAssistantMessage", () => {
     ).toBe(55_000);
   });
 
+  it("replaces a paused tool call when its approved replay completes", () => {
+    const toolCallId = "approved-release-call";
+    const turnId = "turn-approved-release";
+    const paused = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: toolCallId,
+            tool: "accept-agentkit-release",
+            input: { release: "agentkit-acceptance" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "approval_required",
+            tool: "accept-agentkit-release",
+            toolCallId,
+            approvalKey: "accept-agentkit-release:approval",
+            askId: "approval-1",
+            input: { release: "agentkit-acceptance" },
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "tool_done",
+            id: toolCallId,
+            tool: "accept-agentkit-release",
+            result: "Awaiting human approval. This action did NOT execute.",
+            approvalPause: true,
+          },
+        },
+      ],
+      "run-approval-pause",
+      { turnId },
+    );
+    const completed = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: toolCallId,
+            tool: "accept-agentkit-release",
+            input: { release: "agentkit-acceptance" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "tool_done",
+            id: toolCallId,
+            tool: "accept-agentkit-release",
+            result: "Release accepted.",
+            approvalPause: false,
+            completedSideEffect: true,
+          },
+        },
+        { seq: 2, event: { type: "done" } },
+      ],
+      "run-approved-replay",
+      { turnId },
+    );
+
+    expect(paused).not.toBeNull();
+    expect(completed).not.toBeNull();
+    let repo = foldAssistantTurn({ messages: [] }, paused!, {
+      turnId,
+      runId: "run-approval-pause",
+    });
+    repo = foldAssistantTurn(repo, completed!, {
+      turnId,
+      runId: "run-approved-replay",
+    });
+
+    const toolCalls = repo.messages[0].message.content.filter(
+      (part: any) => part.type === "tool-call",
+    );
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0]).toMatchObject({
+      toolCallId,
+      toolName: "accept-agentkit-release",
+      args: { release: "agentkit-acceptance" },
+      result: "Release accepted.",
+      completedSideEffect: true,
+    });
+    expect(toolCalls[0]).not.toHaveProperty("approvalPause");
+    expect(toolCalls[0]).not.toHaveProperty("approval");
+
+    const differentCall = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: toolCallId,
+            tool: "accept-agentkit-release",
+            input: { release: "different-release" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "tool_done",
+            id: toolCallId,
+            tool: "accept-agentkit-release",
+            result: "Different release accepted.",
+            approvalPause: false,
+          },
+        },
+        { seq: 2, event: { type: "done" } },
+      ],
+      "run-different-release",
+      { turnId },
+    );
+    const pausedRepo = foldAssistantTurn({ messages: [] }, paused!, {
+      turnId,
+      runId: "run-approval-pause",
+    });
+    const mismatchRepo = foldAssistantTurn(pausedRepo, differentCall!, {
+      turnId,
+      runId: "run-different-release",
+    });
+    const mismatchCalls = mismatchRepo.messages[0].message.content.filter(
+      (part: any) => part.type === "tool-call",
+    );
+
+    expect(mismatchCalls).toHaveLength(2);
+    expect(mismatchCalls[0]).toMatchObject({
+      toolCallId,
+      args: { release: "agentkit-acceptance" },
+      approvalPause: true,
+    });
+    expect(mismatchCalls[1]).toMatchObject({
+      toolCallId: `${toolCallId}__dedup_2`,
+      args: { release: "different-release" },
+      result: "Different release accepted.",
+    });
+  });
+
   it("keeps an AgentKit approval continuation out of the legacy placeholder", () => {
     const approvedToolCallId = "accept-release-call";
     const releaseMessage = buildAssistantMessage(
