@@ -1,5 +1,21 @@
 # @agent-native/toolkit
 
+## 0.208.0
+
+### Patch Changes
+
+- 9cb95d8: The workspace switch menu closes after persistence while session and query refresh continues.
+- afe2ee7: Preserve completed tool history and render legacy Plan blocks through their authoring controls.
+- Release all public npm packages with a patch version bump.
+- 4434457: Stamp dev-rendered JSX with source provenance, add a CSP-safe React Motion Text runtime, and allow accessible slider thumb labels.
+- 0fb4de3: Add an isolated, file-scoped Google Sheets connection for Analytics exports and localize Figma token-validation errors across settings and hydration flows.
+- cde733c: Render registered block failures through the shared error boundary and show a neutral placeholder while a renderer suspends.
+- Updated dependencies [0fb4de3]
+- Updated dependencies [afe2ee7]
+- Updated dependencies
+- Updated dependencies [0fb4de3]
+  - @agent-native/agentkit@0.208.0
+
 ## 0.207.1
 
 ### Patch Changes
@@ -1189,11 +1205,5 @@
   (`MODEL_COST_ORDER`) and reflects each provider's own entry/mid/flagship ladder
   — it is not a cross-provider price claim. Models outside that list render with
   no label at all; a guessed tier would read as fact.
-
-## 0.10.10
-
-### Patch Changes
-
-- 16a9d1a: Keep editor block drag previews aligned with the point where the block was grabbed, then clear incidental selection and focus after a successful drop.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
