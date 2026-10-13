@@ -719,6 +719,29 @@ font-family: 'Inter;
     );
   });
 
+  it("does not overflow while parsing deeply nested HTML screens", async () => {
+    const nestingDepth = 12_000;
+    const html = `${"<div>".repeat(nestingDepth)}${"</div>".repeat(nestingDepth)}`;
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        { filename: "screen.html", content: html },
+        {
+          filename: "tokens.css",
+          content: ":root { --color-from-css: #123456; }",
+        },
+      ],
+    });
+
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--color-from-css",
+        value: "#123456",
+      }),
+    );
+  });
+
   it("keeps motion and elevation tokens instead of dropping them", async () => {
     const result = await action.run({
       designId: "design_1",
@@ -1318,6 +1341,9 @@ Bad radius: 12px} body { color: red
         "Spacing valid: calc((12px + 2px) * 2)",
         "Spacing compatible units: calc(1px + 1em)",
         "Spacing dimension cancellation: calc(1px * 1s / 1s)",
+        "Spacing length-percentage division: calc((100% - 32px) / 2)",
+        "Spacing length-percentage multiplication: calc((100% - 32px) * 2)",
+        "Spacing LP scalar-first multiplication: calc(2 * (100% - 32px))",
         "Spacing sqrt valid: sqrt(4)",
         "Spacing hypot valid: hypot(3px, 4px)",
         "Spacing min valid: min(12px, 24px)",
@@ -1325,7 +1351,7 @@ Bad radius: 12px} body { color: red
         "Spacing clamp none: clamp(none, 5px, none)",
       ].join("\n"),
     });
-    expect(result.importedCount).toBe(14);
+    expect(result.importedCount).toBe(17);
     expect(result.rejectedCount).toBe(22);
     expect(result.tokens).toEqual(
       expect.arrayContaining([
@@ -1364,6 +1390,18 @@ Bad radius: 12px} body { color: red
         expect.objectContaining({
           cssVar: "--spacing-dimension-cancellation",
           value: "calc(1px * 1s / 1s)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-length-percentage-division",
+          value: "calc((100% - 32px) / 2)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-length-percentage-multiplication",
+          value: "calc((100% - 32px) * 2)",
+        }),
+        expect.objectContaining({
+          cssVar: "--spacing-lp-scalar-first-multiplication",
+          value: "calc(2 * (100% - 32px))",
         }),
         expect.objectContaining({
           cssVar: "--spacing-sqrt-valid",

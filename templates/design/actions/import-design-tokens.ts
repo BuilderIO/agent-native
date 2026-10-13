@@ -1029,7 +1029,9 @@ function prepareHtmlImport(content: string): {
     rejectedStylesheetCount += 1;
   }
 
-  const collectEmbeddedStyles = (node: HtmlNode) => {
+  const pendingNodes = [document];
+  while (pendingNodes.length > 0) {
+    const node = pendingNodes.pop()!;
     if (node.tagName === "style" && node.sourceCodeLocation?.startTag) {
       const start = node.sourceCodeLocation.startOffset;
       const contentStart = node.sourceCodeLocation.startTag.endOffset;
@@ -1076,9 +1078,11 @@ function prepareHtmlImport(content: string): {
       }
     }
 
-    for (const child of node.childNodes ?? []) collectEmbeddedStyles(child);
-  };
-  collectEmbeddedStyles(document);
+    const children = node.childNodes ?? [];
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      pendingNodes.push(children[index]!);
+    }
+  }
 
   let proseContent = "";
   let cursor = 0;
@@ -1519,6 +1523,12 @@ function combineCssMathDimensions(
 ): CssMathDimension {
   if (left === "invalid" || right === "invalid") return "invalid";
   if (left === "unknown" || right === "unknown") return "unknown";
+  if (
+    (left === "length-percentage" && right === "number") ||
+    (sign === 1 && left === "number" && right === "length-percentage")
+  ) {
+    return "length-percentage";
+  }
   const leftVector = cssMathDimensionVector(left);
   const rightVector = cssMathDimensionVector(right);
   if (!leftVector || !rightVector) return "invalid";
