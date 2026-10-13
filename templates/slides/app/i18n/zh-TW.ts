@@ -805,8 +805,7 @@ const messages = {
     sourceGitHub: "GitHub 儲存庫",
     sourceMixed: "多個來源",
     sourceBuilder: "Builder 設計系統智慧",
-    sourceIndexingDescription:
-      "Builder 仍在處理此來源。結果準備好後會顯示於此。",
+    sourceIndexingDescription: "正在準備你的品牌風格。請等準備完成後再試一次。",
     sourceIndexedDescription: "已索引 {{docs}} 份文件 · {{tokens}} 個權杖",
     sourceIndexedDocsOnly: "{{docs}} 份文件已索引",
     sourceIndexedTokensOnly: "{{tokens}} 個權杖已索引",
@@ -999,6 +998,8 @@ const messages = {
     generationStartFailed: "無法開始生成幻燈片",
     generationStartFailedDescription:
       "新幻燈片尚未儲存完成，因此未讓代理針對缺失的幻燈片開始工作。你的提示已儲存，可以重試。",
+    generationContextUnavailableDescription:
+      "無法載入你選擇的品牌風格或參考簡報。請確認可以開啟它且網路連線正常，然後再試一次。",
     showAllDecks: "顯示所有幻燈片",
     all: "全部",
     showMineDecks: "顯示我建立的幻燈片",

@@ -828,7 +828,7 @@ const messages = {
     sourceMixed: "여러 소스",
     sourceBuilder: "Builder 디자인 시스템 인텔리전스",
     sourceIndexingDescription:
-      "Builder가 이 소스를 처리하고 있습니다. 준비된 결과가 여기에 표시됩니다.",
+      "브랜드 스타일을 준비하고 있습니다. 준비가 끝날 때까지 기다린 후 다시 시도하세요.",
     sourceIndexedDescription: "문서 {{docs}}개 · 토큰 {{tokens}}개 색인 생성됨",
     sourceIndexedDocsOnly: "문서 {{docs}}개 색인 생성됨",
     sourceIndexedTokensOnly: "토큰 {{tokens}}개 색인 생성됨",
@@ -1034,6 +1034,8 @@ const messages = {
     generationStartFailed: "덱 생성을 시작할 수 없습니다",
     generationStartFailedDescription:
       "새 덱 저장이 완료되지 않아 없는 덱에 대해 에이전트를 시작하지 않았습니다. 다시 시도할 수 있도록 프롬프트를 저장했습니다.",
+    generationContextUnavailableDescription:
+      "선택한 브랜드 스타일 또는 참고 프레젠테이션을 불러오지 못했습니다. 열 수 있는지와 인터넷 연결 상태를 확인한 후 다시 시도하세요.",
     showAllDecks: "모든 덱 표시",
     all: "전체",
     showMineDecks: "내가 만든 덱 표시",

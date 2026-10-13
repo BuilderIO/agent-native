@@ -850,7 +850,7 @@ const messages = {
     sourceMixed: "مصادر متعددة",
     sourceBuilder: "ذكاء أنظمة التصميم من Builder",
     sourceIndexingDescription:
-      "لا يزال Builder يعالج هذا المصدر. ستظهر النتائج هنا عند جاهزيتها.",
+      "لا يزال إعداد أسلوب علامتك التجارية جاريًا. انتظر حتى يكتمل، ثم حاول مرة أخرى.",
     sourceIndexedDescription: "تمت فهرسة {{docs}} مستندات · {{tokens}} رموز",
     sourceIndexedDocsOnly: "تمت فهرسة {{docs}} مستندات",
     sourceIndexedTokensOnly: "تمت فهرسة {{tokens}} رموز",
@@ -1053,6 +1053,8 @@ const messages = {
     generationStartFailed: "تعذر بدء إنشاء العرض",
     generationStartFailedDescription:
       "لم يكتمل حفظ العرض الجديد، لذلك لم يبدأ الوكيل على عرض مفقود. تم حفظ مطالبتك لتتمكن من المحاولة مرة أخرى.",
+    generationContextUnavailableDescription:
+      "تعذر تحميل أسلوب العلامة التجارية أو العرض التقديمي المرجعي الذي اخترته. تأكد من إمكانية فتحه ومن عمل اتصال الإنترنت، ثم حاول مرة أخرى.",
     showAllDecks: "إظهار كل العروض",
     all: "الكل",
     showMineDecks: "إظهار العروض التي أنشأتها",

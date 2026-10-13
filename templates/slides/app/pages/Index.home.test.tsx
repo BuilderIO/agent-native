@@ -1128,11 +1128,11 @@ describe("Slides prompt-led home", () => {
     expect(agentSubmit).not.toHaveBeenCalled();
     expect(deleteDeck).toHaveBeenCalledWith("new-deck");
     expect(toastError).toHaveBeenCalledWith("home.generationStartFailed", {
-      description: "home.generationStartFailedDescription",
+      description: "home.generationContextUnavailableDescription",
     });
   });
 
-  it("restores the prompt when the selected design system cannot be loaded", async () => {
+  it("restores the prompt when the selected design system returns no context", async () => {
     const uploadedSource = {
       path: "/uploads/source.pptx",
       originalName: "source.pptx",
@@ -1143,9 +1143,6 @@ describe("Slides prompt-led home", () => {
     createDeck.mockReturnValue({ id: "new-deck" });
     vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
     callAction.mockImplementation(async (action: string) => {
-      if (action === "get-design-system") {
-        throw new Error("temporary design system read failure");
-      }
       return undefined;
     });
     const deleteDeck = vi.fn();
@@ -1184,11 +1181,60 @@ describe("Slides prompt-led home", () => {
     expect(agentSubmit).not.toHaveBeenCalled();
     expect(deleteDeck).toHaveBeenCalledWith("new-deck");
     expect(ensureDeckPersisted).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith("home.generationStartFailed", {
+      description: "home.generationContextUnavailableDescription",
+    });
     expect(callAction).not.toHaveBeenCalledWith(
       "import-pptx",
       expect.anything(),
       expect.anything(),
     );
+  });
+
+  it("asks users to wait when their selected Builder design system is indexing", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "get-design-system") {
+        return {
+          agentContext: "Selected design system context",
+          builder: { docCount: 0, tokenValues: {} },
+        };
+      }
+      return undefined;
+    });
+    const deleteDeck = vi.fn();
+    renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck,
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Create a deck with my selected design system";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: "system-a", references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(agentSubmit).not.toHaveBeenCalled();
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(toastError).toHaveBeenCalledWith("home.generationStartFailed", {
+      description: "designSystemSetup.sourceIndexingDescription",
+    });
   });
 
   it("explains an unreadable attachment instead of showing the raw send-failure code", async () => {

@@ -855,7 +855,7 @@ const messages = {
     sourceMixed: "Mehrere Quellen",
     sourceBuilder: "Builder-Intelligenz für Designsysteme",
     sourceIndexingDescription:
-      "Builder verarbeitet diese Quelle noch. Die Ergebnisse erscheinen hier, sobald sie bereit sind.",
+      "Dein Markenstil wird noch vorbereitet. Warte, bis er bereit ist, und versuche es dann erneut.",
     sourceIndexedDescription:
       "{{docs}} Dokumente · {{tokens}} Tokens indexiert",
     sourceIndexedDocsOnly: "{{docs}} Dokumente indexiert",
@@ -1066,6 +1066,8 @@ const messages = {
     generationStartFailed: "Deck-Generierung konnte nicht gestartet werden",
     generationStartFailedDescription:
       "Das neue Deck wurde nicht vollständig gespeichert, daher wurde der Agent nicht gegen ein fehlendes Deck gestartet. Dein Prompt wurde gespeichert, damit du es erneut versuchen kannst.",
+    generationContextUnavailableDescription:
+      "Der ausgewählte Markenstil oder die Referenzpräsentation konnte nicht geladen werden. Prüfe, ob du sie öffnen kannst und deine Internetverbindung funktioniert, und versuche es erneut.",
     showAllDecks: "Alle Decks anzeigen",
     all: "Alle",
     showMineDecks: "Von mir erstellte Decks anzeigen",

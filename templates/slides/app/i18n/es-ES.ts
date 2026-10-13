@@ -854,7 +854,7 @@ const messages = {
     sourceMixed: "Varias fuentes",
     sourceBuilder: "Inteligencia de sistemas de diseño de Builder",
     sourceIndexingDescription:
-      "Builder sigue procesando esta fuente. Los resultados aparecerán aquí cuando estén listos.",
+      "Aún se está preparando el estilo de tu marca. Espera a que esté listo y vuelve a intentarlo.",
     sourceIndexedDescription:
       "{{docs}} documentos · {{tokens}} tokens indexados",
     sourceIndexedDocsOnly: "{{docs}} documentos indexados",
@@ -1067,6 +1067,8 @@ const messages = {
     generationStartFailed: "No se pudo iniciar la generación del deck",
     generationStartFailedDescription:
       "El nuevo deck no terminó de guardarse, así que el agente no se inició sobre un deck faltante. Tu prompt se guardó para que puedas intentarlo de nuevo.",
+    generationContextUnavailableDescription:
+      "No pudimos cargar el estilo de tu marca o la presentación de referencia que elegiste. Comprueba que puedes abrirlo y que tu conexión a internet funciona; después, vuelve a intentarlo.",
     showAllDecks: "Mostrar todos los decks",
     all: "Todos",
     showMineDecks: "Mostrar decks creados por mí",

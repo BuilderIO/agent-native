@@ -882,7 +882,7 @@ const messages = {
     sourceMixed: "Multiple sources",
     sourceBuilder: "Builder Design System Intelligence",
     sourceIndexingDescription:
-      "Builder is still processing this source. Results will appear here as they are ready.",
+      "Your brand style is still being prepared. Wait until it's ready, then try again.",
     sourceIndexedDescription: "{{docs}} docs · {{tokens}} tokens indexed",
     sourceIndexedDocsOnly: "{{docs}} docs indexed",
     sourceIndexedTokensOnly: "{{tokens}} tokens indexed",
@@ -1039,6 +1039,8 @@ const messages = {
     generationStartFailed: "Couldn't start deck generation",
     generationStartFailedDescription:
       "The new deck did not finish saving, so the agent was not started against a missing deck. Your prompt was saved so you can try again.",
+    generationContextUnavailableDescription:
+      "We couldn't load the brand style or reference presentation you chose. Make sure you can open it and that your internet connection is working, then try again.",
     showAllDecks: "Show all decks",
     all: "All",
     showMineDecks: "Show decks created by me",

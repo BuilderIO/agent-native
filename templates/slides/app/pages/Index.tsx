@@ -163,6 +163,7 @@ import { hydrateReferenceDocuments } from "@/lib/reference-document-hydration";
 import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
+import { getDesignSystemIndexingStatus } from "../../shared/design-system-validation.js";
 import { generationTimingFields } from "../../shared/generation-timing.js";
 
 const LazyDesignSystemSetup = lazy(() =>
@@ -425,11 +426,17 @@ function mergeUploadedFilesForRetry(
 
 interface DesignSystemGenerationContextResult {
   agentContext?: string;
+  builder?: {
+    docCount: number | null;
+    tokenValues: Record<string, string>;
+    warning?: string;
+  } | null;
 }
 
 type LoadedDesignSystemGenerationContext =
   | { status: "none"; context: "" }
   | { status: "loaded"; context: string }
+  | { status: "indexing"; context: "" }
   | { status: "unavailable"; context: "" };
 
 async function loadDesignSystemGenerationContext(
@@ -442,6 +449,26 @@ async function loadDesignSystemGenerationContext(
       { id: designSystemId },
       { method: "GET" },
     )) as DesignSystemGenerationContextResult | undefined;
+    if (
+      result?.builder &&
+      (typeof result.builder.docCount !== "number" ||
+        !result.builder.tokenValues ||
+        typeof result.builder.tokenValues !== "object" ||
+        Array.isArray(result.builder.tokenValues))
+    ) {
+      return { status: "unavailable", context: "" };
+    }
+    if (result?.builder) {
+      const indexingStatus = getDesignSystemIndexingStatus({
+        source: "builder",
+        docCount: result.builder.docCount,
+        tokenValues: result.builder.tokenValues,
+        warning: result.builder.warning,
+      });
+      if (indexingStatus !== "ready") {
+        return { status: indexingStatus, context: "" };
+      }
+    }
     if (result?.agentContext?.trim()) {
       return {
         status: "loaded",
@@ -1467,19 +1494,20 @@ export default function Index({ active = true }: { active?: boolean }) {
         ]);
     } catch (error) {
       recoverFromGenerationSetupFailure(
-        error instanceof Error
-          ? error.message
-          : t("home.generationStartFailedDescription"),
+        t("home.generationContextUnavailableDescription"),
         "generation_context_load_failed",
       );
       return;
     }
     if (
       (referenceDeckId && loadedReferenceDeckContext.status !== "loaded") ||
-      hydratedDesignSystemContext.status === "unavailable"
+      hydratedDesignSystemContext.status === "unavailable" ||
+      hydratedDesignSystemContext.status === "indexing"
     ) {
       recoverFromGenerationSetupFailure(
-        t("home.generationStartFailedDescription"),
+        hydratedDesignSystemContext.status === "indexing"
+          ? t("designSystemSetup.sourceIndexingDescription")
+          : t("home.generationContextUnavailableDescription"),
         "generation_context_load_failed",
       );
       return;
