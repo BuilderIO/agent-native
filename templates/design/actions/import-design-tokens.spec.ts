@@ -288,12 +288,76 @@ describe("import-design-tokens", () => {
     expect(candidateFilter.conditions?.[3]?.strings?.join("")).toContain(
       "css|scss|less|json|md|mdx|txt",
     );
-    const fileOrder = mockOrderBy.mock.calls[1]?.[0] as {
-      column?: { strings?: string[] };
-    };
-    expect(fileOrder.column?.strings?.join("")).toContain("octet_length(left(");
+    const fileOrder = mockOrderBy.mock.calls[1] as
+      | { column?: { strings?: string[] } }[]
+      | undefined;
+    expect(fileOrder?.[0]?.column?.strings?.join("")).toContain("case");
+    expect(fileOrder?.[0]?.column?.strings?.join("")).toContain(
+      "css|scss|less",
+    );
+    expect(fileOrder?.[0]?.column?.strings?.join("")).toContain("json");
+    expect(fileOrder?.[1]?.column?.strings?.join("")).toContain(
+      "octet_length(left(",
+    );
     expect(result.filesAnalyzed).toEqual(["tokens.css"]);
     expect(result.omittedFileCount).toBe(1);
+  });
+
+  it("prioritizes token stylesheets over small notes before the file cap", async () => {
+    const stylesheet = {
+      id: "tokens-css",
+      filename: "tokens.css",
+      content: ":root { --spacing-priority: 8px; }",
+    };
+    const notes = Array.from(
+      { length: DESIGN_TOKEN_IMPORT_MAX_FILES + 1 },
+      (_, index) => ({
+        id: `note-${index}`,
+        filename: `note-${index}.md`,
+        content: `Design note ${index}`,
+      }),
+    );
+    const rankedCandidates = [
+      stylesheet,
+      ...notes.slice(0, DESIGN_TOKEN_IMPORT_MAX_FILES - 1),
+    ];
+    mockWhere
+      .mockResolvedValueOnce([{ fileCount: notes.length + 1 }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(
+        rankedCandidates.map(({ id, filename, content }) => ({
+          id,
+          filename,
+          contentBytes: new TextEncoder().encode(content).length,
+        })),
+      )
+      .mockResolvedValueOnce(
+        rankedCandidates.map(({ id, content }) => ({ id, content })),
+      );
+
+    const result = await action.run({
+      designId: "design_1",
+      source: "current-design",
+    });
+
+    const preferredOrder = mockOrderBy.mock.calls[1] as
+      | { column?: { strings?: string[] } }[]
+      | undefined;
+    expect(preferredOrder?.[0]?.column?.strings?.join("")).toContain(
+      "css|scss|less",
+    );
+    expect(preferredOrder?.[1]?.column?.strings?.join("")).toContain(
+      "octet_length(left(",
+    );
+    expect(result.filesAnalyzed).toHaveLength(DESIGN_TOKEN_IMPORT_MAX_FILES);
+    expect(result.filesAnalyzed).toContain("tokens.css");
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--spacing-priority",
+        value: "8px",
+      }),
+    );
+    expect(result.omittedFileCount).toBe(2);
   });
 
   it("filters oversized current-design candidates before the row limit", async () => {

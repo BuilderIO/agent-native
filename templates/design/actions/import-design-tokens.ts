@@ -2452,6 +2452,11 @@ export default defineAction({
             .where(eq(schema.designFiles.designId, designId));
           const candidateFilename = sql<string>`left(${schema.designFiles.filename}, ${DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS + 1})`;
           const candidateContentBytes = sql<number>`octet_length(left(${schema.designFiles.content}, ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1}))`;
+          const preferredCandidatePriority = sql<number>`case
+            when ${schema.designFiles.filename} ~* '\\.(css|scss|less)$' then 0
+            when ${schema.designFiles.filename} ~* '\\.json$' then 1
+            else 2
+          end`;
           const boundedFilename = sql`char_length(${candidateFilename}) <= ${DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS}`;
           const htmlCandidates = await tx
             .select({
@@ -2490,6 +2495,7 @@ export default defineAction({
               ),
             )
             .orderBy(
+              asc(preferredCandidatePriority),
               asc(candidateContentBytes),
               asc(schema.designFiles.filename),
               asc(schema.designFiles.id),
