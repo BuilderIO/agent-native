@@ -127,7 +127,7 @@ export function acquireNativeStatefulOutput<
   resources: Map<string, Texture>,
   outputName: string,
   presented: Texture | null,
-  source: Texture,
+  source: Texture | null,
   width: number,
   height: number,
   format: string,
@@ -174,7 +174,7 @@ export interface NativeStatefulAllocator {
 
 export interface NativeStatefulEncodeOptions {
   encoder: GPUCommandEncoder;
-  source: GPUTexture;
+  source: GPUTexture | null;
   externalTextures?: ReadonlyMap<string, GPUTexture>;
   inputEpochs?: ReadonlyMap<string, number | null>;
   target: GPUTexture;
@@ -255,7 +255,10 @@ export class NativeStatefulResourceSession {
     readonly outputName: string,
     readonly width: number,
     readonly height: number,
-    readonly abi: "stateful-resource-v1" | "stateful-resource-v2",
+    readonly abi:
+      | "stateful-resource-v1"
+      | "stateful-resource-v2"
+      | "stateful-resource-v3",
   ) {
     this.sampler = device.createSampler({
       minFilter: "linear",
@@ -276,7 +279,8 @@ export class NativeStatefulResourceSession {
     if (
       !graph ||
       (graph.abi !== "stateful-resource-v1" &&
-        graph.abi !== "stateful-resource-v2") ||
+        graph.abi !== "stateful-resource-v2" &&
+        graph.abi !== "stateful-resource-v3") ||
       !definition.output
     )
       throw new NativeStatefulResourceError("stateful-definition-invalid");
@@ -561,7 +565,9 @@ export class NativeStatefulResourceSession {
       .sort();
     const externalTextures =
       this.abi === "stateful-resource-v1"
-        ? new Map<string, GPUTexture>([["source", options.source]])
+        ? options.source
+          ? new Map<string, GPUTexture>([["source", options.source]])
+          : undefined
         : options.externalTextures
           ? new Map(options.externalTextures)
           : undefined;
@@ -572,8 +578,14 @@ export class NativeStatefulResourceSession {
       !externalTextures ||
       externalTextures.size !== externalNames.length ||
       externalNames.some((name) => !externalTextures.has(name)) ||
-      externalTextures.get("source") !== options.source ||
-      (this.abi === "stateful-resource-v2" &&
+      (externalNames.includes("source")
+        ? !options.source || externalTextures.get("source") !== options.source
+        : options.source !== null) ||
+      (this.abi === "stateful-resource-v3" &&
+        externalNames.length === 0 &&
+        options.sourceEpoch !== null) ||
+      ((this.abi === "stateful-resource-v2" ||
+        this.abi === "stateful-resource-v3") &&
         (!inputEpochs ||
           inputEpochs.size !== externalNames.length ||
           externalNames.some((name) => {
@@ -838,7 +850,7 @@ export class NativeStatefulResourceSession {
             this.committedSourceRevision = committedSourceRevision;
             this.committedSourceEpoch = committedSourceEpoch;
             this.committedInputEpochs =
-              this.abi === "stateful-resource-v2"
+              this.abi !== "stateful-resource-v1"
                 ? Object.fromEntries(
                     [...inputEpochs!].sort(([a], [b]) => a.localeCompare(b)),
                   )

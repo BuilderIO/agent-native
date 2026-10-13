@@ -58,6 +58,19 @@ function summarizeNativeDefinition(definition: EffectDefinition) {
     inputs: definition.inputs ?? null,
     outputs: definition.outputs ?? null,
     resources: definition.resources ?? null,
+    resourceGraph: definition.resourceGraph
+      ? {
+          abi: definition.resourceGraph.abi,
+          ...(definition.resourceGraph.abi === "linear-resource-v1"
+            ? {}
+            : {
+                timing: definition.resourceGraph.timing,
+                stateResources: definition.resourceGraph.stateResources,
+                resetProperties: definition.resourceGraph.resetProperties ?? [],
+                sourceHistory: definition.resourceGraph.sourceHistory ?? null,
+              }),
+        }
+      : null,
     output: definition.output ?? null,
     sourceSizing: definition.sourceSizing ?? null,
     passes: definition.passes.map((pass) => ({

@@ -97,6 +97,114 @@ describe("native effect pass planner", () => {
     );
   });
 
+  it("accepts exact zero-to-four v3 inputs without inventing a source", () => {
+    const base: EffectDefinition = {
+      id: "source-free-stateful-contract",
+      name: "Source-Free Stateful Contract",
+      version: 1,
+      kind: "generator",
+      placements: ["fill"],
+      properties: {},
+      resourceGraph: {
+        abi: "stateful-resource-v3",
+        timing: { fixedDt: 1 / 60, maxStepsPerCall: 8, maxStepIndex: 3600 },
+        stateResources: ["field"],
+      },
+      resources: [
+        {
+          name: "field",
+          kind: "texture-2d",
+          size: "fixed",
+          width: 8,
+          height: 8,
+          format: "rgba16float",
+          usage: ["sampled", "storage"],
+          persistent: true,
+        },
+        {
+          name: "color",
+          kind: "texture-2d",
+          size: "viewport",
+          format: "rgba16float",
+          usage: ["sampled", "render"],
+        },
+      ],
+      passes: [
+        {
+          id: "step",
+          kind: "compute",
+          reads: [],
+          previousFrameReads: ["field"],
+          output: "field",
+          dispatch: { elements: "output-texture", workgroupSize: [8, 8, 1] },
+          wgsl: "@compute @workgroup_size(8, 8, 1) fn cs() {}",
+        },
+        {
+          id: "finish",
+          kind: "render",
+          reads: ["field"],
+          output: "color",
+          wgsl: "@vertex fn vs() {} @fragment fn fs() {}",
+        },
+      ],
+      output: "color",
+      provenance: { origin: "design-original" },
+    };
+    const errors = (definition: EffectDefinition) =>
+      validateEffectDocument({
+        schemaVersion: 2,
+        definitions: [definition],
+        instances: [],
+      }).errors;
+    expect(errors(base)).toEqual([]);
+    expect(
+      planNativeInputResources(base, {
+        placement: "fill",
+        params: {},
+        bindings: undefined,
+      }),
+    ).toEqual({ ok: true, inputs: new Map() });
+    const withInputs = structuredClone(base);
+    const names = ["guide", "flow", "colorMap", "edgeMap"];
+    withInputs.resources!.push(
+      ...names.map((name) => ({
+        name,
+        kind: "texture-2d" as const,
+        external: true,
+        usage: ["sampled" as const],
+      })),
+    );
+    withInputs.inputs = Object.fromEntries(
+      names.map((name) => [name, { kind: "texture-2d", resource: name }]),
+    );
+    withInputs.passes[0]!.reads = names;
+    expect(errors(withInputs)).toEqual([]);
+    const five = structuredClone(withInputs);
+    five.resources!.push({
+      name: "fifth",
+      kind: "texture-2d",
+      external: true,
+      usage: ["sampled"],
+    });
+    five.inputs!.fifth = { kind: "texture-2d", resource: "fifth" };
+    five.passes[0]!.reads.push("fifth");
+    expect(planEffectGraph(five).errors).toContain(
+      "stateful v3 graph has too many external textures",
+    );
+    const history = structuredClone(base);
+    if (history.resourceGraph?.abi !== "stateful-resource-v3")
+      throw new Error("Stateful v3 graph contract is missing");
+    history.resourceGraph.sourceHistory = "sequential-captures";
+    expect(planEffectGraph(history).errors).toContain(
+      "source-free stateful graph cannot capture source history",
+    );
+    const legacy = structuredClone(base);
+    legacy.resourceGraph!.abi = "stateful-resource-v2";
+    expect(planEffectGraph(legacy).errors).toContain(
+      "stateful v2 graph needs source and one to three named external textures",
+    );
+  });
+
   it("keeps stateful history ordered, bounded, and covered by the execution hash", async () => {
     const definition: EffectDefinition = {
       id: "stateful-contract-test",

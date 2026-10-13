@@ -365,6 +365,177 @@ function fakeGpu() {
 }
 
 describe("NativeStatefulResourceSession", () => {
+  it("commits a source-free v3 frame with exact empty inputs and rolls back a rejected step", async () => {
+    const gpu = fakeGpu();
+    const sourceFreePasses = passes.map((pass) => ({
+      ...pass,
+      reads: pass.reads.filter((name) => name !== "source"),
+    }));
+    const sourceFreeDefinition = {
+      ...definition,
+      resourceGraph: {
+        ...definition.resourceGraph!,
+        abi: "stateful-resource-v3",
+      },
+      passes: sourceFreePasses,
+      resources: definition.resources!.filter(
+        (resource) => resource.name !== "source",
+      ),
+    } as EffectDefinition;
+    const session = Session.create(
+      gpu.device,
+      gpu.allocator,
+      sourceFreeDefinition,
+      8,
+      8,
+    );
+    const pipeline = { getBindGroupLayout: () => ({}) };
+    const common = {
+      encoder: gpu.encoder,
+      source: null,
+      target: gpu.target,
+      externalTextures: new Map<string, GPUTexture>(),
+      inputEpochs: new Map<string, number | null>(),
+      pipelines: new Map(
+        sourceFreePasses.map((pass) => [
+          pass.id,
+          pipeline as unknown as GPUComputePipeline,
+        ]),
+      ),
+      passes: sourceFreePasses,
+      fixedDt: 1 / 60,
+      seed: 4,
+      sourceIdentity: "source-free:owned",
+      sourceRevision: "source-free:owned",
+      sourceEpoch: null,
+      drawCount: () => 4,
+      uniforms: () => new Float32Array(136),
+    };
+    expect(() =>
+      session.encode({ ...common, steps: [0], externalTextures: undefined }),
+    ).toThrowError("stateful-input-missing");
+    expect(() =>
+      session.encode({ ...common, steps: [0], inputEpochs: undefined }),
+    ).toThrowError("stateful-input-missing");
+    expect(() =>
+      session.encode({ ...common, steps: [0], source: gpu.source }),
+    ).toThrowError("stateful-input-missing");
+    expect(() =>
+      session.encode({ ...common, steps: [0], sourceEpoch: 1 }),
+    ).toThrowError("stateful-input-missing");
+    expect(() =>
+      session.encode({
+        ...common,
+        steps: [0],
+        externalTextures: new Map([["source", gpu.source]]),
+      }),
+    ).toThrowError("stateful-input-missing");
+    expect(() =>
+      session.encode({
+        ...common,
+        steps: [0],
+        inputEpochs: new Map([["source", null]]),
+      }),
+    ).toThrowError("stateful-input-missing");
+    const frame = session.encode({ ...common, steps: [0] });
+    expect(
+      gpu.groups.every((group) =>
+        group.entries.every(
+          (entry) =>
+            entry.binding !== 2 ||
+            !(entry.resource as { texture?: GPUTexture }).texture ||
+            (entry.resource as { texture: GPUTexture }).texture !== gpu.source,
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      gpu.leasedTextures.every((textures) => !textures.has(gpu.source)),
+    ).toBe(true);
+    frame.markSubmitted();
+    const committed = frame.commit();
+    gpu.waits.shift()!();
+    await committed;
+    expect(session.lastCompletedStep).toBe(0);
+    const snapshot = session.snapshotState();
+    gpu.waits.shift()!();
+    expect(await snapshot).toMatchObject({
+      sourceEpoch: null,
+      inputEpochs: {},
+      sourceIdentity: "source-free:owned",
+    });
+    const abandoned = session.encode({ ...common, steps: [1] });
+    abandoned.abandon();
+    expect(session.lastCompletedStep).toBe(0);
+    expect(gpu.leases()).toBe(0);
+    const rejected = session.encode({ ...common, steps: [1] });
+    rejected.markSubmitted();
+    const failure = new Error("presentation-stale");
+    const commit = rejected.commit(() => {
+      throw failure;
+    });
+    gpu.waits.shift()!();
+    await expect(commit).rejects.toBe(failure);
+    expect(session.lastCompletedStep).toBe(0);
+    expect(gpu.leases()).toBe(0);
+    session.dispose();
+  });
+  it("binds a v3 named input without requiring source", async () => {
+    const gpu = fakeGpu();
+    const guide = gpu.allocator.texture(8, 8) as GPUTexture;
+    const guidedPasses = passes.map((pass) => ({
+      ...pass,
+      reads: pass.reads.map((name) => (name === "source" ? "guide" : name)),
+    }));
+    const guided = {
+      ...definition,
+      resourceGraph: {
+        ...definition.resourceGraph!,
+        abi: "stateful-resource-v3",
+      },
+      passes: guidedPasses,
+      resources: definition.resources!.map((resource) =>
+        resource.name === "source" ? { ...resource, name: "guide" } : resource,
+      ),
+    } as EffectDefinition;
+    const session = Session.create(gpu.device, gpu.allocator, guided, 8, 8);
+    const pipeline = { getBindGroupLayout: () => ({}) };
+    const frame = session.encode({
+      encoder: gpu.encoder,
+      source: null,
+      target: gpu.target,
+      externalTextures: new Map([["guide", guide]]),
+      inputEpochs: new Map([["guide", 5]]),
+      pipelines: new Map(
+        guidedPasses.map((pass) => [
+          pass.id,
+          pipeline as unknown as GPUComputePipeline,
+        ]),
+      ),
+      passes: guidedPasses,
+      steps: [0],
+      fixedDt: 1 / 60,
+      seed: 1,
+      sourceIdentity: "guide:5",
+      sourceRevision: "guide:5",
+      sourceEpoch: null,
+      drawCount: () => 4,
+      uniforms: () => new Float32Array(136),
+    });
+    expect(gpu.leasedTextures[0]?.has(guide)).toBe(true);
+    expect(gpu.leasedTextures[0]?.has(gpu.source)).toBe(false);
+    frame.markSubmitted();
+    const committed = frame.commit();
+    gpu.waits.shift()!();
+    await committed;
+    const snapshot = session.snapshotState();
+    gpu.waits.shift()!();
+    expect(await snapshot).toMatchObject({
+      inputEpochs: { guide: 5 },
+      sourceEpoch: null,
+    });
+    session.dispose();
+  });
+
   it("keeps the committed state when capture validation fails after GPU completion", async () => {
     const gpu = fakeGpu();
     const session = Session.create(gpu.device, gpu.allocator, definition, 8, 8);

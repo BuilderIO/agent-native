@@ -241,6 +241,25 @@ export const CONTENT_SIZE_REPORT_BRIDGE = `
     }
     return true;
   }
+  function isNativePresentationNode(node) {
+    var el = node && node.nodeType === 1 ? node : node && node.parentNode;
+    if (!el || el.nodeType !== 1 || !el.closest) return false;
+    return !!el.closest(
+      "canvas[data-an-native-canvas],canvas[data-an-native-presentation]",
+    );
+  }
+  function allNativePresentationNodes(nodes) {
+    for (var i = 0; i < nodes.length; i++) {
+      if (!isNativePresentationNode(nodes[i])) return false;
+    }
+    return true;
+  }
+  function isNativeProgressAttribute(record) {
+    return record.type === "attributes" && (
+      record.attributeName === "data-an-native-frames" ||
+      record.attributeName === "data-an-native-captures"
+    );
+  }
   // The editor rescales its chrome through custom properties on <html> on
   // every zoom step; those never change content size.
   function withoutEditorVars(style) {
@@ -259,11 +278,20 @@ export const CONTENT_SIZE_REPORT_BRIDGE = `
     for (var i = 0; i < records.length; i++) {
       var record = records[i];
       if (isChromeNode(record.target)) continue;
+      if (isNativePresentationNode(record.target)) continue;
+      if (isNativeProgressAttribute(record)) continue;
       if (isEditorVarWrite(record)) continue;
       if (
         record.type === "childList" &&
         allChromeNodes(record.addedNodes) &&
         allChromeNodes(record.removedNodes)
+      ) {
+        continue;
+      }
+      if (
+        record.type === "childList" &&
+        allNativePresentationNodes(record.addedNodes) &&
+        allNativePresentationNodes(record.removedNodes)
       ) {
         continue;
       }

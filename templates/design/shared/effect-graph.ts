@@ -337,7 +337,8 @@ export function planEffectPasses(
           (pass.draw.instances !== "simulation-count" &&
             !(
               (resourceGraph?.abi === "stateful-resource-v1" ||
-                resourceGraph?.abi === "stateful-resource-v2") &&
+                resourceGraph?.abi === "stateful-resource-v2" ||
+                resourceGraph?.abi === "stateful-resource-v3") &&
               isStatefulResourceDraw(pass.draw)
             )) ||
           Object.keys(pass.draw).length !== 2))
@@ -556,7 +557,8 @@ export function planEffectPasses(
   if (resourceGraph)
     errors.push(
       ...(resourceGraph.abi === "stateful-resource-v1" ||
-      resourceGraph.abi === "stateful-resource-v2"
+      resourceGraph.abi === "stateful-resource-v2" ||
+      resourceGraph.abi === "stateful-resource-v3"
         ? validateStatefulResourceGraph(
             resourceGraph,
             passes,

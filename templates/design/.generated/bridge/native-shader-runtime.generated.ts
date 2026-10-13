@@ -1151,6 +1151,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "static"
     ],
     [
+      "a83dee33da18dcc94abbc7669284c9775ec42af9ef22d0b691bc39555bdc69db",
+      "animated"
+    ],
+    [
       "a85cb5eb894b9325a203cf8b3c49d3c7cd757b6cb5c1f0ca8a2d8eafef681346",
       "static"
     ],
@@ -1691,6 +1695,14 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       "animated"
     ],
     [
+      "f209ee1dcffd36b0e6fc8bfc70c5e8ba6715912381776e7710c575fc2073aeca",
+      "static"
+    ],
+    [
+      "f223f40d2cbaa66f6001f2b6f8e6eb00e7f87adf8d8fc8b414fea92e3fa36dd9",
+      "animated"
+    ],
+    [
       "f307e69485a18596a8409779e9e1ce37a9d1db0edfdf34a55f050333841f4c48",
       "animated"
     ],
@@ -1903,7 +1915,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
 
   // shared/native-stateful-resource-graph.ts
   function isStatefulResourceGraph(value) {
-    return value?.abi === "stateful-resource-v1" || value?.abi === "stateful-resource-v2";
+    return value?.abi === "stateful-resource-v1" || value?.abi === "stateful-resource-v2" || value?.abi === "stateful-resource-v3";
   }
   var RESOURCE_NAME2 = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
   var MAX_STATE_BYTES = 16 * 1024 * 1024;
@@ -1921,7 +1933,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     const timing = value.timing;
     const stateResources = value.stateResources;
     const resetProperties = value.resetProperties;
-    if (value.abi !== "stateful-resource-v1" && value.abi !== "stateful-resource-v2" || Object.keys(value).some(
+    if (value.abi !== "stateful-resource-v1" && value.abi !== "stateful-resource-v2" && value.abi !== "stateful-resource-v3" || Object.keys(value).some(
       (key) => ![
         "abi",
         "timing",
@@ -1942,15 +1954,22 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
     if (value.abi === "stateful-resource-v1") {
       if (external.length !== 1 || external[0]?.name !== "source")
         errors.push("stateful graph needs exactly one external source texture");
+    } else if (value.abi === "stateful-resource-v3") {
+      if (external.length > 4)
+        errors.push("stateful v3 graph has too many external textures");
+      if (external.length === 0 && value.sourceHistory !== void 0)
+        errors.push("source-free stateful graph cannot capture source history");
     } else if (external.length < 2 || external.length > 4 || !external.some((resource) => resource.name === "source")) {
       errors.push(
         "stateful v2 graph needs source and one to three named external textures"
       );
     }
-    if (value.abi === "stateful-resource-v2" && external.some(
+    if ((value.abi === "stateful-resource-v2" || value.abi === "stateful-resource-v3") && external.some(
       (resource) => !passes.some((pass) => pass.reads.includes(resource.name))
     ))
-      errors.push("stateful v2 graph has an unread external texture");
+      errors.push(
+        value.abi === "stateful-resource-v2" ? "stateful v2 graph has an unread external texture" : "stateful v3 graph has an unread external texture"
+      );
     const state = new Set(stateResources);
     const producerIndex = /* @__PURE__ */ new Map();
     for (const [index, pass] of passes.entries()) {
@@ -2264,7 +2283,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         (output) => typeof output === "string"
       )) || pass.reads.length > 16 || !pass.reads.every((read) => typeof read === "string") || new Set(pass.reads).size !== pass.reads.length || pass.previousFrameReads !== void 0 && (!Array.isArray(pass.previousFrameReads) || pass.previousFrameReads.length > 16 || !pass.previousFrameReads.every(
         (read) => typeof read === "string"
-      ) || new Set(pass.previousFrameReads).size !== pass.previousFrameReads.length) || pass.dispatch !== void 0 && (pass.kind !== "compute" || !(pass.dispatch.workgroupSize === 256 && pass.dispatch.elements === "simulation-count" || Array.isArray(pass.dispatch.workgroupSize) && pass.dispatch.workgroupSize.length === 2 && pass.dispatch.workgroupSize[0] === 8 && pass.dispatch.workgroupSize[1] === 8 && pass.dispatch.elements === "fixed-grid" || isStatelessComputeDispatch(pass.dispatch) || isLinearResourceDispatch(pass.dispatch)) || !isStatelessComputeDispatch(pass.dispatch) && !isLinearResourceDispatch(pass.dispatch) && Object.keys(pass.dispatch).length !== 2) || pass.draw !== void 0 && (pass.kind !== "render" || pass.draw.vertices !== 6 || pass.draw.instances !== "simulation-count" && !((resourceGraph?.abi === "stateful-resource-v1" || resourceGraph?.abi === "stateful-resource-v2") && isStatefulResourceDraw(pass.draw)) || Object.keys(pass.draw).length !== 2)) {
+      ) || new Set(pass.previousFrameReads).size !== pass.previousFrameReads.length) || pass.dispatch !== void 0 && (pass.kind !== "compute" || !(pass.dispatch.workgroupSize === 256 && pass.dispatch.elements === "simulation-count" || Array.isArray(pass.dispatch.workgroupSize) && pass.dispatch.workgroupSize.length === 2 && pass.dispatch.workgroupSize[0] === 8 && pass.dispatch.workgroupSize[1] === 8 && pass.dispatch.elements === "fixed-grid" || isStatelessComputeDispatch(pass.dispatch) || isLinearResourceDispatch(pass.dispatch)) || !isStatelessComputeDispatch(pass.dispatch) && !isLinearResourceDispatch(pass.dispatch) && Object.keys(pass.dispatch).length !== 2) || pass.draw !== void 0 && (pass.kind !== "render" || pass.draw.vertices !== 6 || pass.draw.instances !== "simulation-count" && !((resourceGraph?.abi === "stateful-resource-v1" || resourceGraph?.abi === "stateful-resource-v2" || resourceGraph?.abi === "stateful-resource-v3") && isStatefulResourceDraw(pass.draw)) || Object.keys(pass.draw).length !== 2)) {
         errors.push(\`pass[\${index}] is malformed\`);
       }
     }
@@ -2381,7 +2400,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       errors.push("stateless-compute-definition-invalid");
     if (resourceGraph)
       errors.push(
-        ...resourceGraph.abi === "stateful-resource-v1" || resourceGraph.abi === "stateful-resource-v2" ? validateStatefulResourceGraph(
+        ...resourceGraph.abi === "stateful-resource-v1" || resourceGraph.abi === "stateful-resource-v2" || resourceGraph.abi === "stateful-resource-v3" ? validateStatefulResourceGraph(
           resourceGraph,
           passes,
           declarations,
@@ -4061,7 +4080,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
   function nativeParameterCanAnimate(definition, name) {
     const property = definition.properties[name];
     if (!property || property.rebuild) return false;
-    if (definition.feedback && (definition.feedback.uniformProperties?.seed ?? "seed") === name || definition.feedback?.resetProperties?.includes(name))
+    if (definition.feedback && (definition.feedback.uniformProperties?.seed ?? "seed") === name || definition.feedback?.resetProperties?.includes(name) || definition.resourceGraph && "resetProperties" in definition.resourceGraph && definition.resourceGraph.resetProperties?.includes(name))
       return false;
     if (Object.values(definition.inputs ?? {}).some(
       (input) => input.enabledWhen?.property === name
@@ -4793,7 +4812,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
         }
       }
     }
-    if (value.resourceGraph !== void 0 && (!record3(value.resourceGraph) || value.resourceGraph.abi !== "stateful-resource-v1" && value.resourceGraph.abi !== "stateful-resource-v2" && (value.resourceGraph.abi !== "linear-resource-v1" || Object.keys(value.resourceGraph).length !== 1) || value.kind === "simulation" || value.feedback !== void 0 || value.statelessCompute !== void 0 || value.simulation !== void 0 || value.optionalImage !== void 0 || value.sourceSizing !== void 0))
+    if (value.resourceGraph !== void 0 && (!record3(value.resourceGraph) || value.resourceGraph.abi !== "stateful-resource-v1" && value.resourceGraph.abi !== "stateful-resource-v2" && value.resourceGraph.abi !== "stateful-resource-v3" && (value.resourceGraph.abi !== "linear-resource-v1" || Object.keys(value.resourceGraph).length !== 1) || value.kind === "simulation" || value.feedback !== void 0 || value.statelessCompute !== void 0 || value.simulation !== void 0 || value.optionalImage !== void 0 || value.sourceSizing !== void 0))
       errors.push(\`\${prefix}.resourceGraph: linear-resource-definition-invalid\`);
     if (value.simulation !== void 0) {
       const simulation = value.simulation;
@@ -4923,10 +4942,10 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
       errors,
       false
     );
-    if (record3(value.resourceGraph) && value.resourceGraph.abi === "stateful-resource-v2") {
+    if (record3(value.resourceGraph) && (value.resourceGraph.abi === "stateful-resource-v2" || value.resourceGraph.abi === "stateful-resource-v3")) {
       const external = (Array.isArray(value.resources) ? value.resources : []).filter((resource) => resource.external).map((resource) => resource.name);
       const bound = Object.values(value.inputs ?? {}).filter((port) => port.kind === "texture-2d").map((port) => port.resource);
-      if (external.length < 2 || external.length > 4 || bound.length !== external.length || new Set(bound).size !== external.length || external.some((name) => !bound.includes(name)))
+      if (value.resourceGraph.abi === "stateful-resource-v2" && external.length < 2 || external.length > 4 || bound.length !== external.length || new Set(bound).size !== external.length || external.some((name) => !bound.includes(name)))
         errors.push(
           \`\${prefix}.resourceGraph needs an exact named input for each external texture\`
         );
@@ -4974,7 +4993,7 @@ export const nativeShaderRuntimeBridgeScript: string = `"use strict";
           (read) => typeof read === "string"
         ) || new Set(pass.previousFrameReads).size !== pass.previousFrameReads.length) || pass.persistent !== void 0 && typeof pass.persistent !== "boolean" || pass.additionalOutputs !== void 0 && (!Array.isArray(pass.additionalOutputs) || pass.additionalOutputs.length !== 1 || !pass.additionalOutputs.every(
           (output) => typeof output === "string"
-        )) || pass.dispatch !== void 0 && (!record3(pass.dispatch) || !isStatelessComputeDispatch(pass.dispatch) && !isLinearResourceDispatch(pass.dispatch) && Object.keys(pass.dispatch).length !== 2 || pass.kind !== "compute" || !(pass.dispatch.workgroupSize === 256 && pass.dispatch.elements === "simulation-count" || value.feedback && Array.isArray(pass.dispatch.workgroupSize) && pass.dispatch.workgroupSize.length === 2 && pass.dispatch.workgroupSize[0] === 8 && pass.dispatch.workgroupSize[1] === 8 && pass.dispatch.elements === "fixed-grid" || value.statelessCompute && isStatelessComputeDispatch(pass.dispatch) || value.resourceGraph && isLinearResourceDispatch(pass.dispatch))) || pass.draw !== void 0 && (!record3(pass.draw) || Object.keys(pass.draw).length !== 2 || pass.kind !== "render" || pass.draw.vertices !== 6 || pass.draw.instances !== "simulation-count" && !(record3(value.resourceGraph) && (value.resourceGraph.abi === "stateful-resource-v1" || value.resourceGraph.abi === "stateful-resource-v2") && isStatefulResourceDraw(pass.draw)))) {
+        )) || pass.dispatch !== void 0 && (!record3(pass.dispatch) || !isStatelessComputeDispatch(pass.dispatch) && !isLinearResourceDispatch(pass.dispatch) && Object.keys(pass.dispatch).length !== 2 || pass.kind !== "compute" || !(pass.dispatch.workgroupSize === 256 && pass.dispatch.elements === "simulation-count" || value.feedback && Array.isArray(pass.dispatch.workgroupSize) && pass.dispatch.workgroupSize.length === 2 && pass.dispatch.workgroupSize[0] === 8 && pass.dispatch.workgroupSize[1] === 8 && pass.dispatch.elements === "fixed-grid" || value.statelessCompute && isStatelessComputeDispatch(pass.dispatch) || value.resourceGraph && isLinearResourceDispatch(pass.dispatch))) || pass.draw !== void 0 && (!record3(pass.draw) || Object.keys(pass.draw).length !== 2 || pass.kind !== "render" || pass.draw.vertices !== 6 || pass.draw.instances !== "simulation-count" && !(record3(value.resourceGraph) && (value.resourceGraph.abi === "stateful-resource-v1" || value.resourceGraph.abi === "stateful-resource-v2" || value.resourceGraph.abi === "stateful-resource-v3") && isStatefulResourceDraw(pass.draw)))) {
           errors.push(\`\${prefix}.passes[\${passIndex}] is malformed\`);
         } else {
           if (pass.original !== void 0) {
@@ -15328,7 +15347,7 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
     }
     static create(device, allocator, definition, width, height) {
       const graph = definition.resourceGraph;
-      if (!graph || graph.abi !== "stateful-resource-v1" && graph.abi !== "stateful-resource-v2" || !definition.output)
+      if (!graph || graph.abi !== "stateful-resource-v1" && graph.abi !== "stateful-resource-v2" && graph.abi !== "stateful-resource-v3" || !definition.output)
         throw new NativeStatefulResourceError("stateful-definition-invalid");
       const resources = new Map(
         (definition.resources ?? []).map((spec) => [spec.name, spec])
@@ -15537,9 +15556,9 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
       const committedSourceRevision = options.sourceRevision;
       const committedSourceEpoch = options.sourceEpoch;
       const externalNames = [...this.resources.values()].filter((resource) => resource.external).map((resource) => resource.name).sort();
-      const externalTextures = this.abi === "stateful-resource-v1" ? /* @__PURE__ */ new Map([["source", options.source]]) : options.externalTextures ? new Map(options.externalTextures) : void 0;
+      const externalTextures = this.abi === "stateful-resource-v1" ? options.source ? /* @__PURE__ */ new Map([["source", options.source]]) : void 0 : options.externalTextures ? new Map(options.externalTextures) : void 0;
       const inputEpochs = options.inputEpochs ? new Map(options.inputEpochs) : void 0;
-      if (!externalTextures || externalTextures.size !== externalNames.length || externalNames.some((name) => !externalTextures.has(name)) || externalTextures.get("source") !== options.source || this.abi === "stateful-resource-v2" && (!inputEpochs || inputEpochs.size !== externalNames.length || externalNames.some((name) => {
+      if (!externalTextures || externalTextures.size !== externalNames.length || externalNames.some((name) => !externalTextures.has(name)) || (externalNames.includes("source") ? !options.source || externalTextures.get("source") !== options.source : options.source !== null) || this.abi === "stateful-resource-v3" && externalNames.length === 0 && options.sourceEpoch !== null || (this.abi === "stateful-resource-v2" || this.abi === "stateful-resource-v3") && (!inputEpochs || inputEpochs.size !== externalNames.length || externalNames.some((name) => {
         const epoch = inputEpochs.get(name);
         return epoch === void 0 || epoch !== null && (!Number.isSafeInteger(epoch) || epoch < 0);
       })))
@@ -15753,7 +15772,7 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
               this.committedSourceIdentity = committedSourceIdentity;
               this.committedSourceRevision = committedSourceRevision;
               this.committedSourceEpoch = committedSourceEpoch;
-              this.committedInputEpochs = this.abi === "stateful-resource-v2" ? Object.fromEntries(
+              this.committedInputEpochs = this.abi !== "stateful-resource-v1" ? Object.fromEntries(
                 [...inputEpochs].sort(([a], [b]) => a.localeCompare(b))
               ) : null;
             } finally {
@@ -24476,7 +24495,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         (name) => [name, readNumber(name)]
       );
       const prior2 = draft ? draft.stateful : mount.stateful;
-      if (prior2 && (prior2.definitionHash !== definitionHash || prior2.seed !== instance.seed || prior2.sourceIdentity !== sourceIdentity || prior2.sourceWidth !== source.width || prior2.sourceHeight !== source.height || prior2.seekRevision !== (instance.timing.seekRevision ?? 0) || nativeFeedbackResetValuesChanged(
+      if (prior2 && (prior2.definitionHash !== definitionHash || prior2.seed !== instance.seed || prior2.sourceIdentity !== sourceIdentity || prior2.sourceWidth !== (source?.width ?? mount.width) || prior2.sourceHeight !== (source?.height ?? mount.height) || prior2.seekRevision !== (instance.timing.seekRevision ?? 0) || nativeFeedbackResetValuesChanged(
         prior2.resetPropertyValues,
         resetPropertyValues
       ))) {
@@ -24567,8 +24586,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           sourceIdentity,
           sourceRevision: "",
           pendingSourceRevision: null,
-          sourceWidth: source.width,
-          sourceHeight: source.height,
+          sourceWidth: source?.width ?? mount.width,
+          sourceHeight: source?.height ?? mount.height,
           droppedSteps: 0,
           pendingDroppedSteps: 0,
           textures,
@@ -24669,7 +24688,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         sourceRevision,
         ...externalTextures ? { externalTextures } : {},
         ...inputEpochs ? { inputEpochs } : {},
-        sourceEpoch: sourceIdentity.startsWith("authored:") ? mount.authoredInputs.get("source")?.capturedSourceEpoch ?? null : sourceIdentity === "camera" ? this.renderEpoch : mount.provider?.sourceEpoch?.() ?? null,
+        sourceEpoch: source === null || graph.abi === "stateful-resource-v3" ? null : sourceIdentity.startsWith("authored:") ? mount.authoredInputs.get("source")?.capturedSourceEpoch ?? null : sourceIdentity === "camera" ? this.renderEpoch : mount.provider?.sourceEpoch?.() ?? null,
         drawCount: (property, maximum, stepTime) => {
           const count2 = resolveNativeParameterAnimation(
             definition,
@@ -26134,10 +26153,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       let backendSourceRevision = sourceRevision;
       let backendSourceIdentity = "builtin:source";
       let backendSourceReplaySafety = "unknown";
+      let statefulSource = source;
       let statefulExternalTextures;
       let statefulInputEpochs;
-      if (definition.resourceGraph?.abi === "stateful-resource-v2") {
-        const resolved = await this.effectInputTextures(
+      if (definition.resourceGraph?.abi === "stateful-resource-v2" || definition.resourceGraph?.abi === "stateful-resource-v3") {
+        const names = (definition.resources ?? []).filter((resource) => resource.external).map((resource) => resource.name).sort();
+        const resolved = names.length ? await this.effectInputTextures(
           mount,
           source,
           time,
@@ -26146,8 +26167,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           instance,
           deterministic,
           dependencies
-        );
-        const names = (definition.resources ?? []).filter((resource) => resource.external).map((resource) => resource.name).sort();
+        ) : null;
         const textures = /* @__PURE__ */ new Map();
         const epochs = /* @__PURE__ */ new Map();
         const pendingEpochs = /* @__PURE__ */ new Map();
@@ -26155,8 +26175,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         const revisions = [];
         let replaySafety = "immutable";
         for (const name of names) {
-          const binding = resolved.inputPlan.inputs.get(name);
-          const texture = resolved.resources.get(name);
+          const binding = resolved?.inputPlan.inputs.get(name);
+          const texture = resolved?.resources.get(name);
           if (!binding || !texture)
             throw new NativeSourceError(
               "pass-input-missing",
@@ -26217,9 +26237,22 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         mount.pendingGraphInputEpochs = pendingEpochs;
         statefulExternalTextures = textures;
         statefulInputEpochs = epochs;
-        backendSource = textures.get("source");
-        backendSourceIdentity = JSON.stringify(identities);
-        backendSourceRevision = JSON.stringify(revisions);
+        statefulSource = textures.get("source") ?? null;
+        backendSourceIdentity = names.length ? JSON.stringify(identities) : JSON.stringify([
+          "source-free",
+          definition.id,
+          definition.version,
+          this.draft?.showDraft && this.draft.instanceId === instance.id && this.draft.definition === definition ? this.draft.executionHash : mount.definitionHash,
+          instance.id,
+          instance.seed,
+          mount.width,
+          mount.height,
+          (definition.resourceGraph.resetProperties ?? []).map((name) => [
+            name,
+            instance.params[name] ?? definition.properties[name]?.default
+          ])
+        ]);
+        backendSourceRevision = names.length ? JSON.stringify(revisions) : backendSourceIdentity;
         backendSourceReplaySafety = replaySafety;
       }
       if (definition.statelessCompute || definition.simulation || definition.feedback || definition.resourceGraph?.abi === "stateful-resource-v1") {
@@ -26299,7 +26332,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       if (isStatefulResourceGraph(definition.resourceGraph))
         return this.statefulResourcePasses(
           mount,
-          backendSource,
+          definition.resourceGraph.abi === "stateful-resource-v1" ? backendSource : statefulSource,
           time,
           encoder,
           definition,

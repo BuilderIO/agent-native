@@ -58,6 +58,7 @@ import { OWNED_NEXT_SIX_R_DEFINITIONS } from "../shared/native-effect-owned-next
 import { OWNED_NEXT_TWELVE_S_DEFINITIONS } from "../shared/native-effect-owned-next-twelve-s";
 import { OWNED_NEXT_TWELVE_T_DEFINITIONS } from "../shared/native-effect-owned-next-twelve-t";
 import { OWNED_NEXT_TWELVE_U_DEFINITIONS } from "../shared/native-effect-owned-next-twelve-u";
+import { FLUID_COLOR_FIELD_EFFECT } from "../shared/native-effect-owned-source-free-fluid-field";
 import { STATEFUL_NINE_DEFINITIONS } from "../shared/native-effect-owned-stateful-nine";
 import {
   GRAIN_GRADIENT_EFFECT,
@@ -448,6 +449,24 @@ describe("get-shader native-v2", () => {
     expect(result.selectedDefinition?.passes[0].wgsl).toContain(
       "@fragment fn fs",
     );
+    const fluid = await action.run({
+      format: "native-v2",
+      definitionId: FLUID_COLOR_FIELD_EFFECT.id,
+      definitionVersion: 1,
+      includeSource: true,
+    });
+    expect(fluid.definitions[0]?.resourceGraph).toEqual({
+      abi: "stateful-resource-v3",
+      timing: FLUID_COLOR_FIELD_EFFECT.resourceGraph?.timing,
+      stateResources: ["velocity", "density"],
+      resetProperties: [],
+      sourceHistory: null,
+    });
+    expect(fluid.definitions[0]?.passes[0]).not.toHaveProperty("wgsl");
+    expect(fluid.selectedDefinition?.resourceGraph?.abi).toBe(
+      "stateful-resource-v3",
+    );
+    expect(fluid.selectedDefinition?.passes[0].wgsl).toContain("@compute");
     await expect(
       action.run({
         format: "native-v2",

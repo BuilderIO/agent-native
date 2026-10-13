@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { FLOCKING_SWARM_EFFECT } from "./native-effect-owned-aa-flocking";
 import { TEMPORAL_IMAGE_DEFINITIONS } from "./native-effect-owned-ag-temporal-images";
+import { FLUID_ADVECTED_PARTICLES_EFFECT } from "./native-effect-owned-aq-fluid-particles";
+import { GUIDED_FLUID_PARTICLES_EFFECT } from "./native-effect-owned-au-guided-fluid-particles";
+import { FLUID_COLOR_FIELD_EFFECT } from "./native-effect-owned-source-free-fluid-field";
 import {
   nativeParameterCanAnimate,
   resolveNativeParameterAnimation,
@@ -161,6 +164,42 @@ describe("native parameter animation", () => {
         "animation track speed must end at duration",
       ]),
     );
+  });
+
+  it("keeps persistent graph reset controls out of animation across all graph versions", () => {
+    const sourceFreeWithReset = {
+      ...FLUID_COLOR_FIELD_EFFECT,
+      resourceGraph: {
+        ...FLUID_COLOR_FIELD_EFFECT.resourceGraph!,
+        resetProperties: ["viscosity"],
+      },
+    };
+    for (const [graph, reset, ordinary] of [
+      [FLUID_ADVECTED_PARTICLES_EFFECT, "patternSeed", "viscosity"],
+      [GUIDED_FLUID_PARTICLES_EFFECT, "patternSeed", "viscosity"],
+      [sourceFreeWithReset, "viscosity", "densityDiffusion"],
+    ] as const) {
+      expect(nativeParameterCanAnimate(graph, reset)).toBe(false);
+      expect(nativeParameterCanAnimate(graph, ordinary)).toBe(true);
+      const track = (name: string): NativeParameterAnimation => ({
+        duration: 2,
+        loop: false,
+        tracks: {
+          [name]: {
+            keys: [
+              { time: 0, value: 0 },
+              { time: 2, value: 1 },
+            ],
+          },
+        },
+      });
+      expect(
+        validateNativeParameterAnimation(graph, track(reset), validateValue),
+      ).toContain(`animation track ${reset} is not animatable`);
+      expect(
+        validateNativeParameterAnimation(graph, track(ordinary), validateValue),
+      ).toEqual([]);
+    }
   });
 
   it("keeps feedback seeds and reset controls out of animation tracks", () => {

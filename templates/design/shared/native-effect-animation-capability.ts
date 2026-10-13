@@ -85,6 +85,7 @@ const STATIC_BUILTIN_VERSIONS = new Set([
   "an-native-halftone@2",
   "an-native-halftone@3",
   "an-native-color-grade@1",
+  "an-native-color-grade@2",
   "an-native-palette-map@1",
   "an-native-posterize@1",
   "an-native-threshold@1",
@@ -295,6 +296,8 @@ const STATIC_BUILTIN_VERSIONS = new Set([
 ]);
 
 const ANIMATED_BUILTIN_VERSIONS = new Set([
+  "an-native-owned-source-free-fluid-color-field@1",
+  "an-native-owned-t-concentric-rotor@2",
   "an-native-owned-al-film-response@1",
   "an-native-owned-an-cursor-run-sort@1",
   "an-native-owned-ai-source-smoke-fluid@1",

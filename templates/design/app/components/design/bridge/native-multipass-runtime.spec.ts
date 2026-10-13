@@ -4174,6 +4174,62 @@ struct VertexOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
           },
         ],
       };
+      const selectedLegacySource = pairMount.outputTexture!;
+      const legacySourceProbe = internal as typeof internal & {
+        effectPasses(
+          mount: object,
+          source: FakeTexture,
+          time: number,
+          encoder: object,
+          definition: EffectDefinition,
+          instance: EffectInstance,
+        ): Promise<FakeTexture>;
+        statefulResourcePasses(
+          mount: object,
+          source: FakeTexture | null,
+          ...remaining: unknown[]
+        ): Promise<FakeTexture>;
+      };
+      const selectedLegacyInput = vi
+        .spyOn(legacySourceProbe, "loadInputAsset")
+        .mockResolvedValueOnce(selectedLegacySource);
+      const statefulDispatch = vi
+        .spyOn(legacySourceProbe, "statefulResourcePasses")
+        .mockResolvedValueOnce(selectedLegacySource);
+      const legacyWithSelectedSource: EffectDefinition = {
+        ...publishedStatefulDefinition,
+        inputs: { source: { kind: "texture-2d", resource: "source" } },
+      };
+      await legacySourceProbe.effectPasses(
+        pairMount,
+        sharpTexture,
+        0,
+        device.createCommandEncoder(),
+        legacyWithSelectedSource,
+        {
+          ...pairMount.instance,
+          bindings: {
+            source: { kind: "asset", url: "/shaders/gate-image.svg" },
+          },
+        },
+      );
+      expect(selectedLegacyInput).toHaveBeenCalledTimes(1);
+      expect(statefulDispatch).toHaveBeenCalledWith(
+        pairMount,
+        selectedLegacySource,
+        expect.any(Number),
+        expect.any(Object),
+        legacyWithSelectedSource,
+        expect.any(Object),
+        expect.any(String),
+        false,
+        expect.any(String),
+        expect.any(String),
+        undefined,
+        undefined,
+      );
+      statefulDispatch.mockRestore();
+      selectedLegacyInput.mockRestore();
       const publishedStatefulHash = await hashEffectDefinition(
         publishedStatefulDefinition,
       );

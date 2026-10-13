@@ -17,14 +17,16 @@ interface EffectStatefulResourceGraphBase {
 
 export type EffectStatefulResourceGraphSpec =
   | (EffectStatefulResourceGraphBase & { abi: "stateful-resource-v1" })
-  | (EffectStatefulResourceGraphBase & { abi: "stateful-resource-v2" });
+  | (EffectStatefulResourceGraphBase & { abi: "stateful-resource-v2" })
+  | (EffectStatefulResourceGraphBase & { abi: "stateful-resource-v3" });
 
 export function isStatefulResourceGraph(
   value: { abi: string } | undefined,
 ): value is EffectStatefulResourceGraphSpec {
   return (
     value?.abi === "stateful-resource-v1" ||
-    value?.abi === "stateful-resource-v2"
+    value?.abi === "stateful-resource-v2" ||
+    value?.abi === "stateful-resource-v3"
   );
 }
 
@@ -76,7 +78,8 @@ export function validateStatefulResourceGraph(
   const resetProperties = value.resetProperties;
   if (
     (value.abi !== "stateful-resource-v1" &&
-      value.abi !== "stateful-resource-v2") ||
+      value.abi !== "stateful-resource-v2" &&
+      value.abi !== "stateful-resource-v3") ||
     Object.keys(value).some(
       (key) =>
         ![
@@ -125,6 +128,11 @@ export function validateStatefulResourceGraph(
   if (value.abi === "stateful-resource-v1") {
     if (external.length !== 1 || external[0]?.name !== "source")
       errors.push("stateful graph needs exactly one external source texture");
+  } else if (value.abi === "stateful-resource-v3") {
+    if (external.length > 4)
+      errors.push("stateful v3 graph has too many external textures");
+    if (external.length === 0 && value.sourceHistory !== undefined)
+      errors.push("source-free stateful graph cannot capture source history");
   } else if (
     external.length < 2 ||
     external.length > 4 ||
@@ -135,12 +143,17 @@ export function validateStatefulResourceGraph(
     );
   }
   if (
-    value.abi === "stateful-resource-v2" &&
+    (value.abi === "stateful-resource-v2" ||
+      value.abi === "stateful-resource-v3") &&
     external.some(
       (resource) => !passes.some((pass) => pass.reads.includes(resource.name)),
     )
   )
-    errors.push("stateful v2 graph has an unread external texture");
+    errors.push(
+      value.abi === "stateful-resource-v2"
+        ? "stateful v2 graph has an unread external texture"
+        : "stateful v3 graph has an unread external texture",
+    );
   const state = new Set(stateResources as string[]);
   const producerIndex = new Map<string, number>();
   for (const [index, pass] of passes.entries()) {

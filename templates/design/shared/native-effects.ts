@@ -1323,6 +1323,7 @@ function validateDefinition(
     (!record(value.resourceGraph) ||
       (value.resourceGraph.abi !== "stateful-resource-v1" &&
         value.resourceGraph.abi !== "stateful-resource-v2" &&
+        value.resourceGraph.abi !== "stateful-resource-v3" &&
         (value.resourceGraph.abi !== "linear-resource-v1" ||
           Object.keys(value.resourceGraph).length !== 1)) ||
       value.kind === "simulation" ||
@@ -1668,7 +1669,8 @@ function validateDefinition(
   );
   if (
     record(value.resourceGraph) &&
-    value.resourceGraph.abi === "stateful-resource-v2"
+    (value.resourceGraph.abi === "stateful-resource-v2" ||
+      value.resourceGraph.abi === "stateful-resource-v3")
   ) {
     const external = (Array.isArray(value.resources) ? value.resources : [])
       .filter((resource: EffectResourceSpec) => resource.external)
@@ -1677,7 +1679,8 @@ function validateDefinition(
       .filter((port: EffectPortSpec) => port.kind === "texture-2d")
       .map((port: EffectPortSpec) => port.resource);
     if (
-      external.length < 2 ||
+      (value.resourceGraph.abi === "stateful-resource-v2" &&
+        external.length < 2) ||
       external.length > 4 ||
       bound.length !== external.length ||
       new Set(bound).size !== external.length ||
@@ -1812,7 +1815,8 @@ function validateDefinition(
               !(
                 record(value.resourceGraph) &&
                 (value.resourceGraph.abi === "stateful-resource-v1" ||
-                  value.resourceGraph.abi === "stateful-resource-v2") &&
+                  value.resourceGraph.abi === "stateful-resource-v2" ||
+                  value.resourceGraph.abi === "stateful-resource-v3") &&
                 isStatefulResourceDraw(pass.draw)
               ))))
       ) {

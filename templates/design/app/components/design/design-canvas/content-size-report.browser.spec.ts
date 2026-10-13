@@ -48,6 +48,63 @@ function styleReadsAfter(page: Page, mutate: () => void): Promise<number> {
 }
 
 describe("content size reporter cost", () => {
+  it("does not remeasure native frame progress on authored elements", async () => {
+    const { page, close } = await settledPage();
+    try {
+      await page.evaluate(() => {
+        const root = document.documentElement;
+        const original = Object.getOwnPropertyDescriptor(
+          Element.prototype,
+          "scrollHeight",
+        )?.get;
+        if (!original) throw new Error("scrollHeight getter is unavailable");
+        const counter = window as Window & { __measureReads?: number };
+        counter.__measureReads = 0;
+        Object.defineProperty(root, "scrollHeight", {
+          configurable: true,
+          get() {
+            counter.__measureReads! += 1;
+            return original.call(this);
+          },
+        });
+      });
+      await page.evaluate(() => {
+        const content = document.getElementById("content")!;
+        for (let frame = 1; frame <= 20; frame++) {
+          content.setAttribute("data-an-native-frames", String(frame));
+          content.setAttribute("data-an-native-captures", String(frame));
+        }
+        const presentation = document.createElement("canvas");
+        presentation.setAttribute("data-an-native-presentation", "");
+        presentation.style.position = "fixed";
+        presentation.style.visibility = "hidden";
+        document.body.appendChild(presentation);
+        presentation.remove();
+      });
+      await page.waitForTimeout(150);
+      expect(
+        await page.evaluate(
+          () =>
+            (window as Window & { __measureReads?: number }).__measureReads ??
+            0,
+        ),
+      ).toBe(0);
+      await page.evaluate(() => {
+        document.getElementById("content")!.style.height = "200px";
+      });
+      await page.waitForTimeout(150);
+      expect(
+        await page.evaluate(
+          () =>
+            (window as Window & { __measureReads?: number }).__measureReads ??
+            0,
+        ),
+      ).toBeGreaterThan(0);
+    } finally {
+      await close();
+    }
+  });
+
   it("ignores the editor rescaling its chrome on <html>", async () => {
     const { page, close } = await settledPage();
     try {

@@ -12,6 +12,10 @@ import {
   createCatalogEffectPresets,
   NativeCatalogPresetRecipeError,
 } from "./native-effect-catalog-presets";
+import {
+  COLOR_GRADE_V2_EFFECT,
+  COLOR_GRADE_V2_PRESETS,
+} from "./native-effect-color-grade-v2";
 import { editNativeEffectHtml } from "./native-effect-edits";
 import {
   FLUID_ADVECTED_PARTICLES_EFFECT,
@@ -69,6 +73,10 @@ import {
   FLOWING_SHAPE_CHROME_EFFECT,
   FLOWING_SHAPE_CHROME_PRESETS,
 } from "./native-effect-owned-bd-flowing-shape-chrome";
+import {
+  FLOWING_SHAPE_CHROME_V2_EFFECT,
+  FLOWING_SHAPE_CHROME_V2_PRESETS,
+} from "./native-effect-owned-bd-flowing-shape-chrome-v2";
 import {
   FRAME_MOSH_V2_EFFECT,
   FRAME_MOSH_V2_PRESETS,
@@ -198,6 +206,14 @@ import {
   FALLING_STREAKS_PRESETS,
 } from "./native-effect-owned-ck-falling-streaks";
 import {
+  FLUID_COLOR_FIELD_EFFECT,
+  FLUID_COLOR_FIELD_PRESETS,
+} from "./native-effect-owned-source-free-fluid-field";
+import {
+  OWNED_T_CONCENTRIC_ROTOR_V2,
+  OWNED_T_CONCENTRIC_ROTOR_V2_PRESETS,
+} from "./native-effect-owned-t-concentric-rotor-v2";
+import {
   POINTER_EFFECT_DEFINITIONS,
   POINTER_EFFECT_PRESETS,
 } from "./native-effect-pointer-catalog";
@@ -213,14 +229,14 @@ import { parseEffectsFromHtml, validateEffectDocument } from "./native-effects";
 
 describe("Design-owned catalog", () => {
   it("registers unique independently authored definitions and valid original recipes", () => {
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(375);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(377);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((item) => item.id)).size,
-    ).toBe(375);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(432);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(866);
+    ).toBe(377);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(439);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(880);
     expect(new Set(NATIVE_EFFECT_PRESETS.map((item) => item.id)).size).toBe(
-      866,
+      880,
     );
     for (const definition of NATIVE_EFFECT_LATEST_DEFINITIONS) {
       expect(definition.provenance?.origin).toBe("design-original");
@@ -245,6 +261,20 @@ describe("Design-owned catalog", () => {
   });
 
   it("registers AV through CK with localized controls and pinned predecessor versions", () => {
+    expect(
+      NATIVE_EFFECT_DEFINITION_CATALOG.find(
+        (item) =>
+          item.id === FLOWING_SHAPE_CHROME_EFFECT.id &&
+          item.version === FLOWING_SHAPE_CHROME_EFFECT.version,
+      ),
+    ).toBe(FLOWING_SHAPE_CHROME_EFFECT);
+    expect(
+      NATIVE_EFFECT_PRESETS.filter(
+        (item) =>
+          item.definitionId === FLOWING_SHAPE_CHROME_EFFECT.id &&
+          item.definitionVersion === FLOWING_SHAPE_CHROME_EFFECT.version,
+      ),
+    ).toEqual(FLOWING_SHAPE_CHROME_PRESETS);
     const newVersions = [
       [SOURCE_REACTION_DIFFUSION_EFFECT, SOURCE_REACTION_DIFFUSION_PRESETS],
       [TEMPORAL_FLOW_TRAIL_EFFECT, TEMPORAL_FLOW_TRAIL_PRESETS],
@@ -254,7 +284,10 @@ describe("Design-owned catalog", () => {
       [LAYER_MAP_DISPLACEMENT_EFFECT, LAYER_MAP_DISPLACEMENT_PRESETS],
       [PROJECTED_DYE_FLOW_EFFECT, PROJECTED_DYE_FLOW_PRESETS],
       [SHAPE_GOO_3D_EFFECT, SHAPE_GOO_3D_PRESETS],
-      [FLOWING_SHAPE_CHROME_EFFECT, FLOWING_SHAPE_CHROME_PRESETS],
+      [FLOWING_SHAPE_CHROME_V2_EFFECT, FLOWING_SHAPE_CHROME_V2_PRESETS],
+      [COLOR_GRADE_V2_EFFECT, COLOR_GRADE_V2_PRESETS],
+      [OWNED_T_CONCENTRIC_ROTOR_V2, OWNED_T_CONCENTRIC_ROTOR_V2_PRESETS],
+      [FLUID_COLOR_FIELD_EFFECT, FLUID_COLOR_FIELD_PRESETS],
       [FRAME_MOSH_V2_EFFECT, FRAME_MOSH_V2_PRESETS],
       [SOURCE_VOXELS_V2_EFFECT, SOURCE_VOXELS_V2_PRESETS],
       [CHANNEL_THROW_EFFECT, CHANNEL_THROW_PRESETS],
@@ -311,7 +344,8 @@ describe("Design-owned catalog", () => {
           definition === STONE_RELIEF_EFFECT ||
           definition === DIAMOND_REVEAL_EFFECT ||
           definition === ENGRAVED_SOURCE_EFFECT ||
-          definition === ANGLED_BAR_SHIFT_EFFECT
+          definition === ANGLED_BAR_SHIFT_EFFECT ||
+          definition === COLOR_GRADE_V2_EFFECT
           ? "static"
           : "animated",
       );

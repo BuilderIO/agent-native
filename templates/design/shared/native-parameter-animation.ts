@@ -41,7 +41,10 @@ export function nativeParameterCanAnimate(
   if (
     (definition.feedback &&
       (definition.feedback.uniformProperties?.seed ?? "seed") === name) ||
-    definition.feedback?.resetProperties?.includes(name)
+    definition.feedback?.resetProperties?.includes(name) ||
+    (definition.resourceGraph &&
+      "resetProperties" in definition.resourceGraph &&
+      definition.resourceGraph.resetProperties?.includes(name))
   )
     return false;
   if (

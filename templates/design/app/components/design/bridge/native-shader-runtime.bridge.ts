@@ -8024,7 +8024,7 @@ class NativeShaderRuntime {
 
   private async statefulResourcePasses(
     mount: Mount,
-    source: GPUTexture,
+    source: GPUTexture | null,
     time: number,
     encoder: GPUCommandEncoder,
     definition: EffectDefinition,
@@ -8082,8 +8082,8 @@ class NativeShaderRuntime {
       (prior.definitionHash !== definitionHash ||
         prior.seed !== instance.seed ||
         prior.sourceIdentity !== sourceIdentity ||
-        prior.sourceWidth !== source.width ||
-        prior.sourceHeight !== source.height ||
+        prior.sourceWidth !== (source?.width ?? mount.width) ||
+        prior.sourceHeight !== (source?.height ?? mount.height) ||
         prior.seekRevision !== (instance.timing.seekRevision ?? 0) ||
         nativeFeedbackResetValuesChanged(
           prior.resetPropertyValues,
@@ -8196,8 +8196,8 @@ class NativeShaderRuntime {
         sourceIdentity,
         sourceRevision: "",
         pendingSourceRevision: null,
-        sourceWidth: source.width,
-        sourceHeight: source.height,
+        sourceWidth: source?.width ?? mount.width,
+        sourceHeight: source?.height ?? mount.height,
         droppedSteps: 0,
         pendingDroppedSteps: 0,
         textures,
@@ -8319,11 +8319,14 @@ class NativeShaderRuntime {
       sourceRevision,
       ...(externalTextures ? { externalTextures } : {}),
       ...(inputEpochs ? { inputEpochs } : {}),
-      sourceEpoch: sourceIdentity.startsWith("authored:")
-        ? (mount.authoredInputs.get("source")?.capturedSourceEpoch ?? null)
-        : sourceIdentity === "camera"
-          ? this.renderEpoch
-          : (mount.provider?.sourceEpoch?.() ?? null),
+      sourceEpoch:
+        source === null || graph.abi === "stateful-resource-v3"
+          ? null
+          : sourceIdentity.startsWith("authored:")
+            ? (mount.authoredInputs.get("source")?.capturedSourceEpoch ?? null)
+            : sourceIdentity === "camera"
+              ? this.renderEpoch
+              : (mount.provider?.sourceEpoch?.() ?? null),
       drawCount: (property, maximum, stepTime) => {
         const count = resolveNativeParameterAnimation(
           definition,
@@ -10231,23 +10234,29 @@ class NativeShaderRuntime {
     let backendSourceIdentity = "builtin:source";
     let backendSourceReplaySafety: "immutable" | "dynamic" | "unknown" =
       "unknown";
+    let statefulSource: GPUTexture | null = source;
     let statefulExternalTextures: ReadonlyMap<string, GPUTexture> | undefined;
     let statefulInputEpochs: ReadonlyMap<string, number | null> | undefined;
-    if (definition.resourceGraph?.abi === "stateful-resource-v2") {
-      const resolved = await this.effectInputTextures(
-        mount,
-        source,
-        time,
-        encoder,
-        definition,
-        instance,
-        deterministic,
-        dependencies,
-      );
+    if (
+      definition.resourceGraph?.abi === "stateful-resource-v2" ||
+      definition.resourceGraph?.abi === "stateful-resource-v3"
+    ) {
       const names = (definition.resources ?? [])
         .filter((resource) => resource.external)
         .map((resource) => resource.name)
         .sort();
+      const resolved = names.length
+        ? await this.effectInputTextures(
+            mount,
+            source,
+            time,
+            encoder,
+            definition,
+            instance,
+            deterministic,
+            dependencies,
+          )
+        : null;
       const textures = new Map<string, GPUTexture>();
       const epochs = new Map<string, number | null>();
       const pendingEpochs = new Map<
@@ -10258,8 +10267,8 @@ class NativeShaderRuntime {
       const revisions: unknown[][] = [];
       let replaySafety: "immutable" | "dynamic" | "unknown" = "immutable";
       for (const name of names) {
-        const binding = resolved.inputPlan.inputs.get(name);
-        const texture = resolved.resources.get(name);
+        const binding = resolved?.inputPlan.inputs.get(name);
+        const texture = resolved?.resources.get(name);
         if (!binding || !texture)
           throw new NativeSourceError(
             "pass-input-missing",
@@ -10320,9 +10329,30 @@ class NativeShaderRuntime {
       mount.pendingGraphInputEpochs = pendingEpochs;
       statefulExternalTextures = textures;
       statefulInputEpochs = epochs;
-      backendSource = textures.get("source")!;
-      backendSourceIdentity = JSON.stringify(identities);
-      backendSourceRevision = JSON.stringify(revisions);
+      statefulSource = textures.get("source") ?? null;
+      backendSourceIdentity = names.length
+        ? JSON.stringify(identities)
+        : JSON.stringify([
+            "source-free",
+            definition.id,
+            definition.version,
+            this.draft?.showDraft &&
+            this.draft.instanceId === instance.id &&
+            this.draft.definition === definition
+              ? this.draft.executionHash
+              : mount.definitionHash,
+            instance.id,
+            instance.seed,
+            mount.width,
+            mount.height,
+            (definition.resourceGraph.resetProperties ?? []).map((name) => [
+              name,
+              instance.params[name] ?? definition.properties[name]?.default,
+            ]),
+          ]);
+      backendSourceRevision = names.length
+        ? JSON.stringify(revisions)
+        : backendSourceIdentity;
       backendSourceReplaySafety = replaySafety;
     }
     if (
@@ -10418,7 +10448,9 @@ class NativeShaderRuntime {
     if (isStatefulResourceGraph(definition.resourceGraph))
       return this.statefulResourcePasses(
         mount,
-        backendSource,
+        definition.resourceGraph.abi === "stateful-resource-v1"
+          ? backendSource
+          : statefulSource,
         time,
         encoder,
         definition,

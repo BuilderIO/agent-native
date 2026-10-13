@@ -2,6 +2,10 @@ import { CATALOG_GENERATOR_CANDIDATES } from "./native-effect-catalog-generators
 import { createCatalogEffectPresets } from "./native-effect-catalog-presets";
 import { CATALOG_PROCESSOR_CANDIDATES } from "./native-effect-catalog-processors";
 import {
+  COLOR_GRADE_V2_EFFECT,
+  COLOR_GRADE_V2_PRESETS,
+} from "./native-effect-color-grade-v2";
+import {
   createCoordinateRandomCatalog,
   createCoordinateRandomRecipes,
 } from "./native-effect-coordinate-random-catalog";
@@ -433,10 +437,18 @@ import {
 } from "./native-effect-owned-processors-four";
 import { OWNED_Q_DEFINITIONS, OWNED_Q_PRESETS } from "./native-effect-owned-q";
 import {
+  FLUID_COLOR_FIELD_EFFECT,
+  FLUID_COLOR_FIELD_PRESETS,
+} from "./native-effect-owned-source-free-fluid-field";
+import {
   STATEFUL_NINE_DEFINITIONS,
   STATEFUL_NINE_PRESETS,
   STATEFUL_NINE_PRESET_LABEL_SOURCE_IDS,
 } from "./native-effect-owned-stateful-nine";
+import {
+  OWNED_T_CONCENTRIC_ROTOR_V2,
+  OWNED_T_CONCENTRIC_ROTOR_V2_PRESETS,
+} from "./native-effect-owned-t-concentric-rotor-v2";
 import {
   OWNED_V_FIELD_DEFINITIONS,
   OWNED_V_FIELD_PRESETS,
@@ -829,6 +841,8 @@ export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
     STATIC_V3_ID_SET.has(definition.id),
   ),
   ...PRE_COORDINATE_RANDOM_LATEST_DEFINITIONS,
+  COLOR_GRADE_V2_EFFECT,
+  FLUID_COLOR_FIELD_EFFECT,
   ...NATIVE_COORDINATE_RANDOM_DEFINITIONS,
   ...NATIVE_PERIMETER_FOCAL_DEFINITIONS,
   ...OWNED_O_GENERATOR_DEFINITIONS,
@@ -852,6 +866,7 @@ export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
   HIGHLIGHT_STREAKS_EFFECT,
   ...OWNED_NEXT_TWELVE_S_DEFINITIONS,
   ...OWNED_NEXT_TWELVE_T_DEFINITIONS,
+  OWNED_T_CONCENTRIC_ROTOR_V2,
   ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
   LUMA_DCT_EIGHT_EFFECT,
   ...OWNED_V_FIELD_DEFINITIONS,
@@ -921,6 +936,8 @@ export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
 ];
 
 const currentDefinitionCandidates: readonly EffectDefinition[] = [
+  COLOR_GRADE_V2_EFFECT,
+  FLUID_COLOR_FIELD_EFFECT,
   ...coordinateRandomCatalog.latest,
   ...NATIVE_PERIMETER_FOCAL_DEFINITIONS,
   ...OWNED_O_GENERATOR_DEFINITIONS,
@@ -944,6 +961,7 @@ const currentDefinitionCandidates: readonly EffectDefinition[] = [
   HIGHLIGHT_STREAKS_EFFECT,
   ...OWNED_NEXT_TWELVE_S_DEFINITIONS,
   ...OWNED_NEXT_TWELVE_T_DEFINITIONS,
+  OWNED_T_CONCENTRIC_ROTOR_V2,
   ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
   LUMA_DCT_EIGHT_EFFECT,
   ...OWNED_V_FIELD_DEFINITIONS,
@@ -1165,6 +1183,8 @@ export const NATIVE_PRESET_LABEL_SOURCE_IDS: Readonly<Record<string, string>> =
   };
 export const NATIVE_EFFECT_PRESETS: readonly EffectPreset[] = [
   ...PRE_COORDINATE_RANDOM_PRESETS,
+  ...COLOR_GRADE_V2_PRESETS,
+  ...FLUID_COLOR_FIELD_PRESETS,
   ...NATIVE_COORDINATE_RANDOM_PRESETS,
   ...NATIVE_PERIMETER_FOCAL_PRESETS,
   ...OWNED_O_GENERATOR_PRESETS,
@@ -1188,6 +1208,7 @@ export const NATIVE_EFFECT_PRESETS: readonly EffectPreset[] = [
   ...HIGHLIGHT_STREAKS_PRESETS,
   ...OWNED_NEXT_TWELVE_S_PRESETS,
   ...OWNED_NEXT_TWELVE_T_PRESETS,
+  ...OWNED_T_CONCENTRIC_ROTOR_V2_PRESETS,
   ...OWNED_NEXT_TWELVE_U_PRESETS,
   ...LUMA_DCT_EIGHT_PRESETS,
   ...OWNED_V_FIELD_PRESETS,
