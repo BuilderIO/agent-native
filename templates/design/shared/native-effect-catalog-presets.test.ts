@@ -122,10 +122,6 @@ import {
   OBSIDIAN_SHAPE_GLASS_PRESETS,
 } from "./native-effect-owned-bq-obsidian-shape-glass";
 import {
-  SIGNAL_VISUALIZER_EFFECT,
-  SIGNAL_VISUALIZER_PRESETS,
-} from "./native-effect-owned-br-signal-visualizer";
-import {
   LIT_BLOB_EFFECT,
   LIT_BLOB_PRESETS,
 } from "./native-effect-owned-bs-lit-blob";
@@ -178,6 +174,30 @@ import {
   STONE_RELIEF_PRESETS,
 } from "./native-effect-owned-ce-stone-relief";
 import {
+  DIAMOND_REVEAL_EFFECT,
+  DIAMOND_REVEAL_PRESETS,
+} from "./native-effect-owned-cf-diamond-reveal";
+import {
+  ENGRAVED_SOURCE_EFFECT,
+  ENGRAVED_SOURCE_PRESETS,
+} from "./native-effect-owned-cg-engraved-source";
+import {
+  ANGLED_BAR_SHIFT_EFFECT,
+  ANGLED_BAR_SHIFT_PRESETS,
+} from "./native-effect-owned-ch-angled-bar-shift";
+import {
+  DIRECTED_STRANDS_EFFECT,
+  DIRECTED_STRANDS_PRESETS,
+} from "./native-effect-owned-ci-directed-strands";
+import {
+  FLICKER_SCRATCHES_EFFECT,
+  FLICKER_SCRATCHES_PRESETS,
+} from "./native-effect-owned-cj-flicker-scratches";
+import {
+  FALLING_STREAKS_EFFECT,
+  FALLING_STREAKS_PRESETS,
+} from "./native-effect-owned-ck-falling-streaks";
+import {
   POINTER_EFFECT_DEFINITIONS,
   POINTER_EFFECT_PRESETS,
 } from "./native-effect-pointer-catalog";
@@ -193,14 +213,14 @@ import { parseEffectsFromHtml, validateEffectDocument } from "./native-effects";
 
 describe("Design-owned catalog", () => {
   it("registers unique independently authored definitions and valid original recipes", () => {
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(369);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(375);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((item) => item.id)).size,
-    ).toBe(369);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(426);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(854);
+    ).toBe(375);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(432);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(866);
     expect(new Set(NATIVE_EFFECT_PRESETS.map((item) => item.id)).size).toBe(
-      854,
+      866,
     );
     for (const definition of NATIVE_EFFECT_LATEST_DEFINITIONS) {
       expect(definition.provenance?.origin).toBe("design-original");
@@ -224,7 +244,7 @@ describe("Design-owned catalog", () => {
     }
   });
 
-  it("registers AV through CE with localized controls and pinned predecessor versions", () => {
+  it("registers AV through CK with localized controls and pinned predecessor versions", () => {
     const newVersions = [
       [SOURCE_REACTION_DIFFUSION_EFFECT, SOURCE_REACTION_DIFFUSION_PRESETS],
       [TEMPORAL_FLOW_TRAIL_EFFECT, TEMPORAL_FLOW_TRAIL_PRESETS],
@@ -246,7 +266,6 @@ describe("Design-owned catalog", () => {
       [EDGE_FROST_EFFECT, EDGE_FROST_PRESETS],
       [SOURCE_CRYSTAL_EFFECT, SOURCE_CRYSTAL_PRESETS],
       [SOURCE_WATER_VOLUME_EFFECT, SOURCE_WATER_VOLUME_PRESETS],
-      [SIGNAL_VISUALIZER_EFFECT, SIGNAL_VISUALIZER_PRESETS],
       [SHAPE_NEBULA_VOLUME_EFFECT, SHAPE_NEBULA_VOLUME_PRESETS],
       [OBSIDIAN_SHAPE_GLASS_EFFECT, OBSIDIAN_SHAPE_GLASS_PRESETS],
       [LIT_BLOB_EFFECT, LIT_BLOB_PRESETS],
@@ -262,6 +281,12 @@ describe("Design-owned catalog", () => {
       [SOURCE_GLINTS_EFFECT, SOURCE_GLINTS_PRESETS],
       [FIBER_RELIEF_EFFECT, FIBER_RELIEF_PRESETS],
       [STONE_RELIEF_EFFECT, STONE_RELIEF_PRESETS],
+      [DIAMOND_REVEAL_EFFECT, DIAMOND_REVEAL_PRESETS],
+      [ENGRAVED_SOURCE_EFFECT, ENGRAVED_SOURCE_PRESETS],
+      [ANGLED_BAR_SHIFT_EFFECT, ANGLED_BAR_SHIFT_PRESETS],
+      [DIRECTED_STRANDS_EFFECT, DIRECTED_STRANDS_PRESETS],
+      [FLICKER_SCRATCHES_EFFECT, FLICKER_SCRATCHES_PRESETS],
+      [FALLING_STREAKS_EFFECT, FALLING_STREAKS_PRESETS],
     ] as const;
     for (const [definition, presets] of newVersions) {
       expect(
@@ -283,7 +308,10 @@ describe("Design-owned catalog", () => {
           definition === CORNER_PAGE_CURL_EFFECT ||
           definition === SOURCE_TINT_EFFECT ||
           definition === FIBER_RELIEF_EFFECT ||
-          definition === STONE_RELIEF_EFFECT
+          definition === STONE_RELIEF_EFFECT ||
+          definition === DIAMOND_REVEAL_EFFECT ||
+          definition === ENGRAVED_SOURCE_EFFECT ||
+          definition === ANGLED_BAR_SHIFT_EFFECT
           ? "static"
           : "animated",
       );

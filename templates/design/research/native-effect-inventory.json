@@ -9,38 +9,38 @@
     "graphMetadata": "normal source exports; full resources, pass graph fields except WGSL/original, definition graph metadata"
   },
   "counts": {
-    "distinctDefinitions": 369,
-    "exactVersions": 426,
-    "registeredPresets": 854,
-    "presetsTargetingLatestVersions": 769,
+    "distinctDefinitions": 375,
+    "exactVersions": 432,
+    "registeredPresets": 866,
+    "presetsTargetingLatestVersions": 781,
     "presetsTargetingHistoricalVersions": 85,
     "latestByKind": {
-      "generator": 163,
-      "processor": 199,
+      "generator": 166,
+      "processor": 202,
       "simulation": 7
     },
     "fullByKind": {
-      "generator": 205,
-      "processor": 213,
+      "generator": 208,
+      "processor": 216,
       "simulation": 8
     },
     "latestByAnimation": {
-      "animated": 124,
-      "static": 245
+      "animated": 127,
+      "static": 248
     },
     "fullByAnimation": {
-      "animated": 148,
-      "static": 278
+      "animated": 151,
+      "static": 281
     },
     "latestByPlacement": {
-      "fill": 166,
-      "layer": 207,
-      "backdrop": 169
+      "fill": 169,
+      "layer": 210,
+      "backdrop": 172
     },
     "fullByPlacement": {
-      "fill": 208,
-      "layer": 222,
-      "backdrop": 178
+      "fill": 211,
+      "layer": 225,
+      "backdrop": 181
     },
     "fullyValidatedDefinitions": 0
   },
@@ -56949,6 +56949,852 @@
         "an-preset-ce-slate-facets"
       ],
       "animationCapability": "unknown"
+    },
+    {
+      "id": "an-native-owned-cf-diamond-reveal",
+      "name": "Diamond Reveal",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "progress": {
+          "type": "float",
+          "label": "Reveal progress",
+          "default": 0.5,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "gridSize": {
+          "type": "float",
+          "label": "Diamond size",
+          "default": 28,
+          "min": 6,
+          "max": 100,
+          "step": 1
+        },
+        "sweepAngle": {
+          "type": "float",
+          "label": "Sweep angle",
+          "default": 0,
+          "min": -3.14,
+          "max": 3.14,
+          "step": 0.01
+        },
+        "stagger": {
+          "type": "float",
+          "label": "Sweep stagger",
+          "default": 0.6,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "softness": {
+          "type": "float",
+          "label": "Edge softness",
+          "default": 1.2,
+          "min": 0.1,
+          "max": 8,
+          "step": 0.1
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "reveal-source-diamonds",
+          "kind": "render",
+          "reads": [
+            "source"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "4dc3e4497ebaabb6abedb55b03cb9ea4ad46645beae440333854f47e79403436",
+      "presetIds": [
+        "an-preset-cf-rising-facets",
+        "an-preset-cf-wide-mosaic"
+      ],
+      "animationCapability": "static"
+    },
+    {
+      "id": "an-native-owned-cg-engraved-source",
+      "name": "Engraved Source",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "pattern": {
+          "type": "enum",
+          "label": "Engraving pattern",
+          "default": "Hatch",
+          "options": [
+            "Hatch",
+            "Spiral"
+          ]
+        },
+        "lineSpacing": {
+          "type": "float",
+          "label": "Line spacing",
+          "default": 6,
+          "min": 2,
+          "max": 24,
+          "step": 0.5
+        },
+        "lineWidth": {
+          "type": "float",
+          "label": "Line width",
+          "default": 1.4,
+          "min": 0.3,
+          "max": 6,
+          "step": 0.1
+        },
+        "direction": {
+          "type": "float",
+          "label": "Line direction",
+          "default": 0.55,
+          "min": -3.14,
+          "max": 3.14,
+          "step": 0.01
+        },
+        "displacement": {
+          "type": "float",
+          "label": "Relief displacement",
+          "default": 2,
+          "min": 0,
+          "max": 12,
+          "step": 0.1
+        },
+        "relief": {
+          "type": "float",
+          "label": "Engraving relief",
+          "default": 0.7,
+          "min": 0,
+          "max": 3,
+          "step": 0.05
+        },
+        "inkColor": {
+          "type": "color",
+          "label": "Engraving ink",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.08,
+              0.11,
+              0.16
+            ],
+            "alpha": 1
+          }
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "engrave-displaced-source",
+          "kind": "render",
+          "reads": [
+            "source"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "cb1980f2d37154a6c642951695f758e388f87e12a379f5f03619b625f53f34e2",
+      "presetIds": [
+        "an-preset-cg-fine-hatching",
+        "an-preset-cg-coiled-etch"
+      ],
+      "animationCapability": "static"
+    },
+    {
+      "id": "an-native-owned-ch-angled-bar-shift",
+      "name": "Angled Bar Shift",
+      "version": 1,
+      "kind": "processor",
+      "placements": [
+        "layer",
+        "backdrop"
+      ],
+      "properties": {
+        "angle": {
+          "type": "float",
+          "label": "Bar angle",
+          "default": 0.35,
+          "min": -3.14,
+          "max": 3.14,
+          "step": 0.01
+        },
+        "barWidth": {
+          "type": "float",
+          "label": "Bar width",
+          "default": 16,
+          "min": 2,
+          "max": 100,
+          "step": 1
+        },
+        "shift": {
+          "type": "float",
+          "label": "Shift distance",
+          "default": 26,
+          "min": 0,
+          "max": 160,
+          "step": 1
+        },
+        "randomness": {
+          "type": "float",
+          "label": "Shift variation",
+          "default": 0.5,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "seed": {
+          "type": "float",
+          "label": "Bar seed",
+          "default": 7,
+          "min": 0,
+          "max": 1000,
+          "step": 1
+        },
+        "edgeMode": {
+          "type": "enum",
+          "label": "Edge mode",
+          "default": "Transparent",
+          "options": [
+            "Transparent",
+            "Clamp",
+            "Wrap",
+            "Mirror"
+          ]
+        },
+        "amount": {
+          "type": "float",
+          "label": "Amount",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "inputs": {
+        "source": {
+          "kind": "texture-2d",
+          "resource": "source"
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "source",
+          "kind": "texture-2d",
+          "external": true,
+          "usage": [
+            "sampled"
+          ],
+          "size": "viewport"
+        },
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "shift-angled-source-bars",
+          "kind": "render",
+          "reads": [
+            "source"
+          ],
+          "output": "color"
+        }
+      ],
+      "executionHash": "7b7ae4ce67c6b34f595bb62889145a4578a59c7cb218c8ca0528d9187f7b2cf5",
+      "presetIds": [
+        "an-preset-ch-slipped-ribbons",
+        "an-preset-ch-mirrored-slats"
+      ],
+      "animationCapability": "static"
+    },
+    {
+      "id": "an-native-owned-ci-directed-strands",
+      "name": "Directed Strands",
+      "version": 1,
+      "kind": "generator",
+      "placements": [
+        "fill"
+      ],
+      "properties": {
+        "start": {
+          "type": "vec2",
+          "label": "Path start",
+          "default": [
+            0.12,
+            0.25
+          ],
+          "min": 0,
+          "max": 1
+        },
+        "end": {
+          "type": "vec2",
+          "label": "Path end",
+          "default": [
+            0.88,
+            0.74
+          ],
+          "min": 0,
+          "max": 1
+        },
+        "strands": {
+          "type": "int",
+          "label": "Strands",
+          "default": 9,
+          "min": 1,
+          "max": 24,
+          "step": 1
+        },
+        "width": {
+          "type": "float",
+          "label": "Strand width",
+          "default": 5,
+          "min": 0.5,
+          "max": 30,
+          "step": 0.5
+        },
+        "spacing": {
+          "type": "float",
+          "label": "Strand spacing",
+          "default": 12,
+          "min": 2,
+          "max": 45,
+          "step": 0.5
+        },
+        "bend": {
+          "type": "float",
+          "label": "Path bend",
+          "default": 35,
+          "min": -120,
+          "max": 120,
+          "step": 1
+        },
+        "wave": {
+          "type": "float",
+          "label": "Strand wave",
+          "default": 5,
+          "min": 0,
+          "max": 24,
+          "step": 0.5
+        },
+        "speed": {
+          "type": "float",
+          "label": "Flow speed",
+          "default": 1,
+          "min": 0,
+          "max": 4,
+          "step": 0.05
+        },
+        "travel": {
+          "type": "enum",
+          "label": "Flow direction",
+          "default": "Forward",
+          "options": [
+            "Forward",
+            "Reverse"
+          ]
+        },
+        "colorA": {
+          "type": "color",
+          "label": "Start color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.09,
+              0.69,
+              0.85
+            ],
+            "alpha": 1
+          }
+        },
+        "colorB": {
+          "type": "color",
+          "label": "End color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.75,
+              0.26,
+              0.92
+            ],
+            "alpha": 1
+          }
+        },
+        "colorC": {
+          "type": "color",
+          "label": "Accent color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              1,
+              0.75,
+              0.33
+            ],
+            "alpha": 1
+          }
+        },
+        "opacity": {
+          "type": "float",
+          "label": "Opacity",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "draw-directed-strands",
+          "kind": "render",
+          "reads": [],
+          "output": "color"
+        }
+      ],
+      "executionHash": "0cc7591b539a1f5f6aba7263f67f1f22669a2b9b5caebca549c733ff5b5109b9",
+      "presetIds": [
+        "an-preset-ci-rising-stream",
+        "an-preset-ci-horizontal-braid"
+      ],
+      "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-cj-flicker-scratches",
+      "name": "Flicker Scratches",
+      "version": 1,
+      "kind": "generator",
+      "placements": [
+        "fill"
+      ],
+      "properties": {
+        "spacing": {
+          "type": "float",
+          "label": "Scratch spacing",
+          "default": 14,
+          "min": 4,
+          "max": 60,
+          "step": 1
+        },
+        "length": {
+          "type": "float",
+          "label": "Scratch length",
+          "default": 80,
+          "min": 12,
+          "max": 240,
+          "step": 1
+        },
+        "width": {
+          "type": "float",
+          "label": "Scratch width",
+          "default": 1.2,
+          "min": 0.3,
+          "max": 8,
+          "step": 0.1
+        },
+        "angle": {
+          "type": "float",
+          "label": "Scratch direction",
+          "default": 1.45,
+          "min": -3.14,
+          "max": 3.14,
+          "step": 0.01
+        },
+        "density": {
+          "type": "float",
+          "label": "Scratch density",
+          "default": 0.42,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "flicker": {
+          "type": "float",
+          "label": "Flicker",
+          "default": 0.65,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "speed": {
+          "type": "float",
+          "label": "Flicker speed",
+          "default": 4,
+          "min": 0,
+          "max": 20,
+          "step": 0.1
+        },
+        "seed": {
+          "type": "float",
+          "label": "Scratch seed",
+          "default": 17,
+          "min": 0,
+          "max": 1000,
+          "step": 1
+        },
+        "background": {
+          "type": "color",
+          "label": "Background color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.035,
+              0.045,
+              0.06
+            ],
+            "alpha": 1
+          }
+        },
+        "scratchColor": {
+          "type": "color",
+          "label": "Scratch color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.89,
+              0.9,
+              0.83
+            ],
+            "alpha": 1
+          }
+        },
+        "opacity": {
+          "type": "float",
+          "label": "Opacity",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "draw-flickering-hairlines",
+          "kind": "render",
+          "reads": [],
+          "output": "color"
+        }
+      ],
+      "executionHash": "bb65bcb218b8120b21be65af10fcec6106c3c86798e681e2b7afa43ad86b9d96",
+      "presetIds": [
+        "an-preset-cj-fine-film",
+        "an-preset-cj-angled-scars"
+      ],
+      "animationCapability": "animated"
+    },
+    {
+      "id": "an-native-owned-ck-falling-streaks",
+      "name": "Falling Streaks",
+      "version": 1,
+      "kind": "generator",
+      "placements": [
+        "fill"
+      ],
+      "properties": {
+        "angle": {
+          "type": "float",
+          "label": "Travel angle",
+          "default": 1.57,
+          "min": -3.14,
+          "max": 3.14,
+          "step": 0.01
+        },
+        "density": {
+          "type": "int",
+          "label": "Line density",
+          "default": 20,
+          "min": 2,
+          "max": 60,
+          "step": 1
+        },
+        "speed": {
+          "type": "float",
+          "label": "Travel speed",
+          "default": 60,
+          "min": 0,
+          "max": 240,
+          "step": 1
+        },
+        "speedVariance": {
+          "type": "float",
+          "label": "Speed variance",
+          "default": 0.3,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "trailLength": {
+          "type": "float",
+          "label": "Trail length",
+          "default": 1.2,
+          "min": 0.1,
+          "max": 2.5,
+          "step": 0.05
+        },
+        "width": {
+          "type": "float",
+          "label": "Streak width",
+          "default": 3,
+          "min": 0.5,
+          "max": 16,
+          "step": 0.5
+        },
+        "rounding": {
+          "type": "float",
+          "label": "Lead rounding",
+          "default": 0.7,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "balance": {
+          "type": "float",
+          "label": "Color balance",
+          "default": 0.5,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "leadColor": {
+          "type": "color",
+          "label": "Lead color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.83,
+              0.91,
+              1
+            ],
+            "alpha": 1
+          }
+        },
+        "trailColor": {
+          "type": "color",
+          "label": "Trail color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.35,
+              0.62,
+              0.96
+            ],
+            "alpha": 0
+          }
+        },
+        "background": {
+          "type": "color",
+          "label": "Background color",
+          "default": {
+            "space": "srgb",
+            "components": [
+              0.03,
+              0.06,
+              0.11
+            ],
+            "alpha": 0
+          }
+        },
+        "opacity": {
+          "type": "float",
+          "label": "Opacity",
+          "default": 1,
+          "min": 0,
+          "max": 1,
+          "step": 0.01
+        },
+        "seed": {
+          "type": "float",
+          "label": "Streak seed",
+          "default": 29,
+          "min": 0,
+          "max": 1000,
+          "step": 1
+        }
+      },
+      "outputs": {
+        "color": {
+          "kind": "texture-2d",
+          "resource": "color"
+        }
+      },
+      "resources": [
+        {
+          "name": "color",
+          "kind": "texture-2d",
+          "format": "rgba16float",
+          "usage": [
+            "render",
+            "sampled"
+          ],
+          "size": "viewport"
+        }
+      ],
+      "resourceGraph": {
+        "abi": "linear-resource-v1"
+      },
+      "output": "color",
+      "passes": [
+        {
+          "id": "draw-falling-streaks",
+          "kind": "render",
+          "reads": [],
+          "output": "color"
+        }
+      ],
+      "executionHash": "d37223e2c3f1463436a903b36f268d78292cf0c81d5c7188807f496868ca7591",
+      "presetIds": [
+        "an-preset-ck-glass-rain",
+        "an-preset-ck-copper-crosswind"
+      ],
+      "animationCapability": "animated"
     }
   ],
   "defaultCanvasGpuEvidence": {

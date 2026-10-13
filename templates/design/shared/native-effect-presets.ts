@@ -282,6 +282,30 @@ import {
   STONE_RELIEF_PRESETS,
 } from "./native-effect-owned-ce-stone-relief";
 import {
+  DIAMOND_REVEAL_EFFECT,
+  DIAMOND_REVEAL_PRESETS,
+} from "./native-effect-owned-cf-diamond-reveal";
+import {
+  ENGRAVED_SOURCE_EFFECT,
+  ENGRAVED_SOURCE_PRESETS,
+} from "./native-effect-owned-cg-engraved-source";
+import {
+  ANGLED_BAR_SHIFT_EFFECT,
+  ANGLED_BAR_SHIFT_PRESETS,
+} from "./native-effect-owned-ch-angled-bar-shift";
+import {
+  DIRECTED_STRANDS_EFFECT,
+  DIRECTED_STRANDS_PRESETS,
+} from "./native-effect-owned-ci-directed-strands";
+import {
+  FLICKER_SCRATCHES_EFFECT,
+  FLICKER_SCRATCHES_PRESETS,
+} from "./native-effect-owned-cj-flicker-scratches";
+import {
+  FALLING_STREAKS_EFFECT,
+  FALLING_STREAKS_PRESETS,
+} from "./native-effect-owned-ck-falling-streaks";
+import {
   DESIGN_OWNED_DYNAMICS_DEFINITIONS,
   DESIGN_OWNED_DYNAMICS_PRESETS,
   DESIGN_OWNED_STATEFUL_DEFINITIONS,
@@ -866,6 +890,12 @@ export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
   SOURCE_GLINTS_EFFECT,
   FIBER_RELIEF_EFFECT,
   STONE_RELIEF_EFFECT,
+  DIAMOND_REVEAL_EFFECT,
+  ENGRAVED_SOURCE_EFFECT,
+  ANGLED_BAR_SHIFT_EFFECT,
+  DIRECTED_STRANDS_EFFECT,
+  FLICKER_SCRATCHES_EFFECT,
+  FALLING_STREAKS_EFFECT,
   SOURCE_IRRADIANCE_EFFECT,
 ];
 
@@ -948,6 +978,12 @@ const currentDefinitionCandidates: readonly EffectDefinition[] = [
   SOURCE_GLINTS_EFFECT,
   FIBER_RELIEF_EFFECT,
   STONE_RELIEF_EFFECT,
+  DIAMOND_REVEAL_EFFECT,
+  ENGRAVED_SOURCE_EFFECT,
+  ANGLED_BAR_SHIFT_EFFECT,
+  DIRECTED_STRANDS_EFFECT,
+  FLICKER_SCRATCHES_EFFECT,
+  FALLING_STREAKS_EFFECT,
   SOURCE_IRRADIANCE_EFFECT,
 ];
 const latestDefinitionById = new Map<string, EffectDefinition>();
@@ -1169,5 +1205,11 @@ export const NATIVE_EFFECT_PRESETS: readonly EffectPreset[] = [
   ...SOURCE_GLINTS_PRESETS,
   ...FIBER_RELIEF_PRESETS,
   ...STONE_RELIEF_PRESETS,
+  ...DIAMOND_REVEAL_PRESETS,
+  ...ENGRAVED_SOURCE_PRESETS,
+  ...ANGLED_BAR_SHIFT_PRESETS,
+  ...DIRECTED_STRANDS_PRESETS,
+  ...FLICKER_SCRATCHES_PRESETS,
+  ...FALLING_STREAKS_PRESETS,
   ...SOURCE_IRRADIANCE_PRESETS,
 ];

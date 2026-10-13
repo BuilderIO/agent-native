@@ -569,6 +569,62 @@ describe("native effect document", () => {
     expect(removed.html).toContain('data-shader-id="legacy"');
   });
 
+  it("rejects unsupported text-clipped backdrops before persisting an instance or preset", () => {
+    const attempted = applyNativeEffectToHtml(html, {
+      nodeId: "hero",
+      definition: FROSTED_REFRACTION_EFFECT,
+      placement: "backdrop",
+      clip: "text",
+    });
+    expect(attempted.html).toBe(html);
+    expect(attempted.errors).toContain(
+      "instance[0].clip: backdrop-text-replacement-unsupported",
+    );
+
+    const supported = applyNativeEffectToHtml(html, {
+      nodeId: "hero",
+      definition: FROSTED_REFRACTION_EFFECT,
+      placement: "backdrop",
+    });
+    expect(supported.errors).toEqual([]);
+    const changed = updateNativeInstanceInHtml(
+      supported.html,
+      parseEffectsFromHtml(supported.html).document!.instances[0].id,
+      { clip: "text" },
+    );
+    expect(changed.html).toBe(supported.html);
+    expect(changed.errors).toContain(
+      "instance[0].clip: backdrop-text-replacement-unsupported",
+    );
+
+    const layer = applyNativeEffectToHtml(html, {
+      nodeId: "hero",
+      definition: FROSTED_REFRACTION_EFFECT,
+      placement: "layer",
+      clip: "text",
+    });
+    expect(layer.errors).toEqual([]);
+    expect(
+      validateEffectDocument({
+        schemaVersion: 2,
+        definitions: [FROSTED_REFRACTION_EFFECT],
+        instances: [],
+        presets: [
+          {
+            id: "unsupported-text-backdrop",
+            name: "Unsupported text backdrop",
+            definitionId: FROSTED_REFRACTION_EFFECT.id,
+            definitionVersion: FROSTED_REFRACTION_EFFECT.version,
+            placement: "backdrop",
+            params: {},
+            clip: "text",
+            provenance: { origin: "design-original" },
+          },
+        ],
+      }).errors,
+    ).toContain("preset[0].clip: backdrop-text-replacement-unsupported");
+  });
+
   it("rejects missing or duplicated authored node IDs without changing HTML", () => {
     const missing = applyNativeEffectToHtml(html, {
       nodeId: "missing",

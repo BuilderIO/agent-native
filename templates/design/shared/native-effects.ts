@@ -1944,6 +1944,8 @@ function validateInstance(
     errors.push(`${prefix}.seed must be an integer within 0–1000000`);
   if (value.clip !== "bounds" && value.clip !== "text")
     errors.push(`${prefix}.clip is invalid`);
+  if (value.placement === "backdrop" && value.clip === "text")
+    errors.push(`${prefix}.clip: backdrop-text-replacement-unsupported`);
   if (value.blend !== "normal") errors.push(`${prefix}.blend must be normal`);
   if (
     !record(value.timing) ||
@@ -2043,6 +2045,8 @@ function validatePreset(
     errors.push(`${prefix}.placement is not supported by its definition`);
   if (value.clip !== "bounds" && value.clip !== "text")
     errors.push(`${prefix}.clip is invalid`);
+  if (value.placement === "backdrop" && value.clip === "text")
+    errors.push(`${prefix}.clip: backdrop-text-replacement-unsupported`);
   if (
     !record(value.provenance) ||
     !["design-original", "imported", "user-authored"].includes(
