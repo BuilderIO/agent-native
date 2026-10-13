@@ -5444,6 +5444,50 @@ describe("AgentKitClient", () => {
     }
   });
 
+  it("reports exhausted terminal catch-up transport failures as stream errors", async () => {
+    const reports: AgentStreamIntegrityReport[] = [];
+    let subscriptions = 0;
+    const onError = vi.fn();
+    const transport = createTerminalCatchUpTransport();
+    transport.subscribeToRun = async function* () {
+      subscriptions += 1;
+      throw Object.assign(new Error("Temporary upstream failure"), {
+        status: 503,
+      });
+    };
+    const client = new AgentKitClient({
+      transport,
+      reconnect: { attempts: 1, delayMs: () => 0 },
+      onError,
+      onIntegrityReport: (report) => reports.push(report),
+    });
+
+    try {
+      await client.loadThread("thread-1");
+      await vi.waitFor(() =>
+        expect(client.getSnapshot()).toMatchObject({
+          connection: "error",
+          error: expect.objectContaining({
+            message: "Temporary upstream failure",
+          }),
+        }),
+      );
+
+      expect(subscriptions).toBe(2);
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "Temporary upstream failure" }),
+      );
+      expect(client.getThread("thread-1").runs["run-approval"]).toMatchObject({
+        status: "failed",
+      });
+      expect(reports).not.toContainEqual(
+        expect.objectContaining({ code: "run_missing_terminal" }),
+      );
+    } finally {
+      await client.dispose();
+    }
+  });
+
   it("keeps terminal status and the accepted cursor when catch-up has a sequence gap", async () => {
     const reports: AgentStreamIntegrityReport[] = [];
     const transport = createTransport([]);

@@ -16,6 +16,7 @@ import {
   type QuestionMode,
   type VisualQuestionsData,
 } from "@agent-native/core/blocks/server";
+import { useT } from "@agent-native/core/client/i18n";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { cn } from "@agent-native/toolkit/utils";
 import {
@@ -27,7 +28,9 @@ import {
   IconSend,
   IconTrash,
 } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+import { BlockRenderErrorFallback } from "../BlockRenderErrorBoundary.js";
 
 type QuestionFormSubmitCtx = BlockRenderContext & {
   onQuestionFormSubmit?: (summary: string) => void;
@@ -440,8 +443,11 @@ function QuestionFormReadInner({
   blockId,
   title,
   ctx,
-}: BlockReadProps<QuestionFormData>) {
-  const questions = data.questions;
+  blockType,
+}: BlockReadProps<QuestionFormData> & { blockType: string }) {
+  const t = useT();
+  const parsedData = useMemo(() => questionFormSchema.safeParse(data), [data]);
+  const questions = parsedData.success ? parsedData.data.questions : [];
   const [answers, setAnswers] = useState<QuestionAnswers>(() =>
     defaultQuestionAnswers(questions),
   );
@@ -474,6 +480,17 @@ function QuestionFormReadInner({
     setHandoff({ mode, answered, total: questions.length });
     setShowQuestionsAfterHandoff(false);
   };
+
+  if (!parsedData.success) {
+    return (
+      <BlockRenderErrorFallback
+        blockId={blockId}
+        blockType={blockType}
+        message={t("agentChat.block.renderUnavailable")}
+        interactive
+      />
+    );
+  }
 
   return (
     <section
@@ -525,13 +542,13 @@ function QuestionFormReadInner({
 }
 
 export function QuestionFormRead(props: BlockReadProps<QuestionFormData>) {
-  return <QuestionFormReadInner {...props} />;
+  return <QuestionFormReadInner {...props} blockType="question-form" />;
 }
 
 export function VisualQuestionsRead(
   props: BlockReadProps<VisualQuestionsData>,
 ) {
-  return <QuestionFormReadInner {...props} />;
+  return <QuestionFormReadInner {...props} blockType="visual-questions" />;
 }
 
 const inlineInputClass =

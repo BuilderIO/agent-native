@@ -2074,6 +2074,60 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
 });
 
 describe("runBackgroundAutomation — a failed run reports its own cause", () => {
+  it("keeps usage from retries of the same trigger event", async () => {
+    const { AgentLoopAbortedError, runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const automation = precondition("event-retry-usage");
+    const usage = {
+      inputTokens: 19,
+      outputTokens: 7,
+      cacheReadTokens: 2,
+      cacheWriteTokens: 1,
+      engineName: "test",
+      model: "test-model",
+    };
+    const firstAttempt = async (
+      opts: Parameters<typeof runAgentLoopDirectWithSoftTimeout>[0],
+    ) => {
+      opts.send({
+        type: "tool_done",
+        tool: "send-notification",
+        result: "Sent",
+        completedSideEffect: true,
+      });
+      throw new AgentLoopAbortedError(usage);
+    };
+    const retry = async (
+      opts: Parameters<typeof runAgentLoopDirectWithSoftTimeout>[0],
+    ) => {
+      opts.send({
+        type: "tool_done",
+        tool: "send-notification",
+        result: "Sent",
+        completedSideEffect: true,
+      });
+      return usage;
+    };
+    vi.mocked(runAgentLoopDirectWithSoftTimeout)
+      .mockImplementationOnce(firstAttempt)
+      .mockImplementationOnce(retry);
+
+    const options = runOptions(automation, { usageRefId: "event-123" });
+    await expect(
+      runBackgroundAutomation(options, standardDeps),
+    ).rejects.toThrow("Agent run was aborted.");
+    await runBackgroundAutomation(options, standardDeps);
+
+    const rows = (await pglite
+      .prepare(`SELECT ref_id FROM token_usage WHERE label = ?`)
+      .all("recurring-job:event-retry-usage")) as Array<{ ref_id: string }>;
+    expect(rows).toHaveLength(2);
+    expect(rows.every(({ ref_id }) => ref_id.startsWith("event-123:"))).toBe(
+      true,
+    );
+    expect(new Set(rows.map(({ ref_id }) => ref_id)).size).toBe(2);
+  });
+
   it("records usage accumulated before a canceled rate-limit retry", async () => {
     const { AgentLoopAbortedError, runAgentLoopDirectWithSoftTimeout } =
       await import("../agent/run-loop-with-resume.js");

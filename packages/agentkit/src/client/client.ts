@@ -4729,7 +4729,10 @@ export class AgentKitClient implements AgentKitController {
         return;
       }
       const runError = toError(error, "run_stream_failed");
-      if (this.hasTerminalRunCatchUp(threadId, runId)) {
+      if (
+        this.hasTerminalRunCatchUp(threadId, runId) &&
+        error instanceof AgentProtocolValidationError
+      ) {
         this.markTerminalRunCatchUpUnconfirmable(threadId, runId);
         this.reportIntegrity({
           code: "run_missing_terminal",

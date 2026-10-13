@@ -45,43 +45,50 @@ export function ExportMenuItems({
 
   const canExportAllScreens =
     viewMode === "overview" && overviewScreens.length >= 2;
+  const hasExportableScreen = overviewScreens.length > 0;
 
   return (
     <>
       <DropdownMenuItem
         onClick={handleDownloadHtml}
-        disabled={!activeFile || exportHtmlMutation.isPending}
+        disabled={
+          !hasExportableScreen || !activeFile || exportHtmlMutation.isPending
+        }
       >
         {t("designEditor.downloadHtml")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => void handleDownloadPng()}
-        disabled={!activeFile || pngExporting}
+        disabled={!hasExportableScreen || !activeFile || pngExporting}
       >
         {t("designEditor.downloadPng")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => void handleDownloadSvg()}
-        disabled={!activeFile || svgExporting}
+        disabled={!hasExportableScreen || !activeFile || svgExporting}
       >
         {t("designEditor.downloadSvg")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => void handleDownloadFigmaSvg()}
-        disabled={!activeFile || figmaSvgExporting}
+        disabled={!hasExportableScreen || !activeFile || figmaSvgExporting}
       >
         {t("designEditor.downloadFigmaSvg")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={handleDownloadZip}
-        disabled={!activeFile || exportZipMutation.isPending}
+        disabled={
+          !hasExportableScreen || !activeFile || exportZipMutation.isPending
+        }
       >
         {t("designEditor.downloadZip")}
       </DropdownMenuItem>
       {alwaysShowPdf || canExportAllScreens ? (
         <DropdownMenuItem
           onClick={() => void handleDownloadAllScreensPdf()}
-          disabled={!canExportAllScreens || pngExporting}
+          disabled={
+            !hasExportableScreen || !canExportAllScreens || pngExporting
+          }
         >
           {t("designEditor.downloadPdfAllScreens")}
         </DropdownMenuItem>
@@ -89,7 +96,7 @@ export function ExportMenuItems({
       <DropdownMenuSeparator />
       <DropdownMenuItem
         onClick={handleCopyCodingHandoff}
-        disabled={!activeFile || codingHandoffLoading}
+        disabled={!hasExportableScreen || !activeFile || codingHandoffLoading}
       >
         {t("designEditor.copyCodingHandoff")}
       </DropdownMenuItem>

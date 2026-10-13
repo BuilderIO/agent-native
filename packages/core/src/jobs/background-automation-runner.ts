@@ -1210,7 +1210,9 @@ async function executeBackgroundAutomation(
             model: usage.model,
             label: usageLabel,
             app: deps.appId,
-            refId: options.usageRefId ?? runId,
+            refId: options.usageRefId
+              ? `${options.usageRefId}:${runId}`
+              : runId,
           });
         } catch (error) {
           console.error("[automations] Failed to persist run usage:", error);

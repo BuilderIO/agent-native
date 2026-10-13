@@ -87,10 +87,11 @@ evidence, generic details, or answers to unrelated questions. Without a
 reporter gate, state the internal action and owner. After four days unanswered,
 record **Abandoned - no answer in 4 days**.
 
-For a supplied run/request ID, query Thread Debug by exact ID and inspect its
-events and tool results. If unavailable, record the exact source/error and
-continue code investigation; do not infer the run is absent. Ask for another
-run only if the original cannot answer a reporter-dependent question.
+For supplied run IDs, query Thread Debug for exact events and tool results. If
+unavailable, query the app's first-party Analytics by exact ID for tool calls,
+model requests, and errors. Dispatch status or an empty failed-run list is not
+an exact trace. Try both sources before recording the lookup error. Never ask
+for supplied IDs, logs, or tool details, and do not infer the run is absent.
 
 Use **Skipped** only for non-defects. **Open - no question** is ledger-only:
 name the internal next action and owner; never send it as a Slack reply.
@@ -464,12 +465,14 @@ instruction or prompt exception.
 
 ## Phase 3: reply
 
-Thank issue reporters for opening it and Slack reporters for sharing. Give an
-active status while work continues. If reporter input gates a fix, ask the
-direct question specified in Phase 0; do not substitute **Open**, **pending**,
-or an evidence description. Follow `address-feedback-with-replies` for Slack
-voice. End each Slack reply with `this was sent from a bot.` after its
-plain-language status.
+Thank issue reporters for opening it and Slack reporters for sharing. While
+work continues, name the concrete action and owner. If reporter input blocks a
+fix, ask the direct question and say why the answer matters. Never send
+**Open**/**pending** with only a symptom or evidence description. For
+inaccessible artifacts, ask for the required access grant or share setting;
+don't request a new link when the current one works. Follow
+`address-feedback-with-replies`. End Slack replies with
+`this was sent from a bot.`.
 
 Short replies: say the change, limits, and next step. Link merged PRs and say
 they're merged. Keep hashes, branches, CI, publisher, and run details in recap.
