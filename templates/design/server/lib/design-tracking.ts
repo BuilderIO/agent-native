@@ -77,13 +77,7 @@ export function trackDesign(
   }
 }
 
-export function promptLengthBucket(prompt: unknown): string {
-  const length = typeof prompt === "string" ? prompt.trim().length : 0;
-  if (length === 0) return "0";
-  if (length <= 50) return "1-50";
-  if (length <= 500) return "50-500";
-  return "500+";
-}
+export { promptLengthBucket } from "../../shared/prompt-length-bucket.js";
 
 export function trackingErrorType(error: unknown): string {
   if (error && typeof error === "object") {

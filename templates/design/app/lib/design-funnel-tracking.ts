@@ -2,7 +2,8 @@ import {
   DESIGN_GENERATION_ATTEMPT_QUERY_PARAM,
   isDesignGenerationAttemptId,
 } from "@shared/generation-provenance";
-import { useEffect, useRef, useState } from "react";
+import { promptLengthBucket } from "@shared/prompt-length-bucket";
+import { useEffect, useMemo, useRef } from "react";
 
 import {
   SYSTEM_CONTEXT_KEY,
@@ -26,16 +27,6 @@ export type DesignPromptReferenceType =
   | "integration"
   | "image"
   | "file";
-
-// Same buckets as the server's `promptLengthBucket`, so client and server
-// prompt events group together in the warehouse.
-export function promptLengthBucket(prompt: string): string {
-  const length = prompt.trim().length;
-  if (length === 0) return "0";
-  if (length <= 50) return "1-50";
-  if (length <= 500) return "50-500";
-  return "500+";
-}
 
 const HOME_REFERENCE_KEY_PREFIX = "design-home-reference:";
 const HOME_REFERENCE_TYPES: Record<string, DesignPromptReferenceType> = {
@@ -170,7 +161,13 @@ export function useDesignReadyViewTracking({
   /** Incremented whenever the user stops a generation. */
   stopCountRef: { readonly current: number };
 }): void {
-  const [urlAttemptId] = useState(readUrlGenerationAttemptId);
+  // The editor stays mounted across in-app navigation, so the attempt id is
+  // read for each design rather than once: an id from one design's link must
+  // never be reported against the next design opened in the same page.
+  const urlAttemptId = useMemo(
+    () => (designId ? readUrlGenerationAttemptId() : null),
+    [designId],
+  );
   const episodeRef = useRef<{
     designId: string;
     baseline: Map<string, string>;
@@ -260,6 +257,7 @@ export const GUIDED_QUESTIONS_SUBMITTED_EVENT =
   "agentNative.guidedQuestionsSubmitted";
 
 const VARIANT_SET_PATTERN = /\bfrom variant set ([A-Za-z0-9_-]+)\./;
+const VARIANT_DESIGN_PATTERN = /\bwith designId ([A-Za-z0-9_-]+)\b/;
 
 type GuidedSubmitDetail = {
   questions?: readonly {
@@ -274,9 +272,12 @@ type GuidedSubmitDetail = {
  * `variant` question whose options name the variant set. Any other guided
  * question returns null.
  */
-export function variantPickFromGuidedSubmit(
-  detail: unknown,
-): { variantCount: number; pickedIndex: number; variantSetId?: string } | null {
+export function variantPickFromGuidedSubmit(detail: unknown): {
+  variantCount: number;
+  pickedIndex: number;
+  variantSetId?: string;
+  designId?: string;
+} | null {
   if (!detail || typeof detail !== "object") return null;
   const { questions, answers } = detail as GuidedSubmitDetail;
   const question = questions?.find((candidate) => candidate.id === "variant");
@@ -289,23 +290,28 @@ export function variantPickFromGuidedSubmit(
   const pickedIndex = typeof answer === "string" ? values.indexOf(answer) : -1;
   if (pickedIndex < 0) return null;
   const variantSetId = VARIANT_SET_PATTERN.exec(values[pickedIndex])?.[1];
+  const designId = VARIANT_DESIGN_PATTERN.exec(values[pickedIndex])?.[1];
   return {
     variantCount: values.length,
     pickedIndex,
     ...(variantSetId ? { variantSetId } : {}),
+    ...(designId ? { designId } : {}),
   };
 }
 
-/** `design_variant_picked`: one per human "Pick a direction" submit. */
-export function useDesignVariantPickTracking(designId: string | undefined) {
+/**
+ * `design_variant_picked`: one per human "Pick a direction" submit. Mounted at
+ * the app root, because a pick can be answered from the chat page or while the
+ * editor shows another design; the design comes from the picked option.
+ */
+export function useDesignVariantPickTracking() {
   useEffect(() => {
-    if (!designId) return;
     const handler = (event: Event) => {
       try {
         const pick = variantPickFromGuidedSubmit((event as CustomEvent).detail);
-        if (!pick) return;
+        if (!pick?.designId) return;
         trackDesignRelay("design_variant_picked", {
-          output_id: designId,
+          output_id: pick.designId,
           output_type: "design",
           variant_count: pick.variantCount,
           picked_index: pick.pickedIndex,
@@ -318,5 +324,5 @@ export function useDesignVariantPickTracking(designId: string | undefined) {
     window.addEventListener(GUIDED_QUESTIONS_SUBMITTED_EVENT, handler);
     return () =>
       window.removeEventListener(GUIDED_QUESTIONS_SUBMITTED_EVENT, handler);
-  }, [designId]);
+  }, []);
 }

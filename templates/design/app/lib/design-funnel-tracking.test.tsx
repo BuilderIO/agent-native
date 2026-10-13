@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { BOARD_FILENAME } from "@shared/board-file";
+import { promptLengthBucket } from "@shared/prompt-length-bucket";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,7 +9,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   designPromptReferenceTypes,
   GUIDED_QUESTIONS_SUBMITTED_EVENT,
-  promptLengthBucket,
   resetDesignReadyViewsForTest,
   useDesignReadyViewTracking,
   useDesignVariantPickTracking,
@@ -308,6 +308,14 @@ describe("design_ready_viewed", () => {
     expect(readyEvents()).toHaveLength(0);
   });
 
+  it("never reports one design's link attempt against the next design opened in the page", async () => {
+    setUrl("?generation_attempt_id=attempt_1234567890abcdef");
+    await renderReady({ files: [screen("a")], isOwner: false });
+    window.history.replaceState(null, "", "/design/design-2");
+    await renderReady({ designId: "design-2", files: [screen("b")] });
+    expect(readyEvents()).toHaveLength(0);
+  });
+
   it("keeps rendering when tracking throws", async () => {
     mocks.trackDesignRelay.mockImplementation(() => {
       throw new Error("analytics down");
@@ -317,18 +325,22 @@ describe("design_ready_viewed", () => {
   });
 });
 
-const variantQuestions = [
-  {
-    id: "variant",
-    options: ["A", "B", "C"].map((label, index) => ({
-      label,
-      value: `Keep "${label}" (s${index}.html, file id s${index}) from variant set Vset_123abc. Delete each other variant screen at most once.`,
-    })),
-  },
-];
+// Mirrors the option values present-design-variants writes.
+function variantQuestionsFor(designId: string) {
+  return [
+    {
+      id: "variant",
+      options: ["A", "B", "C"].map((label, index) => ({
+        label,
+        value: `Keep "${label}" (s${index}.html, file id s${index}) from variant set Vset_123abc. Delete each other variant screen at most once: x. Then call get-design-snapshot exactly once with designId ${designId} and fileId s${index} (filename s${index}.html).`,
+      })),
+    },
+  ];
+}
+const variantQuestions = variantQuestionsFor("design-1");
 
-function VariantHarness({ designId }: { designId?: string }) {
-  useDesignVariantPickTracking(designId);
+function VariantHarness() {
+  useDesignVariantPickTracking();
   return null;
 }
 
@@ -345,7 +357,12 @@ describe("design_variant_picked", () => {
         questions: variantQuestions,
         answers: { variant: variantQuestions[0].options[1].value },
       }),
-    ).toEqual({ variantCount: 3, pickedIndex: 1, variantSetId: "Vset_123abc" });
+    ).toEqual({
+      variantCount: 3,
+      pickedIndex: 1,
+      variantSetId: "Vset_123abc",
+      designId: "design-1",
+    });
     expect(
       variantPickFromGuidedSubmit({
         questions: [
@@ -364,7 +381,7 @@ describe("design_variant_picked", () => {
   });
 
   it("fires once per variant submit, not for other guided questions", async () => {
-    await act(async () => root.render(<VariantHarness designId="design-1" />));
+    await act(async () => root.render(<VariantHarness />));
     submitGuided({
       stateKey: "show-questions:design-1",
       questions: [{ id: "q1", options: [{ value: "7d" }] }],
@@ -390,13 +407,25 @@ describe("design_variant_picked", () => {
       ],
     ]);
 
-    await act(async () => root.render(<VariantHarness designId="design-1" />));
-    await act(async () => root.render(<VariantHarness />));
+    await act(async () => root.render(null));
     submitGuided({
       questions: variantQuestions,
       answers: { variant: variantQuestions[0].options[0].value },
     });
     expect(mocks.trackDesignRelay).toHaveBeenCalledTimes(1);
+  });
+
+  it("records the design the picked option names, not the one on screen", async () => {
+    await act(async () => root.render(<VariantHarness />));
+    const otherDesign = variantQuestionsFor("design-2");
+    submitGuided({
+      questions: otherDesign,
+      answers: { variant: otherDesign[0].options[0].value },
+    });
+    expect(mocks.trackDesignRelay.mock.calls[0]?.[1]).toMatchObject({
+      output_id: "design-2",
+      picked_index: 0,
+    });
   });
 
   it("swallows a tracking failure inside the listener", async () => {
@@ -406,7 +435,7 @@ describe("design_variant_picked", () => {
     const errors: unknown[] = [];
     const onError = (event: ErrorEvent) => errors.push(event.error);
     window.addEventListener("error", onError);
-    await act(async () => root.render(<VariantHarness designId="design-1" />));
+    await act(async () => root.render(<VariantHarness />));
     submitGuided({
       questions: variantQuestions,
       answers: { variant: variantQuestions[0].options[0].value },

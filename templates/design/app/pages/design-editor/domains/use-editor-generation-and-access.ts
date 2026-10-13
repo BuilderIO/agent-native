@@ -48,10 +48,7 @@ import {
   type ClipboardContentMutationOrigin,
   type ClipboardContentMutationPublication,
 } from "@/lib/clipboard-content-lineage";
-import {
-  useDesignReadyViewTracking,
-  useDesignVariantPickTracking,
-} from "@/lib/design-funnel-tracking";
+import { useDesignReadyViewTracking } from "@/lib/design-funnel-tracking";
 import { isContentIndependentDesignQuery } from "@/lib/design-sync-invalidation";
 import {
   clearPendingGeneration,
@@ -671,7 +668,6 @@ export function useEditorGenerationAndAccess({
     files: design?.files ?? EMPTY_READY_VIEW_FILES,
     stopCountRef: generationStopCountRef,
   });
-  useDesignVariantPickTracking(shellMode ? undefined : id);
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
   const designQueryErrorStatus =
