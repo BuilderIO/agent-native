@@ -957,7 +957,9 @@ function dictionaryCandidates(
         origin: isSourceIndex
           ? ("source-index" as const)
           : ("data-dictionary" as const),
-        score: score + (entry.approved === true ? 12 : 0),
+        score:
+          score +
+          (entry.approved === true && entry.sourceIndexStale !== true ? 12 : 0),
         matchedTerms,
         exactMatchedTerms,
         id,
@@ -1104,6 +1106,7 @@ function candidateQueryRankingTierForTerms(
   if (
     candidate.kind === "data-dictionary" &&
     candidate.approved === true &&
+    !isStaleGeneratedSourceIndexEntry(candidate) &&
     hasExactQueryCoverage
   ) {
     return 2;
@@ -1130,6 +1133,7 @@ export function candidateQueryPriority(
   trust: number;
   activeSubsetSpecificity: number;
   scope: number;
+  freshness: number;
 } {
   const rankingIntent = stripNonPositiveInstructions(search);
   const requestedScope = requestedSemanticScope(rankingIntent);
@@ -1180,6 +1184,7 @@ export function candidateQueryPriority(
             candidateSemanticScope(candidate),
             requestedScope,
           ),
+    freshness: staleSourceIndex ? 0 : 1,
   };
 }
 
@@ -1311,6 +1316,7 @@ export function rankAnalyticsQueryCatalogPage(args: {
         return b.activeSubsetSpecificity - a.activeSubsetSpecificity;
       }
       if (b.scope !== a.scope) return b.scope - a.scope;
+      if (b.freshness !== a.freshness) return b.freshness - a.freshness;
       if (b.coverage !== a.coverage) return b.coverage - a.coverage;
       if (b.candidate.score !== a.candidate.score) {
         return b.candidate.score - a.candidate.score;

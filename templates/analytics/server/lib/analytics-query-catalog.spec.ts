@@ -269,6 +269,64 @@ describe("analytics query catalog", () => {
     );
   });
 
+  it("keeps an approved stale source-index match below a fresher definition", () => {
+    const search = "monthly workspace member count";
+    const results = rankAnalyticsQueryCatalog({
+      search,
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "stale-approved-monthly-workspace-member-count",
+          metric: "Monthly Workspace Member Count",
+          definition:
+            "Monthly snapshot of synthetic workspace members, retained for discovery.",
+          table: "stale_monthly_workspace_member_counts",
+          columnsUsed: "month_start, workspace_id, member_count",
+          semanticScope: "membership",
+          sourceKind: "dbt",
+          sourceIndex: true,
+          sourceIndexStale: true,
+          approved: true,
+          aiGenerated: true,
+          origin: "source-index",
+        },
+        {
+          id: "current-monthly-workspace-member-total",
+          metric: "Monthly Workspace Member Total",
+          definition: "Current monthly count of synthetic workspace members.",
+          table: "current_monthly_workspace_member_totals",
+          columnsUsed: "month_start, workspace_id, member_total",
+          semanticScope: "membership",
+          sourceKind: "dbt",
+          sourceIndex: true,
+          sourceIndexStale: false,
+          approved: false,
+          aiGenerated: true,
+          origin: "source-index",
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "current-monthly-workspace-member-total",
+      sourceIndexStale: false,
+    });
+    const staleCandidate = results.find(
+      (candidate) =>
+        candidate.id === "stale-approved-monthly-workspace-member-count",
+    );
+    expect(staleCandidate).toMatchObject({
+      sourceIndexStale: true,
+      approved: true,
+    });
+    expect(candidateQueryPriority(staleCandidate!, search)).toMatchObject({
+      rankingTier: 0,
+      trust: 0,
+      freshness: 0,
+    });
+  });
+
   it("requires row-level role evidence for workspace roster questions", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "current workspace user roster with roles",

@@ -84,6 +84,20 @@ const syntheticData = vi.hoisted(() => {
         semanticScope: "membership",
         approved: true,
       },
+      "data-dict-index-fixture-stale-current-workspace-user-roster": {
+        id: "index-fixture-stale-current-workspace-user-roster",
+        metric: "Current Workspace User Roster",
+        definition:
+          "One row per synthetic user-workspace membership, with its assigned role.",
+        source: "fixture_warehouse",
+        sourceKind: "dbt",
+        entryType: "model",
+        table: "fixture_warehouse.stale_workspace_user_roster_snapshot",
+        columnsUsed: "user_id, workspace_id, role_code",
+        grain: "One row per user_id per workspace_id",
+        semanticScope: "membership",
+        approved: true,
+      },
     },
     activeCaseId: null as string | null,
     sourceIndexBundle: {
@@ -211,8 +225,10 @@ const storage = vi.hoisted(() => ({
     }
     if (key !== "analytics-source-index") return null;
     const bundle = syntheticData.sourceIndexBundle;
-    return syntheticData.activeCaseId ===
-      "stale-generated-index-yields-to-current-source"
+    return [
+      "stale-generated-index-yields-to-current-source",
+      "approved-stale-generated-entry-yields-to-current-roster",
+    ].includes(syntheticData.activeCaseId ?? "")
       ? bundle
       : {
           ...bundle,
@@ -229,15 +245,28 @@ const storage = vi.hoisted(() => ({
     if (prefix !== "data-dict-") return {};
     if (
       syntheticData.activeCaseId ===
-      "stale-generated-index-yields-to-current-source"
+      "approved-stale-generated-entry-yields-to-current-roster"
     ) {
       return syntheticData.dictionaryEntries;
     }
-    const {
-      "data-dict-fixture-current-workspace-user-assignments": _,
-      ...base
-    } = syntheticData.dictionaryEntries;
-    return base;
+    const withoutStaleOverlay = Object.fromEntries(
+      Object.entries(syntheticData.dictionaryEntries).filter(
+        ([key]) =>
+          key !== "data-dict-index-fixture-stale-current-workspace-user-roster",
+      ),
+    );
+    if (
+      syntheticData.activeCaseId ===
+      "stale-generated-index-yields-to-current-source"
+    ) {
+      return withoutStaleOverlay;
+    }
+    return Object.fromEntries(
+      Object.entries(withoutStaleOverlay).filter(
+        ([key]) =>
+          key !== "data-dict-fixture-current-workspace-user-assignments",
+      ),
+    );
   }),
   listSettingsByPrefix: vi.fn(async (prefix: string) => {
     if (prefix !== "u:synthetic-eval@example.invalid:data-dict-") {
@@ -286,10 +315,12 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v14";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v15";
 const STALE_INDEX_CASE_ID = "stale-generated-index-yields-to-current-source";
+const APPROVED_STALE_INDEX_CASE_ID =
+  "approved-stale-generated-entry-yields-to-current-roster";
 const STALE_INDEX_GENERATED_AT = "2000-01-01T00:00:00.000Z";
-const BASELINE_GIT_REVISION = "0fb4de3ed8bd4e317543575c9b188b93db392d26";
+const BASELINE_GIT_REVISION = "a93e6112f4a32520802becf310b325c03f4c1054";
 const BASELINE_HARNESS_PATH =
   "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
 const CANDIDATE_HARNESS_REVISION_ENV = "ANALYTICS_EVAL_HARNESS_REVISION";
@@ -444,6 +475,12 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     id: STALE_INDEX_CASE_ID,
     prompt:
       "Find the catalog reference for workspace users. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.current_workspace_user_assignments",
+  },
+  {
+    id: APPROVED_STALE_INDEX_CASE_ID,
+    prompt:
+      "Find the current workspace user roster with roles. Metadata only; do not report live counts or values.",
     expectedTable: "fixture_warehouse.current_workspace_user_assignments",
   },
 ];
@@ -958,7 +995,8 @@ async function runOnce(testCase: SyntheticCase) {
     await import("../../server/lib/source-index-store.js");
   syntheticData.activeCaseId = testCase.id;
   syntheticData.sourceIndexBundle.generatedAt =
-    testCase.id === STALE_INDEX_CASE_ID
+    testCase.id === STALE_INDEX_CASE_ID ||
+    testCase.id === APPROVED_STALE_INDEX_CASE_ID
       ? STALE_INDEX_GENERATED_AT
       : new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   invalidateSourceIndexCache(IDENTITY.orgId);
@@ -1126,6 +1164,7 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       "sample-product-users-map-to-identities",
       "active-sample-product-users-map-to-activity",
       STALE_INDEX_CASE_ID,
+      APPROVED_STALE_INDEX_CASE_ID,
     ]);
     expect(() =>
       assertCandidateWorkingTreeStatus(
@@ -1285,6 +1324,34 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       approved: false,
     });
     expect(result?.guidance).toContain("discover leads");
+  });
+
+  it("ranks the current roster above an approved overlay on a stale generated entry", async () => {
+    if (phase !== "after") return;
+    const staleCase = SYNTHETIC_CASES.find(
+      ({ id }) => id === APPROVED_STALE_INDEX_CASE_ID,
+    );
+    expect(staleCase).toBeDefined();
+    const { output } = await runOnce(staleCase!);
+    const result = getToolResult(output);
+    expect(result?.sourceIndexFreshness).toMatchObject({ stale: true });
+    const candidates = result?.results;
+    expect(Array.isArray(candidates)).toBe(true);
+    const candidateList = candidates as Array<Record<string, unknown>>;
+    const currentSourceIndex = candidateList.findIndex(
+      ({ table }) =>
+        table === "fixture_warehouse.current_workspace_user_assignments",
+    );
+    const staleSourceIndex = candidateList.findIndex(
+      ({ table }) =>
+        table === "fixture_warehouse.stale_workspace_user_roster_snapshot",
+    );
+    expect(currentSourceIndex).toBe(0);
+    expect(staleSourceIndex).toBeGreaterThan(0);
+    expect(candidateList[staleSourceIndex]).toMatchObject({
+      sourceIndexStale: true,
+      approved: true,
+    });
   });
 
   it("rejects attempts to serialize unapproved transcript or tool fields", () => {
