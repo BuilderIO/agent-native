@@ -82,7 +82,11 @@ vi.mock("../server/db/index.js", () => {
   };
 });
 
-import { DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES } from "../shared/design-token-import-limits.js";
+import {
+  DESIGN_TOKEN_IMPORT_MAX_BODY_BYTES,
+  DESIGN_TOKEN_IMPORT_MAX_FILES,
+  DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES,
+} from "../shared/design-token-import-limits.js";
 import action from "./import-design-tokens.js";
 
 describe("import-design-tokens", () => {
@@ -106,6 +110,69 @@ describe("import-design-tokens", () => {
       }),
       updatedAt: "2026-07-09T00:00:00.000Z",
     };
+  });
+
+  it("bounds file count and content before action execution", () => {
+    const tooManyFiles = action.schema.safeParse({
+      designId: "design_1",
+      source: "files",
+      files: Array.from(
+        { length: DESIGN_TOKEN_IMPORT_MAX_FILES + 1 },
+        (_, index) => ({ filename: `tokens-${index}.css`, content: "" }),
+      ),
+    });
+    const oversizedFile = action.schema.safeParse({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "tokens.css",
+          content: "x".repeat(DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1),
+        },
+      ],
+    });
+    const oversizedBatch = action.schema.safeParse({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "tokens-a.css",
+          content: "x".repeat(
+            Math.floor(DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES / 2) + 1,
+          ),
+        },
+        {
+          filename: "tokens-b.css",
+          content: "x".repeat(
+            Math.floor(DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES / 2) + 1,
+          ),
+        },
+      ],
+    });
+
+    expect(tooManyFiles.success).toBe(false);
+    expect(oversizedFile.success).toBe(false);
+    expect(oversizedBatch.success).toBe(false);
+  });
+
+  it("sets an HTTP body cap before action request parsing", () => {
+    expect(action.maxBodyBytes).toBe(DESIGN_TOKEN_IMPORT_MAX_BODY_BYTES);
+  });
+
+  it("bounds pasted text by UTF-8 bytes before action execution", () => {
+    const atLimit = action.schema.safeParse({
+      designId: "design_1",
+      source: "paste",
+      text: "é".repeat(DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES / 2),
+    });
+    const overLimit = action.schema.safeParse({
+      designId: "design_1",
+      source: "paste",
+      text: "é".repeat(DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES / 2 + 1),
+    });
+
+    expect(atLimit.success).toBe(true);
+    expect(overLimit.success).toBe(false);
   });
 
   it("imports pasted CSS and design.md tokens into tweak selections", async () => {
@@ -354,16 +421,14 @@ Bad radius: 12px} body { color: red
     expect(result.tokens).toEqual([]);
   });
 
-  it("omits oversized paste input before stylesheet classification", async () => {
-    const result = await action.run({
-      designId: "design_1",
-      source: "paste",
-      text: `${"a".repeat(DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1)}{ --color-accent: #fff; }`,
-    });
-
-    expect(result.importedCount).toBe(0);
-    expect(result.omittedFileCount).toBe(1);
-    expect(result.filesAnalyzed).toEqual([]);
+  it("rejects oversized paste input at the action boundary", async () => {
+    await expect(
+      action.run({
+        designId: "design_1",
+        source: "paste",
+        text: `${"a".repeat(DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1)}{ --color-accent: #fff; }`,
+      }),
+    ).rejects.toThrow(/Token import content must total at most/);
   });
 
   it("rejects invalid color functions but keeps CSS variable references", async () => {
@@ -629,6 +694,75 @@ Bad radius: 12px} body { color: red
     expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({});
   });
 
+  it.each(['font family: "Inter;', "font family: 'Inter\""])(
+    "rejects malformed quoted values without dropping valid siblings: %s",
+    async (invalidLine) => {
+      const result = await action.run({
+        designId: "design_1",
+        source: "files",
+        files: [
+          {
+            filename: "tokens.md",
+            content: `${invalidLine}\nPrimary color: #2563eb`,
+          },
+        ],
+      });
+
+      expect(result.filesAnalyzed).toEqual(["tokens.md"]);
+      expect(result.importedCount).toBeGreaterThan(0);
+      expect(result.rejectedCount).toBe(1);
+      expect(result.tokens).toContainEqual(
+        expect.objectContaining({
+          cssVar: "--color-primary",
+          value: "#2563eb",
+        }),
+      );
+      expect(result.tokens).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ value: expect.stringContaining("Inter") }),
+        ]),
+      );
+    },
+  );
+
+  it("normalizes balanced quotes around named token values", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [{ filename: "tokens.md", content: 'Body font: "Inter"' }],
+    });
+
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--font-body-font",
+        value: "Inter",
+      }),
+    );
+  });
+
+  it("skips malformed LESS while continuing to import other files", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        { filename: "broken.less", content: "@import" },
+        {
+          filename: "tokens.css",
+          content: ":root { --color-accent: #2563eb; }",
+        },
+      ],
+    });
+
+    expect(result.filesAnalyzed).toEqual(["tokens.css"]);
+    expect(result.skippedCount).toBe(1);
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--color-accent",
+        value: "#2563eb",
+      }),
+    );
+  });
+
   it("does not mine named lines from malformed pasted CSS", async () => {
     const result = await action.run({
       designId: "design_1",
@@ -669,6 +803,38 @@ Bad radius: 12px} body { color: red
       accent: "#2563eb",
       "--spacing-card-gap": "24px",
     });
+  });
+
+  it("imports pasted token labels with parentheses and apostrophes", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: `Accent (primary): #2563eb
+Brand's accent: #f97316
+ - **Brand’s accent (dark)**: #ec4899
+--color-neutral: #111827;`,
+    });
+
+    expect(result.tokens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          cssVar: "--color-accent-primary",
+          value: "#2563eb",
+        }),
+        expect.objectContaining({
+          cssVar: "--color-brand-s-accent",
+          value: "#f97316",
+        }),
+        expect.objectContaining({
+          cssVar: "--color-brand-s-accent-dark",
+          value: "#ec4899",
+        }),
+        expect.objectContaining({
+          cssVar: "--color-neutral",
+          value: "#111827",
+        }),
+      ]),
+    );
   });
 
   it.each(['font family: "Inter;', "font family: red; /* unclosed"])(
@@ -777,10 +943,10 @@ Primary color: #2563eb
       filename: `tokens-${index}.css`,
       content: `:root { --spacing-gap-${index}: ${index + 1}px; }`,
     }));
+    mockWhere.mockResolvedValueOnce(files);
     const result = await action.run({
       designId: "design_1",
-      source: "files",
-      files,
+      source: "current-design",
     });
 
     expect(result.filesAnalyzed).toHaveLength(20);

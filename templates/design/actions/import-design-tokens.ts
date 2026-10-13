@@ -27,6 +27,7 @@ import {
 } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
+  DESIGN_TOKEN_IMPORT_MAX_BODY_BYTES,
   DESIGN_TOKEN_IMPORT_MAX_FILES,
   DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES,
 } from "../shared/design-token-import-limits.js";
@@ -72,13 +73,21 @@ function tokenSourceLabel(token: ImportedDesignToken, sourceLabel: string) {
 }
 
 const tokenFileSchema = z.object({
-  filename: z.string().trim().min(1).describe("File name or relative path"),
-  content: z.string().describe("Raw text content"),
+  filename: z
+    .string()
+    .trim()
+    .min(1)
+    .max(256)
+    .describe("File name or relative path"),
+  content: z
+    .string()
+    .max(DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES)
+    .describe("Raw text content"),
 });
 
 const tokenImportSchema = z
   .object({
-    designId: z.string().describe("Design project ID"),
+    designId: z.string().min(1).max(256).describe("Design project ID"),
     source: z
       .enum(["files", "paste", "current-design"])
       .describe(
@@ -86,10 +95,12 @@ const tokenImportSchema = z
       ),
     files: z
       .array(tokenFileSchema)
+      .max(DESIGN_TOKEN_IMPORT_MAX_FILES)
       .optional()
       .describe("Files to parse when source is files"),
     text: z
       .string()
+      .max(DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES)
       .optional()
       .describe("Pasted CSS, JSON, Tailwind config, or design.md content"),
   })
@@ -106,6 +117,37 @@ const tokenImportSchema = z
         code: z.ZodIssueCode.custom,
         path: ["text"],
         message: "text is required when source is paste",
+      });
+    }
+    if ((args.files?.length ?? 0) > DESIGN_TOKEN_IMPORT_MAX_FILES) return;
+
+    const contents = [
+      ...(args.files?.map((file) => file.content) ?? []),
+      ...(args.text === undefined ? [] : [args.text]),
+    ];
+    const totalCodeUnits = contents.reduce(
+      (total, content) => total + content.length,
+      0,
+    );
+    if (totalCodeUnits > DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [args.files?.length ? "files" : "text"],
+        message: `Token import content must total at most ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES} bytes.`,
+      });
+      return;
+    }
+
+    const encoder = new TextEncoder();
+    const totalBytes = contents.reduce(
+      (total, content) => total + encoder.encode(content).byteLength,
+      0,
+    );
+    if (totalBytes > DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [args.files?.length ? "files" : "text"],
+        message: `Token import content must total at most ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES} bytes.`,
       });
     }
   });
@@ -261,6 +303,8 @@ function addLooseTextSignals(
 }
 
 const MAX_TOKEN_LABEL_LINE_LENGTH = 220;
+const TOKEN_LABEL_LINE =
+  /^(?:[-*]\s*)?(?:\*\*)?([A-Za-z][\w\s/().&'’.-]{1,64}?)(?:\*\*)?\s*[:=]\s*(.+?)\s*$/;
 
 function parseNamedLines(
   files: { filename: string; content: string }[],
@@ -272,13 +316,13 @@ function parseNamedLines(
       const line = rawLine.trim();
       if (!line || line.length > MAX_TOKEN_LABEL_LINE_LENGTH) continue;
 
-      const match = line.match(
-        /^(?:[-*]\s*)?(?:\*\*)?([A-Za-z][\w\s/.-]{1,64}?)(?:\*\*)?\s*[:=]\s*(.+?)\s*$/,
-      );
+      const match = line.match(TOKEN_LABEL_LINE);
       if (!match) continue;
 
       const label = match[1].replace(/\*\*/g, "").trim();
-      const value = normalizeValue(match[2]);
+      const rawValue = match[2].trim();
+      if (!hasBalancedCssValueSyntax(rawValue)) continue;
+      const value = normalizeValue(rawValue);
 
       const lower = label.toLowerCase();
       let cssVar: string | null = null;
@@ -335,9 +379,6 @@ function uniqueTokenList(tokens: ImportedDesignToken[]): ImportedDesignToken[] {
   });
 }
 
-const TOKEN_LABEL_LINE =
-  /^(?:[-*]\s*)?(?:\*\*)?([A-Za-z][\w\s/.-]{1,64}?)(?:\*\*)?\s*[:=]\s*(.+?)\s*$/;
-
 function hasBalancedCssValueSyntax(value: string): boolean {
   const delimiters: string[] = [];
   let quote: "'" | '"' | null = null;
@@ -377,6 +418,21 @@ function hasBalancedCssValueSyntax(value: string): boolean {
   }
 
   return !quote && !inBlockComment && !escaped && delimiters.length === 0;
+}
+
+function removeMalformedNamedLines(content: string): {
+  content: string;
+  rejectedCount: number;
+} {
+  let rejectedCount = 0;
+  const lines = content.split(/\r?\n/).filter((line) => {
+    const match = line.trim().match(TOKEN_LABEL_LINE);
+    if (!match || hasBalancedCssValueSyntax(match[2] ?? "")) return true;
+    rejectedCount += 1;
+    return false;
+  });
+
+  return { content: lines.join("\n"), rejectedCount };
 }
 
 function isProseTokenLabelLine(
@@ -780,9 +836,7 @@ function isValidImportFile(file: {
       else postcss.parse(normalizedCss);
       return true;
     } catch (error) {
-      if (!(error instanceof Error && error.name === "CssSyntaxError")) {
-        throw error;
-      }
+      if (!(error instanceof Error)) throw error;
     }
   }
   return false;
@@ -908,12 +962,15 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
     accepted.push(file);
   }
 
-  const validFiles = accepted.filter(isValidImportFile).map((file) => ({
-    ...file,
-    content: /\.(scss|less)$/i.test(file.filename)
+  let malformedNamedLineCount = 0;
+  const validFiles = accepted.filter(isValidImportFile).map((file) => {
+    const content = /\.(scss|less)$/i.test(file.filename)
       ? stripScssLessLineComments(file.content)
-      : file.content,
-  }));
+      : file.content;
+    const sanitized = removeMalformedNamedLines(content);
+    malformedNamedLineCount += sanitized.rejectedCount;
+    return { ...file, content: sanitized.content };
+  });
   const state = createCodeAnalysisState();
   for (const file of validFiles) {
     const analysisFilename =
@@ -995,9 +1052,9 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
     });
   });
 
-  const rejectedCount = tokens.filter(
-    (token) => !isValidImportedToken(token),
-  ).length;
+  const rejectedCount =
+    malformedNamedLineCount +
+    tokens.filter((token) => !isValidImportedToken(token)).length;
   const candidates = uniqueTokenList(tokens.filter(isValidImportedToken));
   const imported: ImportedDesignToken[] = [];
   for (const token of candidates) {
@@ -1024,6 +1081,7 @@ export default defineAction({
     "apply-design-token-edit. For Figma/.fig and full local-code indexing, use " +
     "the Builder-backed design-system import flow.",
   schema: tokenImportSchema,
+  maxBodyBytes: DESIGN_TOKEN_IMPORT_MAX_BODY_BYTES,
   run: async ({ designId, source, files, text }, context) => {
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);
