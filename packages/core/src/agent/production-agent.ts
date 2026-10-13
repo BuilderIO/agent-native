@@ -4514,6 +4514,7 @@ function isToolCallTimeoutResult(content: string): boolean {
 
 export interface TerminalActionStop {
   message: string;
+  transcriptMessage?: string;
   errorCode?: string;
   details?: string;
 }
@@ -6322,7 +6323,7 @@ export async function runAgentLoop(opts: {
       stop.errorCode === "needs-approval" ||
       stop.errorCode === "awaiting-user-input"
     ) {
-      send({ type: "text", text: stop.message });
+      send({ type: "text", text: stop.transcriptMessage ?? stop.message });
       return;
     }
     send({
@@ -7273,10 +7274,12 @@ export async function runAgentLoop(opts: {
         typeof toolInput.question === "string"
           ? toolInput.question.trim()
           : "";
+      const waitingMessage = "Waiting for your answer before continuing";
       requestedActionStop ??= {
         message: question
-          ? `Waiting for your answer before continuing: ${question}`
-          : "Waiting for your answer before continuing.",
+          ? `${waitingMessage}: ${question}`
+          : `${waitingMessage}.`,
+        transcriptMessage: `${waitingMessage}.`,
         errorCode: "awaiting-user-input",
       };
     };

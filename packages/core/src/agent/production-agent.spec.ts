@@ -17324,6 +17324,9 @@ describe("runAgentLoop endsTurn", () => {
     expect(streamCalls()).toBe(1);
     expect(events.some((event) => event.type === "done")).toBe(false);
     expect(events.some((event) => event.text === "kept working")).toBe(false);
+    expect(events.filter((event) => event.type === "text")).toEqual([
+      { type: "text", text: "Waiting for your answer before continuing." },
+    ]);
     expect(outcomes).toEqual([
       {
         state: "input_required",
