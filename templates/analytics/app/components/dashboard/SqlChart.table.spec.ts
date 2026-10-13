@@ -81,9 +81,6 @@ describe("SqlChart table helpers", () => {
       { revenue: "" },
     ];
 
-    // Unparseable/empty values are a defined, documented position: always
-    // after every value that parsed as a number, independent of asc/desc —
-    // never coerced into the numeric ordering (e.g. as 0).
     expect(sortTableRows(rows, [{ key: "revenue", direction: "asc" }])).toEqual(
       [
         { revenue: "2" },

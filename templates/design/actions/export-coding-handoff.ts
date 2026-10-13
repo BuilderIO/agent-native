@@ -6,6 +6,7 @@ import {
   getRequestContext,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
@@ -16,11 +17,10 @@ import {
   normalizeHandoffFormat,
 } from "../server/lib/coding-handoff.js";
 import { buildDesignSnapshot } from "../server/lib/design-snapshot.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
 const HANDOFF_TTL_SECONDS = 7 * 24 * 60 * 60;
 
-/** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
   return buildDeepLink({
     app: "design",
@@ -64,12 +64,10 @@ export default defineAction({
       height: 680,
     }),
   },
-  run: async ({ id, origin, format }) => {
+  run: async ({ id, origin, format }, ctx) => {
     const access = await assertAccess("design", id, "viewer");
     const design = access.resource as typeof schema.designs.$inferSelect;
 
-    // Build from the same snapshot logic as get-design-snapshot: live collab
-    // content where a file is being edited, plus resolved tweak tokens.
     const snapshot = await buildDesignSnapshot(id, design.data);
 
     if (snapshot.files.length === 0) {
@@ -81,15 +79,6 @@ export default defineAction({
       ttlSeconds: HANDOFF_TTL_SECONDS,
     });
     const handoffFormat = normalizeHandoffFormat(format);
-    // External agents (MCP / A2A) that don't pass `origin` would otherwise get
-    // a relative URL they can't fetch. Resolution order:
-    //   1. explicit `origin` arg (caller knows best),
-    //   2. the live request origin from the request context (set by the MCP
-    //      layer from the inbound request — the actual local-workspace app
-    //      origin, e.g. http://127.0.0.1:8085, so the signed raw-code URL is
-    //      fetchable in dev/workspace setups), then
-    //   3. the canonical first-party app origin (env override → registry
-    //      prodUrl → platform URL → localhost) for deployed apps.
     const resolvedOrigin =
       origin || getRequestContext()?.requestOrigin || getAppProductionUrl();
     const rawUrl = buildRawHandoffUrl({
@@ -109,6 +98,19 @@ export default defineAction({
       title: design.title,
       fileCount: snapshot.files.length,
     });
+
+    track(
+      "design_exported",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: id,
+        output_type: "design",
+        export_format: "coding_handoff",
+        file_count: snapshot.files.length,
+      },
+      ctx,
+    );
 
     return {
       designId: id,

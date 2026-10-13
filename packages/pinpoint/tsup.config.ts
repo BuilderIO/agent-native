@@ -2,7 +2,6 @@ import { solidPlugin } from "esbuild-plugin-solid";
 import { defineConfig } from "tsup";
 
 export default defineConfig([
-  // Browser bundle (includes SolidJS UI — react entry needs solidPlugin too)
   {
     entry: {
       "index.browser": "src/index.browser.ts",
@@ -20,7 +19,6 @@ export default defineConfig([
     },
     banner: { js: '"use client";' },
   },
-  // Node/server bundle (no SolidJS UI)
   {
     entry: {
       index: "src/index.ts",

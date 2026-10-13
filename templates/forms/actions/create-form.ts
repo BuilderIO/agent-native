@@ -1,19 +1,27 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction, embedApp, fail } from "@agent-native/core";
 import { buildDeepLink, getAppProductionUrl } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { track } from "@agent-native/core/tracking";
 import { customAlphabet } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { requireFormsPermission } from "../server/lib/app-roles.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
 import {
   assertValidFields,
   normalizeFieldIds,
 } from "../server/lib/validate-fields.js";
-import type { FormField, FormSettings } from "../shared/types.js";
+import { formFieldSchema } from "../shared/field-schema.js";
+import {
+  assertValidFormCompletionSettings,
+  FORM_SETTINGS_KEYS,
+  type FormField,
+  type FormSettings,
+} from "../shared/types.js";
 import { assertPublishableForm } from "./lib/assert-publishable-form.js";
 
 const nanoid = customAlphabet(
@@ -38,25 +46,23 @@ function formDeepLink(formId: string): string {
 }
 
 export default defineAction({
+  authorize: requireFormsPermission("forms.edit"),
   description:
-    "Create a draft or published form. Set settings.anonymous=true to suppress submitter IP, identity, and source metadata, or settings.emailOnNewResponses=true to email the form owner when responses arrive. Published results include a canonical publicUrl; copy it verbatim (it includes /f/<slug>) instead of deriving a URL from slug. Drafts return an editor URL.",
+    "Create a draft or published form. Use this for every request that describes a form to build, including when another form is already open in <current-screen> or was created earlier in this conversation: each form the user describes is its own form. Set settings.completionMode to message, redirect, message_then_refresh, or refresh; use settings.completionRefreshSeconds for the message_then_refresh delay. Set settings.anonymous=true to suppress submitter IP, identity, and source metadata, or settings.emailOnNewResponses=true to email the form owner when responses arrive. Published results include a canonical publicUrl; copy it verbatim (it includes /f/<slug>) instead of deriving a URL from slug. Drafts return an editor URL.",
   schema: z.object({
     title: z.string().optional().describe("Form title"),
     description: z.string().optional().describe("Form description"),
-    // Accept either a JSON string (agent CLI / older callers) or an actual
-    // array/object — the UI POSTs JSON bodies via useActionMutation, which
-    // serializes the inputs directly.
     fields: z
-      .union([z.string(), z.array(z.any())])
+      .array(formFieldSchema)
       .optional()
       .describe(
-        "Array of complete field objects with id, type, label, and required (or JSON string of the same); never use shorthand strings such as 'text: Enter a name'.",
+        "Array of complete field objects (a JSON string of the same array is also accepted). Each field property's meaning depends on its `type` — see the field schema's own per-property descriptions. Never use shorthand strings such as 'text: Enter a name'.",
       ),
     settings: z
-      .union([z.string(), z.record(z.string(), z.any())])
+      .record(z.string(), z.any())
       .optional()
       .describe(
-        "Form settings object (or JSON string). Set anonymous=true for strict no-IP, no-identity, no-source-metadata responses.",
+        `Form settings object (a JSON string of the same object is also accepted). Valid settings: ${FORM_SETTINGS_KEYS.join(", ")}. Set completionMode to message, redirect, message_then_refresh, or refresh. Use completionRefreshSeconds with message_then_refresh. Set anonymous=true for strict no-IP, no-identity, no-source-metadata responses.`,
       ),
     slug: z.string().optional().describe("Custom URL slug"),
     status: z
@@ -75,25 +81,15 @@ export default defineAction({
       height: 900,
     }),
   },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const id = nanoid(10);
     const now = new Date().toISOString();
     const title = args.title || "Untitled Form";
     const slug = args.slug || slugify(title) + "-" + id.slice(0, 6);
 
-    let fields: FormField[] = [];
-    if (args.fields) {
-      if (typeof args.fields === "string") {
-        try {
-          fields = JSON.parse(args.fields);
-        } catch {
-          throw new Error("--fields must be valid JSON");
-        }
-      } else {
-        fields = args.fields as unknown as FormField[];
-      }
-    }
-    fields = normalizeFieldIds(fields) as FormField[];
+    const fields = normalizeFieldIds(
+      (args.fields ?? []) as unknown as FormField[],
+    ) as FormField[];
     assertValidFields(fields);
 
     const defaultSettings: FormSettings = {
@@ -103,27 +99,17 @@ export default defineAction({
       emailOnNewResponses: false,
     };
 
-    let settings = defaultSettings;
-    if (args.settings) {
-      if (typeof args.settings === "string") {
-        try {
-          settings = { ...defaultSettings, ...JSON.parse(args.settings) };
-        } catch {
-          throw new Error("--settings must be valid JSON");
-        }
-      } else {
-        settings = {
-          ...defaultSettings,
-          ...(args.settings as unknown as FormSettings),
-        };
-      }
-    }
-    // Reject blocked integration URLs at save time. fireIntegrations also
-    // re-checks at runtime as defense-in-depth.
+    const incomingSettings = (args.settings ?? {}) as unknown as FormSettings;
+    assertValidFormCompletionSettings(incomingSettings);
+    const settings = { ...defaultSettings, ...incomingSettings };
     assertIntegrationUrlsAllowed(settings);
 
     const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
+    if (!ownerEmail)
+      fail("no authenticated user", {
+        errorCode: "not_authenticated",
+        statusCode: 401,
+      });
     const orgId = getRequestOrgId();
     const status = args.status || "draft";
     if (status === "published") {
@@ -148,16 +134,36 @@ export default defineAction({
       visibility,
     });
 
-    // Return the values we just inserted rather than re-selecting. A
-    // post-insert SELECT can come back empty under connection-pool routing
-    // (Neon and similar pooled-Postgres setups occasionally route the read
-    // to a replica that hasn't replicated the write yet), which then throws
-    // a 500 even though the form was created successfully.
     const editorUrl = formDeepLink(id);
     const publicUrl =
       status === "published"
         ? `${getAppProductionUrl()}/f/${encodeURIComponent(slug)}`
         : undefined;
+
+    track(
+      "form_created",
+      {
+        app_name: "forms",
+        template_name: "forms",
+        output_id: id,
+        output_type: "form",
+        field_count: fields.length,
+      },
+      ctx,
+    );
+    if (status === "published") {
+      track(
+        "form_published",
+        {
+          app_name: "forms",
+          template_name: "forms",
+          output_id: id,
+          output_type: "form",
+          public_url: publicUrl,
+        },
+        ctx,
+      );
+    }
 
     return {
       id,

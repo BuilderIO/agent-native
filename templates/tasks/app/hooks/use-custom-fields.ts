@@ -46,9 +46,9 @@ export function useCreateCustomField() {
     { title: string; type: FieldType; config?: unknown }
   >("create-custom-field", {
     onSettled: () => {
-      invalidateCustomFields(queryClient);
-      invalidateTasks(queryClient);
-      invalidateVisibleTaskFields(queryClient);
+      void invalidateCustomFields(queryClient);
+      void invalidateTasks(queryClient);
+      void invalidateVisibleTaskFields(queryClient);
     },
   });
 }
@@ -60,9 +60,9 @@ export function useUpdateCustomField() {
     { fieldId: string; title?: string; config?: unknown }
   >("update-custom-field", {
     onSettled: () => {
-      invalidateCustomFields(queryClient);
-      invalidateTasks(queryClient);
-      invalidateVisibleTaskFields(queryClient);
+      void invalidateCustomFields(queryClient);
+      void invalidateTasks(queryClient);
+      void invalidateVisibleTaskFields(queryClient);
     },
   });
 }
@@ -74,9 +74,9 @@ export function useDeleteCustomField() {
     { fieldId: string }
   >("delete-custom-field", {
     onSettled: () => {
-      invalidateCustomFields(queryClient);
-      invalidateTasks(queryClient);
-      invalidateVisibleTaskFields(queryClient);
+      void invalidateCustomFields(queryClient);
+      void invalidateTasks(queryClient);
+      void invalidateVisibleTaskFields(queryClient);
     },
   });
 }
@@ -88,9 +88,9 @@ export function useReorderCustomFields() {
     { fieldIds: string[] }
   >("reorder-custom-fields", {
     onSettled: () => {
-      invalidateCustomFields(queryClient);
-      invalidateTasks(queryClient);
-      invalidateVisibleTaskFields(queryClient);
+      void invalidateCustomFields(queryClient);
+      void invalidateTasks(queryClient);
+      void invalidateVisibleTaskFields(queryClient);
     },
   });
 }

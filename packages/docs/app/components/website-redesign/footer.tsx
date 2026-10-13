@@ -1,10 +1,12 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import { IconBrandDiscord, IconBrandGithub } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
+import { firstPartyAppUrl } from "../deployment-links";
 import { sitePathForLocale } from "../docs-locale";
-import { ThemeIconButton } from "./ds/icon-button";
+import { controlSurfaceClassName, ThemeIconButton } from "./ds/icon-button";
 import { LanguagePicker } from "./ds/language-picker";
 import { Logo } from "./ds/logo";
 import { GridInner, PageSection } from "./page-grid";
@@ -20,12 +22,24 @@ interface FooterColumn {
   links: FooterLink[];
 }
 
-// Only links with a real, confirmed destination belong here. Delete a link
-// rather than guessing at a route/handle that doesn't exist yet — add it back
-// once the real page or account exists (see #website-redesign Slack thread).
-// This footer renders on every route, including locale-prefixed ones, so
-// internal destinations have to be built for the active locale rather than
-// dropping the visitor back into the English tree.
+// Mirrors the `templates` catalog in ../TemplateCard (a test keeps them in
+// sync). Importing the catalog would pull card components and screenshot
+// data into the root bundle that every page loads.
+export const FOOTER_APPS: ReadonlyArray<{ slug: string; name: string }> = [
+  { slug: "clips", name: "Clips" },
+  { slug: "plan", name: "Plans" },
+  { slug: "design", name: "Design" },
+  { slug: "content", name: "Content" },
+  { slug: "slides", name: "Slides" },
+  { slug: "analytics", name: "Analytics" },
+  { slug: "mail", name: "Mail" },
+  { slug: "forms", name: "Forms" },
+  { slug: "assets", name: "Assets" },
+  { slug: "calendar", name: "Calendar" },
+  { slug: "dispatch", name: "Dispatch" },
+  { slug: "chat", name: "Chat" },
+];
+
 function footerColumns(
   t: (key: string) => string,
   localizedPath: (path: string) => string,
@@ -36,10 +50,25 @@ function footerColumns(
       links: [
         { label: t("homepage.footer.docs"), href: localizedPath("/docs") },
         {
-          label: t("homepage.footer.actions"),
-          href: localizedPath("/docs/actions-overview"),
+          label: t("nav.whatIsAgentNative"),
+          href: localizedPath("/docs/what-is-agent-native"),
+        },
+        {
+          label: t("nav.keyConcepts"),
+          href: localizedPath("/docs/key-concepts"),
+        },
+        {
+          label: t("homepage.footer.download"),
+          href: localizedPath("/download"),
         },
       ],
+    },
+    {
+      title: t("homepage.footer.apps"),
+      links: FOOTER_APPS.map((app) => ({
+        label: app.name,
+        href: localizedPath(`/apps/${app.slug}`),
+      })),
     },
     {
       title: t("homepage.footer.ecosystem"),
@@ -66,12 +95,20 @@ function footerColumns(
       title: t("homepage.footer.legal"),
       links: [
         {
+          label: t("legal.about.eyebrow"),
+          href: localizedPath("/about"),
+        },
+        {
           label: t("homepage.footer.privacyPolicy"),
           href: localizedPath("/privacy"),
         },
         {
           label: t("homepage.footer.saasTerms"),
           href: localizedPath("/terms"),
+        },
+        {
+          label: t("homepage.footer.legalResources"),
+          href: localizedPath("/legal"),
         },
       ],
     },
@@ -94,6 +131,10 @@ const SOCIAL_LINKS: Array<{
     icon: <IconBrandGithub size={20} stroke={1.5} />,
   },
 ];
+
+const DOCS_FEEDBACK_URL = firstPartyAppUrl(
+  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
+);
 
 const linkClassName =
   "font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] text-[var(--b-text-secondary)] no-underline hover:text-[var(--b-text-primary)]";
@@ -123,8 +164,6 @@ export function Footer() {
     <PageSection
       as="footer"
       showGrid={false}
-      // The --b-* variables live on the builder-brand-tokens class, and the
-      // footer renders on docs pages that do not otherwise opt in.
       className="builder-brand-tokens border-t border-solid border-[var(--b-border-default)]"
     >
       <div className="border-b border-solid border-[var(--b-border-default)]">
@@ -163,21 +202,6 @@ export function Footer() {
       </div>
 
       <GridInner className="flex flex-wrap items-center justify-between gap-[var(--spacing-6)] px-[var(--spacing-20)] py-[var(--spacing-6)]">
-        <div className="flex items-center gap-4">
-          {SOCIAL_LINKS.map((social) => (
-            <a
-              key={social.label}
-              href={social.href}
-              target="_blank"
-              rel="noreferrer"
-              aria-label={social.label}
-              className="flex text-[var(--b-text-primary)] opacity-80 hover:opacity-100"
-            >
-              {social.icon}
-            </a>
-          ))}
-        </div>
-
         <div className="flex items-center gap-[var(--spacing-6)]">
           <span className="font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] font-medium tracking-[0.04em] text-[var(--b-text-primary)]">
             {/* i18n-ignore: a year and the wordmark, nothing translatable */}©
@@ -187,10 +211,40 @@ export function Footer() {
             aria-hidden
             className="h-[13px] w-px bg-[var(--b-border-default)]"
           />
-          <div className="flex items-center gap-[var(--spacing-2)]">
-            <LanguagePicker openUpward />
-            <ThemeIconButton />
+          <div className="flex items-center gap-4">
+            {SOCIAL_LINKS.map((social) => (
+              <a
+                key={social.label}
+                href={social.href}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={social.label}
+                className="flex text-[var(--b-text-primary)] opacity-80 hover:opacity-100"
+              >
+                {social.icon}
+              </a>
+            ))}
           </div>
+        </div>
+
+        <div className="flex items-center gap-[var(--spacing-2)]">
+          <FeedbackButton
+            url={DOCS_FEEDBACK_URL}
+            label={t("feedback.label")}
+            placeholder={t("feedback.placeholder")}
+            align="end"
+            side="top"
+            trigger={
+              <button
+                type="button"
+                className={`${controlSurfaceClassName} px-[var(--spacing-3)] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)]`}
+              >
+                {t("feedback.label")}
+              </button>
+            }
+          />
+          <LanguagePicker openUpward />
+          <ThemeIconButton />
         </div>
       </GridInner>
     </PageSection>

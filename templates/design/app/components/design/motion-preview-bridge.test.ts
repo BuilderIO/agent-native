@@ -3,26 +3,147 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { sampleSpring, springToCssLinear } from "../../../shared/motion-easing";
+import {
+  createMotionNativeStyleInstance,
+  motionNativeStylesToTracks,
+} from "../../../shared/motion-native-style-runtime";
 
-/**
- * These tests exercise the REAL motion-preview bridge script that
- * `DesignCanvas.tsx` injects into the design iframe. Rather than copy the
- * interpolation logic (which would drift), we import the compiled bridge
- * string from the generated module, strip the IIFE wrapper, and pull out
- * `lerp` / `interpolate` so we can assert the live-scrub preview produces
- * smoothly interpolated values instead of snapping at the midpoint.
- *
- * Source: app/components/design/bridge/motion-preview.bridge.ts
- * Compiled: .generated/bridge/motion-preview.generated.ts
- */
 interface FakeElement {
   style: Record<string, string>;
+  attributes: Map<string, string>;
+  getAttribute(name: string): string | null;
+  setAttribute(name: string, value: string): void;
+  removeAttribute(name: string): void;
+  getBoundingClientRect(): {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+    width: number;
+    height: number;
+  };
 }
+
+class FakeSvgElement {
+  readonly tagName: string;
+  readonly style: Record<string, string> = {};
+  readonly children: FakeSvgElement[] = [];
+  readonly attributes = new Map<string, string>();
+  readonly listeners = new Map<string, Array<(event: unknown) => void>>();
+  parentNode: FakeSvgElement | FakeSvgBody | null = null;
+
+  constructor(tagName: string) {
+    this.tagName = tagName;
+  }
+
+  get firstChild(): FakeSvgElement | null {
+    return this.children[0] ?? null;
+  }
+
+  setAttribute(name: string, value: string) {
+    this.attributes.set(name, value);
+  }
+
+  getAttribute(name: string) {
+    return this.attributes.get(name) ?? null;
+  }
+
+  appendChild<T extends FakeSvgElement>(child: T): T {
+    child.parentNode = this;
+    this.children.push(child);
+    return child;
+  }
+
+  removeChild<T extends FakeSvgElement>(child: T): T {
+    const index = this.children.indexOf(child);
+    if (index >= 0) this.children.splice(index, 1);
+    child.parentNode = null;
+    return child;
+  }
+
+  addEventListener(type: string, listener: (event: unknown) => void) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  dispatch(type: string, event: unknown) {
+    for (const listener of this.listeners.get(type) ?? []) listener(event);
+  }
+}
+
+class FakeSvgBody {
+  readonly children: FakeSvgElement[] = [];
+
+  appendChild<T extends FakeSvgElement>(child: T): T {
+    child.parentNode = this;
+    this.children.push(child);
+    return child;
+  }
+
+  removeChild<T extends FakeSvgElement>(child: T): T {
+    const index = this.children.indexOf(child);
+    if (index >= 0) this.children.splice(index, 1);
+    child.parentNode = null;
+    return child;
+  }
+}
+
+class FakeAudio {
+  src: string;
+  preload = "";
+  volume = 1;
+  muted = false;
+  currentTime = 0;
+  readyState = 4;
+  paused = true;
+  readonly listeners = new Map<string, Array<() => void>>();
+  shouldFailPlayback = false;
+
+  constructor(src = "") {
+    this.src = src;
+    activeAudioElements.push(this);
+  }
+
+  play() {
+    if (this.shouldFailPlayback) return Promise.reject(new Error("blocked"));
+    this.paused = false;
+    return Promise.resolve();
+  }
+
+  pause() {
+    this.paused = true;
+  }
+
+  load() {}
+
+  removeAttribute(name: string) {
+    if (name === "src") this.src = "";
+  }
+
+  addEventListener(type: string, listener: () => void) {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+}
+
+let activeAudioElements: FakeAudio[] = [];
 
 function loadBridge(): {
   lerp: (a: string, b: string, ratio: number) => string;
   interpolate: (
-    keyframes: Array<{ t: number; value: string; ease?: string }>,
+    keyframes: Array<{
+      t: number;
+      value: string;
+      ease?: string;
+      motionPath?: {
+        version: 1;
+        type: "cubic";
+        control1: { x: number; y: number };
+        control2: { x: number; y: number };
+      };
+    }>,
     t: number,
   ) => string;
   parseColor: (value: string) => number[] | null;
@@ -31,16 +152,16 @@ function loadBridge(): {
     track: { delayMs?: number; durationMs?: number },
     t: number,
   ) => number;
-  /** Dispatch a parent → iframe postMessage into the bridge's listener. */
   sendMessage: (data: unknown) => void;
-  /** Register a fake element addressable by data-agent-native-node-id. */
   addElement: (nodeId: string) => FakeElement;
-  /** Simulate the node leaving the document (e.g. replaced by a host edit). */
   removeElement: (nodeId: string) => void;
+  getPathOverlay: () => FakeSvgElement | null;
+  findSvg: (attribute: string, value?: string) => FakeSvgElement | null;
+  pointerDown: (target: FakeSvgElement, event: Record<string, unknown>) => void;
+  pointerEvent: (type: string, event: Record<string, unknown>) => void;
+  parentMessages: Array<Record<string, unknown>>;
+  audioElements: FakeAudio[];
 } {
-  // Import the compiled bridge string from the generated module. Using
-  // require() so the import is synchronous and the function can be called
-  // at module evaluation time (loadBridge() is called at top level).
   const generatedPath = fileURLToPath(
     new URL(
       "../../../.generated/bridge/motion-preview.generated.ts",
@@ -52,47 +173,80 @@ function loadBridge(): {
     motionPreviewBridgeScript: string;
   };
 
-  // The generated string is the compiled IIFE JS (no <script> tags).
-  // esbuild wraps the source IIFE in an outer arrow-IIFE:
-  //   "use strict";\n(() => {\n  // source-file-comment\n  (function() {\n    ...\n  })();\n})();\n
-  // Strip both wrappers so only the function body is left, then pull out
-  // lerp / interpolate / parseColor by appending a return statement.
   let body = motionPreviewBridgeScript;
-  // Remove leading "use strict"; and outer (() => { ... })() opening
   body = body.replace(/^["']use strict["'];\s*\(\(\)\s*=>\s*\{/, "");
-  // Remove outer IIFE closing
   body = body.replace(/\}\)\(\);\s*$/, "");
-  // Remove source-location comment (// app/components/design/bridge/...)
   body = body.replace(/^\s*\/\/[^\n]*\n/, "");
-  // Remove inner (function() { ... })() opening
   body = body.replace(/^\s*\(function\s*\(\s*\)\s*\{/, "");
-  // Remove inner IIFE closing
   body = body.replace(/\}\)\(\);\s*$/, "");
 
-  // Fake window/document so the bridge's live message handler and
-  // applyPreview() path are exercised for real (offsets, inline styles).
   const listeners: Array<(e: unknown) => void> = [];
+  const windowListeners = new Map<string, Array<(event: unknown) => void>>();
   const elements = new Map<string, FakeElement>();
-  const parentSentinel = {};
+  const parentMessages: Array<Record<string, unknown>> = [];
+  activeAudioElements = [];
+  const parentSentinel = {
+    postMessage(message: Record<string, unknown>) {
+      parentMessages.push(message);
+    },
+  };
+  const svgBody = new FakeSvgBody();
+  function containsSvg(
+    root: FakeSvgElement | FakeSvgBody,
+    target: unknown,
+  ): boolean {
+    if (root.children.includes(target as FakeSvgElement)) return true;
+    return root.children.some((child) => containsSvg(child, target));
+  }
+  function findSvg(attribute: string, value?: string): FakeSvgElement | null {
+    function visit(node: FakeSvgElement): FakeSvgElement | null {
+      const actual = node.getAttribute(attribute);
+      if (actual !== null && (value === undefined || actual === value)) {
+        return node;
+      }
+      for (const child of node.children) {
+        const result = visit(child);
+        if (result) return result;
+      }
+      return null;
+    }
+    for (const child of svgBody.children) {
+      const result = visit(child);
+      if (result) return result;
+    }
+    return null;
+  }
   const fakeWindow = {
     parent: parentSentinel,
+    innerWidth: 800,
+    innerHeight: 600,
     addEventListener(type: string, fn: (e: unknown) => void) {
       if (type === "message") listeners.push(fn);
+      const registered = windowListeners.get(type) ?? [];
+      registered.push(fn);
+      windowListeners.set(type, registered);
+    },
+    getComputedStyle(element: FakeElement) {
+      return {
+        translate: element.style.translate || "none",
+        transformOrigin: "20px 10px",
+      };
     },
   };
   const fakeDocument = {
+    body: svgBody,
+    createElementNS(_namespace: string, tagName: string) {
+      return new FakeSvgElement(tagName);
+    },
     querySelector(selector: string): FakeElement | null {
       const m = /\[data-agent-native-node-id="([^"]+)"\]/.exec(selector);
       return m ? (elements.get(m[1]) ?? null) : null;
     },
-    // The bridge's element cache (resolveTrackElement) checks
-    // `document.contains(cached)` before trusting a cached lookup, so the
-    // fake document needs to answer that too — "contained" here means
-    // still registered in this test's `elements` map (removeElement below
-    // simulates the node leaving the document, e.g. a host-applied edit
-    // replacing it).
     contains(node: unknown): boolean {
-      return Array.from(elements.values()).includes(node as FakeElement);
+      return (
+        Array.from(elements.values()).includes(node as FakeElement) ||
+        containsSvg(svgBody, node)
+      );
     },
   };
 
@@ -100,31 +254,93 @@ function loadBridge(): {
   const factory = new Function(
     "window",
     "document",
+    "Audio",
     body +
       "\n; return { lerp, interpolate, parseColor, evalEase, trackLocalT };",
   );
-  const api = factory(fakeWindow, fakeDocument);
+  const api = factory(fakeWindow, fakeDocument, FakeAudio);
   return {
     ...api,
     sendMessage: (data: unknown) => {
       for (const fn of listeners) fn({ source: parentSentinel, data });
     },
     addElement: (nodeId: string) => {
-      const el: FakeElement = { style: {} };
+      const style: Record<string, string> = {};
+      Object.assign(style, {
+        getPropertyValue(name: string): string {
+          return style[name] ?? "";
+        },
+        getPropertyPriority(): string {
+          return "";
+        },
+        setProperty(name: string, value: string) {
+          style[name] = value;
+        },
+        removeProperty(name: string) {
+          delete style[name];
+        },
+      });
+      const el: FakeElement = {
+        style,
+        attributes: new Map(),
+        getAttribute(name) {
+          return this.attributes.get(name) ?? null;
+        },
+        setAttribute(name, value) {
+          this.attributes.set(name, value);
+        },
+        removeAttribute(name) {
+          this.attributes.delete(name);
+        },
+        getBoundingClientRect: () => ({
+          left: 100,
+          top: 50,
+          right: 140,
+          bottom: 70,
+          width: 40,
+          height: 20,
+        }),
+      };
       elements.set(nodeId, el);
       return el;
     },
     removeElement: (nodeId: string) => {
       elements.delete(nodeId);
     },
+    getPathOverlay: () => findSvg("data-motion-path-overlay"),
+    findSvg,
+    pointerDown: (target, event) => {
+      for (const listener of windowListeners.get("pointerdown") ?? []) {
+        listener({
+          target,
+          pointerId: 1,
+          clientX: 0,
+          clientY: 0,
+          ctrlKey: false,
+          metaKey: false,
+          preventDefault() {},
+          stopPropagation() {},
+          ...event,
+        });
+      }
+    },
+    pointerEvent: (type, event) => {
+      for (const listener of windowListeners.get(type) ?? []) {
+        listener({
+          pointerId: 1,
+          clientX: 0,
+          clientY: 0,
+          preventDefault() {},
+          ...event,
+        });
+      }
+    },
+    parentMessages,
+    audioElements: activeAudioElements,
   };
 }
 
 const bridge = loadBridge();
-// Value-interpolation tests pin ease to "linear" so they assert exact
-// midpoints; easing behavior itself is covered separately below. Keyframes
-// without an ease fall back to the CSS "ease" curve (the compiled
-// stylesheet's defaultEase default), not linear.
 const at = (from: string, to: string, t: number, ease = "linear") =>
   bridge.interpolate(
     [
@@ -159,9 +375,7 @@ describe("motion-preview bridge interpolation", () => {
   });
 
   it("interpolates hex colors through rgb (color / background-color)", () => {
-    // #000000 -> #ffffff at 0.5 is mid-grey.
     expect(at("#000000", "#ffffff", 0.5)).toBe("rgb(128, 128, 128)");
-    // #ff0000 -> #0000ff at 0.5.
     expect(at("#ff0000", "#0000ff", 0.5)).toBe("rgb(128, 0, 128)");
   });
 
@@ -172,7 +386,6 @@ describe("motion-preview bridge interpolation", () => {
     expect(at("rgba(0,0,0,0)", "rgba(0,0,0,1)", 0.5)).toBe(
       "rgba(0, 0, 0, 0.5)",
     );
-    // hsl red -> hsl(120 ...) green-ish; just assert it produced an rgb mix.
     expect(at("hsl(0, 100%, 50%)", "hsl(120, 100%, 50%)", 0)).toBe(
       "rgb(255, 0, 0)",
     );
@@ -194,8 +407,6 @@ describe("motion-preview bridge interpolation", () => {
     ];
     for (const [from, to] of presets) {
       const mid = at(from, to, 0.5);
-      // A correctly-interpolated midpoint must differ from at least one
-      // endpoint (the old snap returned an endpoint verbatim).
       expect(mid === from && mid === to).toBe(false);
       if (from !== to) {
         expect(mid).not.toBe(from);
@@ -205,14 +416,351 @@ describe("motion-preview bridge interpolation", () => {
   });
 
   it("maps a `none` endpoint to the identity of the other endpoint", () => {
-    // transform: none -> translateY(16px) lerps from translateY(0px)
-    // instead of midpoint-snapping.
     expect(at("none", "translateY(16px)", 0.5)).toBe("translateY(8px)");
     expect(at("translateY(16px)", "none", 0.5)).toBe("translateY(8px)");
     expect(at("none", "blur(8px)", 0.5)).toBe("blur(4px)");
     expect(at("none", "translateY(20px) scale(0.5)", 0.5)).toBe(
       "translateY(10px) scale(0.75)",
     );
+  });
+});
+
+describe("motion-preview bridge spatial cubic interpolation", () => {
+  const curved = [
+    {
+      t: 0,
+      value: "0px 0px",
+      ease: "linear",
+      motionPath: {
+        version: 1 as const,
+        type: "cubic" as const,
+        control1: { x: 0, y: 100 },
+        control2: { x: 0, y: 100 },
+      },
+    },
+    { t: 1, value: "100px 0px", ease: "linear" },
+  ];
+
+  it("resolves code-backed easing variables while scrubbing the preview", () => {
+    const fresh = loadBridge();
+    const element = fresh.addElement("eased-node");
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      tracks: [
+        {
+          targetNodeId: "eased-node",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0", ease: "var(--an-motion-ease-smooth-out)" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+      easingVariables: [
+        {
+          id: "smooth-out",
+          name: "Smooth out",
+          value: "cubic-bezier(0, 0, 0.58, 1)",
+        },
+      ],
+      durationMs: 1000,
+    });
+    fresh.sendMessage({ type: "motion-preview", t: 0.5, durationMs: 1000 });
+
+    expect(Number(element.style.opacity)).toBeCloseTo(
+      fresh.evalEase("cubic-bezier(0, 0, 0.58, 1)", 0.5),
+      4,
+    );
+  });
+
+  it("samples the cubic by distance and leaves segment timing ease independent", () => {
+    expect(bridge.interpolate(curved, 0.5)).toBe("50px 75px");
+    expect(
+      bridge.interpolate(
+        [{ ...curved[0]!, ease: "step-start" }, curved[1]!],
+        0.5,
+      ),
+    ).toBe("100px 0px");
+  });
+
+  it("disables compiled offset-path during scrub preview and restores it on clear", () => {
+    const fresh = loadBridge();
+    const element = fresh.addElement("motion-path-node");
+    element.style.offsetPath = 'path("M 0 0 C 0 100 100 100 100 0")';
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      tracks: [
+        {
+          targetNodeId: "motion-path-node",
+          property: "translate",
+          keyframes: curved,
+        },
+      ],
+      durationMs: 1000,
+    });
+    fresh.sendMessage({ type: "motion-preview", t: 0.5, durationMs: 1000 });
+
+    expect(element.style.translate).toBe("50px 75px");
+    expect(element.style.offsetPath).toBe("none");
+
+    fresh.sendMessage({ type: "motion-preview-clear" });
+    expect(element.style.offsetPath).toBe(
+      'path("M 0 0 C 0 100 100 100 100 0")',
+    );
+    expect(element.style.translate).toBe("");
+  });
+
+  it("renders path keyframes, easing dots, and editable controls for straight tracks", () => {
+    const fresh = loadBridge();
+    fresh.addElement("motion-path-node");
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      tracks: [
+        {
+          targetNodeId: "motion-path-node",
+          property: "translate",
+          keyframes: [
+            { t: 0, value: "0px 0px", ease: "linear" },
+            { t: 1, value: "100px 0px", ease: "linear" },
+          ],
+        },
+      ],
+      durationMs: 1000,
+    });
+    fresh.sendMessage({
+      type: "motion-path-editing",
+      enabled: true,
+      targetNodeId: "motion-path-node",
+    });
+
+    expect(fresh.getPathOverlay()).not.toBeNull();
+    const curve = fresh.findSvg("data-motion-path-curve");
+    expect(curve).not.toBeNull();
+    expect(curve?.getAttribute("stroke")).toBe(
+      "var(--design-editor-accent-color, Highlight)",
+    );
+    expect(
+      fresh.findSvg("data-motion-path-keyframe", "0")?.getAttribute("fill"),
+    ).toBe("Canvas");
+    expect(fresh.findSvg("data-motion-path-keyframe", "1")).not.toBeNull();
+    expect(
+      fresh.findSvg("data-motion-path-easing-dot")?.getAttribute("stroke"),
+    ).toBe("var(--design-editor-accent-color, Highlight)");
+    expect(
+      fresh
+        .findSvg("data-motion-path-handle", "control1")
+        ?.getAttribute("fill"),
+    ).toBe("var(--design-editor-accent-color, Highlight)");
+    expect(fresh.findSvg("data-motion-path-handle", "control2")).not.toBeNull();
+  });
+
+  it("shows a draggable transform-origin marker on the selected element", () => {
+    const fresh = loadBridge();
+    fresh.addElement("motion-origin-node");
+    fresh.sendMessage({
+      type: "motion-origin-editing",
+      enabled: true,
+      targetNodeId: "motion-origin-node",
+    });
+
+    expect(fresh.findSvg("data-motion-origin-overlay")).not.toBeNull();
+    expect(
+      fresh.findSvg("data-motion-origin-marker")?.getAttribute("transform"),
+    ).toBe("translate(120 60)");
+    fresh.sendMessage({ type: "motion-origin-editing", enabled: false });
+    expect(fresh.findSvg("data-motion-origin-overlay")).toBeNull();
+  });
+
+  it("accepts a parent-relayed origin drag and commits its style", () => {
+    const fresh = loadBridge();
+    const element = fresh.addElement("motion-origin-node");
+    fresh.sendMessage({
+      type: "motion-origin-editing",
+      enabled: true,
+      targetNodeId: "motion-origin-node",
+    });
+    expect(fresh.parentMessages).toContainEqual(
+      expect.objectContaining({
+        type: "motion-origin-marker-position",
+        visible: true,
+        targetNodeId: "motion-origin-node",
+        x: 120,
+        y: 60,
+        viewportWidth: 800,
+        viewportHeight: 600,
+      }),
+    );
+
+    fresh.sendMessage({
+      type: "motion-origin-pointer",
+      phase: "down",
+      pointerId: 7,
+      x: 120,
+      y: 60,
+    });
+    fresh.sendMessage({
+      type: "motion-origin-pointer",
+      phase: "move",
+      pointerId: 7,
+      x: 130,
+      y: 65,
+    });
+    fresh.sendMessage({
+      type: "motion-origin-pointer",
+      phase: "up",
+      pointerId: 7,
+      x: 130,
+      y: 65,
+    });
+
+    expect(element.style["transform-origin"]).toBe("75% 75%");
+    expect(fresh.parentMessages).toContainEqual(
+      expect.objectContaining({
+        type: "visual-style-change",
+        selector: '[data-agent-native-node-id="motion-origin-node"]',
+        styles: { "transform-origin": "75% 75%" },
+        phase: "commit",
+        preserveSelection: true,
+      }),
+    );
+  });
+
+  it("renders an editable path lowered from a native Position style", () => {
+    const nativeStyle = createMotionNativeStyleInstance({
+      styleKey: "Position",
+      targetNodeId: "native-position-node",
+    });
+    const motionPath = {
+      version: 1 as const,
+      type: "cubic" as const,
+      control1: { x: 0, y: 40 },
+      control2: { x: 30, y: -10 },
+    };
+    const [track] = motionNativeStylesToTracks([
+      {
+        ...nativeStyle,
+        props: { ...nativeStyle.props, motionPath },
+      },
+    ]);
+    const fresh = loadBridge();
+    fresh.addElement("native-position-node");
+
+    fresh.sendMessage({ type: "motion-load-tracks", tracks: [track] });
+    fresh.sendMessage({
+      type: "motion-path-editing",
+      enabled: true,
+      targetNodeId: "native-position-node",
+    });
+
+    expect(track?.keyframes[0]?.motionPath).toEqual(motionPath);
+    expect(
+      fresh.findSvg("data-motion-path-curve")?.getAttribute("d"),
+    ).toContain("C -80 100 150 50 120 60");
+    expect(fresh.findSvg("data-motion-path-handle", "control1")).toMatchObject({
+      tagName: "circle",
+    });
+    expect(
+      fresh.findSvg("data-motion-path-handle", "control1")?.getAttribute("cy"),
+    ).toBe("100");
+  });
+
+  it("requires Ctrl or Cmd to drag a handle and emits one atomic spatial edit", () => {
+    const fresh = loadBridge();
+    fresh.addElement("motion-path-node");
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      tracks: [
+        {
+          targetNodeId: "motion-path-node",
+          property: "translate",
+          keyframes: [
+            { t: 0, value: "0px 0px", ease: "linear" },
+            { t: 1, value: "100px 0px", ease: "linear" },
+          ],
+        },
+      ],
+      durationMs: 1000,
+    });
+    fresh.sendMessage({
+      type: "motion-path-editing",
+      enabled: true,
+      targetNodeId: "motion-path-node",
+    });
+    const handle = fresh.findSvg("data-motion-path-handle", "control1");
+    expect(handle).not.toBeNull();
+
+    fresh.pointerDown(handle!, {});
+    fresh.pointerEvent("pointermove", { clientX: 10, clientY: 30 });
+    expect(fresh.parentMessages).toHaveLength(0);
+
+    fresh.pointerDown(handle!, { ctrlKey: true });
+    fresh.pointerEvent("pointermove", { clientX: 10, clientY: 30 });
+    expect(fresh.parentMessages).toEqual([
+      {
+        type: "motion-path-edit",
+        targetNodeId: "motion-path-node",
+        edits: [
+          {
+            keyframeT: 0,
+            segmentStartT: 0,
+            motionPath: {
+              version: 1,
+              type: "cubic",
+              control1: { x: 43.3333, y: 30 },
+              control2: { x: -33.3333, y: 0 },
+            },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("moves endpoints and adjusts adjacent curve geometry in one edit gesture", () => {
+    const fresh = loadBridge();
+    fresh.addElement("motion-path-node");
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      tracks: [
+        {
+          targetNodeId: "motion-path-node",
+          property: "translate",
+          keyframes: [
+            { t: 0, value: "0px 0px", ease: "linear" },
+            { t: 1, value: "100px 0px", ease: "linear" },
+          ],
+        },
+      ],
+      durationMs: 1000,
+    });
+    fresh.sendMessage({
+      type: "motion-path-editing",
+      enabled: true,
+      targetNodeId: "motion-path-node",
+    });
+    const endpoint = fresh.findSvg("data-motion-path-keyframe", "1");
+    expect(endpoint).not.toBeNull();
+
+    fresh.pointerDown(endpoint!, {});
+    fresh.pointerEvent("pointermove", { clientX: 20, clientY: 10 });
+    expect(fresh.parentMessages).toEqual([
+      {
+        type: "motion-path-edit",
+        targetNodeId: "motion-path-node",
+        edits: [
+          { keyframeT: 1, value: "120px 10px" },
+          {
+            keyframeT: 1,
+            segmentStartT: 0,
+            motionPath: {
+              version: 1,
+              type: "cubic",
+              control1: { x: 33.3333, y: 0 },
+              control2: { x: -53.3333, y: -10 },
+            },
+          },
+        ],
+      },
+    ]);
   });
 });
 
@@ -225,7 +773,6 @@ describe("motion-preview bridge easing", () => {
       ],
       0.5,
     );
-    // ease(0.5) ≈ 0.8 — decisively NOT the linear midpoint.
     expect(parseFloat(eased)).toBeGreaterThan(0.7);
     expect(parseFloat(eased)).toBeLessThan(0.9);
   });
@@ -239,7 +786,6 @@ describe("motion-preview bridge easing", () => {
     expect(bridge.evalEase("step-end", 0.99)).toBe(0);
     expect(bridge.evalEase("steps(4, end)", 0.3)).toBeCloseTo(0.25, 6);
     expect(bridge.evalEase("steps(4, start)", 0.3)).toBeCloseTo(0.5, 6);
-    // Endpoints always pin for every supported form.
     for (const ease of [
       "linear",
       "ease",
@@ -258,7 +804,6 @@ describe("motion-preview bridge easing", () => {
       bridge.evalEase("cubic-bezier(0.34,1.56,0.64,1)", x),
     );
     expect(Math.max(...values)).toBeGreaterThan(1);
-    // Overshoot flows through numeric interpolation (extrapolates past `to`).
     const mid = bridge.interpolate(
       [
         {
@@ -290,7 +835,7 @@ describe("motion-preview bridge easing", () => {
   });
 });
 
-describe("motion-preview bridge spring + linear() easing (Figma Motion parity)", () => {
+describe("motion-preview bridge spring + linear() easing", () => {
   it("evaluates spring tokens with real physics, matching the shared sampler", () => {
     for (const [token, spring] of [
       ["spring(0.69)", { bounce: 0.69, settle: 1 }],
@@ -321,7 +866,6 @@ describe("motion-preview bridge spring + linear() easing (Figma Motion parity)",
     expect(bridge.evalEase("linear(0, 0.5, 1)", 0.25)).toBeCloseTo(0.25, 6);
     expect(bridge.evalEase("linear(0, 0.9 20%, 1)", 0.2)).toBeCloseTo(0.9, 6);
     expect(bridge.evalEase("linear(0, 1 40% 60%, 1)", 0.5)).toBeCloseTo(1, 6);
-    // A compiled spring replays through linear() close to the true spring.
     const compiled = springToCssLinear({ bounce: 0.69, settle: 1 });
     for (const x of [0.2, 0.5, 0.8]) {
       expect(
@@ -335,9 +879,48 @@ describe("motion-preview bridge spring + linear() easing (Figma Motion parity)",
 });
 
 describe("motion-preview bridge per-track offsets (span timing)", () => {
+  it("restores the original style when a track is disabled", () => {
+    const fresh = loadBridge();
+    const el = fresh.addElement("hero");
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      durationMs: 1000,
+      tracks: [
+        {
+          targetNodeId: "hero",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0", ease: "linear" },
+            { t: 1, value: "1", ease: "linear" },
+          ],
+        },
+      ],
+    });
+    fresh.sendMessage({ type: "motion-preview", t: 0.5, durationMs: 1000 });
+    expect(el.style.opacity).toBe("0.5");
+
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      durationMs: 1000,
+      tracks: [
+        {
+          targetNodeId: "hero",
+          property: "opacity",
+          enabled: false,
+          keyframes: [
+            { t: 0, value: "0", ease: "linear" },
+            { t: 1, value: "1", ease: "linear" },
+          ],
+        },
+      ],
+    });
+    fresh.sendMessage({ type: "motion-preview", t: 0.75, durationMs: 1000 });
+
+    expect(el.style.opacity).toBe("");
+  });
+
   it("maps timeline time into an offset track's local span, clamped outside", () => {
     const fresh = loadBridge();
-    // Establish the timeline duration via a load message.
     fresh.sendMessage({
       type: "motion-load-tracks",
       tracks: [],
@@ -345,11 +928,10 @@ describe("motion-preview bridge per-track offsets (span timing)", () => {
     });
     const track = { delayMs: 500, durationMs: 1000 };
     expect(fresh.trackLocalT(track, 0)).toBe(0);
-    expect(fresh.trackLocalT(track, 0.25)).toBe(0); // 500ms = span start
-    expect(fresh.trackLocalT(track, 0.5)).toBeCloseTo(0.5, 6); // 1000ms
-    expect(fresh.trackLocalT(track, 0.75)).toBe(1); // 1500ms = span end
+    expect(fresh.trackLocalT(track, 0.25)).toBe(0);
+    expect(fresh.trackLocalT(track, 0.5)).toBeCloseTo(0.5, 6);
+    expect(fresh.trackLocalT(track, 0.75)).toBe(1);
     expect(fresh.trackLocalT(track, 1)).toBe(1);
-    // Offset-free tracks pass through unchanged.
     expect(fresh.trackLocalT({}, 0.42)).toBeCloseTo(0.42, 6);
   });
 
@@ -372,29 +954,17 @@ describe("motion-preview bridge per-track offsets (span timing)", () => {
         },
       ],
     });
-    // Before the span: holds the first keyframe value (fill-mode both).
     fresh.sendMessage({ type: "motion-preview", t: 0.25, durationMs: 2000 });
     expect(el.style.opacity).toBe("0");
-    // Mid-span: 1500ms → local t 0.5.
     fresh.sendMessage({ type: "motion-preview", t: 0.75, durationMs: 2000 });
     expect(el.style.opacity).toBe("0.5");
-    // After the span end: holds the last keyframe value.
     fresh.sendMessage({ type: "motion-preview", t: 1, durationMs: 2000 });
     expect(el.style.opacity).toBe("1");
-    // Clear restores the original inline value.
     fresh.sendMessage({ type: "motion-preview-clear" });
     expect(el.style.opacity).toBe("");
   });
 
   it("caches the resolved element across preview ticks but re-resolves once it leaves the document", () => {
-    // Perf regression coverage: applyPreview used to call
-    // document.querySelector for every track on every single "motion-preview"
-    // tick (one per parent rAF frame), even though the target element almost
-    // never changes between ticks. Assert the cache (a) is actually used —
-    // repeated ticks with the node still present must keep hitting the SAME
-    // element instance — and (b) is safely invalidated when the node is no
-    // longer in the document (e.g. a host-applied edit replaced it), so a
-    // stale cached reference can never silently swallow further updates.
     const fresh = loadBridge();
     const originalEl = fresh.addElement("hero");
     fresh.sendMessage({
@@ -416,17 +986,11 @@ describe("motion-preview bridge per-track offsets (span timing)", () => {
     fresh.sendMessage({ type: "motion-preview", t: 0.5, durationMs: 1000 });
     expect(originalEl.style.opacity).toBe("0.5");
 
-    // The node is replaced (removed, then a NEW element re-registered under
-    // the same nodeId) without any "motion-load-tracks" reload in between —
-    // exactly what a live DOM patch looks like from the bridge's perspective.
     fresh.removeElement("hero");
     const replacementEl = fresh.addElement("hero");
     fresh.sendMessage({ type: "motion-preview", t: 0.75, durationMs: 1000 });
 
-    // The stale cached element must NOT keep receiving updates...
     expect(originalEl.style.opacity).toBe("0.5");
-    // ...the NEW element must, proving the cache re-resolved instead of
-    // silently no-oping against a detached reference.
     expect(replacementEl.style.opacity).toBe("0.75");
   });
 
@@ -464,9 +1028,122 @@ describe("motion-preview bridge per-track offsets (span timing)", () => {
       ],
     });
     fresh.sendMessage({ type: "motion-preview", t: 0.5, durationMs: 1000 });
-    // Individual transform properties compose without clobbering each other.
     expect(el.style.translate).toBe("0px 8px");
     expect(el.style.rotate).toBe("45deg");
     expect(el.style.scale).toBe("0.9");
+  });
+});
+
+describe("motion-preview bridge native Path trim", () => {
+  it("scrubs normalized SVG dash values and restores authored pathLength and styles", () => {
+    const fresh = loadBridge();
+    const path = fresh.addElement("path-1");
+    path.setAttribute("pathLength", "24");
+    path.style.strokeDasharray = "5 7";
+    path.style.strokeDashoffset = "3";
+
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      durationMs: 1000,
+      tracks: [
+        {
+          targetNodeId: "path-1",
+          property: "path-trim",
+          keyframes: [
+            { t: 0, value: "100% 20%", ease: "linear" },
+            { t: 1, value: "0% 100%", ease: "linear" },
+          ],
+        },
+      ],
+    });
+    fresh.sendMessage({ type: "motion-preview", t: 0.5, durationMs: 1000 });
+
+    expect(path.getAttribute("pathLength")).toBe("100");
+    expect(path.style.strokeDasharray).toBe("10 90");
+    expect(path.style.strokeDashoffset).toBe("-50");
+
+    fresh.sendMessage({ type: "motion-preview-clear" });
+    expect(path.getAttribute("pathLength")).toBe("24");
+    expect(path.style.strokeDasharray).toBe("5 7");
+    expect(path.style.strokeDashoffset).toBe("3");
+  });
+});
+
+describe("motion-preview bridge audio", () => {
+  const audioClip = {
+    id: "audio-1",
+    sourceUrl: "https://cdn.example/audio.mp3",
+    timelineStartMs: 250,
+    sourceTrimStartMs: 100,
+    durationMs: 500,
+    volume: 0.4,
+    muted: true,
+  };
+
+  it("loads durable clips and seeks without starting playback", () => {
+    const fresh = loadBridge();
+    fresh.sendMessage({ type: "motion-audio-load", clips: [audioClip] });
+    expect(fresh.audioElements).toHaveLength(1);
+    expect(fresh.audioElements[0]).toMatchObject({
+      src: audioClip.sourceUrl,
+      preload: "auto",
+      volume: 0.4,
+      muted: true,
+      paused: true,
+    });
+
+    fresh.sendMessage({
+      type: "motion-audio-state",
+      timelineTimeMs: 500,
+      isPlaying: false,
+    });
+
+    expect(fresh.audioElements[0]?.currentTime).toBe(0.35);
+    expect(fresh.audioElements[0]?.paused).toBe(true);
+  });
+
+  it("plays only while the timeline is explicitly playing inside the clip", () => {
+    const fresh = loadBridge();
+    fresh.sendMessage({ type: "motion-audio-load", clips: [audioClip] });
+    fresh.sendMessage({
+      type: "motion-audio-state",
+      timelineTimeMs: 500,
+      isPlaying: true,
+    });
+    expect(fresh.audioElements[0]?.paused).toBe(false);
+    expect(fresh.audioElements[0]?.currentTime).toBe(0.35);
+
+    fresh.sendMessage({
+      type: "motion-audio-state",
+      timelineTimeMs: 1000,
+      isPlaying: true,
+    });
+    expect(fresh.audioElements[0]?.paused).toBe(true);
+
+    fresh.sendMessage({ type: "motion-audio-clear" });
+    expect(fresh.audioElements[0]?.src).toBe("");
+  });
+
+  it("reports rejected playback once per explicit play attempt", async () => {
+    const fresh = loadBridge();
+    fresh.sendMessage({ type: "motion-audio-load", clips: [audioClip] });
+    fresh.audioElements[0]!.shouldFailPlayback = true;
+    fresh.sendMessage({
+      type: "motion-audio-state",
+      timelineTimeMs: 500,
+      isPlaying: true,
+    });
+    await Promise.resolve();
+    expect(fresh.parentMessages).toEqual([
+      { type: "motion-audio-playback-error", clipId: audioClip.id },
+    ]);
+
+    fresh.sendMessage({
+      type: "motion-audio-state",
+      timelineTimeMs: 510,
+      isPlaying: true,
+    });
+    await Promise.resolve();
+    expect(fresh.parentMessages).toHaveLength(1);
   });
 });

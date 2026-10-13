@@ -13,14 +13,6 @@ import {
   truncateOpeningTag,
 } from "./code-inspect-helpers";
 
-// ---------------------------------------------------------------------------
-// parseAlpineDataObject — regression guard for the escaped-quote bug: a
-// string value containing a backslash-escaped quote (e.g. Alpine data like
-// `{ label: 'it\'s ok' }`, a very ordinary English-text prop value) used to
-// truncate at the escaped quote, silently dropping the remainder of the
-// string instead of decoding it back to the literal apostrophe.
-// ---------------------------------------------------------------------------
-
 describe("parseAlpineDataObject", () => {
   it("parses simple flat string/boolean/number literals", () => {
     expect(
@@ -41,8 +33,6 @@ describe("parseAlpineDataObject", () => {
   });
 
   it("does not require escaping the opposite quote style", () => {
-    // A single-quoted value may contain a literal double quote (and vice
-    // versa) with no escaping at all — only the matching quote needs escapes.
     expect(parseAlpineDataObject("{ label: 'she said \"hi\"' }")).toEqual({
       label: 'she said "hi"',
     });
@@ -134,9 +124,6 @@ describe("replaceAlpineDataKeyValue", () => {
   });
 
   it("handles an escaped quote inside the ORIGINAL value while locating it", () => {
-    // The target value itself contains an escaped quote before the key we're
-    // replacing — the walk must skip over it correctly rather than getting
-    // confused by the embedded quote.
     expect(
       replaceAlpineDataKeyValue(
         "{ label: 'it\\'s ok', variant: 'outline' }",
@@ -203,6 +190,30 @@ describe("openingTagOf / truncateOpeningTag / elementHtmlPreview", () => {
   it("keeps short retained attributes inline", () => {
     expect(formatInspectCodeOpeningTag('<input disabled name="email">')).toBe(
       '<input disabled name="email">',
+    );
+  });
+
+  it("preserves child content while stripping runtime attributes", () => {
+    expect(
+      elementHtmlPreview({
+        html: `<section title="Hero" data-agent-native-node-id="section"><h1 data-agent-native-layer-name="Title">Title</h1><p>Feature text</p></section>`,
+        tagName: "section",
+      }),
+    ).toBe(
+      `<section title="Hero">\n  <h1>Title</h1><p>Feature text</p>\n</section>`,
+    );
+  });
+
+  it("leaves tag-looking text in raw-text elements and comments untouched", () => {
+    const literalTag =
+      '<span style="color: red" data-agent-native-node-id="literal">Text</span>';
+    expect(
+      elementHtmlPreview({
+        html: `<div><script>const value = '${literalTag}';</script><textarea>${literalTag}</textarea><!-- ${literalTag} --><span data-agent-native-layer-name="Real">Real</span></div>`,
+        tagName: "div",
+      }),
+    ).toBe(
+      `<div>\n  <script>const value = '${literalTag}';</script><textarea>${literalTag}</textarea><!-- ${literalTag} --><span>Real</span>\n</div>`,
     );
   });
 

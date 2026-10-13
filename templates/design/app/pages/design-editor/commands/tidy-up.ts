@@ -2,7 +2,7 @@ import type {
   CanvasFrameGeometry,
   CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
-import type { CodeLayerNode } from "@shared/code-layer";
+import type { CodeLayerNode, CodeLayerSource } from "@shared/code-layer";
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import type { RefObject } from "react";
 
@@ -25,6 +25,7 @@ export interface TidyUpArgs {
   commitNodePositions: (
     baseContent: string,
     positions: ReadonlyMap<string, { x: number; y: number }>,
+    source?: CodeLayerSource,
   ) => boolean;
   designDataJsonRef: RefObject<Record<string, unknown>>;
   getActiveFileSelectedNodeIds: (content: string) => string[];
@@ -84,9 +85,6 @@ export function runTidyUp({
             : undefined;
       if (!fallbackGeometry) return;
       const geometry = { ...fallbackGeometry, ...before[screenId] };
-      // Pack against the breakpoint group's footprint, not just the base
-      // frame — otherwise tidy leaves every breakpoint row overlapping the
-      // neighbouring screen.
       const footprint = getScreenGroupFootprint(screenId, geometry);
       screenRects.push({
         id: screenId,
@@ -109,9 +107,10 @@ export function runTidyUp({
 
   if (!activeFile) return;
   const baseContent = getFreshActiveContent();
+  const source = { kind: "design-file" as const, fileId: activeFile.id };
   const nodeIds = getActiveFileSelectedNodeIds(baseContent);
   if (nodeIds.length === 0) return;
-  const projection = buildCodeLayerProjection(baseContent);
+  const projection = buildCodeLayerProjection(baseContent, { source });
   const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
   const selectedNodes = nodeIds
     .map((nodeId) => nodesById.get(nodeId))
@@ -119,5 +118,5 @@ export function runTidyUp({
   if (selectedNodes.length === 0) return;
   const selectedRects = selectedNodes.map(rectFromCodeLayerNode);
   const positions = computeTidyPositions(selectedRects);
-  commitNodePositions(baseContent, positions);
+  commitNodePositions(baseContent, positions, source);
 }

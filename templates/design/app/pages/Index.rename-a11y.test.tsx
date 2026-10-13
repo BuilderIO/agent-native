@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+vi.mock("@/hooks/use-design-system-workflows", () => ({
+  useDesignSystemWorkflows: () => true,
+}));
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -14,11 +17,76 @@ const mocks = vi.hoisted(() => ({
     setQueriesData: vi.fn(),
     invalidateQueries: vi.fn(),
   },
-  headerActions: null as unknown,
+  creativeContextLabEnabled: { value: false },
+  creativeContexts: vi.fn(() => ({ data: undefined, isLoading: false })),
+  creativeContextState: vi.fn(() => ({
+    state: {
+      contextMode: "auto",
+      selectedContextId: "saved-context",
+      pinnedPackId: null,
+    },
+    setState: vi.fn().mockResolvedValue(undefined),
+  })),
+  promptPopoverProps: undefined as Record<string, unknown> | undefined,
 }));
 
-vi.mock("@agent-native/core/client/feature-flags", () => ({
-  useFeatureFlag: () => false,
+vi.mock("@agent-native/core/client/labs", () => ({
+  useLab: () => false,
+}));
+
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
+  useAgentEngineConfigured: () => ({ state: "configured", missing: false }),
+  useChatModels: () => ({
+    availableModels: [],
+    configuredModels: [],
+    defaultModel: "",
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: "medium",
+    isLoading: false,
+    selectionReady: true,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+    onEffortChange: vi.fn(),
+    refreshEngines: vi.fn(),
+  }),
+}));
+
+vi.mock(
+  "@agent-native/toolkit/app/chat/composer/index",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/toolkit/app/chat/composer/index")
+    >()),
+    PromptComposer: () => null,
+    snapshotComposerContextItems: (items: unknown) => items,
+    useAgentKitCapabilities: () => ({
+      data: { sources: { figma: { available: false } }, integrations: [] },
+    }),
+    useAgentKitIntegrationMenu: () => ({
+      id: "integrations",
+      label: "Integrations",
+      intent: "invoke-integration",
+      picker: {},
+    }),
+  }),
+);
+
+vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
+  BuilderSetupCard: () => null,
+  BuilderSetupContent: () => null,
+}));
+
+vi.mock("@agent-native/toolkit/app/settings", () => ({
+  useBuilderConnectFlow: () => ({ connecting: false, start: vi.fn() }),
+  BuilderConnectPopover: () => null,
+}));
+
+vi.mock("@/components/templates/TemplatePreview", () => ({
+  TemplatePreview: () => null,
 }));
 
 vi.mock("@agent-native/core/client/collab", () => ({
@@ -26,7 +94,9 @@ vi.mock("@agent-native/core/client/collab", () => ({
   emailToName: (email: string) => email,
 }));
 
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/core/client/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/org")>()),
+  useOrg: () => ({ data: undefined }),
   useOrgMembers: () => ({ data: undefined }),
 }));
 
@@ -36,6 +106,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
       return {
         data: {
           count: 1,
+          totalCount: 1,
           designs: [
             {
               id: "design-1",
@@ -46,6 +117,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
           ],
         },
         isLoading: false,
+        isSuccess: true,
       };
     }
     return { data: undefined, isLoading: false };
@@ -63,22 +135,38 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   setClientAppState: async () => undefined,
 }));
 
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
+  useFormatters: () => ({
+    formatDate: (value: string) => value,
+    formatNumber: String,
+  }),
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@agent-native/toolkit/app-shell", () => ({
-  // The real hook portals its argument into app-shell chrome outside this
-  // tree; capture it so the search input (also passed here) can be rendered
-  // and inspected directly.
-  useSetHeaderActions: (node: unknown) => {
-    mocks.headerActions = node;
-  },
+vi.mock("@agent-native/creative-context/client", () => ({
+  CreativeContextShareSheet: () => (
+    <div data-testid="creative-context-share-sheet" />
+  ),
+  parseCreativeContexts: () => [],
+  useCreativeContextLab: () => mocks.creativeContextLabEnabled.value,
+  useCreativeContexts: mocks.creativeContexts,
+  useCreativeContextState: mocks.creativeContextState,
+}));
+
+vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/toolkit/app-shell")>()),
   useSetPageTitle: () => {},
 }));
 
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => mocks.queryClient,
+  useQuery: () => ({
+    data: undefined,
+    isError: false,
+    isPending: false,
+    refetch: vi.fn(),
+  }),
 }));
 
 vi.mock("react-router", () => ({
@@ -96,7 +184,10 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@/components/editor/PromptDialog", () => ({
-  default: () => null,
+  default: (props: Record<string, unknown>) => {
+    mocks.promptPopoverProps = props;
+    return null;
+  },
 }));
 
 vi.mock("@/hooks/use-design-systems", () => ({
@@ -116,9 +207,6 @@ vi.mock("@/lib/pending-generation", () => ({
   clearPendingGeneration: vi.fn(),
 }));
 
-// The dropdown menu's open/close choreography (Radix pointer events, focus
-// return) is orthogonal to what this test checks — collapse it to plain
-// always-rendered markup so the "Rename" item is directly clickable.
 vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenu: ({ children }: { children?: React.ReactNode }) => (
     <>{children}</>
@@ -127,6 +215,12 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
     <>{children}</>
   ),
   DropdownMenuContent: ({ children }: { children?: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  DropdownMenuRadioGroup: ({ children }: { children?: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  DropdownMenuRadioItem: ({ children }: { children?: React.ReactNode }) => (
     <>{children}</>
   ),
   DropdownMenuItem: ({
@@ -142,9 +236,6 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   ),
 }));
 
-// Same reasoning as the dropdown-menu mock above: Radix Tooltip needs a
-// TooltipProvider ancestor the real page tree supplies elsewhere; strip it to
-// plain markup since this test doesn't exercise tooltip behavior.
 vi.mock("@/components/ui/tooltip", () => ({
   Tooltip: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children?: React.ReactNode }) => (
@@ -163,11 +254,21 @@ beforeEach(async () => {
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
+  mocks.creativeContextLabEnabled.value = false;
+  mocks.promptPopoverProps = undefined;
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
   await act(async () => {
     root.render(<Index />);
+  });
+  const recentTab = Array.from(
+    container.querySelectorAll<HTMLElement>('[role="tab"]'),
+  ).find((tab) => tab.textContent === "home.recent");
+  await act(async () => {
+    recentTab?.dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true, button: 0 }),
+    );
   });
 });
 
@@ -203,8 +304,6 @@ describe("Index rename dialog accessibility", () => {
 
     await act(async () => {
       renameItem!.click();
-      // The app opens the rename dialog from a setTimeout (dodging a Radix
-      // dropdown-close focus race) — flush that macrotask.
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
@@ -213,30 +312,61 @@ describe("Index rename dialog accessibility", () => {
     );
     expect(input).toBeTruthy();
 
-    // A placeholder is not an accessible name (WCAG) — screen readers and
-    // Playwright's getByLabel() both need aria-label/aria-labelledby or a
-    // paired <label>.
     expect(resolveAccessibleName(input!)).toBeTruthy();
   });
 
-  it("gives the search text input an accessible name too (same placeholder-only pattern)", async () => {
-    // The search input lives in header actions, which the real app renders
-    // in app-shell chrome outside this component's own tree — mount the
-    // captured node separately to inspect it.
-    const headerContainer = document.createElement("div");
-    document.body.append(headerContainer);
-    const headerRoot = createRoot(headerContainer);
-    await act(async () => {
-      headerRoot.render(mocks.headerActions as React.ReactElement);
-    });
-
-    const search = headerContainer.querySelector<HTMLInputElement>(
+  it("gives the Recent tab search input an accessible name", () => {
+    const search = container.querySelector<HTMLInputElement>(
       'input[placeholder="home.searchPlaceholder"]',
     );
     expect(search).toBeTruthy();
     expect(resolveAccessibleName(search!)).toBeTruthy();
+  });
+});
 
-    await act(async () => headerRoot.unmount());
-    headerContainer.remove();
+describe("Index Creative Context Labs gate", () => {
+  it("hides context picker props and sharing UI while the lab is disabled", () => {
+    expect(mocks.creativeContexts).toHaveBeenLastCalledWith(
+      {},
+      { enabled: false },
+    );
+    expect(mocks.creativeContextState).toHaveBeenLastCalledWith({
+      enabled: false,
+    });
+    expect(mocks.promptPopoverProps).toMatchObject({
+      creativeContexts: [],
+      creativeContextsLoading: false,
+      selectedCreativeContextId: undefined,
+      onCreativeContextChange: undefined,
+    });
+    expect(
+      document.querySelector('[data-testid="creative-context-share-sheet"]'),
+    ).toBeNull();
+    expect(document.body.textContent).not.toContain(
+      "creativeContext.addToContext",
+    );
+  });
+
+  it("restores context picker props and sharing UI when the lab is enabled", async () => {
+    mocks.creativeContextLabEnabled.value = true;
+    await act(async () => root.render(<Index />));
+
+    expect(mocks.creativeContexts).toHaveBeenLastCalledWith(
+      {},
+      { enabled: true },
+    );
+    expect(mocks.creativeContextState).toHaveBeenLastCalledWith({
+      enabled: true,
+    });
+    expect(mocks.promptPopoverProps?.onCreativeContextChange).toEqual(
+      expect.any(Function),
+    );
+    expect(mocks.promptPopoverProps?.selectedCreativeContextId).toBe(
+      "saved-context",
+    );
+    expect(
+      document.querySelector('[data-testid="creative-context-share-sheet"]'),
+    ).not.toBeNull();
+    expect(document.body.textContent).toContain("creativeContext.addToContext");
   });
 });

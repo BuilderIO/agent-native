@@ -22,7 +22,7 @@
  * migration is preview-only until the user approves cutover.
  */
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   runBuilderAgent,
   resolveBuilderBranchProjectId,
@@ -30,13 +30,11 @@ import {
 } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import { createDesignVersionSnapshotWithSourceMutationLock } from "../server/lib/design-versions.js";
 import {
   resolveSourceCapabilities,
   resolveFusionCapabilities,
@@ -44,9 +42,6 @@ import {
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Safely parse the design's data JSON blob. */
 function parseDesignData(raw: unknown): Record<string, unknown> {
   if (typeof raw !== "string") return {};
   try {
@@ -64,10 +59,6 @@ function parseDesignData(raw: unknown): Record<string, unknown> {
   return {};
 }
 
-/**
- * Build a concise branch-creation prompt for the Builder cloud agent.
- * The prompt identifies the design by title and requests a branch.
- */
 function buildBranchPrompt(
   designTitle: string,
   purpose: string | undefined,
@@ -84,13 +75,11 @@ function buildBranchPrompt(
   ].join("\n");
 }
 
-// ─── Action ───────────────────────────────────────────────────────────────────
-
 export default defineAction({
   description:
     "Start or link a Builder-hosted branch for a fusion-backed design. " +
     "Requires the design's source to advertise the 'branch' capability (fusion tier) " +
-    "AND Builder.io to be connected. " +
+    "AND use Builder.io. " +
     "For inline/localhost designs without Builder, returns a ctaRequired response " +
     "with a 'Make it real' upgrade message — never fakes a branch call. " +
     "On success, persists branch metadata (branchName, url, status, projectId) " +
@@ -114,26 +103,19 @@ export default defineAction({
       ),
   }),
   run: async ({ designId, branchName, purpose }) => {
-    const db = getDb();
-
-    // ── Access check (editor level required for branch creation) ────────────
     await assertAccess("design", designId, "editor");
     const access = await resolveAccess("design", designId);
-    if (!access) throw new Error("Design not found");
+    if (!access)
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
 
     const resource = access.resource as {
       title?: string;
       data?: unknown;
     };
 
-    // ── Source type + capability check ──────────────────────────────────────
     const designData = parseDesignData(resource.data);
     const sourceType = designSourceTypeFromData(designData);
 
-    // For fusion sources, resolve the Builder connection status first so that
-    // resolveFusionCapabilities returns the CONNECTED map (with branch/deploy
-    // available) when Builder is actually wired up.  For inline/localhost the
-    // generic resolver is sufficient — those sources never have branch.
     const builderEnabled =
       sourceType === "fusion"
         ? await resolveIsBuilderBranchingEnabled()
@@ -144,8 +126,6 @@ export default defineAction({
         : resolveSourceCapabilities(sourceType);
 
     if (!hasCapability(caps, "branch")) {
-      // Inline or localhost designs don't support branching.  Return a CTA.
-      // For a disconnected fusion source the connect-builder CTA applies.
       const isFusion = sourceType === "fusion";
       return {
         designId,
@@ -155,53 +135,20 @@ export default defineAction({
           ? ("connect-builder" as const)
           : ("make-it-real" as const),
         ctaMessage: isFusion
-          ? "Builder is not yet connected. Connect Builder.io (free tier available) to create branches for this design."
+          ? "Builder is not yet connected. Use Builder.io (free tier available) to create branches for this design."
           : "Branching requires a Builder-hosted app. Use 'Make it real' to upgrade this inline design to a real-app source, then create branches.",
         branch: null,
         versionId: null,
       };
     }
 
-    // At this point sourceType === "fusion" and builderEnabled === true,
-    // so no separate Builder gate is needed — the capability check above
-    // already required a connected Builder to set branch=available.
-
-    // ── Snapshot the current design state before branching ──────────────────
-    // Fetch all files so the snapshot captures the full pre-branch state.
-    const files = await db
-      .select({
-        id: schema.designFiles.id,
-        filename: schema.designFiles.filename,
-        content: schema.designFiles.content,
-      })
-      .from(schema.designFiles)
-      .where(eq(schema.designFiles.designId, designId));
-
     const now = new Date().toISOString();
-    const versionId = `dv_${nanoid(12)}`;
-
-    const snapshot = JSON.stringify({
+    const version = await createDesignVersionSnapshotWithSourceMutationLock(
       designId,
-      snapshotKind: "pre-branch",
-      branchPurpose: purpose ?? null,
-      files: files.map((f) => ({
-        id: f.id,
-        filename: f.filename,
-        content: f.content,
-        bytes: f.content?.length ?? 0,
-      })),
-      capturedAt: now,
-    });
+      { label: `Pre-branch snapshot — ${now}` },
+    );
+    const versionId = version.id;
 
-    await db.insert(schema.designVersions).values({
-      id: versionId,
-      designId,
-      label: `Pre-branch snapshot — ${now}`,
-      snapshot,
-      createdAt: now,
-    });
-
-    // ── Run the Builder cloud agent to create the branch ────────────────────
     const projectId = await resolveBuilderBranchProjectId();
     const userEmail = getRequestUserEmail();
     if (!userEmail) throw new Error("No authenticated user");
@@ -218,7 +165,6 @@ export default defineAction({
       userEmail,
     });
 
-    // ── Persist branch metadata into the design's data blob ─────────────────
     const branchEntry = {
       branchName: builderResult.branchName,
       projectId: builderResult.projectId,
@@ -248,8 +194,6 @@ export default defineAction({
           branches: alreadyAppended
             ? existingBranches
             : [...existingBranches, branchEntry],
-          // Upgrade the source type to fusion once a Builder branch is
-          // provisioned so the capability matrix reflects the real-app tier.
           sourceType: "fusion",
         };
       },

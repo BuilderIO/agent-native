@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildClaudeCodeParticipantArgs,
   CLAUDE_CODE_PARTICIPANT_TESTED_VERSION,
+  ClaudeCodeAuthStatusError,
   ClaudeCodeSubscriptionRequiredError,
   readClaudeCodeSubscriptionStatus,
   runClaudeCodeParticipant,
@@ -97,6 +98,43 @@ describe("Claude Code participant", () => {
     );
     expect(args.join(" ")).not.toContain("dangerously-skip");
     expect(args.join(" ")).not.toContain("Bash");
+  });
+
+  it("adds host MCP servers and pre-approves them only for the driver", () => {
+    const mcp = {
+      mcpConfigPath: "/tmp/agent-native-code-claude-x/mcp.json",
+      mcpServerNames: ["app-crm", "app-mail"],
+    };
+    const driver = buildClaudeCodeParticipantArgs({ role: "driver", ...mcp });
+    const watchdog = buildClaudeCodeParticipantArgs({
+      role: "watchdog",
+      ...mcp,
+    });
+
+    for (const args of [driver, watchdog]) {
+      expect(args).toContain("--strict-mcp-config");
+      expect(args[args.indexOf("--mcp-config") + 1]).toBe(mcp.mcpConfigPath);
+    }
+    expect(driver[driver.indexOf("--allowedTools") + 1]).toBe(
+      "mcp__app-crm,mcp__app-mail",
+    );
+    // Plan mode runs read-only MCP tools and refuses mutating ones by itself.
+    expect(watchdog).not.toContain("--allowedTools");
+    expect(buildClaudeCodeParticipantArgs({ role: "driver" })).not.toContain(
+      "--mcp-config",
+    );
+  });
+
+  it("rejects a relative MCP config path", async () => {
+    await expect(
+      runClaudeCodeParticipant({
+        role: "driver",
+        prompt: "hi",
+        cwd: "/repo",
+        mcpConfigPath: "mcp.json",
+        preflight: async () => SUBSCRIPTION_STATUS,
+      }),
+    ).rejects.toThrow("Claude Code MCP config must be an absolute file path.");
   });
 
   it("permits only an absolute packaged executable override", async () => {
@@ -298,6 +336,40 @@ describe("Claude Code participant", () => {
       ["auth", "status", "--json"],
       expect.objectContaining({ env: { PATH: "/usr/bin" } }),
     );
+  });
+
+  it("keeps raw auth preflight failures available behind friendly copy", async () => {
+    const rawMessage =
+      "Command failed: claude auth status --json\nNot logged in";
+    const execute = vi.fn(async () => {
+      throw Object.assign(new Error(rawMessage), { stderr: "Not logged in" });
+    });
+
+    const error = await readClaudeCodeSubscriptionStatus({
+      execute: execute as never,
+    }).catch((value: unknown) => value);
+
+    expect(error).toBeInstanceOf(ClaudeCodeAuthStatusError);
+    expect((error as ClaudeCodeAuthStatusError).message).toBe(
+      "Claude authentication check failed. Run `claude auth login` and try again.",
+    );
+    expect((error as ClaudeCodeAuthStatusError).rawMessage).toBe(rawMessage);
+  });
+
+  it("keeps non-auth preflight failures distinct", async () => {
+    const rawMessage =
+      "Command failed: claude auth status --json\nMalformed response";
+    const execute = vi.fn(async () => {
+      throw new Error(rawMessage);
+    });
+
+    const error = await readClaudeCodeSubscriptionStatus({
+      execute: execute as never,
+    }).catch((value: unknown) => value);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(ClaudeCodeAuthStatusError);
+    expect((error as Error).message).toBe(rawMessage);
   });
 
   it("stops a stream that exceeds its configured event bound", async () => {

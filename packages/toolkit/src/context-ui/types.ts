@@ -52,6 +52,14 @@ export const fallbackContextTranslate: ContextTranslate = (key, options) => {
     typeof options?.defaultValue === "string" ? options.defaultValue : key;
   return template.replace(/{{\s*([\w$.-]+)\s*}}/g, (match, name: string) => {
     const value = options?.[name];
-    return value == null ? match : String(value);
+    return value == null
+      ? match
+      : typeof value === "object"
+        ? JSON.stringify(value)
+        : typeof value === "string" ||
+            typeof value === "number" ||
+            typeof value === "boolean"
+          ? String(value)
+          : JSON.stringify(value);
   });
 };

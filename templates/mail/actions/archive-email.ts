@@ -1,14 +1,19 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { summarizeArchiveFailures } from "@shared/archive-errors.js";
 import { z } from "zod";
 
-import { archiveEmail } from "../server/lib/email-state.js";
 import {
-  gmailBatchModifyByAccount,
+  archiveEmail,
+  resolveMutationAccounts,
+} from "../server/lib/email-state.js";
+import {
+  gmailBatchArchiveByAccount,
   isConnected,
 } from "../server/lib/google-auth.js";
+import { syncInboxLabelDeltaForTargets } from "../server/lib/inbox-store-sync.js";
 import { invalidateThreadCache } from "../server/lib/thread-cache.js";
 
 function userFacingActionError(message: string, statusCode: number): Error {
@@ -49,7 +54,7 @@ export default defineAction({
         "Per-id thread ID hints, comma-separated and positionally matched to --id (bulk UI calls only)",
       ),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const ids = args.id
       .split(",")
       .map((s) => s.trim())
@@ -71,35 +76,61 @@ export default defineAction({
       accountEmailList?.[i] || args.accountEmail;
 
     const results: { id: string; success: boolean; error?: string }[] = [];
+    let remainingIds: string[] = [];
+    let retryAfterSeconds: number | undefined;
 
-    // Bulk path: one Gmail batchModify call per account instead of one
-    // modify call per message. Only applies when Gmail is connected and the
-    // caller isn't resolving a label-view removeLabel (that needs a
-    // per-message label lookup, see archiveEmail's reconciliation notes).
-    if (
-      ids.length > 1 &&
-      !args.removeLabel &&
-      (await isConnected(ownerEmail))
-    ) {
+    if (await isConnected(ownerEmail)) {
       const targets = ids.map((id, i) => ({
         id,
         threadId: threadIdFor(i),
         accountEmail: accountEmailFor(i),
       }));
-      const { succeeded, failed } = await gmailBatchModifyByAccount(
+      const { resolved, unresolved } = await resolveMutationAccounts(
         ownerEmail,
         targets,
-        undefined,
-        ["INBOX"],
       );
-      const threadIdById = new Map(targets.map((t) => [t.id, t.threadId]));
+      const {
+        succeeded,
+        failed,
+        threadIdsByTarget,
+        removeLabelIdsByAccount,
+        remaining,
+        retryAfterSeconds: retryDelay,
+      } = await gmailBatchArchiveByAccount(
+        ownerEmail,
+        resolved,
+        args.removeLabel,
+      );
+      remainingIds = remaining;
+      retryAfterSeconds = retryDelay;
       for (const id of succeeded) {
-        const tid = threadIdById.get(id);
+        const tid = threadIdsByTarget[id];
         if (tid) invalidateThreadCache(ownerEmail, tid);
         results.push({ id, success: true });
       }
       for (const f of failed)
         results.push({ id: f.id, success: false, error: f.error });
+      for (const u of unresolved)
+        results.push({ id: u.id, success: false, error: u.error });
+      const succeededIds = new Set(succeeded);
+      const succeededTargets = resolved
+        .filter((target) => succeededIds.has(target.id))
+        .map((target) => ({
+          ...target,
+          threadId: threadIdsByTarget[target.id] || target.threadId,
+        }));
+      const targetsByAccount = new Map<string, typeof succeededTargets>();
+      for (const target of succeededTargets) {
+        const accountEmail = target.accountEmail.toLowerCase();
+        const group = targetsByAccount.get(accountEmail) ?? [];
+        group.push(target);
+        targetsByAccount.set(accountEmail, group);
+      }
+      for (const [accountEmail, accountTargets] of targetsByAccount) {
+        await syncInboxLabelDeltaForTargets(ownerEmail, accountTargets, {
+          remove: removeLabelIdsByAccount[accountEmail] ?? ["INBOX"],
+        });
+      }
     } else {
       for (let i = 0; i < ids.length; i++) {
         const id = ids[i];
@@ -120,6 +151,18 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
+    if (remainingIds.length > 0) {
+      return {
+        requested: ids,
+        succeeded: results.filter((result) => result.success).map((r) => r.id),
+        failed: results
+          .filter((result) => !result.success)
+          .map(({ id, error }) => ({ id, error: error ?? "Archive failed" })),
+        remaining: [...new Set(remainingIds)],
+        ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+      };
+    }
+
     const succeeded = results.filter((r) => r.success).length;
     const failed = results.filter((r) => !r.success);
 
@@ -131,6 +174,17 @@ export default defineAction({
       });
       throw userFacingActionError(summary.message, summary.statusCode);
     }
+    track(
+      "inbox_triaged",
+      {
+        app_name: "mail",
+        template_name: "mail",
+        action: "archive",
+        items_triaged: succeeded,
+        succeeded: true,
+      },
+      ctx,
+    );
     return `Archived ${succeeded} email(s) successfully`;
   },
 });

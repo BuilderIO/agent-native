@@ -72,6 +72,22 @@ describe("executeSqlQuery", () => {
     expect(mocks.addBytesProcessed).toHaveBeenCalledWith(128);
   });
 
+  it("requests a live result when refreshing a BigQuery panel", async () => {
+    mocks.callAction.mockResolvedValue({ rows: [], schema: [] });
+
+    await executeSqlQuery("SELECT 1", "bigquery", undefined, {
+      forceRefresh: true,
+    });
+
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "query-dashboard-panel",
+      { query: "SELECT 1", source: "bigquery", forceRefresh: true },
+      expect.objectContaining({
+        timeoutMs: DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
+      }),
+    );
+  });
+
   it("surfaces an unsupported-backend panel instead of an empty row set", async () => {
     mocks.callAction.mockResolvedValue({
       error: "unsupported_by_backend",

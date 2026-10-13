@@ -1,17 +1,6 @@
-import { IconLoader2 } from "@tabler/icons-react";
-
 import { cn } from "../utils.js";
+import { CubeLoader, type CubeLoaderProps } from "./cube-loader.js";
 
-export function Spinner({
-  className,
-  ...props
-}: React.ComponentProps<typeof IconLoader2>) {
-  return (
-    <IconLoader2
-      role="status"
-      aria-label="Loading"
-      className={cn("size-4 animate-spin", className)}
-      {...props}
-    />
-  );
+export function Spinner({ className, ...props }: CubeLoaderProps) {
+  return <CubeLoader className={cn("size-4", className)} {...props} />;
 }

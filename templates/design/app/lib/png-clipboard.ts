@@ -68,13 +68,6 @@ function classifyClipboardWriteError(error: unknown): PngClipboardErrorCode {
   return "write-failed";
 }
 
-/**
- * Write a real `image/png` ClipboardItem while the initiating pointer/key event
- * still owns transient clipboard activation. Passing the pending render promise
- * to ClipboardItem is deliberate: waiting for html2canvas before calling
- * `clipboard.write()` causes Safari and hardened Chromium configurations to
- * expire the user gesture.
- */
 export async function copyPngPromiseToClipboard(
   pngBlob: Promise<Blob>,
   environment: PngClipboardEnvironment = defaultPngClipboardEnvironment(),
@@ -90,9 +83,6 @@ export async function copyPngPromiseToClipboard(
     renderError = error;
     throw error;
   });
-  // ClipboardItem owns the promise in browsers. This additional rejection
-  // observer prevents an unhandled rejection in test doubles or browsers that
-  // reject the write before reading the promised representation.
   void trackedPngBlob.catch(() => undefined);
 
   let item: ClipboardItem;
@@ -105,8 +95,6 @@ export async function copyPngPromiseToClipboard(
   try {
     await clipboard.write([item]);
   } catch (error) {
-    // Preserve the renderer's real error instead of misreporting it as a
-    // clipboard permission failure when the promised representation rejected.
     if (renderError !== undefined) throw renderError;
     throw new PngClipboardError(classifyClipboardWriteError(error), error);
   }

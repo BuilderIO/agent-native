@@ -56,14 +56,11 @@ describe("assembleDailyTimeline", () => {
     ];
     const buckets = assembleDailyTimeline(rows, { now, days: 3 });
     expect(buckets).toHaveLength(3);
-    // Oldest bucket first (2026-03-08), newest last (2026-03-10).
     expect(buckets[0].start).toBe("2026-03-08T00:00:00.000Z");
     expect(buckets[0].status).toBe("up");
-    // The middle day (03-09) had no checks → no-data gap fill.
     expect(buckets[1].status).toBe("no-data");
     expect(buckets[1].uptimePct).toBeNull();
     expect(buckets[1].total).toBe(0);
-    // Newest day had a failure.
     expect(buckets[2].status).toBe("down");
     expect(buckets[2].uptimePct).toBeCloseTo(80, 5);
     expect(buckets[2].downCount).toBe(2);
@@ -86,7 +83,6 @@ describe("computeMtbf", () => {
   });
 
   it("divides operational time by the failure count", () => {
-    // Two 1-hour incidents in a 30-day window.
     const HOUR = 60 * 60 * 1000;
     const incidents = [
       {
@@ -112,7 +108,6 @@ describe("computeMtbf", () => {
       },
     ];
     const mtbf = computeMtbf(incidents, { windowStartMs, nowMs });
-    // Entire window is downtime (clamped), so operational time is 0.
     expect(mtbf).toBe(0);
   });
 });
@@ -124,7 +119,6 @@ describe("averageResponse", () => {
       { bucketStart: "b", avg: 200, min: 190, max: 210, count: 3 },
       { bucketStart: "c", avg: null, min: null, max: null, count: 0 },
     ];
-    // (100*1 + 200*3) / 4 = 175
     expect(averageResponse(series)).toBeCloseTo(175, 5);
   });
 

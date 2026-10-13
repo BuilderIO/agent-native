@@ -261,7 +261,7 @@ export default function DestinationsRoute() {
                   form.platform === "slack"
                     ? "C0123456789"
                     : form.platform === "email"
-                      ? "teammate+qa@agent-native.test"
+                      ? "teammate+autoz@agent-native.test"
                       : "123456789"
                 }
               />

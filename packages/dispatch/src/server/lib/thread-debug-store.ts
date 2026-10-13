@@ -1,10 +1,13 @@
+import { fail } from "@agent-native/core/action";
 import {
   classifyAgentFailure,
   type AgentFailureRegime,
 } from "@agent-native/core/agent/engine";
 import { createDbExec, getDbExec, type DbExec } from "@agent-native/core/db";
+import { getAppConfig } from "@agent-native/core/server";
 import { ForbiddenError } from "@agent-native/core/sharing";
 
+import { isDispatchEnvironmentAdmin } from "./admin-config.js";
 import { currentOrgId, currentOwnerEmail } from "./dispatch-store.js";
 
 const CONFIG_ENV_KEY = "AGENT_NATIVE_THREAD_DEBUG_DATABASES";
@@ -20,9 +23,7 @@ interface ThreadDebugSourceConfig {
   label: string;
   kind: "current" | "env" | "configured";
   databaseUrl?: string;
-  databaseAuthToken?: string;
   databaseUrlEnv?: string | null;
-  databaseAuthTokenEnv?: string | null;
 }
 
 export interface ThreadDebugSource {
@@ -32,7 +33,6 @@ export interface ThreadDebugSource {
   current: boolean;
   connected: boolean;
   databaseUrlEnv: string | null;
-  databaseAuthTokenEnv: string | null;
   canInspectAll: boolean;
 }
 
@@ -41,6 +41,7 @@ export interface DebugAccess {
   orgId: string | null;
   role: string | null;
   envAdmin: boolean;
+  superOrg: boolean;
   canInspectAll: boolean;
   memberEmails: string[];
 }
@@ -111,34 +112,15 @@ class UnsupportedThreadDebugSchemaError extends Error {
   }
 }
 
-function envEmails(name: string): string[] {
-  return (process.env[name] ?? "")
-    .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
-}
-
 function escapeLike(value: string): string {
   return value.replace(/([\\%_])/g, "\\$1");
-}
-
-function isEnvAdmin(email: string): boolean {
-  const normalized = email.trim().toLowerCase();
-  return [
-    ...envEmails("DISPATCH_ADMIN_EMAILS"),
-    ...envEmails("WORKSPACE_OWNER_EMAIL"),
-    ...envEmails("DISPATCH_DEFAULT_OWNER_EMAIL"),
-  ].includes(normalized);
 }
 
 function missingTableName(error: unknown): string | null {
   const message = String((error as Error)?.message ?? error);
   const patterns = [
-    /no such table:\s*(?:(?:main|public)\.)?["'`]?([a-zA-Z_][\w$]*)/i,
     /relation\s+["'`](?:(?:public)\.)?([a-zA-Z_][\w$]*)["'`]\s+does not exist/i,
     /table\s+["'`](?:[^"'`.]+\.)?([a-zA-Z_][\w$]*)["'`]\s+does(?:n't| not)\s+exist/i,
-    /unknown table\s+["'`]?(?:[^"'`.\s]+\.)?([a-zA-Z_][\w$]*)/i,
-    /undefined table[^a-zA-Z_]+(?:[^.\s]+\.)?([a-zA-Z_][\w$]*)/i,
   ];
   for (const pattern of patterns) {
     const match = message.match(pattern);
@@ -194,7 +176,9 @@ function nullableNumberField(value: unknown): number | null {
 function safeJsonParse<T>(value: unknown, fallback: T): T {
   if (value == null || value === "") return fallback;
   try {
-    return JSON.parse(String(value)) as T;
+    return JSON.parse(
+      typeof value === "string" ? value : JSON.stringify(value),
+    ) as T;
   } catch {
     return fallback;
   }
@@ -317,10 +301,6 @@ function parseConfiguredSources(): ThreadDebugSourceConfig[] {
         typeof entry.databaseUrlEnv === "string"
           ? entry.databaseUrlEnv.trim()
           : null;
-      const databaseAuthTokenEnv =
-        typeof entry.databaseAuthTokenEnv === "string"
-          ? entry.databaseAuthTokenEnv.trim()
-          : null;
       const databaseUrl =
         typeof entry.databaseUrl === "string" && entry.databaseUrl.trim()
           ? entry.databaseUrl.trim()
@@ -335,14 +315,7 @@ function parseConfiguredSources(): ThreadDebugSourceConfig[] {
             : labelFromSourceId(id),
         kind: "configured",
         databaseUrl,
-        databaseAuthToken:
-          typeof entry.databaseAuthToken === "string"
-            ? entry.databaseAuthToken
-            : databaseAuthTokenEnv
-              ? process.env[databaseAuthTokenEnv]
-              : undefined,
         databaseUrlEnv,
-        databaseAuthTokenEnv,
       };
     })
     .filter((source): source is ThreadDebugSourceConfig => Boolean(source));
@@ -366,15 +339,12 @@ function discoverEnvSources(): ThreadDebugSourceConfig[] {
     if (!prefix || prefix === "NETLIFY") continue;
     if (currentAppPrefix && prefix === currentAppPrefix) continue;
     const id = sourceIdFromEnvPrefix(prefix);
-    const tokenEnv = `${prefix}_DATABASE_AUTH_TOKEN`;
     sources.push({
       id,
       label: labelFromSourceId(id),
       kind: "env",
       databaseUrl: value,
-      databaseAuthToken: process.env[tokenEnv],
       databaseUrlEnv: key,
-      databaseAuthTokenEnv: process.env[tokenEnv] ? tokenEnv : null,
     });
   }
   return sources;
@@ -387,9 +357,6 @@ function sourceConfigs(): ThreadDebugSourceConfig[] {
     label: "Current Dispatch DB",
     kind: "current",
     databaseUrlEnv: currentDatabaseUrlEnv(),
-    databaseAuthTokenEnv: process.env.DATABASE_AUTH_TOKEN
-      ? "DATABASE_AUTH_TOKEN"
-      : null,
   });
   for (const source of discoverEnvSources()) byId.set(source.id, source);
   for (const source of parseConfiguredSources()) byId.set(source.id, source);
@@ -401,6 +368,8 @@ function resolveSourceConfig(sourceId = "current"): ThreadDebugSourceConfig {
   const direct = sourceConfigs().find((source) => source.id === normalized);
   if (direct) {
     if (direct.kind !== "current" && !direct.databaseUrl) {
+      // A configured source whose URL env var is unset is a deploy
+      // misconfiguration: untyped on purpose, so the boundary captures it.
       throw new Error(
         `Thread debug source "${normalized}" is configured but disconnected.`,
       );
@@ -412,17 +381,17 @@ function resolveSourceConfig(sourceId = "current"): ThreadDebugSourceConfig {
   const databaseUrlEnv = `${prefix}_DATABASE_URL`;
   const databaseUrl = process.env[databaseUrlEnv];
   if (!databaseUrl) {
-    throw new Error(`Thread debug source "${normalized}" is not configured.`);
+    fail(`Thread debug source "${normalized}" is not configured.`, {
+      errorCode: "thread_debug_source_not_configured",
+      statusCode: 404,
+    });
   }
-  const tokenEnv = `${prefix}_DATABASE_AUTH_TOKEN`;
   return {
     id: normalized,
     label: labelFromSourceId(normalized),
     kind: "env",
     databaseUrl,
-    databaseAuthToken: process.env[tokenEnv],
     databaseUrlEnv,
-    databaseAuthTokenEnv: process.env[tokenEnv] ? tokenEnv : null,
   };
 }
 
@@ -433,13 +402,12 @@ async function execForSource(source: ThreadDebugSourceConfig): Promise<DbExec> {
       `Thread debug source "${source.id}" is configured but disconnected.`,
     );
   }
-  const cacheKey = `${source.databaseUrl ?? ""}\n${source.databaseAuthToken ?? ""}`;
+  const cacheKey = source.databaseUrl;
   if (!execCache.has(cacheKey)) {
     execCache.set(
       cacheKey,
       createDbExec({
         url: source.databaseUrl,
-        authToken: source.databaseAuthToken,
       }),
     );
   }
@@ -459,7 +427,10 @@ async function viewerOrgRole(
 ): Promise<string | null> {
   if (!orgId) return null;
   const rows = await currentDbRows<{ role?: string }>(
-    `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+    `SELECT role FROM org_members
+     WHERE org_id = ? AND LOWER(email) = ?
+       AND federation_removal_pending_at IS NULL
+     LIMIT 1`,
     [orgId, viewerEmail.toLowerCase()],
   );
   return typeof rows[0]?.role === "string" ? rows[0].role : null;
@@ -468,7 +439,8 @@ async function viewerOrgRole(
 async function currentOrgMembers(orgId: string | null): Promise<string[]> {
   if (!orgId) return [];
   const rows = await currentDbRows<{ email?: string }>(
-    `SELECT email FROM org_members WHERE org_id = ?`,
+    `SELECT email FROM org_members
+     WHERE org_id = ? AND federation_removal_pending_at IS NULL`,
     [orgId],
   );
   return rows.map((row) => String(row.email ?? "").trim()).filter(Boolean);
@@ -478,8 +450,13 @@ async function resolveDebugAccess(): Promise<DebugAccess> {
   const viewerEmail = currentOwnerEmail();
   const orgId = currentOrgId();
   const role = await viewerOrgRole(orgId, viewerEmail);
-  const envAdmin = isEnvAdmin(viewerEmail);
-  const canInspectAll = envAdmin || role === "owner" || role === "admin";
+  const envAdmin = isDispatchEnvironmentAdmin(viewerEmail);
+  const orgAdmin = role === "owner" || role === "admin";
+  const canInspectAll = envAdmin || orgAdmin;
+  // Remote sources keep their own org rosters, so Dispatch membership cannot
+  // scope them; the observability super org is the one cross-org review grant.
+  const superOrgId = getAppConfig().observability.superOrgId;
+  const superOrg = Boolean(orgId && orgAdmin && superOrgId === orgId);
   const memberEmails = canInspectAll
     ? await currentOrgMembers(orgId)
     : [viewerEmail];
@@ -488,6 +465,7 @@ async function resolveDebugAccess(): Promise<DebugAccess> {
     orgId,
     role,
     envAdmin,
+    superOrg,
     canInspectAll,
     memberEmails: memberEmails.length > 0 ? memberEmails : [viewerEmail],
   };
@@ -522,13 +500,15 @@ function ownerScope(
   if (requested && requested !== "*") {
     if (
       access.orgId &&
+      !access.superOrg &&
       !access.memberEmails.some(
         (email) => email.toLowerCase() === requested.toLowerCase(),
       )
     ) {
-      throw new Error(
-        "The requested owner is not a member of the current organization.",
-      );
+      fail("The requested owner is not a member of the current organization.", {
+        errorCode: "forbidden",
+        statusCode: 403,
+      });
     }
     return {
       sql: `${column} = ?`,
@@ -537,6 +517,9 @@ function ownerScope(
     };
   }
 
+  if (access.superOrg) {
+    return { sql: "1 = 1", args: [], label: "all organizations" };
+  }
   if (access.envAdmin && !access.orgId) {
     return { sql: "1 = 1", args: [], label: "all users" };
   }
@@ -598,9 +581,15 @@ function serializeRun(row: AgentRunRow, events: any[] = []) {
 }
 
 function parseRunEvent(row: Record<string, unknown>) {
-  const raw = String(row.event_data ?? "");
+  const raw =
+    typeof row.event_data === "string"
+      ? row.event_data
+      : JSON.stringify(row.event_data ?? "");
   return {
-    runId: String(row.run_id ?? ""),
+    runId:
+      typeof row.run_id === "string" || typeof row.run_id === "number"
+        ? String(row.run_id)
+        : "",
     seq: numberField(row.seq),
     event: safeJsonParse(raw, { type: "unparseable", raw }),
     rawEventData: raw,
@@ -621,6 +610,7 @@ export async function listThreadDebugSources(): Promise<{
       orgId: access.orgId,
       role: access.role,
       envAdmin: access.envAdmin,
+      superOrg: access.superOrg,
       canInspectAll: access.canInspectAll,
       memberCount: access.memberEmails.length,
     },
@@ -631,7 +621,6 @@ export async function listThreadDebugSources(): Promise<{
       current: source.kind === "current",
       connected: source.kind === "current" || Boolean(source.databaseUrl),
       databaseUrlEnv: source.databaseUrlEnv ?? null,
-      databaseAuthTokenEnv: source.databaseAuthTokenEnv ?? null,
       canInspectAll: access.canInspectAll,
     })),
   };
@@ -649,7 +638,9 @@ function publicSource(source: ThreadDebugSourceConfig) {
 function parseTerminalEvent(value: unknown): Record<string, unknown> | null {
   if (value == null || value === "") return null;
   try {
-    const parsed = JSON.parse(String(value));
+    const parsed = JSON.parse(
+      typeof value === "string" ? value : JSON.stringify(value),
+    );
     return parsed && typeof parsed === "object"
       ? (parsed as Record<string, unknown>)
       : { type: "unparseable" };
@@ -913,11 +904,11 @@ export async function searchAgentThreads(input: {
         ? " OR id IN (" + runThreadIds.map(() => "?").join(", ") + ")"
         : "";
     where.push(
-      "(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(preview) LIKE ? ESCAPE '\\' OR LOWER(owner_email) LIKE ? ESCAPE '\\' OR LOWER(thread_data) LIKE ? ESCAPE '\\'" +
+      "(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(preview) LIKE ? ESCAPE '\\' OR LOWER(owner_email) LIKE ? ESCAPE '\\' OR LOWER(thread_data) LIKE ? ESCAPE '\\' OR LOWER(source_url) LIKE ? ESCAPE '\\' OR id = ? OR scope_id = ?" +
         runIdClause +
         ")",
     );
-    args.push(pattern, pattern, pattern, pattern);
+    args.push(pattern, pattern, pattern, pattern, pattern, q, q);
     args.push(...runThreadIds);
   }
   args.push(limit);
@@ -965,7 +956,10 @@ export async function getAgentThreadDebug(input: {
   const scope = ownerScope(access, input.ownerEmail);
   const requestedId = input.runId?.trim() || input.threadId?.trim() || "";
   if (!requestedId) {
-    throw new Error("A thread ID or request/run ID is required.");
+    fail("A thread ID or request/run ID is required.", {
+      errorCode: "thread_id_required",
+      statusCode: 400,
+    });
   }
 
   let rows = await queryRows<ChatThreadRow>(
@@ -1005,7 +999,10 @@ export async function getAgentThreadDebug(input: {
 
   const row = rows[0];
   if (!row) {
-    throw new Error(`Thread or request/run ID "${requestedId}" was not found.`);
+    fail(`Thread or request/run ID "${requestedId}" was not found.`, {
+      errorCode: "not_found",
+      statusCode: 404,
+    });
   }
 
   const threadData = safeJsonParse<Record<string, unknown>>(
@@ -1022,7 +1019,7 @@ export async function getAgentThreadDebug(input: {
     Math.min(2_000, input.maxTraceSpans ?? DEFAULT_TRACE_SPAN_LIMIT),
   );
 
-  const runRows = await optionalRows<AgentRunRow>(
+  let runRows = await optionalRows<AgentRunRow>(
     exec,
     `SELECT r.*
        FROM agent_runs r
@@ -1031,6 +1028,25 @@ export async function getAgentThreadDebug(input: {
       LIMIT ?`,
     [row.id, maxRuns],
   );
+
+  // A deep-linked run can be older than the most recent `maxRuns` runs; fetch
+  // it explicitly so the inspector opens the run someone was sent to debug
+  // instead of silently falling back to the latest one.
+  if (resolvedRunId && !runRows.some((run) => run.id === resolvedRunId)) {
+    const lookupRunRows = await optionalRows<AgentRunRow>(
+      exec,
+      `SELECT r.*
+         FROM agent_runs r
+        WHERE r.thread_id = ? AND r.id = ?
+        LIMIT 1`,
+      [row.id, resolvedRunId],
+    );
+    if (lookupRunRows[0]) {
+      runRows = [...runRows, lookupRunRows[0]].sort(
+        (a, b) => Number(b.started_at) - Number(a.started_at),
+      );
+    }
+  }
 
   const runs = [];
   for (const run of runRows) {

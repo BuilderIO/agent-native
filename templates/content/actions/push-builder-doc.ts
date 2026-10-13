@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { pushBuilderDocsSource } from "./_builder-docs-client.js";
@@ -34,12 +35,27 @@ export default defineAction({
     description:
       "Validate and autosave a Builder MDX body back to the safe Builder model.",
   },
-  run: async ({ documentId, id, path, files, dryRun }) => {
-    return await pushBuilderDocsSource({
+  run: async ({ documentId, id, path, files, dryRun }, ctx) => {
+    const result = await pushBuilderDocsSource({
       documentId: documentId || id,
       path,
       files,
       dryRun,
     });
+    if (result.executed) {
+      track(
+        "published",
+        {
+          app_name: "content",
+          template_name: "content",
+          ...(documentId || id
+            ? { output_id: documentId || id, output_type: "document" }
+            : {}),
+          destination: "builder_cms",
+        },
+        ctx,
+      );
+    }
+    return result;
   },
 });

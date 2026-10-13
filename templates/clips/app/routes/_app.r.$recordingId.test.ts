@@ -1,0 +1,472 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+function readRoute(name: string): string {
+  return readFileSync(resolve(process.cwd(), "app/routes", name), "utf8");
+}
+
+describe("direct recording route shell cue", () => {
+  it("localizes unreadable screenshot edit errors", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain('"CLIPS_SCREENSHOT_EDITS_UNREADABLE"');
+    expect(route).toContain('t("screenshot.editsUnreadable")');
+  });
+
+  it("fences manual finalize retries to the loaded upload identity", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain(
+      "uploadAttemptId: recording?.uploadAttemptId ?? null",
+    );
+    expect(route).toContain(
+      "uploadGenerationId: recording?.uploadGenerationId ?? null",
+    );
+  });
+
+  it("prefers public-share timestamps over legacy owner timestamps", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain('searchParams.get("at") ?? searchParams.get("t")');
+    expect(route).toContain("requestedPlaybackRef.current");
+    expect(route).toContain("playerRef.current?.seek(requestedStartMs)");
+  });
+
+  it("preserves only public playback state in the anonymous legacy redirect", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain("buildShareContinuationQuery");
+    expect(route).toContain("legacyShareQuery");
+    expect(route).toContain('searchParams.get("panel")');
+  });
+
+  it("opens Agent from legacy recording URLs and preserves collapsed state", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain("AGENT_SIDEBAR_QUERY_PARAM");
+    expect(route).toContain("AGENT_SIDEBAR_QUERY_VALUE_OPEN");
+    expect(route).toContain("nextParams.delete(AGENT_SIDEBAR_QUERY_PARAM)");
+    expect(route).toContain('!nextParams.has("panel")');
+    expect(route).toContain(
+      "legacyAgentSidebar === AGENT_SIDEBAR_QUERY_VALUE_OPEN",
+    );
+    expect(route).toContain(
+      'if (panelParam === "agent") {\n      setPanel("agent");\n      return;',
+    );
+    expect(route).not.toContain(
+      'if (panelParam === "agent") {\n      setPanel("agent");\n      setSidePanelCollapsed(false);',
+    );
+    expect(route).toContain(
+      "setPanel(next);\n      setSidePanelCollapsed(false);",
+    );
+  });
+
+  it("routes the Agent shortcut to the recording composer after it mounts", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+    const shortcutStart = route.indexOf(
+      "const handleKeyDown = (event: KeyboardEvent)",
+    );
+    const shortcutEnd = route.indexOf(
+      'document.addEventListener("keydown", handleKeyDown)',
+      shortcutStart,
+    );
+
+    expect(route).toContain('event.key !== "i"');
+    expect(route).toContain('".ProseMirror, textarea"');
+    expect(route).toContain("window.setTimeout(() => focus(attempt + 1), 50)");
+    expect(route).toContain("selectionHandoffRevisionRef.current += 1;");
+    expect(route).toContain("setPendingSelectionText(selectionText || null);");
+    expect(route).toContain(
+      "if (selectionRevision !== selectionHandoffRevisionRef.current) return;",
+    );
+    expect(route).toMatch(
+      /useEffect\(\s*\(\) => \(\) => \{\s*selectionHandoffRevisionRef\.current \+= 1;/,
+    );
+    expect(route).toContain('"pending-selection-context"');
+    expect(route).toContain(
+      ").then(dispatchSelectionAttached, dispatchSelectionAttached)",
+    );
+    expect(route.slice(shortcutStart, shortcutEnd)).not.toContain(
+      "agent-panel:selection-attached",
+    );
+    expect(route).toContain('if (panel !== "agent") return;');
+    expect(route).toContain("setPendingSelectionText(selectionText || null);");
+  });
+
+  it("clamps route playback state before exposing it", () => {
+    const recordingRoute = readRoute("_app.r.$recordingId.tsx");
+    const shareRoute = readRoute("share.$shareId.tsx");
+
+    expect(recordingRoute).toContain(
+      "const playbackMs = resolveStartMs(currentMs, recording?.durationMs)",
+    );
+    expect(recordingRoute).toContain("currentMs: Math.round(playbackMs)");
+    expect(recordingRoute).toContain("currentMs={playbackMs}");
+    expect(shareRoute).toContain(
+      "const playbackMs = resolveStartMs(currentMs, recording?.durationMs)",
+    );
+    expect(shareRoute).toContain("currentMs={playbackMs}");
+  });
+
+  it("keeps timestamped comments outside the clipped video frame", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain(
+      'className="relative aspect-video w-full bg-card shadow-sm ring-1 ring-border sm:rounded-2xl"',
+    );
+  });
+
+  it("surfaces recording cleanup before advanced workflow submenus", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+    const menuStart = route.indexOf('t("recordingPage.askAboutClip")');
+    const menuEnd = route.indexOf(
+      't("recordingPage.includeFullVideo")',
+      menuStart,
+    );
+    const menu = route.slice(menuStart, menuEnd);
+
+    expect(menuStart).toBeGreaterThan(-1);
+    expect(menu).toContain('t("recordingPage.removeFillerWords")');
+    expect(menu).toContain('t("recordingPage.removeSilences")');
+    expect(menu).toContain("<DropdownMenuSub>");
+    expect(menu).toContain('t("recordingPage.enhanceRecording")');
+    expect(menu).toContain('t("recordingPage.createFromClip")');
+    expect(menu).not.toContain('t("recordingPage.cleanUpRecording")');
+  });
+
+  it("keeps background AI work in one persistent Sonner lifecycle", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain("const aiRequestStatusQ = useQuery");
+    expect(route).toContain('status === "queued" || status === "working"');
+    expect(route).toContain("startAiRequestToast");
+    expect(route).toContain("completeAiRequestToast");
+    expect(route).toContain("failAiRequestToast");
+    expect(route).toContain(
+      "activeAiRequestRef.current.requestedAt !== aiRequestStatus.requestedAt",
+    );
+    expect(route).toContain("requestedAt: result?.requestedAt ?? null");
+    expect(route).toContain("duration: Number.POSITIVE_INFINITY");
+    expect(route).toContain("transcriptPendingObservedRef.current = true");
+    expect(route).toContain(
+      "transcriptLifecycleRecordingIdRef.current !== recording.id",
+    );
+    expect(route).not.toContain("silenceRemovalStatus");
+    expect(route).not.toContain(
+      'toast.success(t("recordingPage.silenceQueued"))',
+    );
+    expect(route).not.toContain(
+      'toast.success(t("recordingPage.fillerQueued"))',
+    );
+  });
+
+  it("keeps Share primary and unifies mobile viewer panels", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+    const toolbarStart = route.indexOf("const recordingActions = (");
+    const toolbarEnd = route.indexOf("const ownerInitial", toolbarStart);
+    const toolbar = route.slice(toolbarStart, toolbarEnd);
+
+    expect(toolbarStart).toBeGreaterThan(-1);
+    expect(toolbar).toContain("<IconEdit");
+    expect(toolbar).toContain("<IconMoodSmile");
+    expect(toolbar).toContain('t("recordingPage.react")');
+    expect(toolbar).toContain("<PopoverContent");
+    expect(toolbar).toContain("REACTION_EMOJIS.map");
+    expect(toolbar).toContain("<RecordingOptionsMenu");
+    expect(toolbar).toContain("canDownload={canDownloadRecording}");
+    expect(toolbar).toContain("onDownload={() => void downloadRecording()}");
+    expect(toolbar).not.toContain("<ClipsShareTrigger");
+    expect(route).toContain("const renderShareControl = () => (");
+    expect(route).toContain(
+      '<ClipsShareTrigger label={t("recordingPage.share")} />',
+    );
+    expect(route).not.toContain('renderShareControl("');
+    expect(toolbar).not.toContain("<ReactionsTray");
+    expect(toolbar).not.toContain("<IconDownload");
+    expect(toolbar).not.toContain("<IconMessageCircleBolt");
+    expect(toolbar).not.toContain('aria-label={t("recordingPage.aiTools")}');
+    expect(toolbar).not.toContain("<IconLink");
+    expect(toolbar).not.toContain("copyShareLink");
+    expect(toolbar).not.toContain("<ViewerButton");
+    expect(route).toContain('className="flex shrink-0 items-center gap-2"');
+    expect(toolbar).toContain('className="flex items-center gap-2"');
+    const contentColumnStart = route.indexOf(
+      'className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-0 sm:gap-4 lg:max-w-[min(100%,1600px,calc(177.778dvh-35.556rem))]"',
+    );
+    const contentColumn = route.slice(
+      contentColumnStart,
+      route.indexOf("{/* Side panel */}", contentColumnStart),
+    );
+    expect(contentColumnStart).toBeGreaterThan(-1);
+    expect(contentColumn).toContain("<VideoPlayer");
+    expect(route).toContain(
+      "gap-0 sm:gap-4 sm:px-5 sm:pb-5 sm:pt-4 lg:min-h-0 lg:flex-1 lg:overflow-hidden",
+    );
+    expect(route).toContain(
+      "Let the viewer grow on wide displays without pushing the",
+    );
+    const commentsSectionStart = route.indexOf(
+      "const renderCommentsSection = (compact = false) =>",
+    );
+    const commentsSection = route.slice(
+      commentsSectionStart,
+      route.indexOf("const renderSidePanel", commentsSectionStart),
+    );
+    expect(commentsSectionStart).toBeGreaterThan(-1);
+    expect(commentsSection).toContain(
+      '"flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3"',
+    );
+    expect(commentsSection).not.toContain('t("playerSettings.comments")');
+    expect(toolbar).not.toContain("renderSidebarToggleButton()");
+    expect(toolbar).not.toContain("renderPanelTabs()");
+    expect(route).toContain("<ViewerTabsList");
+    expect(route).toContain('value="comments"');
+    expect(route).toContain('useState<SidePanel | null>("comments")');
+    expect(route).toContain('<ViewerTabsTrigger value="transcript">');
+    expect(route).toContain('<ViewerTabsTrigger value="agent">');
+    expect(route).toContain('<ViewerTabsTrigger value="debug">');
+    expect(route).toContain('<ViewerTabsTrigger value="settings">');
+    expect(route).toContain("isFullBrowserDiagnostics");
+    expect(route).toContain("<BrowserDiagnosticsPanel");
+    expect(route).not.toContain("<ToggleGroup");
+    expect(route).toContain('value={panel ?? "comments"}');
+    expect(route).toContain('if (value === "comments")');
+    expect(route).toContain("openCommentsPanel();");
+    expect(route).toContain('value="comments"');
+    expect(route).toContain("forceMount");
+    expect(route).toContain("data-[state=inactive]:hidden");
+    expect(route).toContain("IconLayoutSidebarRightCollapse");
+    expect(route).toContain("IconLayoutSidebarRightExpand");
+    expect(route).not.toContain("closeSidePanel");
+    expect(route).not.toContain("lastToolbarPanelRef");
+    expect(route).toContain("!editing && !isCompactLayout && panel");
+    const mobilePanelStart = route.indexOf('id="clip-activity-panel"');
+    const mobilePanel = route.slice(
+      mobilePanelStart,
+      route.indexOf(") : (", mobilePanelStart),
+    );
+    expect(mobilePanelStart).toBeGreaterThan(-1);
+    expect(mobilePanel).toContain("RecordingSidePanel");
+    expect(mobilePanel).toContain("renderSidePanel(true)");
+    expect(mobilePanel).toContain("{renderPanelTabs()}");
+    const sidePanelStart = route.indexOf("{/* Side panel */}");
+    const sidePanel = route.slice(sidePanelStart, route.indexOf("</Tabs>"));
+    expect(sidePanelStart).toBeGreaterThan(-1);
+    expect(sidePanel).toContain("<RecordingSidePanel");
+    expect(sidePanel).toContain(
+      '"hidden lg:col-start-2 lg:row-start-1 lg:flex lg:w-[360px] xl:w-[420px]',
+    );
+    expect(sidePanel).toContain("{renderPanelTabs()}");
+    expect(sidePanel).toContain("{renderSidePanel()}");
+    expect(sidePanel).not.toContain("onClose");
+    expect(sidePanel).not.toContain("closeLabel");
+    expect(sidePanel.indexOf("{renderPanelTabs()}")).toBeLessThan(
+      sidePanel.indexOf("{renderSidePanel()}"),
+    );
+    const sidePanelFrame = readFileSync(
+      resolve(process.cwd(), "app/components/player/recording-side-panel.tsx"),
+      "utf8",
+    );
+    expect(sidePanelFrame).toContain("data-recording-side-panel");
+    expect(sidePanelFrame).toContain("border-y border-border bg-background");
+    expect(sidePanelFrame).toContain("lg:bg-background");
+    expect(sidePanelFrame).toContain("lg:me-4");
+    expect(sidePanelFrame).toContain("lg:rounded-xl");
+    expect(sidePanelFrame).not.toContain("IconX");
+    expect(route).toContain("alwaysShowControls");
+    expect(route).toContain(
+      "overflow-x-hidden bg-background lg:grid-cols-[minmax(0,1fr)_auto]",
+    );
+    expect(route).toContain('"min-w-0 shrink-0 bg-background"');
+
+    const shareRoute = readRoute("share.$shareId.tsx");
+    expect(shareRoute).toContain("forceMount");
+    expect(shareRoute).toContain("data-[state=inactive]:hidden");
+
+    const viewerControls = readFileSync(
+      resolve(process.cwd(), "app/components/player/viewer-controls.tsx"),
+      "utf8",
+    );
+    const tabs = readFileSync(
+      resolve(process.cwd(), "app/components/ui/tabs.tsx"),
+      "utf8",
+    );
+    expect(viewerControls).toContain('variant="line"');
+    expect(viewerControls).toContain("min-h-10");
+    expect(viewerControls).toContain("w-fit max-w-full");
+    expect(viewerControls).toContain("flex-none");
+    expect(viewerControls).toContain("data-[state=active]:after:bottom-0");
+    expect(viewerControls).toContain("data-[state=active]:after:inset-x-2");
+    expect(tabs).toContain("transition-all");
+    expect(tabs).toContain("after:transition-opacity");
+    expect(viewerControls).not.toContain("group-focus-visible:ring-2");
+    expect(viewerControls).not.toContain("hover:bg-muted/50");
+  });
+
+  it("uses the viewer Agent tab for recording context", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+    const appRoute = readRoute("_app.tsx");
+    const layout = readFileSync(
+      resolve(process.cwd(), "app/components/library/library-layout.tsx"),
+      "utf8",
+    );
+    const commandMenu = readFileSync(
+      resolve(process.cwd(), "app/components/clips-command-menu.tsx"),
+      "utf8",
+    );
+
+    expect(route).toContain('<ViewerTabsTrigger value="agent">');
+    expect(route).toContain("<AgentPanel");
+    expect(route).not.toContain("focusAgentChat");
+    expect(route).not.toContain("requestAgentSidebarOpen");
+    expect(route).not.toContain("SIDEBAR_STATE_CHANGE_EVENT");
+    expect(route).not.toContain("useGlobalAgentSidebarOpen");
+    expect(route).not.toContain("globalAgentSidebarOpen");
+    expect(route).toContain("openAgentPanel");
+    expect(route).not.toContain("<LibraryLayout");
+    expect(appRoute).toContain("<LibraryLayout>");
+    expect(appRoute).not.toContain("showAgentSidebar");
+    expect(layout).toContain("<AgentSidebar");
+    expect(layout).toContain("enabled={!isRecordingRoute}");
+    const sidebarStart = layout.indexOf("<AgentSidebar");
+    const pageShellStart = layout.indexOf(
+      'className="agent-layout-main-surface',
+    );
+    const sidebarEnd = layout.indexOf("</AgentSidebar>", sidebarStart);
+    const headerStart = layout.indexOf("<header", pageShellStart);
+    expect(sidebarStart).toBeLessThan(pageShellStart);
+    expect(headerStart).toBeGreaterThan(pageShellStart);
+    expect(headerStart).toBeLessThan(sidebarEnd);
+    expect(layout).toContain(
+      'className="agent-layout-main-surface flex min-h-0 min-w-0 flex-1 flex-col"',
+    );
+    expect(layout).toContain("showCollapseButton={isMobile}");
+    expect(layout).toContain("<AgentToggleButton");
+    expect(layout).toContain("showWhenOpen");
+    expect(layout).not.toContain("IconLayoutSidebarRight");
+    expect(layout).toContain("<ClipsAgentToggleButton />");
+    expect(layout).toContain("!isRecordingRoute ? (");
+    expect(layout).toContain("[--agent-native-viewport-height:100%]");
+    expect(layout).not.toContain("[&>.agent-sidebar-shell]:h-full");
+    expect(layout).not.toContain("showAgentSidebar");
+    expect(layout).toContain("scope={recordingScope}");
+    expect(layout).toContain('t("recordingPage.askAboutClip")');
+    expect(layout).toContain('t("recordingPage.summarizeClip")');
+    expect(commandMenu).toContain('panel: "agent"');
+    expect(route).toContain("<PageHeader>");
+    expect(route).toContain("<PageBreadcrumb items={recordingBreadcrumbItems}");
+    expect(route).not.toContain('from "@/components/ui/breadcrumb"');
+    expect(route).toContain('to: "/library"');
+    expect(route).toContain('to: "/spaces"');
+    expect(route).toContain("folder.spaceId");
+    expect(route).toContain("folder: recordingFolder");
+    expect(route).toContain("{recordingActions}");
+    expect(route).toContain("fallback={ownerInitial}");
+    expect(route).toContain("{recording.description}");
+    expect(route).toContain('t("shareDialog.more")');
+  });
+
+  it("keeps the processing state inside the signed-in workspace shell", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain("const processingView = (");
+    expect(route).toContain("<PageHeader>");
+    expect(route).toContain("{recordingBreadcrumb}");
+    expect(route).toContain("renderShareControl()");
+    expect(route).toContain("return processingView;");
+    expect(route).toContain(
+      'className="flex h-full min-h-0 w-full flex-col bg-background"',
+    );
+    expect(route).toContain("min-h-0 w-full max-w-6xl");
+    expect(route).not.toContain("{session ?");
+  });
+
+  it("keeps protected recordings out of anonymous agent context links", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain("recording.hasPassword === true");
+    expect(route).toContain("const shouldFallbackToShare =");
+    expect(route).toContain("playerDataUnauthorized && !session");
+  });
+
+  it("opens ?panel=comments even while the recording is still loading", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+    const effectStart = route.indexOf('if (panelParam === "comments") {');
+    const effectEnd = route.indexOf("return;", effectStart);
+    const effect = route.slice(effectStart, effectEnd);
+
+    const normalizedEffect = effect.replace(/\s+/g, " ");
+    expect(normalizedEffect).not.toContain(
+      'setPanel(recording?.enableComments ? "comments" : "transcript")',
+    );
+    expect(normalizedEffect).toContain(
+      'setPanel( recording && !recording.enableComments ? defaultPanel : "comments", )',
+    );
+
+    // `defaultPanel` is where the panel lands when the requested tab does not
+    // apply. It is transcript for a video and comments for a screenshot,
+    // which has no transcript tab at all — or settings when comments are off,
+    // but only for someone who can see settings. Offering a viewer settings
+    // made the guard bounce them between two tabs it rejects.
+    const route2 = readRoute("_app.r.$recordingId.tsx").replace(/\s+/g, " ");
+    expect(route2).toContain(
+      'const defaultPanel: SidePanel = !isImage ? "transcript" : recording && !recording.enableComments && canEdit ? "settings" : "comments";',
+    );
+    expect(route2).not.toContain('!recording?.enableComments ? "settings"');
+  });
+
+  it("keeps the mobile comments tab scrollable inside its fixed-height rail", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+    const commentsSectionStart = route.indexOf(
+      "const renderCommentsSection = (compact = false) =>",
+    );
+    const commentsSection = route.slice(
+      commentsSectionStart,
+      route.indexOf("const renderSidePanel", commentsSectionStart),
+    );
+
+    expect(commentsSection).toContain(
+      '"flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-5 pt-4"',
+    );
+    expect(commentsSection).toContain(
+      '"flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3"',
+    );
+  });
+
+  it("keeps the redesign comments preview fixture read-only", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain(
+      "recordingId === VIEWER_REDESIGN_PREVIEW_ID\n      ? VIEWER_PREVIEW_COMMENTS",
+    );
+    expect(route).toContain(
+      "role != null && recordingId !== VIEWER_REDESIGN_PREVIEW_ID",
+    );
+    expect(route).not.toContain("persistedPreviewReplies");
+  });
+
+  it("badges the Debug tab with an unviewed count instead of an always-on dot", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+    const debugTabStart = route.indexOf('<ViewerTabsTrigger value="debug">');
+    const debugTab = route.slice(
+      debugTabStart,
+      route.indexOf("</ViewerTabsTrigger>", debugTabStart),
+    );
+
+    expect(debugTabStart).toBeGreaterThan(-1);
+    expect(route).toContain(
+      'import { useUnviewedDebugEventCount } from "@/hooks/use-unviewed-debug-event-count";',
+    );
+    expect(route).toContain("const unviewedDebugEventCount =");
+    expect(route).toContain('panel === "debug",');
+    expect(debugTab).toContain("unviewedDebugEventCount > 0");
+    expect(debugTab).toContain("<Badge");
+    expect(debugTab).toContain('variant="secondary"');
+    expect(debugTab).toContain('t("browserDiagnostics.unviewedCount"');
+    expect(debugTab).toContain("{unviewedDebugEventCount}");
+    expect(route).not.toContain("hasBrowserDiagnosticFailures");
+    expect(route).not.toContain("browserDiagnostics.failuresPresent");
+  });
+});

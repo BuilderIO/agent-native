@@ -1,10 +1,87 @@
+import { AI_FILTER_LABEL } from "@shared/ai-filter";
+import { ALL_TAB_ID, inboxTabHref } from "@shared/inbox-threads";
 import type { EmailMessage } from "@shared/types";
 import { describe, expect, it } from "vitest";
 
-import { augmentSelfSentLabels, filterInboxTabEmails } from "./inbox-tabs";
+import {
+  augmentSelfSentLabels,
+  filterInboxTabEmails,
+  isInboxScopedLabel,
+  labelTabHref,
+  resolveInboxEmailQueryScope,
+  resolveDefaultMailHref,
+  resolvePinnedLabels,
+} from "./inbox-tabs";
 
 const self = { name: "Steve", email: "steve@builder.io" };
 const other = { name: "Mike", email: "mike@example.com" };
+
+describe("resolveInboxEmailQueryScope", () => {
+  const base = {
+    view: "inbox",
+    activeLabel: null,
+    activeInboxTab: null,
+    activeLabelIsInboxScoped: false,
+    activeSavedFilter: false,
+    combineInbox: false,
+    triageLabels: [] as string[],
+  };
+
+  it("uses client-side slicing for pinned inbox tabs", () => {
+    expect(
+      resolveInboxEmailQueryScope({
+        ...base,
+        activeLabel: "important",
+        activeLabelIsInboxScoped: true,
+        triageLabels: ["important"],
+      }),
+    ).toMatchObject({
+      emailView: "inbox",
+      effectiveLabel: undefined,
+      clientSliceTab: true,
+      mailboxWideLabelTab: false,
+    });
+  });
+
+  it("uses all mail for mailbox-wide label routes", () => {
+    expect(
+      resolveInboxEmailQueryScope({
+        ...base,
+        activeLabel: "customer-label",
+      }),
+    ).toMatchObject({ emailView: "all", effectiveLabel: "customer-label" });
+  });
+
+  it("uses the inbox source for saved filters and combined inbox routes", () => {
+    expect(
+      resolveInboxEmailQueryScope({
+        ...base,
+        view: "all",
+        activeSavedFilter: true,
+      }).emailView,
+    ).toBe("inbox");
+    expect(
+      resolveInboxEmailQueryScope({
+        ...base,
+        activeLabel: "important",
+        activeLabelIsInboxScoped: true,
+        combineInbox: true,
+      }),
+    ).toMatchObject({
+      emailView: "inbox",
+      effectiveLabel: undefined,
+      shouldNormalizeCombinedInboxRoute: true,
+    });
+  });
+
+  it("keeps user labels out of inbox-scoped system tabs", () => {
+    expect(
+      isInboxScopedLabel("important", [
+        { id: "important", name: "Important", type: "user" },
+      ]),
+    ).toBe(false);
+  });
+});
 
 function message(overrides: Partial<EmailMessage>): EmailMessage {
   return {
@@ -129,5 +206,204 @@ describe("augmentSelfSentLabels", () => {
     });
 
     expect(augment([sentReply], false)[0].labelIds).toContain("important");
+  });
+});
+
+describe("resolvePinnedLabels", () => {
+  it("uses Important only when no pin choices have been saved", () => {
+    expect(resolvePinnedLabels(undefined, true)).toEqual(["important"]);
+    expect(resolvePinnedLabels(undefined, false)).toEqual([]);
+    expect(resolvePinnedLabels([], true)).toEqual([]);
+  });
+
+  it("preserves the stored pinned-label order", () => {
+    expect(
+      resolvePinnedLabels(["archive", "important", "drafts"], true),
+    ).toEqual(["archive", "important", "drafts"]);
+    expect(resolvePinnedLabels(["archive"], true)).toEqual(["archive"]);
+  });
+});
+
+describe("labelTabHref", () => {
+  it("routes a nested user label to the unscoped all-mail view, not the inbox tab", () => {
+    expect(labelTabHref("2-tasks/jira")).toBe("/all?label=2-tasks%2Fjira");
+  });
+
+  it("keeps Gmail's inbox-only categories pinned to the inbox view", () => {
+    expect(labelTabHref("important")).toBe("/inbox?label=important");
+    expect(labelTabHref("updates")).toBe("/inbox?label=updates");
+  });
+});
+
+describe("resolveDefaultMailHref", () => {
+  it("selects All by default on fresh install", () => {
+    expect(
+      resolveDefaultMailHref({
+        pinnedLabels: undefined,
+        isGoogleConnected: true,
+      }),
+    ).toBe("/inbox?tab=__inbox_all__");
+  });
+
+  it("selects the first top label when All is hidden", () => {
+    expect(
+      resolveDefaultMailHref({
+        showAllTab: false,
+        pinnedLabels: ["important", "work"],
+        isGoogleConnected: true,
+      }),
+    ).toBe("/inbox?label=important");
+
+    expect(
+      resolveDefaultMailHref({
+        showAllTab: false,
+        pinnedLabels: ["work", "important"],
+        isGoogleConnected: true,
+      }),
+    ).toBe("/all?label=work");
+
+    expect(
+      resolveDefaultMailHref({
+        showAllTab: false,
+        pinnedLabels: ["starred", "important"],
+        isGoogleConnected: true,
+      }),
+    ).toBe("/starred");
+
+    expect(
+      resolveDefaultMailHref({
+        showAllTab: false,
+        pinnedLabels: [AI_FILTER_LABEL],
+        isGoogleConnected: true,
+      }),
+    ).toBe("/all?label=agent-native-filtered");
+  });
+
+  it("falls back to /inbox when combineInbox is enabled or tabs unpinned", () => {
+    expect(
+      resolveDefaultMailHref({
+        combineInbox: true,
+        pinnedLabels: ["important"],
+      }),
+    ).toBe("/inbox");
+
+    expect(
+      resolveDefaultMailHref({
+        showAllTab: false,
+        pinnedLabels: [],
+        isGoogleConnected: true,
+      }),
+    ).toBe("/inbox");
+  });
+
+  it("selects the first saved filter if no pinned labels exist", () => {
+    expect(
+      resolveDefaultMailHref({
+        showAllTab: false,
+        pinnedLabels: [],
+        savedFilters: [{ id: "urgent-filter" }],
+      }),
+    ).toBe("/inbox?filter=urgent-filter");
+  });
+});
+
+describe("All inbox tab deep links", () => {
+  it("uses the public all parameter for the built-in tab id", () => {
+    expect(inboxTabHref(ALL_TAB_ID)).toBe("/inbox?tab=__inbox_all__");
+  });
+});
+
+describe("filterInboxTabEmails", () => {
+  it("keeps AI Important mail in Important instead of Other", () => {
+    const important = message({
+      id: "ai-important",
+      labelIds: ["inbox", "agent-native-important"],
+    });
+
+    expect(
+      filterInboxTabEmails([important], "important", ["important"]),
+    ).toEqual([important]);
+    expect(filterInboxTabEmails([important], null, ["important"])).toEqual([]);
+  });
+
+  it("keeps saved-filter threads out of pinned tabs and Other", () => {
+    const github = message({
+      id: "github",
+      from: { name: "GitHub", email: "notifications@github.com" },
+      labelIds: ["inbox", "important"],
+    });
+    const ordinary = message({
+      id: "ordinary",
+      threadId: "ordinary-thread",
+      labelIds: ["inbox", "important"],
+    });
+    const queries = ["from:notifications@github.com"];
+
+    expect(
+      filterInboxTabEmails(
+        [github, ordinary],
+        "important",
+        ["important"],
+        queries,
+      ),
+    ).toEqual([ordinary]);
+    expect(
+      filterInboxTabEmails([github, ordinary], null, ["important"], queries),
+    ).toEqual([]);
+  });
+
+  it("claims a whole thread when an older message matches the saved filter", () => {
+    const olderGithub = message({
+      id: "older-github",
+      date: "2026-05-20T00:00:00.000Z",
+      from: { name: "GitHub", email: "notifications@github.com" },
+      labelIds: ["inbox"],
+    });
+    const latestReply = message({
+      id: "latest-reply",
+      date: "2026-05-21T00:00:00.000Z",
+      labelIds: ["inbox", "important"],
+    });
+
+    expect(
+      filterInboxTabEmails(
+        [olderGithub, latestReply],
+        "important",
+        ["important"],
+        ["from:notifications@github.com"],
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps saved-filter claims scoped to their account", () => {
+    const github = message({
+      id: "shared-github",
+      threadId: "shared-thread",
+      accountEmail: "steve@builder.io",
+      from: { name: "GitHub", email: "notifications@github.com" },
+      labelIds: ["inbox", "important"],
+    });
+    const otherAccount = message({
+      id: "shared-other",
+      threadId: "shared-thread",
+      accountEmail: "other@example.com",
+      labelIds: ["inbox", "important"],
+    });
+
+    expect(
+      filterInboxTabEmails(
+        [github, otherAccount],
+        "important",
+        ["important"],
+        ["from:notifications@github.com"],
+      ),
+    ).toEqual([otherAccount]);
+  });
+
+  it("preserves the existing partition when there are no saved filters", () => {
+    const important = message({ labelIds: ["inbox", "important"] });
+    expect(
+      filterInboxTabEmails([important], "important", ["important"]),
+    ).toEqual([important]);
   });
 });

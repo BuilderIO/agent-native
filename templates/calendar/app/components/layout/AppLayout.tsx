@@ -1,11 +1,8 @@
-import {
-  AgentSidebar,
-  AgentToggleButton,
-} from "@agent-native/core/client/agent-chat";
 import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { InvitationBanner } from "@agent-native/core/client/org";
 import { useAppearanceSync } from "@agent-native/core/client/ui";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
+import { InvitationBanner } from "@agent-native/toolkit/app/org";
 import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
 import { IconMenu } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -23,6 +20,7 @@ import { useLocation } from "react-router";
 import { AddCalendarDialog } from "@/components/calendar/AddCalendarDialog";
 import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
 import { KeyboardShortcutsHelp } from "@/components/calendar/KeyboardShortcutsHelp";
+import { HeaderActions } from "@/components/layout/HeaderActions";
 import { Button } from "@/components/ui/button";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useHiddenCalendars } from "@/hooks/use-hidden-calendars";
@@ -30,21 +28,17 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { prefetchPeopleContacts } from "@/hooks/use-people";
 import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
+import { isCalendarShortcutSuppressedTarget } from "@/lib/keyboard-shortcuts";
 
 import { Sidebar } from "./Sidebar";
 
 const EVENT_DETAIL_MODE_KEY = "calendar-event-detail-mode";
 const SIDEBAR_COLLAPSE_KEY = "calendar.sidebar.collapsed";
 
-/** Routes that render without the full AppLayout chrome (sidebar, agent panel). */
 const BARE_ROUTES = new Set(["/event"]);
 
-/**
- * Routes whose page renders its own toolbar. Layout still mounts Sidebar +
- * AgentSidebar, but skips its own header so there's no double-header.
- */
 function pageOwnsToolbar(pathname: string): boolean {
-  if (pathname === "/") return true;
+  if (pathname === "/" || pathname === "/home") return true;
   if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
     return true;
   return false;
@@ -70,39 +64,30 @@ interface CalendarContextValue {
   setPeopleSearchOpen: (open: boolean) => void;
   addCalendarOpen: boolean;
   setAddCalendarOpen: (open: boolean) => void;
-  addCalendarDefaultTab: "people" | "url";
-  setAddCalendarDefaultTab: (tab: "people" | "url") => void;
+  addCalendarDefaultTab: "people" | "url" | "google";
+  setAddCalendarDefaultTab: (tab: "people" | "url" | "google") => void;
+  openAddPersonPrefilled: (email: string) => void;
   hiddenCalendars: ReturnType<typeof useHiddenCalendars>["hidden"];
   toggleHiddenCalendar: ReturnType<typeof useHiddenCalendars>["toggle"];
   isHiddenCalendar: ReturnType<typeof useHiddenCalendars>["isHidden"];
-  /** Whether to show event details in sidebar instead of popover */
   eventDetailSidebar: boolean;
   setEventDetailSidebar: (sidebar: boolean) => void;
-  /** The currently selected event for the sidebar panel */
   sidebarEvent: CalendarEvent | null;
   setSidebarEvent: (event: CalendarEvent | null) => void;
-  /** The last-clicked/focused event (for keyboard shortcuts like Delete) */
   focusedEvent: CalendarEvent | null;
   setFocusedEvent: (event: CalendarEvent | null) => void;
-  /** The currently open unsent event draft, if any */
   eventDraft: CalendarEventDraft | null;
   setEventDraft: (draft: CalendarEventDraft | null) => void;
   openSidebar: () => void;
 }
 
-/**
- * Setter-only slice. Every value here is a stable function reference (state
- * setters, or callbacks with empty/near-empty dep arrays), so this context's
- * value object only needs to be rebuilt when AppLayout itself remounts.
- * Consumers that only dispatch changes (not read current values) should read
- * from this context so they don't re-render on every focus/selection change.
- */
 interface CalendarSettersValue {
   setSelectedDate: (date: Date) => void;
+  openAddPersonPrefilled: (email: string) => void;
   setViewMode: (mode: ViewMode) => void;
   setPeopleSearchOpen: (open: boolean) => void;
   setAddCalendarOpen: (open: boolean) => void;
-  setAddCalendarDefaultTab: (tab: "people" | "url") => void;
+  setAddCalendarDefaultTab: (tab: "people" | "url" | "google") => void;
   toggleHiddenCalendar: ReturnType<typeof useHiddenCalendars>["toggle"];
   setEventDetailSidebar: (sidebar: boolean) => void;
   setSidebarEvent: (event: CalendarEvent | null) => void;
@@ -111,20 +96,17 @@ interface CalendarSettersValue {
   openSidebar: () => void;
 }
 
-/** Values that change on navigation/preference actions, not on every event interaction. */
 interface CalendarRareValuesContextValue {
   selectedDate: Date;
   viewMode: ViewMode;
   peopleSearchOpen: boolean;
   addCalendarOpen: boolean;
-  addCalendarDefaultTab: "people" | "url";
+  addCalendarDefaultTab: "people" | "url" | "google";
   hiddenCalendars: ReturnType<typeof useHiddenCalendars>["hidden"];
   isHiddenCalendar: ReturnType<typeof useHiddenCalendars>["isHidden"];
   eventDetailSidebar: boolean;
 }
 
-/** Values that change on nearly every event click/drag — kept separate so
- * rare-value and setter-only consumers don't re-render alongside them. */
 interface CalendarHighFrequencyContextValue {
   sidebarEvent: CalendarEvent | null;
   focusedEvent: CalendarEvent | null;
@@ -133,6 +115,7 @@ interface CalendarHighFrequencyContextValue {
 
 const noopSetters: CalendarSettersValue = {
   setSelectedDate: () => {},
+  openAddPersonPrefilled: () => {},
   setViewMode: () => {},
   setPeopleSearchOpen: () => {},
   setAddCalendarOpen: () => {},
@@ -167,12 +150,6 @@ const CalendarHighFrequencyContext =
     eventDraft: null,
   });
 
-/**
- * Full merged calendar context, for consumers that need a mix of setters and
- * values. Prefer the narrower `useCalendarSetters`, `useCalendarRareValues`,
- * or `useCalendarHighFrequency` hooks in render-hot components so they only
- * re-render for the slice they actually read.
- */
 export function useCalendarContext(): CalendarContextValue {
   const setters = useContext(CalendarSettersContext);
   const rare = useContext(CalendarRareValuesContext);
@@ -180,17 +157,14 @@ export function useCalendarContext(): CalendarContextValue {
   return { ...setters, ...rare, ...highFrequency };
 }
 
-/** Setter-only slice — safe for components that dispatch but never read focus/selection state. */
 export function useCalendarSetters(): CalendarSettersValue {
   return useContext(CalendarSettersContext);
 }
 
-/** Rarely-changing slice (view mode, hidden calendars, selected date, dialogs). */
 export function useCalendarRareValues(): CalendarRareValuesContextValue {
   return useContext(CalendarRareValuesContext);
 }
 
-/** High-frequency slice (focused/sidebar event, in-progress draft). */
 export function useCalendarHighFrequency(): CalendarHighFrequencyContextValue {
   return useContext(CalendarHighFrequencyContext);
 }
@@ -237,17 +211,32 @@ export function AppLayout({ children }: AppLayoutProps) {
     location.pathname === "/settings" ||
     location.pathname.startsWith("/settings/");
   const isCalendarPage = location.pathname === "/";
+  // The Settings shell brings its own navigation, header, and agent toggle.
+  const settingsOwnsChrome = isSettingsPage;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState(readSidebarCollapsed);
+  const [sidebarExpandedWhileChatOpen, setSidebarExpandedWhileChatOpen] =
+    useState(false);
   const perAppChatOpen = usePerAppChatOpen();
+  useEffect(() => {
+    if (!perAppChatOpen) setSidebarExpandedWhileChatOpen(false);
+  }, [perAppChatOpen]);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>(isMobile ? "day" : "week");
   const [peopleSearchOpen, setPeopleSearchOpen] = useState(false);
   const [addCalendarOpen, setAddCalendarOpen] = useState(false);
   const [addCalendarDefaultTab, setAddCalendarDefaultTab] = useState<
-    "people" | "url"
+    "people" | "url" | "google"
   >("people");
+  const [addPersonPrefillEmail, setAddPersonPrefillEmail] = useState<
+    string | undefined
+  >(undefined);
+  const openAddPersonPrefilled = useCallback((email: string) => {
+    setAddPersonPrefillEmail(email);
+    setAddCalendarDefaultTab("people");
+    setAddCalendarOpen(true);
+  }, []);
   const {
     hidden: hiddenCalendars,
     toggle: toggleHiddenCalendar,
@@ -262,7 +251,6 @@ export function AppLayout({ children }: AppLayoutProps) {
   );
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
 
-  // Load preference from localStorage
   useEffect(() => {
     try {
       const saved = localStorage.getItem(EVENT_DETAIL_MODE_KEY);
@@ -289,21 +277,11 @@ export function AppLayout({ children }: AppLayoutProps) {
     }
   }, [sidebarCollapsed]);
 
-  // Global keyboard-shortcuts help: opens via `?` (or shift+/) or the sidebar
-  // button on any page, not just the calendar view. Calendar-specific shortcuts
-  // (j/k/c/etc.) still live in CalendarView.
   useEffect(() => {
     const openShortcuts = () => setShortcutsHelpOpen(true);
     window.addEventListener("calendar:open-shortcuts", openShortcuts);
     function handleKey(e: KeyboardEvent) {
-      const target = e.target as HTMLElement;
-      if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable
-      ) {
-        return;
-      }
+      if (isCalendarShortcutSuppressedTarget(e.target)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
         e.preventDefault();
@@ -332,6 +310,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const settersValue = useMemo<CalendarSettersValue>(
     () => ({
       setSelectedDate,
+      openAddPersonPrefilled,
       setViewMode,
       setPeopleSearchOpen,
       setAddCalendarOpen,
@@ -343,7 +322,12 @@ export function AppLayout({ children }: AppLayoutProps) {
       setEventDraft,
       openSidebar,
     }),
-    [toggleHiddenCalendar, setEventDetailSidebar, openSidebar],
+    [
+      toggleHiddenCalendar,
+      setEventDetailSidebar,
+      openSidebar,
+      openAddPersonPrefilled,
+    ],
   );
 
   const rareValuesValue = useMemo<CalendarRareValuesContextValue>(
@@ -374,7 +358,6 @@ export function AppLayout({ children }: AppLayoutProps) {
     [sidebarEvent, focusedEvent, eventDraft],
   );
 
-  // Render chromeless for embed/preview routes — all hooks must be called above
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
   }
@@ -386,8 +369,17 @@ export function AppLayout({ children }: AppLayoutProps) {
           <NavigationSync />
           <AddCalendarDialog
             open={addCalendarOpen}
-            onOpenChange={setAddCalendarOpen}
+            onOpenChange={(open) => {
+              setAddCalendarOpen(open);
+              if (!open) setAddPersonPrefillEmail(undefined);
+            }}
             defaultTab={addCalendarDefaultTab}
+            prefillPersonEmail={addPersonPrefillEmail}
+            visibleTabs={
+              addCalendarDefaultTab === "google"
+                ? ["google"]
+                : ["people", "url"]
+            }
           />
           <KeyboardShortcutsHelp
             open={shortcutsHelpOpen}
@@ -397,12 +389,29 @@ export function AppLayout({ children }: AppLayoutProps) {
             className="agent-layout-shell flex h-screen overflow-hidden bg-background"
             data-agent-native-shell-variant="custom"
           >
-            <Sidebar
-              open={sidebarOpen}
-              onClose={() => setSidebarOpen(false)}
-              collapsed={!isMobile && (sidebarCollapsed || perAppChatOpen)}
-              onCollapsedChange={isMobile ? undefined : setSidebarCollapsed}
-            />
+            {settingsOwnsChrome ? null : (
+              <Sidebar
+                open={sidebarOpen}
+                onClose={() => setSidebarOpen(false)}
+                collapsed={
+                  !isMobile &&
+                  (perAppChatOpen
+                    ? !sidebarExpandedWhileChatOpen
+                    : sidebarCollapsed)
+                }
+                onCollapsedChange={
+                  isMobile
+                    ? undefined
+                    : (nextCollapsed) => {
+                        if (perAppChatOpen) {
+                          setSidebarExpandedWhileChatOpen(!nextCollapsed);
+                          return;
+                        }
+                        setSidebarCollapsed(nextCollapsed);
+                      }
+                }
+              />
+            )}
             <AgentSidebar
               position="right"
               defaultOpen={false}
@@ -415,13 +424,13 @@ export function AppLayout({ children }: AppLayoutProps) {
               ]}
             >
               <div className="flex flex-1 flex-col overflow-hidden">
-                {!pageOwnsToolbar(location.pathname) && (
+                {!pageOwnsToolbar(location.pathname) && !settingsOwnsChrome && (
                   <header className="flex h-12 items-center justify-between gap-3 border-b border-border px-3 shrink-0">
                     <div className="flex min-w-0 flex-1 items-center gap-2">
                       <Button
                         variant="ghost"
-                        size="icon"
-                        className="h-10 w-10 shrink-0 lg:hidden"
+                        size="icon-lg"
+                        className="shrink-0 lg:hidden"
                         onClick={() => setSidebarOpen(true)}
                         aria-label={t("calendarView.openNavigation")}
                       >
@@ -435,7 +444,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       {headerControls?.right}
-                      <AgentToggleButton />
+                      <HeaderActions />
                     </div>
                   </header>
                 )}

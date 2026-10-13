@@ -8,10 +8,8 @@ import {
 } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import {
-  assertValidComputerCommandEnvelope,
-  type ComputerCommandEnvelope,
-} from "@agent-native/core/integrations";
+import type { ComputerCommandEnvelope } from "@agent-native/core/integrations";
+import { assertValidComputerCommandEnvelope } from "@agent-native/core/integrations/computer-supervision";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
@@ -21,6 +19,10 @@ import type {
   BrowserCommand,
   BrowserTaskRegistration,
 } from "../browser-control/protocol";
+import {
+  desktopBrowserScreenshotToolResult,
+  type CaptureActiveDesktopBrowserScreenshot,
+} from "../desktop-browser-screenshot";
 import type { ComputerControlBroker } from "./broker";
 import { normalizeOrigin } from "./policy";
 import type { EphemeralScreenObserver } from "./screen-observer";
@@ -34,6 +36,14 @@ import type {
 
 const COMPUTER_MCP_PATH = "/mcp";
 const DEFAULT_LEASE_TTL_MS = 15 * 60 * 1_000;
+
+function stringifyBrowserInput(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return JSON.stringify(value) ?? "";
+}
 
 export type DesktopComputerPermissionMode =
   | "read-only"
@@ -67,6 +77,7 @@ export interface DesktopComputerMcpBridgeOptions {
   browserBridge?: BrowserControlLoopbackBridge;
   browserNativeHostInstalled?: () => boolean;
   browserExtensionPath?: () => string | undefined;
+  captureActiveBrowserScreenshot?: CaptureActiveDesktopBrowserScreenshot;
   token?: () => string;
   leaseTtlMs?: number;
   openContentWorkingCopy?: (input: {
@@ -86,11 +97,6 @@ export interface DesktopComputerMcpBridgeOptions {
   };
 }
 
-/**
- * One loopback MCP endpoint for the lifetime of the desktop process. Each child
- * run gets an independent random bearer credential whose server-side record is
- * the sole source of task identity and permission mode.
- */
 export class DesktopComputerMcpBridge {
   private readonly contextsByTokenHash = new Map<string, RunContext>();
   private readonly tokenHashesByRun = new Map<string, Set<string>>();
@@ -152,7 +158,7 @@ export class DesktopComputerMcpBridge {
     if (!this.url) throw new Error("Desktop computer MCP bridge is not ready.");
     if (!runId.trim()) throw new Error("A run id is required.");
     for (const previous of this.removeCredentials(runId)) {
-      this.stopBrowserContext(previous);
+      void this.stopBrowserContext(previous);
     }
     const bearerToken = this.token();
     const tokenHash = hashToken(bearerToken);
@@ -379,11 +385,14 @@ export class DesktopComputerMcpBridge {
           | { available: false; guidance: string };
         if (
           permissions.screenRecording === "granted" &&
-          this.options.screenObserver
+          this.options.screenObserver &&
+          snapshot.applicationName
         ) {
           try {
             const frame = await this.options.screenObserver.capture(
               context.runId,
+              undefined,
+              snapshot.applicationName,
             );
             const bytes = this.options.screenObserver.take(
               frame.handle,
@@ -558,6 +567,29 @@ export class DesktopComputerMcpBridge {
       },
     );
 
+    mcp.registerTool(
+      "browser_screenshot",
+      {
+        description:
+          "Capture the pixels of the currently active Agent-Native inline browser surface, including an app tab or chat-first browser sidebar. This is separate from attached Chrome control.",
+        annotations: { readOnlyHint: true, openWorldHint: false },
+      },
+      async () => {
+        const context = this.context();
+        if (context.connector) {
+          throw new Error(
+            "Inline browser screenshots are unavailable to remote connectors.",
+          );
+        }
+        const capture = this.options.captureActiveBrowserScreenshot;
+        if (!capture) {
+          throw new Error(
+            "Inline browser screenshots are unavailable in this desktop session.",
+          );
+        }
+        return desktopBrowserScreenshotToolResult(await capture());
+      },
+    );
     mcp.registerTool(
       "browser_status",
       {
@@ -905,7 +937,9 @@ export class DesktopComputerMcpBridge {
     const taskId = envelope.runId;
     if (action.type === "browser.attach") {
       const tabId = Number(input.tabId);
-      const origin = normalizeBrowserOrigin(String(input.origin ?? ""));
+      const origin = normalizeBrowserOrigin(
+        stringifyBrowserInput(input.origin ?? ""),
+      );
       if (!Number.isInteger(tabId) || tabId < 0) {
         throw new Error("browser.attach requires a valid tab id.");
       }
@@ -950,7 +984,7 @@ export class DesktopComputerMcpBridge {
         return bridge.execute(registration, {
           type: "type",
           target: remoteBrowserTarget(target),
-          text: String(input.text ?? "").slice(0, 100_000),
+          text: stringifyBrowserInput(input.text ?? "").slice(0, 100_000),
           replace: input.replace === true,
         });
       case "browser.key":
@@ -962,12 +996,12 @@ export class DesktopComputerMcpBridge {
       case "browser.navigate":
         return bridge.execute(registration, {
           type: "navigate",
-          url: String(input.url ?? ""),
+          url: stringifyBrowserInput(input.url ?? ""),
         });
       case "browser.open-tab":
         return bridge.execute(registration, {
           type: "open-tab",
-          url: String(input.url ?? ""),
+          url: stringifyBrowserInput(input.url ?? ""),
         });
       case "browser.scroll":
         return bridge.execute(registration, {
@@ -983,7 +1017,9 @@ export class DesktopComputerMcpBridge {
         registrations.delete(taskId);
         return { stopped: true };
       default:
-        throw new Error(`Unsupported remote browser action: ${action.type}`);
+        throw new Error(
+          `Unsupported remote browser action: ${typeof action.type === "string" ? action.type : (JSON.stringify(action.type) ?? "unknown")}`,
+        );
     }
   }
 
@@ -1061,8 +1097,6 @@ export class DesktopComputerMcpBridge {
       );
       return this.textResult({ ok: true, observeRequired: true });
     } finally {
-      // One semantic snapshot authorizes at most one mutation. This prevents a
-      // second action from targeting UI that the first action may have changed.
       context.latestSnapshot = undefined;
     }
   }

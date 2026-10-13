@@ -66,7 +66,7 @@ This is a pnpm monorepo. Workspaces are defined in `pnpm-workspace.yaml`.
 
 Production-ready template apps that demonstrate the framework. Each template is a standalone app with its own `package.json`, Drizzle schema, actions, and UI.
 
-Templates: `analytics`, `assets`, `brain`, `calendar`, `chat`, `clips`, `content`, `design`, `dispatch`, `forms`, `macros`, `mail`, `plan`, `slides`
+Templates: `analytics`, `assets`, `brain`, `calendar`, `chat`, `clips`, `content`, `design`, `dispatch`, `forms`, `mail`, `plan`, `slides`
 
 Each template uses the same scripts:
 
@@ -93,17 +93,16 @@ than added to `.env`.
 
 ### Database options
 
-Set `DATABASE_URL` to connect to your database. When unset, defaults to a local SQLite file at `data/app.db`.
+Set `DATABASE_URL` to connect to a hosted PostgreSQL database. When unset, local development uses PGlite at `data/pglite`.
 
 | Provider         | Example `DATABASE_URL`                                     |
 | ---------------- | ---------------------------------------------------------- |
-| SQLite (default) | _(unset, or `file:./data/app.db`)_                         |
+| PGlite (default) | _(unset)_                                                  |
 | Neon Postgres    | `postgresql://user:pass@ep-xxx.us-east-2.aws.neon.tech/db` |
 | Supabase         | `postgresql://user:pass@db.xxx.supabase.co:5432/postgres`  |
-| Turso (libSQL)   | `libsql://your-db.turso.io?authToken=...`                  |
 | Plain Postgres   | `postgresql://user:pass@localhost:5432/mydb`               |
 
-All SQL must be dialect-agnostic -- never assume SQLite.
+All SQL must be PostgreSQL-compatible.
 
 ## Key Commands
 
@@ -133,9 +132,9 @@ env override:
 
 `VITEST_CONCURRENCY` takes a percentage (`25%`) or a worker count (`2`). The
 base config every vitest config merges in ships from
-`@agent-native/core/vitest-config`; templates and examples import it by package
-name, and `packages/*` go through the `vitest.shared.ts` re-export at the repo
-root so they need no dependency on core. A package that needs a different value
+`@agent-native/core/vitest-config`; templates import it by package name, and
+`packages/*` go through the `vitest.shared.ts` re-export at the repo root so
+they need no dependency on core. A package that needs a different value
 sets `test.maxWorkers` in its own config; that wins the merge.
 
 Template configs must import the package path, never the root re-export.
@@ -168,6 +167,20 @@ Enforcement:
   the required-status-checks ruleset for `main`.
 - There is intentionally **no pre-commit hook** (see project conventions); run
   `pnpm run prep` before pushing.
+
+On Windows, the guards need a checkout with LF line endings and real symlinks
+(several read the symlinked skill folders in `.agents/skills/`):
+
+1. Turn on Windows Developer Mode, which lets Git create symlinks, and run
+   `git config core.symlinks true`.
+2. If the clone predates the `eol=lf` rule in `.gitattributes` or was made
+   without symlinks, commit or stash your changes, then rewrite the tracked
+   files once:
+
+   ```bash
+   git rm --cached -r -q .
+   git reset --hard
+   ```
 
 ## Building
 

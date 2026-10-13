@@ -46,9 +46,6 @@ export async function runConfirmMakeReal({
       cta: r?.cta,
     });
 
-    // When the Builder agent accepted the job (status = "processing"),
-    // flip the design data to sourceType "fusion" so capability-gated
-    // panels (branches, deploy) light up on refresh.
     if (r?.status === "processing" && r?.url) {
       const dataOperations: DesignDataOperation[] = [
         { op: "set", path: ["sourceType"], value: "fusion" },
@@ -79,12 +76,12 @@ export async function runConfirmMakeReal({
       });
       updateDesignMutation.mutate({ id, dataOperations } as any, {
         onSuccess: () => {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
         },
         onError: () => {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
         },

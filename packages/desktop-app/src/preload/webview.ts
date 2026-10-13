@@ -23,14 +23,56 @@ import {
 } from "@shared/ipc-channels";
 import { contextBridge, ipcRenderer } from "electron";
 
+type AgentChatCommandOptions = { focus?: boolean };
+
+function sendChatCommand(
+  command: "toggle" | "open" | "close",
+  options?: AgentChatCommandOptions,
+) {
+  if (options) {
+    ipcRenderer.sendToHost("agent-native:chat-command", command, options);
+  } else {
+    ipcRenderer.sendToHost("agent-native:chat-command", command);
+  }
+}
+
 const agentNativeDesktop = {
   analytics: {
     clientPlatform: "electron" as const,
   },
+  oauth: {
+    cancelPopup: (attemptId: string): void => {
+      ipcRenderer.send(IPC.OAUTH_POPUP_CANCEL, attemptId);
+    },
+    onSystemBrowserReturned: (
+      callback: (attemptId: string | null) => void,
+    ): (() => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        attemptId: string | null,
+      ) => callback(attemptId);
+      ipcRenderer.on(IPC.OAUTH_SYSTEM_BROWSER_RETURNED, handler);
+      return () =>
+        ipcRenderer.removeListener(IPC.OAUTH_SYSTEM_BROWSER_RETURNED, handler);
+    },
+    onPopupClosed: (
+      callback: (attemptId: string | null) => void,
+    ): (() => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        attemptId: string | null,
+      ) => callback(attemptId);
+      ipcRenderer.on(IPC.OAUTH_POPUP_CLOSED, handler);
+      return () => ipcRenderer.removeListener(IPC.OAUTH_POPUP_CLOSED, handler);
+    },
+  },
   chat: {
-    toggle: () => ipcRenderer.sendToHost("agent-native:chat-command", "toggle"),
-    open: () => ipcRenderer.sendToHost("agent-native:chat-command", "open"),
-    close: () => ipcRenderer.sendToHost("agent-native:chat-command", "close"),
+    toggle: (options?: AgentChatCommandOptions) =>
+      sendChatCommand("toggle", options),
+    open: (options?: AgentChatCommandOptions) =>
+      sendChatCommand("open", options),
+    close: (options?: AgentChatCommandOptions) =>
+      sendChatCommand("close", options),
   },
   clipboard: {
     writeText: (text: string): Promise<boolean> =>

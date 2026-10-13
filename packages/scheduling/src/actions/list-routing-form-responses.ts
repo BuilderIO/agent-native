@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { assertAccess } from "@agent-native/core/sharing";
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 
@@ -8,6 +9,7 @@ export default defineAction({
   description: "List responses to a routing form",
   schema: z.object({ formId: z.string(), limit: z.number().optional() }),
   run: async (args) => {
+    await assertAccess("routing-form", args.formId, "viewer");
     const { getDb, schema } = getSchedulingContext();
     const rows = await getDb()
       .select()

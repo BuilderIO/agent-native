@@ -12,6 +12,11 @@ export interface IframeHotkeyPayload {
 
 export interface IframeFigmaClipboardPastePayload {
   content: string;
+  svgFileError?: "too-large" | "unreadable";
+  sourceScreenId?: string;
+  svg?: string;
+  html?: string;
+  text?: string;
 }
 
 export interface IframeImagePasteFile {
@@ -22,10 +27,12 @@ export interface IframeImagePasteFile {
 
 export interface IframeImagePastePayload {
   files: IframeImagePasteFile[];
+  screenId?: string;
 }
 
 export interface IframeContextMenuPayload {
   screenId?: string;
+  breakpointWidthPx?: number;
   clientX: number;
   clientY: number;
   viewportClientX?: number;

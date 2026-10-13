@@ -1,11 +1,3 @@
-/**
- * GET /api/agent-context.json?id=<recordingId>[&password=<pw>|&t=<token>]
- *
- * Public, AI-readable context for a shared clip. This follows the same
- * visibility/password/expiry rules as `/api/public-recording`, but returns a
- * smaller agent-oriented shape plus discoverable transcript/frame APIs.
- */
-
 import { asc, count, eq } from "drizzle-orm";
 import {
   defineEventHandler,
@@ -18,6 +10,7 @@ import { getDb, schema } from "../../db/index.js";
 import {
   applyAgentJsonHeaders,
   buildPublicAgentContext,
+  describeAgentAccessFailure,
   loadAgentBugReport,
   loadAgentBrowserDiagnostics,
   loadAgentCtas,
@@ -28,6 +21,7 @@ import {
   queryString,
   CLIPS_AGENT_ACCESS_PARAM,
 } from "../../lib/public-agent-context.js";
+import { hydrateCommentAuthorNames } from "../../lib/user-identities.js";
 
 export default defineEventHandler(async (event: H3Event) => {
   applyAgentJsonHeaders(event);
@@ -36,12 +30,13 @@ export default defineEventHandler(async (event: H3Event) => {
   const id = queryString(query.id);
   const accessResult = await loadPublicAgentAccess(event, id, {
     password: queryString(query.password),
-    token: queryString(query[CLIPS_AGENT_ACCESS_PARAM]) || queryString(query.t),
+    token: queryString(query[CLIPS_AGENT_ACCESS_PARAM]),
   });
 
   if (!accessResult.ok) {
-    setResponseStatus(event, accessResult.failure.status);
-    return accessResult.failure.body;
+    const failure = describeAgentAccessFailure(accessResult.failure);
+    setResponseStatus(event, failure.status);
+    return failure.body;
   }
 
   const recording = accessResult.access.recording;
@@ -65,6 +60,7 @@ export default defineEventHandler(async (event: H3Event) => {
             recordingId: schema.recordingComments.recordingId,
             threadId: schema.recordingComments.threadId,
             parentId: schema.recordingComments.parentId,
+            authorEmail: schema.recordingComments.authorEmail,
             authorName: schema.recordingComments.authorName,
             content: schema.recordingComments.content,
             videoTimestampMs: schema.recordingComments.videoTimestampMs,
@@ -111,7 +107,10 @@ export default defineEventHandler(async (event: H3Event) => {
     loadAgentBugReport(recording.id),
   ]);
   const chapters = parseAgentChapters(recording);
-  const comments = commentRows.slice(0, MAX_PUBLIC_AGENT_HISTORY_ITEMS);
+  const comments = (await hydrateCommentAuthorNames(commentRows)).slice(
+    0,
+    MAX_PUBLIC_AGENT_HISTORY_ITEMS,
+  );
   const reactions = reactionRows.slice(0, MAX_PUBLIC_AGENT_HISTORY_ITEMS);
   const commentCount = Number(commentCountRows[0]?.count ?? comments.length);
   const reactionCount = Number(reactionCountRows[0]?.count ?? reactions.length);

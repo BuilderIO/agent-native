@@ -1,19 +1,19 @@
 import crypto from "node:crypto";
 
 import { normalizeAnalyticsAnonymousId } from "../shared/analytics-anonymous-id.js";
+import { normalizeAnalyticsSessionId } from "../shared/analytics-session-id.js";
 
-/** Query parameter carried by Better Auth's new-user callback URL. */
 export const MAGIC_LINK_ATTRIBUTION_PARAM = "signup_attribution";
 
-/** Better Auth's magic-link token is valid for five minutes; keep this handoff
- * slightly longer so clock skew does not discard a still-valid link. */
 const MAGIC_LINK_ATTRIBUTION_TTL_SECONDS = 10 * 60;
-const MAX_ATTRIBUTION_FIELDS = 32;
+// A signup carries up to 17 first-touch and 16 last-touch properties.
+const MAX_ATTRIBUTION_FIELDS = 48;
 const MAX_ATTRIBUTION_VALUE_LENGTH = 200;
 
 export interface MagicLinkSignupAttribution {
   attribution?: Record<string, string>;
   anonymousId?: string;
+  sessionId?: string;
 }
 
 interface MagicLinkAttributionPayload extends MagicLinkSignupAttribution {
@@ -62,12 +62,14 @@ export function encodeMagicLinkSignupAttribution(
 
   const attribution = sanitizeAttribution(value.attribution);
   const anonymousId = normalizeAnalyticsAnonymousId(value.anonymousId);
+  const sessionId = normalizeAnalyticsSessionId(value.sessionId);
   if (!attribution && !anonymousId) return undefined;
 
   const payload: MagicLinkAttributionPayload = {
     exp: Math.floor(now / 1000) + MAGIC_LINK_ATTRIBUTION_TTL_SECONDS,
     ...(attribution ? { attribution } : {}),
     ...(anonymousId ? { anonymousId } : {}),
+    ...(sessionId ? { sessionId } : {}),
   };
   const data = encodePayload(payload);
   const signature = crypto
@@ -77,8 +79,6 @@ export function encodeMagicLinkSignupAttribution(
   return `${data}.${signature}`;
 }
 
-/** Verify and decode a token previously produced by
- * {@link encodeMagicLinkSignupAttribution}. */
 export function decodeMagicLinkSignupAttribution(
   token: string | null | undefined,
   secret: string,
@@ -116,10 +116,12 @@ export function decodeMagicLinkSignupAttribution(
 
     const attribution = sanitizeAttribution(payload.attribution);
     const anonymousId = normalizeAnalyticsAnonymousId(payload.anonymousId);
+    const sessionId = normalizeAnalyticsSessionId(payload.sessionId);
     if (!attribution && !anonymousId) return undefined;
     return {
       ...(attribution ? { attribution } : {}),
       ...(anonymousId ? { anonymousId } : {}),
+      ...(sessionId ? { sessionId } : {}),
     };
   } catch {
     // coercion-ok: malformed signed input is distinct from absent context.
@@ -127,11 +129,6 @@ export function decodeMagicLinkSignupAttribution(
   }
 }
 
-/**
- * Read the signed handoff from Better Auth's magic-link verification request.
- * Better Auth copies `newUserCallbackURL` into the verification URL, so this
- * remains available even when the link is opened on another device.
- */
 export function readMagicLinkSignupAttribution(
   requestUrl: string | undefined,
   secret: string,

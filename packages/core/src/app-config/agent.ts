@@ -1,13 +1,5 @@
 import { z } from "zod";
 
-/**
- * Agent engine and model selection.
- *
- * These are the values `resolveEngine()` already resolves through a documented
- * seven-step ladder. The declared field replaces step 2 of that ladder only —
- * the explicit `engineOption` argument stays a function parameter and stays
- * above it, because it is per-call rather than per-process.
- */
 export const agentConfig = z.object({
   engine: z
     .string()
@@ -25,6 +17,22 @@ export const agentConfig = z.object({
       env: ["AGENT_MODEL"],
       doc: "Model the agent runs with, when the caller does not pass one.",
     }),
+  builtInEngines: z
+    .array(z.string().min(1))
+    .min(1)
+    .optional()
+    .meta({
+      env: ["AGENT_BUILT_IN_ENGINES"],
+      doc: 'Built-in engines to register, e.g. ["ai-sdk:openai"]. Unset registers every built-in.',
+    }),
+  buildEnginePackages: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: ["AGENT_NATIVE_BUILD_ENGINE_PACKAGES"],
+      doc: "Build-derived JSON list of runtime packages available to bundled agent engines.",
+    }),
   mode: z
     .string()
     .min(1)
@@ -40,9 +48,42 @@ export const agentConfig = z.object({
       env: ["AGENT_ENGINE_PREFER_BYO_KEY"],
       doc: "Skip the Builder-managed engine and select a directly configured provider key first.",
     }),
-  // These three stay `.optional()` rather than carrying a default: the value
-  // that applies when they are unset depends on whether the run is hosted and
-  // whether it is a background function, so it belongs to the resolver.
+  maxOutputTokens: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .meta({
+      env: ["AGENT_MAX_OUTPUT_TOKENS"],
+      doc: "Completion-token ceiling for engine calls that do not pass one explicitly. Unset uses the per-engine defaults.",
+    }),
+  mainChatMaxOutputTokens: z
+    .number()
+    .int()
+    .positive()
+    .default(64_000)
+    .meta({
+      env: ["AGENT_MAIN_CHAT_MAX_OUTPUT_TOKENS"],
+      doc: "Completion-token ceiling for the first attempt of an interactive chat turn.",
+    }),
+  emptyResponseRetryMaxOutputTokens: z
+    .number()
+    .int()
+    .positive()
+    .default(128_000)
+    .meta({
+      env: ["AGENT_EMPTY_RESPONSE_RETRY_MAX_OUTPUT_TOKENS"],
+      doc: "Completion-token ceiling used when retrying a turn that came back with an empty final response. Must be at or above mainChatMaxOutputTokens to raise anything.",
+    }),
+  sourceSweepToolCallThreshold: z
+    .number()
+    .int()
+    .positive()
+    .default(24)
+    .meta({
+      env: ["AGENT_SOURCE_SWEEP_TOOL_CALL_THRESHOLD"],
+      doc: "Read-only source/search tool calls one turn may make before the agent is told to converge and answer from what it gathered.",
+    }),
   runSoftTimeoutMs: z
     .number()
     .nonnegative()
@@ -68,23 +109,6 @@ export const agentConfig = z.object({
       doc: "How long an errored agent run row is kept, in milliseconds.",
     }),
 
-  // ── Run-lifecycle bounds ────────────────────────────────────────────────
-  //
-  // These are the numbers that can TERMINATE a run, or that encode an
-  // assumption about the host it runs on. They carry today's shipped values as
-  // declared defaults, so a deployment that configures nothing sees no
-  // behaviour change; `agent/run-lifecycle.ts` is the only place that reads
-  // them, one resolver per field, and `assertRunLifecycleInvariants` checks the
-  // ordering between them every time configuration resolves.
-  //
-  // Derived values (the foreground backstop fraction, tool-timeout headroom)
-  // stay internal on purpose: they are relationships, not host facts, and
-  // making them settable is how the ordering below stops being checkable.
-  //
-  // Each default here is the value that shipped as a module constant, and the
-  // constant still exists under its historical name where its reasoning is
-  // written down. `agent-run-lifecycle-config.spec.ts` pins the two together so
-  // editing one alone is a failing test, not a silent divergence.
   backgroundNoProgressTimeoutMs: z
     .number()
     .nonnegative()

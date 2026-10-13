@@ -1,8 +1,3 @@
-// Integration tests for the typed attribute surface. These run against a real
-// libsql database with the real migrations and the real sharing registry —
-// mocking `accessFilter` would make the access-scoping assertions vacuous,
-// which is the one thing about these actions worth proving.
-
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `crm-attribute-actions-test-${process.pid}-${Date.now()}.sqlite`,
+  `crm-attribute-actions-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 const OWNER = "owner@example.test";
@@ -42,7 +37,6 @@ function asUser<T>(userEmail: string, fn: () => Promise<T>): Promise<T> {
 const ctxFor = (userEmail: string) =>
   ({ caller: "frontend", userEmail }) as never;
 
-/** Run an action end to end the way a signed-in caller would. */
 function run<T>(
   action: { run: (args: never, ctx: never) => Promise<T> },
   args: unknown,
@@ -54,7 +48,7 @@ function run<T>(
 }
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -83,9 +77,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 let counter = 0;
@@ -115,8 +107,6 @@ describe("create/list/update/archive round trip", () => {
       multi: false,
     });
 
-    // Both target columns are written: `object_type` is what the legacy unique
-    // index guards, `target_id` is the typed one.
     const [row] = await getDb()
       .select()
       .from(schema.crmFieldPolicies)
@@ -171,7 +161,6 @@ describe("create/list/update/archive round trip", () => {
       required: true,
       historyTracked: false,
       position: 7,
-      // The slug is minted once and never follows the title.
       apiSlug: created.apiSlug,
     });
     expect(updated.config).toEqual({ hint: "initials" });
@@ -293,7 +282,6 @@ describe("immutability", () => {
       run(updateAttribute, { attributeId: created.id, type: "number" }),
     ).rejects.toThrow(/cannot change/);
 
-    // Restating the current values is not a change.
     const unchanged = await run(updateAttribute, {
       attributeId: created.id,
       apiSlug: created.apiSlug,

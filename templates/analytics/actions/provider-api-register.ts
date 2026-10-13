@@ -9,7 +9,7 @@ import { z } from "zod";
 async function resolveCallerOrgRole(orgId: string, email: string) {
   try {
     const { rows } = await getDbExec().execute({
-      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      sql: `SELECT role FROM org_members WHERE org_id = $1 AND LOWER(email) = $2 LIMIT 1`,
       args: [orgId, email.toLowerCase()],
     });
     const role = (rows[0] as { role?: unknown } | undefined)?.role;
@@ -44,7 +44,4 @@ const action = createCustomProviderRegistrationAction({
     "Register or update an Analytics custom API provider. Stores credential key names only, never secret values. Requires a public HTTPS base URL and owner/admin organization access.",
 });
 
-// The shared factory owns registration, validation, and mutation authorization;
-// this wrapper only adds Analytics' transport contract and base URL policy.
-// Static action registry marker: createCustomProviderRegistrationAction returns defineAction.
 export default { ...action, http: { method: "POST" as const } };

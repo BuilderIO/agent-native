@@ -32,7 +32,10 @@ async function respond(
 ): Promise<Response> {
   return fetch(`${registration.baseUrl}/v1/messages`, {
     method: "POST",
-    headers: { ...auth(registration), "content-type": "application/json" },
+    headers: {
+      authorization: `Bearer ${registration.bearerToken}`,
+      "content-type": "application/json",
+    },
     body: JSON.stringify(body),
   });
 }

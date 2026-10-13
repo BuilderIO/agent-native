@@ -11,6 +11,7 @@ import {
   _fixWebManifestName,
   _getCoreDependencyVersion,
   _getDispatchDependencyVersion,
+  _getOtelDependencyVersion,
   _getToolkitDependencyVersion,
   _postProcessStandalone,
   _renameGitignore,
@@ -26,6 +27,7 @@ import {
   resolveBaselineStore,
 } from "./template-baseline.js";
 import {
+  downloadTemplateLayer,
   isMergeExcluded,
   materializeTemplate,
   mergeTemplateTrees,
@@ -33,6 +35,7 @@ import {
   resolveTargets,
   runTemplate,
 } from "./template-sync.js";
+import { BUILDER_CODE_STARTER_SKILLS } from "./workspace-skill-policy.js";
 import { workspacifyApp } from "./workspacify.js";
 
 let tmpDir: string;
@@ -83,7 +86,6 @@ function git(cwd: string, args: string[]): string {
   });
 }
 
-/** Regular files only, skipping symlinks and never-scaffolded entries. */
 function scaffoldFileList(root: string): string[] {
   const out: string[] = [];
   const walk = (dir: string, prefix: string): void => {
@@ -122,7 +124,7 @@ describe("isMergeExcluded", () => {
       "learnings.md",
       "changelog/pending-thing.md",
       "dist/index.js",
-      "data/app.db",
+      "data/pglite",
       ".git/config",
       ".agent-native/template-baseline/x.tar.gz",
     ]) {
@@ -298,6 +300,16 @@ describe("materializeTemplate", () => {
 
     const scaffoldFiles = scaffoldFileList(appDir);
     expect(scaffoldFiles.length).toBeGreaterThan(20);
+    // The OTel startup plugin ships with the scaffold and installs the
+    // published package, never the monorepo's workspace protocol.
+    expect(scaffoldFiles).toContain("server/plugins/otel.ts");
+    const scaffoldedPkg = JSON.parse(
+      fs.readFileSync(path.join(appDir, "package.json"), "utf-8"),
+    );
+    expect(scaffoldedPkg.dependencies["@agent-native/otel"]).toBeTruthy();
+    expect(scaffoldedPkg.dependencies["@agent-native/otel"]).not.toMatch(
+      /^workspace:/,
+    );
     expect(scaffoldFileList(materialized.dir)).toEqual(scaffoldFiles);
     for (const rel of scaffoldFiles) {
       expect(
@@ -324,8 +336,11 @@ describe("materializeTemplate", () => {
         2,
       )}\n`,
     );
+    fs.writeFileSync(
+      path.join(workspaceRoot, "pnpm-workspace.yaml"),
+      "packages:\n  - packages/*\n  - apps/*\n",
+    );
 
-    // Mirrors scaffoldOneAppIntoWorkspace's transform order exactly.
     const resolution = await _scaffoldAppTemplate(appDir, "chat");
     _replacePlaceholders(appDir, "crm", _appTitleForScaffold("crm"), "my-ws");
     _rewriteTrackingAppId(appDir, "crm", "chat");
@@ -338,6 +353,7 @@ describe("materializeTemplate", () => {
       coreDependencyVersion: _getCoreDependencyVersion(),
       dispatchDependencyVersion: _getDispatchDependencyVersion(),
       toolkitDependencyVersion: _getToolkitDependencyVersion(),
+      otelDependencyVersion: _getOtelDependencyVersion(),
     });
     _fixPackageJsonName(appDir, "crm", "chat", {
       ...resolution,
@@ -367,6 +383,104 @@ describe("materializeTemplate", () => {
     }
     fs.rmSync(materialized.dir, { recursive: true, force: true });
   }, 180_000);
+
+  it("materializes builder-code-starter as a layer over Chat", async () => {
+    const materialized = await materializeTemplate({
+      appName: "app",
+      template: "builder-code-starter",
+      ref: null,
+      shape: "standalone",
+    });
+    const bundled = path.resolve(import.meta.dirname, "..", "templates");
+    const skillFile = (root: string, skill: string) =>
+      fs.readFileSync(path.join(root, ".agents/skills", skill, "SKILL.md"));
+
+    expect(
+      fs.readdirSync(path.join(materialized.dir, ".agents/skills")).sort(),
+    ).toEqual([...BUILDER_CODE_STARTER_SKILLS].sort());
+    expect(
+      fs.existsSync(
+        path.join(
+          bundled,
+          "builder-code-starter/.agents/skills/storing-data/SKILL.md",
+        ),
+      ),
+    ).toBe(false);
+    expect(skillFile(materialized.dir, "storing-data").toString()).toContain(
+      "managed Drizzle scaffold is the only app migration path",
+    );
+    expect(skillFile(materialized.dir, "security")).toEqual(
+      skillFile(path.join(bundled, "chat"), "security"),
+    );
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(materialized.dir, "package.json"), "utf-8"),
+    );
+    expect(pkg.name).toBe("app");
+    expect(pkg["agent-native"].scaffold).toMatchObject({
+      template: "builder-code-starter",
+      frameworkSkills: "default",
+      shape: "standalone",
+      templateRef: expect.any(String),
+      coreVersion: expect.any(String),
+    });
+    expect(pkg.scripts["migrate:production"]).toBe(
+      "tsx scripts/migrate-production.ts && pnpm db:migrate",
+    );
+    // Shared with Chat, not copied: the layer's base supplies them.
+    for (const rel of ["vite.config.ts", "app/global.css", "netlify.toml"]) {
+      expect(
+        fs.existsSync(path.join(bundled, "builder-code-starter", rel)),
+      ).toBe(false);
+      expect(fs.existsSync(path.join(materialized.dir, rel))).toBe(true);
+    }
+    expect(
+      fs.lstatSync(path.join(materialized.dir, "CLAUDE.md")).isFile(),
+    ).toBe(true);
+    expect(
+      fs.readFileSync(path.join(materialized.dir, "AGENTS.md"), "utf-8"),
+    ).not.toBe(
+      fs.readFileSync(path.join(materialized.dir, "CLAUDE.md"), "utf-8"),
+    );
+    for (const removed of [
+      "app/routes/settings.tsx",
+      "app/i18n",
+      "CHANGELOG.md",
+    ]) {
+      expect(fs.existsSync(path.join(materialized.dir, removed))).toBe(false);
+    }
+    fs.rmSync(materialized.dir, { recursive: true, force: true });
+  }, 120_000);
+
+  it("fetches a layer and its base from the same ref", async () => {
+    const repoRoot = path.resolve(import.meta.dirname, "../../../..");
+    const requested: Array<{ subdir: string; refs: string[] }> = [];
+    const dest = path.join(tmpDir, "remote-layer");
+    const usedRef = await downloadTemplateLayer(
+      "builder-code-starter",
+      "v9.9.9",
+      dest,
+      async (subdir, target, refs) => {
+        requested.push({ subdir, refs });
+        fs.cpSync(path.join(repoRoot, subdir), target, { recursive: true });
+        return "resolved-ref";
+      },
+    );
+
+    expect(usedRef).toBe("resolved-ref");
+    expect(requested).toEqual([
+      {
+        subdir: "packages/core/src/templates/builder-code-starter",
+        refs: ["v9.9.9"],
+      },
+      { subdir: "templates/chat", refs: ["resolved-ref"] },
+    ]);
+    expect(
+      fs.readFileSync(path.join(dest, "app/routes/_index.tsx"), "utf-8"),
+    ).toContain("Your app here");
+    expect(fs.existsSync(path.join(dest, "app/routes/settings.tsx"))).toBe(
+      false,
+    );
+  });
 
   it("records provenance the scaffolder can round-trip", async () => {
     const appDir = path.join(tmpDir, "prov");
@@ -463,8 +577,6 @@ describe("agent-native template commands", () => {
     process.chdir(appDir);
     await runTemplate(["baseline"], collectIO().io);
 
-    // Rewrite the baseline as if the app had been generated from an older
-    // upstream, so the current template really is "newer".
     const store = resolveBaselineStore(appDir);
     const older = materializeBaseline(store, "baseline")!;
     fs.writeFileSync(path.join(older, "AGENTS.md"), "ancient guidance\n");
@@ -607,7 +719,6 @@ describe("template materialize command", () => {
       fs.readFileSync(path.join(dest, "package.json"), "utf-8"),
     ) as { name?: string };
     expect(pkg.name).toBe("chat");
-    // post-process ran: _gitignore renamed, chat appId, standalone netlify.
     expect(fs.existsSync(path.join(dest, ".gitignore"))).toBe(true);
     expect(fs.existsSync(path.join(dest, "_gitignore"))).toBe(false);
     expect(
@@ -616,7 +727,6 @@ describe("template materialize command", () => {
     expect(fs.readFileSync(path.join(dest, "netlify.toml"), "utf-8")).toContain(
       'publish = "dist"',
     );
-    // pristine, template-derived only: no private content, no workflows.
     expect(fs.existsSync(path.join(dest, ".github"))).toBe(false);
   }, 120_000);
 
@@ -643,8 +753,6 @@ describe("template materialize command", () => {
     fs.mkdirSync(dest, { recursive: true });
     fs.writeFileSync(path.join(dest, "existing.txt"), "keep me\n");
 
-    // Unknown template with no --to → materializeTemplate throws *after* the
-    // point where the naive (rm-first) version would have wiped dest.
     const run = collectIO();
     const code = await runTemplate(
       ["materialize", "--template", "does-not-exist", "--out", dest],
@@ -655,7 +763,6 @@ describe("template materialize command", () => {
     expect(fs.readFileSync(path.join(dest, "existing.txt"), "utf-8")).toBe(
       "keep me\n",
     );
-    // no leftover staging dir remains in the destination's parent.
     expect(
       fs.readdirSync(out).filter((e) => e.startsWith(".template-materialize-")),
     ).toEqual([]);
@@ -675,10 +782,8 @@ describe("template materialize command", () => {
     );
 
     expect(code).toBe(0);
-    // old tree replaced (moved aside then dropped), fresh tree in place.
     expect(fs.existsSync(path.join(dest, "stale.txt"))).toBe(false);
     expect(fs.existsSync(path.join(dest, "package.json"))).toBe(true);
-    // neither the staging dir nor the backup is left behind.
     expect(
       fs.readdirSync(out).filter((e) => e.startsWith(".template-materialize-")),
     ).toEqual([]);

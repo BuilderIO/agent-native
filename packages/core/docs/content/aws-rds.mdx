@@ -1,0 +1,42 @@
+---
+title: "Amazon RDS for PostgreSQL"
+description: "Connect an agent-native app to Amazon RDS for PostgreSQL with a standard DATABASE_URL."
+search: "Amazon RDS PostgreSQL AWS database endpoint SSL migrations"
+---
+
+# Amazon RDS for PostgreSQL
+
+Amazon RDS for PostgreSQL is a managed PostgreSQL service. Use the instance
+endpoint, port, database name, and credentials in a standard PostgreSQL URL.
+
+## Configure the app
+
+In the Amazon RDS console, open the DB instance and copy its endpoint and
+port. Set `DATABASE_URL` in the server environment:
+
+```bash
+DATABASE_URL=postgresql://app_user:password@mydb.abc123.us-east-1.rds.amazonaws.com:5432/appdb?sslmode=require
+```
+
+Use a database user created for the app instead of the master user. Keep the
+credentials in your deployment's secret storage, and URL-encode special
+characters in the username or password when needed.
+
+## Networking and TLS
+
+The deployed app must be able to reach the RDS endpoint. For a private DB
+instance, run the app in a network that can reach the VPC and allow inbound
+PostgreSQL traffic from the app's security group. Use TLS for production
+connections. `sslmode=require` enables encrypted transport.
+
+## Migrations
+
+Run production migrations in the release or deployment step. If the migration
+runner uses a different network from the app, give it access to the direct RDS
+endpoint. Never run `drizzle-kit push` against a production database.
+
+## What's next
+
+- [Database](/docs/server-database) - schema, migrations, and connection rules
+- [Deployment](/docs/deployment) - choose a runtime and deployment preset
+- [Amazon RDS for PostgreSQL connection docs](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ConnectToPostgreSQLInstance.html) - find the endpoint and connect securely

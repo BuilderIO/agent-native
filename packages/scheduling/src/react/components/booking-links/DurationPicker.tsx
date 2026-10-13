@@ -1,14 +1,5 @@
 import { Button, Input } from "@agent-native/toolkit/ui";
 import { IconPlus, IconX } from "@tabler/icons-react";
-/**
- * DurationPicker — multi-select of booking durations rendered as pills.
- *
- * Bookers will pick between the selected durations on the public booking
- * page (if more than one is selected). Shows 15/30/45/60 as default
- * presets; the user can type an arbitrary number and add it too.
- *
- * Shadcn primitives expected in the consumer: button, input, label.
- */
 import { useState } from "react";
 
 import { useSchedulingT } from "../../i18n.js";
@@ -19,7 +10,6 @@ export interface DurationPickerProps {
   value: number[];
   onChange: (next: number[]) => void;
   presets?: number[];
-  /** Minimum valid duration, defaults to 5 (minutes). */
   min?: number;
 }
 
@@ -36,7 +26,7 @@ export function DurationPicker(props: DurationPickerProps) {
     const next = value.includes(mins)
       ? value.filter((d) => d !== mins)
       : [...value, mins].sort((a, b) => a - b);
-    if (next.length === 0) return; // keep at least one
+    if (next.length === 0) return;
     onChange(next);
   };
 
@@ -52,7 +42,6 @@ export function DurationPicker(props: DurationPickerProps) {
     onChange(next);
   };
 
-  // Union of presets + selected values → pill row.
   const pillOptions = Array.from(new Set([...presets, ...value])).sort(
     (a, b) => a - b,
   );

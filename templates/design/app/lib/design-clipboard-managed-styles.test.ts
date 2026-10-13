@@ -128,4 +128,13 @@ describe("managed styles in the Design clipboard", () => {
       }),
     ).toBe(false);
   });
+
+  it("carries the measured Group runtime with a pasted subtree", () => {
+    const target =
+      "<!doctype html><html><body><div data-agent-native-measured-flow-group></div></body></html>";
+    const result = applyDesignClipboardManagedStyles(target, [], new Map());
+    expect(
+      result.match(/<script data-agent-native-group-runtime\b/g),
+    ).toHaveLength(1);
+  });
 });

@@ -1,21 +1,31 @@
 import { randomUUID } from "node:crypto";
 
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { runMigrations, type MigrationEntry } from "../db/migrations.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 
 const TABLE = "automation_scheduler_health";
 const DEFAULT_APP_ID = "default";
 const MAX_ERROR_LENGTH = 500;
 
-export const AUTOMATION_SCHEDULER_LEASE_MS = 10 * 60_000;
+export const AUTOMATION_SCHEDULER_LEASE_MS = 2 * 60_000;
 export const AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS = 60_000;
 
-/** Authoritative release-time schema for recurring scheduler health. */
+export class AutomationSchedulerLeaseLostError extends Error {
+  readonly errorCode = "automation_scheduler_lease_lost";
+
+  constructor(cause?: unknown) {
+    super(automationRecoveryMessagesForLocale().leaseLost, { cause });
+    this.name = "AutomationSchedulerLeaseLostError";
+  }
+}
+
 export const AUTOMATION_SCHEDULER_HEALTH_MIGRATIONS: MigrationEntry[] = [
   {
     version: 1,
@@ -82,23 +92,23 @@ let initPromise: Promise<void> | undefined;
 
 export async function ensureHealthTable(): Promise<void> {
   if (!initPromise) {
-    initPromise = (async () => {
+    const initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `
         CREATE TABLE IF NOT EXISTS ${TABLE} (
           id TEXT PRIMARY KEY,
           app_id TEXT NOT NULL DEFAULT 'default',
           org_id TEXT,
-          last_checked_at ${intType()},
-          last_dispatched_at ${intType()},
+          last_checked_at BIGINT,
+          last_dispatched_at BIGINT,
           last_error TEXT,
           runtime TEXT,
-          updated_at ${intType()} NOT NULL,
+          updated_at BIGINT NOT NULL,
           lease_owner TEXT,
-          lease_expires_at ${intType()}
+          lease_expires_at BIGINT
         )
       `;
       const indexSql = `CREATE INDEX IF NOT EXISTS idx_${TABLE}_updated ON ${TABLE} (updated_at)`;
-      if (isPostgres()) {
+      {
         await ensureTableExists(TABLE, createSql);
         await ensureColumnExists(
           TABLE,
@@ -113,12 +123,12 @@ export async function ensureHealthTable(): Promise<void> {
         await ensureColumnExists(
           TABLE,
           "last_checked_at",
-          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS last_checked_at ${intType()}`,
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS last_checked_at BIGINT`,
         );
         await ensureColumnExists(
           TABLE,
           "last_dispatched_at",
-          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS last_dispatched_at ${intType()}`,
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS last_dispatched_at BIGINT`,
         );
         await ensureColumnExists(
           TABLE,
@@ -133,7 +143,7 @@ export async function ensureHealthTable(): Promise<void> {
         await ensureColumnExists(
           TABLE,
           "updated_at",
-          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS updated_at ${intType()}`,
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS updated_at BIGINT`,
         );
         await ensureColumnExists(
           TABLE,
@@ -143,51 +153,16 @@ export async function ensureHealthTable(): Promise<void> {
         await ensureColumnExists(
           TABLE,
           "lease_expires_at",
-          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS lease_expires_at ${intType()}`,
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS lease_expires_at BIGINT`,
         );
         await ensureIndexExists(`idx_${TABLE}_updated`, indexSql);
         return;
       }
-
-      const client = getDbExec();
-      await client.execute(createSql);
-      const { rows } = await client.execute(`PRAGMA table_info("${TABLE}")`);
-      const columns = new Set(
-        rows.map((row) => String((row as Record<string, unknown>).name)),
-      );
-      for (const [name, definition] of [
-        ["app_id", "TEXT NOT NULL DEFAULT 'default'"],
-        ["org_id", "TEXT"],
-        ["last_checked_at", `${intType()}`],
-        ["last_dispatched_at", `${intType()}`],
-        ["last_error", "TEXT"],
-        ["runtime", "TEXT"],
-        ["updated_at", `${intType()} NOT NULL DEFAULT 0`],
-        ["lease_owner", "TEXT"],
-        ["lease_expires_at", `${intType()}`],
-      ] as const) {
-        if (columns.has(name)) continue;
-        try {
-          await client.execute(
-            `ALTER TABLE ${TABLE} ADD COLUMN ${name} ${definition}`,
-          );
-        } catch (error) {
-          const message = String(
-            (error as { message?: unknown } | null)?.message ?? error,
-          );
-          if (
-            !/duplicate column name/i.test(message) &&
-            !/column .* already exists/i.test(message)
-          ) {
-            throw error;
-          }
-        }
-      }
-      await client.execute(indexSql);
     })().catch((error) => {
       initPromise = undefined;
       throw error;
     });
+    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
   }
   return initPromise;
 }
@@ -204,7 +179,6 @@ function leaseRowId(appId: string): string {
   return rowIdForScope(appId, null);
 }
 
-/** Claim one recurring scheduler across all deployments of an app. */
 export async function acquireAutomationSchedulerLease(
   input: {
     appId?: string;
@@ -246,7 +220,6 @@ export async function acquireAutomationSchedulerLease(
   return Number(result.rowsAffected ?? 0) > 0 ? owner : null;
 }
 
-/** Renew a lease while a slow sweep is still executing. */
 export async function renewAutomationSchedulerLease(input: {
   appId?: string;
   owner: string;
@@ -260,18 +233,18 @@ export async function renewAutomationSchedulerLease(input: {
   const result = await getDbExec().execute({
     sql: `UPDATE ${TABLE}
           SET lease_expires_at = ?, updated_at = ?
-          WHERE id = ? AND lease_owner = ?`,
+          WHERE id = ? AND lease_owner = ? AND lease_expires_at > ?`,
     args: [
       expiresAt,
       now,
       leaseRowId(normalizeAppId(input.appId)),
       input.owner,
+      now,
     ],
   });
   return Number(result.rowsAffected ?? 0) > 0;
 }
 
-/** Release only the lease owned by this invocation. */
 export async function releaseAutomationSchedulerLease(input: {
   appId?: string;
   owner: string;
@@ -287,7 +260,10 @@ export async function releaseAutomationSchedulerLease(input: {
 
 function fromRow(row: Record<string, unknown>): AutomationSchedulerHealth {
   return {
-    appId: String(row.app_id ?? DEFAULT_APP_ID),
+    appId:
+      typeof row.app_id === "string"
+        ? row.app_id
+        : (JSON.stringify(row.app_id ?? DEFAULT_APP_ID) ?? DEFAULT_APP_ID),
     orgId: row.org_id == null ? null : String(row.org_id),
     lastCheckedAt:
       row.last_checked_at == null ? null : Number(row.last_checked_at),
@@ -299,7 +275,6 @@ function fromRow(row: Record<string, unknown>): AutomationSchedulerHealth {
   };
 }
 
-/** Record the last scheduler tick without making health bookkeeping fatal. */
 export async function recordAutomationSchedulerHealth(input: {
   appId?: string;
   orgId?: string | null;
@@ -357,8 +332,6 @@ export async function recordAutomationSchedulerHealth(input: {
       ],
     });
   } catch (error) {
-    // Another serverless isolate may have inserted this scope between the read
-    // and insert. Turn that race into the same update path.
     const message = String(
       (error as { message?: unknown } | null)?.message ?? error,
     );

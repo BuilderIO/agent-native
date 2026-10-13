@@ -1,30 +1,30 @@
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 
 let initPromise: Promise<void> | undefined;
 
 export async function ensureApprovalTable(): Promise<void> {
   if (!initPromise) {
-    initPromise = (async () => {
+    const initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `
         CREATE TABLE IF NOT EXISTS mcp_action_approvals (
           nonce TEXT PRIMARY KEY,
           caller_key TEXT NOT NULL,
           action_name TEXT NOT NULL,
           arguments_hash TEXT NOT NULL,
-          expires_at ${intType()} NOT NULL,
-          consumed_at ${intType()}
+          expires_at BIGINT NOT NULL,
+          consumed_at BIGINT
         )
       `;
-      if (isPostgres()) {
+      {
         await ensureTableExists("mcp_action_approvals", createSql);
-      } else {
-        await getDbExec().execute(createSql);
       }
     })().catch((error) => {
       initPromise = undefined;
       throw error;
     });
+    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
   }
   return initPromise;
 }
@@ -53,9 +53,6 @@ export async function createMcpApprovalGrant(
     ],
   });
 
-  // This is storage hygiene only. A failed cleanup must never turn a failed
-  // grant insert/consume into success, and expired rows remain unusable because
-  // consumeMcpApprovalGrant checks expires_at in the atomic update below.
   try {
     await client.execute({
       sql: `DELETE FROM mcp_action_approvals WHERE expires_at < ?`,
@@ -66,12 +63,6 @@ export async function createMcpApprovalGrant(
   }
 }
 
-/**
- * Atomically consume an exact grant. The UPDATE predicate is the security
- * boundary: only one hosted instance can move a matching, unexpired row from
- * pending to consumed, so an accepted response is at-most-once even when the
- * same signed requestState is replayed concurrently.
- */
 export async function consumeMcpApprovalGrant(
   grant: McpApprovalGrant,
 ): Promise<boolean> {

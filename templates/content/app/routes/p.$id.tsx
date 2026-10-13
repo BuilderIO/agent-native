@@ -1,4 +1,5 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   AGENT_ACCESS_PARAM,
@@ -10,12 +11,14 @@ import {
 } from "@agent-native/core/server";
 import {
   AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  SSR_QUERY_CACHE_KEY_HEADER,
+  buildResourceSocialMeta,
   safeJsonForHtml,
 } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { buildPublicDocumentDescription } from "@shared/og-description";
-import { IconLock, IconMessageCircle } from "@tabler/icons-react";
-import { eq } from "drizzle-orm";
+import { IconLayoutSidebarRight, IconLock } from "@tabler/icons-react";
+import { and, eq, isNull } from "drizzle-orm";
 import { useEffect, useState } from "react";
 import type {
   HeadersArgs,
@@ -25,10 +28,16 @@ import type {
 import { data, redirect, useLoaderData } from "react-router";
 
 import { VisualEditor } from "@/components/editor/VisualEditor";
+import {
+  HIDDEN_WHILE_PRIVATE_LINK_REDIRECTS,
+  privateDocumentRedirectScript,
+  privateLinkRedirectStarted,
+} from "@/lib/private-link-redirect";
 
 import { getDb, schema } from "../../server/db";
 import {
   buildContentDocumentAgentDiscovery,
+  contentDocumentMcpInstructionText,
   buildContentPublicDocumentUrl,
   DOCUMENT_AGENT_RESOURCE_KIND,
 } from "../../shared/agent-readable";
@@ -44,18 +53,21 @@ type PublicDocumentLoaderData =
       };
       agentAccessToken: string | null;
       basePath: string;
+      origin: string;
       unavailable?: undefined;
     }
   | {
       document: null;
       agentAccessToken: null;
       basePath: string;
+      origin: string;
       unavailable: { reason: "private"; id: string; basePath: string };
     };
 
 const PRIVATE_AGENT_DOCUMENT_HEADERS = {
   "Cache-Control": "private, max-age=0, no-store",
   "Referrer-Policy": "no-referrer",
+  [SSR_QUERY_CACHE_KEY_HEADER]: "query",
 };
 
 function publicDocumentLoaderData(
@@ -78,18 +90,15 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   const agentAccessToken = new URL(request.url).searchParams.get(
     AGENT_ACCESS_PARAM,
   );
+  const origin = new URL(request.url).origin;
 
-  // This is a server loader; use the server-side base-path helper
-  // (reads APP_BASE_PATH / VITE_APP_BASE_PATH at request time)
-  // instead of the client `appPath()` which relies on
-  // `import.meta.env` and is meant for browser code.
   const basePath = getConfiguredAppBasePath();
   const withBase = (path: string) => `${basePath}${path}`;
 
   const userEmail = getRequestUserEmail();
   if (userEmail) {
     const access = await resolveAccess("document", id);
-    if (access) throw redirect(withBase(`/page/${id}`));
+    if (access) throw redirect(withBase(`/page/${encodeURIComponent(id)}`));
   }
 
   const [doc] = await getDb()
@@ -101,7 +110,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
       visibility: schema.documents.visibility,
     })
     .from(schema.documents)
-    .where(eq(schema.documents.id, id))
+    .where(and(eq(schema.documents.id, id), isNull(schema.documents.trashedAt)))
     .limit(1);
 
   if (!doc) throw new Response("Not found", { status: 404 });
@@ -117,24 +126,17 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
         document: doc,
         agentAccessToken: tokenAccess ? agentAccessToken : null,
         basePath,
+        origin,
       },
       tokenAccess,
     );
   }
 
-  // Doc exists but isn't public. SSR renders impersonally (no session is read
-  // server-side, so the page can be CDN-cached for everyone), which means we
-  // must NOT redirect to sign-in from here: a signed-in viewer would loop
-  // (sign-in sees their valid session and bounces back to /p/<id>, which
-  // re-runs this anonymous loader and redirects again). Instead return the
-  // private placeholder and resolve access on the client — PrivateDocumentNotice
-  // routes the viewer to the auth-guarded `/page/<id>` editor, where the real
-  // per-user access check runs (signed-in-with-access sees the doc; everyone
-  // else gets the standard sign-in / no-access handling).
   return publicDocumentLoaderData({
     document: null,
     agentAccessToken: null,
     basePath,
+    origin,
     unavailable: { reason: "private" as const, id, basePath },
   });
 }
@@ -145,28 +147,52 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
     title,
     content: loaderData?.document?.content,
   });
+  const documentId = loaderData?.document?.id ?? loaderData?.unavailable?.id;
+  const discovery = documentId
+    ? buildContentDocumentAgentDiscovery({
+        document: {
+          id: documentId,
+          title: loaderData?.document?.title,
+        },
+        token: loaderData?.agentAccessToken,
+        basePath: loaderData?.basePath,
+        origin: loaderData?.origin,
+        accessState: loaderData?.unavailable
+          ? "authentication-required"
+          : loaderData?.document?.visibility === "public"
+            ? "public"
+            : "authorized",
+      })
+    : null;
+  const socialMeta =
+    loaderData?.document?.visibility === "public"
+      ? buildResourceSocialMeta({
+          title,
+          description,
+          origin: loaderData.origin,
+          basePath: loaderData.basePath,
+        })
+      : [
+          { name: "description", content: description },
+          { property: "og:title", content: title },
+          { property: "og:description", content: description },
+          { name: "twitter:title", content: title },
+          { name: "twitter:description", content: description },
+        ];
   return [
     { title },
-    {
-      name: "description",
-      content: description,
-    },
-    {
-      property: "og:title",
-      content: title,
-    },
-    {
-      property: "og:description",
-      content: description,
-    },
-    {
-      name: "twitter:title",
-      content: title,
-    },
-    {
-      name: "twitter:description",
-      content: description,
-    },
+    ...socialMeta,
+    ...(discovery
+      ? [
+          {
+            tagName: "link" as const,
+            rel: "alternate",
+            type: "application/agent-native+json",
+            href: discovery.contextUrl,
+            title: "Agent-readable Content document", // i18n-ignore -- machine-readable alternate-link metadata, not UI copy.
+          },
+        ]
+      : []),
   ];
 };
 
@@ -227,17 +253,22 @@ function PublicDocumentContextSync({
   basePath?: string;
 }) {
   useEffect(() => {
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        view: "public-document",
-        documentId: document.id,
-        title: document.title,
-        publicUrl: buildContentPublicDocumentUrl(document.id, { basePath }),
-      }),
-    }).catch(() => {});
+    fetch(
+      agentNativePath(
+        `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
+      ),
+      {
+        method: "PUT",
+        keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          view: "public-document",
+          documentId: document.id,
+          title: document.title,
+          publicUrl: buildContentPublicDocumentUrl(document.id, { basePath }),
+        }),
+      },
+    ).catch(() => {});
   }, [basePath, document.id, document.title]);
 
   return null;
@@ -257,50 +288,82 @@ function ReadOnlyMarkdownContent({ content }: { content: string }) {
   );
 }
 
-function AgentReadableDocumentDiscovery({
+export function AgentReadableDocumentDiscovery({
   document,
   token,
   basePath,
+  origin,
+  accessState,
 }: {
-  document: { id: string; title: string };
+  document: { id: string; title?: string };
   token?: string | null;
   basePath?: string;
+  origin?: string;
+  accessState: "public" | "authorized" | "authentication-required";
 }) {
   const discovery = buildContentDocumentAgentDiscovery({
     document,
     token,
     basePath,
+    origin,
+    accessState,
   });
   return (
-    <script
-      type={AGENT_READABLE_RESOURCE_SCRIPT_TYPE}
-      dangerouslySetInnerHTML={{ __html: safeJsonForHtml(discovery) }}
-    />
+    <>
+      <script
+        type={AGENT_READABLE_RESOURCE_SCRIPT_TYPE}
+        dangerouslySetInnerHTML={{ __html: safeJsonForHtml(discovery) }}
+      />
+      <div className="hidden" aria-hidden="true">
+        {contentDocumentMcpInstructionText(document.id, {
+          basePath,
+          origin,
+          accessState,
+        })}
+      </div>
+    </>
   );
 }
 
 function PrivateDocumentNotice({
   id,
   basePath,
+  origin,
 }: {
   id?: string;
   basePath?: string;
+  origin?: string;
 }) {
   const t = useT();
+  const pageHref = id
+    ? `${basePath ?? ""}/page/${encodeURIComponent(id)}`
+    : null;
   useEffect(() => {
-    if (!id) return;
-    // The SSR loader can't see the viewer's session (SSR is impersonal so the
-    // page stays CDN-cacheable). Resolve access on the client by sending the
-    // viewer to the auth-guarded `/page/<id>` editor: a signed-in viewer with
-    // access lands on the document, and everyone else gets the standard
-    // sign-in / no-access handling there. This never loops back here because
-    // `/page/<id>` is guard-protected and does not redirect to `/p/<id>`.
-    window.location.replace(`${basePath ?? ""}/page/${id}`);
-  }, [id, basePath]);
+    if (!pageHref || privateLinkRedirectStarted()) return;
+    window.location.replace(pageHref);
+  }, [pageHref]);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <section className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 text-center">
+      {pageHref ? (
+        <script
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{
+            __html: privateDocumentRedirectScript(pageHref),
+          }}
+        />
+      ) : null}
+      {id ? (
+        <AgentReadableDocumentDiscovery
+          document={{ id }}
+          basePath={basePath}
+          origin={origin}
+          accessState="authentication-required"
+        />
+      ) : null}
+      <section
+        className={`mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 text-center ${HIDDEN_WHILE_PRIVATE_LINK_REDIRECTS}`}
+      >
         <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-muted text-muted-foreground">
           <IconLock size={22} />
         </div>
@@ -325,6 +388,7 @@ export default function PublicDocumentPage() {
       <PrivateDocumentNotice
         id={data.unavailable?.id}
         basePath={data.unavailable?.basePath}
+        origin={data.origin}
       />
     );
   }
@@ -336,6 +400,8 @@ export default function PublicDocumentPage() {
         document={document}
         token={data.agentAccessToken}
         basePath={data.basePath}
+        origin={data.origin}
+        accessState={document.visibility === "public" ? "public" : "authorized"}
       />
       <div className="mx-auto flex max-w-3xl justify-end px-6 pt-5 sm:px-8">
         <button
@@ -343,7 +409,7 @@ export default function PublicDocumentPage() {
           onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
           className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground shadow-sm hover:bg-accent"
         >
-          <IconMessageCircle size={16} />
+          <IconLayoutSidebarRight size={16} />
           {t("publicDocument.chat")}
         </button>
       </div>

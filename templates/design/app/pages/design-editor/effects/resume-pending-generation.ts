@@ -1,12 +1,22 @@
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { readCreativeContextState } from "@agent-native/creative-context/client";
+import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
+import { InvalidCanvasDimensionsError } from "@shared/canvas-dimensions";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import {
+  formatComposerContext,
+  hasComposerSystemContext,
+} from "@/lib/composer-context";
+import {
+  clearPendingGeneration,
+  failPendingGenerationForMissingImagePayload,
   isPendingGenerationStale,
   patchPendingGeneration,
   readPendingGeneration,
+  shouldSkipPendingGenerationResume,
 } from "@/lib/pending-generation";
+import { designPrecedentDirectives } from "@/pages/design-editor/creative-context-precedent";
 import {
   designGenerationDirectives,
   designIntakeQuestionDirectives,
@@ -17,6 +27,10 @@ import {
   loadDesignSystemGenerationContext,
   promptRequestsVariantExploration,
 } from "@/pages/design-editor/generation-prompt-directives";
+import {
+  allIntakeTopicsCovered,
+  loadIntakeContextFromAppState,
+} from "@/pages/design-editor/intake-question-topics";
 import type { DesignData, DesignFile } from "@/pages/design-editor/types";
 
 export interface ResumePendingGenerationArgs {
@@ -26,6 +40,9 @@ export interface ResumePendingGenerationArgs {
     options?: Omit<AgentChatMessage, "message" | "context">,
   ) => string;
   clearGenerationCompleteTimer: () => void;
+  creativeContextEnabled: boolean;
+  creativeContextLabLoading: boolean;
+  creativeContextLabError: string | null;
   design: DesignData | null;
   files: DesignFile[];
   generationModelRef: RefObject<{
@@ -33,6 +50,8 @@ export interface ResumePendingGenerationArgs {
     engine?: string;
     effort?: PromptComposerSubmitOptions["effort"];
   } | null>;
+  imageAttachmentUnavailableMessage: string;
+  invalidCanvasDimensionsMessage: string;
   id: string | undefined;
   markGenerationStale: () => void;
   setGenerationChatTabId: Dispatch<SetStateAction<string | null>>;
@@ -44,9 +63,14 @@ export interface ResumePendingGenerationArgs {
 export function runResumePendingGeneration({
   agentSubmit,
   clearGenerationCompleteTimer,
+  creativeContextEnabled,
+  creativeContextLabLoading,
+  creativeContextLabError,
   design,
   files,
   generationModelRef,
+  imageAttachmentUnavailableMessage,
+  invalidCanvasDimensionsMessage,
   id,
   markGenerationStale,
   setGenerationChatTabId,
@@ -55,14 +79,14 @@ export function runResumePendingGeneration({
   trackAgentGeneration,
 }: ResumePendingGenerationArgs) {
   if (!id || !design) return;
+  if (creativeContextLabLoading) return;
 
   const pending = readPendingGeneration(id);
   if (!pending) {
     setHasPendingGeneration(false);
     return;
   }
-  const templateRefinement = Boolean(pending.templateId && files.length > 0);
-  if (files.length > 0 && !templateRefinement) return;
+  if (shouldSkipPendingGenerationResume(pending, files)) return;
 
   if (isPendingGenerationStale(pending)) {
     markGenerationStale();
@@ -77,11 +101,40 @@ export function runResumePendingGeneration({
     return;
   }
 
+  if (pending.autoGenerate === false) {
+    setGenerationIssue(null);
+    setHasPendingGeneration(true);
+    return;
+  }
+  if (creativeContextLabError) {
+    setGenerationIssue(creativeContextLabError);
+    setHasPendingGeneration(true);
+    return;
+  }
+
   const prompt =
-    pending.prompt?.trim() || `Create an initial design for ${design.title}.`;
+    pending.prompt && pending.prompt.trim().length > 0
+      ? pending.prompt
+      : `Create an initial design for ${design.title}.`;
   const uploadedFiles = Array.isArray(pending.files) ? pending.files : [];
   const fileContext = formatUploadedFileContext(uploadedFiles);
-  const images = imageAttachmentsFromUploadedFiles(uploadedFiles);
+  let images: string[];
+  try {
+    images = imageAttachmentsFromUploadedFiles(uploadedFiles);
+  } catch (error) {
+    if (
+      !failPendingGenerationForMissingImagePayload(
+        id,
+        error,
+        imageAttachmentUnavailableMessage,
+        setGenerationIssue,
+        setHasPendingGeneration,
+      )
+    ) {
+      throw error;
+    }
+    return;
+  }
   const sourceContext = pending.source
     ? `The user picked the "${pending.source}" template${pending.templateId ? ` (id: "${pending.templateId}")` : ""}.`
     : "The user just created a new empty design.";
@@ -90,27 +143,79 @@ export function runResumePendingGeneration({
       ? design.designSystemId
       : pending.designSystemId;
 
-  if (pending.autoGenerate === false) {
-    setGenerationIssue(null);
-    setHasPendingGeneration(true);
-    return;
-  }
-
   let cancelled = false;
   void (async () => {
-    const shouldExploreVariants = promptRequestsVariantExploration(prompt);
-    // A reference screenshot already answers the questions the intake flow
-    // asks. Spending the one turn that can see the image on a questionnaire
-    // means the turn that writes HTML never sees it.
     const hasReferenceImages = images.length > 0;
-    const shouldSkipQuestions =
+    const shouldExploreVariants =
+      !hasReferenceImages && promptRequestsVariantExploration(prompt);
+    const explicitSkip =
       pending.skipQuestions === true ||
       shouldExploreVariants ||
       hasReferenceImages;
-    const designSystemContext = await loadDesignSystemGenerationContext(
-      pendingDesignSystemId,
-    );
+    const usesTemplate = Boolean(pending.templateId);
+    const [designSystemContext, intake] = await Promise.all([
+      hasComposerSystemContext(pending.contextItems)
+        ? ""
+        : loadDesignSystemGenerationContext(pendingDesignSystemId),
+      usesTemplate || shouldExploreVariants || !creativeContextEnabled
+        ? Promise.resolve(null)
+        : loadIntakeContextFromAppState(
+            readCreativeContextState,
+            creativeContextEnabled,
+          ),
+    ]);
     if (cancelled) return;
+    const shouldSkipQuestions =
+      explicitSkip ||
+      (intake ? allIntakeTopicsCovered(intake.coverage) : false);
+    let generationDirectives: string[];
+    try {
+      generationDirectives = pending.templateId
+        ? designTemplateRefinementDirectives(
+            id,
+            pending.templateId,
+            pendingDesignSystemId,
+            images.length,
+          )
+        : shouldExploreVariants
+          ? designVariantGenerationDirectives(id, pendingDesignSystemId, prompt)
+          : shouldSkipQuestions
+            ? [
+                ...designGenerationDirectives(
+                  id,
+                  pendingDesignSystemId,
+                  images.length,
+                  prompt,
+                ),
+                ...(intake?.explicitContext &&
+                intake.precedent.status === "strong"
+                  ? designPrecedentDirectives(
+                      intake.precedent.contextId,
+                      intake.precedent.matches,
+                      id,
+                    )
+                  : []),
+              ]
+            : designIntakeQuestionDirectives(
+                id,
+                pendingDesignSystemId,
+                images.length,
+                intake
+                  ? {
+                      coverage: intake.coverage,
+                      contextUnavailable: intake.unavailable,
+                      unavailableReason: intake.unavailableReason,
+                    }
+                  : undefined,
+                prompt,
+              );
+    } catch (error) {
+      if (!(error instanceof InvalidCanvasDimensionsError)) throw error;
+      clearPendingGeneration(id);
+      setGenerationIssue(invalidCanvasDimensionsMessage);
+      setHasPendingGeneration(false);
+      return;
+    }
     const context = [
       sourceContext,
       `Design id: "${id}"`,
@@ -120,27 +225,10 @@ export function runResumePendingGeneration({
         ? `Design system id: "${pendingDesignSystemId}"`
         : "",
       designSystemContext,
+      formatComposerContext(pending.contextItems),
       fileContext,
       "",
-      ...(pending.templateId
-        ? designTemplateRefinementDirectives(
-            id,
-            pending.templateId,
-            pendingDesignSystemId,
-          )
-        : shouldExploreVariants
-          ? designVariantGenerationDirectives(id, pendingDesignSystemId)
-          : shouldSkipQuestions
-            ? designGenerationDirectives(
-                id,
-                pendingDesignSystemId,
-                images.length,
-              )
-            : designIntakeQuestionDirectives(
-                id,
-                pendingDesignSystemId,
-                images.length,
-              )),
+      ...generationDirectives,
     ].join("\n");
 
     clearGenerationCompleteTimer();
@@ -150,19 +238,13 @@ export function runResumePendingGeneration({
       engine: pending.engine,
       effort: pending.effort,
     };
-    const runTabId = agentSubmit(
-      shouldSkipQuestions
-        ? `Generate design for "${design.title}": ${prompt}`
-        : `Create design: ${prompt}`,
-      context,
-      {
-        model: pending.model,
-        engine: pending.engine,
-        effort: pending.effort,
-        newTab: true,
-        images,
-      },
-    );
+    const runTabId = agentSubmit(prompt, context, {
+      model: pending.model,
+      engine: pending.engine,
+      effort: pending.effort,
+      newTab: true,
+      images,
+    });
     setGenerationChatTabId(runTabId);
     patchPendingGeneration(id, {
       runTabId,

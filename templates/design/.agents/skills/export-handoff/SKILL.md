@@ -20,9 +20,24 @@ How to export designs and generate handoff documentation for developers converti
   **This is not importable into Figma as editable vectors** — Figma cannot
   parse `foreignObject` content, so it stays an opaque embedded HTML blob.
   Use `export-design-as-figma-svg` (below) when the destination is Figma.
-- **PNG**: there is no PNG export action. Point the user to the editor's
-  download menu (Download PNG) — PNG export is a client-side rasterization of
-  the live canvas and is not exposed as an agent action.
+- **PNG**: `export-png` renders one stored HTML screen in headless Chromium and
+  uploads the PNG through the configured file provider. Pass `fileId`, or
+  `designId` plus `filename`, to select the screen. It returns a durable `url`
+  and suggested `filename`; `width` defaults to 1440px and `height` only sets
+  the responsive viewport because the export includes the screen's full page.
+
+  ```bash
+  pnpm action export-png --designId <designId> --fileId <fileId>
+  ```
+
+  If Chromium or file storage is unavailable, the action returns an explicit
+  failure instead of pretending that a downloadable image exists. The editor's
+  Download PNG remains the faithful client-side path for localhost/fusion
+  screens that are not stored HTML.
+  PNG and PDF are sRGB: a color written as `oklch()` or `color(display-p3 ...)`
+  that sRGB cannot show is rendered as its CSS Color 4 gamut-mapped sRGB
+  fallback (lightness and hue kept, chroma reduced), not the browser's clip.
+  HTML and SVG exports keep such colors as written.
 - **Deploy preview**: `deploy-design-preview` triggers a preview deploy for a
   fusion-backed design branch. It requires the design's source to advertise
   the `deployPreview` capability (fusion tier) and Builder.io to be connected;
@@ -49,8 +64,10 @@ Returns:
 
 The exported HTML:
 - Includes `@tailwindcss/browser@4` and `alpinejs@3.15.11` CDN links
-- Combines all CSS files into a single `<style>` block
-- Combines all HTML/JSX files into the `<body>`
+- With multiple HTML screens, embeds each in its own isolated viewport, stacked
+  vertically
+- Includes project CSS in each screen document
+- Appends JSX files to the first screen
 - Works when double-clicked in any modern browser
 
 ### ZIP Export
@@ -124,13 +141,14 @@ available in the current environment (expected in hosted/serverless
 deploys), the action returns `{ ok: false, reason }` instead of throwing —
 fall back to `export-svg` or `export-html`.
 
-**Vectorized-text caveat**: Figma converts every imported SVG `<text>`
-element to outlined vector paths on paste/drag-import. The exported
-geometry is pixel-exact, but text pasted from this export is no longer
-live, editable type in Figma — it's outlines, the same way any other
-SVG-authoring tool's text becomes outlines on import. This is a Figma
-import limitation, not a defect in the export; the report's
-`vectorizedTextCaveat` field carries this note for the agent/user.
+**Vectorized-text caveat**: Figma imports SVG `<text>` as live, editable
+type, but its SVG importer reads only font family, size and a coarse bold
+weight. Letter spacing is dropped, and weights above 700 resolve to Bold,
+so tracked or extra-bold text arrives at a different width than the design.
+Additional SVG text fields, including `textLength`, `lengthAdjust`, `word-spacing`,
+and sibling `tspan` positions, are not preserved by the destination importer.
+The export report's `vectorizedTextCaveat` field carries this limitation for
+the agent and user.
 
 **Getting it into Figma**: two supported paths —
 

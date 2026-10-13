@@ -1,10 +1,4 @@
 import type { BusyInterval } from "../../shared/index.js";
-/**
- * Office 365 / Outlook calendar provider via Microsoft Graph.
- *
- * Token flow is identical to Google but against login.microsoftonline.com.
- * Uses Microsoft Graph API for calendars and events.
- */
 import type { CalendarProvider } from "./types.js";
 
 export interface Office365ProviderConfig {
@@ -31,13 +25,12 @@ export function createOffice365Provider(
     init?: RequestInit,
   ): Promise<T> {
     const token = await config.getAccessToken(credentialId);
+    const headers = new Headers(init?.headers);
+    headers.set("authorization", `Bearer ${token}`);
+    headers.set("content-type", "application/json");
     const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
       ...init,
-      headers: {
-        ...(init?.headers ?? {}),
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json",
-      },
+      headers,
     });
     if (res.status === 401 || res.status === 403) {
       await config.markInvalid?.(credentialId);

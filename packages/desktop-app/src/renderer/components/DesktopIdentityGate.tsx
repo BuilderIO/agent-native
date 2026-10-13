@@ -46,22 +46,15 @@ const PRIVACY_URL = "https://www.agent-native.com/privacy";
 interface DesktopIdentityGateProps {
   appName: string;
   status: DesktopIdentityStatus | "checking";
-  /** Opens Google in the system browser and completes the desktop exchange. */
   onSignIn: () => boolean | Promise<boolean>;
-  /** Performs the trusted inline password sign-in in the main process. */
   onAuthenticate: (
     request: DesktopIdentityAuthRequest,
   ) => Promise<DesktopIdentityAuthResult>;
-  /** Requests a magic link; verification is completed in the system browser. */
   onMagicLink: (
     request: DesktopIdentityMagicLinkRequest,
   ) => Promise<DesktopIdentityMagicLinkResult>;
 }
 
-/**
- * The parent identity surface is native to the Electron shell. Child app
- * WebViews stay covered until the broker has copied their app-scoped sessions.
- */
 export default function DesktopIdentityGate({
   appName,
   status,
@@ -86,18 +79,15 @@ export default function DesktopIdentityGate({
     if (status === "sign-in-required" || status === "failed") {
       emailRef.current?.focus();
     }
-    if (status === "failed") {
-      setMagicLinkSentEmail(null);
-      setSubmitting(false);
-      setError((current) => current ?? COPY.failedToConnect);
-    }
     if (status === "signed-in" || status === "idle") {
       setMagicLinkSentEmail(null);
       setSubmitting(false);
     }
   }, [status]);
 
-  if (status === "idle" || status === "signed-in") return null;
+  if (status === "idle" || status === "signed-in") {
+    return null;
+  }
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -172,7 +162,7 @@ export default function DesktopIdentityGate({
     );
   }
 
-  if (magicLinkSentEmail && status !== "failed") {
+  if (magicLinkSentEmail) {
     return (
       <div
         className="desktop-identity-gate"
@@ -204,7 +194,6 @@ export default function DesktopIdentityGate({
   const canSubmit = Boolean(
     email.trim() && (authMode === "magic-link" || password),
   );
-
   return (
     <div
       className="desktop-identity-gate"
@@ -215,7 +204,6 @@ export default function DesktopIdentityGate({
     >
       <div className="desktop-identity-gate__panel desktop-identity-gate__panel--form">
         <div className="desktop-identity-gate__heading">
-          <span className="desktop-identity-gate__app-name">{appName}</span>
           <h1>{COPY.welcomeTitle}</h1>
           <p>{COPY.welcomeSubtitle}</p>
         </div>

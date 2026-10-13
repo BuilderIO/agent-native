@@ -19,6 +19,12 @@ describe("app config store", () => {
     process.env = { ...originalEnv };
     delete process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK;
     delete process.env.AGENT_NATIVE_DISABLE_DESKTOP_SSO_FALLBACK;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    delete process.env.DISPATCH_ADMIN_EMAILS;
+    delete process.env.WORKSPACE_OWNER_EMAIL;
+    delete process.env.DISPATCH_DEFAULT_OWNER_EMAIL;
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
   });
 
   afterEach(() => {
@@ -29,11 +35,31 @@ describe("app config store", () => {
   it("applies declared defaults when nothing is configured", () => {
     expect(getAppConfig().privateBlob.publicUploadFallback).toBe(true);
     expect(getAppConfig().privateBlob.provider).toBeUndefined();
+    expect(getAppConfig().app.homePath).toBeUndefined();
+    expect(getAppConfig().analytics.authSessionReplay).toBe(false);
+  });
+
+  it("opts auth-page replay in through app config", () => {
+    defineAppConfig({ analytics: { authSessionReplay: true } });
+
+    expect(getAppConfig().analytics.authSessionReplay).toBe(true);
   });
 
   it("reads a declared environment alias", () => {
     process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK = "0";
     expect(getAppConfig().privateBlob.publicUploadFallback).toBe(false);
+  });
+
+  it("reads the mounted app path from its declared aliases", () => {
+    process.env.APP_BASE_PATH = "/server";
+    process.env.VITE_APP_BASE_PATH = "/vite";
+
+    expect(getAppConfig().app.basePath).toBe("/vite");
+  });
+
+  it("reads the MCP static-token owner from its declared alias", () => {
+    process.env.AGENT_NATIVE_OWNER_EMAIL = "owner@example.com";
+    expect(getAppConfig().auth.mcpOwnerEmail).toBe("owner@example.com");
   });
 
   it("reads early liveness configuration from declared aliases", () => {
@@ -43,6 +69,47 @@ describe("app config store", () => {
     const app = getAppConfig().app;
     expect(app.pingMessage).toBe("ready");
     expect(app.healthStrictSchema).toBe(true);
+  });
+
+  it("resolves organization access policy from declared environment aliases", () => {
+    expect(getAppConfig().access).toMatchObject({
+      signup: "open",
+      orgCreation: "open",
+      autoCreateDefaultOrg: true,
+      bootstrapAdmins: [],
+      sso: { enabled: false },
+      scim: { enabled: false },
+    });
+
+    Object.assign(process.env, {
+      AUTH_SIGNUP: "invited",
+      ORG_CREATION: "closed",
+      AUTO_CREATE_DEFAULT_ORG: "0",
+      AUTH_BOOTSTRAP_ADMINS: "Admin@example.com, owner@example.com,",
+      AUTH_SSO: "1",
+      AUTH_SCIM: "true",
+    });
+
+    expect(getAppConfig().access).toEqual({
+      signup: "invited",
+      orgCreation: "closed",
+      autoCreateDefaultOrg: false,
+      bootstrapAdmins: ["Admin@example.com", "owner@example.com"],
+      sso: { enabled: true },
+      scim: { enabled: true },
+    });
+  });
+
+  it("resolves Dispatch admin emails from their declared environment aliases", () => {
+    process.env.DISPATCH_ADMIN_EMAILS = "admin@example.com,ops@example.com";
+    process.env.WORKSPACE_OWNER_EMAIL = "owner@example.com";
+    process.env.DISPATCH_DEFAULT_OWNER_EMAIL = "default@example.com";
+
+    expect(getAppConfig().dispatch).toEqual({
+      adminEmails: ["admin@example.com", "ops@example.com"],
+      workspaceOwnerEmails: ["owner@example.com"],
+      defaultOwnerEmail: "default@example.com",
+    });
   });
 
   it("declares the development Desktop SSO fallback control", () => {
@@ -56,6 +123,18 @@ describe("app config store", () => {
     expect(getAppConfig().auth.disableDesktopSsoFallbackInDevelopment).toBe(
       true,
     );
+  });
+
+  it("reads the password signup verification policy from its declared alias", () => {
+    expect(getAppConfig().auth.requireEmailVerification).toBeUndefined();
+
+    process.env.AUTH_REQUIRE_EMAIL_VERIFICATION = "0";
+    resetAppConfigForTests();
+    expect(getAppConfig().auth.requireEmailVerification).toBe(false);
+
+    process.env.AUTH_REQUIRE_EMAIL_VERIFICATION = "1";
+    resetAppConfigForTests();
+    expect(getAppConfig().auth.requireEmailVerification).toBe(true);
   });
 
   it("lets an explicit value win over the environment alias", () => {
@@ -90,6 +169,27 @@ describe("app config store", () => {
         privateBlob: { provider: "" },
       }),
     ).toThrow();
+  });
+
+  it("validates and trims the configured private app home path", () => {
+    defineAppConfig({ app: { homePath: " /inbox " } });
+    expect(getAppConfig().app.homePath).toBe("/inbox");
+
+    expect(() =>
+      defineAppConfig({ app: { homePath: "https://evil.example" } }),
+    ).toThrow();
+    for (const homePath of [
+      "/sign-in",
+      "/_agent-native/sign-in",
+      "/login",
+      "/signup",
+      "/workspace/sign-in",
+      "/workspace/_agent-native/sign-in",
+      "/workspace/login",
+      "/workspace/signup",
+    ]) {
+      expect(() => defineAppConfig({ app: { homePath } })).toThrow();
+    }
   });
 
   it("treats an empty environment value as unset", () => {
@@ -144,9 +244,12 @@ describe("app identity", () => {
     for (const key of [
       "AGENT_NATIVE_APP_ID",
       "APP_ID",
+      "AGENT_APP",
       "AGENT_NATIVE_WORKSPACE_APP_ID",
       "VITE_AGENT_NATIVE_WORKSPACE_APP_ID",
       "APP_NAME",
+      "APP_BASE_PATH",
+      "VITE_APP_BASE_PATH",
     ]) {
       delete process.env[key];
     }
@@ -159,11 +262,13 @@ describe("app identity", () => {
 
   it("keeps id, workspaceId, and name as separate values", () => {
     process.env.AGENT_NATIVE_APP_ID = "generic";
+    process.env.AGENT_APP = "legacy";
     process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "workspace";
     process.env.APP_NAME = "Display Name";
 
     const app = getAppConfig().app;
     expect(app.id).toBe("generic");
+    expect(app.legacyId).toBe("legacy");
     expect(app.workspaceId).toBe("workspace");
     expect(app.name).toBe("Display Name");
   });
@@ -176,13 +281,12 @@ describe("app identity", () => {
   it("leaves every field absent when nothing is configured", () => {
     const app = getAppConfig().app;
     expect(app.id).toBeUndefined();
+    expect(app.legacyId).toBeUndefined();
     expect(app.workspaceId).toBeUndefined();
     expect(app.name).toBeUndefined();
   });
 
   it("has no default, so credential scoping can still deny", () => {
-    // A default of "app" here would turn "no identity configured" into a grant
-    // lookup scoped to an app literally named `app`.
     expect(appConfigSchema.parse({}).app.id).toBeUndefined();
   });
 
@@ -237,9 +341,6 @@ describe("agent engine and model", () => {
   });
 
   it("rejects a malformed toggle instead of silently reading it as false", () => {
-    // Behavior change: `/^(1|true)$/i.test(...)` treated "maybe" as false, so a
-    // typo silently selected the opposite policy. It is now a startup error
-    // naming the key.
     process.env.AGENT_ENGINE_PREFER_BYO_KEY = "maybe";
     expect(() => getAppConfig()).toThrow(
       /AGENT_ENGINE_PREFER_BYO_KEY must be one of/,
@@ -360,6 +461,20 @@ describe("schema reflection", () => {
 });
 
 describe("env layer", () => {
+  it("resolves the recurring background-jobs setting through app config", () => {
+    expect(collectEnvAliases(appConfigSchema)).toContainEqual({
+      path: ["runtime", "backgroundJobsEnabled"],
+      env: ["RUN_BACKGROUND_JOBS"],
+      type: "boolean",
+    });
+    expect(
+      readEnvConfigLayer(appConfigSchema, { RUN_BACKGROUND_JOBS: "1" }).runtime,
+    ).toEqual({ backgroundJobsEnabled: true });
+    expect(
+      readEnvConfigLayer(appConfigSchema, { RUN_BACKGROUND_JOBS: "0" }).runtime,
+    ).toEqual({ backgroundJobsEnabled: false });
+  });
+
   it("collects declared aliases with their field path", () => {
     expect(collectEnvAliases(appConfigSchema)).toContainEqual({
       path: ["privateBlob", "publicUploadFallback"],
@@ -379,6 +494,10 @@ describe("env layer", () => {
     expect(
       readEnvConfigLayer(appConfigSchema, { APP_ID: "fallback" }).app,
     ).toEqual({ id: "fallback" });
+
+    expect(
+      readEnvConfigLayer(appConfigSchema, { AGENT_APP: "legacy" }).app,
+    ).toEqual({ id: "legacy", legacyId: "legacy" });
   });
 
   it("treats a blank alias as absent and falls through to the next", () => {

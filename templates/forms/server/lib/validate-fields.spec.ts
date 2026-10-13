@@ -44,9 +44,6 @@ describe("normalizeFieldIds", () => {
   });
 
   it("does not touch an id that fails validation for a reason other than being missing", () => {
-    // An unsafe id (XSS-shaped) must still fail assertValidFields — this
-    // helper only fills in MISSING ids, it must never launder an attacker
-    // -controlled string into looking "generated".
     const fields = normalizeFieldIds([
       {
         id: 'x" onfocus="alert(1)',
@@ -94,5 +91,50 @@ describe("normalizePersistedFields", () => {
       },
     ]);
     expect(() => assertValidFields(fields)).not.toThrow();
+  });
+});
+
+describe("file field metadata", () => {
+  it("accepts bounded multiple file fields", () => {
+    expect(() =>
+      assertValidFields([
+        {
+          id: "screenshots",
+          type: "file",
+          label: "Screenshots",
+          required: false,
+          multiple: true,
+          accept: "image/png,.webp",
+          maxSizeBytes: 5 * 1024 * 1024,
+          maxFiles: 5,
+        },
+      ]),
+    ).not.toThrow();
+  });
+
+  it("rejects file metadata on other field types and unsafe limits", () => {
+    expect(() =>
+      assertValidFields([
+        {
+          id: "name",
+          type: "text",
+          label: "Name",
+          required: false,
+          accept: "image/png",
+        },
+      ]),
+    ).toThrow("file metadata is only valid for file fields");
+    expect(() =>
+      assertValidFields([
+        {
+          id: "screenshots",
+          type: "file",
+          label: "Screenshots",
+          required: false,
+          multiple: false,
+          maxFiles: 2,
+        },
+      ]),
+    ).toThrow("maxFiles requires multiple");
   });
 });

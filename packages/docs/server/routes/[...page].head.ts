@@ -16,8 +16,17 @@ import {
 } from "h3";
 
 import { estimateMarkdownTokens } from "../../../core/src/agent-web/index";
-import { applyDocsSsrCacheKeyHeaders } from "../../lib/ssr-cache";
-import { acceptsMarkdown, appendVary } from "../lib/agent-web-responses";
+import { isLegacyChunkRecoveryRequest } from "../../../core/src/shared/route-chunk-recovery-bootstrap.js";
+import {
+  applyCommunityAppSsrCacheHeaders,
+  applyDocsSsrCacheKeyHeaders,
+  isCloudGettingStartedPath,
+} from "../../lib/ssr-cache";
+import {
+  acceptsMarkdown,
+  agentWebAssetContentType,
+  appendVary,
+} from "../lib/agent-web-responses";
 import { fetchMarkdownMirror } from "../lib/markdown-mirror";
 
 const SITE_URL = "https://www.agent-native.com";
@@ -52,10 +61,19 @@ export default async function docsHeadHandler(event: H3Event) {
 
   const response = await ssrHandler(event);
   const headers = new Headers(response.headers);
+  const requestUrl = getRequestURL(event);
+  const isLegacyRecovery = isLegacyChunkRecoveryRequest(requestUrl);
   appendVary(headers, ["Accept", "Accept-Encoding"]);
-  // Preserve the stronger full-query key emitted by core for query-preserving
-  // redirects; the normal Docs key is only for ordinary public SSR pages.
-  applyDocsSsrCacheKeyHeaders(headers);
+  applyDocsSsrCacheKeyHeaders(headers, {
+    varyByQuery: isCloudGettingStartedPath(requestUrl),
+    varyByLegacyRecovery: isLegacyRecovery,
+  });
+  applyCommunityAppSsrCacheHeaders(
+    headers,
+    requestUrl.pathname,
+    response.status,
+    { isLegacyRecovery },
+  );
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -64,9 +82,6 @@ export default async function docsHeadHandler(event: H3Event) {
 }
 
 function setSsrCacheHeaders(event: H3Event) {
-  // HEAD mirrors the GET cache policy exactly. Keep this tied to the framework
-  // resolver instead of app-level provider config so public docs deploys keep
-  // CDN SWR and Netlify durable caching without local header blocks.
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     setHeader(event, name, value);
   }
@@ -80,14 +95,7 @@ async function readHeadAssetForRequest(
 ): Promise<{ content: string; contentType: string } | undefined> {
   const pathname = markdownRequestPath(event).replace(/\/+$/, "") || "/";
   const wantsMarkdown = acceptsMarkdown(getRequestHeader(event, "accept"));
-  const contentTypeByPath: Record<string, string> = {
-    "/llms.txt": "text/plain; charset=utf-8",
-    "/llms-full.txt": "text/plain; charset=utf-8",
-    "/robots.txt": "text/plain; charset=utf-8",
-    "/sitemap.xml": "application/xml; charset=utf-8",
-    "/openapi.json": "application/json; charset=utf-8",
-  };
-  const contentType = contentTypeByPath[pathname];
+  const contentType = agentWebAssetContentType(pathname);
   const isMarkdownPath = pathname.endsWith(".md");
   const relativePath = isMarkdownPath
     ? pathname.replace(/^\//, "")

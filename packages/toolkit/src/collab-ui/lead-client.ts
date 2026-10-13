@@ -2,8 +2,6 @@ import type { Awareness } from "y-protocols/awareness";
 
 import { AGENT_CLIENT_ID } from "./agent-identity.js";
 
-// Exactly one visible non-agent client may apply an external snapshot; allowing
-// every client to reconcile it duplicates concurrent CRDT inserts.
 export function isReconcileLeadClient(
   awareness: Awareness | null | undefined,
   localClientId: number | null | undefined,
@@ -11,9 +9,6 @@ export function isReconcileLeadClient(
   if (localClientId == null) return false;
   if (!awareness) return true;
 
-  // The peer loop below skips the local client, so its own capability has to be
-  // checked here — otherwise a read-only viewer that is alone, or that holds the
-  // lowest id, still wins the election and then applies nothing.
   const localState = awareness.getStates().get(localClientId) as
     | { canFlushDocument?: boolean }
     | undefined;
@@ -29,9 +24,6 @@ export function isReconcileLeadClient(
       canFlushDocument?: boolean;
     };
     if (!candidate?.user) return;
-    // Read-only viewers subscribe to awareness for presence but bind no Y.Doc,
-    // so electing one stops external snapshots reconciling anywhere. Absent
-    // (legacy clients that never publish the field) still counts as eligible.
     if (candidate.canFlushDocument === false) return;
     hasPeer = true;
     if (candidate.visible !== false && clientId < minVisible) {

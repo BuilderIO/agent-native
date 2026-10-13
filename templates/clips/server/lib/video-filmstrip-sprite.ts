@@ -1,27 +1,3 @@
-/**
- * Generate a filmstrip sprite — one JPEG holding a grid of evenly-spaced video
- * frames — so the editor timeline renders thumbnails as a single cached image
- * request instead of decoding the video in the browser.
- *
- * Why a sprite rather than per-frame files: one ffmpeg pass, one upload, one
- * HTTP request, and the grid geometry is enough for CSS `background-position`
- * to address any cell. The browser fallback in `app/lib/video-filmstrip.ts`
- * needs one seek per frame and cannot read cross-origin media at all.
- *
- * Three constraints worth keeping in mind:
- *
- *   - Cells are padded to an exact size (`force_original_aspect_ratio=decrease`
- *     plus `pad`) so the returned grid geometry is exact without probing the
- *     source. Letterboxed bars on odd aspect ratios are the deliberate cost of
- *     not having to decode the output to learn its dimensions.
- *   - Sampling starts half a cell in, matching the browser fallback: cell `i`
- *     shows the midpoint of the time slot it occupies, not its leading edge.
- *   - Input arrives as bytes and is written to a temp file, like every other
- *     ffmpeg path here. That means the whole file is buffered in memory by the
- *     caller, which is the practical ceiling on this approach for long
- *     recordings on small hosts.
- */
-
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,8 +7,6 @@ import { isFfmpegAvailable, runFfmpeg, withRemuxSlot } from "./video-remux.js";
 const SPRITE_TIMEOUT_MS = 90_000;
 
 export const DEFAULT_FILMSTRIP_FRAME_COUNT = 40;
-// A sprite is decoded whole by the browser, so cap the grid: 120 cells at the
-// default size is already a ~1600x1080 image.
 export const MAX_FILMSTRIP_FRAME_COUNT = 120;
 export const DEFAULT_FILMSTRIP_FRAME_WIDTH = 160;
 export const DEFAULT_FILMSTRIP_FRAME_HEIGHT = 90;
@@ -46,7 +20,6 @@ export type FilmstripSpriteStatus =
   | "failed-ffmpeg"
   | "failed-empty-output";
 
-/** Everything the UI needs to address one cell of the sprite. */
 export interface FilmstripSpriteGrid {
   frameCount: number;
   columns: number;
@@ -57,7 +30,6 @@ export interface FilmstripSpriteGrid {
 
 export interface FilmstripSpriteResult {
   status: FilmstripSpriteStatus;
-  /** Present only when `status === "generated"`. */
   sprite?: { bytes: Uint8Array; grid: FilmstripSpriteGrid };
   detail?: string;
 }
@@ -71,11 +43,6 @@ export interface GenerateFilmstripSpriteInput {
   columns?: number;
 }
 
-/**
- * Lay `frameCount` cells out into a grid no wider than `columns`. Exported so
- * callers can compute the same geometry the sprite will have without
- * regenerating it.
- */
 export function filmstripGrid(input: {
   frameCount: number;
   columns: number;
@@ -96,12 +63,6 @@ export function filmstripGrid(input: {
   };
 }
 
-/**
- * Build the ffmpeg filter chain that samples `frameCount` frames across
- * `durationMs` and tiles them into `grid`. Exported for tests: the sampling
- * offset and rate are the parts most likely to drift from the browser
- * fallback's expectations.
- */
 export function filmstripSpriteFilter(input: {
   durationMs: number;
   grid: FilmstripSpriteGrid;
@@ -111,7 +72,6 @@ export function filmstripSpriteFilter(input: {
   const fps = grid.frameCount / (durationMs / 1000);
 
   return {
-    // Half a cell in, so each tile is the midpoint of its slot.
     seekSeconds: (cellMs / 2 / 1000).toFixed(6),
     filter: [
       `fps=${fps.toFixed(6)}`,
@@ -165,7 +125,6 @@ export async function generateFilmstripSprite(
           "error",
           "-nostdin",
           "-y",
-          // Input seeking: cheap, and puts the first sample at a cell midpoint.
           "-ss",
           seekSeconds,
           "-i",
@@ -174,7 +133,6 @@ export async function generateFilmstripSprite(
           "-sn",
           "-vf",
           filter,
-          // The tile filter emits the finished grid as a single frame.
           "-frames:v",
           "1",
           "-q:v",

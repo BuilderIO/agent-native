@@ -1,6 +1,5 @@
 declare module "*.css" {}
 
-/** Auto-update status surfaced from electron-updater (mirrors shared/ipc-channels.ts). */
 type UpdateStatus =
   | { state: "idle" }
   | { state: "unsupported"; reason: string }
@@ -34,6 +33,8 @@ type DesktopEnvironmentLanePreference =
   import("../../shared/environment-lane.js").DesktopEnvironmentLanePreference;
 type DesktopEnvironmentLaneState =
   import("../../shared/ipc-channels.js").DesktopEnvironmentLaneState;
+type DesktopTerminalContext =
+  import("../../shared/ipc-channels.js").DesktopTerminalContext;
 
 type CodeAgentRunStatus =
   | "queued"
@@ -76,7 +77,7 @@ type CodeAgentReasoningEffort =
 type CodeAgentModelSelection = {
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
 };
 
 type CodeAgentModelOption = {
@@ -163,7 +164,13 @@ type CodeAgentProviderStatus = {
   configuredKeys: CodeAgentProviderCredentialKey[];
   missingKeys: CodeAgentProviderCredentialKey[];
   savedKeys: CodeAgentProviderCredentialKey[];
-  source?: "desktop-settings" | "environment" | "mixed" | "local-codex";
+  source?:
+    | "desktop-settings"
+    | "desktop-managed"
+    | "environment"
+    | "mixed"
+    | "local-codex";
+  error?: string;
 };
 
 type CodeAgentProviderSettings = {
@@ -183,6 +190,62 @@ type CodeAgentProviderSettingsUpdateResult = {
   message: string;
   error?: string;
 };
+
+type CodeAgentBuilderConnectionStatus = {
+  configured: boolean;
+  builderEnabled: boolean;
+  connectUrl: string;
+  appHost: string;
+  apiHost: string;
+  publicKeyConfigured: boolean;
+  privateKeyConfigured: boolean;
+  grants?: {
+    org?: { connectedAt: number | null; needsReconnect: boolean };
+    personal?: {
+      connectedAt: number | null;
+      needsReconnect: boolean;
+      restricted: boolean;
+    };
+  } | null;
+  effective?: "personal" | "org" | "workspace" | "env" | null;
+  canConnect?: { org: boolean; personal: boolean };
+  canDisconnect?: boolean;
+  agentNativeProvisioningEnabled?: boolean;
+  agentNativeProvisioningToken?: string;
+  envManaged?: boolean;
+  credentialSource?: "user" | "org" | "workspace" | "env";
+  orgName?: string;
+  connectError?: { message: string; at: number; code?: string };
+  authError?: { message: string; at: number };
+};
+
+type CodeAgentBuilderConnectionResult =
+  | { state: "connected"; status: CodeAgentBuilderConnectionStatus }
+  | { state: "disconnected"; status: CodeAgentBuilderConnectionStatus }
+  | { state: "unavailable"; error: string };
+
+type CodeAgentBuilderActivationRequest = {
+  provisioningToken: string;
+  scope?: "org" | "personal";
+  connectToken?: string | null;
+  source?: string;
+  flow?: string;
+};
+
+type CodeAgentBuilderActivationResult =
+  | { ok: true; scope?: "org" | "personal" }
+  | { ok: false; code: string; message: string | null };
+
+type CodeAgentBuilderConnectOpenRequest = {
+  connectAttemptId: string;
+  scope?: "org" | "personal";
+  source?: string;
+  flow?: string;
+};
+
+type CodeAgentBuilderConnectOpenResult =
+  | { ok: true }
+  | { ok: false; error: string };
 
 type CodeAgentPromptAttachment = {
   name: string;
@@ -250,7 +313,7 @@ type CodeAgentProjectSelectResult = {
 type CodeAgentQueueMetadata = {
   queued: boolean;
   queuedAt?: string;
-  queuedBy?: "desktop" | "cli" | "host" | string;
+  queuedBy?: "desktop" | "cli" | "host" | (string & {});
   queueId?: string;
   queuePosition?: number;
   attempt?: number;
@@ -263,7 +326,7 @@ type CodeAgentSteeringMetadata = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
 };
 
@@ -384,7 +447,7 @@ type CodeAgentCreateRunRequest = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
   metadata?: Record<string, unknown>;
 };
@@ -476,7 +539,7 @@ type CodeAgentFollowUpRequest = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
   metadata?: Record<string, unknown>;
 };
@@ -533,7 +596,7 @@ type CodeAgentUpdateRunRequest = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   metadata?: Record<string, unknown>;
 };
 
@@ -584,7 +647,7 @@ type CodeAgentRerunRequest = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
   metadata?: Record<string, unknown>;
 };
@@ -599,7 +662,7 @@ type CodeAgentRetryRunRequest = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   metadata?: Record<string, unknown>;
 };
 
@@ -621,7 +684,7 @@ type CodeAgentCodePackMetadata = {
 
 type CodeAgentHostMetadata = {
   status: "ok" | "unavailable";
-  platform: NodeJS.Platform | string;
+  platform: NodeJS.Platform | (string & {});
   desktopVersion?: string;
   storeRoot: string;
   runsDir: string;
@@ -680,6 +743,13 @@ type DesktopOpenRequest = {
   path?: string;
   softOpen?: boolean;
   runId?: string;
+  settingsTab?: string;
+};
+
+type DesktopChatOpenAppRequest = {
+  app: string;
+  path?: string;
+  view?: string;
 };
 
 type DesktopShortcutActivationRequest = DesktopOpenRequest & {
@@ -754,7 +824,7 @@ type QuickPromptSubmitRequest = {
   cwd?: string;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
 };
 
@@ -780,7 +850,6 @@ type DesktopAppCreationSettings = {
   appsRoot: string;
 };
 
-/** `settings` always reflects the current on-disk value, so a rejected update still snaps the UI back to something real. */
 type DesktopAppCreationSettingsUpdateResult = {
   ok: boolean;
   settings: DesktopAppCreationSettings;
@@ -841,7 +910,6 @@ type MultiFrontierSubscriptionResult = {
   error?: { message: string };
 };
 
-/** Electron APIs exposed to the renderer via the preload contextBridge */
 interface ElectronAPI {
   platform: string;
   sentry: {
@@ -936,6 +1004,8 @@ interface ElectronAPI {
     ): Promise<QuickPromptSettings>;
     dismiss(): void;
     setPickerOpen(open: boolean): void;
+    setSetupRequired(required: boolean): void;
+    openProviderSettings(): void;
     onHidden(cb: () => void): () => void;
     submit(request: QuickPromptSubmitRequest): Promise<QuickPromptSubmitResult>;
   };
@@ -1022,7 +1092,15 @@ interface ElectronAPI {
     updateProviderSettings(
       request: CodeAgentProviderSettingsUpdate,
     ): Promise<CodeAgentProviderSettingsUpdateResult>;
-    connectBuilderProvider(): Promise<CodeAgentProviderSettingsUpdateResult>;
+    getBuilderConnectionStatus(
+      connectAttemptId?: string,
+    ): Promise<CodeAgentBuilderConnectionResult>;
+    activateBuilderAccount(
+      request: CodeAgentBuilderActivationRequest,
+    ): Promise<CodeAgentBuilderActivationResult>;
+    openBuilderConnectUrl(
+      request: CodeAgentBuilderConnectOpenRequest,
+    ): Promise<CodeAgentBuilderConnectOpenResult>;
     onOpenRequest(cb: (request: DesktopOpenRequest) => void): () => void;
   };
 
@@ -1112,7 +1190,10 @@ interface ElectronAPI {
 
   desktopChat: {
     getApiUrl(appId: string): Promise<string | null>;
-    getTerminalInfoUrl(appId: string): Promise<string | null>;
+    getTerminalInfoUrl(
+      context?: DesktopTerminalContext | null,
+    ): Promise<string | null>;
+    onOpenApp(cb: (request: DesktopChatOpenAppRequest) => void): () => void;
   };
 
   mcpServers: {
@@ -1149,7 +1230,6 @@ declare interface Window {
   electronAPI: ElectronAPI;
 }
 
-/** Extend JSX to support Electron's <webview> custom element */
 declare namespace JSX {
   interface IntrinsicElements {
     webview: React.DetailedHTMLProps<
@@ -1166,7 +1246,6 @@ declare namespace JSX {
   }
 }
 
-/** Minimal Electron WebviewTag interface for ref usage */
 interface ElectronWebviewElement extends HTMLElement {
   src: string;
   reload(): void;
@@ -1174,10 +1253,6 @@ interface ElectronWebviewElement extends HTMLElement {
   getWebContentsId(): number;
   getURL(): string;
   getTitle(): string;
-  canGoBack(): boolean;
-  canGoForward(): boolean;
-  goBack(): void;
-  goForward(): void;
   openDevTools(): void;
   executeJavaScript(code: string, userGesture?: boolean): Promise<unknown>;
   findInPage(

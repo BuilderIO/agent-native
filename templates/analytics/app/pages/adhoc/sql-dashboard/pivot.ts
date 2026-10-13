@@ -1,15 +1,5 @@
 import type { PivotConfig } from "./types";
 
-/**
- * Convert long-form rows like
- *   [{ date: "2026-01-01", author: "Alice", value: 5 },
- *    { date: "2026-01-01", author: "Bob",   value: 3 }]
- * into wide-form like
- *   [{ date: "2026-01-01", Alice: 5, Bob: 3 }]
- *
- * Returns the pivoted rows plus the discovered series keys (in stable insertion order)
- * so the chart renderer can build one stack/line per series.
- */
 export interface PivotResult {
   rows: Record<string, unknown>[];
   seriesKeys: string[];
@@ -18,6 +8,13 @@ export interface PivotResult {
 const ISO_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_DAILY_GAP_FILL_DAYS = 800;
 const DAY_MS = 86_400_000;
+
+export function timeRangeDays(value: unknown): number | undefined {
+  const match = typeof value === "string" ? /^(\d+)d$/.exec(value) : null;
+  if (!match) return undefined;
+  const days = Number(match[1]);
+  return Number.isInteger(days) && days > 0 && days <= 800 ? days : undefined;
+}
 
 function dayToUtcMs(day: string): number | null {
   if (!ISO_DAY_RE.test(day)) return null;
@@ -28,6 +25,20 @@ function dayToUtcMs(day: string): number | null {
 
 function utcMsToDay(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
+}
+
+function pivotKey(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  if (value == null) return "";
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  ) {
+    return String(value);
+  }
+  return JSON.stringify(value) ?? "";
 }
 
 function fillMissingSeries(
@@ -44,16 +55,30 @@ function fillMissingDailyRows(
   rows: Record<string, unknown>[],
   xKey: string,
   seriesKeys: string[],
+  timeRange?: number,
 ): Record<string, unknown>[] {
-  if (rows.length < 2 || seriesKeys.length === 0) return rows;
+  if ((rows.length < 2 && timeRange == null) || seriesKeys.length === 0) {
+    return rows;
+  }
 
   const first = rows[0]?.[xKey];
   const last = rows[rows.length - 1]?.[xKey];
   if (typeof first !== "string" || typeof last !== "string") return rows;
 
-  const startMs = dayToUtcMs(first);
-  const endMs = dayToUtcMs(last);
+  let startMs = dayToUtcMs(first);
+  let endMs = dayToUtcMs(last);
   if (startMs == null || endMs == null || endMs < startMs) return rows;
+
+  if (timeRange != null && Number.isFinite(timeRange) && timeRange > 0) {
+    const todayMs = dayToUtcMs(utcMsToDay(Date.now()));
+    if (todayMs != null) {
+      const rangeStartMs = todayMs - (Math.floor(timeRange) - 1) * DAY_MS;
+      if (rangeStartMs <= todayMs) {
+        startMs = rangeStartMs;
+        endMs = todayMs;
+      }
+    }
+  }
 
   const dayCount = Math.floor((endMs - startMs) / DAY_MS) + 1;
   if (dayCount > MAX_DAILY_GAP_FILL_DAYS) return rows;
@@ -79,7 +104,7 @@ function fillMissingDailyRows(
 export function pivotRows(
   rows: Record<string, unknown>[],
   config: PivotConfig,
-  options?: { fillDateGaps?: boolean },
+  options?: { fillDateGaps?: boolean; timeRange?: number },
 ): PivotResult {
   const { xKey, seriesKey, valueKey } = config;
   const byX = new Map<string, Record<string, unknown>>();
@@ -87,9 +112,8 @@ export function pivotRows(
   const seenSeries = new Set<string>();
 
   for (const row of rows) {
-    const xRaw = row[xKey];
-    const x = xRaw instanceof Date ? xRaw.toISOString() : String(xRaw ?? "");
-    const series = String(row[seriesKey] ?? "");
+    const x = pivotKey(row[xKey]);
+    const series = pivotKey(row[seriesKey]);
     if (!series) continue;
 
     if (!seenSeries.has(series)) {
@@ -105,12 +129,10 @@ export function pivotRows(
     bucket[series] = row[valueKey];
   }
 
-  // Preserve original x ordering by walking input rows once more
   const orderedRows: Record<string, unknown>[] = [];
   const emitted = new Set<string>();
   for (const row of rows) {
-    const xRaw = row[xKey];
-    const x = xRaw instanceof Date ? xRaw.toISOString() : String(xRaw ?? "");
+    const x = pivotKey(row[xKey]);
     if (emitted.has(x)) continue;
     emitted.add(x);
     const bucket = byX.get(x);
@@ -121,7 +143,12 @@ export function pivotRows(
     rows:
       options?.fillDateGaps === false
         ? orderedRows
-        : fillMissingDailyRows(orderedRows, xKey, seriesKeys),
+        : fillMissingDailyRows(
+            orderedRows,
+            xKey,
+            seriesKeys,
+            options?.timeRange,
+          ),
     seriesKeys,
   };
 }

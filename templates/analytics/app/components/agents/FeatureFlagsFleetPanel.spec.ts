@@ -2,10 +2,25 @@ import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  hasFleetApps,
   qualifyFleetMutation,
   recoverFleetMutationFailure,
   reconcileVerifiedFleetMutation,
 } from "./FeatureFlagsFleetPanel";
+
+describe("hasFleetApps", () => {
+  it("keeps a local Analytics entry usable when the peer directory is unavailable", () => {
+    expect(
+      hasFleetApps({
+        directoryStatus: "unavailable",
+        apps: [{ appId: "analytics", state: "ready" }],
+      }),
+    ).toBe(true);
+    expect(hasFleetApps({ directoryStatus: "unavailable", apps: [] })).toBe(
+      false,
+    );
+  });
+});
 
 describe("qualifyFleetMutation", () => {
   it("preserves Core rollout rules while qualifying the target app", () => {

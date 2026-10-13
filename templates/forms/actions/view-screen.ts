@@ -1,9 +1,14 @@
 import { defineAction } from "@agent-native/core/action";
-import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  ForbiddenError,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { requireFormsPermission } from "../server/lib/app-roles.js";
 import {
   toPublicFormSettings,
   type FormField,
@@ -14,6 +19,7 @@ import { readAppStateForCurrentTab } from "./_tab-state.js";
 const FORMS_LIST_LIMIT = 25;
 const RESPONSE_PREVIEW_LIMIT = 5;
 const FIELD_PREVIEW_LIMIT = 20;
+const FIELD_OPTION_PREVIEW_LIMIT = 8;
 
 function canReadPrivateFormData(role: string): boolean {
   return role === "owner" || role === "editor" || role === "admin";
@@ -30,14 +36,19 @@ function safeJson<T>(value: string, fallback: T): T {
 function cleanText(value: unknown, maxLength = 160): string {
   if (value === undefined || value === null || value === "") return "";
   const text =
-    typeof value === "object" ? JSON.stringify(value) : String(value);
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+      ? String(value)
+      : JSON.stringify(value);
   const normalized = text.replace(/\s+/g, " ").trim();
   return normalized.length <= maxLength
     ? normalized
     : `${normalized.slice(0, maxLength - 3)}...`;
 }
 
-function summarizeFields(fields: FormField[]) {
+export function summarizeFields(fields: FormField[]) {
   return fields.slice(0, FIELD_PREVIEW_LIMIT).map((field) => ({
     id: field.id,
     type: field.type,
@@ -45,8 +56,9 @@ function summarizeFields(fields: FormField[]) {
     required: field.required,
     ...(field.options?.length
       ? {
-          options: field.options.slice(0, 8),
+          options: field.options.slice(0, FIELD_OPTION_PREVIEW_LIMIT),
           optionCount: field.options.length,
+          optionsTruncated: field.options.length > FIELD_OPTION_PREVIEW_LIMIT,
         }
       : {}),
   }));
@@ -63,6 +75,35 @@ function summarizeSettings(settings: FormSettings) {
       enabled: integration.enabled,
     })),
     allowedOriginsCount: settings.allowedOrigins?.length ?? 0,
+  };
+}
+
+interface FormsSelectionState {
+  formId?: string;
+  selectedFieldId?: string;
+  selectedFieldLabel?: string;
+  selectedFieldType?: string;
+}
+
+interface FormSelectionSummary {
+  fieldId: string;
+  label?: string;
+  type?: string;
+  hint: string;
+}
+
+export function buildFormSelectionSummary(
+  selection: FormsSelectionState | null,
+  formId: string,
+): FormSelectionSummary | null {
+  if (!selection || selection.formId !== formId || !selection.selectedFieldId) {
+    return null;
+  }
+  return {
+    fieldId: selection.selectedFieldId,
+    label: selection.selectedFieldLabel,
+    type: selection.selectedFieldType,
+    hint: `To change this field, read its full current data with get-form, then call patch-form-fields with id="${formId}" and ops=[{"op":"upsert","field":{...that field, id "${selection.selectedFieldId}", with your edits}}] — upsert replaces the whole field.`,
   };
 }
 
@@ -84,7 +125,7 @@ export default defineAction({
   description: "See what the user is currently looking at on screen.",
   schema: z.object({}),
   http: false,
-  run: async () => {
+  run: async (_args, ctx) => {
     const navigation = await readAppStateForCurrentTab("navigation", {
       fallbackToGlobal: false,
     });
@@ -94,6 +135,27 @@ export default defineAction({
 
     const nav = navigation as any;
     const activeTab = nav?.activeTab ?? nav?.tab;
+    const viewingResponses =
+      (nav?.view === "responses" ||
+        (nav?.view === "form" &&
+          (activeTab === "responses" || activeTab === "results"))) &&
+      nav?.formId;
+    let responseAccessDenied = false;
+    if (viewingResponses) {
+      try {
+        await requireFormsPermission("forms.review", "formId")(
+          { formId: nav.formId },
+          ctx,
+        );
+      } catch (error) {
+        if (!(error instanceof ForbiddenError)) throw error;
+        responseAccessDenied = true;
+        screen.responseAccess = {
+          status: "denied",
+          permission: "forms.review",
+        };
+      }
+    }
 
     if (nav?.formId) {
       try {
@@ -104,10 +166,22 @@ export default defineAction({
           const fields = safeJson<FormField[]>(form.fields, []);
           const settings = safeJson<FormSettings>(form.settings, {});
           const canReadPrivateData = canReadPrivateFormData(access.role);
-          const [responseCount] = await db
-            .select({ count: sql<number>`count(*)` })
-            .from(schema.responses)
-            .where(eq(schema.responses.formId, nav.formId));
+          const [responseCount] = responseAccessDenied
+            ? []
+            : await db
+                .select({ count: sql<number>`count(*)` })
+                .from(schema.responses)
+                .where(eq(schema.responses.formId, nav.formId));
+          const selectionState = (await readAppStateForCurrentTab(
+            "forms-selection",
+            {
+              fallbackToGlobal: false,
+            },
+          )) as FormsSelectionState | null;
+          const selection = buildFormSelectionSummary(
+            selectionState,
+            nav.formId,
+          );
 
           screen.form = {
             id: form.id,
@@ -122,9 +196,12 @@ export default defineAction({
             settings: canReadPrivateData
               ? summarizeSettings(settings)
               : toPublicFormSettings(settings),
-            responseCount: responseCount?.count ?? 0,
+            ...(!responseAccessDenied
+              ? { responseCount: responseCount?.count ?? 0 }
+              : {}),
             createdAt: form.createdAt,
             updatedAt: form.updatedAt,
+            ...(selection ? { selection } : {}),
           };
         }
       } catch {
@@ -195,12 +272,7 @@ export default defineAction({
       };
     }
 
-    if (
-      (nav?.view === "responses" ||
-        (nav?.view === "form" &&
-          (activeTab === "responses" || activeTab === "results"))) &&
-      nav?.formId
-    ) {
+    if (viewingResponses && !responseAccessDenied) {
       try {
         const db = getDb();
         const access = await resolveAccess("form", nav.formId);

@@ -1,0 +1,246 @@
+---
+title: "Clips: Features"
+description: "Clips' Library, Shared with me, and Spaces: viewing, creating, sharing, and organizing your clips, plus every other core feature."
+search: "Clips features library folders archive trash shared with me comments spaces sharing organizations insights"
+---
+
+# Features
+
+Every core Clips feature: how it works, and how to set it up. See [Clips](/docs/template-clips) for the overview and [Talk to the Agent](/docs/template-clips-agent) for the full list of prompts.
+
+## Library
+
+### View clips {#library-view-clips}
+
+Your Library shows folders first, then recordings, as a grid of thumbnails with duration, title, owner, view count, and visibility at a glance. Sort by newest, oldest, or title, filter by tag, or search across every transcript you've ever made to find the clip where you discussed something, not just the recording whose title you remember.
+
+### Create a clip
+
+Three ways to add a clip to your library, all from the **Record** button and the **Import** menu next to it. Right-clicking empty space in the Library offers the same three, plus **New folder**.
+
+- **Record.** Clips' built-in screen recorder, with a webcam overlay, audio capture, and pause/trim controls.
+- **Upload a video file.** Add an existing video straight from your computer, or drop it onto the Library or Spaces grid. No recording is needed.
+- **Import Loom.** Bring in a public Loom video without re-recording it. Next to **Record**, open **Import**, choose **Import Loom**, then paste a Loom share or embed URL. Clips saves a copy in your library and imports the public transcript when Loom provides one.
+
+### Manage a clip
+
+Every clip's three-dot menu, in the Library or right-clicked directly on a card, has the same four actions: **Share**, **Move to folder**, **Archive**, and **Move to trash**.
+
+#### Share
+
+Share a clip with per-clip permissions: public, team/organization, or private. Link tracking and threaded comments work too. Add a password or an expiry date on any clip from the Share dialog. Both only tighten access. Neither can grant access the sharing rules above them would otherwise deny.
+
+Organization admins set the default visibility new recordings get when nobody chooses one explicitly, covered under [Organizations and teams](#organizations-and-teams) below. Recordings default to public unless an admin changes that, and picking a visibility explicitly always wins over the default.
+
+Build an embed URL for a clip to drop it into a wiki page, an internal tool, or anywhere else that accepts an `<iframe>`:
+
+| Param             | Meaning                                                 |
+| ----------------- | ------------------------------------------------------- |
+| `?t=80`           | Start playback at 80 seconds                            |
+| `?autoplay=1`     | Autoplay (muted, since browsers block unmuted autoplay) |
+| `?hideControls=1` | Hide the player chrome                                  |
+| `?loop=1`         | Loop playback                                           |
+
+Public share links also preview as a playable, Loom-style video once your workspace installs its Clips Slack app. Only ready, public clips without a password, expiry hit, or archive/trash marker produce a playable Slack preview. Anything else falls back to normal title and thumbnail link metadata.
+
+Want a shared clip's transcript and frames to be readable by an outside agent like ChatGPT or Claude Code, not just by people? See [Clips in a Multi-App Workspace](/docs/template-clips-integrations).
+
+Once a clip is shared, its owner can see who's actually watching:
+
+| What                      | Shows you                                                                                                                                                                        |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Recording insights**    | Views, counted separately for humans and for outside agents reading the clip's agent-context APIs, plus unique viewers, completion rate, a drop-off curve, and CTA click-through |
+| **Organization insights** | Org-wide totals for the period, top clips by views, reactions, and comments, top creators, and a day-by-day engagement trend, the Insights Hub                                   |
+| **CSV export**            | Every recording in the organization with its view and engagement counts, as a downloadable CSV, up to the most recent 5,000 recordings                                           |
+
+Human views and agent views are tracked in separate counters on purpose, so an agent polling a shared clip's transcript never inflates the count of people who actually watched it.
+
+#### Move to folder
+
+Folders keep your library organized, and they nest: a folder can hold other folders, not just recordings.
+
+<Steps>
+
+### Create a folder
+
+Choose **New folder** from a clip's **Move to folder** submenu, or from the Library's right-click menu.
+
+### Move a clip in
+
+Choose the destination folder from **Move to folder** on the clip's three-dot menu. This works on several selected clips at once, too.
+
+</Steps>
+
+Rename a folder any time from its own options menu. Deleting one never deletes what's inside: every recording in it, and every recording in a nested subfolder, moves up to the parent folder, or to the library root if the folder you deleted was already at the top.
+
+#### Archive and move to trash
+
+Archiving and trashing both hide a clip from the main Library without deleting anything.
+
+- **Archive** keeps every bit of a clip's data intact while getting it out of your everyday view, useful for a finished project you don't want to see but might need again. Restore it any time.
+- **Move to trash** is a soft delete. The clip disappears from Library and Archive alike, but nothing is actually gone until someone permanently deletes it. There's no automatic cleanup: a trashed clip stays there until you or an admin removes it for good.
+- **Restore** brings a clip back from either Archive or Trash in one step.
+- **Delete forever** is the only irreversible option, removing the recording and everything attached to it: comments, reactions, view history, transcripts, shares, and the underlying media.
+
+## Shared with me
+
+### View clips {#shared-view-clips}
+
+This view lists every recording someone has shared directly with you or your organization, by name or by an org-wide visibility setting. A public link someone happens to have doesn't count toward this list.
+
+You can watch and seek through shared clips, and collapse the sidebar to give the video more room. You can comment here, but there's no three-dot menu: managing a clip (moving, archiving, sharing further) is still the owner's call.
+
+### Comment on clips
+
+Add a comment at the exact point in the video you're watching, not just on the recording as a whole. Comments thread into replies, support bold, italic, inline code, and links (headings flatten to plain text), and can @mention a teammate to notify them. Comment fields grow as you type, and the feed expands to show longer comments.
+
+## Spaces
+
+A space is a topic-scoped container that belongs to one organization, something like "Q3 Launch" or "Support Team", that any of its members can drop recordings into. A recording can belong to zero, one, or several spaces at once, so adding a clip to a space is closer to tagging it than moving it: unlike a folder, which holds a recording in exactly one place, a space just links to it. Spaces also have their own folders, kept separate from your personal library's.
+
+An org admin creates a space and adds members to it individually. Space membership has its own roles:
+
+| Role            | Can do                                          |
+| --------------- | ----------------------------------------------- |
+| **Admin**       | Add and remove members, change their space role |
+| **Contributor** | Add and remove recordings from the space        |
+| **Viewer**      | See what's in the space                         |
+
+Deleting a space removes the space and its membership list. The recordings that were in it are untouched. They just stop showing up there.
+
+## Capture from anywhere
+
+Every capture surface lands in the same shared library, except Rewind, which stays on your device unless you approve sharing a moment from it.
+
+### Desktop tray app
+
+The desktop app is built for the smoothest everyday capture: screen and webcam recording with a draggable camera bubble, live transcription while you record, all without keeping a browser tab open. Download it from [clips.agent-native.com/download](https://clips.agent-native.com/download), available for macOS, Windows, and Linux.
+
+<Callout tone="info">
+
+The first time you record your screen, your operating system asks for Screen Recording permission (on a Mac: System Settings → Privacy & Security → Screen Recording). That's an OS-level permission, not a Clips setting, and Clips can't record without it.
+
+</Callout>
+
+### Rewind
+
+Rewind is an optional local memory that keeps a rolling recording of your screen, and audio if you turn it on, stored locally on your device.
+
+<Callout tone="info">
+
+Rewind is off by default. Nothing is captured until you turn it on in the desktop tray's settings, and nothing leaves your device unless you approve it (per-request review is on by default and can be turned off in Rewind's settings). You can export, search, or clear the buffer yourself at any time.
+
+</Callout>
+
+Turn Rewind on under the Rewind tab in Settings. Once it's on, you can ask the agent things like "what was I looking at 20 minutes ago?" and it reads text excerpts from the local buffer of on-screen text, app and window context, and transcript snippets. The agent never receives the recordings themselves, with one exception: a request you review and approve, which turns an exact range into a private clip.
+
+### Earlier screen time {#earlier-screen-time}
+
+Earlier screen time attaches up to five minutes of local screen history from before a recording as its own context. It never becomes part of the video's footage.
+
+<WireframeBlock id="clips-earlier-screen-time-popover">
+  <Screen
+    surface="popover"
+    frame="show"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:10px;padding:16px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:8px;padding:8px'><span>Include last</span><div style='flex:1'></div><span>Off</span><span data-icon='chevronDown'></span></div><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><strong>Turn on Rewind</strong><small class='wf-muted'>Off by default. Screen history stays on this device until you add it to a recording or approve a request to share it.</small><button class='primary'>Turn on Rewind</button><button style='width:100%;display:flex;justify-content:center;background:transparent;border:0'>What is this?</button></div></div>"
+    }
+  />
+</WireframeBlock>
+
+**Include it with a recording**
+
+- **Include earlier screen time** is an optional lab, on by default. Turn it off under **Settings > Labs** in the Clips web or desktop app. In the desktop tray, choose **Off** (default), **30 s**, **5 min**, or **Custom…** up to five minutes. Rewind must be on and running; if it is off, choosing a duration opens the **Turn on Rewind** explanation.
+- When you start a recording, Clips requests the selected window from Rewind on this device and uploads it. **Off** makes no request.
+
+**Review before upload**
+
+- In the Clips desktop app, choose **Edit** when it's ready to review an on-device preview of up to five minutes. It is never uploaded, starts at the selected window, and ends at recording start. Drag the handles to trim it, or use **Play selection** to play that range.
+- **Save** uploads only the selection. Cancel or close the editor to discard the preview. Readouts show the start offset, length, and recording start; when the range starts with the recording, the offset reads **From recording start**.
+
+**Privacy and removal**
+
+- Earlier screen time stays private while attached. Requesting it makes the clip private, and a request is refused while the clip is shared directly with others. Sharing, public or organization visibility, and new access stay blocked until you remove it.
+- The clip's **Transcript** tab shows the attached window above the transcript with an inline player. Remove it from the desktop edit view or that panel, then confirm. Its footage moves to Trash and the clip no longer includes it. Discarding the recording removes it too. The agent can read its window and status, and can remove it.
+- If another device captured the recording, it waits for that device to save the footage; only that device can export it, and other devices skip it. If no recording device is on file, the desktop app that captured the recording processes it.
+- The limit is five minutes, and only history Rewind still keeps on this device is available.
+
+### Chrome extension browser logs
+
+Install the Clips Chrome extension for a recording plus the browser logs and network activity from the tab you're debugging, useful for reporting product bugs and browser-only repros.
+
+| Topic       | Behavior                                                                                                                                                                                                       |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tabs        | Up to five: the tab you started the recording from, then tabs you used in the last 10 minutes, most recent first.                                                                                              |
+| Switching   | A tab you switch to during the recording is captured too. If more than five tabs are attached, the least recently used tab other than the one in focus is detached, and its logs so far stay in the recording. |
+| Lookback    | Up to 30 seconds before the recording started, as far as the page still keeps its console history and resource timing. These entries have negative time offsets.                                               |
+| Saved       | Console messages, and fetch/XHR request info: method, a redacted URL, status, duration, and whether it failed. Each entry records the tab it came from.                                                        |
+| Never saved | Request or response bodies, headers, or cookies.                                                                                                                                                               |
+
+Lookback network entries have no HTTP method, so their method is recorded as `UNKNOWN`. Requests made during the recording include the method. Tabs are tracked while the extension is running, so for the first 10 minutes after it starts, fewer than five tabs may qualify.
+
+Use the desktop app for everyday recording, and reach for the Chrome extension specifically when you need those browser logs attached.
+
+## Transcription and AI metadata
+
+Transcription tries the fastest, free option first and only falls back to a paid one when it has to. Dictate history shows transcript previews that expand to full transcripts and aligned actions:
+
+| Order | Provider                        | Notes                                                                                                                                          |
+| ----- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Native (on-device)              | Browser Web Speech API or desktop local Whisper/macOS speech. Instant, no API key.                                                             |
+| 2     | Builder.io managed (Gemini)     | Cloud fallback when native text is missing. No extra key needed once Builder is connected. Builder.io's free tier includes managed AI credits. |
+| 3     | Groq (`whisper-large-v3-turbo`) | Optional backup if you'd rather bring your own key.                                                                                            |
+
+Once a transcript is ready, the agent fills in a title, summary, and chapter markers automatically, and keeps them current as you edit. During playback, the transcript follows the current position. You can also ask directly:
+
+- "Regenerate the title and summary."
+- "Add chapters. This one's long."
+- "Pull three quotes for a blog post."
+- "Fix the mis-transcribed word at 1:42."
+
+For a silent screen recording where the audio alone would be misleading, turn on **Include full video** in the AI tools menu so the agent watches the recording itself (this needs Gemini) instead of relying on the transcript alone.
+
+Backup transcription, transcript cleanup, and AI titles and summaries run on Builder.io-managed AI credits by default, including the free tier's credits. If one of those stops working, ask the agent. It checks the current credit status and explains whether credits are paused, rather than treating it as a bug. The fix is either adding Builder.io credits, upgrading, or connecting a personal Groq key as a fallback for transcription.
+
+## Non-destructive editing
+
+Use the timeline to trim and split clips, remove silences or filler words, and combine clips. Drag cut boundaries to adjust them, and use undo or redo to review edits. These changes stay layered over the original recording, and nothing is baked into a new file until you export.
+
+Redactions work differently. Drawing a redaction box only covers the area in the editor — the underlying pixels are still in the file. Nothing is actually hidden until you **Burn in** the redactions: that re-encodes the video, permanently destroys the covered pixels, and deletes the original file. There's no undo after a burn, so treat it as the one truly irreversible step here.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fed43d85ea6084a18a555aae13c5ae4ff?alt=media&token=70e78642-d149-4070-8b58-4bf7167ddfbe&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="A demo of non-destructive editing, including trimming, splitting, and combining clips."
+  caption="A demo of non-destructive editing, including trimming, splitting, and combining clips."
+  autoplay={true}
+  loop={true}
+/>
+
+Ask the agent to make any of these edits for you:
+
+- "Remove the ums and uhs and re-stitch."
+- "Trim the first 10 seconds."
+- "Combine these three clips into one, in this order."
+
+From a recording's options menu, **Remove silences** and **Remove filler words** do the same thing with one click instead of typing it out. The agent still does the actual work behind either one, reading the transcript, finding the ranges, and applying the trim instructions.
+
+## Organizations and teams {#organizations-and-teams}
+
+Anyone can create an organization to share a Clips workspace with a team. Creating one makes you its first admin.
+
+- **Branding.** Admins set a brand color and logo, shown across the shared workspace.
+- **Default visibility.** Admins choose what new recordings default to (public, organization, or private) when nobody picks one explicitly.
+- **Invite members** by email. An invite is either accepted or declined, and admins can change a member's role or remove them later.
+
+| Role       | Can do                                                                                                        |
+| ---------- | ------------------------------------------------------------------------------------------------------------- |
+| **Admin**  | Invite and remove members, change roles, set branding and default visibility, plus everything a member can do |
+| **Member** | Record, edit, and share their own clips, and work in any space they've been added to                          |
+
+## What's next
+
+- [**Clips**](/docs/template-clips) — the overview and what it replaces
+- [**Talk to the Agent**](/docs/template-clips-agent) — every prompt by task and how the agent sees your screen
+- [**Clips in a Multi-App Workspace**](/docs/template-clips-integrations) — agent-readable clips, Brain export, and CRM call evidence
+- [**Developer Guide**](/docs/template-clips-developers) — the action and data model reference behind these features
+- [**Sharing**](/docs/sharing) — the share-grant model clip shares build on

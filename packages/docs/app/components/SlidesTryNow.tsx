@@ -2,7 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowRight, IconInfoCircle } from "@tabler/icons-react";
 import { useRef } from "react";
 
-import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
+import { firstPartyAppUrl } from "./deployment-links";
 import { trackEvent } from "./TemplateCard";
 
 export function extractPromptText(node: Node): string {
@@ -70,7 +70,9 @@ export function SlidesTryNow() {
         />
         <div className="flex justify-end">
           <a
-            href="https://slides.agent-native.com/?initialPrompt="
+            href={firstPartyAppUrl(
+              "https://slides.agent-native.com/?initialPrompt=",
+            )}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[var(--fg)] px-6 text-sm font-semibold text-[var(--bg)] outline-none transition-opacity hover:opacity-85 focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-secondary)]"
@@ -78,9 +80,10 @@ export function SlidesTryNow() {
               const promptText = editorRef.current
                 ? extractPromptText(editorRef.current).trim()
                 : "";
-              const targetUrl = `https://slides.agent-native.com/?initialPrompt=${encodeURIComponent(promptText)}`;
+              const targetUrl = firstPartyAppUrl(
+                `https://slides.agent-native.com/?initialPrompt=${encodeURIComponent(promptText)}`,
+              );
               event.currentTarget.href = targetUrl;
-              applyFirstTouchAttributionToLink(event.currentTarget);
               trackEvent("generate deck", {
                 template: "slides",
                 location: "try_now",
@@ -95,7 +98,9 @@ export function SlidesTryNow() {
       <p className="m-0 mt-3 text-center text-sm text-[var(--fg-secondary)]">
         Or{" "}
         <a
-          href="https://slides.agent-native.com/_agent-native/sign-in"
+          href={firstPartyAppUrl(
+            "https://slides.agent-native.com/_agent-native/sign-in",
+          )}
           target="_blank"
           rel="noopener noreferrer"
           className="font-medium text-[var(--fg)] underline underline-offset-2 hover:no-underline"

@@ -96,6 +96,8 @@ export default defineAction({
 
 把 `link` 保留作为 CLI 和非 UI MCP 主机的兜底方案,它同时也是这次内嵌的启动目标。内嵌桥接(签名的内嵌启动会话、transplant 与受控 frame 渲染的取舍、`ui/*` 主机桥接、CSP,以及高度限制)由 [外部代理](/docs/external-agents#mcp-app-bridge) 负责。
 
+目前没有自动检查来确认某个模板是否具备 `view-screen`、`navigate`,或针对其主要资源的 create/read/update/list 完整集合;脚手架会自带 `view-screen` 和 `navigate`,而 `pnpm guard:external-result-contract` 会拦截对外暴露的 action 的 `description` 或 `nextRequiredAction` 中「等待用户」之类的措辞,并要求新增的、对外暴露的 `create-*` action 携带深层链接。是否存在这些 action 是一个需要人工审查的事项。
+
 ## 标准 actions {#standard-actions}
 
 出于[情境意识](/docs/context-awareness)的考虑,每个模板都应该包含以下这两个。

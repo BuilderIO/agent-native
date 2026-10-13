@@ -119,7 +119,7 @@ export function relayCapabilities(
   };
 }
 
-export function readRelayPollCommand(value: unknown): unknown | null {
+export function readRelayPollCommand(value: unknown): unknown {
   if (!isRecord(value)) return null;
   return isRecord(value.command) ? value.command : null;
 }

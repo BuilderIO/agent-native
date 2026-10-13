@@ -20,13 +20,6 @@ export function initialMultiFrontierRunAutoContinue(
   return settings.autoContinueAfterAgreement;
 }
 
-export function locksMultiFrontierMode(
-  state?: Pick<MultiFrontierRendererState, "phase">,
-): boolean {
-  if (!state) return false;
-  return !["completed", "failed", "canceled"].includes(state.phase);
-}
-
 export function providerOperationFailureNotice(
   providerId: MultiFrontierProviderId,
   operation: "connect" | "refresh" | "load",

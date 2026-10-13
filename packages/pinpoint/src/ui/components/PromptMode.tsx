@@ -23,7 +23,6 @@ export const PromptMode: Component<PromptModeProps> = (props) => {
     props.onSend(text);
   }
 
-  // Position near the element
   const rect = props.element.getBoundingClientRect();
   const x = Math.max(8, Math.min(rect.left, window.innerWidth - 300));
   const y =
@@ -32,7 +31,9 @@ export const PromptMode: Component<PromptModeProps> = (props) => {
   return (
     <div class="pp-prompt" style={{ left: `${x}px`, top: `${y}px` }}>
       <input
-        ref={inputRef}
+        ref={(element) => {
+          inputRef = element;
+        }}
         class="pp-prompt__input"
         type="text"
         placeholder="Tell the agent what to do..."

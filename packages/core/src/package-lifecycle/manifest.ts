@@ -63,7 +63,7 @@ export function assertAgentNativePackageManifest(
   }
   for (const docPath of [manifest.docs.llms, manifest.docs.llmsFull]) {
     if (!isSafeRelativePath(docPath)) {
-      throw new Error(`Unsafe package documentation path: ${docPath}`);
+      throw new Error(`Unsafe package documentation path: ${String(docPath)}`);
     }
   }
   for (const secret of manifest.requiredSecrets) {

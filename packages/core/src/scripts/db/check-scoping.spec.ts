@@ -2,24 +2,34 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { createClient, type Client } from "@libsql/client";
+import {
+  createPostgresScriptClient,
+  type PostgresScriptClient,
+} from "./postgres-client.js";
+
+type Client = PostgresScriptClient;
+
+async function createClient({ url }: { url: string }) {
+  const client = await createPostgresScriptClient(url);
+  return {
+    async execute(input: string | { sql: string; args?: unknown[] }) {
+      return client.unsafe(
+        typeof input === "string" ? input : input.sql,
+        typeof input === "string" ? undefined : input.args,
+      );
+    },
+    close: () => client.end(),
+  };
+}
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * db-check-scoping is the CI/agent guard that flags template tables missing the
- * owner_email (and optionally org_id) scoping columns. Those unscoped tables
- * are denied to the raw db-* tools, so the detection logic here is what keeps
- * a forgotten ownership column from becoming a cross-tenant hole. The `validate`
- * helper isn't exported, so we drive the real default export against a temp-file
- * SQLite database and assert on the JSON output and the process exit code.
- */
 describe("db-check-scoping", () => {
   let dir: string;
   let dbFile: string;
   let prevExitCode: typeof process.exitCode;
 
   async function withClient<T>(fn: (c: Client) => Promise<T>): Promise<T> {
-    const c = createClient({ url: "file:" + dbFile });
+    const c = await createClient({ url: "pglite:" + dbFile });
     try {
       return await fn(c);
     } finally {
@@ -29,7 +39,7 @@ describe("db-check-scoping", () => {
 
   beforeEach(async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), "db-check-"));
-    dbFile = path.join(dir, "app.db");
+    dbFile = path.join(dir, "app");
     prevExitCode = process.exitCode;
     process.exitCode = undefined;
   });
@@ -85,20 +95,15 @@ describe("db-check-scoping", () => {
     expect(byTable.leaky_table.hasOwnerEmail).toBe(false);
     expect(byTable.leaky_table.issues[0]).toMatch(/missing owner_email/);
 
-    // JSON mode is a pure report and does not set the exit code.
     expect(process.exitCode).toBeUndefined();
 
-    // The human-readable path fails closed: a missing scoping column must
-    // surface as exit code 1 (so CI guards catch it).
     const logs = await runCheck([]);
-    expect(logs.join("\n")).toContain("Tables denied to raw DB tools:");
+    expect(logs.join("\n")).toContain("Tables denied to raw database tools:");
     expect(process.exitCode).toBe(1);
   });
 
   it("skips core/framework tables that scope themselves", async () => {
     await withClient(async (c) => {
-      // settings + sessions + chat_threads are in CORE_TABLES and intentionally
-      // lack owner_email; they must NOT be reported as issues.
       await c.execute(
         `CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER)`,
       );
@@ -138,7 +143,7 @@ describe("db-check-scoping", () => {
     });
     const logs = await runCheck([]);
     expect(logs.join("\n")).toContain(
-      "All template tables have proper scoping columns.",
+      "All application tables have proper scoping columns.",
     );
     expect(process.exitCode).not.toBe(1);
   });
@@ -166,7 +171,6 @@ describe("db-check-scoping", () => {
     expect(byTable.multi_org.hasOrgId).toBe(true);
     expect(byTable.multi_org.issues).toEqual([]);
 
-    // Human-readable run with --require-org must fail closed on the org gap.
     const logs = await runCheck(["--require-org"]);
     expect(logs.join("\n")).toContain("missing org_id");
     expect(process.exitCode).toBe(1);

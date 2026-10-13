@@ -1,0 +1,166 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  authSessionHandler: vi.fn(),
+  autoMountAuth: vi.fn(),
+  getSession: vi.fn(),
+  runBetterAuthMigrations: vi.fn(),
+}));
+
+vi.mock("./auth.js", () => ({
+  authSessionHandler: mocks.authSessionHandler,
+  autoMountAuth: mocks.autoMountAuth,
+  getSession: mocks.getSession,
+}));
+vi.mock("./better-auth-migrations.js", () => ({
+  runBetterAuthMigrations: mocks.runBetterAuthMigrations,
+}));
+vi.mock("../db/migrations.js", () => ({
+  runMigrations: () => async () => undefined,
+}));
+vi.mock("../deploy/route-discovery.js", () => ({
+  getMissingDefaultPlugins: vi.fn(async () => []),
+}));
+
+import { createAuthPlugin } from "./auth-plugin.js";
+
+function createNitroApp() {
+  return { h3: { "~middleware": [] as any[] } };
+}
+
+async function dispatchWithEvent(nitroApp: any, pathname: string) {
+  const url = new URL(`http://example.test${pathname}`);
+  const event = {
+    method: "GET",
+    url,
+    path: pathname,
+    context: {},
+    req: new Request(url, { method: "GET" }),
+    res: { status: 200, headers: new Headers() },
+  };
+  let index = 0;
+  const next = async (): Promise<unknown> => {
+    const middleware = nitroApp.h3["~middleware"][index++];
+    if (!middleware) return { fellThrough: true };
+    return middleware(event, next);
+  };
+  return { event, result: await next() };
+}
+
+async function dispatch(nitroApp: any, pathname: string) {
+  return (await dispatchWithEvent(nitroApp, pathname)).result;
+}
+
+describe("createAuthPlugin dispatch: no 404 window while the mount is pending", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("holds a request to /_agent-native/auth/session until Better Auth mounts, then dispatches to the registered handler", async () => {
+    const nitroApp = createNitroApp();
+    mocks.runBetterAuthMigrations.mockResolvedValue(undefined);
+    mocks.authSessionHandler.mockResolvedValue({ ok: true });
+    mocks.getSession.mockResolvedValue({ ok: true });
+    let resolveMount!: () => void;
+    const mountReleased = new Promise<void>((resolve) => {
+      resolveMount = resolve;
+    });
+    mocks.autoMountAuth.mockImplementation(async (app: any) => {
+      await mountReleased;
+      app.use("/_agent-native/auth/session", () => ({ ok: true }));
+      return true;
+    });
+
+    createAuthPlugin()(nitroApp);
+
+    let settled = false;
+    const pending = dispatch(nitroApp, "/_agent-native/auth/session").then(
+      (result) => {
+        settled = true;
+        return result;
+      },
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    resolveMount();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+    expect(settled).toBe(true);
+    expect(mocks.authSessionHandler).toHaveBeenCalledOnce();
+  });
+
+  it("holds a request to a BYOA session route the same way", async () => {
+    const nitroApp = createNitroApp();
+    let resolveMount!: (value: boolean) => void;
+    mocks.autoMountAuth.mockImplementation(async (app: any) => {
+      await new Promise<boolean>((resolve) => {
+        resolveMount = resolve;
+      });
+      app.use("/_agent-native/auth/session", () => ({ ok: true }));
+      return true;
+    });
+
+    createAuthPlugin({ getSession: vi.fn() })(nitroApp);
+
+    let settled = false;
+    const pending = dispatch(nitroApp, "/_agent-native/auth/session").then(
+      (result) => {
+        settled = true;
+        return result;
+      },
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    resolveMount(true);
+
+    await expect(pending).resolves.toEqual({ ok: true });
+    expect(settled).toBe(true);
+  });
+
+  it("still does not wait on the unrelated default-plugin bootstrap once mounted", async () => {
+    const nitroApp = createNitroApp();
+    mocks.runBetterAuthMigrations.mockResolvedValue(undefined);
+    mocks.getSession.mockResolvedValue({ ok: true });
+    mocks.autoMountAuth.mockImplementation(async (app: any) => {
+      app.use("/_agent-native/auth/session", () => ({ ok: true }));
+      return true;
+    });
+
+    createAuthPlugin()(nitroApp);
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/auth/session"),
+    ).resolves.toEqual({ ok: true });
+  });
+
+  it("marks the early session response no-store", async () => {
+    const nitroApp = createNitroApp();
+    mocks.runBetterAuthMigrations.mockResolvedValue(undefined);
+    mocks.authSessionHandler.mockImplementation(async (event: any) => {
+      event.res.headers.set("Cache-Control", "no-store");
+      return { email: "owner@example.com" };
+    });
+    mocks.autoMountAuth.mockImplementation(async (app: any) => {
+      app.use("/_agent-native/auth/session", () => ({ ok: true }));
+      return true;
+    });
+
+    createAuthPlugin()(nitroApp);
+
+    const { event, result } = await dispatchWithEvent(
+      nitroApp,
+      "/_agent-native/auth/session",
+    );
+    expect(result).toEqual({ email: "owner@example.com" });
+    expect(event.res.headers.get("Cache-Control")).toBe("no-store");
+    expect(mocks.authSessionHandler).toHaveBeenCalledOnce();
+  });
+});

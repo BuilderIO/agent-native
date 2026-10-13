@@ -42,7 +42,7 @@ actions/               # Shared app operations (defineAction; UI uses action hoo
   run.ts               # Script dispatcher
   *.ts                 # Individual actions (pnpm action <name>)
 
-data/                  # Local development database fallback
+data/pglite/           # Local PGlite data directory
 
 react-router.config.ts # React Router framework config
 .agents/skills/        # Agent skills — detailed guidance for each rule
@@ -160,17 +160,16 @@ agentChat.submit("Generate something");
 
 ## Database & Environment Variables
 
-Local development defaults to a SQLite file at `data/app.db`. That local file is for development; containers, previews, and serverless deploys can reset their filesystem. For production/cloud deployment, set `DATABASE_URL` to point to a persistent SQL database. Turso is optional, not required; common choices include Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments when available.
+Local development uses PGlite at `data/pglite`. For production and shared environments, set `DATABASE_URL` to a persistent hosted PostgreSQL database.
 
 Real credential values belong only in local `.env` files, deployment configuration, or registered secrets/settings UI. Never commit, document, log, return, paste, or include real keys, tokens, webhook URLs, signing secrets, or private data in examples; use empty values or obvious placeholders.
 
-When adding app data, define tables with `@agent-native/core/db/schema` helpers and use Drizzle's query builder for reads/writes. Do not import dialect-specific schema helpers from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core`, and do not write raw SQL in normal actions or handlers when Drizzle can express the query. Raw SQL belongs in additive migrations, health checks, or carefully scoped maintenance.
+When adding app data, define tables with `@agent-native/core/db/schema` helpers and use Drizzle's query builder for reads/writes. Keep SQL PostgreSQL-compatible and reserve raw SQL for additive migrations, health checks, or carefully scoped maintenance.
 
-| Variable              | Required                        | Description                                                                |
-| --------------------- | ------------------------------- | -------------------------------------------------------------------------- |
-| `DATABASE_URL`        | Production yes, local dev no    | Persistent SQL connection string (local dev default: `file:./data/app.db`) |
-| `DATABASE_AUTH_TOKEN` | Only when the provider needs it | Auth token for providers such as Turso/libSQL                              |
-| `AUTH_DISABLED`       | Optional                        | Set to `true` or `1` to skip login/signup (local dev/preview only)         |
+| Variable        | Required                     | Description                                                                   |
+| --------------- | ---------------------------- | ----------------------------------------------------------------------------- |
+| `DATABASE_URL`  | Production yes, local dev no | PostgreSQL or PGlite database URL (local dev default: `pglite:./data/pglite`) |
+| `AUTH_DISABLED` | Optional                     | Set to `true` or `1` to skip login/signup (local dev/preview only)            |
 
 ## Extensions (Framework Feature)
 

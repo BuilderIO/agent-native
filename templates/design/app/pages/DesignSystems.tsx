@@ -1,21 +1,28 @@
+import { appApiPath } from "@agent-native/core/client/api-path";
+import {
+  isDesignSystemTierAtMax,
+  type DesignSystemTierLimit,
+} from "@agent-native/core/client/design-system-tier-limit";
 import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareButton } from "@agent-native/core/client/sharing";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconCheckbox,
   IconChecks,
   IconComponents,
   IconDots,
-  IconPlus,
+  IconExternalLink,
   IconPalette,
+  IconPlus,
   IconStar,
   IconStarFilled,
   IconTrash,
@@ -28,6 +35,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
@@ -53,6 +61,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { afterBodyPointerUnlock } from "@/components/ui/pointer-lock";
 import {
   Sheet,
   SheetContent,
@@ -68,13 +77,19 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  useDesignSystemWorkflows,
+  useDesignSystemWorkflowsState,
+} from "@/hooks/use-design-system-workflows";
+import {
   formatDesignTokenValue,
   getCssColorToken,
 } from "@/lib/design-system-preview";
 
+import { JoinDesignSystemWaitlistButton } from "../components/design-system/JoinDesignSystemWaitlistButton";
 import { QueryErrorState } from "../components/QueryErrorState";
 import {
   builderRefreshKey,
+  isTrustedBuilderPreviewUrl,
   parseDesignSystemData,
   shouldRefreshBuilderDesignSystem,
   type DesignSystemData,
@@ -98,32 +113,70 @@ interface DesignSystem {
 type BuilderRefreshResult = {
   synced: boolean;
   status?: string;
+  docCount?: number;
   rejectedTokenCount?: number;
 };
 
-function isTerminalBuilderStatus(status?: string): boolean {
+function isSettledBuilderRefresh(result: BuilderRefreshResult): boolean {
+  if (typeof result.docCount === "number" && result.docCount > 0) return true;
   return (
-    status === "ready" ||
-    status === "complete" ||
-    status === "completed" ||
-    status === "error" ||
-    status === "failed" ||
-    status === "cancelled"
+    result.status === "error" ||
+    result.status === "failed" ||
+    result.status === "cancelled"
   );
 }
 
+function getDesignSystemsPageMode({
+  designSystems,
+  systemsEnabled,
+  systemsFlagStatus,
+  isLoading,
+  isError,
+}: {
+  designSystems: DesignSystem[];
+  systemsEnabled: boolean;
+  systemsFlagStatus: "loading" | "ready" | "unavailable";
+  isLoading: boolean;
+  isError: boolean;
+}): "loading" | "error" | "comingSoon" | "empty" | "systems" {
+  if (designSystems.length > 0) return "systems";
+  if (isError || systemsFlagStatus === "unavailable") return "error";
+  if (systemsFlagStatus === "loading") return "loading";
+  if (!systemsEnabled) return "comingSoon";
+  if (isLoading) return "loading";
+  return "empty";
+}
+
 export default function DesignSystems() {
+  const workflowsState = useDesignSystemWorkflowsState();
+  const systemsEnabled =
+    workflowsState.status === "ready" && workflowsState.enabled;
+  const showWaitlist =
+    workflowsState.status === "ready" && !workflowsState.enabled;
   const t = useT();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [tierLimitDialogOpen, setTierLimitDialogOpen] = useState(false);
+  const { data: tierLimit } = useActionQuery<DesignSystemTierLimit>(
+    "get-design-system-tier-limit",
+  );
+  const atMax = isDesignSystemTierAtMax(tierLimit);
+  const handleCreateClick = useCallback(
+    (event: ReactMouseEvent) => {
+      if (!atMax) return;
+      event.preventDefault();
+      setTierLimitDialogOpen(true);
+    },
+    [atMax],
+  );
   const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [selectedSystemIds, setSelectedSystemIds] = useState<Set<string>>(
     () => new Set(),
   );
-
   const { data, isLoading, isError, isFetching, refetch } = useActionQuery<{
     designSystems: DesignSystem[];
   }>("list-design-systems");
@@ -146,6 +199,13 @@ export default function DesignSystems() {
   const activeBuilderRefreshesRef = useRef(new Set<string>());
 
   const designSystems = data?.designSystems ?? [];
+  const pageMode = getDesignSystemsPageMode({
+    designSystems,
+    systemsEnabled,
+    systemsFlagStatus: workflowsState.status,
+    isLoading,
+    isError,
+  });
   const selectedDesignSystemId = searchParams.get("designSystemId");
   const selectedDesignSystem = useMemo(
     () =>
@@ -162,18 +222,18 @@ export default function DesignSystems() {
 
   const openDesignSystemDetails = useCallback(
     (id: string) => {
-      navigate(`/design-systems?designSystemId=${encodeURIComponent(id)}`);
+      void navigate(`/design-systems?designSystemId=${encodeURIComponent(id)}`);
     },
     [navigate],
   );
 
   const closeDesignSystemDetails = useCallback(() => {
-    navigate("/design-systems", { replace: true });
+    void navigate("/design-systems", { replace: true });
   }, [navigate]);
 
   const openSetupFromDesignSystem = useCallback(
     (id: string) => {
-      navigate(`/design-systems/setup?source=${encodeURIComponent(id)}`);
+      void navigate(`/design-systems/setup?source=${encodeURIComponent(id)}`);
     },
     [navigate],
   );
@@ -231,7 +291,6 @@ export default function DesignSystems() {
 
   const handleSetDefault = useCallback(
     (id: string, isDefault: boolean) => {
-      // Optimistic update
       queryClient.setQueryData(
         ["action", "list-design-systems", undefined],
         (old: any) => {
@@ -252,7 +311,7 @@ export default function DesignSystems() {
 
       setDefaultMutation.mutate({ id, isDefault } as any, {
         onError: () => {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "list-design-systems"],
           });
         },
@@ -280,7 +339,7 @@ export default function DesignSystems() {
 
     deleteMutation.mutate({ id } as any, {
       onError: (error) => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-design-systems"],
         });
         toast.error(t("designSystems.deleteError"), {
@@ -364,7 +423,7 @@ export default function DesignSystems() {
     void Promise.all(ids.map((id) => deleteMutation.mutateAsync({ id } as any)))
       .then(() => undefined)
       .catch((error) => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-design-systems"],
         });
         toast.error(t("designSystems.bulkDeleteError"), {
@@ -439,7 +498,7 @@ export default function DesignSystems() {
           stoppedBuilderRefreshesRef.current.add(entry.key);
           return;
         }
-        if (isTerminalBuilderStatus(result.status)) {
+        if (isSettledBuilderRefresh(result)) {
           activeBuilderRefreshesRef.current.delete(entry.key);
           settledBuilderRefreshesRef.current.add(entry.key);
           return;
@@ -493,12 +552,18 @@ export default function DesignSystems() {
             : t("designSystems.actions.select")}
         </Button>
       ) : null}
-      <Button asChild size="sm" className="cursor-pointer">
-        <Link to="/design-systems/setup">
-          <IconPlus className="w-3.5 h-3.5" />
-          {t("designSystems.actions.new")}
-        </Link>
-      </Button>
+      {designSystems.length > 0 ? (
+        systemsEnabled ? (
+          <Button asChild size="sm" className="cursor-pointer">
+            <Link to="/design-systems/setup" onClick={handleCreateClick}>
+              <IconPlus className="w-3.5 h-3.5" />
+              {t("designSystems.actions.new")}
+            </Link>
+          </Button>
+        ) : showWaitlist ? (
+          <JoinDesignSystemWaitlistButton compact />
+        ) : null
+      ) : null}
     </div>,
   );
 
@@ -506,15 +571,25 @@ export default function DesignSystems() {
     <>
       <div className="flex-1 overflow-y-auto">
         <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
-          {isLoading ? (
-            <LoadingSkeleton />
-          ) : isError ? (
+          {pageMode === "error" ? (
             <QueryErrorState
-              onRetry={() => void refetch()}
-              retrying={isFetching}
+              onRetry={() => {
+                if (workflowsState.status === "unavailable") {
+                  window.location.reload();
+                  return;
+                }
+                void refetch();
+              }}
+              retrying={
+                workflowsState.status === "unavailable" ? false : isFetching
+              }
             />
-          ) : designSystems.length === 0 ? (
-            <EmptyState />
+          ) : pageMode === "comingSoon" ? (
+            <ComingSoonState />
+          ) : pageMode === "loading" ? (
+            <LoadingSkeleton />
+          ) : pageMode === "empty" ? (
+            <EmptyState onCreateClick={handleCreateClick} />
           ) : (
             <>
               {isSelectionMode ? (
@@ -530,9 +605,9 @@ export default function DesignSystems() {
                       <TooltipTrigger asChild>
                         <Button
                           variant="ghost"
-                          size="icon"
+                          size="icon-sm"
                           onClick={toggleAllSystems}
-                          className="h-8 w-8 cursor-pointer"
+                          className="cursor-pointer"
                         >
                           <IconChecks className="w-4 h-4" />
                         </Button>
@@ -547,9 +622,9 @@ export default function DesignSystems() {
                       <TooltipTrigger asChild>
                         <Button
                           variant="ghost"
-                          size="icon"
+                          size="icon-sm"
                           onClick={clearSelection}
-                          className="h-8 w-8 cursor-pointer"
+                          className="cursor-pointer"
                         >
                           <IconX className="w-4 h-4" />
                         </Button>
@@ -574,21 +649,24 @@ export default function DesignSystems() {
               <section aria-label={t("designSystems.yoursTitle")}>
                 <div className="grid grid-cols-[repeat(auto-fit,minmax(230px,1fr))] gap-3">
                   {/* New design system card */}
-                  <Link
-                    to="/design-systems/setup"
-                    className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-start cursor-pointer"
-                  >
-                    <div className="aspect-video flex items-center justify-center bg-muted/30">
-                      <div className="w-12 h-12 rounded-xl bg-accent/50 flex items-center justify-center group-hover:bg-accent">
-                        <IconPlus className="w-6 h-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
+                  {systemsEnabled && (
+                    <Link
+                      to="/design-systems/setup"
+                      onClick={handleCreateClick}
+                      className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-start cursor-pointer"
+                    >
+                      <div className="aspect-video flex items-center justify-center bg-muted/30">
+                        <div className="w-12 h-12 rounded-xl bg-accent/50 flex items-center justify-center group-hover:bg-accent">
+                          <IconPlus className="w-6 h-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
+                        </div>
                       </div>
-                    </div>
-                    <div className="p-3">
-                      <h3 className="font-medium text-sm text-muted-foreground group-hover:text-foreground/70">
-                        {t("designSystems.actions.new")}
-                      </h3>
-                    </div>
-                  </Link>
+                      <div className="p-3">
+                        <h3 className="font-medium text-sm text-muted-foreground group-hover:text-foreground/70">
+                          {t("designSystems.actions.new")}
+                        </h3>
+                      </div>
+                    </Link>
+                  )}
 
                   {/* Design system cards */}
                   {designSystems.map((ds) => {
@@ -710,10 +788,18 @@ export default function DesignSystems() {
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <button
-                                    onClick={() =>
-                                      handleSetDefault(ds.id, !ds.isDefault)
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleSetDefault(ds.id, !ds.isDefault);
+                                    }}
+                                    disabled={setDefaultMutation.isPending}
+                                    aria-label={
+                                      ds.isDefault
+                                        ? t("designSystems.currentlyDefault")
+                                        : t("designSystems.actions.setDefault")
                                     }
-                                    className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-md bg-black/60 hover:bg-black/80 cursor-pointer"
+                                    className="absolute top-2 end-2 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md bg-foreground/60 text-background hover:bg-foreground/80 disabled:pointer-events-none disabled:opacity-50"
                                   >
                                     {ds.isDefault ? (
                                       <IconStarFilled className="w-3.5 h-3.5 text-yellow-400" />
@@ -731,27 +817,40 @@ export default function DesignSystems() {
                             )}
                             {ds.canManage && (
                               <div
-                                className={`absolute top-2 z-10 opacity-0 group-hover:opacity-100 ${
+                                className={`absolute top-2 z-10 ${
+                                  openMenuId === ds.id
+                                    ? "opacity-100"
+                                    : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                                } ${
                                   ds.accessRole === "owner" ? "end-10" : "end-2"
                                 }`}
                               >
-                                <DropdownMenu>
+                                <DropdownMenu
+                                  open={openMenuId === ds.id}
+                                  onOpenChange={(open) =>
+                                    setOpenMenuId(open ? ds.id : null)
+                                  }
+                                >
                                   <DropdownMenuTrigger asChild>
                                     <Button
                                       variant="ghost"
                                       size="icon"
-                                      className="h-7 w-7 bg-black/60 hover:bg-black/80 cursor-pointer"
+                                      className="h-7 w-7 bg-foreground/60 hover:bg-foreground/80 cursor-pointer"
                                       aria-label={t(
                                         "designSystems.moreActionsAria",
                                         { title: ds.title },
                                       )}
                                     >
-                                      <IconDots className="w-3.5 h-3.5 text-foreground/70" />
+                                      <IconDots className="w-3.5 h-3.5 text-background" />
                                     </Button>
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="end">
                                     <DropdownMenuItem
-                                      onClick={() => setDeleteId(ds.id)}
+                                      onClick={() =>
+                                        afterBodyPointerUnlock(() =>
+                                          setDeleteId(ds.id),
+                                        )
+                                      }
                                       className="text-red-400 focus:text-red-400 cursor-pointer"
                                     >
                                       <IconTrash className="w-3.5 h-3.5 me-2" />
@@ -813,6 +912,49 @@ export default function DesignSystems() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog
+        open={tierLimitDialogOpen}
+        onOpenChange={setTierLimitDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("designSystems.tierLimitTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {tierLimit?.current != null &&
+              tierLimit?.max != null &&
+              tierLimit?.plan
+                ? t("designSystems.tierLimitDescriptionWithCount", {
+                    current: tierLimit.current,
+                    max: tierLimit.max,
+                    plan: tierLimit.plan,
+                  })
+                : t("designSystems.tierLimitDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="cursor-pointer">
+              {t("designSystems.actions.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <a
+                href={
+                  tierLimit?.upgradeUrl ??
+                  "https://builder.io/account/subscription"
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="cursor-pointer"
+              >
+                <IconExternalLink className="w-3.5 h-3.5" />
+                {t("designSystems.tierLimitUpgrade")}
+              </a>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <DesignSystemDetailsSheet
         designSystem={selectedDesignSystem}
         open={Boolean(selectedDesignSystem)}
@@ -820,7 +962,7 @@ export default function DesignSystems() {
         onOpenChange={(open) => {
           if (!open) closeDesignSystemDetails();
         }}
-        onUseAsSource={openSetupFromDesignSystem}
+        onUseAsSource={systemsEnabled ? openSetupFromDesignSystem : undefined}
         onSave={handleUpdateDetails}
       />
     </>
@@ -839,7 +981,7 @@ function DesignSystemDetailsSheet({
   open: boolean;
   isSaving?: boolean;
   onOpenChange: (open: boolean) => void;
-  onUseAsSource: (id: string) => void;
+  onUseAsSource?: (id: string) => void;
   onSave: (
     id: string,
     updates: {
@@ -869,8 +1011,8 @@ function DesignSystemDetailsSheet({
     [designSystem],
   );
   const assets = useMemo(
-    () => parseDesignSystemAssets(designSystem?.assets),
-    [designSystem?.assets],
+    () => parseDesignSystemAssets(designSystem && designSystem.assets),
+    [designSystem],
   );
 
   if (!designSystem) {
@@ -928,7 +1070,11 @@ function DesignSystemDetailsSheet({
             </div>
           </section>
 
-          <TokenPreview data={parsed} assets={assets} />
+          <DesignSystemPreview
+            id={designSystem.id}
+            data={parsed}
+            assets={assets}
+          />
 
           <section className="space-y-3 border-t border-border pt-6">
             <div>
@@ -951,14 +1097,16 @@ function DesignSystemDetailsSheet({
         </div>
 
         <SheetFooter className="gap-2 border-t border-border pt-4 sm:space-x-0">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onUseAsSource(designSystem.id)}
-            className="cursor-pointer"
-          >
-            {t("designSystems.details.useAsStartingPoint")}
-          </Button>
+          {onUseAsSource && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onUseAsSource(designSystem.id)}
+              className="cursor-pointer"
+            >
+              {t("designSystems.details.useAsStartingPoint")}
+            </Button>
+          )}
           {canEdit ? (
             <Button
               type="button"
@@ -980,6 +1128,92 @@ function DesignSystemDetailsSheet({
         </SheetFooter>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function DesignSystemPreview({
+  id,
+  data,
+  assets,
+}: {
+  id: string;
+  data: DesignSystemData | null;
+  assets: Array<{ name?: string; url?: string; variant?: string }>;
+}) {
+  return data?.source === "builder" ? (
+    <DesignSystemPreviewLink id={id} data={data} />
+  ) : (
+    <TokenPreview data={data} assets={assets} />
+  );
+}
+
+function DesignSystemPreviewLink({
+  id,
+  data,
+}: {
+  id: string;
+  data: DesignSystemData;
+}) {
+  const t = useT();
+  const [resolvedBuilderUrl, setResolvedBuilderUrl] = useState<string | null>(
+    null,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    setResolvedBuilderUrl(null);
+    void fetch(
+      appApiPath(
+        `/api/design-system-builder-link?id=${encodeURIComponent(id)}`,
+      ),
+    )
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json: { builderUrl?: string | null } | null) => {
+        if (!cancelled) setResolvedBuilderUrl(json?.builderUrl ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setResolvedBuilderUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  const persistedBuilderUrl =
+    data.builderUrl && isTrustedBuilderPreviewUrl(data.builderUrl)
+      ? data.builderUrl
+      : undefined;
+  const trustedBuilderUrl =
+    (resolvedBuilderUrl && isTrustedBuilderPreviewUrl(resolvedBuilderUrl)
+      ? resolvedBuilderUrl
+      : undefined) ?? persistedBuilderUrl;
+
+  return (
+    <section className="space-y-3 border-t border-border pt-6">
+      <div>
+        <h3 className="text-sm font-medium text-foreground">
+          {t("designSystems.preview.title")}
+        </h3>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          {t("designSystems.preview.description")}
+        </p>
+      </div>
+      {trustedBuilderUrl ? (
+        <Button asChild className="cursor-pointer">
+          <a
+            href={withBuilderUtmTrackingParams(trustedBuilderUrl, {
+              campaign: "product",
+              content: "design_system_intelligence",
+            })}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <IconExternalLink className="size-4" />
+            {"Open in Builder" /* i18n-ignore Builder link action */}
+          </a>
+        </Button>
+      ) : null}
+    </section>
   );
 }
 
@@ -1206,9 +1440,6 @@ function getDetailTokens(
     ...objectPreviewItems(t("designSystems.tokenPreview.spacing"), spacing),
     ...objectPreviewItems(t("designSystems.tokenPreview.borders"), borders),
     ...objectPreviewItems(t("designSystems.tokenPreview.defaults"), defaults),
-    // The seven color roles are a summary of an import, not its extent. Without
-    // this the panel renders a 200-token system identically to a 7-token one,
-    // which reads as "it only captured a few colors".
     namedTokenCount > 0
       ? {
           label: t("designSystems.tokenPreview.namedTokens"),
@@ -1279,25 +1510,49 @@ function LoadingSkeleton() {
   );
 }
 
-function EmptyState() {
+function EmptyState({
+  onCreateClick,
+}: {
+  onCreateClick: (event: ReactMouseEvent) => void;
+}) {
   const t = useT();
+  const systemsEnabled = useDesignSystemWorkflows();
   return (
     <div className="flex flex-col items-center justify-center py-10 sm:py-14 text-center">
-      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
+      <div className="mb-6 flex size-16 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
         <IconComponents className="w-7 h-7 text-primary" />
       </div>
       <h2 className="text-xl font-semibold text-foreground mb-2">
         {t("designSystems.empty.title")}
       </h2>
-      <p className="text-sm text-muted-foreground max-w-sm mb-8 leading-relaxed">
-        {t("designSystems.empty.description")}
-      </p>
-      <Button asChild className="cursor-pointer">
-        <Link to="/design-systems/setup">
-          <IconPlus className="w-4 h-4" />
-          {t("designSystems.actions.new")}
-        </Link>
-      </Button>
+      {systemsEnabled && (
+        <p className="text-sm text-muted-foreground max-w-sm mb-8 leading-relaxed">
+          {t("designSystems.empty.description")}
+        </p>
+      )}
+      {systemsEnabled && (
+        <Button asChild className="cursor-pointer">
+          <Link to="/design-systems/setup" onClick={onCreateClick}>
+            <IconPlus className="w-4 h-4" />
+            {t("designSystems.actions.new")}
+          </Link>
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function ComingSoonState() {
+  const t = useT();
+  return (
+    <div className="flex flex-col items-center justify-center py-10 sm:py-14 text-center">
+      <div className="mb-6 flex size-16 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
+        <IconComponents className="w-7 h-7 text-primary" />
+      </div>
+      <h2 className="text-xl font-semibold text-foreground mb-2">
+        {t("designSystems.comingSoonTitle")}
+      </h2>
+      <JoinDesignSystemWaitlistButton />
     </div>
   );
 }

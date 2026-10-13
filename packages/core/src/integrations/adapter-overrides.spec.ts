@@ -85,8 +85,6 @@ describe("integrations.platforms allow-list", () => {
     process.env.AGENT_NATIVE_INTEGRATION_PLATFORMS = "slakc";
     resetAppConfigForTests();
 
-    // Typed so the best-effort plugin auto-mount catch rethrows it instead of
-    // leaving the deployment with no integrations routes and a warning.
     expect(() =>
       applyConfiguredPlatformAllowList(createBuiltInIntegrationAdapters()),
     ).toThrow(AppConfigurationError);

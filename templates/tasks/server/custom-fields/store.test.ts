@@ -460,8 +460,6 @@ describe("custom fields store", () => {
       },
     });
 
-    // Half the tasks keep a surviving option (their value is trimmed), half hold
-    // only the removed option (their value row is deleted).
     const size = BULK_WRITE_CHUNK_SIZE + 3;
     for (let index = 0; index < size; index += 1) {
       await createTask({
@@ -482,7 +480,6 @@ describe("custom fields store", () => {
       });
     }
 
-    // Drop the "high" option: trimmed rows keep ["low"], "high"-only rows go away.
     await updateCustomField({
       ownerEmail: "alice@example.com",
       fieldId: field.id,
@@ -544,14 +541,12 @@ describe("custom fields store", () => {
       values: [{ fieldId: estimate.id, value: 2.33 }],
     });
 
-    // Lowering precision leaves the stored 2.33 out of spec for the new config.
     await updateCustomField({
       ownerEmail: "alice@example.com",
       fieldId: estimate.id,
       config: { precision: 1 },
     });
 
-    // The read path must round to the current precision, not crash the list.
     const fields = await listTaskFieldValues({
       ownerEmail: "alice@example.com",
       taskId: "task-1",

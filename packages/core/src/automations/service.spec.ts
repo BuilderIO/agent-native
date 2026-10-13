@@ -9,13 +9,12 @@ const getUserSettingMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
-  intType: () => "INTEGER",
-  isPostgres: () => false,
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn(),
   ensureIndexExists: vi.fn(),
+  ensureColumnExists: vi.fn(),
 }));
 
 vi.mock("../settings/user-settings.js", () => ({
@@ -23,6 +22,7 @@ vi.mock("../settings/user-settings.js", () => ({
 }));
 
 vi.mock("../resources/store.js", () => ({
+  SHARED_OWNER: "__shared__",
   organizationIdFromResourceOwner: (owner: string) =>
     owner.startsWith("__organization__:")
       ? owner.slice("__organization__:".length)
@@ -127,7 +127,6 @@ describe("automation domain service", () => {
     });
 
     expect(definition.meta.timezone).toBe("America/New_York");
-    // 8am Eastern is 12:00 or 13:00 UTC depending on DST, never 08:00 UTC.
     expect(definition.meta.nextRun).toBeTruthy();
     expect(new Date(definition.meta.nextRun as string).getUTCHours()).not.toBe(
       8,
@@ -255,6 +254,97 @@ describe("automation domain service", () => {
     ).toBe(true);
   });
 
+  it("lets a Factory org member queue a recovered folder job that lost domain", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
+    const recovered = resource(`---
+enabled: true
+createdBy: alice@example.com
+orgId: "org-1"
+---
+
+Observe Slack.`);
+    recovered.path = "jobs/factories/demo-factory/factory-slack-feedback.md";
+
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "factory" },
+        recovered,
+        "organization",
+      ),
+    ).toBe(true);
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "mail" },
+        recovered,
+        "organization",
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses a personal job on a Factory-looking path", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
+    const personal = resource(
+      `---
+enabled: true
+createdBy: alice@example.com
+orgId: "org-1"
+---
+
+Observe Slack.`,
+      "alice@example.com",
+    );
+    personal.path = "jobs/factories/demo-factory/factory-slack-feedback.md";
+
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "factory" },
+        personal,
+        "organization",
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses a Factory-path job whose orgId does not match its owner", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
+    const mismatched = resource(`---
+enabled: true
+createdBy: alice@example.com
+orgId: "org-2"
+---
+
+Observe Slack.`);
+    mismatched.path = "jobs/factories/demo-factory/factory-slack-feedback.md";
+
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "factory" },
+        mismatched,
+        "organization",
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses a recovered Factory-folder job owned by another app", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
+    const calendarJob = resource(`---
+enabled: true
+createdBy: alice@example.com
+orgId: "org-1"
+appId: calendar
+---
+
+Send the digest.`);
+    calendarJob.path = "jobs/factories/demo-factory/calendar-digest.md";
+
+    expect(
+      await canQueueAutomationRunNow(
+        { userEmail: "member@example.com", orgId: "org-1", appId: "factory" },
+        calendarJob,
+        "organization",
+      ),
+    ).toBe(false);
+  });
+
   it("still refuses a Mail org member who is not the creator or admin", async () => {
     executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
 
@@ -278,6 +368,7 @@ describe("automation domain service", () => {
         scope: "organization",
         enabled: false,
         model: "claude-opus",
+        reasoningEffort: "high",
         mcpTools: ["mcp__mail__read", "mcp__mail__send"],
       },
     );
@@ -287,6 +378,7 @@ describe("automation domain service", () => {
       runAs: "creator",
       enabled: false,
       model: "claude-opus",
+      reasoningEffort: "high",
       mcpTools: ["mcp__mail__read", "mcp__mail__send"],
     });
     expect(resourcePutMock).toHaveBeenCalledWith(
@@ -295,12 +387,150 @@ describe("automation domain service", () => {
       expect.stringContaining("createdBy: alice@example.com"),
     );
 
+    const updatedContent = resourcePutMock.mock.calls[0][2] as string;
+    expect(updatedContent).toContain('deliveryPlatform: "slack"');
+    expect(updatedContent).toContain('deliveryDestination: "channel-1"');
+    expect(updatedContent).toContain("mcp__mail__send");
+    expect(updatedContent.indexOf("deliveryPlatform:")).toBeGreaterThan(
+      updatedContent.indexOf("mcpTools:"),
+    );
+
     await deleteAutomation(
       { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
       "organization",
       "notify",
     );
     expect(resourceDeleteMock).toHaveBeenCalledWith("automation-1");
+  });
+
+  it("lifts a framework pause when the owner enables the automation again", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    const pausedAutomation = eventAutomation
+      .replace("enabled: true", "enabled: false")
+      .replace(
+        "runAs: creator",
+        [
+          "runAs: creator",
+          "lastStatus: paused",
+          'lastError: "Paused after 3 consecutive missing_tools failures: gone."',
+          'lastErrorCode: "missing_tools"',
+          "consecutiveFailures: 3",
+          'pausedReason: "missing_tools"',
+          'pausedAt: "2026-10-01T12:00:00.000Z"',
+        ].join("\n"),
+      );
+    resourceGetByPathMock.mockResolvedValue(resource(pausedAutomation));
+
+    const updated = await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      { name: "notify", scope: "organization", enabled: true },
+    );
+
+    const content = resourcePutMock.mock.calls[0][2] as string;
+    expect(content).toContain("enabled: true");
+    for (const field of [
+      "lastStatus",
+      "lastError",
+      "lastErrorCode",
+      "consecutiveFailures",
+      "pausedReason",
+      "pausedAt",
+    ]) {
+      expect(content).not.toContain(`${field}:`);
+    }
+    expect(updated.meta.pausedReason).toBeUndefined();
+    expect(updated.meta.enabled).toBe(true);
+  });
+
+  it("keeps a healthy automation's last status when it is enabled while already enabled", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    resourceGetByPathMock.mockResolvedValue(
+      resource(
+        eventAutomation.replace(
+          "runAs: creator",
+          "runAs: creator\nlastStatus: success",
+        ),
+      ),
+    );
+
+    await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      { name: "notify", scope: "organization", enabled: true },
+    );
+
+    expect(resourcePutMock.mock.calls[0][2]).toContain("lastStatus: success");
+  });
+
+  it("rejects an unrecognized reasoningEffort value", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));
+
+    await expect(
+      updateAutomation(
+        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        {
+          name: "notify",
+          scope: "organization",
+          reasoningEffort: "extreme" as never,
+        },
+      ),
+    ).rejects.toThrow(/Invalid reasoning effort/);
+  });
+
+  it("patches Factory extras in place instead of rebuilding the job document", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    resourceGetByPathMock.mockResolvedValue(
+      resource(`---
+enabled: true
+slackChannelId: C0BUK2293SA
+displayName: Slack feedback
+triggerType: schedule
+schedule: "*/5 * * * *"
+createdBy: alice@example.com
+orgId: "org-1"
+appId: factory
+runAs: creator
+---
+
+Observe Slack.`),
+    );
+
+    await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "factory" },
+      {
+        name: "notify",
+        scope: "organization",
+        enabled: false,
+      },
+    );
+
+    const updatedContent = resourcePutMock.mock.calls[0][2] as string;
+    expect(updatedContent).toContain("enabled: false");
+    expect(updatedContent).toContain("slackChannelId: C0BUK2293SA");
+    expect(updatedContent).toContain("displayName: Slack feedback");
+    expect(updatedContent.indexOf("slackChannelId: C0BUK2293SA")).toBeLessThan(
+      updatedContent.indexOf("triggerType: schedule"),
+    );
+  });
+
+  it("rejects an invalid delegatedPolicyId on update without rewriting the job", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));
+
+    await expect(
+      updateAutomation(
+        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        {
+          name: "notify",
+          scope: "organization",
+          delegatedPolicyId: "crm-safe\nenabled: false",
+        },
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringMatching(/Delegated automation policy IDs/),
+    });
+    expect(resourcePutMock).not.toHaveBeenCalled();
   });
 
   it("rejects an ordinary org member mutating another creator's automation", async () => {
@@ -370,6 +600,7 @@ describe("automation domain service", () => {
     ).resolves.toMatchObject({
       ok: false,
       reason: expect.stringContaining("no longer a member"),
+      code: "owner_missing",
     });
   });
 
@@ -386,6 +617,7 @@ describe("automation domain service", () => {
     ).resolves.toEqual({
       ok: false,
       reason: "Organization automations must run as their creator.",
+      code: "config_invalid",
     });
     expect(executeMock).not.toHaveBeenCalled();
   });

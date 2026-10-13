@@ -42,23 +42,14 @@ export function createDefaultEvent(): ExplorerEvent {
   };
 }
 
-/** Optional enriched properties that come from configured dimension joins. */
 export interface EnrichedProperty {
-  /** Property name used in filters/group-by */
   name: string;
-  /** Display label */
   label: string;
-  /** SQL column expression (aliased via the join) */
   columnExpr: string;
-  /** Table to JOIN */
   joinTable: string;
-  /** JOIN alias */
   joinAlias: string;
-  /** JOIN condition (references 'e' as events alias) */
   joinOn: string;
-  /** SQL to fetch distinct values for the dropdown */
   valuesSql: string;
-  /** Category for the property picker */
   category: string;
 }
 
@@ -68,7 +59,6 @@ export const ENRICHED_PROPERTY_MAP = new Map(
   ENRICHED_PROPERTIES.map((p) => [p.name, p]),
 );
 
-/** Top-level columns that can be used directly in WHERE/GROUP BY */
 export const TOP_LEVEL_COLUMNS = [
   "event",
   "name",
@@ -86,9 +76,7 @@ export const TOP_LEVEL_COLUMNS = [
 
 export const TOP_LEVEL_COLUMN_SET = new Set<string>(TOP_LEVEL_COLUMNS);
 
-/** Known events for the picker — grouped by category */
 export const KNOWN_EVENTS = [
-  // Acquisition
   { value: "signup", label: "Signup", category: "Acquisition" },
   { value: "login", label: "Login", category: "Acquisition" },
   { value: "pageView", label: "Page View", category: "Acquisition" }, // i18n-ignore stable event label
@@ -99,7 +87,6 @@ export const KNOWN_EVENTS = [
   },
   { value: "click", label: "Click", category: "Acquisition" },
 
-  // Content
   { value: "content saved", label: "Content Saved", category: "Content" }, // i18n-ignore stable event label
   {
     value: "content published",
@@ -117,7 +104,6 @@ export const KNOWN_EVENTS = [
   { value: "content created", label: "Content Created", category: "Content" }, // i18n-ignore stable event label
   { value: "content deleted", label: "Content Deleted", category: "Content" }, // i18n-ignore stable event label
 
-  // Agent Chat / AI
   {
     value: "agent chat message submitted",
     label: "Agent Chat Message", // i18n-ignore stable event label
@@ -140,7 +126,6 @@ export const KNOWN_EVENTS = [
   },
   { value: "generate", label: "Generate", category: "AI" },
 
-  // Visual Editor
   { value: "import figma", label: "Import Figma", category: "Visual Editor" }, // i18n-ignore stable event label
   { value: "import code", label: "Import Code", category: "Visual Editor" }, // i18n-ignore stable event label
   { value: "drag and drop", label: "Drag and Drop", category: "Visual Editor" }, // i18n-ignore stable event label
@@ -151,7 +136,6 @@ export const KNOWN_EVENTS = [
   },
   { value: "preview", label: "Preview", category: "Visual Editor" },
 
-  // Integrations
   {
     value: "integration installed",
     label: "Integration Installed", // i18n-ignore stable event label
@@ -164,7 +148,6 @@ export const KNOWN_EVENTS = [
   },
   { value: "sdk download", label: "SDK Download", category: "Integrations" }, // i18n-ignore stable event label
 
-  // Billing
   {
     value: "subscription created",
     label: "Subscription Created", // i18n-ignore stable event label
@@ -183,7 +166,6 @@ export const KNOWN_EVENTS = [
   { value: "checkout started", label: "Checkout Started", category: "Billing" }, // i18n-ignore stable event label
   { value: "plan selected", label: "Plan Selected", category: "Billing" }, // i18n-ignore stable event label
 
-  // Collaboration
   { value: "invite sent", label: "Invite Sent", category: "Collaboration" }, // i18n-ignore stable event label
   {
     value: "invite accepted",
@@ -193,7 +175,6 @@ export const KNOWN_EVENTS = [
   { value: "comment added", label: "Comment Added", category: "Collaboration" }, // i18n-ignore stable event label
 ];
 
-/** Known properties grouped by category */
 export const KNOWN_PROPERTIES = [
   {
     category: "User Identity",

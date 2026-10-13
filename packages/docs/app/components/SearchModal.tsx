@@ -1,17 +1,28 @@
-import { focusAgentChat } from "@agent-native/core/client/agent-chat";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { submitToAgent } from "@agent-native/core/client/navigation";
-import { IconMessage, IconMoon, IconSun } from "@tabler/icons-react";
+import {
+  chatModelSelectionStorageKey,
+  focusAgentChat,
+  useAgentEngineConfigured,
+  useChatModels,
+} from "@agent-native/toolkit/app/chat";
+import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
+import { isLocalRuntimeEngine } from "@agent-native/toolkit/app/chat/composer";
+import { submitToAgent } from "@agent-native/toolkit/app/shared";
+import {
+  IconLayoutSidebarRight,
+  IconMessage,
+  IconMoon,
+  IconSun,
+} from "@tabler/icons-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, Link } from "react-router";
 
+import { useAssistantReady } from "../shell-ready";
 import { buildSearchIndexAsync, type SearchEntry } from "./docs-content";
 import { docsPathForSlug } from "./docs-locale";
 import { useDocsTheme } from "./ThemeToggle";
 
-// Lazily built on first open — not at module scope — so the index and the full
-// docs corpus are not included in the initial page bundle.
 const cachedIndexes = new Map<string, SearchEntry[]>();
 const pendingIndexes = new Map<string, Promise<SearchEntry[]>>();
 function getCachedSearchIndex(locale: string): SearchEntry[] | null {
@@ -34,8 +45,6 @@ function loadSearchIndex(locale: string): Promise<SearchEntry[]> {
       return index;
     })
     .catch((error) => {
-      // A stale or unavailable document chunk must not poison retries for the
-      // rest of the session with the same rejected promise.
       pendingIndexes.delete(locale);
       throw error;
     });
@@ -84,7 +93,6 @@ function search(query: string, index: SearchEntry[]): SearchEntry[] {
         if (pageLower.includes(word)) score += isPageEntry ? 5 : 2;
         if (textLower.includes(word)) score += 3;
       }
-      // exact phrase bonus
       if (keywordsLower.includes(q)) score += 35;
       if (pageLower.includes(q)) score += isPageEntry ? 25 : 5;
       if (textLower.includes(q)) score += 20;
@@ -107,6 +115,9 @@ export function SearchModal({
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const searchGeneration = useRef(0);
+  const ensureAssistantReady = useAssistantReady();
   const [activeIdx, setActiveIdx] = useState(0);
   const [index, setIndex] = useState<SearchEntry[]>([]);
   const [indexError, setIndexError] = useState<unknown>(null);
@@ -118,6 +129,20 @@ export function SearchModal({
   const navigate = useNavigate();
   const { locale } = useLocale();
   const t = useT();
+  const models = useChatModels({
+    enabled: false,
+    storageKey: chatModelSelectionStorageKey("docs"),
+  });
+  const shouldCheckProviderStatus = !isLocalRuntimeEngine(
+    models.selectedEngine,
+  );
+  const providerStatusCheck = useAgentEngineConfigured(
+    shouldCheckProviderStatus,
+  );
+  const providerStatus = shouldCheckProviderStatus
+    ? providerStatusCheck.state
+    : "configured";
+  const chatReady = providerStatus === "configured";
   const { theme, toggleTheme } = useDocsTheme();
   const results = search(query, index);
   const themeSearchTerms = [
@@ -131,22 +156,51 @@ export function SearchModal({
   ]
     .join(" ")
     .toLowerCase();
+  const sidebarSearchTerms = [
+    t("search.toggleChatSidebar"),
+    "chat",
+    "sidebar",
+    "assistant",
+  ]
+    .join(" ")
+    .toLowerCase();
   const queryWords = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
   const showThemeAction =
     queryWords.length === 0 ||
     queryWords.every((word) => themeSearchTerms.includes(word));
-  const resultIndexOffset = showThemeAction ? 1 : 0;
+  const showSidebarAction =
+    queryWords.length === 0 ||
+    queryWords.every((word) => sidebarSearchTerms.includes(word));
+  const actionItems = [
+    showThemeAction ? "theme" : null,
+    showSidebarAction ? "sidebar" : null,
+  ].filter((action): action is "theme" | "sidebar" => action !== null);
+  const resultIndexOffset = actionItems.length;
   const askAiIndex = resultIndexOffset + results.length;
 
-  const submitAskAi = useCallback(() => {
-    onClose();
+  const toggleChatSidebar = useCallback(() => {
+    window.dispatchEvent(new Event("agent-panel:toggle"));
+  }, []);
+
+  const submitAskAi = useCallback(async () => {
+    if (!chatReady || submitting) return;
     const message = query.trim();
+    const generation = searchGeneration.current;
+    setSubmitting(true);
+    await ensureAssistantReady();
+    if (searchGeneration.current !== generation) return;
+    onClose();
+    setSubmitting(false);
     if (!message) {
       focusAgentChat();
       return;
     }
     submitToAgent(message);
-  }, [onClose, query]);
+  }, [chatReady, submitting, ensureAssistantReady, onClose, query]);
+
+  const retryProviderStatus = useCallback(() => {
+    window.dispatchEvent(new Event("agent-engine:configured-changed"));
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -175,8 +229,9 @@ export function SearchModal({
     };
   }, [locale, open, retryCount]);
 
-  // Focus management: save focus before open, restore on close
   useEffect(() => {
+    searchGeneration.current += 1;
+    setSubmitting(false);
     if (open) {
       previousFocusRef.current = document.activeElement;
       setQuery("");
@@ -186,6 +241,9 @@ export function SearchModal({
       previousFocusRef.current.focus();
       previousFocusRef.current = null;
     }
+    return () => {
+      searchGeneration.current += 1;
+    };
   }, [open]);
 
   useEffect(() => {
@@ -194,11 +252,11 @@ export function SearchModal({
 
   useEffect(() => {
     activeItemRef.current?.scrollIntoView({ block: "nearest" });
-  }, [activeIdx, results, showThemeAction]);
+  }, [activeIdx, results, showSidebarAction, showThemeAction]);
 
   const go = useCallback(
     (entry: SearchEntry) => {
-      navigate(
+      void navigate(
         entry.sectionId ? `${entry.path}#${entry.sectionId}` : entry.path,
       );
       onClose();
@@ -206,7 +264,6 @@ export function SearchModal({
     [navigate, onClose],
   );
 
-  // Keyboard: Escape, arrows, Enter, and Tab focus trap
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
@@ -226,6 +283,12 @@ export function SearchModal({
           onClose();
           return;
         }
+        const sidebarActionIndex = showThemeAction ? 1 : 0;
+        if (showSidebarAction && activeIdx === sidebarActionIndex) {
+          toggleChatSidebar();
+          onClose();
+          return;
+        }
         if (activeIdx === askAiIndex) {
           submitAskAi();
           return;
@@ -233,7 +296,6 @@ export function SearchModal({
         const result = results[activeIdx - resultIndexOffset];
         if (result) go(result);
       } else if (e.key === "Tab") {
-        // Focus trap: cycle focus within the modal
         const modal = modalRef.current;
         if (!modal) return;
         const focusable = Array.from(
@@ -267,10 +329,59 @@ export function SearchModal({
     go,
     onClose,
     resultIndexOffset,
+    showSidebarAction,
     showThemeAction,
     submitAskAi,
+    toggleChatSidebar,
     toggleTheme,
   ]);
+
+  const actionButtons = actionItems.map((action, i) => (
+    <button
+      key={action}
+      ref={i === activeIdx ? activeItemRef : undefined}
+      type="button"
+      onClick={() => {
+        if (action === "theme") toggleTheme();
+        else toggleChatSidebar();
+        onClose();
+      }}
+      onMouseEnter={() => setActiveIdx(i)}
+      className={`flex w-full items-center gap-3 px-4 py-3 text-start text-sm transition-colors ${
+        i === activeIdx
+          ? "bg-[var(--docs-accent)]/10"
+          : "hover:bg-[var(--bg-secondary)]"
+      }`}
+    >
+      {action === "theme" ? (
+        theme === "dark" ? (
+          <IconSun
+            size={16}
+            stroke={1.5}
+            className="shrink-0 text-[var(--docs-accent)]"
+            aria-hidden="true"
+          />
+        ) : (
+          <IconMoon
+            size={16}
+            stroke={1.5}
+            className="shrink-0 text-[var(--docs-accent)]"
+            aria-hidden="true"
+          />
+        )
+      ) : (
+        <IconLayoutSidebarRight
+          size={16}
+          stroke={1.5}
+          className="shrink-0 text-[var(--docs-accent)]"
+          aria-hidden="true"
+        />
+      )}
+      <span className="font-medium text-[var(--fg)]">
+        {action === "theme" ? t("theme.toggle") : t("search.toggleChatSidebar")}
+      </span>
+    </button>
+  ));
 
   if (!open) return null;
 
@@ -313,7 +424,11 @@ export function SearchModal({
             type="text"
             placeholder={t("search.placeholder")}
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              searchGeneration.current += 1;
+              setSubmitting(false);
+              setQuery(e.target.value);
+            }}
             className="flex-1 border-0 bg-transparent text-base text-[var(--fg)] outline-none placeholder:text-[var(--fg-secondary)]"
             aria-label={t("search.dialogLabel")}
           />
@@ -324,43 +439,7 @@ export function SearchModal({
 
         {/* results */}
         <div className="max-h-[400px] overflow-y-auto">
-          {showThemeAction && (
-            <div className="py-2">
-              <button
-                ref={activeIdx === 0 ? activeItemRef : undefined}
-                type="button"
-                onClick={() => {
-                  toggleTheme();
-                  onClose();
-                }}
-                onMouseEnter={() => setActiveIdx(0)}
-                className={`flex w-full items-center gap-3 px-4 py-3 text-start text-sm transition ${
-                  activeIdx === 0
-                    ? "bg-[var(--docs-accent)]/10"
-                    : "hover:bg-[var(--bg-secondary)]"
-                }`}
-              >
-                {theme === "dark" ? (
-                  <IconSun
-                    size={16}
-                    stroke={1.5}
-                    className="shrink-0 text-[var(--docs-accent)]"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <IconMoon
-                    size={16}
-                    stroke={1.5}
-                    className="shrink-0 text-[var(--docs-accent)]"
-                    aria-hidden="true"
-                  />
-                )}
-                <span className="font-medium text-[var(--fg)]">
-                  {t("theme.toggle")}
-                </span>
-              </button>
-            </div>
-          )}
+          {query.trim() ? actionButtons : null}
           {indexError ? (
             <div className="px-4 py-8 text-center text-sm text-[var(--fg-secondary)]">
               <p className="mb-3">{t("search.loadError")}</p>
@@ -373,10 +452,13 @@ export function SearchModal({
               </button>
             </div>
           ) : query.trim() === "" ? (
-            <div className="px-4 py-8 text-center text-sm text-[var(--fg-secondary)]">
+            <div className="px-4 pt-8 text-center text-sm text-[var(--fg-secondary)]">
               {t("search.empty")}
+              <div className="-mx-4 mt-6 border-t border-[var(--docs-border)] py-2">
+                {actionButtons}
+              </div>
             </div>
-          ) : results.length === 0 && !showThemeAction ? (
+          ) : results.length === 0 && actionItems.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-[var(--fg-secondary)]">
               <p className="mb-3">{t("search.noResults", { query })}</p>
               <Link
@@ -388,7 +470,7 @@ export function SearchModal({
               </Link>
             </div>
           ) : (
-            <div className="py-2">
+            <div className={results.length > 0 ? "py-2" : undefined}>
               {results.map((entry, i) => (
                 <button
                   key={`${entry.path}-${entry.sectionId}`}
@@ -468,12 +550,33 @@ export function SearchModal({
         </div>
 
         <div className="border-t border-[var(--docs-border)] py-2">
+          {providerStatus === "missing" ? (
+            <BuilderSetupCard attached fullWidth layout="sidebar" />
+          ) : providerStatus === "unavailable" ? (
+            <div
+              className="mx-3 mb-1 flex items-center justify-between gap-3 rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--fg-secondary)]"
+              role="status"
+            >
+              <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
+              {providerStatus === "unavailable" ? (
+                <button
+                  type="button"
+                  className="shrink-0 font-medium text-[var(--fg)] underline-offset-4 hover:underline"
+                  onClick={retryProviderStatus}
+                >
+                  {t("agentChat.common.retry")}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           <button
             ref={activeIdx === askAiIndex ? activeItemRef : undefined}
             type="button"
             onClick={submitAskAi}
             onMouseEnter={() => setActiveIdx(askAiIndex)}
-            className={`flex w-full items-center gap-3 px-4 py-3 text-start text-sm transition ${
+            disabled={!chatReady || submitting}
+            aria-busy={submitting}
+            className={`flex w-full items-center gap-3 px-4 py-3 text-start text-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
               activeIdx === askAiIndex
                 ? "bg-[var(--docs-accent)]/10"
                 : "hover:bg-[var(--bg-secondary)]"

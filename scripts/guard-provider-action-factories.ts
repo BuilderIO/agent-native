@@ -1,8 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-// This syntax-level guard intentionally requires direct named factory imports.
-// It does not resolve aliases, re-exports, or computed factory references.
 const REQUIRED_TEMPLATE_NAMES = [
   "analytics",
   "brain",

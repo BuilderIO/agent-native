@@ -1,6 +1,9 @@
 import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
+  type CodeLayerNode,
+  type CodeLayerProjection,
+  type CodeLayerTreeNode,
 } from "@shared/code-layer";
 
 import type { ElementInfo } from "@/components/design/types";
@@ -20,16 +23,33 @@ import type { OverviewScreen } from "@/pages/design-editor/derive/overview-scree
 import { shouldUseRuntimeLayerProjection } from "@/pages/design-editor/pending-edits";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+function getSourceParentNodeId(
+  projection: CodeLayerProjection,
+  node: CodeLayerNode,
+): string | undefined {
+  if (!node.parentId) return undefined;
+  const parent = projection.nodes.find(
+    (candidate) => candidate.id === node.parentId,
+  );
+  if (parent?.dataAttributes["data-agent-native-group-wrapper"] !== "true") {
+    return undefined;
+  }
+  return parent.dataAttributes["data-agent-native-node-id"];
+}
+
 export interface GetSelectedLayerSnapshotsArgs {
   activeFile: DesignFile;
   designSourceType: "inline" | "localhost" | "fusion";
   files: DesignFile[];
   getFreshActiveContent: () => string;
   getScreenContent: (screenId: string) => string;
+  /** Without it every screen is projected to find the selected layers. */
+  layerOwnerFileId?: (layerId: string) => string | undefined;
   liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
   overviewScreens: OverviewScreen[];
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
   selectedElement: ElementInfo | null;
+  selectedElementsByLayerId?: ReadonlyMap<string, ElementInfo>;
   selectedElementLayerId: string | null;
   selectedLayerIdsState: string[];
 }
@@ -40,10 +60,12 @@ export function runGetSelectedLayerSnapshots({
   files,
   getFreshActiveContent,
   getScreenContent,
+  layerOwnerFileId,
   liveScreenSnapshotsById,
   overviewScreens,
   runtimeLayerSnapshotsById,
   selectedElement,
+  selectedElementsByLayerId,
   selectedElementLayerId,
   selectedLayerIdsState,
 }: GetSelectedLayerSnapshotsArgs) {
@@ -58,13 +80,16 @@ export function runGetSelectedLayerSnapshots({
     candidateIds.push(selectedElementLayerId);
   }
 
+  const ownerFileIds = candidateIds.map((layerId) =>
+    layerOwnerFileId?.(layerId),
+  );
+  const ownerFiles = ownerFileIds.every(Boolean)
+    ? new Set(ownerFileIds)
+    : undefined;
+
   const snapshots: SelectedCanvasLayerSnapshot[] = [];
   for (const file of files) {
-    // A hydrated localhost app has two snapshots: `/snapshot` is the source
-    // or SSR shell, while the runtime layer snapshot is the DOM the user can
-    // actually see and select. Layers already prefers that rendered tree, so
-    // Copy must resolve against the same id namespace or client-rendered
-    // React/Vue/Svelte nodes silently produce an empty clipboard.
+    if (ownerFiles && !ownerFiles.has(file.id)) continue;
     const runtimeProjectionEligible = shouldUseRuntimeLayerProjection({
       screen: overviewScreens.find((screen) => screen.id === file.id),
       fallbackSourceType: designSourceType,
@@ -73,6 +98,9 @@ export function runGetSelectedLayerSnapshots({
     const runtimeSnapshot = runtimeProjectionEligible
       ? runtimeLayerSnapshotsById[file.id]
       : undefined;
+    const source = runtimeProjectionEligible
+      ? { kind: "inline-html" as const, fileId: file.id }
+      : { kind: "design-file" as const, fileId: file.id };
     const content = resolveClipboardLayerSourceHtml({
       runtimeProjectionEligible,
       runtimeSnapshot,
@@ -80,8 +108,8 @@ export function runGetSelectedLayerSnapshots({
       storedContent: getScreenContent(file.id),
     });
     if (!content) continue;
-    const projection = buildCodeLayerProjection(content);
-    const tree = buildCodeLayerTree(projection);
+    const projection = buildCodeLayerProjection(content, { source });
+    let tree: CodeLayerTreeNode[] | undefined;
     for (const layerId of candidateIds) {
       const node = projection.nodes.find(
         (candidate) =>
@@ -89,25 +117,39 @@ export function runGetSelectedLayerSnapshots({
           candidate.dataAttributes["data-agent-native-node-id"] === layerId,
       );
       if (!node?.source) continue;
+      const nodeSourceId = node.dataAttributes["data-agent-native-node-id"];
+      const selectedInfo =
+        selectedElementsByLayerId?.get(node.id) ??
+        (nodeSourceId
+          ? selectedElementsByLayerId?.get(nodeSourceId)
+          : undefined) ??
+        (selectedElementLayerId &&
+        (node.id === selectedElementLayerId ||
+          nodeSourceId === selectedElementLayerId)
+          ? selectedElement
+          : undefined);
       const html = content.slice(node.source.start, node.source.end);
-      const portableStyleSnapshot =
-        selectedElementLayerId &&
-        node.id === selectedElementLayerId &&
-        selectedElement?.portableStyleSnapshot
-          ? selectedElement.portableStyleSnapshot
-          : undefined;
+      const portableStyleSnapshot = selectedInfo?.portableStyleSnapshot
+        ? selectedInfo.portableStyleSnapshot
+        : undefined;
+      const styleSnapshotCaptureFailed =
+        selectedInfo?.styleSnapshotCaptureFailed ? true : undefined;
       snapshots.push({
         html,
         rootNodeId: node.dataAttributes["data-agent-native-node-id"] ?? node.id,
+        sourceParentNodeId: getSourceParentNodeId(projection, node),
         sourceFileId: file.id,
         portableStyleSnapshot,
+        styleSnapshotCaptureFailed,
         managedStyleSnapshot: extractDesignClipboardManagedStyles(
           content,
           html,
         ),
         node,
+        repeat: selectedInfo?.repeat,
+        styleSnapshotReadOnDemand: selectedInfo?.styleSnapshotReadOnDemand,
         sourceIndex: node.source.start,
-        tree,
+        tree: (tree ??= buildCodeLayerTree(projection)),
       });
     }
   }
@@ -121,13 +163,16 @@ export function runGetSelectedLayerSnapshots({
     const runtimeSnapshot = runtimeProjectionEligible
       ? runtimeLayerSnapshotsById[activeFile.id]
       : undefined;
+    const source = runtimeProjectionEligible
+      ? { kind: "inline-html" as const, fileId: activeFile.id }
+      : { kind: "design-file" as const, fileId: activeFile.id };
     const content = resolveClipboardLayerSourceHtml({
       runtimeProjectionEligible,
       runtimeSnapshot,
       liveSnapshotHtml: liveScreenSnapshotsById[activeFile.id]?.html,
       storedContent: getFreshActiveContent(),
     });
-    const projection = buildCodeLayerProjection(content);
+    const projection = buildCodeLayerProjection(content, { source });
     const tree = buildCodeLayerTree(projection);
     const node = resolveCodeLayerNodeFromElementInfo(
       projection,
@@ -143,13 +188,17 @@ export function runGetSelectedLayerSnapshots({
           node.dataAttributes["data-agent-native-node-id"] ??
           selectedElement.sourceId ??
           selectedElement.id,
+        sourceParentNodeId: getSourceParentNodeId(projection, node),
         sourceFileId: activeFile.id,
         portableStyleSnapshot: selectedElement.portableStyleSnapshot,
+        styleSnapshotCaptureFailed: selectedElement.styleSnapshotCaptureFailed,
         managedStyleSnapshot: extractDesignClipboardManagedStyles(
           content,
           html,
         ),
         node,
+        repeat: selectedElement.repeat,
+        styleSnapshotReadOnDemand: selectedElement.styleSnapshotReadOnDemand,
         sourceIndex: node.source?.start ?? Number.MAX_SAFE_INTEGER,
         tree,
       });

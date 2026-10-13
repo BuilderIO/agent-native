@@ -1,18 +1,28 @@
-/**
- * Unit tests for the paint-type mode resolution logic extracted from
- * DesignColorPicker.  These tests verify that:
- *
- *  1. The three-level precedence (localPaintType > paintType prop > inferred)
- *     is respected so clicking a paint-type icon always engages the right editor.
- *  2. Each editor panel flag (gradient / image / shader) is set correctly.
- *  3. No "reset" path can clear a localPaintType selection while the session
- *     is still in the same state (i.e. the caller passes the same localPaintType
- *     back in on every render).
- */
-
+import {
+  gamutOf,
+  linearSrgbToDisplayP3,
+  parseWideColor,
+  type Vec3,
+} from "@shared/color-spaces";
 import { rgbaToHsl, hslToRgba, type RgbaColor } from "@shared/color-utils";
 import { describe, expect, it } from "vitest";
 
+import { computeScrubbedValue } from "./color-picker-controls";
+import {
+  hueTrackBackground,
+  linearFromWideSquare,
+  modeForValue,
+  modeNotation,
+  oklchCells,
+  p3Cells,
+  readWideColor,
+  rewriteAlpha,
+  wideHueColor,
+  wideSquareHsv,
+  withOklchCell,
+  withP3Cell,
+  writeColor,
+} from "./color-picker-model";
 import {
   expandHexShorthand,
   GRADIENT_PAINT_TYPES,
@@ -23,8 +33,6 @@ import {
   resolveActivePaint,
   rgbaToHsv,
 } from "./DesignColorPicker";
-
-// ─── inferPaintType ───────────────────────────────────────────────────────────
 
 describe("inferPaintType", () => {
   it("returns 'solid' for a plain hex color at full opacity", () => {
@@ -66,8 +74,6 @@ describe("inferPaintType", () => {
   });
 });
 
-// ─── GRADIENT_PAINT_TYPES ─────────────────────────────────────────────────────
-
 describe("GRADIENT_PAINT_TYPES", () => {
   it("contains all four gradient variants", () => {
     expect(GRADIENT_PAINT_TYPES.has("linear")).toBe(true);
@@ -83,13 +89,10 @@ describe("GRADIENT_PAINT_TYPES", () => {
   });
 });
 
-// ─── resolveActivePaint – precedence ─────────────────────────────────────────
-
 describe("resolveActivePaint – precedence", () => {
   const solidValue = "#ffffff";
 
   it("uses localPaintType when set, regardless of the paintType prop", () => {
-    // The live bug: paintType='solid' from EditPanel, but user clicked 'linear'.
     const result = resolveActivePaint("solid", "linear", solidValue, 100);
     expect(result.effectivePaintType).toBe("linear");
     expect(result.showGradientEditor).toBe(true);
@@ -111,7 +114,6 @@ describe("resolveActivePaint – precedence", () => {
   });
 
   it("localPaintType beats inferred type from value", () => {
-    // Value is a gradient but user explicitly chose 'solid'.
     const gradientValue = "linear-gradient(90deg, #000000 0%, #ffffff 100%)";
     const result = resolveActivePaint(undefined, "solid", gradientValue, 100);
     expect(result.effectivePaintType).toBe("solid");
@@ -119,15 +121,12 @@ describe("resolveActivePaint – precedence", () => {
   });
 });
 
-// ─── resolveActivePaint – gradient variants ───────────────────────────────────
-
 describe("resolveActivePaint – gradient paint types engage GradientEditor", () => {
   const solidValue = "#ffffff";
 
   it.each(["linear", "radial", "angular", "diamond"] as const)(
     "clicking '%s' sets showGradientEditor=true",
     (gradientType) => {
-      // Simulate: user clicked the gradient icon; paintType prop still says solid.
       const result = resolveActivePaint("solid", gradientType, solidValue, 100);
       expect(result.effectivePaintType).toBe(gradientType);
       expect(result.showGradientEditor).toBe(true);
@@ -136,8 +135,6 @@ describe("resolveActivePaint – gradient paint types engage GradientEditor", ()
     },
   );
 });
-
-// ─── resolveActivePaint – image mode ─────────────────────────────────────────
 
 describe("resolveActivePaint – image mode", () => {
   it("clicking 'image' engages ImageFillControls regardless of paintType prop", () => {
@@ -160,8 +157,6 @@ describe("resolveActivePaint – image mode", () => {
   });
 });
 
-// ─── resolveActivePaint – shader mode ────────────────────────────────────────
-
 describe("resolveActivePaint – shader mode", () => {
   it("clicking 'shader' sets showShaderPanel=true", () => {
     const result = resolveActivePaint("solid", "shader", "#ffffff", 100);
@@ -178,8 +173,6 @@ describe("resolveActivePaint – shader mode", () => {
   });
 });
 
-// ─── resolveActivePaint – solid mode ─────────────────────────────────────────
-
 describe("resolveActivePaint – solid mode", () => {
   it("solid paint type shows no special editor", () => {
     const result = resolveActivePaint("solid", null, "#ffffff", 100);
@@ -191,43 +184,28 @@ describe("resolveActivePaint – solid mode", () => {
 
   it("localPaintType=solid wins over gradient value (switching back to solid)", () => {
     const gradientValue = "linear-gradient(90deg, #000 0%, #fff 100%)";
-    // User clicked 'solid' while gradient CSS is still in the value.
     const result = resolveActivePaint("linear", "solid", gradientValue, 100);
     expect(result.effectivePaintType).toBe("solid");
     expect(result.showGradientEditor).toBe(false);
   });
 });
 
-// ─── resolveActivePaint – no re-reset of localPaintType ──────────────────────
-
 describe("resolveActivePaint – localPaintType stability", () => {
-  /**
-   * This simulates what happens across multiple renders while the popover is
-   * open: EditPanel bounces `paintType` back to 'solid' after each onChange
-   * call, but localPaintType stays as whatever the user clicked.  The helper
-   * must NOT use paintType when localPaintType is set.
-   */
   it("localPaintType persists across repeated calls even when paintType prop reverts to solid", () => {
-    // Render 1: user clicked 'radial'
     const r1 = resolveActivePaint("solid", "radial", "#ffffff", 100);
     expect(r1.effectivePaintType).toBe("radial");
     expect(r1.showGradientEditor).toBe(true);
 
-    // Render 2: EditPanel pushes paintType='solid' again (e.g. after onChange)
-    //           but localPaintType is still 'radial' in component state.
     const r2 = resolveActivePaint("solid", "radial", "#ffffff", 100);
     expect(r2.effectivePaintType).toBe("radial");
     expect(r2.showGradientEditor).toBe(true);
 
-    // Render 3: Same scenario with the gradient CSS now in value
     const css = "radial-gradient(circle at center, #000 0%, #fff 100%)";
     const r3 = resolveActivePaint("solid", "radial", css, 100);
     expect(r3.effectivePaintType).toBe("radial");
     expect(r3.showGradientEditor).toBe(true);
   });
 });
-
-// ─── parseNumericDraft (IP20) ─────────────────────────────────────────────────
 
 describe("parseNumericDraft", () => {
   it("parses ordinary numeric drafts", () => {
@@ -237,7 +215,6 @@ describe("parseNumericDraft", () => {
   });
 
   it("returns null (revert) for an emptied draft instead of committing 0", () => {
-    // The bug: Number("") === 0, so clearing the field used to commit 0.
     expect(parseNumericDraft("")).toBeNull();
     expect(parseNumericDraft("   ")).toBeNull();
   });
@@ -251,8 +228,6 @@ describe("parseNumericDraft", () => {
     expect(parseNumericDraft("0")).toBe(0);
   });
 });
-
-// ─── expandHexShorthand (IP20 nice-to-have) ──────────────────────────────────
 
 describe("expandHexShorthand", () => {
   it("expands a single hex digit across all channels", () => {
@@ -278,8 +253,6 @@ describe("expandHexShorthand", () => {
     expect(expandHexShorthand("FF0000AA")).toBe("FF0000AA");
   });
 });
-
-// ─── hasHexAlpha ──────────────────────────────────────────────────────────────
 
 describe("hasHexAlpha", () => {
   it("detects 4-digit shorthand hex-with-alpha (#RGBA)", () => {
@@ -308,7 +281,7 @@ describe("hasHexAlpha", () => {
     expect(hasHexAlpha("")).toBe(false);
     expect(hasHexAlpha("zzzz")).toBe(false);
     expect(hasHexAlpha("FF")).toBe(false);
-    expect(hasHexAlpha("FFFFF")).toBe(false); // 5 digits — not a valid length
+    expect(hasHexAlpha("FFFFF")).toBe(false);
   });
 
   it("tolerates surrounding whitespace", () => {
@@ -327,7 +300,7 @@ describe("hasHexAlpha", () => {
 // no-cache invariant at the pure-function level.
 //
 // Note: because HSL/HSV store saturation/lightness/value as rounded 0-100
-// integers (matching Figma's own integer HSB/HSL fields), a handful of
+// integers (using integer HSB/HSL fields), a handful of
 // arbitrary RGB triples are inherently off by ±1 per channel after the very
 // first round trip — that's unavoidable quantization from displaying a
 // continuous color in an integer percent field, not a bug. The bug this
@@ -337,8 +310,6 @@ describe("hasHexAlpha", () => {
 // creeping every time the user nudges a field or switches modes.
 
 describe("RGB <-> HSL round-trip stability (shared/color-utils)", () => {
-  // Primaries, grayscale, black, and white are exactly representable in
-  // integer HSL and must round-trip losslessly on the very first pass.
   const exactSamples: RgbaColor[] = [
     { r: 255, g: 0, b: 0, a: 1 },
     { r: 0, g: 255, b: 0, a: 1 },
@@ -347,8 +318,6 @@ describe("RGB <-> HSL round-trip stability (shared/color-utils)", () => {
     { r: 255, g: 255, b: 255, a: 1 },
     { r: 128, g: 128, b: 128, a: 1 },
   ];
-  // Arbitrary triples that may shift by at most 1 per channel on the first
-  // trip (integer-percent quantization) but must then stay fixed forever.
   const arbitrarySamples: RgbaColor[] = [
     { r: 128, g: 64, b: 200, a: 1 },
     { r: 17, g: 202, b: 91, a: 0.5 },
@@ -381,8 +350,6 @@ describe("RGB <-> HSL round-trip stability (shared/color-utils)", () => {
         current = hslToRgba(rgbaToHsl(current));
         seen.push(current);
       }
-      // Every trip after the first must reproduce the exact same RGB as the
-      // first trip's result — no slow drift across many conversions.
       const stabilizedAt = seen[0];
       for (const value of seen) {
         expect(value.r).toBe(stabilizedAt.r);
@@ -441,5 +408,174 @@ describe("RGB <-> HSV round-trip stability (DesignColorPicker internal hsv helpe
         expect(value.b).toBe(stabilizedAt.b);
       }
     }
+  });
+});
+
+// ─── Display P3 and OKLCH ─────────────────────────────────────────────────────
+//
+// Reference fallbacks (culori 4.0.2, CSS Color 4 gamut mapping):
+//   oklch(0.7 0.3 150) -> sRGB #00c248, Display P3 (0, 0.7814, 0.20099).
+
+const WIDE_GREEN = "oklch(0.7 0.3 150)";
+const wideGreen = (): Vec3 => {
+  const wide = readWideColor(WIDE_GREEN);
+  if (!wide) throw new Error("unreadable");
+  return wide.linear;
+};
+
+describe("color mode notation", () => {
+  it("names the notation each of the six modes writes", () => {
+    expect(
+      (["hex", "rgb", "hsl", "hsb", "p3", "oklch"] as const).map(modeNotation),
+    ).toEqual(["srgb", "srgb", "srgb", "srgb", "display-p3", "oklch"]);
+  });
+
+  it("opens a color in the notation it was written in", () => {
+    expect(modeForValue("oklch(0.7 0.3 150)", "hex")).toBe("oklch");
+    expect(modeForValue("color(display-p3 1 0 0)", "rgb")).toBe("p3");
+    // An sRGB color keeps the sRGB mode already chosen, and leaves a wide one.
+    expect(modeForValue("#0a6bd6", "hsl")).toBe("hsl");
+    expect(modeForValue("#0a6bd6", "oklch")).toBe("hex");
+    expect(modeForValue("rgba(0, 0, 0, 0.5)", "p3")).toBe("hex");
+    expect(modeForValue("color(srgb 1 0 0)", "hsb")).toBe("hsb");
+  });
+});
+
+describe("writeColor", () => {
+  it("writes sRGB modes as hex or rgba(), mapping a wider color into sRGB first", () => {
+    for (const mode of ["hex", "rgb", "hsl", "hsb"] as const) {
+      expect(writeColor(mode, wideGreen(), 1)).toBe("#00c248");
+    }
+    expect(writeColor("hex", wideGreen(), 0.5)).toBe("rgba(0, 194, 72, 0.5)");
+  });
+
+  it("writes oklch() as the color itself, past sRGB and past Display P3", () => {
+    expect(writeColor("oklch", wideGreen(), 1)).toBe("oklch(70% 0.3 150)");
+    expect(writeColor("oklch", wideGreen(), 0.5)).toBe(
+      "oklch(70% 0.3 150 / 50%)",
+    );
+    expect(gamutOf(wideGreen())).toBe("wide");
+  });
+
+  it("writes color(display-p3) inside Display P3, mapping a color past it", () => {
+    const written = writeColor("p3", wideGreen(), 1);
+    const parsed = parseWideColor(written);
+    if (parsed?.kind !== "ok" || parsed.color.notation !== "display-p3") {
+      throw new Error(`unreadable ${written}`);
+    }
+    const [r, g, b] = parsed.color.p3;
+    expect(r).toBeCloseTo(0, 2);
+    expect(g).toBeCloseTo(0.7814, 2);
+    expect(b).toBeCloseTo(0.201, 2);
+    expect(writeColor("p3", wideGreen(), 0.25)).toMatch(/ \/ 0\.25\)$/);
+  });
+
+  it("round-trips an sRGB color through every mode without drift", () => {
+    const parsed = readWideColor("color(srgb 0.0392 0.4196 0.8392)")!;
+    const hex = writeColor("hex", parsed.linear, 1);
+    expect(hex).toBe("#0a6bd6");
+    for (const mode of ["p3", "oklch"] as const) {
+      const wide = readWideColor(writeColor(mode, parsed.linear, 1))!;
+      expect(writeColor("hex", wide.linear, 1)).toBe(hex);
+    }
+  });
+});
+
+describe("rewriteAlpha", () => {
+  it("keeps authored digits when the color is already in the mode's notation", () => {
+    expect(rewriteAlpha("oklch", "oklch(70% 0.123456 150.5)", 0.4)).toBe(
+      "oklch(70% 0.123456 150.5 / 40%)",
+    );
+    expect(rewriteAlpha("p3", "color(display-p3 0.9175 0.2 0.1386)", 0.5)).toBe(
+      "color(display-p3 0.9175 0.2 0.1386 / 0.5)",
+    );
+    expect(rewriteAlpha("hex", "#336699", 0.5)).toBe("rgba(51, 102, 153, 0.5)");
+  });
+
+  it("converts a color that is in another notation than the mode", () => {
+    expect(rewriteAlpha("hex", WIDE_GREEN, 0.5)).toBe("rgba(0, 194, 72, 0.5)");
+    expect(rewriteAlpha("oklch", "#00c248", 1)).toMatch(/^oklch\(/);
+  });
+
+  it("returns null for a color it cannot read, not a default", () => {
+    expect(rewriteAlpha("oklch", "oklch(0.7)", 0.5)).toBeNull();
+    expect(rewriteAlpha("hex", "not a color", 0.5)).toBeNull();
+  });
+});
+
+describe("the wide modes' square and hue strip", () => {
+  it("puts the square over Display P3 and round-trips a point", () => {
+    const hsv = wideSquareHsv(wideGreen(), 0);
+    const back = linearFromWideSquare(hsv);
+    const [r, g, b] = linearSrgbToDisplayP3(back);
+    // wideGreen is mapped into P3 first, so the point is the P3 fallback.
+    expect(r).toBeCloseTo(0, 2);
+    expect(g).toBeCloseTo(0.7814, 2);
+    expect(b).toBeCloseTo(0.201, 2);
+  });
+
+  it("reaches a color sRGB cannot show", () => {
+    const p3Red = readWideColor("color(display-p3 1 0 0)")!.linear;
+    const hsv = wideSquareHsv(p3Red, 0);
+    expect(hsv.s).toBeCloseTo(1, 6);
+    expect(hsv.v).toBeCloseTo(1, 6);
+    expect(gamutOf(linearFromWideSquare(hsv))).toBe("p3");
+  });
+
+  it("keeps the hue hint for a gray", () => {
+    expect(wideSquareHsv([0.2, 0.2, 0.2], 123).h).toBe(123);
+  });
+
+  it("draws the hue strip in the mode's own space", () => {
+    expect(hueTrackBackground("hex")).toMatch(/^linear-gradient\(90deg, #/);
+    expect(hueTrackBackground("p3")).toMatch(/color\(display-p3 1 0 0\)/);
+    expect(hueTrackBackground("p3")).not.toMatch(/oklch|#/);
+    expect(hueTrackBackground("oklch")).toMatch(/oklch\(75% 0\.18 0\)/);
+    expect(hueTrackBackground("oklch")).toMatch(/oklch\(75% 0\.18 360\)/);
+    expect(wideHueColor(0)).toBe("color(display-p3 1 0 0)");
+  });
+});
+
+describe("value cells for the wide modes", () => {
+  it("lays out OKLCH as L (0-100), C and H with the precision each needs", () => {
+    const cells = oklchCells({ l: 0.724, c: 0.181, h: 153 });
+    expect(cells.map(({ label }) => label)).toEqual(["L", "C", "H"]);
+    expect(cells[0]!.value).toBeCloseTo(72.4, 9);
+    expect(cells[1]!.value).toBe(0.181);
+    expect(cells[2]!.value).toBe(153);
+    expect(cells.map(({ decimals }) => decimals)).toEqual([1, 3, 1]);
+  });
+
+  it("lays out Display P3 as three 0-1 channels at three decimals", () => {
+    const cells = p3Cells([0.1, 0.2, 0.3]);
+    expect(cells.map(({ label }) => label)).toEqual(["R", "G", "B"]);
+    expect(
+      cells.every(
+        ({ min, max, decimals }) => min === 0 && max === 1 && decimals === 3,
+      ),
+    ).toBe(true);
+  });
+
+  it("changes one cell and leaves every other number exactly as it was", () => {
+    const authored = { l: 0.7, c: 0.123456, h: 150.5 };
+    expect(withOklchCell(authored, "l", 80)).toEqual({ ...authored, l: 0.8 });
+    expect(withOklchCell(authored, "c", 0.2)).toEqual({ ...authored, c: 0.2 });
+    expect(withOklchCell(authored, "h", 10)).toEqual({ ...authored, h: 10 });
+    expect(withP3Cell([0.1, 0.2, 0.3], 1, 0.9)).toEqual([0.1, 0.9, 0.3]);
+  });
+});
+
+describe("computeScrubbedValue with a step", () => {
+  it("scrubs a fractional field by its step and keeps its precision", () => {
+    // 8px right is two ticks of 4px; Shift is ten times a tick.
+    expect(computeScrubbedValue(0.5, 8, 0, 1, false, 0.004, 3)).toBe(0.508);
+    expect(computeScrubbedValue(0.5, 8, 0, 1, true, 0.004, 3)).toBe(0.58);
+    expect(computeScrubbedValue(0.99, 40, 0, 1, false, 0.004, 3)).toBe(1);
+    expect(computeScrubbedValue(0.01, -40, 0, 1, false, 0.004, 3)).toBe(0);
+  });
+
+  it("still scrubs a whole-number field by one", () => {
+    expect(computeScrubbedValue(50, 8, 0, 100, false)).toBe(52);
+    expect(computeScrubbedValue(50, -400, 0, 100, false)).toBe(0);
   });
 });

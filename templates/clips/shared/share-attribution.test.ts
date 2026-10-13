@@ -21,4 +21,22 @@ describe("buildShareContinuationQuery", () => {
       buildShareContinuationQuery({ ref: undefined, via: undefined }),
     ).toBe("");
   });
+
+  it("forwards the requested panel so sign-in returns to it", () => {
+    const attribution = readShareAttribution("?ref=clip_share&via=owner-1");
+
+    expect(buildShareContinuationQuery(attribution, "90", "comments")).toBe(
+      "ref=clip_share&via=owner-1&at=90&panel=comments",
+    );
+  });
+
+  it("omits panel when not requested", () => {
+    expect(
+      buildShareContinuationQuery(
+        { ref: undefined, via: undefined },
+        null,
+        null,
+      ),
+    ).toBe("");
+  });
 });

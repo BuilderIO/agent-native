@@ -1,7 +1,6 @@
 import type { AppConfig } from "@agent-native/shared-app-config";
 import { IconLayoutGrid } from "@tabler/icons-react-native";
 import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
-import { useRouter } from "expo-router";
 import type { ReactNode } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -12,17 +11,12 @@ import {
 } from "@/components/AppCard";
 import { getAppRoute } from "@/lib/mobile-app-navigation";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
+import { useMobileNavigation } from "@/lib/navigation";
 import { useApps } from "@/lib/use-apps";
 
 const PANEL_RADIUS = 28;
 const ICON_SIZE = 44;
 
-/**
- * Every workspace app, as a wrapping grid above the tab bar's action button.
- * The bar carries only the apps you pinned, so this is the complete list, and
- * it wraps rather than scrolling sideways: apps hidden off-screen behind a
- * swipe are apps nobody finds.
- */
 export function AppLauncherMenu({
   visible,
   onClose,
@@ -30,17 +24,16 @@ export function AppLauncherMenu({
 }: {
   visible: boolean;
   onClose: () => void;
-  /** Clears the tab bar so the grid sits directly above it. */
   bottomOffset: number;
 }) {
-  const router = useRouter();
+  const navigation = useMobileNavigation();
   const { border, card, foreground, mutedForeground, theme } =
     useMobileThemeColors();
   const { enabledApps } = useApps();
 
   const go = (href: string) => {
     onClose();
-    router.push(href as never);
+    navigation.push(href);
   };
 
   const tile = (

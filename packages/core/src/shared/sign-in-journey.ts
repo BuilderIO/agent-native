@@ -35,66 +35,35 @@
 
 export const SIGN_IN_CONTINUATION_PARAM = "c";
 
-/**
- * Legacy entry-point grammar. Generated apps in the wild hand-write
- * `/_agent-native/sign-in?return=<path>` and are not upgradeable, so the
- * CONSUMER side of this param is permanent API surface. New producers must
- * emit `c` instead; deleting the consumer fallback silently redirects every
- * generated app to `/`, which reads as a UX quirk rather than a regression and
- * therefore will not be caught.
- */
 export const SIGN_IN_LEGACY_RETURN_PARAM = "return";
 
-/** The clean, user-facing sign-in entry point emitted by current clients. */
 export const SIGN_IN_ENTRY_PATH = "/sign-in";
 
-/** The old framework entry point, retained for generated apps and bookmarks. */
 export const SIGN_IN_LEGACY_ENTRY_PATH = "/_agent-native/sign-in";
 
-/** Max length of an encoded continuation token, in characters. */
 export const SIGN_IN_CONTINUATION_MAX_LENGTH = 512;
 
+export function isVerificationLinkInvalid(error: string | null): boolean {
+  return error === "verification_link_invalid" || error === "INVALID_TOKEN";
+}
+
 export interface SignInJourney {
-  /**
-   * Where to send the browser to authenticate — always same-origin, always
-   * under the app base path, always carrying exactly one continuation.
-   * `null` when the browser is ALREADY at an auth entry path: there is no
-   * such thing as signing in from the sign-in page, and a caller must not
-   * navigate. Distinguishable absence, never a lookalike default.
-   */
   readonly signInHref: string | null;
-  /**
-   * Where to send the browser once a session exists. Always same-origin,
-   * always under the app base path, never an auth entry path. Always a value —
-   * worst case the app home, which is a correct answer rather than a swallowed
-   * failure.
-   */
   readonly resumeHref: string;
 }
 
 export interface SignInJourneyInput {
-  /** Current location as a PATH: pathname + search + hash. Never a URL. */
   at: string;
-  /** Whatever arrived in the `c` query param, if anything. */
   continuation?: string | null;
-  /**
-   * Legacy `?return=` value, if anything. Accepted forever; see
-   * SIGN_IN_LEGACY_RETURN_PARAM.
-   */
   legacyReturn?: string | null;
-  /** App base path, `""` for root deploys. */
   basePath?: string;
+  homePath?: string;
 }
 
-/**
- * The whole runtime, as one self-contained function.
- *
- * Self-contained on purpose: `signInJourneyInlineScript()` emits this via
- * `Function.prototype.toString()` so the login documents run the identical
- * code instead of a hand-transcribed copy. A reference to anything outside
- * this function body would be undefined inside the emitted script.
- */
-function createSignInJourneyRuntime(basePath: string) {
+function createSignInJourneyRuntime(
+  basePath: string,
+  configuredHomePath = "/home",
+) {
   var PARAM = "c";
   var LEGACY_PARAM = "return";
   var ENTRY_PATH = "/sign-in";
@@ -118,39 +87,61 @@ function createSignInJourneyRuntime(basePath: string) {
     return false;
   }
 
+  function normalizeHomePath(raw: string | null | undefined): string {
+    if (typeof raw !== "string" || !raw) return "/home";
+    var value = String(raw).trim();
+    if (value === "/") return "/";
+    if (
+      value.charAt(0) !== "/" ||
+      value.charAt(1) === "/" ||
+      value.indexOf("\\") >= 0 ||
+      value.indexOf("?") >= 0 ||
+      value.indexOf("#") >= 0 ||
+      hasControlCharacter(value)
+    ) {
+      return "/home";
+    }
+    var parsed;
+    try {
+      parsed = new URL(value, SENTINEL);
+    } catch (e) {
+      return "/home";
+    }
+    if (
+      parsed.origin !== SENTINEL ||
+      parsed.pathname !== value ||
+      parsed.search ||
+      parsed.hash ||
+      parsed.pathname.startsWith("//")
+    ) {
+      return "/home";
+    }
+    return value;
+  }
+
   function isAuthEntryPath(pathname: string): boolean {
-    // Suffix match rather than equality so this holds under any base path,
-    // including one this process was not configured with (a workspace host
-    // serving a sibling app's URL).
     if (
       pathname === ENTRY_PATH ||
       pathname.slice(-ENTRY_PATH.length) === ENTRY_PATH ||
       pathname === LEGACY_ENTRY_PATH ||
-      pathname.slice(-LEGACY_ENTRY_PATH.length) === LEGACY_ENTRY_PATH
+      pathname.slice(-LEGACY_ENTRY_PATH.length) === LEGACY_ENTRY_PATH ||
+      pathname === "/login" ||
+      pathname.slice(-"/login".length) === "/login" ||
+      pathname === "/signup" ||
+      pathname.slice(-"/signup".length) === "/signup"
     ) {
       return true;
     }
-    var rest = pathname;
-    if (base) {
-      if (rest === base) rest = "/";
-      else if (rest.slice(0, base.length + 1) === base + "/")
-        rest = rest.slice(base.length);
-    }
-    return rest === "/login" || rest === "/signup";
+    return false;
   }
 
-  /**
-   * The shared validator. Returns a full same-origin app path, or `null` —
-   * never `"/"`, so an invalid continuation stays distinguishable from a
-   * genuine request for the home page. Callers that want a fallback write it
-   * at the call site.
-   */
+  var homePath = normalizeHomePath(configuredHomePath);
+  if (isAuthEntryPath(homePath)) homePath = "/home";
+
   function normalizeAppPath(raw: string | null | undefined): string | null {
     if (typeof raw !== "string" || !raw) return null;
-    // Header/URL injection: a `\r\n` reaching a `Location` splits the response.
     if (hasControlCharacter(raw)) return null;
     if (raw.charAt(0) !== "/") return null;
-    // Scheme-relative, plus the backslash form WHATWG normalizes to `//`.
     if (raw.charAt(1) === "/" || raw.charAt(1) === "\\") return null;
     var parsed;
     try {
@@ -158,13 +149,8 @@ function createSignInJourneyRuntime(basePath: string) {
     } catch (e) {
       return null;
     }
-    // Catches everything WHATWG normalizes that prefix checks miss. This is
-    // why prefix checks alone are insufficient.
     if (parsed.origin !== SENTINEL) return null;
     var pathname = parsed.pathname || "/";
-    // WHATWG path normalization can turn traversal such as `/..//host` into
-    // `//host`; validate the normalized path before returning it to a redirect
-    // sink.
     if (pathname.startsWith("//")) return null;
     if (isAuthEntryPath(pathname)) return null;
     // Containment in this app's own base path. On a multi-app workspace host
@@ -187,8 +173,6 @@ function createSignInJourneyRuntime(basePath: string) {
     if (!normalized) return "";
     var token;
     try {
-      // encodeURIComponent first so the input to btoa is pure ASCII; the pair
-      // round-trips any UTF-8 exactly.
       token = btoa(encodeURIComponent(normalized))
         .replace(/\+/g, "-")
         .replace(/\//g, "_")
@@ -210,13 +194,11 @@ function createSignInJourneyRuntime(basePath: string) {
     } catch (e) {
       return null;
     }
-    // Re-validated on decode: a user can paste any `c`, so encode-time
-    // validation is never trusted here.
     return normalizeAppPath(decoded);
   }
 
   function homeHref(): string {
-    return base || "/";
+    return homePath === "/" ? base || "/" : base + homePath;
   }
 
   function signInJourney(input: {
@@ -238,7 +220,6 @@ function createSignInJourneyRuntime(basePath: string) {
     return { signInHref: signInHref, resumeHref: resume };
   }
 
-  /** Read a query param out of a raw `?a=b` / `a=b` search string. */
   function readParam(search: string, name: string): string | null {
     try {
       return new URLSearchParams(search || "").get(name);
@@ -279,22 +260,19 @@ type SignInJourneyRuntime = ReturnType<typeof createSignInJourneyRuntime>;
 
 const runtimeCache = new Map<string, SignInJourneyRuntime>();
 
-function runtime(basePath: string | undefined): SignInJourneyRuntime {
-  const key = basePath ?? "";
+function runtime(
+  basePath: string | undefined,
+  homePath: string | undefined = "/home",
+): SignInJourneyRuntime {
+  const key = `${basePath ?? ""}\u0000${homePath}`;
   let cached = runtimeCache.get(key);
   if (!cached) {
-    cached = createSignInJourneyRuntime(key);
+    cached = createSignInJourneyRuntime(basePath ?? "", homePath);
     runtimeCache.set(key, cached);
   }
   return cached;
 }
 
-/**
- * Validate a candidate app path. Returns the normalised full path (base path
- * included) or `null`. Pass `basePath` to additionally require containment —
- * omit it for surfaces such as provider OAuth returns whose targets are not
- * guaranteed to be base-path prefixed.
- */
 export function normalizeAppPath(
   raw: string | null | undefined,
   basePath = "",
@@ -302,7 +280,6 @@ export function normalizeAppPath(
   return runtime(basePath).normalizeAppPath(raw);
 }
 
-/** Encode an app path as a continuation token. `""` for anything not returnable. */
 export function encodeContinuation(
   path: string | null | undefined,
   basePath = "",
@@ -310,7 +287,6 @@ export function encodeContinuation(
   return runtime(basePath).encodeContinuation(path);
 }
 
-/** Decode a continuation token to an app path. `null` for anything invalid. */
 export function decodeContinuation(
   token: string | null | undefined,
   basePath = "",
@@ -319,7 +295,7 @@ export function decodeContinuation(
 }
 
 export function signInJourney(input: SignInJourneyInput): SignInJourney {
-  return runtime(input.basePath).signInJourney(input);
+  return runtime(input.basePath, input.homePath).signInJourney(input);
 }
 
 /**

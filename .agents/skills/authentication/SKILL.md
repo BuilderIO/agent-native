@@ -29,6 +29,31 @@ Auth is powered by **Better Auth** with account-first design. Every new user cre
 | **`ACCESS_TOKEN` / `ACCESS_TOKENS`** | Static bearer fallback for MCP/connect clients that cannot use OAuth. Not browser auth and never a token login page.         |
 | **Custom**                | Pass your own `getSession` to `autoMountAuth(app, { getSession })`.                                                                     |
 
+Auth emails (verify signup, reset password, magic link, email change) and org
+invites render through `renderTransactionalEmail`. An app changes their copy or
+design with `overrideTransactionalEmail(id, render)` from a server plugin, never
+by editing `better-auth-instance.ts` call sites. See
+`/docs/deployment#email-templates`.
+
+## Hosted Sign-In Pages and the Shared Wave
+
+- First-party server auth plugins use `createToolkitAuthPlugin` from
+  `@agent-native/toolkit/app/auth/server`. It server-renders `AuthPage` and
+  `ResetPasswordPage` before hydration. Direct Core `createAuthPlugin` calls
+  leave generic fallback markup in the response and can flash before React
+  replaces it.
+- `AuthPage` uses Toolkit's full-page `WaveBackground` for every auth view.
+  The Agent-Native homepage hero and Calendar booking use the same renderer:
+  Calendar's animated FFT ocean wave. Keep the background empty while WebGPU
+  support is checked and when the ocean renderer is unavailable; never show a
+  WebGL or Starfield fallback. The homepage positions the wave inside its hero
+  section, and hosted auth pages lift it above the lower marketing copy. Do not
+  substitute a gradient, a signup-only strip, or a copied renderer.
+  `StarfieldBackground` is only a compatibility export for older callers.
+- Hosted marketing apps keep auth enabled at `/` so the public root response
+  contains the full server-rendered sign-in page. Keep session decisions out of
+  public SSR; `RequireSession` resolves signed-in app navigation in the client.
+
 > **Never** use `local@localhost` as a fallback identity in app code
 > (`getRequestUserEmail() ?? "local@localhost"`, `session?.email ?? "local@localhost"`,
 > etc.). There is no dev auth shim. That pattern pools every unauthenticated
@@ -50,7 +75,29 @@ authorization-code + PKCE at
 Access tokens are audience-bound to the exact MCP URL and carry user/org
 identity plus `mcp:read`, `mcp:write`, `mcp:apps`, and/or `offline_access`;
 advertising `offline_access` lets hosts such as ChatGPT retain refresh access.
-Refresh tokens are stored hashed and rotate. Keep `ACCESS_TOKEN` and `pnpm exec agent-native connect` for
+Refresh tokens are stored hashed and are not rotated: a refresh returns the
+same token, with no fixed expiry. MCP OAuth and connect tokens carry
+the org chosen when they were issued, so `verifyAuth` and the token endpoint
+re-check live org membership on every use. A removed member gets a 401 or
+`invalid_grant`; a failed check answers a retryable 503. Offboarding revokes
+their MCP refresh and connect tokens instead of transferring them.
+Connect mints MCP OAuth access tokens too, whatever `A2A_SECRET` holds. Resolve
+the audience of every bearer this app mints through `getMcpOAuthIssuer` /
+`resolveMcpOAuthIssuer`, whose resources are the audiences `verifyAuth`
+accepts, never from a URL built from request headers. Org
+service tokens carry a credential version earlier verifiers reject, because
+those admit any MCP OAuth token as a verified user. `verifyAuth` classifies a
+bearer by the credential it claims to be: OAuth access tokens and both connect
+formats are verified and admitted through one path before any A2A rule runs,
+and one that fails verification never reaches the A2A checks. Earlier
+A2A-format connect tokens verify only with the deployment `A2A_SECRET` and take
+their identity from their stored row; never let organization-secret or
+organization-principal rules see them. A refused bearer token gets a typed
+`reason` in the 401 body and, on `/mcp`, an `error_description` in the
+challenge. Cross-app A2A
+tokens are not re-checked, because their `org_id` is the signing app's
+assertion, and the A2A endpoint rejects MCP credentials.
+Keep `ACCESS_TOKEN` and `pnpm exec agent-native connect` for
 local stdio proxying and fallback clients. The CLI
 uses the OAuth-native URL-only entry for Claude Code/Claude Code CLI by
 default; use the Connect page or `npx @agent-native/core@latest connect --token <token>` when a
@@ -98,22 +145,39 @@ import { defineAppRoles } from "@agent-native/core/org-team";
 
 export const coachAccess = defineAppRoles({
   appId: "coach",
-  roles: ["member", "coach-admin"] as const,
+  roles: ["member", "approver", "coach-admin"] as const,
   defaultRole: "member",
+  permissions: { approve: ["approver", "coach-admin"] as const },
 });
 
 // in an action
 authorize: coachAccess.requireAny("coach-admin"),
 ```
 
+For a role-configurable permission, guard instead with
+`authorize: coachAccess.requirePermission("approve")`.
+
 Roles are an unordered set, not a ladder — declaration order carries no meaning,
 and every guard names its accepted roles explicitly. `defaultRole` is **display
-only**: `requireAny` matches an explicit assignment row and nothing else, so
+only**: `requireAny` and `requirePermission` match explicit assignment rows and
+nothing else, so
 "nobody assigned this person" never reads as "granted", and widening the default
 cannot silently widen a guard. Org membership is a precondition, resolved in the
 same statement as the assignment, so a leftover assignment for a removed member
 can never authorize. Only org owners/admins may assign app roles; render the
-picker with `<TeamPage appRoles={descriptor} />`.
+picker with `<TeamPage appRoles={descriptor} />`. In Settings, register a
+replacement `members` page that renders
+`<OrgMembersPage appRoles={descriptor} />` instead.
+
+Members may have multiple roles. `resolve` returns `{ status: "assigned", roles }`,
+and `assertAny` accepts any intersection with its requested roles. Declare
+permission keys and default role grants in the descriptor; owners/admins can
+override the role grants per organization from TeamPage or through the
+`list-app-permissions` / `set-app-permission-roles` actions. `requirePermission`
+uses the org override when present and code defaults otherwise. Unknown
+permission keys and roles are rejected; an empty override denies that
+permission to every role. `set-app-member-roles` replaces the member's full role
+set. Invitations can carry app roles, which apply after the member joins.
 
 `requireAny` validates at definition time — no roles, or a role outside the
 declared vocabulary, throws when the module loads rather than surfacing as an
@@ -156,22 +220,56 @@ without blocking the primary product experience. Place org UI inside the agent
 sidebar so the setup
 checklist, chat, and CLI stay usable during setup.
 
+## Org Service Principals
+
+An org service token authenticates as `svc-<name>@service.<orgId>`, always an
+implicit `member`. Its governance record (`org/service-principal-policy.ts`)
+names an accountable `ownerEmail`, `team`, `riskTier`, `purpose`, a `lifecycle`
+(`active` | `suspended` | `retired`), and `allowedActions`.
+
+- Read the record through `evaluateServicePrincipal` at every entry point that
+  admits a service identity; never query the table directly.
+- `allowedActions: null` is unrestricted, and a list is deny-by-default (exact
+  names or a trailing `*` prefix). An empty list grants nothing.
+- The grant is enforced at the action boundary (`defineAction` wrapper and agent
+  tool execution via `enforceServicePrincipalActionGrant`), so MCP, HTTP action
+  routes, and delegated `ask-agent` runs all honor it. Agent built-ins are
+  covered, so a list grant must name them.
+- No record means an ungoverned legacy principal: still active and unrestricted.
+  Tightening it is an explicit admin act.
+- An unreadable record fails closed with a 503. Never map a read failure to
+  "ungoverned" or "active".
+- `set-service-principal-policy` and `set-service-principal-lifecycle` are
+  owner/admin only and not agent tool-callable. Suspending or retiring also
+  aborts the principal's in-flight runs. Never let the agent or a service token
+  widen its own grant.
+
 ## A2A Identity
 
-Set `A2A_SECRET` (same value) on all apps that must verify each other's identity.
+Set a distinct `A2A_SECRET` (same value) on apps that must verify each other's
+user identity. Only this deployment secret may sign a per-user A2A assertion;
+mint it from the authenticated request context. The shared organization
+`a2a_secret` proves organization scope only. Its subject/email claims are
+ignored, so it cannot impersonate a member or carry human approval into A2A or
+MCP. Keep each organization's secret different from `A2A_SECRET`.
 
-- Outbound A2A calls are signed with JWTs
-- Inbound calls are verified cryptographically
-- Without `A2A_SECRET`, A2A calls are unauthenticated (fine for local dev)
+- Outbound calls sign user assertions with `A2A_SECRET` and verify them
+  cryptographically at the receiver.
+- Organization-secret calls run as an organization principal without a user
+  email; user-owned reads, tasks, and approvals need a verified user assertion.
+- Without a verifiable credential, production rejects A2A calls; local dev can
+  remain open.
 
 ## Cross-App SSO (Dispatch identity hub)
 
 Each hosted `*.agent-native.com` app has its **own user store**, so "sign in once" is identity federation, not a shared cookie. **Dispatch is the identity authority.**
 
-- **Opt-in per app via one env var:** set `AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com` and the app shows a "Sign in with Agent-Native" option. **Unset = zero behavior change** — the whole path is dormant. Reversible at any time.
-- **Flow:** the app creates a bound state and PKCE verifier, then opens `GET <hub>/_agent-native/identity/authorize?response_type=code&app=&client_id=&redirect_uri=&state=&code_challenge=`. Dispatch authenticates the human and redirects back with only a short-lived, one-time authorization code. The app keeps the verifier in a callback-scoped HttpOnly cookie and redeems the code server-to-server at `/_agent-native/identity/token`; only that response contains the short-lived `A2A_SECRET`-signed identity assertion. No bearer token or JWT is placed in a browser URL. Canonical clients require an exact registered app ID, client ID, origin, and callback path; localhost remains available for development. The app verifies the assertion, **JIT-links strictly by verified email** (existing same-email user → reused unchanged; new email → created), then mints a normal local session.
-- **Invariant (do not break):** identity rows are only ever **added** — never modified, renamed, or deleted. Enabling SSO logs users out, but they always log back into the **same email-matched account with data intact**. Email is the only thing that crosses the trust boundary; the app never trusts a user id, role, or org from the wire.
-- **Canary rollout:** deploy with the env unset everywhere (no-op) → set it on **one** app (mail) only → verify (logout → SSO → Dispatch → back to the same pre-existing account, data intact, direct logins still work) → expand app-by-app → rollback = unset the env on that app's deploy (instant, no data change).
+- **Canonical hosted apps:** exact registered `*.agent-native.com` clients can show "Sign in with Agent-Native" and silently probe for an existing Dispatch session. The silent browser handoff is controlled by Dispatch's default-off `browser.identity-sso` feature flag. Self-hosted apps opt in with `AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com`; unset means zero behavior change.
+- **Flow:** the app creates a bound state and PKCE verifier, then opens `GET <hub>/_agent-native/identity/authorize?response_type=code&app=&client_id=&redirect_uri=&state=&code_challenge=`. Dispatch authenticates the human and redirects back with only a short-lived, one-time authorization code. The app keeps the verifier in a callback-scoped HttpOnly cookie and redeems the code server-to-server at `/_agent-native/identity/token`; only that response contains the short-lived `A2A_SECRET`-signed identity assertion. No bearer token, JWT, or wildcard cookie is placed in a browser URL or shared across app domains. Canonical clients require an exact registered app ID, client ID, origin, and callback path; localhost remains available for development. The app verifies the assertion, **JIT-links strictly by verified email** (existing same-email user → reused unchanged; new email → created), then mints a normal local session.
+- **Organization federation:** the default-off `organization.cross-app-federation` flag separately enables signed org context. A source app registers its local organization with Dispatch using the stable `(identity_authority, identity_id)` mapping; the target app receives the same canonical `org_id`, signed org name, and signed role in the server-to-server assertion, then creates or links its local organization and membership by ID. Names, email domains, and browser cookies never identify an organization. Existing local organizations without a durable mapping are left unchanged rather than guessed or merged; link those explicitly as a migration. Unlinked local organizations remain usable during a Dispatch outage, while linked memberships fail closed until the authority is reachable; registration retries on a later org read. Browser SSO continues to use `A2A_SECRET`, but federation requests use a separate per-app credential: set `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET` on each source app and the matching `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_<APP_ID>` on Dispatch. Never reuse the shared `A2A_SECRET` for the federation authority boundary.
+- **Silent browser handoff:** canonical auth pages may pass `prompt=none`. Dispatch returns `login_required` when no Dispatch session exists instead of showing another login page; the app then leaves the local sign-in form available. It never reveals whether a particular email or account exists. The feature flag is evaluated only at Dispatch, and unreadable or off rollout state fails closed.
+- **Invariant (do not break):** identity rows are only ever **added** - never modified, renamed, or deleted. Enabling SSO logs users out, but they always log back into the **same email-matched account with data intact**. Email is the identity trust boundary; org authorization crosses only as a verified, exact-ID assertion from the registered Dispatch authority. Local org mappings and memberships must not be inferred from names, domains, or user-controlled request bodies.
+- **Canary rollout:** ship with `browser.identity-sso` and `organization.cross-app-federation` Off → verify canonical pages keep direct sign-in available and a silent probe falls back locally → enable browser SSO for one test email in Analytics → enable org federation for one test organization → verify (logout → silent SSO → same pre-existing account, same canonical org ID, correct membership role, data intact, direct logins still work) → expand targeting gradually. Self-hosted apps still roll out one `AGENT_NATIVE_IDENTITY_HUB_URL` deployment at a time; rollback is disabling either flag or removing that env (instant, no data change).
 
 ### Packaged Desktop workspace sign-in
 
@@ -194,8 +292,10 @@ origin is exact HTTPS, and Dispatch has an exact registration in
 `IDENTITY_SSO_APP_REGISTRY_JSON` with its app ID, client ID, callback path, and
 `identity-sso` capability. The custom app also needs
 `AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com` and the shared
-`A2A_SECRET`. Ordinary browsers and self-hosted apps still require the explicit
-hub configuration.
+`A2A_SECRET` for browser SSO, plus `AGENT_NATIVE_IDENTITY_FEDERATION_SECRET`
+when organization federation is enabled. Dispatch needs the matching
+`AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_<APP_ID>`. Self-hosted apps still
+require the explicit hub configuration.
 Every Desktop build may initialize the broker when the per-device
 `desktopSsoEnabled` preference is true (the default); an explicit persisted
 `false` remains an opt-out. The `desktop.workspace-sso` Dispatch flag must also
@@ -215,6 +315,13 @@ Full runbook + flow detail: [Cross-App SSO doc](/docs/cross-app-sso).
 ## Builder Browser Access
 
 Apps can connect to Builder via the `cli-auth` flow and persist shared browser credentials in `.env`. Agents then use the built-in `get-browser-connection` tool to provision a real browser session via AI Services.
+
+Signed-in users use Builder.io through one of two OAuth connections.
+Owners and admins connect the organization's connection, which every member
+uses. Members can add a personal connection that only they use, ahead of the
+organization's; owners and admins get none. Roles are enforced on the server
+at connect start, in the callback, and on disconnect. The `secrets` skill has
+the routes and status fields.
 
 ## Protecting Custom Routes
 

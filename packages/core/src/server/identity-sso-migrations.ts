@@ -18,9 +18,9 @@ export const IDENTITY_SSO_MIGRATIONS: MigrationEntry[] = [
         redirect_uri TEXT NOT NULL,
         authority TEXT NOT NULL,
         code_challenge TEXT NOT NULL,
-        created_at INTEGER,
-        expires_at INTEGER,
-        consumed_at INTEGER
+        created_at BIGINT,
+        expires_at BIGINT,
+        consumed_at BIGINT
       );
 
       CREATE INDEX IF NOT EXISTS identity_sso_flow_state_expires_idx
@@ -28,11 +28,25 @@ export const IDENTITY_SSO_MIGRATIONS: MigrationEntry[] = [
 
       CREATE TABLE IF NOT EXISTS identity_sso_jti (
         jti TEXT PRIMARY KEY,
-        seen_at INTEGER
+        seen_at BIGINT
       );
 
       CREATE INDEX IF NOT EXISTS identity_sso_jti_seen_idx
         ON identity_sso_jti (seen_at);
+    `,
+  },
+  {
+    version: 2,
+    name: "identity-sso-timestamps-bigint",
+    sql: `
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE identity_sso_flow_state ALTER COLUMN created_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE identity_sso_flow_state ALTER COLUMN expires_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE identity_sso_flow_state ALTER COLUMN consumed_at TYPE BIGINT;
+      -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+      ALTER TABLE identity_sso_jti ALTER COLUMN seen_at TYPE BIGINT;
     `,
   },
 ];

@@ -78,6 +78,8 @@ Die Framework-Architektur verhindert häufige Schwachstellen, wenn Sie die Stand
 | Geheime Enthüllung | `.env` gitignored; Anmeldeinformationen und Tresor im Ruhezustand verschlüsselt (AES-256-GCM) |
 | SSRF               | `ssrfSafeFetch` blockiert interne Ziele/Metadatenziele + Umleitungs-Neubindung                |
 
+Das Framework erstellt den Anfragekontext aus der Sitzung und erzwingt Eigentum mit `accessFilter()` und `assertAccess()` bei Anwendungslese- und -schreibvorgängen. Agent-SQL erhält temporäre, nach Identität und Organisation gefilterte Ansichten. RLS ist noch nicht aktiviert, daher müssen rohe Anwendungsabfragen diese Helfer weiterhin verwenden.
+
 ## Eingabevalidierung {#input-validation}
 
 Verwenden Sie `defineAction` mit einem Zod `schema:` für jede Aktion. Das Framework validiert die Eingabe automatisch, bevor Ihr Code ausgeführt wird:
@@ -236,13 +238,13 @@ Das Framework erstellt temporäre SQL-Ansichten, die Abfragen automatisch filter
 
 ```sql
 CREATE TEMPORARY VIEW "notes" AS
-  SELECT * FROM main."notes"
+  SELECT * FROM public."notes"
   WHERE "owner_email" = 'alice@example.com';
 ```
 
 Bei INSERT-Anweisungen wird `owner_email` automatisch eingefügt, wenn die Spalte noch nicht vorhanden ist.
 
-Die Tools `db-query`/`db-exec` lehnen schemaqualifizierte Tabellenverweise (`public.<table>`, `main.<table>`) ab – ein qualifizierter Name wird in die Basistabelle aufgelöst und würde die obige temporäre Ansicht umgehen. Agenten verwenden bloße Tabellennamen; Der Geltungsbereich wird automatisch angewendet.
+Die Tools `db-query`, `db-exec` und `db-patch` prüfen die Grenzen der SQL-Tokens und kontrollieren innerhalb der Transaktion, dass jeder Relationsname auf eine der obigen temporären Ansichten aufgelöst wird. Sie lehnen schema- oder datenbankqualifizierte Namen (`public.<table>`) ab, ebenso Relationen, die die Ansichten nicht abdecken, Namen, die Funktionen oder Operatoren außerhalb von `pg_catalog` entsprechen (einschließlich Erweiterungen), sowie bestimmte integrierte Funktionen, die SQL-Text ausführen oder auf Server-, Sitzungs- oder Sequenzzustände zugreifen. Die Fortsetzung von PostgreSQL-Escape-Zeichenfolgen wird nicht unterstützt und abgelehnt. `db-query` läuft schreibgeschützt. Agenten verwenden bloße Tabellennamen. Der Geltungsbereich wird automatisch angewendet. Diese Prüfungen begrenzen den Geltungsbereich direkter SQL-Lese- und Schreibzugriffe und lehnen nicht genehmigte explizite Routinenaufrufe und Typkonvertierungen ab. Geprüfte Schema-Standardwerte, Constraints, Trigger, Casts und Typ-Ein-/Ausgaben bleiben vertrauenswürdiges Datenbankverhalten. Apps können diese Prüfungen über `@agent-native/core/agent-sql` wiederverwenden. Dessen `readAgentSqlQuery()` ermittelt Tabellenquellen und ihre exakten Textbereiche in unterstützten `SELECT`/`WITH`-Abfragen, und `rewriteAgentSqlQuerySources()` ersetzt diese Bereiche. Der aufrufende Code muss die zulässigen Quellen einschränken und die schreibgeschützte Ausführung sicherstellen.
 
 ### Pro-Organisation-Scoping (`org_id`)
 
@@ -354,9 +356,11 @@ Ohne `A2A_SECRET` in der Produktion geben jeder A2A-Endpunkt und der `/_agent-na
 
 ## Eingehender Webhooks {#webhooks}
 
-Eingehende Webhook-Handler (Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom, Google Docs Pub/Sub) lehnen gefälschte Anfragen standardmäßig in der Produktion ab: Wenn die entsprechende signierende geheime Umgebungsvariable fehlt, gibt der Handler 401 zurück, anstatt sie zu akzeptieren und zu versenden.
+Eingehende Webhook-Handler (Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom) lehnen gefälschte Anfragen standardmäßig in der Produktion ab: Wenn die entsprechende signierende geheime Umgebungsvariable fehlt, gibt der Handler 401 zurück, anstatt sie zu akzeptieren und zu versenden.
 
 Dies war zuvor eine „Warnen und Akzeptieren“-Haltung – legen Sie das Geheimnis fest, das Ihnen sonst entgehen würde, oder entscheiden Sie sich für das alte Verhalten mit `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` nur für lokale Entwickler. Informationen zu den Signaturgeheimnisvariablen pro Integration finden Sie unter [Messaging](/docs/messaging#env-vars).
+
+Google-Drive-`changes.watch`-Benachrichtigungen durchlaufen dieses allgemeine Adapter-Gate nicht. Sie sind inhaltsleere, undurchsichtige Anfragen. Daher registriert das Framework ein zufälliges Token pro Kanal und prüft die Header `X-Goog-Channel-ID`, `X-Goog-Channel-Token` und `X-Goog-Resource-ID`, bevor Änderungen abgerufen werden. Dies sind direkte Drive-Benachrichtigungen, keine Pub/Sub-Nachrichten, und sie enthalten keine Pub/Sub-OIDC-Bearer-Tokens.
 
 ## Produktionscheckliste {#production-checklist}
 
@@ -390,7 +394,7 @@ Dies war zuvor eine „Warnen und Akzeptieren“-Haltung – legen Sie das Gehei
 - [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` ist **nicht** festgelegt, es sei denn, Ihre Organisation teilt tatsächlich Arbeitsbereichsschlüssel – siehe [Cross-User Tooling Secrets](#tooling-secrets)
 - [ ] In mandantenfähigen Bereitstellungen **bringen Benutzer ihr eigenes `ANTHROPIC_API_KEY` mit** – das Framework weigert sich, auf die Umgebungsvariable auf Bereitstellungsebene zurückzugreifen
 
-Führen Sie `agent-native doctor` aus (`pnpm doctor` in einer gescaffoldeten App), um die Schema-, Credential- und Umgebungsvariablen-Punkte dieser Checkliste automatisch zu prüfen – jeder Befund nennt Guard, Datei und Zeile. Siehe die [Doctor](/docs/doctor)-Dokumentation.
+Führen Sie `agent-native doctor` aus (`pnpm agent-native:doctor` in einer gescaffoldeten App), um die Schema-, Credential- und Umgebungsvariablen-Punkte dieser Checkliste automatisch zu prüfen – jeder Befund nennt Guard, Datei und Zeile. Siehe die [Doctor](/docs/doctor)-Dokumentation.
 
 ---
 

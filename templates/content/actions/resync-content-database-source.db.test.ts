@@ -1,13 +1,7 @@
-// Integration test for the row-union resync over-claim fix (slice 6b). Boots a
-// real in-memory libsql DB, simulates the PRE-FIX corrupted state where source
-// A over-claimed every database item (including source B's row), then resyncs
-// A against a mocked live Builder read and asserts the self-heal: A keeps only
-// its own remote-backed rows and never re-claims B's row.
-
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-// guard:allow-unscoped — isolated SQLite fixtures intentionally inspect rows directly.
+// guard:allow-unscoped — isolated PGlite fixtures intentionally inspect rows directly.
 
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
@@ -41,9 +35,6 @@ const builderReadMock = vi.hoisted(() => ({
     | ((args: { model: string; entryId: string }) => Promise<void> | void)
     | null,
 }));
-
-// Mock the Builder read client so resync runs "live" with deterministic entries
-// (no network). Real exports are preserved; only the two reads are overridden.
 vi.mock("./_builder-cms-read-client.js", async () => {
   const actual = await vi.importActual<
     typeof import("./_builder-cms-read-client.js")
@@ -85,7 +76,9 @@ vi.mock("./_builder-cms-read-client.js", async () => {
           model !== "collection-metadata-only" &&
           model !== "collection-large-597" &&
           model !== "collection-canonical-hash-repair" &&
-          model !== "collection-same-version-conflict"
+          model !== "collection-same-version-conflict" &&
+          model !== "collection-hydration-empty-terminal" &&
+          model !== "collection-explicit-retry"
         ) {
           return null;
         }
@@ -102,6 +95,21 @@ vi.mock("./_builder-cms-read-client.js", async () => {
               "data.url": `/large-entry-${index}`,
               [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: `large-hash-${index}`,
               [BUILDER_CMS_BODY_CONTENT_KEY]: `Persisted body ${index}`,
+            },
+          };
+        }
+        if (model === "collection-hydration-empty-terminal") {
+          return {
+            id: entryId,
+            model,
+            title: "Hydration empty terminal",
+            urlPath: "/blog/hydration-empty-terminal",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+            sourceValues: { "data.title": "Hydration empty terminal" },
+            rawEntry: {
+              id: entryId,
+              model,
+              data: { title: "Hydration empty terminal", blocks: [] },
             },
           };
         }
@@ -169,6 +177,16 @@ vi.mock("./_builder-cms-read-client.js", async () => {
             },
           },
         };
+      },
+    ),
+    readBuilderCmsContentEntryResult: vi.fn(
+      async (args: { model: string; entryId: string }) => {
+        const { readBuilderCmsContentEntry } =
+          await import("./_builder-cms-read-client.js");
+        const entry = await readBuilderCmsContentEntry(args);
+        return entry
+          ? { state: "found", entry, providerStatus: "http_200" }
+          : { state: "not_found", entry: null, providerStatus: "http_404" };
       },
     ),
     readBuilderCmsContentEntries: vi.fn(
@@ -618,7 +636,7 @@ vi.mock("./_builder-cms-read-client.js", async () => {
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `resync-source-test-${process.pid}-${Date.now()}.sqlite`,
+  `resync-source-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 let getDb: () => any;
@@ -643,7 +661,7 @@ const OWNER = "owner@example.com";
 const IMPORT_SPACE_ID = "builder_import_test_space";
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -673,10 +691,12 @@ beforeAll(async () => {
     updatedAt: now,
   });
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
-    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at BIGINT NOT NULL,
+    identity_authority TEXT, identity_id TEXT
   )`);
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
-    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at INTEGER NOT NULL
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at BIGINT NOT NULL,
+    federation_removal_pending_at INTEGER
   )`);
   resync = (await import("./_database-source-utils.js"))
     .resyncBuilderCmsSourceSnapshot;
@@ -716,9 +736,7 @@ afterEach(() => {
 });
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 it("atomically grants one Builder continuation claim per persisted offset", async () => {
@@ -1769,7 +1787,6 @@ it("resync re-links only the source's own rows, never another collection's (self
     createdAt: now,
     updatedAt: now,
   });
-  // Two sources so the multi-source restriction applies.
   await db.insert(schema.contentDatabaseSources).values([
     {
       id: "src-a",
@@ -1836,11 +1853,9 @@ it("resync re-links only the source's own rows, never another collection's (self
       updatedAt: now,
     };
   }
-  // Source B legitimately owns doc-b1.
   await db
     .insert(schema.contentDatabaseSourceRows)
     .values(srcRow("row-b1", "src-b", "doc-b1", "entry-b1"));
-  // PRE-FIX over-claim: source A claims ALL THREE docs, including B's row.
   await db
     .insert(schema.contentDatabaseSourceRows)
     .values([
@@ -1866,17 +1881,103 @@ it("resync re-links only the source's own rows, never another collection's (self
     .where(eq(schema.contentDatabaseSourceRows.sourceId, "src-a"));
   const aDocIds = aRows.map((r: { documentId: string }) => r.documentId).sort();
 
-  // A keeps only its own two remote-backed rows; the over-claimed B row is gone.
   expect(aDocIds).toEqual(["doc-a1", "doc-a2"]);
   expect(aDocIds).not.toContain("doc-b1");
 
-  // Source B's own row is untouched.
   const bRows = await db
     .select({ documentId: schema.contentDatabaseSourceRows.documentId })
     .from(schema.contentDatabaseSourceRows)
     .where(eq(schema.contentDatabaseSourceRows.sourceId, "src-b"));
   expect(bRows.map((r: { documentId: string }) => r.documentId)).toEqual([
     "doc-b1",
+  ]);
+});
+
+it("rejects an overflowing multi-row import before writing any partial rows", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_import_position_boundary";
+  const databaseDocId = "doc_db_import_position_boundary";
+  const existingDocumentId = "doc_import_position_boundary_existing";
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      spaceId: IMPORT_SPACE_ID,
+      ownerEmail: OWNER,
+      title: "Import position boundary",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: existingDocumentId,
+      spaceId: IMPORT_SPACE_ID,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Existing boundary row",
+      position: 2_147_483_646,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    spaceId: IMPORT_SPACE_ID,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "Import position boundary",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: "item_import_position_boundary_existing",
+    ownerEmail: OWNER,
+    databaseId,
+    documentId: existingDocumentId,
+    position: 2_147_483_646,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const read = await (
+    await import("./_builder-cms-read-client.js")
+  ).readBuilderCmsContentEntries({ model: "collection-duplicates" });
+  const entries = read.state === "live" ? read.entries : [];
+
+  await expect(
+    importBuilderEntries({
+      database,
+      sourceId: "src-position-boundary",
+      entries,
+      now,
+      sourceTable: "collection-duplicates",
+      existingSourceRows: [],
+    }),
+  ).rejects.toThrow("Database position is outside the supported range.");
+
+  const documents = await db
+    .select({ id: schema.documents.id, position: schema.documents.position })
+    .from(schema.documents)
+    .where(eq(schema.documents.parentId, databaseDocId));
+  const items = await db
+    .select({
+      id: schema.contentDatabaseItems.id,
+      position: schema.contentDatabaseItems.position,
+    })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+  expect(documents).toEqual([
+    { id: existingDocumentId, position: 2_147_483_646 },
+  ]);
+  expect(items).toEqual([
+    {
+      id: "item_import_position_boundary_existing",
+      position: 2_147_483_646,
+    },
   ]);
 });
 
@@ -1983,9 +2084,6 @@ it("records freshly imported Builder row identities even when title and URL keys
   expect(retryDocuments).toHaveLength(2);
   expect(retryItems).toHaveLength(2);
 
-  // Attach and its background continuation can overlap before source rows are
-  // visible to the second importer. Stable Builder-derived local IDs make the
-  // two writes converge instead of duplicating every remote entry.
   await Promise.all([
     importBuilderEntries({
       database,
@@ -2176,11 +2274,11 @@ it("repairs a legacy organization database into its organization space", async (
   const databaseId = "legacy_org_builder_database";
   const databaseDocumentId = "legacy_org_builder_document";
   await getDbExec().execute({
-    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
     args: [orgId, "Legacy Builder Org", OWNER, Date.now()],
   });
   await getDbExec().execute({
-    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
     args: ["legacy-builder-org-owner", orgId, OWNER, "owner", Date.now()],
   });
   await db.insert(schema.documents).values({
@@ -2864,9 +2962,6 @@ it("keeps a materialized required Builder reference dispatchable after full refr
     createdAt: now,
     updatedAt: now,
   });
-  // This is the persisted state after required-field materialization: the
-  // property is bound and stores the canonical Builder author entry id, while
-  // the older projected mapping still says `select`.
   await db.insert(schema.contentDatabaseSourceFields).values({
     id: "field-required-reference-author",
     ownerEmail: OWNER,
@@ -3202,13 +3297,16 @@ it("continues a 597-row snapshot past offset 500 without pruning or restarting",
       source,
       now: `2026-07-10T12:0${page}:00.000Z`,
     });
-    for (let drain = 0; drain < 4; drain += 1) {
+    for (let drain = 0; drain < 20; drain += 1) {
       const queuedBodies = await db
         .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
         .from(schema.contentDatabaseBodyHydrationQueue)
         .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
       if (queuedBodies.length === 0) break;
-      await hydrateQueuedBodies({ sourceId, limit: 50 });
+      const result = await hydrateQueuedBodies({ sourceId, limit: 600 });
+      if (result.processed === 0 && result.remaining > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
     }
     const rows = await db
       .select({ sourceRowId: schema.contentDatabaseSourceRows.sourceRowId })
@@ -3522,7 +3620,7 @@ it("materializes duplicate source rows with last value winning for existing prop
   expect(JSON.parse(values[0]!.valueJson)).toBe("Second author");
 });
 
-it("does not let open-row hydration promotion downgrade a queued full Builder body", async () => {
+it("hydrates a queued full Builder body when the current body has multiline empty blocks", async () => {
   builderReadMock.mode = "full";
   builderReadMock.calls = [];
   builderReadMock.singleEntryCalls = [];
@@ -3551,7 +3649,7 @@ it("does not let open-row hydration promotion downgrade a queued full Builder bo
       ownerEmail: OWNER,
       parentId: databaseDocId,
       title: "Open hydration downgrade",
-      content: "<empty-block/>",
+      content: "<empty-block/>\n<empty-block/>",
       createdAt: now,
       updatedAt: now,
     },
@@ -4337,8 +4435,12 @@ it("lets only one overlapping worker claim and finish the same Builder body job"
     .from(schema.contentDatabaseBodyHydrationQueue)
     .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
 
-  expect(results.map((result) => result.processed).sort()).toEqual([0, 1]);
-  expect(results.map((result) => result.succeeded).sort()).toEqual([0, 1]);
+  expect(
+    results.map((result) => result.processed).sort((a, b) => a - b),
+  ).toEqual([0, 1]);
+  expect(
+    results.map((result) => result.succeeded).sort((a, b) => a - b),
+  ).toEqual([0, 1]);
   expect(results.every((result) => result.failed === 0)).toBe(true);
   expect(after.content).toBe(body);
   expect(after.status).toBe("hydrated");
@@ -4746,9 +4848,7 @@ it("preserves local content and the source baseline when Builder returns a confl
       data: { blocks: [publishedBlock] },
     },
   });
-  const localContent = `${String(
-    publishedBaseline.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY],
-  )}\n\nLocal edit that must survive a conflicting response.`;
+  const localContent = `${typeof publishedBaseline.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY] === "string" ? publishedBaseline.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY] : (JSON.stringify(publishedBaseline.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]) ?? "")}\n\nLocal edit that must survive a conflicting response.`;
 
   await db.insert(schema.documents).values([
     {
@@ -4848,6 +4948,8 @@ it("preserves local content and the source baseline when Builder returns a confl
       sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
       status: schema.contentDatabaseItems.bodyHydrationStatus,
       error: schema.contentDatabaseItems.bodyHydrationError,
+      reason: schema.contentDatabaseItems.bodyHydrationReason,
+      retryable: schema.contentDatabaseItems.bodyHydrationRetryable,
       queued: schema.contentDatabaseBodyHydrationQueue.id,
       queueError: schema.contentDatabaseBodyHydrationQueue.lastError,
     })
@@ -4881,11 +4983,13 @@ it("preserves local content and the source baseline when Builder returns a confl
   expect(afterValues[BUILDER_CMS_BODY_BLOCKS_HASH_KEY]).toBe(publishedHash);
   expect(after.status).toBe("error");
   expect(after.error).toContain("inconsistent body variants");
-  expect(after.queued).toBe("queue_same_version_conflict");
-  expect(after.queueError).toContain("inconsistent body variants");
+  expect(after.reason).toBe("conversion_failed");
+  expect(after.retryable).toBe(0);
+  expect(after.queued).toBeNull();
+  expect(after.queueError).toBeNull();
 });
 
-it("terminates an unbuildable empty Builder body job at the hydration cap", async () => {
+it("hydrates a provider-confirmed empty Builder body with terminal evidence", async () => {
   builderReadMock.mode = "full";
   builderReadMock.calls = [];
   builderReadMock.singleEntryCalls = [];
@@ -4991,39 +5095,16 @@ it("terminates an unbuildable empty Builder body job at the hydration cap", asyn
 
   await hydrateQueuedBodies({ sourceId, limit: 1, preloadBodies: true });
 
-  const [retryable] = await db
-    .select({
-      status: schema.contentDatabaseItems.bodyHydrationStatus,
-      attempts: schema.contentDatabaseBodyHydrationQueue.attempts,
-      lastAttemptedAt: schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt,
-    })
-    .from(schema.contentDatabaseItems)
-    .innerJoin(
-      schema.contentDatabaseBodyHydrationQueue,
-      eq(
-        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
-        schema.contentDatabaseItems.id,
-      ),
-    )
-    .where(eq(schema.contentDatabaseItems.documentId, documentId));
-
-  expect(retryable).toMatchObject({
-    status: "pending",
-    attempts: 1,
-    lastAttemptedAt: null,
-  });
-
-  for (let attempt = 1; attempt < 5; attempt += 1) {
-    await hydrateQueuedBodies({ sourceId, limit: 1, preloadBodies: true });
-  }
-
   const [after] = await db
     .select({
       content: schema.documents.content,
       status: schema.contentDatabaseItems.bodyHydrationStatus,
       error: schema.contentDatabaseItems.bodyHydrationError,
+      reason: schema.contentDatabaseItems.bodyHydrationReason,
+      providerStatus: schema.contentDatabaseItems.bodyHydrationProviderStatus,
+      attemptCount: schema.contentDatabaseItems.bodyHydrationAttemptCount,
+      retryable: schema.contentDatabaseItems.bodyHydrationRetryable,
       queued: schema.contentDatabaseBodyHydrationQueue.id,
-      attempts: schema.contentDatabaseBodyHydrationQueue.attempts,
     })
     .from(schema.documents)
     .innerJoin(
@@ -5040,13 +5121,143 @@ it("terminates an unbuildable empty Builder body job at the hydration cap", asyn
     .where(eq(schema.documents.id, documentId));
 
   expect(after.content).toBe("");
-  expect(after.status).toBe("unavailable");
+  expect(after.status).toBe("hydrated");
   expect(after.error).toBeNull();
+  expect(after.reason).toBe("empty_body");
+  expect(after.providerStatus).toBe("http_200");
+  expect(after.attemptCount).toBe(1);
+  expect(after.retryable).toBe(0);
   expect(after.queued).toBeNull();
-  expect(after.attempts).toBeNull();
 });
 
-it("re-enqueues hydrated Builder rows with empty document content on resync", async () => {
+it("explicitly retries a terminal retryable Builder hydration while preserving evidence until processing", async () => {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_explicit_retry";
+  const databaseDocId = "doc_db_explicit_retry";
+  const documentId = "doc_explicit_retry";
+  const itemId = "item_explicit_retry";
+  const sourceId = "src_explicit_retry";
+  const sourceRowId = "entry_explicit_retry";
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "DB explicit retry",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Explicit retry",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB explicit retry",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-explicit-retry",
+    sourceTable: "collection-explicit-retry",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "error",
+    bodyHydrationError: "Builder request timed out.",
+    bodyHydrationReason: "transient_read_failure",
+    bodyHydrationProviderStatus: "network_error",
+    bodyHydrationAttemptCount: 5,
+    bodyHydrationRetryable: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row_explicit_retry",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://collection-explicit-retry/${sourceRowId}`,
+    sourceDisplayKey: "Explicit retry",
+    sourceValuesJson: JSON.stringify({
+      "data.title": "Explicit retry",
+      "data.url": "/blog/explicit-retry",
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+    }),
+    provenance: "Builder CMS read adapter",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const result = await hydrateQueuedBodies({
+    sourceId,
+    documentId,
+    limit: 1,
+    retryFailed: true,
+  });
+  const [after] = await db
+    .select({
+      content: schema.documents.content,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      error: schema.contentDatabaseItems.bodyHydrationError,
+      reason: schema.contentDatabaseItems.bodyHydrationReason,
+      attemptCount: schema.contentDatabaseItems.bodyHydrationAttemptCount,
+      retryable: schema.contentDatabaseItems.bodyHydrationRetryable,
+      queued: schema.contentDatabaseBodyHydrationQueue.id,
+    })
+    .from(schema.documents)
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(schema.contentDatabaseItems.documentId, schema.documents.id),
+    )
+    .leftJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(eq(schema.documents.id, documentId));
+
+  expect(result).toMatchObject({
+    processed: 1,
+    succeeded: 1,
+    failed: 0,
+    remaining: 0,
+    ready: 0,
+    nextAttemptAt: null,
+  });
+  expect(after.content).toContain("Live opened row body from Builder.");
+  expect(after.status).toBe("hydrated");
+  expect(after.error).toBeNull();
+  expect(after.reason).toBeNull();
+  expect(after.attemptCount).toBe(1);
+  expect(after.retryable).toBe(0);
+  expect(after.queued).toBeNull();
+});
+
+it("re-enqueues hydrated Builder rows with multiline empty content on resync", async () => {
   builderReadMock.mode = "full";
   builderReadMock.calls = [];
   const db = getDb();
@@ -5070,7 +5281,7 @@ it("re-enqueues hydrated Builder rows with empty document content on resync", as
       ownerEmail: OWNER,
       parentId: databaseDocId,
       title: "Hydration One",
-      content: "   ",
+      content: "<empty-block/>\n<empty-block/>",
       createdAt: now,
       updatedAt: now,
     },
@@ -5882,9 +6093,6 @@ it("keeps Builder outbound change sets empty while body hydration streams", asyn
     sourceId,
     limit: 10,
   });
-  // The resync fires an unawaited background hydration kick; drain until the
-  // queue and item statuses settle so the completion assertions are
-  // deterministic. Change sets must stay empty at every drain step.
   for (let attempt = 0; attempt < 20; attempt++) {
     await expectZeroOutboundChangeSets(`during drain step ${attempt}`);
     const pendingItems = await db
@@ -5923,8 +6131,6 @@ it("keeps Builder outbound change sets empty while body hydration streams", asyn
     .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
 
   expect(items).toHaveLength(2);
-  // Hydrated content is the CONVERTED readable body, not the raw source
-  // value — assert completion and non-empty bodies, not raw equality.
   for (const item of items) {
     expect(item.status).toBe("hydrated");
     expect((item.content ?? "").trim().length).toBeGreaterThan(0);

@@ -1,14 +1,3 @@
-/**
- * Overwrite the chapters on a recording.
- *
- * Chapters are stored as a JSON array of `{ startMs, title }` in
- * `recordings.chaptersJson`. The editor sidebar calls this on every change
- * (add / rename / reorder / delete).
- *
- * Usage:
- *   pnpm action set-chapters --recordingId=<id> --chapters='[{"startMs":0,"title":"Intro"}]'
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -50,7 +39,6 @@ export default defineAction({
       chapters = args.chapters as any;
     }
 
-    // Sort and dedupe by startMs
     chapters = [...chapters]
       .map((c) => ({ startMs: Math.max(0, c.startMs), title: c.title.trim() }))
       .filter((c) => c.title.length > 0)

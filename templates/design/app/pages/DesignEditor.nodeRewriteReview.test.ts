@@ -1,9 +1,9 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
 describe("DesignEditor candidate review navigation", () => {
-  const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const source = readDesignEditorSource();
   const reviewHandler = source.slice(
     source.indexOf("const handleReviewNodeRewrite"),
     source.indexOf("const handleReviewPendingScreen"),
@@ -21,10 +21,8 @@ describe("DesignEditor candidate review navigation", () => {
     expect(reviewHandler).not.toContain("handleSidebarScreenSelect");
   });
 
-  it("mounts one viewport-level panel and marks the active base preview", () => {
-    expect(source).toContain(
-      "nodeRewriteCanvasTarget={\n            screenIsActive && breakpointWidthPx === undefined\n          }",
-    );
+  it("mounts one viewport-level panel and marks the active responsive preview", () => {
+    expect(source).toContain("nodeRewriteCanvasTarget={screenIsActive}");
     expect(source).toContain(
       "<NodeRewriteProposalPanel\n          designId={id}",
     );

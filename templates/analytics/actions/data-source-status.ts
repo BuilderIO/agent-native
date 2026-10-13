@@ -86,7 +86,7 @@ async function listWorkspaceConnectionsForStatus(): Promise<{
 
 export default defineAction({
   description:
-    "List which analytics data sources are available without revealing secret values. This always includes the built-in first-party Analytics event store, which is queried with `query-agent-native-analytics`; it also reports configured credentials and granted workspace connections. The result includes `hasConnectedExternalDataSources`, `connectedExternalDataSourceCount`, and `dataSourcesSetupLink`; each provider also includes a focused `setupLink`. When a requested provider is unavailable, use its focused link for contextual setup guidance. The `key` arg accepts exact credential names like JIRA_API_TOKEN and provider aliases like jira, pylon, bigquery, github, hubspot, gong, or slack.",
+    "Report available Analytics sources without exposing secrets, including first-party events and granted workspace connections. Use `query-agent-native-analytics` for first-party events. Each provider includes a setup link; key accepts a credential name or provider alias.",
   schema: z.object({
     key: z
       .string()
@@ -96,11 +96,10 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
+  mcpTool: true,
   run: async (args) => {
     const ctx = tryRequestCredentialContext();
     if (!ctx) {
-      // Returning 200 here let callers read "signed out" as an authoritative
-      // "nothing is configured".
       throw Object.assign(new Error("Sign in to view credential status."), {
         statusCode: 401,
       });
@@ -211,9 +210,6 @@ export default defineAction({
           provider: provider.provider,
           label: provider.label,
           setupLink: dataSourceSetupLink(provider.provider),
-          // A failed workspace-connection lookup cannot prove a provider is
-          // disconnected — a workspace-held connection lives in exactly the
-          // data we could not read. Report null, never false.
           configured: configured ? true : workspace.error ? null : false,
           configuredKeys: configuredProviderKeys,
           missingRequiredKeys,

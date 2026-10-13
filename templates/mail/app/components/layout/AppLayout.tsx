@@ -1,65 +1,100 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
+import { scheduleAfterStartup } from "@agent-native/core/client/use-after-paint";
+import { useSession } from "@agent-native/core/client/use-session";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   AgentSidebar,
   AgentToggleButton,
-} from "@agent-native/core/client/agent-chat";
-import { agentNativePath } from "@agent-native/core/client/api-path";
-import { appApiPath } from "@agent-native/core/client/api-path";
-import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
-import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
-import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+} from "@agent-native/toolkit/app/chat";
+import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { NotificationsBell } from "@agent-native/toolkit/app/notifications";
 import {
-  isInboxScopedAppLabel,
-  normalizeMailLabel,
-} from "@shared/gmail-labels";
-import type { Label } from "@shared/types";
+  BuilderCreditNotice,
+  InvitationBanner,
+  OrgSwitcher,
+} from "@agent-native/toolkit/app/org";
 import {
+  AgentNativeIcon,
+  AppSidebarFooter,
+  AppSidebarHeader,
+  EnvironmentBadge,
+  RouterSidebarLink,
+} from "@agent-native/toolkit/app/shared";
+import { AI_FILTER_LABEL } from "@shared/ai-filter";
+import {
+  aiFilterRuleLabelName,
+  aiFilterRuleMode,
+  normalizedAiFilterLabelId,
+} from "@shared/ai-filter-rules";
+import { isInboxScopedAppLabel } from "@shared/gmail-labels";
+import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";
+import { mailSettingsRoute } from "@shared/settings-navigation";
+import type { Label, SavedMailFilter } from "@shared/types";
+import {
+  IconArrowUpRight,
   IconMenu2,
   IconSettings,
   IconSearch,
   IconCheck,
   IconPlus,
-  IconRefresh,
   IconPin,
   IconPinnedFilled,
-  IconArchive,
-  IconClock,
-  IconFileText,
-  IconInbox,
+  IconRefresh,
   IconLayoutSidebarLeftCollapse,
-  IconLayoutSidebarLeftExpand,
-  IconMailForward,
-  IconStar,
-  IconTrash,
-  IconAlertCircle,
+  IconX,
+  IconFilter,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+} from "react";
 import { Link, useNavigate, useLocation, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import { ComposeModal } from "@/components/email/ComposeModal";
+import type { ComposePaletteCommands } from "@/components/email/ComposeModal";
 import { SnoozeModal } from "@/components/email/SnoozeModal";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
+import { AiInboxSetup } from "@/components/onboarding/AiInboxSetup";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   Popover,
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { AccountFilterContext } from "@/hooks/use-account-filter";
-import { useComposeState } from "@/hooks/use-compose-state";
+import { useAutomations } from "@/hooks/use-automations";
+import {
+  applyDraftSaveResult,
+  DRAFT_DELETE_FAILED_EVENT,
+  DRAFT_SAVE_FAILED_EVENT,
+  useComposeState,
+} from "@/hooks/use-compose-state";
 import { useQueuedDraftCount } from "@/hooks/use-draft-queue";
 import {
   useLabels,
@@ -71,6 +106,7 @@ import {
   useMuteThread,
   markExternalEmailRefresh,
   EMPTY_LABELS,
+  LABELS_QUERY_KEY,
 } from "@/hooks/use-emails";
 import {
   useGoogleAuthStatus,
@@ -78,6 +114,16 @@ import {
   useDisconnectGoogle,
 } from "@/hooks/use-google-auth";
 import {
+  INBOX_PAGE_SIZE,
+  invalidateInboxThreads,
+  mergeOptimisticInboxTabCounts,
+  resolveInboxTabId,
+  useInboxOverview,
+  useInboxSyncPoller,
+  useInboxThreads,
+} from "@/hooks/use-inbox-threads";
+import {
+  shouldCycleMailTab,
   useKeyboardShortcuts,
   useSequenceShortcuts,
 } from "@/hooks/use-keyboard-shortcuts";
@@ -85,32 +131,72 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { runUndo } from "@/hooks/use-undo";
 import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 import {
-  OTHER_INBOX_TAB_ID,
   OTHER_INBOX_TAB_PARAM,
-  qualifiesForInboxTab,
+  isInboxScopedLabel,
   pinnedTriageLabels,
-  augmentSelfSentLabels,
+  resolvePinnedLabels,
+  resolveDefaultMailHref,
+  labelTabHref,
+  resolveInboxEmailQueryScope,
+  filterInboxTabEmails,
 } from "@/lib/inbox-tabs";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import {
+  clearThreadCache,
+  setThreadCacheAccountScope,
+  setThreadCacheSessionScope,
+} from "@/lib/thread-cache";
 import { cn } from "@/lib/utils";
 import { isKnownMailView } from "@/routes/$view";
 
 import { CommandPalette } from "./CommandPalette";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { SearchBar } from "./SearchBar";
+import { useCommandPaletteFocus } from "./use-command-palette-focus";
+
+let composeModalModule:
+  | Promise<typeof import("@/components/email/ComposeModal")>
+  | undefined;
+
+function preloadComposeModal() {
+  composeModalModule ??= import("@/components/email/ComposeModal");
+  return composeModalModule;
+}
+
+const ComposeModal = lazy(async () => {
+  const { ComposeModal } = await preloadComposeModal();
+  return { default: ComposeModal };
+});
 
 const BARE_ROUTES = new Set(["/email"]);
+const EMPTY_SAVED_FILTERS: SavedMailFilter[] = [];
 
 type SnoozeTarget = {
   emailId: string;
   accountEmail?: string;
 };
 const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
-const SIDEBAR_COLLAPSE_KEY = "mail-sidebar-collapsed";
 const ACCOUNT_POLL_INTERVAL_MS = 2000;
-// Bounds the account-status poll so a hung fetch can't leave the in-flight
-// guard stuck and stall the interval forever.
 const ACCOUNT_POLL_ABORT_MS = Math.max(10_000, ACCOUNT_POLL_INTERVAL_MS * 4);
+
+function wasMailChatOpen(): boolean {
+  try {
+    if (window.matchMedia("(max-width: 767px)").matches) return false;
+    return (
+      localStorage.getItem("agent-native.mail-chat.sidebar-open") === "true"
+    );
+    // coercion-ok: unreadable saved panel state defaults closed, especially on mobile.
+  } catch {
+    return false;
+  }
+}
+
+function mailChatOpenStorageKey(): string {
+  return typeof window !== "undefined" &&
+    window.matchMedia("(max-width: 767px)").matches
+    ? "mail-chat-mobile"
+    : "mail-chat";
+}
 
 function AccountAvatar({
   email,
@@ -150,18 +236,19 @@ function AccountAvatar({
   return <div className={fallbackClassName}>{email[0]?.toUpperCase()}</div>;
 }
 
-/**
- * Routes that render the slim "standard layout" chrome instead of the full
- * inbox chrome (tabs, search bar, account stack, compose pen, draft queue
- * badge button, theme toggle, etc.). These pages have their own internal
- * toolbars and only need a generic h-12 header with the page title + the
- * AgentToggleButton.
- */
+function isSettingsPath(pathname: string): boolean {
+  return pathname === "/settings" || pathname.startsWith("/settings/");
+}
+
+/** `/chat` is the blank chat page; `/chat/<threadId>` is one saved thread. */
+function isMailChatPath(pathname: string): boolean {
+  return pathname === "/chat" || pathname.startsWith("/chat/");
+}
+
 function isStandardLayoutPath(pathname: string): boolean {
   return (
-    pathname === "/settings" ||
-    pathname.startsWith("/settings/") ||
     pathname === "/agent" ||
+    isMailChatPath(pathname) ||
     pathname === "/team" ||
     pathname === "/draft-queue" ||
     pathname.startsWith("/draft-queue/") ||
@@ -170,34 +257,87 @@ function isStandardLayoutPath(pathname: string): boolean {
   );
 }
 
-/** Extract the trailing segment of a nested label name, e.g. "[Superhuman]/AI/Pitch" → "Pitch" */
 function shortLabelName(name: string): string {
   const lastSlash = name.lastIndexOf("/");
   if (lastSlash >= 0) return name.slice(lastSlash + 1).replace(/_/g, " ");
   return name;
 }
 
+export function buildLabelDisplayNames(
+  labels: readonly Label[],
+): Map<string, string> {
+  const shortNameCounts = new Map<string, number>();
+  for (const label of labels) {
+    const shortName = shortLabelName(label.name).toLowerCase();
+    shortNameCounts.set(shortName, (shortNameCounts.get(shortName) ?? 0) + 1);
+  }
+
+  return new Map<string, string>(
+    labels.map((label) => {
+      const shortName = shortLabelName(label.name);
+      const displayName =
+        (shortNameCounts.get(shortName.toLowerCase()) ?? 0) > 1
+          ? label.name.replace(/_/g, " ")
+          : shortName;
+      return [label.id, displayName];
+    }),
+  );
+}
+
 function labelDepth(name: string): number {
   return Math.max(0, name.split("/").length - 1);
 }
 
-// Gmail's inbox-only categories (important, social, promotions, ...) only
-// ever exist inside the inbox, so their tab stays scoped there. Regular user
-// labels are filed/archived independently of the inbox — routing them
-// through /inbox forces `in:inbox` server-side and hides every message the
-// user has archived out of the inbox while keeping the label, which reads as
-// "label is empty" even though it has mail. Route those through /all so the
-// label search is unscoped.
-export function labelTabHref(labelId: string): string {
-  const view = isInboxScopedAppLabel(labelId) ? "inbox" : "all";
-  return `/${view}?label=${encodeURIComponent(labelId)}`;
+export interface LabelTreeRow {
+  label: Label;
+  depth: number;
+  displayName: string;
+}
+
+export function labelTreeRows(labels: readonly Label[]): LabelTreeRow[] {
+  return [...labels]
+    .sort((a, b) =>
+      a.name
+        .toLowerCase()
+        .localeCompare(b.name.toLowerCase(), undefined, { numeric: true }),
+    )
+    .map((label) => ({
+      label,
+      depth: labelDepth(label.name),
+      displayName: shortLabelName(label.name),
+    }));
+}
+
+export function reorderById<T>(
+  items: readonly T[],
+  getId: (item: T) => string,
+  draggedId: string,
+  targetId: string | undefined,
+  side: "left" | "right",
+): T[] {
+  const draggedIndex = items.findIndex((item) => getId(item) === draggedId);
+  if (draggedIndex < 0) return [...items];
+  const dragged = items[draggedIndex];
+  const without = items.filter((item) => getId(item) !== draggedId);
+  const targetIndex =
+    targetId === undefined
+      ? -1
+      : without.findIndex((item) => getId(item) === targetId);
+  const insertAt =
+    targetIndex < 0
+      ? without.length
+      : side === "left"
+        ? targetIndex
+        : targetIndex + 1;
+  const next = [...without];
+  next.splice(insertAt, 0, dragged);
+  return next;
 }
 
 interface AppLayoutProps {
   children: React.ReactNode;
 }
 
-// System views that can be shown/hidden via settings
 const collapsibleViews = [
   { id: "unread", labelKey: "mail.views.unread" },
   { id: "starred", labelKey: "mail.views.starred" },
@@ -206,16 +346,37 @@ const collapsibleViews = [
   { id: "archive", labelKey: "mail.views.archive" },
   { id: "trash", labelKey: "mail.views.trash" },
 ];
+const filteredView = {
+  id: AI_FILTER_LABEL,
+  labelKey: "mail.aiFilter.filteredMode",
+};
 
 export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { session } = useSession();
+  const isAgentChatRoute = isMailChatPath(location.pathname);
 
   const t = useT();
+  setThreadCacheSessionScope(
+    JSON.stringify([
+      session?.userId ?? session?.email.trim().toLowerCase() ?? null,
+      session?.authUserId ?? null,
+      session?.orgId ?? null,
+    ]),
+  );
+  useEffect(() => () => clearThreadCache(), []);
+
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
   }
 
-  const content = isStandardLayoutPath(location.pathname) ? (
+  // Settings brings its own navigation, header, and agent toggle.
+  const content = isSettingsPath(location.pathname) ? (
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+      {children}
+    </div>
+  ) : isStandardLayoutPath(location.pathname) ? (
     <StandardLayout>{children}</StandardLayout>
   ) : (
     <AppLayoutInner>{children}</AppLayoutInner>
@@ -223,14 +384,25 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <AgentSidebar
+      enabled={!isAgentChatRoute}
+      browserTabId={getBrowserTabId()}
       position="right"
-      defaultOpen={false}
+      disableChatShortcut
+      defaultOpen={typeof window !== "undefined" && wasMailChatOpen()}
+      openStorageKey={mailChatOpenStorageKey()}
       agentPageHref="/settings/agent"
+      onFullscreenRequest={(threadId?: string) =>
+        void navigate(
+          threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat",
+        )
+      }
+      composerPlaceholder={t("mail.aiFilter.composerPlaceholder")}
       emptyStateText={t("agent.emptyState")}
+      dynamicSuggestions={false}
       suggestions={[
-        t("agent.suggestionSummarize"),
-        t("agent.suggestionReplies"),
-        t("agent.suggestionWidget"),
+        t("agent.ruleSuggestionFilter"),
+        t("agent.ruleSuggestionImportant"),
+        t("agent.ruleSuggestionArchive"),
       ]}
     >
       {content}
@@ -240,14 +412,73 @@ export function AppLayout({ children }: AppLayoutProps) {
 
 function AppLayoutInner({ children }: AppLayoutProps) {
   const t = useT();
+  const { formatNumber } = useFormatters();
+  const queryClient = useQueryClient();
   const isMobile = useIsMobile();
   const compose = useComposeState();
+  useEffect(() => () => clearThreadCache(), []);
+  // Load the reply window before it's needed: after a deploy the file this
+  // page would ask for is gone, so `r` would replace Mail with the error page.
+  useEffect(() => scheduleAfterStartup(() => void preloadComposeModal()), []);
+  useEffect(() => {
+    const handleDraftSaveFailed = () => {
+      toast.error(t("mail.toasts.failedToSaveDraft"));
+    };
+    const handleDraftDeleteFailed = () => {
+      toast.error(t("mail.toasts.failedToDeleteDraft"));
+    };
+    window.addEventListener(DRAFT_SAVE_FAILED_EVENT, handleDraftSaveFailed);
+    window.addEventListener(DRAFT_DELETE_FAILED_EVENT, handleDraftDeleteFailed);
+    return () => {
+      window.removeEventListener(
+        DRAFT_SAVE_FAILED_EVENT,
+        handleDraftSaveFailed,
+      );
+      window.removeEventListener(
+        DRAFT_DELETE_FAILED_EVENT,
+        handleDraftDeleteFailed,
+      );
+    };
+  }, [t]);
   const headerActions = useHeaderActions();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteOpenedFromCompose, setPaletteOpenedFromCompose] =
+    useState(false);
+  const [composeCommandsAvailable, setComposeCommandsAvailable] =
+    useState(false);
+  const composePaletteCommandsRef = useRef<ComposePaletteCommands | null>(null);
+  const registerComposePaletteCommands = useCallback(
+    (commands: ComposePaletteCommands | null) => {
+      composePaletteCommandsRef.current = commands;
+      setComposeCommandsAvailable(commands !== null);
+    },
+    [],
+  );
+  const sendComposeFromCommandPalette = useCallback(() => {
+    composePaletteCommandsRef.current?.send();
+  }, []);
+  const scheduleComposeFromCommandPalette = useCallback(() => {
+    composePaletteCommandsRef.current?.sendLater();
+  }, []);
+  const sendAndMarkDoneFromCommandPalette = useCallback(() => {
+    composePaletteCommandsRef.current?.sendAndMarkDone();
+  }, []);
+  const {
+    openPalette: rememberAndOpenPalette,
+    handleOpenChange: handlePaletteOpenChange,
+    restoreFocusAfterEscape: restorePaletteFocus,
+  } = useCommandPaletteFocus(paletteOpen, setPaletteOpen);
+  const openPalette = useCallback(() => {
+    if (!paletteOpen) {
+      const activeElement = document.activeElement;
+      setPaletteOpenedFromCompose(
+        activeElement instanceof HTMLElement &&
+          Boolean(activeElement.closest("[data-mail-compose]")),
+      );
+    }
+    rememberAndOpenPalette();
+  }, [paletteOpen, rememberAndOpenPalette]);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
-  // When the user requests snooze from the list, we need to snooze the live
-  // focused/selected rows — not whatever is currently in navigation state.
-  // This override wins over `targetEmail` while the modal is open.
   const [snoozeOverride, setSnoozeOverride] = useState<{
     targets: SnoozeTarget[];
   } | null>(null);
@@ -255,7 +486,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const [, setSearchQuery] = useState("");
   const navigate = useNavigate();
   const location = useLocation();
-  // Parse view and threadId from pathname since AppLayout is outside <Routes>
   const pathSegments = location.pathname.split("/").filter(Boolean);
   const view = pathSegments[0] || "inbox";
   const threadId = pathSegments[1] || undefined;
@@ -264,6 +494,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const activeSearchQuery = searchParams.get("q");
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
+  const activeFilterId = searchParams.get("filter");
   const composeInitialExpanded =
     searchParams.get(COMPOSE_FULLSCREEN_PARAM) === "1";
   const clearComposeInitialExpanded = useCallback(() => {
@@ -271,7 +502,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     if (!next.has(COMPOSE_FULLSCREEN_PARAM)) return;
     next.delete(COMPOSE_FULLSCREEN_PARAM);
     const search = next.toString();
-    navigate(
+    void navigate(
       {
         pathname: location.pathname,
         search: search ? `?${search}` : "",
@@ -279,36 +510,36 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       { replace: true },
     );
   }, [location.pathname, navigate, searchParams]);
-  // Remember which view (label or inbox tab) the user was in before searching —
-  // SearchBar always routes searches through /all?q=..., so on clear we'd
-  // otherwise drop a user searching from Starred/Sent/Archive or from a
-  // label-filtered tab back into plain Inbox.
   const preSearchViewRef = useRef<{
     view: string;
     label: string | null;
     tab: string | null;
-  }>({ view, label: activeLabel, tab: activeInboxTab });
+    filter: string | null;
+  }>({
+    view,
+    label: activeLabel,
+    tab: activeInboxTab,
+    filter: activeFilterId,
+  });
   useEffect(() => {
     if (!activeSearchQuery) {
       preSearchViewRef.current = {
         view,
         label: activeLabel,
         tab: activeInboxTab,
+        filter: activeFilterId,
       };
     }
-  }, [view, activeLabel, activeInboxTab, activeSearchQuery]);
+  }, [view, activeLabel, activeInboxTab, activeFilterId, activeSearchQuery]);
   const restorePreSearchPath = useCallback(() => {
-    const { view: v, label: l, tab } = preSearchViewRef.current;
+    const { view: v, label: l, tab, filter } = preSearchViewRef.current;
     const params = new URLSearchParams();
     if (l) params.set("label", l);
     if (tab) params.set("tab", tab);
+    if (filter) params.set("filter", filter);
     const search = params.toString();
     return `/${v}${search ? `?${search}` : ""}`;
   }, []);
-  // When the search param is cleared externally (browser back/forward,
-  // agent navigation), drop the searchFocused flag — otherwise the bar
-  // stays mounted with an empty input and no focus, since nothing fires
-  // onBlur after the input was already blurred by a prior Enter.
   const prevSearchQueryRef = useRef(activeSearchQuery);
   useEffect(() => {
     if (prevSearchQueryRef.current && !activeSearchQuery) {
@@ -317,15 +548,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     }
     prevSearchQueryRef.current = activeSearchQuery;
   }, [activeSearchQuery]);
-  const {
-    data: labelsData,
-    isLoading: labelsLoading,
-    isError: labelsError,
-    error: labelsQueryError,
-    isFetching: labelsFetching,
-    refetch: refetchLabels,
-  } = useLabels();
-  const labels = labelsData ?? EMPTY_LABELS;
   const { data: settings, isLoading: settingsLoading } = useSettings();
   const updateSettings = useUpdateSettings();
   const googleStatus = useGoogleAuthStatus();
@@ -338,8 +560,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
   const googleStatusReady = !googleStatus.isLoading && !googleStatus.isError;
   const [accountPopoverOpen, setAccountPopoverOpen] = useState(false);
-  // Account filter: which accounts' emails to show. Empty set = all accounts.
-  // Persisted to localStorage so it survives page refreshes.
   const [activeAccounts, setActiveAccounts] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set<string>();
     try {
@@ -351,7 +571,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     } catch {}
     return new Set<string>();
   });
-  // Persist active accounts to localStorage
   useEffect(() => {
     if (activeAccounts.size === 0) {
       localStorage.removeItem("active-accounts");
@@ -362,370 +581,301 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       );
     }
   }, [activeAccounts]);
+  const { data: labelsData } = useLabels(
+    activeAccounts.size > 0 ? [...activeAccounts] : undefined,
+  );
+  // The Filtered shortcut describes the whole connected mailbox, regardless
+  // of which accounts are selected for the current label list.
+  const {
+    data: connectedLabelsData,
+    accountErrors: connectedLabelErrors,
+    isError: connectedLabelsFailed,
+  } = useLabels();
+  const labels = labelsData ?? EMPTY_LABELS;
+  const labelDisplayNames = useMemo(
+    () => buildLabelDisplayNames(labels),
+    [labels],
+  );
   const [tabSettingsOpen, setTabSettingsOpen] = useState(false);
   const [labelSearch, setLabelSearch] = useState("");
-  // Spin the refresh icon only when the user clicked the button — background
-  // poll-driven `inboxIsFetching` should not animate the icon. Reset shortly
-  // after click so the spin always feels like a deliberate action.
   const [isManuallyRefreshing, setIsManuallyRefreshing] = useState(false);
 
   const isGoogleConnected = (googleStatus.data?.accounts?.length ?? 0) > 0;
-  const connectedEmails = useMemo(
-    () => new Set(accounts.map((a) => a.email.toLowerCase())),
-    [accounts],
+  const userPinnedLabels = settings?.pinnedLabels;
+  const combineInbox = settings?.combineInbox === true;
+  const showAllTab = settings?.showAllTab !== false;
+  const pinnedLabels = useMemo(
+    () => resolvePinnedLabels(userPinnedLabels, isGoogleConnected),
+    [isGoogleConnected, userPinnedLabels],
   );
-  // Important is always on and always first when Google is connected
-  const userPinnedLabels = settings?.pinnedLabels ?? [];
-  const pinnedLabels = isGoogleConnected
-    ? ["important", ...userPinnedLabels.filter((id) => id !== "important")]
-    : userPinnedLabels;
-  const hasNoteToSelf = pinnedLabels.includes("note-to-self");
   const labelAliases = settings?.labelAliases ?? {};
-  const {
-    data: rawInboxEmails = [],
-    isLoading: emailsLoading,
-    isFetching: inboxIsFetching,
-  } = useEmails("inbox");
-  const { data: rawAllLocalEmails = [], isLoading: allLocalEmailsLoading } =
-    useEmails("all", undefined, undefined, {
+  const savedFilters = settings?.savedFilters ?? EMPTY_SAVED_FILTERS;
+  const activeSavedFilterQuery = savedFilters.find(
+    (filter) => filter.id === activeFilterId,
+  )?.query;
+  const { data: automations = [] } = useAutomations();
+  const aiTags = useMemo(() => {
+    const tags = new Map<string, { id: string; name: string }>();
+    for (const rule of automations) {
+      if (
+        rule.domain !== "mail" ||
+        rule.kind !== "ai-filter" ||
+        aiFilterRuleMode(rule) !== "tag"
+      ) {
+        continue;
+      }
+      const name = aiFilterRuleLabelName(rule).trim();
+      const normalizedName = normalizedAiFilterLabelId(name);
+      const id =
+        labels.find(
+          (label) => normalizedAiFilterLabelId(label.name) === normalizedName,
+        )?.id ?? normalizedName;
+      if (name && id && !tags.has(normalizedName)) {
+        tags.set(normalizedName, { id, name });
+      }
+    }
+    return [...tags.values()];
+  }, [automations, labels]);
+  const aiTagDisplayNames = useMemo(
+    () => new Map(aiTags.map((tag) => [tag.id, tag.name])),
+    [aiTags],
+  );
+  const hasFilteredRule = automations.some(
+    (rule) =>
+      rule.domain === "mail" &&
+      rule.kind === "ai-filter" &&
+      aiFilterRuleMode(rule) === "filtered",
+  );
+  const hasFilteredLabel =
+    connectedLabelsFailed ||
+    Boolean(connectedLabelErrors?.length) ||
+    [connectedLabelsData ?? EMPTY_LABELS, labels].some((labelSet) =>
+      labelSet.some(
+        (label) =>
+          normalizedAiFilterLabelId(label.name) ===
+          normalizedAiFilterLabelId(AI_FILTER_LABEL),
+      ),
+    );
+  const hasFilteredPin = userPinnedLabels?.includes(AI_FILTER_LABEL) === true;
+  const systemViews = useMemo(
+    () =>
+      hasFilteredRule || hasFilteredLabel || hasFilteredPin
+        ? [...collapsibleViews, filteredView]
+        : collapsibleViews,
+    [hasFilteredLabel, hasFilteredPin, hasFilteredRule],
+  );
+
+  const resolvedInboxTab = resolveInboxTabId(searchParams);
+  const inboxAccountEmails =
+    activeAccounts.size > 0 ? [...activeAccounts] : undefined;
+  setThreadCacheAccountScope(
+    JSON.stringify({
+      connected: accounts.map(({ email }) => email.trim().toLowerCase()).sort(),
+      selected: [...activeAccounts]
+        .map((email) => email.trim().toLowerCase())
+        .sort(),
+    }),
+  );
+  useInboxSyncPoller(inboxAccountEmails);
+  const inboxThreadInput = {
+    tab: resolvedInboxTab,
+    accountEmails: inboxAccountEmails,
+    limit: INBOX_PAGE_SIZE,
+    offset: 0,
+  };
+  const inboxThreads = useInboxThreads(inboxThreadInput);
+  const inboxRawPage = queryClient.getQueryData<
+    NonNullable<typeof inboxThreads.data>
+  >(["action", "list-inbox-threads", inboxThreadInput]);
+  const inboxOverview = useInboxOverview(inboxAccountEmails);
+  const inboxMetadata =
+    inboxOverview.data ??
+    (inboxThreads.isPlaceholderData ? undefined : inboxThreads.data);
+  const inboxTabs = useMemo(() => {
+    const tabs = inboxMetadata?.tabs ?? [];
+    if (!inboxOverview.data || inboxThreads.isPlaceholderData) {
+      return tabs;
+    }
+    return mergeOptimisticInboxTabCounts(
+      inboxOverview.data,
+      inboxRawPage,
+      inboxThreads.data,
+    );
+  }, [
+    inboxMetadata?.tabs,
+    inboxOverview.data,
+    inboxThreads.data,
+    inboxThreads.isPlaceholderData,
+    inboxRawPage,
+  ]);
+  const activeInboxTabId = inboxThreads.isPlaceholderData
+    ? (resolvedInboxTab ?? inboxThreads.data?.tabs[0]?.id)
+    : (inboxThreads.data?.activeTabId ?? resolvedInboxTab);
+  const inboxIsFetching = inboxThreads.isFetching;
+  const inboxSyncing =
+    inboxMetadata?.syncing === true ||
+    inboxMetadata?.accounts.some(
+      (account) =>
+        account.state === "ready" && account.backfillPending === true,
+    );
+  const needsReauthAccount = inboxMetadata?.accounts.find(
+    (account) => account.state === "needs_reauth",
+  );
+
+  const { data: rawAllLocalEmails = [] } = useEmails(
+    "all",
+    undefined,
+    undefined,
+    {
       enabled: googleStatusReady && !hasAccounts,
-    });
+    },
+  );
   const hasLocalMailboxData =
     !hasAccounts &&
     (rawAllLocalEmails.length > 0 ||
-      rawInboxEmails.length > 0 ||
+      (inboxThreads.data?.items.length ?? 0) > 0 ||
       labels.some(
         (label) => (label.totalCount ?? 0) > 0 || (label.unreadCount ?? 0) > 0,
       ));
-  // Augment emails: self-sent → "important" (or "note-to-self" if pinned)
-  const inboxEmails = useMemo(
-    () =>
-      augmentSelfSentLabels(rawInboxEmails, {
-        isGoogleConnected,
-        connectedEmails,
-        hasNoteToSelf,
-      }),
-    [rawInboxEmails, isGoogleConnected, connectedEmails, hasNoteToSelf],
-  );
   const tabsLoading =
-    labelsLoading || settingsLoading || emailsLoading || allLocalEmailsLoading;
+    (inboxThreads.isLoading && !inboxThreads.data) ||
+    (settingsLoading && !settings);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarPinned, setSidebarPinned] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("mail-sidebar-pinned") === "true";
-  });
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "true";
-  });
-  const perAppChatOpen = usePerAppChatOpen();
+  const [sidebarPinned, setSidebarPinned] = useState(false);
+  const [sidebarPinPreferenceLoaded, setSidebarPinPreferenceLoaded] =
+    useState(false);
   useEffect(() => {
-    if (sidebarPinned) localStorage.setItem("mail-sidebar-pinned", "true");
-    else localStorage.removeItem("mail-sidebar-pinned");
-  }, [sidebarPinned]);
+    setSidebarPinned(
+      window.localStorage.getItem("mail-sidebar-pinned") === "true",
+    );
+    setSidebarPinPreferenceLoaded(true);
+  }, []);
   useEffect(() => {
-    if (sidebarCollapsed) {
-      localStorage.setItem(SIDEBAR_COLLAPSE_KEY, "true");
-    } else {
-      localStorage.removeItem(SIDEBAR_COLLAPSE_KEY);
-    }
-  }, [sidebarCollapsed]);
-  const showSidebar = isMobile ? sidebarOpen : sidebarOpen || sidebarPinned;
-  const showCollapsedSidebar =
-    !isMobile &&
-    showSidebar &&
-    (sidebarPinned ? sidebarCollapsed : perAppChatOpen);
+    if (!sidebarPinPreferenceLoaded) return;
+    if (sidebarPinned)
+      window.localStorage.setItem("mail-sidebar-pinned", "true");
+    else window.localStorage.removeItem("mail-sidebar-pinned");
+  }, [sidebarPinned, sidebarPinPreferenceLoaded]);
+  const isPinnedSidebarVisible = !isMobile && sidebarPinned;
   const closeSidebar = useCallback(() => {
-    if (!sidebarPinned || isMobile) setSidebarOpen(false);
-  }, [sidebarPinned, isMobile]);
-
-  const collapseButton =
-    sidebarPinned && !isMobile ? (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={() => setSidebarCollapsed((value) => !value)}
-            className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-            aria-label={
-              showCollapsedSidebar
-                ? t("sidebar.expandSidebar")
-                : t("sidebar.collapseSidebar")
-            }
-          >
-            {showCollapsedSidebar ? (
-              <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-            ) : (
-              <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
-            )}
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="right">
-          {showCollapsedSidebar
-            ? t("sidebar.expandSidebar")
-            : t("sidebar.collapseSidebar")}
-        </TooltipContent>
-      </Tooltip>
-    ) : null;
-  const searchButton = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={openCommandMenu}
-          className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-          aria-label={t("mail.search.label")}
-        >
-          <IconSearch className="h-4 w-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">{t("mail.search.label")}</TooltipContent>
-    </Tooltip>
+    if (!isPinnedSidebarVisible) setSidebarOpen(false);
+  }, [isPinnedSidebarVisible]);
+  const handleSidebarOpenChange = useCallback(
+    (open: boolean) => {
+      if (isPinnedSidebarVisible) return;
+      setSidebarOpen(open);
+    },
+    [isPinnedSidebarVisible],
   );
-  const feedbackButton = (
-    <FeedbackButton
-      variant={showCollapsedSidebar ? "icon" : "sidebar"}
-      side="right"
-      className={showCollapsedSidebar ? "size-8" : "min-w-0"}
-    />
-  );
+  const feedbackButton = <FeedbackButton variant="sidebar" side="right" />;
 
-  // Drag-to-reorder tabs
-  const [dragPinnedId, setDragPinnedId] = useState<string | null>(null);
+  type DragItem = { group: "label" | "filter"; id: string };
+  const [dragItem, setDragItem] = useState<DragItem | null>(null);
   const [dropIndicator, setDropIndicator] = useState<{
     tabIndex: number;
     side: "left" | "right";
   } | null>(null);
 
-  // Compute local thread counts for virtual labels and local/demo mail. Gmail
-  // system/user labels use server-provided counts when available.
-  const labelThreadCounts = useMemo(() => {
-    const unread: Record<string, number> = {};
-    const total: Record<string, number> = {};
-    // Filter emails by active accounts before counting
-    const filtered =
-      activeAccounts.size > 0
-        ? inboxEmails.filter(
-            (e) => e.accountEmail && activeAccounts.has(e.accountEmail),
-          )
-        : inboxEmails;
-    // Find the latest message + unread state per thread.
-    const threadState = new Map<
-      string,
-      { latest: (typeof filtered)[0]; hasUnread: boolean }
-    >();
-    for (const e of filtered) {
-      const key = e.threadId || e.id;
-      const existing = threadState.get(key);
-      if (!existing) {
-        threadState.set(key, { latest: e, hasUnread: !e.isRead });
-      } else {
-        existing.hasUnread ||= !e.isRead;
-        if (new Date(e.date) > new Date(existing.latest.date)) {
-          existing.latest = e;
-        }
-      }
-    }
-    const threadRows = [...threadState.values()];
-    const triageLabels = pinnedTriageLabels(pinnedLabels);
-    // "Other" = the inbox remainder. Shared with the rendered list
-    // (InboxPage) via qualifiesForInboxTab so a tab's badge can never
-    // disagree with the emails it actually shows.
-    const inboxRows = threadRows.filter(({ latest }) =>
-      qualifiesForInboxTab(latest.labelIds, null, triageLabels),
-    );
-    total["__inboxTotal"] = threadRows.length;
-    unread["__inboxTotal"] = threadRows.filter(
-      ({ hasUnread }) => hasUnread,
-    ).length;
-    total["inbox"] = inboxRows.length;
-    unread["inbox"] = inboxRows.filter(({ hasUnread }) => hasUnread).length;
-    // Count threads per pinned label using the exact same membership rule as
-    // the rendered list: latest message has the label; "important" is
-    // exclusive of any other pinned tab.
-    for (let i = 0; i < pinnedLabels.length; i++) {
-      const full = pinnedLabels[i];
-      const rows = threadRows.filter(({ latest }) =>
-        qualifiesForInboxTab(latest.labelIds, full, triageLabels),
-      );
-      total[full] = rows.length;
-      unread[full] = rows.filter(({ hasUnread }) => hasUnread).length;
-      // Also index by the canonical label.id (which uses spaces, not
-      // underscores) so count lookups find it for nested labels.
-      const canonical = labels.find(
-        (l) =>
-          l.id === full ||
-          l.id === normalizeMailLabel(full) ||
-          l.name.toLowerCase() === full.toLowerCase(),
-      );
-      if (canonical) {
-        total[canonical.id] = total[full];
-        unread[canonical.id] = unread[full];
-      }
-    }
-    return { total, unread };
-  }, [inboxEmails, pinnedLabels, activeAccounts, labels]);
+  type RenderedTab = {
+    id: string;
+    pinnedId?: string;
+    filterId?: string;
+    label: string;
+    fullLabel?: string;
+    href: string;
+    isActive: boolean;
+    color?: string;
+    tooltip?: string;
+    total?: number;
+    totalIsLowerBound?: boolean;
+    unread?: number;
+    isSystemView: boolean;
+  };
 
-  // Tabs to show in the bar: pinned triage filters first, then the inbox
-  // remainder as "Other". Without pinned filters, the inbox is just "Inbox".
-  const hasPinnedFilters = pinnedLabels.some(
-    (id) => !collapsibleViews.some((v) => v.id === id),
-  );
-
-  const visibleTabs = useMemo(() => {
-    const tabs: {
-      id: string;
-      pinnedId?: string;
-      label: string;
-      fullLabel?: string;
-      href: string;
-      isActive: boolean;
-      color?: string;
-      type: "system" | "label";
-    }[] = [];
-
-    if (!hasPinnedFilters) {
-      tabs.push({
-        id: "inbox",
-        label: t("mail.views.inbox"),
-        href: "/inbox",
-        isActive:
-          view === "inbox" &&
-          !activeLabel &&
-          activeInboxTab !== OTHER_INBOX_TAB_PARAM,
-        type: "system",
-      });
-    }
-
-    const seenLabels = new Set<string>(["inbox"]);
-    for (const id of pinnedLabels) {
-      // Check if it's a system view
-      const sysView = collapsibleViews.find((v) => v.id === id);
-      if (sysView) {
-        if (seenLabels.has(sysView.id)) continue;
-        seenLabels.add(sysView.id);
-        tabs.push({
+  const systemViewTabs = useMemo<RenderedTab[]>(() => {
+    if (combineInbox) return [];
+    return pinnedLabels
+      .filter((id) => systemViews.some((v) => v.id === id))
+      .map((id) => {
+        const sysView = systemViews.find((v) => v.id === id)!;
+        return {
           id: sysView.id,
-          pinnedId: id,
           label: t(sysView.labelKey),
-          href: `/${sysView.id}`,
-          isActive: view === sysView.id,
-          type: "system",
-        });
-        continue;
-      }
-      // Check if it's a user label (handle old nested-path IDs like "[superhuman]/ai/pitch")
-      const normalizedId = id.includes("/")
-        ? id
-            .slice(id.lastIndexOf("/") + 1)
-            .replace(/_/g, " ")
-            .toLowerCase()
-        : id.toLowerCase();
-      const lbl = labels.find(
-        (l) =>
-          l.id === normalizedId ||
-          l.id === id ||
-          l.name.toLowerCase() === id.toLowerCase(),
-      );
-      if (lbl) {
-        const rawName = shortLabelName(lbl.name);
-        const aliasedName = labelAliases[lbl.id] || labelAliases[id] || rawName;
-        const displayKey = aliasedName.toLowerCase();
-        if (seenLabels.has(displayKey)) continue;
-        seenLabels.add(displayKey);
-        tabs.push({
-          id: lbl.id,
-          pinnedId: id,
-          label: aliasedName,
-          fullLabel: lbl.name,
-          href: labelTabHref(lbl.id),
-          isActive: activeLabel === lbl.id,
-          color: lbl.color,
-          type: "label",
-        });
-      }
-    }
-
-    if (hasPinnedFilters) {
-      tabs.push({
-        id: OTHER_INBOX_TAB_ID,
-        label: t("mail.views.other"),
-        href: `/inbox?tab=${OTHER_INBOX_TAB_PARAM}`,
-        isActive:
-          view === "inbox" &&
-          !activeLabel &&
-          activeInboxTab === OTHER_INBOX_TAB_PARAM,
-        type: "system",
+          href:
+            sysView.id === AI_FILTER_LABEL
+              ? labelTabHref(AI_FILTER_LABEL)
+              : `/${sysView.id}`,
+          isActive:
+            sysView.id === AI_FILTER_LABEL
+              ? view === "all" && activeLabel === AI_FILTER_LABEL
+              : view === sysView.id,
+          isSystemView: true,
+        };
       });
-    }
+  }, [activeLabel, combineInbox, pinnedLabels, systemViews, view, t]);
 
-    return tabs;
-  }, [
-    labels,
-    pinnedLabels,
-    labelAliases,
-    view,
-    activeLabel,
-    activeInboxTab,
-    hasPinnedFilters,
-    t,
-  ]);
+  const dataTabs = useMemo<RenderedTab[]>(() => {
+    return inboxTabs.map((tab) => {
+      const label = labels.find((l) => l.id === tab.id);
+      const aiTagName = aiTagDisplayNames.get(tab.id);
+      return {
+        id: tab.id,
+        pinnedId: tab.kind === "label" ? tab.id : undefined,
+        filterId: tab.kind === "filter" ? tab.id : undefined,
+        label:
+          tab.kind === "all" ? t("mail.views.all") : (aiTagName ?? tab.name),
+        fullLabel: aiTagName ?? label?.name,
+        href: inboxTabHref(tab.id),
+        isActive: view === "inbox" && activeInboxTabId === tab.id,
+        color: label?.color,
+        tooltip: tab.query,
+        total: tab.total,
+        totalIsLowerBound: tab.totalIsLowerBound,
+        unread: tab.unread,
+        isSystemView: false,
+      };
+    });
+  }, [aiTagDisplayNames, inboxTabs, activeInboxTabId, labels, t, view]);
 
-  const topBarTabs = useMemo(() => {
-    const tabs = [...visibleTabs];
-    if (activeLabel && !tabs.some((tab) => tab.id === activeLabel)) {
-      const active = labels.find((label) => label.id === activeLabel);
-      if (active) {
-        const aliasedName =
-          labelAliases[active.id] || shortLabelName(active.name);
-        tabs.push({
-          id: active.id,
-          label: aliasedName,
-          fullLabel: active.name,
-          href: labelTabHref(active.id),
-          isActive: true,
-          color: active.color,
-          type: "label",
-        });
-      }
-    }
-    return tabs;
-  }, [activeLabel, labels, labelAliases, visibleTabs]);
+  const topBarTabs = useMemo<RenderedTab[]>(
+    () => [...systemViewTabs, ...(view === "inbox" ? dataTabs : [])],
+    [systemViewTabs, dataTabs, view],
+  );
 
-  // System views NOT pinned (go in the "more" dropdown)
   const hiddenViews = useMemo(
-    () => collapsibleViews.filter((v) => !pinnedLabels.includes(v.id)),
-    [pinnedLabels],
+    () => systemViews.filter((v) => !pinnedLabels.includes(v.id)),
+    [pinnedLabels, systemViews],
   );
 
-  // The top-bar inbox tabs are hidden on mobile, so mirror their non-standard
-  // entries in the drawer. Collapsible system views already appear in the
-  // fixed drawer list below and must not be duplicated here.
-  const mobileInboxTabs = visibleTabs.filter(
-    (tab) =>
-      tab.id !== "inbox" &&
-      !collapsibleViews.some((view) => view.id === tab.id),
-  );
+  const mobileInboxTabs = dataTabs;
 
   // Is current view one of the hidden ones? If so force-show it
-  const currentInHidden = hiddenViews.some((v) => v.id === view);
+  const currentHiddenView = hiddenViews.find(
+    (v) =>
+      v.id === view ||
+      (v.id === AI_FILTER_LABEL &&
+        view === "all" &&
+        activeLabel === AI_FILTER_LABEL),
+  );
+  const currentInHidden = currentHiddenView !== undefined;
 
-  // User labels available for pinning
   const userLabels = useMemo(() => {
+    const aiTagIds = new Set(aiTags.map((tag) => tag.id));
     const filtered = labels.filter(
-      (l) => !["inbox", ...collapsibleViews.map((v) => v.id)].includes(l.id),
+      (l) =>
+        !["inbox", ...systemViews.map((v) => v.id)].includes(l.id) &&
+        !aiTagIds.has(l.id) &&
+        !aiTagIds.has(normalizedAiFilterLabelId(l.name)),
     );
-    // Deduplicate by display name (different paths can have the same short name)
-    const seen = new Set<string>();
-    return filtered.filter((l) => {
-      const key = l.name.toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }, [labels]);
+    return filtered;
+  }, [aiTags, labels, systemViews]);
 
   const handleCompose = useCallback(() => {
+    trackEvent("compose_opened", {
+      app_name: "mail",
+      template_name: "mail",
+      compose_mode: "new",
+    });
     compose.open({
       to: "",
       cc: "",
@@ -736,7 +886,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     });
   }, [compose]);
 
-  // Spam / block / mute actions (need current email context)
   const isMailboxView = [
     "inbox",
     "starred",
@@ -748,26 +897,89 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     "scheduled",
     "all",
   ].includes(view);
-  const { data: currentViewEmails = [] } = useEmails(
-    isMailboxView ? view : "inbox",
-    undefined,
-    undefined,
-    { enabled: isMailboxView },
+  const shellSearchQuery =
+    activeSavedFilterQuery ?? activeSearchQuery ?? undefined;
+  const shellQueryScope = resolveInboxEmailQueryScope({
+    view,
+    activeLabel,
+    activeInboxTab,
+    activeLabelIsInboxScoped: isInboxScopedLabel(activeLabel, labels),
+    activeSavedFilter: activeSavedFilterQuery !== undefined,
+    combineInbox,
+    triageLabels: pinnedTriageLabels(pinnedLabels),
+    searchQuery: shellSearchQuery,
+  });
+  const useInboxThreadsForActionTargets =
+    view === "inbox" &&
+    hasAccounts &&
+    activeSearchQuery === null &&
+    activeSavedFilterQuery === undefined &&
+    activeLabel === null;
+  const {
+    data: legacyCurrentViewEmails = [],
+    isPlaceholderData: legacyCurrentViewEmailsArePlaceholder,
+  } = useEmails(
+    isMailboxView ? shellQueryScope.emailView : "inbox",
+    shellSearchQuery,
+    shellQueryScope.effectiveLabel,
+    {
+      enabled:
+        isMailboxView &&
+        (view !== "inbox" ||
+          (hasAccounts ? !useInboxThreadsForActionTargets : googleStatusReady)),
+    },
+  );
+  const currentViewEmails = useInboxThreadsForActionTargets
+    ? (inboxThreads.data?.items ?? [])
+    : legacyCurrentViewEmails;
+  const currentViewEmailsArePlaceholder = useInboxThreadsForActionTargets
+    ? inboxThreads.isPlaceholderData
+    : legacyCurrentViewEmailsArePlaceholder;
+  const actionTargetTab =
+    view === "inbox" &&
+    !combineInbox &&
+    !activeSearchQuery &&
+    !activeSavedFilterQuery &&
+    (activeInboxTabId === OTHER_INBOX_TAB_PARAM ||
+      pinnedTriageLabels(pinnedLabels).includes(activeInboxTabId ?? ""))
+      ? activeInboxTabId
+      : undefined;
+  const actionTargetEmails = useMemo(
+    () =>
+      currentViewEmailsArePlaceholder
+        ? []
+        : actionTargetTab === undefined
+          ? currentViewEmails
+          : filterInboxTabEmails(
+              currentViewEmails,
+              actionTargetTab === OTHER_INBOX_TAB_PARAM
+                ? null
+                : actionTargetTab,
+              pinnedLabels,
+              savedFilters.map((filter) => filter.query),
+            ),
+    [
+      actionTargetTab,
+      currentViewEmails,
+      currentViewEmailsArePlaceholder,
+      pinnedLabels,
+      savedFilters,
+    ],
   );
   const reportSpam = useReportSpam();
   const blockSender = useBlockSender();
   const muteThread = useMuteThread();
 
-  // Find the target email: from open thread, or the focused row in the list via navigation state
   const [focusedListId, setFocusedListId] = useState<string | null>(null);
 
-  // Poll navigation.json for the focused email ID (synced by InboxPage)
   useEffect(() => {
-    if (threadId) return; // thread view has its own context
+    if (threadId) return;
     const fetchNav = async () => {
       try {
         const res = await fetch(
-          agentNativePath("/_agent-native/application-state/navigation"),
+          agentNativePath(
+            `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
+          ),
         );
         if (res.ok) {
           const nav = await res.json();
@@ -775,24 +987,20 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         }
       } catch {}
     };
-    fetchNav();
-    // Re-check when palette opens
-    if (paletteOpen) fetchNav();
+    void fetchNav();
+    if (paletteOpen) void fetchNav();
   }, [threadId, paletteOpen]);
 
   const targetEmail = useMemo(() => {
     if (threadId) {
-      return currentViewEmails.find((e) => (e.threadId || e.id) === threadId);
+      return actionTargetEmails.find((e) => (e.threadId || e.id) === threadId);
     }
     if (focusedListId) {
-      const focused = currentViewEmails.find((e) => e.id === focusedListId);
+      const focused = actionTargetEmails.find((e) => e.id === focusedListId);
       if (focused) return focused;
     }
-    // Fall back to the first email in the list — if it's auto-focused in the
-    // UI, or the synced id points at a row that has since disappeared, shortcuts
-    // should still work.
-    return currentViewEmails[0] ?? undefined;
-  }, [threadId, focusedListId, currentViewEmails]);
+    return actionTargetEmails[0] ?? undefined;
+  }, [threadId, focusedListId, actionTargetEmails]);
 
   const dismissEmail = useCallback((emailId: string) => {
     window.dispatchEvent(
@@ -809,6 +1017,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     reportSpam.mutate({
       id: targetEmail.id,
       threadId: targetEmail.threadId || targetEmail.id,
+      accountEmail: targetEmail.accountEmail,
     });
     toast(t("mail.toasts.reportedSpam"));
   }, [targetEmail, reportSpam, dismissEmail, t]);
@@ -823,6 +1032,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       id: targetEmail.id,
       threadId: targetEmail.threadId || targetEmail.id,
       senderEmail: targetEmail.from.email,
+      accountEmail: targetEmail.accountEmail,
     });
     toast(
       t("mail.toasts.reportedSpamBlocked", { email: targetEmail.from.email }),
@@ -838,25 +1048,170 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       return;
     }
     if (targetEmail) dismissEmail(targetEmail.id);
-    muteThread.mutate(tid);
+    muteThread.mutate({
+      threadId: tid,
+      accountEmail: targetEmail?.accountEmail,
+    });
     toast(t("mail.toasts.threadMuted"));
   }, [threadId, targetEmail, muteThread, dismissEmail, t]);
 
   const togglePinned = useCallback(
     (id: string) => {
-      const current = settings?.pinnedLabels ?? [];
+      const current = pinnedLabels;
       const next = current.includes(id)
         ? current.filter((x) => x !== id)
         : [...current, id];
       updateSettings.mutate({ pinnedLabels: next });
     },
-    [settings?.pinnedLabels, updateSettings],
+    [pinnedLabels, updateSettings],
   );
 
-  // Drag-to-reorder tab handlers
+  const handleAllTabChange = useCallback(
+    (next: boolean) => {
+      updateSettings.mutate({ showAllTab: next });
+      if (
+        next ||
+        view !== "inbox" ||
+        threadId ||
+        activeInboxTab !== ALL_TAB_PARAM
+      ) {
+        return;
+      }
+      void navigate(
+        resolveDefaultMailHref({
+          combineInbox,
+          showAllTab: false,
+          pinnedLabels,
+          savedFilters,
+          isGoogleConnected,
+        }),
+        { replace: true },
+      );
+    },
+    [
+      activeInboxTab,
+      combineInbox,
+      isGoogleConnected,
+      navigate,
+      pinnedLabels,
+      savedFilters,
+      threadId,
+      updateSettings,
+      view,
+    ],
+  );
+
+  const handleCombinedInboxChange = useCallback(
+    (next: boolean) => {
+      updateSettings.mutate({ combineInbox: next });
+      if (next) {
+        if (
+          view !== "inbox" ||
+          (!isInboxScopedAppLabel(activeLabel) &&
+            activeInboxTab !== OTHER_INBOX_TAB_PARAM &&
+            activeInboxTab !== ALL_TAB_PARAM)
+        ) {
+          return;
+        }
+        const nextParams = new URLSearchParams(location.search);
+        nextParams.delete("label");
+        nextParams.delete("tab");
+        const search = nextParams.toString();
+        void navigate({
+          pathname: "/inbox",
+          search: search ? `?${search}` : "",
+        });
+        return;
+      }
+      if (
+        view !== "inbox" ||
+        threadId ||
+        activeLabel ||
+        activeInboxTab ||
+        activeFilterId ||
+        activeSearchQuery
+      ) {
+        return;
+      }
+      const splitRoute = resolveDefaultMailHref({
+        combineInbox: false,
+        showAllTab,
+        pinnedLabels,
+        savedFilters,
+        isGoogleConnected,
+      });
+      if (splitRoute !== "/inbox") {
+        void navigate(splitRoute, { replace: true });
+      }
+    },
+    [
+      activeInboxTab,
+      activeLabel,
+      activeFilterId,
+      activeSearchQuery,
+      isGoogleConnected,
+      location.search,
+      navigate,
+      pinnedLabels,
+      savedFilters,
+      showAllTab,
+      threadId,
+      updateSettings,
+      view,
+    ],
+  );
+
+  const saveSearchAsFilter = useCallback(
+    async (query: string, name: string) => {
+      const normalizedQuery = query.trim().slice(0, 500);
+      const normalizedName = name.trim().slice(0, 80);
+      if (!normalizedQuery || !normalizedName) return;
+      if (savedFilters.length >= 20) {
+        throw new Error(t("mail.search.filtersLimitReached"));
+      }
+
+      const existing = savedFilters.find(
+        (filter) =>
+          filter.query.trim().toLowerCase() === normalizedQuery.toLowerCase(),
+      );
+      if (existing) {
+        void navigate(`/inbox?filter=${encodeURIComponent(existing.id)}`);
+        return;
+      }
+
+      const id = `filter-${Date.now().toString(36)}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+      const filter: SavedMailFilter = {
+        id,
+        name: normalizedName,
+        query: normalizedQuery,
+      };
+      try {
+        await updateSettings.mutateAsync({
+          savedFilters: [...savedFilters, filter],
+        });
+      } catch {
+        throw new Error(t("mail.search.saveAsTabFailed"));
+      }
+      void navigate(`/inbox?filter=${encodeURIComponent(id)}`);
+    },
+    [navigate, savedFilters, t, updateSettings],
+  );
+
+  const removeSavedFilter = useCallback(
+    (id: string) => {
+      updateSettings.mutate({
+        savedFilters: savedFilters.filter((filter) => filter.id !== id),
+      });
+      if (activeFilterId === id) void navigate("/inbox");
+    },
+    [activeFilterId, navigate, savedFilters, updateSettings],
+  );
+
   const handleTabDragStart = useCallback(
-    (e: React.DragEvent, pinnedId: string) => {
-      setDragPinnedId(pinnedId);
+    (e: React.DragEvent, item: DragItem) => {
+      setDragItem(item);
       e.dataTransfer.effectAllowed = "move";
     },
     [],
@@ -864,7 +1219,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   const handleTabDragOver = useCallback(
     (e: React.DragEvent, tabIndex: number) => {
-      if (!dragPinnedId) return;
+      if (!dragItem) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -874,62 +1229,75 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         side: e.clientX < midX ? "left" : "right",
       });
     },
-    [dragPinnedId],
+    [dragItem],
   );
 
   const handleTabDrop = useCallback(() => {
-    if (!dragPinnedId || !dropIndicator) return;
-    const current = settings?.pinnedLabels ?? [];
-    if (!current.includes(dragPinnedId)) return;
-
-    const targetTab = visibleTabs[dropIndicator.tabIndex];
+    if (!dragItem || !dropIndicator) return;
+    const targetTab = topBarTabs[dropIndicator.tabIndex];
     if (!targetTab) return;
 
-    const without = current.filter((id) => id !== dragPinnedId);
-    let insertAt: number;
-
-    if (targetTab.pinnedId === "important") {
-      insertAt = 0;
-    } else if (!targetTab.pinnedId) {
-      insertAt = without.length;
+    if (dragItem.group === "label") {
+      if (!pinnedLabels.includes(dragItem.id)) return;
+      updateSettings.mutate({
+        pinnedLabels: reorderById(
+          pinnedLabels,
+          (id) => id,
+          dragItem.id,
+          targetTab.pinnedId,
+          dropIndicator.side,
+        ),
+      });
     } else {
-      const targetIdx = without.indexOf(targetTab.pinnedId);
-      if (targetIdx < 0) {
-        insertAt = without.length;
-      } else {
-        insertAt = dropIndicator.side === "left" ? targetIdx : targetIdx + 1;
-      }
+      if (!savedFilters.some((filter) => filter.id === dragItem.id)) return;
+      updateSettings.mutate({
+        savedFilters: reorderById(
+          savedFilters,
+          (filter) => filter.id,
+          dragItem.id,
+          targetTab.filterId,
+          dropIndicator.side,
+        ),
+      });
     }
-
-    without.splice(insertAt, 0, dragPinnedId);
-    updateSettings.mutate({ pinnedLabels: without });
-    setDragPinnedId(null);
+    setDragItem(null);
     setDropIndicator(null);
   }, [
-    dragPinnedId,
+    dragItem,
     dropIndicator,
-    settings?.pinnedLabels,
-    visibleTabs,
+    pinnedLabels,
+    savedFilters,
+    topBarTabs,
     updateSettings,
   ]);
 
   const handleTabDragEnd = useCallback(() => {
-    setDragPinnedId(null);
+    setDragItem(null);
     setDropIndicator(null);
   }, []);
 
-  // Global keyboard shortcuts
   const cycleTab = useCallback(
     (reverse?: boolean) => {
-      if (visibleTabs.length < 2) return;
-      const activeIdx = visibleTabs.findIndex((t) => t.isActive);
+      if (topBarTabs.length < 2) return;
+      const activeIdx = topBarTabs.findIndex((tab) => tab.isActive);
       const delta = reverse ? -1 : 1;
-      const nextIdx =
-        (activeIdx === -1 ? 0 : activeIdx + delta + visibleTabs.length) %
-        visibleTabs.length;
-      navigate(visibleTabs[nextIdx].href);
+      let nextIdx: number;
+      if (activeIdx === -1) {
+        nextIdx = reverse ? topBarTabs.length - 1 : 0;
+      } else {
+        nextIdx = (activeIdx + delta + topBarTabs.length) % topBarTabs.length;
+      }
+      void navigate(topBarTabs[nextIdx].href);
     },
-    [visibleTabs, navigate],
+    [topBarTabs, navigate],
+  );
+
+  const canCycleTab = useCallback(
+    (event: KeyboardEvent) => {
+      if (topBarTabs.length < 2) return false;
+      return shouldCycleMailTab(event.target);
+    },
+    [topBarTabs.length],
   );
 
   const handleSnooze = useCallback(() => {
@@ -947,9 +1315,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     setSnoozeOpen(true);
   }, [targetEmail]);
 
-  // List snooze requests carry the current focused/selected rows. Swipe
-  // requests still carry one target; keyboard and command-palette requests may
-  // carry many.
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (
@@ -978,11 +1343,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     {
       key: "k",
       meta: true,
-      handler: () => setPaletteOpen(true),
+      handler: openPalette,
       skipInInput: false,
     },
     {
       key: "/",
+      shift: "either",
       handler: () => {
         document.getElementById("mail-search")?.focus();
       },
@@ -993,181 +1359,59 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     { key: "z", handler: runUndo },
     {
       key: "Tab",
+      shouldHandle: canCycleTab,
       handler: () => cycleTab(false),
+      skipInInput: false,
     },
     {
       key: "Tab",
       shift: true,
+      shouldHandle: canCycleTab,
       handler: () => cycleTab(true),
+      skipInInput: false,
     },
     {
       key: "Escape",
+      shouldHandle: () => Boolean(activeSearchQuery || searchFocused),
       handler: () => {
         setSearchQuery("");
         setSearchFocused(false);
         (document.getElementById("mail-search") as HTMLInputElement)?.blur();
         if (activeSearchQuery) {
-          navigate(restorePreSearchPath());
+          void navigate(restorePreSearchPath());
         }
       },
     },
   ]);
 
   useEffect(() => {
-    const handler = () => setPaletteOpen(true);
+    const handler = openPalette;
     window.addEventListener("agent-native:open-command-menu", handler);
     return () =>
       window.removeEventListener("agent-native:open-command-menu", handler);
-  }, []);
+  }, [openPalette]);
 
-  // Sequence shortcuts (g + key = go to view)
-  const qc = useQueryClient();
   useSequenceShortcuts([
     {
       keys: ["g", "i"],
       handler: () => {
-        navigate("/inbox");
-        qc.invalidateQueries({ queryKey: ["emails"] });
-        qc.invalidateQueries({ queryKey: ["labels"] });
+        void navigate("/inbox");
+        void queryClient.invalidateQueries({ queryKey: ["emails"] });
+        void queryClient.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
+        void invalidateInboxThreads(queryClient);
       },
     },
     { keys: ["g", "s"], handler: () => navigate("/starred") },
     { keys: ["g", "t"], handler: () => navigate("/sent") },
     { keys: ["g", "d"], handler: () => navigate("/drafts") },
-    { keys: ["g", "a"], handler: () => navigate("/archive") },
+    { keys: ["g", "a"], handler: () => navigate("/all") },
     { keys: ["g", "e"], handler: () => navigate("/archive") },
     { keys: ["g", "#"], handler: () => navigate("/trash") },
   ]);
 
-  const resolveLabelForCount = (id: string) => {
-    const normalizedId = id.includes("/")
-      ? id
-          .slice(id.lastIndexOf("/") + 1)
-          .replace(/_/g, " ")
-          .toLowerCase()
-      : id.toLowerCase();
-    return labels.find(
-      (label) =>
-        label.id === id ||
-        label.id === normalizedId ||
-        label.name.toLowerCase() === id.toLowerCase(),
-    );
-  };
-
-  const useServerLabelCounts = activeAccounts.size === 0;
-
-  // Gmail totals overlap across labels, while these tabs are an exclusive
-  // partition of the loaded inbox. Keep their badges tied to that partition.
-  const inboxPartitionTabIds = new Set<string>([OTHER_INBOX_TAB_ID]);
-  for (const pinnedId of pinnedTriageLabels(pinnedLabels)) {
-    inboxPartitionTabIds.add(pinnedId);
-    const label = resolveLabelForCount(pinnedId);
-    if (label) inboxPartitionTabIds.add(label.id);
-  }
-
-  type CountKind = "unread" | "total";
-  const countFieldForKind = (kind: CountKind) =>
-    kind === "total" ? "totalCount" : "unreadCount";
-  const localCountsForKind = (kind: CountKind) =>
-    kind === "total" ? labelThreadCounts.total : labelThreadCounts.unread;
-
-  // Prefer the complete server count when Gmail provides one. Falling back to
-  // loaded rows is useful for local/demo mail, but merging the two with
-  // Math.max makes badges grow as more pages happen to be loaded.
-  const getInboxCount = (kind: CountKind) => {
-    const inboxLabel = resolveLabelForCount("inbox");
-    const countField = countFieldForKind(kind);
-    const localCounts = localCountsForKind(kind);
-    const serverCount = inboxLabel?.[countField];
-    const localCount = localCounts["__inboxTotal"] ?? 0;
-    return typeof serverCount === "number" && useServerLabelCounts
-      ? serverCount
-      : localCount;
-  };
-
-  const getOtherCount = (kind: CountKind) => {
-    if (!hasPinnedFilters) return getInboxCount(kind);
-    const localCounts = localCountsForKind(kind);
-    // Don't subtract pinned-label server counts from inbox server count:
-    // Gmail's label totals include archived/sent/trash threads outside the
-    // inbox, so the subtraction can drop "Other" to zero or undercount. The
-    // local count (computed from loaded inbox emails, filtered by pinned-tab
-    // membership) is the authoritative "Other" number.
-    return localCounts["inbox"] ?? 0;
-  };
-
-  const getTabCount = (viewId: string, kind: CountKind) => {
-    if (viewId === OTHER_INBOX_TAB_ID) return getOtherCount(kind);
-    if (viewId === "inbox") return getInboxCount(kind);
-    const label = resolveLabelForCount(viewId);
-    const countField = countFieldForKind(kind);
-    const localCounts = localCountsForKind(kind);
-    const localCount =
-      localCounts[viewId] ?? (label ? (localCounts[label.id] ?? 0) : 0);
-    if (inboxPartitionTabIds.has(viewId)) return localCount;
-    const serverCount = label?.[countField];
-    return typeof serverCount === "number" && useServerLabelCounts
-      ? serverCount
-      : localCount;
-  };
-  const getTopBarCount = (viewId: string) => getTabCount(viewId, "total");
-  const getUnreadCount = (viewId: string) => getTabCount(viewId, "unread");
-  // The rail badge represents the whole inbox. The top-bar "Other" tab can
-  // only count loaded rows when pinned filters are active, but Gmail's label
-  // count covers the mailbox beyond the current page.
-  const inboxSidebarUnreadCount = getInboxCount("unread");
-  const railNavItems = [
-    {
-      id: "inbox",
-      label: t("mail.views.inbox"),
-      href: "/inbox",
-      icon: IconInbox,
-      count: inboxSidebarUnreadCount,
-    },
-    {
-      id: "unread",
-      label: t("mail.views.unread"),
-      href: "/unread",
-      icon: IconMailForward,
-    },
-    {
-      id: "starred",
-      label: t("mail.views.starred"),
-      href: "/starred",
-      icon: IconStar,
-    },
-    {
-      id: "snoozed",
-      label: t("mail.views.snoozed"),
-      href: "/snoozed",
-      icon: IconClock,
-    },
-    {
-      id: "sent",
-      label: t("mail.views.sent"),
-      href: "/sent",
-      icon: IconMailForward,
-    },
-    {
-      id: "draft-queue",
-      label: t("mail.views.draftQueue"),
-      href: "/draft-queue",
-      icon: IconFileText,
-      count: queuedDrafts.count,
-    },
-    {
-      id: "archive",
-      label: t("mail.views.archive"),
-      href: "/archive",
-      icon: IconArchive,
-    },
-    {
-      id: "trash",
-      label: t("mail.views.trash"),
-      href: "/trash",
-      icon: IconTrash,
-    },
-  ];
+  const inboxSidebarUnreadCount = inboxMetadata?.labels.find(
+    (label) => label.id === "inbox",
+  )?.unreadCount;
 
   const accountFilterValue = useMemo(
     () => ({ activeAccounts, allAccounts: accounts }),
@@ -1178,98 +1422,421 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     <AccountFilterContext.Provider value={accountFilterValue}>
       <div className="relative flex flex-1 flex-col overflow-hidden bg-background">
         {/* Top nav bar */}
-        <header className="relative z-20 flex h-12 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2 inbox-zero-header">
-          {/* Hamburger menu */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
-                aria-label={t("mail.toolbar.toggleMenu")}
-              >
-                <IconMenu2 className="h-4 w-4" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("mail.toolbar.menu")}</TooltipContent>
-          </Tooltip>
+        <header className="relative z-20 flex h-12 shrink-0 items-center gap-1 overflow-x-auto overflow-y-hidden overscroll-x-contain border-b border-border/50 bg-card px-2 inbox-zero-header hide-scrollbar">
+          <Dialog
+            open={sidebarOpen || isPinnedSidebarVisible}
+            modal={!isPinnedSidebarVisible}
+            onOpenChange={handleSidebarOpenChange}
+          >
+            {/* Hamburger menu */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DialogTrigger asChild>
+                  <button
+                    onClick={() => {
+                      if (isPinnedSidebarVisible) {
+                        setSidebarPinned(false);
+                        setSidebarOpen(false);
+                      }
+                    }}
+                    className="sticky start-0 z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded bg-card text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors sm:h-7 sm:w-7"
+                    aria-label={t("mail.toolbar.toggleMenu")}
+                  >
+                    <IconMenu2 className="h-4 w-4" />
+                  </button>
+                </DialogTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{t("mail.toolbar.menu")}</TooltipContent>
+            </Tooltip>
+
+            {/* Sidebar drawer */}
+            <DialogContent
+              hideClose
+              aria-describedby={undefined}
+              aria-modal={!isPinnedSidebarVisible}
+              onOpenAutoFocus={(event) => {
+                if (isPinnedSidebarVisible) event.preventDefault();
+              }}
+              overlayClassName={
+                isPinnedSidebarVisible
+                  ? "hidden"
+                  : "bg-background/20 backdrop-blur-none"
+              }
+              className={cn(
+                "inset-y-0 start-0 left-0 right-auto flex h-dvh w-[260px] max-h-none max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-e border-border bg-sidebar p-0 shadow-none rtl:left-auto rtl:right-0",
+                isPinnedSidebarVisible && "top-12 bottom-0 h-auto",
+              )}
+            >
+              <DialogTitle className="sr-only">{t("mail.appName")}</DialogTitle>
+              <div className="agent-layout-left-drawer flex min-h-0 flex-1 flex-col overflow-hidden">
+                <AppSidebarHeader
+                  brandName={t("mail.appName")}
+                  appId="mail"
+                  brandHref="/inbox"
+                  collapsed={false}
+                >
+                  <div className="ms-auto flex items-center gap-1">
+                    {!isMobile && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (sidebarPinned) {
+                                setSidebarPinned(false);
+                                setSidebarOpen(true);
+                                return;
+                              }
+                              setSidebarPinned(true);
+                              setSidebarOpen(false);
+                            }}
+                            className={cn(
+                              "flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                              sidebarPinned && "text-foreground bg-accent/50",
+                            )}
+                            aria-label={
+                              sidebarPinned
+                                ? t("mail.toolbar.unpinSidebar")
+                                : t("mail.toolbar.pinSidebar")
+                            }
+                          >
+                            {sidebarPinned ? (
+                              <IconPinnedFilled className="h-4 w-4" />
+                            ) : (
+                              <IconPin className="h-4 w-4" />
+                            )}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {sidebarPinned
+                            ? t("mail.toolbar.unpinSidebar")
+                            : t("mail.toolbar.pinSidebar")}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+                    {!isPinnedSidebarVisible && (
+                      <DialogClose asChild>
+                        <button
+                          type="button"
+                          className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                          aria-label={t("mail.toolbar.closeSidebar")}
+                        >
+                          <IconX className="h-4 w-4" />
+                        </button>
+                      </DialogClose>
+                    )}
+                  </div>
+                </AppSidebarHeader>
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  {/* Accounts */}
+                  {hasAccounts && (
+                    <div className="px-4 pt-5 pb-4 border-b border-border/20">
+                      <div className="space-y-2">
+                        {accounts.map((account) => {
+                          const isActive =
+                            activeAccounts.size === 0 ||
+                            activeAccounts.has(account.email);
+                          return (
+                            <button
+                              key={account.email}
+                              data-an-block
+                              onClick={() => {
+                                setActiveAccounts((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.size === 0) {
+                                    for (const a of accounts) {
+                                      if (a.email !== account.email)
+                                        next.add(a.email);
+                                    }
+                                  } else if (next.has(account.email)) {
+                                    next.delete(account.email);
+                                    if (next.size === 0) return new Set();
+                                  } else {
+                                    next.add(account.email);
+                                    if (next.size === accounts.length)
+                                      return new Set();
+                                  }
+                                  return next;
+                                });
+                              }}
+                              className={cn(
+                                "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-start transition-opacity",
+                                isActive ? "opacity-100" : "opacity-30",
+                              )}
+                            >
+                              <AccountAvatar
+                                email={account.email}
+                                photoUrl={account.photoUrl}
+                                imageClassName="h-8 w-8 rounded-full object-cover shrink-0"
+                                fallbackClassName="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-[12px] font-semibold text-primary shrink-0"
+                              />
+                              <span className="text-[13px] text-foreground truncate">
+                                {account.email}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="px-2 py-3">
+                    <div className="space-y-0.5">
+                      {[
+                        {
+                          id: "inbox",
+                          label: t("mail.views.inbox"),
+                          href: "/inbox",
+                        },
+                        {
+                          id: "unread",
+                          label: t("mail.views.unread"),
+                          href: "/unread",
+                        },
+                        {
+                          id: "starred",
+                          label: t("mail.views.starred"),
+                          href: "/starred",
+                        },
+                        {
+                          id: "snoozed",
+                          label: t("mail.views.snoozed"),
+                          href: "/snoozed",
+                        },
+                        {
+                          id: "sent",
+                          label: t("mail.views.sent"),
+                          href: "/sent",
+                        },
+                        {
+                          id: "draft-queue",
+                          label: t("mail.views.draftQueue"),
+                          href: "/draft-queue",
+                        },
+                        {
+                          id: "scheduled",
+                          label: t("mail.views.scheduled"),
+                          href: "/scheduled",
+                        },
+                        {
+                          id: "drafts",
+                          label: t("mail.views.drafts"),
+                          href: "/drafts",
+                        },
+                        {
+                          id: "archive",
+                          label: t("mail.views.archive"),
+                          href: "/archive",
+                        },
+                        {
+                          id: "trash",
+                          label: t("mail.views.trash"),
+                          href: "/trash",
+                        },
+                      ].map((item) => (
+                        <Link
+                          key={item.id}
+                          to={item.href}
+                          onClick={closeSidebar}
+                          className={cn(
+                            "flex items-center justify-between rounded px-2 py-1.5 text-xs transition-colors",
+                            view === item.id
+                              ? "bg-primary/10 font-medium text-primary"
+                              : "text-primary hover:bg-accent/60",
+                          )}
+                        >
+                          <span>{item.label}</span>
+                          {item.id === "draft-queue" &&
+                            queuedDrafts.count > 0 && (
+                              <span className="text-[12px] text-amber-300 tabular-nums">
+                                {queuedDrafts.count}
+                              </span>
+                            )}
+                          {item.id === "inbox" &&
+                            !!inboxSidebarUnreadCount &&
+                            inboxSidebarUnreadCount > 0 && (
+                              <span className="text-[12px] text-muted-foreground/50 tabular-nums">
+                                {inboxSidebarUnreadCount}
+                              </span>
+                            )}
+                        </Link>
+                      ))}
+                    </div>
+
+                    {/* Mobile equivalents for the hidden top-bar inbox tabs */}
+                    {mobileInboxTabs.length > 0 && (
+                      <>
+                        <h2 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mt-5 mb-3">
+                          {t("mail.views.labels")}
+                        </h2>
+                        <div className="space-y-0.5">
+                          {mobileInboxTabs.map((tab) => {
+                            const count = tab.unread;
+                            const depth = tab.fullLabel
+                              ? labelDepth(tab.fullLabel)
+                              : 0;
+                            return (
+                              <Link
+                                key={tab.id}
+                                to={tab.href}
+                                onClick={closeSidebar}
+                                className={cn(
+                                  "flex items-center justify-between rounded px-2 py-1.5 text-xs transition-colors",
+                                  tab.isActive
+                                    ? "bg-primary/10 font-medium text-primary"
+                                    : "text-primary hover:bg-accent/60",
+                                )}
+                              >
+                                <span
+                                  className="flex min-w-0 items-center gap-2"
+                                  style={{ paddingLeft: depth * 12 }}
+                                >
+                                  {tab.color && (
+                                    <span
+                                      className="h-2 w-2 rounded-full shrink-0"
+                                      style={{ backgroundColor: tab.color }}
+                                    />
+                                  )}
+                                  <span
+                                    data-an-block
+                                    className="truncate"
+                                    title={tab.fullLabel ?? tab.label}
+                                  >
+                                    {tab.label}
+                                  </span>
+                                </span>
+                                {count !== undefined && count > 0 && (
+                                  <span className="text-[12px] text-muted-foreground tabular-nums">
+                                    {formatNumber(count)}
+                                  </span>
+                                )}
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <BuilderCreditNotice className="mx-2 mb-2 shrink-0" />
+                <AppSidebarFooter
+                  collapsed={false}
+                  collapsible={false}
+                  feedback={feedbackButton}
+                  orgSwitcher={
+                    <OrgSwitcher
+                      compact={false}
+                      hideBuilderCreditNotice
+                      className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+                    />
+                  }
+                  footerExtras={
+                    <>
+                      <DevDatabaseLink />
+                      <ThemeToggle className="size-9 shrink-0 !bg-transparent text-primary hover:!bg-accent/60 hover:!text-primary" />
+                    </>
+                  }
+                />
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {/* Primary tabs stay mounted during search so navigation does not jump. */}
           <>
             {tabsLoading ? (
-              <nav className="hidden sm:flex items-center gap-2 overflow-x-auto hide-scrollbar">
-                {[1, 2, 3].map((i) => (
+              <nav className="flex w-max shrink-0 items-center gap-2 sm:w-auto sm:flex-1 sm:min-w-0 sm:overflow-x-auto sm:hide-scrollbar">
+                {[96, 128, 98, 72, 84, 62].map((width, index) => (
                   <span
-                    key={i}
-                    className="h-4 rounded bg-muted animate-pulse"
-                    style={{ width: `${48 + i * 12}px` }}
+                    key={index}
+                    className="h-8 shrink-0 rounded-md bg-muted animate-pulse"
+                    style={{ width }}
                   />
                 ))}
               </nav>
             ) : (
-              <nav className="hidden sm:flex min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar">
-                {topBarTabs.map((tab, idx) => {
-                  const visibleIndex = visibleTabs.findIndex(
-                    (item) => item.id === tab.id,
-                  );
-                  const tabIndex = visibleIndex >= 0 ? visibleIndex : idx;
-                  const count = getTopBarCount(tab.id);
-                  const isDragging = dragPinnedId === tab.pinnedId;
-                  const canDrag =
-                    !!tab.pinnedId && tab.pinnedId !== "important";
+              <nav
+                className="flex w-max shrink-0 flex-nowrap items-center gap-1 sm:w-auto sm:flex-1 sm:min-w-0 sm:overflow-x-auto sm:hide-scrollbar"
+                data-mail-tab-list
+              >
+                {topBarTabs.map((tab, tabIndex) => {
+                  const count = tab.total;
+                  const dragItemForTab: DragItem | undefined = tab.pinnedId
+                    ? { group: "label", id: tab.pinnedId }
+                    : tab.filterId
+                      ? { group: "filter", id: tab.filterId }
+                      : undefined;
+                  const canDrag = !!dragItemForTab;
                   const showLeft =
                     dropIndicator?.tabIndex === tabIndex &&
                     dropIndicator.side === "left";
                   const showRight =
                     dropIndicator?.tabIndex === tabIndex &&
                     dropIndicator.side === "right";
+                  const link = (
+                    <RouterSidebarLink
+                      to={tab.href}
+                      aria-current={tab.isActive ? "page" : undefined}
+                      draggable={canDrag}
+                      onDragStart={(e) =>
+                        dragItemForTab && handleTabDragStart(e, dragItemForTab)
+                      }
+                      onDragEnd={handleTabDragEnd}
+                      className={cn(
+                        "flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-[13px] transition-colors",
+                        tab.isActive
+                          ? "bg-accent text-foreground font-semibold"
+                          : "text-muted-foreground font-medium hover:bg-accent/50 hover:text-foreground/80",
+                      )}
+                    >
+                      {tab.color && (
+                        <span
+                          className="h-1.5 w-1.5 rounded-full shrink-0"
+                          style={{ backgroundColor: tab.color }}
+                        />
+                      )}
+                      <span data-an-mask={tab.isSystemView ? undefined : ""}>
+                        {tab.label}
+                      </span>
+                      {count !== undefined && count > 0 && (
+                        <span
+                          aria-label={
+                            tab.totalIsLowerBound
+                              ? t("mail.inbox.atLeastCount", { count })
+                              : undefined
+                          }
+                          className={cn(
+                            "text-[11px] tabular-nums",
+                            tab.isActive
+                              ? "text-foreground/60"
+                              : "text-muted-foreground/70",
+                          )}
+                        >
+                          {tab.totalIsLowerBound ? `${count}+` : count}
+                        </span>
+                      )}
+                    </RouterSidebarLink>
+                  );
                   return (
                     <div
                       key={tab.pinnedId || tab.id}
-                      className="relative flex items-center"
+                      className="relative flex shrink-0 items-center"
                       onDragOver={(e) => handleTabDragOver(e, tabIndex)}
                       onDrop={handleTabDrop}
                     >
                       {showLeft && (
                         <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full z-10" />
                       )}
-                      <Link
-                        to={tab.href}
-                        draggable={canDrag}
-                        onDragStart={(e) =>
-                          canDrag &&
-                          tab.pinnedId &&
-                          handleTabDragStart(e, tab.pinnedId)
-                        }
-                        onDragEnd={handleTabDragEnd}
-                        className={cn(
-                          "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px] select-none",
-                          tab.isActive
-                            ? "text-foreground font-semibold"
-                            : "text-muted-foreground font-medium hover:text-foreground/80",
-                          isDragging && "opacity-40",
-                          canDrag && "cursor-grab",
-                        )}
-                      >
-                        {tab.color && (
-                          <span
-                            className="h-1.5 w-1.5 rounded-full shrink-0"
-                            style={{ backgroundColor: tab.color }}
-                          />
-                        )}
-                        {tab.label}
-                        {count > 0 && (
-                          <span
-                            className={cn(
-                              "text-[11px] tabular-nums",
-                              tab.isActive
-                                ? "text-foreground/60"
-                                : "text-muted-foreground/70",
-                            )}
-                          >
-                            {count}
-                          </span>
-                        )}
-                      </Link>
+                      {tab.tooltip ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>{link}</TooltipTrigger>
+                          <TooltipContent data-an-block>
+                            {tab.tooltip}
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        link
+                      )}
                       {showRight && (
                         <div className="absolute right-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full z-10" />
                       )}
@@ -1279,11 +1846,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
                 {/* If navigated to an unpinned view (e.g. via keyboard shortcut), show it */}
                 {currentInHidden && (
-                  <span className="flex items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
-                    {t(
-                      collapsibleViews.find((v) => v.id === view)?.labelKey ??
-                        "mail.views.inbox",
-                    )}
+                  <span className="flex shrink-0 items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
+                    {t(currentHiddenView?.labelKey ?? "mail.views.inbox")}
                   </span>
                 )}
               </nav>
@@ -1291,10 +1855,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
             {/* Tab settings cog */}
             <div
-              className={cn(
-                "relative hidden sm:block",
-                tabsLoading && "invisible",
-              )}
+              className={cn("relative shrink-0", tabsLoading && "invisible")}
             >
               <Popover
                 open={tabSettingsOpen}
@@ -1308,7 +1869,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     <PopoverTrigger asChild>
                       <button
                         className={cn(
-                          "flex h-6 w-6 items-center justify-center rounded transition-colors",
+                          "flex h-9 w-9 items-center justify-center rounded transition-colors sm:h-6 sm:w-6",
                           tabSettingsOpen
                             ? "text-foreground bg-accent/50"
                             : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
@@ -1327,14 +1888,35 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   align="start"
                   className="w-60 max-w-[calc(100vw-2rem)] p-0"
                 >
+                  <Link
+                    to={`${mailSettingsRoute("ai-filter")}#tags`}
+                    onClick={() => setTabSettingsOpen(false)}
+                    className="flex items-center gap-2 border-b border-border/30 px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:bg-accent/50"
+                  >
+                    <IconFilter className="size-3.5 text-primary" />
+                    <span className="flex-1">
+                      {t("mail.toolbar.aiSettings")}
+                    </span>
+                    <IconArrowUpRight className="size-3.5 text-muted-foreground" />
+                  </Link>
                   <TabSettingsPopover
-                    systemViews={collapsibleViews}
+                    systemViews={systemViews}
+                    aiTags={aiTags}
+                    labels={labels}
                     userLabels={userLabels}
+                    labelDisplayNames={labelDisplayNames}
                     pinnedLabels={pinnedLabels}
+                    combinedInbox={combineInbox}
+                    showSplitInbox={accounts.length > 1}
+                    allTabVisible={showAllTab}
+                    savedFilters={savedFilters}
                     labelAliases={labelAliases}
                     search={labelSearch}
                     onSearchChange={setLabelSearch}
                     onToggle={togglePinned}
+                    onAllTabChange={handleAllTabChange}
+                    onCombinedInboxChange={handleCombinedInboxChange}
+                    onRemoveFilter={removeSavedFilter}
                     onRename={(id, alias) => {
                       const next = { ...labelAliases };
                       if (alias) next[id] = alias;
@@ -1347,7 +1929,19 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             </div>
           </>
 
-          <div className="flex-1" />
+          {inboxSyncing && (
+            <span
+              className="flex shrink-0 items-center text-muted-foreground"
+              role="status"
+              aria-label={t("mail.inbox.syncing")}
+              title={t("mail.inbox.syncing")}
+            >
+              <IconRefresh
+                aria-hidden="true"
+                className="h-3 w-3 animate-spin"
+              />
+            </span>
+          )}
 
           {headerActions && (
             <div className="flex shrink-0 items-center gap-1">
@@ -1362,11 +1956,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               initialQuery={activeSearchQuery ?? ""}
               autoFocus={searchFocused && !activeSearchQuery}
               hasActiveSearch={!!activeSearchQuery}
+              onSaveSearch={saveSearchAsFilter}
               onClose={() => {
                 setSearchFocused(false);
                 setSearchQuery("");
                 if (activeSearchQuery) {
-                  navigate(restorePreSearchPath());
+                  void navigate(restorePreSearchPath());
                 }
               }}
             />
@@ -1375,7 +1970,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               <TooltipTrigger asChild>
                 <button
                   onClick={() => setSearchFocused(true)}
-                  className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors sm:h-7 sm:w-7"
                   aria-label={t("mail.search.label")}
                 >
                   <IconSearch className="h-4 w-4" />
@@ -1389,6 +1984,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           {!searchFocused && !activeSearchQuery && (
             <input
               id="mail-search"
+              aria-label={t("mail.search.label")}
               className="sr-only"
               tabIndex={-1}
               onFocus={() => setSearchFocused(true)}
@@ -1406,8 +2002,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   if (inboxIsFetching) return;
                   setIsManuallyRefreshing(true);
                   markExternalEmailRefresh();
-                  qc.invalidateQueries({ queryKey: ["emails"] });
-                  qc.invalidateQueries({ queryKey: ["labels"] });
+                  void queryClient.invalidateQueries({
+                    queryKey: ["emails"],
+                  });
+                  void queryClient.invalidateQueries({
+                    queryKey: LABELS_QUERY_KEY,
+                  });
+                  void invalidateInboxThreads(queryClient);
                   window.setTimeout(() => setIsManuallyRefreshing(false), 800);
                 }}
                 disabled={inboxIsFetching}
@@ -1434,7 +2035,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 onClick={handleCompose}
                 variant="outline"
                 size="sm"
-                className="h-9 sm:h-7 px-3 text-[13px]"
+                className="h-9 shrink-0 px-3 text-[13px] sm:h-7"
                 aria-label={t("mail.toolbar.composeEmail")}
               >
                 <span>{t("mail.toolbar.compose")}</span>
@@ -1446,7 +2047,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           {/* Account avatars — overlapping stack */}
           {googleStatus.isLoading && (
             <div className="flex items-center ms-1">
-              <Skeleton className="h-7 w-7 rounded-full ring-2 ring-card" />
+              <Skeleton className="h-7 w-7 rounded-full ring-1 ring-card" />
             </div>
           )}
           {googleStatusReady && hasAccounts && (
@@ -1457,7 +2058,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <PopoverTrigger asChild>
-                    <button className="flex items-center hover:opacity-90 transition-opacity ms-1">
+                    <button
+                      type="button"
+                      data-an-block
+                      aria-label={t("mail.toolbar.accounts")}
+                      className="flex shrink-0 items-center hover:opacity-90 transition-opacity ms-1"
+                    >
                       <div
                         className="flex items-center"
                         style={{
@@ -1472,7 +2078,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                             <div
                               key={account.email}
                               className={cn(
-                                "relative rounded-full ring-2 ring-card transition-opacity",
+                                "relative rounded-full ring-1 ring-card transition-opacity",
                                 !isActive && "opacity-30",
                               )}
                               style={{
@@ -1507,17 +2113,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     setActiveAccounts((prev) => {
                       const next = new Set(prev);
                       if (next.size === 0) {
-                        // Switching from "all" → deselect this one (keep others)
                         for (const a of accounts) {
                           if (a.email !== email) next.add(a.email);
                         }
                       } else if (next.has(email)) {
                         next.delete(email);
-                        // If nothing left, reset to "all"
                         if (next.size === 0) return new Set();
                       } else {
                         next.add(email);
-                        // If all are now checked, reset to "all" (empty set)
                         if (next.size === accounts.length) return new Set();
                       }
                       return next;
@@ -1535,377 +2138,21 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             </Popover>
           )}
 
+          <NotificationsBell browserNotifications />
           <AgentToggleButton />
         </header>
-
-        {/* Sidebar overlay / pinned rail */}
-        {showSidebar && (
-          <>
-            {(!sidebarPinned || isMobile) && (
-              <div
-                className="fixed inset-0 z-30 bg-[var(--mail-overlay-scrim)]"
-                onClick={() => setSidebarOpen(false)}
-              />
-            )}
-            <div
-              className={cn(
-                "flex flex-col overflow-hidden bg-[var(--mail-drawer-surface)] backdrop-blur-2xl transition-[width] duration-200 ease-out",
-                showCollapsedSidebar ? "w-12" : "w-64",
-                sidebarPinned && !isMobile
-                  ? "absolute start-0 top-12 bottom-0 z-10"
-                  : "fixed start-0 top-0 bottom-0 z-40",
-              )}
-            >
-              <div
-                className={cn(
-                  "flex h-12 shrink-0 items-center border-b border-border/20",
-                  showCollapsedSidebar
-                    ? "justify-center px-1"
-                    : "justify-between px-4",
-                )}
-              >
-                {showCollapsedSidebar ? null : (
-                  <>
-                    <span className="text-[13px] font-medium text-foreground">
-                      {t("mail.appName")}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (sidebarPinned) {
-                                setSidebarPinned(false);
-                                setSidebarOpen(!isMobile);
-                                return;
-                              }
-                              setSidebarPinned(true);
-                              setSidebarOpen(true);
-                            }}
-                            className={cn(
-                              "flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                              sidebarPinned && "text-foreground bg-accent/50",
-                            )}
-                            aria-label={
-                              sidebarPinned
-                                ? t("mail.toolbar.unpinSidebar")
-                                : t("mail.toolbar.pinSidebar")
-                            }
-                          >
-                            {sidebarPinned ? (
-                              <IconPinnedFilled className="h-4 w-4" />
-                            ) : (
-                              <IconPin className="h-4 w-4" />
-                            )}
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {sidebarPinned
-                            ? t("mail.toolbar.unpinSidebar")
-                            : t("mail.toolbar.pinSidebar")}
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                  </>
-                )}
-              </div>
-              {showCollapsedSidebar ? (
-                <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-1 py-2">
-                  {railNavItems.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = view === item.id;
-                    return (
-                      <Tooltip key={item.id}>
-                        <TooltipTrigger asChild>
-                          <Link
-                            to={item.href}
-                            aria-label={item.label}
-                            className={cn(
-                              "relative flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
-                              isActive && "bg-accent/60 text-foreground",
-                            )}
-                          >
-                            <Icon className="h-4 w-4" />
-                            {item.count && item.count > 0 ? (
-                              <span className="absolute end-1 top-1 h-1.5 w-1.5 rounded-full bg-primary" />
-                            ) : null}
-                          </Link>
-                        </TooltipTrigger>
-                        <TooltipContent side="right">
-                          {item.label}
-                        </TooltipContent>
-                      </Tooltip>
-                    );
-                  })}
-                </nav>
-              ) : (
-                <>
-                  <div className="min-h-0 flex-1 overflow-y-auto">
-                    {/* Accounts */}
-                    {hasAccounts && (
-                      <div className="px-4 pt-5 pb-4 border-b border-border/20">
-                        <div className="space-y-2">
-                          {accounts.map((account) => {
-                            const isActive =
-                              activeAccounts.size === 0 ||
-                              activeAccounts.has(account.email);
-                            return (
-                              <button
-                                key={account.email}
-                                onClick={() => {
-                                  setActiveAccounts((prev) => {
-                                    const next = new Set(prev);
-                                    if (next.size === 0) {
-                                      for (const a of accounts) {
-                                        if (a.email !== account.email)
-                                          next.add(a.email);
-                                      }
-                                    } else if (next.has(account.email)) {
-                                      next.delete(account.email);
-                                      if (next.size === 0) return new Set();
-                                    } else {
-                                      next.add(account.email);
-                                      if (next.size === accounts.length)
-                                        return new Set();
-                                    }
-                                    return next;
-                                  });
-                                }}
-                                className={cn(
-                                  "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-start transition-opacity",
-                                  isActive ? "opacity-100" : "opacity-30",
-                                )}
-                              >
-                                <AccountAvatar
-                                  email={account.email}
-                                  photoUrl={account.photoUrl}
-                                  imageClassName="h-8 w-8 rounded-full object-cover shrink-0"
-                                  fallbackClassName="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-[12px] font-semibold text-primary shrink-0"
-                                />
-                                <span className="text-[13px] text-foreground truncate">
-                                  {account.email}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="p-4">
-                      <div className="space-y-0.5">
-                        {[
-                          {
-                            id: "inbox",
-                            label: t("mail.views.inbox"),
-                            href: "/inbox",
-                          },
-                          {
-                            id: "unread",
-                            label: t("mail.views.unread"),
-                            href: "/unread",
-                          },
-                          {
-                            id: "starred",
-                            label: t("mail.views.starred"),
-                            href: "/starred",
-                          },
-                          {
-                            id: "snoozed",
-                            label: t("mail.views.snoozed"),
-                            href: "/snoozed",
-                          },
-                          {
-                            id: "sent",
-                            label: t("mail.views.sent"),
-                            href: "/sent",
-                          },
-                          {
-                            id: "draft-queue",
-                            label: t("mail.views.draftQueue"),
-                            href: "/draft-queue",
-                          },
-                          {
-                            id: "scheduled",
-                            label: t("mail.views.scheduled"),
-                            href: "/scheduled",
-                          },
-                          {
-                            id: "drafts",
-                            label: t("mail.views.drafts"),
-                            href: "/drafts",
-                          },
-                          {
-                            id: "archive",
-                            label: t("mail.views.archive"),
-                            href: "/archive",
-                          },
-                          {
-                            id: "trash",
-                            label: t("mail.views.trash"),
-                            href: "/trash",
-                          },
-                        ].map((item) => (
-                          <Link
-                            key={item.id}
-                            to={item.href}
-                            onClick={closeSidebar}
-                            className={cn(
-                              "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
-                              view === item.id
-                                ? "bg-accent/60 text-foreground font-medium"
-                                : "text-foreground/70 hover:bg-accent/30",
-                            )}
-                          >
-                            <span>{item.label}</span>
-                            {item.id === "draft-queue" &&
-                              queuedDrafts.count > 0 && (
-                                <span className="text-[12px] text-amber-300 tabular-nums">
-                                  {queuedDrafts.count}
-                                </span>
-                              )}
-                            {item.id === "inbox" &&
-                              inboxSidebarUnreadCount > 0 && (
-                                <span className="text-[12px] text-muted-foreground/50 tabular-nums">
-                                  {inboxSidebarUnreadCount}
-                                </span>
-                              )}
-                          </Link>
-                        ))}
-                      </div>
-
-                      {/* Mobile equivalents for the hidden top-bar inbox tabs */}
-                      {mobileInboxTabs.length > 0 && (
-                        <>
-                          <h2 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mt-5 mb-3">
-                            {t("mail.views.labels")}
-                          </h2>
-                          <div className="space-y-0.5">
-                            {mobileInboxTabs.map((tab) => {
-                              const count = getUnreadCount(tab.id);
-                              const depth =
-                                tab.type === "label"
-                                  ? labelDepth(tab.fullLabel ?? tab.label)
-                                  : 0;
-                              return (
-                                <Link
-                                  key={tab.id}
-                                  to={tab.href}
-                                  onClick={closeSidebar}
-                                  className={cn(
-                                    "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
-                                    tab.isActive
-                                      ? "bg-accent/60 text-foreground font-medium"
-                                      : "text-foreground/70 hover:bg-accent/30",
-                                  )}
-                                >
-                                  <span
-                                    className="flex min-w-0 items-center gap-2"
-                                    style={{ paddingLeft: depth * 12 }}
-                                  >
-                                    {tab.color && (
-                                      <span
-                                        className="h-2 w-2 rounded-full shrink-0"
-                                        style={{ backgroundColor: tab.color }}
-                                      />
-                                    )}
-                                    <span
-                                      className="truncate"
-                                      title={tab.fullLabel ?? tab.label}
-                                    >
-                                      {tab.label}
-                                    </span>
-                                  </span>
-                                  {count > 0 && (
-                                    <span className="text-[12px] text-muted-foreground/50 tabular-nums">
-                                      {count}
-                                    </span>
-                                  )}
-                                </Link>
-                              );
-                            })}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="shrink-0">
-                    <div className="px-3 py-2">
-                      <OrgSwitcher />
-                    </div>
-
-                    <div className="flex items-center justify-end gap-1 px-2 py-2">
-                      <DevDatabaseLink />
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Link
-                            to="/settings"
-                            onClick={closeSidebar}
-                            aria-label={t("mail.toolbar.settings")}
-                            className={cn(
-                              "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
-                              location.pathname === "/settings" &&
-                                "bg-accent/60 text-foreground",
-                            )}
-                          >
-                            <IconSettings className="h-4 w-4" />
-                          </Link>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {t("mail.toolbar.settings")}
-                        </TooltipContent>
-                      </Tooltip>
-                      <ThemeToggle className="h-8 w-8 shrink-0" />
-                    </div>
-                  </div>
-                </>
-              )}
-              <SidebarFooterActions
-                collapsed={showCollapsedSidebar}
-                feedback={feedbackButton}
-                search={searchButton}
-                collapse={collapseButton}
-              />
-            </div>
-          </>
-        )}
 
         <div
           className={cn(
             "flex min-h-0 flex-1 flex-col",
-            sidebarPinned &&
-              !isMobile &&
-              (showCollapsedSidebar ? "ps-12" : "ps-64"),
+            !isMobile && (sidebarOpen || sidebarPinned) && "ps-[260px]",
           )}
         >
           <InvitationBanner />
 
-          {labelsError && (
-            <div
-              role="alert"
-              className="flex shrink-0 items-center gap-2 border-b border-destructive/20 bg-destructive/5 px-4 py-2 text-xs text-muted-foreground"
-            >
-              <IconAlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
-              <span className="min-w-0 flex-1 truncate">
-                {labelsQueryError instanceof Error && labelsQueryError.message
-                  ? labelsQueryError.message
-                  : t("mail.error.loadTitle")}
-              </span>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                disabled={labelsFetching}
-                onClick={() => void refetchLabels()}
-              >
-                {labelsFetching
-                  ? t("mail.error.retrying")
-                  : t("mail.error.tryAgain")}
-              </Button>
-            </div>
-          )}
+          {/* Compact, non-blocking — reuses the existing account-strip
+              reconnect UI instead of a second banner system. */}
+          {needsReauthAccount && <GoogleConnectBanner variant="banner" />}
 
           {/* Show full-page takeover when no accounts connected (except on
               settings page, or on an unknown route — an unmatched path must
@@ -1926,9 +2173,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           )}
         </div>
       </div>
-
       {(() => {
-        // Filter out inline drafts (rendered in thread view, not the popout composer)
         const popoutDrafts = compose.drafts.filter((d) => !d.inline);
         if (popoutDrafts.length === 0) return null;
         const popoutActiveId =
@@ -1939,100 +2184,169 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         const popoutActiveDraft =
           popoutDrafts.find((d) => d.id === popoutActiveId) ?? null;
         return (
-          <ComposeModal
-            drafts={popoutDrafts}
-            activeId={popoutActiveId}
-            activeDraft={popoutActiveDraft}
-            initialExpanded={composeInitialExpanded}
-            onSetActiveId={compose.setActiveId}
-            onUpdate={compose.update}
-            onClose={(id) => {
-              const draft = popoutDrafts.find((d) => d.id === id);
-              const hasContent = !!(
-                draft?.to?.trim() ||
-                draft?.subject?.trim() ||
-                draft?.body?.trim()
-              );
-              const snapshot = draft ? { ...draft } : null;
-              compose.close(id);
-              if (hasContent && snapshot) {
-                toast("Draft saved.", {
-                  action: {
-                    label: "REOPEN",
-                    onClick: () => {
-                      const { id: _id, ...reopenData } = snapshot;
-                      compose.open(reopenData);
-                    },
-                  },
-                  cancel: {
-                    label: "DELETE DRAFT",
-                    onClick: () => {
-                      if (snapshot.savedDraftId) {
-                        fetch(
-                          appApiPath(`/api/emails/${snapshot.savedDraftId}`),
-                          {
-                            method: "DELETE",
-                          },
+          <Suspense fallback={null}>
+            <ComposeModal
+              drafts={popoutDrafts}
+              activeId={popoutActiveId}
+              activeDraft={popoutActiveDraft}
+              initialExpanded={composeInitialExpanded}
+              onSetActiveId={compose.setActiveId}
+              onUpdate={compose.update}
+              onClose={(id) => {
+                const draft = popoutDrafts.find((d) => d.id === id);
+                const hasContent = !!(
+                  draft?.to?.trim() ||
+                  draft?.cc?.trim() ||
+                  draft?.bcc?.trim() ||
+                  draft?.subject?.trim() ||
+                  draft?.body?.trim()
+                );
+                const snapshot = draft ? { ...draft } : null;
+                const savePromise = compose.close(id);
+                if (hasContent && snapshot) {
+                  toast(t("mail.toasts.draftClosed"), {
+                    action: {
+                      label: t("mail.compose.reopenDraft"),
+                      onClick: async () => {
+                        const savedSnapshot = applyDraftSaveResult(
+                          snapshot,
+                          await savePromise,
                         );
-                      }
-                    },
-                  },
-                });
-              }
-            }}
-            onCloseAll={() => {
-              const draftsWithContent = popoutDrafts.filter(
-                (d) => !!(d.to?.trim() || d.subject?.trim() || d.body?.trim()),
-              );
-              const snapshots = draftsWithContent.map((d) => ({ ...d }));
-              const ids = popoutDrafts.map((d) => d.id);
-              ids.forEach((id) => compose.close(id));
-              if (snapshots.length > 0) {
-                toast(`${snapshots.length} draft(s) saved.`, {
-                  action: {
-                    label: "REOPEN",
-                    onClick: () => {
-                      for (const snap of snapshots) {
-                        const { id: _id, ...reopenData } = snap;
+                        const { id: _id, ...reopenData } = savedSnapshot;
                         compose.open(reopenData);
-                      }
+                      },
                     },
-                  },
-                  cancel: {
-                    label: "DELETE DRAFTS",
-                    onClick: () => {
-                      for (const snap of snapshots) {
-                        if (snap.savedDraftId) {
-                          fetch(
-                            appApiPath(`/api/emails/${snap.savedDraftId}`),
-                            {
-                              method: "DELETE",
-                            },
-                          );
+                    cancel: {
+                      label: t("mail.compose.deleteDraft"),
+                      onClick: async () => {
+                        const savedSnapshot = applyDraftSaveResult(
+                          snapshot,
+                          await savePromise,
+                        );
+                        if (savedSnapshot.savedDraftId) {
+                          await compose.deleteSavedDraft(savedSnapshot);
                         }
-                      }
+                      },
                     },
-                  },
-                });
-              }
-            }}
-            onDiscard={compose.discard}
-            onNewDraft={handleCompose}
-            onFlush={compose.flush}
-            onReopen={compose.open}
-            onInitialExpandedConsumed={clearComposeInitialExpanded}
-          />
+                  });
+                }
+              }}
+              onCloseAll={() => {
+                const draftsWithContent = popoutDrafts.filter(
+                  (d) =>
+                    !!(
+                      d.to?.trim() ||
+                      d.cc?.trim() ||
+                      d.bcc?.trim() ||
+                      d.subject?.trim() ||
+                      d.body?.trim()
+                    ),
+                );
+                const snapshots = draftsWithContent.map((d) => ({ ...d }));
+                const savePromises = compose.closeAll(
+                  popoutDrafts.map((draft) => draft.id),
+                );
+                if (snapshots.length > 0) {
+                  toast(
+                    t("mail.toasts.draftsClosed", { count: snapshots.length }),
+                    {
+                      action: {
+                        label: t("mail.compose.reopenDraft"),
+                        onClick: async () => {
+                          const saveResults = await Promise.all(
+                            snapshots.map(async (snapshot) => ({
+                              snapshot,
+                              result: await savePromises.get(snapshot.id),
+                            })),
+                          );
+                          for (const { snapshot, result } of saveResults) {
+                            if (
+                              result?.status === "failed" ||
+                              result?.status === "unavailable" ||
+                              result?.status === "cancelled"
+                            ) {
+                              compose.setActiveId(snapshot.id);
+                              continue;
+                            }
+                            const savedSnapshot = applyDraftSaveResult(
+                              snapshot,
+                              result,
+                            );
+                            const { id: _id, ...reopenData } = savedSnapshot;
+                            compose.open(reopenData);
+                          }
+                        },
+                      },
+                      cancel: {
+                        label: t("mail.compose.deleteDrafts"),
+                        onClick: async () => {
+                          const saveResults = await Promise.all(
+                            snapshots.map(async (snapshot) => ({
+                              snapshot,
+                              result: await savePromises.get(snapshot.id),
+                            })),
+                          );
+                          for (const { snapshot, result } of saveResults) {
+                            if (
+                              result?.status === "failed" ||
+                              result?.status === "unavailable" ||
+                              result?.status === "cancelled"
+                            ) {
+                              compose.discard(snapshot.id);
+                              continue;
+                            }
+                            const savedSnapshot = applyDraftSaveResult(
+                              snapshot,
+                              result,
+                            );
+                            if (savedSnapshot.savedDraftId) {
+                              await compose.deleteSavedDraft(savedSnapshot);
+                            }
+                          }
+                        },
+                      },
+                    },
+                  );
+                }
+              }}
+              onDiscard={compose.discard}
+              onStageForSend={compose.stageForSend}
+              onRestoreAfterSend={compose.restoreAfterSend}
+              onNewDraft={handleCompose}
+              onFlush={compose.flush}
+              onInitialExpandedConsumed={clearComposeInitialExpanded}
+              onRegisterComposeCommands={registerComposePaletteCommands}
+            />
+          </Suspense>
         );
       })()}
       <CommandPalette
         open={paletteOpen}
-        onOpenChange={setPaletteOpen}
+        onOpenChange={handlePaletteOpenChange}
+        onCloseAutoFocus={restorePaletteFocus}
         onCompose={handleCompose}
+        onSearch={() => document.getElementById("mail-search")?.focus()}
         onSnooze={targetEmail ? handleSnooze : undefined}
         onSpam={handleSpam}
         onBlockSender={handleBlockSender}
         onMuteThread={handleMuteThread}
         hasEmail={!!targetEmail}
+        isComposeContext={paletteOpenedFromCompose}
+        onSend={
+          paletteOpenedFromCompose && composeCommandsAvailable
+            ? sendComposeFromCommandPalette
+            : undefined
+        }
+        onSendLater={
+          paletteOpenedFromCompose && composeCommandsAvailable
+            ? scheduleComposeFromCommandPalette
+            : undefined
+        }
+        onSendAndMarkDone={
+          paletteOpenedFromCompose && composeCommandsAvailable
+            ? sendAndMarkDoneFromCommandPalette
+            : undefined
+        }
       />
       <SnoozeModal
         open={snoozeOpen}
@@ -2060,23 +2374,16 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           setSnoozeOverride(null);
         }}
       />
+      <AiInboxSetup />
     </AccountFilterContext.Provider>
   );
 }
 
-// ─── Standard Layout (settings, team, tools, draft-queue) ────────────────────
-
-/**
- * Slim chrome used on secondary pages. Renders a clean h-12 header (title +
- * AgentToggleButton) instead of the inbox-specific top bar (tabs, search,
- * account stack, compose pen, etc.).
- *
- * Pages can hoist a custom title or right-side actions via
- * `useSetPageTitle` / `useSetHeaderActions` from `./HeaderActions`.
- */
 function StandardLayout({ children }: AppLayoutProps) {
   const t = useT();
   const location = useLocation();
+  const isAgentChatRoute = isMailChatPath(location.pathname);
+  const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const headerTitle = useHeaderTitle();
   const headerActions = useHeaderActions();
@@ -2121,25 +2428,14 @@ function StandardLayout({ children }: AppLayoutProps) {
       <TooltipContent side="right">{t("mail.search.label")}</TooltipContent>
     </Tooltip>
   );
-  const feedbackButton = (
-    <FeedbackButton variant="sidebar" side="right" className="min-w-0" />
-  );
+  const feedbackButton = <FeedbackButton variant="sidebar" side="right" />;
 
-  // Extensions (`/extensions` list and `/extensions/:id` viewer) render their own h-12
-  // toolbar inside the shared
-  // ExtensionViewer / ExtensionsListPage components. Skip our header to avoid stacking.
   const pageOwnsToolbar =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
 
   const fallbackTitle = (() => {
-    if (location.pathname === "/settings") return t("settings.title");
-    if (
-      location.pathname === "/agent" ||
-      location.pathname.startsWith("/settings/agent")
-    ) {
-      return t("settings.agentTitle");
-    }
+    if (location.pathname === "/agent") return t("settings.agentTitle");
     if (location.pathname === "/team") return t("mail.pages.team");
     if (location.pathname.startsWith("/draft-queue"))
       return t("mail.views.draftQueue");
@@ -2173,7 +2469,7 @@ function StandardLayout({ children }: AppLayoutProps) {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {headerActions}
-            <AgentToggleButton />
+            {!isAgentChatRoute && <AgentToggleButton />}
           </div>
         </header>
       )}
@@ -2191,13 +2487,29 @@ function StandardLayout({ children }: AppLayoutProps) {
           aria-hidden={!sidebarOpen}
           inert={!sidebarOpen}
           className={cn(
-            "fixed start-0 top-0 bottom-0 z-40 flex w-64 flex-col overflow-hidden bg-[var(--mail-drawer-surface)] backdrop-blur-2xl transition-transform duration-200 ease-out motion-reduce:transition-none",
+            "fixed start-0 top-0 bottom-0 z-40 flex w-[260px] flex-col overflow-hidden border-e border-border bg-sidebar transition-transform duration-200 ease-out motion-reduce:transition-none",
             sidebarOpen
               ? "translate-x-0"
               : "pointer-events-none -translate-x-full rtl:translate-x-full",
           )}
         >
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-4">
+            <Link
+              to="/inbox"
+              onClick={() => setSidebarOpen(false)}
+              className="flex min-w-0 items-center gap-2 rounded text-start outline-none"
+            >
+              <AgentNativeIcon
+                aria-hidden="true"
+                className="h-3.5 w-6 shrink-0 text-primary"
+              />
+              <span className="truncate text-sm font-semibold text-primary">
+                {t("mail.appName")}
+              </span>
+            </Link>
+            <EnvironmentBadge placement="inline" />
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
             <div className="space-y-0.5">
               {[
                 { id: "inbox", label: t("mail.views.inbox"), href: "/inbox" },
@@ -2244,10 +2556,10 @@ function StandardLayout({ children }: AppLayoutProps) {
                   to={item.href}
                   onClick={() => setSidebarOpen(false)}
                   className={cn(
-                    "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
+                    "flex items-center justify-between rounded px-2 py-1.5 text-xs transition-colors",
                     view === item.id
-                      ? "bg-accent/60 text-foreground font-medium"
-                      : "text-foreground/70 hover:bg-accent/30",
+                      ? "bg-primary/10 font-medium text-primary"
+                      : "text-primary hover:bg-accent/60",
                   )}
                 >
                   <span>{item.label}</span>
@@ -2261,68 +2573,61 @@ function StandardLayout({ children }: AppLayoutProps) {
             </div>
           </div>
 
-          <div className="shrink-0">
-            <div className="px-3 py-2">
-              <OrgSwitcher />
-            </div>
-
-            <div className="flex items-center justify-end gap-1 px-2 py-2">
-              <DevDatabaseLink />
-              <div className="flex shrink-0 items-center gap-0.5">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Link
-                      to="/settings"
-                      onClick={() => setSidebarOpen(false)}
-                      aria-label={t("mail.toolbar.settings")}
-                      className={cn(
-                        "flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
-                        location.pathname === "/settings" &&
-                          "bg-accent/60 text-foreground",
-                      )}
-                    >
-                      <IconSettings className="h-4 w-4" />
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent>{t("mail.toolbar.settings")}</TooltipContent>
-                </Tooltip>
-                <ThemeToggle className="h-8 w-8 shrink-0" />
-              </div>
-            </div>
+          <BuilderCreditNotice className="mx-2 mb-2 shrink-0" />
+          <div className="shrink-0 border-t border-border p-2 space-y-1.5">
             <SidebarFooterActions
               feedback={feedbackButton}
               search={searchButton}
               collapse={collapseButton}
             />
+            <div
+              data-sidebar-footer-utilities
+              className="flex items-center gap-0.5"
+            >
+              <OrgSwitcher
+                hideBuilderCreditNotice
+                className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+              />
+              <DevDatabaseLink />
+              <ThemeToggle className="size-9 shrink-0 !bg-transparent text-primary hover:!bg-accent/60 hover:!text-primary" />
+            </div>
           </div>
         </div>
       </>
 
       <InvitationBanner />
 
-      <main className="agent-native-app-main flex flex-1 overflow-hidden">
+      <main
+        className={cn(
+          "min-h-0 flex-1 overflow-hidden transition-[padding] duration-200 ease-out",
+          !isMobile && sidebarOpen && "ps-[260px]",
+        )}
+      >
         {children}
       </main>
     </div>
   );
 }
 
-// ─── Tab Settings Popover ────────────────────────────────────────────────────
-
 function CheckboxRow({
   checked,
   label,
+  maskLabel = false,
   color,
+  indent = 0,
   onToggle,
 }: {
   checked: boolean;
   label: string;
+  maskLabel?: boolean;
   color?: string;
+  indent?: number;
   onToggle: () => void;
 }) {
   return (
     <button
       onClick={onToggle}
+      style={indent ? { paddingInlineStart: 12 + indent } : undefined}
       className="flex items-center gap-2.5 w-full px-3 py-1.5 text-start hover:bg-accent/50 transition-colors"
     >
       <span
@@ -2335,7 +2640,10 @@ function CheckboxRow({
           <IconCheck className="h-2.5 w-2.5 text-primary-foreground" />
         )}
       </span>
-      <span className="flex items-center gap-1.5 text-[13px] text-foreground/80">
+      <span
+        data-an-mask={maskLabel ? "" : undefined}
+        className="flex items-center gap-1.5 text-[13px] text-foreground/80"
+      >
         {color && (
           <span
             className="h-2 w-2 rounded-full shrink-0"
@@ -2350,34 +2658,68 @@ function CheckboxRow({
 
 function TabSettingsPopover({
   systemViews,
+  aiTags,
+  labels,
   userLabels,
+  labelDisplayNames,
   pinnedLabels,
+  combinedInbox,
+  showSplitInbox,
+  allTabVisible,
+  savedFilters,
   labelAliases,
   search,
   onSearchChange,
   onToggle,
+  onAllTabChange,
+  onCombinedInboxChange,
+  onRemoveFilter,
   onRename,
 }: {
   systemViews: { id: string; labelKey: string }[];
+  aiTags: { id: string; name: string }[];
+  labels: Label[];
   userLabels: Label[];
+  labelDisplayNames: ReadonlyMap<string, string>;
   pinnedLabels: string[];
+  combinedInbox: boolean;
+  showSplitInbox: boolean;
+  allTabVisible: boolean;
+  savedFilters: SavedMailFilter[];
   labelAliases: Record<string, string>;
   search: string;
   onSearchChange: (v: string) => void;
   onToggle: (id: string) => void;
+  onAllTabChange: (checked: boolean) => void;
+  onCombinedInboxChange: (checked: boolean) => void;
+  onRemoveFilter: (id: string) => void;
   onRename: (id: string, alias: string) => void;
 }) {
   const t = useT();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
-  const q = search.toLowerCase();
+  const searchEnabled =
+    systemViews.length +
+      aiTags.length +
+      userLabels.length +
+      savedFilters.length >
+    10;
+  const q = searchEnabled ? search.toLowerCase() : "";
 
   const filteredViews = search
     ? systemViews.filter((v) => t(v.labelKey).toLowerCase().includes(q))
     : systemViews;
+  const filteredAiTags = search
+    ? aiTags.filter((tag) => tag.name.toLowerCase().includes(q))
+    : aiTags;
+  const filteredSavedFilters = search
+    ? savedFilters.filter(
+        (filter) =>
+          filter.name.toLowerCase().includes(q) ||
+          filter.query.toLowerCase().includes(q),
+      )
+    : savedFilters;
 
-  // Split labels into Gmail categories and regular user labels
-  // "important" is excluded — it's always on and not toggleable
   const gmailCategoryIds = new Set([
     "note-to-self",
     "promotions",
@@ -2386,7 +2728,6 @@ function TabSettingsPopover({
     "forums",
     "personal",
   ]);
-  // Ensure all known Gmail categories always appear (some are virtual, not from API)
   const knownCategories: Label[] = [
     {
       id: "note-to-self",
@@ -2413,163 +2754,251 @@ function TabSettingsPopover({
     : mergedCategories;
   const filteredLabels = allLabels.filter((l) => !gmailCategoryIds.has(l.id));
 
-  // Sort: pinned first, then alphabetical
-  const sortedLabels = [...filteredLabels].sort((a, b) => {
-    const ap = pinnedLabels.includes(a.id) ? 0 : 1;
-    const bp = pinnedLabels.includes(b.id) ? 0 : 1;
-    return ap - bp || a.name.localeCompare(b.name);
-  });
+  const labelRows = labelTreeRows(filteredLabels);
 
   const showViews = filteredViews.length > 0;
+  const showAiTags = filteredAiTags.length > 0;
+  const showSavedFilters = filteredSavedFilters.length > 0;
   const showCategories = filteredCategories.length > 0;
-  const showLabels = sortedLabels.length > 0;
-  const noResults = !showViews && !showCategories && !showLabels && search;
+  const showLabels = labelRows.length > 0;
+  const noResults =
+    !showAiTags &&
+    !showViews &&
+    !showSavedFilters &&
+    !showCategories &&
+    !showLabels &&
+    search;
 
   return (
     <>
-      {/* Search */}
-      <div className="px-2 py-1.5 border-b border-border/30">
-        <input
-          autoFocus
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          placeholder={t("mail.search.placeholder")}
-          className="w-full bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none px-1 py-0.5"
-        />
-      </div>
+      {searchEnabled && (
+        <div className="px-2 py-1.5 border-b border-border/30">
+          <input
+            autoFocus
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder={t("mail.search.placeholder")}
+            className="w-full bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none px-1 py-0.5"
+          />
+        </div>
+      )}
 
-      <div className="max-h-72 overflow-y-auto">
-        {noResults && (
-          <p className="px-3 py-3 text-[12px] text-muted-foreground/50">
-            {t("mail.search.noMatches")}
-          </p>
-        )}
+      <div
+        className={cn(combinedInbox && "opacity-40")}
+        aria-disabled={combinedInbox}
+        inert={combinedInbox}
+      >
+        <div className="flex items-center justify-between border-b border-border/30 px-3 py-2">
+          <label
+            htmlFor="all-inbox-tab-toggle"
+            className="text-[13px] text-foreground"
+          >
+            {t("mail.tabSettings.allTab")}
+          </label>
+          <Switch
+            id="all-inbox-tab-toggle"
+            checked={allTabVisible}
+            onCheckedChange={onAllTabChange}
+          />
+        </div>
 
-        {/* System views */}
-        {showViews && (
-          <div>
-            <p className="px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">
-              {t("mail.tabSettings.views")}
+        <div className="max-h-72 overflow-y-auto">
+          {noResults && (
+            <p className="px-3 py-3 text-[12px] text-muted-foreground/50">
+              {t("mail.search.noMatches")}
             </p>
-            {filteredViews.map((v) => (
-              <CheckboxRow
-                key={v.id}
-                checked={pinnedLabels.includes(v.id)}
-                label={t(v.labelKey)}
-                onToggle={() => onToggle(v.id)}
-              />
-            ))}
-          </div>
-        )}
+          )}
 
-        {/* Gmail categories */}
-        {showCategories && (
-          <div>
-            <p
-              className={cn(
-                "px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider",
-                showViews && "border-t border-border/20 mt-1",
-              )}
-            >
-              {t("mail.tabSettings.categories")}
-            </p>
-            {filteredCategories.map((cat) => (
-              <CheckboxRow
-                key={cat.id}
-                checked={pinnedLabels.includes(cat.id)}
-                label={cat.name}
-                onToggle={() => onToggle(cat.id)}
-              />
-            ))}
-          </div>
-        )}
+          {/* AI rule tags stay separate from the Gmail label tree. */}
+          {showAiTags && (
+            <div>
+              <p className="px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">
+                {t("mail.aiFilter.aiTagsTitle")}
+              </p>
+              {filteredAiTags.map((tag) => (
+                <CheckboxRow
+                  key={tag.id}
+                  checked={pinnedLabels.includes(tag.id)}
+                  label={labelAliases[tag.id]?.trim() || tag.name}
+                  maskLabel
+                  color={labels.find((label) => label.id === tag.id)?.color}
+                  onToggle={() => onToggle(tag.id)}
+                />
+              ))}
+            </div>
+          )}
 
-        {/* User labels */}
-        {showLabels && (
-          <div>
-            <p
-              className={cn(
-                "px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider",
-                (showViews || showCategories) &&
-                  "border-t border-border/20 mt-1",
-              )}
-            >
-              {t("mail.views.labels")}
-            </p>
-            {sortedLabels.map((label) => {
-              const isPinned = pinnedLabels.includes(label.id);
-              const isEditing = editingId === label.id;
-              const alias = labelAliases[label.id];
-              const displayName = alias || shortLabelName(label.name);
+          {/* System views */}
+          {showViews && (
+            <div>
+              <p className="px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">
+                {t("mail.tabSettings.views")}
+              </p>
+              {filteredViews.map((v) => (
+                <CheckboxRow
+                  key={v.id}
+                  checked={pinnedLabels.includes(v.id)}
+                  label={t(v.labelKey)}
+                  onToggle={() => onToggle(v.id)}
+                />
+              ))}
+            </div>
+          )}
 
-              return (
-                <div key={label.id} className="group flex items-center">
-                  <div className="flex-1 min-w-0">
-                    {isEditing ? (
-                      <div className="flex items-center gap-1 px-3 py-1">
-                        <input
-                          autoFocus
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
+          {/* Query-backed tabs saved from the search bar */}
+          {showSavedFilters && (
+            <div>
+              <p
+                className={cn(
+                  "px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider",
+                  showViews && "border-t border-border/20 mt-1",
+                )}
+              >
+                {t("mail.tabSettings.savedFilters")}
+              </p>
+              {filteredSavedFilters.map((filter) => (
+                <CheckboxRow
+                  key={filter.id}
+                  checked
+                  label={filter.name}
+                  maskLabel
+                  onToggle={() => onRemoveFilter(filter.id)}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Gmail categories */}
+          {showCategories && (
+            <div>
+              <p
+                className={cn(
+                  "px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider",
+                  showViews && "border-t border-border/20 mt-1",
+                )}
+              >
+                {t("mail.tabSettings.categories")}
+              </p>
+              {filteredCategories.map((cat) => (
+                <CheckboxRow
+                  key={cat.id}
+                  checked={pinnedLabels.includes(cat.id)}
+                  label={cat.name}
+                  maskLabel
+                  onToggle={() => onToggle(cat.id)}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* User labels */}
+          {showLabels && (
+            <div>
+              <p
+                className={cn(
+                  "px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider",
+                  (showViews || showCategories) &&
+                    "border-t border-border/20 mt-1",
+                )}
+              >
+                {t("mail.views.labels")}
+              </p>
+              {labelRows.map(({ label, depth, displayName: leafName }) => {
+                const isPinned = pinnedLabels.includes(label.id);
+                const isEditing = editingId === label.id;
+                const alias = labelAliases[label.id];
+                const displayName =
+                  alias || labelDisplayNames.get(label.id) || leafName;
+
+                return (
+                  <div key={label.id} className="group flex items-center">
+                    <div className="flex-1 min-w-0">
+                      {isEditing ? (
+                        <div
+                          className="flex items-center gap-1 px-3 py-1"
+                          style={
+                            depth
+                              ? { paddingInlineStart: 12 + depth * 12 }
+                              : undefined
+                          }
+                        >
+                          <input
+                            data-an-block
+                            autoFocus
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                onRename(label.id, editValue.trim());
+                                setEditingId(null);
+                              }
+                              if (e.key === "Escape") setEditingId(null);
+                            }}
+                            onBlur={() => {
                               onRename(label.id, editValue.trim());
                               setEditingId(null);
+                            }}
+                            className="flex-1 bg-transparent text-[13px] text-foreground outline-none border-b border-primary/50 px-0 py-0.5"
+                            placeholder={
+                              labelDisplayNames.get(label.id) || leafName
                             }
-                            if (e.key === "Escape") setEditingId(null);
-                          }}
-                          onBlur={() => {
-                            onRename(label.id, editValue.trim());
-                            setEditingId(null);
-                          }}
-                          className="flex-1 bg-transparent text-[13px] text-foreground outline-none border-b border-primary/50 px-0 py-0.5"
-                          placeholder={shortLabelName(label.name)}
+                          />
+                        </div>
+                      ) : (
+                        <CheckboxRow
+                          checked={isPinned}
+                          label={displayName}
+                          maskLabel
+                          color={label.color}
+                          indent={depth * 12}
+                          onToggle={() => onToggle(label.id)}
                         />
-                      </div>
-                    ) : (
-                      <CheckboxRow
-                        checked={isPinned}
-                        label={displayName}
-                        color={label.color}
-                        onToggle={() => onToggle(label.id)}
-                      />
+                      )}
+                    </div>
+                    {isPinned && !isEditing && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => {
+                              setEditingId(label.id);
+                              setEditValue(alias || "");
+                            }}
+                            className="shrink-0 me-2 px-1 py-0.5 text-[10px] text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 rounded hover:bg-accent/50"
+                          >
+                            {t("mail.tabSettings.rename")}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {t("mail.tabSettings.renameTab")}
+                        </TooltipContent>
+                      </Tooltip>
                     )}
                   </div>
-                  {isPinned && !isEditing && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={() => {
-                            setEditingId(label.id);
-                            setEditValue(alias || "");
-                          }}
-                          className="shrink-0 me-2 px-1 py-0.5 text-[10px] text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 rounded hover:bg-accent/50"
-                        >
-                          {t("mail.tabSettings.rename")}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {t("mail.tabSettings.renameTab")}
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="px-3 py-1.5 border-t border-border/30">
-        <p className="text-[11px] text-muted-foreground/40">
-          {t("mail.tabSettings.help")}
-        </p>
-      </div>
+      {showSplitInbox && (
+        <div className="flex items-center justify-between border-t border-border/30 px-3 py-2">
+          <label
+            htmlFor="split-inbox-toggle"
+            className="text-[13px] text-foreground"
+          >
+            {t("mail.tabSettings.splitInbox")}
+          </label>
+          <Switch
+            id="split-inbox-toggle"
+            checked={!combinedInbox}
+            onCheckedChange={(checked) => onCombinedInboxChange(!checked)}
+          />
+        </div>
+      )}
     </>
   );
 }
-
-// ─── Account Popover ─────────────────────────────────────────────────────────
 
 function AccountPopover({
   accounts,
@@ -2633,7 +3062,6 @@ function AccountPopover({
     return () => clearInterval(interval);
   }, [wantAuthUrl, authUrl.data, accounts.length]);
 
-  // Empty activeAccounts means "all selected"
   const allSelected = activeAccounts.size === 0;
 
   return (
@@ -2650,10 +3078,14 @@ function AccountPopover({
           return (
             <div
               key={account.email}
+              data-an-block
               className="flex items-center gap-2.5 px-3 py-2 hover:bg-accent/50 transition-colors group"
             >
               {/* Checkbox */}
               <button
+                type="button"
+                aria-label={account.email}
+                aria-pressed={isChecked}
                 onClick={() => onToggleAccount(account.email)}
                 className="shrink-0"
               >

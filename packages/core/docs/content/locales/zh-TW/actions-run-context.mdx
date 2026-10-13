@@ -97,6 +97,13 @@ export default defineAction({
             "被呼叫之 action 的註冊表鍵值（例如 `delete-recording`），會在每個分派點設定，讓稽核記錄這類跨領域關注點能夠將此次呼叫歸因。對於繞過分派器的直接程式化 `run()` 呼叫，此值為 `undefined`。",
         },
         {
+          name: "toolCallId",
+          type: "string",
+          optional: true,
+          description:
+            "本次呼叫的模型工具呼叫 ID（`toolCall.id`）。由代理迴圈設定，透過 `defineAction()` 包裝器呼叫時也會保留。同一 action 執行多次時，可用它關聯事件。它不是 action 輸入。沒有模型工具呼叫的呼叫端中，此值為 `undefined`。",
+        },
+        {
           name: "threadId",
           type: "string",
           optional: true,

@@ -79,7 +79,7 @@ export function defaultVisualQuestions(): VisualQuestion[] {
           recommended: true,
         },
         {
-          label: "Decide for me",
+          label: "Let the agent decide",
           description:
             "Let the agent choose from the brief and product context.",
         },
@@ -134,7 +134,7 @@ export function defaultVisualQuestions(): VisualQuestion[] {
         { label: "Drag to reorder" },
         { label: "Empty states" },
         { label: "Keyboard-first" },
-        { label: "Decide for me" },
+        { label: "Let the agent decide" },
       ],
     },
     {
@@ -200,7 +200,7 @@ export function defaultVisualQuestions(): VisualQuestion[] {
         { label: "Swipe gestures" },
         { label: "Inline comments" },
         { label: "Empty-state moments" },
-        { label: "Decide for me" },
+        { label: "Let the agent decide" },
       ],
     },
     {
@@ -308,9 +308,6 @@ function renderQuestionControl(question: VisualQuestion): string {
   return renderChipChoices(question);
 }
 
-// Multiple-choice questions always offer a write-in answer unless an author
-// explicitly opts out with `allowOther: false`, so a reviewer can give a custom
-// response instead of the listed options.
 function renderWriteIn(question: VisualQuestion): string {
   if (question.allowOther === false) return "";
   const placeholder = escapeHtml(

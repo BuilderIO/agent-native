@@ -1,8 +1,3 @@
-/**
- * Engagement metrics and activity for registered transactional emails, read
- * from the active provider in the current app's request context.
- */
-
 import { z } from "zod";
 
 import { resolveSecret } from "../server/credential-provider.js";

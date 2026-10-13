@@ -1,11 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
 import {
   hasSessionCredentials,
+  sessionFailureReason,
   sessionTokenFor,
   shouldRetrySessionExchange,
 } from "./session";
+
+test("requires the +autoz marker for automated QA identities", () => {
+  assert.equal(isAutozQaEmail("qa+autoz-run@example.com"), true);
+  assert.equal(isAutozQaEmail("qa+qa-test-bot-run@example.com"), false);
+  assert.equal(isAutozQaEmail("qa@example.com"), false);
+});
 
 test("retries transient server failures but not final or client responses", () => {
   assert.equal(shouldRetrySessionExchange(502, 1), true);
@@ -17,37 +25,37 @@ test("retries transient server failures but not final or client responses", () =
 
 test("prefers a per-app token over the fleet token map", () => {
   const previousMap = process.env.BETA_E2E_SESSION_TOKENS;
-  const previousAppToken = process.env.BETA_E2E_SESSION_TOKEN_MACROS;
-  process.env.BETA_E2E_SESSION_TOKENS = JSON.stringify({ macros: "fleet" });
-  process.env.BETA_E2E_SESSION_TOKEN_MACROS = "app-specific";
+  const previousAppToken = process.env.BETA_E2E_SESSION_TOKEN_CRM;
+  process.env.BETA_E2E_SESSION_TOKENS = JSON.stringify({ crm: "fleet" });
+  process.env.BETA_E2E_SESSION_TOKEN_CRM = "app-specific";
   try {
-    assert.equal(sessionTokenFor("macros"), "app-specific");
+    assert.equal(sessionTokenFor("crm"), "app-specific");
   } finally {
     if (previousMap === undefined) delete process.env.BETA_E2E_SESSION_TOKENS;
     else process.env.BETA_E2E_SESSION_TOKENS = previousMap;
     if (previousAppToken === undefined)
-      delete process.env.BETA_E2E_SESSION_TOKEN_MACROS;
-    else process.env.BETA_E2E_SESSION_TOKEN_MACROS = previousAppToken;
+      delete process.env.BETA_E2E_SESSION_TOKEN_CRM;
+    else process.env.BETA_E2E_SESSION_TOKEN_CRM = previousAppToken;
   }
 });
 
 test("recognizes a per-app token as an authenticated credential", () => {
   const previousMap = process.env.BETA_E2E_SESSION_TOKENS;
-  const previousAppToken = process.env.BETA_E2E_SESSION_TOKEN_MACROS;
+  const previousAppToken = process.env.BETA_E2E_SESSION_TOKEN_CRM;
   const previousStorageState = process.env.BETA_E2E_STORAGE_STATE;
   const previousStorageStateFile = process.env.BETA_E2E_STORAGE_STATE_FILE;
   delete process.env.BETA_E2E_SESSION_TOKENS;
   delete process.env.BETA_E2E_STORAGE_STATE;
   delete process.env.BETA_E2E_STORAGE_STATE_FILE;
-  process.env.BETA_E2E_SESSION_TOKEN_MACROS = "app-specific";
+  process.env.BETA_E2E_SESSION_TOKEN_CRM = "app-specific";
   try {
     assert.equal(hasSessionCredentials(), true);
   } finally {
     if (previousMap === undefined) delete process.env.BETA_E2E_SESSION_TOKENS;
     else process.env.BETA_E2E_SESSION_TOKENS = previousMap;
     if (previousAppToken === undefined)
-      delete process.env.BETA_E2E_SESSION_TOKEN_MACROS;
-    else process.env.BETA_E2E_SESSION_TOKEN_MACROS = previousAppToken;
+      delete process.env.BETA_E2E_SESSION_TOKEN_CRM;
+    else process.env.BETA_E2E_SESSION_TOKEN_CRM = previousAppToken;
     if (previousStorageState === undefined)
       delete process.env.BETA_E2E_STORAGE_STATE;
     else process.env.BETA_E2E_STORAGE_STATE = previousStorageState;
@@ -55,4 +63,39 @@ test("recognizes a per-app token as an authenticated credential", () => {
       delete process.env.BETA_E2E_STORAGE_STATE_FILE;
     else process.env.BETA_E2E_STORAGE_STATE_FILE = previousStorageStateFile;
   }
+});
+
+test("classifies session failures without guessing that a credential expired", () => {
+  assert.match(
+    sessionFailureReason({
+      status: 503,
+      body: '{"error":"Session lookup timed out"}',
+      tokenProvided: true,
+    }),
+    /endpoint was unavailable/,
+  );
+  assert.match(
+    sessionFailureReason({
+      status: 200,
+      body: '{"error":"Not authenticated"}',
+      tokenProvided: true,
+    }),
+    /did not honor/,
+  );
+  assert.match(
+    sessionFailureReason({
+      status: 200,
+      body: "not json",
+      tokenProvided: false,
+    }),
+    /unreadable/,
+  );
+  assert.doesNotMatch(
+    sessionFailureReason({
+      status: 200,
+      body: '{"error":"Not authenticated"}',
+      tokenProvided: true,
+    }),
+    /expire|30 days/i,
+  );
 });

@@ -5,14 +5,71 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { appPath } from "./helpers";
+import { e2eBaseURL } from "./base-url";
+import { appPath, openAppMenuSubmenu } from "./helpers";
+
+async function setFeatureFlagRules(
+  page: Page,
+  key: string,
+  rules: Record<string, unknown>,
+) {
+  const response = await page.request.post(
+    `${e2eBaseURL()}/_agent-native/actions/set-feature-flag`,
+    { data: { operation: "replace-rules", key, rules } },
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `set-feature-flag failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  return response.json();
+}
+
+async function enableDesignSystemWorkflowsAndRestore(
+  page: Page,
+): Promise<() => Promise<void>> {
+  const response = await page.request.get(
+    `${e2eBaseURL()}/_agent-native/actions/list-feature-flags`,
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `list-feature-flags failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  const listed = await response.json();
+  const key = "design-system-workflows";
+  const currentRules = listed.flags?.find(
+    (flag: { key: string }) => flag.key === key,
+  )?.rules;
+  if (!currentRules || !["off", "on", "rules"].includes(currentRules.mode)) {
+    throw new Error(`list-feature-flags did not return rules for ${key}`);
+  }
+  const previousRules = {
+    mode: currentRules.mode,
+    ...(currentRules.emails !== undefined && {
+      emails: currentRules.emails,
+    }),
+    ...(currentRules.orgIds !== undefined && {
+      orgIds: currentRules.orgIds,
+    }),
+    ...(currentRules.percentage !== undefined && {
+      percentage: currentRules.percentage,
+    }),
+  };
+
+  await setFeatureFlagRules(page, key, { mode: "on" });
+  return async () => {
+    const restored = await setFeatureFlagRules(page, key, previousRules);
+    expect(restored.rules).toMatchObject(previousRules);
+  };
+}
 
 async function postAction(
   request: APIRequestContext,
   name: string,
   input: Record<string, unknown>,
 ) {
-  const baseUrl = process.env.E2E_BASE_URL ?? "http://127.0.0.1:9333";
+  const baseUrl = e2eBaseURL();
   const response = await request.post(
     `${baseUrl.replace(/\/$/, "")}/_agent-native/actions/${name}`,
     { data: input },
@@ -30,7 +87,7 @@ async function getAction(
   name: string,
   input: Record<string, unknown>,
 ) {
-  const baseUrl = process.env.E2E_BASE_URL ?? "http://127.0.0.1:9333";
+  const baseUrl = e2eBaseURL();
   const params = new URLSearchParams(
     Object.entries(input).map(([key, value]) => [key, String(value)]),
   );
@@ -84,36 +141,6 @@ test("built-in template preserves its dimensions and locks and can be saved agai
     await page.goto(appPath("/templates"), { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("load");
 
-    await expect(
-      page.getByRole("link", { name: "Templates", exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: "Built-in templates", exact: true }),
-    ).toBeVisible();
-    await expect(page.locator("article")).toHaveCount(4);
-
-    const builtInCard = page.locator("article").filter({
-      has: page.getByRole("heading", {
-        name: "Social ad — square",
-        exact: true,
-      }),
-    });
-    await expect(builtInCard).toContainText("Built-in");
-    await expect(builtInCard.locator("iframe")).toHaveCount(1);
-    await expect(builtInCard).toContainText("1080 × 1080");
-    await expect(builtInCard).toContainText("2 locked");
-
-    await builtInCard
-      .getByRole("button", { name: "Use template", exact: true })
-      .click();
-
-    const promptPopover = page.locator("[data-agent-native-prompt-popover]");
-    await expect(promptPopover).toBeVisible();
-    await expect(promptPopover).toContainText("Social ad — square");
-    await expect(
-      promptPopover.getByText("Use template as-is", { exact: true }),
-    ).toBeVisible();
-
     const createResponse = page.waitForResponse(
       (response) =>
         response
@@ -121,16 +148,22 @@ test("built-in template preserves its dimensions and locks and can be saved agai
           .includes("/_agent-native/actions/create-design-from-template") &&
         response.request().method() === "POST",
     );
-    await promptPopover
-      .getByText("Use template as-is", { exact: true })
+    await page
+      .getByRole("button", { name: "Event story — vertical", exact: true })
       .click();
-    expect((await createResponse).ok()).toBe(true);
+    const createResponseResult = await createResponse;
+    expect(createResponseResult.ok()).toBe(true);
+    expect(createResponseResult.request().postDataJSON()).toMatchObject({
+      templateId: "preset-social-story",
+    });
 
+    const created = await createResponseResult.json();
+    createdDesignId = created.id ?? created.data?.id ?? created.design?.id;
+    expect(createdDesignId).toBeTruthy();
     await page.waitForURL(/\/design\/[^/?#]+(?:[?#].*)?$/, {
       timeout: 30_000,
     });
-    createdDesignId = page.url().split("/design/").pop()?.split(/[?#]/)[0];
-    expect(createdDesignId).toBeTruthy();
+    expect(page.url()).toContain(`/design/${createdDesignId}`);
     await expect(
       page.getByRole("button", { name: "Move", exact: true }),
     ).toBeVisible({ timeout: 30_000 });
@@ -140,16 +173,19 @@ test("built-in template preserves its dimensions and locks and can be saved agai
     });
     const designData = JSON.parse(copiedDesign.data || "{}");
     expect(designData.templateSource).toMatchObject({
-      templateId: "preset-social-square",
-      title: "Social ad — square",
+      templateId: "preset-social-story",
+      title: "Event story — vertical",
       category: "social",
     });
-    expect(Object.values(designData.canvasFrames ?? {})).toContainEqual(
-      expect.objectContaining({ width: 1080, height: 1080 }),
+    expect(designData.templateSource.files).toContainEqual(
+      expect.objectContaining({
+        filename: "event-story.html",
+        width: 1080,
+        height: 1920,
+      }),
     );
-    expect(copiedDesign.files).toHaveLength(2);
     const copiedScreen = copiedDesign.files.find(
-      (file: { filename?: string }) => file.filename === "social-square.html",
+      (file: { filename?: string }) => file.filename === "event-story.html",
     );
     expect(copiedScreen).toBeTruthy();
     expect(copiedScreen.content).toContain(
@@ -162,52 +198,104 @@ test("built-in template preserves its dimensions and locks and can be saved agai
       copiedScreen.content.match(/data-agent-native-locked="true"/g),
     ).toHaveLength(2);
 
-    await page.getByRole("button", { name: "More", exact: true }).click();
+    await openAppMenuSubmenu(page, "File");
     await page
       .getByRole("menuitem", { name: "Save as template…", exact: true })
       .click();
 
     const saveDialog = page.getByRole("dialog", {
       name: "Save as template…",
+      exact: true,
     });
-    await expect(saveDialog).toBeVisible();
-    await expect(saveDialog).toContainText(
-      "1 screen(s) · 2 locked layer(s) will be preserved",
-    );
-    await saveDialog.getByLabel("Template name").fill(savedTitle);
+    await saveDialog
+      .getByRole("textbox", { name: "Template name" })
+      .fill(savedTitle);
     await saveDialog.getByRole("combobox").click();
     await page.getByRole("option", { name: "Social", exact: true }).click();
 
-    const saveResponse = page.waitForResponse(
+    const saveTemplateResponse = page.waitForResponse(
       (response) =>
         response
           .url()
-          .includes("/_agent-native/actions/save-design-as-template") &&
+          .endsWith("/_agent-native/actions/save-design-as-template") &&
         response.request().method() === "POST",
     );
     await saveDialog
       .getByRole("button", { name: "Save template", exact: true })
       .click();
-    const savedResponse = await saveResponse;
-    expect(savedResponse.ok()).toBe(true);
-    const savedPayload = await savedResponse.json();
-    savedTemplateId = savedPayload.id ?? savedPayload.data?.id;
+    const saveTemplateResponseResult = await saveTemplateResponse;
+    expect(saveTemplateResponseResult.ok()).toBe(true);
+    expect(saveTemplateResponseResult.request().postDataJSON()).toMatchObject({
+      designId: createdDesignId,
+      title: savedTitle,
+      category: "social",
+    });
+
+    const savedTemplate = await saveTemplateResponseResult.json();
+    savedTemplateId = savedTemplate.id ?? savedTemplate.data?.id;
     expect(savedTemplateId).toBeTruthy();
-    await expect(
-      page
-        .getByText("Template saved with 2 locked layer(s)", { exact: true })
-        .first(),
-    ).toBeVisible();
+    expect(savedTemplate).toMatchObject({
+      width: 1080,
+      height: 1920,
+      lockedLayerCount: 2,
+    });
+    expect(savedTemplate.fileCount).toBeGreaterThanOrEqual(1);
+
+    const persistedDesign = await getAction(request, "get-design", {
+      id: createdDesignId!,
+    });
+    const persistedScreen = persistedDesign.files.find(
+      (file: { filename?: string }) => file.filename === "event-story.html",
+    );
+    expect(persistedScreen).toBeTruthy();
+    expect(persistedScreen.content).toContain(
+      'data-agent-native-layer-name="Background"',
+    );
+    expect(persistedScreen.content).toContain(
+      'data-agent-native-layer-name="Logo"',
+    );
+    expect(
+      persistedScreen.content.match(/data-agent-native-locked="true"/g),
+    ).toHaveLength(2);
+
+    const persistedTemplate = await getAction(request, "get-design-template", {
+      templateId: savedTemplateId!,
+    });
+    expect(persistedTemplate).toMatchObject({
+      templateId: savedTemplateId,
+      title: savedTitle,
+      category: "social",
+      fileCount: savedTemplate.fileCount,
+    });
+    const persistedTemplateScreen = persistedTemplate.files.find(
+      (file: { filename?: string }) => file.filename === "event-story.html",
+    );
+    expect(persistedTemplateScreen).toMatchObject({
+      width: 1080,
+      height: 1920,
+    });
+    expect(persistedTemplateScreen.lockedLayers).toHaveLength(2);
 
     await page.goto(appPath(`/templates?templateId=${savedTemplateId}`), {
       waitUntil: "domcontentloaded",
     });
-    const savedCard = page.locator("article").filter({
-      has: page.getByRole("heading", { name: savedTitle, exact: true }),
+    await page.waitForLoadState("load");
+    await expect(page).toHaveURL(/\/templates\?templateId=/);
+    const selectedTemplatePreview = page.getByRole("dialog", {
+      name: savedTitle,
+      exact: true,
     });
-    await expect(savedCard).toBeVisible();
-    await expect(savedCard).toContainText("1080 × 1080");
-    await expect(savedCard).toContainText("2 locked");
+    await expect(selectedTemplatePreview).toBeVisible({ timeout: 15_000 });
+    await expect(selectedTemplatePreview).toContainText(savedTitle);
+    await page.keyboard.press("Escape");
+    await expect(selectedTemplatePreview).toBeHidden({ timeout: 15_000 });
+    await expect(page).not.toHaveURL(/(?:\?|&)templateId=/);
+    await page
+      .getByRole("textbox", { name: "Search templates...", exact: true })
+      .fill(savedTitle);
+    await expect(
+      page.getByRole("button", { name: savedTitle, exact: true }),
+    ).toBeVisible();
 
     expect(browserErrors.consoleErrors).toEqual([]);
     expect(browserErrors.pageErrors).toEqual([]);
@@ -227,65 +315,21 @@ test("built-in template preserves its dimensions and locks and can be saved agai
   }
 });
 
-test("New Design picker searches and copies a built-in template without prompt text", async ({
+test("home Templates tab opens a built-in template design", async ({
   page,
   request,
 }) => {
-  test.setTimeout(120_000);
   let createdDesignId: string | undefined;
-  const designSystemIds: string[] = [];
-  const suffix = Date.now();
-  const selectedSystemTitle = `E2E selected template system ${suffix}`;
 
   try {
-    for (const title of [
-      `E2E fallback template system ${suffix}`,
-      selectedSystemTitle,
-    ]) {
-      const system = await postAction(request, "create-design-system", {
-        title,
-        data: JSON.stringify({ colors: { primary: "#3366ff" } }),
-      });
-      const systemId = system.id ?? system.data?.id;
-      expect(systemId).toBeTruthy();
-      designSystemIds.push(systemId);
-    }
-
-    await page.goto(appPath("/"), { waitUntil: "domcontentloaded" });
+    await page.goto(appPath("/home"), { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("load");
-    await page.getByRole("button", { name: "New Design", exact: true }).click();
-
-    const promptPopover = page.locator("[data-agent-native-prompt-popover]");
-    await expect(promptPopover).toBeVisible();
-    const designSystemControl = promptPopover.getByRole("combobox");
-    await designSystemControl.click();
-    await page
-      .getByRole("option", { name: selectedSystemTitle, exact: true })
-      .click();
-
-    const templateControl = promptPopover.locator(
-      "[data-template-picker-trigger]",
-    );
-    await expect(templateControl).toContainText("Template · Blank");
-    await templateControl.click();
-
-    const picker = page.locator("[data-agent-native-template-popover]");
-    await expect(picker).toBeVisible();
-    await picker.getByPlaceholder("Search templates...").fill("Social ad");
-    await picker
-      .locator('[data-template-option="preset-social-square"]')
-      .click();
-
-    await expect(templateControl).toContainText(
-      "Template · Social ad — square",
-    );
-    await expect(templateControl).toContainText("Built-in");
-    await expect(designSystemControl).toContainText(selectedSystemTitle);
-    await expect(
-      promptPopover.locator(
-        '.ProseMirror p[data-placeholder="Describe how to adapt Social ad — square..."]',
-      ),
-    ).toBeVisible();
+    await page.getByRole("tab", { name: "Templates", exact: true }).click();
+    const templateCard = page.getByRole("button", {
+      name: "Event story — vertical",
+      exact: true,
+    });
+    await expect(templateCard).toBeVisible();
 
     const createResponse = page.waitForResponse(
       (response) =>
@@ -294,45 +338,122 @@ test("New Design picker searches and copies a built-in template without prompt t
           .includes("/_agent-native/actions/create-design-from-template") &&
         response.request().method() === "POST",
     );
-    await promptPopover.getByText("Use template", { exact: true }).click();
+    await templateCard.click();
     const response = await createResponse;
     expect(response.ok()).toBe(true);
-    expect(response.request().postDataJSON()).not.toHaveProperty("prompt");
     expect(response.request().postDataJSON()).toMatchObject({
-      designSystemId: designSystemIds[1],
+      templateId: "preset-social-story",
     });
-    const payload = await response.json();
-    createdDesignId = payload.id ?? payload.data?.id;
-    expect(createdDesignId).toBeTruthy();
 
+    const created = await response.json();
+    createdDesignId = created.id ?? created.data?.id ?? created.design?.id;
+    expect(createdDesignId).toBeTruthy();
     await page.waitForURL(/\/design\/[^/?#]+(?:[?#].*)?$/, {
       timeout: 30_000,
     });
-    expect(
-      await page.evaluate(
-        (designId) =>
-          window.sessionStorage.getItem(
-            `design.pending-generation.${designId}`,
-          ),
-        createdDesignId,
-      ),
-    ).toBeNull();
-    const copiedDesign = await getAction(request, "get-design", {
+    expect(page.url()).toContain(`/design/${createdDesignId}`);
+    const design = await getAction(request, "get-design", {
       id: createdDesignId!,
     });
-    expect(copiedDesign.files).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ filename: "social-square.html" }),
-      ]),
-    );
+    expect(JSON.parse(design.data || "{}").templateSource).toMatchObject({
+      templateId: "preset-social-story",
+      title: "Event story — vertical",
+    });
+    expect(
+      design.files.map((file: { filename: string }) => file.filename),
+    ).toContain("event-story.html");
   } finally {
     if (createdDesignId) {
       await postAction(request, "delete-design", { id: createdDesignId }).catch(
         () => {},
       );
     }
-    for (const id of designSystemIds.reverse()) {
-      await postAction(request, "delete-design-system", { id }).catch(() => {});
+  }
+});
+
+test("template copy clears a linked design system when explicitly requested", async ({
+  page,
+  request,
+}) => {
+  let restoreDesignSystemWorkflows: (() => Promise<void>) | undefined;
+  let designSystemId: string | undefined;
+  let sourceDesignId: string | undefined;
+  let sourceTemplateId: string | undefined;
+  let createdDesignId: string | undefined;
+
+  try {
+    restoreDesignSystemWorkflows =
+      await enableDesignSystemWorkflowsAndRestore(page);
+    const designSystem = await postAction(request, "create-design-system", {
+      templateId: "material-3",
+      title: `E2E system for template override ${Date.now()}`,
+    });
+    designSystemId = designSystem.id;
+    expect(designSystemId).toBeTruthy();
+
+    const sourceDesign = await postAction(request, "create-design", {
+      title: `E2E linked template source ${Date.now()}`,
+      projectType: "prototype",
+      designSystemId,
+    });
+    sourceDesignId = sourceDesign.id;
+    expect(sourceDesign).toHaveProperty("designSystemId", designSystemId);
+    await postAction(request, "create-file", {
+      designId: sourceDesignId,
+      filename: "index.html",
+      content: "<html><body><main>Template source</main></body></html>",
+      fileType: "html",
+    });
+
+    const sourceTemplate = await postAction(
+      request,
+      "save-design-as-template",
+      {
+        designId: sourceDesignId,
+        title: `E2E linked template ${Date.now()}`,
+        category: "other",
+      },
+    );
+    sourceTemplateId = sourceTemplate.id;
+    expect(sourceTemplateId).toBeTruthy();
+
+    const created = await postAction(request, "create-design-from-template", {
+      templateId: sourceTemplateId,
+      title: `E2E no-system copy ${Date.now()}`,
+      designSystemId: null,
+    });
+    createdDesignId = created.id ?? created.data?.id;
+    expect(createdDesignId).toBeTruthy();
+    expect(created).toMatchObject({
+      designSystemId: null,
+      designSystemOverridden: true,
+    });
+
+    const persisted = await getAction(request, "get-design", {
+      id: createdDesignId!,
+    });
+    expect(persisted.designSystemId ?? null).toBeNull();
+  } finally {
+    if (createdDesignId) {
+      await postAction(request, "delete-design", { id: createdDesignId }).catch(
+        () => {},
+      );
     }
+    if (sourceTemplateId) {
+      await postAction(request, "delete-design-template", {
+        id: sourceTemplateId,
+      }).catch(() => {});
+    }
+    if (sourceDesignId) {
+      await postAction(request, "delete-design", { id: sourceDesignId }).catch(
+        () => {},
+      );
+    }
+    if (designSystemId) {
+      await postAction(request, "delete-design-system", {
+        id: designSystemId,
+      }).catch(() => {});
+    }
+    await restoreDesignSystemWorkflows?.();
   }
 });

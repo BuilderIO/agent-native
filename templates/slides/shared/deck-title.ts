@@ -1,3 +1,18 @@
+export const DEFAULT_DECK_TITLE = "Untitled Deck";
+export const DEFAULT_IMPORTED_DECK_TITLE = "New Presentation";
+
+const IMPORTED_TITLE_PLACEHOLDERS = new Set([
+  "untitled deck",
+  "untitled file",
+  "untitled presentation",
+  "untitled scene",
+  "untitled slide",
+  "imported file",
+  "imported document",
+  "imported presentation",
+  DEFAULT_IMPORTED_DECK_TITLE.toLowerCase(),
+]);
+
 const GENERATED_TITLE_PLACEHOLDERS = new Set([
   "deck",
   "date",
@@ -9,30 +24,25 @@ const GENERATED_TITLE_PLACEHOLDERS = new Set([
   "untitled",
   "untitled deck",
   "your name",
+  ...IMPORTED_TITLE_PLACEHOLDERS,
 ]);
 
-const IMPORTED_TITLE_PLACEHOLDERS = new Set([
-  "untitled deck",
-  "untitled file",
-  "untitled presentation",
-  "untitled scene",
-  "untitled slide",
-]);
-
-/**
- * Generated deck ids should never become user-facing titles. Keep this
- * deliberately narrow so normal titles with spaces and punctuation remain
- * valid, while catching opaque mixed-case tokens such as H3sVsnns-TEVUOpz9w.
- */
-const OPAQUE_DECK_TITLE_PATTERN =
-  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[A-Za-z0-9_-]{12,64}$/;
-
-export const DEFAULT_DECK_TITLE = "Untitled Deck";
+const OPAQUE_DECK_TITLE_PATTERN = /^[A-Za-z0-9_-]{12,64}$/;
 
 export function isOpaqueDeckTitle(value: unknown): value is string {
-  return (
-    typeof value === "string" && OPAQUE_DECK_TITLE_PATTERN.test(value.trim())
-  );
+  if (typeof value !== "string") return false;
+  const title = value.trim();
+  if (!OPAQUE_DECK_TITLE_PATTERN.test(title)) return false;
+
+  return title
+    .split(/[-_]/)
+    .some(
+      (part) =>
+        part.length >= 8 &&
+        /[a-z]/.test(part) &&
+        /[A-Z]/.test(part) &&
+        /\d/.test(part),
+    );
 }
 
 export function isGeneratedDeckTitle(value: unknown): value is string {
@@ -71,6 +81,14 @@ function plainText(value: string): string {
     .trim();
 }
 
+export function summarizeSlideContent(content: unknown): string {
+  if (typeof content !== "string") return "";
+  const text = plainText(content);
+  if (text.length <= 160) return text;
+  const cut = text.lastIndexOf(" ", 157);
+  return `${text.slice(0, cut > 0 ? cut : 157).trimEnd()}…`;
+}
+
 function plainTextLines(value: string): string[] {
   return decodeHtmlEntities(
     value.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/gi, "\n"),
@@ -83,15 +101,10 @@ function plainTextLines(value: string): string[] {
 function usableCandidate(value: string): string | null {
   const candidate = plainText(value).replace(/^[•●▪‣\-\s]+/, "");
   if (!candidate || candidate.length > 140) return null;
-  if (GENERATED_TITLE_PLACEHOLDERS.has(candidate.toLowerCase())) return null;
+  if (isGeneratedDeckTitle(candidate)) return null;
   return candidate;
 }
 
-/**
- * Recover a deck title from the largest title-like text in its first slide.
- * This is intentionally HTML-string based because the action runs on the
- * server without a browser DOM.
- */
 export function deriveDeckTitleFromSlideContent(
   content: unknown,
 ): string | null {
@@ -127,7 +140,8 @@ export function deriveDeckTitleFromSlideContent(
   }
 
   const fallbackLines = plainTextLines(content);
-  if (fallbackLines.length > 1) {
+  const hasMarkup = /<[^>]+>/.test(content);
+  if (fallbackLines.length > 1 || !hasMarkup) {
     for (const line of fallbackLines) {
       const text = usableCandidate(line);
       if (text) {
@@ -140,11 +154,6 @@ export function deriveDeckTitleFromSlideContent(
   return candidates.sort((a, b) => b.score - a.score)[0]?.text ?? null;
 }
 
-/**
- * Return a human-readable replacement only when the requested title is a
- * generated placeholder or opaque id. A meaningful existing title wins when
- * a stale full-payload save tries to replace it with a generated value.
- */
 export function repairGeneratedDeckTitle(
   requestedTitle: unknown,
   firstSlideContent: unknown,
@@ -162,32 +171,23 @@ export function repairGeneratedDeckTitle(
   );
 }
 
-/**
- * Imported files often fall back to filenames when they do not have a
- * meaningful title in their own metadata. Prefer the first slide's content
- * when it can produce a real deck title; otherwise keep a human-readable
- * fallback instead of a source filename placeholder.
- */
 export function resolveImportedDeckTitle(
   requestedTitle: unknown,
   firstSlideContent: unknown,
+  fallbackTitle?: unknown,
 ): string {
-  if (typeof requestedTitle === "string") {
-    const title = requestedTitle.trim();
-    const opaqueTitle = isOpaqueDeckTitle(requestedTitle);
-    if (
-      title &&
-      !opaqueTitle &&
-      !IMPORTED_TITLE_PLACEHOLDERS.has(title.toLowerCase())
-    ) {
-      return title;
-    }
-  }
+  const title = usableCandidate(
+    typeof requestedTitle === "string" ? requestedTitle : "",
+  );
+  if (title) return title;
 
   const derivedTitle = deriveDeckTitleFromSlideContent(firstSlideContent);
   if (derivedTitle) return derivedTitle;
 
-  return "Imported File";
+  const fallback = usableCandidate(
+    typeof fallbackTitle === "string" ? fallbackTitle : "",
+  );
+  return fallback ?? DEFAULT_IMPORTED_DECK_TITLE;
 }
 
 export function assertHumanReadableDeckTitle(title: string): void {

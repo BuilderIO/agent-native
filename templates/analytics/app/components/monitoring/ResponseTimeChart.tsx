@@ -1,10 +1,3 @@
-/**
- * Response-time (latency) chart over a window: an avg area with optional
- * min/max band lines, rendered with the app's charting library (recharts) and
- * themed with the shared chart tokens. Takes a pre-built response-time series.
- *
- * Reusable by the authenticated monitor detail view and the public status page.
- */
 import { useId, useMemo } from "react";
 import {
   Area,
@@ -30,12 +23,9 @@ import type { ResponseTimePoint } from "./types";
 
 export interface ResponseTimeChartProps {
   series: ResponseTimePoint[];
-  /** Also draw min & max lines around the avg area. Default false. */
   showMinMax?: boolean;
-  /** Tailwind height for the chart. Default `h-[200px]`. */
   heightClassName?: string;
   className?: string;
-  /** Message shown when the series is empty. */
   emptyText?: string;
 }
 

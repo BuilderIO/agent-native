@@ -12,6 +12,11 @@ import {
   IconX,
   IconArrowUp,
   IconLoader2,
+  IconMessageCircle,
+  IconCode,
+  IconH1,
+  IconH2,
+  IconH3,
 } from "@tabler/icons-react";
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -24,20 +29,21 @@ import {
 } from "@/components/ui/tooltip";
 import { shortcutLabel } from "@/lib/utils";
 
+import type { InPlaceTextSession } from "./in-place-text-session";
+
 interface BlockBubbleMenuProps {
-  /** The element currently in contentEditable mode. Menu only shows while selection is inside it. */
   editingEl: HTMLElement | null;
-  /** Slide the edited block belongs to, so an AI revision can target it. */
   slideId?: string;
-  /** Deck that owns the slide — pins the revision to the right deck. */
   deckId?: string;
-  /**
-   * Ends the inline edit session and persists whatever is in the DOM now.
-   * Required before handing work to the agent: otherwise the still-open
-   * contentEditable serializes its stale text on the user's next click and
-   * overwrites the revision the agent just wrote.
-   */
-  onCommitInlineEdit?: () => void;
+  slideContentHash?: string;
+  onCommitInlineEdit?: () => string | undefined | Promise<string | undefined>;
+  onComment?: (
+    quotedText: string,
+    range: Range,
+    editingEl: HTMLElement,
+  ) => void;
+  textSession?: InPlaceTextSession | null;
+  linkRequest?: { editingEl: HTMLElement; range: Range } | null;
 }
 
 interface Position {
@@ -45,7 +51,6 @@ interface Position {
   left: number;
 }
 
-/** Preset palette used by the color picker. */
 const COLORS = [
   "#FFFFFF",
   "#E5E7EB",
@@ -60,30 +65,31 @@ const COLORS = [
   "#EF4444",
 ];
 
-/** Shown above the input so the user can confirm what the agent will rewrite. */
 const AI_TARGET_PREVIEW_LIMIT = 160;
 
 const AI_SEND_BUTTON_CLASS =
   // guard:allow-raw-color — same accent as the link Apply button below.
   "rounded p-1.5 text-[#609FF8] hover:bg-accent disabled:pointer-events-none disabled:opacity-40";
 
-export function buildReviseSelectionPrompt({
+export function buildReviseSelectionContext({
   selectedText,
   instruction,
   slideId,
   deckId,
+  slideContentHash,
 }: {
   selectedText: string;
   instruction: string;
   slideId?: string;
   deckId?: string;
+  slideContentHash?: string;
 }): string {
-  // The deck is named explicitly rather than left to "the current slide": the
-  // request is queued, and if the user opens another deck before the agent
-  // runs, an implicit target would pair this slide id with the wrong deck.
   const target = [
     deckId ? `Deck id: \`${deckId}\`` : null,
     slideId ? `Slide id: \`${slideId}\`` : null,
+    slideContentHash
+      ? `Captured slide content hash: \`${slideContentHash}\``
+      : null,
   ].filter((line) => line !== null);
 
   return [
@@ -96,28 +102,21 @@ export function buildReviseSelectionPrompt({
     `How to revise it: ${instruction}`,
     ...(target.length > 0 ? [``, ...target] : []),
     ``,
-    `Read that slide first with \`view-screen\`, then make one bounded \`update-slide --fullContent\` edit that replaces only the quoted text. Leave the surrounding HTML, inline styles, and layout untouched, and keep the replacement close to the original length so the slide still fits its canvas.`,
+    `Use the provided deck and slide ids. If either id is missing, call \`view-screen\` once; otherwise do not read the full deck. If a captured slide content hash is present, pass it as \`baseContentHash\`; if it is absent, call \`get-deck\` with \`slideId\` before writing. Then call \`update-slide\` with one \`edits\` literal replacement using the quoted text as \`find\` and \`expectedMatches: 1\`. If the selection crosses inline markup or the literal replacement reports no match, call \`get-deck\` with \`slideId\` only and retry with markup-aware edits and its returned \`contentHash\`. Do not use \`fullContent\`, fetch the full deck, or rewrite the surrounding HTML, inline styles, or layout, and keep the replacement close to the original length so the slide still fits its canvas.`,
   ]
     .filter((line) => line !== null)
     .join("\n");
 }
 
-/**
- * Floating formatting toolbar for contentEditable text blocks. Shows on
- * non-empty selection inside the editing element and applies inline
- * formatting (bold, italic, underline, strike, link, color) directly to
- * the DOM. Designed to work with the in-place per-block editing in
- * SlideEditor — it never mutates anything outside the editing element.
- *
- * The "Revise with AI" action is the exception: it does not touch the DOM.
- * It hands the selected text plus the user's instruction to the agent, which
- * rewrites the slide through `update-slide`.
- */
 export function BlockBubbleMenu({
   editingEl,
   slideId,
   deckId,
+  slideContentHash,
   onCommitInlineEdit,
+  onComment,
+  textSession = null,
+  linkRequest = null,
 }: BlockBubbleMenuProps) {
   const t = useT();
   const [pos, setPos] = useState<Position | null>(null);
@@ -128,24 +127,39 @@ export function BlockBubbleMenu({
   const [aiInstruction, setAiInstruction] = useState("");
   const [aiTargetText, setAiTargetText] = useState("");
   const [aiSending, setAiSending] = useState(false);
+  const [aiTargetContentHash, setAiTargetContentHash] = useState("");
   const savedRangeRef = useRef<Range | null>(null);
-  // True while a popup/input has the user's focus — keeps the menu pinned
-  // even when the contentEditable selection collapses behind the scenes.
   const interactingRef = useRef(false);
   useEffect(() => {
     interactingRef.current = showColors || showLinkInput || showAiInput;
   }, [showColors, showLinkInput, showAiInput]);
 
-  // Hide menu when the editing element changes
   useEffect(() => {
     setPos(null);
     setShowColors(false);
     setShowLinkInput(false);
     setShowAiInput(false);
     setAiInstruction("");
+    setAiTargetContentHash("");
   }, [editingEl]);
 
-  // Track selection and position the menu
+  useEffect(() => {
+    if (!editingEl || linkRequest?.editingEl !== editingEl) return;
+    const { range } = linkRequest;
+    if (!editingEl.contains(range.commonAncestorContainer) || range.collapsed)
+      return;
+    savedRangeRef.current = range.cloneRange();
+    const rect = range.getBoundingClientRect();
+    if (rect.width || rect.height) {
+      setPos({ top: rect.top - 8, left: rect.left + rect.width / 2 });
+    }
+    interactingRef.current = true;
+    setLinkValue("");
+    setShowColors(false);
+    setShowAiInput(false);
+    setShowLinkInput(true);
+  }, [editingEl, linkRequest]);
+
   useEffect(() => {
     if (!editingEl) return;
 
@@ -157,7 +171,6 @@ export function BlockBubbleMenu({
         return;
       }
       const range = sel.getRangeAt(0);
-      // Only show if selection is inside the editing element
       if (!editingEl.contains(range.commonAncestorContainer)) {
         setPos(null);
         return;
@@ -188,30 +201,26 @@ export function BlockBubbleMenu({
 
   if (!editingEl || !pos) return null;
 
-  /** Restore the saved selection before running a command (buttons steal focus). */
   const restoreSelection = () => {
     const range = savedRangeRef.current;
     if (!range) return false;
     const sel = window.getSelection();
     if (!sel) return false;
+    editingEl.focus({ preventScroll: true });
     sel.removeAllRanges();
     sel.addRange(range);
-    editingEl.focus();
     return true;
   };
 
-  const runCommand = (cmd: string, value?: string) => {
-    if (!restoreSelection()) return;
-    // Force <span style="..."> output so colors survive sanitizeSlideHtml,
-    // which strips <font> tags and would silently lose foreColor on save.
-    document.execCommand("styleWithCSS", false, "true");
-    // No state sync per-command — would re-run dangerouslySetInnerHTML and
-    // wipe contentEditable. Final DOM is captured by exitInlineEdit.
-    document.execCommand(cmd, false, value);
+  const runCommand = (
+    command: (commands: InPlaceTextSession["commands"]) => boolean,
+  ) => {
+    if (!textSession?.isActive || !restoreSelection()) return;
+    command(textSession.commands);
   };
 
   const applyColor = (color: string) => {
-    runCommand("foreColor", color);
+    runCommand((commands) => commands.color(color));
     setShowColors(false);
   };
 
@@ -220,15 +229,22 @@ export function BlockBubbleMenu({
     const href = linkValue.startsWith("http")
       ? linkValue
       : `https://${linkValue}`;
-    runCommand("createLink", href);
+    runCommand((commands) => commands.link(href));
     setShowLinkInput(false);
     setLinkValue("");
   };
 
   const removeLink = () => {
-    runCommand("unlink");
+    runCommand((commands) => commands.link(null));
     setShowLinkInput(false);
     setLinkValue("");
+  };
+
+  const commentOnSelection = () => {
+    const range = savedRangeRef.current?.cloneRange();
+    const selectedText = range?.toString() ?? "";
+    if (!range || !selectedText.trim() || !onComment) return;
+    if (restoreSelection()) onComment(selectedText, range, editingEl);
   };
 
   const openAiInput = () => {
@@ -236,11 +252,10 @@ export function BlockBubbleMenu({
       setShowAiInput(false);
       return;
     }
-    // Snapshot the text now: opening the input moves focus out of the
-    // contentEditable and the live selection collapses.
-    const selected = savedRangeRef.current?.toString().trim() ?? "";
-    if (!selected) return;
+    const selected = savedRangeRef.current?.toString() ?? "";
+    if (!selected.trim()) return;
     setAiTargetText(selected);
+    setAiTargetContentHash(slideContentHash ?? "");
     setAiInstruction("");
     interactingRef.current = true;
     setShowAiInput(true);
@@ -249,29 +264,27 @@ export function BlockBubbleMenu({
   };
 
   const submitAiRevision = async () => {
-    const instruction = aiInstruction.trim();
-    if (!instruction || !aiTargetText || aiSending) return;
-
-    // Close the inline edit first. The block is still a live contentEditable
-    // session; leaving it open means the next click away serializes the old
-    // text over whatever the agent writes.
-    onCommitInlineEdit?.();
+    const instruction = aiInstruction;
+    if (!instruction.trim() || !aiTargetText.trim() || aiSending) return;
 
     setAiSending(true);
     try {
+      const committedContentHash = await onCommitInlineEdit?.();
       const delivery = await sendToAgentChatAndConfirm({
-        message: buildReviseSelectionPrompt({
+        message: instruction,
+        context: buildReviseSelectionContext({
           selectedText: aiTargetText,
           instruction,
           slideId,
           deckId,
+          slideContentHash:
+            (committedContentHash ?? aiTargetContentHash) || undefined,
         }),
         submit: true,
         chatTarget: "local",
       });
 
       if (!delivery.delivered) {
-        // Keep the typed instruction so the user can retry without retyping.
         toast.error(t("raw.sendToAgent"), {
           description: delivery.reason ?? "The agent did not receive this.",
         });
@@ -292,7 +305,6 @@ export function BlockBubbleMenu({
       className="fixed z-[60] -translate-x-1/2 -translate-y-full flex items-center gap-0.5 p-1 rounded-lg bg-popover border border-border shadow-2xl shadow-black/60"
       style={{ top: pos.top, left: pos.left }}
       onMouseDown={(e) => {
-        // Prevent blur on the editing element when clicking menu buttons
         e.preventDefault();
       }}
     >
@@ -302,26 +314,60 @@ export function BlockBubbleMenu({
         onClick={openAiInput}
         active={showAiInput}
       />
+      {onComment && (
+        <ToolbarButton
+          icon={IconMessageCircle}
+          tooltip={t("comments.addComment")}
+          onClick={commentOnSelection}
+        />
+      )}
       <div className="w-px h-4 bg-border mx-0.5" />
       <ToolbarButton
         icon={IconBold}
         tooltip={`Bold (${shortcutLabel("cmd+b")})`}
-        onClick={() => runCommand("bold")}
+        onClick={() => runCommand((commands) => commands.bold())}
       />
       <ToolbarButton
         icon={IconItalic}
         tooltip={`Italic (${shortcutLabel("cmd+i")})`}
-        onClick={() => runCommand("italic")}
+        onClick={() => runCommand((commands) => commands.italic())}
       />
       <ToolbarButton
         icon={IconUnderline}
         tooltip={`Underline (${shortcutLabel("cmd+u")})`}
-        onClick={() => runCommand("underline")}
+        onClick={() => runCommand((commands) => commands.underline())}
       />
       <ToolbarButton
         icon={IconStrikethrough}
         tooltip="Strikethrough"
-        onClick={() => runCommand("strikeThrough")}
+        onClick={() => runCommand((commands) => commands.strike())}
+      />
+      <ToolbarButton
+        icon={IconCode}
+        tooltip={t("slideTextMenu.code")}
+        onClick={() => runCommand((commands) => commands.code())}
+      />
+      <div className="w-px h-4 bg-border mx-0.5" />
+      <ToolbarButton
+        icon={IconH1}
+        tooltip={t("slideTextMenu.heading1")}
+        onClick={() =>
+          runCommand((commands) => commands.applyAuthoringCommand("heading1"))
+        }
+      />
+      <ToolbarButton
+        icon={IconH2}
+        tooltip={t("slideTextMenu.heading2")}
+        onClick={() =>
+          runCommand((commands) => commands.applyAuthoringCommand("heading2"))
+        }
+      />
+      <ToolbarButton
+        icon={IconH3}
+        tooltip={t("slideTextMenu.heading3")}
+        onClick={() =>
+          runCommand((commands) => commands.applyAuthoringCommand("heading3"))
+        }
       />
       <div className="w-px h-4 bg-border mx-0.5" />
       <div className="relative">
@@ -329,8 +375,6 @@ export function BlockBubbleMenu({
           icon={IconPalette}
           tooltip="Color"
           onClick={() => {
-            // Imperative set BEFORE state change — useEffect runs after the
-            // input's autoFocus has already fired selectionchange, too late.
             if (!showColors) interactingRef.current = true;
             setShowColors((v) => !v);
             setShowLinkInput(false);
@@ -372,9 +416,6 @@ export function BlockBubbleMenu({
       {showAiInput && (
         <div
           data-ai-revise-input="true"
-          // Own mousedown handler: the toolbar above blocks the default to keep
-          // the contentEditable focused, which would also stop this input from
-          // ever receiving a caret.
           onMouseDown={(e) => e.stopPropagation()}
           className="absolute top-full left-1/2 -translate-x-1/2 mt-1 w-80 p-2 rounded-lg bg-popover border border-border shadow-2xl shadow-black/60"
         >

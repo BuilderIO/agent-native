@@ -3,40 +3,33 @@ import { existsSync } from "node:fs";
 import { test, type Browser, type BrowserContext } from "@playwright/test";
 
 import { seedModelSelection } from "./chat";
-import { type BetaSite, originFor } from "./fleet";
-import { authStatePath, authedLaneReady, expectedEmail } from "./session";
-
-/**
- * Shared setup for the authenticated lane.
- *
- * Sessions are established once, in global setup, and stored per app. A spec
- * that finds no stored session must stop the run rather than continue signed
- * out: an authenticated assertion evaluated against an anonymous page is not a
- * weaker test, it is a false one.
- */
+import { authenticatedEntryPath, type BetaSite, originFor } from "./fleet";
+import {
+  authStatePath,
+  authedLaneReady,
+  expectedEmail,
+  sessionFailureReason,
+} from "./session";
+import {
+  BETA_E2E_TEST_TRAFFIC_HEADERS,
+  installBetaE2ETrafficMarker,
+} from "./test-traffic";
 
 export function authedLaneEnabled(): boolean {
   return authedLaneReady();
 }
 
-/**
- * Skip the whole file when this run was never asked to authenticate.
- *
- * Deliberately narrow: it skips on "not requested", never on "requested but
- * broken" — global setup throws for that, before any spec runs.
- */
 export function skipUnlessAuthed(): void {
   test.skip(
     !authedLaneEnabled(),
-    "authenticated lane not requested (set BETA_E2E_SESSION_TOKENS and BETA_E2E_OPENAI_API_KEY, or BETA_E2E_AUTHED=1)",
+    "authenticated lane not requested (set session credentials; chat also needs BETA_E2E_OPENAI_API_KEY, or BETA_E2E_AUTHED=1)",
   );
 }
 
-/** A browser context signed in as the e2e identity for one beta app. */
 export async function signedInContext(
   browser: Browser,
   site: BetaSite,
-  { seedModel = true }: { seedModel?: boolean } = {},
+  { seedModel = true, baseURL }: { seedModel?: boolean; baseURL?: string } = {},
 ): Promise<BrowserContext> {
   const statePath = authStatePath(site.id);
   if (!existsSync(statePath)) {
@@ -44,7 +37,12 @@ export async function signedInContext(
       `No stored session for ${site.id} at ${statePath}. Global setup should have created it; running this spec signed out would assert nothing.`,
     );
   }
-  const context = await browser.newContext({ storageState: statePath });
+  const context = await browser.newContext({
+    storageState: statePath,
+    extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS,
+    ...(baseURL ? { baseURL } : {}),
+  });
+  await installBetaE2ETrafficMarker(context);
   if (seedModel) {
     const namespaces =
       site.id === "chat" || site.id === "analytics" || site.id === "dispatch"
@@ -55,14 +53,6 @@ export async function signedInContext(
   return context;
 }
 
-/**
- * Confirm the page is signed in as the expected identity and is on the beta
- * build, before any assertion depends on either.
- *
- * The lane check matters because a Builder.io address on a production host is
- * redirected to beta automatically; without it a run could report on whichever
- * build it happened to land on.
- */
 export async function assertSignedInOnBeta(
   context: BrowserContext,
   site: BetaSite,
@@ -70,7 +60,7 @@ export async function assertSignedInOnBeta(
   const origin = originFor(site);
   const page = await context.newPage();
   try {
-    await page.goto(`${origin}/`, {
+    await page.goto(`${origin}${authenticatedEntryPath(site)}`, {
       waitUntil: "domcontentloaded",
       timeout: 45_000,
     });
@@ -90,7 +80,7 @@ export async function assertSignedInOnBeta(
 
     if (!email) {
       throw new Error(
-        `${site.host} does not consider this context signed in (HTTP ${session.status}: ${session.body.slice(0, 200)}). The stored session has probably expired — re-run \`pnpm e2e:beta:capture\`.`,
+        `${site.host} does not consider this context signed in (HTTP ${session.status}: ${session.body.slice(0, 200)}). ${sessionFailureReason({ status: session.status, body: session.body, tokenProvided: false })}`,
       );
     }
     const expected = expectedEmail();
@@ -110,7 +100,6 @@ export async function assertSignedInOnBeta(
   }
 }
 
-/** A marker that ties fixtures created by this run back to it. */
 export function runMarker(label: string): string {
   const run =
     process.env.GITHUB_RUN_ID ??

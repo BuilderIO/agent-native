@@ -86,6 +86,10 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
     () => import("../jobs/run-history.js").then((m) => m.ensureTable()),
   ],
   [
+    "AutomationWebhookTokens",
+    () => import("../triggers/webhook-store.js").then((m) => m.ensureTable()),
+  ],
+  [
     "AwaitingInputs",
     () =>
       import("../integrations/awaiting-input-store.js").then((m) =>
@@ -163,6 +167,10 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
       import("../integrations/identity-links-store.js").then((m) =>
         m.ensureTable(),
       ),
+  ],
+  [
+    "IdentityRetiredEmails",
+    () => import("../identity/retired-emails.js").then((m) => m.ensureTable()),
   ],
   [
     "IdentitySso",
@@ -286,6 +294,18 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
       ),
   ],
   [
+    "ResourceAccessRequests",
+    () =>
+      import("../sharing/access-request-store.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "ResourceChanges",
+    () =>
+      import("../resource-changes/store.js").then((m) =>
+        m.ensureResourceChangeTables(),
+      ),
+  ],
+  [
     "ResourceVersions",
     () =>
       import("../history/store.js").then((m) =>
@@ -301,6 +321,13 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
     () => import("../review/store.js").then((m) => m.ensureReviewTables()),
   ],
   [
+    "ReviewSuggestions",
+    () =>
+      import("../review/suggestions/store.js").then((m) =>
+        m.ensureSuggestionTables(),
+      ),
+  ],
+  [
     "SandboxExecutions",
     () =>
       import("../coding-tools/sandbox/executions-store.js").then((m) =>
@@ -311,6 +338,18 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
     "SchedulerHealth",
     () =>
       import("../jobs/scheduler-health.js").then((m) => m.ensureHealthTable()),
+  ],
+  [
+    "SearchIndex",
+    () =>
+      import("../search/index-store.js").then((m) =>
+        m.ensureSearchIndexTables(),
+      ),
+  ],
+  [
+    "ServicePrincipalPolicies",
+    () =>
+      import("../org/service-principal-policy.js").then((m) => m.ensureTable()),
   ],
   [
     "Settings",
@@ -371,7 +410,6 @@ const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
   ],
 ];
 
-/** Store names in release order. Exported for the guard and its tests. */
 export function frameworkSchemaEnsureNames(): string[] {
   return FRAMEWORK_SCHEMA_ENSURES.map(([name]) => name);
 }
@@ -391,8 +429,6 @@ export function frameworkSchemaEnsureNames(): string[] {
  * module exists to remove.
  */
 export async function runFrameworkSchemaEnsures(
-  // Injectable so the ordering and failure contract can be tested without
-  // standing up 60 real stores; production callers pass nothing.
   ensures: readonly SchemaEnsure[] = FRAMEWORK_SCHEMA_ENSURES,
 ): Promise<void> {
   for (const [name, run] of ensures) {

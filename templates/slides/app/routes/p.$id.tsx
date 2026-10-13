@@ -5,6 +5,8 @@ import {
 } from "@agent-native/core/server";
 import {
   AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  SSR_QUERY_CACHE_KEY_HEADER,
+  buildResourceSocialMeta,
   buildAgentReadableResourceDiscovery,
   normalizeDocumentTitle,
   safeJsonForHtml,
@@ -14,6 +16,7 @@ import {
   type SharedDeckResponse,
   type SharedDeckSlide,
 } from "@shared/api";
+import { summarizeSlideContent } from "@shared/deck-title";
 import { eq } from "drizzle-orm";
 import { useEffect } from "react";
 import type {
@@ -26,6 +29,7 @@ import { data, useLoaderData } from "react-router";
 import SharedPresentation from "@/pages/SharedPresentation";
 
 import { getDb, schema } from "../../server/db";
+import { slideRevealIssues } from "../../server/lib/slide-reveal-issues";
 import {
   DECK_AGENT_CONTEXT_ENDPOINT,
   DECK_AGENT_RESOURCE_KIND,
@@ -37,6 +41,8 @@ type LoaderData =
       error?: undefined;
       id: string;
       basePath: string;
+      origin: string;
+      isPublic: boolean;
       agentAccessToken?: string | null;
     }
   | {
@@ -45,13 +51,6 @@ type LoaderData =
       restricted?: { id: string; basePath: string };
     };
 
-/**
- * Loose shape of the persisted deck JSON. Each slide is `Partial` because
- * decks created across many template versions may be missing newer fields
- * (\`transition\`, \`animations\`, \`splitByParagraph\`) and older decks may also
- * lack \`id\` / \`content\`. \`toSharedDeckSlide\` validates and fills in
- * defaults at runtime; the type just documents what consumers can expect.
- */
 type DeckData = {
   title?: string;
   slides?: Array<Partial<SharedDeckSlide>>;
@@ -61,6 +60,7 @@ type DeckData = {
 const PRIVATE_AGENT_DECK_HEADERS = {
   "Cache-Control": "private, max-age=0, no-store",
   "Referrer-Policy": "no-referrer",
+  [SSR_QUERY_CACHE_KEY_HEADER]: "query",
 };
 
 function publicDeckLoaderData(payload: LoaderData, privateAgentAccess = false) {
@@ -83,7 +83,10 @@ function toSharedDeck(row: {
     title: row.title || data.title || "Untitled",
     slides: Array.isArray(data.slides)
       ? data.slides.map((slide, index) =>
-          toSharedDeckSlide(slide, index, { includeNotes: false }),
+          toSharedDeckSlide(slide, index, {
+            includeNotes: false,
+            revealIssues: slideRevealIssues(slide),
+          }),
         )
       : [],
     aspectRatio: data.aspectRatio,
@@ -98,16 +101,6 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   );
   const basePath = getConfiguredAppBasePath();
 
-  // Access is checked on the deck, not the URL shape: `/p/<id>` (presentation)
-  // and `/deck/<id>` (editor) share the same rules. SSR renders impersonally (no
-  // session is read server-side, so this public page can be CDN-cached for
-  // everyone), so we serve only PUBLIC decks here and resolve restricted access
-  // on the client. Querying by id alone distinguishes "deck does not exist"
-  // (real 404) from "deck exists but isn't public" — for the latter we route the
-  // viewer to the auth-guarded `/deck/<id>` editor, where the real per-user
-  // access check runs (viewer-with-access sees it; everyone else gets the
-  // standard sign-in / no-access handling). This never loops: `/deck` is
-  // protected and never bounces back to `/p`.
   const db = getDb();
   const [deck] = await db
     .select({
@@ -132,6 +125,8 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
         deck: toSharedDeck(deck),
         id,
         basePath,
+        origin: new URL(request.url).origin,
+        isPublic: deck.visibility === "public",
         agentAccessToken: tokenAccess ? agentAccessToken : null,
       },
       tokenAccess,
@@ -145,10 +140,23 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 }
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
-  const title = loaderData?.deck?.title
+  const socialTitle = loaderData?.deck?.title
     ? normalizeDocumentTitle(loaderData.deck.title, "Shared Presentation")
     : "Shared Presentation";
-  return [{ title: `${title} — Slides` }];
+  const description = summarizeSlideContent(
+    loaderData?.deck?.slides[0]?.content,
+  );
+  return [
+    { title: `${socialTitle} — Slides` },
+    ...(loaderData?.deck && loaderData.isPublic
+      ? buildResourceSocialMeta({
+          title: socialTitle,
+          description,
+          origin: loaderData.origin,
+          basePath: loaderData.basePath,
+        })
+      : []),
+  ];
 };
 
 export default function PublicDeckRoute() {
@@ -161,7 +169,6 @@ export default function PublicDeckRoute() {
     }
   }, [restricted]);
 
-  // Redirecting to the guarded editor to resolve per-user access client-side.
   if (restricted) return null;
   if (data.deck === null) {
     return (

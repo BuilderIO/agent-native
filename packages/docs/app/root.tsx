@@ -1,19 +1,37 @@
-import { AgentNativeRouteWarmup } from "@agent-native/core/client/host";
+import {
+  getInitialAgentSidebarOpen,
+  subscribeAgentSidebarUrlChanges,
+} from "@agent-native/core/client/agent-sidebar-state";
+import { defineClientAction } from "@agent-native/core/client/host";
 import {
   AgentNativeI18nProvider,
   getLocaleInitScript,
   useT,
 } from "@agent-native/core/client/i18n";
 import { recoverFromStaleChunkError } from "@agent-native/core/client/route-chunk-recovery";
-import { ErrorReportActions } from "@agent-native/core/client/ui";
+import {
+  AgentNativeRouteWarmup,
+  isClientRouteUrl,
+} from "@agent-native/core/client/route-warmup";
+import { createAgentNativeWebMcpRegistration } from "@agent-native/core/client/webmcp";
+import {
+  isAgentPanelChatShortcut,
+  isAgentSidebarToggleShortcut,
+  agentPanelShortcutSelectionText,
+  type AgentPanelChatShortcutEvent,
+} from "@agent-native/toolkit/app/chat/agent-sidebar-events";
+import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
+import { AgentNativeWebMcpActionRegistration } from "@agent-native/toolkit/app/providers";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   lazy,
   Suspense,
   useState,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
+  type MouseEvent,
 } from "react";
 import {
   Links,
@@ -24,12 +42,16 @@ import {
   Link,
   isRouteErrorResponse,
   useMatches,
+  useHref,
+  useNavigate,
   useRouteError,
   useLocation,
+  useRevalidator,
   type LoaderFunctionArgs,
 } from "react-router";
 
-import { getGithubStarCountFromCache } from "../lib/github-star-count";
+import { getGithubStarCount } from "../server/lib/github-star-count.server";
+import { isBetaDocsBuild } from "./components/deployment-links";
 import { hasDocBlockSyntax } from "./components/doc-block-detection";
 import {
   DEFAULT_DOCS_LOCALE,
@@ -43,22 +65,26 @@ import {
   docsAlternateLinksForPath,
   docsMarkdownPathForPath,
 } from "./components/docs-seo";
+import { SnackbarProvider } from "./components/website-redesign/ds/snackbar";
 import { Footer } from "./components/website-redesign/footer";
 import { SiteHeader } from "./components/website-redesign/site-header";
 import { isStaleDocsChunkError } from "./docs-error-classification.js";
 import { docsI18nCatalog, loadDocsMessages } from "./i18n";
 import { defaultSocialImageMeta } from "./seo";
+import {
+  AssistantLoadingProvider,
+  AssistantReadyProvider,
+  ShellSettledProvider,
+} from "./shell-ready";
 
 import tokensCss from "./components/website-redesign/tokens.css?url";
 import appCss from "./global.css?url";
 
 const SITE_URL = "https://www.agent-native.com";
 const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
+const GITHUB_STAR_REVALIDATION_DELAY_MS = 1_500;
 
-const LazyAgentSidebar = lazy(async () => {
-  const { AgentSidebar } = await import("@agent-native/core/client/agent-chat");
-  return { default: AgentSidebar };
-});
+const LazyAgentSidebar = lazy(() => import("./components/DocsAgentSidebar"));
 
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`;
 
@@ -74,7 +100,7 @@ const JSON_LD = JSON.stringify({
         "@type": "ContactPoint",
         contactType: "customer support",
         email: "support@builder.io",
-        url: "https://www.agent-native.com/contact",
+        url: `${SITE_URL}${sitePathForLocale("/contact")}`,
       },
       address: {
         "@type": "PostalAddress",
@@ -107,7 +133,6 @@ const JSON_LD = JSON.stringify({
         name: "Builder.io",
         url: "https://builder.io",
       },
-      codeRepository: "https://github.com/BuilderIO/agent-native",
     },
   ],
 });
@@ -124,12 +149,68 @@ async function initialMessagesForLocale(locale: DocsLocale) {
 export async function loader({ request, url }: LoaderFunctionArgs) {
   const requestUrl = url ?? new URL(request.url);
   const locale = resolveLayoutLocale(requestUrl.pathname);
+  const [messages, starCount] = await Promise.all([
+    initialMessagesForLocale(locale),
+    getGithubStarCount(),
+  ]);
   return {
     locale,
     preference: { locale },
-    messages: await initialMessagesForLocale(locale),
-    starCount: getGithubStarCountFromCache(),
+    messages,
+    starCount,
   };
+}
+
+function DocsWebMcpNavigationRegistration() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const registration = createAgentNativeWebMcpRegistration({
+      actions: [
+        defineClientAction<{ path: string }, { path: string }>({
+          name: "navigate",
+          title: "Navigate docs",
+          description: "Navigate the documentation site to a same-origin path.",
+          schema: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description:
+                  "Absolute same-origin path, including query or hash",
+              },
+            },
+            required: ["path"],
+            additionalProperties: false,
+          },
+          run: (input) => {
+            if (typeof input?.path !== "string") {
+              throw new Error("Docs navigation requires a string path");
+            }
+            const { path } = input;
+            if (!path.startsWith("/")) {
+              throw new Error("Docs navigation requires an absolute path");
+            }
+            const target = new URL(path, window.location.origin);
+            if (target.origin !== window.location.origin) {
+              throw new Error("Docs navigation must stay on the current site");
+            }
+            const destination = `${target.pathname}${target.search}${target.hash}`;
+            navigate(destination);
+            return { path: destination };
+          },
+        }),
+      ],
+    });
+
+    void registration.start().catch(() => {
+      // WebMCP is progressive enhancement. Unsupported browsers keep normal
+      // docs navigation without exposing a broken page-level integration.
+    });
+    return () => registration.stop();
+  }, [navigate]);
+
+  return null;
 }
 
 type RootLocaleData = Awaited<ReturnType<typeof loader>>;
@@ -159,43 +240,111 @@ function useRootLocaleData() {
     : fallbackRootLocaleData(location.pathname);
 }
 
+function GithubStarCountRevalidator({
+  starCount,
+}: {
+  starCount: number | null;
+}) {
+  const { revalidate } = useRevalidator();
+  const scheduledRef = useRef(false);
+
+  useEffect(() => {
+    if (starCount !== null || scheduledRef.current) return;
+    scheduledRef.current = true;
+    const timer = window.setTimeout(
+      () => revalidate(),
+      GITHUB_STAR_REVALIDATION_DELAY_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [revalidate, starCount]);
+
+  return null;
+}
+
 export const links = () => [
   { rel: "stylesheet", href: appCss },
-  // Every selector in tokens.css is scoped under .builder-brand-tokens, which
-  // the header, the footer, and the homepage opt into. It deliberately stays
-  // off <body>: global.css has `:where(:not(.builder-brand-tokens *))`
-  // exclusions carrying the docs prose chrome, and a body-level opt-in would
-  // silently make all three of them match nothing. The page background is
-  // unified through --bg in global.css instead, which mirrors --b-bg-page.
   { rel: "stylesheet", href: tokensCss },
   { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
   { rel: "apple-touch-icon", href: "/logo192.png", type: "image/png" },
 ];
 
 export const meta = () => [
-  { title: "Agent-Native — Framework for Agent-Native Apps" },
+  { title: "Agent-Native — The Agentic Application Framework" },
   {
     name: "description",
     content:
-      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with cloneable SaaS apps.",
+      "Build autonomous agents with intuitive UIs. Define each capability once for the agent, UI, APIs, and integrations. Open-source TypeScript.",
   },
   ...defaultSocialImageMeta(),
   {
     property: "og:title",
-    content: "Agent-Native — Framework for Agent-Native Apps",
+    content: "Agent-Native — The Agentic Application Framework",
   },
   {
     property: "og:description",
     content:
-      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with cloneable SaaS apps.",
+      "Build autonomous agents with intuitive UIs. Define each capability once for the agent, UI, APIs, and integrations. Open-source TypeScript.",
   },
   { property: "og:type", content: "website" },
-  { property: "og:url", content: SITE_URL },
-  { property: "og:site_name", content: "Agent-Native" },
 ];
 
 function DocsChrome({ children }: { children: React.ReactNode }) {
   const { starCount } = useRootLocaleData();
+  const routerRootHref = useHref("/");
+  const navigate = useNavigate();
+
+  const handleClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const link = target.closest<HTMLAnchorElement>("a[href]");
+    if (
+      !link ||
+      link.dataset.discover ||
+      (link.target && link.target !== "_self") ||
+      link.hasAttribute("download")
+    ) {
+      return;
+    }
+
+    const url = new URL(link.href, window.location.href);
+    if (
+      url.origin !== window.location.origin ||
+      (url.pathname === window.location.pathname &&
+        url.search === window.location.search)
+    ) {
+      return;
+    }
+    if (!isClientRouteUrl(url)) return;
+
+    const routerRootPath = new URL(
+      routerRootHref,
+      window.location.href,
+    ).pathname.replace(/\/+$/, "");
+    let pathname = url.pathname;
+    if (routerRootPath) {
+      if (url.pathname === routerRootPath) {
+        pathname = "/";
+      } else if (url.pathname.startsWith(`${routerRootPath}/`)) {
+        pathname = url.pathname.slice(routerRootPath.length);
+      } else {
+        return;
+      }
+    }
+
+    event.preventDefault();
+    void navigate(`${pathname}${url.search}${url.hash}`);
+  };
 
   return (
     // core's `.agent-sidebar-shell` sits between <body> and this chrome and
@@ -203,11 +352,17 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
     // the background on <body> never shows and every route inherited a color
     // from a token system the brand palette knows nothing about. Painting --bg
     // here is what actually decides the page color, on every route.
-    <div className="min-h-screen w-full min-w-0 overflow-x-clip bg-[var(--bg)]">
+    <div
+      className="min-h-screen w-full min-w-0 overflow-x-clip bg-[var(--bg)]"
+      onClick={handleClick}
+    >
       <ScrollManager />
-      <SiteHeader starCount={starCount} />
-      {children}
-      <Footer />
+      <GithubStarCountRevalidator starCount={starCount} />
+      <SnackbarProvider>
+        <SiteHeader starCount={starCount} />
+        {children}
+        <Footer />
+      </SnackbarProvider>
     </div>
   );
 }
@@ -229,7 +384,6 @@ function DocsI18nProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-const SCROLL_MANAGER_MARKER = "docs-scroll-manager-marker";
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
@@ -242,6 +396,8 @@ function SeoLinks() {
   return (
     <>
       <link rel="canonical" href={canonical} />
+      <meta property="og:url" content={canonical} />
+      <meta property="og:site_name" content="Agent-Native" />
       {markdownPath ? (
         <link
           rel="alternate"
@@ -298,34 +454,6 @@ function scrollElementIntoContainerView(target: HTMLElement) {
   });
 }
 
-function getManagedScrollTop(): number | null {
-  if (typeof document === "undefined") return null;
-  const marker = document.querySelector<HTMLElement>(
-    `[data-${SCROLL_MANAGER_MARKER}]`,
-  );
-  if (!marker) return null;
-  const scrollContainer = findScrollContainerFrom(marker);
-  if (scrollContainer === window) return window.scrollY;
-  return (scrollContainer as HTMLElement).scrollTop;
-}
-
-function setManagedScrollTop(top: number) {
-  if (typeof document === "undefined") return;
-  const marker = document.querySelector<HTMLElement>(
-    `[data-${SCROLL_MANAGER_MARKER}]`,
-  );
-  if (!marker) return;
-  const scrollContainer = findScrollContainerFrom(marker);
-  if (scrollContainer === window) {
-    window.scrollTo(0, top);
-  } else {
-    (scrollContainer as HTMLElement).scrollTop = top;
-  }
-}
-
-// AgentSidebar wraps content in an overflow-auto div, so the window usually
-// does not scroll. Keep both normal route changes and hash links pointed at
-// that real scroll container.
 function ScrollManager() {
   const { pathname, hash } = useLocation();
   const ref = useRef<HTMLSpanElement>(null);
@@ -412,6 +540,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        {/* Keyed on the build, not the hostname, so the prerendered and
+            hydrated head agree. */}
+        {isBetaDocsBuild() ? <meta name="robots" content="noindex" /> : null}
+        <script
+          src="https://analytics.ahrefs.com/analytics.js"
+          data-key="z2Qe9BlsuxGKqijbSuv8ow"
+          async
+        />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <script
           data-agent-native-locale-init
@@ -443,35 +579,10 @@ export default function Root() {
       }),
   );
   const [mounted, setMounted] = useState(false);
-  const pendingHydrationScrollTopRef = useRef<number | null>(null);
 
   useEffect(() => {
-    pendingHydrationScrollTopRef.current = window.location.hash
-      ? null
-      : getManagedScrollTop();
     setMounted(true);
   }, []);
-
-  useEffect(() => {
-    if (!mounted) return;
-    const top = pendingHydrationScrollTopRef.current;
-    pendingHydrationScrollTopRef.current = null;
-    if (!top || top <= 0) return;
-
-    let raf = 0;
-    let secondRaf = 0;
-    const timer = window.setTimeout(() => setManagedScrollTop(top), 100);
-    raf = window.requestAnimationFrame(() => {
-      setManagedScrollTop(top);
-      secondRaf = window.requestAnimationFrame(() => setManagedScrollTop(top));
-    });
-
-    return () => {
-      window.cancelAnimationFrame(raf);
-      window.cancelAnimationFrame(secondRaf);
-      window.clearTimeout(timer);
-    };
-  }, [mounted]);
 
   useEffect(() => {
     void import("@agent-native/core/client/analytics").then(
@@ -496,53 +607,120 @@ export default function Root() {
   );
 }
 
-function RootShell({ mounted }: { mounted: boolean }) {
-  const t = useT();
+export function RootShell({ mounted }: { mounted: boolean }) {
+  const [assistantRequested, setAssistantRequested] = useState(false);
+  const [assistantReady, setAssistantReady] = useState(false);
+  const assistantReadyRef = useRef(false);
+  const assistantWaiters = useRef<Array<() => void>>([]);
+  const ensureAssistantReady = useCallback(() => {
+    if (assistantReadyRef.current) return Promise.resolve();
+    setAssistantRequested(true);
+    return new Promise<void>((resolve) =>
+      assistantWaiters.current.push(resolve),
+    );
+  }, []);
+  const pendingAssistantEvents = useRef<
+    Array<{ target: EventTarget; event: Event }>
+  >([]);
+  const activateAssistant = useCallback(() => {
+    assistantReadyRef.current = true;
+    setAssistantReady(true);
+    for (const { target, event } of pendingAssistantEvents.current.splice(0)) {
+      target.dispatchEvent(event);
+    }
+    if (assistantWaiters.current.length > 0) {
+      window.dispatchEvent(new Event("agent-panel:prepare"));
+      for (const resolve of assistantWaiters.current.splice(0)) resolve();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!mounted || assistantReady) return;
+    const requestAssistant = () => {
+      setAssistantRequested(true);
+    };
+    const bufferPanelEvent = (event: Event) => {
+      if (assistantReadyRef.current) return;
+      pendingAssistantEvents.current.push({ target: window, event });
+      if (
+        event.type !== "agent-panel:close" &&
+        event.type !== "agent-panel:set-mode"
+      ) {
+        requestAssistant();
+      }
+    };
+    const restoreAssistant = () => {
+      if (getInitialAgentSidebarOpen(false, "docs")) requestAssistant();
+    };
+    const handleShortcut = (event: AgentPanelChatShortcutEvent) => {
+      if (assistantReadyRef.current) return;
+      if (
+        isAgentSidebarToggleShortcut(event) ||
+        isAgentPanelChatShortcut(event)
+      ) {
+        event.preventDefault();
+        if (isAgentPanelChatShortcut(event)) {
+          event.agentNativeSelectionText =
+            agentPanelShortcutSelectionText(event);
+        }
+        pendingAssistantEvents.current.push({ target: document, event });
+        requestAssistant();
+      }
+    };
+    restoreAssistant();
+    const unsubscribe = subscribeAgentSidebarUrlChanges(restoreAssistant);
+    const panelEvents = [
+      "agent-panel:toggle",
+      "agent-panel:open",
+      "agent-panel:prepare",
+      "agent-panel:close",
+      "agent-panel:set-mode",
+    ];
+    for (const event of panelEvents)
+      window.addEventListener(event, bufferPanelEvent);
+    document.addEventListener("keydown", handleShortcut);
+    return () => {
+      unsubscribe();
+      for (const event of panelEvents)
+        window.removeEventListener(event, bufferPanelEvent);
+      document.removeEventListener("keydown", handleShortcut);
+    };
+  }, [mounted, assistantReady]);
   const content = (
     <DocsChrome>
       <Outlet />
     </DocsChrome>
   );
 
-  const fallback = (
-    // Mirror AgentSidebar's outer layout (h-screen + overflow-hidden shell
-    // with an overflow-auto child) so swapping in the real sidebar after
-    // hydration doesn't shift the scrollbar and re-anchor centered content.
-    <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
-      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
-        {content}
-      </div>
-    </div>
-  );
-
-  if (!mounted) return fallback;
-
   return (
-    <>
-      <AgentNativeRouteWarmup />
-      <Suspense fallback={fallback}>
-        <LazyAgentSidebar
-          storageKey="docs"
-          position="right"
-          defaultOpen={false}
-          defaultSidebarWidth={400}
-          emptyStateText={t("agent.emptyState")}
-          suggestions={[
-            t("agent.suggestionGettingStarted"),
-            t("agent.suggestionActions"),
-            t("agent.suggestionPolling"),
-            t("agent.suggestionDeploy"),
-          ]}
-        >
-          {content}
-        </LazyAgentSidebar>
-      </Suspense>
-    </>
+    <AssistantReadyProvider value={ensureAssistantReady}>
+      <AssistantLoadingProvider value={assistantRequested && !assistantReady}>
+        {mounted && (
+          <>
+            <AgentNativeRouteWarmup />
+            <AgentNativeWebMcpActionRegistration />
+            <DocsWebMcpNavigationRegistration />
+          </>
+        )}
+        <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
+          <div className="flex min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
+            <ShellSettledProvider value={mounted}>
+              {content}
+            </ShellSettledProvider>
+          </div>
+          {mounted && assistantRequested && (
+            <div className="flex shrink-0">
+              <Suspense fallback={null}>
+                <LazyAgentSidebar onReady={activateAssistant} />
+              </Suspense>
+            </div>
+          )}
+        </div>
+      </AssistantLoadingProvider>
+    </AssistantReadyProvider>
   );
 }
 
-// Mirrors core's ErrorBoundary.tsx useStaleChunkRecovery: reload once on a
-// stale chunk instead of stranding the user on the generic error screen.
 function useStaleChunkRecovery(error: unknown): boolean {
   const [recovering, setRecovering] = useState(() =>
     isStaleDocsChunkError(error),
@@ -564,9 +742,6 @@ function LocalizedError({ error }: { error: unknown }) {
   const localizedPath = (path: string) =>
     sitePathForLocale(path, localeData.locale);
 
-  // Always surface the underlying error to devtools/Sentry — a generic
-  // "Something went wrong" screen with nothing logged is how a root cause
-  // stays unknown (see the incident this recovery path was added for).
   if (typeof console !== "undefined" && error && !recovering) {
     console.error("[DocsErrorBoundary]", error);
   }
@@ -596,7 +771,7 @@ function LocalizedError({ error }: { error: unknown }) {
           <p className="mb-8 text-base leading-relaxed text-[var(--fg-secondary)]">
             {t("errors.notFoundBody")}
           </p>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col items-center gap-3">
             <Link
               data-an-prefetch="viewport"
               to={localizedPath("/")}

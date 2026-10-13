@@ -1,34 +1,43 @@
-export type JobLastStatus = "success" | "error" | "running" | "skipped";
-export type JobTriggerType = "schedule" | "event";
+import {
+  isReasoningEffort,
+  type ReasoningEffort,
+} from "../shared/reasoning-effort.js";
+
+export type JobLastStatus =
+  | "success"
+  | "error"
+  | "running"
+  | "skipped"
+  | "paused";
+export type JobTriggerType = "schedule" | "event" | "webhook";
 export type JobExecutionMode = "agentic" | "deterministic";
 
-/**
- * Every persisted field understood by either recurring jobs or automations.
- *
- * Automation-only fields stay optional so legacy recurring jobs can remain
- * distinguishable from explicitly defined schedule automations.
- */
 export interface JobFrontmatter {
   schedule: string;
   enabled: boolean;
-  /**
-   * IANA zone the cron fields are read in. Absent means the schedule predates
-   * timezone support and keeps its original host-relative meaning.
-   */
   timezone?: string;
   createdBy?: string;
   orgId?: string;
   runAs?: "creator" | "shared";
-  /** Last time the automation actually started executing. */
   lastRun?: string;
-  /**
-   * Last time a tick evaluated this automation and declined to run it. Kept
-   * distinct from `lastRun` so a blocked automation cannot report a run it
-   * never performed.
-   */
+  lastHistoryId?: string;
+  lastRunManual?: boolean;
+  lastRunAdvanceSchedule?: boolean;
   lastCheck?: string;
   lastStatus?: JobLastStatus;
   lastError?: string;
+  /** Typed code of the last failure; `consecutiveFailures` counts this code. */
+  lastErrorCode?: string;
+  consecutiveFailures?: number;
+  /** The event whose failure the streak last counted; its retries do not count again. */
+  lastFailedEventId?: string;
+  /**
+   * Set together with `enabled: false` when the framework paused the
+   * automation after repeated identical failures. Absent for a pause the
+   * owner chose.
+   */
+  pausedReason?: string;
+  pausedAt?: string;
   nextRun?: string;
   originScopeId?: string;
   deliveryPlatform?: string;
@@ -36,54 +45,28 @@ export interface JobFrontmatter {
   deliveryThreadRef?: string;
   deliveryTenantId?: string;
   model?: string;
-  /** Per-run guard for background automations; omitted uses the app setting. */
+  reasoningEffort?: ReasoningEffort;
   maxIterations?: number;
-  /** Per-turn input-token guard; omitted uses the app setting. */
   maxRunInputTokens?: number;
-  /** Explicit MCP tool capabilities available to this background run. */
   mcpTools?: string[];
-  /** Present only for resources explicitly defined as automations. */
   triggerType?: JobTriggerType;
-  /** For event automations: the event name to subscribe to. */
   event?: string;
-  /** Natural-language condition evaluated before dispatch. */
+  webhookToken?: string;
   condition?: string;
   mode?: JobExecutionMode;
-  /** Domain tag for filtering in per-template UIs. */
   domain?: string;
-  /** Explicit application owner used by the recurring-job scheduler. */
   appId?: string;
-  /** Optional paired execution host for code-agent work. */
   executionHostId?: string;
-  /** Optional engine id understood by the selected execution host. */
   executionEngine?: string;
-  /** Optional host-local workspace path used by code-agent work. */
   executionCwd?: string;
-  /** Stable remote dispatch key for a running host-targeted job. */
   remoteRequestId?: string;
-  /** Durable relay command id for a running host-targeted job. */
   remoteCommandId?: string;
-  /** Durable remote code-agent run id, when the host has started one. */
   remoteRunId?: string;
-  /** Durable automation history row associated with the remote dispatch. */
   remoteAutomationRunId?: string;
-  /** Whether a completed remote dispatch should advance the cron schedule. */
   remoteAdvanceSchedule?: boolean;
-  /**
-   * Optional application-owned policy id carried into actions by the trusted
-   * trigger dispatcher. It is not model-supplied action input.
-   */
   delegatedPolicyId?: string;
 }
 
-/**
- * Return whether a scheduler or trigger dispatcher may claim this resource.
- *
- * Personal legacy jobs have no app owner and remain compatible with the
- * shared scheduler. An organization-owned resource without an explicit app
- * owner is ambiguous, though: letting every installed app claim it can run
- * the same job multiple times and with the wrong deployment credentials.
- */
 export function jobBelongsToApp(
   meta: Pick<JobFrontmatter, "appId" | "orgId">,
   appId: string | null | undefined,
@@ -94,6 +77,52 @@ export function jobBelongsToApp(
     return Boolean(schedulerAppId && ownerAppId === schedulerAppId);
   }
   return !meta.orgId?.trim();
+}
+
+function isFactoryAutomationPath(path: string): boolean {
+  return (
+    /^jobs\/factories\/[^/]+\/[^/]+\.md$/.test(path) ||
+    /^jobs\/factory-[^/]+\.md$/.test(path)
+  );
+}
+
+function organizationIdFromOwner(
+  owner: string | null | undefined,
+): string | null {
+  if (!owner?.startsWith("__organization__:")) return null;
+  const encoded = owner.slice("__organization__:".length);
+  if (!encoded) return null;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    // coercion-ok: a malformed owner key is not an organization id
+    return null;
+  }
+}
+
+export function recoveredFactoryOwnerOrgId(
+  meta: Pick<JobFrontmatter, "appId" | "orgId">,
+  path: string,
+  owner: string | null | undefined,
+): string | null {
+  if (!isFactoryAutomationPath(path)) return null;
+  const ownerOrgId = organizationIdFromOwner(owner);
+  if (!ownerOrgId) return null;
+  const ownerAppId = meta.appId?.trim();
+  if (ownerAppId && ownerAppId !== "factory") return null;
+  const declaredOrgId = meta.orgId?.trim();
+  if (declaredOrgId && declaredOrgId !== ownerOrgId) return null;
+  return ownerOrgId;
+}
+
+export function isRecoveredFactoryJob(
+  meta: Pick<JobFrontmatter, "appId" | "orgId">,
+  path: string,
+  actorAppId: string | null | undefined,
+  owner: string | null | undefined,
+): boolean {
+  if (actorAppId?.trim() !== "factory") return false;
+  return recoveredFactoryOwnerOrgId(meta, path, owner) !== null;
 }
 
 export interface JobResourceClassification {
@@ -114,7 +143,8 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?([\s\S]*)$/;
 const DELEGATED_POLICY_ID_RE = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
 const EXECUTION_ID_RE = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
 const REMOTE_ID_RE = /^[a-z0-9][a-z0-9@+._:/-]{0,511}$/i;
-const EXTRA_FRONTMATTER_LINES = Symbol("extraFrontmatterLines");
+const WEBHOOK_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
+const EXTRA_FRONTMATTER_LINES = "_extraFrontmatterLines";
 const KNOWN_FRONTMATTER_FIELDS = new Set([
   "schedule",
   "enabled",
@@ -123,9 +153,17 @@ const KNOWN_FRONTMATTER_FIELDS = new Set([
   "orgId",
   "runAs",
   "lastRun",
+  "lastHistoryId",
+  "lastRunManual",
+  "lastRunAdvanceSchedule",
   "lastCheck",
   "lastStatus",
   "lastError",
+  "lastErrorCode",
+  "consecutiveFailures",
+  "lastFailedEventId",
+  "pausedReason",
+  "pausedAt",
   "nextRun",
   "originScopeId",
   "deliveryPlatform",
@@ -133,11 +171,13 @@ const KNOWN_FRONTMATTER_FIELDS = new Set([
   "deliveryThreadRef",
   "deliveryTenantId",
   "model",
+  "reasoningEffort",
   "maxIterations",
   "maxRunInputTokens",
   "mcpTools",
   "triggerType",
   "event",
+  "webhookToken",
   "condition",
   "mode",
   "domain",
@@ -165,6 +205,41 @@ function assertBoundedFrontmatterValue(
   if (value === undefined) return;
   if (!pattern.test(value)) {
     throw new Error(`${label} must be a bounded opaque identifier.`);
+  }
+}
+
+export function assertDelegatedPolicyId(value: string | undefined): void {
+  if (!value) return;
+  if (!DELEGATED_POLICY_ID_RE.test(value)) {
+    throw new Error(
+      "Delegated automation policy IDs must be 1-128 letters, numbers, dots, underscores, colons, or hyphens.",
+    );
+  }
+}
+
+export function assertJobExecutionTargetFields(
+  meta: Pick<
+    JobFrontmatter,
+    "executionHostId" | "executionEngine" | "executionCwd"
+  >,
+): void {
+  assertBoundedFrontmatterValue(
+    meta.executionHostId,
+    "Execution host IDs",
+    EXECUTION_ID_RE,
+  );
+  assertBoundedFrontmatterValue(
+    meta.executionEngine,
+    "Execution engine IDs",
+    EXECUTION_ID_RE,
+  );
+  if (
+    meta.executionCwd !== undefined &&
+    (meta.executionCwd.length > 1024 || /[\r\n]/.test(meta.executionCwd))
+  ) {
+    throw new Error(
+      "Execution workspace paths must be at most 1024 characters.",
+    );
   }
 }
 
@@ -262,6 +337,15 @@ function parseKnownField(
     case "lastRun":
       meta.lastRun = value;
       break;
+    case "lastHistoryId":
+      meta.lastHistoryId = value || undefined;
+      break;
+    case "lastRunManual":
+      meta.lastRunManual = value === "true";
+      break;
+    case "lastRunAdvanceSchedule":
+      meta.lastRunAdvanceSchedule = value !== "false";
+      break;
     case "lastCheck":
       meta.lastCheck = value;
       break;
@@ -270,6 +354,21 @@ function parseKnownField(
       break;
     case "lastError":
       meta.lastError = value;
+      break;
+    case "lastErrorCode":
+      meta.lastErrorCode = value || undefined;
+      break;
+    case "consecutiveFailures":
+      meta.consecutiveFailures = parsePositiveInteger(value);
+      break;
+    case "lastFailedEventId":
+      meta.lastFailedEventId = value || undefined;
+      break;
+    case "pausedReason":
+      meta.pausedReason = value || undefined;
+      break;
+    case "pausedAt":
+      meta.pausedAt = value || undefined;
       break;
     case "nextRun":
       meta.nextRun = value;
@@ -292,6 +391,9 @@ function parseKnownField(
     case "model":
       meta.model = value;
       break;
+    case "reasoningEffort":
+      meta.reasoningEffort = isReasoningEffort(value) ? value : undefined;
+      break;
     case "maxIterations":
       meta.maxIterations = parsePositiveInteger(value);
       break;
@@ -302,12 +404,14 @@ function parseKnownField(
       meta.mcpTools = normalizeJobMcpTools(value);
       break;
     case "triggerType":
-      // The field's presence is the durable legacy-job/automation boundary.
-      // Preserve that marker even if an old writer stored an invalid value.
-      meta.triggerType = value === "event" ? "event" : "schedule";
+      meta.triggerType =
+        value === "event" || value === "webhook" ? value : "schedule";
       break;
     case "event":
       meta.event = value;
+      break;
+    case "webhookToken":
+      if (WEBHOOK_TOKEN_RE.test(value)) meta.webhookToken = value;
       break;
     case "condition":
       meta.condition = value;
@@ -384,6 +488,7 @@ export function parseJobResource(content: string): ParsedJobResource {
       continue;
     }
     const key = line.slice(0, colonIdx).trim();
+    if (key === EXTRA_FRONTMATTER_LINES) continue;
     if (!KNOWN_FRONTMATTER_FIELDS.has(key)) {
       extraLines.push(line);
       continue;
@@ -425,24 +530,8 @@ export function buildJobResourceContent(
   meta: JobFrontmatter,
   body: string,
 ): string {
-  if (
-    meta.delegatedPolicyId &&
-    !DELEGATED_POLICY_ID_RE.test(meta.delegatedPolicyId)
-  ) {
-    throw new Error(
-      "Delegated automation policy IDs must be 1-128 letters, numbers, dots, underscores, colons, or hyphens.",
-    );
-  }
-  assertBoundedFrontmatterValue(
-    meta.executionHostId,
-    "Execution host IDs",
-    EXECUTION_ID_RE,
-  );
-  assertBoundedFrontmatterValue(
-    meta.executionEngine,
-    "Execution engine IDs",
-    EXECUTION_ID_RE,
-  );
+  assertDelegatedPolicyId(meta.delegatedPolicyId);
+  assertJobExecutionTargetFields(meta);
   assertBoundedFrontmatterValue(
     meta.remoteRequestId,
     "Remote request IDs",
@@ -463,14 +552,6 @@ export function buildJobResourceContent(
     "Remote automation run IDs",
     REMOTE_ID_RE,
   );
-  if (
-    meta.executionCwd !== undefined &&
-    (meta.executionCwd.length > 1024 || /[\r\n]/.test(meta.executionCwd))
-  ) {
-    throw new Error(
-      "Execution workspace paths must be at most 1024 characters.",
-    );
-  }
 
   const lines = [
     "---",
@@ -494,17 +575,26 @@ export function buildJobResourceContent(
   if (meta.remoteAdvanceSchedule !== undefined) {
     lines.push(`remoteAdvanceSchedule: ${meta.remoteAdvanceSchedule}`);
   }
-  // Keep the long-standing human-readable owner shape used by existing
-  // resources and diagnostics; values that can contain free-form text use
-  // JSON quoting below.
   pushString(lines, "createdBy", meta.createdBy, false);
   pushString(lines, "orgId", meta.orgId);
   if (meta.runAs) lines.push(`runAs: ${meta.runAs}`);
   pushString(lines, "timezone", meta.timezone);
   pushString(lines, "lastRun", meta.lastRun);
+  pushString(lines, "lastHistoryId", meta.lastHistoryId);
+  if (meta.lastRunManual !== undefined)
+    lines.push(`lastRunManual: ${meta.lastRunManual}`);
+  if (meta.lastRunAdvanceSchedule !== undefined)
+    lines.push(`lastRunAdvanceSchedule: ${meta.lastRunAdvanceSchedule}`);
   pushString(lines, "lastCheck", meta.lastCheck);
   if (meta.lastStatus) lines.push(`lastStatus: ${meta.lastStatus}`);
   pushString(lines, "lastError", meta.lastError);
+  pushString(lines, "lastErrorCode", meta.lastErrorCode);
+  if (meta.consecutiveFailures !== undefined) {
+    lines.push(`consecutiveFailures: ${meta.consecutiveFailures}`);
+  }
+  pushString(lines, "lastFailedEventId", meta.lastFailedEventId);
+  pushString(lines, "pausedReason", meta.pausedReason);
+  pushString(lines, "pausedAt", meta.pausedAt);
   pushString(lines, "nextRun", meta.nextRun);
   pushString(lines, "originScopeId", meta.originScopeId);
   pushString(lines, "deliveryPlatform", meta.deliveryPlatform);
@@ -512,6 +602,9 @@ export function buildJobResourceContent(
   pushString(lines, "deliveryThreadRef", meta.deliveryThreadRef);
   pushString(lines, "deliveryTenantId", meta.deliveryTenantId);
   pushString(lines, "model", meta.model);
+  if (meta.reasoningEffort) {
+    lines.push(`reasoningEffort: ${meta.reasoningEffort}`);
+  }
   if (meta.maxIterations !== undefined) {
     lines.push(`maxIterations: ${meta.maxIterations}`);
   }
@@ -526,4 +619,179 @@ export function buildJobResourceContent(
   );
   lines.push("---", "", body);
   return lines.join("\n");
+}
+
+export type JobExecutionFrontmatterPatch = {
+  lastRun?: string;
+  lastHistoryId?: string;
+  lastRunManual?: boolean;
+  lastRunAdvanceSchedule?: boolean;
+  lastCheck?: string;
+  lastStatus?: JobLastStatus;
+  lastError?: string;
+  lastErrorCode?: string;
+  consecutiveFailures?: number;
+  lastFailedEventId?: string;
+  pausedReason?: string;
+  pausedAt?: string;
+  nextRun?: string;
+  remoteRequestId?: string;
+  remoteCommandId?: string;
+  remoteRunId?: string;
+  remoteAutomationRunId?: string;
+  remoteAdvanceSchedule?: boolean;
+};
+
+export const JOB_EXECUTION_FRONTMATTER_KEYS: ReadonlySet<string> = new Set<
+  keyof JobExecutionFrontmatterPatch
+>([
+  "lastRun",
+  "lastCheck",
+  "lastStatus",
+  "lastError",
+  "lastErrorCode",
+  "consecutiveFailures",
+  "lastFailedEventId",
+  "pausedReason",
+  "pausedAt",
+  "nextRun",
+  "remoteRequestId",
+  "remoteCommandId",
+  "remoteRunId",
+  "remoteAutomationRunId",
+  "remoteAdvanceSchedule",
+]);
+
+const FRONTMATTER_KEY_RE = /^([A-Za-z][A-Za-z0-9_]*):/;
+
+function frontmatterKeys(content: string): Set<string> {
+  const keys = new Set<string>();
+  const match = content.match(FRONTMATTER_RE);
+  if (!match) return keys;
+  for (const line of match[1].split(/\r?\n/)) {
+    const key = FRONTMATTER_KEY_RE.exec(line)?.[1];
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+/**
+ * Frontmatter keys present in `before` and gone from `after`, ignoring the
+ * execution bookkeeping a run adds and clears. A job whose file loses its
+ * editor-owned fields still schedules and runs, so nothing else notices.
+ */
+export function droppedJobFrontmatterKeys(
+  before: string,
+  after: string,
+): string[] {
+  const kept = frontmatterKeys(after);
+  return [...frontmatterKeys(before)].filter(
+    (key) => !kept.has(key) && !JOB_EXECUTION_FRONTMATTER_KEYS.has(key),
+  );
+}
+
+function jobFrontmatterBounds(content: string): {
+  newline: string;
+  opener: string;
+  closer: string;
+  end: number;
+} {
+  const newline = content.startsWith("---\r\n")
+    ? "\r\n"
+    : content.startsWith("---\n")
+      ? "\n"
+      : null;
+  if (!newline) {
+    throw new Error(
+      "Job resource is missing frontmatter; cannot patch the stored document.",
+    );
+  }
+  const opener = `---${newline}`;
+  const closer = `${newline}---`;
+  const end = content.indexOf(closer, opener.length);
+  if (end === -1) {
+    throw new Error(
+      "Job resource is missing frontmatter; cannot patch the stored document.",
+    );
+  }
+  return { newline, opener, closer, end };
+}
+
+function setOrRemoveFrontmatterField(
+  content: string,
+  key: string,
+  serialized: string | undefined,
+): string {
+  const { newline, opener, end } = jobFrontmatterBounds(content);
+  const frontmatter = content.slice(opener.length, end);
+  const pattern = new RegExp(`^${key}:.*(?:\\r?\\n)?`, "m");
+  if (serialized === undefined) {
+    if (!pattern.test(frontmatter)) return content;
+    const nextFrontmatter = frontmatter.replace(pattern, "").trimEnd();
+    return nextFrontmatter
+      ? `${opener}${nextFrontmatter}${content.slice(end)}`
+      : `${opener}${content.slice(end)}`;
+  }
+  if (pattern.test(frontmatter)) {
+    return `${opener}${frontmatter.replace(pattern, `${key}: ${serialized}${newline}`)}${content.slice(end)}`;
+  }
+  return `${content.slice(0, end)}${newline}${key}: ${serialized}${content.slice(end)}`;
+}
+
+const UNQUOTED_STRING_FRONTMATTER_KEYS = new Set([
+  "lastStatus",
+  "triggerType",
+  "mode",
+  "runAs",
+  "reasoningEffort",
+]);
+
+export type JobFrontmatterPatchValue =
+  | string
+  | number
+  | boolean
+  | readonly string[]
+  | undefined;
+
+export type JobFrontmatterPatch = {
+  [key: string]: JobFrontmatterPatchValue;
+};
+
+function serializeFrontmatterPatchValue(
+  key: string,
+  value: string | number | boolean | readonly string[],
+): string {
+  if (typeof value === "boolean" || typeof value === "number") {
+    return String(value);
+  }
+  if (Array.isArray(value)) return JSON.stringify(value);
+  if (UNQUOTED_STRING_FRONTMATTER_KEYS.has(key) && typeof value === "string") {
+    return value;
+  }
+  return JSON.stringify(value);
+}
+
+export function patchJobFrontmatterFields(
+  content: string,
+  fields: JobFrontmatterPatch,
+): string {
+  let next = content;
+  for (const key of Object.keys(fields)) {
+    if (key === EXTRA_FRONTMATTER_LINES) continue;
+    if (!Object.hasOwn(fields, key)) continue;
+    const value = fields[key];
+    next = setOrRemoveFrontmatterField(
+      next,
+      key,
+      value === undefined
+        ? undefined
+        : serializeFrontmatterPatchValue(key, value),
+    );
+  }
+  return next;
+}
+
+export function replaceJobResourceBody(content: string, body: string): string {
+  const { newline, closer, end } = jobFrontmatterBounds(content);
+  return `${content.slice(0, end + closer.length)}${newline}${newline}${body}`;
 }

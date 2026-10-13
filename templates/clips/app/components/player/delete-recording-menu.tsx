@@ -1,7 +1,7 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconDotsVertical, IconDownload, IconTrash } from "@tabler/icons-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import {
@@ -29,6 +29,7 @@ interface DeleteRecordingMenuProps {
 }
 
 interface RecordingOptionsMenuProps extends DeleteRecordingMenuProps {
+  children?: ReactNode;
   canDelete?: boolean;
   canDownload?: boolean;
   downloadPending?: boolean;
@@ -38,6 +39,7 @@ interface RecordingOptionsMenuProps extends DeleteRecordingMenuProps {
 }
 
 export function RecordingOptionsMenu({
+  children,
   recordingId,
   onDeleted,
   canDelete = true,
@@ -54,14 +56,12 @@ export function RecordingOptionsMenu({
   const pendingDeleteConfirmRef = useRef(false);
   const showDownload = canDownload && Boolean(onDownload);
   const showDelete = canDelete;
+  const showCustomItems = Boolean(children);
   const trashRecording = useActionMutation<any, { id: string }>(
     "trash-recording",
     {
       onSuccess: () => {
         toast.success(t("deleteRecordingMenu.movedToTrash"));
-        // Keep the route mounted until Radix has finished removing the
-        // dialog portal. Navigating in the mutation callback can leave its
-        // body lock behind, which makes the destination look unclickable.
         deletedWhileOpenRef.current = true;
         setOpen(false);
       },
@@ -80,7 +80,7 @@ export function RecordingOptionsMenu({
     onDownload?.();
   }, [onDownload]);
 
-  if (!showDownload && !showDelete) return null;
+  if (!showCustomItems && !showDownload && !showDelete) return null;
 
   return (
     <AlertDialog
@@ -93,8 +93,8 @@ export function RecordingOptionsMenu({
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            size="icon"
-            className="h-auto w-auto shrink-0 px-0.5 py-1.5"
+            size="icon-sm"
+            className="order-last shrink-0"
             aria-label={t("deleteRecordingMenu.clipOptions")}
           >
             <IconDotsVertical className="h-4 w-4" />
@@ -102,13 +102,12 @@ export function RecordingOptionsMenu({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className="w-44"
+          className={
+            showCustomItems
+              ? "w-64 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto"
+              : "w-44"
+          }
           onCloseAutoFocus={(event) => {
-            // Opening the AlertDialog while this menu is still tearing down
-            // leaves `pointer-events: none` stuck on <body>: two dismissable
-            // layers overlap and the survivor never restores the style. Wait
-            // for the menu to finish closing, and keep focus off the trigger
-            // so the dialog owns it.
             if (pendingDeleteConfirmRef.current) {
               event.preventDefault();
               pendingDeleteConfirmRef.current = false;
@@ -116,6 +115,10 @@ export function RecordingOptionsMenu({
             }
           }}
         >
+          {children}
+          {showCustomItems && (showDownload || showDelete) ? (
+            <DropdownMenuSeparator />
+          ) : null}
           {showDownload ? (
             <DropdownMenuItem
               onSelect={handleDownload}

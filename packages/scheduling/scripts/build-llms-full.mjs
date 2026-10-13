@@ -1,5 +1,3 @@
-// Concatenate all docs into a single llms-full.txt bundle for AI consumption.
-// Run by `pnpm build` after `tsc`.
 import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,7 +15,7 @@ function walk(dir, files = []) {
   return files;
 }
 
-const files = walk(docsDir).sort();
+const files = walk(docsDir).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 const out = [];
 out.push("# @agent-native/scheduling — Full Documentation Bundle");
 out.push("");

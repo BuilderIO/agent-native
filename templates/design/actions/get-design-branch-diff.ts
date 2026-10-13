@@ -1,32 +1,11 @@
-/**
- * get-design-branch-diff — read action returning a code + visual diff for a
- * design branch (§6.6 of DESIGN-STUDIO-PLAN.md).
- *
- * Two diff axes:
- *
- * 1. **Visual diff** — compares two `design_versions` snapshots (before and
- *    after branching).  Always available when a `preSnapshotVersionId` is
- *    stored on the branch entry.  Reuses the same lightweight snapshot-diff
- *    approach from `get-design-review.ts` (file presence + content hash).
- *
- * 2. **Code/branch diff** — available only when the source is `fusion` and
- *    `diffPatch` capability is advertised.  For now this surfaces the branch
- *    metadata (name, url, status) and a clear `notAvailable` note when the
- *    bridge write path isn't yet hardened.  Per the plan, real file-level code
- *    diffs land with bridge write hardening (phase 5); the action is structured
- *    to receive that data transparently once the bridge proves it.
- *
- * When neither diff axis is available (e.g. inline design without branches),
- * returns `ctaRequired: true` with a "Make it real" CTA.
- */
-
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
+import { readDesignVersionSnapshot } from "../server/lib/design-versions.js";
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
 import type {
   VisualDiffEntry,
@@ -34,8 +13,6 @@ import type {
 } from "../shared/design-review.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface StoredBranchEntry {
   branchName?: string;
@@ -46,8 +23,6 @@ interface StoredBranchEntry {
   preSnapshotVersionId?: string | null;
   createdAt?: string;
 }
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function parseDesignData(raw: unknown): Record<string, unknown> {
   if (typeof raw !== "string") return {};
@@ -77,41 +52,17 @@ function parseBranches(
   );
 }
 
-/**
- * Parse a design_versions snapshot JSON into a flat map of
- * `{ filename: { bytes, contentHash } }` for structural comparison.
- * Mirrors the approach in `get-design-review.ts`.
- */
-function parseSnapshotFiles(
-  snapshotRaw: string,
-): Record<string, { bytes: number; content: string | undefined }> {
-  try {
-    const obj = JSON.parse(snapshotRaw) as unknown;
-    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return {};
-    const record = obj as Record<string, unknown>;
-    const files = record["files"];
-    if (!Array.isArray(files)) return {};
-
-    const out: Record<string, { bytes: number; content: string | undefined }> =
-      {};
-    for (const file of files) {
-      if (!file || typeof file !== "object") continue;
-      const f = file as Record<string, unknown>;
-      const name = typeof f["filename"] === "string" ? f["filename"] : "?";
-      const content =
-        typeof f["content"] === "string" ? f["content"] : undefined;
-      out[name] = {
-        content,
-        bytes: typeof content === "string" ? content.length : 0,
-      };
-    }
-    return out;
-  } catch {
-    return {};
-  }
+function snapshotFiles(
+  files: ReadonlyArray<{ filename: string; content: string }>,
+): Record<string, { bytes: number; content: string }> {
+  return Object.fromEntries(
+    files.map((file) => [
+      file.filename,
+      { content: file.content, bytes: file.content.length },
+    ]),
+  );
 }
 
-/** Produce a visual diff entry list from two snapshot file maps. */
 function diffSnapshotFiles(
   baseFiles: Record<string, { bytes: number; content: string | undefined }>,
   compareFiles: Record<string, { bytes: number; content: string | undefined }>,
@@ -159,8 +110,6 @@ function diffSnapshotFiles(
   return entries;
 }
 
-// ─── Action ───────────────────────────────────────────────────────────────────
-
 export default defineAction({
   description:
     "Read action: return a code + visual diff for a design branch. " +
@@ -201,18 +150,16 @@ export default defineAction({
   run: async ({ designId, branchName, baseVersionId, compareVersionId }) => {
     const db = getDb();
 
-    // ── Access check ────────────────────────────────────────────────────────
     const access = await resolveAccess("design", designId);
-    if (!access) throw new Error("Design not found");
+    if (!access)
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
 
     const resource = access.resource as { data?: unknown };
 
-    // ── Source type + capability check ──────────────────────────────────────
     const designData = parseDesignData(resource.data);
     const sourceType = designSourceTypeFromData(designData);
     const caps = resolveSourceCapabilities(sourceType);
 
-    // For inline/localhost without branch capability, return a CTA.
     if (!hasCapability(caps, "branch") && !hasCapability(caps, "diffPatch")) {
       return {
         designId,
@@ -224,7 +171,7 @@ export default defineAction({
             : ("make-it-real" as const),
         ctaMessage:
           sourceType === "fusion"
-            ? "Builder is not yet connected. Connect Builder.io (free tier available) to view branch diffs."
+            ? "Builder is not yet connected. Use Builder.io (free tier available) to view branch diffs."
             : "Branch diffs require a Builder-hosted app. Use 'Make it real' to upgrade " +
               "this inline design to a real-app source.",
         branch: null,
@@ -235,7 +182,6 @@ export default defineAction({
       };
     }
 
-    // ── Resolve branch entry ─────────────────────────────────────────────────
     const branches = parseBranches(designData);
 
     let branch: StoredBranchEntry | null = null;
@@ -245,7 +191,6 @@ export default defineAction({
           (b) => b.branchName?.toLowerCase() === branchName.toLowerCase(),
         ) ?? null;
     } else {
-      // Default to the most recently created branch.
       branch = branches.length > 0 ? branches[branches.length - 1]! : null;
     }
 
@@ -265,8 +210,6 @@ export default defineAction({
       };
     }
 
-    // ── Resolve version ids for the visual diff ──────────────────────────────
-    // Priority: explicit params > branch's pre-snapshot > most-recent version
     let effectiveBaseId =
       baseVersionId ?? branch.preSnapshotVersionId ?? undefined;
     let effectiveCompareId = compareVersionId;
@@ -281,7 +224,6 @@ export default defineAction({
       effectiveCompareId = latestVersion?.id;
     }
 
-    // ── Visual diff ──────────────────────────────────────────────────────────
     let visualDiff: VisualDiffEntry[] = [];
     let resolvedBaseVersionId: string | null = null;
     let resolvedCompareVersionId: string | null = null;
@@ -297,7 +239,15 @@ export default defineAction({
           snapshot: schema.designVersions.snapshot,
         })
         .from(schema.designVersions)
-        .where(eq(schema.designVersions.designId, designId));
+        .where(
+          and(
+            eq(schema.designVersions.designId, designId),
+            inArray(schema.designVersions.id, [
+              effectiveBaseId,
+              effectiveCompareId,
+            ]),
+          ),
+        );
 
       const byId = Object.fromEntries(
         versionRows.map((r) => [r.id, r.snapshot]),
@@ -307,17 +257,18 @@ export default defineAction({
       const compareSnap = byId[effectiveCompareId];
 
       if (baseSnap && compareSnap) {
-        const baseFiles = parseSnapshotFiles(baseSnap);
-        const compareFiles = parseSnapshotFiles(compareSnap);
+        const [baseVersion, compareVersion] = await Promise.all([
+          readDesignVersionSnapshot(baseSnap, designId),
+          readDesignVersionSnapshot(compareSnap, designId),
+        ]);
+        const baseFiles = snapshotFiles(baseVersion.files);
+        const compareFiles = snapshotFiles(compareVersion.files);
         visualDiff = diffSnapshotFiles(baseFiles, compareFiles);
         resolvedBaseVersionId = effectiveBaseId;
         resolvedCompareVersionId = effectiveCompareId;
       }
     }
 
-    // ── Code/branch diff ─────────────────────────────────────────────────────
-    // File-level code diffs land with bridge write hardening (phase 5).
-    // Surface what is available now: branch metadata + a clear not-available note.
     const codeDiffAvailable = hasCapability(caps, "diffPatch");
     const codeDiff = {
       available: codeDiffAvailable,

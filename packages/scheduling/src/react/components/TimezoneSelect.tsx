@@ -4,8 +4,6 @@ export interface TimezoneSelectProps {
   className?: string;
 }
 
-// A compact list; consumers can replace with the full 600+ IANA zones from
-// `Intl.supportedValuesOf("timeZone")` at the call site if they need all of them.
 const COMMON_ZONES = [
   "UTC",
   "America/New_York",

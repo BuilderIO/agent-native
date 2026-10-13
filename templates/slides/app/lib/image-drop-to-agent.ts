@@ -1,13 +1,10 @@
-/**
- * Resolve how to hand a dropped image to the agent chat.
- *
- * Prefer a hosted CDN URL from `/api/assets/upload` when a file-upload
- * provider is configured. When nothing is configured (or the upload fails),
- * fall back to an inline data URL so the agent can still see the image —
- * chat already accepts `images: string[]` data URLs without a storage
- * provider. The agent can call `upload-image` later if the slide needs a
- * durable hosted URL.
- */
+import { parseBase64DataUrl } from "@agent-native/core/shared";
+import {
+  estimateAttachmentBodyBytes,
+  MAX_ESTIMATED_BODY_BYTES,
+} from "@agent-native/toolkit/composer/attachment-accept";
+
+import { MAX_INLINE_IMAGE_BASE64_CHARS } from "../../shared/upload-types";
 
 export interface HostedImageUploadResult {
   ok: boolean;
@@ -22,6 +19,7 @@ export type ImageDropAgentPayload =
       message: string;
       context: string;
       referenceImagePaths: string[];
+      images?: string[];
     }
   | {
       kind: "inline";
@@ -31,16 +29,42 @@ export type ImageDropAgentPayload =
     };
 
 export function isMissingUploadProviderError(
-  status: number,
+  _status: number,
   error: string | undefined,
 ): boolean {
-  if (status === 503) return true;
   const lower = (error ?? "").toLowerCase();
   return (
+    lower.includes("no object storage is connected") ||
     lower.includes("no file upload provider") ||
     lower.includes("registerfileuploadprovider") ||
-    lower.includes("connect builder.io")
+    lower.includes("connect builder.io") ||
+    lower.includes("use builder.io")
   );
+}
+
+export function isStorageSetupRequiredError(error: unknown): boolean {
+  // Typed first: the server says who can fix storage, and "nobody connected
+  // it" is the workspace admin's setup, whatever the message says.
+  const typed = error as {
+    errorCode?: unknown;
+    details?: { whoCanFix?: unknown } | null;
+  } | null;
+  if (typed?.errorCode === "attachment_storage_unavailable") {
+    return typed.details?.whoCanFix === "workspace_admin";
+  }
+  // Producers that do not carry a typed code yet (image assets, image
+  // generation) still word this as "No object storage is connected".
+  const message =
+    error instanceof Error
+      ? error.message
+      : error && typeof error === "object" && "message" in error
+        ? String(error.message)
+        : undefined;
+  const status =
+    error && typeof error === "object" && "status" in error
+      ? Number(error.status)
+      : 0;
+  return isMissingUploadProviderError(status, message);
 }
 
 export function buildImageDropAgentPayload(args: {
@@ -50,9 +74,13 @@ export function buildImageDropAgentPayload(args: {
   upload: HostedImageUploadResult;
   dataUrl?: string;
 }): ImageDropAgentPayload {
+  const inlineDataUrl =
+    args.dataUrl && canInlineImageDataUrl(args.dataUrl)
+      ? args.dataUrl
+      : undefined;
   const intentLine =
-    args.intent.trim().length > 0
-      ? args.intent.trim()
+    args.intent.length > 0
+      ? args.intent
       : "Use this image on the current slide.";
   const contextLines: string[] = [];
   if (args.contextHint && args.contextHint.trim().length > 0) {
@@ -62,30 +90,37 @@ export function buildImageDropAgentPayload(args: {
 
   if (args.upload.ok && args.upload.url) {
     contextLines.push(`Image URL (already uploaded): ${args.upload.url}`);
+    if (inlineDataUrl) {
+      contextLines.push(
+        "The original image is also attached for visual inspection.",
+      );
+    }
     return {
       kind: "hosted",
       message: intentLine,
       context: contextLines.join("\n\n"),
       referenceImagePaths: [args.upload.url],
+      ...(inlineDataUrl ? { images: [inlineDataUrl] } : {}),
     };
   }
 
-  if (!args.dataUrl) {
+  if (isMissingUploadProviderError(args.upload.status, args.upload.error)) {
     throw new Error(
       args.upload.error ||
-        "Image upload failed. Connect Builder.io (free tier available) from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
+        "Connect object storage to upload images: Builder.io (free) or your own S3-compatible storage keys.",
+    );
+  }
+
+  if (!inlineDataUrl) {
+    throw new Error(
+      args.upload.error ||
+        "Image upload failed. Use Builder.io (free) or configure your own S3-compatible storage keys.",
     );
   }
 
   if (!isMissingUploadProviderError(args.upload.status, args.upload.error)) {
-    // Unexpected upload failure — still try the inline path so the user can
-    // keep working, but tell the agent the hosted upload didn't land.
     contextLines.push(
       "Hosted upload failed; the image is attached inline as a data URL. Call upload-image on it before placing it on the slide if a durable URL is required.",
-    );
-  } else {
-    contextLines.push(
-      "No file upload provider is configured, so the image is attached inline as a data URL. Call upload-image to obtain a hosted URL before inserting it into slide HTML.",
     );
   }
 
@@ -93,8 +128,42 @@ export function buildImageDropAgentPayload(args: {
     kind: "inline",
     message: intentLine,
     context: contextLines.join("\n\n"),
-    images: [args.dataUrl],
+    images: [inlineDataUrl],
   };
+}
+
+export function canInlineImageFile(file: File): boolean {
+  const mediaType = file.type || "application/octet-stream";
+  if (mediaType.split(";", 1)[0]?.trim().toLowerCase() === "image/svg+xml") {
+    return false;
+  }
+  if (/\.svg$/i.test(file.name)) return false;
+  const encodedLength = Math.ceil(file.size / 3) * 4;
+  return (
+    encodedLength + `data:${mediaType};base64,`.length <=
+    MAX_INLINE_IMAGE_BASE64_CHARS
+  );
+}
+
+export function canInlineImageDataUrl(dataUrl: string): boolean {
+  const parsed = parseBase64DataUrl(dataUrl);
+  return Boolean(
+    parsed &&
+    parsed.mediaType.startsWith("image/") &&
+    parsed.mediaType !== "image/svg+xml" &&
+    dataUrl.length <= MAX_INLINE_IMAGE_BASE64_CHARS,
+  );
+}
+
+export function canAddInlineImageToPayload(
+  existingDataUrls: readonly string[],
+  candidate: string,
+): boolean {
+  return (
+    canInlineImageDataUrl(candidate) &&
+    estimateAttachmentBodyBytes([...existingDataUrls, candidate]) <=
+      MAX_ESTIMATED_BODY_BYTES
+  );
 }
 
 export function readFileAsDataUrl(file: File): Promise<string> {

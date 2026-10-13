@@ -2,18 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbMock = vi.hoisted(() => ({
   execute: vi.fn(),
-  isPostgres: vi.fn(() => false),
 }));
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute: dbMock.execute }),
-  isPostgres: () => dbMock.isPostgres(),
 }));
 
 import {
   deleteRecordingChunks,
   listRecordingChunkKeys,
   recordingChunkIndexFromKey,
+  recordingUploadBrowserSessionId,
+  recordingUploadStateForAttemptIfCurrent,
+  recordingUploadStateForAttempt,
   sumRecordingChunkBytes,
   validateRecordingChunkKeys,
 } from "./recording-upload-state";
@@ -21,8 +22,93 @@ import {
 describe("recording upload state helpers", () => {
   beforeEach(() => {
     dbMock.execute.mockReset();
-    dbMock.isPostgres.mockReset();
-    dbMock.isPostgres.mockReturnValue(false);
+  });
+
+  it("keeps upload attribution scoped to the matching attempt and generation", () => {
+    const attempt = {
+      recordingId: "rec_1",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    const state = {
+      recordingId: "rec_1",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+      browserSessionId: "browser-session-1",
+    };
+
+    expect(recordingUploadBrowserSessionId(state, attempt)).toBe(
+      "browser-session-1",
+    );
+    expect(
+      recordingUploadBrowserSessionId(state, {
+        ...attempt,
+        uploadGenerationId: "generation-2",
+      }),
+    ).toBeUndefined();
+    expect(
+      recordingUploadStateForAttempt({
+        state,
+        attempt: { ...attempt, uploadAttemptId: "attempt-2" },
+        browserSessionId: "new-session",
+      }),
+    ).toEqual({
+      recordingId: "rec_1",
+      uploadAttemptId: "attempt-2",
+      uploadGenerationId: "generation-1",
+      browserSessionId: "new-session",
+    });
+  });
+
+  it("preserves the first session for an attempt while enriching initial upload state", () => {
+    const attempt = {
+      recordingId: "rec_1",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    const initial = {
+      recordingId: "rec_1",
+      status: "uploading",
+      progress: 0,
+    };
+    const attributed = recordingUploadStateForAttempt({
+      state: initial,
+      attempt,
+      browserSessionId: "browser-session-1",
+    });
+
+    expect(attributed).toEqual({
+      ...initial,
+      ...attempt,
+      browserSessionId: "browser-session-1",
+    });
+    expect(
+      recordingUploadStateForAttempt({
+        state: attributed,
+        attempt,
+        browserSessionId: "another-session",
+      }),
+    ).toEqual(attributed);
+  });
+
+  it("refuses to attribute a replacement upload state to a stale attempt", () => {
+    expect(
+      recordingUploadStateForAttemptIfCurrent({
+        state: {
+          recordingId: "rec_1",
+          status: "uploading",
+          uploadAttemptId: "attempt-2",
+          uploadGenerationId: "generation-2",
+          browserSessionId: "replacement-session",
+        },
+        attempt: {
+          recordingId: "rec_1",
+          uploadAttemptId: "attempt-1",
+          uploadGenerationId: "generation-1",
+        },
+        browserSessionId: "stale-session",
+      }),
+    ).toBeNull();
   });
 
   it("lists chunk keys without selecting base64 chunk values", async () => {
@@ -64,8 +150,8 @@ describe("recording upload state helpers", () => {
     ).resolves.toBe(7_340_032);
 
     const query = dbMock.execute.mock.calls[0]?.[0];
-    expect(query.sql).toContain("SUM(json_extract(value, '$.bytes'))");
-    expect(query.sql).toContain("length(key) = ?");
+    expect(query.sql).toContain("(value::jsonb ->> 'bytes')::bigint");
+    expect(query.sql).toContain("length(key) = $3");
     expect(query.sql).not.toContain("SELECT key, value");
   });
 
@@ -86,21 +172,6 @@ describe("recording upload state helpers", () => {
         "recording-chunks-rec_1-999999",
       ],
     });
-  });
-
-  it("uses the Postgres JSON extraction when deployed on Postgres", async () => {
-    dbMock.isPostgres.mockReturnValue(true);
-    dbMock.execute.mockResolvedValue({
-      rows: [{ bytes: "4194304" }],
-      rowsAffected: 0,
-    });
-
-    await expect(
-      sumRecordingChunkBytes("owner@example.com", "rec-1"),
-    ).resolves.toBe(4_194_304);
-
-    const query = dbMock.execute.mock.calls[0]?.[0];
-    expect(query.sql).toContain("(value::jsonb ->> 'bytes')::bigint");
   });
 
   it("parses and sorts a complete contiguous chunk sequence", () => {

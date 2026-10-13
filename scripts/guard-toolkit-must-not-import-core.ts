@@ -195,6 +195,7 @@ export function findToolkitCoreImports(
 export function shouldScanToolkitFile(relativeFile: string): boolean {
   const normalized = relativeFile.split(path.sep).join("/");
   if (!normalized.startsWith(`${TOOLKIT_ROOT}/`)) return false;
+  if (normalized.startsWith(`${TOOLKIT_ROOT}/src/app/`)) return false;
   if (!/\.(?:[cm]?[jt]sx?)$/.test(normalized)) return false;
   if (/\.(?:generated|gen)\.(?:[cm]?[jt]sx?)$/.test(normalized)) return false;
   return !normalized

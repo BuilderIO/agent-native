@@ -16,10 +16,15 @@ import {
 } from "h3";
 
 import { buildMarkdownResponseHeaders } from "../../../core/src/agent-web/index";
-import { wrapDocumentResponse } from "../../lib/analytics";
-import { applyDocsSsrCacheKeyHeaders } from "../../lib/ssr-cache";
+import { isLegacyChunkRecoveryRequest } from "../../../core/src/shared/route-chunk-recovery-bootstrap.js";
+import {
+  applyCommunityAppSsrCacheHeaders,
+  applyDocsSsrCacheKeyHeaders,
+  isCloudGettingStartedPath,
+} from "../../lib/ssr-cache";
 import {
   acceptsMarkdown,
+  agentWebAssetContentType,
   appendVary,
   buildMarkdownNotFoundResponse,
 } from "../lib/agent-web-responses";
@@ -55,8 +60,6 @@ export default async function docsPageHandler(event: H3Event) {
       setHeader(event, name, value);
     }
     setSsrCacheHeaders(event);
-    // These page URLs can return either HTML or markdown based on Accept.
-    // Keep the variants isolated in browser/CDN caches.
     setHeader(event, "vary", "Accept, Accept-Encoding");
     for (const [k, v] of Object.entries(resolveSsrCacheKeyHeaders())) {
       setHeader(event, k, v);
@@ -68,21 +71,18 @@ export default async function docsPageHandler(event: H3Event) {
     throw createError({ statusCode: 404, statusMessage: "Markdown not found" });
   }
 
-  const response = wrapDocumentResponse(await ssrHandler(event));
+  const response = await ssrHandler(event);
   if (
     acceptsMarkdown(getRequestHeader(event, "accept")) &&
     response.status === 404
   ) {
     return buildMarkdownNotFoundResponse();
   }
-  return responseWithVaryAccept(response);
+  const requestUrl = getRequestURL(event);
+  return responseWithVaryAccept(response, requestUrl);
 }
 
 function setSsrCacheHeaders(event: H3Event) {
-  // Keep docs-only public text/markdown assets on the same framework SSR cache
-  // policy as HTML and React Router .data. Core owns the headers for function
-  // responses; prerendered HTML is served statically and is covered by the
-  // matching public SWR rules generated into the Netlify publish directory.
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     setHeader(event, name, value);
   }
@@ -91,13 +91,20 @@ function setSsrCacheHeaders(event: H3Event) {
   }
 }
 
-// Core has already promoted query-preserving HTML redirects to a full
-// query cache key. Keep that stronger key when adding Docs' Accept variant;
-// replacing it here would collapse distinct redirect targets again.
-function responseWithVaryAccept(response: Response): Response {
+function responseWithVaryAccept(response: Response, requestUrl: URL): Response {
   const headers = new Headers(response.headers);
   appendVary(headers, ["Accept", "Accept-Encoding"]);
-  applyDocsSsrCacheKeyHeaders(headers);
+  const isLegacyRecovery = isLegacyChunkRecoveryRequest(requestUrl);
+  applyDocsSsrCacheKeyHeaders(headers, {
+    varyByQuery: isCloudGettingStartedPath(requestUrl),
+    varyByLegacyRecovery: isLegacyRecovery,
+  });
+  applyCommunityAppSsrCacheHeaders(
+    headers,
+    requestUrl.pathname,
+    response.status,
+    { isLegacyRecovery },
+  );
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -109,14 +116,7 @@ function readAgentWebAssetForRequest(
   event: H3Event,
 ): { content: string; contentType: string } | undefined {
   const pathname = getRequestURL(event).pathname.replace(/\/+$/, "") || "/";
-  const contentTypeByPath: Record<string, string> = {
-    "/llms.txt": "text/plain; charset=utf-8",
-    "/llms-full.txt": "text/plain; charset=utf-8",
-    "/robots.txt": "text/plain; charset=utf-8",
-    "/sitemap.xml": "application/xml; charset=utf-8",
-    "/openapi.json": "application/json; charset=utf-8",
-  };
-  const contentType = contentTypeByPath[pathname];
+  const contentType = agentWebAssetContentType(pathname);
   if (!contentType) return undefined;
 
   const relativePath = pathname.replace(/^\//, "");

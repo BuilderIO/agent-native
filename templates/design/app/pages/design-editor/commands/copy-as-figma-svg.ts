@@ -48,15 +48,6 @@ export async function runCopyAsFigmaSvg({
   figmaSvgExportingRef.current = true;
   setFigmaSvgExporting(true);
   try {
-    // The export action defaults to `filename: "index.html"` when no
-    // fileId is given -- that only happens to work for a design whose
-    // screen is literally named index.html. This context menu is shared
-    // between single-screen edit view and overview mode, so resolve the
-    // actual target screen the same way PNG export does (selectedScreenIds
-    // covers both: activeFile.id in single-screen view, the
-    // overview-selected screen id(s) in overview mode) instead of letting
-    // the action guess. Regression: "Copy as SVG" on any non-index.html
-    // screen failed with "Design file not found".
     const targetFileId = activeFile?.id ?? selectedScreenIds[0] ?? undefined;
     await copyDesignAsFigmaSvg(
       {

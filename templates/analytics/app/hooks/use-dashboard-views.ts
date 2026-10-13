@@ -7,6 +7,7 @@ export interface DashboardView {
   id: string;
   name: string;
   filters: Record<string, string>;
+  isDefault?: boolean;
   createdBy?: string;
   createdAt?: string;
 }
@@ -48,12 +49,12 @@ export function useDashboardViews(dashboardId: string | undefined) {
         id: view.id,
         name: view.name,
         filters: view.filters,
+        isDefault: view.isDefault,
       });
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey });
-      // Also invalidate the sidebar views query
-      queryClient.invalidateQueries({ queryKey: ["all-dashboard-views"] });
+      void queryClient.invalidateQueries({ queryKey });
+      void queryClient.invalidateQueries({ queryKey: ["all-dashboard-views"] });
     },
   });
 
@@ -67,14 +68,16 @@ export function useDashboardViews(dashboardId: string | undefined) {
       );
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey });
-      queryClient.invalidateQueries({ queryKey: ["all-dashboard-views"] });
+      void queryClient.invalidateQueries({ queryKey });
+      void queryClient.invalidateQueries({ queryKey: ["all-dashboard-views"] });
     },
   });
 
   return {
     views,
     isLoading: viewsQuery.isLoading,
+    isSuccess: viewsQuery.isSuccess,
+    isSettled: viewsQuery.isSuccess || viewsQuery.isError,
     error: viewsQuery.error,
     refetch: viewsQuery.refetch,
     saveView,
@@ -82,11 +85,6 @@ export function useDashboardViews(dashboardId: string | undefined) {
   };
 }
 
-/**
- * Standalone delete mutation — lets sidebar rows call delete without
- * subscribing to the per-dashboard views query (which would double-fetch
- * what `useAllDashboardViews` already loads).
- */
 export function useDeleteDashboardView() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -104,18 +102,14 @@ export function useDeleteDashboardView() {
       );
     },
     onSettled: (_data, _err, { dashboardId }) => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["dashboard-views", dashboardId],
       });
-      queryClient.invalidateQueries({ queryKey: ["all-dashboard-views"] });
+      void queryClient.invalidateQueries({ queryKey: ["all-dashboard-views"] });
     },
   });
 }
 
-/**
- * Fetch views for all dashboards at once (for sidebar).
- * Returns a map of dashboardId -> DashboardView[].
- */
 export function useAllDashboardViews(dashboardIds: string[]) {
   const { session } = useSession();
   return useQuery({

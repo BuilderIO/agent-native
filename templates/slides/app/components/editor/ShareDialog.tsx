@@ -1,8 +1,8 @@
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
+import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareDialog as CoreShareDialog } from "@agent-native/core/client/sharing";
-import { ShareCopyRow } from "@agent-native/toolkit/sharing";
+import { withShareLinkAttribution } from "@agent-native/core/client/sharing";
+import { ShareDialog as CoreShareDialog } from "@agent-native/toolkit/app/sharing";
 import {
   cloneElement,
   isValidElement,
@@ -15,33 +15,13 @@ import {
 } from "react";
 import { toast } from "sonner";
 
-import { CloudUpgrade } from "@/components/CloudUpgrade";
 import type { Deck } from "@/context/DeckContext";
-import { useDbStatus } from "@/hooks/use-db-status";
-import { getDeckShareLinkOrder } from "@/lib/deck-share-links";
 
 interface ShareDialogProps {
   deck: Deck;
-  /** Trigger element rendered as the dialog anchor (usually the Share button). */
   children?: ReactNode;
-  /** Controlled opening for menu items that must wait for their parent to close. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-}
-
-function getShareUrls(deckId: string) {
-  const origin = typeof window === "undefined" ? "" : window.location.origin;
-
-  return {
-    editor:
-      typeof window === "undefined"
-        ? `/deck/${deckId}`
-        : `${origin}${appPath(`/deck/${deckId}`)}`,
-    presentation:
-      typeof window === "undefined"
-        ? `/p/${deckId}`
-        : `${origin}${appPath(`/p/${deckId}`)}`,
-  };
 }
 
 export default function ShareDialog({
@@ -51,7 +31,7 @@ export default function ShareDialog({
   onOpenChange,
 }: ShareDialogProps) {
   const t = useT();
-  const { isLocal } = useDbStatus();
+  const { session } = useSession();
   const [open, setOpen] = useState(false);
   const [shareLink, setShareLink] = useState<{
     deckId: string;
@@ -67,20 +47,16 @@ export default function ShareDialog({
     [onOpenChange],
   );
 
-  const shareUrls = getShareUrls(deck.id);
-  const shareLinkOrder = getDeckShareLinkOrder(deck.visibility);
   const shareToken =
     shareLink?.deckId === deck.id ? shareLink.token : undefined;
   const primaryShareLink = shareToken
-    ? `${typeof window === "undefined" ? "" : window.location.origin}${appPath(`/share/${shareToken}`)}`
+    ? withShareLinkAttribution(
+        `${typeof window === "undefined" ? "" : window.location.origin}${appPath(`/share/${shareToken}`)}`,
+        "deck_share",
+        session?.userId,
+      )
     : undefined;
-  const secondaryShareLink = shareUrls[shareLinkOrder.secondary];
-
   const openShareDialog = useCallback(async () => {
-    if (isLocal) {
-      setDialogOpen(true);
-      return;
-    }
     if (shareToken) {
       setDialogOpen(true);
       return;
@@ -123,7 +99,7 @@ export default function ShareDialog({
     } finally {
       setCreatingLink(false);
     }
-  }, [creatingLink, deck, isLocal, setDialogOpen, shareToken, t]);
+  }, [creatingLink, deck, setDialogOpen, shareToken, t]);
 
   useEffect(() => {
     if (requestedOpen === undefined) return;
@@ -152,31 +128,14 @@ export default function ShareDialog({
   return (
     <>
       {trigger}
-      {open && isLocal ? (
-        <CloudUpgrade
-          title={t("share.title")}
-          description={t("share.cloudUpgradeDescription")}
-          onClose={() => setDialogOpen(false)}
-        />
-      ) : null}
       <CoreShareDialog
-        open={open && !isLocal}
+        open={open}
         onClose={() => setDialogOpen(false)}
         resourceType="deck"
         resourceId={deck.id}
+        title={t("share.title")}
         resourceTitle={deck.title}
         shareUrl={primaryShareLink}
-        linkTabExtras={
-          <ShareCopyRow
-            label={t("editorToolbar.presentationLink")}
-            description={t("editorToolbar.presentationLinkDescription")}
-            value={secondaryShareLink}
-            copyLabel={t("share.copyLink")}
-            copiedLabel={t("share.copied")}
-            onCopy={(value) => writeClipboardText(value)}
-            className="mt-3"
-          />
-        }
       />
     </>
   );

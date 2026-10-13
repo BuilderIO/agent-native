@@ -1,12 +1,3 @@
-/**
- * A strip of colored uptime buckets over a window (UptimeRobot-style), one bar
- * per pre-bucketed period: green up / red down / amber degraded / muted
- * no-data. Each bar has a tooltip with its time range, uptime %, and downtime.
- *
- * Reusable by the authenticated monitor detail view and the public status page.
- * It takes ALREADY-bucketed data (`buckets`) — it does no fetching or
- * aggregation itself.
- */
 import {
   Tooltip,
   TooltipContent,
@@ -24,14 +15,10 @@ import type { UptimeBucket } from "./types";
 
 export interface UptimeTimelineBarsProps {
   buckets: UptimeBucket[];
-  /** Tailwind height for the strip. Default `h-8`. */
   heightClassName?: string;
-  /** Rounded corners on each bar. Default `rounded-sm`. */
   barRadiusClassName?: string;
   className?: string;
-  /** Accessible label describing the timeline. */
   ariaLabel?: string;
-  /** Render nothing (instead of an empty strip) when there are no buckets. */
   hideWhenEmpty?: boolean;
 }
 

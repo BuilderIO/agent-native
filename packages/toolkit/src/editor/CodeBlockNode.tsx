@@ -13,19 +13,11 @@ import { useMemo, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.js";
 import { cn } from "../utils.js";
 
-/**
- * A selectable language for the code-block picker. `value === null` is the
- * "Auto" sentinel: the block stores no language and the lowlight plugin
- * auto-detects (biased toward the editor's registered, web-leaning grammar
- * set). Keeping it first makes Auto the default, matching how plans skew toward
- * JS/TS/JSON without the author having to choose.
- */
 export interface CodeLanguageOption {
   value: string | null;
   label: string;
 }
 
-/** Default picker list — Auto first, then the web-leaning grammars plans use. */
 export const DEFAULT_CODE_LANGUAGES: CodeLanguageOption[] = [
   { value: null, label: "Auto" },
   { value: "typescript", label: "TypeScript" },
@@ -46,7 +38,6 @@ export const DEFAULT_CODE_LANGUAGES: CodeLanguageOption[] = [
   { value: "diff", label: "Diff" },
 ];
 
-/** Class hooks so each app themes the shared node with its own palette. */
 export interface CodeBlockClassNames {
   wrapper: string;
   header: string;
@@ -72,11 +63,8 @@ const DEFAULT_CLASS_NAMES: CodeBlockClassNames = {
 };
 
 export interface CreateCodeBlockNodeOptions {
-  /** Lowlight instance backing syntax highlighting (same one the app registers). */
   lowlight: ReturnType<typeof createLowlight>;
-  /** Picker languages. Defaults to {@link DEFAULT_CODE_LANGUAGES} (Auto first). */
   languages?: CodeLanguageOption[];
-  /** Class hooks for per-app theming. Defaults to the shared `an-code-block__*`. */
   classNames?: Partial<CodeBlockClassNames>;
 }
 
@@ -120,8 +108,6 @@ function CodeBlockView({
   }, [filter, languages]);
 
   const select = (value: string | null) => {
-    // Store `""` for Auto so tiptap-markdown emits a bare fence (no language),
-    // matching the auto-detect read path.
     updateAttributes({ language: value ?? "" });
     setFilter("");
     setOpen(false);
@@ -201,18 +187,6 @@ function CodeBlockView({
   );
 }
 
-/**
- * The shared Notion-style code block: {@link CodeBlockLowlight} (so fenced
- * markdown round-trips byte-identically — the node name and `language` attr are
- * unchanged) plus a React node view that adds a language picker header instead
- * of a bare highlighted `<pre>`. "Auto" stores no language and the lowlight
- * plugin auto-detects.
- *
- * Lifted from the Content editor's bespoke code block so Plans (and any app
- * opting into `features.codeBlock`) share one implementation. Theming is fully
- * class-driven via {@link CreateCodeBlockNodeOptions.classNames}, so each app
- * maps the hooks onto its own palette.
- */
 export function createCodeBlockNode({
   lowlight,
   languages = DEFAULT_CODE_LANGUAGES,

@@ -1,6 +1,5 @@
 const GOOGLE_PROFILE_IMAGE_HOST = "googleusercontent.com";
 
-/** Accept only HTTPS images served from Google's profile-image CDN. */
 export function isGoogleProfileImageUrl(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const candidate = value.trim();

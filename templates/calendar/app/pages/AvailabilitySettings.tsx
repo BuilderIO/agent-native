@@ -4,7 +4,6 @@ import { IconPlus, IconTrash } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
-import { CloudUpgrade } from "@/components/CloudUpgrade";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +20,6 @@ import {
   useAvailability,
   useUpdateAvailability,
 } from "@/hooks/use-availability";
-import { useDbStatus } from "@/hooks/use-db-status";
 import {
   DEFAULT_TIME_SLOT,
   addTimeSlot,
@@ -71,14 +69,7 @@ export default function AvailabilitySettings() {
   const [slotDuration, setSlotDuration] = useState(30);
   const [bookingSlug, setBookingSlug] = useState("meeting");
   const [timezone, setTimezone] = useState("America/New_York");
-  const { isLocal } = useDbStatus();
-  const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
-
   async function handleCopyBookingLink() {
-    if (isLocal) {
-      setShowCloudUpgrade(true);
-      return;
-    }
     const url = `${window.location.origin}/book/${bookingSlug}`;
     if (await copyTextToClipboard(url)) {
       toast.success(t("bookingLinks.bookingLinkCopied"));
@@ -261,7 +252,7 @@ export default function AvailabilitySettings() {
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-8 px-2 text-muted-foreground hover:text-destructive"
+                            className="px-2 text-muted-foreground hover:text-destructive"
                             onClick={() => removeDaySlot(key, slotIndex)}
                           >
                             <IconTrash className="mr-1.5 h-3.5 w-3.5" />
@@ -274,7 +265,7 @@ export default function AvailabilitySettings() {
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="h-8 px-2"
+                      className="px-2"
                       onClick={() => addDaySlot(key)}
                     >
                       <IconPlus className="mr-1.5 h-3.5 w-3.5" />
@@ -376,16 +367,6 @@ export default function AvailabilitySettings() {
           ? t("common.saving")
           : t("bookingLinks.saveAvailability")}
       </Button>
-
-      {showCloudUpgrade && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <CloudUpgrade
-            title={t("bookingLinks.shareBookingLink")}
-            description={t("bookingLinks.cloudUpgradeDescription")}
-            onClose={() => setShowCloudUpgrade(false)}
-          />
-        </div>
-      )}
     </div>
   );
 }

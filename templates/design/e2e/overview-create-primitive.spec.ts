@@ -5,11 +5,10 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { appPath } from "./helpers";
+import { e2eBaseURL } from "./base-url";
+import { appPath, selectTool } from "./helpers";
 
-const BASE_URL =
-  process.env.E2E_BASE_URL ??
-  `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`;
+const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Screen</title></head>
 <body style="margin:0;min-height:900px">
@@ -65,7 +64,6 @@ async function createDesign(request: APIRequestContext) {
   return { designId, fileId };
 }
 
-/** Counts source-backed nodes inside the screen's live preview iframe. */
 async function previewNodeCount(page: Page) {
   return page.evaluate(() => {
     const frame = document.querySelector<HTMLIFrameElement>(
@@ -78,7 +76,7 @@ async function previewNodeCount(page: Page) {
 }
 
 async function drawRectangle(page: Page) {
-  await page.getByRole("button", { name: "Rectangle", exact: true }).click();
+  await selectTool(page, "Rectangle");
   const box = (await page.locator("[data-screen-card]").first().boundingBox())!;
   const x = Math.max(box.x, 0) + 60;
   const y = Math.max(box.y, 0) + 60;

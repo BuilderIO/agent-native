@@ -13,20 +13,9 @@ import type { PlanComment } from "../shared/types.js";
 
 function commentAnchorContext(anchor: PlanCommentAnchor | null) {
   const context = formatPlanCommentAnchorForAgent(anchor);
-  // Treat the generic fallback ("Pinned to plan" or enriched coordinate variants)
-  // as having no usable anchor context. Only a bare "Pinned to plan" exact match
-  // is filtered here; enriched strings like "Pinned at X%..." pass through as
-  // they carry real location info.
   return context && context !== "Pinned to plan" ? context : null;
 }
 
-/**
- * Normalize text for quote matching. Quotes are captured from rendered DOM
- * text while block fragments are raw markdown, so inline markdown syntax
- * (emphasis markers, code ticks, link wrappers) must be stripped before
- * comparing. The same normalization is applied to both sides, so aggressive
- * stripping stays symmetric and safe.
- */
 function normalizeForQuoteMatch(text: string): string {
   return text
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
@@ -38,10 +27,6 @@ function normalizeForQuoteMatch(text: string): string {
     .trim();
 }
 
-/**
- * Collect all searchable text strings from a single content block.
- * Returns an array of normalized text fragments.
- */
 function blockTextFragments(block: PlanBlock): string[] {
   const frags: string[] = [];
   switch (block.type) {
@@ -109,35 +94,25 @@ function blockTextFragments(block: PlanBlock): string[] {
       for (const ann of block.data.annotations ?? []) frags.push(ann.note);
       break;
     default:
-      // Other block types (wireframe, diagram, image, etc.) have no prose to match.
       break;
   }
-  // Also include block-level title/summary
   if (block.title) frags.push(block.title);
   if (block.summary) frags.push(block.summary);
   return frags.filter(Boolean);
 }
 
-/**
- * Check whether a quoted snippet still exists in the plan content.
- * Returns true when found, false when definitely gone.
- * Scopes to a sectionId block when provided; searches all blocks when not.
- * Returns true (not detached) for ambiguous cases to avoid false positives.
- */
 function quoteExistsInContent(
   quote: string,
   content: PlanContent | null | undefined,
   sectionId: string | null | undefined,
 ): boolean {
-  if (!content?.blocks?.length) return true; // can't determine — be conservative
+  if (!content?.blocks?.length) return true;
   const needle = normalizeForQuoteMatch(quote);
   if (!needle) return true;
 
   let blocks = content.blocks;
   if (sectionId) {
     const scoped = blocks.filter((b) => b.id === sectionId);
-    // If the sectionId didn't resolve to any block, fall back to all blocks to
-    // avoid marking the quote as detached when the section just changed id.
     if (scoped.length > 0) {
       blocks = scoped;
     }
@@ -170,9 +145,6 @@ function withAgentAnchorContext<T extends PlanComment>(
   content?: PlanContent | null,
 ) {
   const anchor = commentAnchorForAgent(comment);
-  // Detach detection only applies to text anchors: visual/point anchors carry
-  // a snippet (button labels, section titles) that legitimately may not appear
-  // in prose blocks, so checking them would produce false positives.
   const quote =
     anchor?.anchorKind !== "visual" && anchor?.anchorKind !== "point"
       ? anchor?.textQuote
@@ -250,9 +222,6 @@ function buildFeedbackThreads(
         comments.find((comment) => comment.id === thread.root.id) ??
         thread.root;
       const rootAnchor = commentAnchorForAgent(root);
-      // A thread is detached if the root comment's quoted text no longer exists
-      // in the current plan content. We use the pre-computed map from
-      // feedbackComments; roots not in the feedback set default to false.
       const detached = detachedById.get(root.id) ?? false;
       return {
         id: root.id,

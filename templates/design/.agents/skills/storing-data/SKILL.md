@@ -13,9 +13,11 @@ metadata:
 
 ## Rule
 
-All application data lives in **SQL** (SQLite locally, persistent database in production). The agent and UI share the same database. SQL stores structured records, metadata, references, and searchable text — not large raw file payloads. Do not store durable app data in the filesystem unless the app is explicitly running a Local File Mode artifact flow described below.
+All application data lives in **SQL** (local PGlite, hosted Postgres in production). The agent and UI share the same database. SQL stores structured records, metadata, references, and searchable text — not large raw file payloads. Do not store durable app data in the filesystem unless the app is explicitly running a Local File Mode artifact flow described below.
 
-Large binary or file-like payloads (images, video/audio, PDFs, ZIPs, screenshots, session replay chunks, thumbnails, generated assets, `data:` URLs, and base64 file bodies) must go through configured file/blob storage such as `uploadFile()` or `putPrivateBlob()`. Persist only the returned URL, asset id, or opaque blob handle in SQL. If storage is unavailable in hosted or persistent-database mode, fail closed with setup guidance instead of falling back to base64 in `application_state`, `settings`, `resources`, or app tables. Local SQLite-only dev fallbacks may exist for tiny assets, but they must be capped, documented as dev-only, and kept off hot list/read paths.
+Large binary or file-like payloads (images, video/audio, PDFs, ZIPs, screenshots, session replay chunks, thumbnails, generated assets, `data:` URLs, and base64 file bodies) must go through configured file/blob storage such as `uploadFile()` or `putPrivateBlob()`. Persist only the returned URL, asset id, or opaque blob handle in SQL. If storage is unavailable in hosted or persistent-database mode, fail closed with setup guidance instead of falling back to base64 in `application_state`, `settings`, `resources`, or app tables.
+
+**Uploaded files an action opens later** (chat attachments, import controls, chunked commits) are one core `AttachmentRef`: mint with `mintAttachmentRef`, open with `resolveAttachment` and `unwrapAttachment` from `@agent-native/core/private-blob`. Never write a template descriptor, never branch on error text, and never truncate a ref (`ATTACHMENT_REF_MAX_CHARS` is the floor for any prompt or field that carries one). Each failure is typed: `notFound`, `forbiddenScope`, `expired` and `malformed` are definitive and stop the turn; only `storageUnavailable` is retryable, and the same ref works once storage is back, so never ask the user to attach the file again for it.
 
 **Local File Mode exception:** some artifact apps (Content, Plans, Slides, Dashboards, Designs, etc.) can intentionally use repo files as the source of truth for the artifact itself. This must be explicit via `agent-native.json`, `AGENT_NATIVE_MODE=local-files`, or an app-owned local-file action helper. In that mode, the UI and agent still go through app actions, but those actions read/write scoped files through `@agent-native/core/local-artifacts` instead of SQL rows. App state, auth, settings, credentials, collaboration metadata, and hosted database mode remain SQL. File-to-database or file-to-provider synchronization is an explicit sync step, not an implicit side effect of editing.
 
@@ -23,17 +25,40 @@ When you add a data model, a list, or a read path, also follow the `performance`
 
 ## How It Works
 
-Agent-Native apps use Drizzle ORM over the configured SQL backend. Local development works out of the box with a SQLite file at `data/app.db`; production and shared preview deploys need a persistent `DATABASE_URL` because container/serverless filesystems can reset. The code should behave the same across backends, but the local SQLite file is not durable once deployed.
+Agent-Native apps use Drizzle ORM over PostgreSQL. Local development uses PGlite at `data/pglite`; production and shared preview deploys need a persistent hosted PostgreSQL `DATABASE_URL`.
 
 For app code, use Drizzle's schema/query DSL by default. Raw SQL is an escape hatch for additive migrations, health checks, or one-off maintenance, not the normal way to build features.
 
-### Naming migrations
+### Schema and migration ownership
 
-When you add an entry to a `runMigrations([...])` list (`@agent-native/core/db`), always give it a unique `name:` slug (e.g. `name: "analytics-alert-rules-table"`) alongside its `version`. Never renumber or reuse version numbers on existing entries.
+Define PostgreSQL tables with Drizzle's `drizzle-orm/pg-core` exports and use
+`drizzle-orm` for query operators. Import only framework-owned sharing helpers,
+such as `ownableColumns()` and `createSharesTable()`, from
+`@agent-native/core/db/schema`. Do not import table builders through the core
+helper module.
 
-Why: version numbers alone are not a safe identity. Two branches that each independently extend the same migration list can ship different DDL under the same version numbers — whichever branch deploys first "claims" those version numbers in the bookkeeping table, and the other branch's DDL is silently treated as already applied even though it never ran. This exact collision took down analytics: parallel branches both extended their migration list through v75-v83 with different DDL, so `analytics_alert_rules`, `analytics_alert_incidents`, and `session_recordings.network_error_count` never made it to production despite the bookkeeping table showing every version as applied. A `name:` slug is tracked independently of version numbers, so it applies exactly once per database regardless of what any other branch already recorded.
+If the scaffold already has `drizzle.config.ts`, `drizzle/schema.ts`, and a
+`db:generate` script, generate reviewed SQL with Drizzle Kit and load it through
+`runDrizzleMigrations`. Do not assume every starter has that setup or add a
+second migration owner beside it. The Chat and default starters do not ship that
+Drizzle Kit setup; follow their local instructions and the Database docs for
+the migration path. In Chat, add `server/db/schema.ts`, `server/db/index.ts`
+with `createGetDb(schema)`, and `server/plugins/db.ts` with
+`runMigrations([...], { table })`. `scripts/migrate-production.ts` is framework-only;
+do not create a parallel `runMigrations([...])` list beside a generated Drizzle
+migration owner. Give each handwritten migration a unique, stable `name`
+alongside its `version`; append changes instead of renumbering, reusing, or
+editing an applied entry.
+
+Why: version numbers alone are not a safe identity. Two branches that each independently extend the same migration list can ship different DDL under the same version numbers — whichever branch deploys first "claims" those version numbers in the bookkeeping table, and the other branch's DDL is silently treated as already applied even though it never ran. A `name:` slug is tracked independently of version numbers, so it applies exactly once per database regardless of what any other branch already recorded.
 
 Existing unnamed migrations don't need to be renamed retroactively (the two gating strategies coexist), but any new entry should always carry a name.
+
+Every migration must be additive and backward compatible with code that may
+still be running. A new `ADD COLUMN ... NOT NULL` with no `DEFAULT` breaks on
+existing rows and inserts from older code. Make it nullable, give it a safe
+`DEFAULT`, or use a self-filling type (`SERIAL`, `GENERATED ... AS IDENTITY`);
+backfill separately when it needs a real value.
 
 ### Core SQL Stores (auto-created, available in all templates)
 
@@ -46,34 +71,65 @@ Existing unnamed migrations don't need to be renamed retroactively (the two gati
 
 ### Domain Data (per-template)
 
-Define schema with the framework Drizzle helpers in `server/db/schema.ts`. Get a database instance with `const db = getDb()` from `server/db/index.ts`. All queries are async.
+For Chat and templates using the framework migration plugin, define the
+PostgreSQL schema in `server/db/schema.ts`; `getDb()` comes from the local
+`server/db/index.ts`. Some templates have their own Drizzle Kit layout and
+local instructions. All queries are async.
 
 ```ts
-import { eq } from "drizzle-orm";
-import { table, text, integer, now } from "@agent-native/core/db/schema";
+import { eq, sql } from "drizzle-orm";
+import { boolean, pgTable, text } from "drizzle-orm/pg-core";
 
-export const tasks = table("tasks", {
+export const tasks = pgTable("tasks", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
-  completed: integer("completed", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  createdAt: text("created_at").notNull().default(now()),
+  completed: boolean("completed").notNull().default(false),
+  createdAt: text("created_at").notNull().default(sql`now()`),
 });
 
 const rows = await db.select().from(tasks).where(eq(tasks.id, taskId));
 ```
 
-Never import `sqliteTable` / `pgTable` or column helpers from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in app templates. Use `@agent-native/core/db/schema` so the same schema can run against SQLite, Postgres, libSQL/Turso, D1, and other supported backends.
+Use `drizzle-orm/pg-core` so app schemas state their PostgreSQL types directly.
+
+#### Identity-shaped columns need a policy
+
+Member offboarding and email changes refuse to run while any column named
+`email`, `*_email`, `*scope_id`, `created_by`, `updated_by`, `invited_by`,
+`owner`, `principal_id`, `session_id`, or `user_id` has no policy.
+`createSharesTable()` tables are handled for you, and undeclared `owner_email`
+columns transfer to the successor, which is right only for owned content.
+Declare every other one, including columns that are not member identities, from
+the app's database plugin graph (Clips does it in `server/db/index.ts`):
+
+```ts
+import { registerIdentityColumns } from "@agent-native/core/org";
+
+registerIdentityColumns([
+  // Access grant: follows an email change, ends with the membership.
+  { table: "space_members", column: "email", emailChange: "rekey", offboard: "delete", orgScope: { column: "space_id", references: { table: "spaces", column: "id", orgColumn: "org_id" } }, reason: "Space membership grants access." },
+  // Someone else's address: never rewritten.
+  { table: "meeting_participants", column: "email", emailChange: "retain", offboard: "retain", reason: "Attendee address from the calendar provider." },
+  // A credential in an owner_email table: never handed to the successor.
+  { table: "api_keys", column: "owner_email", emailChange: "rekey", offboard: "revoke", reason: "Bearer keys act as their owner." },
+]);
+```
+
+Choose `delete` for grants, credentials, and pending tokens, or `revoke` (sets
+`revoked_at`) when a reader treats a missing row as "not revoked"; `retain` for
+attribution, history, and third-party addresses; `transfer` only for owned
+data. Declare `owner_email` tables that hold credentials or grants, or
+offboarding hands them to the successor. A table without `org_id` needs
+`orgScope` or an organization-scoped removal leaves its rows alone.
 
 | Template     | Tables                                        |
 | ------------ | --------------------------------------------- |
-| **Mail**     | emails, labels (+ Gmail API when connected)   |
-| **Calendar** | events, bookings                              |
+| **Mail**     | emails, labels                                 |
+| **Calendar** | booking links and bookings; events stay in Google Calendar |
 | **Forms**    | forms, responses                              |
-| **Content**  | documents                                     |
+| **Content**  | documents in SQL; connected local-folder sources sync separately |
 | **Slides**   | decks (JSON stored in SQL)                    |
-| **Videos**   | compositions in registry + localStorage       |
+| **Clips**    | recording metadata in SQL; video and image files use blob storage |
 
 ### Agent Access
 
@@ -118,13 +174,12 @@ Actions are the **preferred way** for the frontend to access data. You rarely ne
 
 ### Production / Cloud Deployment
 
-Local SQLite works out of the box for development. To deploy to production or any environment where data must survive restarts:
+Local PGlite works out of the box for development. To deploy to production or any environment where data must survive restarts:
 
-1. Set `DATABASE_URL` to a persistent SQL database.
-2. Set `DATABASE_AUTH_TOKEN` only when the provider requires a separate token, such as Turso/libSQL.
-3. No code changes should be needed when the schema and queries stay portable.
+1. Set `DATABASE_URL` to a persistent hosted PostgreSQL database.
+2. Keep schema and queries PostgreSQL-compatible.
 
-Turso is one valid option, not the required option. Common choices include Neon or Supabase Postgres, Turso/libSQL, plain Postgres, durable SQLite, Cloudflare D1 bindings, and managed platform SQL environments when available.
+
 
 ### Real-time Sync
 
@@ -133,8 +188,8 @@ Polling streams database changes to the UI. When the agent writes to the databas
 ## Do
 
 - Use Drizzle ORM for structured domain data (forms, bookings, documents)
-- Use Drizzle query builder methods (`select`, `insert`, `update`, `delete`) and portable operators from `drizzle-orm` (`eq`, `and`, `or`, `inArray`, `desc`, etc.) for app reads/writes
-- Use framework schema helpers from `@agent-native/core/db/schema`, not dialect-specific Drizzle imports
+- Use Drizzle query builder methods (`select`, `insert`, `update`, `delete`) and standard operators from `drizzle-orm` (`eq`, `and`, `or`, `inArray`, `desc`, etc.) for app reads/writes
+- Use `drizzle-orm/pg-core` for PostgreSQL table and column builders; use `@agent-native/core/db/schema` for framework-owned sharing helpers only
 - Use the `settings` store for app configuration and user preferences
 - Use `application-state` for ephemeral UI state that the agent and UI share
 - Use `oauth-tokens` for OAuth credentials
@@ -151,7 +206,7 @@ Polling streams database changes to the UI. When the agent writes to the databas
 - Don't use Redis or any external state store for app data
 - Don't store large files, base64 blobs, `data:` URLs, screenshots, videos, audio, PDFs, ZIPs, or session replay chunks directly in SQL rows, `application_state`, `settings`, or `resources`
 - Don't implement product features with raw SQL or `getDbExec()` when Drizzle can express the query
-- Don't write SQLite-only or Postgres-only SQL in app code
+- Write advanced SQL for PostgreSQL
 - Don't interpolate user input directly into SQL queries — use Drizzle ORM's query builder
 
 ## Security
@@ -163,8 +218,8 @@ Polling streams database changes to the UI. When the agent writes to the databas
 
 When storing app-state, include **navigation state** — the agent needs to know what the user is looking at. The `application_state` table holds ephemeral UI state that both the agent and UI share. Key patterns:
 
-- **`navigation` key** — the UI writes current view and selection on every route change. The agent reads this before acting.
-- **`navigate` key** — the agent writes one-shot commands to navigate the UI. The UI processes and deletes them.
+- **`navigation` key** — the UI writes current view and selection on route changes; state may be scoped to the current browser tab.
+- **`navigate` command** — write it with `writeAppStateForCurrentTab("navigate", value)` so the command reaches the current tab; the UI processes and deletes it.
 - **Domain-specific keys** (e.g., `compose-{id}`) — bidirectional state for features like email drafts.
 
 When adding a new data model or feature, also consider what navigation and selection state needs to be exposed via application-state. See the **context-awareness** skill for the full pattern.
@@ -174,5 +229,4 @@ When adding a new data model or feature, also consider what navigation and selec
 - **context-awareness** — How to expose navigation and selection state via application-state
 - **real-time-sync** — Set up polling so the UI updates when the database changes
 - **actions** — Create actions with `defineAction` to query the database
-- **client-methods** — Keep route details behind named client helpers/hooks
-- **self-modifying-code** — The agent can also modify the app's source code
+- **build-an-app** — Apply the data model to a complete app feature

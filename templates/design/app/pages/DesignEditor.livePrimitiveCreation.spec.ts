@@ -2,10 +2,9 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-const source = readFileSync(new URL("./DesignEditor.tsx", import.meta.url), {
-  encoding: "utf8",
-});
-// handleCreatePrimitive now lives in its own command module.
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
+const source = readDesignEditorSource();
 const createPrimitiveSource = readFileSync(
   new URL("./design-editor/commands/create-primitive.ts", import.meta.url),
   { encoding: "utf8" },
@@ -14,7 +13,6 @@ const createPrimitiveStart = createPrimitiveSource.indexOf(
   "export function runCreatePrimitive",
 );
 const createPrimitiveEnd = createPrimitiveSource.length;
-// recordPendingLiveStructureEdit now lives in its own command module.
 const recordPendingSource = readFileSync(
   new URL(
     "./design-editor/commands/record-pending-live-structure-edit.ts",
@@ -43,7 +41,15 @@ describe("DesignEditor live primitive creation boundary", () => {
     expect(source).toMatch(
       /const handleSingleScreenCreatePrimitive[\s\S]*?handleCreatePrimitive\(activeFile\.id, primitive\)/,
     );
-    expect(source).toMatch(/onCreatePrimitive=\{handleCreatePrimitive\}/);
+    expect(source).toMatch(
+      /creation=\{\{[\s\S]*?onCreatePrimitive: handleCreatePrimitive,/,
+    );
+  });
+
+  it("forwards explicit tool intent from focused Pen completion", () => {
+    expect(source).toMatch(
+      /const handleSingleScreenCreatePrimitive[\s\S]*?nextTool:\s*spec\.nextTool\s*\?\?/,
+    );
   });
 
   it("uses only manifest source provenance for a body-level Apply target", () => {

@@ -16,12 +16,6 @@ function isHost(hostname: string, host: string): boolean {
   return hostname === host || hostname.endsWith(`.${host}`);
 }
 
-/**
- * Limit microphone-use monitoring to the app that can own this meeting.
- * Browser bundles are included only when the calendar join URL identifies a
- * browser-hosted provider, so another tab using the microphone cannot end a
- * native Zoom or Teams recording.
- */
 export function callAppBundleIdsForJoinUrl(joinUrl?: string | null): string[] {
   if (!joinUrl) return [...NATIVE_CALL_APP_BUNDLE_IDS];
 
@@ -30,7 +24,12 @@ export function callAppBundleIdsForJoinUrl(joinUrl?: string | null): string[] {
     if (isHost(hostname, "meet.google.com")) {
       return [...BROWSER_CALL_APP_BUNDLE_IDS];
     }
-    if (isHost(hostname, "teams.microsoft.com")) {
+    if (
+      isHost(hostname, "teams.microsoft.com") ||
+      isHost(hostname, "zoom.us") ||
+      isHost(hostname, "zoom.com") ||
+      isHost(hostname, "zoomgov.com")
+    ) {
       return [...NATIVE_CALL_APP_BUNDLE_IDS, ...BROWSER_CALL_APP_BUNDLE_IDS];
     }
   } catch {

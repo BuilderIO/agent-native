@@ -1,0 +1,47 @@
+---
+title: "Neon"
+description: "Connect an agent-native app to Neon Postgres with pooled runtime connections and release-safe migrations."
+---
+
+# Neon
+
+Neon is a supported Postgres provider. Configure the connection string from
+Neon's **Connect** panel as `DATABASE_URL`.
+
+## Configure the app
+
+Use a pooled Neon endpoint for application traffic that creates short-lived
+server connections:
+
+```bash
+DATABASE_URL=postgresql://app_user:YOUR_PASSWORD@ep-example-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require
+```
+
+The framework recognizes Neon hosts and uses Neon's serverless Postgres
+driver. Do not add a second database client to the app.
+
+## Pooled and direct connections
+
+If your release or migration environment needs a direct endpoint, set
+`DATABASE_URL_UNPOOLED` to the same database's unpooled URL:
+
+```bash
+DATABASE_URL_UNPOOLED=postgresql://app_user:YOUR_PASSWORD@ep-example.us-east-2.aws.neon.tech/neondb?sslmode=require
+```
+
+The framework uses the unpooled URL when it is configured and can remove
+Neon's `-pooler` hostname suffix when resolving a direct runtime or migration
+connection.
+
+## Migrations
+
+Run production migrations in the release or deployment step. For serverless
+deployments, use the embedded migration runner described in the [database
+guide](/docs/server-database#migrations). Never run `drizzle-kit push` against
+a production database.
+
+## What's next
+
+- [Database](/docs/server-database) - schema, migrations, and connection rules
+- [Deployment](/docs/deployment) - choose a runtime and deployment preset
+- [Drizzle's Neon guide](https://orm.drizzle.team/docs/connect-neon) - driver-specific details

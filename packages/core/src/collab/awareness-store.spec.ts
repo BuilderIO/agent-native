@@ -10,7 +10,6 @@ function rowKey(docId: string, clientId: number): string {
 }
 
 vi.mock("../db/client.js", () => ({
-  isPostgres: () => false,
   getDbExec: () => {
     if (!dbAvailable.value) throw new Error("db not configured");
     return {
@@ -21,7 +20,10 @@ vi.mock("../db/client.js", () => ({
         if (/^\s*CREATE TABLE/i.test(sql)) {
           return { rows: [], rowsAffected: 0 };
         }
-        if (/^\s*INSERT OR REPLACE INTO _collab_awareness/i.test(sql)) {
+        if (
+          /^\s*INSERT INTO _collab_awareness/i.test(sql) &&
+          /ON CONFLICT\s*\(\s*doc_id\s*,\s*client_id\s*\)/i.test(sql)
+        ) {
           dbRows.set(rowKey(String(args[0]), Number(args[1])), {
             state: String(args[2]),
             last_seen: Number(args[3]),
@@ -85,6 +87,10 @@ vi.mock("../db/client.js", () => ({
   },
 }));
 
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
+}));
+
 import {
   _resetAwarenessStoreForTests,
   deleteAwarenessRow,
@@ -121,15 +127,12 @@ describe("awareness-store", () => {
 
   it("throttles unchanged rewrites within the window", async () => {
     await upsertAwarenessRow("doc-3", 7, "{}", 1000);
-    // Same state, 500ms later — throttled (row keeps old last_seen).
     await upsertAwarenessRow("doc-3", 7, "{}", 1500);
     expect(dbRows.get(rowKey("doc-3", 7))?.last_seen).toBe(1000);
 
-    // Changed state — written immediately.
     await upsertAwarenessRow("doc-3", 7, '{"x":1}', 1600);
     expect(dbRows.get(rowKey("doc-3", 7))?.last_seen).toBe(1600);
 
-    // Same state past the throttle window — refreshes last_seen.
     await upsertAwarenessRow("doc-3", 7, '{"x":1}', 10_000);
     expect(dbRows.get(rowKey("doc-3", 7))?.last_seen).toBe(10_000);
   });
@@ -139,7 +142,6 @@ describe("awareness-store", () => {
     await deleteAwarenessRow("doc-4", 9);
     expect(dbRows.size).toBe(0);
 
-    // Rewrite after delete is not throttled away.
     await upsertAwarenessRow("doc-4", 9, "{}", 1100);
     expect(dbRows.size).toBe(1);
   });
@@ -155,7 +157,7 @@ describe("awareness-store", () => {
   });
 
   it("supports Yjs client ids above int32 range", async () => {
-    const bigClientId = 3_000_000_000; // uint32 territory
+    const bigClientId = 3_000_000_000;
     await upsertAwarenessRow("doc-5", bigClientId, "{}", 1000);
     const rows = await loadAwarenessRows("doc-5", 1000);
     expect(rows[0].clientId).toBe(bigClientId);

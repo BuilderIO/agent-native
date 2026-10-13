@@ -1,35 +1,37 @@
 ---
 title: "Was ist Agent-Native?"
-description: "Was Agent-Native ist, wie seine gemeinsame Aktionsarchitektur funktioniert und wann Sie Apps auf diese Weise bauen sollten."
+description: "Was Agent-Native ist, warum Agenten UIs brauchen, wie seine gemeinsame Aktionsarchitektur funktioniert und wann Sie es verwenden sollten."
 ---
 
 # Was ist Agent-Native?
 
-Agent-Native ist ein Open-Source-TypeScript-Framework zum Entwickeln von Apps,
-die sowohl Menschen als auch KI-Agenten dienen. Sie definieren die Funktionalität
-Ihrer App einmal als [Aktionen](/docs/actions-overview) – typisierte Funktionen,
-die Ihre React-UI aus Code aufruft und die Agenten als Tools verwenden.
+Agent-Native ist ein Open-Source-TypeScript-Framework zum Entwickeln autonomer
+Agenten mit intuitiven Benutzeroberflächen. Sie definieren jede Fähigkeit einmal
+als [Aktion](/docs/actions-overview) – eine typisierte Funktion, die der Agent als
+Tool verwendet und die UI aus Code aufruft.
 
-## Warum Apps auf diese Weise bauen
+## Warum Agenten mit UIs bauen
 
-Die meisten Anwendungen sind darauf ausgelegt, dass eine Person über die UI
-arbeitet. Ein Agent eröffnet einen weiteren Weg, das Produkt zu nutzen. Damit
-beide als ein Produkt funktionieren, müssen drei Dinge gelten:
+Coding-Agenten können den Eindruck erwecken, ein Textfeld reiche aus. Doch das
+Textfeld ist nur ein Teil ihrer Arbeitsumgebung. Die Codebasis liefert Kontext,
+Tools geben ihnen klare Handlungsmöglichkeiten und Dateien, Tests und
+Vorschauen machen die Ergebnisse sichtbar.
 
-- **Der Agent braucht Zugriff auf das Produkt.** Erhält er eine kleinere,
-  getrennte Auswahl an Tools, bleibt er eingeschränkt. Außerdem müssen Sie zwei
-  Implementierungen pflegen, die sich mit der Zeit auseinanderentwickeln.
-- **Menschen brauchen weiterhin eine Anwendungs-UI.** Chat eignet sich gut, um
-  Arbeit zu delegieren, aber nicht immer zum Durchsuchen von Informationen,
-  Vergleichen von Optionen, Prüfen von Änderungen oder Teilen von Ergebnissen
-  im Team.
-- **Arbeit muss zwischen beiden wechseln können.** Eine Person sollte die Arbeit
-  des Agenten prüfen oder ändern können, und der Agent sollte von dort aus
-  weitermachen können, ohne von vorn zu beginnen.
+Für die meisten Wissensaufgaben gibt es diese Struktur nicht. In einem leeren
+Textfeld müssen Menschen erraten, was der Agent kann, welchen Kontext er hat
+und was sie ihn fragen sollen.
 
-Die Agent-Native-Architektur ist um diese Anforderungen herum aufgebaut.
-Menschen können direkt über die UI arbeiten oder dem Agenten ein Ergebnis
-delegieren und zwischen beiden wechseln, ohne Fortschritt zu verlieren.
+Eine UI liefert, was dem Textfeld fehlt. Sie macht die Fähigkeiten des Agenten
+sichtbar, bringt Kontext und Workflows in die Nutzung und ermöglicht es
+Menschen, die Arbeit während ihrer Entstehung zu sehen und zu gestalten.
+
+Mit Agent-Native bauen Sie Agenten auf diese Weise. Die UI bietet klare
+Einstiegspunkte, ohne den Agenten auf einen festen Workflow zu beschränken. Da
+Agent und UI dieselben Fähigkeiten nutzen, können Menschen Arbeit an den
+Agenten delegieren, sie in der UI prüfen oder ändern und zwischen beiden
+wechseln, ohne Fortschritt zu verlieren.
+
+## So funktioniert Agent-Native
 
 <Video
   src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
@@ -38,41 +40,23 @@ delegieren und zwischen beiden wechseln, ohne Fortschritt zu verlieren.
   caption="Sehen Sie eine vierminütige Einführung in die Agent-Native-Architektur."
 />
 
-## So funktioniert Agent-Native
+Agent-Native verbindet Agent und UI über drei gemeinsame Grundlagen:
 
-Eine Agent-Native-Anwendung gibt Menschen und Agenten zwei Möglichkeiten,
-mit demselben Produkt zu arbeiten:
+- **[Gemeinsame Aktionen](/docs/actions-overview).** Jede Fähigkeit wird einmal
+  definiert. Der Agent ruft sie als Tool auf, die UI aus dem Code. Beide Wege
+  verwenden dieselbe Validierung, dieselben Berechtigungen und dieselbe
+  Implementierung.
+- **[Gemeinsame Daten](/docs/server-database).** Aktionen lesen und aktualisieren
+  dieselben Daten. So erscheint die Arbeit des Agenten in der UI, und Arbeit aus
+  der UI steht dem Agenten zur Verfügung.
+- **[Gemeinsamer Anwendungszustand](/docs/context-awareness).** Der
+  Anwendungszustand beschreibt, was in der UI geschieht, etwa die aktuelle
+  Seite, den ausgewählten Datensatz oder die aktive Ansicht. Agent-Native stellt
+  dem Agenten den relevanten Zustand als Kontext bereit, damit er versteht,
+  woran die Person arbeitet.
 
-- **Die UI** ermöglicht es Menschen auf vertraute Weise, Arbeit zu durchsuchen,
-  zu bearbeiten, zu prüfen und zu teilen.
-- **Der Agent** übernimmt Arbeit, die Menschen an ihn delegieren.
-
-Drei gemeinsame Grundlagen ermöglichen das:
-
-- **Gemeinsame Vorgänge.** Menschen lösen sie über die UI aus, während Agenten
-  sie direkt aufrufen. Agent-Native definiert jeden Vorgang einmal als
-  [Aktion](/docs/actions-overview).
-- **[Gemeinsame Daten](/docs/server-database)** enthalten die Arbeit und
-  Informationen, die die Anwendung erhalten muss – beispielsweise Kundendaten,
-  Projektpläne, Unterhaltungen oder Berichte. UI und Agent lesen und
-  aktualisieren beide diese Daten.
-- **[Gemeinsamer Anwendungszustand](/docs/context-awareness)** beschreibt, was
-  gerade geschieht, etwa die aktuelle Seite, den ausgewählten Datensatz oder die
-  aktive Ansicht. Das Framework stellt dem Agenten relevante Zustände als
-  Kontext bereit, sodass er weiß, woran die Person arbeitet.
-
-```mermaid
-graph TD
-  UI[UI] --> App[Eine Anwendung]
-  Agent[Agent] --> App
-  App --- Operations[Gemeinsame Vorgänge]
-  App --- Data[Gemeinsame Daten]
-  App --- State[Gemeinsamer Anwendungszustand]
-```
-
-Der Agent klickt sich nicht durch die UI. Er ruft dieselben Aktionen wie die UI
-auf – mit derselben Validierung, denselben Berechtigungen und derselben
-Implementierung.
+Der Agent klickt sich nicht durch die UI. Er arbeitet über dieselbe
+Aktionsschicht wie die UI.
 
 Beispielsweise kann eine Person über die UI ein Support-Ticket zuweisen oder
 den Agenten darum bitten. Beide Wege führen dieselbe Aktion aus und aktualisieren
@@ -83,15 +67,16 @@ den Agenten anschließend von dort aus weiterarbeiten lassen.
 
 Agent-Native eignet sich gut, wenn:
 
-- der Agent echte Arbeit in der App erledigen soll, statt nur Fragen zu beantworten;
-- Menschen eine UI brauchen, um die Arbeit zu prüfen, zu bearbeiten, freizugeben
-  oder zu teilen;
-- Arbeit zwischen UI und Agent wechseln soll, ohne Fortschritt oder Kontext zu verlieren.
+- der Agent echte Arbeit erledigen soll, statt nur Fragen zu beantworten;
+- Menschen eine UI brauchen, um zu sehen, was der Agent tun kann, und um seine
+  Arbeit zu prüfen, zu bearbeiten, freizugeben oder zu teilen;
+- Menschen zwischen Agent und UI wechseln können sollen, ohne Fortschritt oder
+  Kontext zu verlieren.
 
 Wenn Sie nur eine einzelne generierte Antwort benötigen, rufen Sie ein Modell
 direkt auf. Folgt der Ablauf einer festen, vorhersehbaren Reihenfolge, sind
 gewöhnliche Anwendungslogik oder Automatisierung einfacher. Verwenden Sie
-Agent-Native, wenn UI und Agent beide dauerhaft an derselben Arbeit beteiligt
+Agent-Native, wenn Agent und UI beide dauerhaft an derselben Arbeit beteiligt
 sein sollen.
 
 ## Nächste Schritte
@@ -100,7 +85,7 @@ sein sollen.
 
 ### [Erste Schritte](/docs/getting-started)
 
-Erstellen Sie eine App und rufen Sie dieselbe Aktion über Agent und UI auf.
+Erstellen Sie einen Agenten mit einer UI und rufen Sie dieselbe Aktion über Agent und UI auf.
 
 ### [Schlüsselkonzepte](/docs/key-concepts)
 
@@ -109,11 +94,12 @@ zusammenspielen.
 
 ### [Agent-Oberflächen](/docs/agent-surfaces)
 
-Sehen Sie, wie dasselbe Modell Apps unterstützt, die von einer UI, einem Chat,
-einer Automatisierung oder einem anderen Agenten geführt werden.
+Sehen Sie, wie Agenten über eine UI, einen Chat, eine Automatisierung oder einen
+anderen Agenten arbeiten.
 
 ### [Templates](/docs/cloneable-saas)
 
-Starten Sie mit einem vollständigen SaaS-Produkt, statt bei Chat von vorn anzufangen.
+Starten Sie mit einem vollständigen Open-Source-Agenten mit UI, statt bei null
+anzufangen.
 
 </Cards>

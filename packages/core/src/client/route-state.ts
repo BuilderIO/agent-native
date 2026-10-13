@@ -13,6 +13,7 @@ import {
   readClientAppState,
   setClientAppState,
 } from "./application-state.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   navigateWithAgentChatViewTransition,
   type AgentChatViewTransitionOptions,
@@ -30,39 +31,18 @@ export interface UseSemanticNavigationStateOptions<
   NavigationState,
   NavigateCommand = NavigationState,
 > {
-  /**
-   * Compact, semantic screen state to expose to the agent: view names, record
-   * IDs, active tabs, and useful aliases. Keep URL query params in the URL
-   * unless the app needs a human-readable semantic alias.
-   */
   state: NavigationState | null | undefined;
-  /** Application-state keys the UI should write. Defaults to [`navigation`]. */
   navigationKeys?: readonly string[];
-  /** Application-state keys to read for one-shot agent commands. Defaults to [`navigate`]. */
   commandKeys?: readonly string[];
-  /** React Query key used for command polling/cache. Defaults to [`navigate-command`]. */
+  browserTabId?: string;
   commandQueryKey?: QueryKey;
-  /** Request source tag for `useDbSync({ ignoreSource })` jitter prevention. */
   requestSource?: string;
-  /**
-   * Poll interval for command reads.
-   * Defaults to 15 000 ms — a safety-net fallback for agents that bypass the
-   * useDbSync event path. useDbSync already invalidates `navigate-command` on
-   * app-state writes in real time, so the fallback only fires when the SSE/poll
-   * connection is unavailable. Pass false to disable polling entirely.
-   */
   commandRefetchInterval?: number | false;
-  /** Disable both navigation writes and command reads. */
   enabled?: boolean;
-  /** Navigation writes use keepalive by default because they often fire during unload. */
   keepalive?: boolean;
-  /** Debounce navigation writes. Defaults to 0ms. */
   writeDebounceMs?: number;
-  /** Custom duplicate-command key. Defaults to `_writeId` or JSON content. */
   getCommandDedupKey?: (command: NavigateCommand) => string;
-  /** Called once for each non-duplicate command after the command is consumed. */
   onCommand: (command: NavigateCommand) => void | Promise<void>;
-  /** Optional sink for best-effort navigation write/read/delete/command errors. */
   onError?: (error: unknown) => void;
 }
 
@@ -87,65 +67,38 @@ export interface AgentRouteLocation {
   location: Location;
 }
 
+export interface WorkspaceAppRouteTarget {
+  type: "workspace-app";
+  path: string;
+}
+
+export type AgentRouteTarget = string | WorkspaceAppRouteTarget;
+
 export interface UseAgentRouteStateOptions<
   NavigationState,
   NavigateCommand = NavigationState,
 > {
-  /**
-   * Derive compact, semantic screen state from the current React Router URL.
-   * The framework separately exposes raw `pathname`, `search`, and parsed
-   * `searchParams` through `<current-url>`.
-   */
   getNavigationState: (
     location: AgentRouteLocation,
   ) => NavigationState | null | undefined;
-  /**
-   * Convert an agent-authored one-shot command into an app-local React Router
-   * path. Return null to consume and ignore malformed or unsupported commands.
-   */
-  getCommandPath: (command: NavigateCommand) => string | null | undefined;
-  /** Application-state key the UI writes. Defaults to `navigation`. */
+  getCommandPath: (
+    command: NavigateCommand,
+  ) => AgentRouteTarget | null | undefined;
   navigationKey?: string;
-  /** Application-state key the agent writes for one-shot navigation. */
   commandKey?: string;
-  /** Current browser tab id. Enables tab-scoped reads/writes. */
   browserTabId?: string;
-  /** Request source tag for `useDbSync({ ignoreSource })` jitter prevention. */
   requestSource?: string;
-  /**
-   * Also write the unscoped navigation key when browserTabId is present.
-   * Defaults to true so CLI/external agents still have a useful fallback.
-   */
   writeGlobalNavigation?: boolean;
-  /**
-   * Fall back to the unscoped command key when no tab-scoped command exists.
-   * Defaults to true for backwards compatibility with existing navigate tools.
-   */
   readGlobalCommandFallback?: boolean;
-  /** React Query key used for command polling/cache. */
   commandQueryKey?: QueryKey;
-  /**
-   * Poll interval for command reads.
-   * Defaults to 15 000 ms — a safety-net fallback; useDbSync real-time events
-   * cover the common case. Pass false to disable polling.
-   */
   refetchInterval?: number | false;
-  /** Disable both navigation writes and command reads. */
   enabled?: boolean;
-  /** Navigation writes use keepalive by default because they often fire during unload. */
   keepalive?: boolean;
-  /** Debounce navigation writes. Defaults to 0ms. */
   writeDebounceMs?: number;
-  /** Custom duplicate-command key. Defaults to `_writeId` or JSON content. */
   getCommandDedupKey?: (command: NavigateCommand) => string;
-  /** React Router navigate options, or a function of the consumed command. */
   navigateOptions?:
     | NavigateOptions
     | ((command: NavigateCommand) => NavigateOptions | undefined);
-  /**
-   * Wrap agent-authored route commands in the shared chat view transition.
-   * Use this when a page-level chat surface should morph into AgentSidebar.
-   */
   agentChatViewTransition?:
     | boolean
     | AgentChatViewTransitionOptions
@@ -153,9 +106,7 @@ export interface UseAgentRouteStateOptions<
         command: NavigateCommand,
         path: string,
       ) => boolean | AgentChatViewTransitionOptions | undefined);
-  /** Called after a command is consumed and before React Router navigation. */
   onNavigate?: (command: NavigateCommand, path: string) => void;
-  /** Optional sink for best-effort navigation write/read/delete errors. */
   onError?: (error: unknown) => void;
 }
 
@@ -168,6 +119,12 @@ function normalizeBrowserTabId(browserTabId?: string): string | undefined {
   if (typeof browserTabId !== "string") return undefined;
   const trimmed = browserTabId.trim();
   return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? trimmed : undefined;
+}
+
+function defaultBrowserTabId(): string | undefined {
+  return typeof window === "undefined"
+    ? undefined
+    : normalizeBrowserTabId(getBrowserTabId());
 }
 
 function appStateKeyForBrowserTab(key: string, browserTabId?: string): string {
@@ -266,11 +223,6 @@ function resolveAgentChatViewTransitionOption<NavigateCommand>(
   return resolved;
 }
 
-/**
- * Keeps semantic UI state agent-visible and consumes agent-authored one-shot
- * commands. This is the framework primitive behind route/navigation sync; it
- * intentionally knows nothing about app-specific route shapes.
- */
 export function useSemanticNavigationState<
   NavigationState,
   NavigateCommand = NavigationState,
@@ -278,25 +230,43 @@ export function useSemanticNavigationState<
   options: UseSemanticNavigationStateOptions<NavigationState, NavigateCommand>,
 ): UseSemanticNavigationStateResult<NavigationState, NavigateCommand> {
   const {
-    requestSource,
     commandRefetchInterval = 15_000,
     enabled = true,
     keepalive = true,
     writeDebounceMs = 0,
   } = options;
 
+  const browserTabId = useMemo(
+    () =>
+      normalizeBrowserTabId(options.browserTabId) ??
+      (options.browserTabId === undefined ? defaultBrowserTabId() : undefined),
+    [options.browserTabId],
+  );
+  const requestSource = options.requestSource ?? browserTabId;
+
   const queryClient = useQueryClient();
   const navigationKeys = useMemo(
-    () => uniqueKeys(options.navigationKeys ?? ["navigation"]),
-    [options.navigationKeys],
+    () =>
+      uniqueKeys(
+        options.navigationKeys ?? [
+          appStateKeyForBrowserTab("navigation", browserTabId),
+        ],
+      ),
+    [browserTabId, options.navigationKeys],
   );
   const commandKeys = useMemo(
-    () => uniqueKeys(options.commandKeys ?? ["navigate"]),
-    [options.commandKeys],
+    () =>
+      uniqueKeys(
+        options.commandKeys ?? [
+          appStateKeyForBrowserTab("navigate", browserTabId),
+        ],
+      ),
+    [browserTabId, options.commandKeys],
   );
   const commandQueryKey = useMemo<QueryKey>(
-    () => options.commandQueryKey ?? ["navigate-command"],
-    [options.commandQueryKey],
+    () =>
+      options.commandQueryKey ?? ["navigate-command", browserTabId ?? "global"],
+    [browserTabId, options.commandQueryKey],
   );
   const navigationState = options.state ?? null;
   const navigationWriteDedup = useMemo(
@@ -408,33 +378,24 @@ export function useSemanticNavigationState<
   };
 }
 
-/**
- * React Router convenience wrapper around `useSemanticNavigationState`.
- *
- * Use URL query params as the source of truth for shareable filters. This hook
- * writes semantic aliases and stable IDs to `navigation`; the framework's
- * built-in URL sync separately exposes raw `pathname`, `search`, and
- * `searchParams` through `<current-url>` and the `set-search-params` tool.
- */
 export function useAgentRouteState<
   NavigationState,
   NavigateCommand = NavigationState,
 >(
   options: UseAgentRouteStateOptions<NavigationState, NavigateCommand>,
 ): UseAgentRouteStateResult<NavigationState, NavigateCommand> {
-  const {
-    navigationKey = "navigation",
-    commandKey = "navigate",
-    writeGlobalNavigation = true,
-    readGlobalCommandFallback = true,
-  } = options;
+  const { navigationKey = "navigation", commandKey = "navigate" } = options;
 
   const location = useLocation();
   const navigate = useNavigate();
   const browserTabId = useMemo(
-    () => normalizeBrowserTabId(options.browserTabId),
+    () =>
+      normalizeBrowserTabId(options.browserTabId) ??
+      (options.browserTabId === undefined ? defaultBrowserTabId() : undefined),
     [options.browserTabId],
   );
+  const writeGlobalNavigation = options.writeGlobalNavigation ?? false;
+  const readGlobalCommandFallback = options.readGlobalCommandFallback ?? false;
 
   useEffect(() => {
     if (options.enabled === false) return;
@@ -452,15 +413,19 @@ export function useAgentRouteState<
   const commandKeys = useMemo(() => {
     const scopedKey = appStateKeyForBrowserTab(commandKey, browserTabId);
     const keys = [scopedKey];
-    if (browserTabId && readGlobalCommandFallback) keys.push(commandKey);
+    if (
+      (!browserTabId || readGlobalCommandFallback) &&
+      commandKey !== scopedKey
+    )
+      keys.push(commandKey);
     return uniqueKeys(keys);
   }, [browserTabId, commandKey, readGlobalCommandFallback]);
   const commandQueryKey = useMemo<QueryKey>(
     () =>
       options.commandQueryKey ?? [
         "navigate-command",
-        commandKey,
         browserTabId ?? "global",
+        commandKey,
       ],
     [browserTabId, commandKey, options.commandQueryKey],
   );
@@ -469,11 +434,6 @@ export function useAgentRouteState<
     () => routeLocationFromReactRouter(location),
     [location],
   );
-  // Callers may include app-local state in this callback in addition to the
-  // router location. Derive on every render so those values are not frozen at
-  // the last route change, then retain the previous object when its shallow
-  // values are unchanged. This keeps the write-dedup serialization off the
-  // unrelated-render path without hiding captured state updates.
   const derivedNavigationState =
     options.getNavigationState(routeLocation) ?? null;
   const navigationStateRef = useRef<NavigationState | null>(
@@ -494,7 +454,8 @@ export function useAgentRouteState<
     navigationKeys,
     commandKeys,
     commandQueryKey,
-    requestSource: options.requestSource,
+    browserTabId,
+    requestSource: options.requestSource ?? browserTabId,
     commandRefetchInterval: options.refetchInterval,
     enabled: options.enabled,
     keepalive: options.keepalive,
@@ -502,17 +463,28 @@ export function useAgentRouteState<
     getCommandDedupKey: options.getCommandDedupKey,
     onError: options.onError,
     onCommand: (command) => {
-      const path = options.getCommandPath(command);
+      const target = options.getCommandPath(command);
+      if (!target) return;
+      const workspaceAppTarget = typeof target !== "string";
+      const path = typeof target !== "string" ? target.path : target;
       if (!path) return;
+      if (
+        typeof target !== "string" &&
+        (target.type !== "workspace-app" || !isWorkspaceAppPath(path))
+      ) {
+        throw new Error(
+          `Workspace app route target must match a mounted sibling app: ${path}`,
+        );
+      }
       options.onNavigate?.(command, path);
-      if (path === currentRouterPath(location)) return;
+      if (!workspaceAppTarget && path === currentRouterPath(location)) return;
 
       const navigateOptions = options.navigateOptions;
       const resolvedOptions =
         typeof navigateOptions === "function"
           ? navigateOptions(command)
           : navigateOptions;
-      if (isWorkspaceAppPath(path)) {
+      if (workspaceAppTarget) {
         if (resolvedOptions?.replace) {
           window.location.replace(path);
         } else {
@@ -530,7 +502,7 @@ export function useAgentRouteState<
         navigateWithAgentChatViewTransition(navigate, path, resolvedOptions);
         return;
       }
-      runNavigate();
+      void runNavigate();
     },
   });
 }

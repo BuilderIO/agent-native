@@ -40,19 +40,10 @@ const shortcut = (
   definition: DesignShortcutDefinition,
 ): DesignShortcutDefinition => definition;
 
-/**
- * The user-facing Design shortcut catalog. Every row is tied to a real
- * UseDesignHotkeys handler so the panel cannot quietly advertise a command the
- * canvas does not dispatch. Code-workbench bindings are appended from its own
- * command registry by KeyboardShortcutsPanel.
- */
 export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "show-shortcuts",
     category: "essential",
-    // Literal ctrl, not $mod: on macOS ⌘⇧? is the system Help-menu shortcut and
-    // the browser consumes it before the page sees it, so ⌃⇧? is the only
-    // pressable binding there. Do not "fix" this to $mod.
     bindings: ["ctrl+shift+?"],
     labelKey: "designEditor.keyboardShortcuts.commands.showShortcuts",
     handler: "onShowKeyboardShortcuts",
@@ -82,7 +73,6 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "frame-tool",
     category: "tools",
-    // Figma binds both to the frame tool; A is the one long-time users reach for.
     bindings: ["f", "a"],
     labelKey: "designEditor.keyboardShortcuts.commands.frameTool",
     handler: "onFrameTool",
@@ -152,9 +142,16 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "toggle-ui",
     category: "view",
-    bindings: ["shift+\\"],
+    bindings: ["$mod+\\"],
     labelKey: "designEditor.keyboardShortcuts.commands.toggleUi",
     handler: "onToggleUi",
+  }),
+  shortcut({
+    id: "toggle-minimal-ui",
+    category: "view",
+    bindings: ["$mod+shift+\\"],
+    labelKey: "designEditor.keyboardShortcuts.commands.toggleMinimalUi",
+    handler: "onToggleMinimalUi",
   }),
   shortcut({
     id: "toggle-comments",
@@ -162,6 +159,13 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     bindings: ["shift+c"],
     labelKey: "designEditor.keyboardShortcuts.commands.toggleComments",
     handler: "onToggleComments",
+  }),
+  shortcut({
+    id: "toggle-layout-grids",
+    category: "view",
+    bindings: ["ctrl+g", "ctrl+shift+4"],
+    labelKey: "designEditor.keyboardShortcuts.commands.toggleLayoutGrids",
+    handler: "onToggleLayoutGrids",
   }),
 
   shortcut({
@@ -244,6 +248,20 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     handler: "onArrowTool",
   }),
 
+  shortcut({
+    id: "place-image",
+    category: "shape",
+    bindings: ["$mod+shift+k"],
+    labelKey: "designEditor.keyboardShortcuts.commands.imageVideo",
+    handler: "onPlaceImage",
+  }),
+  shortcut({
+    id: "boolean-subtract",
+    category: "shape",
+    bindings: ["alt+shift+s"],
+    labelKey: "designEditor.keyboardShortcuts.commands.booleanSubtract",
+    handler: "onBooleanSubtract",
+  }),
   shortcut({
     id: "select-all",
     category: "selection",
@@ -418,8 +436,6 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "eyedropper",
     category: "edit",
-    // Apple platforms also accept literal ctrl+c; only the cross-platform
-    // binding is advertised so the row reads the same everywhere.
     bindings: ["i"],
     labelKey: "designEditor.keyboardShortcuts.commands.eyedropper",
     handler: "onEyedropper",
@@ -547,6 +563,31 @@ const KEY_LABELS: Record<string, string> = {
   tab: "Tab",
 };
 
+const UNAVAILABLE_SHORTCUT_IDS = {
+  annotate: ["draw-tool"],
+} as const;
+
+const unavailableShortcutIdCache = new Map<string, readonly string[]>();
+
+/**
+ * Ids of the shortcuts the dialog should not list because their tool is not
+ * available: Draw without the Annotate lab. Equal inputs return the same array,
+ * so the dialog's memoized sections are not rebuilt on every editor render.
+ */
+export function getUnavailableShortcutIds({
+  annotateEnabled,
+}: {
+  annotateEnabled: boolean;
+}): readonly string[] {
+  const cacheKey = String(annotateEnabled);
+  let ids = unavailableShortcutIdCache.get(cacheKey);
+  if (!ids) {
+    ids = annotateEnabled ? [] : UNAVAILABLE_SHORTCUT_IDS.annotate;
+    unavailableShortcutIdCache.set(cacheKey, ids);
+  }
+  return ids;
+}
+
 export function formatShortcutKeycaps(
   binding: string,
   applePlatform: boolean,
@@ -562,9 +603,6 @@ export function formatShortcutKeycaps(
     if (held("shift")) keycaps.push("⇧");
     if (held("$mod")) keycaps.push("⌘");
   } else {
-    // Windows/Linux read Ctrl, Alt, Shift — the reverse of the Mac ⌃⌥⇧⌘ run.
-    // `$mod` and a literal `ctrl` are the same key here, so collapse them or a
-    // ctrl-plus-$mod binding renders "Ctrl+Ctrl".
     if (held("$mod") || held("ctrl")) keycaps.push("Ctrl");
     if (held("alt")) keycaps.push("Alt");
     if (held("shift")) keycaps.push("Shift");
@@ -573,9 +611,6 @@ export function formatShortcutKeycaps(
   return keycaps;
 }
 
-/** One-line menu/tooltip hint, spelled in the viewer's own modifier glyphs.
- *  Menus must build hints through this — a Mac glyph written into source
- *  renders verbatim to Windows users. */
 export function formatShortcutLabel(
   binding: string,
   applePlatform: boolean,

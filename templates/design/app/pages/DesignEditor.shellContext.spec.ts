@@ -2,17 +2,15 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-/**
- * The host can repoint the shell mid-session — a re-provisioned container, a
- * branch switch, a different project. Pending edits describe elements in the
- * app that was there before, so handing them to the new branch's agent would
- * apply them to the wrong source.
- */
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
 describe("DesignEditor shell context changes", () => {
-  const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const source = readDesignEditorSource();
   const handler = source.slice(
     source.indexOf('if (data.type === "design:init")'),
-    source.indexOf("const focusDesignInspectorForSelection"),
+    source.indexOf(
+      "const selectionUndoStackRef = useRef<SelectionHistoryEntry[]>([]);",
+    ),
   );
 
   it("discards pending edits when the host repoints the shell", () => {
@@ -27,17 +25,25 @@ describe("DesignEditor shell context changes", () => {
     const block = handler.slice(
       handler.indexOf('data.type === "design:previewUrlChanged"'),
     );
-    // Validated like the initial one: the origin still arrives from the parent.
     expect(block).toContain("isBuilderPreviewUrl(nextPreviewUrl)");
     expect(block).toContain("builderPreviewOrigin(nextPreviewUrl)");
     expect(block).toContain("clearPendingLiveEditStateRef.current();");
   });
 
   it("resolves screens against the origin only", () => {
-    // `interactiveFrameUrl` carries the previewed route, and resolving against
-    // it nested every screen under that path.
     expect(handler).toContain(
       "previewOrigin: builderPreviewOrigin(previewUrl),",
     );
+  });
+
+  it("does not expose the persisted audit action in the Builder shell", () => {
+    const review = source.slice(
+      source.indexOf("const resolvedReviewPanelProps"),
+      source.indexOf("const dispatchReviewFeedbackToAgent"),
+    );
+    expect(review).toContain(
+      "if (!designReviewPanelEnabled || !id || !activeFile || shellMode)",
+    );
+    expect(review).toContain("onRunAudit: handleRunDesignAudit");
   });
 });

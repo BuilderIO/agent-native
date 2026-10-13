@@ -1,11 +1,3 @@
-/**
- * Dev-mode script registry.
- *
- * Provides shared coding and database tools for the agent
- * when running in development mode. These tools should NEVER be
- * registered in production.
- */
-
 import type { ActionEntry } from "../../agent/production-agent.js";
 import type { ActionTool } from "../../agent/types.js";
 import { createCodingToolRegistry } from "../../coding-tools/index.js";
@@ -15,6 +7,7 @@ import {
   type DatabaseToolsOption,
 } from "../db/tool-mode.js";
 import { dbExecToolParameters } from "../db/tool-schemas.js";
+import { serializeCliArgs } from "../parse-args.js";
 import { tool as listFilesTool, run as listFilesRun } from "./list-files.js";
 import { tool as readFileTool, run as readFileRun } from "./read-file.js";
 import {
@@ -24,10 +17,6 @@ import {
 import { tool as shellTool, run as shellRun } from "./shell.js";
 import { tool as writeFileTool, run as writeFileRun } from "./write-file.js";
 
-/**
- * Wraps a core CLI script (that writes to console.log) as a ActionEntry
- * by capturing stdout.
- */
 function wrapCliScript(
   tool: ActionTool,
   cliDefault: (args: string[]) => Promise<void>,
@@ -37,17 +26,8 @@ function wrapCliScript(
     tool,
     ...(opts?.readOnly ? { readOnly: true as const } : {}),
     run: async (args: Record<string, string>): Promise<string> => {
-      const cliArgs: string[] = [];
-      for (const [k, v] of Object.entries(args)) {
-        const raw = v as unknown;
-        const value =
-          raw != null && typeof raw === "object"
-            ? JSON.stringify(raw)
-            : String(raw);
-        cliArgs.push(`--${k}`, value);
-      }
+      const cliArgs = serializeCliArgs(args);
 
-      // Capture console.log output
       const logs: string[] = [];
       const origLog = console.log;
       console.log = (...a: unknown[]) => {
@@ -112,175 +92,160 @@ function unauthorizedActionFromBash(
   return null;
 }
 
-/**
- * Creates the dev-mode script registry with shared bash/read/edit/write
- * coding tools and database tools. Call this and merge with your app's registry
- * when NODE_ENV !== "production".
- */
 export async function createDevScriptRegistry(
   options: {
     legacyAliases?: boolean;
     databaseTools?: DatabaseToolsOption;
   } = {},
 ): Promise<Record<string, ActionEntry>> {
-  // Lazy-import DB scripts to avoid requiring libsql in non-DB apps
   let dbEntries: Record<string, ActionEntry> = {};
   const databaseToolsMode = normalizeDatabaseToolsMode(options.databaseTools);
   const databaseWriteToolsEnabled = databaseToolsMode === "write";
   if (databaseToolsMode !== "off") {
-    try {
-      // Dynamic imports — these are part of @agent-native/core
-      const [dbSchema, dbQuery, dbCheckScoping] = await Promise.all([
-        import("../db/schema.js"),
-        import("../db/query.js"),
-        import("../db/check-scoping.js"),
-      ]);
-      const [dbExec, dbPatch] = databaseWriteToolsEnabled
-        ? await Promise.all([import("../db/exec.js"), import("../db/patch.js")])
-        : [null, null];
+    const [dbSchema, dbQuery, dbCheckScoping] = await Promise.all([
+      import("../db/schema.js"),
+      import("../db/query.js"),
+      import("../db/check-scoping.js"),
+    ]);
+    const [dbExec, dbPatch] = databaseWriteToolsEnabled
+      ? await Promise.all([import("../db/exec.js"), import("../db/patch.js")])
+      : [null, null];
 
-      dbEntries = {
-        "db-schema": wrapCliScript(
-          {
-            description:
-              "Show all database tables, columns, types, and foreign keys",
-            parameters: {
-              type: "object",
-              properties: {
-                format: {
-                  type: "string",
-                  description:
-                    'Output format: "json" or "text" (default: text)',
-                  enum: ["json", "text"],
-                },
+    dbEntries = {
+      "db-schema": wrapCliScript(
+        {
+          description:
+            "Show all database tables, columns, types, and foreign keys",
+          parameters: {
+            type: "object",
+            properties: {
+              format: {
+                type: "string",
+                description: 'Output format: "json" or "text" (default: text)',
+                enum: ["json", "text"],
               },
             },
           },
-          dbSchema.default,
-          { readOnly: true },
-        ),
-        "db-query": wrapCliScript(
-          {
-            description:
-              "Run a read-only SQL query (SELECT, WITH, EXPLAIN, PRAGMA) against the app database",
-            parameters: {
-              type: "object",
-              properties: {
-                sql: {
-                  type: "string",
-                  description: "The SQL SELECT query to execute",
-                },
-                args: {
-                  type: "string",
-                  description:
-                    'Optional JSON array of positional bind args for parameterized placeholders. Example: \'["draft","form-123"]\'',
-                },
-                format: {
-                  type: "string",
-                  description:
-                    'Output format: "json" or "table" (default: table)',
-                  enum: ["json", "table"],
-                },
+        },
+        dbSchema.default,
+        { readOnly: true },
+      ),
+      "db-query": wrapCliScript(
+        {
+          description:
+            "Run a read-only SQL query (SELECT, WITH, EXPLAIN) against the app database",
+          parameters: {
+            type: "object",
+            properties: {
+              sql: {
+                type: "string",
+                description: "The SQL SELECT query to execute",
               },
-              required: ["sql"],
-            },
-          },
-          dbQuery.default,
-          { readOnly: true },
-        ),
-        "db-check-scoping": wrapCliScript(
-          {
-            description:
-              "Validate that all template tables have owner_email and org_id columns for data scoping",
-            parameters: {
-              type: "object",
-              properties: {
-                "require-org": {
-                  type: "string",
-                  description:
-                    'Set to "true" to also require org_id columns (for multi-org apps)',
-                  enum: ["true", "false"],
-                },
-                format: {
-                  type: "string",
-                  description:
-                    'Output format: "json" or "text" (default: text)',
-                  enum: ["json", "text"],
-                },
+              args: {
+                type: "string",
+                description:
+                  'Optional JSON array of positional bind args for parameterized placeholders. Example: \'["draft","form-123"]\'',
+              },
+              format: {
+                type: "string",
+                description:
+                  'Output format: "json" or "table" (default: table)',
+                enum: ["json", "table"],
               },
             },
+            required: ["sql"],
           },
-          dbCheckScoping.default,
-          { readOnly: true },
-        ),
-      };
-      if (dbExec && dbPatch) {
-        dbEntries["db-exec"] = wrapCliScript(
-          {
-            description:
-              "Execute app-database write SQL (INSERT, UPDATE, DELETE, REPLACE). For multiple related writes, pass `statements` so they run sequentially in one transaction instead of issuing several db-exec calls. Schema changes (CREATE/ALTER/DROP) are blocked. Never use this to backfill missing data for a read/analysis request or to create/modify users, members, roles, permissions, admin flags, or ownership; use a dedicated app action or reviewed code.",
-            parameters: dbExecToolParameters(),
-          },
-          dbExec.default,
-        );
-        dbEntries["db-patch"] = wrapCliScript(
-          {
-            description:
-              "Surgical search-and-replace on a text column in a SQL table. Prefer over `db-exec UPDATE` for large text fields (documents, slides, dashboards, JSON blobs) where you only need to change a small slice — avoids re-sending the full column value. Targets exactly one row at a time (narrow --where by primary key). If a template-specific action exists for the table (e.g. `edit-document`, `update-slide`), use that instead — it will also push live updates to open collaborative editors.",
-            parameters: {
-              type: "object",
-              properties: {
-                table: {
-                  type: "string",
-                  description:
-                    "Target table name (plain identifier, no quoting)",
-                },
-                column: {
-                  type: "string",
-                  description:
-                    "Target text column name (plain identifier, no quoting)",
-                },
-                where: {
-                  type: "string",
-                  description:
-                    "SQL WHERE clause that matches exactly one row, e.g. \"id = 'abc123'\". Must not contain semicolons or DDL keywords.",
-                },
-                find: {
-                  type: "string",
-                  description:
-                    "Text to find (single-edit mode). Pair with --replace.",
-                },
-                replace: {
-                  type: "string",
-                  description:
-                    'Replacement text (single-edit mode). Defaults to "" (delete the match).',
-                },
-                edits: {
-                  type: "string",
-                  description:
-                    'Batch mode: JSON array of {find, replace} objects. Example: \'[{"find":"Q3","replace":"Q4"},{"find":"$1M","replace":"$1.2M"}]\'',
-                },
-                all: {
-                  type: "string",
-                  description:
-                    'Set to "true" to replace every occurrence of each find (default: first occurrence only).',
-                  enum: ["true", "false"],
-                },
-                format: {
-                  type: "string",
-                  description:
-                    'Output format: "json" or "text" (default: text)',
-                  enum: ["json", "text"],
-                },
+        },
+        dbQuery.default,
+        { readOnly: true },
+      ),
+      "db-check-scoping": wrapCliScript(
+        {
+          description:
+            "Validate that all template tables have owner_email and org_id columns for data scoping",
+          parameters: {
+            type: "object",
+            properties: {
+              "require-org": {
+                type: "string",
+                description:
+                  'Set to "true" to also require org_id columns (for multi-org apps)',
+                enum: ["true", "false"],
               },
-              required: ["table", "column", "where"],
+              format: {
+                type: "string",
+                description: 'Output format: "json" or "text" (default: text)',
+                enum: ["json", "text"],
+              },
             },
           },
-          dbPatch.default,
-        );
-      }
-    } catch {
-      // DB scripts not available (no libsql) — skip silently
+        },
+        dbCheckScoping.default,
+        { readOnly: true },
+      ),
+    };
+    if (dbExec && dbPatch) {
+      dbEntries["db-exec"] = wrapCliScript(
+        {
+          description:
+            "Execute app-database write SQL (INSERT, UPDATE, DELETE, REPLACE). For multiple related writes, pass `statements` so they run sequentially in one transaction instead of issuing several db-exec calls. Schema changes (CREATE/ALTER/DROP) are blocked. Never use this to backfill missing data for a read/analysis request or to create/modify users, members, roles, permissions, admin flags, or ownership; use a dedicated app action or reviewed code.",
+          parameters: dbExecToolParameters(),
+        },
+        dbExec.default,
+      );
+      dbEntries["db-patch"] = wrapCliScript(
+        {
+          description:
+            "Surgical search-and-replace on a text column in a SQL table. Prefer over `db-exec UPDATE` for large text fields (documents, slides, dashboards, JSON blobs) where you only need to change a small slice — avoids re-sending the full column value. Targets exactly one row at a time (narrow --where by primary key). If a template-specific action exists for the table (e.g. `edit-document`, `update-slide`), use that instead — it will also push live updates to open collaborative editors.",
+          parameters: {
+            type: "object",
+            properties: {
+              table: {
+                type: "string",
+                description: "Target table name (plain identifier, no quoting)",
+              },
+              column: {
+                type: "string",
+                description:
+                  "Target text column name (plain identifier, no quoting)",
+              },
+              where: {
+                type: "string",
+                description:
+                  "SQL WHERE clause that matches exactly one row, e.g. \"id = 'abc123'\". Must not contain semicolons or DDL keywords.",
+              },
+              find: {
+                type: "string",
+                description:
+                  "Text to find (single-edit mode). Pair with --replace.",
+              },
+              replace: {
+                type: "string",
+                description:
+                  'Replacement text (single-edit mode). Defaults to "" (delete the match).',
+              },
+              edits: {
+                type: "string",
+                description:
+                  'Batch mode: JSON array of {find, replace} objects. Example: \'[{"find":"Q3","replace":"Q4"},{"find":"$1M","replace":"$1.2M"}]\'',
+              },
+              all: {
+                type: "string",
+                description:
+                  'Set to "true" to replace every occurrence of each find (default: first occurrence only).',
+                enum: ["true", "false"],
+              },
+              format: {
+                type: "string",
+                description: 'Output format: "json" or "text" (default: text)',
+                enum: ["json", "text"],
+              },
+            },
+            required: ["table", "column", "where"],
+          },
+        },
+        dbPatch.default,
+      );
     }
   }
 

@@ -1,4 +1,7 @@
+import { z } from "zod";
+
 import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../../action-ui.js";
+import { ActionInputValidationError, defineAction } from "../../action.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
 import {
   clampDataWidgetRows,
@@ -7,19 +10,8 @@ import {
   dataWidgetResultSchema,
 } from "../../data-widgets/index.js";
 import { getRequestRunContext } from "../request-context.js";
+import { createOpenSettingsPageTool } from "./open-settings-page-tool.js";
 
-// ---------------------------------------------------------------------------
-// Framework-owned "context" action entries: get-framework-context,
-// refresh-screen, the URL/ask-question tools, and the native data-widget
-// renderer. These are generic, template-agnostic tools registered into every
-// app's tool surface.
-// ---------------------------------------------------------------------------
-
-/**
- * Verbose framework sections returned by the `get-framework-context` tool.
- * Keyed by topic so the agent can request specific sections.
- * Not template-specific — lives outside buildFrameworkPrompts().
- */
 export const FRAMEWORK_CONTEXT_SECTIONS: Record<string, string> = {
   embeds: `### Inline Embeds
 
@@ -123,9 +115,9 @@ If the user says yes, call \`manage-jobs\` (action: "create") with the original 
 
 Do NOT add this offer for one-shot work: lookups (find Alice, what's the schema, who reported X), single drafts/replies, navigation requests, or any task whose value is in the moment. Skip it when the prompt is already explicitly recurring (the user said "every morning…" — you'd be asking what they already told you). One short sentence at most; do not turn it into a list of cadence options.`,
 
-  builder: `### Connecting Builder.io
+  builder: `### Using Builder.io
 
-When the user asks to connect Builder.io or you hit a "Builder not configured" error, call the \`connect-builder\` tool. It renders a Connect/code-change card inline — do NOT write out multi-step setup instructions yourself. Inspect the returned \`builderEnabled\` flag: \`true\` means Builder Cloud Agents can take the code-change handoff, while \`false\` means this requires a code change and the user should edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way they like. If Builder Cloud Agents are not available for this workspace, never send the user to Builder org settings or beta settings.`,
+When the user asks to use Builder.io or you hit a "Builder not configured" error, call the \`connect-builder\` tool. It renders a Builder.io setup/code-change card inline — do NOT write out multi-step setup instructions yourself. Inspect the returned \`builderEnabled\` flag: \`true\` means Builder Cloud Agents can take the code-change handoff, while \`false\` means this requires a code change and the user should edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way they like. If Builder Cloud Agents are not available for this workspace, never send the user to Builder org settings or beta settings.`,
 
   browser: `### Browser Automation
 
@@ -165,14 +157,16 @@ Agent-Native Plan, a Plan artifact, or the Plans app.
 
 **ONLY use \`call-agent\` when:**
 - The user explicitly asks you to communicate with a different app
-- You need data that only another deployed app can provide
-- You need brand-consistent generated media and this app does not have a native generation action; call agent "assets" and keep returned asset IDs and URLs verbatim
+- The requested outcome depends on data or a capability only another deployed app can provide
+
+For brand-consistent generated media, use agent "assets" unless the current app has its own generation action that already delegates there. Keep returned asset IDs and URLs verbatim.
 
 If \`call-agent\` says a downstream agent accepted the subtask and will post its result separately, do not call that same agent again for the same subtask. Continue any remaining work and answer with the completed results you have.`,
 
   memory: `### Structured Memory
 
 Your memory index (\`memory/MEMORY.md\`) is loaded at the start of every conversation.
+Personal memory instructions in \`memory/INSTRUCTIONS.md\` are also loaded automatically; follow them when deciding what to save or leave out.
 
 **Tools:**
 - \`save-memory\` — Create or update a memory (name, type, description, content)
@@ -245,26 +239,10 @@ export function createFrameworkContextEntry(): Record<string, ActionEntry> {
   };
 }
 
-/**
- * Creates the `refresh-screen` tool. Writes a bump to `application_state`
- * under a well-known key; the client's `useDbSync` watches for this and
- * invalidates react-query caches so the on-screen UI re-fetches its data
- * without a full page reload.
- *
- * This is the standard way for the agent to say "the data on the screen
- * just changed, please refresh it" — e.g. after editing a dashboard config,
- * updating a form schema, or mutating a row that the current view renders.
- */
 export function createRefreshScreenEntry(): Record<string, ActionEntry> {
   return {
     "refresh-screen": {
-      // Writes __screen_refresh__ to application_state, which emits its own
-      // distinct `screen-refresh` poll event. Don't double-emit a generic
-      // `action` event on top of that.
       readOnly: true,
-      // Refetching volatile on-screen state is the entire point of this
-      // tool — an identical repeat call (even with the same scope) is a
-      // legitimate re-refresh, not a redundant read to skip.
       dedupe: false,
       tool: {
         description:
@@ -295,7 +273,6 @@ export function createRefreshScreenEntry(): Record<string, ActionEntry> {
   };
 }
 
-/** Well-known application-state key used by the refresh-screen tool. */
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
@@ -308,21 +285,9 @@ export function appStateKeyForBrowserTab(
   return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? `${key}:${trimmed}` : key;
 }
 
-/**
- * Creates the `set-search-params` / `set-url-path` tools. Writes a one-shot
- * URL command to application_state; the client's URLSync component applies
- * it via react-router (no full page reload) and then deletes the command.
- *
- * This is how the agent edits URL state — filter query params, route
- * changes, hash — without needing a per-template navigate action. The
- * current URL is visible to the agent via the auto-injected `<current-url>`
- * block, which includes parsed search params.
- */
 export function createUrlTools(): Record<string, ActionEntry> {
   return {
     "set-search-params": {
-      // Writes __set_url__ to application_state, which the app-state watcher
-      // already surfaces as a poll event. No need to double-emit.
       readOnly: true,
       tool: {
         description:
@@ -374,8 +339,6 @@ export function createUrlTools(): Record<string, ActionEntry> {
       },
     },
     "set-url-path": {
-      // Same as set-search-params — writes application_state, already emits
-      // via the app-state watcher.
       readOnly: true,
       tool: {
         description:
@@ -432,160 +395,160 @@ export function createUrlTools(): Record<string, ActionEntry> {
         return `set-url-path: ${pathname}`;
       },
     },
-    "ask-question": {
-      // The turn is over once the question is on screen. Without this the loop
-      // asks the model for another step, and it keeps working (and re-asking)
-      // over an unanswered question no matter what the tool result says.
-      endsTurn: true,
-      tool: {
-        description:
-          "Ask the user a multiple-choice clarifying question and render it inline in the chat. Use this ONLY when you are genuinely blocked on a decision you cannot resolve from context and a wrong guess would be costly — an ambiguous metric, date range, or grain; a real fork in approach. Present 2-5 concrete options and mark the most likely one recommended. Do NOT use it for confirmations, for things the user already specified, or to dodge easy work you could just do. Calling this ends the turn: one question per turn, and any other tool call you emit alongside it will not run.",
-        parameters: {
-          type: "object",
-          properties: {
-            question: {
-              type: "string",
-              description:
-                "The complete question to ask the user. Clear, specific, ends with a question mark.",
-            },
-            header: {
-              type: "string",
-              description:
-                'Optional very short label (max ~12 chars) shown as a chip/heading above the question, e.g. "Date range", "Approach", "Library".',
-            },
-            options: {
-              type: "string",
-              description:
-                'A JSON array of 2-4 distinct, mutually-exclusive options (unless `allowMultiple` is true), each `{ "label": string, "value"?: string, "description"?: string, "preview"?: string, "recommended"?: boolean }`. `label` is 1-5 words; `description` explains the trade-off; `preview` is optional content (mockup, code snippet, short comparison) rendered under the option. `value` defaults to `label` when omitted. Mark the most likely option `"recommended": true`. Do NOT add an "Other" option — free text is provided automatically when `allowFreeText` is on.',
-            },
-            allowFreeText: {
-              type: "string",
-              description:
-                'Whether the user may also type a free-text "Other" answer. "true" (default) or "false".',
-              enum: ["true", "false"],
-            },
-            allowMultiple: {
-              type: "string",
-              description:
-                'Whether the user may select more than one option (multi-select). "true" or "false" (default).',
-              enum: ["true", "false"],
-            },
+    "open-settings-page": createOpenSettingsPageTool(),
+    "ask-question": createAskQuestionTool(),
+  };
+}
+
+function parseAskQuestion(args: any) {
+  const question = String(args?.question ?? "").trim();
+  if (!question)
+    throw new ActionInputValidationError("'question' is required.");
+  const header = String(args?.header ?? "").trim();
+  const allowMultiple = String(args?.allowMultiple ?? "") === "true";
+  const allowFreeText = String(args?.allowFreeText ?? "true") !== "false";
+
+  let parsedOptions: unknown;
+  try {
+    parsedOptions = JSON.parse(String(args?.options ?? "[]"));
+  } catch {
+    throw new ActionInputValidationError(
+      "'options' must be a JSON array of { label, value?, description?, recommended? }.",
+    );
+  }
+  if (!Array.isArray(parsedOptions) || parsedOptions.length === 0) {
+    throw new ActionInputValidationError(
+      "'options' must be a non-empty JSON array of { label, value?, description?, recommended? }.",
+    );
+  }
+
+  type AskOption = {
+    label: string;
+    value: string;
+    description?: string;
+    preview?: string;
+    recommended?: boolean;
+  };
+  const options = parsedOptions
+    .map((raw): AskOption | null => {
+      const opt = (raw ?? {}) as Record<string, unknown>;
+      const label =
+        typeof opt.label === "string" && opt.label.trim()
+          ? opt.label.trim()
+          : typeof opt.value === "string"
+            ? String(opt.value).trim()
+            : "";
+      if (!label) return null;
+      const value =
+        typeof opt.value === "string" && opt.value.trim()
+          ? opt.value.trim()
+          : label;
+      const option: AskOption = { label, value };
+      if (typeof opt.description === "string" && opt.description.trim()) {
+        option.description = opt.description.trim();
+      }
+      if (typeof opt.preview === "string" && opt.preview.trim()) {
+        option.preview = opt.preview;
+      }
+      if (opt.recommended === true) option.recommended = true;
+      return option;
+    })
+    .filter((opt): opt is AskOption => opt !== null);
+  if (options.length === 0) {
+    throw new ActionInputValidationError(
+      "'options' must contain at least one option with a label.",
+    );
+  }
+
+  return { question, header, allowMultiple, allowFreeText, options };
+}
+
+function createAskQuestionTool(): ActionEntry {
+  const entry = {
+    endsTurn: true,
+    tool: {
+      description:
+        "Ask the user a multiple-choice clarifying question and render it inline in the chat. Use this ONLY when you are genuinely blocked on a decision you cannot resolve from context and a wrong guess would be costly — an ambiguous metric, date range, or grain; a real fork in approach. Present 2-5 concrete options and mark the most likely one recommended. Do NOT use it for confirmations, for things the user already specified, or to dodge easy work you could just do. Calling this ends the turn: one question per turn, and any other tool call you emit alongside it will not run.",
+      parameters: {
+        type: "object",
+        properties: {
+          question: {
+            type: "string",
+            description:
+              "The complete question to ask the user. Clear, specific, ends with a question mark.",
           },
-          required: ["question", "options"],
+          header: {
+            type: "string",
+            description:
+              'Optional very short label (max ~12 chars) shown as a chip/heading above the question, e.g. "Date range", "Approach", "Library".',
+          },
+          options: {
+            type: "string",
+            description:
+              'A JSON array of 2-4 distinct, mutually-exclusive options (unless `allowMultiple` is true), each `{ "label": string, "value"?: string, "description"?: string, "preview"?: string, "recommended"?: boolean }`. `label` is 1-5 words; `description` explains the trade-off; `preview` is optional content (mockup, code snippet, short comparison) rendered under the option. `value` defaults to `label` when omitted. Mark the most likely option `"recommended": true`. Do NOT add an "Other" option — free text is provided automatically when `allowFreeText` is on.',
+          },
+          allowFreeText: {
+            type: "string",
+            description:
+              'Whether the user may also type a free-text "Other" answer. Keep this "true" (the default) for preferences and clarifying questions. Use "false" only when the underlying workflow can accept one of the enumerated values and cannot handle a custom answer.',
+            enum: ["true", "false"],
+          },
+          allowMultiple: {
+            type: "string",
+            description:
+              'Whether the user may select more than one option (multi-select). "true" or "false" (default).',
+            enum: ["true", "false"],
+          },
         },
-      },
-      run: async (args) => {
-        // These must throw, not return an error string: `endsTurn` yields the
-        // turn on any non-error result, so a returned string would leave the
-        // run waiting on a question card that was never written.
-        const question = String(args?.question ?? "").trim();
-        if (!question) throw new Error("'question' is required.");
-        const header = String(args?.header ?? "").trim();
-        const allowMultiple = String(args?.allowMultiple ?? "") === "true";
-        const allowFreeText = String(args?.allowFreeText ?? "true") !== "false";
-
-        let parsedOptions: unknown;
-        try {
-          parsedOptions = JSON.parse(String(args?.options ?? "[]"));
-        } catch {
-          throw new Error(
-            "'options' must be a JSON array of { label, value?, description?, recommended? }.",
-          );
-        }
-        if (!Array.isArray(parsedOptions) || parsedOptions.length === 0) {
-          throw new Error(
-            "'options' must be a non-empty JSON array of { label, value?, description?, recommended? }.",
-          );
-        }
-
-        type AskOption = {
-          label: string;
-          value: string;
-          description?: string;
-          preview?: string;
-          recommended?: boolean;
-        };
-        const options = parsedOptions
-          .map((raw): AskOption | null => {
-            const opt = (raw ?? {}) as Record<string, unknown>;
-            const label =
-              typeof opt.label === "string" && opt.label.trim()
-                ? opt.label.trim()
-                : typeof opt.value === "string"
-                  ? String(opt.value).trim()
-                  : "";
-            if (!label) return null;
-            const value =
-              typeof opt.value === "string" && opt.value.trim()
-                ? opt.value.trim()
-                : label;
-            const option: AskOption = { label, value };
-            if (typeof opt.description === "string" && opt.description.trim()) {
-              option.description = opt.description.trim();
-            }
-            if (typeof opt.preview === "string" && opt.preview.trim()) {
-              option.preview = opt.preview;
-            }
-            if (opt.recommended === true) option.recommended = true;
-            return option;
-          })
-          .filter((opt): opt is AskOption => opt !== null);
-        if (options.length === 0) {
-          throw new Error(
-            "'options' must contain at least one option with a label.",
-          );
-        }
-
-        // Shape must match the GuidedQuestionFlow renderer in
-        // client/guided-questions.tsx: a `text-options` question whose options
-        // carry `value`, with `multiSelect` for multi-pick and `allowOther` for
-        // free text. The renderer otherwise injects "Explore"/"Decide" options,
-        // which would be noise for a focused clarifying question, so disable them.
-        // The application-state key is scoped per browser tab, not per chat, so
-        // the payload has to name the thread that asked. The client hides a
-        // pending question in every other conversation instead of following the
-        // user from chat to chat.
-        // A request that carried no thread id falls back to the run id (see
-        // `onRunStart`), and a per-run value would never match the chat the user
-        // is looking at. Leave those surfaces unbound — they have one chat.
-        const askingRunCtx = getRequestRunContext();
-        const askingThreadId =
-          askingRunCtx?.threadId && askingRunCtx.threadId !== askingRunCtx.runId
-            ? askingRunCtx.threadId
-            : undefined;
-        const payload = {
-          ...(askingThreadId ? { threadId: askingThreadId } : {}),
-          questions: [
-            {
-              id: "q1",
-              type: "text-options" as const,
-              question,
-              ...(header ? { header } : {}),
-              required: !allowFreeText,
-              multiSelect: allowMultiple,
-              allowOther: allowFreeText,
-              includeExplore: false,
-              includeDecide: false,
-              options,
-            },
-          ],
-        };
-
-        const { writeAppState } =
-          await import("../../application-state/script-helpers.js");
-        await writeAppState(
-          appStateKeyForBrowserTab(
-            "guided-questions",
-            getRequestRunContext()?.browserTabId,
-          ),
-          payload,
-        );
-        // The `startsWith` of this text is how integration surfaces recognize a
-        // delivered question (see `extractSlackInputRequest`). Keep the prefix.
-        return "Asked the user a clarifying question and rendered it in the chat. This turn is over — their answer arrives as a new message.";
+        required: ["question", "options"],
       },
     },
-  };
+    run: async (args) => {
+      const { question, header, allowMultiple, allowFreeText, options } =
+        args as ReturnType<typeof parseAskQuestion>;
+
+      const askingRunCtx = getRequestRunContext();
+      const askingThreadId =
+        askingRunCtx?.threadId && askingRunCtx.threadId !== askingRunCtx.runId
+          ? askingRunCtx.threadId
+          : undefined;
+      const payload = {
+        ...(askingThreadId ? { threadId: askingThreadId } : {}),
+        questions: [
+          {
+            id: "q1",
+            type: "text-options" as const,
+            question,
+            ...(header ? { header } : {}),
+            required: !allowFreeText,
+            multiSelect: allowMultiple,
+            allowOther: allowFreeText,
+            includeExplore: false,
+            includeDecide: false,
+            options,
+          },
+        ],
+      };
+
+      const { writeAppState } =
+        await import("../../application-state/script-helpers.js");
+      await writeAppState(
+        appStateKeyForBrowserTab(
+          "guided-questions",
+          getRequestRunContext()?.browserTabId,
+        ),
+        payload,
+      );
+      return "Asked the user a clarifying question and rendered it in the chat. This turn is over — their answer arrives as a new message.";
+    },
+  } satisfies ActionEntry;
+  const action = defineAction({
+    description: entry.tool.description,
+    schema: z.unknown().transform(parseAskQuestion),
+    endsTurn: true,
+    run: entry.run,
+  });
+  return { ...entry, run: action.run };
 }
 
 export function createDataWidgetActionEntries(): Record<string, ActionEntry> {

@@ -49,17 +49,12 @@ describe("applyBacktrack punctuation-by-name", () => {
   });
 
   it("matches whole words only, not substrings", () => {
-    // "asterisked" should not trigger the "asterisk" mapping.
     expect(applyBacktrack("the field is asterisked")).toBe(
       "the field is asterisked",
     );
   });
 
   it("converts a plain mid-sentence mention the same as existing entries", () => {
-    // PUNCTUATION_BY_NAME has no guard against a literal mention of the
-    // word itself (colon/semicolon have the same accepted tradeoff) — a
-    // dictated sentence that talks ABOUT the symbol still converts it.
-    // This documents current, intentional behavior rather than a new gap.
     expect(applyBacktrack("we used an asterisk in the doc")).toBe(
       "we used an * in the doc",
     );
@@ -74,8 +69,6 @@ describe("applyBacktrack backtrack phrases", () => {
   });
 
   it("deletes the last word before the phrase", () => {
-    // "delete word" drops the word immediately preceding it ("report"),
-    // not the word that follows.
     expect(applyBacktrack("send the report delete word today")).toBe(
       "send the today",
     );

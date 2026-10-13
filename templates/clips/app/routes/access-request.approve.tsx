@@ -1,6 +1,7 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { IconAlertTriangle, IconCheck, IconLock } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
@@ -43,9 +44,6 @@ export default function ApproveRecordingAccessRequestRoute() {
   const approvalTokenFromUrl = searchParams.get("token") ?? "";
   const approvalTokenStorageKey =
     recordingAccessApprovalSessionKey(recordingId);
-  // Only the URL token is knowable on the server, so reading storage in the
-  // initializer makes the first client render disagree with the server's and
-  // React re-renders the page from scratch. Adopt the stored token after mount.
   const [approvalToken, setApprovalToken] = useState(
     () => approvalTokenFromUrl ?? "",
   );
@@ -83,8 +81,6 @@ export default function ApproveRecordingAccessRequestRoute() {
     }
     setApprovalToken(approvalTokenFromUrl);
 
-    // The email link must contain the capability, but it should not remain in
-    // the address bar or be copied into the sign-in continuation URL.
     const params = new URLSearchParams(window.location.search);
     params.delete("token");
     const nextSearch = params.toString();
@@ -156,7 +152,9 @@ export default function ApproveRecordingAccessRequestRoute() {
     t,
   ]);
 
-  const signInHref = buildSignInReturnHref({ returnTo: signInReturnTo });
+  const signInHref = buildSignInReturnHref({
+    returnTo: appPath(signInReturnTo),
+  });
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-6 py-12 text-foreground">

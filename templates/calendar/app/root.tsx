@@ -1,11 +1,11 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
-  AppProviders,
   createAgentNativeQueryClient,
+  getBrowserTabId,
   useDbSync,
 } from "@agent-native/core/client/hooks";
-import { isEmbedAuthActive } from "@agent-native/core/client/host";
+import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import {
   getLocaleInitScript,
   type LocaleCode,
@@ -13,15 +13,11 @@ import {
   type LocalizationPreference,
   useT,
 } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
-import {
-  DefaultSpinner,
-  getThemeInitScript,
-} from "@agent-native/core/client/ui";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -141,7 +137,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-const TAB_ID = Math.random().toString(36).slice(2, 10);
+const TAB_ID = getBrowserTabId();
 
 function DbSyncSetup() {
   const qc = useQueryClient();
@@ -188,18 +184,12 @@ function ThemeToggleItem() {
   );
 }
 
-/**
- * Public booking routes (/book/*, /meet/*, /booking/manage/*) must SSR real
- * content for first-visit signed-out users and crawlers. These paths bypass
- * ClientOnly so entry.server.tsx can stream the actual route markup rather than
- * a bare spinner. Auth/private routes are unaffected.
- */
 function isPublicBookingPath(pathname: string): boolean {
   const p = pathname.replace(/\/+$/, "") || "/";
   return (
-    p.startsWith("/book/") ||
-    p.startsWith("/meet/") ||
-    p.startsWith("/booking/manage/")
+    /^\/book\/[^/]+(?:\/[^/]+)?$/.test(p) ||
+    /^\/meet\/[^/]+\/[^/]+$/.test(p) ||
+    /^\/booking\/manage\/[^/]+$/.test(p)
   );
 }
 
@@ -210,9 +200,10 @@ function isAgentNativeDesktop(): boolean {
   );
 }
 
-function AppContent() {
+function PrivateAppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const t = useT();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
@@ -225,9 +216,17 @@ function AppContent() {
         changelogKey="calendar"
       >
         <CommandMenu.Group heading={t("root.commandActions")}>
-          <CommandMenu.Item onSelect={() => {}}>
-            {t("root.commandSearch")}
-          </CommandMenu.Item>
+          {location.pathname === "/home" ? (
+            <CommandMenu.Item onSelect={() => navigate("/booking-links")}>
+              {t("navigation.bookingLinks")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname.startsWith("/booking-links") ||
+          location.pathname.startsWith("/settings") ? (
+            <CommandMenu.Item onSelect={() => navigate("/home")}>
+              {t("navigation.calendar")}
+            </CommandMenu.Item>
+          ) : null}
           <CommandMenu.Item
             onSelect={() => navigate("/settings/agent")}
             keywords={[
@@ -252,6 +251,16 @@ function AppContent() {
   );
 }
 
+/**
+ * Bypass requires an actual embed credential, not just the `embedded=1`
+ * display flag: the Electron desktop shell opens every app tab with that
+ * flag and no token, and a bare-flag bypass sent those signed-out tabs
+ * straight into an infinite 401 poll instead of sign-in.
+ */
+export function computeSessionBypass(): boolean {
+  return Boolean(getEmbedAuthToken());
+}
+
 export default function Root() {
   const [queryClient] = useState(() =>
     createAgentNativeQueryClient({
@@ -263,8 +272,6 @@ export default function Root() {
           // webview focus events otherwise duplicate the events request.
           // request-storm-allow: one user-driven focus refresh for provider data.
           refetchOnWindowFocus: !isAgentNativeDesktop(),
-          // Flat retry: calendar data fetches don't need the auth-aware
-          // retry function — auth errors surface through the booking flow.
           retry: 1,
         },
       },
@@ -278,9 +285,9 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="calendar"
         isPublicPath={isPublicPath}
-        sessionBypass={isEmbedAuthActive()}
-        clientOnlyFallback={<DefaultSpinner />}
+        sessionBypass={computeSessionBypass()}
         toaster={<Toaster richColors position="bottom-center" />}
         i18n={{
           catalog: i18nCatalog,
@@ -290,10 +297,10 @@ export default function Root() {
           persistPreference: !isPublicPath,
         }}
       >
-        <AppContent />
+        <PrivateAppContent />
       </AppProviders>
     </AppToolkitProvider>
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

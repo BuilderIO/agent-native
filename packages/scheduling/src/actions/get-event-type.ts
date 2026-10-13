@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import {
@@ -15,7 +16,10 @@ export default defineAction({
     teamId: z.string().optional(),
   }),
   run: async (args) => {
-    if (args.id) return { eventType: await getEventTypeById(args.id) };
+    if (args.id) {
+      await assertAccess("event-type", args.id, "viewer");
+      return { eventType: await getEventTypeById(args.id) };
+    }
     if (args.slug) {
       return {
         eventType: await getEventTypeBySlug({

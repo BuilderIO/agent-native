@@ -1,0 +1,394 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  assertAccess: vi.fn(),
+  createSource: vi.fn(),
+  getCredentialContext: vi.fn(() => ({})),
+  nanoid: vi.fn(() => "generated"),
+  nowIso: vi.fn(() => "2026-07-22T00:00:00.000Z"),
+  parseJson: vi.fn(() => ({})),
+  serializeSource: vi.fn((source: { id: string }) => ({ id: source.id })),
+  sha256Hex: vi.fn(async (value: string) => `hash:${value}`),
+  stableJson: vi.fn((value: unknown) => JSON.stringify(value)),
+  assertSourceCredentialAvailable: vi.fn(),
+  assertSourceWorkspaceConnectionAvailable: vi.fn(),
+  assertBrainAdmin: vi.fn(),
+  recordZoomAuditEvent: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/action", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/action")>()),
+  defineAction: (action: unknown) => action,
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  getCredentialContext: mocks.getCredentialContext,
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  assertAccess: mocks.assertAccess,
+}));
+
+vi.mock("drizzle-orm", () => ({ eq: vi.fn(() => "where") }));
+
+const set = vi.fn(() => ({ where: vi.fn() }));
+const limit = vi.fn(async () => [{ id: "source-1" }]);
+const select = vi.fn(() => ({
+  from: vi.fn(() => ({ where: vi.fn(() => ({ limit })) })),
+}));
+
+vi.mock("../server/db/index.js", () => {
+  const db = () => ({
+    update: vi.fn(() => ({ set })),
+    select,
+    transaction: async (fn: (tx: unknown) => Promise<void>) => fn(db()),
+  });
+  return {
+    getDb: db,
+    schema: { brainSources: { id: "brainSources.id" } },
+  };
+});
+
+vi.mock("../server/lib/brain.js", () => mocks);
+vi.mock("../server/lib/source-credentials.js", () => mocks);
+vi.mock("../server/lib/zoom-governance.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/zoom-governance.js")
+  >()),
+  assertBrainAdmin: mocks.assertBrainAdmin,
+  recordZoomAuditEvent: mocks.recordZoomAuditEvent,
+}));
+
+const ADMIN = { email: "admin@example.test", orgId: "org-1" };
+const notAdmin = () =>
+  Object.assign(new Error("Only Brain admins"), {
+    errorCode: "brain_admin_required",
+  });
+
+import createSourceAction from "./create-source.js";
+import updateSourceAction from "./update-source.js";
+
+type ActionRun = { run: (args: Record<string, unknown>) => Promise<unknown> };
+
+const createSource = createSourceAction as unknown as ActionRun;
+const updateSource = updateSourceAction as unknown as ActionRun;
+
+const GARBLED_PASTE = "http://slack.com/channel](http://slack.com/channel)";
+
+describe("create-source config validation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.createSource.mockResolvedValue({ id: "source-1" });
+    mocks.assertBrainAdmin.mockResolvedValue(ADMIN);
+  });
+
+  it("refuses to create a Slack source from a malformed channel entry", async () => {
+    await expect(
+      createSource.run({
+        title: "Slack knowledge channels",
+        provider: "slack",
+        visibility: "private",
+        config: { channelIds: [GARBLED_PASTE] },
+      }),
+    ).rejects.toMatchObject({ errorCode: "invalid_source_config" });
+
+    expect(mocks.createSource).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a readable 400 rather than a generic failure", async () => {
+    await expect(
+      createSource.run({
+        title: "Slack knowledge channels",
+        provider: "slack",
+        visibility: "private",
+        config: { channelIds: [GARBLED_PASTE] },
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      errorCode: "invalid_source_config",
+    });
+  });
+
+  it("names the offending entry and the accepted format", async () => {
+    await expect(
+      createSource.run({
+        title: "Slack knowledge channels",
+        provider: "slack",
+        visibility: "private",
+        config: { channelIds: [GARBLED_PASTE] },
+      }),
+    ).rejects.toThrow(/C0123456789/);
+  });
+
+  it("refuses to create a GitHub source from a non-repository entry", async () => {
+    await expect(
+      createSource.run({
+        title: "Repos",
+        provider: "github",
+        visibility: "private",
+        config: { repositories: ["agent-native"] },
+      }),
+    ).rejects.toMatchObject({ errorCode: "invalid_source_config" });
+
+    expect(mocks.createSource).not.toHaveBeenCalled();
+  });
+
+  it("refuses entries the storage readers would have silently dropped", async () => {
+    for (const config of [
+      { channelIds: [""] },
+      { channelIds: ["#"] },
+      { channelIds: ["   "] },
+      { channelIds: [123] },
+    ]) {
+      await expect(
+        createSource.run({
+          title: "Slack knowledge channels",
+          provider: "slack",
+          visibility: "private",
+          config,
+        }),
+        JSON.stringify(config),
+      ).rejects.toMatchObject({ errorCode: "invalid_source_config" });
+    }
+
+    expect(mocks.createSource).not.toHaveBeenCalled();
+  });
+
+  it("refuses a Slack DM id, which can never yield an eligible channel", async () => {
+    await expect(
+      createSource.run({
+        title: "Slack knowledge channels",
+        provider: "slack",
+        visibility: "private",
+        config: { channelIds: ["D0123456789"] },
+      }),
+    ).rejects.toThrow(/DMs/);
+
+    expect(mocks.createSource).not.toHaveBeenCalled();
+  });
+
+  it("still creates a source from valid input", async () => {
+    await expect(
+      createSource.run({
+        title: "Slack knowledge channels",
+        provider: "slack",
+        visibility: "private",
+        config: { channelIds: ["C0123456789", "product"], pollMinutes: 60 },
+      }),
+    ).resolves.toEqual({ source: { id: "source-1" }, ingestToken: undefined });
+
+    expect(mocks.createSource).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a Zoom source without approved meeting series IDs", async () => {
+    for (const zoom of [
+      {},
+      { meetingIds: [] },
+      { meetingIds: ["GTM Weekly Sync"] },
+      { meetingIds: ["123"] },
+      { meetingTopics: ["Marketing Standup"] },
+      { meetingIds: ["123 4567 8901"], meetingTopics: ["Marketing Standup"] },
+      { lookbackDays: 7 },
+    ]) {
+      await expect(
+        createSource.run({
+          title: "Zoom meetings",
+          provider: "zoom",
+          visibility: "org",
+          config: { zoom },
+        }),
+        JSON.stringify(zoom),
+      ).rejects.toMatchObject({ errorCode: "invalid_source_config" });
+    }
+
+    expect(mocks.createSource).not.toHaveBeenCalled();
+  });
+
+  it("refuses to create a live Zoom source with no zoom config", async () => {
+    for (const config of [undefined, {}, { pollMinutes: 60 }]) {
+      await expect(
+        createSource.run({
+          title: "Zoom meetings",
+          provider: "zoom",
+          visibility: "org",
+          config,
+        }),
+        JSON.stringify(config),
+      ).rejects.toMatchObject({ errorCode: "invalid_source_config" });
+    }
+
+    expect(mocks.createSource).not.toHaveBeenCalled();
+  });
+
+  it("creates a Zoom fixture source without approved meeting series", async () => {
+    await expect(
+      createSource.run({
+        title: "Zoom fixture",
+        provider: "zoom",
+        visibility: "org",
+        config: { fixture: true, transcripts: ["Ada: hello"] },
+      }),
+    ).resolves.toMatchObject({ source: { id: "source-1" } });
+  });
+
+  it("creates a source from config passed as a JSON string", async () => {
+    await createSource.run({
+      title: "Zoom meetings",
+      provider: "zoom",
+      visibility: "org",
+      configJson: JSON.stringify({ zoom: { meetingIds: ["123 4567 8901"] } }),
+    });
+
+    expect(mocks.createSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: { zoom: { meetingIds: ["123 4567 8901"] } },
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("creates a Zoom source limited to approved meeting series", async () => {
+    await expect(
+      createSource.run({
+        title: "Zoom meetings",
+        provider: "zoom",
+        visibility: "org",
+        config: {
+          zoom: { meetingIds: ["123 4567 8901", 98765432101] },
+        },
+      }),
+    ).resolves.toMatchObject({ source: { id: "source-1" } });
+    expect(mocks.recordZoomAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceId: "source-1",
+        actorEmail: ADMIN.email,
+        event: "allowlist-changed",
+        detail: expect.objectContaining({
+          created: true,
+          added: ["12345678901", "98765432101"],
+        }),
+      }),
+      expect.anything(),
+    );
+    const txDb = (mocks.createSource.mock.calls[0] as unknown[])[1];
+    expect(txDb).toBeDefined();
+    expect(mocks.recordZoomAuditEvent.mock.calls[0][1]).toBe(txDb);
+  });
+
+  it("refuses to create a Zoom source for a non-admin", async () => {
+    mocks.assertBrainAdmin.mockRejectedValue(notAdmin());
+
+    await expect(
+      createSource.run({
+        title: "Zoom meetings",
+        provider: "zoom",
+        visibility: "org",
+        config: { zoom: { meetingIds: ["123 4567 8901"] } },
+      }),
+    ).rejects.toMatchObject({ errorCode: "brain_admin_required" });
+    expect(mocks.createSource).not.toHaveBeenCalled();
+    expect(mocks.recordZoomAuditEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("update-source config validation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.assertBrainAdmin.mockResolvedValue(ADMIN);
+    mocks.assertAccess.mockResolvedValue({
+      resource: {
+        id: "source-1",
+        provider: "slack",
+        configJson: "{}",
+        status: "active",
+      },
+    });
+  });
+
+  it("refuses to save a malformed channel entry onto an existing source", async () => {
+    await expect(
+      updateSource.run({
+        id: "source-1",
+        config: { channelIds: [GARBLED_PASTE] },
+      }),
+    ).rejects.toMatchObject({ errorCode: "invalid_source_config" });
+
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it("does not re-litigate stored bad data when an unrelated field changes", async () => {
+    await expect(
+      updateSource.run({ id: "source-1", config: { pollMinutes: 30 } }),
+    ).resolves.toBeDefined();
+  });
+
+  it("saves config passed as a JSON string", async () => {
+    mocks.assertAccess.mockResolvedValue({
+      resource: { id: "source-1", provider: "zoom", configJson: "{}" },
+    });
+    const zoom = { lookbackDays: 7, meetingIds: ["123 4567 8901"] };
+
+    await updateSource.run({
+      id: "source-1",
+      configJson: JSON.stringify({ zoom }),
+    });
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({ configJson: JSON.stringify({ zoom }) }),
+    );
+    expect(mocks.recordZoomAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "allowlist-changed",
+        actorEmail: ADMIN.email,
+        detail: {
+          added: ["12345678901"],
+          removed: [],
+          changedSettings: ["lookbackDays"],
+        },
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("refuses Zoom setting changes from a non-admin", async () => {
+    mocks.assertAccess.mockResolvedValue({
+      resource: { id: "source-1", provider: "zoom", configJson: "{}" },
+    });
+    mocks.assertBrainAdmin.mockRejectedValue(notAdmin());
+
+    await expect(
+      updateSource.run({
+        id: "source-1",
+        config: { zoom: { meetingIds: ["123 4567 8901"] } },
+      }),
+    ).rejects.toMatchObject({ errorCode: "brain_admin_required" });
+    expect(set).not.toHaveBeenCalled();
+    expect(mocks.recordZoomAuditEvent).not.toHaveBeenCalled();
+  });
+
+  it("validates config passed as a JSON string", async () => {
+    mocks.assertAccess.mockResolvedValue({
+      resource: { id: "source-1", provider: "zoom", configJson: "{}" },
+    });
+
+    for (const configJson of [
+      JSON.stringify({ zoom: { meetingIds: ["Weekly Sync"] } }),
+      JSON.stringify({ zoom: { lookbackDays: 14 } }),
+      "not json",
+      "[1]",
+    ]) {
+      await expect(
+        updateSource.run({ id: "source-1", configJson }),
+        configJson,
+      ).rejects.toMatchObject({ errorCode: "invalid_source_config" });
+    }
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it("rejects an update that changes nothing", async () => {
+    await expect(
+      updateSource.run({ id: "source-1", config: {} }),
+    ).rejects.toMatchObject({ errorCode: "no_source_changes" });
+    expect(set).not.toHaveBeenCalled();
+  });
+});

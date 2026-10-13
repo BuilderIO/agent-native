@@ -1,7 +1,3 @@
-// Integration tests for the saved-view actions against a real libsql database
-// and the real migrations — including the list action reading a view's stored
-// filter, which is the whole reason saved views exist.
-
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `crm-view-actions-test-${process.pid}-${Date.now()}.sqlite`,
+  `crm-view-actions-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 const OWNER = "owner@example.test";
@@ -50,7 +46,6 @@ let textAttributeId = "";
 let acme = "";
 let globex = "";
 
-/** A competing writer that lands at a distinct instant. */
 async function otherWriter(id: string, name: string): Promise<void> {
   await getDb()
     .update(schema.crmSavedViews)
@@ -70,7 +65,7 @@ async function save(args: Record<string, unknown>) {
 }
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = await import("../server/db/schema.js");
@@ -171,9 +166,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 describe("save-crm-saved-view", () => {
@@ -275,8 +268,6 @@ describe("save-crm-saved-view", () => {
     const saved = (await save({ name: "Contended" })) as any;
     const stale = saved.updatedAt;
 
-    // Simulate the other writer out of band: two saves in the same millisecond
-    // would leave `updatedAt` unchanged and the race would not be observable.
     await otherWriter(saved.id, "Renamed by someone else");
 
     await expect(

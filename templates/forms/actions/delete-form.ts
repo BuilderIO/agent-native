@@ -1,16 +1,20 @@
-import { defineAction } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
+import { defineAction, fail } from "@agent-native/core/action";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { requireFormsPermission } from "../server/lib/app-roles.js";
 import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
 
 export default defineAction({
+  authorize: requireFormsPermission("forms.edit", "id"),
   description:
     "Soft-delete a form: marks it deleted and hides it from the main list. Responses are preserved and visible in the Archive. Pass `--purge` to permanently delete the form and its responses.",
   schema: z.object({
-    id: z.string().describe("Form ID to delete (required)"),
+    id: z
+      .union([z.string(), z.array(z.string()).min(1)])
+      .describe("Form ID or IDs to delete (required)"),
     purge: z.coerce
       .boolean()
       .optional()
@@ -20,36 +24,61 @@ export default defineAction({
       ),
   }),
   run: async (args) => {
-    await assertAccess("form", args.id, "admin");
+    const ids = Array.isArray(args.id) ? args.id : [args.id];
+    const deleteOne = async (id: string) => {
+      await assertAccess("form", id, "admin");
 
-    const db = getDb();
-    const [existing] = await db
-      .select()
-      .from(schema.forms)
-      .where(eq(schema.forms.id, args.id))
-      .limit(1);
+      const db = getDb();
+      const [existing] = await db
+        .select()
+        .from(schema.forms)
+        .where(eq(schema.forms.id, id))
+        .limit(1);
 
-    if (!existing) {
-      throw new Error(`Form ${args.id} not found`);
-    }
+      if (!existing) {
+        fail(`Form ${id} not found`, {
+          errorCode: "form_not_found",
+          statusCode: 404,
+        });
+      }
 
-    if (args.purge) {
+      if (args.purge) {
+        await db
+          .delete(schema.responses)
+          .where(eq(schema.responses.formId, id));
+        await db.delete(schema.forms).where(eq(schema.forms.id, id));
+        invalidatePublicFormCache(existing);
+        return { id, success: true, purged: true };
+      }
+
+      const now = new Date().toISOString();
       await db
-        .delete(schema.responses)
-        .where(eq(schema.responses.formId, args.id));
-      await db.delete(schema.forms).where(eq(schema.forms.id, args.id));
+        .update(schema.forms)
+        .set({ deletedAt: now, updatedAt: now })
+        .where(eq(schema.forms.id, id));
+
       invalidatePublicFormCache(existing);
-      return { success: true, purged: true };
+      return { id, success: true, purged: false, deletedAt: now };
+    };
+
+    if (ids.length === 1) return deleteOne(ids[0]!);
+    const results = [];
+    for (const id of ids) {
+      try {
+        results.push(await deleteOne(id));
+      } catch (error) {
+        if (error instanceof ForbiddenError) throw error;
+        results.push({
+          id,
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
-
-    const now = new Date().toISOString();
-    await db
-      .update(schema.forms)
-      .set({ deletedAt: now, updatedAt: now })
-      .where(eq(schema.forms.id, args.id));
-
-    invalidatePublicFormCache(existing);
-
-    return { success: true, purged: false, deletedAt: now };
+    return {
+      success: results.every((result) => result.success),
+      purged: args.purge,
+      results,
+    };
   },
 });

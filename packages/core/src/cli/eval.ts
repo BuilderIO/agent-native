@@ -1,35 +1,245 @@
-/**
- * `agent-native eval [pattern] [--json] [--threshold N]`
- *
- * Discover the app's `*.eval.ts` / `evals/*.ts` files, actually run the agent
- * for each eval input, score the output with the eval's scorers, print a
- * readable scored table, and EXIT NON-ZERO if any eval scores below its
- * threshold. That non-zero exit makes the command a drop-in CI deploy gate:
- *
- *   - run: agent-native eval                 (block deploy on regressions)
- *   - or:  agent-native eval --json          (machine-readable for CI)
- *
- * The runner resolves a provider-agnostic engine/model from the existing
- * registry — no model is hardcoded — so the same suite runs against whatever
- * engine the app is configured for.
- */
-
+import fs from "node:fs/promises";
+import path from "node:path";
 import process from "node:process";
 
-/** Parse `[pattern] [--json] [--threshold N]` from the eval argv. */
-function parseEvalArgs(argv: string[]): {
+import { registerBuiltinEngines } from "../agent/engine/index.js";
+import { loadEnv } from "../scripts/utils.js";
+
+export type EvalRunCliArgs = {
+  command: "run";
   pattern?: string;
   json: boolean;
   threshold?: number;
-} {
+  ownerEmail?: string;
+  orgId?: string;
+};
+
+export type EvalPromoteCliArgs = {
+  command: "promote";
+  runId: string;
+  write?: string;
+  json: boolean;
+  reviewedPrompt?: string;
+  reviewedPromptFile?: string;
+  reviewedHistoryFile?: string;
+  mustContain?: string;
+  datasetName?: string;
+};
+
+const MAX_REVIEW_FILE_BYTES = 64 * 1024;
+
+export type ParsedEvalArgs = EvalRunCliArgs | EvalPromoteCliArgs;
+
+function rejectMissingFlag(flag: string): never {
+  console.error(
+    flag === "--write"
+      ? "eval promote: --write requires a path"
+      : `eval promote: ${flag} requires a value`,
+  );
+  process.exit(2);
+}
+
+function takeValue(
+  argv: string[],
+  i: number,
+  flag: string,
+): { value: string; next: number } | null {
+  const arg = argv[i];
+  if (arg === flag) {
+    const value = argv[i + 1];
+    if (value === undefined || value.length === 0) rejectMissingFlag(flag);
+    return { value: value!, next: i + 1 };
+  }
+  if (arg.startsWith(`${flag}=`)) {
+    const value = arg.slice(`${flag}=`.length);
+    if (value.length === 0) rejectMissingFlag(flag);
+    return { value, next: i };
+  }
+  return null;
+}
+
+function printHelp(): void {
+  console.log(`agent-native eval — run agent evals as a CI deploy gate
+
+Usage:
+  agent-native eval [pattern] --owner-email email --org-id id [--json] [--threshold N]
+  agent-native eval promote <runId> (--reviewed-prompt text | --reviewed-prompt-file path)
+    [--reviewed-history-file path] [--write path] [--json] [--must-contain text]
+
+Discovers **/*.eval.ts and evals/*.ts under the current app, runs the agent
+for each eval input, scores the output with the eval's scorers, and exits
+non-zero if any eval scores below its threshold (so it gates CI/deploys).
+Production evals require explicit --owner-email and --org-id values plus an
+evals/production-context.ts adapter that prepares the production prompt and
+invokes the shared production agent loop with its read-only action surface.
+Identity is never inferred from environment or app configuration. This command
+does not persist eval results.
+
+promote maps a completed production run into a defineEval case using required
+manually reviewed prompt text, optionally reads reviewed history from a JSON
+file, persists an EvalDataset row, and optionally
+writes a *.eval.ts the CI gate already discovers. The hosted action never
+writes files. Repeating a promotion
+returns the existing dataset for the same owner and run. The CLI uses the
+signed-in account (or AGENT_USER_EMAIL) so it shares that dataset with the
+dashboard. A run whose event history exceeds the promotion limit is refused
+(events_truncated) instead of emitting a partial eval. With --write, the
+fixture is staged before the dataset row is inserted; a failed write leaves
+no new dataset. If saving the dataset fails, the staged fixture is removed.
+If another promotion wins the idempotency key, the fixture is rewritten from
+that stored dataset. --write requires a path.
+
+Arguments:
+  pattern            Only run eval files whose path contains this substring.
+  runId              Completed observability run id to promote.
+
+Options:
+  --json             Emit a machine-readable JSON report (for CI).
+  --owner-email      Explicit user identity for the eval request.
+  --org-id           Explicit organization identity for the eval request.
+  --threshold N      Override every eval's pass threshold (0..1).
+  --write path       Write a loadable *.eval.ts for the promoted case.
+  --reviewed-prompt  Manually reviewed prompt text; production prompt text is
+                     never copied. Use --reviewed-prompt-file to keep it out
+                     of shell history.
+  --reviewed-prompt-file path
+                     Read manually reviewed prompt text from a local file.
+  --reviewed-history-file path
+                     Read a JSON array of reviewed {role,text} turns from a
+                     local file; content is screened before persistence.
+  --must-contain txt Optional contains() needle for the promoted case.
+  --dataset-name n   Optional privacy-screened EvalDataset name
+                     (defaults to from-trace:<opaque reference>).
+  -h, --help         Show this help.
+
+Authoring (evals/example.eval.ts):
+  import { defineEval, contains, llmJudge } from "@agent-native/core/eval";
+  export default defineEval({
+    name: "answers the FAQ",
+    input: { prompt: "What is your return policy?" },
+    threshold: 0.7,
+    scorers: [contains("30 days"), llmJudge({ criteria: "accuracy" })],
+  });`);
+}
+
+/** Parse `[pattern] [--json] [--threshold N]` or `promote <runId> ...`. */
+export function parseEvalArgs(argv: string[]): ParsedEvalArgs {
+  if (argv[0] === "promote") {
+    let runId: string | undefined;
+    let write: string | undefined;
+    let json = false;
+    let reviewedPrompt: string | undefined;
+    let reviewedPromptFile: string | undefined;
+    let reviewedHistoryFile: string | undefined;
+    let mustContain: string | undefined;
+    let datasetName: string | undefined;
+
+    for (let i = 1; i < argv.length; i += 1) {
+      const arg = argv[i]!;
+      if (arg === "--json") {
+        json = true;
+        continue;
+      }
+      if (arg === "--help" || arg === "-h") {
+        printHelp();
+        process.exit(0);
+      }
+      const writeVal = takeValue(argv, i, "--write");
+      if (writeVal) {
+        write = writeVal.value.trim();
+        i = writeVal.next;
+        continue;
+      }
+      const containVal = takeValue(argv, i, "--must-contain");
+      if (containVal) {
+        mustContain = containVal.value;
+        i = containVal.next;
+        continue;
+      }
+      const promptVal = takeValue(argv, i, "--reviewed-prompt");
+      if (promptVal) {
+        reviewedPrompt = promptVal.value;
+        i = promptVal.next;
+        continue;
+      }
+      const promptFileVal = takeValue(argv, i, "--reviewed-prompt-file");
+      if (promptFileVal) {
+        reviewedPromptFile = promptFileVal.value.trim();
+        if (!reviewedPromptFile) rejectMissingFlag("--reviewed-prompt-file");
+        i = promptFileVal.next;
+        continue;
+      }
+      const historyFileVal = takeValue(argv, i, "--reviewed-history-file");
+      if (historyFileVal) {
+        reviewedHistoryFile = historyFileVal.value.trim();
+        if (!reviewedHistoryFile) rejectMissingFlag("--reviewed-history-file");
+        i = historyFileVal.next;
+        continue;
+      }
+      const datasetVal = takeValue(argv, i, "--dataset-name");
+      if (datasetVal) {
+        datasetName = datasetVal.value;
+        i = datasetVal.next;
+        continue;
+      }
+      if (!arg.startsWith("-") && runId === undefined) {
+        runId = arg;
+      }
+    }
+
+    if (!runId) {
+      console.error("eval promote: <runId> is required");
+      process.exit(2);
+    }
+    if (
+      (!reviewedPrompt?.trim() && !reviewedPromptFile) ||
+      (reviewedPrompt !== undefined && reviewedPromptFile)
+    ) {
+      console.error(
+        "eval promote: provide exactly one of --reviewed-prompt or --reviewed-prompt-file",
+      );
+      process.exit(2);
+    }
+    if (write !== undefined && write.length === 0) {
+      console.error("eval promote: --write requires a path");
+      process.exit(2);
+    }
+
+    return {
+      command: "promote",
+      runId,
+      json,
+      ...(reviewedPrompt ? { reviewedPrompt } : {}),
+      ...(reviewedPromptFile ? { reviewedPromptFile } : {}),
+      ...(reviewedHistoryFile ? { reviewedHistoryFile } : {}),
+      ...(write ? { write } : {}),
+      ...(mustContain ? { mustContain } : {}),
+      ...(datasetName ? { datasetName } : {}),
+    };
+  }
+
   let pattern: string | undefined;
   let json = false;
   let threshold: number | undefined;
+  let ownerEmail: string | undefined;
+  let orgId: string | undefined;
 
   for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
+    const arg = argv[i]!;
     if (arg === "--json") {
       json = true;
+    } else if (arg === "--owner-email" || arg.startsWith("--owner-email=")) {
+      const ownerValue = takeValue(argv, i, "--owner-email");
+      if (ownerValue) {
+        ownerEmail = ownerValue.value.trim();
+        i = ownerValue.next;
+      }
+    } else if (arg === "--org-id" || arg.startsWith("--org-id=")) {
+      const orgValue = takeValue(argv, i, "--org-id");
+      if (orgValue) {
+        orgId = orgValue.value.trim();
+        i = orgValue.next;
+      }
     } else if (arg === "--threshold" && argv[i + 1] !== undefined) {
       threshold = Number(argv[++i]);
     } else if (arg.startsWith("--threshold=")) {
@@ -50,42 +260,306 @@ function parseEvalArgs(argv: string[]): {
     process.exit(2);
   }
 
-  return { pattern, json, threshold };
+  if (Boolean(ownerEmail) !== Boolean(orgId)) {
+    console.error("eval: provide both --owner-email and --org-id");
+    process.exit(2);
+  }
+
+  return {
+    command: "run",
+    pattern,
+    json,
+    threshold,
+    ...(ownerEmail ? { ownerEmail } : {}),
+    ...(orgId ? { orgId } : {}),
+  };
 }
 
-function printHelp(): void {
-  console.log(`agent-native eval — run agent evals as a CI deploy gate
+async function readExistingFile(target: string): Promise<string | null> {
+  try {
+    return await fs.readFile(target, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw err;
+  }
+}
 
-Usage:
-  agent-native eval [pattern] [--json] [--threshold N]
+async function writeExclusiveFile(
+  target: string,
+  source: string,
+): Promise<void> {
+  const dir = path.dirname(target);
+  const tmp = path.join(
+    dir,
+    `.${path.basename(target)}.${process.pid}.${globalThis.crypto.randomUUID()}.tmp`,
+  );
+  try {
+    // `wx` is O_CREAT|O_EXCL: an existing file or planted symlink is left
+    // untouched instead of being truncated or followed.
+    await fs.writeFile(tmp, source, { encoding: "utf8", flag: "wx" });
+    await fs.rename(tmp, target);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
+      try {
+        await fs.rm(tmp, { force: true });
+      } catch {
+        // coercion-ok: temp-file cleanup is best-effort; the write error is rethrown.
+      }
+    }
+    throw err;
+  }
+}
 
-Discovers **/*.eval.ts and evals/*.ts under the current app, runs the agent
-for each eval input, scores the output with the eval's scorers, and exits
-non-zero if any eval scores below its threshold (so it gates CI/deploys).
+/**
+ * Stage the fixture aside the destination, then rename it into place.
+ * Returns a restore that puts the previous file back, or removes the fixture
+ * when it did not exist. Callers run that restore if the dataset save fails.
+ */
+async function writePromotedEvalFile(
+  writePath: string,
+  source: string,
+): Promise<() => Promise<void>> {
+  const target = path.resolve(process.cwd(), writePath);
+  const dir = path.dirname(target);
+  await fs.mkdir(dir, { recursive: true });
+  const previous = await readExistingFile(target);
+  await writeExclusiveFile(target, source);
+  return async () => {
+    if (previous == null) {
+      await fs.rm(target, { force: true });
+      return;
+    }
+    await writeExclusiveFile(target, previous);
+  };
+}
 
-Arguments:
-  pattern            Only run eval files whose path contains this substring.
+/** Same owner the hosted action stores on `ctx.userEmail`, so both paths share one idempotency key. */
+async function resolvePromoteUserId(): Promise<string> {
+  const { getRequestUserEmail } = await import("../server/request-context.js");
+  const fromContext = getRequestUserEmail()?.trim();
+  if (fromContext) return fromContext;
+  const { resolveDevUserEmail } = await import("../scripts/dev-session.js");
+  const resolved = (await resolveDevUserEmail())?.trim();
+  if (!resolved) {
+    throw new Error(
+      "Sign in to promote a trace, or set AGENT_USER_EMAIL to the account that owns the run",
+    );
+  }
+  return resolved;
+}
 
-Options:
-  --json             Emit a machine-readable JSON report (for CI).
-  --threshold N      Override every eval's pass threshold (0..1).
-  -h, --help         Show this help.
+async function runPromote(args: EvalPromoteCliArgs): Promise<void> {
+  const { loadTraceEvalPromotion, persistPromotedEvalDataset } =
+    await import("../observability/actions/promote-trace-eval.js");
+  const {
+    PROMOTED_EVAL_REVIEW_LIMITS,
+    generateEvalModuleSource,
+    promotedEvalSpecFromDataset,
+  } = await import("../eval/from-trace.js");
 
-Authoring (evals/example.eval.ts):
-  import { defineEval, contains, llmJudge } from "@agent-native/core/eval";
-  export default defineEval({
-    name: "answers the FAQ",
-    input: { prompt: "What is your return policy?" },
-    threshold: 0.7,
-    scorers: [contains("30 days"), llmJudge({ criteria: "accuracy" })],
-  });`);
+  let result: Awaited<ReturnType<typeof loadTraceEvalPromotion>>["promotion"];
+  let rollback: (() => Promise<void>) | undefined;
+  try {
+    const reviewedPrompt = args.reviewedPromptFile
+      ? await readReviewedPromptFile(
+          args.reviewedPromptFile,
+          PROMOTED_EVAL_REVIEW_LIMITS.promptLength,
+        )
+      : args.reviewedPrompt;
+    if (!reviewedPrompt?.trim()) {
+      throw new Error("Reviewed prompt file must contain nonblank text.");
+    }
+    const reviewedHistory = args.reviewedHistoryFile
+      ? await readReviewedHistoryFile(
+          args.reviewedHistoryFile,
+          PROMOTED_EVAL_REVIEW_LIMITS.historyTurns,
+          PROMOTED_EVAL_REVIEW_LIMITS.historyTextLength,
+        )
+      : undefined;
+    const userId = await resolvePromoteUserId();
+    const loaded = await loadTraceEvalPromotion(
+      {
+        runId: args.runId,
+        reviewedPrompt,
+        ...(reviewedHistory ? { reviewedHistory } : {}),
+        mustContain: args.mustContain,
+        datasetName: args.datasetName,
+      },
+      { userId },
+    );
+    // Fixture first. persist only runs after --write has succeeded.
+    if (args.write) {
+      rollback = await writePromotedEvalFile(
+        args.write,
+        generateEvalModuleSource(loaded.promotion.eval),
+      );
+    }
+    let dataset = loaded.promotion.dataset;
+    let spec = loaded.promotion.eval;
+    if (!loaded.alreadyStored) {
+      dataset = await persistPromotedEvalDataset(loaded.promotion.dataset);
+      // The save can lose the idempotency-key race and return the winner.
+      // Rewrite the fixture so it matches that stored dataset, not this spec.
+      if (args.write && dataset.id !== loaded.promotion.dataset.id) {
+        const winning = promotedEvalSpecFromDataset(dataset, args.runId);
+        if (!winning) {
+          throw new Error(
+            "Stored promotion does not match the winning dataset",
+          );
+        }
+        await writePromotedEvalFile(
+          args.write,
+          generateEvalModuleSource(winning),
+        );
+        spec = winning;
+      }
+    }
+    rollback = undefined;
+    result = {
+      sourceRunId: loaded.promotion.sourceRunId,
+      dataset,
+      eval: spec,
+    };
+  } catch (err) {
+    if (rollback) {
+      try {
+        await rollback();
+      } catch {
+        // coercion-ok: fixture rollback is best-effort; the promote error is reported.
+      }
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    if (args.json) {
+      console.log(JSON.stringify({ ok: false, error: message }, null, 2));
+    } else {
+      console.error(`\n  eval promote failed: ${message}\n`);
+    }
+    process.exit(1);
+  }
+
+  if (args.json) {
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          sourceRunId: result.sourceRunId,
+          dataset: result.dataset,
+          eval: result.eval,
+          ...(args.write ? { written: args.write } : {}),
+        },
+        null,
+        2,
+      ),
+    );
+  } else {
+    console.log(
+      `\n  Promoted ${result.sourceRunId} → dataset ${result.dataset.id}` +
+        (args.write ? `\n  Wrote ${args.write}` : "") +
+        `\n  agent-native eval promote ${result.sourceRunId} --write evals/from-trace.eval.ts\n`,
+    );
+  }
+  process.exit(0);
+}
+
+async function readReviewFile(filePath: string): Promise<string> {
+  const handle = await fs.open(path.resolve(filePath), "r");
+  try {
+    if ((await handle.stat()).size > MAX_REVIEW_FILE_BYTES) {
+      throw new Error("Reviewed input file exceeds the 64 KiB limit.");
+    }
+    const buffer = Buffer.alloc(MAX_REVIEW_FILE_BYTES + 1);
+    let bytesRead = 0;
+    while (bytesRead < buffer.length) {
+      const result = await handle.read(
+        buffer,
+        bytesRead,
+        buffer.length - bytesRead,
+        bytesRead,
+      );
+      if (result.bytesRead === 0) break;
+      bytesRead += result.bytesRead;
+    }
+    if (bytesRead > MAX_REVIEW_FILE_BYTES) {
+      throw new Error("Reviewed input file exceeds the 64 KiB limit.");
+    }
+    return buffer.subarray(0, bytesRead).toString("utf8");
+  } finally {
+    await handle.close();
+  }
+}
+
+async function readReviewedPromptFile(
+  filePath: string,
+  maxLength: number,
+): Promise<string> {
+  const prompt = await readReviewFile(filePath);
+  if (prompt.length > maxLength) {
+    throw new Error(
+      `Reviewed prompt file exceeds the ${maxLength} character limit.`,
+    );
+  }
+  return prompt;
+}
+
+async function readReviewedHistoryFile(
+  filePath: string,
+  maxTurns: number,
+  maxTextLength: number,
+): Promise<Array<{ role: "user" | "assistant"; text: string }>> {
+  const contents = await readReviewFile(filePath);
+  let value: unknown;
+  try {
+    value = JSON.parse(contents);
+  } catch {
+    throw new Error("Reviewed history file must contain a JSON array.");
+  }
+  if (!Array.isArray(value) || value.length > maxTurns) {
+    throw new Error(
+      `Reviewed history file must contain at most ${maxTurns} turns.`,
+    );
+  }
+  const turns: Array<{ role: "user" | "assistant"; text: string }> = [];
+  for (const candidate of value) {
+    if (
+      !candidate ||
+      typeof candidate !== "object" ||
+      Array.isArray(candidate)
+    ) {
+      throw new Error(
+        'Reviewed history entries must have a "user" or "assistant" role and text.',
+      );
+    }
+    const turn = candidate as Record<string, unknown>;
+    if (
+      (turn.role !== "user" && turn.role !== "assistant") ||
+      typeof turn.text !== "string"
+    ) {
+      throw new Error(
+        'Reviewed history entries must have a "user" or "assistant" role and text.',
+      );
+    }
+    if (turn.text.length > maxTextLength) {
+      throw new Error(
+        `Reviewed history turn exceeds the ${maxTextLength} character limit.`,
+      );
+    }
+    turns.push({ role: turn.role, text: turn.text });
+  }
+  return turns;
 }
 
 export async function runEval(argv: string[]): Promise<void> {
-  const { pattern, json, threshold } = parseEvalArgs(argv);
+  const parsed = parseEvalArgs(argv);
+  if (parsed.command === "promote") {
+    await runPromote(parsed);
+    return;
+  }
 
-  // Lazy import: the runner pulls in server-only deps (engine registry, action
-  // discovery) we don't want to load for `--help`.
+  loadEnv();
+  registerBuiltinEngines();
+
+  const { pattern, json, threshold, ownerEmail, orgId } = parsed;
+
   const { runEvalSuite, formatReport } = await import("../eval/index.js");
 
   let result: Awaited<ReturnType<typeof runEvalSuite>>;
@@ -94,6 +568,9 @@ export async function runEval(argv: string[]): Promise<void> {
       cwd: process.cwd(),
       pattern,
       thresholdOverride: threshold,
+      ...(ownerEmail && orgId ? { identity: { ownerEmail, orgId } } : {}),
+      requireProductionChatPath: true,
+      persist: false,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -113,12 +590,13 @@ export async function runEval(argv: string[]): Promise<void> {
         ? "No eval files found (looked for **/*.eval.ts and evals/*.ts)."
         : `Found ${files.length} eval file(s) but no defineEval() exports.`;
     if (json) {
-      console.log(JSON.stringify({ ok: true, report, files }, null, 2));
+      console.log(
+        JSON.stringify({ ok: false, error: hint, report, files }, null, 2),
+      );
     } else {
-      console.log(`\n  ${hint}\n`);
+      console.error(`\n  eval failed: ${hint}\n`);
     }
-    // Nothing to gate on — exit clean so an app without evals doesn't fail CI.
-    process.exit(0);
+    process.exit(1);
   }
 
   if (json) {
@@ -129,6 +607,5 @@ export async function runEval(argv: string[]): Promise<void> {
     console.log(formatReport(report));
   }
 
-  // The CI deploy gate: any eval below threshold => non-zero exit.
   process.exit(report.failed > 0 ? 1 : 0);
 }

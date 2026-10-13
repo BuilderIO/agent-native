@@ -1,5 +1,10 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { AI_FILTER_LABEL } from "@shared/ai-filter";
+import {
+  findPlainTextLinkRanges,
+  renderPlainTextLinks,
+} from "@shared/markdown";
 import type { EmailMessage, MobileActionId } from "@shared/types";
 import {
   IconArchive,
@@ -7,6 +12,8 @@ import {
   IconChevronUp,
   IconChevronDown,
   IconExternalLink,
+  IconMail,
+  IconMailOpened,
   IconMailOff,
   IconX,
   IconArrowBackUp,
@@ -17,6 +24,8 @@ import {
   IconPhoto,
   IconSearch,
   IconDots,
+  IconFilter,
+  IconInbox,
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconTrash,
@@ -31,10 +40,17 @@ import {
   useMemo,
   forwardRef,
   Fragment,
+  lazy,
+  Suspense,
 } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import {
+  AiFilterDialog,
+  type AiFilterDialogTarget,
+} from "@/components/email/AiFilterDialog";
+import { ImportanceFeedbackMenu } from "@/components/email/ImportanceFeedbackMenu";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -42,7 +58,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
-import { useComposeState } from "@/hooks/use-compose-state";
+import {
+  askAgentToDraftImportanceRules,
+  useAiPriorityFeedback,
+} from "@/hooks/use-ai-priority-feedback";
+import {
+  applyDraftSaveResult,
+  useComposeState,
+} from "@/hooks/use-compose-state";
 import {
   useThreadMessages,
   useArchiveEmail,
@@ -55,17 +78,27 @@ import {
   useSettings,
   useUpdateSettings,
   useEmailTracking,
-  unsuppressThread,
+  useLabels,
+  releaseOwnedInboxRemoval,
+  releaseSuppressionClaims,
 } from "@/hooks/use-emails";
-import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import {
+  isMailSearchActive,
+  useKeyboardShortcuts,
+} from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { setUndoAction } from "@/hooks/use-undo";
+import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
 import {
   decodeHtmlEntities,
   processHtmlImages,
 } from "@/lib/email-image-policy";
 import { getLabelStyle } from "@/lib/label-colors";
+import { mailLabelDisplayName } from "@/lib/label-display";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import {
+  buildForwardDraft,
+  buildReplyDraft,
+} from "@/lib/message-draft-builders";
 import { getResolvedTheme } from "@/lib/theme";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
 import type { ThreadSummary } from "@/lib/threads";
@@ -77,11 +110,50 @@ import {
 } from "@/lib/utils";
 
 import { buildEmailIframeDocument } from "./email-iframe-document";
-import {
-  InlineReplyComposer,
-  type InlineReplyHandle,
-} from "./InlineReplyComposer";
+import type { InlineReplyHandle } from "./InlineReplyComposer";
 import { MobileActionBar, DEFAULT_MOBILE_ACTIONS } from "./MobileActionBar";
+
+let inlineReplyComposerModule:
+  | Promise<typeof import("./InlineReplyComposer")>
+  | undefined;
+
+function preloadInlineReplyComposer() {
+  inlineReplyComposerModule ??= import("./InlineReplyComposer");
+  return inlineReplyComposerModule;
+}
+
+const LazyInlineReplyComposer = lazy(async () => {
+  const { InlineReplyComposer } = await preloadInlineReplyComposer();
+  return { default: InlineReplyComposer };
+});
+
+function InlineReplyComposerSkeleton() {
+  return (
+    <div
+      aria-hidden="true"
+      className="rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden animate-pulse"
+      data-mail-inline-reply-skeleton="true"
+    >
+      <div className="flex items-center justify-between px-4 pt-3 pb-1">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-6 w-6 rounded" />
+      </div>
+      <div className="flex items-center border-b border-border/30 px-4 pb-2">
+        <Skeleton className="h-3 w-8" />
+        <Skeleton className="ms-2 h-8 flex-1 rounded" />
+      </div>
+      <Skeleton className="mx-4 my-3 h-24 rounded" />
+      <div className="flex items-center justify-between border-t border-border/30 px-4 py-2">
+        <div className="flex gap-2">
+          <Skeleton className="h-7 w-7 rounded" />
+          <Skeleton className="h-7 w-7 rounded" />
+          <Skeleton className="h-7 w-7 rounded" />
+        </div>
+        <Skeleton className="h-8 w-16 rounded" />
+      </div>
+    </div>
+  );
+}
 
 export function EmailThread({
   activeThreadId,
@@ -98,17 +170,7 @@ export function EmailThread({
   activeThreadId?: string;
   onArchived?: (id: string) => void;
   emailIds?: string[];
-  /**
-   * Full thread summaries for the current view. Used to resolve thread keys
-   * back to their latestMessage (id, accountEmail) when bulk-archiving via
-   * shift+j/k multi-selection from the detail view.
-   */
   threads?: ThreadSummary[];
-  /**
-   * Multi-selection of thread keys (`threadId || id`). Shared with the list
-   * view so selections survive navigation between list and detail views, and
-   * shift+j/k in detail view can extend the same set.
-   */
   selectedIds?: Set<string>;
   setSelectedIds?: React.Dispatch<React.SetStateAction<Set<string>>>;
   onContactSelect?: (email: string) => void;
@@ -130,10 +192,26 @@ export function EmailThread({
     : "";
   const compose = useComposeState();
   const queryClient = useQueryClient();
+  const priorityFeedback = useAiPriorityFeedback();
 
-  // Pull any messages we already have from the list cache (instant, no fetch).
-  // The emails query uses useInfiniteQuery so cached data is InfiniteData<{ emails: EmailMessage[] }>,
-  // not a flat array — flatten pages before searching.
+  useEffect(() => {
+    if (!threadId) return;
+
+    let idleId: number | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const preload = () => void preloadInlineReplyComposer();
+    if (typeof requestIdleCallback === "function") {
+      idleId = requestIdleCallback(preload, { timeout: 1000 });
+    } else {
+      timeoutId = setTimeout(preload, 250);
+    }
+
+    return () => {
+      if (idleId !== undefined) cancelIdleCallback(idleId);
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    };
+  }, [threadId]);
+
   const cachedMessages = useMemo(() => {
     if (!threadId) return [];
     const allCached: EmailMessage[] = [];
@@ -150,7 +228,6 @@ export function EmailThread({
         "pages" in data &&
         Array.isArray((data as any).pages)
       ) {
-        // InfiniteData<EmailsPage> — flatten pages
         emails = (data as any).pages.flatMap(
           (p: any) => p.emails ?? [],
         ) as EmailMessage[];
@@ -163,7 +240,6 @@ export function EmailThread({
         }
       }
     }
-    // Dedupe by id and sort oldest-first
     const seen = new Set<string>();
     return allCached
       .filter((e) => {
@@ -174,11 +250,8 @@ export function EmailThread({
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [threadId, queryClient]);
 
-  // Fetch all messages in the thread (URL param is the real threadId)
   const { data: threadMessages } = useThreadMessages(threadId);
 
-  // Use the latestMessage from the threads prop as a last-resort preview (avoids
-  // full skeleton when the user just clicked from the list and we have the data).
   const previewMessage = useMemo(() => {
     if (!threadId || !threads.length) return undefined;
     const thread = threads.find(
@@ -187,9 +260,6 @@ export function EmailThread({
     return thread?.latestMessage;
   }, [threadId, threads]);
 
-  // Use full thread when loaded, fall back to list cache, then to the single
-  // preview message we already have from the list view — never show a full
-  // skeleton when we already have the subject/snippet visible in the list.
   const allMessages =
     threadMessages ??
     (cachedMessages.length > 0
@@ -197,7 +267,6 @@ export function EmailThread({
       : previewMessage
         ? [previewMessage]
         : []);
-  // Hide Superhuman reminder messages — they're noise in the thread view
   const messages = useMemo(
     () =>
       allMessages.filter(
@@ -213,16 +282,56 @@ export function EmailThread({
     [allMessages],
   );
 
-  // Use the latest message as the "primary" email for actions/metadata
   const email = messages.length > 0 ? messages[messages.length - 1] : undefined;
+  const submitPriorityFeedback = useCallback(
+    async (decision: "important" | "not-important") => {
+      if (!email) return;
+      try {
+        const { totalVotes, recentVotes } = await priorityFeedback.mutateAsync({
+          emailId: email.id,
+          accountEmail: email.accountEmail,
+          decision,
+          sender: email.from.name || email.from.email,
+          subject: email.subject,
+        });
+        if (totalVotes % 5 !== 0) return;
+        let showSuggestion = true;
+        try {
+          const key = "mail-priority-feedback-suggestion-count";
+          const shownCount = Number(localStorage.getItem(key) ?? 0);
+          showSuggestion = shownCount < totalVotes;
+          if (showSuggestion) localStorage.setItem(key, String(totalVotes));
+          // coercion-ok: feedback was saved server-side; this only tracks a local reminder.
+        } catch {
+          // Feedback is saved server-side even when browser storage is unavailable.
+        }
+        if (!showSuggestion) return;
+        toast.info(t("mail.sort.priorityFeedbackSuggestion"), {
+          duration: 8_000,
+          action: {
+            label: t("mail.sort.priorityFeedbackAskAgent"),
+            onClick: () =>
+              askAgentToDraftImportanceRules(
+                t("mail.sort.priorityFeedbackSuggestion"),
+                recentVotes,
+              ),
+          },
+        });
+      } catch {
+        toast.error(t("mail.aiFilter.actionFailed"));
+      }
+    },
+    [email, navigate, priorityFeedback, t],
+  );
+  const [aiFilterDialog, setAiFilterDialog] = useState<{
+    action: "filter" | "keep";
+    targets: AiFilterDialogTarget[];
+  } | null>(null);
 
-  // Simple loading check: do we have the full email body yet?
   const hasFullBody = !!(email?.bodyHtml || email?.body);
 
-  // Auto-expand latest + unread; user toggles override via this set
   const [userToggles, setUserToggles] = useState<Record<string, boolean>>({});
 
-  // Reset user overrides and search when navigating to a different thread
   useEffect(() => {
     setUserToggles({});
     setSearchOpen(false);
@@ -230,13 +339,11 @@ export function EmailThread({
     setSearchMatchIdx(0);
   }, [threadId]);
 
-  // In-thread search
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchMatchIdx, setSearchMatchIdx] = useState(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Match counts per message for in-thread search
   const matchCountByMsg = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return new Map<string, number>();
@@ -284,20 +391,17 @@ export function EmailThread({
     [searchQuery, totalMatches, safeMatchIdx, messages, matchCountByMsg],
   );
 
-  // Compute which messages are expanded: latest + unread by default, user toggles override
   const expandedIds = useMemo(() => {
     const ids = new Set<string>();
     if (messages.length === 0) return ids;
-    ids.add(messages[messages.length - 1].id); // always expand latest
+    ids.add(messages[messages.length - 1].id);
     for (const msg of messages) {
       if (!msg.isRead) ids.add(msg.id);
     }
-    // Apply user overrides
     for (const [id, expanded] of Object.entries(userToggles)) {
       if (expanded) ids.add(id);
       else ids.delete(id);
     }
-    // Auto-expand messages with search matches
     if (searchQuery.trim()) {
       for (const msgId of matchCountByMsg.keys()) {
         ids.add(msgId);
@@ -306,12 +410,10 @@ export function EmailThread({
     return ids;
   }, [messages, userToggles, searchQuery, matchCountByMsg]);
 
-  // Focused message index for keyboard nav (n/p) — starts on latest
   const [focusedIndex, setFocusedIndex] = useState(-1);
   useEffect(() => {
     setFocusedIndex(messages.length > 0 ? messages.length - 1 : -1);
   }, [threadId]);
-  // Update if messages grow (full thread loaded)
   useEffect(() => {
     if (focusedIndex === -1 && messages.length > 0) {
       setFocusedIndex(messages.length - 1);
@@ -320,8 +422,6 @@ export function EmailThread({
   const focusedRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Scroll so the most recent (last) message is at the top of the viewport.
-  // Pin for ~800ms to handle iframe resizes / async content.
   const scrolledForRef = useRef<string | undefined>(undefined);
   const lastMessageRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -334,8 +434,6 @@ export function EmailThread({
     if (!el) return;
     const scrollToLatest = () => {
       if (lastMsg) {
-        // Use manual scrollTop instead of scrollIntoView to avoid
-        // scrolling ancestor overflow:hidden containers (causes header cutoff)
         el.scrollTop = lastMsg.offsetTop - el.offsetTop - 8;
       } else {
         el.scrollTop = el.scrollHeight;
@@ -369,16 +467,65 @@ export function EmailThread({
   const toggleStar = useToggleStar();
   const markRead = useMarkRead();
   const markThreadRead = useMarkThreadRead();
+  const keepUnreadThreadRef = useRef<string | undefined>(undefined);
+  const failedAutoReadThreadRef = useRef<string | undefined>(undefined);
+  const autoReadTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  useEffect(() => {
+    keepUnreadThreadRef.current = undefined;
+    failedAutoReadThreadRef.current = undefined;
+  }, [threadId]);
+  const setCurrentEmailReadState = useCallback(
+    (isRead: boolean) => {
+      if (!email) return;
+      if (!isRead) {
+        keepUnreadThreadRef.current = threadId;
+        if (autoReadTimerRef.current !== undefined) {
+          clearTimeout(autoReadTimerRef.current);
+          autoReadTimerRef.current = undefined;
+        }
+      }
+      markRead.mutate({
+        id: email.id,
+        isRead,
+        accountEmail: email.accountEmail,
+        threadId,
+      });
+    },
+    [email, markRead, threadId],
+  );
 
-  // Auto-mark all unread messages in this thread as read when viewed.
-  // Defer the mutation past the commit so its optimistic emails-cache update
-  // doesn't re-render the detail view we just finished mounting.
   const hasUnread = messages.some((m) => !m.isRead);
   useEffect(() => {
-    if (threadId && hasUnread) {
+    if (
+      threadId &&
+      hasUnread &&
+      keepUnreadThreadRef.current !== threadId &&
+      failedAutoReadThreadRef.current !== threadId
+    ) {
       const id = threadId;
-      const handle = setTimeout(() => markThreadRead.mutate(id), 0);
-      return () => clearTimeout(handle);
+      const accountEmail = messages.find(
+        (m) => (m.threadId || m.id) === id,
+      )?.accountEmail;
+      const handle = setTimeout(() => {
+        autoReadTimerRef.current = undefined;
+        markThreadRead.mutate(
+          { threadId: id, accountEmail },
+          {
+            onError: () => {
+              failedAutoReadThreadRef.current = id;
+            },
+          },
+        );
+      }, 0);
+      autoReadTimerRef.current = handle;
+      return () => {
+        clearTimeout(handle);
+        if (autoReadTimerRef.current === handle) {
+          autoReadTimerRef.current = undefined;
+        }
+      };
     }
     // Only trigger when threadId changes or messages load with unread
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -386,10 +533,9 @@ export function EmailThread({
 
   const goBack = useCallback(() => {
     onNavigateThread?.(undefined);
-    navigate(`/${view}${routeSearchSuffix}`);
+    void navigate(`/${view}${routeSearchSuffix}`);
   }, [navigate, view, routeSearchSuffix, onNavigateThread]);
 
-  // Navigate between threads (j/k) — use ref to avoid stale closure
   const emailIdsRef = useRef(emailIds);
   emailIdsRef.current = emailIds;
 
@@ -416,7 +562,7 @@ export function EmailThread({
         nextThread?.latestMessage.accountEmail,
       ).catch(() => {});
       onNavigateThread?.(nextThreadId);
-      navigate(`/${view}/${nextThreadId}${routeSearchSuffix}`);
+      void navigate(`/${view}/${nextThreadId}${routeSearchSuffix}`);
     },
     [
       threadId,
@@ -429,9 +575,6 @@ export function EmailThread({
     ],
   );
 
-  // Shift+j/k extends multi-selection across siblings and auto-previews the
-  // newly selected thread. Selection is keyed by thread key (`threadId || id`)
-  // to match the list view so a selection can span both views seamlessly.
   const extendSelection = useCallback(
     (delta: number) => {
       if (!setSelectedIds) return;
@@ -451,7 +594,7 @@ export function EmailThread({
       });
 
       onNavigateThread?.(nextThreadKey);
-      navigate(`/${view}/${nextThreadKey}${routeSearchSuffix}`, {
+      void navigate(`/${view}/${nextThreadKey}${routeSearchSuffix}`, {
         replace: true,
       });
     },
@@ -465,9 +608,6 @@ export function EmailThread({
     ],
   );
 
-  // Prefetch only the currently open thread's closest siblings. That keeps
-  // j/k navigation smooth without spending a large Gmail quota burst in the
-  // background.
   useEffect(() => {
     if (emailIds.length === 0) return;
     const currentIdx = emailIds.findIndex((id) => id === threadId);
@@ -495,13 +635,13 @@ export function EmailThread({
     if (idx !== -1 && idx + 1 < emailIds.length) {
       const nextId = emailIds[idx + 1];
       onNavigateThread?.(nextId);
-      navigate(`/${view}/${nextId}${routeSearchSuffix}`, {
+      void navigate(`/${view}/${nextId}${routeSearchSuffix}`, {
         replace: true,
       });
     } else if (idx !== -1 && idx - 1 >= 0) {
       const prevId = emailIds[idx - 1];
       onNavigateThread?.(prevId);
-      navigate(`/${view}/${prevId}${routeSearchSuffix}`, {
+      void navigate(`/${view}/${prevId}${routeSearchSuffix}`, {
         replace: true,
       });
     } else {
@@ -517,7 +657,6 @@ export function EmailThread({
     onNavigateThread,
   ]);
 
-  // Advance to next thread when current email is dismissed (snoozed/spam/muted)
   useEffect(() => {
     const handler = (e: Event) => {
       const { emailId } = (e as CustomEvent<{ emailId: string }>).detail;
@@ -529,7 +668,6 @@ export function EmailThread({
     return () => window.removeEventListener("email:snoozed", handler);
   }, [messages, advanceOrGoBack]);
 
-  // Navigate between messages within the thread (n/p)
   const focusMessage = useCallback(
     (delta: number) => {
       if (messages.length === 0) return;
@@ -559,7 +697,6 @@ export function EmailThread({
     [messages.length],
   );
 
-  // Toggle expand/collapse on focused message (Enter)
   const toggleFocused = useCallback(() => {
     if (focusedIndex < 0 || focusedIndex >= messages.length) return;
     const id = messages[focusedIndex].id;
@@ -567,31 +704,62 @@ export function EmailThread({
     setUserToggles((prev) => ({ ...prev, [id]: !isExpanded }));
   }, [focusedIndex, messages, expandedIds]);
 
-  // Mobile action bar
   const isMobile = useIsMobile();
 
-  // Resolve the set of thread keys the next action should operate on. If the
-  // user has a multi-selection (via shift+j/k in list or detail view), act on
-  // that; otherwise fall back to the currently viewed thread.
   const getActionThreadKeys = useCallback((): string[] => {
     if (selectedIds && selectedIds.size > 0) return Array.from(selectedIds);
     if (threadId) return [threadId];
     return [];
   }, [selectedIds, threadId]);
 
+  const openAiFilterDialog = useCallback(
+    (action: "filter" | "keep") => {
+      const targets = getActionThreadKeys().flatMap(
+        (key): AiFilterDialogTarget[] => {
+          const thread = threads.find(
+            (candidate) =>
+              (candidate.latestMessage.threadId ||
+                candidate.latestMessage.id) === key,
+          );
+          const target =
+            thread?.latestMessage ??
+            (email && (email.threadId || email.id) === key ? email : undefined);
+          if (!target) return [];
+          return [
+            {
+              id: target.id,
+              threadId: target.threadId || target.id,
+              ...(target.accountEmail && target.accountEmail !== "local"
+                ? { accountEmail: target.accountEmail }
+                : {}),
+              sender: target.from.name
+                ? `${target.from.name} <${target.from.email}>`
+                : target.from.email,
+              subject: target.subject,
+              snippet: target.snippet,
+            },
+          ];
+        },
+      );
+      if (targets.length === 0) {
+        toast.error(t("mail.toasts.noEmailSelected"));
+        return;
+      }
+      setAiFilterDialog({ action, targets });
+    },
+    [email, getActionThreadKeys, t, threads],
+  );
+
   const handleArchive = useCallback(() => {
     const threadKeys = getActionThreadKeys();
     if (threadKeys.length === 0) return;
 
-    // Resolve each thread key to its latestMessage via the threads prop, with
-    // a fallback to the current email when acting on the focused thread alone.
     const targets = threadKeys
       .map((key) => {
         const t = threads.find(
           (t) => (t.latestMessage.threadId || t.latestMessage.id) === key,
         );
         if (t) return t.latestMessage;
-        // Fallback: single-thread archive of the currently viewed thread.
         if (email && (email.threadId || email.id) === key) return email;
         return undefined;
       })
@@ -601,21 +769,54 @@ export function EmailThread({
 
     for (const t of targets) onArchived?.(t.id);
 
+    const suppressionToken = archiveEmail.createSuppressionToken();
+    const restorableThreadIds = new Set<string>();
+    const inboxRemovalSnapshots = new Map<
+      string,
+      ReturnType<typeof releaseOwnedInboxRemoval>
+    >();
     const undo = () => {
-      for (const key of threadKeys) unsuppressThread(key);
-      for (const t of targets) unarchiveEmail.mutate(t.id);
-      queryClient.invalidateQueries({ queryKey: ["emails"] });
+      for (const target of targets) {
+        const key = target.threadId || target.id;
+        const inboxRemovalSnapshot = releaseOwnedInboxRemoval(
+          queryClient,
+          key,
+          suppressionToken,
+        );
+        if (
+          releaseSuppressionClaims(
+            key,
+            archiveEmail.getSuppressionIds(suppressionToken, key),
+          )
+        ) {
+          restorableThreadIds.add(key);
+          inboxRemovalSnapshots.set(key, inboxRemovalSnapshot);
+        }
+      }
+      for (const t of targets) {
+        if (restorableThreadIds.has(t.threadId || t.id))
+          unarchiveEmail.mutate({
+            id: t.id,
+            accountEmail: t.accountEmail,
+            threadId: t.threadId || t.id,
+            suppressionToken,
+            inboxRemovalSnapshot: inboxRemovalSnapshots.get(t.threadId || t.id),
+          });
+      }
+      void queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
-    setUndoAction(undo);
-    toast(
+    const consumeUndo = setUndoAction(undo);
+    const toastId = toast(
       targets.length > 1
-        ? `Archived ${targets.length} conversations.`
-        : "Archived.",
+        ? t("mail.toasts.archivedMany", { count: targets.length })
+        : t("mail.toasts.archived"),
       {
-        action: { label: "UNDO", onClick: undo },
+        action: { label: t("mail.actions.undo"), onClick: consumeUndo },
+        duration: UNDO_DURATION,
         position: isMobile ? "top-center" : undefined,
       },
     );
+    setUndoToastId(toastId);
     advanceOrGoBack();
     for (const t of targets) {
       archiveEmail.mutate({
@@ -623,6 +824,7 @@ export function EmailThread({
         accountEmail: t.accountEmail,
         removeLabel: labelParam || undefined,
         threadId: t.threadId || t.id,
+        suppressionToken,
       });
     }
     setSelectedIds?.(new Set());
@@ -657,20 +859,61 @@ export function EmailThread({
 
     if (targets.length === 0) return;
 
+    const suppressionToken = trashEmail.createSuppressionToken();
+    const restorableThreadIds = new Set<string>();
+    const inboxRemovalSnapshots = new Map<
+      string,
+      ReturnType<typeof releaseOwnedInboxRemoval>
+    >();
     const undo = () => {
-      for (const key of threadKeys) unsuppressThread(key);
-      for (const t of targets) untrashEmail.mutate(t.id);
-      queryClient.invalidateQueries({ queryKey: ["emails"] });
+      for (const target of targets) {
+        const key = target.threadId || target.id;
+        const inboxRemovalSnapshot = releaseOwnedInboxRemoval(
+          queryClient,
+          key,
+          suppressionToken,
+        );
+        if (
+          releaseSuppressionClaims(
+            key,
+            trashEmail.getSuppressionIds(suppressionToken, key),
+          )
+        ) {
+          restorableThreadIds.add(key);
+          inboxRemovalSnapshots.set(key, inboxRemovalSnapshot);
+        }
+      }
+      for (const t of targets) {
+        if (restorableThreadIds.has(t.threadId || t.id))
+          untrashEmail.mutate({
+            id: t.id,
+            accountEmail: t.accountEmail,
+            threadId: t.threadId || t.id,
+            suppressionToken,
+            inboxRemovalSnapshot: inboxRemovalSnapshots.get(t.threadId || t.id),
+          });
+      }
+      void queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
-    setUndoAction(undo);
-    toast(
+    const consumeUndo = setUndoAction(undo);
+    const toastId = toast(
       targets.length > 1
-        ? `Trashed ${targets.length} conversations.`
-        : "Moved to Trash.",
-      { action: { label: "UNDO", onClick: undo } },
+        ? t("mail.toasts.trashedMany", { count: targets.length })
+        : t("mail.toasts.trashed"),
+      {
+        action: { label: t("mail.actions.undo"), onClick: consumeUndo },
+        duration: UNDO_DURATION,
+      },
     );
+    setUndoToastId(toastId);
     advanceOrGoBack();
-    for (const t of targets) trashEmail.mutate(t.id);
+    for (const t of targets)
+      trashEmail.mutate({
+        id: t.id,
+        accountEmail: t.accountEmail,
+        threadId: t.threadId || t.id,
+        suppressionToken,
+      });
     setSelectedIds?.(new Set());
   }, [
     email,
@@ -695,43 +938,28 @@ export function EmailThread({
 
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
-  const { allAccounts } = useAccountFilter();
+  const { activeAccounts, allAccounts } = useAccountFilter();
+  const { data: labels = [] } = useLabels(
+    activeAccounts.size > 0 ? [...activeAccounts] : undefined,
+  );
+  const labelNames = useMemo(
+    () => new Map(labels.map((label) => [label.id, label.name])),
+    [labels],
+  );
   const myEmails = useMemo(() => {
     const emails = new Set(allAccounts.map((a) => a.email.toLowerCase()));
     if (settings?.email) emails.add(settings.email.toLowerCase());
     return emails;
   }, [allAccounts, settings?.email]);
 
-  // Inline reply: find any inline draft belonging to this thread
   const inlineReplyRef = useRef<InlineReplyHandle>(null);
   const inlineDraft = compose.drafts.find(
     (d) => d.inline && d.replyToThreadId === threadId,
   );
 
-  const buildReplyQuote = (target: EmailMessage) =>
-    `\n\n\n\n— On ${new Date(target.date).toLocaleDateString()}, ${target.from.name || target.from.email} wrote:\n\n${target.body
-      .split("\n")
-      .map((l) => `> ${l}`)
-      .join("\n")}`;
-
-  // Determine which of our accounts the email was sent to (for reply-from)
-  const findReplyAccount = useCallback(
-    (target: EmailMessage): string | undefined => {
-      // First check accountEmail on the message itself
-      if (target.accountEmail) return target.accountEmail;
-      // Otherwise scan to/cc for one of our connected accounts
-      const allAddrs = [
-        ...target.to.map((r) => r.email.toLowerCase()),
-        ...(target.cc || []).map((r) => r.email.toLowerCase()),
-      ];
-      return allAddrs.find((e) => myEmails.has(e));
-    },
-    [myEmails],
-  );
-
   const handleReply = useCallback(
     (msg?: EmailMessage) => {
-      // If inline draft exists and no specific message, just focus it
+      void preloadInlineReplyComposer();
       const existing = compose.drafts.find(
         (d) => d.inline && d.replyToThreadId === threadId,
       );
@@ -739,35 +967,18 @@ export function EmailThread({
         inlineReplyRef.current?.focusEditor();
         return;
       }
-      // Discard existing inline draft if switching to a different message
       if (existing) compose.discard(existing.id);
 
       const target = msg ?? email;
       if (!target) return;
-      // If the message is from me, reply to the first "to" recipient instead
-      const isFromMe = myEmails.has(target.from.email.toLowerCase());
-      const replyTo = isFromMe
-        ? (target.to[0]?.email ?? target.from.email)
-        : target.from.email;
-      compose.open({
-        to: replyTo,
-        subject: target.subject.startsWith("Re:")
-          ? target.subject
-          : `Re: ${target.subject}`,
-        body: buildReplyQuote(target),
-        mode: "reply",
-        replyToId: target.id,
-        replyToThreadId: target.threadId,
-        accountEmail: findReplyAccount(target),
-        inline: true,
-      });
+      compose.open(buildReplyDraft(target, myEmails, { inline: true }));
     },
-    [email, compose, myEmails, findReplyAccount, threadId],
+    [email, compose, myEmails, threadId],
   );
 
   const handleReplyAll = useCallback(
     (msg?: EmailMessage) => {
-      // If inline draft exists and no specific message, just focus it
+      void preloadInlineReplyComposer();
       const existing = compose.drafts.find(
         (d) => d.inline && d.replyToThreadId === threadId,
       );
@@ -779,56 +990,23 @@ export function EmailThread({
 
       const target = msg ?? email;
       if (!target) return;
-      const isFromMe = myEmails.has(target.from.email.toLowerCase());
-      // Collect all recipients, excluding all of my accounts
-      const allRecipients = [
-        ...(isFromMe ? [] : [target.from.email]),
-        ...target.to.map((r) => r.email),
-        ...(target.cc || []).map((r) => r.email),
-      ];
-      const uniqueTo = [
-        ...new Set(
-          allRecipients
-            .map((e) => e.toLowerCase())
-            .filter((e) => !myEmails.has(e)),
-        ),
-      ];
-      compose.open({
-        to: uniqueTo.join(", "),
-        subject: target.subject.startsWith("Re:")
-          ? target.subject
-          : `Re: ${target.subject}`,
-        body: buildReplyQuote(target),
-        mode: "reply",
-        replyToId: target.id,
-        replyToThreadId: target.threadId,
-        accountEmail: findReplyAccount(target),
-        inline: true,
-      });
+      compose.open(
+        buildReplyDraft(target, myEmails, { replyAll: true, inline: true }),
+      );
     },
-    [email, compose, myEmails, findReplyAccount, threadId],
+    [email, compose, myEmails, threadId],
   );
 
   const handleForwardMsg = useCallback(
     (msg: EmailMessage) => {
+      void preloadInlineReplyComposer();
       const existing = compose.drafts.find(
         (d) => d.inline && d.replyToThreadId === threadId,
       );
       if (existing) compose.discard(existing.id);
-      compose.open({
-        to: "",
-        subject: msg.subject.startsWith("Fwd:")
-          ? msg.subject
-          : `Fwd: ${msg.subject}`,
-        body: `\n\n\n\n— Forwarded message —\nFrom: ${msg.from.name} <${msg.from.email}>\n\n${msg.body}`,
-        mode: "forward",
-        replyToId: msg.id,
-        replyToThreadId: msg.threadId,
-        accountEmail: findReplyAccount(msg),
-        inline: true,
-      });
+      compose.open(buildForwardDraft(msg, myEmails, { inline: true }));
     },
-    [compose, findReplyAccount, threadId],
+    [compose, myEmails, threadId],
   );
 
   const handleForward = useCallback(() => {
@@ -836,14 +1014,12 @@ export function EmailThread({
     handleForwardMsg(email);
   }, [email, handleForwardMsg]);
 
-  // Keyboard shortcuts
   useKeyboardShortcuts(
     [
       {
         key: "Escape",
+        shouldHandle: () => !isMailSearchActive(),
         handler: () => {
-          // If a multi-selection is active, first Escape clears it; second
-          // Escape goes back to the list. Matches Gmail / Superhuman feel.
           if (selectedIds && selectedIds.size > 0) {
             setSelectedIds?.(new Set());
             return;
@@ -868,11 +1044,13 @@ export function EmailThread({
         key: "o",
         meta: true,
         handler: () => {
-          if (githubPrUrl) window.open(githubPrUrl, "_blank");
+          if (githubPrUrl)
+            window.open(githubPrUrl, "_blank", "noopener,noreferrer");
         },
       },
       { key: "e", handler: handleArchive },
       { key: "d", handler: handleTrash },
+      { key: "#", shift: "either", handler: handleTrash },
       { key: "s", handler: handleStar },
       {
         key: "r",
@@ -906,38 +1084,17 @@ export function EmailThread({
       },
       {
         key: "u",
-        handler: () => {
-          if (!email) return;
-          markRead.mutate({
-            id: email.id,
-            isRead: !email.isRead,
-            accountEmail: email.accountEmail,
-          });
-        },
+        handler: () => email && setCurrentEmailReadState(!email.isRead),
       },
       {
         key: "I",
         shift: true,
-        handler: () => {
-          if (!email) return;
-          markRead.mutate({
-            id: email.id,
-            isRead: true,
-            accountEmail: email.accountEmail,
-          });
-        },
+        handler: () => setCurrentEmailReadState(true),
       },
       {
         key: "U",
         shift: true,
-        handler: () => {
-          if (!email) return;
-          markRead.mutate({
-            id: email.id,
-            isRead: false,
-            accountEmail: email.accountEmail,
-          });
-        },
+        handler: () => setCurrentEmailReadState(false),
       },
     ],
     !!threadId,
@@ -949,6 +1106,15 @@ export function EmailThread({
       switch (action) {
         case "archive":
           handleArchive();
+          break;
+        case "aiFilter":
+          openAiFilterDialog(
+            email?.labelIds.some(
+              (label) => label.toLowerCase() === AI_FILTER_LABEL,
+            )
+              ? "keep"
+              : "filter",
+          );
           break;
         case "trash":
           handleTrash();
@@ -966,12 +1132,7 @@ export function EmailThread({
           handleForward();
           break;
         case "markUnread":
-          if (email)
-            markRead.mutate({
-              id: email.id,
-              isRead: false,
-              accountEmail: email.accountEmail,
-            });
+          setCurrentEmailReadState(false);
           break;
         case "prev":
           goToSibling(-1);
@@ -983,30 +1144,29 @@ export function EmailThread({
     },
     [
       handleArchive,
+      openAiFilterDialog,
       handleTrash,
       handleStar,
       handleReply,
       handleReplyAll,
       handleForward,
       email,
-      markRead,
+      setCurrentEmailReadState,
       goToSibling,
     ],
   );
 
-  // Extract GitHub PR URL from any message in the thread
   const githubPrUrl = useMemo(() => {
     for (const msg of messages) {
       const text = msg.bodyHtml
         ? msg.bodyHtml.replace(/<[^>]+>/g, " ")
         : msg.body || "";
       const match = text.match(/https:\/\/github\.com\/[^\s"'<>]+\/pull\/\d+/);
-      if (match) return match[0].replace(/[.,;)]+$/, ""); // strip trailing punctuation
+      if (match) return match[0].replace(/[.,;)]+$/, "");
     }
     return null;
   }, [messages]);
 
-  // Extract unsubscribe info from thread messages (use the most recent with the header)
   const unsubscribeInfo = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const unsub = messages[i].unsubscribe;
@@ -1018,7 +1178,6 @@ export function EmailThread({
         };
       }
     }
-    // Fallback: scan HTML body for unsubscribe links
     for (let i = messages.length - 1; i >= 0; i--) {
       const html = messages[i].bodyHtml;
       if (!html) continue;
@@ -1035,9 +1194,9 @@ export function EmailThread({
   const handleUnsubscribe = useCallback(async () => {
     if (!unsubscribeInfo) return;
 
-    // If we only found a link in the body (no header), just open it
     if (!("messageId" in unsubscribeInfo)) {
-      if (unsubscribeInfo.url) window.open(unsubscribeInfo.url, "_blank");
+      if (unsubscribeInfo.url)
+        window.open(unsubscribeInfo.url, "_blank", "noopener,noreferrer");
       return;
     }
 
@@ -1057,27 +1216,68 @@ export function EmailThread({
 
       if (data.ok) {
         toast.success(t("mail.toasts.unsubscribeSent"));
-        // Also open the URL so user can confirm if needed
         if (data.url || unsubscribeInfo.url) {
-          window.open(data.url || unsubscribeInfo.url, "_blank");
+          window.open(
+            data.url || unsubscribeInfo.url,
+            "_blank",
+            "noopener,noreferrer",
+          );
         }
       } else {
-        // Fallback: open the unsubscribe URL directly
         if (unsubscribeInfo.url) {
-          window.open(unsubscribeInfo.url, "_blank");
+          window.open(unsubscribeInfo.url, "_blank", "noopener,noreferrer");
         } else {
           toast.error(t("mail.toasts.couldNotUnsubscribe"));
         }
       }
     } catch {
-      // Fallback: open URL directly
       if (unsubscribeInfo.url) {
-        window.open(unsubscribeInfo.url, "_blank");
+        window.open(unsubscribeInfo.url, "_blank", "noopener,noreferrer");
       }
     } finally {
       setUnsubscribing(false);
     }
-  }, [unsubscribeInfo]);
+  }, [t, unsubscribeInfo]);
+
+  const handleCloseInlineDraft = (id: string) => {
+    const draft = compose.drafts.find((item) => item.id === id);
+    const hasContent = !!(
+      draft?.to?.trim() ||
+      draft?.cc?.trim() ||
+      draft?.bcc?.trim() ||
+      draft?.subject?.trim() ||
+      draft?.body?.trim()
+    );
+    const snapshot = draft ? { ...draft } : null;
+    const savePromise = compose.close(id);
+    if (!hasContent || !snapshot) return;
+
+    toast(t("mail.toasts.draftClosed"), {
+      action: {
+        label: t("mail.compose.reopenDraft"),
+        onClick: async () => {
+          const savedSnapshot = applyDraftSaveResult(
+            snapshot,
+            await savePromise,
+          );
+          const { id: _id, ...reopenData } = savedSnapshot;
+          compose.open({ ...reopenData, inline: true });
+        },
+      },
+      cancel: {
+        label: t("mail.compose.deleteDraft"),
+        onClick: async () => {
+          const savedSnapshot = applyDraftSaveResult(
+            snapshot,
+            await savePromise,
+          );
+          if (savedSnapshot.savedDraftId) {
+            await compose.deleteSavedDraft(savedSnapshot);
+          }
+        },
+      },
+    });
+  };
 
   if (!threadId) return null;
 
@@ -1099,7 +1299,6 @@ export function EmailThread({
     return <ThreadLoadingState onBack={goBack} />;
   }
 
-  // Filter to user labels for display
   const systemLabels = new Set([
     "inbox",
     "sent",
@@ -1114,8 +1313,10 @@ export function EmailThread({
     (l) => !systemLabels.has(l),
   );
 
-  // Strip "Re: " / "Fwd: " prefixes for thread subject
   const threadSubject = email.subject.replace(/^(Re|Fwd|Fw):\s*/i, "");
+  const isAiFiltered = email.labelIds.some(
+    (label) => label.toLowerCase() === AI_FILTER_LABEL,
+  );
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -1125,18 +1326,23 @@ export function EmailThread({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
                 onClick={goBack}
+                aria-label={t("mail.thread.back")}
                 className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               >
                 <IconArrowLeft className="h-[14px] w-[14px] rtl:-scale-x-100" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Back (Esc)</TooltipContent>
+            <TooltipContent>{t("mail.thread.back")} (Esc)</TooltipContent>
           </Tooltip>
 
           <div className="flex-1 min-w-0">
             <div className="flex items-start gap-2 flex-wrap">
-              <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2">
+              <h1
+                data-an-mask
+                className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2"
+              >
                 {threadSubject}
               </h1>
               {displayLabels.map((labelId) => {
@@ -1144,13 +1350,19 @@ export function EmailThread({
                 return (
                   <span
                     key={labelId}
+                    data-an-mask
                     className={cn(
                       "label-badge shrink-0 mt-1",
                       style.bg,
                       style.text,
                     )}
                   >
-                    {labelId}
+                    {mailLabelDisplayName(
+                      labelNames.get(labelId) ??
+                        labelId
+                          .replace(/^label:/, "")
+                          .replace(/^CATEGORY_/, ""),
+                    )}
                   </span>
                 );
               })}
@@ -1159,35 +1371,110 @@ export function EmailThread({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
+                      onClick={() =>
+                        openAiFilterDialog(isAiFiltered ? "keep" : "filter")
+                      }
+                      aria-label={
+                        isAiFiltered
+                          ? t("mail.aiFilter.keepButton")
+                          : t("mail.aiFilter.filterButton")
+                      }
+                      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    >
+                      {isAiFiltered ? (
+                        <IconInbox className="h-4 w-4" />
+                      ) : (
+                        <IconFilter className="h-4 w-4" />
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isAiFiltered
+                      ? t("mail.aiFilter.keepButton")
+                      : t("mail.aiFilter.filterButton")}
+                  </TooltipContent>
+                </Tooltip>
+                {email && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentEmailReadState(!email.isRead)}
+                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                        aria-label={t(
+                          email.isRead
+                            ? "mail.actions.markUnread"
+                            : "mail.actions.markRead",
+                        )}
+                      >
+                        {email.isRead ? (
+                          <IconMail className="h-4 w-4" />
+                        ) : (
+                          <IconMailOpened className="h-4 w-4" />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t(
+                        email.isRead
+                          ? "mail.actions.markUnread"
+                          : "mail.actions.markRead",
+                      )}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
                       onClick={handleArchive}
+                      aria-label={t("mail.actions.archive")}
                       className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                     >
                       <IconArchive className="h-4 w-4" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>Archive (E)</TooltipContent>
+                  <TooltipContent>
+                    {t("mail.actions.archive")} (E)
+                  </TooltipContent>
                 </Tooltip>
-                {view !== "trash" && (
+                {email && (view === "inbox" || isAiFiltered) && (
+                  <ImportanceFeedbackMenu
+                    onFeedback={(decision) =>
+                      void submitPriorityFeedback(decision)
+                    }
+                    className="h-7 w-7"
+                  />
+                )}
+                {email && view !== "inbox" && view !== "trash" && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
+                        type="button"
                         onClick={handleTrash}
+                        aria-label={t("mail.actions.moveToTrash")}
                         className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                       >
                         <IconTrash className="h-4 w-4" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent>Move to Trash (D)</TooltipContent>
+                    <TooltipContent>
+                      {t("mail.actions.moveToTrash")} (D / #)
+                    </TooltipContent>
                   </Tooltip>
                 )}
                 <button
+                  type="button"
                   onClick={() => goToSibling(-1)}
+                  aria-label={t("mail.thread.previousConversation")}
                   className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
                 >
                   <IconChevronUp className="h-3.5 w-3.5" />
                 </button>
                 <button
+                  type="button"
                   onClick={() => goToSibling(1)}
+                  aria-label={t("mail.thread.nextConversation")}
                   className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                 >
                   <IconChevronDown className="h-3.5 w-3.5" />
@@ -1196,9 +1483,14 @@ export function EmailThread({
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
+                        type="button"
                         onClick={onToggleMaximize}
+                        aria-label={t(
+                          isMaximized
+                            ? "mail.thread.minimize"
+                            : "mail.thread.maximize",
+                        )}
                         className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
-                        aria-label={isMaximized ? "Minimize" : "Maximize"}
                         aria-pressed={isMaximized}
                       >
                         {isMaximized ? (
@@ -1209,7 +1501,11 @@ export function EmailThread({
                       </button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {isMaximized ? "Minimize" : "Maximize"}
+                      {t(
+                        isMaximized
+                          ? "mail.thread.minimize"
+                          : "mail.thread.maximize",
+                      )}
                     </TooltipContent>
                   </Tooltip>
                 )}
@@ -1221,6 +1517,7 @@ export function EmailThread({
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <a
+                        data-an-block
                         href={githubPrUrl}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -1349,57 +1646,21 @@ export function EmailThread({
                 )}
                 {showComposerAfter && (
                   <div className="mt-3">
-                    <InlineReplyComposer
-                      ref={inlineReplyRef}
-                      draft={inlineDraft}
-                      messages={messages}
-                      onUpdate={compose.update}
-                      onDiscard={compose.discard}
-                      onClose={(id) => {
-                        const drafts = compose.drafts ?? [];
-                        const draft = drafts.find((d: any) => d.id === id);
-                        const hasContent = !!(
-                          draft?.to?.trim() ||
-                          draft?.cc?.trim() ||
-                          draft?.bcc?.trim() ||
-                          draft?.subject?.trim() ||
-                          draft?.body?.trim()
-                        );
-                        const snapshot = draft ? { ...draft } : null;
-                        compose.close(id);
-                        if (hasContent && snapshot) {
-                          toast("Draft saved.", {
-                            action: {
-                              label: "REOPEN",
-                              onClick: () => {
-                                const { id: _id, ...reopenData } = snapshot;
-                                compose.open({ ...reopenData, inline: true });
-                              },
-                            },
-                            cancel: {
-                              label: "DELETE DRAFT",
-                              onClick: () => {
-                                if (snapshot.savedDraftId) {
-                                  fetch(
-                                    appApiPath(
-                                      `/api/emails/${snapshot.savedDraftId}`,
-                                    ),
-                                    {
-                                      method: "DELETE",
-                                    },
-                                  );
-                                }
-                              },
-                            },
-                          });
+                    <Suspense fallback={<InlineReplyComposerSkeleton />}>
+                      <LazyInlineReplyComposer
+                        ref={inlineReplyRef}
+                        draft={inlineDraft}
+                        messages={messages}
+                        onUpdate={compose.update}
+                        onDiscard={compose.discard}
+                        onClose={handleCloseInlineDraft}
+                        onPopOut={(id) => compose.update(id, { inline: false })}
+                        onFlush={compose.flush}
+                        onReopen={(state) =>
+                          compose.open({ ...state, inline: true })
                         }
-                      }}
-                      onPopOut={(id) => compose.update(id, { inline: false })}
-                      onFlush={compose.flush}
-                      onReopen={(state) =>
-                        compose.open({ ...state, inline: true })
-                      }
-                    />
+                      />
+                    </Suspense>
                   </div>
                 )}
               </Fragment>
@@ -1410,55 +1671,21 @@ export function EmailThread({
           {inlineDraft &&
             !messages.some((m) => m.id === inlineDraft.replyToId) && (
               <div className="mt-3">
-                <InlineReplyComposer
-                  ref={inlineReplyRef}
-                  draft={inlineDraft}
-                  messages={messages}
-                  onUpdate={compose.update}
-                  onDiscard={compose.discard}
-                  onClose={(id) => {
-                    const drafts = compose.drafts ?? [];
-                    const draft = drafts.find((d: any) => d.id === id);
-                    const hasContent = !!(
-                      draft?.to?.trim() ||
-                      draft?.cc?.trim() ||
-                      draft?.bcc?.trim() ||
-                      draft?.subject?.trim() ||
-                      draft?.body?.trim()
-                    );
-                    const snapshot = draft ? { ...draft } : null;
-                    compose.close(id);
-                    if (hasContent && snapshot) {
-                      toast("Draft saved.", {
-                        action: {
-                          label: "REOPEN",
-                          onClick: () => {
-                            const { id: _id, ...reopenData } = snapshot;
-                            compose.open({ ...reopenData, inline: true });
-                          },
-                        },
-                        cancel: {
-                          label: "DELETE DRAFT",
-                          onClick: () => {
-                            if (snapshot.savedDraftId) {
-                              fetch(
-                                appApiPath(
-                                  `/api/emails/${snapshot.savedDraftId}`,
-                                ),
-                                {
-                                  method: "DELETE",
-                                },
-                              );
-                            }
-                          },
-                        },
-                      });
+                <Suspense fallback={<InlineReplyComposerSkeleton />}>
+                  <LazyInlineReplyComposer
+                    ref={inlineReplyRef}
+                    draft={inlineDraft}
+                    messages={messages}
+                    onUpdate={compose.update}
+                    onDiscard={compose.discard}
+                    onClose={handleCloseInlineDraft}
+                    onPopOut={(id) => compose.update(id, { inline: false })}
+                    onFlush={compose.flush}
+                    onReopen={(state) =>
+                      compose.open({ ...state, inline: true })
                     }
-                  }}
-                  onPopOut={(id) => compose.update(id, { inline: false })}
-                  onFlush={compose.flush}
-                  onReopen={(state) => compose.open({ ...state, inline: true })}
-                />
+                  />
+                </Suspense>
               </div>
             )}
 
@@ -1481,12 +1708,25 @@ export function EmailThread({
         <MobileActionBar
           actions={mobileActions}
           isStarred={email.isStarred}
+          isAiFiltered={isAiFiltered}
           onAction={handleMobileAction}
           onUpdateActions={(actions) =>
             updateSettings.mutate({ mobileActions: actions })
           }
         />
       )}
+      <AiFilterDialog
+        open={!!aiFilterDialog}
+        onOpenChange={(open) => !open && setAiFilterDialog(null)}
+        action={aiFilterDialog?.action ?? "filter"}
+        targets={aiFilterDialog?.targets ?? []}
+        onComplete={() => {
+          const shouldAdvance = aiFilterDialog?.action === "filter";
+          setAiFilterDialog(null);
+          setSelectedIds?.(new Set());
+          if (shouldAdvance) advanceOrGoBack();
+        }}
+      />
     </div>
   );
 }
@@ -1504,6 +1744,7 @@ function ThreadLoadingState({
     to: { name: string; email: string }[];
   };
 }) {
+  const t = useT();
   const threadSubject = preview?.subject?.replace(/^(Re|Fwd|Fw):\s*/i, "");
 
   return (
@@ -1513,18 +1754,23 @@ function ThreadLoadingState({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
                 onClick={onBack}
+                aria-label={t("mail.thread.back")}
                 className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               >
                 <IconArrowLeft className="h-[14px] w-[14px] rtl:-scale-x-100" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Back (Esc)</TooltipContent>
+            <TooltipContent>{t("mail.thread.back")} (Esc)</TooltipContent>
           </Tooltip>
 
           <div className="flex-1 min-w-0">
             {preview ? (
-              <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2">
+              <h1
+                data-an-mask
+                className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2"
+              >
                 {threadSubject}
               </h1>
             ) : (
@@ -1542,7 +1788,10 @@ function ThreadLoadingState({
       <div className="flex-1 overflow-y-auto px-3 sm:px-5 pb-4">
         <div className="mx-auto max-w-3xl space-y-3 pt-1.5">
           {preview ? (
-            <div className="rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden px-3 sm:px-4 py-3 sm:py-4">
+            <div
+              data-an-mask
+              className="rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden px-3 sm:px-4 py-3 sm:py-4"
+            >
               <div className="flex items-start gap-3">
                 <Skeleton className="h-9 w-9 rounded-full shrink-0" />
                 <div className="flex-1 min-w-0 space-y-3">
@@ -1628,8 +1877,6 @@ function BodySkeleton() {
   );
 }
 
-// ─── Collapsed message row (Superhuman style) ────────────────────────────────
-
 const CollapsedMessageRow = forwardRef<
   HTMLDivElement,
   {
@@ -1643,6 +1890,7 @@ const CollapsedMessageRow = forwardRef<
   return (
     <div
       ref={ref}
+      data-an-mask
       onClick={onClick}
       className={cn(
         "flex items-center gap-2 sm:gap-3 px-3 py-3 sm:py-2 cursor-pointer rounded transition-colors",
@@ -1663,8 +1911,6 @@ const CollapsedMessageRow = forwardRef<
     </div>
   );
 });
-
-// ─── Expanded message card (Superhuman style) ────────────────────────────────
 
 const ExpandedMessageCard = forwardRef<
   HTMLDivElement,
@@ -1727,6 +1973,7 @@ const ExpandedMessageCard = forwardRef<
   return (
     <div
       ref={ref}
+      data-an-mask
       onClick={onFocus}
       className={cn(
         "rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden cursor-pointer",
@@ -1741,7 +1988,7 @@ const ExpandedMessageCard = forwardRef<
           <div className="flex flex-col gap-1 text-[13px]">
             <div className="flex gap-3">
               <span className="w-10 shrink-0 text-muted-foreground/60">
-                From
+                {t("mail.thread.from")}
               </span>
               <span className="text-foreground font-semibold">
                 <button
@@ -1753,7 +2000,9 @@ const ExpandedMessageCard = forwardRef<
               </span>
             </div>
             <div className="flex gap-3">
-              <span className="w-10 shrink-0 text-muted-foreground/60">To</span>
+              <span className="w-10 shrink-0 text-muted-foreground/60">
+                {t("mail.thread.to")}
+              </span>
               <span className="text-foreground">
                 {email.to.map(renderContactLink)}
               </span>
@@ -1761,7 +2010,7 @@ const ExpandedMessageCard = forwardRef<
             {email.cc && email.cc.length > 0 && (
               <div className="flex gap-3">
                 <span className="w-10 shrink-0 text-muted-foreground/60">
-                  Cc
+                  {t("mail.thread.cc")}
                 </span>
                 <span className="text-foreground">
                   {email.cc.map(renderContactLink)}
@@ -1777,7 +2026,7 @@ const ExpandedMessageCard = forwardRef<
                   month: "long",
                   day: "numeric",
                 })}{" "}
-                at{" "}
+                {t("mail.thread.at")}{" "}
                 {new Date(email.date).toLocaleTimeString("en-US", {
                   hour: "numeric",
                   minute: "2-digit",
@@ -1785,7 +2034,9 @@ const ExpandedMessageCard = forwardRef<
                 })}
               </span>
               <button
+                type="button"
                 onClick={() => setShowDetails(false)}
+                aria-label={t("mail.thread.closeDetails")}
                 className="text-muted-foreground/50 hover:text-foreground transition-colors"
               >
                 <IconX className="h-3.5 w-3.5" />
@@ -1825,24 +2076,32 @@ const ExpandedMessageCard = forwardRef<
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
+                  type="button"
+                  onMouseEnter={() => void preloadInlineReplyComposer()}
+                  onFocus={() => void preloadInlineReplyComposer()}
                   onClick={(e) => {
                     e.stopPropagation();
                     onReply();
                   }}
+                  aria-label={t("mail.compose.reply")}
                   className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
                 >
                   <IconArrowBackUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Reply</TooltipContent>
+              <TooltipContent>{t("mail.compose.reply")}</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
+                  type="button"
+                  onMouseEnter={() => void preloadInlineReplyComposer()}
+                  onFocus={() => void preloadInlineReplyComposer()}
                   onClick={(e) => {
                     e.stopPropagation();
                     onReplyAll();
                   }}
+                  aria-label={t("mail.mobileActions.replyAll")}
                   className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
                 >
                   <IconArrowBackUpDouble className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
@@ -1855,16 +2114,20 @@ const ExpandedMessageCard = forwardRef<
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
+                  type="button"
+                  onMouseEnter={() => void preloadInlineReplyComposer()}
+                  onFocus={() => void preloadInlineReplyComposer()}
                   onClick={(e) => {
                     e.stopPropagation();
                     onForward();
                   }}
+                  aria-label={t("mail.compose.forward")}
                   className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
                 >
                   <IconArrowForwardUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Forward</TooltipContent>
+              <TooltipContent>{t("mail.compose.forward")}</TooltipContent>
             </Tooltip>
           </div>
 
@@ -1875,7 +2138,7 @@ const ExpandedMessageCard = forwardRef<
       )}
 
       {/* Body */}
-      <div className="px-3 sm:px-4 pb-5 pt-1 overflow-x-hidden">
+      <div data-an-block className="px-3 sm:px-4 pb-5 pt-1 overflow-x-hidden">
         {email.bodyHtml ? (
           <HtmlEmailBody
             html={email.bodyHtml}
@@ -1903,7 +2166,7 @@ const ExpandedMessageCard = forwardRef<
 
       {/* Attachments */}
       {email.attachments && email.attachments.length > 0 && (
-        <div className="px-3 sm:px-4 pb-4">
+        <div data-an-block className="px-3 sm:px-4 pb-4">
           {/* Image thumbnails */}
           {email.attachments.some((a) => a.mimeType.startsWith("image/")) && (
             <div className="flex flex-wrap gap-2 mb-2">
@@ -1932,7 +2195,9 @@ const ExpandedMessageCard = forwardRef<
                           />
                         </a>
                       </TooltipTrigger>
-                      <TooltipContent>{att.filename}</TooltipContent>
+                      <TooltipContent data-an-block>
+                        {att.filename}
+                      </TooltipContent>
                     </Tooltip>
                   );
                 })}
@@ -1966,6 +2231,8 @@ const ExpandedMessageCard = forwardRef<
               ))}
             {email.attachments.length > 1 && (
               <button
+                type="button"
+                aria-label={t("mail.thread.downloadAll")}
                 onClick={() => {
                   for (const att of email.attachments!) {
                     const a = document.createElement("a");
@@ -1992,8 +2259,6 @@ const ExpandedMessageCard = forwardRef<
     </div>
   );
 });
-
-// ─── Tracking footer (opens / clicks on sent messages) ───────────────────────
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -2034,9 +2299,6 @@ function TrackingFooter({ messageId }: { messageId: string }) {
   );
 }
 
-// ─── Plain text body with quoted text trimming ───────────────────────────────
-
-/** Detect where an email signature begins in plain text (standard "-- " separator) */
 function findSignatureStart(lines: string[], beforeLine?: number): number {
   const limit = beforeLine != null ? beforeLine : lines.length;
   for (let i = 0; i < limit; i++) {
@@ -2045,15 +2307,10 @@ function findSignatureStart(lines: string[], beforeLine?: number): number {
   return -1;
 }
 
-/** Detect where quoted/forwarded content begins in a plain text email */
 function findQuoteStart(lines: string[]): number {
   for (let i = 0; i < lines.length; i++) {
-    // "On ... wrote:" pattern (with optional em-dash/dash prefix)
     if (/^[—–-]*\s*On .+ wrote:$/i.test(lines[i].trim())) return i;
-    // "--- Original Message ---" / "--- Forwarded message ---"
     if (/^-{2,}\s*(Original|Forwarded)\s/i.test(lines[i].trim())) return i;
-    // Outlook/Word reply headers are often plain text blocks:
-    // From: ... / Sent: ... / To: ... / Subject: ...
     if (/^From:\s+/i.test(lines[i].trim())) {
       const headerWindow = lines
         .slice(i, i + 8)
@@ -2066,13 +2323,11 @@ function findQuoteStart(lines: string[]): number {
         return i > 0 && lines[i - 1].trim() === "" ? i - 1 : i;
       }
     }
-    // Block of consecutive ">" quoted lines (at least 2)
     if (
       lines[i].trimStart().startsWith(">") &&
       i + 1 < lines.length &&
       lines[i + 1].trimStart().startsWith(">")
     ) {
-      // Walk back to include any blank line or "On ... wrote:" right before
       let start = i;
       if (start > 0 && lines[start - 1].trim() === "") start--;
       if (start > 0 && /^On .+ wrote:$/i.test(lines[start - 1].trim())) start--;
@@ -2104,10 +2359,8 @@ function PlainTextBody({
   );
   const hasSig = sigStart >= 0;
 
-  // When searching, show all content (including quoted/sig) so matches aren't hidden
   const forceShowAll = !!searchTerm;
 
-  // Determine visible lines: body → [sig toggle] → [quote toggle]
   let visibleLines: string[];
   if (forceShowAll) {
     visibleLines = lines;
@@ -2119,7 +2372,6 @@ function PlainTextBody({
     visibleLines = lines;
   }
 
-  // Scroll active match into view
   useEffect(() => {
     if (activeLocalIdx == null || !containerRef.current) return;
     const mark = containerRef.current.querySelectorAll("mark[data-search]")[
@@ -2128,40 +2380,107 @@ function PlainTextBody({
     mark?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [activeLocalIdx]);
 
-  // Render text with search highlights
   const renderHighlighted = (text: string, globalMatchOffset: number) => {
-    if (!searchTerm) return text || "\u00a0";
+    if (!searchTerm) {
+      if (!text) return "\u00a0";
+      return (
+        <span
+          dangerouslySetInnerHTML={{ __html: renderPlainTextLinks(text) }}
+        />
+      );
+    }
     const q = searchTerm.toLowerCase();
     const lower = text.toLowerCase();
-    const nodes: React.ReactNode[] = [];
-    let matchCount = globalMatchOffset;
-    let idx = 0;
-    let pos = lower.indexOf(q);
-    while (pos !== -1) {
-      if (pos > idx) nodes.push(text.slice(idx, pos));
-      const isActive = matchCount === activeLocalIdx;
-      nodes.push(
-        <mark
-          key={`${pos}-${matchCount}`}
-          data-search={matchCount}
-          className={
-            isActive
-              ? "bg-amber-400 text-black rounded-[2px]"
-              : "bg-yellow-200/25 text-inherit rounded-[2px]"
-          }
-        >
-          {text.slice(pos, pos + searchTerm.length)}
-        </mark>,
-      );
-      matchCount++;
-      idx = pos + searchTerm.length;
-      pos = lower.indexOf(q, idx);
+    const searchMatches: Array<{ start: number; end: number; index: number }> =
+      [];
+    let matchStart = lower.indexOf(q);
+    while (matchStart !== -1) {
+      searchMatches.push({
+        start: matchStart,
+        end: matchStart + searchTerm.length,
+        index: globalMatchOffset + searchMatches.length,
+      });
+      matchStart = lower.indexOf(q, matchStart + searchTerm.length);
     }
-    if (idx < text.length) nodes.push(text.slice(idx));
-    return nodes.length > 0 ? nodes : text || "\u00a0";
+    const renderedMatchIds = new Set<number>();
+    const renderSearchText = (segment: string, segmentStart: number) => {
+      const segmentEnd = segmentStart + segment.length;
+      const matches = searchMatches.filter(
+        (match) => match.start < segmentEnd && match.end > segmentStart,
+      );
+      if (matches.length === 0) return [segment];
+
+      const nodes: React.ReactNode[] = [];
+      let cursor = 0;
+      for (const match of matches) {
+        const start = Math.max(0, match.start - segmentStart);
+        const end = Math.min(segment.length, match.end - segmentStart);
+        if (start > cursor) nodes.push(segment.slice(cursor, start));
+        if (end > start) {
+          const isFirstFragment = !renderedMatchIds.has(match.index);
+          renderedMatchIds.add(match.index);
+          nodes.push(
+            <mark
+              key={`${segmentStart}-${match.index}-${start}`}
+              data-search={isFirstFragment ? match.index : undefined}
+              className={
+                match.index === activeLocalIdx
+                  ? "bg-amber-400 text-foreground rounded-[2px]"
+                  : "bg-yellow-200/25 text-inherit rounded-[2px]"
+              }
+            >
+              {segment.slice(start, end)}
+            </mark>,
+          );
+        }
+        cursor = Math.max(cursor, end);
+      }
+      if (cursor < segment.length) nodes.push(segment.slice(cursor));
+      return nodes;
+    };
+
+    const ranges = findPlainTextLinkRanges(text);
+    if (ranges.length === 0) {
+      return renderSearchText(text || "\u00a0", 0);
+    }
+
+    const nodes: React.ReactNode[] = [];
+    let cursor = 0;
+    ranges.forEach((range, rangeIndex) => {
+      if (range.start > cursor) {
+        nodes.push(
+          ...renderSearchText(text.slice(cursor, range.start), cursor),
+        );
+      }
+
+      const isAngleBracketUrl = text[range.start] === "<";
+      const linkStart = isAngleBracketUrl ? range.start + 1 : range.start;
+      const linkEnd = linkStart + range.url.length;
+      const consumedEnd = isAngleBracketUrl
+        ? range.end
+        : linkEnd + range.trailing.length;
+      nodes.push(
+        <a
+          key={`url-${range.start}-${rangeIndex}`}
+          href={range.url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {renderSearchText(range.url, linkStart)}
+        </a>,
+      );
+      if (range.trailing) {
+        nodes.push(...renderSearchText(range.trailing, linkEnd));
+      }
+      cursor = consumedEnd;
+    });
+
+    if (cursor < text.length) {
+      nodes.push(...renderSearchText(text.slice(cursor), cursor));
+    }
+    return nodes;
   };
 
-  // Count matches in lines above the current one so we can track global match index per line
   const countMatchesInText = (text: string) => {
     if (!searchTerm) return 0;
     const q = searchTerm.toLowerCase();
@@ -2212,10 +2531,6 @@ function PlainTextBody({
   );
 }
 
-// ─── HTML email body (iframe) ────────────────────────────────────────────────
-
-// Let normalized dark-mode emails inherit the message card's themed surface.
-// The iframe and its document are transparent, so theme token changes stay in sync.
 const IFRAME_BG_DARK = "transparent";
 const IFRAME_BG_LIGHT = "#ffffff";
 
@@ -2294,10 +2609,7 @@ function buildEmailIframeCss(
 `;
 }
 
-// ─── Color utilities for dark-mode email processing ─────────────────────────
-
 const NAMED_COLORS: Record<string, [number, number, number]> = {
-  // Dark colors
   black: [0, 0, 0],
   navy: [0, 0, 128],
   darkblue: [0, 0, 139],
@@ -2314,7 +2626,6 @@ const NAMED_COLORS: Record<string, [number, number, number]> = {
   dimgrey: [105, 105, 105],
   gray: [128, 128, 128],
   grey: [128, 128, 128],
-  // Light/white colors (needed for background detection)
   white: [255, 255, 255],
   snow: [255, 250, 250],
   ivory: [255, 255, 240],
@@ -2329,7 +2640,6 @@ const NAMED_COLORS: Record<string, [number, number, number]> = {
   aliceblue: [240, 248, 255],
   mintcream: [245, 255, 250],
   lavender: [230, 230, 250],
-  // Mid-range colors
   red: [255, 0, 0],
   green: [0, 128, 0],
   blue: [0, 0, 255],
@@ -2353,7 +2663,6 @@ function parseColorToRgb(
     return { r, g, b };
   }
 
-  // Hex: #RGB or #RRGGBB
   const hexMatch = c.match(/^#([0-9a-f]{3,8})$/);
   if (hexMatch) {
     const hex = hexMatch[1];
@@ -2373,7 +2682,6 @@ function parseColorToRgb(
     }
   }
 
-  // rgb(r, g, b) or rgba(r, g, b, a)
   const rgbMatch = c.match(
     /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/,
   );
@@ -2398,7 +2706,6 @@ function relativeLuminance(r: number, g: number, b: number): number {
   return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
 }
 
-/** Convert RGB to HSL (h: 0-360, s: 0-1, l: 0-1) */
 function rgbToHsl(
   r: number,
   g: number,
@@ -2420,7 +2727,6 @@ function rgbToHsl(
   return { h: h * 360, s, l };
 }
 
-/** Convert HSL back to RGB */
 function hslToRgb(
   h: number,
   s: number,
@@ -2448,34 +2754,18 @@ function hslToRgb(
   };
 }
 
-/**
- * Transform a dark color to its light equivalent for dark mode.
- * Preserves hue and saturation, lightens the color.
- * e.g. dark blue (#00008B) → light blue (#8B8BFF), black → #e4e4e7
- * Returns null if the color doesn't need transformation (already light enough).
- */
 function lightenColorForDarkMode(colorStr: string): string | null {
   const rgb = parseColorToRgb(colorStr);
   if (!rgb) return null;
   const lum = relativeLuminance(rgb.r, rgb.g, rgb.b);
-  // Don't transform colors that are already readable on dark bg
   if (lum >= 0.15) return null;
   const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
-  // For near-black/gray (no saturation), use our standard light text color
   if (hsl.s < 0.1) return "#e4e4e7";
-  // Lighten: mirror the lightness around 0.5 and boost
-  // A dark color at L=0.2 becomes L=0.7, L=0.1 becomes L=0.75
   const newL = Math.min(0.85, Math.max(0.6, 1 - hsl.l));
   const newRgb = hslToRgb(hsl.h, Math.min(hsl.s, 0.85), newL);
   return `rgb(${newRgb.r}, ${newRgb.g}, ${newRgb.b})`;
 }
 
-/**
- * Check if the email has intentional colored (non-white) backgrounds
- * that indicate a designed layout. White/near-white backgrounds are NOT
- * considered "designed" — they're just the default and we override them to dark.
- * Returns true only for colored backgrounds (e.g. blue banners, gray sections).
- */
 function emailHasDesignedBackground(html: string): boolean {
   const lower = html.toLowerCase();
   if (
@@ -2489,14 +2779,10 @@ function emailHasDesignedBackground(html: string): boolean {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
 
-  // Check for non-white background colors on body/html
   const checkBg = (colorStr: string): boolean => {
     const rgb = parseColorToRgb(colorStr.trim());
     if (!rgb) return false;
     const lum = relativeLuminance(rgb.r, rgb.g, rgb.b);
-    // White/near-white (lum > 0.85) → not "designed", just default
-    // Very dark (lum < 0.05) → already dark, no issue
-    // Everything else (colored backgrounds) → designed layout
     return lum <= 0.85 && lum >= 0.05;
   };
 
@@ -2511,7 +2797,6 @@ function emailHasDesignedBackground(html: string): boolean {
   const htmlBg = doc.documentElement?.getAttribute("bgcolor");
   if (htmlBg && checkBg(htmlBg)) return true;
 
-  // Check <style> blocks for body/html background
   const styleTags = doc.querySelectorAll("style");
   for (const tag of styleTags) {
     const text = tag.textContent || "";
@@ -2521,8 +2806,6 @@ function emailHasDesignedBackground(html: string): boolean {
     if (ruleMatch && checkBg(ruleMatch[1])) return true;
   }
 
-  // Check for significant use of colored table cell backgrounds
-  // (common in marketing emails with colored sections)
   const coloredCells = doc.querySelectorAll(
     'td[bgcolor], th[bgcolor], td[style*="background"], th[style*="background"]',
   );
@@ -2535,7 +2818,7 @@ function emailHasDesignedBackground(html: string): boolean {
       )?.[1];
     if (bg && checkBg(bg)) {
       coloredCellCount++;
-      if (coloredCellCount >= 3) return true; // multiple colored cells → designed
+      if (coloredCellCount >= 3) return true;
     }
   }
 
@@ -2651,7 +2934,15 @@ function measureEmailDocumentHeight(doc: Document): number {
   );
 }
 
-function HtmlEmailBody({
+// Ready once parsed, not on load: load waits for every remote image, so one
+// tracking pixel that never responds would hide the email indefinitely.
+function parsedEmailFrameDocument(iframe: HTMLIFrameElement | null) {
+  const doc = iframe?.contentDocument;
+  if (!doc?.body || doc.URL !== "about:srcdoc") return null;
+  return doc.readyState === "loading" ? null : doc;
+}
+
+export function HtmlEmailBody({
   html,
   senderEmail,
   searchTerm,
@@ -2666,13 +2957,13 @@ function HtmlEmailBody({
   const frameHostRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
-  const [iframeReady, setIframeReady] = useState(false);
-  const [iframeLoadVersion, setIframeLoadVersion] = useState(0);
+  const [readyFrame, setReadyFrame] = useState<{
+    source: string;
+    doc: Document;
+  } | null>(null);
   const { resolvedTheme } = useTheme();
   const isDark = getResolvedTheme(resolvedTheme) === "dark";
   const sanitizedHtml = useMemo(() => sanitizeEmailHtml(html), [html]);
-  // Only fall back to light bg when the email has actual designed colored backgrounds
-  // (not white/near-white which we override to dark). This matches Superhuman behavior.
   const hasDesignedBg = useMemo(() => emailHasDesignedBackground(html), [html]);
   const IFRAME_BG = hasDesignedBg || !isDark ? IFRAME_BG_LIGHT : IFRAME_BG_DARK;
   const { data: settings } = useSettings();
@@ -2689,12 +2980,11 @@ function HtmlEmailBody({
 
   const [showImagesForThread, setShowImagesForThread] = useState(false);
 
-  // Determine effective policy for this email
   const effectivePolicy = isEmbedded
     ? "block-all"
     : isTrusted || showImagesForThread
       ? imagePolicy === "block-all"
-        ? "block-trackers" // trusted senders still get tracker blocking if policy isn't "show"
+        ? "block-trackers"
         : imagePolicy
       : imagePolicy;
 
@@ -2727,6 +3017,37 @@ function HtmlEmailBody({
       ),
     [iframeCss, processedEmailHtml.bodyHtml, processedEmailHtml.headHtml],
   );
+  // A removed frame's document loses its window, so content that cycles back
+  // (A → B → A) waits for the newly mounted frame instead of the old one.
+  const frameDoc =
+    readyFrame?.source === iframeDocument && readyFrame.doc.defaultView
+      ? readyFrame.doc
+      : null;
+  const iframeReady = frameDoc !== null;
+
+  const markFrameReady = useCallback(
+    (iframe: HTMLIFrameElement | null) => {
+      const doc = parsedEmailFrameDocument(iframe);
+      if (!doc) return false;
+      setReadyFrame((current) =>
+        current?.doc === doc ? current : { source: iframeDocument, doc },
+      );
+      return true;
+    },
+    [iframeDocument],
+  );
+
+  useEffect(() => {
+    if (frameDoc) return;
+    let frame = 0;
+    const check = () => {
+      if (!markFrameReady(iframeRef.current)) {
+        frame = requestAnimationFrame(check);
+      }
+    };
+    check();
+    return () => cancelAnimationFrame(frame);
+  }, [frameDoc, markFrameReady]);
 
   const handleAlwaysTrust = () => {
     if (!senderDomain) return;
@@ -2739,20 +3060,19 @@ function HtmlEmailBody({
   };
 
   useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-
-    const doc = iframe.contentDocument;
+    const doc = frameDoc;
     if (!doc) return;
+    const head = doc.head;
+    if (!head) return;
 
-    const existingThemeStyle = doc.head.querySelector<HTMLStyleElement>(
+    const existingThemeStyle = head.querySelector<HTMLStyleElement>(
       "style[data-mail-theme]",
     );
     const themeStyle = existingThemeStyle ?? doc.createElement("style");
     const ownsThemeStyle = !existingThemeStyle;
     themeStyle.setAttribute("data-mail-theme", "");
     themeStyle.textContent = iframeCss;
-    if (!themeStyle.parentNode) doc.head.appendChild(themeStyle);
+    if (!themeStyle.parentNode) head.appendChild(themeStyle);
 
     const resize = () => {
       const h = measureEmailDocumentHeight(doc);
@@ -2817,9 +3137,6 @@ function HtmlEmailBody({
       createToggle(el, "quote-toggle", "quoted-hidden");
     };
 
-    // Bounded quantifiers ([^\n]{1,200}?) keep these regexes linear-time
-    // even on adversarial email bodies — unbounded `.+?` over malicious
-    // pattern-like text triggers catastrophic backtracking.
     const outlookHeaderPattern =
       /\bFrom:\s+[^\n]{1,200}?\bSent:\s+[^\n]{1,200}?\bTo:\s+[^\n]{1,200}?\bSubject:/i;
     const replyAttributionPattern =
@@ -2871,9 +3188,6 @@ function HtmlEmailBody({
         container.className = "quoted-hidden";
         start.parentNode.insertBefore(container, start);
         container.appendChild(start);
-        // Stop at an existing quoted-hidden/quote-toggle so we don't nest
-        // a later collapsed range inside this one. The closest() guard
-        // above handles already-wrapped starts; this protects siblings.
         while (container.nextSibling) {
           const next = container.nextSibling as HTMLElement;
           if (
@@ -2898,7 +3212,6 @@ function HtmlEmailBody({
       }
     };
 
-    // Hide quoted content (Gmail blockquotes, .gmail_quote, etc.) behind "..."
     const quoteSelectors = [
       ".gmail_quote",
       ".gmail_extra",
@@ -2920,13 +3233,8 @@ function HtmlEmailBody({
       collapseElement(blockquote);
     });
 
-    // Outlook/Word replies often have no quote class. They start the quoted
-    // history with a From/Sent/To/Subject header block, then put the old mail in
-    // ordinary sibling nodes. Collapse that whole tail as one quoted range.
     collapseOutlookHeaderRanges();
 
-    // ── Collapse signature blocks ──
-    // Gmail signatures
     const sigSelectors = [
       ".gmail_signature",
       '[data-smartmail="gmail_signature"]',
@@ -2938,9 +3246,6 @@ function HtmlEmailBody({
 
       if (hasMeaningfulPreviousText(sig)) return true;
 
-      // Some senders accidentally wrap the whole new message in
-      // .gmail_signature. If the signature candidate is the first meaningful
-      // content and reads like body copy, leave it visible.
       const startsLikeMessage =
         /^(hi|hello|hey|dear|sure|thanks for|thank you|just to|what about|apologies|separately)\b/i.test(
           text,
@@ -2959,27 +3264,23 @@ function HtmlEmailBody({
       createToggle(el, "sig-toggle", "sig-collapsed");
     });
 
-    // Detect "-- " signature separator in text nodes (standard email sig convention)
     if (sigs.length === 0) {
       const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
       let sigNode: HTMLElement | null = null;
       let textNode: Text | null;
       while ((textNode = walker.nextNode() as Text | null)) {
         const text = textNode.textContent || "";
-        // Standard sig separator: "-- " on its own line (or just "--")
         if (/^--\s*$/.test(text.trim())) {
           sigNode = textNode.parentElement;
           break;
         }
       }
       if (sigNode && !sigNode.closest(".quoted-hidden")) {
-        // Wrap the sig separator and all following siblings in a container
         const container = doc.createElement("div");
         container.className = "sig-collapsed";
         sigNode.parentNode?.insertBefore(container, sigNode);
         container.appendChild(sigNode);
         while (container.nextSibling) {
-          // Don't swallow quote toggles or quoted content
           if (
             (container.nextSibling as HTMLElement).classList?.contains(
               "quote-toggle",
@@ -3004,26 +3305,20 @@ function HtmlEmailBody({
       }
     }
 
-    // ── Force dark mode: transform colors for readability ──
     if (useDarkIframeCss) {
-      // Remove bgcolor attributes — replace white/light with nothing (our CSS
-      // sets dark bg), keep truly transparent
       doc.querySelectorAll("[bgcolor]").forEach((el) => {
         (el as HTMLElement).removeAttribute("bgcolor");
       });
 
-      // Walk elements with inline styles and transform colors
       const styledEls = doc.querySelectorAll<HTMLElement>("[style]");
       styledEls.forEach((el) => {
         const style = el.getAttribute("style") || "";
 
-        // Remove inline background colors (CSS handles it via !important)
         if (/background/i.test(style)) {
           el.style.backgroundColor = "transparent";
           el.style.backgroundImage = "none";
         }
 
-        // Transform dark text colors → light equivalents (preserving hue)
         const colorMatch = style.match(/(?<![a-z-])color\s*:\s*([^;!]+)/i);
         if (colorMatch) {
           const lightened = lightenColorForDarkMode(colorMatch[1].trim());
@@ -3031,7 +3326,6 @@ function HtmlEmailBody({
         }
       });
 
-      // Transform <font color="..."> dark colors
       doc.querySelectorAll<HTMLElement>("font[color]").forEach((el) => {
         const c = el.getAttribute("color") || "";
         const lightened = lightenColorForDarkMode(c);
@@ -3052,7 +3346,6 @@ function HtmlEmailBody({
       });
     }
 
-    // Make all links open in a new browser tab (web) or new window (Electron)
     const links = doc.querySelectorAll("a[href]");
     const isElectron = navigator.userAgent.includes("Electron");
     links.forEach((a) => {
@@ -3060,7 +3353,6 @@ function HtmlEmailBody({
       a.setAttribute("rel", "noopener noreferrer");
     });
 
-    // Enhance Google Calendar RSVP buttons for inline response
     const rsvpLinks = doc.querySelectorAll(
       'a[href*="calendar.google.com/calendar/event"]',
     );
@@ -3069,7 +3361,6 @@ function HtmlEmailBody({
       "2": { response: "declined", label: "No" },
       "3": { response: "tentative", label: "Maybe" },
     };
-    // Extract the event ID from any RSVP link's eid param
     let calEventId: string | null = null;
     rsvpLinks.forEach((a) => {
       const href = a.getAttribute("href") || "";
@@ -3077,10 +3368,8 @@ function HtmlEmailBody({
         const url = new URL(href);
         const eid = url.searchParams.get("eid");
         if (eid && !calEventId) {
-          // eid is base64 — the event ID is the part before the space/email
           try {
             const decoded = atob(eid);
-            // Format: "eventId email" — take the first part
             calEventId = decoded.split(" ")[0] || null;
           } catch {
             calEventId = eid;
@@ -3100,7 +3389,6 @@ function HtmlEmailBody({
           const info = rst ? rstMap[rst] : null;
           if (!info) return;
 
-          // Style the button for inline RSVP
           const el = a as HTMLElement;
           el.style.cssText = useDarkIframeCss
             ? `
@@ -3130,7 +3418,6 @@ function HtmlEmailBody({
         } catch {}
       });
 
-      // Handle RSVP clicks inline
       handleRsvpClick = async (e: MouseEvent) => {
         const anchor = (e.target as Element)?.closest?.(
           'a[href*="calendar.google.com/calendar/event"]',
@@ -3146,12 +3433,10 @@ function HtmlEmailBody({
           e.preventDefault();
           e.stopPropagation();
 
-          // Highlight the clicked button
           anchor.style.background = "#22c55e !important";
           anchor.style.borderColor = "#22c55e !important";
           anchor.style.color = "#fff !important";
 
-          // Dim the others
           rsvpLinks.forEach((other) => {
             if (other !== anchor) {
               (other as HTMLElement).style.opacity = "0.3";
@@ -3159,7 +3444,6 @@ function HtmlEmailBody({
             }
           });
 
-          // Call our API
           try {
             const res = await fetch(appApiPath("/api/calendar/rsvp"), {
               method: "POST",
@@ -3170,7 +3454,6 @@ function HtmlEmailBody({
               }),
             });
             if (!res.ok) {
-              // Fallback: open the original link
               window.open(href, "_blank", "noopener,noreferrer");
             }
           } catch {
@@ -3186,7 +3469,6 @@ function HtmlEmailBody({
       if (!anchor) return;
       const href = anchor.getAttribute("href");
       if (!href || href.startsWith("#")) return;
-      // Don't handle RSVP links here — they have their own handler
       if (href.includes("calendar.google.com/calendar/event")) return;
       e.preventDefault();
       if (isElectron && (window as any).require) {
@@ -3198,7 +3480,6 @@ function HtmlEmailBody({
     };
     doc.addEventListener("click", handleLinkClick);
 
-    // Forward keyboard events from iframe to parent
     const focusParentAfterShortcut = () => {
       window.focus();
       iframeRef.current?.blur();
@@ -3252,24 +3533,13 @@ function HtmlEmailBody({
       window.removeEventListener("resize", resize);
       if (ownsThemeStyle) themeStyle.remove();
     };
-  }, [
-    processedEmailHtml.bodyHtml,
-    processedEmailHtml.headHtml,
-    isDark,
-    useDarkIframeCss,
-    IFRAME_BG,
-    iframeCss,
-    iframeLoadVersion,
-  ]);
+  }, [frameDoc, iframeCss, useDarkIframeCss]);
 
-  // Inject / clear search highlights in the iframe whenever searchTerm or content changes
   useEffect(() => {
     const injectHighlights = () => {
-      const iframe = iframeRef.current;
-      const doc = iframe?.contentDocument;
+      const doc = frameDoc;
       if (!doc?.body) return;
 
-      // Remove existing marks and normalize text nodes
       doc.querySelectorAll("mark[data-search]").forEach((mark) => {
         const text = doc.createTextNode(mark.textContent || "");
         mark.parentNode?.replaceChild(text, mark);
@@ -3279,7 +3549,6 @@ function HtmlEmailBody({
       const q = searchTerm?.trim().toLowerCase();
       if (!q) return;
 
-      // Collect all matching text-node positions
       const matches: { node: Text; start: number; idx: number }[] = [];
       let matchIdx = 0;
       const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, {
@@ -3301,7 +3570,6 @@ function HtmlEmailBody({
         }
       }
 
-      // Wrap in reverse order so earlier indices stay valid
       for (let i = matches.length - 1; i >= 0; i--) {
         const { node: textNode, start, idx } = matches[i];
         try {
@@ -3318,20 +3586,16 @@ function HtmlEmailBody({
         }
       }
 
-      // Recalculate height after injecting marks
       const h = measureEmailDocumentHeight(doc);
       if (h > 0) setHeight(h);
     };
 
-    // Small delay to ensure iframe DOM is ready after a processedHtml rewrite
     const timer = setTimeout(injectHighlights, 60);
     return () => clearTimeout(timer);
-  }, [searchTerm, processedEmailHtml.bodyHtml, iframeLoadVersion]);
+  }, [searchTerm, frameDoc]);
 
-  // Update which mark is "active" and scroll it into view
   useEffect(() => {
-    const iframe = iframeRef.current;
-    const doc = iframe?.contentDocument;
+    const doc = frameDoc;
     if (!doc?.body) return;
 
     doc.querySelectorAll("mark[data-search]").forEach((m) => {
@@ -3347,7 +3611,7 @@ function HtmlEmailBody({
       active.style.color = "#000";
       active.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
-  }, [activeLocalIdx, searchTerm, iframeLoadVersion]);
+  }, [activeLocalIdx, searchTerm, frameDoc]);
 
   const showBanner =
     effectivePolicy === "block-all" &&
@@ -3393,7 +3657,7 @@ function HtmlEmailBody({
       >
         {!iframeReady && (
           <div
-            className="pointer-events-none absolute inset-0 z-10 space-y-2 px-1 pt-1"
+            className="pointer-events-none absolute inset-0 z-10 space-y-2 bg-background px-1 pt-1"
             aria-hidden="true"
           >
             <Skeleton className="h-3 w-full" />
@@ -3404,16 +3668,17 @@ function HtmlEmailBody({
             <Skeleton className="h-3 w-[84%]" />
           </div>
         )}
+        {/* A new document gets a new frame: Safari can leave a srcdoc frame
+            blank after navigating it in place. The frame stays opaque and the
+            placeholder covers it, because Safari can skip painting a frame
+            that fades in from opacity 0 until the window resizes. */}
         <iframe
+          key={iframeDocument}
           ref={iframeRef}
           data-agent-native-session-replay=""
           srcDoc={iframeDocument}
           sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
           scrolling="no"
-          className={cn(
-            "transition-opacity duration-150 motion-reduce:transition-none",
-            iframeReady ? "opacity-100" : "opacity-0",
-          )}
           style={{
             width: "100%",
             height: `${height}px`,
@@ -3423,17 +3688,12 @@ function HtmlEmailBody({
             borderRadius: hasDesignedBg && isDark ? "6px" : undefined,
           }}
           title={t("mail.thread.emailContent")}
-          onLoad={() => {
-            setIframeReady(true);
-            setIframeLoadVersion((version) => version + 1);
-          }}
+          onLoad={(event) => markFrameReady(event.currentTarget)}
         />
       </div>
     </div>
   );
 }
-
-// ─── In-thread search bar ─────────────────────────────────────────────────────
 
 function ThreadSearchBar({
   query,
@@ -3472,6 +3732,7 @@ function ThreadSearchBar({
       <input
         ref={inputRef}
         type="text"
+        aria-label={t("mail.thread.searchConversationLabel")}
         value={query}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
@@ -3491,37 +3752,45 @@ function ThreadSearchBar({
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              type="button"
               onClick={onPrev}
+              aria-label={t("mail.thread.previousMatch")}
               disabled={totalMatches === 0}
               className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               <IconChevronUp className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Previous match (Shift+Enter)</TooltipContent>
+          <TooltipContent>
+            {t("mail.thread.previousMatch")} (Shift+Enter)
+          </TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              type="button"
               onClick={onNext}
+              aria-label={t("mail.thread.nextMatch")}
               disabled={totalMatches === 0}
               className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               <IconChevronDown className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Next match (Enter)</TooltipContent>
+          <TooltipContent>{t("mail.thread.nextMatch")} (Enter)</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              type="button"
               onClick={onClose}
+              aria-label={t("mail.thread.closeSearch")}
               className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
             >
               <IconX className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Close (Esc)</TooltipContent>
+          <TooltipContent>{t("mail.thread.closeSearch")} (Esc)</TooltipContent>
         </Tooltip>
       </div>
     </div>

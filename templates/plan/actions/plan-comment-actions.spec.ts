@@ -1,17 +1,4 @@
-/**
- * Spec for reply-to-plan-comment, resolve-plan-comment, delete-plan-comment,
- * and consume-plan-feedback.
- *
- * Follows the mock patterns from update-visual-plan.spec.ts and
- * update-visual-plan-comment-flow.spec.ts: importOriginal spread for
- * @agent-native/core, embedApp mocked, real plans.js helpers used where safe,
- * DB-touching helpers (loadPlanBundle, assertPlanEditor) stubbed.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-// ---------------------------------------------------------------------------
-// Hoisted mocks
-// ---------------------------------------------------------------------------
 
 const request = vi.hoisted(() => ({
   email: undefined as string | undefined,
@@ -27,10 +14,6 @@ const getDbMock = vi.hoisted(() => vi.fn());
 
 const originalAuthMode = process.env.AUTH_MODE;
 const originalPlanLocalMode = process.env.PLAN_LOCAL_MODE;
-
-// ---------------------------------------------------------------------------
-// Module mocks
-// ---------------------------------------------------------------------------
 
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => ({ op: "and", args }),
@@ -109,8 +92,6 @@ vi.mock("../server/lib/comment-notifications.js", () => ({
     notifyPlanCommentRecipientsMock(...args),
 }));
 
-// Use real plans.js helpers (comment row building, resolution, etc.)
-// but stub the DB-touching and network-touching helpers.
 vi.mock("../server/plans.js", async () => {
   const actual =
     await vi.importActual<typeof import("../server/plans.js")>(
@@ -125,10 +106,6 @@ vi.mock("../server/plans.js", async () => {
     nowIso: vi.fn(() => "2026-06-10T00:00:00.000Z"),
   };
 });
-
-// ---------------------------------------------------------------------------
-// Import the three actions under test
-// ---------------------------------------------------------------------------
 
 const { default: replyToComment } = await import("./reply-to-plan-comment.js");
 const { default: resolveComment } = await import("./resolve-plan-comment.js");
@@ -152,10 +129,6 @@ function runDelete(args: Record<string, unknown>) {
 function runConsume(args: Record<string, unknown>) {
   return (consumeFeedback as ActionWithRun).run(args);
 }
-
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
 
 const BASE_BUNDLE = {
   plan: {
@@ -200,11 +173,9 @@ const BASE_BUNDLE = {
   summary: { sectionCounts: {}, commentCount: 1, openCommentCount: 1 },
 };
 
-// DB stub that captures insert values
 function makeDb(
   insertCapture: Record<string, unknown>[] = [],
   updateCapture: Record<string, unknown>[] = [],
-  /** Rows to return from a SELECT query (used to load the parent comment) */
   selectRows: Record<string, unknown>[] = [],
   deleteCapture: Record<string, unknown>[] = [],
 ) {
@@ -239,10 +210,6 @@ function makeDb(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Lifecycle
-// ---------------------------------------------------------------------------
-
 beforeEach(() => {
   request.email = "agent@example.com";
   request.name = "Agent";
@@ -274,17 +241,12 @@ afterEach(() => {
   else process.env.PLAN_LOCAL_MODE = originalPlanLocalMode;
 });
 
-// ===========================================================================
-// reply-to-plan-comment
-// ===========================================================================
-
 describe("reply-to-plan-comment", () => {
   it("happy path: inserts a reply and returns the comment id", async () => {
     const inserts: Record<string, unknown>[] = [];
     const db = makeDb(
       inserts,
       [],
-      // SELECT returns the parent comment
       [
         {
           id: "root_cmt",
@@ -308,7 +270,6 @@ describe("reply-to-plan-comment", () => {
 
     expect(result.planId).toBe("plan_1");
     expect(result.parentCommentId).toBe("root_cmt");
-    // One comment row inserted (the reply).
     const commentInsert = inserts.find((row) =>
       Object.prototype.hasOwnProperty.call(row, "message"),
     );
@@ -317,7 +278,7 @@ describe("reply-to-plan-comment", () => {
   });
 
   it("throws a friendly error when the parent comment is not on the plan", async () => {
-    const db = makeDb([], [], []); // SELECT returns empty → not found
+    const db = makeDb([], [], []);
     getDbMock.mockReturnValue(db);
 
     await expect(
@@ -328,7 +289,6 @@ describe("reply-to-plan-comment", () => {
       }),
     ).rejects.toThrow("Comment not found on this plan.");
 
-    // No insert must have happened.
     expect(db.insert).not.toHaveBeenCalled();
   });
 
@@ -366,34 +326,25 @@ describe("reply-to-plan-comment", () => {
   });
 });
 
-// ===========================================================================
-// resolve-plan-comment
-// ===========================================================================
-
 describe("resolve-plan-comment", () => {
   it("happy path: resolves an open comment and returns the new status", async () => {
     const updates: Record<string, unknown>[] = [];
-    const db = makeDb(
-      [],
-      updates,
-      // SELECT returns the existing comment
-      [
-        {
-          id: "root_cmt",
-          planId: "plan_1",
-          parentCommentId: null,
-          sectionId: null,
-          kind: "comment",
-          anchor: null,
-          message: "Please update the CTA",
-          createdBy: "human",
-          authorEmail: "reviewer@example.com",
-          resolutionTarget: "agent",
-          mentionsJson: null,
-          status: "open",
-        },
-      ],
-    );
+    const db = makeDb([], updates, [
+      {
+        id: "root_cmt",
+        planId: "plan_1",
+        parentCommentId: null,
+        sectionId: null,
+        kind: "comment",
+        anchor: null,
+        message: "Please update the CTA",
+        createdBy: "human",
+        authorEmail: "reviewer@example.com",
+        resolutionTarget: "agent",
+        mentionsJson: null,
+        status: "open",
+      },
+    ]);
     getDbMock.mockReturnValue(db);
 
     const result = (await runResolve({
@@ -403,7 +354,6 @@ describe("resolve-plan-comment", () => {
     })) as { status: string; resolvedBy: string | null };
 
     expect(result.status).toBe("resolved");
-    // Update must have been issued with resolved status.
     expect(updates).toHaveLength(1);
     expect(updates[0]?.status).toBe("resolved");
     expect(updates[0]?.resolvedBy).toBeTruthy();
@@ -512,7 +462,6 @@ describe("resolve-plan-comment", () => {
       resolutionNote: "Fixed in commit abc123.",
     })) as { resolutionNoteId?: string };
 
-    // A reply note must have been inserted.
     expect(inserts.length).toBeGreaterThan(0);
     const note = inserts.find(
       (row) => row.message === "Fixed in commit abc123.",
@@ -520,8 +469,6 @@ describe("resolve-plan-comment", () => {
     expect(note).toBeDefined();
     expect(note?.status).toBe("resolved");
     expect(result.resolutionNoteId).toBeDefined();
-    // The original thread and the inserted note are both resolved, so the note
-    // cannot keep get-plan-feedback's thread status open.
     expect(updates.every((patch) => patch.status === "resolved")).toBe(true);
   });
 
@@ -548,10 +495,6 @@ describe("resolve-plan-comment", () => {
     expect(resolveAccessMock).not.toHaveBeenCalled();
   });
 });
-
-// ===========================================================================
-// delete-plan-comment
-// ===========================================================================
 
 describe("delete-plan-comment", () => {
   it("soft-deletes a root comment and its descendants", async () => {
@@ -672,10 +615,6 @@ describe("delete-plan-comment", () => {
   });
 });
 
-// ===========================================================================
-// consume-plan-feedback
-// ===========================================================================
-
 describe("consume-plan-feedback", () => {
   it("marks comments consumed and returns the consumed ids", async () => {
     const updates: Record<string, unknown>[] = [];
@@ -689,7 +628,6 @@ describe("consume-plan-feedback", () => {
 
     expect(result.consumedCommentIds).toEqual(["cmt_a", "cmt_b"]);
     expect(result.consumedAt).toBe("2026-06-10T00:00:00.000Z");
-    // Update must have been called.
     expect(updates).toHaveLength(1);
     expect(updates[0]).toMatchObject({
       consumedAt: "2026-06-10T00:00:00.000Z",
@@ -706,13 +644,10 @@ describe("consume-plan-feedback", () => {
       runConsume({ planId: "plan_1", commentIds: ["cmt_a"] }),
     ).rejects.toThrow("editor required");
 
-    // No DB update must have been made.
     expect(db.update).not.toHaveBeenCalled();
   });
 
   it("verify via get-plan-feedback: consumed comments are excluded from feedback", async () => {
-    // Simulate the consumed state in the bundle: comment with consumedAt set
-    // should not appear in get-plan-feedback output.
     const bundleWithConsumed = {
       ...BASE_BUNDLE,
       comments: [
@@ -723,14 +658,11 @@ describe("consume-plan-feedback", () => {
       ],
     };
 
-    // get-plan-feedback filters out consumed human comments — verify the logic
-    // by asserting the bundle shape.
     const unconsumed = bundleWithConsumed.comments.filter(
       (c) => c.createdBy === "human" && !c.consumedAt,
     );
     expect(unconsumed).toHaveLength(0);
 
-    // Unconsumed comment should appear.
     const unconsumedBundle = {
       ...BASE_BUNDLE,
       comments: [{ ...BASE_BUNDLE.comments[0], consumedAt: null }],

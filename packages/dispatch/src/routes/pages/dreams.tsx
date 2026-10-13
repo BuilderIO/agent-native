@@ -79,7 +79,7 @@ type DreamStatus =
   | "applied"
   | "rejected"
   | "stale"
-  | string;
+  | (string & {});
 
 interface DreamPass {
   id: string;
@@ -182,7 +182,7 @@ interface CandidateRun {
 interface DreamSourceHealth {
   sourceId: string;
   label?: string | null;
-  status: "ok" | "timed_out" | "error" | string;
+  status: "ok" | "timed_out" | "error" | (string & {});
   startedAt?: number | string | null;
   completedAt?: number | string | null;
   durationMs: number;
@@ -252,7 +252,7 @@ interface ProposalMutationParams {
 }
 
 interface DreamProposalPreview {
-  operation?: "create" | "update" | "append" | string;
+  operation?: "create" | "update" | "append" | (string & {});
   targetExists?: boolean;
   currentContent?: string | null;
   proposedContent?: string | null;
@@ -486,7 +486,11 @@ function QueryState({ error, label }: { error: unknown; label: string }) {
       <IconAlertTriangle className="h-4 w-4" />
       <AlertTitle>{label}</AlertTitle>
       <AlertDescription>
-        {error instanceof Error ? error.message : String(error)}
+        {error instanceof Error
+          ? error.message
+          : typeof error === "string" || typeof error === "number"
+            ? String(error)
+            : JSON.stringify(error)}
       </AlertDescription>
     </Alert>
   );
@@ -1223,9 +1227,6 @@ export default function DreamsRoute() {
       return;
     }
     if (dreamsQuery.isLoading) return;
-    // If the query failed, normalizeArray returns [] but the list is not
-    // confirmed empty — preserve the current selection so dreamDetailQuery
-    // can still load the detail from the URL param.
     if (dreamsQuery.error) return;
     const nextId = dreams[0]?.id ?? null;
     setSelectedDreamId(nextId);
@@ -1234,8 +1235,6 @@ export default function DreamsRoute() {
       next.set("dreamId", nextId);
       setSearchParams(next, { replace: true });
     } else if (!nextId && urlDreamId) {
-      // List settled successfully with no rows — remove the stale URL param
-      // so dreamDetailQuery does not fire for an ID that cannot be found.
       const next = new URLSearchParams(searchParams);
       next.delete("dreamId");
       setSearchParams(next, { replace: true });
@@ -1277,8 +1276,8 @@ export default function DreamsRoute() {
             ? "Approval requested"
             : "Proposal applied",
         );
-        dreamDetailQuery.refetch();
-        dreamsQuery.refetch();
+        void dreamDetailQuery.refetch();
+        void dreamsQuery.refetch();
       },
       onError: (err) => toast.error(String(err)),
     },
@@ -1289,8 +1288,8 @@ export default function DreamsRoute() {
     {
       onSuccess: () => {
         toast.success("Proposal rejected");
-        dreamDetailQuery.refetch();
-        dreamsQuery.refetch();
+        void dreamDetailQuery.refetch();
+        void dreamsQuery.refetch();
       },
       onError: (err) => toast.error(String(err)),
     },
@@ -1301,7 +1300,7 @@ export default function DreamsRoute() {
   >("ensure-dream-job", {
     onSuccess: () => {
       toast.success("Dream schedule updated");
-      dreamSettingsQuery.refetch();
+      void dreamSettingsQuery.refetch();
     },
     onError: (err) => toast.error(String(err)),
   });
@@ -1313,8 +1312,8 @@ export default function DreamsRoute() {
       toast.success("Dream settings saved");
       setSettingsDraft(dreamSettingsToDraft(settings));
       setSettingsOpen(false);
-      dreamSettingsQuery.refetch();
-      candidatesQuery.refetch();
+      void dreamSettingsQuery.refetch();
+      void candidatesQuery.refetch();
     },
     onError: (err) => toast.error(String(err)),
   });
@@ -1423,9 +1422,9 @@ export default function DreamsRoute() {
             <Button
               variant="outline"
               onClick={() => {
-                dreamsQuery.refetch();
-                candidatesQuery.refetch();
-                if (selectedDreamId) dreamDetailQuery.refetch();
+                void dreamsQuery.refetch();
+                void candidatesQuery.refetch();
+                if (selectedDreamId) void dreamDetailQuery.refetch();
               }}
             >
               <IconRefresh size={15} className="mr-1.5" />

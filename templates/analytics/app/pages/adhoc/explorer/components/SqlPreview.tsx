@@ -17,7 +17,7 @@ export function SqlPreview({ sql }: SqlPreviewProps) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(sql);
+    void navigator.clipboard.writeText(sql);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };

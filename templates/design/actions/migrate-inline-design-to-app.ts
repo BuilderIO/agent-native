@@ -41,30 +41,23 @@
  * The caller should offer `connect-builder-app` to surface the CTA first.
  */
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   runBuilderAgent,
   resolveBuilderBranchProjectId,
 } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import { schema } from "../server/db/index.js";
 import { buildDesignSnapshot } from "../server/lib/design-snapshot.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import { createDesignVersionSnapshotWithSourceMutationLock } from "../server/lib/design-versions.js";
 import {
   resolveBuilderStatus,
   buildMigrationSeed,
 } from "../shared/builder-app.js";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** The default Builder app host — mirrors the constant in builder-browser.ts. */
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 
 function resolveBuilderAppHost(): string {
@@ -94,64 +87,18 @@ async function snapshotDesign(
   designId: string,
   label: string,
 ): Promise<string> {
-  const db = getDb();
-  const versionId = nanoid();
-  const now = new Date().toISOString();
-
-  // Read the current file contents for the snapshot (stored content only;
-  // we intentionally capture the persisted baseline, not in-flight collab text,
-  // so the snapshot is stable and reproducible).
-  const files = await db
-    .select({
-      filename: schema.designFiles.filename,
-      content: schema.designFiles.content,
-      fileType: schema.designFiles.fileType,
-    })
-    .from(schema.designFiles)
-    .where(eq(schema.designFiles.designId, designId));
-
-  // Also capture the design data blob (tweaks, source type, etc.).
-  // guard:allow-unscoped — the action's run() resolves and asserts editor
-  // access on the design (resolveAccess + assertAccess "design", designId)
-  // before this snapshot helper runs; reads only the addressed design row by id.
-  const [design] = await db
-    .select({ data: schema.designs.data, title: schema.designs.title })
-    .from(schema.designs)
-    .where(eq(schema.designs.id, designId))
-    .limit(1);
-
-  const snapshot = JSON.stringify({
+  const version = await createDesignVersionSnapshotWithSourceMutationLock(
     designId,
-    label,
-    capturedAt: now,
-    designData: design?.data ?? "{}",
-    files: files.map((f) => ({
-      filename: f.filename,
-      fileType: f.fileType,
-      content: f.content,
-    })),
-  });
-
-  await db.insert(schema.designVersions).values({
-    id: versionId,
-    designId,
-    label,
-    snapshot,
-    createdAt: now,
-  });
-
-  return versionId;
+    { label },
+  );
+  return version.id;
 }
-
-// ---------------------------------------------------------------------------
-// Action
-// ---------------------------------------------------------------------------
 
 export default defineAction({
   description:
     "Migrate an inline Alpine/HTML design to a real React + Tailwind app " +
     "by handing the design's HTML and tokens to the Builder cloud agent. " +
-    "Requires Builder.io (free tier available) to be connected (credentials + branch project ID). " +
+    "Use Builder.io (free tier available) with configured credentials and a branch project ID. " +
     "When Builder is NOT configured returns a connect CTA — never throws. " +
     "Snapshots the current design into design_versions before migrating so " +
     "the inline baseline is always recoverable. " +
@@ -178,23 +125,28 @@ export default defineAction({
       ),
   }),
   run: async ({ designId, brandKitSummary, branchName }) => {
-    // ── 1. Access check ────────────────────────────────────────────────────
     const access = await resolveAccess("design", designId);
     if (!access) {
-      throw new Error("Design not found");
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
     }
     const design = access.resource as typeof schema.designs.$inferSelect;
 
-    // Snapshotting a design_versions row + kicking off a paid Builder cloud run
-    // are mutations: require editor access. A read-only (viewer) share must not
-    // be able to trigger them.
     await assertAccess("design", designId, "editor");
 
-    // ── 2. Builder status check ────────────────────────────────────────────
+    // Make Real migration is Builder-staff only for now. The dialog waitlists
+    // everyone else; enforce the same entitlement on the trusted request
+    // identity so the action cannot be invoked directly to bypass the UI.
+    const requesterEmail = getRequestUserEmail()?.toLowerCase() ?? "";
+    if (!requesterEmail.endsWith("@builder.io")) {
+      throw new Error(
+        "Make this a real app is currently limited to @builder.io accounts. " +
+          "Join the waitlist from the Design editor dialog.",
+      );
+    }
+
     const builderStatus = await resolveBuilderStatus();
 
     if (!builderStatus.connected || !builderStatus.builderEnabled) {
-      // Return a graceful CTA; never throw so the UI can render the card.
       const connectUrl = buildConnectUrl(
         process.env.APP_URL ??
           process.env.VITE_APP_URL ??
@@ -211,18 +163,16 @@ export default defineAction({
             kind: "connect-builder" as const,
             label: "Make this a real app",
             description:
-              "Connect Builder.io (free tier available) to migrate this design to a real React app " +
+              "Use Builder.io (free tier available) to migrate this design to a real React app " +
               "with components, props, data states, branches, and deploys.",
-            primaryAction: "Connect Builder.io",
+            primaryAction: "Use Builder.io",
             connectUrl,
           },
           message:
-            "Builder is not connected (free tier available). Call connect-builder-app to start " +
-            "the OAuth flow, then retry migrate-inline-design-to-app.",
+            "Builder is not connected. Direct the user to the in-app Use Builder.io choice to create and activate in one click or sign in to an existing account, then retry migrate-inline-design-to-app.",
         };
       }
 
-      // Connected but no project ID.
       return {
         status: "not-configured" as const,
         designId,
@@ -242,7 +192,6 @@ export default defineAction({
       };
     }
 
-    // ── 3. Resolve branch project ID ──────────────────────────────────────
     const projectId = await resolveBuilderBranchProjectId();
     if (!projectId) {
       throw new Error(
@@ -252,16 +201,13 @@ export default defineAction({
       );
     }
 
-    // ── 4. Snapshot the current design (reversible baseline) ──────────────
     const versionId = await snapshotDesign(
       designId,
       `Pre-migration snapshot — ${design.title}`,
     );
 
-    // ── 5. Build the live snapshot (Yjs preferred for in-flight edits) ────
     const snapshot = await buildDesignSnapshot(designId, design.data);
 
-    // ── 6. Build the migration seed prompt ────────────────────────────────
     const seed = buildMigrationSeed({
       title: design.title,
       files: snapshot.files,
@@ -269,7 +215,6 @@ export default defineAction({
       brandKitSummary,
     });
 
-    // ── 7. Hand off to the Builder cloud agent ────────────────────────────
     const ownerEmail = getRequestUserEmail();
     const result = await runBuilderAgent({
       prompt: seed.prompt,

@@ -1,53 +1,43 @@
-/**
- * `/mcp/connect` — frictionless external-agent connection. The legacy
- * `/_agent-native/mcp/connect` alias is mounted by the core route plugin.
- *
- * A logged-in user on a deployed agent-native app (e.g. mail.agent-native.com)
- * mints a per-user, scoped, revocable MCP bearer token WITHOUT ever copying a
- * shared deployment secret. Two surfaces:
- *
- *   1. Browser  — `GET /mcp/connect` renders a minimal in-app page (same inline
- *      HTML approach as the auth pages). The Authorize button POSTs to
- *      `/connect/token`, then shows the ready-to-paste `.mcp.json` entry, the
- *      `agent-native connect <origin>` one-liner, and the user's existing
- *      tokens with Revoke buttons.
- *   2. CLI      — an OAuth-2.0-device-authorization-style flow:
- *        POST /mcp/connect/device/start      (unauth)  → device_code + user_code
- *        GET  /mcp/connect?user_code=…       (browser) → user signs in & approves
- *        POST /mcp/connect/device/authorize  (session) → binds user to the code
- *        POST /mcp/connect/device/poll       (unauth)  → mints + returns the token
- *
- * When A2A_SECRET exists, the minted token reuses the existing A2A signer
- * (`signA2AToken`) and adds a random `jti` + `scope: "mcp-connect"` claim so
- * it can be revoked. Deployments without A2A_SECRET mint the same standard MCP
- * OAuth access-token format used by remote MCP OAuth, signed with the auth
- * secret fallback and bound to the exact MCP resource URL.
- *
- * Node-only (crypto + the A2A signer), bundled alongside the other framework
- * routes. Dialect-agnostic SQL lives in `connect-store.ts`.
- */
-
 import { randomUUID } from "node:crypto";
 
 import type { H3Event } from "h3";
 import { getMethod, getHeader } from "h3";
 
-import { signA2AToken } from "../a2a/client.js";
-import { getAppConfig } from "../app-config/index.js";
+import { mcpSettingsMessagesForLocale } from "../localization/mcp-settings-messages.js";
+import { resolveLocaleFromRequest } from "../localization/server.js";
+import {
+  localeDirection,
+  normalizeLocaleCode,
+  type LocaleCode,
+} from "../localization/shared.js";
 import { getOrgDomain } from "../org/context.js";
+import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   getSession,
   getConfiguredLoginHtml,
   isLoopbackRequest,
 } from "../server/auth.js";
+import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
+import { readDeployCredentialEnv } from "../server/credential-provider.js";
+import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
+import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "../shared/framework-route-prefix.js";
 import {
-  MCP_CONNECT_GUIDES,
-  MCP_CONNECT_MCP_URL_TEMPLATE,
-  MCP_STATIC_TOKEN_FALLBACK,
+  buildMcpInstallLink,
+  derivedMcpServerBaseName,
+  getMcpConnectGuides,
+  getMcpStaticTokenFallback,
   interpolateMcpConnectTemplate,
+  mcpConnectServerName,
+  resolveMcpConnectGuideId,
+  type McpConnectGuide,
+  type McpConnectGuideId,
+  type McpConnectIdentity,
 } from "../shared/mcp-connect-content.js";
+import { deviceFlowClients, trackAgentConnected } from "./agent-connected.js";
+import { connectAppLabel, connectEnvironment } from "./connect-app-label.js";
 import {
+  ensureConnectTables,
   recordMintedToken,
   listTokens,
   revokeToken,
@@ -55,38 +45,41 @@ import {
   serviceIdentityEmail,
   createDeviceCode,
   getDeviceCode,
+  getDeviceCodeByUserCode,
   approveDeviceCode,
   consumeDeviceCode,
   claimDeviceCodeForMint,
   finishDeviceCodeMint,
-  releaseDeviceCodeMint,
   expireDeviceCode,
   MCP_CONNECT_OAUTH_CLIENT_ID,
-  MCP_CONNECT_SCOPE,
   DEFAULT_TOKEN_TTL_DAYS,
   MIN_TOKEN_TTL_DAYS,
   MAX_TOKEN_TTL_DAYS,
+  MAX_SERVICE_TOKEN_TTL_DAYS,
   DEVICE_CODE_TTL_MS,
 } from "./connect-store.js";
+import {
+  McpCredentialIssuanceError,
+  withMcpCredentialIssuance,
+} from "./credential-issuance.js";
+import { getMcpOAuthIssuer, resolveMcpOAuthIssuer } from "./oauth-route.js";
 import {
   MCP_OAUTH_DEFAULT_SCOPE,
   signMcpOAuthAccessToken,
 } from "./oauth-token.js";
+import { type McpOrgOption, resolveMcpOrgChoices } from "./org-choice.js";
 import { MCP_PUBLIC_ROUTE_PREFIX } from "./route-paths.js";
 
-/** Device-flow poll interval hint (seconds). */
 const DEVICE_POLL_INTERVAL_S = 3;
 
-// Human-typable user code: 8 base32 chars, dashed XXXX-XXXX.
 const USER_CODE_RE = /^[A-Z2-7]{4}-[A-Z2-7]{4}$/;
 
 export interface McpConnectRouteOptions {
-  /** App id (directory under apps/, e.g. `mail`). Used for the server name. */
   appId?: string;
-  /** Human app name shown on the connect page. */
   appName?: string;
-  /** Explicit MCP server id to return in copyable config/device-flow grants. */
   serverName?: string;
+  /** False when only the identity route is mounted (`mcp.connect: false`). */
+  connect?: boolean;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -96,6 +89,26 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+function issuanceErrorResponse(err: McpCredentialIssuanceError): Response {
+  if (err.reason === "not-member") {
+    return json({ error: "Choose an organization you belong to." }, 403);
+  }
+  const response = json(
+    { error: CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE },
+    503,
+  );
+  response.headers.set("Retry-After", "5");
+  return response;
+}
+
+async function prepareConnectIssuance(): Promise<void> {
+  try {
+    await ensureConnectTables();
+  } catch (error) {
+    throw new McpCredentialIssuanceError("unavailable", { cause: error });
+  }
+}
+
 function html(body: string, status = 200): Response {
   return new Response(body, {
     status,
@@ -103,8 +116,6 @@ function html(body: string, status = 200): Response {
   });
 }
 
-/** Derive the running app's origin from request headers (same logic mountMCP
- *  uses) — `https` in prod / for non-loopback hosts, `http` for localhost. */
 function deriveOrigin(event: H3Event): string {
   const forwardedProto = getHeader(event, "x-forwarded-proto");
   const host = getHeader(event, "x-forwarded-host") || getHeader(event, "host");
@@ -129,19 +140,6 @@ function isLoopbackOrigin(origin: string): boolean {
   }
 }
 
-function normalizeBasePath(raw: string | undefined): string {
-  const trimmed = (raw ?? "").trim();
-  if (!trimmed || trimmed === "/") return "";
-  const withSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-  return withSlash.replace(/\/+$/, "");
-}
-
-function configuredBasePath(): string {
-  return normalizeBasePath(
-    process.env.APP_BASE_PATH || process.env.VITE_APP_BASE_PATH,
-  );
-}
-
 function joinAppPath(basePath: string, path: string): string {
   if (!basePath) return path;
   if (path === "/") return basePath;
@@ -149,31 +147,29 @@ function joinAppPath(basePath: string, path: string): string {
 }
 
 /**
- * Which app this deployment is, for naming its MCP server.
- *
- * The hostname is the LAST resort, not the first: every beta deployment is
- * `beta.<app>.agent-native.com`, so the leading label is `beta` for all of
- * them and every beta app advertised itself as `agent-native-beta`. A client
- * keys its config by that name, so connecting a second beta app overwrote the
- * first. Declared identity comes first now, and `app.slug` covers every
- * first-party template with no configuration at all.
+ * The one name and URL every connect surface hands to an MCP client: this
+ * page, the device-flow payload, the settings tab, share dialogs (through the
+ * `/identity` subroute) and the `connect` CLI.
  */
-function appLabel(origin: string, options: McpConnectRouteOptions): string {
-  const app = getAppConfig().app;
-  const declared = options.appId ?? app.id ?? app.template ?? app.slug;
-  if (declared) return declared;
-  try {
-    const h = new URL(origin).hostname;
-    return h.split(".")[0] || h;
-  } catch {
-    return options.appName || "app";
-  }
-}
-
-function serverName(origin: string, options: McpConnectRouteOptions): string {
-  const explicit = options.serverName?.trim();
-  if (explicit) return explicit;
-  return `agent-native-${appLabel(origin, options)}`;
+export function resolveMcpConnectIdentity(
+  appUrl: string,
+  options: McpConnectRouteOptions,
+): McpConnectIdentity {
+  const environment = connectEnvironment();
+  const baseName =
+    options.serverName?.trim() ||
+    derivedMcpServerBaseName(
+      connectAppLabel(appUrl, options, environment),
+      environment,
+    );
+  return {
+    serverName: mcpConnectServerName(baseName, environment),
+    appName: options.appName || connectAppLabel(appUrl, options, environment),
+    appUrl,
+    mcpUrl: mcpResourceUrl(appUrl),
+    environment,
+    connect: options.connect !== false,
+  };
 }
 
 function canUseDevOpenConnect(event: H3Event): boolean {
@@ -185,7 +181,7 @@ function canUseDevOpenConnect(event: H3Event): boolean {
   return (
     isLoopbackRequest(event) &&
     isLoopbackOrigin(deriveOrigin(event)) &&
-    !process.env.A2A_SECRET?.trim() &&
+    !readDeployCredentialEnv("A2A_SECRET")?.trim() &&
     !process.env.ACCESS_TOKEN?.trim() &&
     !process.env.ACCESS_TOKENS?.trim()
   );
@@ -199,11 +195,6 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/**
- * Resolve the org domain for a session. Used as the JWT `org_domain` claim so
- * the receiving MCP endpoint can map it back to an org id (same as A2A). Best
- * effort — a missing org just yields a user-scoped (no-org) token.
- */
 async function resolveOrgDomain(
   orgId: string | undefined,
 ): Promise<string | undefined> {
@@ -215,13 +206,10 @@ async function resolveOrgDomain(
   }
 }
 
-function clampTtlDays(input: unknown): number {
+function clampTtlDays(input: unknown, maxDays = MAX_TOKEN_TTL_DAYS): number {
   const n = Number(input);
   if (!Number.isFinite(n)) return DEFAULT_TOKEN_TTL_DAYS;
-  return Math.min(
-    MAX_TOKEN_TTL_DAYS,
-    Math.max(MIN_TOKEN_TTL_DAYS, Math.floor(n)),
-  );
+  return Math.min(maxDays, Math.max(MIN_TOKEN_TTL_DAYS, Math.floor(n)));
 }
 
 /**
@@ -234,82 +222,88 @@ async function mintConnectToken(params: {
   orgId: string | undefined;
   label: string | null;
   ttlDays: number;
-  appUrl: string;
-  /** When `"full"`, embed `catalog_scope: "full"` in the JWT so this token
-   *  bypasses the compact/connector-catalog tier (active by default whenever a
-   *  `connectorCatalog` is declared) and gets the complete action surface. */
+  /** From `getMcpOAuthIssuer`; its resources are what `verifyAuth` accepts. */
+  issuer: string;
   catalogScope?: "full";
+  requestOrigin: string;
 }): Promise<{ token: string; jti: string }> {
   const orgDomain = await resolveOrgDomain(params.orgId);
-  const jti = randomUUID();
-  const token = await signConnectToken({
-    ownerEmail: params.email,
-    orgId: params.orgId,
-    orgDomain,
-    appUrl: params.appUrl,
-    expiresIn: `${params.ttlDays}d`,
-    jti,
-    ...(params.catalogScope === "full" ? { catalogScope: "full" } : {}),
-  });
-  await recordMintedToken({
-    jti,
-    ownerEmail: params.email,
-    orgId: params.orgId ?? null,
-    label: params.label,
-  });
-  return { token, jti };
+  await prepareConnectIssuance();
+  return withMcpCredentialIssuance(
+    {
+      email: params.email,
+      orgId: params.orgId,
+      requestOrigin: params.requestOrigin,
+    },
+    async (tx) => {
+      const jti = randomUUID();
+      const token = await signConnectToken({
+        ownerEmail: params.email,
+        orgId: params.orgId,
+        orgDomain,
+        issuer: params.issuer,
+        expiresIn: `${params.ttlDays}d`,
+        jti,
+        ...(params.catalogScope === "full" ? { catalogScope: "full" } : {}),
+      });
+      await recordMintedToken(
+        {
+          jti,
+          ownerEmail: params.email,
+          orgId: params.orgId ?? null,
+          label: params.label,
+        },
+        tx,
+      );
+      return { token, jti };
+    },
+  );
 }
 
+/**
+ * Connect tokens are MCP OAuth access tokens bound to this app's MCP URL, so
+ * they share OAuth's verification path. Do not sign them as A2A JWTs again:
+ * that format let cross-app trust rules reinterpret a credential this app
+ * issued.
+ */
 async function signConnectToken(params: {
   ownerEmail: string;
   orgId: string | null | undefined;
   orgDomain: string | undefined;
-  appUrl: string;
+  issuer: string;
   expiresIn: string;
   jti: string;
-  /**
-   * When true, embed the org id directly as an `org_id` claim on the
-   * A2A-signed path (the OAuth-signed path already carries `params.orgId`).
-   * Used for org SERVICE tokens, whose synthetic identity must resolve to the
-   * org even when the org has no domain mapping. Personal tokens keep the
-   * original domain-based resolution — behavior unchanged.
-   */
-  includeOrgIdClaim?: boolean;
-  /**
-   * When `"full"`, embed a `catalog_scope: "full"` claim so this token
-   * bypasses the compact/connector-catalog tier filter (active by default
-   * whenever a `connectorCatalog` is declared) and gets the complete action
-   * surface. Minted when the user connects with `agent-native connect --full-catalog`.
-   */
   catalogScope?: "full";
+  service?: true;
 }): Promise<string> {
-  if (process.env.A2A_SECRET?.trim()) {
-    return signA2AToken(params.ownerEmail, params.orgDomain, undefined, {
-      preferGlobalSecret: true,
-      expiresIn: params.expiresIn,
-      extraClaims: {
-        jti: params.jti,
-        scope: MCP_CONNECT_SCOPE,
-        ...(params.includeOrgIdClaim && params.orgId
-          ? { org_id: params.orgId }
-          : {}),
-        ...(params.catalogScope === "full" ? { catalog_scope: "full" } : {}),
-      },
-    });
-  }
-
   return signMcpOAuthAccessToken({
     ownerEmail: params.ownerEmail,
     orgId: params.orgId ?? null,
     orgDomain: params.orgDomain ?? null,
     clientId: MCP_CONNECT_OAUTH_CLIENT_ID,
     scope: MCP_OAUTH_DEFAULT_SCOPE,
-    resource: mcpResourceUrl(params.appUrl),
-    issuer: params.appUrl,
+    resource: mcpResourceUrl(params.issuer),
+    issuer: params.issuer,
+    grantCreatedAtMs: Date.now(),
     jti: params.jti,
     expiresIn: params.expiresIn,
     ...(params.catalogScope === "full" ? { catalogScope: "full" } : {}),
+    ...(params.service ? { service: true } : {}),
   });
+}
+
+/**
+ * Neither the request nor configuration names this app's public URL, so no
+ * audience `verifyAuth` would accept can be resolved. Guessing one would mint a
+ * token the app then refuses.
+ */
+export class OrgServiceTokenAppUrlError extends Error {
+  constructor() {
+    super(
+      "Could not determine the app URL needed to mint a token. Set APP_URL on the deployment.",
+    );
+    this.name = "OrgServiceTokenAppUrlError";
+  }
 }
 
 /**
@@ -322,23 +316,21 @@ async function signConnectToken(params: {
  *
  * The token value is returned exactly once and never persisted — only the
  * random `jti` is stored, so the standard revocation path
- * (`isJtiRevoked` in `verifyAuth`) applies to service tokens identically.
+ * (`lookupConnectTokenOrg` in `verifyAuth`) applies to service tokens identically.
  *
- * Authorization is the CALLER'S responsibility: this function does not check
- * org membership/role. The `create-org-service-token` action gates on org
- * owner/admin before calling it.
+ * The `create-org-service-token` action gates on org owner/admin before
+ * calling this. Offboarding can remove that admin before the mint, so the
+ * creator's role is rechecked under the membership lock offboarding takes,
+ * and the token is recorded in the same transaction.
  */
 export async function mintOrgServiceToken(params: {
-  /** Human-readable service principal name, e.g. "ci" or "pr-recap". */
   serviceName: string;
-  /** Org the service token acts for; becomes the resolved session orgId. */
   orgId: string;
   /** The human minting the token — stored for audit, never used as identity. */
   createdBy: string;
-  /** 1–365 days; clamped. Defaults to DEFAULT_TOKEN_TTL_DAYS. */
   ttlDays?: number;
-  /** App origin used for OAuth-signed tokens (resource/issuer binding). */
-  appUrl: string;
+  /** The caller's request origin, when there is a request. */
+  appUrl: string | undefined;
 }): Promise<{
   token: string;
   jti: string;
@@ -350,50 +342,69 @@ export async function mintOrgServiceToken(params: {
   const serviceName = normalizeServiceName(params.serviceName);
   const serviceEmail = serviceIdentityEmail(serviceName, params.orgId);
   const orgDomain = await resolveOrgDomain(params.orgId);
-  const ttlDays = clampTtlDays(params.ttlDays ?? DEFAULT_TOKEN_TTL_DAYS);
-  const jti = randomUUID();
-  const token = await signConnectToken({
-    ownerEmail: serviceEmail,
-    orgId: params.orgId,
-    orgDomain,
-    appUrl: params.appUrl,
-    expiresIn: `${ttlDays}d`,
-    jti,
-    includeOrgIdClaim: true,
-  });
-  const id = await recordMintedToken({
-    jti,
-    ownerEmail: serviceEmail,
-    orgId: params.orgId,
-    label: `Service token: ${serviceName}`,
-    kind: "service",
-    serviceName,
-    createdBy: params.createdBy,
-  });
-  return { token, jti, id, serviceName, serviceEmail, ttlDays };
+  const ttlDays = clampTtlDays(
+    params.ttlDays ?? DEFAULT_TOKEN_TTL_DAYS,
+    MAX_SERVICE_TOKEN_TTL_DAYS,
+  );
+  const issuer = resolveMcpOAuthIssuer(params.appUrl || undefined);
+  if (!issuer) throw new OrgServiceTokenAppUrlError();
+  await prepareConnectIssuance();
+  return withMcpCredentialIssuance(
+    {
+      email: params.createdBy,
+      orgId: params.orgId,
+      requestOrigin: params.appUrl,
+      roles: ["owner", "admin"],
+    },
+    async (tx) => {
+      const jti = randomUUID();
+      const token = await signConnectToken({
+        ownerEmail: serviceEmail,
+        orgId: params.orgId,
+        orgDomain,
+        issuer,
+        expiresIn: `${ttlDays}d`,
+        jti,
+        service: true,
+      });
+      const id = await recordMintedToken(
+        {
+          jti,
+          ownerEmail: serviceEmail,
+          orgId: params.orgId,
+          label: `Service token: ${serviceName}`,
+          kind: "service",
+          serviceName,
+          createdBy: params.createdBy,
+        },
+        tx,
+      );
+      return { token, jti, id, serviceName, serviceEmail, ttlDays };
+    },
+  );
 }
 
 function mcpResultPayload(
-  appUrl: string,
-  options: McpConnectRouteOptions,
-  auth: { token?: string; ownerEmail?: string },
+  identity: McpConnectIdentity,
+  auth: {
+    token?: string;
+    ownerEmail?: string;
+    catalogScope?: "full" | null;
+  },
 ) {
-  const mcpUrl = mcpResourceUrl(appUrl);
-  const name = serverName(appUrl, options);
+  const { appUrl, mcpUrl, serverName } = identity;
   const headers: Record<string, string> = {};
   if (auth.token) headers.Authorization = `Bearer ${auth.token}`;
   if (!auth.token && auth.ownerEmail) {
     headers["X-Agent-Native-Owner-Email"] = auth.ownerEmail;
+    if (auth.catalogScope === "full") {
+      headers["X-Agent-Native-MCP-Full-Catalog"] = "1";
+    }
   }
-  // Intentionally do NOT inject the full-catalog header here. Every connector
-  // used to receive it, which silently forced the ~105-tool full catalog on
-  // every client. Full-catalog intent now lives durably in the token itself
-  // (`catalog_scope: "full"`, minted only by `connect --full-catalog`), so a
-  // normal connection defaults to the compact/connector catalog + tool-search.
   return {
     token: auth.token ?? "",
     mcpUrl,
-    serverName: name,
+    serverName,
     mcpServerEntry: {
       type: "http" as const,
       url: mcpUrl,
@@ -406,10 +417,6 @@ function mcpResultPayload(
 function mcpResourceUrl(appUrl: string): string {
   return `${appUrl}${MCP_PUBLIC_ROUTE_PREFIX}`;
 }
-
-// ---------------------------------------------------------------------------
-// Connect page (server-rendered HTML string)
-// ---------------------------------------------------------------------------
 
 function agentNativeMarkSvg(className: string, gradientId: string): string {
   return `<svg class="${className}" width="114" height="66" viewBox="0 0 114 66" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
@@ -424,12 +431,35 @@ function agentNativeMarkSvg(className: string, gradientId: string): string {
 </svg>`;
 }
 
+function tablerTerminalSvg(className: string): string {
+  return `<svg class="${className}" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+  <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+  <path d="M5 7l5 5l-5 5"/>
+  <path d="M12 19l7 0"/>
+</svg>`;
+}
+
 function renderConnectGuide(
-  guide: (typeof MCP_CONNECT_GUIDES)[number],
+  guide: McpConnectGuide,
+  activeGuideId: McpConnectGuideId,
   values: Parameters<typeof interpolateMcpConnectTemplate>[1],
+  copyLabel: string,
 ): string {
   const guideId = escapeHtml(guide.id);
+  const installLinks = (guide.install ?? []).map((option) => {
+    const link = buildMcpInstallLink(option.client, {
+      serverName: values.serverId,
+      mcpUrl: values.mcpUrl,
+    });
+    const target = link.opensWebPage
+      ? ` target="_blank" rel="noopener noreferrer"`
+      : "";
+    return `<a class="primary-link compact" href="${escapeHtml(link.href)}"${target}>${escapeHtml(option.label)}</a>`;
+  });
   const content = [
+    installLinks.length
+      ? `<div class="install-links">${installLinks.join("")}</div>`
+      : "",
     guide.steps?.length
       ? `<ol>${guide.steps
           .map(
@@ -443,11 +473,11 @@ function renderConnectGuide(
       : "",
     guide.commandTemplate
       ? `<pre id="${guideId}Command">${escapeHtml(interpolateMcpConnectTemplate(guide.commandTemplate, values))}</pre>
-        <button type="button" class="primary-link compact" data-copy="${guideId}Command">${escapeHtml(guide.action?.label ?? "Copy")}</button>`
+        <button type="button" class="primary-link compact" data-copy="${guideId}Command">${escapeHtml(guide.action?.label ?? copyLabel)}</button>`
       : "",
     guide.configTemplate
       ? `<pre id="${guideId}Config">${escapeHtml(interpolateMcpConnectTemplate(guide.configTemplate, values))}</pre>
-        <button type="button" class="primary-link compact" data-copy="${guideId}Config">${escapeHtml(guide.action?.label ?? "Copy")}</button>`
+        <button type="button" class="primary-link compact" data-copy="${guideId}Config">${escapeHtml(guide.action?.label ?? copyLabel)}</button>`
       : "",
     guide.action?.kind === "link" && guide.action.href
       ? `<a class="primary-link" href="${escapeHtml(guide.action.href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(guide.action.label)}</a>`
@@ -457,62 +487,106 @@ function renderConnectGuide(
       : "",
   ].join("\n");
 
-  return `<div class="tab-panel${guide.id === MCP_CONNECT_GUIDES[0]?.id ? " is-active" : ""}" role="tabpanel" data-panel="${guideId}">${content}</div>`;
+  return `<div class="tab-panel${guide.id === activeGuideId ? " is-active" : ""}" role="tabpanel" id="mcp-guide-panel-${guideId}" aria-labelledby="mcp-guide-tab-${guideId}" data-panel="${guideId}">${content}</div>`;
 }
 
 function renderConnectPage(params: {
   connectBasePath: string;
   email: string;
-  appName: string;
-  appUrl: string;
-  serverId: string;
+  identity: McpConnectIdentity;
   userCode: string | null;
+  catalogScope: "full" | null;
+  locale: LocaleCode;
+  requestedGuide: string | null;
+  organizations: McpOrgOption[];
+  defaultOrganizationId: string | undefined;
 }): string {
-  const { connectBasePath, email, appName, appUrl, serverId, userCode } =
-    params;
+  const {
+    connectBasePath,
+    email,
+    identity,
+    userCode,
+    catalogScope,
+    locale,
+    requestedGuide,
+    organizations,
+    defaultOrganizationId,
+  } = params;
+  const direction = localeDirection(locale);
+  const messages = mcpSettingsMessagesForLocale(locale);
+  const connectMessages = messages.mcpConnect;
+  const guides = getMcpConnectGuides(locale);
+  const staticTokenFallback = getMcpStaticTokenFallback(locale);
   const safeEmail = escapeHtml(email);
-  const safeApp = escapeHtml(appName);
-  const mcpUrl = interpolateMcpConnectTemplate(MCP_CONNECT_MCP_URL_TEMPLATE, {
-    appName,
-    appUrl,
-    mcpUrl: "",
-    serverId,
-  });
+  const { appName, appUrl, mcpUrl, serverName: serverId } = identity;
   const safeMcpUrl = escapeHtml(mcpUrl);
   const connectTemplateValues = { appName, appUrl, mcpUrl, serverId };
+  const localize = (message: string) =>
+    escapeHtml(interpolateMcpConnectTemplate(message, connectTemplateValues));
   const flowMarkSvg = agentNativeMarkSvg(
     "flow-mark",
     "agent-native-connect-flow-gradient",
   );
+  const flowTerminalSvg = tablerTerminalSvg("flow-terminal");
   const safeUserCode =
     userCode && USER_CODE_RE.test(userCode) ? escapeHtml(userCode) : "";
-  const guideTabsHtml = MCP_CONNECT_GUIDES.map(
-    (guide) =>
-      `<button type="button" class="tab${guide.id === MCP_CONNECT_GUIDES[0]?.id ? " is-active" : ""}" role="tab" data-tab="${escapeHtml(guide.id)}" aria-selected="${guide.id === MCP_CONNECT_GUIDES[0]?.id ? "true" : "false"}">${escapeHtml(guide.label)}</button>`,
-  ).join("\n");
-  const guidePanelsHtml = MCP_CONNECT_GUIDES.map((guide) =>
-    renderConnectGuide(guide, connectTemplateValues),
-  ).join("\n");
+  const resolvedGuideId = resolveMcpConnectGuideId(requestedGuide);
+  const activeGuideId = guides.some((guide) => guide.id === resolvedGuideId)
+    ? resolvedGuideId
+    : (guides[0]?.id ?? "claude");
+  const guideTabsHtml = guides
+    .map(
+      (guide) =>
+        `<button type="button" class="tab${guide.id === activeGuideId ? " is-active" : ""}" role="tab" id="mcp-guide-tab-${escapeHtml(guide.id)}" data-tab="${escapeHtml(guide.id)}" aria-controls="mcp-guide-panel-${escapeHtml(guide.id)}" aria-selected="${guide.id === activeGuideId ? "true" : "false"}">${escapeHtml(guide.label)}</button>`,
+    )
+    .join("\n");
+  const guidePanelsHtml = guides
+    .map((guide) =>
+      renderConnectGuide(
+        guide,
+        activeGuideId,
+        connectTemplateValues,
+        messages.mcpCopy,
+      ),
+    )
+    .join("\n");
+  const organizationSelectorHtml =
+    safeUserCode && organizations.length > 1
+      ? `<div class="field">
+        <label for="organizationId">${localize(connectMessages.organization)}</label>
+        <div class="select-wrap">
+        <select id="organizationId">
+          ${organizations
+            .map(
+              (organization) =>
+                `<option value="${escapeHtml(organization.id)}"${organization.id === defaultOrganizationId ? " selected" : ""}>${escapeHtml(organization.name)}${organization.domain ? ` (${escapeHtml(organization.domain)})` : ""}</option>`,
+            )
+            .join("")}
+        </select>
+        <span class="chev" aria-hidden="true"></span>
+        </div>
+      </div>`
+      : "";
   const setupHtml = safeUserCode
     ? ""
     : `
   <div class="mcp-url-block">
-    <div class="section-label">Your MCP URL</div>
+    <div class="section-label">${localize(connectMessages.urlTitle)}</div>
     <div class="url-row">
       <code id="mcpUrlValue">${safeMcpUrl}</code>
-      <button type="button" class="ghost" data-copy="mcpUrlValue" aria-label="Copy MCP URL">Copy</button>
+      <button type="button" class="ghost" data-copy="mcpUrlValue" aria-label="${localize(`${messages.mcpCopy} ${connectMessages.urlTitle}`)}">${localize(messages.mcpCopy)}</button>
     </div>
   </div>
 
   <details id="assistantSetup" class="hosts">
     <summary>
-      <span class="connections-title">Assistant setup</span>
-      <span class="connections-state">MCP URL guides</span>
+      <span class="connections-title">${localize(messages.mcpClientSetup)}</span>
+      <span class="connections-state">${localize(connectMessages.guidesLabel)}</span>
       <span class="chev" aria-hidden="true"></span>
     </summary>
     <div class="hosts-body">
-      <div class="section-label">Pick your AI assistant</div>
-      <div class="tabs" role="tablist" aria-label="Choose your AI assistant">
+      <div class="section-label">${localize(messages.mcpChooseAssistant)}</div>
+      <div class="tabs" role="tablist" aria-label="${localize(messages.mcpChooseAssistant)}">
         ${guideTabsHtml}
       </div>
       ${guidePanelsHtml}
@@ -521,28 +595,28 @@ function renderConnectPage(params: {
   const tokenAdvancedOptionsHtml = safeUserCode
     ? ""
     : `
-        <details class="advanced">
+      <details class="advanced">
           <summary>
-            Advanced options
+            ${localize(connectMessages.advancedOptions)}
             <span class="chev" aria-hidden="true"></span>
           </summary>
           <div class="advanced-body">
             <div class="field">
-              <label for="label">Label (optional)</label>
-              <input id="label" type="text" placeholder="e.g. Claude Code on my laptop" maxlength="120" />
+              <label for="label">${localize(connectMessages.labelOptional)}</label>
+              <input id="label" type="text" placeholder="${localize(connectMessages.labelPlaceholder)}" maxlength="120" />
             </div>
             <div class="field">
-              <label for="ttl">Expires in (days, 1–365)</label>
+              <label for="ttl">${localize(connectMessages.expiresInDays)}</label>
               <input id="ttl" type="number" min="1" max="365" value="${DEFAULT_TOKEN_TTL_DAYS}" />
             </div>
           </div>
         </details>`;
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${escapeHtml(locale)}" dir="${direction}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Connect ${safeApp}</title>
+<title>${localize(connectMessages.pageTitle)}</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -582,10 +656,7 @@ function renderConnectPage(params: {
     color: var(--text); flex-shrink: 0;
   }
   .flow-mark { width: 26px; height: auto; display: block; }
-  .flow .agent-symbol {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.95rem; font-weight: 700; letter-spacing: -0.04em;
-  }
+  .flow-terminal { width: 22px; height: 22px; display: block; }
   .flow .conn {
     width: 30px; height: 1px; flex-shrink: 0;
     background: linear-gradient(90deg, transparent, var(--border-strong), transparent);
@@ -606,7 +677,7 @@ function renderConnectPage(params: {
     display: flex; align-items: center; justify-content: space-between;
     gap: 0.75rem; border: 1px solid var(--border);
     border-radius: 8px; padding: 0.5rem 0.65rem; margin: 0 0 0.9rem;
-    background: var(--panel-soft); color: var(--muted);
+    background: var(--panel-soft); color: var(--muted); line-height: 1.2rem;
   }
   .device-strip .label {
     font-size: 0.76rem; font-weight: 560; color: var(--subtle);
@@ -615,6 +686,11 @@ function renderConnectPage(params: {
     font-size: 0.78rem; font-weight: 650;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     letter-spacing: 0.08em; color: var(--muted);
+  }
+  .scope-notice {
+    margin: 0 0 0.9rem; padding: 0.65rem 0.75rem;
+    border: 1px solid var(--border-strong); border-radius: 8px;
+    color: var(--muted); font-size: 0.8rem; line-height: 1.4;
   }
   button {
     cursor: pointer; font: inherit; font-weight: 600; border: none;
@@ -657,9 +733,9 @@ function renderConnectPage(params: {
   .advanced { margin: 0 0 1rem; }
   .advanced > summary {
     list-style: none; cursor: pointer; user-select: none;
-    display: flex; align-items: center; justify-content: center; gap: 0.35rem;
+    display: flex; align-items: center; justify-content: space-between; gap: 0.35rem;
     color: var(--subtle); font-size: 0.8rem; font-weight: 500;
-    padding: 0.5rem 0; text-align: center;
+    padding: 0.65rem 0; text-align: left;
   }
   .advanced > summary::-webkit-details-marker { display: none; }
   .advanced > summary:hover { color: var(--muted); }
@@ -668,7 +744,8 @@ function renderConnectPage(params: {
   .advanced > summary .chev {
     width: 7px; height: 7px; border-right: 1.5px solid currentColor;
     border-bottom: 1.5px solid currentColor; transform: rotate(45deg);
-    transition: transform 0.15s ease; margin-top: -3px;
+    transition: transform 0.15s ease; margin: -3px 0.25rem 0 auto;
+    flex: 0 0 auto;
   }
   .advanced[open] > summary .chev { transform: rotate(225deg); margin-top: 2px; }
   .advanced-body {
@@ -678,23 +755,36 @@ function renderConnectPage(params: {
   .field:last-child { margin-bottom: 0; }
   .field label { display: block; font-size: 0.78rem; color: var(--muted);
     margin-bottom: 0.35rem; }
-  .field input {
+  .field input, .field select {
     width: 100%; padding: 0.6rem 0.7rem; font: inherit; color: var(--text);
     background: var(--panel-2); border: 1px solid var(--border-strong);
     border-radius: 8px;
   }
-  .field input:focus-visible {
+  .select-wrap { position: relative; }
+  .select-wrap select {
+    appearance: none; -webkit-appearance: none;
+    padding: 0.5rem 2.4rem 0.5rem 0.65rem; font-size: 0.78rem;
+    line-height: 1.2rem; cursor: pointer;
+  }
+  .select-wrap .chev {
+    position: absolute; top: 50%; right: 1rem; width: 7px; height: 7px;
+    border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted);
+    transform: translateY(-70%) rotate(45deg); pointer-events: none;
+    transition: transform 0.15s ease;
+  }
+  .select-wrap:has(select:open) .chev { transform: translateY(-30%) rotate(225deg); }
+  .field input:focus-visible, .field select:focus-visible {
     outline: none; border-color: var(--ring);
     box-shadow: 0 0 0 3px rgba(250,250,250,0.12);
   }
   .connections {
-    margin-top: 1.1rem; border-top: 1px solid var(--border);
-    padding-top: 0.35rem;
+    margin-top: 0; border-top: 1px solid var(--border);
   }
   .connections > summary {
     list-style: none; cursor: pointer; user-select: none;
     display: flex; align-items: center; gap: 0.55rem;
-    min-height: 2.2rem; color: var(--muted); font-size: 0.82rem;
+    min-height: 2.75rem; padding: 0.65rem 0;
+    color: var(--muted); font-size: 0.82rem;
   }
   .connections > summary::-webkit-details-marker { display: none; }
   .connections > summary:focus-visible {
@@ -708,8 +798,12 @@ function renderConnectPage(params: {
   .connections .chev {
     width: 7px; height: 7px; border-right: 1.5px solid currentColor;
     border-bottom: 1.5px solid currentColor; transform: rotate(45deg);
-    transition: transform 0.15s ease; margin: -3px 0 0 0.15rem;
+    transition: transform 0.15s ease; margin: -3px 0 0 auto;
   }
+  .connections > summary > .connections-state:not(.hidden) + .chev {
+    margin-left: 0.15rem;
+  }
+  .connections > summary > .chev { margin-right: 0.25rem; }
   .connections[open] .chev { transform: rotate(225deg); margin-top: 2px; }
   .token-list { padding-top: 0.4rem; }
   .tok { display: flex; align-items: center; justify-content: space-between;
@@ -718,6 +812,10 @@ function renderConnectPage(params: {
   .tok:last-child { border-bottom: none; }
   .tok .meta { color: var(--subtle); font-size: 0.74rem; margin-top: 0.1rem; }
   .tok.revoked { opacity: 0.45; }
+  .pstate { font-size: 0.68rem; padding: 0.05rem 0.4rem; margin-inline-start: 0.4rem;
+    border: 1px solid var(--border); border-radius: 999px; color: var(--subtle); }
+  .pstate.active { color: var(--ok); }
+  .pstate.suspended { color: var(--error); }
   .empty-state {
     color: var(--subtle); font-size: 0.78rem; line-height: 1.45;
     padding: 0.3rem 0 0.45rem;
@@ -770,13 +868,13 @@ function renderConnectPage(params: {
   }
   .url-row .ghost { flex: 0 0 auto; }
   .hosts {
-    margin: 0 0 1rem; border-top: 1px solid var(--border);
-    border-bottom: 1px solid var(--border); padding: 0.35rem 0;
+    margin: 0; border-top: 1px solid var(--border);
   }
   .hosts > summary {
     list-style: none; cursor: pointer; user-select: none;
     display: flex; align-items: center; gap: 0.55rem;
-    min-height: 2.2rem; color: var(--muted); font-size: 0.82rem;
+    min-height: 2.75rem; padding: 0.65rem 0;
+    color: var(--muted); font-size: 0.82rem;
   }
   .hosts > summary::-webkit-details-marker { display: none; }
   .hosts > summary:focus-visible {
@@ -785,7 +883,7 @@ function renderConnectPage(params: {
   .hosts > summary .chev {
     width: 7px; height: 7px; border-right: 1.5px solid currentColor;
     border-bottom: 1.5px solid currentColor; transform: rotate(45deg);
-    transition: transform 0.15s ease; margin: -3px 0 0 0.15rem;
+    transition: transform 0.15s ease; margin: -3px 0.25rem 0 0.15rem;
   }
   .hosts[open] > summary .chev { transform: rotate(225deg); margin-top: 2px; }
   .hosts-body { padding: 0.15rem 0 0.25rem; }
@@ -850,6 +948,13 @@ function renderConnectPage(params: {
     background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.2);
   }
   .primary-link.compact { min-width: 0; }
+  .primary-link:focus-visible {
+    outline: 2px solid var(--ring); outline-offset: 2px;
+  }
+  .install-links {
+    display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.6rem;
+  }
+  .install-links .primary-link { margin: 0; }
   .copy-flash {
     color: var(--ok) !important;
     border-color: var(--ok-border) !important;
@@ -864,48 +969,59 @@ function renderConnectPage(params: {
 <body>
 <div class="card">
   <div class="hero">
-    <div class="flow" role="img" aria-label="Authorize ${safeApp}">
+    <div class="flow" role="img" aria-label="${localize(connectMessages.authorizeLabel)}">
       <span class="tile" aria-hidden="true">
         ${flowMarkSvg}
       </span>
       <span class="conn" aria-hidden="true"></span>
       <span class="tile" aria-hidden="true">
-        <span class="agent-symbol">&lt;/&gt;</span>
+        ${flowTerminalSvg}
       </span>
     </div>
 
-    <h1>${safeUserCode ? `Authorize ${safeApp} from your terminal?` : `Use ${safeApp} from your AI assistant`}</h1>
+    <h1>${safeUserCode ? localize(connectMessages.terminalTitle) : localize(connectMessages.assistantTitle)}</h1>
     <p class="identity">
-      <span>Signed in as <strong>${safeEmail}</strong></span>
+      <span>${localize(connectMessages.signedInAs)} <strong>${safeEmail}</strong></span>
     </p>
   </div>
 
   <div id="codeCallout" class="device-strip ${safeUserCode ? "" : "hidden"}">
-    <span class="label">Device code</span>
+    <span class="label">${localize(connectMessages.deviceCode)}</span>
     <span class="value" id="userCodeValue">${safeUserCode}</span>
   </div>
 
+  ${safeUserCode && catalogScope === "full" ? `<p class="scope-notice">${localize(connectMessages.fullCatalogRequested)}</p>` : ""}
+
   ${setupHtml}
 
-  <details id="staticTokenMint" class="connections static-token-mint"${safeUserCode ? " open" : ""}>
+  ${
+    safeUserCode
+      ? `<div id="staticTokenMint">
+    <div id="msg" class="msg" role="status" aria-live="polite"></div>
+    <div id="mintForm">
+      ${organizationSelectorHtml}
+      <button id="authorizeBtn" class="primary">${localize(connectMessages.authorizeDevice)}</button>
+    </div>
+  </div>`
+      : `<details id="staticTokenMint" class="connections static-token-mint">
     <summary>
-      <span class="connections-title">${safeUserCode ? "Authorize this device" : MCP_STATIC_TOKEN_FALLBACK.title}</span>
+      <span class="connections-title">${escapeHtml(staticTokenFallback.title)}</span>
       <span class="chev" aria-hidden="true"></span>
     </summary>
     <div class="static-token-body">
       <div id="msg" class="msg" role="status" aria-live="polite"></div>
       <div id="mintForm">
-        <button id="authorizeBtn" class="primary">${safeUserCode ? "Authorize device" : "Create connection token"}</button>
+        <button id="authorizeBtn" class="primary">${localize(connectMessages.createToken)}</button>
         ${tokenAdvancedOptionsHtml}
       </div>
       <div id="result" class="result-panel hidden">
-        <div class="result-title">${MCP_STATIC_TOKEN_FALLBACK.resultTitle}</div>
-        <p class="result-copy" id="resultMsg">${MCP_STATIC_TOKEN_FALLBACK.resultCopy}</p>
-        <div class="section-label">MCP config</div>
+        <div class="result-title">${escapeHtml(staticTokenFallback.resultTitle)}</div>
+        <p class="result-copy" id="resultMsg">${escapeHtml(staticTokenFallback.resultCopy)}</p>
+        <div class="section-label">${localize(messages.mcpConfig)}</div>
         <pre id="mcpJson"></pre>
         <details class="advanced">
           <summary>
-            Terminal alternative
+            ${localize(connectMessages.terminalAlternative)}
             <span class="chev" aria-hidden="true"></span>
           </summary>
           <div class="advanced-body">
@@ -914,21 +1030,39 @@ function renderConnectPage(params: {
         </details>
       </div>
     </div>
-  </details>
+  </details>`
+  }
 
   <details id="connections" class="connections">
     <summary>
-      <span class="connections-title">Existing connections</span>
+      <span class="connections-title">${localize(connectMessages.existingConnections)}</span>
       <span id="connectionsState" class="connections-state hidden" aria-live="polite"></span>
       <span class="chev" aria-hidden="true"></span>
     </summary>
-    <div id="tokenList" class="token-list"><div class="empty-state">Checking connections...</div></div>
+    <div id="tokenList" class="token-list"><div class="empty-state">${localize(connectMessages.checkingConnections)}</div></div>
+  </details>
+
+  <details id="principals" class="connections hidden">
+    <summary>
+      <span class="connections-title">${localize(connectMessages.servicePrincipals)}</span>
+      <span id="principalsState" class="connections-state hidden" aria-live="polite"></span>
+      <span class="chev" aria-hidden="true"></span>
+    </summary>
+    <div id="principalMsg" class="empty-state hidden" role="status"></div>
+    <div id="principalList" class="token-list"></div>
   </details>
 </div>
 <script>
 (function () {
   var BASE = ${JSON.stringify(joinAppPath(connectBasePath, MCP_PUBLIC_ROUTE_PREFIX + "/connect"))};
   var USER_CODE = ${JSON.stringify(safeUserCode || null)};
+  var ACTIONS = ${JSON.stringify(
+    joinAppPath(
+      connectBasePath,
+      publicFrameworkPath(`${FRAMEWORK_INTERNAL_ROUTE_PREFIX}/actions`),
+    ),
+  )};
+  var COPY = ${JSON.stringify(connectMessages)};
   var msgEl = document.getElementById("msg");
   var connectionsEl = document.getElementById("connections");
   var connectionsStateEl = document.getElementById("connectionsState");
@@ -962,7 +1096,7 @@ function renderConnectPage(params: {
     if (!node || !navigator.clipboard) return;
     navigator.clipboard.writeText(node.textContent || "").then(function () {
       var prev = btn.textContent;
-      btn.textContent = "Copied";
+      btn.textContent = ${JSON.stringify(messages.mcpCopied)};
       btn.classList.add("copy-flash");
       setTimeout(function () {
         btn.textContent = prev;
@@ -1025,14 +1159,22 @@ function renderConnectPage(params: {
     return { ok: res.ok, status: res.status, data: data };
   }
 
+  function deviceAuthorizationError(response) {
+    if (response.status === 404) return COPY.unknownDeviceCode;
+    if (response.status === 410) return COPY.expiredDeviceCode;
+    if (response.status === 409) return COPY.alreadyUsedDeviceCode;
+    if (response.status === 403) return COPY.invalidOrganization;
+    return COPY.couldNotAuthorize;
+  }
+
   async function loadTokens() {
     var listEl = document.getElementById("tokenList");
     try {
       var res = await fetch(BASE + "/tokens", { credentials: "same-origin" });
       if (!res.ok) {
-        connectionsStateEl.textContent = "Unavailable";
+        connectionsStateEl.textContent = COPY.unavailable;
         connectionsStateEl.classList.remove("hidden");
-        listEl.innerHTML = '<div class="empty-state">Could not load connections.</div>';
+        listEl.innerHTML = '<div class="empty-state">' + COPY.couldNotLoadConnections + '</div>';
         return;
       }
       var data = await res.json();
@@ -1041,7 +1183,7 @@ function renderConnectPage(params: {
         connectionsStateEl.textContent = "";
         connectionsStateEl.classList.add("hidden");
         connectionsEl.open = false;
-        listEl.innerHTML = '<div class="empty-state">Created connections will appear here for revoking later.</div>';
+        listEl.innerHTML = '<div class="empty-state">' + COPY.emptyConnections + '</div>';
         return;
       }
       var activeCount = tokens.filter(function (t) { return !t.revokedAt; }).length;
@@ -1052,49 +1194,149 @@ function renderConnectPage(params: {
         var div = document.createElement("div");
         div.className = "tok" + (t.revokedAt ? " revoked" : "");
         var when = t.createdAt ? new Date(t.createdAt).toLocaleString() : "";
-        var used = t.lastUsedAt ? " · last used " + new Date(t.lastUsedAt).toLocaleString() : "";
+        var used = t.lastUsedAt ? " · " + COPY.lastUsed + " " + new Date(t.lastUsedAt).toLocaleString() : "";
         var left = document.createElement("div");
         var label = document.createElement("div");
-        label.textContent = t.label || "(unlabeled)";
+        label.textContent = t.label || COPY.unlabeled;
         var meta = document.createElement("div");
         meta.className = "meta";
-        meta.textContent = (t.revokedAt ? "Revoked · " : "Created ") + when + used;
+        meta.textContent = (t.revokedAt ? COPY.revoked + " · " : COPY.created + " ") + when + used;
         left.appendChild(label); left.appendChild(meta);
         div.appendChild(left);
         if (!t.revokedAt) {
           var btn = document.createElement("button");
           btn.className = "ghost";
-          btn.textContent = "Revoke";
+          btn.textContent = COPY.revoke;
           btn.onclick = async function () {
             btn.disabled = true;
             var r = await postJson("/tokens/revoke", { id: t.id });
             if (r.ok) { loadTokens(); }
-            else { btn.disabled = false; showMsg("Could not revoke token."); }
+            else { btn.disabled = false; showMsg(COPY.couldNotRevoke); }
           };
           div.appendChild(btn);
         }
         listEl.appendChild(div);
       });
     } catch (e) {
-      connectionsStateEl.textContent = "Unavailable";
+      connectionsStateEl.textContent = COPY.unavailable;
       connectionsStateEl.classList.remove("hidden");
-      listEl.innerHTML = '<div class="empty-state">Could not load connections.</div>';
+      listEl.innerHTML = '<div class="empty-state">' + COPY.couldNotLoadConnections + '</div>';
+    }
+  }
+
+   // Governance view over the org's service principals. Hidden when the caller
+   // has no org (400/401/403); route failures are shown, never read as "none".
+  var principalsEl = document.getElementById("principals");
+  var principalsStateEl = document.getElementById("principalsState");
+  var principalListEl = document.getElementById("principalList");
+  var principalMsgEl = document.getElementById("principalMsg");
+  var PRINCIPAL_STATES = {
+    ungoverned: "principalUngoverned", active: "principalActive",
+    suspended: "principalSuspended", retired: "principalRetired"
+  };
+  var RISK_TIERS = { low: "riskLow", medium: "riskMedium", high: "riskHigh" };
+
+  function principalNote(text) {
+    principalMsgEl.textContent = text;
+    principalMsgEl.classList.toggle("hidden", !text);
+  }
+
+  async function setLifecycle(name, lifecycle, btn) {
+    btn.disabled = true;
+    var r = await postActionJson("set-service-principal-lifecycle", { serviceName: name, lifecycle: lifecycle });
+    await loadPrincipals();
+    if (!r.ok) principalNote(COPY.couldNotUpdatePrincipal);
+    else if (r.data && r.data.contained === false) principalNote(COPY.containmentIncomplete);
+  }
+
+  async function postActionJson(name, body) {
+    var res = await fetch(ACTIONS + "/" + name, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(body)
+    });
+    var data = null;
+    var unreadable = false;
+    try { data = await res.json(); } catch (e) { unreadable = true; }
+    return { ok: res.ok && !unreadable, status: res.status, data: data };
+  }
+
+  async function loadPrincipals() {
+    principalNote("");
+    try {
+      var res = await fetch(ACTIONS + "/list-org-service-tokens", { credentials: "same-origin" });
+       if (res.status === 400 || res.status === 401 || res.status === 403) {
+        principalsEl.classList.add("hidden");
+        return;
+      }
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      var data = await res.json();
+      var principals = (data && data.principals) || [];
+      if (!principals.length) {
+        principalsEl.classList.add("hidden");
+        return;
+      }
+      principalsEl.classList.remove("hidden");
+      var needAction = principals.filter(function (p) { return p.state === "ungoverned"; }).length;
+      principalsStateEl.textContent = needAction ? String(needAction) : "";
+      principalsStateEl.classList.toggle("hidden", needAction === 0);
+      principalListEl.innerHTML = "";
+      principals.forEach(function (p) {
+        var div = document.createElement("div");
+        div.className = "tok" + (p.state === "retired" ? " revoked" : "");
+        var left = document.createElement("div");
+        var title = document.createElement("div");
+        title.textContent = p.serviceName;
+        var badge = document.createElement("span");
+        badge.className = "pstate " + p.state;
+        badge.textContent = COPY[PRINCIPAL_STATES[p.state]] || p.state;
+        title.appendChild(badge);
+        var meta = document.createElement("div");
+        meta.className = "meta";
+        meta.textContent = p.state === "ungoverned"
+          ? COPY.principalUngovernedHint
+          : (p.ownerEmail ? COPY.principalOwner + ": " + p.ownerEmail + " · " : "") +
+            COPY.principalRisk + ": " + (COPY[RISK_TIERS[p.riskTier]] || p.riskTier);
+        left.appendChild(title); left.appendChild(meta);
+        div.appendChild(left);
+        var next = p.state === "suspended" ? "active" : p.state === "retired" ? null : "suspended";
+        if (data.canManage && next) {
+          var btn = document.createElement("button");
+          btn.className = "ghost";
+          btn.textContent = next === "active" ? COPY.resume : COPY.suspend;
+          btn.onclick = function () { setLifecycle(p.serviceName, next, btn).catch(function () { btn.disabled = false; principalNote(COPY.couldNotUpdatePrincipal); }); };
+          div.appendChild(btn);
+        }
+        principalListEl.appendChild(div);
+      });
+    } catch (e) {
+      principalsEl.classList.remove("hidden");
+      principalsStateEl.textContent = COPY.unavailable;
+      principalsStateEl.classList.remove("hidden");
+      principalNote(COPY.couldNotLoadConnections);
     }
   }
 
   document.getElementById("authorizeBtn").onclick = async function () {
     var btn = this;
-    setButtonLoading(btn, USER_CODE ? "Authorizing device..." : "Creating token...");
+    setButtonLoading(btn, USER_CODE ? COPY.authorizingDevice : COPY.creatingToken);
     clearMsg();
     try {
       if (USER_CODE) {
-        var a = await postJson("/device/authorize", { user_code: USER_CODE });
+        var orgSelect = document.getElementById("organizationId");
+        var a = await postJson(
+          "/device/authorize",
+          orgSelect
+            ? { user_code: USER_CODE, org_id: orgSelect.value }
+            : { user_code: USER_CODE },
+        );
         if (!a.ok) {
           resetButtonLoading(btn);
-          showMsg((a.data && a.data.error) || "Could not authorize this device code.");
+          showMsg(deviceAuthorizationError(a));
           return;
         }
-        showMsg("Finishing connection… you can return to your terminal.", "ok", "Device authorized");
+        showMsg(COPY.finishingConnection, "ok", COPY.deviceAuthorized);
         btn.classList.add("hidden");
         document.getElementById("mintForm").classList.add("hidden");
         var cc = document.getElementById("codeCallout");
@@ -1129,7 +1371,7 @@ function renderConnectPage(params: {
               });
               if (fresh.length > 0) {
                 clearInterval(iv);
-                showMsg("This device can now act as you — manage or revoke it below.", "ok", "Connected");
+                showMsg(COPY.connectedDescription, "ok", COPY.connected);
                 loadTokens();
                 return;
               }
@@ -1150,10 +1392,11 @@ function renderConnectPage(params: {
         var ttlEl = document.getElementById("ttl");
         var label = labelEl ? labelEl.value || undefined : undefined;
         var ttlDays = ttlEl ? parseInt(ttlEl.value, 10) || undefined : undefined;
-        var m = await postJson("/token", { label: label, ttlDays: ttlDays });
+        var activeGuide = document.querySelector('[data-tab].is-active');
+        var m = await postJson("/token", { label: label, ttlDays: ttlDays, client: activeGuide ? activeGuide.getAttribute("data-tab") : undefined });
         if (!m.ok) {
           resetButtonLoading(btn);
-          showMsg((m.data && m.data.error) || "Could not create token.");
+          showMsg(COPY.couldNotCreate);
           return;
         }
         renderResult(m.data);
@@ -1161,28 +1404,18 @@ function renderConnectPage(params: {
       loadTokens();
     } catch (e) {
       resetButtonLoading(btn);
-      showMsg("Network error. Please try again.");
+      showMsg(COPY.networkError);
     }
   };
 
   loadTokens();
+  if (!USER_CODE) loadPrincipals();
 })();
 </script>
 </body>
 </html>`;
 }
 
-// ---------------------------------------------------------------------------
-// Handler — single entry point; core-routes-plugin dispatches the subpath.
-// ---------------------------------------------------------------------------
-
-/**
- * Handle a `/mcp/connect[...]` request. The legacy
- * `/_agent-native/mcp/connect` alias is mounted too. `subpath` is the part
- * after `/connect` (empty string = the page itself, otherwise e.g. `/token`,
- * `/device/start`). The core-routes-plugin computes it from the stripped event
- * path so this module stays mount-agnostic.
- */
 export async function handleMcpConnect(
   event: H3Event,
   subpath: string,
@@ -1190,73 +1423,113 @@ export async function handleMcpConnect(
 ): Promise<Response> {
   const method = getMethod(event);
   const origin = deriveOrigin(event);
-  const basePath = configuredBasePath();
+  const basePath = getConfiguredAppBasePath();
   const appUrl = `${origin}${basePath}`;
+  // Tokens bind to an audience verifyAuth accepts, and clients installed from
+  // the identity sign in through OAuth discovery, so both use its issuer.
+  // Reached through an alias of a configured public URL, that is not appUrl.
+  const issuer = getMcpOAuthIssuer(event) ?? appUrl;
+  // Only subroutes that publish the identity resolve it, before minting
+  // anything: a refused name must neither leave a token no response returned
+  // nor block listing and revoking existing tokens.
+  const resolveIdentity = () => resolveMcpConnectIdentity(issuer, options);
+  let requestUrl: URL | null = null;
+  try {
+    requestUrl = new URL(
+      event.node?.req?.url ?? event.path ?? "/",
+      "http://an.invalid",
+    );
+  } catch {
+    requestUrl = null;
+  }
+  const requestedLocale = normalizeLocaleCode(
+    requestUrl?.searchParams.get("locale"),
+  );
+  const locale = resolveLocaleFromRequest({
+    acceptLanguage: getHeader(event, "accept-language"),
+    preference: requestedLocale ?? undefined,
+  }).locale;
   const sub = ("/" + subpath.replace(/^\/+/, "").replace(/\/+$/, "")).replace(
     /^\/$/,
     "",
   );
 
-  // ---- The connect page (GET) ------------------------------------------
   if (sub === "") {
     if (method !== "GET" && method !== "HEAD") {
       return json({ error: "Method not allowed" }, 405);
     }
+    const identity = resolveIdentity();
     const session = await getSession(event);
     if (!session?.email) {
-      // Serve the SAME login form the guard would, at this same URL — the
-      // login form reloads window.location so we re-enter here authed.
-      const loginHtml = getConfiguredLoginHtml(event);
-      if (loginHtml) return html(loginHtml, 200);
-      // Fully-open app (no auth guard): nothing to scope a mint to.
+      const loginPage = getConfiguredLoginHtml(event);
+      if (loginPage) return html(loginPage.html, loginPage.status);
       return html(
         renderConnectPage({
           connectBasePath: basePath,
           email: "(no auth configured)",
-          appName: options.appName || appLabel(appUrl, options),
-          appUrl,
-          serverId: serverName(appUrl, options),
+          identity,
           userCode: null,
+          catalogScope: null,
+          locale,
+          requestedGuide: requestUrl?.searchParams.get("guide") ?? null,
+          organizations: [],
+          defaultOrganizationId: undefined,
         }),
       );
     }
     let userCode: string | null = null;
-    try {
-      const u = new URL(
-        event.node?.req?.url ?? event.path ?? "/",
-        "http://an.invalid",
-      );
-      const raw = u.searchParams.get("user_code");
-      if (raw && USER_CODE_RE.test(raw)) userCode = raw;
-    } catch {
-      userCode = null;
-    }
+    const raw = requestUrl?.searchParams.get("user_code");
+    if (raw && USER_CODE_RE.test(raw)) userCode = raw;
+    const deviceCode = userCode
+      ? await getDeviceCodeByUserCode(userCode)
+      : null;
+    const catalogScope =
+      deviceCode?.status === "pending" &&
+      deviceCode.expiresAt != null &&
+      deviceCode.expiresAt >= Date.now()
+        ? deviceCode.catalogScope
+        : null;
+    const { organizations, defaultOrganizationId } = userCode
+      ? await resolveMcpOrgChoices(event, session)
+      : { organizations: [], defaultOrganizationId: undefined };
     return html(
       renderConnectPage({
         connectBasePath: basePath,
         email: session.email,
-        appName: options.appName || appLabel(appUrl, options),
-        appUrl,
-        serverId: serverName(appUrl, options),
+        identity,
         userCode,
+        catalogScope,
+        locale,
+        requestedGuide: requestUrl?.searchParams.get("guide") ?? null,
+        organizations,
+        defaultOrganizationId,
       }),
     );
   }
 
-  // ---- POST /token  (session-required) ---------------------------------
+  if (sub === "/identity") {
+    if (method !== "GET" && method !== "HEAD") {
+      return json({ error: "Method not allowed" }, 405);
+    }
+    return json(resolveIdentity());
+  }
+
   if (sub === "/token") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
+    const identity = resolveIdentity();
     const session = await getSession(event);
     if (!session?.email) return json({ error: "Unauthorized" }, 401);
-    if (!process.env.A2A_SECRET?.trim() && canUseDevOpenConnect(event)) {
-      return json(
-        mcpResultPayload(appUrl, options, { ownerEmail: session.email }),
-      );
+    if (
+      !readDeployCredentialEnv("A2A_SECRET")?.trim() &&
+      canUseDevOpenConnect(event)
+    ) {
+      return json(mcpResultPayload(identity, { ownerEmail: session.email }));
     }
     const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
       label?: unknown;
       ttlDays?: unknown;
       fullCatalog?: unknown;
+      client?: unknown;
     };
     const label =
       typeof body.label === "string" && body.label.trim()
@@ -1268,26 +1541,83 @@ export async function handleMcpConnect(
         ? "full"
         : undefined;
     try {
+      const { defaultOrganizationId } = await resolveMcpOrgChoices(
+        event,
+        session,
+      );
       const { token } = await mintConnectToken({
         email: session.email,
-        orgId: session.orgId,
+        orgId: defaultOrganizationId,
         label,
         ttlDays,
-        appUrl,
+        issuer,
+        requestOrigin: origin,
         ...(catalogScope ? { catalogScope } : {}),
       });
-      return json(mcpResultPayload(appUrl, options, { token }));
-    } catch {
+      await trackAgentConnected({
+        email: session.email,
+        origin: issuer,
+        appId: options.appId,
+        client: typeof body.client === "string" ? body.client : null,
+        method: "mcp",
+      });
+      return json(mcpResultPayload(identity, { token }));
+    } catch (err) {
+      if (err instanceof McpCredentialIssuanceError)
+        return issuanceErrorResponse(err);
       return json({ error: "Failed to mint token." }, 500);
     }
   }
 
-  // ---- POST /device/start  (UNAUTH) ------------------------------------
   if (sub === "/device/start") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     try {
-      const row = await createDeviceCode();
-      const verificationUri = `${appUrl}${MCP_PUBLIC_ROUTE_PREFIX}/connect`;
+      let parsedBody: unknown;
+      try {
+        parsedBody = await readBody(event);
+      } catch {
+        return json({ error: "Invalid request body." }, 400);
+      }
+      if (
+        parsedBody != null &&
+        (typeof parsedBody !== "object" || Array.isArray(parsedBody))
+      ) {
+        return json({ error: "Invalid request body." }, 400);
+      }
+      const body = (parsedBody ?? {}) as {
+        fullCatalog?: unknown;
+        client?: unknown;
+        purpose?: unknown;
+      };
+      if (
+        body.fullCatalog !== undefined &&
+        typeof body.fullCatalog !== "boolean"
+      ) {
+        return json({ error: "fullCatalog must be a boolean." }, 400);
+      }
+      if (
+        body.client !== undefined &&
+        (typeof body.client !== "string" || body.client.length > 500)
+      ) {
+        return json({ error: "Invalid request body." }, 400);
+      }
+      if (
+        body.purpose !== undefined &&
+        body.purpose !== "agent" &&
+        body.purpose !== "credential"
+      ) {
+        return json({ error: "Invalid request body." }, 400);
+      }
+      const row = await createDeviceCode(
+        body.fullCatalog === true ? "full" : null,
+        {
+          ...(typeof body.client === "string" ? { client: body.client } : {}),
+          ...(body.purpose === "agent" || body.purpose === "credential"
+            ? { purpose: body.purpose }
+            : {}),
+        },
+      );
+      const verificationUri = `${issuer}${MCP_PUBLIC_ROUTE_PREFIX}/connect`;
       return json({
         device_code: row.deviceCode,
         user_code: row.userCode,
@@ -1304,24 +1634,50 @@ export async function handleMcpConnect(
     }
   }
 
-  // ---- POST /device/authorize  (session-required) ----------------------
   if (sub === "/device/authorize") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     const session = await getSession(event);
     if (!session?.email) return json({ error: "Unauthorized" }, 401);
     const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
       user_code?: unknown;
+      org_id?: unknown;
     };
     const userCode =
       typeof body.user_code === "string" ? body.user_code.trim() : "";
     if (!USER_CODE_RE.test(userCode)) {
       return json({ error: "Invalid user code." }, 400);
     }
-    const orgId =
-      typeof session.orgId === "string" && session.orgId.trim()
-        ? session.orgId.trim()
-        : null;
-    const result = await approveDeviceCode(userCode, session.email, orgId);
+    const requestedOrgId =
+      typeof body.org_id === "string" && body.org_id ? body.org_id : undefined;
+    const { organizations, defaultOrganizationId } = await resolveMcpOrgChoices(
+      event,
+      session,
+      requestedOrgId,
+    );
+
+    if (
+      requestedOrgId !== undefined &&
+      !organizations.some(({ id }) => id === requestedOrgId)
+    ) {
+      return json({ error: "Choose an organization you belong to." }, 403);
+    }
+    const selectedOrgId = requestedOrgId ?? defaultOrganizationId ?? null;
+    let result;
+    try {
+      await prepareConnectIssuance();
+      result = await withMcpCredentialIssuance(
+        {
+          email: session.email,
+          orgId: selectedOrgId,
+          requestOrigin: origin,
+        },
+        (tx) => approveDeviceCode(userCode, session.email, selectedOrgId, tx),
+      );
+    } catch (err) {
+      if (err instanceof McpCredentialIssuanceError)
+        return issuanceErrorResponse(err);
+      return json({ error: "Failed to mint token." }, 500);
+    }
     if (result === "not_found") {
       return json({ error: "Unknown device code." }, 404);
     }
@@ -1334,9 +1690,9 @@ export async function handleMcpConnect(
     return json({ status: "approved" });
   }
 
-  // ---- POST /device/poll  (UNAUTH) -------------------------------------
   if (sub === "/device/poll") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
+    const identity = resolveIdentity();
     const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
       device_code?: unknown;
     };
@@ -1360,68 +1716,97 @@ export async function handleMcpConnect(
     ) {
       return json({ status: "pending" });
     }
-    // status === "approved" && ownerEmail bound → mint exactly once.
-    if (!process.env.A2A_SECRET?.trim() && canUseDevOpenConnect(event)) {
-      const consumed = await consumeDeviceCode(
-        deviceCode,
-        `dev-open-${randomUUID()}`,
-      );
-      if (!consumed) {
-        const fresh = await getDeviceCode(deviceCode);
-        if (fresh?.status === "consumed") return json({ status: "consumed" });
-        return json({ status: "pending" });
-      }
-      return json({
-        status: "approved",
-        ...mcpResultPayload(appUrl, options, {
-          ownerEmail: row.ownerEmail,
-        }),
-      });
-    }
     try {
-      const jti = randomUUID();
-      // Claim a retryable minting state first. If signing or recording fails,
-      // release the row back to approved so the CLI can poll again.
-      const claimed = await claimDeviceCodeForMint(deviceCode, jti);
-      if (!claimed) {
-        const fresh = await getDeviceCode(deviceCode);
-        if (fresh?.status === "consumed") return json({ status: "consumed" });
-        return json({ status: "pending" });
-      }
-      let token: string;
-      try {
-        const orgDomain = await resolveOrgDomain(claimed.orgId ?? undefined);
-        token = await signConnectToken({
-          ownerEmail: claimed.ownerEmail!,
-          orgId: claimed.orgId,
-          orgDomain,
-          appUrl,
-          expiresIn: `${DEFAULT_TOKEN_TTL_DAYS}d`,
-          jti,
+      const devOpen =
+        !readDeployCredentialEnv("A2A_SECRET")?.trim() &&
+        canUseDevOpenConnect(event);
+      const orgDomain = await resolveOrgDomain(row.orgId ?? undefined);
+      await prepareConnectIssuance();
+      let connected = false;
+      const response = await withMcpCredentialIssuance(
+        {
+          email: row.ownerEmail,
+          orgId: row.orgId,
+          requestOrigin: origin,
+        },
+        async (tx) => {
+          const jti = randomUUID();
+          const claimed = devOpen
+            ? await consumeDeviceCode(deviceCode, jti, tx)
+            : await claimDeviceCodeForMint(deviceCode, jti, tx);
+          if (!claimed) {
+            const fresh = await getDeviceCode(deviceCode, tx);
+            if (fresh?.status === "consumed")
+              return json({ status: "consumed" });
+            if (
+              fresh?.status === "expired" ||
+              (fresh?.expiresAt != null && fresh.expiresAt < Date.now())
+            )
+              return json({ status: "expired" });
+            return json({ status: "pending" });
+          }
+          if (
+            claimed.ownerEmail !== row.ownerEmail ||
+            claimed.orgId !== row.orgId
+          ) {
+            throw new McpCredentialIssuanceError("not-member");
+          }
+          if (devOpen) {
+            return json({
+              status: "approved",
+              ...mcpResultPayload(identity, {
+                ownerEmail: row.ownerEmail!,
+                catalogScope: claimed.catalogScope,
+              }),
+            });
+          }
+          const token = await signConnectToken({
+            ownerEmail: claimed.ownerEmail!,
+            orgId: claimed.orgId,
+            orgDomain,
+            issuer,
+            expiresIn: `${DEFAULT_TOKEN_TTL_DAYS}d`,
+            jti,
+            ...(claimed.catalogScope
+              ? { catalogScope: claimed.catalogScope }
+              : {}),
+          });
+          await recordMintedToken(
+            {
+              jti,
+              ownerEmail: claimed.ownerEmail!,
+              orgId: claimed.orgId,
+              label: "Device connection",
+            },
+            tx,
+          );
+          if (!(await finishDeviceCodeMint(deviceCode, jti, tx))) {
+            throw new McpCredentialIssuanceError("unavailable");
+          }
+          connected = true;
+          return json({
+            status: "approved",
+            ...mcpResultPayload(identity, { token }),
+          });
+        },
+      );
+      if (connected && row.purpose !== "credential") {
+        await trackAgentConnected({
+          email: row.ownerEmail,
+          origin: issuer,
+          appId: options.appId,
+          client: deviceFlowClients(row.client ?? null),
+          method: "mcp",
         });
-        await recordMintedToken({
-          jti,
-          ownerEmail: claimed.ownerEmail!,
-          orgId: claimed.orgId,
-          label: "Device connection",
-        });
-        if (!(await finishDeviceCodeMint(deviceCode, jti))) {
-          return json({ status: "pending" });
-        }
-      } catch (err) {
-        await releaseDeviceCodeMint(deviceCode, jti);
-        throw err;
       }
-      return json({
-        status: "approved",
-        ...mcpResultPayload(appUrl, options, { token }),
-      });
-    } catch {
+      return response;
+    } catch (err) {
+      if (err instanceof McpCredentialIssuanceError)
+        return issuanceErrorResponse(err);
       return json({ status: "error", error: "Failed to mint token." }, 500);
     }
   }
 
-  // ---- GET /tokens  (session-required) ---------------------------------
   if (sub === "/tokens") {
     if (method !== "GET") return json({ error: "Method not allowed" }, 405);
     const session = await getSession(event);
@@ -1438,7 +1823,6 @@ export async function handleMcpConnect(
     });
   }
 
-  // ---- POST /tokens/revoke  (session-required) -------------------------
   if (sub === "/tokens/revoke") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     const session = await getSession(event);

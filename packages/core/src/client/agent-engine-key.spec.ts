@@ -1,16 +1,108 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const mockCallAction = vi.hoisted(() => vi.fn());
+vi.mock("./use-action.js", () => ({
+  callAction: (...args: unknown[]) => mockCallAction(...args),
+}));
+
 import {
+  deleteAgentEnginePersonalProviderSettings,
+  deleteAgentEngineProviderSettings,
+  fetchProviderModels,
+  getAgentEngineProviderKeyStatus,
   saveAgentEngineApiKey,
   saveAgentEngineProviderSettings,
+  setAgentEngineProvider,
 } from "./agent-engine-key.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("saveAgentEngineApiKey", () => {
-  it("stores provider keys through the scoped agent-engine API key route", async () => {
+  it("reads personal and overridden organization key status from the secrets endpoint", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify([
+            {
+              key: "OPENAI_API_KEY",
+              status: "set",
+              effectiveScope: "user",
+              overriddenScope: "org",
+            },
+          ]),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    await expect(getAgentEngineProviderKeyStatus("openai")).resolves.toEqual({
+      status: "set",
+      effectiveScope: "user",
+      overriddenScope: "org",
+      personalKeyPresent: true,
+      organizationKeyPresent: true,
+    });
+  });
+
+  it("removes the current user's personal provider settings", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await deleteAgentEnginePersonalProviderSettings("anthropic");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/agent-engine/api-key",
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({ provider: "anthropic" }),
+      }),
+    );
+  });
+
+  it("removes an organization provider key at organization scope", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await deleteAgentEngineProviderSettings({
+      provider: "openai",
+      scope: "org",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/agent-engine/api-key",
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({ provider: "openai", scope: "org" }),
+      }),
+    );
+  });
+
+  it("surfaces a member's refused organization key removal", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error:
+              "Only organization owners and admins can set org-scoped keys",
+          }),
+          { status: 403 },
+        ),
+      ),
+    );
+
+    await expect(
+      deleteAgentEngineProviderSettings({ provider: "openai", scope: "org" }),
+    ).rejects.toThrow(
+      "Only organization owners and admins can set org-scoped keys",
+    );
+  });
+
+  it("stores provider keys at personal scope unless told otherwise", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
     });
@@ -29,9 +121,29 @@ describe("saveAgentEngineApiKey", () => {
         body: JSON.stringify({
           key: "OPENAI_API_KEY",
           value: "sk-example",
+          scope: "user",
         }),
       },
     );
+  });
+
+  it("stores an organization key when the caller chose Organization", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await saveAgentEngineApiKey({
+      provider: "anthropic",
+      apiKey: "sk-ant-example",
+      scope: "org",
+    });
+
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({
+      key: "ANTHROPIC_API_KEY",
+      value: "sk-ant-example",
+      scope: "org",
+    });
   });
 
   it("stores OpenAI endpoint settings without requiring a new API key", async () => {
@@ -53,6 +165,7 @@ describe("saveAgentEngineApiKey", () => {
         body: JSON.stringify({
           key: "OPENAI_API_KEY",
           baseUrl: "https://gateway.example/v1",
+          scope: "user",
         }),
       },
     );
@@ -91,5 +204,255 @@ describe("saveAgentEngineApiKey", () => {
         apiKey: "sk-or-example",
       }),
     ).rejects.toThrow("Could not save provider settings (HTTP 502).");
+  });
+});
+
+describe("fetchProviderModels", () => {
+  afterEach(() => mockCallAction.mockReset());
+
+  it("checks the pasted key through check-provider-key and returns the models it reaches", async () => {
+    mockCallAction.mockResolvedValue({
+      ok: true,
+      provider: "anthropic",
+      models: ["claude-a", 42],
+      checkedAt: 1,
+    });
+
+    await expect(
+      fetchProviderModels({ provider: "anthropic", key: " sk-ant-fake " }),
+    ).resolves.toEqual({
+      ok: true,
+      provider: "anthropic",
+      models: ["claude-a"],
+      checkedAt: 1,
+    });
+    expect(mockCallAction).toHaveBeenCalledWith("check-provider-key", {
+      provider: "anthropic",
+      key: "sk-ant-fake",
+    });
+  });
+
+  it("resolves a provider's rejection as a verdict", async () => {
+    const verdict = {
+      ok: false,
+      provider: "groq",
+      models: [],
+      code: "rejected",
+      reason: "Groq keys start with gsk_.",
+      status: 401,
+      expectedPrefix: "gsk_",
+      checkedAt: 2,
+    };
+    mockCallAction.mockResolvedValue(verdict);
+
+    await expect(
+      fetchProviderModels({ provider: "groq", scope: "org" }),
+    ).resolves.toEqual(verdict);
+    expect(mockCallAction).toHaveBeenCalledWith("check-provider-key", {
+      provider: "groq",
+      scope: "org",
+    });
+  });
+
+  it("throws when the check itself can't run", async () => {
+    mockCallAction.mockRejectedValue(new Error("Not authenticated."));
+
+    await expect(fetchProviderModels({ provider: "openai" })).rejects.toThrow(
+      "Not authenticated.",
+    );
+  });
+
+  it("throws on a response it can't read instead of reporting no models", async () => {
+    mockCallAction.mockResolvedValue({ ok: true });
+
+    await expect(fetchProviderModels({ provider: "openai" })).rejects.toThrow(
+      "Could not read the key check response.",
+    );
+  });
+});
+
+describe("setAgentEngineProvider", () => {
+  function response(body: unknown, status = 200): Response {
+    return new Response(
+      typeof body === "string" ? body : JSON.stringify(body),
+      { status },
+    );
+  }
+
+  function observeConfiguredChanges(): ReturnType<typeof vi.fn> {
+    const dispatchEvent = vi.fn();
+    class FakeCustomEvent {
+      constructor(readonly type: string) {}
+    }
+    vi.stubGlobal("window", {
+      dispatchEvent,
+      location: { pathname: "/settings" },
+    });
+    vi.stubGlobal("CustomEvent", FakeCustomEvent);
+    return dispatchEvent;
+  }
+
+  it.each([
+    {
+      name: "a bare result",
+      body: { ok: true, engine: "ai-sdk:openai", model: "gpt-5.4" },
+    },
+    {
+      name: "an enveloped result",
+      body: {
+        result: {
+          ok: true,
+          engine: "ai-sdk:openai",
+          model: "gpt-5.4",
+        },
+      },
+    },
+    {
+      name: "a stringified result",
+      body: JSON.stringify(
+        JSON.stringify({
+          ok: true,
+          engine: "ai-sdk:openai",
+          model: "gpt-5.4",
+        }),
+      ),
+    },
+    {
+      name: "an enveloped stringified result",
+      body: {
+        result: JSON.stringify({
+          ok: true,
+          engine: "ai-sdk:openai",
+          model: "gpt-5.4",
+        }),
+      },
+    },
+  ])("accepts $name and returns the saved selection", async ({ body }) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(body)));
+    const dispatchEvent = observeConfiguredChanges();
+
+    await expect(
+      setAgentEngineProvider({ provider: "openai", model: "gpt-4o" }),
+    ).resolves.toEqual({ engine: "ai-sdk:openai", model: "gpt-5.4" });
+    expect(dispatchEvent).toHaveBeenCalledOnce();
+    expect(dispatchEvent.mock.calls[0]?.[0]).toMatchObject({
+      type: "agent-engine:configured-changed",
+    });
+  });
+
+  it.each([
+    ["bare error", "Error: optional packages are not installed"],
+    ["bare warning", "Warning: credentials are not configured"],
+    ["enveloped error", { error: "Engine selection failed" }],
+    [
+      "failed envelope with an actionable error",
+      { ok: false, error: "Engine selection failed" },
+    ],
+    [
+      "warning envelope",
+      {
+        warning: "Credentials are not configured",
+        result: {
+          ok: true,
+          engine: "ai-sdk:openai",
+          model: "gpt-5.4",
+        },
+      },
+    ],
+    ["nested error", { result: "Error: engine unavailable" }],
+    [
+      "contradictory failed envelope",
+      {
+        ok: false,
+        result: {
+          ok: true,
+          engine: "ai-sdk:openai",
+          model: "gpt-5.4",
+        },
+      },
+    ],
+    [
+      "structured envelope error",
+      {
+        error: { message: "Engine selection failed" },
+        result: {
+          ok: true,
+          engine: "ai-sdk:openai",
+          model: "gpt-5.4",
+        },
+      },
+    ],
+    [
+      "nested failed envelope",
+      {
+        result: {
+          ok: false,
+          result: {
+            ok: true,
+            engine: "ai-sdk:openai",
+            model: "gpt-5.4",
+          },
+        },
+      },
+    ],
+    [
+      "null envelope error",
+      {
+        error: null,
+        result: {
+          ok: true,
+          engine: "ai-sdk:openai",
+          model: "gpt-5.4",
+        },
+      },
+    ],
+    [
+      "malformed envelope success marker",
+      {
+        ok: "true",
+        result: {
+          ok: true,
+          engine: "ai-sdk:openai",
+          model: "gpt-5.4",
+        },
+      },
+    ],
+    [
+      "explicit failure",
+      { ok: false, engine: "ai-sdk:openai", model: "gpt-5.4" },
+    ],
+    ["missing success marker", { engine: "ai-sdk:openai", model: "gpt-5.4" }],
+    ["wrong engine", { ok: true, engine: "anthropic", model: "gpt-5.4" }],
+    ["missing model", { ok: true, engine: "ai-sdk:openai" }],
+    ["empty response", ""],
+    ["truncated response", '{"ok":true,"engine":"ai-sdk:openai"'],
+  ])(
+    "rejects %s without dispatching a configured event",
+    async (_name, body) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(body)));
+      const dispatchEvent = observeConfiguredChanges();
+
+      await expect(
+        setAgentEngineProvider({ provider: "openai", model: "gpt-4o" }),
+      ).rejects.toThrow();
+      expect(dispatchEvent).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves a bare HTTP-200 action error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          response(
+            'Error: Engine "ai-sdk:openai" requires optional packages that are not installed in this app.',
+          ),
+        ),
+    );
+
+    await expect(
+      setAgentEngineProvider({ provider: "openai", model: "gpt-4o" }),
+    ).rejects.toThrow("requires optional packages");
   });
 });

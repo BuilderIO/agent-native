@@ -1,0 +1,1042 @@
+import { fail } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
+import {
+  withPreparedYDocMutation,
+  type PreparedYDocMutationLease,
+} from "@agent-native/core/collab";
+import { getDbExec, type DbExec } from "@agent-native/core/db";
+import type {
+  ResourceSuggestion,
+  SuggestionAdapter,
+  SuggestionOperation,
+} from "@agent-native/core/review";
+import {
+  prepareTransactionalChange,
+  type TransactionalChange,
+} from "@agent-native/core/server";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { prosemirrorJSONToYXmlFragment } from "@tiptap/y-tiptap";
+import { drizzle } from "drizzle-orm/pg-proxy";
+
+import {
+  lockPrimaryBlocksFields,
+  persistBlocksFieldIdentity,
+} from "../../actions/_blocks-field-identity.js";
+import { accessibleDocumentIds } from "../../actions/_document-access.js";
+import {
+  documentContentHash,
+  documentRevisionToken,
+} from "../../actions/_document-edit-mutation.js";
+import { hasSuggestionBodyTarget } from "../../actions/_suggestion-eligibility.js";
+import { commentIdForIdempotency } from "../../actions/add-comment.js";
+import {
+  SUPPORTED_SUGGESTION_MARKS,
+  suggestionFrameShape,
+  suggestionNodeRole,
+} from "../../app/components/editor/suggestions/model.js";
+import { reanchoredCommentQuote } from "../../shared/comment-reanchor.js";
+import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
+import { mergeDocumentBodyIntents } from "../../shared/document-intent-merge.js";
+import { nfmToDoc } from "../../shared/nfm.js";
+import { contentSuggestionPath } from "../../shared/suggestion-link.js";
+import { resolveMarkdownSuggestionRange } from "../../shared/suggestion-rebase.js";
+import { schema } from "../db/index.js";
+import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
+import { commentThreadDigest } from "./comment-ai.js";
+import { recordDocumentBodyIntent } from "./document-body-intents.js";
+import { recordDocumentHistoryTransition } from "./document-history.js";
+import { syncPrivateCalloutReferences } from "./private-icon-references.js";
+
+export const CONTENT_DOCUMENT_SUGGESTION_ADAPTER = "content.document-markdown";
+
+type MarkdownOperationPayload = {
+  markdown: string;
+  changedText?: string;
+};
+
+type MarkdownRange = { from: number; to: number };
+
+type MarkdownOperationAnchor = MarkdownRange & {
+  prefix: string;
+  suffix: string;
+  siblingRanges?: MarkdownRange[];
+};
+
+function markdownPayload(
+  value: unknown,
+  label: "before" | "after",
+): MarkdownOperationPayload {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    typeof (value as { markdown?: unknown }).markdown !== "string"
+  ) {
+    throw new Error(
+      `Content suggestions require ${label} as an object like {"markdown": "<the full current page Markdown>", "changedText": "<just the changed segment>"} — received ${value === null ? "null" : typeof value === "string" ? "a string; pass the object itself, not a JSON-encoded string" : typeof value}.`,
+    );
+  }
+  const payload = value as MarkdownOperationPayload;
+  if (payload.markdown.length > 1_000_000) {
+    throw new Error("Content suggestion payload is too large");
+  }
+  return payload;
+}
+
+function validateOperations(
+  operations: SuggestionOperation[],
+): SuggestionOperation[] {
+  if (operations.length !== 1) {
+    throw new Error(
+      "Content v1 accepts one independently reviewable edit per suggestion",
+    );
+  }
+  const operation = operations[0]!;
+  if (
+    ![
+      "insert_text",
+      "delete_text",
+      "replace_text",
+      "add_text_block",
+      "set_inline_mark",
+    ].includes(operation.kind)
+  ) {
+    throw new Error(
+      `Unsupported Content suggestion operation: ${operation.kind}`,
+    );
+  }
+  if (operation.schemaVersion !== 1 || operation.targetId !== "body") {
+    throw new Error(
+      "Content suggestions must target the version 1 Page body grammar",
+    );
+  }
+  const before = markdownPayload(operation.before, "before");
+  const after = markdownPayload(operation.after, "after");
+  if (before.markdown === after.markdown) {
+    throw new Error("A suggestion must change the Page body");
+  }
+  return operations;
+}
+
+function operationAnchor(operation: SuggestionOperation) {
+  const anchor = operation.anchor as Partial<MarkdownOperationAnchor> | null;
+  if (
+    !anchor ||
+    !Number.isInteger(anchor.from) ||
+    !Number.isInteger(anchor.to) ||
+    typeof anchor.prefix !== "string" ||
+    typeof anchor.suffix !== "string"
+  ) {
+    throw new Error(
+      `Content suggestions require anchor as an object like {"from": <number>, "to": <number>, "prefix": "<text before the change>", "suffix": "<text after the change>"} — received ${anchor === null || anchor === undefined ? "no anchor" : typeof anchor === "string" ? "a string; pass the object itself, not a JSON-encoded string" : typeof anchor}.`,
+    );
+  }
+  return anchor as MarkdownOperationAnchor;
+}
+
+export function applyMarkdownSuggestionOperation(
+  currentMarkdown: string,
+  operation: SuggestionOperation,
+) {
+  const before = markdownPayload(operation.before, "before");
+  const after = markdownPayload(operation.after, "after");
+  if (currentMarkdown === before.markdown) return after.markdown;
+  if (
+    typeof before.changedText !== "string" ||
+    typeof after.changedText !== "string"
+  ) {
+    return null;
+  }
+  operationAnchor(operation);
+  const range = resolveMarkdownSuggestionRange(currentMarkdown, operation);
+  if (!range) return null;
+  const { from, to } = range;
+  return `${currentMarkdown.slice(0, from)}${after.changedText}${currentMarkdown.slice(to)}`;
+}
+
+// Suggestions saved separately from the same Page text don't list each other
+// as siblings, so accepting one can remove the context another is anchored
+// to. Each accepted one is a range of that shared text whose bytes may now
+// differ; every other byte must still match for the placement to succeed.
+// Match on the operation's full before-text, not the base revision token:
+// the same text recurs under many body revisions, and Comment AI suggestions
+// carry the Page's updatedAt instead of a body token.
+async function acceptedRangesOnSameText(
+  tx: DbExec,
+  suggestion: { id: string; resourceId: string },
+  beforeMarkdown: string,
+): Promise<MarkdownRange[]> {
+  const rows = (
+    await tx.execute({
+      sql: `SELECT o.anchor_json FROM agent_review_suggestions s
+            INNER JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id
+            WHERE s.resource_type = 'document' AND s.resource_id = ? AND s.adapter_kind = ?
+              AND s.status = 'accepted' AND s.id <> ?
+              AND (o.before_json::jsonb ->> 'markdown') = ?`,
+      args: [
+        suggestion.resourceId,
+        CONTENT_DOCUMENT_SUGGESTION_ADAPTER,
+        suggestion.id,
+        beforeMarkdown,
+      ],
+    })
+  ).rows;
+  return rows.flatMap((row) => {
+    const anchor = JSON.parse(
+      String(row.anchor_json),
+    ) as Partial<MarkdownRange>;
+    return Number.isInteger(anchor.from) &&
+      Number.isInteger(anchor.to) &&
+      anchor.from! >= 0 &&
+      anchor.from! <= anchor.to! &&
+      anchor.to! <= beforeMarkdown.length
+      ? [{ from: anchor.from!, to: anchor.to! }]
+      : [];
+  });
+}
+
+function withSiblingRanges(
+  operation: SuggestionOperation,
+  ranges: MarkdownRange[],
+): SuggestionOperation {
+  const anchor = operationAnchor(operation);
+  const merged: MarkdownRange[] = [];
+  for (const range of [...(anchor.siblingRanges ?? []), ...ranges].sort(
+    (left, right) => left.from - right.from || left.to - right.to,
+  )) {
+    const last = merged[merged.length - 1];
+    if (last && range.from < last.to) last.to = Math.max(last.to, range.to);
+    else merged.push({ ...range });
+  }
+  return { ...operation, anchor: { ...anchor, siblingRanges: merged } };
+}
+
+function documentFromContext(ctx: Record<string, unknown> | undefined) {
+  const access = ctx?.suggestionAccess as
+    | { resource?: Record<string, unknown> }
+    | undefined;
+  return access?.resource;
+}
+
+function matchesDocumentRevision(
+  baseRevision: string,
+  document: {
+    bodyRevision?: unknown;
+    content?: unknown;
+    updatedAt?: unknown;
+  },
+) {
+  const canonicalRevision =
+    typeof document.bodyRevision === "number" &&
+    Number.isSafeInteger(document.bodyRevision) &&
+    typeof document.content === "string"
+      ? documentRevisionToken(document.bodyRevision, document.content)
+      : null;
+  return (
+    baseRevision === canonicalRevision || baseRevision === document.updatedAt
+  );
+}
+
+type ContentDecisionCoordination = {
+  ydoc: PreparedYDocMutationLease;
+  sync: TransactionalChange;
+  deferPersistence?: boolean;
+  finalContent?: string;
+};
+
+export function publishPersistedAcceptedSuggestion(
+  sync: TransactionalChange,
+  result: unknown,
+): void {
+  if (
+    sync.isPersisted() &&
+    ((result as { decision?: { outcome?: string } }).decision?.outcome ===
+      "accepted" ||
+      (result as { suggestions?: { status?: string }[] }).suggestions?.some(
+        (suggestion) => suggestion.status === "accepted",
+      ))
+  ) {
+    sync.publish();
+  }
+}
+
+export function acceptedSuggestionRequestSource(
+  requestSource: unknown,
+): "agent" | undefined {
+  return requestSource === "agent" ? "agent" : undefined;
+}
+
+let contentEditorSchema:
+  | ReturnType<typeof createContentEditorStructuralSchema>
+  | undefined;
+
+type SuggestionDocumentJson = {
+  type?: string;
+  attrs?: Record<string, unknown>;
+  text?: string;
+  marks?: Array<{ type?: string; attrs?: Record<string, unknown> }>;
+  content?: SuggestionDocumentJson[];
+};
+
+function unsupportedNotionSpanAttrs(
+  attrs: Record<string, unknown> | undefined,
+) {
+  const { underline: _underline, ...remaining } = attrs ?? {};
+  const unsupported = Object.fromEntries(
+    Object.entries(remaining).filter(
+      ([name, value]) =>
+        value !== null && (name !== "attrsJson" || value !== "{}"),
+    ),
+  );
+  return Object.keys(unsupported).length ? unsupported : null;
+}
+
+function unsupportedRawNotionSpanAttrs(markdown: string) {
+  return Array.from(markdown.matchAll(/<span\b([^>]*)>/gi)).flatMap(
+    ([, source]) => {
+      const attrs = Object.fromEntries(
+        Array.from(
+          source!.matchAll(
+            /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g,
+          ),
+        )
+          .map(([, name, doubleQuoted, singleQuoted, unquoted]) => [
+            name!.toLowerCase(),
+            doubleQuoted ?? singleQuoted ?? unquoted ?? "",
+          ])
+          .filter(
+            ([name]) =>
+              !["color", "bg_color", "underline", "href"].includes(name),
+          ),
+      );
+      return Object.keys(attrs).length ? [attrs] : [];
+    },
+  );
+}
+
+function parseSuggestionMarkdown(markdown: string) {
+  contentEditorSchema ??= createContentEditorStructuralSchema();
+  return contentEditorSchema.nodeFromJSON(nfmToDoc(markdown));
+}
+
+function unsupportedSuggestionStructure(
+  node: SuggestionDocumentJson,
+  path: string[] = [],
+  result: unknown[] = [],
+): unknown[] {
+  if (node.type === "text") {
+    for (const mark of node.marks ?? []) {
+      if (mark.type === "notionSpan") {
+        const attrs = unsupportedNotionSpanAttrs(mark.attrs);
+        if (attrs) result.push({ path, mark: { type: mark.type, attrs } });
+        continue;
+      }
+      if (
+        !SUPPORTED_SUGGESTION_MARKS.has(
+          mark.type as Parameters<typeof SUPPORTED_SUGGESTION_MARKS.has>[0],
+        )
+      ) {
+        result.push({ path, mark: { type: mark.type, attrs: mark.attrs } });
+      }
+    }
+    return result;
+  }
+  const role = suggestionNodeRole(node.type ?? "");
+  if (role === "frozen") {
+    result.push({ path, node });
+    return result;
+  }
+  if (role === "frame") {
+    result.push({
+      path,
+      frame: suggestionFrameShape(
+        node.type ?? "",
+        node.attrs,
+        (node.content ?? []).map((child) => child.type ?? ""),
+      ),
+    });
+  }
+  for (const child of node.content ?? []) {
+    unsupportedSuggestionStructure(child, [...path, node.type ?? ""], result);
+  }
+  return result;
+}
+
+function unchangedSurround(before: string, after: string): string {
+  let prefix = 0;
+  while (
+    prefix < before.length &&
+    prefix < after.length &&
+    before[prefix] === after[prefix]
+  ) {
+    prefix += 1;
+  }
+  let suffix = 0;
+  const maxSuffix = Math.min(before.length, after.length) - prefix;
+  while (
+    suffix < maxSuffix &&
+    before[before.length - suffix - 1] === after[after.length - suffix - 1]
+  ) {
+    suffix += 1;
+  }
+  return `${before.slice(0, prefix)}${before.slice(before.length - suffix)}`;
+}
+
+function unsupportedStructureKey(doc: ProseMirrorNode): string {
+  return JSON.stringify(
+    unsupportedSuggestionStructure(doc.toJSON() as SuggestionDocumentJson),
+  );
+}
+
+// The formatted text each frame holds, split at every frame edge. A change can
+// keep every frame's shape and still move, rewrite, or format text on both
+// sides of a cell or frame edge; it then changes two of these runs.
+function frameTextRuns(doc: ProseMirrorNode): string[] {
+  const runs = [""];
+  const visit = (node: ProseMirrorNode) => {
+    const frame = suggestionNodeRole(node.type.name) === "frame";
+    if (frame) runs.push("");
+    if (node.isText) runs[runs.length - 1] += JSON.stringify(node.toJSON());
+    else if (node.isLeaf) runs[runs.length - 1] += "\n";
+    node.forEach(visit);
+    if (node.isBlock) runs[runs.length - 1] += "\n";
+    if (frame) runs.push("");
+  };
+  visit(doc);
+  return runs;
+}
+
+function validateSuggestionStructure(
+  beforeMarkdown: string,
+  afterMarkdown: string,
+  refusal: string,
+) {
+  const before = parseSuggestionMarkdown(beforeMarkdown);
+  const after = parseSuggestionMarkdown(afterMarkdown);
+  const surround = unsupportedStructureKey(
+    parseSuggestionMarkdown(unchangedSurround(beforeMarkdown, afterMarkdown)),
+  );
+  const afterRuns = frameTextRuns(after);
+  if (
+    unsupportedStructureKey(before) !== surround ||
+    unsupportedStructureKey(after) !== surround ||
+    frameTextRuns(before).filter((run, index) => run !== afterRuns[index])
+      .length > 1 ||
+    JSON.stringify(unsupportedRawNotionSpanAttrs(beforeMarkdown)) !==
+      JSON.stringify(unsupportedRawNotionSpanAttrs(afterMarkdown))
+  ) {
+    fail(refusal, {
+      statusCode: 422,
+      errorCode: "suggestion_structure_unsupported",
+    });
+  }
+  return after;
+}
+
+function drizzleTransactionForExec(transaction: DbExec) {
+  return drizzle(
+    async (sql, args, method) => {
+      const result = await transaction.execute({ sql, args });
+      return {
+        rows:
+          method === "all"
+            ? result.rows.map((row) =>
+                Array.isArray(row) ? row : Object.values(row),
+              )
+            : result.rows,
+      };
+    },
+    { schema },
+  );
+}
+
+async function assertSuggestionBodyTarget(
+  transaction: DbExec,
+  documentId: string,
+) {
+  const row = (
+    await transaction.execute({
+      sql: `SELECT
+              EXISTS (SELECT 1 FROM content_databases d WHERE d.document_id = ?) AS is_database,
+              EXISTS (SELECT 1 FROM content_database_items i INNER JOIN content_databases d ON d.id = i.database_id WHERE i.document_id = ? AND d.deleted_at IS NULL) AS has_membership`,
+      args: [documentId, documentId],
+    })
+  ).rows[0];
+  if (row?.is_database) {
+    fail("Collection Pages cannot receive body suggestions.", {
+      statusCode: 409,
+      errorCode: "suggestion_body_unavailable",
+    });
+  }
+  const memberships = (
+    await transaction.execute({
+      sql: `SELECT d.document_id AS database_document_id, d.system_role, p.id AS primary_id
+            FROM content_database_items i
+            INNER JOIN content_databases d ON d.id = i.database_id
+            LEFT JOIN document_property_definitions p ON p.id = d.primary_blocks_property_id AND p.database_id = d.id AND p.type = 'blocks'
+            WHERE i.document_id = ? AND d.deleted_at IS NULL
+            ORDER BY d.id`,
+      args: [documentId],
+    })
+  ).rows;
+  const ordinaryMemberships = memberships.filter(
+    (membership) => membership.system_role === null,
+  );
+  const eligibleDocumentIds = ordinaryMemberships
+    .filter((membership) => membership.primary_id)
+    .map((membership) => String(membership.database_document_id));
+  const identityDb = drizzleTransactionForExec(transaction);
+  const accessibleIds = await accessibleDocumentIds(
+    eligibleDocumentIds,
+    undefined,
+    identityDb,
+    transaction,
+  );
+  let hasAccessiblePrimary = accessibleIds.size > 0;
+  if (!hasAccessiblePrimary && !ordinaryMemberships.length) {
+    hasAccessiblePrimary = memberships.some(
+      (membership) =>
+        membership.system_role === "files" && membership.primary_id,
+    );
+  }
+  if (
+    !hasSuggestionBodyTarget({
+      hasDatabaseMembership: Boolean(row?.has_membership),
+      hasPrimaryBlocksField: hasAccessiblePrimary,
+    })
+  ) {
+    fail(
+      "This database item has no primary Blocks field for body suggestions.",
+      {
+        statusCode: 409,
+        errorCode: "suggestion_body_unavailable",
+      },
+    );
+  }
+  return memberships
+    .filter(
+      (membership) =>
+        membership.primary_id &&
+        ((membership.system_role === null &&
+          accessibleIds.has(String(membership.database_document_id))) ||
+          (membership.system_role === "files" && !ordinaryMemberships.length)),
+    )
+    .map((membership) => String(membership.primary_id));
+}
+
+function replacePreparedCollabContent(
+  lease: PreparedYDocMutationLease,
+  proseMirrorDoc: ReturnType<typeof parseSuggestionMarkdown>,
+): void {
+  prosemirrorJSONToYXmlFragment(
+    contentEditorSchema!,
+    proseMirrorDoc.toJSON(),
+    lease.doc.getXmlFragment("default"),
+  );
+}
+
+/**
+ * Accepting an AI suggestion leaves the comment that asked for it open, so its
+ * quote follows the rewritten text instead of losing its highlight.
+ */
+async function reanchorSourceComment(
+  tx: DbExec,
+  documentId: string,
+  suggestion: ResourceSuggestion,
+  before: string,
+  after: string,
+  now: string,
+) {
+  const threadId = suggestion.metadata?.sourceThreadId;
+  // Only a request-bound thread was checked against the request on create.
+  if (
+    typeof threadId !== "string" ||
+    typeof suggestion.metadata?.commentAiRequestId !== "string"
+  )
+    return;
+  const root = (
+    await tx.execute({
+      sql: "SELECT id,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset FROM document_comments WHERE document_id = ? AND thread_id = ? AND parent_id IS NULL ORDER BY created_at ASC LIMIT 1",
+      args: [documentId, threadId],
+    })
+  ).rows[0];
+  if (!root || root.quoted_text == null) return;
+  const next = reanchoredCommentQuote(
+    {
+      quotedText: String(root.quoted_text),
+      prefix: root.anchor_prefix == null ? null : String(root.anchor_prefix),
+      suffix: root.anchor_suffix == null ? null : String(root.anchor_suffix),
+      startOffset:
+        root.anchor_start_offset == null
+          ? null
+          : Number(root.anchor_start_offset),
+    },
+    before,
+    after,
+  );
+  if (!next) return;
+  await tx.execute({
+    sql: "UPDATE document_comments SET quoted_text = ?, anchor_prefix = ?, anchor_suffix = ?, anchor_start_offset = ?, updated_at = ? WHERE id = ?",
+    args: [
+      next.quotedText,
+      next.prefix,
+      next.suffix,
+      next.startOffset,
+      now,
+      String(root.id),
+    ],
+  });
+}
+
+export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
+  kind: CONTENT_DOCUMENT_SUGGESTION_ADAPTER,
+  version: 1,
+  async validateProposal(input) {
+    if (input.resourceType !== "document") {
+      throw new Error("Content suggestions are only available for Pages");
+    }
+    let document = documentFromContext(input.ctx);
+    const transaction = input.ctx?.transaction as DbExec | undefined;
+    if (transaction) {
+      const row = (
+        await transaction.execute({
+          sql: "SELECT content,body_revision,updated_at,trashed_at,source_mode,source_kind,source_path FROM documents WHERE id = ?",
+          args: [input.resourceId],
+        })
+      ).rows[0];
+      document = row
+        ? {
+            content: row.content,
+            bodyRevision: Number(row.body_revision),
+            updatedAt: row.updated_at,
+            trashedAt: row.trashed_at,
+            sourceMode: row.source_mode,
+            sourceKind: row.source_kind,
+            sourcePath: row.source_path,
+          }
+        : undefined;
+      const commentAiRequestId = input.metadata?.commentAiRequestId;
+      if (typeof commentAiRequestId === "string") {
+        const request = (
+          await transaction.execute({
+            sql: `SELECT id,document_id,thread_id,requester_email,thread_digest
+                  FROM comment_ai_requests
+                  WHERE id = ? AND document_id = ? AND requester_email = ? AND intent = 'suggest'
+                  FOR UPDATE`,
+            args: [
+              commentAiRequestId,
+              input.resourceId,
+              typeof input.ctx?.userEmail === "string"
+                ? input.ctx.userEmail
+                : "",
+            ],
+          })
+        ).rows[0];
+        if (!request)
+          throw new Error("The bound comment AI request is unavailable");
+        // The UI reviews the suggestion in this thread and accepting re-anchors
+        // its root comment, so the claimed thread must be the request's own.
+        if (input.metadata?.sourceThreadId !== String(request.thread_id)) {
+          fail("The source thread does not match the comment AI request", {
+            statusCode: 409,
+            errorCode: "comment_ai_thread_conflict",
+          });
+        }
+        const comments = (
+          await transaction.execute({
+            sql: `SELECT id,parent_id,content,resolved,quoted_text,anchor_prefix,anchor_suffix,anchor_start_offset
+                  FROM document_comments
+                  WHERE document_id = ? AND thread_id = ?
+                  FOR UPDATE`,
+            args: [request.document_id, request.thread_id],
+          })
+        ).rows.map((comment) => ({
+          id: String(comment.id),
+          parentId:
+            comment.parent_id == null ? null : String(comment.parent_id),
+          content: String(comment.content),
+          resolved: Number(comment.resolved),
+          quotedText:
+            comment.quoted_text == null ? null : String(comment.quoted_text),
+          anchorPrefix:
+            comment.anchor_prefix == null
+              ? null
+              : String(comment.anchor_prefix),
+          anchorSuffix:
+            comment.anchor_suffix == null
+              ? null
+              : String(comment.anchor_suffix),
+          anchorStartOffset:
+            comment.anchor_start_offset == null
+              ? null
+              : Number(comment.anchor_start_offset),
+        }));
+        const receiptId = commentIdForIdempotency(
+          String(request.requester_email),
+          String(request.document_id),
+          `comment-ai:${commentAiRequestId}:receipt`,
+        );
+        if (
+          commentThreadDigest(
+            comments.filter((comment) => comment.id !== receiptId),
+          ) !== request.thread_digest
+        ) {
+          fail("The comment changed before this suggestion was committed.", {
+            statusCode: 409,
+            errorCode: "suggestion_conflict",
+          });
+        }
+      }
+    }
+    if (!document) throw new Error("Document access context is unavailable");
+    if (document.trashedAt)
+      throw new Error("Trashed Pages cannot receive suggestions");
+    if (document.sourceMode || document.sourceKind || document.sourcePath) {
+      throw new Error("Source-owned Pages cannot receive suggestions");
+    }
+    if (!matchesDocumentRevision(input.baseRevision, document)) {
+      fail("The Page changed; refresh before saving this suggestion", {
+        statusCode: 409,
+        errorCode: "suggestion_conflict",
+      });
+    }
+    const exclusions = await (transaction ?? getDbExec()).execute({
+      sql: "SELECT state FROM document_sync_links WHERE document_id = ? AND state != 'unlinked' LIMIT 1",
+      args: [input.resourceId],
+    });
+    if (exclusions.rows.length) {
+      throw new Error("Externally linked Pages cannot receive suggestions yet");
+    }
+    await assertSuggestionBodyTarget(
+      transaction ?? getDbExec(),
+      input.resourceId,
+    );
+    const operations = validateOperations(input.operations);
+    const before = markdownPayload(operations[0]!.before, "before");
+    const after = markdownPayload(operations[0]!.after, "after");
+    if (document.content !== before.markdown) {
+      fail(
+        "The suggestion before-state does not match the Page; refresh before saving this suggestion",
+        {
+          statusCode: 409,
+          errorCode: "suggestion_conflict",
+        },
+      );
+    }
+    if (before.markdown.includes("<InlineDatabase")) {
+      fail("Pages with inline databases cannot receive suggestions yet.", {
+        statusCode: 409,
+        errorCode: "suggestion_body_unavailable",
+      });
+    }
+    validateSuggestionStructure(
+      before.markdown,
+      after.markdown,
+      "Suggestions can change text inside tables, callouts, toggles, and columns, but not a table's rows or cells, a callout's icon, a toggle's title, the columns themselves, images, or other content or formatting they do not support yet. Suggest a change to the text instead.",
+    );
+    return operations;
+  },
+  async coordinateDecision(context, run) {
+    const sync = await prepareTransactionalChange({
+      source: "action",
+      type: "change",
+      key: "decide-resource-suggestion",
+      owner: context.suggestion.ownerEmail ?? undefined,
+      orgId: context.suggestion.orgId ?? undefined,
+      resourceType: context.resourceType,
+      resourceId: context.resourceId,
+    });
+    const result = await withPreparedYDocMutation(
+      context.resourceId,
+      acceptedSuggestionRequestSource(context.ctx?.requestSource),
+      (ydoc) =>
+        run({
+          ydoc,
+          sync,
+          deferPersistence: context.proposalDecision === true,
+        } satisfies ContentDecisionCoordination),
+    );
+    publishPersistedAcceptedSuggestion(sync, result);
+    return result;
+  },
+  async finalizeProposalDecision(context) {
+    const coordination = context.coordination as
+      | ContentDecisionCoordination
+      | undefined;
+    if (
+      !coordination?.deferPersistence ||
+      coordination.finalContent === undefined
+    ) {
+      throw new Error("Content proposal decision coordination is incomplete");
+    }
+    const tx = context.transaction as DbExec;
+    await coordination.ydoc.persist(tx, coordination.finalContent);
+    await coordination.sync.persist(tx);
+  },
+  async apply(context) {
+    const operations = validateOperations(context.operations);
+    const operation = operations[0]!;
+    const tx = context.transaction as DbExec;
+    const coordination = context.coordination as
+      | ContentDecisionCoordination
+      | undefined;
+    if (!coordination) {
+      throw new Error("Content suggestion decision coordination is missing");
+    }
+    const current = (
+      await tx.execute({
+        sql: "SELECT id,title,content,body_revision,owner_email,org_id,updated_at,source_mode,source_kind,source_path,trashed_at FROM documents WHERE id = ?",
+        args: [context.resourceId],
+      })
+    ).rows[0];
+    if (!current) throw new Error("Document not found");
+    const currentDocument = {
+      bodyRevision: Number(current.body_revision),
+      content: String(current.content),
+    };
+    if (
+      current.source_mode ||
+      current.source_kind ||
+      current.source_path ||
+      current.trashed_at
+    ) {
+      throw new Error("This Page can no longer accept suggestions");
+    }
+    const sourceLink = await tx.execute({
+      sql: "SELECT state FROM document_sync_links WHERE document_id = ? AND state != 'unlinked' LIMIT 1",
+      args: [context.resourceId],
+    });
+    if (sourceLink.rows.length) {
+      throw new Error("Externally linked Pages cannot accept suggestions yet");
+    }
+    const currentContent = String(current.content);
+    let nextContent = applyMarkdownSuggestionOperation(
+      currentContent,
+      operation,
+    );
+    if (nextContent === null) {
+      const accepted = await acceptedRangesOnSameText(
+        tx,
+        context.suggestion,
+        markdownPayload(operation.before, "before").markdown,
+      );
+      if (accepted.length)
+        nextContent = applyMarkdownSuggestionOperation(
+          currentContent,
+          withSiblingRanges(operation, accepted),
+        );
+    }
+    if (nextContent === null) {
+      const error = new Error(
+        "The text around this suggestion changed, so it can't be placed on the current Page. It's still pending: reject it, or suggest the edit again.",
+      );
+      error.name = "SuggestionStaleError";
+      throw error;
+    }
+    const nextDocument = validateSuggestionStructure(
+      currentContent,
+      nextContent,
+      "This suggestion changes a table's rows or cells, a callout's icon, a toggle's title, a column layout, an image, or other content or formatting that suggestions do not support yet, so it cannot be accepted.",
+    );
+    if (currentContent.includes("<InlineDatabase")) {
+      fail("Pages containing inline databases cannot accept suggestions yet.", {
+        statusCode: 409,
+        errorCode: "suggestion_body_unavailable",
+      });
+    }
+    const eligiblePrimaryIds = await assertSuggestionBodyTarget(
+      tx,
+      context.resourceId,
+    );
+    const identityTx = drizzleTransactionForExec(tx);
+    await tx.execute({
+      sql: "SELECT id FROM documents WHERE id = ? FOR UPDATE",
+      args: [context.resourceId],
+    });
+    // Memberships have no document foreign key. Never wait for the table after
+    // locking the Page: other editors lock memberships before the Page.
+    try {
+      await tx.execute(
+        "LOCK TABLE content_database_items IN SHARE ROW EXCLUSIVE MODE NOWAIT",
+      );
+    } catch (error) {
+      if (
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "55P03"
+      ) {
+        fail("The Page is busy. Try accepting the suggestion again.", {
+          statusCode: 409,
+          errorCode: "suggestion_conflict",
+        });
+      }
+      throw error;
+    }
+    const primaryBlocksFields = await lockPrimaryBlocksFields(
+      identityTx,
+      context.resourceId,
+    );
+    const currentTargets = await tx.execute({
+      sql: `SELECT d.system_role, p.id FROM content_database_items i
+            INNER JOIN content_databases d ON d.id = i.database_id AND d.deleted_at IS NULL
+            LEFT JOIN document_property_definitions p ON p.id = d.primary_blocks_property_id AND p.database_id = d.id AND p.type = 'blocks'
+            WHERE i.document_id = ?`,
+      args: [context.resourceId],
+    });
+    const hasOrdinaryMembership = currentTargets.rows.some(
+      (row) => row.system_role === null,
+    );
+    const hasEligibleTarget = currentTargets.rows.some(
+      (row) =>
+        (row.system_role === null ||
+          (row.system_role === "files" && !hasOrdinaryMembership)) &&
+        eligiblePrimaryIds.includes(String(row.id)) &&
+        primaryBlocksFields.some((field) => field.propertyId === row.id),
+    );
+    if (
+      !hasEligibleTarget &&
+      (eligiblePrimaryIds.length > 0 || currentTargets.rows.length > 0)
+    ) {
+      fail(
+        "This database item has no primary Blocks field for body suggestions.",
+        {
+          statusCode: 409,
+          errorCode: "suggestion_body_unavailable",
+        },
+      );
+    }
+    replacePreparedCollabContent(coordination.ydoc, nextDocument);
+    const now = new Date().toISOString();
+    const nextBodyRevision = currentDocument.bodyRevision + 1;
+    const nextRevision = documentRevisionToken(nextBodyRevision, nextContent);
+    const intent = {
+      writerId: `suggestion:${String(current.owner_email)}`,
+      operationId: context.suggestion.id,
+      authoredBaseRevision: currentDocument.bodyRevision,
+    };
+    const planned = mergeDocumentBodyIntents({
+      authoredBaseContent: currentContent,
+      authoredCandidateContent: nextContent,
+      currentContent,
+      currentRevision: currentDocument.bodyRevision,
+      incoming: intent,
+      priorIntents: [],
+    });
+    if (planned.status !== "resolved") {
+      throw new Error(
+        "The accepted suggestion cannot preserve document structure",
+      );
+    }
+    const applied = await commitCanonicalDocumentBodyMutation({
+      write: async () => {
+        const updated = await tx.execute({
+          sql: "UPDATE documents SET content = ?, body_revision = ?, collab_body_revision = ?, updated_at = ? WHERE id = ? AND body_revision = ? AND updated_at = ? AND content = ?",
+          args: [
+            nextContent,
+            nextBodyRevision,
+            nextBodyRevision,
+            now,
+            context.resourceId,
+            currentDocument.bodyRevision,
+            current.updated_at,
+            currentContent,
+          ],
+        });
+        return updated.rowsAffected === 1;
+      },
+      afterWrite: async () => {
+        if (
+          currentContent.includes("<callout") ||
+          nextContent.includes("<callout")
+        ) {
+          const actorEmail = context.ctx?.userEmail;
+          if (typeof actorEmail !== "string" || !actorEmail) {
+            throw new Error(
+              "Authentication is required to accept a suggestion",
+            );
+          }
+          await syncPrivateCalloutReferences(identityTx, {
+            documentId: context.resourceId,
+            before: currentContent,
+            after: nextContent,
+            userEmail: actorEmail,
+            ownerEmail: String(current.owner_email),
+            orgId: current.org_id === null ? null : String(current.org_id),
+          });
+        }
+        for (const field of primaryBlocksFields) {
+          await persistBlocksFieldIdentity({
+            db: identityTx,
+            ownerEmail: field.ownerEmail,
+            documentId: context.resourceId,
+            propertyId: field.propertyId,
+            previousMarkdown: currentContent,
+            markdown: nextContent,
+            now,
+          });
+        }
+        await recordDocumentHistoryTransition({
+          db: identityTx,
+          ownerEmail: String(current.owner_email),
+          documentId: context.resourceId,
+          before: { title: String(current.title), content: currentContent },
+          after: { title: String(current.title), content: nextContent },
+          beforeBodyRevision: currentDocument.bodyRevision,
+          afterBodyRevision: nextBodyRevision,
+          cause: {
+            ctx: context.ctx as ActionRunContext | undefined,
+            operation: "accept-suggestion",
+            origin: "suggestion",
+          },
+          now,
+        });
+        await recordDocumentBodyIntent({
+          db: identityTx,
+          ownerEmail: String(current.owner_email),
+          orgId: context.suggestion.orgId ?? "",
+          documentId: context.resourceId,
+          intent,
+          candidateHash: documentContentHash(nextContent),
+          committedRevision: nextBodyRevision,
+          changedBlockIndexes: planned.changedBlockIndexes,
+          canonicalChanged: true,
+          now,
+        });
+        await reanchorSourceComment(
+          tx,
+          context.resourceId,
+          context.suggestion,
+          currentContent,
+          nextContent,
+          now,
+        );
+        if (coordination.deferPersistence) {
+          coordination.finalContent = nextContent;
+        } else {
+          await coordination.ydoc.persist(tx, nextContent);
+          await coordination.sync.persist(tx);
+        }
+      },
+    });
+    if (!applied) {
+      const error = new Error(
+        "The Page changed while accepting this suggestion",
+      );
+      error.name = "SuggestionStaleError";
+      throw error;
+    }
+    return {
+      resourceId: context.resourceId,
+      updatedAt: now,
+      revision: nextRevision,
+      baseRevision: nextRevision,
+      bodyRevision: nextBodyRevision,
+    };
+  },
+  describeOperation(operation) {
+    return operation.kind.split("_").join(" ");
+  },
+  buildUrl(resourceId, suggestionId) {
+    return contentSuggestionPath(resourceId, suggestionId);
+  },
+};

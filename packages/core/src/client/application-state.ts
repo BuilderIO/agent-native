@@ -1,7 +1,10 @@
 import { agentNativePath } from "./api-path.js";
 import { assertAgentNativeApiEnabled } from "./api-surface.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
+const pendingMutations = new Map<string, Promise<void>>();
+const mutationRevisions = new Map<string, number>();
 
 export interface ClientAppStateReadOptions {
   signal?: AbortSignal;
@@ -26,8 +29,47 @@ function buildHeaders(requestSource?: string): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
+  if (typeof window !== "undefined") {
+    headers["X-Agent-Native-Browser-Tab"] = getBrowserTabId();
+  }
   if (requestSource) headers["X-Request-Source"] = requestSource;
   return headers;
+}
+
+function browserTabHeaders(): Record<string, string> | undefined {
+  return typeof window === "undefined"
+    ? undefined
+    : { "X-Agent-Native-Browser-Tab": getBrowserTabId() };
+}
+
+function requestKey(key: string): string {
+  return `${typeof window === "undefined" ? "" : getBrowserTabId()}:${key}`;
+}
+
+export function isClientAppStateMutationPending(key: string): boolean {
+  return pendingMutations.has(requestKey(key));
+}
+
+function runClientAppStateMutation<T>(
+  key: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const id = requestKey(key);
+  const previous = pendingMutations.get(id);
+  mutationRevisions.set(id, (mutationRevisions.get(id) ?? 0) + 1);
+  const mutation = (async () => {
+    if (previous) await previous;
+    return operation();
+  })();
+  let pending!: Promise<void>;
+  const clearPending = () => {
+    if (pendingMutations.get(id) === pending) {
+      pendingMutations.delete(id);
+    }
+  };
+  pending = mutation.then(clearPending, clearPending);
+  pendingMutations.set(id, pending);
+  return mutation;
 }
 
 async function parseAppStateResponse<T>(
@@ -40,7 +82,7 @@ async function parseAppStateResponse<T>(
   } catch (err) {
     const cause = err instanceof Error ? err.message : String(err);
     const error = new Error(
-      `${operation} failed: response body could not be read: ${cause}`,
+      `${String(operation)} failed: response body could not be read: ${cause}`,
     );
     (error as { status?: number }).status = response.status;
     throw error;
@@ -53,7 +95,7 @@ async function parseAppStateResponse<T>(
     } catch {
       if (response.ok) {
         const error = new Error(
-          `${operation} returned a non-JSON ${response.status} response: ${raw.slice(
+          `${String(operation)} returned a non-JSON ${response.status} response: ${raw.slice(
             0,
             200,
           )}`,
@@ -76,7 +118,7 @@ async function parseAppStateResponse<T>(
       raw.slice(0, 200) ||
       response.statusText ||
       `HTTP ${response.status}`;
-    const error = new Error(`${operation} failed: ${message}`);
+    const error = new Error(`${String(operation)} failed: ${String(message)}`);
     (error as { status?: number }).status = response.status;
     throw error;
   }
@@ -94,18 +136,11 @@ function jsonBody(value: unknown): string {
   return body;
 }
 
-/**
- * Result of a batched read. `values` holds only the keys the server has a row
- * for; every other requested key is in `missing`. A key stored with a `null`
- * value lands in `values` with `null` and NOT in `missing` — that is how
- * "never written" stays distinguishable from "written as null/empty".
- */
 export interface ClientAppStateBatch {
   values: Record<string, unknown>;
   missing: string[];
 }
 
-/** Server caps a batch at 100 keys; stay under it when splitting. */
 const MAX_BATCH_KEYS = 100;
 
 export async function readClientAppStateMany(
@@ -114,39 +149,65 @@ export async function readClientAppStateMany(
 ): Promise<ClientAppStateBatch> {
   assertAgentNativeApiEnabled(`read application state [${keys.join(", ")}]`);
   const unique = [...new Set(keys)];
-  for (const key of unique) appStateUrl(key); // validates the key shape
+  for (const key of unique) appStateUrl(key);
   if (unique.length === 0) return { values: {}, missing: [] };
 
-  const merged: ClientAppStateBatch = { values: {}, missing: [] };
-  for (let i = 0; i < unique.length; i += MAX_BATCH_KEYS) {
-    const chunk = unique.slice(i, i + MAX_BATCH_KEYS);
-    const url = `${agentNativePath("/_agent-native/application-state")}?keys=${chunk
-      .map(encodeURIComponent)
-      .join(",")}`;
-    const response = await fetch(url, {
-      method: "GET",
-      cache: "no-store",
-      signal: options.signal,
-    });
-    const batch = await parseAppStateResponse<ClientAppStateBatch | null>(
-      response,
-      `Read application state [${chunk.join(", ")}]`,
+  while (true) {
+    const revisions = new Map(
+      unique.map((key) => {
+        const id = requestKey(key);
+        return [id, mutationRevisions.get(id) ?? 0] as const;
+      }),
     );
-    if (!batch || typeof batch !== "object" || !batch.values) {
-      throw new Error(
-        `Read application state [${chunk.join(", ")}] returned an unexpected payload.`,
-      );
+    const pending = unique.flatMap((key) => {
+      const mutation = pendingMutations.get(requestKey(key));
+      return mutation ? [mutation] : [];
+    });
+    await awaitWithAbort(Promise.all(pending), options.signal);
+    if (
+      unique.some((key) => {
+        const id = requestKey(key);
+        return revisions.get(id) !== (mutationRevisions.get(id) ?? 0);
+      })
+    ) {
+      continue;
     }
-    Object.assign(merged.values, batch.values);
-    merged.missing.push(...(batch.missing ?? []));
+    const merged: ClientAppStateBatch = { values: {}, missing: [] };
+    for (let i = 0; i < unique.length; i += MAX_BATCH_KEYS) {
+      const chunk = unique.slice(i, i + MAX_BATCH_KEYS);
+      const browserHeaders = browserTabHeaders();
+      const url = `${agentNativePath("/_agent-native/application-state")}?keys=${chunk
+        .map(encodeURIComponent)
+        .join(",")}`;
+      const response = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        ...(browserHeaders ? { headers: browserHeaders } : {}),
+        signal: options.signal,
+      });
+      const batch = await parseAppStateResponse<ClientAppStateBatch | null>(
+        response,
+        `Read application state [${chunk.join(", ")}]`,
+      );
+      if (!batch || typeof batch !== "object" || !batch.values) {
+        throw new Error(
+          `Read application state [${chunk.join(", ")}] returned an unexpected payload.`,
+        );
+      }
+      Object.assign(merged.values, batch.values);
+      merged.missing.push(...(batch.missing ?? []));
+    }
+    if (
+      unique.every((key) => {
+        const id = requestKey(key);
+        return revisions.get(id) === (mutationRevisions.get(id) ?? 0);
+      })
+    ) {
+      return merged;
+    }
   }
-  return merged;
 }
 
-// Reads issued in the same tick are coalesced into one batched request. Every
-// mounted composer, question card and suggestion hook reads its own key on
-// mount, which used to be one HTTP request (and one full identity resolution)
-// each — ~55 on an analytics dashboard load.
 let pendingBatch:
   | { keys: Set<string>; promise: Promise<ClientAppStateBatch> }
   | undefined;
@@ -200,7 +261,7 @@ export async function readClientAppState<T = unknown>(
   key: string,
   options: ClientAppStateReadOptions = {},
 ): Promise<T | null> {
-  appStateUrl(key); // validates the key shape before it joins a batch
+  appStateUrl(key);
   if (options.signal?.aborted) {
     throw options.signal.reason ?? new Error("Aborted");
   }
@@ -214,14 +275,47 @@ export async function writeClientAppState<T = unknown>(
   options: ClientAppStateWriteOptions = {},
 ): Promise<T> {
   assertAgentNativeApiEnabled(`write application state "${key}"`);
-  const response = await fetch(appStateUrl(key), {
-    method: "PUT",
-    headers: buildHeaders(options.requestSource),
-    body: jsonBody(value),
-    keepalive: options.keepalive,
-    signal: options.signal,
+  return runClientAppStateMutation(key, async () => {
+    const response = await fetch(appStateUrl(key), {
+      method: "PUT",
+      headers: buildHeaders(options.requestSource),
+      body: jsonBody(value),
+      keepalive: options.keepalive,
+      signal: options.signal,
+    });
+    return parseAppStateResponse<T>(
+      response,
+      `Write application state "${key}"`,
+    );
   });
-  return parseAppStateResponse<T>(response, `Write application state "${key}"`);
+}
+
+export async function compareAndSetClientAppState(
+  key: string,
+  expected: Record<string, unknown> | null,
+  next: Record<string, unknown> | null,
+  options: ClientAppStateWriteOptions = {},
+): Promise<boolean> {
+  assertAgentNativeApiEnabled(`compare application state \"${key}\"`);
+  return runClientAppStateMutation(key, async () => {
+    const response = await fetch(appStateUrl(key), {
+      method: "PATCH",
+      headers: buildHeaders(options.requestSource),
+      body: jsonBody({ expected, next }),
+      keepalive: options.keepalive,
+      signal: options.signal,
+    });
+    const result = await parseAppStateResponse<{ changed?: unknown }>(
+      response,
+      `Compare application state \"${key}\"`,
+    );
+    if (typeof result?.changed !== "boolean") {
+      throw new Error(
+        `Compare application state \"${key}\" returned an unexpected payload.`,
+      );
+    }
+    return result.changed;
+  });
 }
 
 export async function deleteClientAppState(
@@ -229,23 +323,24 @@ export async function deleteClientAppState(
   options: ClientAppStateWriteOptions = {},
 ): Promise<void> {
   assertAgentNativeApiEnabled(`delete application state "${key}"`);
-  const response = await fetch(appStateUrl(key), {
-    method: "DELETE",
-    // DELETE carries no JSON body, so this custom header is the only
-    // same-origin marker the CSRF check can see from an embedded frame.
-    headers: {
-      "X-Agent-Native-CSRF": "1",
-      ...(options.requestSource
-        ? { "X-Request-Source": options.requestSource }
-        : {}),
-    },
-    keepalive: options.keepalive,
-    signal: options.signal,
+  await runClientAppStateMutation(key, async () => {
+    const response = await fetch(appStateUrl(key), {
+      method: "DELETE",
+      headers: {
+        "X-Agent-Native-CSRF": "1",
+        ...(browserTabHeaders() ?? {}),
+        ...(options.requestSource
+          ? { "X-Request-Source": options.requestSource }
+          : {}),
+      },
+      keepalive: options.keepalive,
+      signal: options.signal,
+    });
+    return parseAppStateResponse<unknown>(
+      response,
+      `Delete application state "${key}"`,
+    );
   });
-  await parseAppStateResponse<unknown>(
-    response,
-    `Delete application state "${key}"`,
-  );
 }
 
 export async function setClientAppState<T = unknown>(

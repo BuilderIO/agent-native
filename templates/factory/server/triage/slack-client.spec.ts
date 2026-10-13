@@ -2,23 +2,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveConnectorSecret } from "../connectors/credentials.js";
 import {
-  addEyesReaction,
+  addReaction,
   authTest,
   getChannelHistory,
-  getEyesReaction,
+  hasReaction,
   getTeamInfo,
   getThread,
+  postChannelMessage,
   postThreadReply,
 } from "../connectors/slack.js";
 import { createSlackReader, isAgentNativeSlackUserName } from "./slack-client";
 
 vi.mock("../connectors/slack.js", () => ({
-  addEyesReaction: vi.fn(),
+  addReaction: vi.fn(),
   authTest: vi.fn(),
   getChannelHistory: vi.fn(),
-  getEyesReaction: vi.fn(),
+  hasReaction: vi.fn(),
   getTeamInfo: vi.fn(),
   getThread: vi.fn(),
+  postChannelMessage: vi.fn(),
   postThreadReply: vi.fn(),
 }));
 
@@ -28,10 +30,11 @@ vi.mock("../connectors/credentials.js", () => ({
 
 const mockedGetChannelHistory = vi.mocked(getChannelHistory);
 const mockedAuthTest = vi.mocked(authTest);
-const mockedGetEyesReaction = vi.mocked(getEyesReaction);
+const mockedHasReaction = vi.mocked(hasReaction);
 const mockedGetTeamInfo = vi.mocked(getTeamInfo);
 const mockedGetThread = vi.mocked(getThread);
-const mockedAddEyesReaction = vi.mocked(addEyesReaction);
+const mockedAddReaction = vi.mocked(addReaction);
+const mockedPostChannelMessage = vi.mocked(postChannelMessage);
 const mockedPostThreadReply = vi.mocked(postThreadReply);
 const mockedResolveConnectorSecret = vi.mocked(resolveConnectorSecret);
 
@@ -55,14 +58,18 @@ beforeEach(() => {
     messages: [],
     has_more: false,
   });
-  mockedAddEyesReaction.mockReset().mockResolvedValue({
+  mockedAddReaction.mockReset().mockResolvedValue({
     added: true,
     already_present: false,
   });
-  mockedGetEyesReaction.mockReset().mockResolvedValue({ eyesPresent: false });
+  mockedHasReaction.mockReset().mockResolvedValue({ present: false });
   mockedPostThreadReply.mockReset().mockResolvedValue({
     channel: "C123",
     ts: "1.2",
+  });
+  mockedPostChannelMessage.mockReset().mockResolvedValue({
+    channel: "C456",
+    ts: "1.3",
   });
   mockedResolveConnectorSecret.mockReset().mockResolvedValue("xoxb-test");
 });
@@ -160,20 +167,23 @@ describe("createSlackReader", () => {
     expect(isAgentNativeSlackUserName("other-bot")).toBe(false);
   });
 
-  it("exposes bounded thread reads and the two typed write methods", async () => {
+  it("exposes scoped thread and channel Slack writes", async () => {
     const reader = createSlackReader({ ownerEmail: "owner@example.com" });
 
     await reader.getThread("primary", "C123", "10.1", 50, "cursor-1");
-    await reader.addEyesReaction("primary", "C123", "10.1");
+    await reader.addReaction("primary", "C123", "10.1", "robot_face");
     await reader.postThreadReply("primary", "C123", "10.1", "Acknowledged");
-    await reader.getEyesReaction("primary", "C123", "10.1");
+    await reader.postChannelMessage("secondary", "C456", "Rollup");
+    await reader.hasReaction("primary", "C123", "10.1", "robot_face");
 
     const threadResolver = mockedGetThread.mock.calls[0]?.[5];
-    const reactionResolver = mockedAddEyesReaction.mock.calls[0]?.[3];
+    const reactionResolver = mockedAddReaction.mock.calls[0]?.[4];
     const replyResolver = mockedPostThreadReply.mock.calls[0]?.[4];
+    const channelResolver = mockedPostChannelMessage.mock.calls[0]?.[3];
     expect(threadResolver).toEqual(expect.any(Function));
     expect(reactionResolver).toEqual(expect.any(Function));
     expect(replyResolver).toEqual(expect.any(Function));
+    expect(channelResolver).toEqual(expect.any(Function));
     expect(mockedGetThread).toHaveBeenCalledWith(
       "primary",
       "C123",
@@ -182,10 +192,11 @@ describe("createSlackReader", () => {
       "cursor-1",
       threadResolver,
     );
-    expect(mockedAddEyesReaction).toHaveBeenCalledWith(
+    expect(mockedAddReaction).toHaveBeenCalledWith(
       "primary",
       "C123",
       "10.1",
+      "robot_face",
       reactionResolver,
     );
     expect(mockedPostThreadReply).toHaveBeenCalledWith(
@@ -195,13 +206,20 @@ describe("createSlackReader", () => {
       "Acknowledged",
       replyResolver,
     );
-    const eyesResolver = mockedGetEyesReaction.mock.calls[0]?.[3];
-    expect(eyesResolver).toEqual(expect.any(Function));
-    expect(mockedGetEyesReaction).toHaveBeenCalledWith(
+    expect(mockedPostChannelMessage).toHaveBeenCalledWith(
+      "secondary",
+      "C456",
+      "Rollup",
+      channelResolver,
+    );
+    const hasResolver = mockedHasReaction.mock.calls[0]?.[4];
+    expect(hasResolver).toEqual(expect.any(Function));
+    expect(mockedHasReaction).toHaveBeenCalledWith(
       "primary",
       "C123",
       "10.1",
-      eyesResolver,
+      "robot_face",
+      hasResolver,
     );
   });
 });

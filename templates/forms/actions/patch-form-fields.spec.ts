@@ -33,6 +33,10 @@ vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
 }));
 
+vi.mock("../server/lib/app-roles.js", () => ({
+  requireFormsPermission: () => undefined,
+}));
+
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
 }));
@@ -43,6 +47,7 @@ vi.mock("../server/lib/public-form-ssr.js", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
+  and: vi.fn((...conditions: unknown[]) => ({ conditions })),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -50,6 +55,8 @@ vi.mock("../server/db/index.js", () => ({
   schema: {
     forms: {
       id: "forms.id",
+      fields: "forms.fields",
+      updatedAt: "forms.updatedAt",
     },
   },
 }));
@@ -102,5 +109,78 @@ describe("patch-form-fields published form validation", () => {
     ).rejects.toThrow('field "Choose one" has no options');
 
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("shows a record-change card only for a newly added conditional question", async () => {
+    state.existing.status = "draft";
+    mockUpdate.mockImplementation(() => ({
+      set: () => ({
+        where: () => ({
+          returning: async () => [{ id: "form-example" }],
+        }),
+      }),
+    }));
+
+    const result = await patchFormFields.run({
+      id: "form-example",
+      ops: [
+        {
+          op: "upsert",
+          field: {
+            id: "follow-up",
+            type: "textarea",
+            label: "What could we do better?",
+            required: false,
+            conditional: {
+              fieldId: "choice",
+              operator: "equals",
+              value: "First",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result.change).toMatchObject({
+      verb: "created",
+      kind: "form-follow-up",
+      title: "What could we do better?",
+      detail: "#2",
+    });
+    expect(typeof result.change?.url).toBe("string");
+    expect(patchFormFields.chatUI?.when?.({}, result)).toBe(true);
+    expect(patchFormFields.chatUI?.projectResult?.({}, result)).toEqual({
+      change: result.change,
+    });
+  });
+
+  it("keeps field updates on the ordinary tool path", async () => {
+    state.existing.status = "draft";
+    mockUpdate.mockImplementation(() => ({
+      set: () => ({
+        where: () => ({
+          returning: async () => [{ id: "form-example" }],
+        }),
+      }),
+    }));
+
+    const result = await patchFormFields.run({
+      id: "form-example",
+      ops: [
+        {
+          op: "upsert",
+          field: {
+            id: "choice",
+            type: "radio",
+            label: "Choose one",
+            required: true,
+            options: ["First", "Second", "Third"],
+          },
+        },
+      ],
+    });
+
+    expect(result.change).toBeUndefined();
+    expect(patchFormFields.chatUI?.when?.({}, result)).toBe(false);
   });
 });

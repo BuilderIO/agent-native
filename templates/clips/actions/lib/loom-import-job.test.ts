@@ -40,6 +40,17 @@ const mockFetchLoomTranscript = vi.hoisted(() => vi.fn());
 const mockQueueBuilderMediaCompression = vi.hoisted(() =>
   vi.fn(async () => undefined),
 );
+const mockEnsureRecordingThumbnail = vi.hoisted(() =>
+  vi.fn(async () => ({
+    recordingId: "rec_1",
+    status: "generated" as const,
+    changed: true,
+    thumbnailUrl: "https://cdn.example.com/thumb.jpg",
+  })),
+);
+const mockDispatchPostFinalizeJob = vi.hoisted(() =>
+  vi.fn(async () => undefined),
+);
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: mockWriteAppState,
@@ -54,12 +65,34 @@ vi.mock("../../server/db/index.js", () => ({
       id: "id",
       ownerEmail: "ownerEmail",
       loomImportClaimId: "loomImportClaimId",
+      loomImportClaimedAt: "loomImportClaimedAt",
+      uploadLeaseExpiresAt: "uploadLeaseExpiresAt",
+      status: "status",
+      updatedAt: "updatedAt",
+      durationMs: "durationMs",
+      sourceWindowTitle: "sourceWindowTitle",
+      createdAt: "createdAt",
     },
     recordingTranscripts: { recordingId: "recordingId" },
   },
 }));
 vi.mock("../../server/lib/builder-media-compression.js", () => ({
   queueBuilderMediaCompression: mockQueueBuilderMediaCompression,
+}));
+vi.mock("../../server/lib/ensure-recording-thumbnail.js", () => ({
+  ensureRecordingThumbnail: (...args: unknown[]) =>
+    mockEnsureRecordingThumbnail(...args),
+  isRetryableRecordingThumbnailStatus: (status: string) =>
+    [
+      "skipped-media-fetch",
+      "skipped-frame-extraction",
+      "skipped-upload-failed",
+      "skipped-race",
+    ].includes(status),
+}));
+vi.mock("../../server/lib/post-finalize-dispatch.js", () => ({
+  dispatchPostFinalizeJob: (...args: unknown[]) =>
+    mockDispatchPostFinalizeJob(...args),
 }));
 vi.mock("./loom-transcript.js", () => ({
   fetchLoomTranscript: mockFetchLoomTranscript,
@@ -77,7 +110,8 @@ describe("runLoomImportJob", () => {
   beforeEach(() => {
     mockSelectRows.queue = [];
     mockUpdateWhere.mockClear();
-    mockReturning.mockClear();
+    mockReturning.mockReset();
+    mockReturning.mockResolvedValue([{ id: "updated-recording" }]);
     mockUpdateSet.mockClear();
     mockInsertValues.mockClear();
     mockWriteAppState.mockClear();
@@ -85,10 +119,112 @@ describe("runLoomImportJob", () => {
     mockDownloadLoomVideo.mockReset();
     mockFetchLoomTranscript.mockReset();
     mockQueueBuilderMediaCompression.mockClear();
+    mockEnsureRecordingThumbnail.mockClear();
+    mockDispatchPostFinalizeJob.mockClear();
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
+  });
+
+  it("confirms its claim before starting Loom media work", async () => {
+    mockSelectRows.queue.push([
+      {
+        id: "rec_start_lease",
+        durationMs: 5_000,
+        sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+        loomImportClaimId: "claim_start_lease",
+      },
+    ]);
+    mockReturning.mockResolvedValueOnce([]);
+
+    const result = await runLoomImportJob({
+      recordingId: "rec_start_lease",
+      ownerEmail: "owner@example.com",
+      claimId: "claim_start_lease",
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      failureReason: "The Loom import lease was lost before media was saved.",
+    });
+    expect(mockDownloadLoomVideo).not.toHaveBeenCalled();
+    expect(mockUploadFile).not.toHaveBeenCalled();
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready" }),
+    );
+  });
+
+  it("renews its claim during media work and refuses ready after lease loss", async () => {
+    vi.useFakeTimers();
+    mockSelectRows.queue.push([
+      {
+        id: "rec_lease",
+        durationMs: 5_000,
+        sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+        loomImportClaimId: "claim_lease",
+      },
+    ]);
+    let finishDownload!: (media: {
+      bytes: Uint8Array;
+      mimeType: string;
+      sizeBytes: number;
+    }) => void;
+    let finishUpload!: (upload: {
+      url: string;
+      provider: string;
+      id: string;
+    }) => void;
+    mockDownloadLoomVideo.mockReturnValue(
+      new Promise((resolve) => {
+        finishDownload = resolve;
+      }),
+    );
+    mockUploadFile.mockReturnValue(
+      new Promise((resolve) => {
+        finishUpload = resolve;
+      }),
+    );
+
+    const job = runLoomImportJob({
+      recordingId: "rec_lease",
+      ownerEmail: "owner@example.com",
+      claimId: "claim_lease",
+    });
+
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uploadLeaseExpiresAt: expect.any(String),
+        loomImportClaimedAt: expect.any(String),
+      }),
+    );
+    expect(JSON.stringify(mockUpdateWhere.mock.calls[0]?.[0])).toContain(
+      "claim_lease",
+    );
+
+    mockReturning.mockResolvedValueOnce([]);
+    finishDownload({
+      bytes: new Uint8Array([1, 2, 3]),
+      mimeType: "video/mp4",
+      sizeBytes: 3,
+    });
+    await vi.waitFor(() => expect(mockUploadFile).toHaveBeenCalled());
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    finishUpload({
+      url: "https://cdn.example.com/rec_lease.mp4",
+      provider: "builder",
+      id: "asset_lease",
+    });
+
+    await expect(job).resolves.toEqual({
+      status: "failed",
+      failureReason: "The Loom import lease was lost before media was saved.",
+    });
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready" }),
+    );
   });
 
   it("downloads, reuploads, and marks the recording ready", async () => {
@@ -112,7 +248,7 @@ describe("runLoomImportJob", () => {
       id: "asset_1",
     });
     mockFetchLoomTranscript.mockResolvedValue(null);
-    mockSelectRows.queue.push([]); // no existing transcript row
+    mockSelectRows.queue.push([]);
 
     const result = await runLoomImportJob({
       recordingId: "rec_1",
@@ -121,6 +257,11 @@ describe("runLoomImportJob", () => {
     });
 
     expect(result).toEqual({ status: "ready" });
+    expect(mockDownloadLoomVideo).toHaveBeenCalledWith({
+      loomId: "abcDEF_123456",
+      shareUrl: "https://www.loom.com/share/abcDEF_123456",
+      expectedDurationMs: 5_000,
+    });
     expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "ready",

@@ -1,88 +1,71 @@
 # Factory
 
-Factory is the visual workspace for building agent factories from incoming work
-to governed delivery. The map is the source of truth; Dispatch owns the shared
-inbox and routing, while Factory owns graph versions, queue state, rules,
-decisions, feedback, agent runs, and provider audit records.
+Factory is a workspace of named factories: Inbox, automations, and a reviewable
+map. Dispatch owns shared inbox routing. Factory owns queue state, rules, jobs,
+and graph versions.
 
 ## Skills
 
-- `factory-graphs` — read before graph, version, queue, rule, or decision work.
-- `capture-learnings` — record a user preference or correction so it outlives
-  the thread.
-- `turn-into-app`, `turn-into-skill` — promote a proven workflow into its own
-  app or a reusable skill.
+Read relevant guides before deeper work:
+- `.agents/skills/factory-graphs/SKILL.md` — for Map, node, route, or graph-version work.
+- `.agents/skills/turn-into-app/SKILL.md` — to promote a proven workflow into an app.
+- `.agents/skills/turn-into-skill/SKILL.md` — to capture a workflow as a reusable skill.
 
-## Core rules
+`.agents/skills/actions/SKILL.md`, `.agents/skills/adding-a-feature/SKILL.md`, `.agents/skills/storing-data/SKILL.md`, `.agents/skills/security/SKILL.md`,
+`.agents/skills/secrets/SKILL.md`, `.agents/skills/sharing/SKILL.md`, `.agents/skills/frontend-design/SKILL.md`, `.agents/skills/shadcn-ui/SKILL.md`,
+`.agents/skills/real-time-sync/SKILL.md`, `.agents/skills/context-awareness/SKILL.md`, `.agents/skills/delegate-to-agent/SKILL.md`, `.agents/skills/agent-native-docs/SKILL.md`,
+`.agents/skills/agent-native-toolkit/SKILL.md`, `.agents/skills/customizing-agent-native/SKILL.md`, `.agents/skills/client-side-routing/SKILL.md`, `.agents/skills/reliable-mutations/SKILL.md`,
+`.agents/skills/performance/SKILL.md`, `.agents/skills/external-agents/SKILL.md`, `.agents/skills/portability/SKILL.md`, `.agents/skills/review-latest-feedback/SKILL.md`,
+`.agents/skills/review-prs/SKILL.md`, `.agents/skills/self-modifying-code/SKILL.md`, `.agents/skills/workspace-conventions/SKILL.md`.
 
-- Keep app state in SQL via Drizzle, scope reads/writes by org and member, and
-  use actions as the UI, agent, CLI, MCP, and A2A surface.
-- A missing callback, partial thread, unreadable provider response, or missed
-  reconciliation is not success; preserve typed failure or
-  `reconciliation_required` state.
-- Deduplicate by Factory item and rule/run identity, not provider comment ID.
-- Slack clear bugs go through `start-builder-for-item`; never post Slack
-  messages or `@handles`. GitHub/Sentry use the Builder run API. Read
-  `review-latest-feedback` for thread evidence and disposition rules.
-- PR governance follows `review-prs`: verify membership and evidence; skip
-  drafts and external authors; keep ultra-scary risks manual; never auto-merge.
-- Graph edits create immutable blueprint versions. AI proposes with `source=ai`;
-  a person reviews and publishes through the same action surface.
-- Provider credentials belong to Dispatch/shared workspace integrations, never
-  to a Factory or Factory graph. Agents use shared provider APIs and connected
-  MCP tools through the workspace grant boundary.
-- Never put provider keys in hosted deployment env or Factory bootstrap.
-  Hosted Factory reads Slack/GitHub/Sentry from workspace connections or the
-  org vault. Local sqlite may read `.env` Slack/GitHub/Sentry keys as a last resort.
+## Framework Docs
+
+Use local framework docs, not web research: `pnpm action docs-search --query "<topic>"` searches; `pnpm action docs-search --slug "<slug>"` reads a page.
+
+## Core Rules
+
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
+- Keep app state in SQL via Drizzle, scope reads/writes by org and member, and use actions for UI, agent, CLI, MCP, and A2A.
+- Missing callbacks, partial threads, unreadable provider responses, or missed reconciliation are failures; preserve typed errors or `reconciliation_required`.
+- Deduplicate by Factory item and rule/run identity, not provider comment id.
+- Slack clear bugs use `dispatch-factory-item` in the source thread. Group eligible GitHub issue and Sentry findings in one `report-factory-findings` call to `#qa-agent-native`. The automated finding path never creates, comments on, or reacts to GitHub issues. Record non-eligible items as skips with `dispatch-factory-item`. Read `review-latest-feedback`; include `risk` and `confidence`.
+- PR governance follows `review-prs`: verify membership/evidence, skip drafts/external authors, apply the verified `liamdebeasi` exception for ordinary gates, keep ultra-scary risks manual, and never auto-merge.
+- Graph edits create immutable blueprint versions. AI proposes with `source=ai`; a person reviews/publishes through actions.
+- Provider credentials belong to Dispatch/workspace integrations, not Factory. Hosted reads use workspace connections or org vault; local development may use `.env` Slack/GitHub/Sentry keys last.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 
 ## Application state
 
-- `navigation.view` is `factory` or `agents`. Runtime data is scoped by
-  `factoryId`; reusable agents stay workspace-wide. Read `view-screen` and
-  `factory-graphs` for tab and selection keys.
+- `navigation.view` is `factory` or `agents`. No `factoryId` means the factory
+  list. Opening a factory defaults to Inbox. `view-screen` matches the visible
+  tab; read `factory-graphs` only for Map edits.
 
-## Action contract
+## Actions
 
 | Action | Purpose |
 | --- | --- |
-| `list-triage-items` / `get-triage-item` | Inspect queue evidence; pass `factoryId`. |
-| `get-triage-config` / `save-triage-config` | Read or save observation settings for one factory. |
-| `poll-slack-channel` | Observe Slack history; never writes to Slack. |
-| `get-slack-feedback-context` | Read the bounded full Slack thread before classification. |
-| `poll-github-sources` / `poll-sentry-errors` | Observe bounded source queues. |
-| `ingest-github-observation` | Store read-only PR evidence. |
-| `list-triage-rules` / `save-triage-rule` | Tune rules and guards. |
-| `evaluate-triage-item` | Append a decision. |
-| `record-triage-feedback` | Capture human correction for learning. |
-| `approve-factory-item` | Explicitly authorize one bounded run. |
-| `start-builder-for-item` | Govern clear-bug dispatch through Slack or Builder API, or record a skip reason. |
-| `govern-agent-native-pull-request` | Apply PR evidence and ownership gates. |
-| `list-factory-automations` / `save-factory-automation` / `run-factory-automation` | Inspect or edit org-owned automations. |
-| `list-factory-audit` | Inspect runs, evidence, and provider actions for one factory. |
-| `get-factory-automation-health` | Inspect scheduler heartbeat and last error. |
-| `suggest-factory-rules` | Mine feedback into proposals. |
-| `reconcile-triage-run` | Persist callback/provider reconciliation. |
-| `list-factories` / `get-factory-graph` / `delete-factory` | Inspect Factory definitions, versions, and metrics, or permanently delete a user-created Factory after exact-name confirmation. A committed delete whose follow-up read cannot confirm the row is gone returns `verified:false`, not a failed deletion. |
-| `create-factory` | Create a factory from `/new-factory` with optional sources. |
-| `save-factory-graph` | Create/version a graph with inspected `expectedGraphVersion`; never starts provider work. |
-| graph history actions | Factory graph version history. |
-| `list-factory-comments` / `add-factory-comment` | Read or attach comments to a canvas, node, or edge. |
-| `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Use connected provider APIs with shared credentials; never request raw keys. |
-| `list-workspace-apps` / `update-workspace-app-metadata` | Inventory and edit mounted apps. |
-| `list-workspace-resources` / `create-workspace-resource` / `update-workspace-resource` | Manage shared agent resources. |
-| `import-agent` / `import-agent-pack` / `list-agent-pack` | Import profiles or agent packs. |
-| `start-workspace-app-creation` | Promote an agent and its pack into an app handoff. |
+| `list-triage-items` / `get-triage-item` | Queue reads |
+| `get-triage-config` / `save-triage-config` | Factory config |
+| `poll-slack-channel` / `get-slack-feedback-context` | Slack evidence |
+| `poll-github-sources` / `poll-sentry-errors` / `ingest-github-observation` | Bounded source evidence |
+| `list-triage-rules` / `save-triage-rule` / `evaluate-triage-item` / `record-triage-feedback` | Tune rules, record decisions/corrections |
+| `dispatch-factory-item` / `report-factory-findings` / `govern-factory-pull-request` | Apply feedback and PR gates |
+| `babysit-factory-pull-request` / `propose-pr-babysit-status` | Ping bot PR / read briefing |
+| `list-factory-automations` / `create-factory-automation` / `save-factory-automation` / `run-factory-automation` | Manage jobs |
+| `list-factory-audit` / `get-factory-automation-health` | Queue history / scheduler |
+| `suggest-factory-rules` / `reconcile-triage-run` | Propose rules / persist monitor observations |
+| `list-factories` / `get-factory-graph` / `delete-factory` / `create-factory` / `save-factory-graph` | Manage factories and versioned Maps |
+| graph history actions | Inspect or restore graph versions |
+| `list-factory-comments` / `add-factory-comment` | Read/add canvas, node, or edge comments |
+| `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Call provider APIs with shared credentials |
+| `list-workspace-apps` / `update-workspace-app-metadata` | Manage mounted apps |
+| `list-workspace-resources` / `create-workspace-resource` / `update-workspace-resource` | Manage shared resources |
+| `import-agent` / `import-agent-pack` / `list-agent-pack` / `start-workspace-app-creation` | Import profiles/packs and hand off app creation |
 
-Rules start in shadow mode; hard guards apply. Organization automations use
-stored prompts; external mutations require durable, idempotent runs and
-provider confirmation. Poll and Builder/PR dispatch run only as this factory's
-scheduled job, not chat and not a workspace-owner email match; teammates may
-edit and Run now Factory jobs. Use the visual editor for graph changes and
-agent chat for proposals; persist complete graphs with `save-factory-graph`.
-Change rules through triage actions, never graph JSON.
+Rules default to shadow mode; hard guards apply. External mutations need idempotent runs and provider confirmation. Polling/Builder/PR dispatch runs on scheduled jobs; teammates may edit/run. Use `create-factory` to open Inbox, `create-factory-automation` for jobs, and `save-factory-graph` for Maps; AI cannot rename. Edit rules via triage actions, not graph JSON.
 
 ## Source Changes
 
-Before building common workspace or agent UI, read `agent-native-toolkit`; read
-`customizing-agent-native` before adapting shared UI.
+Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI.
+
+Search with `rg --hidden --follow`; read the exact linked guide before deeper work.

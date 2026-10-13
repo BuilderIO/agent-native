@@ -74,7 +74,6 @@ export async function handleGoogleCalendarCallback(
   return runWithRequestContext({ userEmail: ownerEmail }, async () => {
     const { redirectUri, returnUrl } = state;
 
-    // 1. Exchange code -> tokens.
     const tokens = await exchangeCode({
       code,
       clientId: credentials.clientId,
@@ -85,13 +84,10 @@ export async function handleGoogleCalendarCallback(
       return oauthErrorPage("Google did not return an access token.");
     }
 
-    // 2. Fetch profile so we can label the row.
     const profile = await getUserInfo(tokens.access_token);
     const externalAccountId = profile.id;
     const accountEmail = profile.email;
 
-    // 3. Find an existing account case-insensitively so email-casing changes
-    //    don't create duplicate calendar connections.
     const db = getDb();
     const orgId = await getActiveOrganizationId().catch(() => undefined);
     const now = new Date().toISOString();
@@ -108,6 +104,12 @@ export async function handleGoogleCalendarCallback(
           ownerEmailMatches(schema.calendarAccounts.ownerEmail, ownerEmail),
         ),
       );
+    const accountId = existing?.id ?? randomUUID();
+    if (state.oauthTargetId && state.oauthTargetId !== accountId) {
+      return oauthErrorPage(
+        "The Google account does not match the calendar being reconnected.",
+      );
+    }
 
     // 4. Persist tokens in app_secrets (encrypted at rest). NEVER write
     //    tokens onto the calendar_accounts row. Existing rows may have stored
@@ -143,14 +145,11 @@ export async function handleGoogleCalendarCallback(
       });
     }
 
-    // 5. Upsert the calendar_accounts row.
     if (existing) {
       await db
         .update(schema.calendarAccounts)
         .set({
           accessTokenSecretRef: accessKey,
-          // Only overwrite the refresh ref if Google sent us one (it only
-          // arrives on the first consent or after re-prompt with prompt=consent).
           ...(tokens.refresh_token
             ? { refreshTokenSecretRef: refreshKey }
             : {}),
@@ -160,10 +159,10 @@ export async function handleGoogleCalendarCallback(
           lastSyncError: null,
           updatedAt: now,
         })
-        .where(eq(schema.calendarAccounts.id, existing.id));
+        .where(eq(schema.calendarAccounts.id, accountId));
     } else {
       await db.insert(schema.calendarAccounts).values({
-        id: randomUUID(),
+        id: accountId,
         provider: "google",
         externalAccountId,
         accessTokenSecretRef: accessKey,
@@ -179,6 +178,22 @@ export async function handleGoogleCalendarCallback(
         orgId: orgId ?? null,
         visibility: "private",
       } as any);
+    }
+
+    if (state.flowId) {
+      const targetOrigin = JSON.stringify(new URL(redirectUri).origin);
+      const message = JSON.stringify({
+        type: "agent-native:calendar-connected",
+        flowId: state.flowId,
+        accountId,
+      }).replace(/</g, "\\u003c");
+      return new Response(
+        `<!doctype html><html><body><main><h1>Connected!</h1><p>You can close this tab and return to Clips.</p></main><script>window.opener?.postMessage(${message}, ${targetOrigin}); setTimeout(() => window.close(), 250);</script></body></html>`,
+        {
+          status: 200,
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        },
+      );
     }
 
     return oauthCallbackResponse(event, accountEmail || ownerEmail, {

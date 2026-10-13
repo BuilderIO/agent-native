@@ -18,6 +18,8 @@ export {
   CREATIVE_CONTEXT_BACKGROUND_PROCESSOR_ROUTE,
   CREATIVE_CONTEXT_IMPORT_PROCESSOR_ROUTE,
   createCreativeContextWorkerPlugin,
+  registerCreativeContextRecurringSweep,
+  runCreativeContextRecurringSweep,
   startCreativeContextDailyMaintenance,
   startCreativeContextImportSweep,
 } from "./server-worker.js";

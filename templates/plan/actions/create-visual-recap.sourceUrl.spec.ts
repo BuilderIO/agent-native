@@ -1,22 +1,17 @@
-/**
- * create-visual-recap: sourceUrl persistence.
- *
- * Verifies that:
- * 1. A valid http(s) sourceUrl is stored on the plan row when provided on
- *    create (new recap).
- * 2. A valid sourceUrl is stored when replacing an existing recap (planId path).
- * 3. An invalid (non-URL) sourceUrl is rejected before the plan is written.
- */
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
 import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { registerShareableResource } from "@agent-native/core/sharing";
-import { createClient, type Client } from "@libsql/client";
+
+const { PGlite } = createRequire(
+  new URL("../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
 import { eq } from "drizzle-orm";
-import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
+import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import {
   afterAll,
   beforeAll,
@@ -28,9 +23,30 @@ import {
 } from "vitest";
 
 import * as planSchema from "../server/db/schema.js";
+import { PLANS_TABLE_DDL } from "../server/test-support/plans-test-schema.js";
 
-let client: Client;
-let db: LibSQLDatabase<typeof planSchema>;
+type SqlStatement = string | { sql: string; args?: unknown[] };
+
+function postgresSql(sql: string): string {
+  let index = 0;
+  return sql.replace(/\?/g, () => "$" + ++index);
+}
+
+async function execute(statement: SqlStatement) {
+  if (typeof statement === "string") {
+    const results = [];
+    for (const sql of statement
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      results.push(await client.query(postgresSql(sql)));
+    return results.at(-1);
+  }
+  return client.query(postgresSql(statement.sql), statement.args ?? []);
+}
+
+let client: PGlite;
+let db: PgliteDatabase<typeof planSchema>;
 let dbDir: string;
 
 vi.mock("../server/db/index.js", () => ({
@@ -129,31 +145,16 @@ beforeAll(async () => {
   process.env.PLAN_LOCAL_MODE = "0";
 
   dbDir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-recap-sourceurl-"));
-  client = createClient({ url: `file:${path.join(dbDir, "test.db")}` });
+  client = await PGlite.create(dbDir);
   db = drizzle(client, { schema: planSchema });
 
-  await client.executeMultiple(`
-    CREATE TABLE plans (
-      id TEXT PRIMARY KEY, title TEXT NOT NULL, brief TEXT NOT NULL,
-      kind TEXT NOT NULL DEFAULT 'plan',
-      status TEXT NOT NULL DEFAULT 'draft', source TEXT NOT NULL DEFAULT 'manual',
-      repo_path TEXT, current_focus TEXT, html TEXT, markdown TEXT, content TEXT,
-      hosted_plan_id TEXT, hosted_plan_url TEXT,
-      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, approved_at TEXT,
-      usage_agent TEXT, usage_model TEXT,
-      usage_input_tokens INTEGER, usage_output_tokens INTEGER,
-      usage_cache_read_tokens INTEGER, usage_cache_write_tokens INTEGER,
-      usage_cost_cents_x100 INTEGER, usage_cost_source TEXT, usage_recorded_at TEXT,
-      source_url TEXT, source_type TEXT, source_repo TEXT, source_pr_number INTEGER,
-      source_pr_state TEXT, source_pr_merged_at TEXT, source_author_email TEXT, source_author_name TEXT, source_author_login TEXT, recap_idempotency_key TEXT,
-      deleted_at TEXT, deleted_by TEXT,
-      owner_email TEXT NOT NULL, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private'
-    );
+  await execute(`
+    ${PLANS_TABLE_DDL};
     CREATE TABLE plan_sections (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'custom', title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', html TEXT, sort_order INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE plan_comments (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, parent_comment_id TEXT, section_id TEXT, kind TEXT NOT NULL DEFAULT 'comment', status TEXT NOT NULL DEFAULT 'open', anchor TEXT, message TEXT NOT NULL, created_by TEXT NOT NULL DEFAULT 'human', author_email TEXT, author_name TEXT, resolution_target TEXT, mentions_json TEXT, resolved_by TEXT, resolved_at TEXT, consumed_at TEXT, deleted_at TEXT, deleted_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE plan_events (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT NOT NULL, message TEXT NOT NULL, payload TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL);
-    CREATE TABLE plan_versions (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL DEFAULT 'local@localhost', plan_id TEXT NOT NULL, title TEXT NOT NULL, snapshot_json TEXT NOT NULL, change_label TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL, summary_status TEXT, summary_source TEXT, block_count INTEGER, section_count INTEGER, has_canvas INTEGER, has_prototype INTEGER, preview_text TEXT);
-    CREATE TABLE plan_shares (id TEXT PRIMARY KEY, resource_id TEXT NOT NULL, principal_type TEXT NOT NULL, principal_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer', created_by TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE TABLE plan_versions (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL DEFAULT 'local@localhost', plan_id TEXT NOT NULL, title TEXT NOT NULL, snapshot_json TEXT NOT NULL, change_label TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL, chat_context TEXT, summary_status TEXT, summary_source TEXT, block_count INTEGER, section_count INTEGER, has_canvas BOOLEAN, has_prototype BOOLEAN, preview_text TEXT);
+    CREATE TABLE plan_shares (id TEXT PRIMARY KEY, resource_id TEXT NOT NULL, principal_type TEXT NOT NULL, principal_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer', created_by TEXT NOT NULL, created_at TEXT NOT NULL, notified_at TEXT);
     CREATE UNIQUE INDEX plans_recap_idempotency_key_unique_idx
       ON plans(owner_email, COALESCE(org_id, ''), recap_idempotency_key)
       WHERE kind = 'recap' AND recap_idempotency_key IS NOT NULL;
@@ -175,15 +176,15 @@ beforeAll(async () => {
     .loadPlanBundle as typeof loadPlanBundle;
 });
 
-afterAll(() => {
-  client?.close();
+afterAll(async () => {
+  await client?.close();
   if (dbDir) fs.rmSync(dbDir, { recursive: true, force: true });
 });
 
 beforeEach(async () => {
   vi.mocked(resolveOrgIdForEmail).mockResolvedValue(null);
   // guard:allow-unscoped -- test-only fixture cleanup resets the isolated temp DB.
-  await client.executeMultiple(`
+  await execute(`
     DELETE FROM plan_events; DELETE FROM plan_comments; DELETE FROM plan_sections;
     DELETE FROM plan_versions; DELETE FROM plan_shares; DELETE FROM plans;
   `);
@@ -306,7 +307,7 @@ describe("create-visual-recap: sourceUrl", () => {
     ]);
 
     await expect(
-      client.execute({
+      execute({
         sql: `
           INSERT INTO plans (
             id, title, brief, kind, status, source, created_at, updated_at,
@@ -403,7 +404,6 @@ describe("create-visual-recap: sourceUrl", () => {
   });
 
   it("stores sourceUrl when replacing an existing recap (planId path)", async () => {
-    // Create a recap without a sourceUrl first.
     const first = await asOwner(() =>
       createVisualRecap.run({ mdx: MINIMAL_MDX, visibility: "org" }),
     );
@@ -411,7 +411,6 @@ describe("create-visual-recap: sourceUrl", () => {
     const before = await rawPlan(planId);
     expect(before?.sourceUrl).toBeNull();
 
-    // Replace with a sourceUrl.
     await asOwner(() =>
       createVisualRecap.run({
         planId,
@@ -460,9 +459,6 @@ describe("create-visual-recap: sourceUrl", () => {
     );
     expect(error).toBeInstanceOf(Error);
     expect(error.message).toMatch(/empty wireframes[\s\S]*empty-before/i);
-    // Malformed source is a CLIENT error: it must surface as a 422 (so the
-    // action route echoes the real message and the recap publisher does not
-    // retry a deterministic authoring error), NOT a generic 500.
     expect(error.statusCode).toBe(422);
 
     // guard:allow-unscoped -- test-only assertion reads the isolated temp DB.

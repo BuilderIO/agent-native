@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { writeClipboardText } from "../clipboard.js";
+import { trackEvent } from "../analytics.js";
 import { useT } from "../i18n.js";
 import {
   extractShareErrorMessage,
@@ -43,6 +43,20 @@ export interface ShareDialogControllerOptions {
   resourceTitle?: string;
   shareUrl?: string;
   embedUrl?: string;
+  clipboardWriter?: (text: string) => boolean | Promise<boolean>;
+}
+
+async function writeBrowserClipboardText(text: string): Promise<boolean> {
+  if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+    return false;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // coercion-ok: the boolean copy result keeps ShareCopyRow in its uncopied state.
+    return false;
+  }
 }
 
 export interface ShareOption<TValue extends string> {
@@ -138,19 +152,20 @@ export function useShareDialogController({
   resourceTitle,
   shareUrl,
   embedUrl,
+  clipboardWriter = writeBrowserClipboardText,
 }: ShareDialogControllerOptions): ShareDialogController {
   const t = useT();
   const {
     query: sharesQuery,
     queryKey: shareQueryKey,
     queryClient,
-  } = useShareQuery<ResourceSharesResponse>(resourceType, resourceId);
+  } = useShareQuery<ResourceSharesResponse>(resourceType, resourceId, open);
   const {
     share: shareMutation,
     unshare: unshareMutation,
     setVisibility: visibilityMutation,
   } = useShareMutations();
-  const memberSearch = useShareOrgMemberSearch("", true, {
+  const memberSearch = useShareOrgMemberSearch("", open, {
     limit: undefined,
     debounceMs: 0,
   });
@@ -380,17 +395,25 @@ export function useShareDialogController({
       unshareMutation,
     ],
   );
-  const copy = useCallback(async (field: string, value: string) => {
-    const copied = await writeClipboardText(value);
-    if (!copied) {
-      setCopiedField(null);
-      return false;
-    }
-    setCopiedField(field);
-    if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
-    copyResetTimer.current = setTimeout(() => setCopiedField(null), 1_400);
-    return true;
-  }, []);
+  const copy = useCallback(
+    async (field: string, value: string) => {
+      const copied = await clipboardWriter(value);
+      if (!copied) {
+        setCopiedField(null);
+        return false;
+      }
+      setCopiedField(field);
+      trackEvent("share_link_copied", {
+        resource_type: resourceType,
+        resource_id: resourceId,
+        link_type: field,
+      });
+      if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
+      copyResetTimer.current = setTimeout(() => setCopiedField(null), 1_400);
+      return true;
+    },
+    [clipboardWriter, resourceId, resourceType],
+  );
 
   const currentVisibility = visibilityOption(visibility, t);
   const people = buildPeople(data, orgMembers, t);

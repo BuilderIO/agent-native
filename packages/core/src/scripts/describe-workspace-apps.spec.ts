@@ -9,10 +9,14 @@ const discoverAgents = vi.fn();
 const findAgent = vi.fn();
 
 vi.mock("../a2a/client.js", () => ({
+  A2ANoJsonRpcInterfaceError: class A2ANoJsonRpcInterfaceError extends Error {},
   A2AClient: class {
     constructor(public baseUrl: string) {}
     getAgentCard(options?: { timeoutMs?: number }) {
       return getAgentCard(this.baseUrl, options);
+    }
+    resolveEndpointUrl() {
+      return Promise.resolve(this.baseUrl);
     }
   },
 }));
@@ -71,6 +75,21 @@ describe("describe-workspace-apps", () => {
     expect(tool.description).toContain("never hand-maintain");
   });
 
+  it("limits peer discovery to relevant cross-app needs", () => {
+    expect(tool.description).toContain(
+      "Use only when the current request needs another app's data or capability",
+    );
+    expect(tool.description).toContain(
+      "cannot tell which peer owns it or whether a known peer can provide it",
+    );
+    expect(tool.description).toContain(
+      "Do not use it as a preflight for ordinary local work",
+    );
+    expect(tool.description).not.toContain(
+      "Use this before building a capability locally",
+    );
+  });
+
   it("makes the receiving specialist agent the default cross-app path", () => {
     expect(tool.description).toContain("natural-language call-agent message");
     expect(tool.description).toContain(
@@ -116,8 +135,6 @@ describe("describe-workspace-apps", () => {
     expect(output).not.toContain("Callable actions:");
   });
 
-  // The catalog is only trustworthy if it is read from live deployments, so an
-  // unreachable peer must read as unknown rather than as having no capabilities.
   it("distinguishes an unreachable card from a peer that exposes nothing", async () => {
     discoverAgents.mockResolvedValue([
       agent(),

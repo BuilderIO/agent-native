@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `content-roadmap-projection-${process.pid}-${Date.now()}.sqlite`,
+  `content-roadmap-projection-${process.pid}-${Date.now()}.pglite`,
 );
 const OWNER = "roadmap-projection-owner@example.com";
 const OUTSIDER = "roadmap-projection-outsider@example.com";
@@ -68,7 +68,7 @@ function loadCapabilities(): Capability[] {
 }
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -84,16 +84,15 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"])
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 describe("private roadmap capability projection", () => {
-  it("projects and replays all 124 capability IDs through stable-key upsert, then exhausts paginated readback", async () => {
+  it("projects and replays all 125 capability IDs through stable-key upsert, then exhausts paginated readback", async () => {
     const capabilities = loadCapabilities();
-    expect(capabilities).toHaveLength(124);
+    expect(capabilities).toHaveLength(125);
     expect(new Set(capabilities.map((capability) => capability.id)).size).toBe(
-      124,
+      125,
     );
 
     const provisioned = await asUser(OWNER, () =>
@@ -275,7 +274,7 @@ describe("private roadmap capability projection", () => {
         throw new Error("Roadmap projection readback was unavailable.");
       expect(page.pagination.offset).toBe(offset);
       expect(page.pagination.returnedItems).toBe(page.items.length);
-      expect(page.pagination.totalItems).toBe(124);
+      expect(page.pagination.totalItems).toBe(125);
       for (const item of page.items) {
         const keyProperty = item.properties.find(
           (property) => property.definition.id === keyPropertyId,

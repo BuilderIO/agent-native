@@ -1,12 +1,28 @@
-import { getDbExec } from "@agent-native/core/db";
+import { randomUUID } from "node:crypto";
 
 import {
+  lexAgentSql,
+  readAgentSqlQuery,
+  rewriteAgentSqlQuerySources,
+  type AgentSqlDialect,
+} from "@agent-native/core/agent-sql";
+import { getDbExec } from "@agent-native/core/db";
+import { getOrgSetting } from "@agent-native/core/settings";
+
+import {
+  BigQueryQueryTimeoutError,
   getBigQueryProjectId,
   runQuery,
   type BigQueryTableRef,
 } from "./bigquery.js";
 import { requireRequestCredentialContext } from "./credentials-context.js";
-import { fetchGoogleWithRetry, getAccessToken } from "./gcloud.js";
+import { firstPartyEventPushdownPredicates } from "./first-party-analytics-pushdown.js";
+import { validateAnalyticsSqlFunctions } from "./first-party-analytics-sql-policy.js";
+import {
+  fetchGoogleWithRetry,
+  getAccessToken,
+  raceWithAbort,
+} from "./gcloud.js";
 import {
   getScopedSettingRecord,
   putScopedSettingRecord,
@@ -32,6 +48,7 @@ export interface FirstPartyAnalyticsBackfillCursor {
 export interface FirstPartyAnalyticsScope {
   userEmail: string;
   orgId: string | null;
+  credentialScope?: "org";
 }
 
 /**
@@ -84,11 +101,6 @@ interface FirstPartyAnalyticsEventRow {
 
 const TABLE_ID_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const PROJECT_ID_PATTERN = /^[A-Za-z][A-Za-z0-9-]{4,61}[A-Za-z0-9]$/;
-const FIRST_PARTY_QUERY_TABLES = [
-  "analytics_events",
-  "analytics_event_daily_rollups",
-  "analytics_user_days",
-] as const;
 const BACKEND_CONFIG_CACHE_TTL_MS = 30_000;
 const MAX_BACKFILL_BATCH_SIZE = 750;
 const MAX_INSERT_BATCH_SIZE = 200;
@@ -113,10 +125,14 @@ export interface FirstPartyAnalyticsBackfillOptions {
 }
 
 export interface FirstPartyAnalyticsInsertOptions {
-  /** Maximum rows in one BigQuery insertAll request. */
   maxRowsPerRequest?: number;
-  /** Maximum insertAll requests in flight for a dedicated backfill worker. */
   maxConcurrentRequests?: number;
+}
+
+export interface FirstPartyAnalyticsInsertResult {
+  acceptedIds: string[];
+  rejectedIds: string[];
+  error: string | null;
 }
 
 const backendConfigCache = new Map<
@@ -125,7 +141,7 @@ const backendConfigCache = new Map<
 >();
 
 function backendScopeKey(scope: FirstPartyAnalyticsScope): string {
-  return `${scope.orgId ? `o:${scope.orgId}` : "u:"}${scope.userEmail}`;
+  return `${scope.orgId ? `o:${scope.orgId}` : "u:"}${scope.userEmail}:${scope.credentialScope ?? "default"}`;
 }
 
 function parseTableRef(
@@ -165,14 +181,27 @@ function normalizeSink(value: unknown): FirstPartyAnalyticsSink {
 
 export async function getFirstPartyAnalyticsBackend(
   scope: FirstPartyAnalyticsScope,
+  signal?: AbortSignal,
 ): Promise<FirstPartyAnalyticsBackendConfig> {
+  if (signal?.aborted) {
+    throw new DOMException("The operation was aborted", "AbortError");
+  }
   const cacheKey = backendScopeKey(scope);
   const cached = backendConfigCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.config;
 
-  const setting = (await getScopedSettingRecord(
-    { email: scope.userEmail, orgId: scope.orgId },
-    FIRST_PARTY_ANALYTICS_BACKEND_SETTING,
+  const settingRead =
+    scope.credentialScope === "org"
+      ? scope.orgId
+        ? getOrgSetting(scope.orgId, FIRST_PARTY_ANALYTICS_BACKEND_SETTING)
+        : null
+      : getScopedSettingRecord(
+          { email: scope.userEmail, orgId: scope.orgId },
+          FIRST_PARTY_ANALYTICS_BACKEND_SETTING,
+        );
+  const setting = (await raceWithAbort(
+    Promise.resolve(settingRead),
+    signal,
   )) as FirstPartyAnalyticsBackendSetting | null;
   const config = {
     sink: normalizeSink(setting?.sink),
@@ -218,8 +247,9 @@ export function resetFirstPartyAnalyticsBackendCacheForTests(): void {
 
 export async function getFirstPartyAnalyticsTable(
   configuredTable?: string | null,
+  signal?: AbortSignal,
 ): Promise<BigQueryTableRef> {
-  const projectId = await getBigQueryProjectId();
+  const projectId = await getBigQueryProjectId(signal);
   return parseTableRef(configuredTable, projectId);
 }
 
@@ -266,6 +296,44 @@ const FIRST_PARTY_ANALYTICS_RAW_SCHEMA = [
   ["owner_email", "STRING"],
   ["org_id", "STRING"],
 ] as const;
+
+export const ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS = [
+  "id",
+  "org_id",
+  "received_at",
+  "event_date",
+  "event_name",
+  "user_id",
+  "user_key",
+  "session_id",
+  "timestamp",
+  "path",
+  "app",
+  "template",
+  "properties",
+  "owner_email",
+] as const;
+
+export const ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS = [
+  "id",
+  "org_id",
+  "received_at",
+  "event_date",
+  "timestamp",
+  "event_name",
+  "user_id",
+  "user_key",
+  "session_id",
+  "app",
+  "template",
+  "properties",
+  "owner_email",
+] as const;
+
+export type FirstPartyAnalyticsEventsProjection = "onboarding_journey";
+export type FirstPartyAnalyticsEventSourceProjection =
+  | FirstPartyAnalyticsEventsProjection
+  | "onboarding_journey_response_identity";
 
 export const FIRST_PARTY_ANALYTICS_BACKFILL_COLUMNS = [
   "id",
@@ -347,11 +415,26 @@ function firstPartyEventRowToBigQuery(
   };
 }
 
+interface InsertBatchResult {
+  rejectedIndexes: number[];
+  error: string | null;
+}
+
+interface InsertPayloadResult {
+  acceptedRows: Record<string, unknown>[];
+  rejectedRows: Record<string, unknown>[];
+  error: string | null;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 async function insertBatch(
   table: BigQueryTableRef,
   token: string,
   rows: Record<string, unknown>[],
-): Promise<void> {
+): Promise<InsertBatchResult> {
   const response = await fetchGoogleWithRetry(
     `https://bigquery.googleapis.com/bigquery/v2/projects/${table.projectId}/datasets/${table.datasetId}/tables/${table.tableId}/insertAll`,
     {
@@ -361,7 +444,7 @@ async function insertBatch(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        skipInvalidRows: false,
+        skipInvalidRows: true,
         ignoreUnknownValues: false,
         rows: rows.map((row) => ({
           insertId: typeof row.id === "string" ? row.id : undefined,
@@ -383,17 +466,37 @@ async function insertBatch(
       errors?: Array<{ message?: string }>;
     }>;
   };
-  if (result.insertErrors?.length) {
-    const detail = result.insertErrors
-      .flatMap((entry) => entry.errors ?? [])
-      .map((entry) => entry.message)
-      .filter((message): message is string => Boolean(message))
-      .slice(0, 3)
-      .join("; ");
-    throw new Error(
-      `BigQuery rejected ${result.insertErrors.length} event row(s)${detail ? `: ${detail}` : ""}`,
-    );
+  const insertErrors = Array.isArray(result.insertErrors)
+    ? result.insertErrors
+    : [];
+  if (!insertErrors.length) return { rejectedIndexes: [], error: null };
+
+  const rejectedIndexes = insertErrors.map((entry) => entry.index);
+  if (
+    rejectedIndexes.some(
+      (index) =>
+        typeof index !== "number" ||
+        !Number.isInteger(index) ||
+        index < 0 ||
+        index >= rows.length,
+    ) ||
+    new Set(rejectedIndexes).size !== rejectedIndexes.length
+  ) {
+    throw new Error("BigQuery returned row errors without valid row indexes");
   }
+
+  const detail = insertErrors
+    .flatMap((entry) => entry.errors ?? [])
+    .map((entry) => entry.message)
+    .filter((message): message is string => Boolean(message))
+    .slice(0, 3)
+    .join("; ");
+  return {
+    rejectedIndexes: rejectedIndexes.filter(
+      (index): index is number => typeof index === "number",
+    ),
+    error: `BigQuery rejected ${insertErrors.length} event row(s)${detail ? `: ${detail}` : ""}`,
+  };
 }
 
 function boundedInsertOption(
@@ -414,7 +517,7 @@ async function insertPayloadRows(
   token: string,
   payloadRows: Record<string, unknown>[],
   options: FirstPartyAnalyticsInsertOptions = {},
-): Promise<void> {
+): Promise<InsertPayloadResult> {
   const maxRowsPerRequest = boundedInsertOption(
     options.maxRowsPerRequest,
     MAX_INSERT_BATCH_SIZE,
@@ -458,29 +561,96 @@ async function insertPayloadRows(
   if (currentBatch.length > 0) batches.push(currentBatch);
 
   let nextBatch = 0;
+  const rejectedRows = new Set<Record<string, unknown>>();
+  const rejectionMessages: string[] = [];
   const worker = async (): Promise<void> => {
     while (true) {
       const batchIndex = nextBatch;
       nextBatch += 1;
       const batch = batches[batchIndex];
       if (!batch) return;
-      await insertBatch(table, token, batch);
+      const result = await insertBatch(table, token, batch);
+      for (const index of result.rejectedIndexes) {
+        rejectedRows.add(batch[index]!);
+      }
+      if (result.error) rejectionMessages.push(result.error);
     }
   };
 
-  await Promise.all(
+  const workerResults = await Promise.allSettled(
     Array.from(
       { length: Math.min(maxConcurrentRequests, batches.length) },
       () => worker(),
     ),
   );
+  const failedWorker = workerResults.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failedWorker) throw failedWorker.reason;
+
+  return {
+    acceptedRows: payloadRows.filter((row) => !rejectedRows.has(row)),
+    rejectedRows: payloadRows.filter((row) => rejectedRows.has(row)),
+    error: rejectionMessages[0] ?? null,
+  };
 }
 
-/**
- * Create a long-lived inserter for a dedicated backfill process. The table is
- * resolved once, while the token is refreshed through the existing scoped
- * resolver for every page so a multi-hour run does not use an expired token.
- */
+function payloadRowId(row: Record<string, unknown>): string {
+  if (typeof row.id !== "string" || !row.id) {
+    throw new Error("First-party Analytics BigQuery row is missing its id");
+  }
+  return row.id;
+}
+
+async function reconcileInsertedPayloadRows(
+  table: BigQueryTableRef,
+  payloadRows: Record<string, unknown>[],
+): Promise<InsertPayloadResult> {
+  const ids = payloadRows.map(payloadRowId);
+  const nonce = randomUUID();
+  const result = await runQuery(
+    `SELECT id FROM \`${table.fullyQualified}\`
+      WHERE id IN (${ids.map(sqlLiteral).join(", ")})
+        AND ${sqlLiteral(nonce)} IS NOT NULL`,
+  );
+  const acceptedIds = new Set(
+    result.rows
+      .map((row) => row.id)
+      .filter((id): id is string => typeof id === "string"),
+  );
+  return {
+    acceptedRows: payloadRows.filter((row) =>
+      acceptedIds.has(payloadRowId(row)),
+    ),
+    rejectedRows: payloadRows.filter(
+      (row) => !acceptedIds.has(payloadRowId(row)),
+    ),
+    error: null,
+  };
+}
+
+async function insertPayloadRowsWithResults(
+  table: BigQueryTableRef,
+  token: string,
+  payloadRows: Record<string, unknown>[],
+  options: FirstPartyAnalyticsInsertOptions = {},
+): Promise<InsertPayloadResult> {
+  try {
+    return await insertPayloadRows(table, token, payloadRows, options);
+  } catch (error) {
+    let reconciled: InsertPayloadResult;
+    try {
+      reconciled = await reconcileInsertedPayloadRows(table, payloadRows);
+    } catch {
+      throw error;
+    }
+    return {
+      ...reconciled,
+      error: errorMessage(error),
+    };
+  }
+}
+
 export async function createFirstPartyAnalyticsInserter(
   configuredTable?: string | null,
   options: FirstPartyAnalyticsInsertOptions = {},
@@ -495,8 +665,53 @@ export async function createFirstPartyAnalyticsInserter(
     if (!rows.length) return 0;
     const token = await getAccessToken();
     const payloadRows = rows.map(firstPartyEventRowToBigQuery);
-    await insertPayloadRows(table, token, payloadRows, options);
-    return payloadRows.length;
+    const result = await insertPayloadRowsWithResults(
+      table,
+      token,
+      payloadRows,
+      options,
+    );
+    if (result.rejectedRows.length) {
+      throw new Error(
+        result.error ??
+          `BigQuery rejected ${result.rejectedRows.length} event row(s)`,
+      );
+    }
+    return result.acceptedRows.length;
+  };
+}
+
+async function insertFirstPartyAnalyticsRowsWithResultsInternal(
+  rows: Array<FirstPartyAnalyticsEventRow | Record<string, unknown>>,
+  configuredTable?: string | null,
+  options: FirstPartyAnalyticsInsertOptions = {},
+): Promise<InsertPayloadResult> {
+  if (!rows.length) {
+    return { acceptedRows: [], rejectedRows: [], error: null };
+  }
+  requireRequestCredentialContext("GOOGLE_APPLICATION_CREDENTIALS_JSON");
+  const [table, token] = await Promise.all([
+    getFirstPartyAnalyticsTable(configuredTable),
+    getAccessToken(),
+  ]);
+  const payloadRows = rows.map(firstPartyEventRowToBigQuery);
+  return insertPayloadRowsWithResults(table, token, payloadRows, options);
+}
+
+export async function insertFirstPartyAnalyticsRowsWithResults(
+  rows: Array<FirstPartyAnalyticsEventRow | Record<string, unknown>>,
+  configuredTable?: string | null,
+  options: FirstPartyAnalyticsInsertOptions = {},
+): Promise<FirstPartyAnalyticsInsertResult> {
+  const result = await insertFirstPartyAnalyticsRowsWithResultsInternal(
+    rows,
+    configuredTable,
+    options,
+  );
+  return {
+    acceptedIds: result.acceptedRows.map(payloadRowId),
+    rejectedIds: result.rejectedRows.map(payloadRowId),
+    error: result.error,
   };
 }
 
@@ -505,68 +720,172 @@ export async function insertFirstPartyAnalyticsRows(
   configuredTable?: string | null,
   options: FirstPartyAnalyticsInsertOptions = {},
 ): Promise<number> {
-  if (!rows.length) return 0;
-  requireRequestCredentialContext("GOOGLE_APPLICATION_CREDENTIALS_JSON");
-  const [table, token] = await Promise.all([
-    getFirstPartyAnalyticsTable(configuredTable),
-    getAccessToken(),
-  ]);
-  const payloadRows = rows.map(firstPartyEventRowToBigQuery);
-  await insertPayloadRows(table, token, payloadRows, options);
-  return payloadRows.length;
+  const result = await insertFirstPartyAnalyticsRowsWithResults(
+    rows,
+    configuredTable,
+    options,
+  );
+  if (result.rejectedIds.length) {
+    throw new Error(
+      result.error ??
+        `BigQuery rejected ${result.rejectedIds.length} event row(s)`,
+    );
+  }
+  return result.acceptedIds.length;
 }
 
 function sqlLiteral(value: string | null): string {
   if (value === null) return "NULL";
-  return `'${value.replace(/'/g, "''")}'`;
+  const escapes: Record<string, string> = {
+    "\\": "\\\\",
+    "'": "\\'",
+    "\n": "\\n",
+    "\r": "\\r",
+    "\t": "\\t",
+    "\b": "\\b",
+    "\f": "\\f",
+  };
+  return `'${value.replace(
+    /[\\'\x00-\x1f\x7f]/g,
+    (character) =>
+      escapes[character] ??
+      `\\x${character.charCodeAt(0).toString(16).padStart(2, "0")}`,
+  )}'`;
+}
+
+function normalizePostgresSql(sql: string): string {
+  let cursor = 0;
+  let result = "";
+  const tokens = lexAgentSql(sql, { dialect: "postgres" });
+  for (const [index, token] of tokens.entries()) {
+    if (token.kind === "string" && !token.text.startsWith("'")) {
+      const prefix = token.text.startsWith("$")
+        ? "dollar-quoted"
+        : token.text[0];
+      throw new FirstPartyAnalyticsUnsupportedSqlError(
+        `a PostgreSQL ${prefix} string literal`,
+        `First-party BigQuery query does not support PostgreSQL ${prefix} string literals`,
+      );
+    }
+    const previous = tokens[index - 1];
+    if (
+      token.kind === "string" &&
+      previous?.kind === "word" &&
+      previous.end === token.start
+    ) {
+      throw new FirstPartyAnalyticsUnsupportedSqlError(
+        "a string literal without a preceding separator",
+        "First-party BigQuery query requires a separator before string literals",
+      );
+    }
+    // PostgreSQL nests block comments; GoogleSQL does not. Remove the skipped
+    // spans before translating so inner comment terminators cannot expose SQL.
+    result +=
+      sql.slice(cursor, token.start).replace(/[^\t\n\r\f ]/g, " ") + token.text;
+    cursor = token.end;
+  }
+  return result + sql.slice(cursor).replace(/[^\t\n\r\f ]/g, " ");
 }
 
 function bindSqlArguments(sql: string, args: Array<string | null>): string {
-  let index = 0;
-  return sql.replace(/\?/g, () => {
-    const value = args[index++];
-    if (value === undefined) {
-      throw new Error("First-party BigQuery query has too few bind arguments");
+  let nextPositionalIndex = 0;
+  let cursor = 0;
+  let result = "";
+  for (const token of lexAgentSql(sql, { dialect: "postgres" })) {
+    result += sql.slice(cursor, token.start);
+    if (token.kind === "string") {
+      result += sqlLiteral(token.text.slice(1, -1).replace(/''/g, "'"));
+    } else if (token.kind === "quoted-identifier") {
+      if (/[`\\]/.test(token.value)) {
+        throw new FirstPartyAnalyticsUnsupportedSqlError(
+          "a PostgreSQL identifier containing a backtick or backslash",
+          "First-party BigQuery query cannot translate identifiers containing backticks or backslashes",
+        );
+      }
+      result += `\`${token.value}\``;
+    } else if (token.kind === "parameter") {
+      const placeholder = token.text;
+      const explicitIndex = /^\$(\d+)$/.exec(placeholder)?.[1];
+      const bindIndex = explicitIndex
+        ? Number(explicitIndex) - 1
+        : nextPositionalIndex++;
+      if (!Number.isInteger(bindIndex) || bindIndex < 0) {
+        throw new Error(
+          `First-party BigQuery query has an invalid bind ${placeholder}`,
+        );
+      }
+      const value = args[bindIndex];
+      if (value === undefined) {
+        throw new Error(
+          "First-party BigQuery query has too few bind arguments",
+        );
+      }
+      result += sqlLiteral(value);
+    } else {
+      result += token.text;
     }
-    return sqlLiteral(value);
-  });
+    cursor = token.end;
+  }
+  return result + sql.slice(cursor);
 }
 
-function maskSqlLiterals(sql: string): string {
-  const chars = [...sql];
-  let inLiteral = false;
-  for (let index = 0; index < chars.length; index++) {
-    if (chars[index] !== "'") continue;
-    if (!inLiteral) {
-      inLiteral = true;
-      chars[index] = " ";
-      continue;
-    }
-    if (chars[index + 1] === "'") {
-      chars[index] = " ";
-      chars[index + 1] = " ";
-      index++;
-      continue;
-    }
-    chars[index] = " ";
-    inLiteral = false;
+function assertBigQuerySourceProvenance(
+  postgresSql: string,
+  bigQuerySql: string,
+): void {
+  const postgresQuery = readAgentSqlQuery(postgresSql, { dialect: "postgres" });
+  const bigQuery = readAgentSqlQuery(bigQuerySql, { dialect: "bigquery" });
+  const fold = (name: string) =>
+    name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+  const cteNames = new Map<string, string>();
+  let cteCollision = false;
+  for (const cte of postgresQuery.ctes) {
+    const key = fold(cte.name);
+    const previous = cteNames.get(key);
+    if (previous !== undefined && previous !== cte.name) cteCollision = true;
+    cteNames.set(key, cte.name);
   }
-  for (let index = 0; index < chars.length; index++) {
-    if (inLiteral) chars[index] = " ";
+  const changedSource = postgresQuery.sources.some((source, index) => {
+    const converted = bigQuery.sources[index];
+    return (
+      !converted ||
+      source.cte !== converted.cte ||
+      source.quoted !== converted.quoted ||
+      source.name !== (source.quoted ? converted.name : fold(converted.name)) ||
+      source.qualifiers.length !== converted.qualifiers.length ||
+      source.qualifiers.some(
+        (qualifier, part) => qualifier !== converted.qualifiers[part],
+      )
+    );
+  });
+  // BigQuery splits dotted quoted names and folds CTE bindings. Refuse any
+  // conversion that could resolve a different relation before physical mapping.
+  if (
+    cteCollision ||
+    changedSource ||
+    postgresQuery.sources.length !== bigQuery.sources.length
+  ) {
+    throw new FirstPartyAnalyticsUnsupportedSqlError(
+      "PostgreSQL source bindings that change in BigQuery",
+      "First-party BigQuery query cannot preserve the PostgreSQL source bindings",
+    );
+  }
+}
+
+function maskSqlLiterals(
+  sql: string,
+  dialect: AgentSqlDialect = "postgres",
+): string {
+  const chars = sql.split("");
+  for (const token of lexAgentSql(sql, { dialect })) {
+    if (token.kind !== "string" && token.kind !== "quoted-identifier") continue;
+    chars.fill(" ", token.start, token.end);
   }
   return chars.join("");
 }
 
 const SQL_LITERAL_PLACEHOLDER_PREFIX = "_fpa_lit_";
 
-/**
- * Same intent as `rewriteOutsideSqlLiterals`, but `rewrite` sees one string
- * with each literal stood in for by an identifier-shaped placeholder rather
- * than a sequence of fragments split at every quote. A cast operand routinely
- * sits on the far side of a literal — `'2026-08-01'::date`,
- * `(COALESCE(properties, '{}'))::text` — and the fragment view cuts that
- * operand in half, which is why both read as "invalid PostgreSQL cast".
- */
 function rewriteWithMaskedSqlLiterals(
   sql: string,
   rewrite: (code: string) => string,
@@ -580,80 +899,50 @@ function rewriteWithMaskedSqlLiterals(
   const literals: string[] = [];
   let masked = "";
   let cursor = 0;
-  while (cursor < sql.length) {
-    const literalStart = sql.indexOf("'", cursor);
-    if (literalStart === -1) {
-      masked += sql.slice(cursor);
-      break;
-    }
-    masked += sql.slice(cursor, literalStart);
-    let literalEnd = literalStart + 1;
-    while (literalEnd < sql.length) {
-      if (sql[literalEnd] !== "'") {
-        literalEnd++;
-        continue;
-      }
-      if (sql[literalEnd + 1] === "'") {
-        literalEnd += 2;
-        continue;
-      }
-      literalEnd++;
-      break;
-    }
+  for (const token of lexAgentSql(sql, { dialect: "postgres" })) {
+    if (token.kind !== "string" && token.kind !== "quoted-identifier") continue;
+    masked += sql.slice(cursor, token.start);
     masked += `${SQL_LITERAL_PLACEHOLDER_PREFIX}${literals.length}_`;
-    literals.push(sql.slice(literalStart, literalEnd));
-    cursor = literalEnd;
+    literals.push(token.text);
+    cursor = token.end;
   }
-  return rewrite(masked).replace(
+  return rewrite(masked + sql.slice(cursor)).replace(
     new RegExp(`${SQL_LITERAL_PLACEHOLDER_PREFIX}(\\d+)_`, "g"),
     (whole, index: string) => literals[Number(index)] ?? whole,
   );
 }
 
-function findMatchingSqlParen(sql: string, openIndex: number): number {
+function findMatchingSqlParen(
+  sql: string,
+  openIndex: number,
+  dialect: AgentSqlDialect = "postgres",
+): number {
   let depth = 0;
-  let inLiteral = false;
-  for (let index = openIndex; index < sql.length; index++) {
-    const char = sql[index];
-    if (char === "'") {
-      if (inLiteral && sql[index + 1] === "'") {
-        index++;
-        continue;
-      }
-      inLiteral = !inLiteral;
-      continue;
-    }
-    if (inLiteral) continue;
-    if (char === "(") depth++;
-    if (char === ")") {
+  for (const token of lexAgentSql(sql, { dialect })) {
+    if (token.start < openIndex || token.kind !== "punctuation") continue;
+    if (token.text === "(") depth++;
+    if (token.text === ")") {
       depth--;
-      if (depth === 0) return index;
+      if (depth === 0) return token.start;
     }
   }
   return -1;
 }
 
-function splitTopLevelSqlArgs(value: string): string[] {
+function splitTopLevelSqlArgs(
+  value: string,
+  dialect: AgentSqlDialect = "postgres",
+): string[] {
   const args: string[] = [];
   let start = 0;
   let depth = 0;
-  let inLiteral = false;
-  for (let index = 0; index < value.length; index++) {
-    const char = value[index];
-    if (char === "'") {
-      if (inLiteral && value[index + 1] === "'") {
-        index++;
-        continue;
-      }
-      inLiteral = !inLiteral;
-      continue;
-    }
-    if (inLiteral) continue;
-    if (char === "(") depth++;
-    if (char === ")") depth--;
-    if (char === "," && depth === 0) {
-      args.push(value.slice(start, index).trim());
-      start = index + 1;
+  for (const token of lexAgentSql(value, { dialect })) {
+    if (token.kind !== "punctuation") continue;
+    if (token.text === "(") depth++;
+    if (token.text === ")") depth--;
+    if (token.text === "," && depth === 0) {
+      args.push(value.slice(start, token.start).trim());
+      start = token.end;
     }
   }
   args.push(value.slice(start).trim());
@@ -698,19 +987,27 @@ function coerceDateComparisonOperands(sql: string): string {
   );
   let cursor = 0;
   let result = "";
+  const code = maskSqlLiterals(sql, "bigquery");
   let match = comparisonRe.exec(sql);
   while (match) {
+    if (code[match.index] === " ") {
+      match = comparisonRe.exec(sql);
+      continue;
+    }
     const operandStart = match.index + match[0].length;
     const formatMatch = /^FORMAT_DATE\s*\(/i.exec(sql.slice(operandStart));
     if (formatMatch) {
       const openIndex = operandStart + formatMatch[0].lastIndexOf("(");
-      const closeIndex = findMatchingSqlParen(sql, openIndex);
+      const closeIndex = findMatchingSqlParen(sql, openIndex, "bigquery");
       if (closeIndex === -1) {
         throw new Error(
           "First-party BigQuery query has an unterminated FORMAT_DATE call",
         );
       }
-      const args = splitTopLevelSqlArgs(sql.slice(openIndex + 1, closeIndex));
+      const args = splitTopLevelSqlArgs(
+        sql.slice(openIndex + 1, closeIndex),
+        "bigquery",
+      );
       if (args.length === 2 && /^'%Y-%m-%d'$/i.test(args[0] ?? "")) {
         result += sql.slice(cursor, operandStart) + (args[1] ?? "");
         cursor = closeIndex + 1;
@@ -726,22 +1023,17 @@ function coerceDateComparisonOperands(sql: string): string {
     match = comparisonRe.exec(sql);
   }
   result += sql.slice(cursor);
+  const resultCode = maskSqlLiterals(result, "bigquery");
   return result.replace(
     new RegExp(
       `(\\b${qualifiedDateField}\\s*(?:<=|>=|<>|=|<|>)\\s*)'(\\d{4}-\\d{2}-\\d{2})'`,
       "gi",
     ),
-    "$1DATE '$2'",
+    (whole, comparison: string, date: string, offset: number) =>
+      resultCode[offset] === " " ? whole : `${comparison}DATE '${date}'`,
   );
 }
 
-/**
- * Extent of the operand a `::` cast at `castIndex` applies to.
- *
- * The function-call case is the trap: stopping at the matching `(` leaves the
- * function name outside the rewritten CAST, so `sum(x)::numeric` became
- * `sumCAST((x) AS NUMERIC)` and BigQuery answered `Function not found: SUMCAST`.
- */
 function postgresCastOperandBounds(
   code: string,
   castIndex: number,
@@ -864,11 +1156,6 @@ function replaceBigQueryDateArithmetic(code: string): string {
   return translated;
 }
 
-/**
- * PostgreSQL truncates to the start of the ISO week (Monday); BigQuery's bare
- * `WEEK` starts on Sunday, so the week mapping must name the weekday or the
- * same query silently buckets differently on each backend.
- */
 const BIGQUERY_DATE_TRUNC_PARTS: Record<string, string> = {
   day: "DAY",
   week: "WEEK(MONDAY)",
@@ -877,24 +1164,28 @@ const BIGQUERY_DATE_TRUNC_PARTS: Record<string, string> = {
   year: "YEAR",
 };
 
-/**
- * BigQuery JSONPath field names are always quoted here rather than only when
- * they look unusual: an unquoted `$.$ai_model` is rejected outright, and an
- * unquoted `$.page.title` silently reads a nested field the caller never asked
- * for.
- */
 function bigQueryJsonPath(key: string): string {
-  return `'$."${key.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"'`;
+  const path = `$."${key.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  // Translation still carries PostgreSQL literals; the binder converts them
+  // together after functions and casts have been rewritten.
+  return `'${path.replace(/'/g, "''")}'`;
 }
 
 function translatePostgresJsonOperators(sql: string): string {
-  const jsonExtract = /\s*::\s*jsonb?\s*->>\s*'([^']*)'/gi;
+  const jsonExtract = /\s*::\s*jsonb?\s*->>\s*('(?:[^']|'')*')/gi;
   let result = sql;
   let match = jsonExtract.exec(result);
   while (match) {
+    const code = maskSqlLiterals(result);
+    const castIndex = match.index + match[0].indexOf("::");
+    if (code[castIndex] !== ":") {
+      match = jsonExtract.exec(result);
+      continue;
+    }
     const { start, end } = postgresCastOperandBounds(result, match.index);
     const operand = result.slice(start, end).trim();
-    const replacement = `JSON_VALUE(${operand}, ${bigQueryJsonPath(match[1] ?? "")})`;
+    const key = (match[1] ?? "").slice(1, -1).replace(/''/g, "'");
+    const replacement = `JSON_VALUE(${operand}, ${bigQueryJsonPath(key)})`;
     result =
       result.slice(0, start) +
       replacement +
@@ -906,7 +1197,7 @@ function translatePostgresJsonOperators(sql: string): string {
 }
 
 function translateFirstPartyAnalyticsBigQuerySql(sql: string): string {
-  let translated = translatePostgresJsonOperators(sql);
+  let translated = translatePostgresJsonOperators(normalizePostgresSql(sql));
   translated = rewriteSqlFunctionCalls(translated, "coalesce", (args) => {
     const uniqueArgs: string[] = [];
     const seen = new Set<string>();
@@ -918,10 +1209,13 @@ function translateFirstPartyAnalyticsBigQuerySql(sql: string): string {
     }
     return `COALESCE(${uniqueArgs.join(", ")})`;
   });
+  const intervalCode = maskSqlLiterals(translated);
   translated = translated.replace(
     /\bINTERVAL\s*'(\d+)\s+(day|days|week|weeks|month|months)'/gi,
-    (_match, amount: string, unit: string) =>
-      `INTERVAL ${amount} ${unit.replace(/s$/i, "").toUpperCase()}`,
+    (whole, amount: string, unit: string, offset: number) =>
+      intervalCode[offset] === " "
+        ? whole
+        : `INTERVAL ${amount} ${unit.replace(/s$/i, "").toUpperCase()}`,
   );
   translated = rewriteSqlFunctionCalls(translated, "date_trunc", (args) => {
     const unit = /^'([a-z]+)'$/i.exec(args[0] ?? "")?.[1]?.toLowerCase();
@@ -989,9 +1283,6 @@ function translateFirstPartyAnalyticsBigQuerySql(sql: string): string {
     [/\bAT\s+TIME\s+ZONE\b/i, "AT TIME ZONE"],
     [/\bFILTER\s*\(\s*WHERE\b/i, "FILTER (WHERE ...)"],
     [/\bDISTINCT\s+ON\b/i, "SELECT DISTINCT ON"],
-    // Anything the JSON translation above could not consume. BigQuery has no
-    // such operators, so leaving it through buys a provider 400 instead of a
-    // rendered explanation.
     [/->>|->|#>>|@>/, "PostgreSQL JSON operators"],
   ];
   const incompatible = unsupported.find(([pattern]) => pattern.test(code));
@@ -1007,51 +1298,131 @@ function translateFirstPartyAnalyticsBigQuerySql(sql: string): string {
 function qualifyQuerySources(sql: string, table: BigQueryTableRef): string {
   const physical = firstPartyAnalyticsPhysicalTables(table);
   const sourceMap: Record<string, string> = {
-    // Event predicates are injected by scopedAnalyticsSql. Use the raw table
-    // here so those predicates run before the retry-deduplication window.
     analytics_events: firstPartyAnalyticsRawTable(table),
     analytics_event_daily_rollups: physical.dailyRollups,
     analytics_user_days: physical.userDays,
   };
-  const sourcePattern = FIRST_PARTY_QUERY_TABLES.join("|");
-  return sql.replace(
-    new RegExp(`\\b(from|join)\\s+(${sourcePattern})\\b`, "gi"),
-    (_match, keyword: string, logicalName: string) =>
-      `${keyword} \`${sourceMap[logicalName.toLowerCase()] ?? logicalName}\``,
-  );
+  const query = readAgentSqlQuery(sql, { dialect: "bigquery" });
+  return rewriteAgentSqlQuerySources(query, (source) => {
+    const physicalName = sourceMap[source.name.toLowerCase()];
+    if (source.cte || source.qualifiers.length > 0 || !physicalName) {
+      return sql.slice(source.start, source.end);
+    }
+    return `\`${physicalName}\``;
+  });
+}
+
+function onboardingEventDatePredicates(eventDateRange?: {
+  startDate: string;
+  endDate: string;
+}): string[] {
+  if (!eventDateRange) return [];
+  for (const value of [eventDateRange.startDate, eventDateRange.endDate]) {
+    const timestamp = Date.parse(`${value}T00:00:00.000Z`);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
+      Number.isNaN(timestamp) ||
+      new Date(timestamp).toISOString().slice(0, 10) !== value
+    ) {
+      throw new Error("First-party event date bounds must be calendar dates");
+    }
+  }
+  return [
+    `event_date >= DATE '${eventDateRange.startDate}'`,
+    `event_date <= DATE '${eventDateRange.endDate}'`,
+  ];
 }
 
 function addPartitionPrunedEventDeduplication(
   sql: string,
   table: BigQueryTableRef,
+  options: {
+    eventDateRange?: { startDate: string; endDate: string };
+    scopedEventsSingleScan?: boolean;
+    scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
+    scopedEventsSourceProjections?: Record<
+      string,
+      FirstPartyAnalyticsEventSourceProjection
+    >;
+  } = {},
 ): string {
   const quote = String.fromCharCode(96);
-  const source =
-    "SELECT * FROM " +
-    quote +
-    firstPartyAnalyticsRawTable(table) +
-    quote +
-    " WHERE";
+  const rawTableName = firstPartyAnalyticsRawTable(table);
+  const rawSource = `${quote}${rawTableName}${quote}`;
+  const projectionRequested =
+    options.scopedEventsProjection === "onboarding_journey" ||
+    options.scopedEventsSourceProjections !== undefined;
+  const projectedColumnsPattern =
+    ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS.join("\\s*,\\s*");
+  const responseIdentityColumnsPattern =
+    ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS.join("\\s*,\\s*");
+  const selectedColumnsPattern = projectionRequested
+    ? `(?:\\*|${projectedColumnsPattern}|${responseIdentityColumnsPattern})`
+    : "\\*";
+  const sourcePattern = new RegExp(
+    `\\bSELECT\\s+(${selectedColumnsPattern})\\s+FROM\\s+(${quote}[^${quote}]+${quote})\\s+WHERE\\b`,
+    "gi",
+  );
+  const sourceSelectPattern = new RegExp(
+    `^SELECT\\s+${selectedColumnsPattern}\\s+FROM\\b`,
+    "i",
+  );
   let result = "";
   let cursor = 0;
+  let searchStart = 0;
+  const code = maskSqlLiterals(sql, "bigquery");
+  const tokens = projectionRequested
+    ? lexAgentSql(sql, { dialect: "bigquery" })
+    : [];
+  const selectStarts = new Set(
+    tokens
+      .filter((token) => token.kind === "word" && token.value === "select")
+      .map((token) => token.start),
+  );
+  const rawSourcePositions = tokens.flatMap((token, index) => {
+    const next = tokens[index + 1];
+    return token.kind === "word" &&
+      (token.value === "from" || token.value === "join") &&
+      next?.kind === "quoted-identifier" &&
+      next.value === rawTableName
+      ? [next.start]
+      : [];
+  });
+  let rewrittenRawSources = 0;
+  let journeyEventSources = 0;
+  let responseIdentitySources = 0;
   while (cursor < sql.length) {
-    const sourceIndex = sql.indexOf(source, cursor);
-    if (sourceIndex === -1) return result + sql.slice(cursor);
-    const predicateStart = sourceIndex + source.length;
+    sourcePattern.lastIndex = searchStart;
+    const sourceMatch = sourcePattern.exec(sql);
+    if (!sourceMatch) {
+      result += sql.slice(cursor);
+      break;
+    }
+    const sourceIndex = sourceMatch.index;
+    searchStart = sourcePattern.lastIndex;
+    const selectedColumns = sourceMatch[1]!
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+    const isResponseIdentitySource =
+      projectionRequested &&
+      selectedColumns ===
+        ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS.join(", ");
+    const isJourneyEventSource =
+      projectionRequested &&
+      selectedColumns === ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS.join(", ");
+    if (
+      sourceMatch[2] !== rawSource ||
+      (projectionRequested && !selectStarts.has(sourceIndex)) ||
+      !sourceSelectPattern.test(code.slice(sourceIndex))
+    ) {
+      continue;
+    }
+    const predicateStart = sourcePattern.lastIndex;
     let depth = 0;
-    let inLiteral = false;
     let predicateEnd = sql.length;
     for (let index = predicateStart; index < sql.length; index++) {
-      const char = sql[index];
-      if (char === "'") {
-        if (inLiteral && sql[index + 1] === "'") {
-          index++;
-          continue;
-        }
-        inLiteral = !inLiteral;
-        continue;
-      }
-      if (inLiteral) continue;
+      const char = code[index];
       if (char === "(") {
         depth++;
         continue;
@@ -1064,26 +1435,63 @@ function addPartitionPrunedEventDeduplication(
         depth--;
         continue;
       }
-      if (depth === 0 && /^UNION\s+ALL\b/i.test(sql.slice(index))) {
+      if (depth === 0 && /^UNION\s+ALL\b/i.test(code.slice(index))) {
         predicateEnd = index;
         break;
       }
     }
+    // ponytail: insertAll is at-least-once; staging + MERGE is the upgrade path
+    // for physical exactly-once if the warehouse contract requires it.
+    const predicates = [
+      ...onboardingEventDatePredicates(options.eventDateRange),
+      ...firstPartyEventPushdownPredicates(sql, sourceIndex),
+      ...(isJourneyEventSource ? ["event_name != 'http.response'"] : []),
+    ].filter(
+      (predicate, index, all) =>
+        all.findIndex(
+          (candidate) => candidate.toLowerCase() === predicate.toLowerCase(),
+        ) === index,
+    );
+    // Combined org and owner scans must keep their independent latest receipts.
+    const dedupPartition = options.scopedEventsSingleScan ? "id, org_id" : "id";
     result +=
       sql.slice(cursor, predicateEnd) +
-      " QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1" +
+      predicates.map((predicate) => ` AND (${predicate})`).join("") +
+      ` QUALIFY ROW_NUMBER() OVER (PARTITION BY ${dedupPartition} ORDER BY received_at DESC) = 1` +
       (predicateEnd < sql.length ? " " : "");
+    if (projectionRequested) rewrittenRawSources++;
+    if (isJourneyEventSource) journeyEventSources++;
+    if (isResponseIdentitySource) responseIdentitySources++;
     cursor = predicateEnd;
+    searchStart = cursor;
+  }
+  const sourceProjections = Object.values(
+    options.scopedEventsSourceProjections ?? {},
+  );
+  const expectedJourneyEventSources =
+    options.scopedEventsSourceProjections === undefined
+      ? 1
+      : sourceProjections.filter(
+          (projection) => projection === "onboarding_journey",
+        ).length;
+  const expectedResponseIdentitySources = sourceProjections.filter(
+    (projection) => projection === "onboarding_journey_response_identity",
+  ).length;
+  if (
+    projectionRequested &&
+    rawSourcePositions.length > 0 &&
+    (rewrittenRawSources !== rawSourcePositions.length ||
+      journeyEventSources !== expectedJourneyEventSources ||
+      responseIdentitySources !== expectedResponseIdentitySources)
+  ) {
+    throw new FirstPartyAnalyticsUnsupportedSqlError(
+      "an unsupported onboarding journey event source projection",
+      "First-party BigQuery query cannot safely apply the onboarding journey event projection and deduplication",
+    );
   }
   return result;
 }
 
-/**
- * Throws `FirstPartyAnalyticsUnsupportedSqlError` when this SQL has no BigQuery
- * translation. Save-time validation runs on the panel's own (unscoped) SQL,
- * which is a subset of what the read path translates, so a pass here cannot
- * pass a construct through that the read path would then reject.
- */
 export function assertFirstPartyAnalyticsBigQuerySql(sql: string): void {
   translateFirstPartyAnalyticsBigQuerySql(sql);
 }
@@ -1092,35 +1500,118 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   scopedSql: string,
   args: Array<string | null>,
   table: BigQueryTableRef,
+  options: {
+    eventDateRange?: { startDate: string; endDate: string };
+    scopedEventsSingleScan?: boolean;
+    scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
+    scopedEventsSourceProjections?: Record<
+      string,
+      FirstPartyAnalyticsEventSourceProjection
+    >;
+  } = {},
 ): string {
-  // The Postgres/SQLite scope builder uses a text fallback for nullable event
+  // The Postgres scope builder uses a text fallback for nullable event
   // dates. BigQuery's event_date is a DATE, and the fallback is unnecessary
   // because the sink normalizes it before insert.
-  const normalizedScopeSql = scopedSql.replace(
-    /\(COALESCE\(NULLIF\(event_date, ''\), substr\(timestamp, 1, 10\)\) <= \?\)/g,
-    "(event_date <= ?)",
+  const postgresSql = normalizePostgresSql(scopedSql);
+  const scopeCode = maskSqlLiterals(postgresSql);
+  const normalizedScopeSql = postgresSql.replace(
+    /\(COALESCE\(NULLIF\(event_date, ''\), substr\(timestamp, 1, 10\)\) <= (\$\d+|\?)\)/g,
+    (whole, placeholder: string, offset: number) =>
+      scopeCode[offset] === " " ? whole : `(event_date <= ${placeholder})`,
   );
   const translated =
     translateFirstPartyAnalyticsBigQuerySql(normalizedScopeSql);
   const bound = bindSqlArguments(translated, args);
+  assertBigQuerySourceProvenance(scopedSql, bound);
+  validateAnalyticsSqlFunctions(
+    readAgentSqlQuery(bound, { dialect: "bigquery" }),
+    "bigquery",
+  );
   return addPartitionPrunedEventDeduplication(
     coerceDateComparisonOperands(qualifyQuerySources(bound, table)),
     table,
+    options,
   );
+}
+
+export function renderFirstPartyAnalyticsBigQueryRequestSql(
+  scopedSql: string,
+  args: Array<string | null>,
+  table: BigQueryTableRef,
+  options: {
+    eventDateRange?: { startDate: string; endDate: string };
+    scopedEventsSingleScan?: boolean;
+    scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
+    scopedEventsSourceProjections?: Record<
+      string,
+      FirstPartyAnalyticsEventSourceProjection
+    >;
+  } = {},
+): string {
+  return `SELECT * FROM (${renderFirstPartyAnalyticsBigQuerySql(scopedSql, args, table, options)}) AS first_party_analytics_query LIMIT 5000`;
 }
 
 export async function queryFirstPartyAnalyticsInBigQuery(
   scopedSql: string,
   args: Array<string | null>,
   table: BigQueryTableRef,
+  options: {
+    eventDateRange?: { startDate: string; endDate: string };
+    scopedEventsSingleScan?: boolean;
+    scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
+    scopedEventsSourceProjections?: Record<
+      string,
+      FirstPartyAnalyticsEventSourceProjection
+    >;
+    maxBytesBilled?: number;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<{
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
+  truncated?: boolean;
 }> {
-  const result = await runQuery(
-    `SELECT * FROM (${renderFirstPartyAnalyticsBigQuerySql(scopedSql, args, table)}) AS first_party_analytics_query LIMIT 5000`,
-  );
-  return { rows: result.rows, schema: result.schema };
+  const timeoutMs = options.timeoutMs;
+  if (
+    timeoutMs !== undefined &&
+    (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000)
+  ) {
+    throw new Error(
+      "First-party BigQuery timeout is outside the allowed range",
+    );
+  }
+  const timeoutSignal =
+    timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs);
+  const signal =
+    options.signal && timeoutSignal
+      ? AbortSignal.any([options.signal, timeoutSignal])
+      : (options.signal ?? timeoutSignal);
+  let result: Awaited<ReturnType<typeof runQuery>>;
+  try {
+    result = await runQuery(
+      renderFirstPartyAnalyticsBigQueryRequestSql(scopedSql, args, table, {
+        eventDateRange: options.eventDateRange,
+        scopedEventsSingleScan: options.scopedEventsSingleScan,
+        scopedEventsProjection: options.scopedEventsProjection,
+        scopedEventsSourceProjections: options.scopedEventsSourceProjections,
+      }),
+      {
+        maxBytesBilled: options.maxBytesBilled,
+        ...(signal ? { signal } : {}),
+      },
+    );
+  } catch (error) {
+    if (options.signal?.aborted) throw error;
+    if (timeoutSignal?.aborted) throw new BigQueryQueryTimeoutError();
+    throw error;
+  }
+  return {
+    rows: result.rows,
+    schema: result.schema,
+    ...(result.truncated ? { truncated: true } : {}),
+  };
 }
 
 export async function assertFirstPartyAnalyticsBigQueryReady(
@@ -1387,12 +1878,29 @@ function backfillBranchSql(
   args: unknown[];
 } {
   const lowerCursor = cursor.receivedAt ? cursor : rangeStart;
-  const cursorSql = lowerCursor ? "(received_at, id) > (?, ?)" : "";
+  let nextParameter = predicateArgs.length + 1;
+  const lookbackParameter = `$${nextParameter++}`;
+  const defaultSkipEvents =
+    skipEventNames.length === DEFAULT_BACKFILL_SKIP_EVENTS.length &&
+    skipEventNames[0] === DEFAULT_BACKFILL_SKIP_EVENTS[0];
+  const skipParameters = defaultSkipEvents
+    ? []
+    : skipEventNames.map(() => `$${nextParameter++}`);
+  const rangeEndParameters = rangeEnd
+    ? [`$${nextParameter++}`, `$${nextParameter++}`]
+    : [];
+  const cursorParameters = lowerCursor
+    ? [`$${nextParameter++}`, `$${nextParameter++}`]
+    : [];
+  const limitParameter = `$${nextParameter++}`;
+  const cursorSql = lowerCursor
+    ? `(received_at, id) > (${cursorParameters[0]}, ${cursorParameters[1]})`
+    : "";
   const cursorArgs = lowerCursor
     ? [lowerCursor.receivedAt, lowerCursor.id]
     : [];
   const rangeEndSql = rangeEnd
-    ? `(received_at, id) ${rangeEndInclusive ? "<=" : "<"} (?, ?)`
+    ? `(received_at, id) ${rangeEndInclusive ? "<=" : "<"} (${rangeEndParameters[0]}, ${rangeEndParameters[1]})`
     : "";
   const rangeEndArgs = rangeEnd ? [rangeEnd.receivedAt, rangeEnd.id] : [];
   const skipSql =
@@ -1400,15 +1908,19 @@ function backfillBranchSql(
     skipEventNames[0] === DEFAULT_BACKFILL_SKIP_EVENTS[0]
       ? "event_name IS DISTINCT FROM 'http.response'"
       : skipEventNames.length
-        ? `(event_name IS NULL OR event_name NOT IN (${skipEventNames.map(() => "?").join(", ")}))`
+        ? `(event_name IS NULL OR event_name NOT IN (${skipParameters.join(", ")}))`
         : "";
-  const filters = ["received_at >= ?", skipSql, rangeEndSql].filter(Boolean);
+  const filters = [
+    `received_at >= ${lookbackParameter}`,
+    skipSql,
+    rangeEndSql,
+  ].filter(Boolean);
   return {
     sql: `SELECT id, received_at
       FROM analytics_events
       WHERE ${predicate}
         AND ${filters.join("\n        AND ")}${cursorSql ? `\n        AND ${cursorSql}` : ""}
-      ORDER BY received_at ${order}, id ${order} LIMIT ?`,
+      ORDER BY received_at ${order}, id ${order} LIMIT ${limitParameter}`,
     args: [
       ...predicateArgs,
       lookbackStart,
@@ -1437,15 +1949,15 @@ export async function getFirstPartyAnalyticsBackfillHighWaterMark(
   const skipEventNames = configuredSkipEventNames(options?.skipEventNames);
   const branches = scope.orgId
     ? [
-        { predicate: "org_id = ?", args: [scope.orgId] },
+        { predicate: "org_id = $1", args: [scope.orgId] },
         {
-          predicate: "org_id IS NULL AND owner_email = ?",
+          predicate: "org_id IS NULL AND owner_email = $1",
           args: [scope.userEmail],
         },
       ]
     : [
         {
-          predicate: "org_id IS NULL AND owner_email = ?",
+          predicate: "org_id IS NULL AND owner_email = $1",
           args: [scope.userEmail],
         },
       ];
@@ -1481,12 +1993,12 @@ function backfillRowsByIdsSql(ids: string[]): {
   return {
     sql: `SELECT ${FIRST_PARTY_ANALYTICS_BACKFILL_COLUMNS.join(", ")}
       FROM analytics_events
-      WHERE id IN (${ids.map(() => "?").join(", ")})`,
+      WHERE id IN (${ids.map((_, index) => `$${index + 1}`).join(", ")})`,
     args: ids,
   };
 }
 
-const MAX_SQLITE_BIND_VARIABLES = 900;
+const MAX_BIND_VARIABLES = 900;
 
 function backfillRowCursor(
   row: Record<string, unknown>,
@@ -1540,15 +2052,15 @@ export async function backfillFirstPartyAnalyticsBatch(
   const rangeEndInclusive = options?.rangeEndInclusive === true;
   const branches = scope.orgId
     ? [
-        { predicate: "org_id = ?", args: [scope.orgId] },
+        { predicate: "org_id = $1", args: [scope.orgId] },
         {
-          predicate: "org_id IS NULL AND owner_email = ?",
+          predicate: "org_id IS NULL AND owner_email = $1",
           args: [scope.userEmail],
         },
       ]
     : [
         {
-          predicate: "org_id IS NULL AND owner_email = ?",
+          predicate: "org_id IS NULL AND owner_email = $1",
           args: [scope.userEmail],
         },
       ];
@@ -1576,8 +2088,6 @@ export async function backfillFirstPartyAnalyticsBatch(
   const selectedRows = rows.slice(0, boundedLimit);
   if (!selectedRows.length) {
     return {
-      // An empty shard has no tuple cursor. Returning the sentinel empty
-      // cursor makes the shard worker reject an otherwise successful drain.
       nextCursor: parsedCursor.receivedAt
         ? serializeBackfillCursor(parsedCursor)
         : null,
@@ -1591,10 +2101,10 @@ export async function backfillFirstPartyAnalyticsBatch(
   for (
     let offset = 0;
     offset < selectedIds.length;
-    offset += MAX_SQLITE_BIND_VARIABLES
+    offset += MAX_BIND_VARIABLES
   ) {
     const hydratedQuery = backfillRowsByIdsSql(
-      selectedIds.slice(offset, offset + MAX_SQLITE_BIND_VARIABLES),
+      selectedIds.slice(offset, offset + MAX_BIND_VARIABLES),
     );
     const hydratedResult = await db.execute({
       sql: hydratedQuery.sql,

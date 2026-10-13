@@ -1,27 +1,88 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
+
 import { defineAction, embedApp } from "@agent-native/core";
+import { ActionContractError } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import {
+  iconValueSchema,
+  parseIconValue,
+  serializeIconValue,
+} from "@agent-native/core/icons";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import { assertAccess, type ShareRole } from "@agent-native/core/sharing";
 import {
+  assertAccess,
+  ForbiddenError,
+  roleSatisfies,
+  type ShareRole,
+} from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
+import {
+  getGenerationCreativeContext,
   recordGenerationCreativeContext,
+  recordGenerationCreativeContextFromSnapshot,
   validateGenerationCreativeContext,
 } from "@agent-native/creative-context/server";
-import { and, eq, sql } from "drizzle-orm";
+import type {
+  CreativeContextElementProvenance,
+  CreativeContextReuseLabel,
+} from "@agent-native/creative-context/types";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  documentCreationAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
+import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import {
+  syncPrivateCalloutReferences,
+  syncPrivateIconReference,
+  verifyPrivateIconAssignment,
+} from "../server/lib/private-icon-references.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
+import { observeRecoveryDocumentCreate } from "./_content-save-outcomes.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
-import { provisionContentSpaces } from "./_content-spaces.js";
-import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
+import { resolveContentSpaceTarget } from "./_content-space-target.js";
+import {
+  documentContentHash,
+  documentRevisionToken,
+} from "./_document-edit-mutation.js";
+import {
+  documentsPositionScope,
+  nextAppendPosition,
+  withPositionLock,
+} from "./_position-utils.js";
+
+type CreationTransactionWrite = {
+  documentId: string;
+  write: (tx: ReturnType<typeof getDb>) => Promise<void>;
+};
+
+const creationTransactionWrite =
+  new AsyncLocalStorage<CreationTransactionWrite>();
+
+/**
+ * Runs `create` so that `write` executes inside the transaction that inserts
+ * page `documentId`, letting a caller's own rows commit or roll back with the
+ * page itself. A request that replays an existing page inserts nothing, so
+ * `write` doesn't run and `create` still resolves.
+ */
+export function withinDocumentCreation<T>(
+  documentId: string,
+  write: CreationTransactionWrite["write"],
+  create: () => Promise<T>,
+): Promise<T> {
+  return creationTransactionWrite.run({ documentId, write }, create);
+}
 
 function nanoid(size = 12): string {
   const chars =
@@ -30,6 +91,265 @@ function nanoid(size = 12): string {
   const bytes = crypto.getRandomValues(new Uint8Array(size));
   for (const byte of bytes) id += chars[byte % chars.length];
   return id;
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function creationRequestDigest(input: unknown): string {
+  return createHash("sha256").update(canonicalJson(input)).digest("hex");
+}
+
+function documentIdConflict(): never {
+  throw new ActionContractError("This document ID is already in use.", {
+    errorCode: "DOCUMENT_ID_CONFLICT",
+    statusCode: 409,
+  });
+}
+
+function matchesDocumentCreationRequest(
+  document: typeof schema.documents.$inferSelect | undefined,
+  expected: {
+    actor: string;
+    ownerEmail: string;
+    orgId: string | null;
+    spaceId: string;
+    parentId: string | null;
+    requestDigest: string | null;
+  },
+): document is typeof schema.documents.$inferSelect {
+  return Boolean(
+    document &&
+    !document.trashedAt &&
+    document.createdBy === expected.actor &&
+    document.ownerEmail === expected.ownerEmail &&
+    document.orgId === expected.orgId &&
+    document.spaceId === expected.spaceId &&
+    document.parentId === expected.parentId &&
+    (!expected.requestDigest ||
+      document.creationRequestDigest === expected.requestDigest),
+  );
+}
+
+type DocumentAccessRole = "owner" | ShareRole;
+
+function canEditRole(role: DocumentAccessRole): boolean {
+  return role === "owner" || roleSatisfies(role, "editor");
+}
+
+function canManageRole(role: DocumentAccessRole): boolean {
+  return role === "owner" || role === "admin";
+}
+
+function canCommentRole(role: DocumentAccessRole): boolean {
+  return role === "owner" || roleSatisfies(role, "commenter");
+}
+
+type DocumentCreationProvenance = {
+  contextMode: "off" | "auto" | "pinned";
+  contextPackId: string | null;
+  reuseLabels: CreativeContextReuseLabel[];
+};
+
+function documentCreationElementProvenance(
+  documentId: string,
+  provenance: DocumentCreationProvenance,
+): CreativeContextElementProvenance[] {
+  return provenance.reuseLabels.length
+    ? provenance.reuseLabels.map((label) => ({
+        elementId: label.elementId ?? documentId,
+        influence: label.influence ?? "reference-conditioned",
+        ...(label.itemId ? { itemId: label.itemId } : {}),
+        ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
+        label: label.label,
+      }))
+    : [
+        {
+          elementId: documentId,
+          influence: "generated",
+          label: "Net-new document",
+        },
+      ];
+}
+
+async function recordDocumentCreationContextIfMissing(input: {
+  artifactId: string;
+  contextMode: DocumentCreationProvenance["contextMode"];
+  contextPackId: DocumentCreationProvenance["contextPackId"];
+  reuseLabels: DocumentCreationProvenance["reuseLabels"];
+  elementProvenance: CreativeContextElementProvenance[];
+}): Promise<void> {
+  await recordGenerationCreativeContext({
+    appId: "content",
+    artifactType: "document",
+    artifactId: input.artifactId,
+    contextMode: input.contextMode,
+    contextPackId: input.contextPackId,
+    reuseLabels: input.reuseLabels,
+    elementProvenance: input.elementProvenance,
+    onlyIfMissing: true,
+  });
+}
+
+async function readDocumentCreationContextProvenance(input: {
+  artifactId: string;
+  provenance: DocumentCreationProvenance | null;
+  provenanceRequired: boolean;
+  reuseLabels: CreativeContextReuseLabel[];
+  contextModeOverride?: "off";
+}): Promise<DocumentCreationProvenance | null> {
+  if (input.provenance) return input.provenance;
+
+  const readOptions =
+    input.contextModeOverride === "off" ? { localOnly: true } : undefined;
+  const existing = await getGenerationCreativeContext(
+    {
+      appId: "content",
+      artifactType: "document",
+      artifactId: input.artifactId,
+    },
+    readOptions,
+  );
+  if (!existing) {
+    if (input.provenanceRequired) {
+      throw new ActionContractError(
+        "The committed document is missing its validated Creative Context snapshot; provenance cannot be reconstructed safely.",
+        {
+          errorCode: "CREATIVE_CONTEXT_PROVENANCE_MISSING",
+          statusCode: 500,
+        },
+      );
+    }
+    return null;
+  }
+
+  return {
+    contextMode: existing.contextMode,
+    contextPackId: existing.contextPackId,
+    reuseLabels: input.reuseLabels.map((label) => ({
+      ...label,
+      influence: label.influence ?? "reference-conditioned",
+    })),
+  };
+}
+
+async function repairDocumentCreationContextProjection(input: {
+  artifactId: string;
+  provenance: DocumentCreationProvenance | null;
+  provenanceRequired: boolean;
+  reuseLabels: CreativeContextReuseLabel[];
+  contextModeOverride?: "off";
+}): Promise<DocumentCreationProvenance | null> {
+  const identity = {
+    appId: "content",
+    artifactType: "document",
+    artifactId: input.artifactId,
+  };
+  if (input.provenance) {
+    const persisted = await recordGenerationCreativeContextFromSnapshot({
+      ...identity,
+      ...input.provenance,
+      elementProvenance: documentCreationElementProvenance(
+        input.artifactId,
+        input.provenance,
+      ),
+      onlyIfMissing: true,
+    });
+    if (!persisted) return input.provenance;
+    return {
+      contextMode: persisted.contextMode,
+      contextPackId: persisted.contextPackId,
+      reuseLabels: input.provenance.reuseLabels.map((label) => ({
+        ...label,
+        influence: label.influence ?? "reference-conditioned",
+      })),
+    };
+  }
+
+  const readOptions =
+    input.contextModeOverride === "off" ? { localOnly: true } : undefined;
+  const existing = await getGenerationCreativeContext(identity, readOptions);
+  if (!existing) {
+    if (input.provenanceRequired) {
+      throw new ActionContractError(
+        "The committed document is missing its validated Creative Context snapshot; provenance cannot be reconstructed safely.",
+        {
+          errorCode: "CREATIVE_CONTEXT_PROVENANCE_MISSING",
+          statusCode: 500,
+        },
+      );
+    }
+    return null;
+  }
+
+  // Keep the retry on the same local or isolated storage path as the persisted record.
+  const repaired = await recordGenerationCreativeContext({
+    ...identity,
+    contextMode: existing.contextMode === "off" ? "off" : "auto",
+    contextPackId: null,
+    reuseLabels: [],
+    elementProvenance: [],
+    onlyIfMissing: true,
+  });
+  const persisted = repaired ?? existing;
+  return {
+    contextMode: persisted.contextMode,
+    contextPackId: persisted.contextPackId,
+    reuseLabels: input.reuseLabels.map((label) => ({
+      ...label,
+      influence: label.influence ?? "reference-conditioned",
+    })),
+  };
+}
+
+function documentCreationResult(
+  doc: typeof schema.documents.$inferSelect,
+  accessRole: DocumentAccessRole,
+  creativeContextProvenance: DocumentCreationProvenance | null,
+) {
+  const revision = documentRevisionToken(doc.bodyRevision, doc.content ?? "");
+  return {
+    id: doc.id,
+    spaceId: doc.spaceId,
+    urlPath: `/page/${doc.id}`,
+    deepLink: buildDeepLink({
+      app: "content",
+      view: "editor",
+      params: { documentId: doc.id },
+    }),
+    parentId: doc.parentId,
+    title: doc.title,
+    content: doc.content,
+    revision,
+    bodyRevision: doc.bodyRevision,
+    collabContentRevision:
+      doc.collabBodyRevision === doc.bodyRevision ? revision : null,
+    contentHash: documentContentHash(doc.content ?? ""),
+    description: doc.description,
+    icon: doc.icon,
+    position: doc.position,
+    isFavorite: parseDocumentFavorite(doc.isFavorite),
+    hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
+    visibility: doc.visibility,
+    accessRole,
+    canComment: canCommentRole(accessRole),
+    canEdit: canEditRole(accessRole),
+    canManage: canManageRole(accessRole),
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+    ...(creativeContextProvenance ?? {}),
+  };
 }
 
 const reuseLabelSchema = z
@@ -60,27 +380,84 @@ const reuseLabelSchema = z
     }
   });
 
+const documentCreationProvenanceSchema = z
+  .object({
+    contextMode: z.enum(["off", "auto", "pinned"]),
+    contextPackId: z.string().nullable(),
+    reuseLabels: z.array(reuseLabelSchema),
+  })
+  .strict();
+
+function parseDocumentCreationProvenance(
+  serialized: string | null | undefined,
+): DocumentCreationProvenance | null {
+  if (!serialized) return null;
+  try {
+    return documentCreationProvenanceSchema.parse(JSON.parse(serialized));
+  } catch {
+    throw new ActionContractError(
+      "The committed document has unreadable Creative Context provenance.",
+      {
+        errorCode: "CREATIVE_CONTEXT_PROVENANCE_UNREADABLE",
+        statusCode: 500,
+      },
+    );
+  }
+}
+
 export default defineAction({
-  description: "Create a new document.",
+  description:
+    "Create and persist a new Markdown document in Content. Use parentId to nest it, or spaceId/spaceName to choose the workspace for a top-level page; with none of them the page is created in the caller's Personal workspace. Returns the stable document ID and resolved spaceId for subsequent get-document or edit-document calls. If creativeContextProjectionStatus is pending, the document is committed; retry the same arguments with the returned id to repair its projection without creating a duplicate.",
+  deferLoading: false,
+  mcpTool: true,
   schema: z.object({
     id: z
       .string()
       .optional()
-      .describe("Pre-generated document ID (for optimistic UI)"),
+      .describe(
+        "Optional pre-generated document ID for optimistic UI. When replaying a create result with creativeContextProjectionStatus pending, use its returned id and the same arguments.",
+      ),
     spaceId: z
       .string()
       .optional()
-      .describe("Content space for a new top-level document"),
-    title: z.string().describe("Document title"),
-    content: z.string().optional().describe("Markdown content"),
+      .describe("Content workspace ID for a new top-level document."),
+    spaceName: z
+      .string()
+      .optional()
+      .describe(
+        "Content workspace name for a new top-level document, when the user named a workspace instead of giving its ID. Fails when the name matches no authorized workspace; it never falls back to Personal.",
+      ),
+    title: z.string().describe("Title for the new document."),
+    content: z
+      .string()
+      .optional()
+      .describe(
+        "Initial Markdown body; omit to create an empty document. Plain Markdown, no admonition/callout " +
+          'shorthand like "> [!TIP]" — use <callout icon="💡">...</callout> with the body indented one tab.',
+      ),
+    preserveLeadingTitleHeading: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Preserve a leading H1 that matches the title when reproducing an exact saved body.",
+      ),
     description: z
       .string()
       .optional()
       .describe(
         "Stable guidance describing why this page exists and what belongs in it",
       ),
-    parentId: z.string().nullish().describe("Parent document ID for nesting"),
-    icon: z.string().optional().describe("Emoji icon"),
+    parentId: z
+      .string()
+      .nullish()
+      .describe(
+        "Actual parent page ID for nesting; use spaceId or spaceName for a top-level root page. A workspace Files document ID is accepted as a top-level target for compatibility.",
+      ),
+    icon: z
+      .union([z.string(), iconValueSchema])
+      .optional()
+      .describe("Optional emoji, Tabler icon, or uploaded image icon."),
     contextPackId: z
       .string()
       .optional()
@@ -100,7 +477,7 @@ export default defineAction({
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
-      title: "Edit document",
+      title: "Open document",
       description:
         "Open the generated draft in the real Content editor so the user can revise, format, organize, and publish it.",
       iframeTitle: "Agent-Native Content",
@@ -108,12 +485,130 @@ export default defineAction({
       height: 900,
     }),
   },
-  run: async (args) => {
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
+  run: observeRecoveryDocumentCreate(async (args, ctx, measurement) => {
+    const title = args.title;
+    let content = args.content || "";
+    const description = args.description?.trim() ?? "";
+    if (title && content && !args.preserveLeadingTitleHeading) {
+      const h1Match = content.match(/^#\s+(.+?)(\r?\n|$)/);
+      if (
+        h1Match &&
+        h1Match[1].trim().toLowerCase() === title.trim().toLowerCase()
+      ) {
+        content = content.slice(h1Match[0].length).trimStart();
+      }
+    }
+
+    let parentId = args.parentId || null;
+    const icon = args.icon
+      ? serializeIconValue(parseIconValue(args.icon))
+      : null;
+    const currentUserEmail = getRequestUserEmail();
+    if (!currentUserEmail) {
+      throw new ActionContractError("Not authenticated.", {
+        errorCode: "NOT_AUTHENTICATED",
+        statusCode: 401,
+      });
+    }
+    const actor = requireDocumentRequestActor(ctx);
+    const hasCallerSuppliedId = Boolean(args.id);
+    const id = args.id || nanoid();
+    const requestDigest = creationRequestDigest({
+      id,
+      actor,
+      parentId: args.parentId ?? null,
+      spaceId: args.spaceId ?? null,
+      spaceName: args.spaceName?.trim() ?? null,
+      title,
+      content,
+      description,
+      icon,
+      preserveLeadingTitleHeading: args.preserveLeadingTitleHeading,
+      contextPackId: args.contextPackId ?? null,
+      contextModeOverride: args.contextModeOverride ?? null,
+      reuseLabels: args.reuseLabels ?? [],
+    });
     const hasCreativeContextInput = Boolean(
       args.contextPackId ||
       args.contextModeOverride ||
       args.reuseLabels.length > 0,
     );
+    const db = getDb();
+
+    let existingAccess: Awaited<ReturnType<typeof assertAccess>> | undefined;
+    if (hasCallerSuppliedId) {
+      const [existing] = await db
+        .select({
+          createdBy: schema.documents.createdBy,
+          creationRequestDigest: schema.documents.creationRequestDigest,
+          trashedAt: schema.documents.trashedAt,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id))
+        .limit(1);
+      if (
+        existing &&
+        (existing.createdBy !== actor ||
+          existing.creationRequestDigest !== requestDigest ||
+          existing.trashedAt)
+      ) {
+        documentIdConflict();
+      }
+      if (existing) {
+        existingAccess = await assertAccess("document", id, "viewer");
+      }
+    }
+
+    if (existingAccess) {
+      const storedProvenance = parseDocumentCreationProvenance(
+        (existingAccess.resource as typeof schema.documents.$inferSelect)
+          .creationCreativeContext,
+      );
+      const explicitOffProvenance =
+        !storedProvenance &&
+        args.contextModeOverride === "off" &&
+        !args.contextPackId &&
+        args.reuseLabels.every(
+          (label) =>
+            label.influence === "generated" &&
+            !label.itemId &&
+            !label.itemVersionId,
+        )
+          ? {
+              contextMode: "off" as const,
+              contextPackId: null,
+              reuseLabels: args.reuseLabels.map((label) => ({
+                ...label,
+                influence: "generated" as const,
+              })),
+            }
+          : null;
+      const persistedCreativeContext = await (
+        canEditRole(existingAccess.role)
+          ? repairDocumentCreationContextProjection
+          : readDocumentCreationContextProvenance
+      )({
+        artifactId: id,
+        provenance: storedProvenance ?? explicitOffProvenance,
+        provenanceRequired: hasCreativeContextInput,
+        reuseLabels: args.reuseLabels,
+        contextModeOverride: args.contextModeOverride,
+      });
+      measurement.outcome = "replayed";
+      measurement.settled = true;
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      return documentCreationResult(
+        existingAccess.resource as typeof schema.documents.$inferSelect,
+        existingAccess.role,
+        persistedCreativeContext,
+      );
+    }
+
     const validatedCreativeContext = hasCreativeContextInput
       ? await validateGenerationCreativeContext({
           contextPackId: args.contextPackId,
@@ -128,54 +623,69 @@ export default defineAction({
           reuseLabels: validatedCreativeContext.reuseLabels,
         }
       : null;
-    const elementProvenanceFor = (documentId: string) =>
-      creativeContextProvenance?.reuseLabels.length
-        ? creativeContextProvenance.reuseLabels.map((label) => ({
-            elementId: label.elementId ?? documentId,
-            influence: label.influence ?? ("reference-conditioned" as const),
-            ...(label.itemId ? { itemId: label.itemId } : {}),
-            ...(label.itemVersionId
-              ? { itemVersionId: label.itemVersionId }
-              : {}),
-            label: label.label,
-          }))
-        : [
-            {
-              elementId: documentId,
-              influence: "generated" as const,
-              label: "Net-new document",
-            },
-          ];
-    const title = args.title;
-
-    let content = args.content || "";
-    const description = args.description?.trim() ?? "";
-    // Strip leading H1 that duplicates the title
-    if (title && content) {
-      const h1Match = content.match(/^#\s+(.+?)(\r?\n|$)/);
-      if (
-        h1Match &&
-        h1Match[1].trim().toLowerCase() === title.trim().toLowerCase()
-      ) {
-        content = content.slice(h1Match[0].length).trimStart();
-      }
-    }
-
-    const parentId = args.parentId || null;
-    const icon = args.icon || null;
-    const currentUserEmail = getRequestUserEmail();
-    if (!currentUserEmail) throw new Error("no authenticated user");
     let ownerEmail = currentUserEmail;
     let orgId = getRequestOrgId() ?? null;
     let visibility: "private" | "org" | "public" = "private";
     let hideFromSearch = 0;
-    const db = getDb();
-    let inheritedRole: "owner" | ShareRole = "owner";
+    let rootSpaceId: string | null = null;
     let inheritedShares: Array<{
       principalType: "user" | "group" | "org";
       principalId: string;
       role: ShareRole;
     }> = [];
+
+    if (parentId) {
+      const [filesTarget] = await db
+        .select({ spaceId: schema.contentDatabases.spaceId })
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            eq(schema.contentDatabases.documentId, parentId),
+            eq(schema.contentDatabases.systemRole, "files"),
+            isNull(schema.contentDatabases.deletedAt),
+          ),
+        )
+        .limit(1);
+      if (filesTarget?.spaceId) {
+        let canContribute = false;
+        try {
+          await resolveContentSpaceAccess(filesTarget.spaceId, "contributor", {
+            db,
+          });
+          canContribute = true;
+        } catch (error) {
+          if (
+            !(error instanceof ActionContractError) ||
+            !["FORBIDDEN", "SPACE_NOT_FOUND"].includes(error.errorCode)
+          ) {
+            throw error;
+          }
+          // An unauthorized Files target must behave like any other parent so
+          // its system role cannot be discovered through a conflict response.
+        }
+        if (canContribute) {
+          if (args.spaceId || args.spaceName) {
+            const explicitTarget = await resolveContentSpaceTarget({
+              db,
+              userEmail: currentUserEmail,
+              spaceId: args.spaceId,
+              spaceName: args.spaceName,
+            });
+            if (explicitTarget.spaceId !== filesTarget.spaceId) {
+              throw new ActionContractError(
+                "The Files document and workspace target must refer to the same Content space.",
+                { errorCode: "SPACE_TARGET_CONFLICT", statusCode: 409 },
+              );
+            }
+          }
+          rootSpaceId = filesTarget.spaceId;
+          parentId = null;
+        } else {
+          await assertAccess("document", parentId, "editor");
+          throw new ForbiddenError(`No access to document ${parentId}`);
+        }
+      }
+    }
 
     if (parentId) {
       const parentAccess = await assertAccess("document", parentId, "editor");
@@ -184,7 +694,6 @@ export default defineAction({
       orgId = (parent.orgId as string | null) ?? null;
       visibility = parent.visibility ?? "private";
       hideFromSearch = parent.hideFromSearch ?? 0;
-      inheritedRole = parentAccess.role;
       inheritedShares = await db
         .select({
           principalType: schema.documentShares.principalType,
@@ -207,10 +716,24 @@ export default defineAction({
       if (args.spaceId && args.spaceId !== parent.spaceId) {
         throw new Error("Nested documents must use their parent Content space");
       }
+      if (args.spaceName) {
+        throw new Error(
+          "Nested documents inherit their parent Content space; omit spaceName",
+        );
+      }
       spaceId = parent.spaceId;
     } else {
-      const provisioned = await provisionContentSpaces(db, currentUserEmail);
-      spaceId = args.spaceId ?? provisioned.personalSpaceId;
+      if (rootSpaceId) {
+        spaceId = rootSpaceId;
+      } else {
+        const target = await resolveContentSpaceTarget({
+          db,
+          userEmail: currentUserEmail,
+          spaceId: args.spaceId,
+          spaceName: args.spaceName,
+        });
+        spaceId = target.spaceId;
+      }
       const spaceAccess = await resolveContentSpaceAccess(
         spaceId,
         "contributor",
@@ -221,14 +744,25 @@ export default defineAction({
     }
 
     const now = new Date().toISOString();
-    const id = args.id || nanoid();
+    await verifyPrivateIconAssignment({
+      icon,
+      userEmail: currentUserEmail,
+      orgId,
+    });
 
-    await withPositionLock(
+    const creationScope = {
+      actor,
+      ownerEmail,
+      orgId,
+      spaceId,
+      parentId,
+      requestDigest,
+    };
+    const created = await withPositionLock(
       documentsPositionScope(ownerEmail, parentId),
       async () => {
-        // Get max position among siblings
         const maxPos = await db
-          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
           .from(schema.documents)
           .where(
             parentId
@@ -242,26 +776,72 @@ export default defineAction({
                 ),
           );
 
-        const position = (maxPos[0]?.max ?? -1) + 1;
+        const position = nextAppendPosition(maxPos[0]?.max);
 
-        await db.transaction(async (tx) => {
-          await tx.insert(schema.documents).values({
-            id,
-            spaceId,
-            ownerEmail,
-            orgId,
-            parentId,
-            title,
-            content,
-            description,
-            icon,
-            position,
-            isFavorite: 0,
-            hideFromSearch,
-            visibility,
-            createdAt: now,
-            updatedAt: now,
-          });
+        const insertedDocument = await db.transaction(async (tx) => {
+          const [inserted] = await tx
+            .insert(schema.documents)
+            .values({
+              id,
+              spaceId,
+              ownerEmail,
+              orgId,
+              parentId,
+              title,
+              content,
+              description,
+              icon,
+              position,
+              isFavorite: 0,
+              hideFromSearch,
+              visibility,
+              creationRequestDigest: requestDigest,
+              creationCreativeContext: creativeContextProvenance
+                ? JSON.stringify(creativeContextProvenance)
+                : null,
+              ...documentCreationAttribution(actor),
+              createdAt: now,
+              updatedAt: now,
+            })
+            .onConflictDoNothing({ target: schema.documents.id })
+            .returning({ id: schema.documents.id });
+          if (!inserted) {
+            const [existing] = await tx
+              .select()
+              .from(schema.documents)
+              .where(eq(schema.documents.id, id))
+              .limit(1);
+            if (
+              !hasCallerSuppliedId ||
+              !matchesDocumentCreationRequest(existing, creationScope)
+            ) {
+              documentIdConflict();
+            }
+            return false;
+          }
+
+          await syncPrivateIconReference(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              elementType: "document",
+              elementId: id,
+              documentId: id,
+              icon,
+              ownerEmail,
+              orgId,
+            },
+          );
+          await syncPrivateCalloutReferences(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              documentId: id,
+              before: "",
+              after: content,
+              userEmail: currentUserEmail,
+              ownerEmail,
+              orgId,
+            },
+          );
 
           if (inheritedShares.length > 0) {
             await tx.insert(schema.documentShares).values(
@@ -280,57 +860,75 @@ export default defineAction({
             userEmail: currentUserEmail,
             orgId: orgId ?? undefined,
           });
+          const scoped = creationTransactionWrite.getStore();
+          if (scoped?.documentId === id) {
+            await scoped.write(tx as unknown as ReturnType<typeof getDb>);
+          }
+          return true;
         });
+        measurement.outcome = insertedDocument ? "written" : "replayed";
+        measurement.settled = true;
+        return insertedDocument;
       },
     );
 
     const [doc] = await db
       .select()
       .from(schema.documents)
-      .where(
-        and(
-          eq(schema.documents.id, id),
-          eq(schema.documents.ownerEmail, ownerEmail),
-        ),
-      );
-
-    await writeAppState("refresh-signal", { ts: Date.now() });
-    if (creativeContextProvenance) {
-      await recordGenerationCreativeContext({
-        appId: "content",
-        artifactType: "document",
-        artifactId: doc.id,
-        ...creativeContextProvenance,
-        elementProvenance: elementProvenanceFor(doc.id),
-      });
+      .where(eq(schema.documents.id, id))
+      .limit(1);
+    if (!matchesDocumentCreationRequest(doc, creationScope)) {
+      documentIdConflict();
     }
 
+    if (created) {
+      track(
+        "document_created",
+        {
+          app_name: "content",
+          template_name: "content",
+          output_id: doc.id,
+          output_type: "document",
+          content_present: Boolean(content),
+        },
+        ctx,
+      );
+    }
+
+    let creativeContextProjectionStatus: "pending" | undefined;
+    if (creativeContextProvenance) {
+      try {
+        await recordDocumentCreationContextIfMissing({
+          artifactId: doc.id,
+          ...creativeContextProvenance,
+          elementProvenance: documentCreationElementProvenance(
+            doc.id,
+            creativeContextProvenance,
+          ),
+        });
+      } catch (error) {
+        creativeContextProjectionStatus = "pending";
+        console.error(
+          `Could not write the Creative Context projection for committed Content document ${doc.id}.`,
+          error,
+        );
+      }
+    }
+
+    await writeAppState("refresh-signal", { ts: Date.now() });
+
+    const access = await assertAccess("document", doc.id, "viewer");
     return {
-      id: doc.id,
-      urlPath: `/page/${doc.id}`,
-      deepLink: buildDeepLink({
-        app: "content",
-        view: "editor",
-        params: { documentId: doc.id },
-      }),
-      parentId: doc.parentId,
-      title: doc.title,
-      content: doc.content,
-      description: doc.description,
-      icon: doc.icon,
-      position: doc.position,
-      isFavorite: parseDocumentFavorite(doc.isFavorite),
-      hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
-      visibility: doc.visibility,
-      accessRole: inheritedRole,
-      canComment: true,
-      canEdit: true,
-      canManage: inheritedRole === "owner" || inheritedRole === "admin",
-      createdAt: doc.createdAt,
-      updatedAt: doc.updatedAt,
-      ...(creativeContextProvenance ?? {}),
+      ...documentCreationResult(
+        access.resource as typeof schema.documents.$inferSelect,
+        access.role,
+        creativeContextProvenance,
+      ),
+      ...(creativeContextProjectionStatus
+        ? { creativeContextProjectionStatus }
+        : {}),
     };
-  },
+  }),
   link: ({ result }) => {
     const id = (result as { id?: string } | null)?.id;
     if (!id) return null;

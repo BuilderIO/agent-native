@@ -9,6 +9,11 @@ description: "Magic-link-first Better Auth integration with password fallback, s
 
 Agent-Native apps use [Better Auth](https://better-auth.com) for authentication with an account-first design. Users create an account on first visit and get real identity from day one.
 
+For an administered, invite-only deployment, set the signup and organization
+creation policies in [Administered Deployments](/docs/administered-deployments).
+This is separate from domain auto-join. A verified allowed domain can admit a
+person to an organization, while an invitation is an explicit membership offer.
+
 ## Overview {#overview}
 
 Auth is configured automatically via `autoMountAuth(app)` in the auth server plugin. There are three modes:
@@ -136,6 +141,11 @@ provides:
 
 Better Auth routes are mounted at `/_agent-native/auth/ba/*`. The framework also provides backward-compatible endpoints:
 
+In an invite-only deployment, admission is checked before a Better Auth user
+is created. The policy covers email/password, magic-link, and social sign-up.
+See [Administered Deployments](/docs/administered-deployments#close-signup-and-organization-creation)
+for the bootstrap-admin and allowed-domain rules.
+
 - `GET /_agent-native/auth/session` — get current session
 - `POST /_agent-native/auth/magic-link` — request a magic-link email
 - `POST /_agent-native/auth/login` — email/password fallback login
@@ -179,8 +189,9 @@ exchange validation, exact origin and callback allowlists, authenticated-session
 requirements, session isolation, and revocation remain unconditional in every
 flag state. Custom and third-party apps are excluded.
 Canonical hosted apps recognize packaged Desktop requests without per-app
-identity-hub environment configuration. Ordinary browsers and self-hosted apps
-still require `AGENT_NATIVE_IDENTITY_HUB_URL` to opt in.
+identity-hub environment configuration. Ordinary browsers stay on normal
+per-app sign-in. Self-hosted apps need `AGENT_NATIVE_IDENTITY_HUB_URL` only for
+the remaining explicit Desktop or server-side federation path.
 Every Desktop build may initialize the broker when the per-device
 `desktopSsoEnabled` preference is true (the default); an explicit persisted
 `false` remains an opt-out. The `desktop.workspace-sso` Dispatch flag must also
@@ -209,8 +220,8 @@ AUTH_SKIP_EMAIL_VERIFICATION=1
 
 When this flag is set, password fallback signup does not require email
 verification and the signup verification email is not sent. It does not change
-magic-link delivery. Use it only for QA or preview environments, and name test accounts with a `+qa` address
-(`name+qa@example.com`) so they are easy to identify.
+magic-link delivery. Use it only for QA or preview environments, and name test accounts with a `+autoz` address
+(`name+autoz@example.com`) so they are easy to identify.
 
 ## Email Verification Policy {#email-verification-policy}
 
@@ -358,7 +369,11 @@ Unauthenticated MCP requests return a `WWW-Authenticate` challenge pointing at `
 
 </Diagram>
 
-Access tokens are signed with `A2A_SECRET` when set, otherwise `BETTER_AUTH_SECRET`. They carry the signed user/org identity and the `mcp:read`, `mcp:write`, `mcp:apps`, and/or `offline_access` scopes, and are audience-bound to the exact MCP resource URL. `offline_access` is advertised for hosts such as ChatGPT that require it before retaining refresh access. Refresh tokens are stored only as hashes and rotate on every refresh. Tool calls and MCP Apps resource reads run inside the same request context as the signed-in user; the embedded MCP App iframe never receives raw OAuth tokens.
+Access tokens are signed with `A2A_SECRET` when set, otherwise `BETTER_AUTH_SECRET`. They carry the signed user/org identity and the `mcp:read`, `mcp:write`, `mcp:apps`, and/or `offline_access` scopes, and are audience-bound to the exact MCP resource URL. `offline_access` is advertised for hosts such as ChatGPT that require it before retaining refresh access. Refresh tokens are stored only as hashes and are not rotated: a refresh returns the same token, and refresh grants have no fixed expiry. Every request and every refresh re-checks that the user still belongs to the token's organization, so a removed member loses MCP access on their next request. Tool calls and MCP Apps resource reads run inside the same request context as the signed-in user; the embedded MCP App iframe never receives raw OAuth tokens.
+
+New MCP authorization codes and refresh tokens record their owner at issuance. Token exchanges reject unbound legacy grants or an owner-binding mismatch with `invalid_grant`, without inferring a legacy owner. An intentional email rekey updates the issuance identity. It also retires the old address: access and Connect tokens signed for it before the rekey are refused, and no new ones are issued for it unless an account registers that address again. OAuth clients get tokens for the new address on their next refresh. Offboarding revokes or deletes grants without transferring the issuance binding.
+
+The OAuth owner-binding update requires every existing OAuth connection to [reconnect once](/docs/external-agents#reconnect). Old OAuth access tokens are refused after rollout. Unbound legacy refresh tokens return `invalid_grant`, and pending old authorization codes must restart consent. Newly issued access tokens use their configured lifetime and live membership checks. Legacy A2A-format `mcp-connect` credentials and cross-app A2A tokens are unchanged by this cutover. Connections using old OAuth-format Connect tokens must reconnect too.
 
 `npx @agent-native/core@latest connect <url> --client claude-code` writes the URL-only MCP entry for this standard flow. For clients that cannot perform remote MCP OAuth, use the Connect page or `npx @agent-native/core@latest connect --token <token>` fallback to write an explicit bearer-token entry.
 

@@ -13,8 +13,7 @@ let tempDir: string;
 
 beforeEach(() => {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "creative-context-access-"));
-  process.env.DATABASE_URL = `file:${path.join(tempDir, "app.db")}`;
-  delete process.env.DATABASE_AUTH_TOKEN;
+  process.env.DATABASE_URL = `pglite:${tempDir}`;
   vi.resetModules();
 });
 
@@ -27,7 +26,7 @@ afterEach(async () => {
 });
 
 async function setup() {
-  const [{ getDbExec, runMigrations }, { runWithRequestContext }] =
+  const [{ closeDbExec, getDbExec, runMigrations }, { runWithRequestContext }] =
     await Promise.all([
       import("@agent-native/core/db"),
       import("@agent-native/core/server"),
@@ -41,15 +40,17 @@ async function setup() {
   await runMigrations(creativeContextMigrations, {
     table: "creative_context_test_migrations",
   })({});
+  await closeDbExec();
   const exec = getDbExec();
   await exec.execute(`
     CREATE TABLE IF NOT EXISTS org_members (
       id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL,
-      role TEXT NOT NULL, joined_at INTEGER NOT NULL
+      role TEXT NOT NULL, joined_at BIGINT NOT NULL,
+      federation_removal_pending_at INTEGER
     )
   `);
   await exec.execute({
-    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)",
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)",
     args: [
       "member-alice",
       "org-1",
@@ -59,6 +60,16 @@ async function setup() {
       "member-bob",
       "org-1",
       "bob@example.test",
+      "member",
+      0,
+      "member-drew",
+      "org-1",
+      "drew@example.test",
+      "member",
+      0,
+      "member-carol",
+      "org-1",
+      "carol@example.test",
       "member",
       0,
     ],
@@ -475,7 +486,7 @@ describe("creative context access and revocation", () => {
             resourceType: "creative-context-source",
             resourceId: "source-1",
           },
-          "editor",
+          "record",
         ),
     );
     await runWithRequestContext(
@@ -506,7 +517,7 @@ describe("creative context access and revocation", () => {
             resourceType: "creative-context-source",
             resourceId: "source-1",
           },
-          "viewer",
+          "read",
         ),
       ),
     ).rejects.toThrow(/no access/i);
@@ -519,7 +530,8 @@ describe("creative context access and revocation", () => {
               artifact.artifactType,
               artifact.artifactId,
             ]),
-            minRole: "viewer",
+            operation: "read",
+            verifiedRole: "viewer",
           } as never,
         }),
       ),
@@ -572,7 +584,7 @@ describe("creative context access and revocation", () => {
           resourceType: "creative-context-source",
           resourceId: "source-1",
         },
-        "viewer",
+        "read",
       ),
     );
     await expect(
@@ -593,6 +605,151 @@ describe("creative context access and revocation", () => {
         ),
       ),
     ).rejects.toThrow(/verified by the host application/i);
+  });
+
+  it("records one generation context for concurrent create retries", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const input = {
+      appId: "content",
+      artifactType: "document",
+      artifactId: "concurrent-create-retry",
+      contextMode: "off" as const,
+      contextPackId: null,
+      reuseLabels: [],
+      elementProvenance: [
+        {
+          elementId: "concurrent-create-retry",
+          influence: "generated" as const,
+        },
+      ],
+      onlyIfMissing: true,
+    };
+    const record = () =>
+      runWithRequestContext({ userEmail: "alice@example.test" }, () =>
+        store.recordGenerationCreativeContext(input),
+      );
+
+    const records = await Promise.all([record(), record(), record()]);
+    expect(new Set(records.map((entry) => entry.id)).size).toBe(1);
+    const stored = await exec.execute({
+      sql: `SELECT id FROM creative_context_generation_records
+        WHERE app_id = ? AND artifact_type = ? AND artifact_id = ?
+          AND owner_email = ? AND org_id IS NULL`,
+      args: ["content", "document", input.artifactId, "alice@example.test"],
+    });
+    expect(stored.rows).toHaveLength(1);
+    expect(stored.rows[0]?.id).toBe(records[0]?.id);
+  });
+
+  it("records a validated provenance snapshot after its context pack is revoked", async () => {
+    const { runWithRequestContext, store } = await setup();
+    const input = {
+      appId: "content",
+      artifactType: "document",
+      artifactId: "snapshot-after-pack-revocation",
+      contextMode: "pinned" as const,
+      contextPackId: "pack-that-is-no-longer-accessible",
+      reuseLabels: [
+        {
+          itemId: "historical-item",
+          itemVersionId: "historical-item-version",
+          kind: "brand-voice",
+          label: "Saved voice",
+          dataRole: "untrusted-reference" as const,
+          influence: "reference-conditioned" as const,
+        },
+      ],
+      elementProvenance: [
+        {
+          elementId: "snapshot-after-pack-revocation",
+          influence: "reference-conditioned" as const,
+          itemId: "historical-item",
+          itemVersionId: "historical-item-version",
+          label: "Saved voice",
+        },
+      ],
+      onlyIfMissing: true,
+    };
+
+    await expect(
+      runWithRequestContext({ userEmail: "alice@example.test" }, () =>
+        store.recordGenerationCreativeContextFromSnapshot(input),
+      ),
+    ).resolves.toMatchObject({
+      artifactId: input.artifactId,
+      contextMode: "pinned",
+      contextPackId: input.contextPackId,
+      elementProvenance: input.elementProvenance,
+    });
+  });
+
+  it("repairs a missing generation projection when onlyIfMissing is retried", async () => {
+    const { runWithRequestContext, store } = await setup();
+    const server = await import("../server/index.js");
+    const projectionRecord = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("projection unavailable"))
+      .mockResolvedValue(undefined);
+    server.configureCreativeContext({
+      projections: { generation: { record: projectionRecord } },
+    });
+
+    const input = {
+      appId: "content",
+      artifactType: "document",
+      artifactId: "projection-retry",
+      contextMode: "off" as const,
+      contextPackId: null,
+      reuseLabels: [],
+      elementProvenance: [
+        { elementId: "original-element", influence: "generated" as const },
+      ],
+      onlyIfMissing: true,
+    };
+    const record = (request: typeof input) =>
+      runWithRequestContext({ userEmail: "alice@example.test" }, () =>
+        store.recordGenerationCreativeContext(request),
+      );
+
+    await expect(record(input)).rejects.toThrow("projection unavailable");
+    expect(projectionRecord).toHaveBeenCalledTimes(1);
+
+    const persisted = await runWithRequestContext(
+      { userEmail: "alice@example.test" },
+      () =>
+        store.getGenerationCreativeContext({
+          appId: input.appId,
+          artifactType: input.artifactType,
+          artifactId: input.artifactId,
+        }),
+    );
+    expect(persisted).toMatchObject({
+      elementProvenance: input.elementProvenance,
+    });
+
+    const retry = {
+      ...input,
+      elementProvenance: [
+        { elementId: "retry-element", influence: "generated" as const },
+      ],
+    };
+    const retried = await record(retry);
+
+    expect(retried).toMatchObject({
+      id: persisted?.id,
+      elementProvenance: input.elementProvenance,
+    });
+    expect(projectionRecord).toHaveBeenCalledTimes(2);
+    expect(projectionRecord).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        appId: input.appId,
+        artifactType: input.artifactType,
+        artifactId: input.artifactId,
+        contextPackId: null,
+        elementProvenance: input.elementProvenance,
+      }),
+    );
   });
 
   it("appends media enrichment while preserving version-pinned pack evidence", async () => {
@@ -1636,7 +1793,6 @@ describe("creative context access and revocation", () => {
       sql: "UPDATE creative_context_items SET thumbnail_blob_ref = ? WHERE id = ?",
       args: ["creative-context-blob:v1:pending-preview-opaque", "allowed"],
     });
-
     await expect(
       asCarol(() =>
         store.manageContextMembership({

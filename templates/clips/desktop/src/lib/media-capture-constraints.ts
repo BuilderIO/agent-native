@@ -57,6 +57,13 @@ export function buildDesktopDisplayMediaOptions({
   };
 }
 
+export function shouldRequestSystemAudio(
+  wantsScreen: boolean,
+  systemAudioOn?: boolean,
+): boolean {
+  return wantsScreen && systemAudioOn !== false;
+}
+
 export function isMediaConstraintFailure(err: unknown): boolean {
   const name =
     err instanceof DOMException || err instanceof Error ? err.name : "";
@@ -68,6 +75,16 @@ export function isMediaConstraintFailure(err: unknown): boolean {
     /invalid constraint|overconstrained|could not satisfy constraint|device not found|requested device not found/i.test(
       message,
     )
+  );
+}
+
+function isAudioInputFailure(err: unknown): boolean {
+  const name =
+    err instanceof DOMException || err instanceof Error ? err.name : "";
+  return (
+    isMediaConstraintFailure(err) ||
+    name === "NotReadableError" ||
+    name === "TrackStartError"
   );
 }
 
@@ -126,7 +143,7 @@ async function tryFallbackAudioInput(
       voiceCleanupEnabled,
     );
   } catch (fallbackErr) {
-    if (!isMediaConstraintFailure(fallbackErr)) throw fallbackErr;
+    if (!isAudioInputFailure(fallbackErr)) throw fallbackErr;
     console.warn(
       "[clips-recorder] explicit mic fallback failed; continuing fallback chain",
       fallbackErr,
@@ -142,7 +159,7 @@ async function getDefaultAudioStreamWithBasicFallback(
   try {
     return await getVoiceFocusedAudioStream(undefined, voiceCleanupEnabled);
   } catch (fallbackErr) {
-    if (!isMediaConstraintFailure(fallbackErr)) throw fallbackErr;
+    if (!isAudioInputFailure(fallbackErr)) throw fallbackErr;
     console.warn(
       "[clips-recorder] voice-focused mic constraints failed; retrying basic audio",
       fallbackErr,
@@ -187,9 +204,6 @@ export async function getCameraStreamWithFallback(
   videoConstraints?: MediaTrackConstraints,
 ): Promise<MediaStream> {
   const id = deviceId?.trim();
-  // Extra constraints (e.g. the bubble's ideal resolution) apply to both the
-  // exact-device attempt and the default-camera retry; with no extras the
-  // fallback stays a plain `video: true` request.
   const baseVideo: MediaStreamConstraints["video"] =
     videoConstraints && Object.keys(videoConstraints).length > 0
       ? videoConstraints
@@ -247,7 +261,7 @@ export async function getAudioStreamWithFallback(
         { deviceId: id },
       );
     }
-    if (!isMediaConstraintFailure(err) && !deviceGone) throw err;
+    if (!isAudioInputFailure(err) && !deviceGone) throw err;
     if (id) {
       const fallback = await tryFallbackAudioInput(
         savedLabel,

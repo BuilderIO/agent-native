@@ -1,5 +1,5 @@
 /**
- * swap-component-instance — Figma's "Swap instance".
+ * swap-component-instance — replace a selected instance with another component.
  *
  * DESIGN NOTE — mapping onto this codebase's data model: there is no
  * separate component "definition"/template anywhere here (see
@@ -8,9 +8,8 @@
  * `data-agent-native-component="Name"` annotation. "Swap to component B"
  * therefore means: find an existing instance of B somewhere in the design
  * (any screen), copy ITS current markup in as a replacement for the selected
- * instance of A, and carry over whichever `data-agent-native-prop-*`
- * overrides the selected instance had that B's own instances also declare
- * (Figma's "preserve same-named overrides").
+ * instance of A, and carry over `data-agent-native-prop-*` overrides that are
+ * shared by both components.
  *
  * Scope decisions, deliberately conservative:
  * - Requires at least one existing instance of the target component
@@ -42,7 +41,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   agentEnterDocument,
   agentLeaveDocument,
@@ -57,7 +56,8 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   writeInlineSourceFile,
   type SourceWorkspaceFile,
@@ -72,19 +72,13 @@ import {
   componentNameFor,
   componentNodeIdMatches,
   extractProps,
+  isComponentInstanceForInstanceActions,
   propNameToDataAttribute,
 } from "../shared/component-model.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import { applyRootAttributeEdit } from "./apply-component-prop-edit.js";
 
-// ─── Pure markup helpers ────────────────────────────────────────────────────
-
-/**
- * Find the end offset (exclusive) of the opening tag at the start of
- * `markup`, respecting quoted attribute values that may themselves contain
- * `>`. Returns `markup.length` if no unquoted `>` is found. Pure.
- */
 export function findOpenTagEnd(markup: string): number {
   let quote: '"' | "'" | null = null;
   for (let i = 0; i < markup.length; i++) {
@@ -102,12 +96,6 @@ export function findOpenTagEnd(markup: string): number {
   return markup.length;
 }
 
-/**
- * Set (or replace) a single attribute on a standalone markup string's opening
- * tag — the same splice `applyRootAttributeEdit` performs against a full
- * document, but for an already-extracted outerHTML fragment (e.g. copied from
- * another instance elsewhere in the design). Pure — exported for tests.
- */
 export function setAttributeOnMarkup(
   markup: string,
   attrName: string,
@@ -130,17 +118,18 @@ export interface SwapOverrideResult {
   defaultedProps: string[];
 }
 
-/**
- * Re-key every descendant in markup copied from another component instance.
- * Keeping the copied `data-agent-native-node-id` values would create duplicate
- * stable layer identities, so selection and the aggregate layer-owner map
- * could jump back to the source instance after a swap. The root keeps the
- * selected instance's id later in `mergeComponentSwapOverrides`; descendants
- * receive fresh ids here.
- *
- * `createNodeId` is injectable so the pure behavior stays deterministic in
- * tests while production uses cryptographically unique ids.
- */
+export function isSwapSourceCandidate(
+  node: CodeLayerNode,
+  targetComponentName: string,
+  excludedNode?: CodeLayerNode,
+): boolean {
+  return (
+    node.id !== excludedNode?.id &&
+    isComponentInstanceForInstanceActions(node) &&
+    componentNameFor(node) === targetComponentName
+  );
+}
+
 export function reassignCopiedDescendantNodeIds(
   markup: string,
   createNodeId: () => string = () => `an-${randomUUID()}`,
@@ -167,12 +156,6 @@ export function reassignCopiedDescendantNodeIds(
   return content;
 }
 
-/**
- * Apply the selected instance's `data-agent-native-prop-*` overrides onto a
- * copy of the target component's markup, carrying over only prop names the
- * target component ALSO declares, then stamp the selected instance's stable
- * node id onto the result. Pure — exported for tests.
- */
 export function mergeComponentSwapOverrides(
   targetMarkup: string,
   currentProps: Array<{ name: string; value: string }>,
@@ -210,8 +193,6 @@ export function mergeComponentSwapOverrides(
   return { markup, overriddenProps, droppedProps, defaultedProps };
 }
 
-// ─── Persistence ────────────────────────────────────────────────────────────
-
 async function persistEdit(file: {
   id: string;
   designId: string;
@@ -246,12 +227,10 @@ async function persistEdit(file: {
   }
 }
 
-// ─── Action ───────────────────────────────────────────────────────────────────
-
 export default defineAction({
   description:
     "Swap a component instance for a different component from elsewhere in " +
-    "the design (Figma's Swap instance). Replaces the selected instance's " +
+    "the design. Replaces the selected instance's " +
     "markup with a copy of another existing instance of targetComponentName, " +
     "carrying over data-agent-native-prop-* overrides whose prop name exists " +
     "on both components. x-data (Alpine state) is not merged — the swapped-in " +
@@ -290,9 +269,13 @@ export default defineAction({
       })
       .optional(),
   }),
-  run: async ({ designId, nodeId, fileId, targetComponentName, source }) => {
+  run: async (
+    { designId, nodeId, fileId, targetComponentName, source },
+    context,
+  ) => {
     const access = await resolveAccess("design", designId);
-    if (!access) throw new Error("Design not found");
+    if (!access)
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
 
     const rawData = (access.resource as { data?: unknown }).data;
     const sourceType = designSourceTypeFromData(rawData);
@@ -311,6 +294,7 @@ export default defineAction({
     }
 
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
     const db = getDb();
 
     const conditions = [
@@ -389,6 +373,11 @@ export default defineAction({
         `Node "${nodeId}" is not a component root (no data-agent-native-component attribute) — nothing to swap.`,
       );
     }
+    if (!isComponentInstanceForInstanceActions(node)) {
+      throw new Error(
+        `Node "${nodeId}" is the canonical component main; swap an instance reference instead.`,
+      );
+    }
 
     if (componentName === targetComponentName) {
       return {
@@ -406,7 +395,6 @@ export default defineAction({
       );
     }
 
-    // ── Find a markup source for the target component ──────────────────────
     const allFiles = await db
       .select({
         id: schema.designFiles.id,
@@ -447,8 +435,11 @@ export default defineAction({
             });
 
       const match = rowProjection.nodes.find((n) => {
-        if (row.id === file.id && n.id === node.id) return false;
-        return componentNameFor(n) === targetComponentName;
+        return isSwapSourceCandidate(
+          n,
+          targetComponentName,
+          row.id === file.id ? node : undefined,
+        );
       });
 
       if (match) {

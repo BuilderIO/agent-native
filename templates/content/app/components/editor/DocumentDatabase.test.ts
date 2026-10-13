@@ -14,6 +14,12 @@ import type {
 import { describe, expect, it } from "vitest";
 
 import {
+  DATABASE_NAVIGATION_STATE_MAX_BYTES,
+  DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+  databaseNavigationStateFitsKeepaliveBudget,
+  fitDatabaseNavigationState,
+} from "./database/navigation-state";
+import {
   addDatabaseView,
   appendDatabaseFilter,
   applyDatabaseView,
@@ -67,9 +73,12 @@ import {
   databaseTableRowDensityClass,
   databaseTimelineDays,
   databaseTimelineItemSpans,
+  databaseSearchParamsWithSelectedView,
   databaseViewGroupableProperties,
+  databaseViewConfigWithSelectedView,
   databaseViewConfigWithSavedQueryState,
   databaseViewHasPersonalQueryChanges,
+  databaseViewSelectionSearchParam,
   databaseVisibleItemSummaries,
   databaseVisibleGroups,
   databaseGridColumns,
@@ -91,6 +100,7 @@ import {
   normalizeClientDatabaseViewConfig,
   orderDatabasePropertiesForView,
   pruneDatabaseRowSelection,
+  reconcileDatabaseViewSelection,
   reorderDatabaseView,
   reorderDatabaseViewProperty,
   renameDatabaseView,
@@ -1782,7 +1792,11 @@ describe("database item preview", () => {
       databaseDateRangeLabel: undefined,
       databaseCalculations: undefined,
       databaseCalculationResults: undefined,
+      databaseTableColumnOrderIds: ["name"],
       databaseWrapCells: undefined,
+      databaseColumnWrapOverrides: undefined,
+      databaseFrozenThroughColumnId: undefined,
+      databaseEffectiveFrozenColumnIds: undefined,
       databaseRowDensity: undefined,
       databaseOpenPagesIn: undefined,
       databaseVisibleItemCount: undefined,
@@ -1895,6 +1909,8 @@ describe("database item preview", () => {
           endDatePropertyId: "end",
           calculations: { number: "sum" },
           wrapCells: true,
+          columnWrapOverrides: { number: false },
+          frozenThroughColumnId: null,
           rowDensity: "comfortable",
         },
         searchQuery: " launch ",
@@ -1925,6 +1941,7 @@ describe("database item preview", () => {
         visibleItemCount: 4,
         totalItemCount: 9,
         previewItem: null,
+        effectiveFrozenColumnIds: [],
       }),
     ).toMatchObject({
       databaseViews: [
@@ -1975,6 +1992,9 @@ describe("database item preview", () => {
         },
       ],
       databaseWrapCells: true,
+      databaseColumnWrapOverrides: { number: false },
+      databaseFrozenThroughColumnId: null,
+      databaseEffectiveFrozenColumnIds: [],
       databaseRowDensity: "comfortable",
       databaseVisibleItemCount: 4,
       databaseTotalItemCount: 9,
@@ -2135,7 +2155,6 @@ describe("database item preview", () => {
             propertyId: "number",
             name: "Priority",
             type: "number",
-            value: 3,
             text: "3",
           },
           {
@@ -2148,6 +2167,158 @@ describe("database item preview", () => {
         ],
       },
     ]);
+  });
+
+  it("sends a cell's text once and marks text it cuts", () => {
+    const notes = property("notes", "Notes", "text");
+    const status = property("status", "Status", "status", null, {
+      options: [{ id: "opt-doing", name: "Doing", color: "blue" }],
+    });
+    const waiting = property("waiting", "Waiting on", "text");
+    const row: ContentDatabaseItem = {
+      ...item("alpha", "Alpha", {}),
+      properties: [
+        { ...notes, value: "x".repeat(250) },
+        { ...status, value: "opt-doing" },
+        { ...waiting, value: null },
+      ],
+    };
+
+    const [summary] = databaseVisibleItemSummaries(
+      [row],
+      [notes, status, waiting],
+    );
+
+    expect(summary?.properties).toEqual([
+      {
+        propertyId: "notes",
+        name: "Notes",
+        type: "text",
+        text: `${"x".repeat(200)}…`,
+        textTruncated: true,
+      },
+      {
+        propertyId: "status",
+        name: "Status",
+        type: "status",
+        value: "opt-doing",
+        text: "Doing",
+      },
+      { propertyId: "waiting", name: "Waiting on", type: "text", text: "" },
+    ]);
+  });
+
+  it("keeps navigation state for a wide database under its byte budget", () => {
+    const options = ["Not started", "In progress", "Waiting", "Done"].map(
+      (name, index) => ({ id: `opt-${index}`, name, color: "gray" as const }),
+    );
+    const columns = [
+      property("status", "Status", "status", null, { options }),
+      property("area", "Area", "select", null, { options }),
+      property("tags", "Tags", "multi_select", null, { options }),
+      property("rank", "Rank", "number"),
+      property("effort", "Effort", "number"),
+      property("due", "Due", "date"),
+      property("touched", "Last touched", "date"),
+      property("link", "Link", "url"),
+      ...["Next action", "Waiting on", "Notes", "Context", "Outcome"].map(
+        (name, index) => property(`text-${index}`, name, "text"),
+      ),
+    ];
+    const rows = Array.from({ length: 60 }, (_, index) => ({
+      ...item(`row-${index}`, `Task ${index} with a descriptive title`, {}),
+      properties: columns.map((column) => ({
+        ...column,
+        value:
+          column.definition.type === "text"
+            ? `Row ${index} ${"long free-form note text ".repeat(12)}`
+            : column.definition.type === "multi_select"
+              ? ["opt-0", "opt-2"]
+              : column.definition.type === "number"
+                ? index
+                : column.definition.type === "date"
+                  ? { start: "2026-06-01", includeTime: false }
+                  : column.definition.type === "url"
+                    ? `https://example.com/tasks/${index}`
+                    : "opt-1",
+      })),
+    }));
+    const state = databaseNavigationState({
+      document: { id: "database-doc", title: "Tasks" },
+      databaseId: "database",
+      activeView: { id: "default", name: "Table", type: "table" },
+      visibleItems: rows,
+      visibleProperties: columns,
+      visibleItemCount: rows.length,
+      totalItemCount: 230,
+      selectedItems: rows.slice(0, 40),
+      previewItem: null,
+    });
+    const bytes = (value: unknown) =>
+      new TextEncoder().encode(JSON.stringify(value)).length;
+    expect(bytes(state)).toBeGreaterThan(64 * 1024);
+
+    const fitted = fitDatabaseNavigationState(state);
+
+    expect(bytes(fitted)).toBeLessThanOrEqual(
+      DATABASE_NAVIGATION_STATE_MAX_BYTES,
+    );
+    expect(databaseNavigationStateFitsKeepaliveBudget(fitted)).toBe(true);
+    expect(DATABASE_NAVIGATION_STATE_MAX_BYTES).toBeLessThan(64 * 1024);
+    expect(fitted.databaseVisibleItems.length).toBeGreaterThan(0);
+    expect(fitted.databaseVisibleItems.length).toBeLessThan(
+      DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+    );
+    expect(fitted.databaseVisibleItemLimit).toBe(
+      fitted.databaseVisibleItems.length,
+    );
+    expect(fitted.databaseVisibleItems).toEqual(
+      state.databaseVisibleItems.slice(0, fitted.databaseVisibleItemLimit),
+    );
+    expect(fitted.databaseVisibleItemCount).toBe(60);
+    expect(fitDatabaseNavigationState(fitted)).toBe(fitted);
+  });
+
+  it("drops every row but keeps the view's settings when the settings alone pass the budget", () => {
+    const filters = Array.from({ length: 20 }, (_, index) => ({
+      id: `filter-${index}`,
+      propertyId: "notes",
+      operator: "contains",
+      value: "a long filter value ".repeat(5),
+    }));
+    const state = {
+      databaseActiveFilters: filters,
+      databaseVisibleItems: [{ itemId: "row-0" }, { itemId: "row-1" }],
+      databaseSelectedItems: [{ itemId: "row-0" }],
+      databaseVisibleItemLimit: DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+    };
+
+    const fitted = fitDatabaseNavigationState(state, 512);
+
+    expect(fitted.databaseVisibleItems).toEqual([]);
+    expect(fitted.databaseSelectedItems).toEqual([]);
+    expect(fitted.databaseVisibleItemLimit).toBe(0);
+    expect(fitted.databaseActiveFilters).toBe(filters);
+  });
+
+  it("keeps oversized view settings out of keepalive requests", () => {
+    const state = {
+      databaseActiveFilters: [
+        {
+          propertyId: "notes",
+          value: "x".repeat(DATABASE_NAVIGATION_STATE_MAX_BYTES),
+        },
+      ],
+      databaseVisibleItems: [{ itemId: "row-0" }],
+      databaseSelectedItems: [{ itemId: "row-0" }],
+      databaseVisibleItemLimit: DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+    };
+
+    const fitted = fitDatabaseNavigationState(state);
+
+    expect(fitted.databaseVisibleItems).toEqual([]);
+    expect(fitted.databaseSelectedItems).toEqual([]);
+    expect(databaseNavigationStateFitsKeepaliveBudget(fitted)).toBe(false);
   });
 
   it("omits preview row ids from navigation state when no row is open", () => {
@@ -2197,7 +2368,11 @@ describe("database item preview", () => {
       databaseDateRangeLabel: undefined,
       databaseCalculations: undefined,
       databaseCalculationResults: undefined,
+      databaseTableColumnOrderIds: ["name"],
       databaseWrapCells: undefined,
+      databaseColumnWrapOverrides: undefined,
+      databaseFrozenThroughColumnId: undefined,
+      databaseEffectiveFrozenColumnIds: undefined,
       databaseRowDensity: undefined,
       databaseOpenPagesIn: undefined,
       databaseVisibleItemCount: undefined,
@@ -2335,6 +2510,138 @@ describe("database item preview", () => {
 });
 
 describe("database saved views", () => {
+  it("keeps selected views tab-local while shared presentation updates hydrate", () => {
+    const editorial = createDatabaseView("Editorial", "editorial", {
+      tableColumnOrderIds: ["name", "status"],
+    });
+    const numbers = createDatabaseView("Numbers", "numbers", {
+      tableColumnOrderIds: ["name", "number"],
+    });
+    const shared = normalizeClientDatabaseViewConfig({
+      activeViewId: editorial.id,
+      views: [editorial, numbers],
+    });
+    const selectionKey = databaseViewSelectionSearchParam("database", "page");
+    const tabA = new URLSearchParams({ [selectionKey]: editorial.id });
+    const tabB = new URLSearchParams({ [selectionKey]: numbers.id });
+
+    const remote = normalizeClientDatabaseViewConfig({
+      ...shared,
+      activeViewId: numbers.id,
+      views: [
+        { ...editorial, columnWidths: { name: 320 } },
+        {
+          ...numbers,
+          tableColumnOrderIds: ["number", "name"],
+          columnWrapOverrides: { number: true },
+        },
+      ],
+    });
+    const hydratedA = reconcileDatabaseViewSelection({
+      savedViewConfig: remote,
+      viewConfig: remote,
+      requestedViewId: tabA.get(selectionKey),
+    });
+    const hydratedB = reconcileDatabaseViewSelection({
+      savedViewConfig: remote,
+      viewConfig: remote,
+      requestedViewId: tabB.get(selectionKey),
+    });
+
+    expect(hydratedA.viewConfig.activeViewId).toBe(editorial.id);
+    expect(hydratedB.viewConfig.activeViewId).toBe(numbers.id);
+    expect(hydratedA.viewConfig.views[0]?.columnWidths).toEqual({ name: 320 });
+    expect(hydratedB.viewConfig.views[1]).toMatchObject({
+      tableColumnOrderIds: ["number", "name"],
+      columnWrapOverrides: { number: true },
+    });
+    expect(hydratedA.viewConfig).toEqual(hydratedA.savedViewConfig);
+    expect(hydratedB.viewConfig).toEqual(hydratedB.savedViewConfig);
+
+    const reloadedA = reconcileDatabaseViewSelection({
+      savedViewConfig: remote,
+      viewConfig: remote,
+      requestedViewId: tabA.get(selectionKey),
+    });
+    const reloadedB = reconcileDatabaseViewSelection({
+      savedViewConfig: remote,
+      viewConfig: remote,
+      requestedViewId: tabB.get(selectionKey),
+    });
+    expect(reloadedA.viewConfig.activeViewId).toBe(editorial.id);
+    expect(reloadedB.viewConfig.activeViewId).toBe(numbers.id);
+  });
+
+  it("persists the authoritative fallback when a selected view is absent or deleted", () => {
+    const editorial = createDatabaseView("Editorial", "editorial");
+    const shared = normalizeClientDatabaseViewConfig({
+      activeViewId: editorial.id,
+      views: [editorial],
+    });
+
+    const initial = reconcileDatabaseViewSelection({
+      savedViewConfig: shared,
+      viewConfig: shared,
+      requestedViewId: null,
+    });
+    expect(initial.selectedViewId).toBe(editorial.id);
+    expect(initial.requestedViewExists).toBe(false);
+
+    const recovered = reconcileDatabaseViewSelection({
+      savedViewConfig: shared,
+      viewConfig: shared,
+      requestedViewId: "deleted",
+    });
+    expect(recovered.viewConfig.activeViewId).toBe(editorial.id);
+    expect(recovered.savedViewConfig.activeViewId).toBe(editorial.id);
+    expect(recovered.viewConfig).toEqual(recovered.savedViewConfig);
+    expect(recovered.requestedViewExists).toBe(false);
+
+    const selectionKey = databaseViewSelectionSearchParam("database", "page");
+    const repaired = databaseSearchParamsWithSelectedView(
+      new URLSearchParams(`share=team&${selectionKey}=deleted`),
+      selectionKey,
+      recovered.selectedViewId,
+    );
+    expect(repaired.get(selectionKey)).toBe(editorial.id);
+    expect(repaired.get("share")).toBe("team");
+  });
+
+  it("scopes inline view selection without replacing other URL state", () => {
+    const firstKey = databaseViewSelectionSearchParam("first", "inline");
+    const secondKey = databaseViewSelectionSearchParam("second", "inline");
+    const first = databaseSearchParamsWithSelectedView(
+      new URLSearchParams("share=team"),
+      firstKey,
+      "editorial",
+    );
+    const second = databaseSearchParamsWithSelectedView(
+      first,
+      secondKey,
+      "numbers",
+    );
+
+    expect(firstKey).toBe("databaseViewId:first");
+    expect(second.get(firstKey)).toBe("editorial");
+    expect(second.get(secondKey)).toBe("numbers");
+    expect(second.get("share")).toBe("team");
+  });
+
+  it("changes only the local saved baseline when selecting an existing view", () => {
+    const editorial = createDatabaseView("Editorial", "editorial");
+    const numbers = createDatabaseView("Numbers", "numbers", {
+      tableColumnOrderIds: ["number", "name"],
+    });
+    const saved = normalizeClientDatabaseViewConfig({
+      activeViewId: editorial.id,
+      views: [editorial, numbers],
+    });
+
+    const selected = databaseViewConfigWithSelectedView(saved, numbers.id);
+    expect(selected.activeViewId).toBe(numbers.id);
+    expect(selected.views).toEqual(saved.views);
+  });
+
   it("wraps legacy sort, filter, and width settings in a default table view", () => {
     const viewConfig = normalizeClientDatabaseViewConfig({
       sorts: [{ key: "number", label: "Priority", direction: "desc" }],

@@ -1,0 +1,65 @@
+---
+title: "Forms: Mit dem Agent sprechen"
+description: "Was der Agent sieht, wenn Sie sich in Forms befinden, und Eingabeaufforderungen nach Aufgabe organisiert."
+---
+
+# Mit dem Agent sprechen
+
+Alles in Forms steht dem Agenten über dieselben Aktionen zur Verfügung, die auch die Oberfläche verwendet. Alles, was Sie anklicken können, können Sie also auch in einfacher Sprache erfragen. Diese Seite behandelt, wie der Agent Ihren Bildschirm sieht, und nützliche Eingabeaufforderungen nach Aufgabe. Einen Überblick finden Sie unter [Forms](/docs/template-forms).
+
+## Wie der Agent Ihren Bildschirm sieht
+
+Der Agent weiß immer, welches Formular oder welche Ansicht Sie geöffnet haben, bis hinunter zum Browser-Tab. Haben Sie ein Formular in einem Tab und die Antwortenliste in einem anderen geöffnet, hält der Agent sie auseinander. Deshalb können Sie „füge diesem Formular eine erforderliche NPS-Frage hinzu“ oder „wie viele Antworten hat das hier“ fragen, ohne das Formular zu benennen. Der Agent weiß bereits, welches Sie meinen. Wenn Sie sich die Antworten eines Formulars ansehen, kann der Agent zudem eine Vorschau dieser Antworten sehen, basierend darauf, was Sie sehen dürfen.
+
+## Nützliche Eingabeaufforderungen nach Aufgabe
+
+Jede Eingabeaufforderung unten wird zu einer echten Aktion gegen Ihr tatsächliches Formular, dasselbe, aus dem auch die Oberfläche liest und in das sie schreibt. Hier ist ein durchgerechnetes Beispiel:
+
+<Comparison>
+
+### :blue: Sie fragen
+
+„Erstelle ein Beta-Anmeldeformular mit Rolle, Teamgröße und vorrangigem Anwendungsfall.“
+
+### :green: Was passiert
+
+Das erstellt etwas Neues. Der Agent baut das Formular mit diesen Feldern bereits vorhanden, und es erscheint sofort in Ihrer Formularliste, bereit zur Feinabstimmung oder Veröffentlichung. Kein Neuladen der Seite nötig. Das neue Formular ist einfach da.
+
+</Comparison>
+
+<Cards columns={2}>
+
+### Erstellen
+
+- **„Erstelle ein Beta-Anmeldeformular mit Rolle, Teamgröße und vorrangigem Anwendungsfall.“** Das neue Formular erscheint sofort in Ihrer Formularliste, bereit zur Feinabstimmung.
+- **„Füge eine erforderliche NPS-Frage und eine Freitext-Nachfrage hinzu.“** Die Felder erscheinen sofort im Formular.
+- **„Mache dieses Formular kürzer, ohne die Felder zu verlieren, die wir für die Weiterleitung brauchen.“** Der Agent kürzt das Formular, behält aber die Felder, von denen Ihre Ziele abhängen.
+
+### Veröffentlichen und schützen
+
+- **„Veröffentliche das und gib mir den Link.“** Das Formular geht sofort live, und Sie erhalten seine öffentliche URL.
+- **„Erstelle ein anonymes Kundenfeedback-Formular und gib mir den öffentlichen Link.“** Das Formular wird von Anfang an anonym veröffentlicht, sodass nie Informationen zum Absender erfasst werden.
+- **„Erlaube die Einreichung dieses Formulars nur von https://example.com aus.“** Das Formular beginnt, Einreichungen von überall sonst abzulehnen. Das ist heute nur über den Agenten möglich. Dafür gibt es keinen Schalter im Builder.
+
+### Antworten und Einblicke
+
+- „Wie viele Antworten hat das Beta-Anmeldeformular?“
+- „Wer hat heute eingereicht?“
+- „Fasse die Einreichungen dieser Woche zusammen und gruppiere sie nach Kundensegment.“
+- „Stelle Einreichungen nach Tag als Diagramm dar.“
+- „Wie entwickeln sich die Einreichungen über alle meine Formulare diesen Monat?“
+- „Exportiere das als CSV.“
+
+### Weiterleitung
+
+- **„Poste jede neue Antwort im Produkt-Slack-Kanal.“** Neue Antworten erscheinen in Slack in dem Moment, in dem sie eintreffen, sobald ein Ziel verbunden ist.
+- „Wie ist die Einrichtung für mein Beta-Anmeldeformular?“
+
+</Cards>
+
+## Wie geht es weiter?
+
+- [**Forms**](/docs/template-forms) — der Überblick und was es ersetzt
+- [**Funktionen**](/docs/template-forms-features) — jeder Funktionsbereich, mit Einrichtungsschritten für jeden
+- [**Forms in einem Multi-App-Arbeitsbereich**](/docs/template-forms-integrations) — Delegation und der öffentliche Übermittlungsendpunkt, den andere Apps verwenden
+- [**Entwicklerhandbuch**](/docs/template-forms-developers) — jede Aktion und das Datenmodell hinter diesen Funktionen

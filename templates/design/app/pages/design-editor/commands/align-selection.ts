@@ -1,6 +1,6 @@
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import { getFrameGroupBounds } from "@shared/canvas-math";
-import type { CodeLayerNode } from "@shared/code-layer";
+import type { CodeLayerNode, CodeLayerSource } from "@shared/code-layer";
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import type { RefObject } from "react";
 
@@ -19,6 +19,75 @@ import { computeAlignedPositions } from "@/pages/design-editor/layout-operations
 import { overviewSelectionTargetsElement } from "@/pages/design-editor/selection-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+export type AlignSelectionBlocker =
+  | "read-only"
+  | "no-selection"
+  | "overview-needs-two-screens"
+  | "no-alignable-parent"
+  | "parent-not-measurable";
+
+export interface AlignSelectionAvailabilityArgs {
+  canEditDesign: boolean;
+  fileIds: string[];
+  measureAlignParentBox: MeasureAlignParentBox;
+  overviewSelectedScreenIds: string[];
+  resolveNodesById: () => ReadonlyMap<string, CodeLayerNode>;
+  selectedElement: ElementInfo | null;
+  selectedLayerIds: string[];
+  viewMode: "single" | "overview";
+}
+
+export type MeasureAlignParentBox = (
+  node: CodeLayerNode,
+  parentNode: CodeLayerNode,
+) => { width: number; height: number } | null;
+
+export type AlignSelectionAvailability =
+  | { canAlign: true }
+  | { canAlign: false; blocker: AlignSelectionBlocker };
+
+function isDocumentRootNode(node: CodeLayerNode | undefined): boolean {
+  const tag = node?.tag.toLowerCase();
+  return tag === "body" || tag === "html";
+}
+
+export function alignSelectionAvailability(
+  args: AlignSelectionAvailabilityArgs,
+): AlignSelectionAvailability {
+  if (!args.canEditDesign) return { canAlign: false, blocker: "read-only" };
+  if (
+    args.viewMode === "overview" &&
+    !overviewSelectionTargetsElement({
+      selectedElement: args.selectedElement,
+      selectedLayerIds: args.selectedLayerIds,
+      fileIds: args.fileIds,
+    })
+  ) {
+    return args.overviewSelectedScreenIds.length >= 2
+      ? { canAlign: true }
+      : { canAlign: false, blocker: "overview-needs-two-screens" };
+  }
+  const nodesById = args.resolveNodesById();
+  const fileIdSet = new Set(args.fileIds);
+  const nodeIds = args.selectedLayerIds.filter(
+    (layerId) =>
+      !layerId.startsWith("__") &&
+      !fileIdSet.has(layerId) &&
+      nodesById.has(layerId),
+  );
+  if (nodeIds.length === 0) return { canAlign: false, blocker: "no-selection" };
+  if (nodeIds.length >= 2) return { canAlign: true };
+  const soleNode = nodesById.get(nodeIds[0]!)!;
+  const parentId = soleNode.parentId;
+  const parentNode = parentId ? nodesById.get(parentId) : undefined;
+  if (!parentNode || isDocumentRootNode(parentNode)) {
+    return { canAlign: false, blocker: "no-alignable-parent" };
+  }
+  return args.measureAlignParentBox(soleNode, parentNode)
+    ? { canAlign: true }
+    : { canAlign: false, blocker: "parent-not-measurable" };
+}
+
 export interface AlignSelectionArgs {
   activeFile: DesignFile;
   boardFileId: string | undefined;
@@ -27,6 +96,7 @@ export interface AlignSelectionArgs {
   commitNodePositions: (
     baseContent: string,
     positions: ReadonlyMap<string, { x: number; y: number }>,
+    source?: CodeLayerSource,
   ) => boolean;
   designDataJsonRef: RefObject<Record<string, unknown>>;
   files: DesignFile[];
@@ -37,6 +107,7 @@ export interface AlignSelectionArgs {
     after: CanvasFrameGeometryById,
     options?: { source?: "pointer" | "keyboard" },
   ) => void;
+  measureAlignParentBox: MeasureAlignParentBox;
   overviewScreens: OverviewScreen[];
   overviewSelectedScreenIds: string[];
   rectFromCodeLayerNode: (node: CodeLayerNode) => AlignableRect;
@@ -57,6 +128,7 @@ export function runAlignSelection(
     getActiveFileSelectedNodeIds,
     getFreshActiveContent,
     handleGeometryCommit,
+    measureAlignParentBox,
     overviewScreens,
     overviewSelectedScreenIds,
     rectFromCodeLayerNode,
@@ -70,13 +142,35 @@ export function runAlignSelection(
     trace("structure", "align-abandoned", { reason, edge, ...data });
   };
   trace("structure", "align", { layers: selectedLayerIdsState.length });
-  if (!canEditDesign) return abandon("read-only");
 
-  // Overview, 2+ selected SCREENS: align each screen's frame geometry to
-  // the selection's combined bounding box through the same
-  // handleGeometryCommit path drags/nudges use — one undo step for the
-  // whole align. A layer selection must fall through to the element path
-  // below instead, as Figma aligns whatever is selected.
+  const baseContent = activeFile ? getFreshActiveContent() : "";
+  const activeSource = activeFile
+    ? { kind: "design-file" as const, fileId: activeFile.id }
+    : undefined;
+  let projectionNodesById: ReadonlyMap<string, CodeLayerNode> | null = null;
+  const resolveNodesById = () => {
+    if (!projectionNodesById) {
+      projectionNodesById = new Map(
+        buildCodeLayerProjection(baseContent, {
+          ...(activeSource ? { source: activeSource } : {}),
+        }).nodes.map((node) => [node.id, node]),
+      );
+    }
+    return projectionNodesById;
+  };
+
+  const availability = alignSelectionAvailability({
+    canEditDesign,
+    fileIds: files.map((file) => file.id),
+    measureAlignParentBox,
+    overviewSelectedScreenIds,
+    resolveNodesById,
+    selectedElement,
+    selectedLayerIds: selectedLayerIdsState,
+    viewMode: viewModeRef.current ?? "single",
+  });
+  if (!availability.canAlign) return abandon(availability.blocker);
+
   if (
     viewModeRef.current === "overview" &&
     !overviewSelectionTargetsElement({
@@ -85,11 +179,6 @@ export function runAlignSelection(
       fileIds: files.map((file) => file.id),
     })
   ) {
-    if (overviewSelectedScreenIds.length < 2) {
-      return abandon("overview: needs 2+ screens", {
-        selected: overviewSelectedScreenIds.length,
-      });
-    }
     const before = getCanvasFrameGeometry(designDataJsonRef.current);
     const screenRects: AlignableRect[] = [];
     overviewSelectedScreenIds.forEach((screenId) => {
@@ -148,17 +237,9 @@ export function runAlignSelection(
     return;
   }
 
-  // Single-screen mode: in-screen DOM-node layers.
   if (!activeFile) return abandon("no active file");
-  const baseContent = getFreshActiveContent();
   const nodeIds = getActiveFileSelectedNodeIds(baseContent);
-  if (nodeIds.length === 0) {
-    return abandon("selection has no nodes in the active file", {
-      selectedLayerIds: selectedLayerIdsState.length,
-    });
-  }
-  const projection = buildCodeLayerProjection(baseContent);
-  const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
+  const nodesById = resolveNodesById();
   const selectedNodes = nodeIds
     .map((nodeId) => nodesById.get(nodeId))
     .filter((node): node is CodeLayerNode => Boolean(node));
@@ -168,7 +249,6 @@ export function runAlignSelection(
   const selectedRects = selectedNodes.map(rectFromCodeLayerNode);
 
   if (selectedRects.length >= 2) {
-    // Multi-selection: align to the selection's own combined bbox.
     const bounds = getFrameGroupBounds(selectedRects);
     if (!bounds) return abandon("no combined bounds for selection");
     const positions = computeAlignedPositions(
@@ -184,30 +264,25 @@ export function runAlignSelection(
     if (positions.size === 0) {
       return abandon("already aligned; nothing to move", { edge });
     }
-    commitNodePositions(baseContent, positions);
+    commitNodePositions(baseContent, positions, activeSource);
     return;
   }
 
-  // Single selection: align relative to the parent's content box. A
-  // single top-level screen (no code-layer parent) is a no-op, matching
-  // Figma (there's nothing to align a lone top-level frame against).
   const soleNode = selectedNodes[0]!;
   const parentId = soleNode.parentId;
-  if (!parentId) {
-    return abandon("single selection has no parent to align against", {
-      nodeId: soleNode.id,
-    });
-  }
-  const parentNode = nodesById.get(parentId);
+  const parentNode = parentId ? nodesById.get(parentId) : undefined;
   if (!parentNode) return abandon("parent id not in projection", { parentId });
-  const parentRect = rectFromCodeLayerNode(parentNode);
+  const parentBox = measureAlignParentBox(soleNode, parentNode);
+  if (!parentBox) {
+    return abandon("parent box could not be measured", { parentId });
+  }
   const positions = computeAlignedPositions(
     [selectedRects[0]!],
-    { x: 0, y: 0, width: parentRect.width, height: parentRect.height },
+    { x: 0, y: 0, width: parentBox.width, height: parentBox.height },
     edge,
   );
   if (positions.size === 0) {
     return abandon("already aligned; nothing to move", { edge });
   }
-  commitNodePositions(baseContent, positions);
+  commitNodePositions(baseContent, positions, activeSource);
 }

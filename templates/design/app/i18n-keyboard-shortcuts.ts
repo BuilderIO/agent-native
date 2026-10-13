@@ -471,6 +471,7 @@ interface KeyboardMessagesSource {
     sections: {
       layout: string;
       autoLayout: string;
+      layoutGrid: string;
       fill: string;
       stroke: string;
       codeConfidence: string;
@@ -492,7 +493,8 @@ interface KeyboardMessagesSource {
       | "rect"
       | "ellipse"
       | "line"
-      | "arrow",
+      | "arrow"
+      | "imageVideo",
       string
     >;
     undo: string;
@@ -517,6 +519,7 @@ interface KeyboardMessagesSource {
     duplicate: string;
     delete: string;
     rename: string;
+    subtract: string;
     flipHorizontal: string;
     flipVertical: string;
     bringForward: string;
@@ -604,6 +607,8 @@ export function attachLocalizedKeyboardShortcuts<
           ellipse: d.tools.ellipse,
           line: d.tools.line,
           arrow: d.tools.arrow,
+          imageVideo: d.tools.imageVideo,
+          booleanSubtract: layers.subtract,
           selectAll: labels.selection,
           selectParent: `${labels.selection}: ${layers.title}`,
           enterSelection: labels.selection,
@@ -611,8 +616,9 @@ export function attachLocalizedKeyboardShortcuts<
           previousSibling: `← ${labels.selection}`,
           nextScreen: `${layers.screens} →`,
           previousScreen: `← ${layers.screens}`,
+          toggleLayoutGrids: `${edit.sections.layoutGrid}: ${d.view}`,
           nudge: d.tools.move,
-          nudgeLarge: `${d.tools.move} 10`,
+          nudgeLarge: labels.nudgeAmountBig,
           copy: layers.copy,
           copyPng: `${layers.copy} PNG`,
           cut: layers.delete,

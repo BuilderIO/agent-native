@@ -1,8 +1,12 @@
+import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import { test, expect } from "@playwright/test";
 
+import enUS from "../app/i18n/en-US";
 import {
+  canvasZoom,
   readSeedDesignId,
   gotoEditor,
+  createFixtureDesign,
   designFrame,
   enterDirectMode,
   selectByText,
@@ -12,7 +16,47 @@ import {
   installBridge,
   waitForBridge,
   bridgeMessages,
+  appPath,
 } from "./helpers";
+
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
+
+async function setCreativeContextLab(
+  page: import("@playwright/test").Page,
+  enabled: boolean,
+) {
+  const response = await page.request.post(
+    `${new URL(page.url()).origin}/_agent-native/actions/set-lab`,
+    {
+      data: { key: CREATIVE_CONTEXT_LIBRARY_LAB.key, enabled },
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+  expect(
+    response.ok(),
+    `set-lab returned ${response.status()}: ${await response.text()}`,
+  ).toBe(true);
+}
+
+async function deepSelectByText(
+  page: import("@playwright/test").Page,
+  text: string,
+) {
+  await enterDirectMode(page);
+  await installBridge(page);
+  await page.evaluate(() => ((window as any).__bridge = []));
+  const target = designFrame(page).getByText(text).first();
+  await target.waitFor({ state: "visible", timeout: 8_000 });
+  const box = await target.boundingBox();
+  if (!box) throw new Error(`no bounding box for "${text}"`);
+  await page.keyboard.down(MOD);
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.up(MOD);
+  const selected = await waitForBridge(page, "element-select");
+  const payload = selected?.payload ?? selected;
+  expect(String(payload?.textContent ?? "")).toContain(text);
+  return payload;
+}
 
 let designId: string;
 
@@ -22,19 +66,38 @@ test.beforeAll(async () => {
 
 test.beforeEach(async ({ page }) => {
   await gotoEditor(page, designId);
-  await page.getByRole("tab", { name: "Design", exact: true }).click();
 });
 
 test("editor renders the toolbar and the design iframe content", async ({
   page,
 }) => {
-  for (const tool of ["Move", "Frame", "Text", "Pen", "Edit", "Interact"]) {
-    // exact:true keeps "Move" from matching the "Move options" split button.
+  const toolbar = page.locator("[data-design-bottom-toolbar]");
+  for (const tool of [
+    "Move",
+    "Frame",
+    "Rectangle",
+    "Text",
+    "Pen",
+    "Pin comment",
+  ]) {
     await expect(
-      page.getByRole("button", { name: tool, exact: true }),
+      toolbar.getByRole("button", { name: tool, exact: true }),
     ).toBeVisible();
   }
-  // Frame-locator reaches inside the sandboxed iframe and stays stable around overlays.
+  await expect(toolbar.getByRole("button", { name: /agent/i })).toHaveCount(0);
+  const modeSwitch = page.locator(
+    "[data-design-top-bar] [data-design-mode-switch]",
+  );
+  // Annotate is behind a lab that is off by default (annotate-lab.spec.ts).
+  await expect(modeSwitch.locator("[data-design-mode]")).toHaveText([
+    "Interact",
+    "Design",
+  ]);
+  await expect(modeSwitch.locator('[data-design-mode="edit"]')).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(toolbar.locator("[data-design-mode]")).toHaveCount(0);
   await expect(designFrame(page).getByText("E2E Hero Heading")).toBeVisible();
   const nodeCount = await designFrame(page)
     .locator("h1, h2, p, button")
@@ -42,115 +105,410 @@ test("editor renders the toolbar and the design iframe content", async ({
   expect(nodeCount).toBeGreaterThanOrEqual(5);
 });
 
-test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
-  await page
-    .getByRole("button", { name: /^share(?: \(.+\))?$/i })
-    .first()
+test("agent rail keeps the shared chat header and conversation tabs", async ({
+  page,
+}, testInfo) => {
+  const workspaceRail = page.locator(
+    '[data-design-chrome-region="workspace-rail"]',
+  );
+  await workspaceRail
+    .getByRole("button", {
+      name: enUS.designEditor.leftRail.agent,
+      exact: true,
+    })
     .click();
 
-  const shareOptions = page.locator(
-    '[role="tablist"][aria-label="Share options"]',
-  );
-  await expect(shareOptions).toBeVisible();
-
-  const tabListBox = await shareOptions.boundingBox();
-  expect(tabListBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-    340,
-  );
-  expect(tabListBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-    42,
-  );
-
-  const sendTab = page.getByRole("tab", { name: "Send to agent" });
-  const sendTabBox = await sendTab.boundingBox();
-  expect(sendTabBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-    36,
-  );
-
-  await sendTab.click();
-  await expect(page.getByText("Your agent", { exact: true })).toBeVisible();
-  const copyPromptButton = page.getByRole("button", {
-    name: "Copy agent prompt",
-  });
-  await expect(copyPromptButton).toBeVisible();
-  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
-    origin: new URL(page.url()).origin,
-  });
-  await copyPromptButton.click();
+  const agentPanel = page.locator("[data-design-agent-panel]");
+  await expect(agentPanel).toBeVisible();
+  const newChatButton = agentPanel.locator('button[aria-label="New chat"]');
+  await expect(newChatButton).toBeVisible();
   await expect(
-    page.getByText("Agent prompt copied", { exact: true }),
+    agentPanel.getByRole("button", {
+      name: "Agent panel options",
+      exact: true,
+    }),
   ).toBeVisible();
   await expect(
-    page.getByText("Clipboard blocked", { exact: true }),
+    agentPanel.getByRole("button", { name: "Chat", exact: true }),
   ).toHaveCount(0);
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
-    "Build this design as production code: E2E Seed Design",
-  );
-
-  const popover = page
-    .locator("[data-radix-popper-content-wrapper]")
-    .filter({ has: shareOptions })
-    .first();
-  const popoverBox = await popover.boundingBox();
-  expect(popoverBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-    650,
-  );
-
-  await page.getByRole("tab", { name: "Share link" }).click();
-  await page.getByRole("combobox", { name: "General access" }).click();
   await expect(
-    page.getByRole("option", { name: /Organization/ }),
+    agentPanel.getByRole("button", { name: "Workspace", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    agentPanel.getByRole("button", { name: "Workspace mode", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    agentPanel.getByRole("button", { name: "Share", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    agentPanel.getByRole("button", { name: "Collapse sidebar", exact: true }),
   ).toBeVisible();
-  await expect(shareOptions).toBeVisible();
-  const accessMenu = page
-    .locator("[data-radix-popper-content-wrapper]")
-    .filter({ has: page.getByRole("option", { name: /Organization/ }) })
-    .last();
-  await expect(accessMenu).toBeVisible();
-  const sharePopoverZ = Number.parseInt(
-    (await popover.evaluate((node) => getComputedStyle(node).zIndex)) || "0",
-    10,
-  );
-  const accessMenuZ = Number.parseInt(
-    (await accessMenu.evaluate((node) => getComputedStyle(node).zIndex)) || "0",
-    10,
-  );
-  expect(accessMenuZ).toBeGreaterThan(sharePopoverZ);
-  await page.keyboard.press("Escape");
 
-  await cdpScreenshot(page, testInfo.outputPath("share-dialog-compact.png"));
+  await newChatButton.click();
+  const conversationTabs = agentPanel.locator('[role="button"].agent-tab');
+  await expect(conversationTabs).toHaveCount(2);
+  expect(
+    await conversationTabs.evaluateAll(
+      (tabs) =>
+        tabs.filter((tab) => tab.classList.contains("bg-accent")).length,
+    ),
+  ).toBe(1);
+  await cdpScreenshot(page, testInfo.outputPath("design-agent-header.png"));
+});
+
+test("agent rail stays contained at a narrow viewport", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page
+    .locator('[data-design-chrome-region="workspace-rail"]')
+    .getByRole("button", {
+      name: enUS.designEditor.leftRail.agent,
+      exact: true,
+    })
+    .click();
+
+  const agentPanel = page.locator("[data-design-agent-panel]");
+  await expect(agentPanel).toBeVisible();
+  const panelBox = await agentPanel.boundingBox();
+  expect(panelBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(334);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+  await cdpScreenshot(page, testInfo.outputPath("design-agent-narrow.png"));
+});
+
+test("designs list shared sidebar stays contained at normal and narrow widths", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(appPath("/home"), { waitUntil: "domcontentloaded" });
+
+  await page.getByRole("button", { name: "Toggle agent", exact: true }).click();
+  const sidebar = page.locator('[data-agent-sidebar-state="open"]');
+  await expect(sidebar).toBeVisible();
+  await expect(sidebar.locator('button[aria-label="New chat"]')).toBeVisible();
+  await expect(
+    sidebar.getByRole("button", {
+      name: "Agent panel options",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await cdpScreenshot(page, testInfo.outputPath("designs-list-normal.png"));
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual(390);
+  await cdpScreenshot(page, testInfo.outputPath("designs-list-narrow.png"));
+});
+
+test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
+  await setCreativeContextLab(page, true);
+  try {
+    await gotoEditor(page, designId);
+
+    await page
+      .getByRole("button", { name: /^share(?: \(.+\))?$/i })
+      .first()
+      .click();
+
+    const shareOptions = page.locator(
+      '[role="tablist"][aria-label="Share options"]',
+    );
+    await expect(shareOptions).toBeVisible();
+
+    const tabListBox = await shareOptions.boundingBox();
+    expect(tabListBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+      420,
+    );
+    expect(tabListBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+      42,
+    );
+
+    const sendTab = page.getByRole("tab", { name: "Send to agent" });
+    const sendTabBox = await sendTab.boundingBox();
+    expect(sendTabBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+      36,
+    );
+
+    const contextTab = page.getByRole("tab", { name: "Context", exact: true });
+    await expect(contextTab).toBeVisible();
+    await contextTab.click();
+    await expect(
+      page.getByRole("region", { name: "Creative context" }),
+    ).toBeVisible();
+    await cdpScreenshot(page, testInfo.outputPath("share-dialog-context.png"));
+
+    await sendTab.click();
+    await expect(page.getByText("Your agent", { exact: true })).toBeVisible();
+    const copyPromptButton = page.getByRole("button", {
+      name: "Copy agent prompt",
+    });
+    await expect(copyPromptButton).toBeVisible();
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin: new URL(page.url()).origin,
+      });
+    await copyPromptButton.click();
+    await expect(
+      page.getByText("Agent prompt copied", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Clipboard blocked", { exact: true }),
+    ).toHaveCount(0);
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
+      "Build this design as production code: E2E Seed Design",
+    );
+
+    const popover = page
+      .locator("[data-radix-popper-content-wrapper]")
+      .filter({ has: shareOptions })
+      .first();
+    const popoverBox = await popover.boundingBox();
+    expect(popoverBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+      650,
+    );
+
+    await page.getByRole("tab", { name: "Share link" }).click();
+    await page.getByRole("combobox", { name: "General access" }).click();
+    await expect(
+      page.getByRole("option", { name: /Organization/ }),
+    ).toBeVisible();
+    await expect(shareOptions).toBeVisible();
+    const accessMenu = page
+      .locator("[data-radix-popper-content-wrapper]")
+      .filter({ has: page.getByRole("option", { name: /Organization/ }) })
+      .last();
+    await expect(accessMenu).toBeVisible();
+    const sharePopoverZ = Number.parseInt(
+      (await popover.evaluate((node) => getComputedStyle(node).zIndex)) || "0",
+      10,
+    );
+    const accessMenuZ = Number.parseInt(
+      (await accessMenu.evaluate((node) => getComputedStyle(node).zIndex)) ||
+        "0",
+      10,
+    );
+    expect(accessMenuZ).toBeGreaterThan(sharePopoverZ);
+    await page.keyboard.press("Escape");
+
+    await cdpScreenshot(page, testInfo.outputPath("share-dialog-compact.png"));
+  } finally {
+    await setCreativeContextLab(page, false);
+  }
+});
+
+test("visual-edit route has no top bar and keeps Share, zoom and the mode tabs", async ({
+  page,
+}) => {
+  await page.goto(appPath(`/visual-edit/${designId}`), {
+    waitUntil: "domcontentloaded",
+  });
+  const rightPanel = page.locator('[data-design-chrome-region="right-panel"]');
+  await expect(rightPanel).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator("[data-design-top-bar]")).toHaveCount(0);
+  await expect(
+    rightPanel.getByRole("button", { name: /^share/i }).first(),
+  ).toBeVisible();
+  await expect(
+    rightPanel.getByRole("button", { name: /^\d+%$/ }),
+  ).toBeVisible();
+  const toolbar = page.locator("[data-design-bottom-toolbar]");
+  for (const tab of ["Edit", "Interact"]) {
+    await expect(
+      toolbar.getByRole("button", { name: tab, exact: true }),
+    ).toBeVisible();
+  }
+  await expect(
+    toolbar.getByRole("button", { name: "Annotate", exact: true }),
+  ).toHaveCount(0);
+});
+
+test("top bar is 48px and keeps Share, presence and zoom inside the bar", async ({
+  page,
+}, testInfo) => {
+  const topBar = page.locator("[data-design-top-bar]");
+  await expect(topBar).toBeVisible();
+  const barBox = await topBar.boundingBox();
+  if (!barBox) throw new Error("missing top bar box");
+  expect(barBox.y).toBe(0);
+  expect(barBox.height).toBe(48);
+  const leftShellBox = await page
+    .locator('[data-design-chrome-region="left-shell"]')
+    .boundingBox();
+  if (!leftShellBox) throw new Error("missing left shell box");
+  expect(leftShellBox.y).toBe(0);
+  expect(barBox.x).toBe(leftShellBox.x + leftShellBox.width);
+
+  await expect(
+    page.getByRole("button", { name: "Add to Context" }),
+  ).toHaveCount(0);
+
+  const shareButton = topBar
+    .getByRole("button", { name: /^share(?: \(.+\))?$/i })
+    .first();
+  await expect(shareButton).toBeVisible();
+  const shareBox = await shareButton.boundingBox();
+  if (!shareBox) throw new Error("missing Share box");
+  expect(shareBox.x).toBeGreaterThanOrEqual(barBox.x - 1);
+  expect(shareBox.x + shareBox.width).toBeLessThanOrEqual(
+    barBox.x + barBox.width + 1,
+  );
+  expect(
+    await topBar.evaluate((node) => node.scrollWidth - node.clientWidth),
+  ).toBeLessThanOrEqual(1);
+  await expect(topBar.getByRole("button", { name: /^\d+%$/ })).toBeVisible();
+
+  // The rail no longer carries the moved controls.
+  const rightPanel = page.locator('[data-design-chrome-region="right-panel"]');
+  await expect(rightPanel.getByRole("button", { name: /^share/i })).toHaveCount(
+    0,
+  );
+
+  await cdpScreenshot(page, testInfo.outputPath("editor-top-bar.png"));
 });
 
 test("screen overview adds and targets frames from the unified breakpoint control", async ({
   page,
 }) => {
-  const breakpointControl = page.locator("[data-breakpoint-device-control]");
-  await expect(
-    breakpointControl.getByRole("button", { name: "Base" }),
-  ).toHaveAttribute("aria-pressed", "true");
+  let notifyFirstAdd: () => void = () => {};
+  let releaseFirstAdd: () => void = () => {};
+  const firstAddStarted = new Promise<void>((resolve) => {
+    notifyFirstAdd = resolve;
+  });
+  const firstAddGate = new Promise<void>((resolve) => {
+    releaseFirstAdd = resolve;
+  });
+  let holdFirstAdd = true;
+  await page.route("**/_agent-native/actions/add-breakpoint", async (route) => {
+    const response = await route.fetch();
+    if (holdFirstAdd) {
+      holdFirstAdd = false;
+      notifyFirstAdd();
+      await firstAddGate;
+    }
+    await route.fulfill({ response });
+  });
 
-  await breakpointControl
-    .getByRole("button", { name: "Add breakpoint" })
+  try {
+    const fixtureDesignId = await createFixtureDesign(
+      page,
+      "E2E Unified Breakpoint Control",
+    );
+    await page.setViewportSize({ width: 1800, height: 1000 });
+    await page.goto(
+      appPath(`/design/${fixtureDesignId}?view=overview&zoom=24`),
+      { waitUntil: "domcontentloaded" },
+    );
+    await expect(page.locator("[data-screen-shell]").first()).toBeVisible();
+    await page
+      .locator("aside")
+      .first()
+      .getByRole("button", { name: "All screens", exact: true })
+      .click();
+    await expect(page.locator("[data-screen-card]").first()).toBeVisible();
+
+    const breakpointControl = page.locator("[data-breakpoint-device-control]");
+    await expect(
+      breakpointControl.getByRole("button", { name: "Base" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    await breakpointControl
+      .getByRole("button", { name: "Add breakpoint" })
+      .click();
+    await page.getByRole("button", { name: /Tablet\s+810/ }).click();
+
+    const tabletTarget = breakpointControl.getByRole("button", {
+      name: "810",
+    });
+    await expect(tabletTarget).toBeVisible();
+    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(1);
+    await tabletTarget.click();
+    await expect(tabletTarget).toHaveAttribute("aria-pressed", "true");
+    await breakpointControl.getByRole("button", { name: "Base" }).click();
+    await expect(
+      breakpointControl.getByRole("button", { name: "Base" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    await firstAddStarted;
+    const addBreakpoint = breakpointControl.getByRole("button", {
+      name: "Add breakpoint",
+    });
+    await expect(addBreakpoint).toBeVisible();
+    await expect(addBreakpoint).toBeEnabled();
+    await addBreakpoint.click();
+    const customWidth = page.getByPlaceholder("Custom width");
+    await customWidth.fill("700");
+    const addCustomBreakpoint = page.getByRole("button", {
+      name: "Add",
+      exact: true,
+    });
+    await expect(addCustomBreakpoint).toBeDisabled();
+    releaseFirstAdd();
+    await expect(addCustomBreakpoint).toBeEnabled();
+    await addCustomBreakpoint.click();
+    const customTarget = breakpointControl.getByRole("button", {
+      name: "700",
+    });
+    await expect(customTarget).toBeVisible();
+    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(2);
+
+    await customTarget.click();
+    await breakpointControl
+      .getByRole("button", { name: "Breakpoint options" })
+      .click();
+    await page.getByRole("menuitem", { name: "Remove breakpoint" }).click();
+    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(1);
+
+    await tabletTarget.click();
+    await breakpointControl
+      .getByRole("button", { name: "Breakpoint options" })
+      .click();
+    await page.getByRole("menuitem", { name: "Remove breakpoint" }).click();
+    await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(0);
+  } finally {
+    releaseFirstAdd();
+    await page.unroute("**/_agent-native/actions/add-breakpoint");
+  }
+});
+
+test("frame plus skips the breakpoint matching the base screen width", async ({
+  page,
+}) => {
+  const fixtureDesignId = await createFixtureDesign(
+    page,
+    "E2E Frame Breakpoint Plus",
+  );
+  const actionUrl = `${new URL(page.url()).origin}/_agent-native/actions/add-breakpoint`;
+  for (const breakpoint of [
+    { label: "Mobile", widthPx: 390 },
+    { label: "Tablet", widthPx: 768 },
+  ]) {
+    const response = await page.request.post(actionUrl, {
+      data: { designId: fixtureDesignId, ...breakpoint },
+    });
+    expect(response.ok()).toBe(true);
+  }
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto(appPath(`/design/${fixtureDesignId}?view=overview&zoom=24`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(page.locator("[data-screen-shell]").first()).toBeVisible();
+  await page
+    .locator("aside")
+    .first()
+    .getByRole("button", { name: "All screens", exact: true })
     .click();
-  await page.getByRole("button", { name: /Phone/ }).click();
+  await expect(page.locator("[data-screen-card]").first()).toBeVisible();
+  await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(2);
 
-  const mobileTarget = breakpointControl.getByRole("button", { name: "390" });
-  await expect(mobileTarget).toBeVisible();
-  await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(1);
-  await mobileTarget.click();
-  await expect(mobileTarget).toHaveAttribute("aria-pressed", "true");
-  await breakpointControl.getByRole("button", { name: "Base" }).click();
   await expect(
-    breakpointControl.getByRole("button", { name: "Base" }),
-  ).toHaveAttribute("aria-pressed", "true");
-
-  // Leave the shared seed design pristine for later inspector/browser specs.
-  await mobileTarget.click();
-  await breakpointControl
-    .getByRole("button", { name: "Breakpoint options" })
-    .click();
-  await page.getByRole("menuitem", { name: "Remove breakpoint" }).click();
-  await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(0);
+    page.locator(
+      'button[title="Add Desktop breakpoint (1280px) to all screens"]',
+    ),
+  ).toHaveCount(0);
 });
 
 test("screen overview keeps compact frame actions contained when header space is tight", async ({
@@ -244,7 +602,21 @@ test("screen overview lets users select elements inside the active screen", asyn
 
   await frameTitle.click();
   await expect.poll(frameTitleColor).toBe(accentColor);
-  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  // Clicking the title fits the camera to the Screen, so the heading moves.
+  // Wait for it to settle before aiming the next click at it.
+  let settled = box!;
+  await expect
+    .poll(async () => {
+      const next = (await target.boundingBox())!;
+      const stable = next.x === settled.x && next.y === settled.y;
+      settled = next;
+      return stable;
+    })
+    .toBe(true);
+  await page.mouse.click(
+    settled.x + settled.width / 2,
+    settled.y + settled.height / 2,
+  );
 
   const selected = await waitForBridge(page, "element-select");
   const payload = selected?.payload ?? selected;
@@ -265,6 +637,48 @@ test("screen overview lets users select elements inside the active screen", asyn
   await expect.poll(() => inspectorInputCount(page)).toBeGreaterThan(before);
 });
 
+test("middle-mouse pan follows vertical pointer movement over screen content", async ({
+  page,
+}) => {
+  const screenCard = page
+    .locator("[data-screen-card]")
+    .filter({ has: page.locator("iframe[data-design-preview-iframe]") })
+    .last();
+  await expect(screenCard).toBeVisible();
+
+  const heading = designFrame(page).getByText("E2E Hero Heading").first();
+  await heading.scrollIntoViewIfNeeded();
+  const headingBox = await heading.boundingBox();
+  const initialCard = await screenCard.boundingBox();
+  if (!headingBox || !initialCard) {
+    throw new Error("missing screen content or card bounds");
+  }
+
+  const startX = headingBox.x + headingBox.width / 2;
+  const startY = headingBox.y + headingBox.height / 2;
+  const cardY = [initialCard.y];
+  await page.mouse.move(startX, startY);
+  await page.mouse.down({ button: "middle" });
+  try {
+    for (let step = 1; step <= 8; step += 1) {
+      await page.mouse.move(startX, startY + step * 12, { steps: 1 });
+      await page.waitForTimeout(24);
+      const currentCard = await screenCard.boundingBox();
+      if (!currentCard)
+        throw new Error("screen card disappeared while panning");
+      cardY.push(currentCard.y);
+    }
+  } finally {
+    await page.mouse.up({ button: "middle" });
+  }
+
+  const deltas = cardY.slice(1).map((y, index) => y - cardY[index]!);
+  const finalCardY = cardY[cardY.length - 1]!;
+  expect(deltas.every((delta) => delta > 0 && delta < 30)).toBe(true);
+  expect(finalCardY - cardY[0]!).toBeGreaterThan(72);
+  expect(finalCardY - cardY[0]!).toBeLessThan(120);
+});
+
 test("left sidebar switches between all screens and focused screens", async ({
   page,
 }) => {
@@ -278,49 +692,57 @@ test("left sidebar switches between all screens and focused screens", async ({
   await expect(allScreens).toHaveAttribute("aria-current", "page");
   await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
 
+  const screenCards = page.locator("[data-screen-card]");
+  await expect(screenCards.first()).toBeVisible();
+
+  // A row focuses its Screen on the overview canvas: the Screen is selected and
+  // "All screens" stays current. Interact is what leaves the overview.
   await homeScreen.click();
+  await expect(
+    page.locator('[role="treeitem"][aria-selected="true"]').first(),
+  ).toContainText("Home");
+  await expect(allScreens).toHaveAttribute("aria-current", "page");
+  await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
+
+  await page
+    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .click();
   await expect(homeScreen).toHaveAttribute("aria-current", "page");
   await expect(allScreens).not.toHaveAttribute("aria-current", "page");
-  await expect
-    .poll(
-      async () =>
-        (await page.locator("iframe[data-design-preview-iframe]").boundingBox())
-          ?.width ?? 0,
-      { timeout: 10_000 },
-    )
-    .toBeGreaterThan(600);
+  await expect(
+    page.locator('[data-screen-shell][data-screen-interact-mode="true"]'),
+  ).toHaveCount(1, { timeout: 10_000 });
+  await expect(
+    page.locator("iframe[data-design-preview-iframe]"),
+  ).toBeVisible();
 
   await allScreens.click();
   await expect(allScreens).toHaveAttribute("aria-current", "page");
   await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
 });
 
-test("hides the gated secondary panels and Assets picker when disabled", async ({
-  page,
-}) => {
-  test.skip(
-    process.env.E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS !== "0",
-    "The default E2E profile keeps advanced panels enabled for their existing coverage.",
-  );
-
-  for (const label of ["Assets", "Tools", "Tokens", "Code"]) {
-    await expect(
-      page.getByRole("button", { name: label, exact: true }),
-    ).toHaveCount(0);
-  }
-  await expect(page.locator('iframe[title="Assets picker"]')).toHaveCount(0);
-});
+if (process.env.E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS === "0") {
+  test("hides the gated secondary panels and Assets picker when disabled", async ({
+    page,
+  }) => {
+    for (const label of ["Assets", "Tools", "Tokens", "Code"]) {
+      await expect(
+        page.getByRole("button", { name: label, exact: true }),
+      ).toHaveCount(0);
+    }
+    await expect(page.locator('iframe[title="Assets picker"]')).toHaveCount(0);
+  });
+}
 
 test("clicking an element selects it and populates the inspector", async ({
   page,
 }) => {
   const before = await inspectorInputCount(page);
-  const payload = await selectByText(page, "E2E Hero Heading");
+  const payload = await deepSelectByText(page, "E2E Hero Heading");
 
   expect(payload).toBeTruthy();
   expect((payload.tagName ?? "").toUpperCase()).toBe("H1");
   expect(payload.textContent ?? "").toContain("E2E Hero Heading");
-  // The element-select payload resolves to a runtime-stamped, stable node id.
   expect(payload.selector ?? "").toMatch(/data-agent-native-node-id/);
 
   await expect.poll(() => inspectorInputCount(page)).toBeGreaterThan(before);
@@ -392,14 +814,15 @@ test("spacing handles stay visible at rest and remain draggable", async ({
     .last()
     .boundingBox();
   if (!frameBox) throw new Error("missing design iframe bounds");
+  const zoom = await canvasZoom(page);
   await designFrame(page)
     .locator('[data-agent-native-edit-overlay="shield"]')
     .first()
     .dispatchEvent("click", {
       bubbles: true,
       cancelable: true,
-      clientX: box.x - frameBox.x + 12,
-      clientY: box.y - frameBox.y + 12,
+      clientX: (box.x - frameBox.x) / zoom + 12,
+      clientY: (box.y - frameBox.y) / zoom + 12,
       detail: 1,
     });
   const selected = await waitForBridge(page, "element-select");
@@ -443,8 +866,8 @@ test("spacing handles stay visible at rest and remain draggable", async ({
 test("selecting a different element changes the selection", async ({
   page,
 }) => {
-  const first = await selectByText(page, "E2E Hero Heading");
-  const second = await selectByText(page, "Fixture Card Title");
+  const first = await deepSelectByText(page, "E2E Hero Heading");
+  const second = await deepSelectByText(page, "Fixture Card Title");
 
   expect(first.selector).toBeTruthy();
   expect(second.selector).toBeTruthy();
@@ -455,11 +878,10 @@ test("selecting a different element changes the selection", async ({
 test("the layers panel lists layers and a layer row selects on the canvas", async ({
   page,
 }) => {
-  const rows = page.locator('[role="treeitem"][aria-selected]');
+  const rows = page.locator('[role="treeitem"][aria-selected]:visible');
   await expect(rows.first()).toBeVisible({ timeout: 15_000 });
   expect(await rows.count()).toBeGreaterThan(0);
 
-  // Clicking a selectable layer row should make it the active selected row.
   const target = rows.last();
   await target.click();
   await expect(target).toHaveAttribute("aria-selected", "true");
@@ -497,8 +919,6 @@ test("deeply nested layer rows keep a clickable hit target", async ({
 test("dragging an element on the canvas drives the bridge (move/reorder)", async ({
   page,
 }) => {
-  // Real pointer drag through the editor: this must reach the structural
-  // move path, not just the hover/select bridge messages.
   const fired = await dragCanvasByText(page, "Alpha Button", 0, 90);
   expect(fired).toContain("visual-structure-change");
 });
@@ -553,7 +973,6 @@ test("Escape cancels an in-progress element drag on the canvas", async ({
 test("can capture a screenshot of the editor via CDP", async ({
   page,
 }, info) => {
-  // page.screenshot() hangs (the page never reaches an idle frame), so use CDP.
   const out = info.outputPath("editor.png");
   await cdpScreenshot(page, out);
   await info.attach("editor", { path: out, contentType: "image/png" });

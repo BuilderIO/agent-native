@@ -85,6 +85,11 @@ type ParsedAskBrainResult = {
   citations?: unknown[];
 };
 
+type ParsedSearchEverythingResult = {
+  results?: unknown[];
+  policy?: { sourcePolicy?: unknown };
+};
+
 function latestUserText(
   messages: AgentLoopFinalResponseGuardContext["messages"],
 ): string {
@@ -103,13 +108,15 @@ function latestUserText(
 }
 
 function normalizeToolName(name: unknown): string {
-  return String(name ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_]+/g, "-");
+  return typeof name === "string"
+    ? name
+    : JSON.stringify(name ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_]+/g, "-");
 }
 
-function parseAskBrainResult(content: string): ParsedAskBrainResult | null {
+function parseToolResultRecord<T>(content: string): T | null {
   try {
     const parsed: unknown = JSON.parse(content);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -118,9 +125,9 @@ function parseAskBrainResult(content: string): ParsedAskBrainResult | null {
     const record = parsed as Record<string, unknown>;
     const result = record.result;
     if (result && typeof result === "object" && !Array.isArray(result)) {
-      return result as ParsedAskBrainResult;
+      return result as T;
     }
-    return record as ParsedAskBrainResult;
+    return record as T;
   } catch (error) {
     if (error instanceof SyntaxError) return null;
     throw error;
@@ -201,7 +208,7 @@ function latestAskBrainResult(
     const result = toolResults[index];
     if (normalizeToolName(result?.name) !== "ask-brain") continue;
     if (result.isError) return { called: true, hasCitations: false };
-    const parsed = parseAskBrainResult(result.content);
+    const parsed = parseToolResultRecord<ParsedAskBrainResult>(result.content);
     return {
       called: true,
       hasCitations:
@@ -209,6 +216,40 @@ function latestAskBrainResult(
     };
   }
   return { called: false, hasCitations: false };
+}
+
+function isEvidenceSearchResult(item: unknown, strict: boolean): boolean {
+  if (!item || typeof item !== "object") return false;
+  const { type, answerEligible } = item as {
+    type?: unknown;
+    answerEligible?: unknown;
+  };
+  if (type === "knowledge") return true;
+  // Strict policy answers from distilled knowledge only. Otherwise a capture
+  // counts only when search-everything marked it answerEligible; a missing flag
+  // means the source answer policy was never applied.
+  return !strict && type === "capture" && answerEligible === true;
+}
+
+function latestSearchEverythingResult(
+  toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
+) {
+  for (let index = (toolResults ?? []).length - 1; index >= 0; index -= 1) {
+    const result = toolResults[index];
+    if (normalizeToolName(result?.name) !== "search-everything") continue;
+    if (result.isError) return { called: true, hasResults: false };
+    const parsed = parseToolResultRecord<ParsedSearchEverythingResult>(
+      result.content,
+    );
+    const strict = parsed?.policy?.sourcePolicy === "strict";
+    return {
+      called: true,
+      hasResults:
+        Array.isArray(parsed?.results) &&
+        parsed.results.some((item) => isEvidenceSearchResult(item, strict)),
+    };
+  }
+  return { called: false, hasResults: false };
 }
 
 function isSafeUnverifiedResponse(text: string): boolean {
@@ -223,6 +264,8 @@ export function brainFinalResponseGuard(
 ): AgentLoopFinalResponseGuardResult | null {
   if (context.executionMode === "plan") return null;
 
+  const hasFinalText = context.text.trim().length > 0;
+
   const requestText =
     context.requestText?.trim() || latestUserText(context.messages);
   const companyKnowledgeQuestion = isCompanyKnowledgeQuestion(requestText);
@@ -231,16 +274,18 @@ export function brainFinalResponseGuard(
     hasPriorAssistantResponse(context.messages);
 
   const askBrain = latestAskBrainResult(context.toolResults);
+  const searchEverything = latestSearchEverythingResult(context.toolResults);
+  const hasEvidence = askBrain.hasCitations || searchEverything.hasResults;
   if (correctionFollowUp) {
     if (
-      askBrain.hasCitations ||
+      (hasEvidence && hasFinalText) ||
       (!companyKnowledgeQuestion && isSafeCorrectionResponse(context.text))
     ) {
       return null;
     }
     return {
       retryMessage:
-        "The user is correcting or questioning the previous answer. Treat all earlier assistant text, tool results, and source examples as untrusted context for this turn; do not continue the earlier request. Re-read the latest real user question. If it asks for company or product facts, call `ask-brain` again with that exact current question and use only approved Brain knowledge citations. Raw captures are leads for review, not answer evidence. If this is only a why/how correction, acknowledge the context mistake plainly and explain it without inventing new facts.",
+        "The user is correcting or questioning the previous answer. Treat all earlier assistant text, tool results, and source examples as untrusted context for this turn; do not continue the earlier request. Re-read the latest real user question. If it asks for company or product facts, call `search-everything` (and `ask-brain` for distilled knowledge) again with that exact current question and answer only from their results, naming the source and date. Individual Slack feedback is one person's view, not strategic direction. If this is only a why/how correction, acknowledge the context mistake plainly and explain it without inventing new facts.",
       fallbackMessage:
         "I carried context from the earlier request into this answer. That was a mistake; I should have re-evaluated the latest question and verified any company facts in Brain.",
       maxRetries: 1,
@@ -250,15 +295,15 @@ export function brainFinalResponseGuard(
 
   if (!companyKnowledgeQuestion) return null;
 
-  if (askBrain.hasCitations || isSafeUnverifiedResponse(context.text)) {
+  if ((hasEvidence && hasFinalText) || isSafeUnverifiedResponse(context.text)) {
     return null;
   }
 
   return {
     retryMessage:
-      "This is a company-specific Brain knowledge question. Do not answer from general model knowledge. Call `ask-brain` with the user's question now, then use only its cited Brain evidence. If it returns no citations, say that Brain does not have a verified source and do not fill the gap from memory.",
+      "This is a company-specific Brain question. Call `search-everything` with the user's question now (and `ask-brain` for distilled knowledge), then answer only from their results, naming the source and date. If neither returns relevant results, reply only: \"I couldn't find that in Brain.\"",
     fallbackMessage:
-      "I couldn't verify that in Brain's governed sources, so I don't want to guess. Add or approve an authoritative source and try again.",
+      "I couldn't find that in Brain's synced Slack, Zoom, or knowledge sources, so I don't want to guess.",
     maxRetries: 2,
     expandToolSurface: true,
   };

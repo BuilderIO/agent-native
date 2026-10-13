@@ -1,0 +1,136 @@
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
+
+import { expect, test } from "@playwright/test";
+
+import {
+  setBaseURL,
+  newDesign,
+  toolbar,
+  layerRow,
+  node,
+  openEditor,
+  activeOverlays,
+  selectViaTree,
+} from "./drag-and-drop.shared";
+
+test.use({ viewport: { width: 1600, height: 1000 } });
+
+test.beforeEach(async ({}, testInfo) => {
+  setBaseURL(testInfo);
+});
+
+test.describe("drag feedback", () => {
+  test("snap guides appear when an edge aligns with a sibling", async ({
+    page,
+  }) => {
+    const id = await newDesign(page);
+    await openEditor(page, id);
+    await selectViaTree(page, "Box A");
+    const a = (await node(page, "box-a").boundingBox())!;
+    const b = (await node(page, "box-b").boundingBox())!;
+
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(a.x + a.width / 2, b.y - a.height, { steps: 18 });
+    await page.waitForTimeout(900);
+    const guides = (await activeOverlays(page)).filter((k) =>
+      /snap-guide|measurement/.test(k),
+    ).length;
+    await test.info().attach("snap-guides-during-drag.png", {
+      body: await page.screenshot({ animations: "disabled" }),
+      contentType: "image/png",
+    });
+    const screenshotDir = process.env.DESIGN_REGRESSION_SCREENSHOT_DIR;
+    if (screenshotDir) {
+      await mkdir(screenshotDir, { recursive: true });
+      await page.screenshot({
+        path: path.join(screenshotDir, "snap-guides-during-drag.png"),
+        animations: "disabled",
+      });
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(1000); // e2e-harness-ignore moved verbatim by the drag-and-drop split
+    expect(
+      guides,
+      `Snap-aligned objects should display a visible guide while dragging. No guide appeared.`,
+    ).toBeGreaterThan(0);
+  });
+
+  test("a container highlights as a drop target while dragging over it", async ({
+    page,
+  }) => {
+    const id = await newDesign(page);
+    await openEditor(page, id);
+    await selectViaTree(page, "Box A");
+    const a = (await node(page, "box-a").boundingBox())!;
+    const target = (await node(page, "frame-a").boundingBox())!;
+
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      target.x + target.width / 2,
+      target.y + target.height / 2,
+      { steps: 18 },
+    );
+    await page.waitForTimeout(900);
+    const highlights = (await activeOverlays(page)).filter((k) =>
+      /insertion-guide|drop/.test(k),
+    ).length;
+    await page.mouse.up();
+    await page.waitForTimeout(1000); // e2e-harness-ignore moved verbatim by the drag-and-drop split
+    expect(
+      highlights,
+      `Dragging over a plain frame should provide visible drop-target feedback. ` +
+        `No feedback of any kind appeared.`,
+    ).toBeGreaterThan(0);
+  });
+
+  test("the layers panel shows an insertion line while dragging a row", async ({
+    page,
+  }) => {
+    const id = await newDesign(page);
+    await openEditor(page, id);
+    const src = (await layerRow(page, "Box A").boundingBox())!;
+    const dst = (await layerRow(page, "Box B").boundingBox())!;
+    await page.mouse.move(src.x + src.width / 2, src.y + src.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(src.x + src.width / 2, src.y + src.height / 2 + 8, {
+      steps: 4,
+    });
+    await page.mouse.move(dst.x + dst.width / 2, dst.y + dst.height - 3, {
+      steps: 14,
+    });
+    await page.waitForTimeout(600);
+    const indicators = await page
+      .locator("[data-layer-drop-indicator]")
+      .count();
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+    expect(
+      indicators,
+      "The layer list should show an insertion line while reordering",
+    ).toBeGreaterThan(0);
+  });
+
+  test("the cursor differs between the Move and Hand tools", async ({
+    page,
+  }) => {
+    const id = await newDesign(page);
+    await openEditor(page, id);
+    const read = () =>
+      page.evaluate(() => {
+        const world = document.querySelector(
+          "[data-multi-screen-canvas-world]",
+        );
+        const surface = world?.parentElement ?? null;
+        return surface ? getComputedStyle(surface).cursor : null;
+      });
+    const move = await read();
+    await toolbar(page).locator('button[aria-label="Move options"]').click();
+    await page.getByRole("menuitem", { name: /Hand/i }).first().click();
+    await page.waitForTimeout(1200); // e2e-harness-ignore moved verbatim by the drag-and-drop split
+    const hand = await read();
+    expect(hand, `Move and Hand both show cursor "${move}"`).not.toBe(move);
+  });
+});

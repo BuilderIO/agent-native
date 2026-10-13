@@ -10,7 +10,10 @@ import {
   resolveGoogleProviderCredentialCandidatesWithReader,
   resolveOAuthRedirectUri,
   encodeOAuthState,
+  wrapNetlifyPreviewGoogleOAuthState,
   decodeOAuthState,
+  logOAuthStateDecodeFailure,
+  ensureGoogleAuthIdentity,
   resolveOAuthOwner,
   resolveSecret,
   createOAuthSession,
@@ -25,6 +28,7 @@ import {
   safeReturnPath,
   runWithRequestContext,
 } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import {
   defineEventHandler,
   getHeader,
@@ -109,6 +113,7 @@ async function exchangeIdentityCode(
   email: string;
   id?: string;
   name?: string;
+  picture?: string;
 }> {
   const credentials = resolveGoogleSignInCredentials();
   if (!credentials) {
@@ -151,13 +156,11 @@ async function exchangeIdentityCode(
     email,
     id: typeof user.id === "string" ? user.id : undefined,
     name: typeof user.name === "string" ? user.name : undefined,
+    picture: typeof user.picture === "string" ? user.picture : undefined,
   };
 }
 
 function oauthRedirectResponse(url: string) {
-  // h3 v2 sendRedirect returns an object the framework shim can stringify as
-  // "[object Object]" in production auth-url popups. Native Response stays a
-  // real 302 across the stack.
   return new Response(null, {
     status: 302,
     headers: { Location: url },
@@ -235,7 +238,14 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   try {
     const q = getQuery(event);
     const method = getMethod(event);
-    const redirectUri = resolveOAuthRedirectUri(event);
+    const redirectUri = resolveOAuthRedirectUri(
+      event,
+      "/_agent-native/google/callback",
+      {
+        allowRootCallback: true,
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
+    );
     if (!redirectUri) {
       setResponseStatus(event, 400);
       return {
@@ -305,8 +315,6 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     const requestedReturn =
       typeof q.return === "string" ? safeReturnPath(q.return) : "/";
     const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
-    // Use the named-arg overload — the positional form previously passed
-    // `flowId` in the `returnUrl` slot, breaking desktop completion.
     const state = encodeCalendarOAuthState({
       redirectUri,
       owner,
@@ -320,9 +328,10 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       desktopVerifierHash,
       desktopBrowserBindingHash,
     });
+    const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
 
     const url = calendarConnect
-      ? await getAuthUrl(undefined, redirectUri, state, owner, orgId)
+      ? await getAuthUrl(undefined, redirectUri, oauthState, owner, orgId)
       : `${GOOGLE_AUTH_URL}?${new URLSearchParams({
           client_id: credentials.clientId,
           redirect_uri: redirectUri,
@@ -330,7 +339,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
           scope: GOOGLE_IDENTITY_SCOPES.join(" "),
           access_type: "online",
           prompt: "select_account",
-          state,
+          state: oauthState,
         })}`;
     if (q.redirect === "1") {
       return oauthRedirectResponse(url);
@@ -353,6 +362,12 @@ export const handleGoogleCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/callback"),
       );
+      if (!state.ok) {
+        logOAuthStateDecodeFailure(event, state.reason, "google");
+        throw new Error(
+          "Your sign-in link expired or is invalid. Please try again.",
+        );
+      }
       desktop = state.desktop ?? false;
       mobile = state.mobile ?? false;
       flowId = state.flowId;
@@ -393,7 +408,6 @@ export const handleGoogleCallback = defineEventHandler(
       const { redirectUri, owner: stateOwner, addAccount, returnUrl } = state;
       const stateOrgId = getCalendarOAuthStateOrgId(state);
 
-      // 1. Resolve owner (needs session context, before exchangeCode)
       const { owner, hasProductionSession } = await resolveOAuthOwner(
         event,
         stateOwner,
@@ -401,6 +415,15 @@ export const handleGoogleCallback = defineEventHandler(
 
       if (!addAccount) {
         const identity = await exchangeIdentityCode(code, redirectUri);
+        if (!identity.id) {
+          throw new Error("Could not get Google account id");
+        }
+        const isNewUser = await ensureGoogleAuthIdentity({
+          email: identity.email,
+          accountId: identity.id,
+          name: identity.name,
+          image: identity.picture,
+        });
         const { sessionToken } = await createOAuthSession(
           event,
           identity.email,
@@ -410,8 +433,8 @@ export const handleGoogleCallback = defineEventHandler(
             ...(mobile ? { mobile: true } : {}),
             trackSignup: {
               authProvider: "google",
-              authUserId: identity.id,
               name: identity.name,
+              isNewUser,
             },
           },
         );
@@ -438,7 +461,6 @@ export const handleGoogleCallback = defineEventHandler(
         });
       }
 
-      // 2. Exchange code with Google (template-specific Calendar connect)
       const email = await exchangeCode(
         code,
         undefined,
@@ -455,6 +477,16 @@ export const handleGoogleCallback = defineEventHandler(
       // sight of the tokens that were saved under the original owner.
       const isAddAccount =
         addAccount || (owner !== undefined && email !== owner);
+      track(
+        "account_connected",
+        {
+          app_name: "calendar",
+          template_name: "calendar",
+          connector_name: "google_calendar",
+          is_additional_account: isAddAccount,
+        },
+        { userId: owner ?? email },
+      );
       const sessionOwner = isAddAccount ? (owner ?? email) : email;
       const shouldCreateSession =
         !isAddAccount ||
@@ -480,7 +512,6 @@ export const handleGoogleCallback = defineEventHandler(
         );
       }
 
-      // 4. Return platform-appropriate response
       return oauthCallbackResponse(event, email, {
         sessionToken,
         desktop,
@@ -520,7 +551,14 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       );
     }
     try {
-      const redirectUri = resolveOAuthRedirectUri(event);
+      const redirectUri = resolveOAuthRedirectUri(
+        event,
+        "/_agent-native/google/callback",
+        {
+          allowRootCallback: true,
+          useNetlifyPreviewGoogleOAuthRelay: true,
+        },
+      );
       if (!redirectUri) {
         setResponseStatus(event, 400);
         return {
@@ -564,10 +602,11 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         desktopVerifierHash,
         desktopBrowserBindingHash,
       });
+      const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
       const url = await getAuthUrl(
         undefined,
         redirectUri,
-        state,
+        oauthState,
         session.email,
         session.orgId,
       );
@@ -594,6 +633,12 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/add-account/callback"),
       );
+      if (!state.ok) {
+        logOAuthStateDecodeFailure(event, state.reason, "google");
+        throw new Error(
+          "Your sign-in link expired or is invalid. Please try again.",
+        );
+      }
       desktop = state.desktop ?? false;
       mobile = state.mobile ?? false;
       flowId = state.flowId;
@@ -645,6 +690,16 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         redirectUri,
         ownerEmail,
         session?.orgId ?? stateOrgId,
+      );
+      track(
+        "account_connected",
+        {
+          app_name: "calendar",
+          template_name: "calendar",
+          connector_name: "google_calendar",
+          is_additional_account: true,
+        },
+        { userId: ownerEmail },
       );
       const { sessionToken } =
         (desktop && flowId) || mobile

@@ -8,5 +8,5 @@ export function isMacPlatform(): boolean {
 }
 
 export function shortcutModifierLabel(): string {
-  return isMacPlatform() ? "Cmd" : "Ctrl";
+  return isMacPlatform() ? "\u2318" : "Ctrl";
 }

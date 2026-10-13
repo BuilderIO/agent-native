@@ -1,7 +1,1 @@
-export {
-  clientLoader,
-  default,
-  HydrateFallback,
-  loader,
-  meta,
-} from "@agent-native/dispatch/routes/pages/_index";
+export { signInLandingLoader as loader } from "@agent-native/core/client/sign-in-landing";

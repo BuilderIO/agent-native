@@ -1,7 +1,9 @@
+import { mockEvent } from "h3";
 import { describe, expect, it } from "vitest";
 
 import {
   docsAuthOptions,
+  isDocsWebMcpPath,
   shouldCreateDocsSessionForPath,
 } from "../server/plugins/auth.js";
 
@@ -27,5 +29,30 @@ describe("docs auth session scoping", () => {
     expect(
       shouldCreateDocsSessionForPath("/docs/getting-started", "/docs"),
     ).toBe(false);
+  });
+
+  it("does not authenticate WebMCP requests with the synthetic docs cookie", async () => {
+    expect(
+      isDocsWebMcpPath("/docs/_agent-native/webmcp/manifest", "/docs"),
+    ).toBe(true);
+    expect(isDocsWebMcpPath("/docs/mcp/tool/search-docs", "/docs")).toBe(true);
+
+    const event = mockEvent(
+      "https://docs.example.com/_agent-native/webmcp/manifest",
+      { headers: { cookie: "an_docs_session=existing" } },
+    );
+    await expect(docsAuthOptions.getSession!(event)).resolves.toBeNull();
+  });
+
+  it("preserves WebMCP auth exclusion after mounted-route path stripping", async () => {
+    const event = mockEvent("https://docs.example.com/webmcp/manifest", {
+      headers: { cookie: "an_docs_session=existing" },
+    });
+    (event as any).context = {
+      _mountedPathname: "/_agent-native/webmcp/manifest",
+      _mountPrefix: "/_agent-native/webmcp",
+    };
+
+    await expect(docsAuthOptions.getSession!(event)).resolves.toBeNull();
   });
 });

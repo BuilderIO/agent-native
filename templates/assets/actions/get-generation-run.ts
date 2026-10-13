@@ -1,8 +1,13 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  canReadDraftAsset,
+  canReadRun,
+  resolveDraftReadScope,
+} from "../server/lib/library-access.js";
 import {
   requireLibrary,
   serializeAsset,
@@ -22,15 +27,29 @@ export default defineAction({
       .from(schema.assetGenerationRuns)
       .where(eq(schema.assetGenerationRuns.id, runId))
       .limit(1);
-    if (!run) throw new Error("Generation run not found.");
+    if (!run) {
+      fail("Generation run not found.", {
+        errorCode: "not_found",
+        statusCode: 404,
+      });
+    }
     await requireLibrary(run.libraryId);
+    const scope = await resolveDraftReadScope([run.libraryId]);
+    if (!canReadRun(scope, run)) {
+      fail("Generation run not found.", {
+        errorCode: "not_found",
+        statusCode: 404,
+      });
+    }
     const assets = await db
       .select()
       .from(schema.assets)
       .where(eq(schema.assets.generationRunId, runId));
     return {
       run: serializeGenerationRun(run),
-      assets: assets.map(serializeAsset),
+      assets: assets
+        .filter((asset) => canReadDraftAsset(scope, asset))
+        .map(serializeAsset),
     };
   },
 });

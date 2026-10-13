@@ -1,10 +1,11 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -15,6 +16,7 @@ import {
   redactTemplateDesignData,
   remapTemplateFileIds,
 } from "../server/lib/design-template-data.js";
+import { isOverviewScreenFile } from "../shared/design-files.js";
 import { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";
 
 export const designTemplateCategorySchema = z.enum([
@@ -36,10 +38,13 @@ export default defineAction({
     description: z.string().trim().max(500).optional(),
     category: designTemplateCategorySchema.optional().default("other"),
   }),
-  run: async ({ designId, title, description, category }) => {
+  run: async ({ designId, title, description, category }, ctx) => {
     const access = await resolveAccess("design", designId);
     if (!access || !["owner", "admin", "editor"].includes(access.role)) {
-      throw new Error("Design not found or not editable");
+      fail("Design not found or not editable", {
+        errorCode: "not_found",
+        statusCode: 404,
+      });
     }
 
     const source = access.resource;
@@ -61,10 +66,8 @@ export default defineAction({
     }
 
     const snapshot = await buildDesignSnapshot(designId, rawData);
-    const renderableFiles = snapshot.files.filter((file) =>
-      ["html", "jsx", "css"].includes(file.fileType),
-    );
-    if (renderableFiles.length === 0) {
+    const screenFiles = snapshot.files.filter(isOverviewScreenFile);
+    if (screenFiles.length === 0) {
       throw new Error(
         "Add at least one design screen before saving a template.",
       );
@@ -83,8 +86,8 @@ export default defineAction({
       fileIdMap,
     );
     const preferredFile =
-      snapshot.files.find((file) => file.filename === "index.html") ??
-      snapshot.files[0];
+      screenFiles.find((file) => file.filename === "index.html") ??
+      screenFiles[0];
     const dimensions = firstTemplateDimensions(
       data,
       preferredFile ? fileIdMap.get(preferredFile.id) : undefined,
@@ -127,6 +130,19 @@ export default defineAction({
         })),
       );
     });
+
+    track(
+      "template_saved",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: templateId,
+        output_type: "design_template",
+        source_design_id: designId,
+        file_count: snapshot.files.length,
+      },
+      ctx,
+    );
 
     return {
       id: templateId,

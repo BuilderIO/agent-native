@@ -8,14 +8,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const useSessionMock = vi.fn();
 const injectedAgentNativeConfigMock = vi.fn();
 
-vi.mock("./use-session.js", () => ({
+vi.mock("@agent-native/core/client/use-session", async () => ({
+  ...(await import("./use-session.js")),
   useSession: () => useSessionMock(),
 }));
-vi.mock("./app-config.js", () => ({
+vi.mock("@agent-native/core/client/app-config", () => ({
   injectedAgentNativeConfig: () => injectedAgentNativeConfigMock(),
 }));
 
-import { EnvironmentBadge } from "./EnvironmentBadge.js";
+import { EnvironmentBadge } from "../../../toolkit/src/app/shared/EnvironmentBadge.js";
 
 describe("EnvironmentBadge render", () => {
   let container: HTMLDivElement;
@@ -50,6 +51,7 @@ describe("EnvironmentBadge render", () => {
       configurable: true,
       value: originalLocation,
     });
+    delete window.__agentNativeNavigationStarted;
     Object.defineProperty(window.navigator, "userAgent", {
       configurable: true,
       value: originalUserAgent,
@@ -57,7 +59,7 @@ describe("EnvironmentBadge render", () => {
     vi.clearAllMocks();
   });
 
-  it("renders a non-navigating dev pill for configured local development", () => {
+  it("renders a non-navigating alpha pill for configured local development", () => {
     Object.defineProperty(window, "location", {
       configurable: true,
       value: {
@@ -77,17 +79,18 @@ describe("EnvironmentBadge render", () => {
     act(() => root.render(<EnvironmentBadge />));
 
     const badge = container.querySelector('[role="status"]');
-    expect(badge?.textContent).toBe("dev");
+    expect(badge?.textContent).toBe("alpha");
     expect(badge?.getAttribute("aria-label")).toBe(
       "Local development environment",
     );
     expect(badge?.className).toContain("bottom-3");
     expect(badge?.className).toContain("left-3");
+    expect(badge?.className).toContain("pointer-events-none");
     expect(container.querySelector("button")).toBeNull();
     expect(container.querySelector("a")).toBeNull();
   });
 
-  it("defers the dev pill to a post-mount effect so the first client commit matches SSR's null output", async () => {
+  it("supports an inline alpha pill for app-owned brand slots", () => {
     Object.defineProperty(window, "location", {
       configurable: true,
       value: {
@@ -104,17 +107,64 @@ describe("EnvironmentBadge render", () => {
       status: "unauthenticated",
     });
 
-    // flushSync commits the render synchronously without flushing passive
-    // effects, so this captures exactly what React reconciles against the
-    // server-rendered HTML: the server (no window) always renders nothing,
-    // so this first commit must too, or React logs a hydration mismatch and
-    // discards the subtree.
+    act(() => root.render(<EnvironmentBadge placement="inline" />));
+
+    const badge = container.querySelector('[role="status"]');
+    expect(badge?.textContent).toBe("alpha");
+    expect(badge?.className).toContain("inline-flex");
+    expect(badge?.className).toContain("h-5");
+    expect(badge?.className).not.toContain("fixed");
+    expect(badge?.className).not.toContain("bottom-3");
+  });
+
+  it("shrinks only alpha labels in collapsed inline slots", () => {
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge placement="inline" collapsed />));
+
+    expect(container.querySelector("button")?.className).toContain(
+      "text-[9px]",
+    );
+
+    act(() =>
+      root.render(
+        <EnvironmentBadge placement="inline" collapsed badgeText="beta" />,
+      ),
+    );
+
+    const betaBadge = container.querySelector("button");
+    expect(betaBadge?.className).toContain("text-[10px]");
+    expect(betaBadge?.className).not.toContain("text-[9px]");
+  });
+
+  it("defers the alpha pill to a post-mount effect so the first client commit matches SSR's null output", async () => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "localhost",
+        href: "http://localhost:3000/dispatch",
+        replace: vi.fn(),
+      },
+    });
+    injectedAgentNativeConfigMock.mockReturnValue({
+      deployment: { environment: "local" },
+    });
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
     flushSync(() => root.render(<EnvironmentBadge />));
     expect(container.querySelector('[role="status"]')).toBeNull();
 
     await act(async () => {});
 
-    expect(container.querySelector('[role="status"]')?.textContent).toBe("dev");
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "alpha",
+    );
   });
 
   it.each([
@@ -135,7 +185,7 @@ describe("EnvironmentBadge render", () => {
     expect(container.innerHTML).toBe("");
   });
 
-  it("renders the beta chip for signed-out visitors", () => {
+  it("opens development feedback for signed-out visitors", () => {
     useSessionMock.mockReturnValue({
       session: null,
       status: "unauthenticated",
@@ -144,17 +194,29 @@ describe("EnvironmentBadge render", () => {
     act(() => root.render(<EnvironmentBadge />));
 
     const trigger = container.querySelector("button");
-    expect(trigger?.textContent).toContain("beta");
+    expect(trigger?.textContent).toBe("alpha");
     expect(trigger?.className).toContain("border-primary/80");
     expect(trigger?.className).toContain("bottom-3");
     expect(trigger?.className).toContain("left-3");
-    expect(trigger?.className).not.toContain("top-3");
-    expect(trigger?.className).not.toContain("right-3");
-    expect(trigger?.className).not.toContain("bg-background/95");
-    expect(container.textContent).toContain("beta");
+
+    act(() => {
+      trigger?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      trigger?.click();
+    });
+
+    const popover = document.body.querySelector('[data-side="top"]');
+    expect(popover?.textContent).toContain("Under active development");
+    expect(popover?.textContent).toContain(
+      "This template is under active development",
+    );
+    expect(
+      popover?.querySelector('button[aria-label="Send feedback"]'),
+    ).not.toBeNull();
   });
 
-  it("renders the beta chip for non-builder users", () => {
+  it("opens development feedback for non-builder users", () => {
     useSessionMock.mockReturnValue({
       session: { email: "person@example.com" },
       status: "authenticated",
@@ -162,14 +224,49 @@ describe("EnvironmentBadge render", () => {
 
     act(() => root.render(<EnvironmentBadge />));
 
-    expect(container.querySelector("button")?.textContent).toContain("beta");
-    expect(container.textContent).toContain("beta");
+    const trigger = container.querySelector("button");
+    expect(trigger?.textContent).toBe("alpha");
+
+    act(() => {
+      trigger?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      trigger?.click();
+    });
+
+    expect(document.body.textContent).toContain("Under active development");
+    expect(
+      document.body.querySelector('button[aria-label="Send feedback"]'),
+    ).not.toBeNull();
   });
 
-  it("keeps the beta chip linked to production for every visitor", () => {
+  it("opens an inline chip popover for @builder.io employees", () => {
     useSessionMock.mockReturnValue({
-      session: null,
-      status: "unauthenticated",
+      session: { email: "shawn@builder.io" },
+      status: "authenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge placement="inline" />));
+
+    const trigger = container.querySelector("button");
+    expect(trigger?.textContent).toBe("alpha");
+    expect(trigger?.className).toContain("inline-flex");
+    expect(trigger?.className).not.toContain("fixed");
+
+    act(() => {
+      trigger?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      trigger?.click();
+    });
+
+    expect(document.body.querySelector('[data-side="bottom"]')).not.toBeNull();
+  });
+
+  it("keeps the chip linked to production for builder visitors", () => {
+    useSessionMock.mockReturnValue({
+      session: { email: "steve@builder.io" },
+      status: "authenticated",
     });
 
     act(() => root.render(<EnvironmentBadge />));
@@ -185,6 +282,7 @@ describe("EnvironmentBadge render", () => {
 
     const popover = document.body.querySelector('[data-side="top"]');
     expect(popover?.getAttribute("data-align")).toBe("start");
+    expect(popover?.textContent).toContain("You're on Agent-Native Alpha");
 
     const productionLink = [...document.body.querySelectorAll("a")].find(
       (link) => link.textContent?.includes("Switch to production"),
@@ -201,8 +299,8 @@ describe("EnvironmentBadge render", () => {
 
   it("hides the badge for the current page without persisting the choice", () => {
     useSessionMock.mockReturnValue({
-      session: null,
-      status: "unauthenticated",
+      session: { email: "steve@builder.io" },
+      status: "authenticated",
     });
 
     act(() => root.render(<EnvironmentBadge />));
@@ -228,13 +326,28 @@ describe("EnvironmentBadge render", () => {
     act(() => hideButton?.click());
 
     expect(container.innerHTML).toBe("");
-    expect(document.body.querySelector('[data-side="top"]')).toBeNull();
-    expect(window.sessionStorage.getItem("agent-native:force-production")).toBe(
-      null,
-    );
+    expect(
+      window.localStorage?.getItem("agent-native:beta-opt-out-until"),
+    ).toBeNull();
   });
 
-  it("hides the production chip for non-employee sessions", () => {
+  it("supports configurable badgeText prop and config", () => {
+    useSessionMock.mockReturnValue({
+      session: { email: "steve@builder.io" },
+      status: "authenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge badgeText="beta" />));
+    expect(container.querySelector("button")?.textContent).toBe("beta");
+
+    injectedAgentNativeConfigMock.mockReturnValue({
+      deployment: { badgeText: "custom" },
+    });
+    act(() => root.render(<EnvironmentBadge key="custom" />));
+    expect(container.querySelector("button")?.textContent).toBe("custom");
+  });
+
+  it("opens development feedback on production for non-employee sessions", () => {
     Object.defineProperty(window, "location", {
       configurable: true,
       value: {
@@ -250,7 +363,18 @@ describe("EnvironmentBadge render", () => {
 
     act(() => root.render(<EnvironmentBadge />));
 
-    expect(container.querySelector("button")).toBeNull();
+    const trigger = container.querySelector("button");
+    expect(trigger?.textContent).toBe("alpha");
+
+    act(() => {
+      trigger?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      trigger?.click();
+    });
+
+    const popover = document.body.querySelector('[data-side="top"]');
+    expect(popover?.textContent).toContain("Under active development");
   });
 
   it("automatically redirects an employee from production to beta", () => {

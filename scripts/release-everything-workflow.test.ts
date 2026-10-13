@@ -9,11 +9,17 @@ type Workflow = Record<string, unknown>;
 const workflow = parse(
   readFileSync(".github/workflows/release-everything.yml", "utf8"),
 ) as Workflow;
+const autoPublishWorkflow = parse(
+  readFileSync(".github/workflows/auto-publish.yml", "utf8"),
+) as Workflow;
 const desktopWorkflow = parse(
   readFileSync(".github/workflows/desktop-release.yml", "utf8"),
 ) as Workflow;
 const clipsWorkflow = parse(
   readFileSync(".github/workflows/clips-desktop-release.yml", "utf8"),
+) as Workflow;
+const docsWorkflow = parse(
+  readFileSync(".github/workflows/deploy-docs-production.yml", "utf8"),
 ) as Workflow;
 const trigger = workflow.on as Workflow;
 const schedules = trigger.schedule as Workflow[];
@@ -27,10 +33,11 @@ const coordinator = steps.find(
 ) as Workflow;
 
 describe("release everything workflow", () => {
-  it("runs a DST-aware Monday-Thursday noon Pacific patch release", () => {
+  it("runs Monday-Thursday at noon and Friday at 10 AM Pacific", () => {
     assert.equal(workflow.name, "🚀 Release everything");
     assert.deepEqual(schedules, [
       { cron: "0 12 * * 1-4", timezone: "America/Los_Angeles" },
+      { cron: "0 10 * * 5", timezone: "America/Los_Angeles" },
     ]);
     assert.match(
       String((job.env as Workflow).RELEASE_TYPE),
@@ -45,7 +52,8 @@ describe("release everything workflow", () => {
     });
     assert.deepEqual(workflow.permissions, {
       actions: "write",
-      contents: "read",
+      checks: "read",
+      contents: "write",
       "pull-requests": "read",
     });
   });
@@ -53,13 +61,43 @@ describe("release everything workflow", () => {
   it("waits for package publication before dispatching stable downstream releases", () => {
     assert.equal(
       coordinator.uses,
-      "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b",
+      "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3",
     );
     const source = String((coordinator.with as Workflow).script);
     assert.match(source, /auto-publish\.yml/);
     assert.match(source, /waitForStablePackagePublish/);
+    assert.match(source, /Stable package release preparation/);
+    assert.match(source, /90 \* 60_000/);
+    assert.match(
+      source,
+      /const coordinatorDeadline = startedAt \+ 350 \* 60_000/,
+    );
+    assert.match(
+      source,
+      /Math\.min\(coordinatorDeadline, Date\.now\(\) \+ timeoutMs\)/,
+    );
     assert.match(source, /async function getRemoteTagSha\(tag\)/);
     assert.match(source, /github\.rest\.git\.getTag/);
+    assert.match(
+      source,
+      /async function nextStableVersion\(tagPrefix, baseVersion\)/,
+    );
+    assert.match(source, /github\.paginate\(github\.rest\.repos\.listReleases/);
+    assert.match(source, /release\.tag_name\.startsWith\(tagPrefix\)/);
+    assert.match(source, /candidate\[2\] \+= 1/);
+    assert.match(
+      source,
+      /async function reserveStableVersion\(tagPrefix, baseVersion, sourceSha\)/,
+    );
+    assert.match(source, /github\.rest\.git\.createRef/);
+    assert.match(source, /refs\/tags\/\$\{tagPrefix\}\$\{version\}/);
+    assert.match(source, /error\.status !== 422/);
+    assert.match(source, /const reservedTags = new Map\(\)/);
+    assert.match(source, /async function cleanupReservedTags\(\)/);
+    assert.match(source, /github\.rest\.repos\.deleteRelease/);
+    assert.match(source, /github\.rest\.git\.deleteRef/);
+    assert.match(source, /await cleanupReservedTags\(\)/);
+    assert.match(source, /Downstream workflows own these reserved tags/);
     assert.match(source, /async function getFirstParentSha\(ref\)/);
     assert.match(
       source,
@@ -70,16 +108,15 @@ describe("release everything workflow", () => {
       source,
       /waitForStablePackagePublish\(releaseSha, packageRef, coreVersionChanged\)/,
     );
-    assert.match(source, /tagSha !== mergeSha/);
     assert.match(source, /readJsonAt\(\s*releaseBaseSha,/);
     assert.match(
       source,
       /initialCorePackage\.version !== corePackage\.version/,
     );
-    assert.match(source, /pointing to \$\{mergeSha\}/);
     assert.match(source, /desktop-release\.yml/);
     assert.match(source, /clips-desktop-release\.yml/);
     assert.match(source, /deploy-production-sites-prebuilt\.yml/);
+    assert.match(source, /deploy-docs-production\.yml/);
     assert.match(source, /channel: "production"/);
     assert.match(
       source,
@@ -90,38 +127,491 @@ describe("release everything workflow", () => {
       /const workflowRef = coreVersionChanged \? packageRef : "main"/,
     );
     assert.match(source, /dispatch\("desktop-release\.yml", workflowRef/);
-    assert.match(source, /source_ref: releaseSha/);
-    assert.match(source, /getReleaseByTag/);
-    assert.match(source, /hasCompleteDesktopRelease/);
-    assert.match(source, /desktopAlreadyPublished/);
-    assert.match(source, /desktopVersionChanged/);
-    assert.match(source, /const desktopTagSha = await getRemoteTagSha/);
-    assert.match(
+    assert.match(source, /version: desktopVersion/);
+    assert.match(source, /dispatch\("clips-desktop-release\.yml", workflowRef/);
+    assert.match(source, /version: clipsVersion/);
+    assert.doesNotMatch(
       source,
-      /Desktop release v\$\{desktopVersion\} is published but incomplete/,
-    );
-    assert.match(source, /hasCompleteClipsRelease/);
-    assert.match(source, /initialClipsPackage/);
-    assert.match(source, /clipsVersionChanged/);
-    assert.match(
-      source,
-      /clipsAlreadyPublished[\s\S]*const clipsTagSha = await getRemoteTagSha/,
-    );
-    assert.match(source, /clipsTagSha !== releaseSha/);
-    assert.match(
-      source,
-      /Clips release clips-v\$\{clipsVersion\} is published but incomplete/,
-    );
-    assert.match(source, /Agent-Native-arm64\.dmg/);
-    assert.match(source, /Clips_\$\{version\}_universal\.dmg/);
-    assert.match(source, /clipsAlreadyPublished/);
-    assert.match(
-      source,
-      /desktopAlreadyPublished[\s\S]*Promise\.resolve\(\{ status: "completed"/,
+      /desktopAlreadyPublished|clipsAlreadyPublished/,
     );
     assert.match(source, /source_ref: releaseSha/);
     assert.match(source, /endsWith\("\.agent-native\.com"\)/);
     assert.match(source, /Promise\.allSettled/);
+  });
+
+  it("uses the docs publisher for www instead of the app-site fleet", () => {
+    const source = String((coordinator.with as Workflow).script);
+    const docsDispatch = (docsWorkflow.on as Workflow)
+      .workflow_dispatch as Workflow;
+    const docsInputs = docsDispatch.inputs as Workflow;
+    const docsJobs = docsWorkflow.jobs as Workflow;
+    const verifyStableRelease = docsJobs["verify-stable-release"] as Workflow;
+    const migrateDocs = docsJobs.migrate as Workflow;
+    const deployDocs = docsJobs.deploy as Workflow;
+    const pauseDocsBuilds = docsJobs["pause-netlify-builds"] as Workflow;
+    const restoreDocsBuilds = docsJobs["restore-netlify-builds"] as Workflow;
+    const verifyStep = (verifyStableRelease.steps as Workflow[])[0];
+    const verifySource = String((verifyStep.with as Workflow).script);
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+
+    assert.match(source, /const docsSite = sitesManifest\.fw/);
+    assert.match(source, /docsSite\?\.host !== "www\.agent-native\.com"/);
+    assert.match(source, /name !== "fw"/);
+    assert.match(
+      source,
+      /dispatch\("deploy-docs-production\.yml", siteWorkflowRef/,
+    );
+    assert.match(
+      source,
+      /waitForRun\(docs, "Agent-Native docs production site", 120 \* 60_000\)/,
+    );
+    assert.match(
+      source,
+      /\["Docs site", `\$\{outcomes\[3\]\}: \$\{docsSite\.host\}`\]/,
+    );
+    assert.deepEqual(docsWorkflow.permissions, {
+      contents: "read",
+      "pull-requests": "read",
+    });
+    assert.match(
+      String(verifyStableRelease.if),
+      /github\.event_name == 'push'.*contains\(github\.event\.head_commit\.message, '\[stable-release\]'\)/,
+    );
+    assert.deepEqual(verifyStableRelease.permissions, {
+      contents: "read",
+      "pull-requests": "read",
+    });
+    assert.doesNotThrow(() => new AsyncFunction(verifySource));
+    assert.match(
+      verifySource,
+      /context\.actor !== "builder-io-integration\[bot\]"/,
+    );
+    assert.match(verifySource, /commits\/\{commit_sha\}\/pulls/);
+    assert.match(verifySource, /pullRequest\.base\?\.ref === "main"/);
+    assert.match(
+      verifySource,
+      /pullRequest\.head\?\.ref === "changeset-release\/main"/,
+    );
+    assert.match(
+      verifySource,
+      /pullRequest\.merge_commit_sha === context\.sha/,
+    );
+    assert.match(
+      verifySource,
+      /pullRequest\.title\.includes\("\[stable-release\]"\)/,
+    );
+    assert.match(String(pauseDocsBuilds.needs), /verify-stable-release/);
+    assert.match(
+      String(pauseDocsBuilds.if),
+      /!cancelled\(\).*needs\.verify-stable-release\.result == 'skipped'.*needs\.verify-stable-release\.result == 'success'.*needs\.verify-stable-release\.outputs\.verified == 'false'/,
+    );
+    assert.deepEqual(migrateDocs.needs, [
+      "verify-stable-release",
+      "pause-netlify-builds",
+    ]);
+    assert.deepEqual(deployDocs.needs, [
+      "verify-stable-release",
+      "pause-netlify-builds",
+      "migrate",
+    ]);
+    assert.match(
+      String(migrateDocs.if),
+      /always\(\).*needs\.verify-stable-release\.result == 'skipped'.*needs\.verify-stable-release\.result == 'success'.*needs\.verify-stable-release\.outputs\.verified == 'false'.*needs\.pause-netlify-builds\.result == 'success'/,
+    );
+    assert.match(
+      String(deployDocs.if),
+      /always\(\).*needs\.verify-stable-release\.result == 'skipped'.*needs\.verify-stable-release\.result == 'success'.*needs\.verify-stable-release\.outputs\.verified == 'false'.*needs\.pause-netlify-builds\.result == 'success'.*needs\.migrate\.result == 'success'/,
+    );
+    assert.match(
+      String(restoreDocsBuilds.if),
+      /!cancelled\(\).*needs\.verify-stable-release\.result == 'skipped'.*needs\.verify-stable-release\.result == 'success'.*needs\.verify-stable-release\.outputs\.verified == 'false'/,
+    );
+    assert.deepEqual(docsInputs, {
+      source_ref: {
+        description: "Optional exact commit SHA; blank uses the selected ref",
+        required: false,
+        type: "string",
+        default: "",
+      },
+      smoke: {
+        description: "Probe www.agent-native.com after publishing",
+        required: true,
+        type: "boolean",
+        default: true,
+      },
+    });
+  });
+
+  it("recovers only a hosted-runner failure after stable npm publication", () => {
+    const source = String((coordinator.with as Workflow).script);
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    const stablePublishStart = source.indexOf(
+      "async function waitForStablePackagePublish",
+    );
+    const failureGate = source.indexOf(
+      "await requireRecoverableStablePublishFailure(completed)",
+    );
+    const packageTagCheck = source.indexOf(
+      "const tagSha = await getRemoteTagSha(packageTag)",
+    );
+    const retryDispatch = source.indexOf(
+      "await recoverDownstreamNotification()",
+      packageTagCheck,
+    );
+    const downstreamSettled = source.indexOf(
+      "const downstream = await Promise.allSettled",
+    );
+    const notificationFailure = source.indexOf(
+      "if (downstreamNotificationFailureUrl)",
+      downstreamSettled,
+    );
+    const completionLog = source.indexOf("Release everything completed");
+
+    assert.doesNotThrow(() => new AsyncFunction(source));
+    assert.match(source, /allowCompletedFailure = false/);
+    assert.match(
+      source,
+      /allowCompletedFailure &&\s*current\.conclusion === "failure"/,
+    );
+    assert.match(
+      source,
+      /async function requireRecoverableStablePublishFailure\(run\)/,
+    );
+    assert.match(source, /Verify stable release merge/);
+    assert.match(source, /Prepare or publish stable npm packages/);
+    assert.match(source, /Notify downstream repos/);
+    assert.match(
+      source,
+      /The job was not acquired by Runner of type hosted even after multiple attempts/,
+    );
+    assert.match(source, /annotation\.annotation_level === "failure"/);
+    assert.match(source, /async function recoverDownstreamNotification\(\)/);
+    assert.match(source, /redispatchDownstream: "true"/);
+    assert.match(source, /releaseType: "patch"/);
+    assert.match(source, /publish\.conclusion !== "skipped"/);
+    assert.match(source, /notify\.conclusion === "success"/);
+    assert.match(source, /continuing the desktop and production release/);
+    assert.match(source, /downstreamNotificationFailureUrl = recovery\.url/);
+    assert.match(
+      source,
+      /Production releases completed, but downstream package notifications were not delivered/,
+    );
+    assert.ok(stablePublishStart >= 0);
+    assert.ok(failureGate > stablePublishStart);
+    assert.ok(packageTagCheck > failureGate);
+    assert.ok(retryDispatch > packageTagCheck);
+    assert.ok(downstreamSettled >= 0);
+    assert.ok(notificationFailure > downstreamSettled);
+    assert.ok(completionLog > notificationFailure);
+  });
+
+  it("isolates stable auto-publish lanes from nightly pushes", () => {
+    const group = String((autoPublishWorkflow.concurrency as Workflow).group);
+    assert.match(group, /github\.event_name == 'workflow_dispatch'/);
+    assert.match(group, /stable-preparation/);
+    assert.match(group, /stable-publication/);
+    assert.match(group, /stable-release/);
+
+    const source = String((coordinator.with as Workflow).script);
+    assert.match(source, /run\.event === "workflow_dispatch"/);
+    assert.match(source, /candidate\.event === run\.event/);
+  });
+
+  it("survives auto-publish pending-run replacement", () => {
+    const source = String((coordinator.with as Workflow).script);
+
+    assert.match(source, /async function listAutoPublishRuns\(\)/);
+    assert.match(source, /actions\.listWorkflowRuns\(\{/);
+    assert.match(source, /per_page: 25/);
+    assert.doesNotMatch(
+      source,
+      /github\.paginate\(github\.rest\.actions\.listWorkflowRuns/,
+    );
+    assert.match(source, /async function waitForAutoPublishIdle\(deadline\)/);
+    assert.match(source, /if \(activeRuns\.length === 0\) return true/);
+    assert.match(source, /listJobsForWorkflowRun/);
+    assert.match(source, /listJobsForWorkflowRun\(\{/);
+    assert.match(source, /per_page: 1/);
+    assert.doesNotMatch(
+      source,
+      /github\.paginate\(github\.rest\.actions\.listJobsForWorkflowRun/,
+    );
+    assert.match(source, /wasSupersededPendingRun/);
+    assert.match(source, /retryIfSupersededPending/);
+    assert.match(source, /candidate\.id !== run\.id/);
+    assert.match(source, /candidate\.event === run\.event/);
+    assert.match(source, /candidateCreatedAt >= runCreatedAt/);
+    assert.match(source, /candidateCreatedAt <= runUpdatedAt/);
+    assert.match(source, /Number\.isFinite\(runCreatedAt\)/);
+    assert.match(source, /Math\.min\(pollIntervalMs, remaining\)/);
+    assert.match(
+      source,
+      /await waitForAutoPublishIdle\(packagePreparationDeadline\)/,
+    );
+    assert.match(source, /Date\.now\(\) >= packagePreparationDeadline/);
+    assert.match(source, /current\.conclusion === "cancelled"/);
+    assert.doesNotMatch(
+      source,
+      /Math\.max\(60_000, packagePreparationDeadline - Date\.now\(\)\)/,
+    );
+    assert.match(
+      source,
+      /Stable package release preparation dispatch exceeded the coordinator timeout/,
+    );
+  });
+
+  it("re-runs a stage once when its only failures never ran a step", () => {
+    const source = String((coordinator.with as Workflow).script);
+    const start = source.indexOf("function neverStartedFailures");
+    const end = source.indexOf("async function waitForRun", start);
+    assert(start >= 0 && end > start);
+    type Job = { name: string; conclusion: string; steps: unknown[] };
+    const neverStartedFailures = new Function(
+      `${source.slice(start, end)}; return neverStartedFailures;`,
+    )() as (jobs: Job[]) => Job[];
+    const job = (
+      name: string,
+      conclusion: string,
+      ranSteps = conclusion !== "skipped",
+    ): Job => ({ name, conclusion, steps: ranSteps ? [{}] : [] });
+    const names = (jobs: Job[]) =>
+      neverStartedFailures(jobs).map((failed) => failed.name);
+
+    // Production fleet run 36627218071 (9/29): two site jobs were cancelled
+    // while queued after sixteen deployed.
+    const fleet = [
+      ...Array.from({ length: 16 }, (_, index) =>
+        job(`site ${index}`, "success"),
+      ),
+      job("Beta E2E pre-flight", "skipped"),
+      job("design production prebuilt deploy", "cancelled", false),
+      job("slides production prebuilt deploy", "cancelled", false),
+    ];
+    assert.deepEqual(names(fleet), [
+      "design production prebuilt deploy",
+      "slides production prebuilt deploy",
+    ]);
+    assert.deepEqual(
+      names([...fleet, job("docs production prebuilt deploy", "cancelled")]),
+      [],
+    );
+    assert.deepEqual(
+      names([...fleet, job("docs production prebuilt deploy", "failure")]),
+      [],
+    );
+    assert.deepEqual(names([]), []);
+    assert.deepEqual(names([job("site", "success")]), []);
+
+    assert.match(
+      source,
+      /current\.status === "completed" && current\.run_attempt > rerunFromAttempt/,
+    );
+    assert.match(
+      source,
+      /const neverStarted = rerunFromAttempt\s*\? \[\]\s*: neverStartedFailures\(await listWorkflowRunJobs\(run\.id\)\)/,
+    );
+    assert.match(source, /reRunWorkflowFailedJobs/);
+    assert.match(source, /rerunFromAttempt = current\.run_attempt/);
+  });
+
+  it("re-runs a stage only after GitHub itself cancelled its unstarted jobs", async () => {
+    const source = String((coordinator.with as Workflow).script);
+    const start = source.indexOf("function neverStartedFailures");
+    const end = source.indexOf("function requireSingleJob", start);
+    assert(start >= 0 && end > start);
+    type Run = {
+      run_attempt: number;
+      status: string;
+      conclusion: string | null;
+    };
+    type Annotation = { annotation_level: string; message: string };
+    const run = (
+      run_attempt: number,
+      status: string,
+      conclusion: string | null = null,
+    ): Run => ({ run_attempt, status, conclusion });
+    const failure = (message: string): Annotation => ({
+      annotation_level: "failure",
+      message,
+    });
+    // Annotation texts recorded on BuilderIO/agent-native jobs.
+    const superseded = failure(
+      "Canceling since a higher priority waiting request for ci-6360 exists",
+    );
+    const noRunner = failure(
+      "The job was not acquired by Runner of type hosted even after multiple attempts",
+    );
+    const operator = failure("The run was canceled by @steve8708.");
+    const labelNotice = {
+      annotation_level: "notice",
+      message: "The ubuntu-latest label will migrate to Ubuntu 26",
+    };
+
+    const runStage = (
+      reads: Run[],
+      annotations: Record<number, Annotation[] | Error>,
+    ) => {
+      let polls = 0;
+      let reruns = 0;
+      const warnings: string[] = [];
+      const waitForRun = new Function(
+        "getRun",
+        "github",
+        "core",
+        "sleep",
+        "phaseDeadline",
+        "pollIntervalMs",
+        "wasSupersededPendingRun",
+        "owner",
+        "repo",
+        `${source.slice(start, end)}; return waitForRun;`,
+      )(
+        async () => reads[Math.min(polls++, reads.length - 1)],
+        {
+          rest: {
+            actions: {
+              listJobsForWorkflowRun: async () => ({
+                data: {
+                  jobs: [
+                    { id: 0, name: "fw", conclusion: "success", steps: [{}] },
+                    ...Object.keys(annotations).map((id) => ({
+                      id: Number(id),
+                      name: `site ${id}`,
+                      conclusion: "cancelled",
+                      steps: [],
+                    })),
+                  ],
+                },
+              }),
+              reRunWorkflowFailedJobs: async () => {
+                reruns += 1;
+              },
+            },
+            checks: {
+              listAnnotations: async ({
+                check_run_id,
+              }: {
+                check_run_id: number;
+              }) => {
+                const result = annotations[check_run_id];
+                if (result instanceof Error) throw result;
+                return { data: result };
+              },
+            },
+          },
+        },
+        { info() {}, warning: (message: string) => warnings.push(message) },
+        async () => {},
+        () => Date.now() + 60_000,
+        15_000,
+        async () => false,
+        "BuilderIO",
+        "agent-native",
+      ) as (
+        run: { id: number; url: string },
+        label: string,
+        timeoutMs: number,
+      ) => Promise<Run>;
+      const result = waitForRun(
+        { id: 1, url: "run" },
+        "Production site fleet",
+        60_000,
+      );
+      return { result, counts: () => ({ polls, reruns }), warnings };
+    };
+
+    // After the re-run request GitHub can keep returning the old completed
+    // attempt for a few polls before it reports the new one.
+    const cancelled = run(1, "completed", "cancelled");
+    const stale = [cancelled, cancelled, cancelled];
+
+    const supersededStage = runStage(
+      [
+        cancelled,
+        ...stale,
+        run(2, "in_progress"),
+        run(2, "completed", "success"),
+      ],
+      { 1: [labelNotice, superseded], 2: [superseded] },
+    );
+    assert.deepEqual(
+      await supersededStage.result,
+      run(2, "completed", "success"),
+    );
+    assert.deepEqual(supersededStage.counts(), { polls: 6, reruns: 1 });
+
+    const noRunnerStage = runStage(
+      [cancelled, ...stale, run(2, "queued"), run(2, "completed", "failure")],
+      { 1: [noRunner] },
+    );
+    await assert.rejects(
+      noRunnerStage.result,
+      /Production site fleet ended failure after one re-run: run/,
+    );
+    assert.deepEqual(noRunnerStage.counts(), { polls: 6, reruns: 1 });
+
+    // Run 36645799548: an operator's cancel annotates one queued job and
+    // leaves the others without a reason.
+    for (const annotations of [
+      { 1: [operator], 2: [] },
+      { 1: [superseded], 2: [operator] },
+      // Production fleet run 36627218071 (9/29) recorded no reason at all.
+      { 1: [], 2: [] },
+      { 1: [superseded], 2: new Error("HTTP 502") },
+    ]) {
+      const stage = runStage([cancelled], annotations);
+      await assert.rejects(
+        stage.result,
+        /^Error: Production site fleet ended cancelled: run$/,
+      );
+      assert.equal(stage.counts().reruns, 0);
+    }
+    const unreadable = runStage([cancelled], { 1: new Error("HTTP 502") });
+    await assert.rejects(unreadable.result, /ended cancelled: run/);
+    assert.match(
+      unreadable.warnings.join("\n"),
+      /could not read why its jobs were cancelled, so it is not re-run: HTTP 502/,
+    );
+  });
+
+  it("releases production sites even when npm publication fails", () => {
+    const source = String((coordinator.with as Workflow).script);
+    assert.match(
+      source,
+      /try \{\s*await waitForStablePackagePublish\(releaseSha, packageRef, coreVersionChanged\);\s*\} catch \(error\) \{\s*publicationError =/,
+    );
+    assert.match(
+      source,
+      /const siteWorkflowRef = publicationError \? "main" : workflowRef/,
+    );
+    assert.match(
+      source,
+      /dispatch\("deploy-production-sites-prebuilt\.yml", siteWorkflowRef, \{\s*sites: productionSites\.join\(","\),\s*source_ref: releaseSha,/,
+    );
+    assert.match(
+      source,
+      /publicationError\s*\? null\s*: dispatch\("desktop-release\.yml"/,
+    );
+    assert.match(
+      source,
+      /publicationError\s*\? null\s*: dispatch\("clips-desktop-release\.yml"/,
+    );
+    assert.match(
+      source,
+      /!\/\^\[0-9a-f\]\{40\}\$\/\.test\(current\.merge_commit_sha \|\| ""\)/,
+    );
+    assert.match(
+      source,
+      /const failures = publicationError \? \[publicationError\.message\] : \[\]/,
+    );
+    assert.match(
+      source,
+      /await summary\.write\(\);\s*if \(failures\.length > 0\) \{\s*throw/,
+    );
   });
 
   it("checks out the coordinated release commit for desktop builds", () => {

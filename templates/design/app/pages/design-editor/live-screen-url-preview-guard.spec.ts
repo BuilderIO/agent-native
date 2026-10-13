@@ -22,14 +22,10 @@ import {
   isStandaloneHttpUrl,
   previewContentReplaceNeedsRenderFallback,
 } from "./editor-state";
+import { readDesignEditorSource } from "./read-design-editor-source";
 
-const editorSource = readFileSync(
-  new URL("../DesignEditor.tsx", import.meta.url),
-  "utf8",
-);
+const editorSource = readDesignEditorSource();
 
-// commitVisualStyles now lives in its own command module; the whole file is
-// the section these assertions used to slice out of DesignEditor.tsx.
 const commitVisualStylesSource = readFileSync(
   new URL("./commands/commit-visual-styles.ts", import.meta.url),
   "utf8",
@@ -61,8 +57,6 @@ describe("live screen URL preview guard", () => {
     const bridgeLookup = "(window as any).__designCanvasReplaceContent";
 
     expect(section).toContain(guard);
-    // Refusing must happen before the bridge handle is even resolved, and must
-    // report "not replaced" so no caller mistakes it for an applied update.
     expect(section.indexOf(guard)).toBeLessThan(section.indexOf(bridgeLookup));
     expect(section).toMatch(
       /if \(isStandaloneHttpUrl\(nextContent\)\) \{[\s\S]*?return "skipped-live-route";\s*\}/,
@@ -80,10 +74,6 @@ describe("live screen URL preview guard", () => {
   });
 
   it("refuses to PROJECT a route URL as the edit source when the snapshot is missing", () => {
-    // Read-direction counterpart of the guards above. Observed: a commit with no
-    // snapshot yet projected "http://localhost:3000/" as its source document, so
-    // the selection resolved `absent` and a load-timing miss was reported as an
-    // element with no editable source.
     const section = sourceSection(
       "const commitVisualStyles = useCallback(",
       "const commitStylesToSelectedLayers = useCallback(",
@@ -93,10 +83,11 @@ describe("live screen URL preview guard", () => {
     expect(section).toContain(guard);
     // Must refuse BEFORE the projection is built, or the doomed 3-node parse
     // still happens and the misleading "no editable match" wins the race.
-    expect(section.indexOf(guard)).toBeLessThan(
-      section.indexOf("buildCodeLayerProjection(baseContent)"),
+    const projectionOffset = section.search(
+      /buildCodeLayerProjection\(\s*baseContent\b/,
     );
-    // Named as a load-timing failure, not as a missing element.
+    expect(projectionOffset).toBeGreaterThan(-1);
+    expect(section.indexOf(guard)).toBeLessThan(projectionOffset);
     expect(section).toMatch(
       /if \(isStandaloneHttpUrl\(baseContent\)\) \{[\s\S]*?snapshotNotLoaded[\s\S]*?return;\s*\}/,
     );
@@ -105,16 +96,13 @@ describe("live screen URL preview guard", () => {
   it("refuses design-state preview and restore on a live screen", () => {
     const section = sourceSection(
       "const handleDesignStateSelect = useCallback(",
-      "// ── Inspector header quick actions",
+      "const liveScreenIds = useMemo(",
     );
     const guard = "if (isStandaloneHttpUrl(activeContent))";
 
     expect(section).toContain(guard);
-    // The guard covers BOTH branches: entering a state preview clobbers the
-    // running app, and the stateId === null restore posts the route URL.
-    // Refusing only the restore would leave the app unrecoverable.
     expect(section.indexOf(guard)).toBeLessThan(
-      section.indexOf("if (stateId === null)"),
+      section.indexOf("setSelectedStateId(stateId)"),
     );
     expect(section).toMatch(
       /if \(isStandaloneHttpUrl\(activeContent\)\) \{[\s\S]*?designStateLiveScreen[\s\S]*?return;\s*\}/,

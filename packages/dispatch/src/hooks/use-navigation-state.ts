@@ -7,7 +7,8 @@ import {
   appBasePath,
   appPath,
 } from "@agent-native/core/client/api-path";
-import { extensionIdFromPathname } from "@agent-native/core/client/extensions";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { extensionIdFromPathname } from "@agent-native/toolkit/app/extensions";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -38,17 +39,22 @@ export interface NavigationState {
   query?: string;
   runId?: string;
   threadId?: string;
+  threadDebugItem?: string;
   agentPath?: string;
-  usageScope?: "me" | "workspace";
+  usageScope?: "me" | "workspace" | "app";
   usageUserEmail?: string;
+  usageAppId?: string;
+  automationId?: string;
 }
 
-export function useNavigationState(extensions?: DispatchExtensionConfig) {
+export function useNavigationState(
+  extensions?: DispatchExtensionConfig,
+  browserTabId = getBrowserTabId(),
+) {
   const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
 
-  // Sync current route to application state
   useEffect(() => {
     const localPathname = routerPath(location.pathname);
     const state = buildDispatchNavigationState(
@@ -57,25 +63,26 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
       extensions,
     );
 
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
+    fetch(dispatchApplicationStatePath("navigation", browserTabId), {
       method: "PUT",
       keepalive: true,
-      headers: { "Content-Type": "application/json" },
+      headers: dispatchApplicationStateHeaders(browserTabId, {
+        "Content-Type": "application/json",
+      }),
       body: JSON.stringify(state),
     }).catch(() => {});
-  }, [extensions, location.pathname, location.search]);
+  }, [browserTabId, extensions, location.pathname, location.search]);
 
-  // Listen for navigate commands from agent
   const { data: navCommand } = useQuery({
-    queryKey: ["navigate-command"],
+    queryKey: dispatchNavigationQueryKey(browserTabId),
     queryFn: async () => {
       const res = await fetch(
-        agentNativePath("/_agent-native/application-state/navigate"),
+        dispatchApplicationStatePath("navigate", browserTabId),
+        { headers: dispatchApplicationStateHeaders(browserTabId) },
       );
       if (!res.ok) return null;
       const data = await res.json();
       if (data) {
-        // Return with a timestamp to ensure uniqueness
         return { ...data, _ts: Date.now() };
       }
       return null;
@@ -85,14 +92,14 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
 
   useEffect(() => {
     if (!navCommand) return;
-    // Delete the one-shot command AFTER reading it
-    fetch(agentNativePath("/_agent-native/application-state/navigate"), {
+    fetch(dispatchApplicationStatePath("navigate", browserTabId), {
       method: "DELETE",
-      headers: { "X-Agent-Native-CSRF": "1" },
+      headers: dispatchApplicationStateHeaders(browserTabId, {
+        "X-Agent-Native-CSRF": "1",
+      }),
     }).catch(() => {});
     const cmd = navCommand as NavigationState;
 
-    // Navigate to a specific path or resolve view name to path
     const resolvedPath =
       cmd.path || resolvePath(cmd.view, extensions, cmd) || "/overview";
     const path =
@@ -108,9 +115,31 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
         markAgentChatHomeHandoff("dispatch");
       }
     }
-    navigate(nextPath);
-    qc.setQueryData(["navigate-command"], null);
-  }, [extensions, location.pathname, navCommand, navigate, qc]);
+    void navigate(nextPath);
+    qc.setQueryData(dispatchNavigationQueryKey(browserTabId), null);
+  }, [browserTabId, extensions, location.pathname, navCommand, navigate, qc]);
+}
+
+export function dispatchNavigationQueryKey(
+  browserTabId: string,
+): readonly [string, string] {
+  return ["navigate-command", browserTabId];
+}
+
+export function dispatchApplicationStatePath(
+  key: string,
+  browserTabId: string,
+): string {
+  return agentNativePath(
+    `/_agent-native/application-state/${key}:${browserTabId}`,
+  );
+}
+
+function dispatchApplicationStateHeaders(
+  browserTabId: string,
+  extra: Record<string, string> = {},
+): Record<string, string> {
+  return { "X-Request-Source": browserTabId, ...extra };
 }
 
 function pathnameFromPath(path: string): string {
@@ -188,6 +217,7 @@ export function buildDispatchNavigationState(
     const query = params.get("query");
     const runId = params.get("runId");
     const selectedThreadId = params.get("threadId");
+    const item = params.get("item");
     if (mode) state.threadDebugMode = mode;
     if (sourceId) state.sourceId = sourceId;
     if (inspectSourceId) state.inspectSourceId = inspectSourceId;
@@ -197,16 +227,26 @@ export function buildDispatchNavigationState(
     if (query) state.query = query;
     if (runId) state.runId = runId;
     if (selectedThreadId) state.threadId = selectedThreadId;
+    if (item) state.threadDebugItem = item;
   }
 
   if (state.view === "metrics") {
     const params = new URLSearchParams(search);
     const usageScope = params.get("scope");
     const usageUserEmail = params.get("user");
-    if (usageScope === "me" || usageScope === "workspace") {
+    const usageAppId = params.get("app");
+    if (usageAppId) {
+      state.usageScope = "app";
+      state.usageAppId = usageAppId;
+    } else if (usageScope === "me" || usageScope === "workspace") {
       state.usageScope = usageScope;
     }
     if (usageUserEmail) state.usageUserEmail = usageUserEmail;
+  }
+
+  if (state.view === "automations") {
+    const automationId = new URLSearchParams(search).get("automationId");
+    if (automationId) state.automationId = automationId;
   }
 
   return state;
@@ -216,10 +256,6 @@ function routerPath(path: string): string {
   const basePath = appBasePath();
   if (!basePath) return path;
   let result = path;
-  // Iteratively strip basename. A path that arrives doubly-prefixed
-  // (e.g. "/dispatch/dispatch/overview", possibly from a stale link or a
-  // prior bug) would otherwise get partially stripped here and then
-  // re-prefixed by react-router's basename, restoring the bad URL.
   for (let i = 0; i < 4; i += 1) {
     if (result === basePath) return "/";
     if (!result.startsWith(`${basePath}/`)) break;
@@ -270,6 +306,12 @@ function resolveView(
     return "extensions";
   }
   if (pathname === "/admin") return "admin";
+  if (
+    pathname === "/admin/integrations" ||
+    pathname.startsWith("/admin/integrations/")
+  ) {
+    return "integrations";
+  }
   if (pathname === "/admin/agents" || pathname.startsWith("/admin/agents/")) {
     return "connected-agents";
   }
@@ -279,9 +321,6 @@ function resolveView(
   }
   if (pathname.startsWith("/browser-chat")) return "browser-chat";
   if (pathname.startsWith("/chat")) return "chat";
-  // A route below /apps/ always embeds one app, so it must not collapse to the
-  // apps list. An id that fails to decode still resolves here without a
-  // `workspaceAppId`, which view-screen reports as an unknown app.
   if (pathname.startsWith("/apps/") && pathname !== "/apps/") {
     return "workspace-app";
   }
@@ -290,7 +329,6 @@ function resolveView(
   if (pathname.startsWith("/metrics")) return "metrics";
   if (pathname.startsWith("/new-app")) return "new-app";
   if (pathname.startsWith("/vault")) return "vault";
-  if (pathname.startsWith("/integrations")) return "integrations";
   if (pathname.startsWith("/workspace")) return "workspace";
   if (pathname.startsWith("/agents")) return "agents";
   if (pathname.startsWith("/messaging")) return "messaging";

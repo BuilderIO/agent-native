@@ -2,7 +2,7 @@ import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 function target(url: URL): string {
-  return `/${url.search}${url.hash}`;
+  return `/home${url.search}${url.hash}`;
 }
 
 export function loader({ url }: LoaderFunctionArgs) {

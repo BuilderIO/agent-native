@@ -9,9 +9,73 @@ export function hasBoardSurfaceContent(html: string | undefined) {
   return content.replace(/<!--[\s\S]*?-->/g, "").trim().length > 0;
 }
 
-const BOARD_SURFACE_RENDER_STYLE = `<style data-agent-native-board-surface-render>html,body{background:transparent!important;background-color:transparent!important;background-image:none!important;}body{margin:0!important;position:relative;overflow:visible;}body>:not([data-agent-native-node-id]):not(style):not(script),body>[data-agent-native-node-id]:not([data-an-primitive]):not([data-agent-native-preserve-styles="true"]):has([data-agent-native-node-id]),body>[data-agent-native-node-id="body"],body>[data-agent-native-node-id="Body"],body>[data-agent-native-layer-name="body"],body>[data-agent-native-layer-name="Body"],body>[data-agent-native-layer-name="<body>"]{background:transparent!important;background-color:transparent!important;background-image:none!important;box-shadow:none!important;}[data-agent-native-board-backdrop-candidate="true"]{display:none!important;pointer-events:none!important;}</style>`;
-// The comma syntax also works in the lightweight DOM used by canvas tests.
-export const BOARD_SURFACE_BACKGROUND = "hsl(0, 0%, 10%)";
+const EMPTY_BOARD_SURFACE_HTML =
+  "<!DOCTYPE html><html><head></head><body></body></html>";
+
+export function getBoardSurfaceHtml(html: string | undefined) {
+  if (html === undefined) return undefined;
+  return hasBoardSurfaceContent(html) ? html : EMPTY_BOARD_SURFACE_HTML;
+}
+
+export function shouldMountBoardSurface(args: {
+  hasAuthoredContent: boolean;
+  crossScreenDragActive: boolean;
+  hasPendingRuntimeInsert: boolean;
+  hasPendingRuntimeRollback?: boolean;
+  hasRuntimeContent?: boolean;
+  runtimeContentBoardId?: string | null;
+  boardFileId?: string;
+}): boolean {
+  return (
+    args.hasAuthoredContent ||
+    args.crossScreenDragActive ||
+    args.hasPendingRuntimeInsert ||
+    Boolean(args.hasPendingRuntimeRollback) ||
+    Boolean(args.hasRuntimeContent) ||
+    (args.runtimeContentBoardId != null &&
+      args.runtimeContentBoardId === args.boardFileId)
+  );
+}
+
+export function hasBoardRuntimeSurfaceContent(args: {
+  boardFileId?: string;
+  runtimeBoardFileId: string | null;
+  runtimeRequestKeys: readonly string[];
+}): boolean {
+  return (
+    args.boardFileId !== undefined &&
+    args.runtimeBoardFileId === args.boardFileId &&
+    args.runtimeRequestKeys.length > 0
+  );
+}
+
+export function shouldRenderEmptyBoardReviewCanvas(args: {
+  hasSurfaceContent: boolean;
+  reviewPinMode: boolean;
+  reviewCommentsHidden: boolean;
+  reviewTargetId?: string | null;
+}): boolean {
+  return (
+    !args.hasSurfaceContent &&
+    !args.reviewCommentsHidden &&
+    (args.reviewPinMode || args.reviewTargetId === null)
+  );
+}
+
+export function shouldRenderOverviewReviewCanvas(args: {
+  boardFileId?: string;
+  boardFileContent?: string;
+}): boolean {
+  return !args.boardFileId || args.boardFileContent === undefined;
+}
+
+function boardSurfaceRenderStyle(darkScheme: boolean) {
+  const scheme = darkScheme
+    ? // guard:allow-raw-color — the UA light-scheme text default, written into the render copy only
+      "html{color-scheme:dark!important;color:#000}"
+    : "";
+  return `<style data-agent-native-board-surface-render>${scheme}html,body{background:transparent!important;background-color:transparent!important;background-image:none!important;}body{margin:0!important;position:relative;overflow:visible;}body>:not([data-agent-native-node-id]):not(style):not(script),body>[data-agent-native-node-id]:not([data-an-primitive]):not([data-agent-native-preserve-styles="true"]):has([data-agent-native-node-id]),body>[data-agent-native-node-id="body"],body>[data-agent-native-node-id="Body"],body>[data-agent-native-layer-name="body"],body>[data-agent-native-layer-name="Body"],body>[data-agent-native-layer-name="<body>"],body>[data-layer-name="body"],body>[data-layer-name="Body"],body>[data-layer-name="<body>"],body>[layer-name="body"],body>[layer-name="Body"],body>[layer-name="<body>"]{background:transparent!important;background-color:transparent!important;background-image:none!important;box-shadow:none!important;}[data-agent-native-board-backdrop-candidate="true"]{display:none!important;pointer-events:none!important;}</style>`;
+}
 
 const BOARD_SURFACE_BACKDROP_MIN_EDGE_PX = 2400;
 const BOARD_SURFACE_BACKDROP_MIN_AREA_PX = 8_000_000;
@@ -58,14 +122,6 @@ function getCssPixelValue(style: string, name: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-/**
- * Returns the canvas-space bounds occupied by top-level board nodes.
- *
- * Board coordinates are persisted directly in each root node's absolute
- * `left`/`top`. Keeping this parser string-only makes it usable during SSR and
- * in the jsdom-less unit suite, while restricting the scan to root nodes keeps
- * nested children from being counted twice with parent-relative coordinates.
- */
 export function getBoardSurfaceContentBounds(
   html: string | undefined,
 ): FrameGeometry | null {
@@ -97,6 +153,11 @@ export function getBoardSurfaceContentBounds(
     const style = getHtmlAttributeValue(token, "style");
     const left = getCssPixelValue(style, "left") ?? 0;
     const top = getCssPixelValue(style, "top") ?? 0;
+    const primitiveKind = getHtmlAttributeValue(
+      token,
+      "data-an-primitive",
+    ).toLowerCase();
+    const position = getCssDeclarationValue(style, "position").toLowerCase();
     const parentOffsetX = stack.reduce(
       (total, entry) => total + entry.offsetX,
       0,
@@ -110,15 +171,12 @@ export function getBoardSurfaceContentBounds(
       tagName === "body" ||
       tagName === "style" ||
       tagName === "script";
-    if (nodeId && !isDocumentRootTag && !isAccidentalBoardBackdropTag(token)) {
-      const primitiveKind = getHtmlAttributeValue(
-        token,
-        "data-an-primitive",
-      ).toLowerCase();
-      // Auto-sized text has no persisted width/height. A one-pixel extent is
-      // not enough when it sits near a render-window edge. Reserve a modest
-      // intrinsic text box; the camera viewport remains the final authority
-      // for unusually long content.
+    if (
+      nodeId &&
+      !isDocumentRootTag &&
+      !isAccidentalBoardBackdropTag(token) &&
+      (primitiveKind || position === "absolute")
+    ) {
       const fallbackWidth = primitiveKind === "text" ? 256 : 1;
       const fallbackHeight = primitiveKind === "text" ? 64 : 1;
       const width = Math.max(
@@ -256,12 +314,17 @@ function getCurrentLayerParentNodeId(
   return "body";
 }
 
-export function getBoardSurfaceRenderContent(html: string) {
+export function getBoardSurfaceRenderContent(html: string, darkScheme = false) {
   if (!html) return html;
-  const renderHtml = markAccidentalBoardBackdropCandidates(html);
-  if (renderHtml.includes("data-agent-native-board-surface-render")) {
-    return renderHtml;
+  const markedHtml = markAccidentalBoardBackdropCandidates(html);
+  const BOARD_SURFACE_RENDER_STYLE = boardSurfaceRenderStyle(darkScheme);
+  if (markedHtml.includes(BOARD_SURFACE_RENDER_STYLE)) {
+    return markedHtml;
   }
+  const renderHtml = markedHtml.replace(
+    /<style data-agent-native-board-surface-render>[\s\S]*?<\/style>/i, // i18n-ignore render-style matcher, not visible UI copy
+    "",
+  );
   if (/<\/head>/i.test(html)) {
     return renderHtml.replace(
       /<\/head>/i,
@@ -283,9 +346,6 @@ function stripExecutableStaticPreviewContent(html: string) {
     .replace(/<(?:link|meta|base)\b[^>]*>/gi, "")
     .replace(/@import\s+(?:url\([^)]*\)|["'][^"']*["'])\s*[^;]*;/gi, "")
     .replace(/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\s*\)/gi, (match) => {
-      // Strip data:, blob:, and unknown-scheme url() references to prevent
-      // large embedded payloads or local-resource leaks. Allow https:// URLs
-      // (CDN images/fonts) — they can only fetch inert assets, not execute code.
       const raw = match.slice(4, -1).trim();
       const inner = raw.replace(/^['"]|['"]$/g, "").trim();
       return /^https:\/\//i.test(inner) ? match : "none";
@@ -299,35 +359,23 @@ function stripExecutableStaticPreviewContent(html: string) {
     .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
 }
 
-/**
- * Produces the inert, compressed document painted behind the live board
- * window at very low zoom. The document is also rendered in an iframe with an
- * empty sandbox, but removing executable markup here is defense in depth and
- * guarantees Alpine/React never starts a duplicate runtime.
- *
- * Root offsets use the same `translate` seam as the interactive finite board
- * iframe. Scaling the body into a small browser-safe viewport makes the whole
- * logical board paintable without allocating or scrolling a 131k iframe.
- */
 export function getBoardSurfaceStaticPreviewContent(args: {
-  /** Themed canvas colour; falls back to the dark default when unresolved. */
-  background?: string;
+  darkScheme?: boolean;
   html: string;
   logicalGeometry: FrameGeometry;
   viewport: { width: number; height: number };
 }) {
   const renderHtml = stripExecutableStaticPreviewContent(
-    getBoardSurfaceRenderContent(args.html),
+    getBoardSurfaceRenderContent(args.html, args.darkScheme),
   );
   const width = Math.max(1, args.logicalGeometry.width);
   const height = Math.max(1, args.logicalGeometry.height);
   const viewportWidth = Math.max(1, args.viewport.width);
   const viewportHeight = Math.max(1, args.viewport.height);
-  const background = args.background?.trim() || BOARD_SURFACE_BACKGROUND;
   const scale = Math.min(viewportWidth / width, viewportHeight / height);
   const offsetX = -args.logicalGeometry.x;
   const offsetY = -args.logicalGeometry.y;
-  const style = `<style data-agent-native-board-static-preview>*,*::before,*::after{animation:none!important;animation-delay:0s!important;transition:none!important;caret-color:transparent!important;}html{width:${viewportWidth}px!important;height:${viewportHeight}px!important;overflow:hidden!important;}html,body{background:${background}!important;background-color:${background}!important;background-image:none!important;}body{margin:0!important;width:${width}px!important;height:${height}px!important;overflow:visible!important;transform:scale(${scale})!important;transform-origin:0 0!important;}body>[data-agent-native-node-id]{translate:${offsetX}px ${offsetY}px!important;}</style>`;
+  const style = `<style data-agent-native-board-static-preview>*,*::before,*::after{animation:none!important;animation-delay:0s!important;transition:none!important;caret-color:transparent!important;}html{width:${viewportWidth}px!important;height:${viewportHeight}px!important;overflow:hidden!important;}html,body{background:transparent!important;background-color:transparent!important;background-image:none!important;}body{margin:0!important;width:${width}px!important;height:${height}px!important;overflow:visible!important;transform:scale(${scale})!important;transform-origin:0 0!important;}body>[data-agent-native-node-id]{translate:${offsetX}px ${offsetY}px!important;}</style>`;
   if (/<\/head\s*>/i.test(renderHtml)) {
     return injectDocumentMarkup(renderHtml, style, { target: "head" });
   }
@@ -337,15 +385,11 @@ export function getBoardSurfaceStaticPreviewContent(args: {
   return `${style}${renderHtml}`;
 }
 
-/** Simple djb2-xor string hash, used to build cheap cache keys elsewhere in
- *  the multi-screen canvas (board content signatures, primitive-parse cache
- *  keys, etc). */
 export function hashString(s: string): string {
   let h = 5381;
   for (let i = 0; i < s.length; i++) {
-    // h = h * 33 ^ charCode  (djb2 xor variant)
     h = ((h << 5) + h) ^ s.charCodeAt(i);
-    h = h >>> 0; // keep as unsigned 32-bit
+    h = h >>> 0;
   }
   return h.toString(16);
 }

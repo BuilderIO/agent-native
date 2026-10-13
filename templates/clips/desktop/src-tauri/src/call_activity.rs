@@ -1,8 +1,3 @@
-//! Whether a conferencing app is holding a live audio input right now.
-//!
-//! Both meeting watchers read this, from opposite ends of a call: the ad-hoc
-//! detector treats a running input as corroboration that a call actually
-//! started, and the silence detector treats its release as evidence one ended.
 
 #[cfg(target_os = "macos")]
 pub(crate) fn default_call_app_bundle_ids() -> Vec<String> {
@@ -17,18 +12,28 @@ pub(crate) fn default_call_app_bundle_ids() -> Vec<String> {
     .collect()
 }
 
-/// Returns whether one of the target conferencing apps currently has a live
-/// CoreAudio input stream. `None` means the OS could not provide a reliable
-/// answer, so callers must keep the existing conservative fallbacks.
-///
-/// `kAudioProcessPropertyIsRunningInput` is macOS 14+, so an older system is a
-/// `None` and never a `Some(false)`. Callers that collapse the two make the
-/// feature silently dead on Sonoma-minus rather than degraded.
-///
-/// Observation only: this enumerates process objects and never opens an input
-/// unit. A detector that grabbed one while idle would fight `whisper_speech`,
-/// which holds VPIO with uplink processing bypassed precisely so a call app
-/// cannot starve Clips of mic buffers.
+pub(crate) fn bundle_id_matches(bundle_id: &str, candidate: &str) -> bool {
+    let bundle_id = bundle_id.to_lowercase();
+    let candidate = candidate.to_lowercase();
+    let (bundle_id, candidate) = (bundle_id.as_str(), candidate.as_str());
+    if bundle_id == candidate {
+        return true;
+    }
+    if candidate == "us.zoom.xos" {
+        return bundle_id.starts_with("us.zoom.");
+    }
+    !matches!(
+        candidate,
+        "com.google.chrome"
+            | "company.thebrowser.browser"
+            | "com.apple.safari"
+            | "org.mozilla.firefox"
+    ) && bundle_id
+        .strip_prefix(candidate)
+        .map(|suffix| suffix.starts_with('.'))
+        .unwrap_or(false)
+}
+
 #[cfg(target_os = "macos")]
 pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
     use core_foundation::base::TCFType;
@@ -78,9 +83,6 @@ pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
         return None;
     }
 
-    // Set when a target bundle is found but its running-input state can't be
-    // read. Distinct from "no target bundle is running at all" — the caller's
-    // None/Some(false) contract depends on not conflating the two.
     let mut matched_bundle_with_unreadable_input = false;
 
     for process in processes {
@@ -109,7 +111,10 @@ pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
         }
         .to_string()
         .to_lowercase();
-        if !bundle_ids.iter().any(|candidate| candidate == &bundle_id) {
+        if !bundle_ids
+            .iter()
+            .any(|candidate| bundle_id_matches(&bundle_id, candidate))
+        {
             continue;
         }
 
@@ -143,4 +148,44 @@ pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
         return None;
     }
     Some(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bundle_id_matches;
+
+    #[test]
+    fn matches_native_helpers_but_only_exact_browser_processes() {
+        assert!(bundle_id_matches("us.zoom.xos.helper.audio", "us.zoom.xos"));
+        assert!(bundle_id_matches("us.zoom.xos", "us.zoom.xos"));
+        assert!(bundle_id_matches("com.google.chrome", "com.google.chrome"));
+        assert!(bundle_id_matches("com.google.chrome", "com.google.Chrome"));
+        assert!(bundle_id_matches("us.zoom.cpthost", "us.zoom.XOS"));
+        assert!(!bundle_id_matches(
+            "com.google.chrome.helper.renderer",
+            "com.google.chrome"
+        ));
+        assert!(!bundle_id_matches(
+            "com.google.chromium",
+            "com.google.chrome"
+        ));
+        assert!(!bundle_id_matches(
+            "com.microsoft.teams2",
+            "com.microsoft.teams"
+        ));
+    }
+
+    #[test]
+    fn zoom_in_call_helpers_match_by_bundle_prefix() {
+        assert!(bundle_id_matches("us.zoom.cpthost", "us.zoom.xos"));
+        assert!(bundle_id_matches("us.zoom.caphost", "us.zoom.xos"));
+        assert!(bundle_id_matches("us.zoom.aomhost", "us.zoom.xos"));
+        assert!(bundle_id_matches("us.zoom.airhost", "us.zoom.xos"));
+        assert!(bundle_id_matches("us.zoom.zccimeetinghost", "us.zoom.xos"));
+        assert!(bundle_id_matches("us.zoom.zoomclips", "us.zoom.xos"));
+        assert!(!bundle_id_matches(
+            "com.microsoft.teams2",
+            "com.microsoft.teams"
+        ));
+    }
 }

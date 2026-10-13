@@ -90,7 +90,6 @@ describe("freezeWAAPI", () => {
     const unfreeze = freezeWAAPI();
     expect(() => unfreeze()).not.toThrow();
 
-    // The healthy animation after flaky in iteration order must still be resumed.
     expect(flaky.play).toHaveBeenCalledTimes(1);
     expect(healthy.play).toHaveBeenCalledTimes(1);
   });

@@ -5,6 +5,29 @@ on:
   push:
     branches:
       - main
+    paths:
+      # desktop-app plus its workspace dependency closure, and the bundled
+      # Chrome extension (`pnpm build:chrome-extension`) plus its closure.
+      - "packages/desktop-app/**"
+      - "packages/agent-chrome-extension/**"
+      - "packages/browser-control-extension-core/**"
+      - "packages/code-agents-ui/**"
+      - "packages/core/**"
+      - "packages/shared-app-config/**"
+      - "packages/toolkit/**"
+      - "packages/agentkit/**"
+      - "packages/recap-cli/**"
+      - "scripts/build-branding-assets.mjs"
+      # Install-time inputs: the root postinstall prebuilds workspace packages.
+      - "package.json"
+      - "pnpm-workspace.yaml"
+      - "scripts/prebuild-workspace-packages.ts"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/desktop-canary.yml"
+
+concurrency:
+  group: desktop-sso-canary-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -23,6 +46,9 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+
+      - name: Install native canvas dependencies
+        run: brew install pkg-config cairo pango
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -55,6 +81,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: W3PMF2T3MW
+          NODE_OPTIONS: --max-old-space-size=8192
           SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
           SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}

@@ -20,6 +20,12 @@ import {
   type ScrubInputChangeMeta,
 } from "../inspector";
 import type { ElementInfo } from "../types";
+import {
+  INSPECTOR_GRID_PAIR_GUTTER_SPAN,
+  INSPECTOR_GRID_PAIR_SPAN,
+  InspectorGrid,
+  InspectorGridCell,
+} from "./inspector-grid";
 import { roundToOneDecimal } from "./position-helpers";
 import { isMixedValue } from "./selection-helpers";
 import {
@@ -32,13 +38,6 @@ import {
 } from "./style-change-types";
 import { parseNumericValue, sidesAreLinked } from "./style-options";
 
-/**
- * The CSS length DesignSpacingControl commits for one side's scrub/typed
- * value. Rounds to one decimal place (not a whole pixel) to match the
- * `precision={1}` the four per-side ScrubInput fields below advertise — see
- * `roundToOneDecimal`'s docstring on why 0.5-unit values must survive the
- * round trip. Exported so the precision contract is unit-testable directly.
- */
 export function resolveSpacingSideValue(value: number): string {
   return `${roundToOneDecimal(value)}px`;
 }
@@ -67,11 +66,6 @@ export function DesignSpacingControl({
     side: "Top" | "Right" | "Bottom" | "Left",
     value: number,
   ) => {
-    // Was `Math.round(value)`, which silently floored every typed/scrubbed
-    // 0.5px value to a whole pixel — contradicting the `precision={1}` these
-    // fields advertise (below) and diverging from every other ScrubInput
-    // commit site in this panel (position X/Y, stroke weight, font size all
-    // use roundToOneDecimal).
     onChange(side, resolveSpacingSideValue(value));
   };
   const setAll = (value: number) => {
@@ -86,7 +80,7 @@ export function DesignSpacingControl({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-1.5">
-        <Label className="!text-[11px] font-medium text-muted-foreground">
+        <Label className="design-sidebar-field-label text-muted-foreground">
           {label}
         </Label>
         <Tooltip>
@@ -121,63 +115,65 @@ export function DesignSpacingControl({
           inputClassName="h-6"
         />
       ) : (
-        <div className="grid grid-cols-2 gap-1.5">
-          <ScrubInput
-            label={t("editPanel.sidePlaceholders.top")}
-            value={numeric.top}
-            onChange={(value) => setSide("Top", value)}
-            unit="px"
-            min={0}
-            precision={1}
-            inputClassName="h-6"
+        <InspectorGrid className="items-center" layout="pair">
+          <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+            <ScrubInput
+              label={t("editPanel.sidePlaceholders.top")}
+              value={numeric.top}
+              onChange={(value) => setSide("Top", value)}
+              unit="px"
+              min={0}
+              precision={1}
+              inputClassName="h-6"
+            />
+          </InspectorGridCell>
+          <InspectorGridCell
+            span={INSPECTOR_GRID_PAIR_GUTTER_SPAN}
+            ariaHidden
           />
-          <ScrubInput
-            label={t("editPanel.sidePlaceholders.right")}
-            value={numeric.right}
-            onChange={(value) => setSide("Right", value)}
-            unit="px"
-            min={0}
-            precision={1}
-            inputClassName="h-6"
+          <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+            <ScrubInput
+              label={t("editPanel.sidePlaceholders.right")}
+              value={numeric.right}
+              onChange={(value) => setSide("Right", value)}
+              unit="px"
+              min={0}
+              precision={1}
+              inputClassName="h-6"
+            />
+          </InspectorGridCell>
+          <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+            <ScrubInput
+              label={t("editPanel.sidePlaceholders.bottom")}
+              value={numeric.bottom}
+              onChange={(value) => setSide("Bottom", value)}
+              unit="px"
+              min={0}
+              precision={1}
+              inputClassName="h-6"
+            />
+          </InspectorGridCell>
+          <InspectorGridCell
+            span={INSPECTOR_GRID_PAIR_GUTTER_SPAN}
+            ariaHidden
           />
-          <ScrubInput
-            label={t("editPanel.sidePlaceholders.bottom")}
-            value={numeric.bottom}
-            onChange={(value) => setSide("Bottom", value)}
-            unit="px"
-            min={0}
-            precision={1}
-            inputClassName="h-6"
-          />
-          <ScrubInput
-            label={t("editPanel.sidePlaceholders.left")}
-            value={numeric.left}
-            onChange={(value) => setSide("Left", value)}
-            unit="px"
-            min={0}
-            precision={1}
-            inputClassName="h-6"
-          />
-        </div>
+          <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+            <ScrubInput
+              label={t("editPanel.sidePlaceholders.left")}
+              value={numeric.left}
+              onChange={(value) => setSide("Left", value)}
+              unit="px"
+              min={0}
+              precision={1}
+              inputClassName="h-6"
+            />
+          </InspectorGridCell>
+        </InspectorGrid>
       )}
     </div>
   );
 }
 
-/**
- * FieldTrailer — composes the motion keyframe diamond and the breakpoint
- * override indicator/reset for one field, in the Figma-parity order (diamond
- * first, then the override dot). Renders `null` when neither affordance
- * applies, so call sites can drop it in unconditionally next to any
- * keyframeable/overridable field without their own presence checks.
- *
- * `motionCssProperty` drives the keyframe diamond (omit to skip it — e.g.
- * for fields with no motion-catalog equivalent); `overrideProperty` drives
- * the breakpoint override indicator (defaults to `motionCssProperty` when
- * omitted, since most fields use the same identifier for both — pass it
- * explicitly when a field's CSS property differs from its motion-catalog
- * name, e.g. corner radius's independent-corner longhands).
- */
 export function FieldTrailer({
   element,
   motionCssProperty,
@@ -192,14 +188,6 @@ export function FieldTrailer({
   overrideProperty?: string;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
-  /**
-   * Applied ONLY to the keyframe diamond, and only while it's in its muted
-   * outline (not-yet-keyframed) state — e.g. `"opacity-0
-   * group-hover/field:opacity-100"` to hide it until the field is hovered.
-   * A filled (already-keyframed) diamond, and the breakpoint override dot,
-   * always render regardless of this class since both convey real state
-   * rather than a quiet affordance.
-   */
   hoverRevealClassName?: string;
   className?: string;
 }) {
@@ -273,6 +261,7 @@ export function ScrubStyleInput({
   hideIcon = true,
   icon,
   disabled = false,
+  precision = 1,
 }: {
   label: string;
   value: string;
@@ -282,6 +271,7 @@ export function ScrubStyleInput({
   min?: number;
   max?: number;
   step?: number;
+  precision?: number;
   labelClassName?: string;
   inputClassName?: string;
   hideIcon?: boolean;
@@ -304,7 +294,7 @@ export function ScrubStyleInput({
       min={min}
       max={max}
       step={step}
-      precision={1}
+      precision={precision}
       disabled={disabled}
       className="gap-0"
       labelClassName={cn(
@@ -312,7 +302,7 @@ export function ScrubStyleInput({
         labelClassName,
       )}
       inputClassName={cn(
-        "h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+        "h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
         inputClassName,
       )}
     />

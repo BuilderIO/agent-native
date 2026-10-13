@@ -1,6 +1,12 @@
-import { defineAction, embedApp } from "@agent-native/core";
-import { buildDeepLink } from "@agent-native/core/server";
+import {
+  ActionContractError,
+  defineAction,
+  embedApp,
+  fail,
+} from "@agent-native/core";
+import { buildDeepLink, getRequestContext } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
   mergeCreativeContextReuseLabels,
@@ -15,18 +21,33 @@ import { z } from "zod";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
-import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
-import { hashSlideContent } from "../shared/slide-fit.js";
-import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import {
-  awaitLayoutFitCheck,
-  formatOverflowForTool,
-} from "./_await-fit-check.js";
-// Use the shared, globalThis-pinned per-deck lock so add-slide, update-slide,
-// and the browser's patch-deck all serialise against the SAME lock — writes to
-// different slides of the same deck can never clobber each other.
-import { withDeckLock } from "./patch-deck.js";
+  createDeckVersionSnapshot,
+  deckVersionChangeGroupFromAction,
+  deckVersionChatContextFromAction,
+} from "../server/lib/deck-versions.js";
+import { noteGenerationFirstOutput } from "../server/lib/generation-completion.js";
+import {
+  HYGIENE_ACTION_DESCRIPTION,
+  slideHygieneResult,
+} from "../server/lib/slide-hygiene.js";
+import { trackSlides } from "../server/lib/slides-tracking.js";
+import { isRealSlide } from "../shared/blank-slide.js";
+import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
+import { generationTimingFields } from "../shared/generation-timing.js";
+import {
+  createLayoutFitRevision,
+  hashSlideContent,
+} from "../shared/slide-fit.js";
+import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
+import { getDeckUrl } from "./_app-url.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
+import { assertNoRenderArtifactsInNewSlide } from "./_render-artifacts.js";
+import { isAgentPatchCaller, withDeckLock } from "./patch-deck.js";
 
 function deckDeepLink(deckId: string): string {
   return buildDeepLink({
@@ -91,13 +112,18 @@ function deckCreativeContext(value: unknown): DeckCreativeContext | null {
 }
 
 export default defineAction({
+  title: "Add slide to deck",
   description:
-    "Add a single slide to an existing deck. Use this to build decks slide-by-slide — " +
-    "call it once per slide in slide order and wait for each result before adding the next slide. " +
-    "Avoid parallel add-slide calls for the same deck; sequential writes keep the editor and agent connection stable. " +
-    "If the deck has a designSystemId, first use `get-design-system` and apply its `agentContext` tokens/docs; do not use generic slide styling from the id alone. " +
+    "Add a single slide to the real editable Agent-Native Slides deck. This is the primary Slides MCP edit action: use it after create-deck instead of creating or publishing a standalone HTML artifact. " +
+    "For a short, fully planned deck, pass all slides to create-deck in one call. Use add-slide sequentially only for long or live in-app generation, where slides are authored over time; each write preserves per-slide Creative Context provenance. Never issue independent parallel writes to the same deck. " +
+    "For action-owned incremental generations created with slides: [], pass generationComplete=false on every intermediate add-slide call and true on the final call so the lifecycle cannot be left open. " +
+    "For an agent-generated deck with a persisted target slide count, stop once that many real (non-blank) slides exist. If the user explicitly asks for more slides after the target, re-read the deck and set targetSlideCountOverride to the new total of real slides on the first add-slide call. " +
+    "Before the first slide you add to an existing deck, call `get-deck` with compact=true once and use its `designSystem`, `deckStyle`, and `representativeSlideId`; if designSystem.scope is summary, call `get-design-system` once with its id. Reuse that context for every following slide. Never use generic slide styling from an id alone. " +
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
-    "Returns the new slide ID, 1-based slideNumber, and updated slide count.",
+    "Every new slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, follow one deliberate deck-level visual contract expressed with semantic --deck-* values on every slide; keep the canvas, type system, spacing, surfaces, and accent treatment consistent instead of alternating themes or using a stock provider/brand palette. " +
+    "Use `patch-deck` for edits to existing slides or deck structure, not for appending newly generated slides in this workflow. " +
+    "Returns the new slide ID, 1-based slideNumber, updated slide count, realSlideCount (real non-blank slides after the write, present when the deck has a target slide count; compare it, not slideCount, with the target), and pending layoutFit identity. Do not check fit after each write: finish all slide edits, then call get-layout-overflows once, and once more only after a repair. If measurements are unknown, report the unmeasured slides and do not recheck this turn unless the editor has produced a new measurement. If the slide is saved but client notification fails, the result includes notificationStatus='failed' and notificationErrorType; the write already succeeded, so do not retry it." +
+    HYGIENE_ACTION_DESCRIPTION,
   schema: z.object({
     deckId: z.string().describe("Target deck ID"),
     content: z.string().describe("Full HTML content of the new slide"),
@@ -128,11 +154,27 @@ export default defineAction({
       .preprocess((value) => {
         if (typeof value !== "string") return value;
         const trimmed = value.trim();
+        if (trimmed.toLowerCase() === "start") return 0;
+        if (trimmed.toLowerCase() === "end") return Number.MAX_SAFE_INTEGER;
         return trimmed === "" ? value : Number(trimmed);
       }, z.number().int().min(0))
       .optional()
       .describe(
-        "Optional 0-based index to insert at. If not provided, appends to the end of the deck.",
+        'Where to insert the slide: a 0-based index, or "start" / "end". Omit to append to the end of the deck.',
+      ),
+    targetSlideCountOverride: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe(
+        "New total of real slides. Set only when the user explicitly asks for more slides after the persisted target.",
+      ),
+    generationComplete: z
+      .boolean()
+      .optional()
+      .describe(
+        "Required for action-owned incremental generations: false for each intermediate slide and true only on the final slide so its lifecycle closes.",
       ),
     contextPackId: z
       .string()
@@ -164,18 +206,28 @@ export default defineAction({
       height: 680,
     }),
   },
-  http: false,
-  run: async ({
-    deckId,
-    content,
-    slideId,
-    layout,
-    notes,
-    position,
-    contextPackId,
-    contextModeOverride,
-    reuseLabels,
-  }) =>
+  http: { method: "POST" },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
+  run: async (
+    {
+      deckId,
+      content,
+      slideId,
+      layout,
+      notes,
+      position,
+      contextPackId,
+      contextModeOverride,
+      reuseLabels,
+      targetSlideCountOverride,
+      generationComplete,
+    },
+    ctx,
+  ) =>
     withDeckLock(deckId, async () => {
       await assertAccess("deck", deckId, "editor");
       const db = getDb();
@@ -186,13 +238,132 @@ export default defineAction({
         .where(eq(schema.decks.id, deckId));
 
       if (!rows.length) {
-        throw new Error(`Deck ${deckId} not found`);
+        fail(`Deck ${deckId} not found`, {
+          errorCode: "deck_not_found",
+          statusCode: 404,
+        });
       }
 
       const row = rows[0];
       const deck = JSON.parse(row.data);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const slides: any[] = Array.isArray(deck.slides) ? deck.slides : [];
+      const generationContext =
+        deck.generationContext &&
+        typeof deck.generationContext === "object" &&
+        !Array.isArray(deck.generationContext)
+          ? deck.generationContext
+          : null;
+      if (
+        generationContext?.generationMode === "action" &&
+        generationComplete === undefined
+      ) {
+        throw new ActionContractError(
+          "Set generationComplete=false on intermediate slides and true on the final slide of an action-owned incremental generation.",
+          {
+            errorCode: "generation_completion_flag_required",
+            details: { deckId },
+          },
+        );
+      }
+      const targetSlideCount =
+        generationContext &&
+        Number.isInteger(generationContext.targetSlideCount) &&
+        generationContext.targetSlideCount > 0
+          ? generationContext.targetSlideCount
+          : null;
+      // Counting parses slide HTML, so only a deck with a target pays for it.
+      const realSlideCount =
+        targetSlideCount === null ? null : slides.filter(isRealSlide).length;
+      const postWriteRealSlideCount =
+        realSlideCount === null
+          ? null
+          : realSlideCount + (isRealSlide({ content }) ? 1 : 0);
+      if (targetSlideCountOverride !== undefined) {
+        if (!isAgentPatchCaller(ctx?.caller)) {
+          throw new ActionContractError(
+            "targetSlideCountOverride is only available to agent calls after an explicit user request for more slides.",
+            { errorCode: "target_slide_count_override_agent_only" },
+          );
+        }
+        if (
+          targetSlideCount === null ||
+          realSlideCount === null ||
+          targetSlideCountOverride <= targetSlideCount ||
+          realSlideCount < targetSlideCount ||
+          targetSlideCountOverride <= realSlideCount
+        ) {
+          throw new ActionContractError(
+            targetSlideCount === null || realSlideCount === null
+              ? "targetSlideCountOverride requires a persisted target slide count."
+              : realSlideCount < targetSlideCount
+                ? `targetSlideCountOverride is only valid after the deck reaches its persisted target of ${targetSlideCount} slides; it has ${realSlideCount} real slides (blank placeholders do not count).`
+                : `targetSlideCountOverride must extend both the persisted target of ${targetSlideCount} and the current real slide count of ${realSlideCount}.`,
+            {
+              errorCode: "target_slide_count_override_invalid",
+              details: {
+                deckId,
+                currentSlideCount: slides.length,
+                realSlideCount,
+                targetSlideCount,
+                targetSlideCountOverride,
+              },
+            },
+          );
+        }
+      }
+      if (
+        isAgentPatchCaller(ctx?.caller) &&
+        targetSlideCount !== null &&
+        realSlideCount !== null &&
+        realSlideCount >= targetSlideCount &&
+        targetSlideCountOverride === undefined
+      ) {
+        fail(
+          `No slide was added: this deck already has ${realSlideCount} real slides against its requested target of ${targetSlideCount}. Re-read the deck. If the target is satisfied, stop authoring and finish the response; do not retry. Only if the user explicitly asked for more than ${targetSlideCount} slides, call add-slide again with targetSlideCountOverride set to the new total of real slides.`,
+          {
+            errorCode: "target_slide_count_reached",
+            statusCode: 409,
+            details: {
+              deckId,
+              currentSlideCount: slides.length,
+              realSlideCount,
+              targetSlideCount,
+            },
+          },
+        );
+      }
+
+      const effectiveTargetSlideCount =
+        targetSlideCountOverride ?? targetSlideCount;
+      if (
+        generationComplete &&
+        effectiveTargetSlideCount !== null &&
+        postWriteRealSlideCount !== null &&
+        postWriteRealSlideCount < effectiveTargetSlideCount
+      ) {
+        throw new ActionContractError(
+          `Cannot complete generation before reaching its target of ${effectiveTargetSlideCount} slides; this write would leave ${postWriteRealSlideCount} real slides (blank placeholders do not count).`,
+          {
+            errorCode: "generation_completed_before_target_reached",
+            details: {
+              deckId,
+              currentSlideCount: slides.length,
+              realSlideCount,
+              postWriteRealSlideCount,
+              postWriteSlideCount: slides.length + 1,
+              targetSlideCount: effectiveTargetSlideCount,
+            },
+          },
+        );
+      }
+
+      if (targetSlideCountOverride !== undefined) {
+        deck.generationContext = {
+          ...(generationContext ?? {}),
+          targetSlideCount: targetSlideCountOverride,
+        };
+      }
 
       const newSlideId =
         slideId ??
@@ -204,8 +375,9 @@ export default defineAction({
         contextPackId !== undefined &&
         contextPackId !== existingContext.contextPackId
       ) {
-        throw new Error(
+        fail(
           "The added slide must use the deck's existing creative-context pack",
+          { errorCode: "creative_context_pack_mismatch", statusCode: 409 },
         );
       }
       const effectivePackId = contextPackId ?? existingContext?.contextPackId;
@@ -295,10 +467,16 @@ export default defineAction({
               slideElementProvenance,
             );
 
+      assertNoRenderArtifactsInNewSlide(
+        content,
+        newSlideId,
+        slides.map((s) => String(s.content ?? "")),
+      );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const newSlide: any = {
         id: newSlideId,
         content: normalizeSlidePadding(content),
+        layoutFitRevision: createLayoutFitRevision(),
         creativeContextReuseLabels: slideReuseLabels,
       };
       if (layout) newSlide.layout = layout;
@@ -311,8 +489,11 @@ export default defineAction({
       const shouldRepairTitle = slides.length === 0;
       slides.splice(insertIndex, 0, newSlide);
 
-      const now = new Date().toISOString();
+      const now = nextDeckRevision(row.updatedAt);
       deck.slides = slides;
+      const sourceImportCleared =
+        deck.sourceImport !== undefined && deck.sourceImport !== null;
+      if (sourceImportCleared) delete deck.sourceImport;
       deck.updatedAt = now;
       const currentTitle =
         typeof row.title === "string" && row.title.trim()
@@ -331,24 +512,30 @@ export default defineAction({
               reuseLabels: mergedReuseLabels,
             };
 
-      await createDeckVersionSnapshot(
-        {
-          id: row.id,
-          title: row.title,
-          data: row.data,
-          ownerEmail: row.ownerEmail,
-        },
-        { label: "Before adding slide" },
-      );
       await db.transaction(async (tx: any) => {
-        await tx
+        await createDeckVersionSnapshot(
+          {
+            id: row.id,
+            title: row.title,
+            data: row.data,
+            ownerEmail: row.ownerEmail,
+          },
+          {
+            force: isAgentPatchCaller(ctx?.caller),
+            chatContext: deckVersionChatContextFromAction(ctx),
+            label: "Before adding slide",
+            db: tx,
+          },
+        );
+        const updateResult = await tx
           .update(schema.decks)
           .set({
             ...(repairedTitle ? { title: repairedTitle } : {}),
             data: JSON.stringify(deck),
             updatedAt: now,
           })
-          .where(eq(schema.decks.id, deckId));
+          .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
+        assertDeckWriteApplied(updateResult, deckId, "slide addition");
         await recordGenerationCreativeContext(
           {
             appId: "slides",
@@ -364,35 +551,105 @@ export default defineAction({
         );
       });
 
-      // Start the freshness window immediately after the SQL write and before
-      // notifying the editor. A render can happen during presence/navigation;
-      // capturing the timestamp later can discard that valid measurement.
-      const fitSince = Date.now();
-
-      // Best-effort agent presence: light the agent up on the newly-added slide
-      // in open editors and drop a lingering "AI edited" highlight for it. Uses
-      // the NEW slide's id. Never blocks or fails the write.
       touchAgentSlidePresence({
         deckId,
         slideId: newSlideId,
         label: slideLabelFor(newSlide, insertIndex),
       });
 
-      // Broadcast to any open editors so the new slide appears immediately.
-      // Include the new slideId + agent actor (backwards-compatible payload).
-      notifyClients(deckId, { slideId: newSlideId, actor: "agent" });
+      let notificationErrorType: string | undefined;
+      try {
+        const agentChangeId = deckVersionChangeGroupFromAction(ctx);
+        await notifyClients(deckId, {
+          slideId: newSlideId,
+          actor: "agent",
+          ...(agentChangeId ? { agentChangeId } : {}),
+        });
+      } catch (error) {
+        notificationErrorType =
+          error instanceof Error && error.name ? error.name : "unknown_error";
+      }
 
-      // Wait briefly for the editor to render the new slide and report its
-      // measured fit. If we get an "overflows" signal, append the auto-fix
-      // hint so the agent can make one bounded structural repair. Timeout = no
-      // editor measurement available
-      // (e.g. headless server) — return success without a fit hint.
-      const fit = await awaitLayoutFitCheck(
-        newSlideId,
-        fitSince,
-        5000,
-        hashSlideContent(newSlide.content),
+      const generationAttemptId =
+        typeof generationContext?.generationAttemptId === "string"
+          ? generationContext.generationAttemptId
+          : undefined;
+      const generationStartedAt =
+        typeof generationContext?.generationStartedAt === "number" &&
+        Number.isFinite(generationContext.generationStartedAt) &&
+        generationContext.generationStartedAt >= 0
+          ? generationContext.generationStartedAt
+          : undefined;
+      const browserSessionId = getRequestContext()?.browserSessionId;
+      if (
+        shouldRepairTitle &&
+        generationAttemptId &&
+        generationContext?.generationMode !== "action"
+      ) {
+        noteGenerationFirstOutput(ctx?.turnId || ctx?.runId, {
+          deckId,
+          generationAttemptId,
+          targetSlideCount,
+          ...(browserSessionId ? { sessionId: browserSessionId } : {}),
+          ...(generationStartedAt !== undefined ? { generationStartedAt } : {}),
+        });
+      }
+
+      trackSlides(
+        "deck_edited",
+        {
+          output_id: deckId,
+          output_type: "deck",
+          slide_id: newSlideId,
+          slide_count: slides.length,
+          edit_mode: "add_slide",
+          ...(generationAttemptId
+            ? { generation_attempt_id: generationAttemptId }
+            : {}),
+        },
+        ctx,
       );
+      if (notificationErrorType) {
+        track(
+          "deck_change_notification_failed",
+          {
+            app_name: "slides",
+            template_name: "slides",
+            output_id: deckId,
+            output_type: "deck",
+            slide_id: newSlideId,
+            failure_stage: "client_notification",
+            error_type: notificationErrorType,
+            ...(generationAttemptId
+              ? { generation_attempt_id: generationAttemptId }
+              : {}),
+          },
+          ctx,
+        );
+      }
+      if (
+        generationComplete &&
+        generationAttemptId &&
+        generationContext?.generationMode === "action"
+      ) {
+        const generationEndedAt = Date.now();
+        track(
+          "generation_completed",
+          {
+            app_name: "slides",
+            template_name: "slides",
+            generation_attempt_id: generationAttemptId,
+            output_id: deckId,
+            output_type: "deck",
+            slide_count: slides.length,
+            generation_mode: "incremental",
+            outcome: "completed",
+            ...generationTimingFields(generationStartedAt, generationEndedAt),
+            source: "add_slide_action",
+          },
+          ctx,
+        );
+      }
 
       const base = {
         deckId,
@@ -400,26 +657,28 @@ export default defineAction({
         slideNumber: insertIndex + 1,
         position: insertIndex,
         slideCount: slides.length,
+        ...(postWriteRealSlideCount === null
+          ? {}
+          : { realSlideCount: postWriteRealSlideCount }),
+        appUrl: getDeckUrl(deckId),
         deepLink: deckDeepLink(deckId),
         contextMode,
         contextPackId: recordedPackId,
         reuseLabels: slideReuseLabels,
+        ...(sourceImportCleared ? { sourceImportCleared: true } : {}),
+        ...(notificationErrorType
+          ? { notificationStatus: "failed", notificationErrorType }
+          : {}),
+        layoutFit: {
+          status: "pending" as const,
+          slideId: newSlideId,
+          contentHash: hashSlideContent(newSlide.content),
+          layoutFitRevision: newSlide.layoutFitRevision,
+        },
+        ...slideHygieneResult([
+          { slideId: newSlideId, html: newSlide.content },
+        ]),
       };
-
-      if (fit.status === "overflows") {
-        return {
-          ...base,
-          layoutOverflow: {
-            verticalOverflow: fit.measurement.verticalOverflow,
-            horizontalOverflow: fit.measurement.horizontalOverflow ?? 0,
-            contentWidth: fit.measurement.contentWidth,
-            contentHeight: fit.measurement.contentHeight,
-            viewportWidth: fit.measurement.viewportWidth,
-            viewportHeight: fit.measurement.viewportHeight,
-          },
-          message: formatOverflowForTool(deckId, fit.measurement),
-        };
-      }
 
       return base;
     }),

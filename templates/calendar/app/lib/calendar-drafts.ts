@@ -13,7 +13,6 @@ export function resolveDraftWorkingLocation(
 } {
   return {
     workingLocationType: draft.workingLocationType ?? "homeOffice",
-    // Drafts initialize `location` to "", so `??` would drop the Other name.
     workingLocationLabel: (
       draft.workingLocationLabel ||
       draft.location ||
@@ -49,6 +48,35 @@ export function buildWorkingLocationDraft({
     workingLocationLabel: "",
     transparency: "transparent",
     visibility: "public",
+    accountEmail,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export function buildAllDayEventDraft({
+  id,
+  date,
+  accountEmail,
+  now = new Date().toISOString(),
+}: {
+  id: string;
+  date: Date;
+  accountEmail?: string;
+  now?: string;
+}): CalendarEventDraft {
+  const dateKey = dateToCalendarDateKey(date);
+  return {
+    id,
+    title: "",
+    description: "",
+    location: "",
+    start: dateKey,
+    end: addCalendarDays(dateKey, 1),
+    startTimeZone: undefined,
+    endTimeZone: undefined,
+    allDay: true,
+    eventType: "default",
     accountEmail,
     createdAt: now,
     updatedAt: now,

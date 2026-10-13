@@ -10,7 +10,10 @@ import {
   hasWorkspaceProviderOAuthCredentials,
   resolveOAuthRedirectUri,
   encodeOAuthState,
+  wrapNetlifyPreviewGoogleOAuthState,
   decodeOAuthState,
+  logOAuthStateDecodeFailure,
+  ensureGoogleAuthIdentity,
   resolveOAuthOwner,
   createOAuthSession,
   oauthCallbackResponse,
@@ -25,6 +28,7 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { track } from "@agent-native/core/tracking";
 import {
   defineEventHandler,
   getHeader,
@@ -47,11 +51,41 @@ import {
 } from "../lib/google-auth.js";
 
 const OAUTH_STATE_APP_ID = process.env.APP_NAME || "mail";
+const UNVERIFIED_EMAIL_ACCOUNT_MESSAGE =
+  "This email has an unverified password account. Verify that account before signing in with Google, then try again.";
+
+async function syncGoogleSignInIdentity(
+  email: string,
+): Promise<boolean | undefined> {
+  let client;
+  try {
+    client = await getClient(email);
+  } catch (error) {
+    console.warn("[auth] Google profile client lookup failed:", error);
+    return undefined;
+  }
+  if (!client) return undefined;
+  let profile: any;
+  try {
+    profile = await googleFetch(
+      "https://www.googleapis.com/oauth2/v2/userinfo",
+      client.accessToken,
+    );
+  } catch (error) {
+    console.warn("[auth] Google profile lookup failed:", error);
+    return undefined;
+  }
+  const accountId = typeof profile?.id === "string" ? profile.id.trim() : "";
+  if (!accountId) return undefined;
+  return ensureGoogleAuthIdentity({
+    email,
+    accountId,
+    name: typeof profile.name === "string" ? profile.name : undefined,
+    image: typeof profile.picture === "string" ? profile.picture : undefined,
+  });
+}
 
 function oauthRedirectResponse(url: string) {
-  // h3 v2 sendRedirect returns an object the framework shim can stringify as
-  // "[object Object]" in production auth-url popups. Native Response stays a
-  // real 302 across the stack.
   return new Response(null, {
     status: 302,
     headers: { Location: url },
@@ -80,6 +114,14 @@ function googleOAuthErrorPayload(
   }
 
   const msg = error?.message || "Unknown error";
+  if (
+    /Cannot link Google to an unverified email\/password identity/i.test(msg)
+  ) {
+    return {
+      message: UNVERIFIED_EMAIL_ACCOUNT_MESSAGE,
+      code: "unverified_email_account",
+    };
+  }
   const statusCode = Number(error?.statusCode || error?.status || 0);
   const isPermission =
     error?.oauthErrorCode === "access_denied" ||
@@ -115,7 +157,13 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   try {
     const q = getQuery(event);
     const method = getMethod(event);
-    const redirectUri = resolveOAuthRedirectUri(event);
+    const redirectUri = resolveOAuthRedirectUri(
+      event,
+      "/_agent-native/google/callback",
+      {
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
+    );
     if (!redirectUri) {
       setResponseStatus(event, 400);
       return {
@@ -158,11 +206,8 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       }
     }
     const requestedReturn =
-      typeof q.return === "string" ? safeReturnPath(q.return) : "/";
+      typeof q.return === "string" ? safeReturnPath(q.return) : "/home";
     const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
-    // Use the named-arg overload — the positional form smuggled `flowId`
-    // into the `returnUrl` slot in earlier revisions, which broke desktop
-    // OAuth completion. See encodeOAuthState's docs.
     const state = encodeOAuthState({
       redirectUri,
       owner,
@@ -174,7 +219,8 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       desktopVerifierHash,
       desktopBrowserBindingHash,
     });
-    const url = await getAuthUrl(undefined, redirectUri, state, owner);
+    const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
+    const url = await getAuthUrl(undefined, redirectUri, oauthState, owner);
     if (q.redirect === "1") {
       return oauthRedirectResponse(url);
     }
@@ -203,6 +249,12 @@ export const handleGoogleCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/callback"),
       );
+      if (!state.ok) {
+        logOAuthStateDecodeFailure(event, state.reason, "google");
+        throw new Error(
+          "Your sign-in link expired or is invalid. Please try again.",
+        );
+      }
       desktop = state.desktop ?? false;
       flowId = state.flowId;
       if (
@@ -217,7 +269,6 @@ export const handleGoogleCallback = defineEventHandler(
         throw new Error("Desktop OAuth browser binding is invalid.");
       }
 
-      // Handle Google authorization errors (e.g. user denied access, invalid client)
       const googleError = query.error as string | undefined;
       if (googleError) {
         const errorDesc =
@@ -243,16 +294,30 @@ export const handleGoogleCallback = defineEventHandler(
         desktopVerifierHash,
       } = state;
 
-      // 1. Resolve owner (needs session context, before exchangeCode)
       const { owner, hasProductionSession } = await resolveOAuthOwner(
         event,
         stateOwner,
       );
 
-      // 2. Exchange code with Google (template-specific)
       const email = await exchangeCode(code, undefined, redirectUri, owner);
+      const isAddAccount =
+        addAccount || (owner !== undefined && email !== owner);
+      let isNewUser: boolean | undefined;
+      track(
+        "account_connected",
+        {
+          app_name: "mail",
+          template_name: "mail",
+          connector_name: "google_mail",
+          is_additional_account: isAddAccount,
+          source: "oauth",
+        },
+        { userId: owner ?? email },
+      );
+      if (!isAddAccount) {
+        isNewUser = await syncGoogleSignInIdentity(email);
+      }
 
-      // 2b. Auto-populate display name in settings if not set
       try {
         const client = await getClient(email);
         if (client) {
@@ -297,13 +362,15 @@ export const handleGoogleCallback = defineEventHandler(
       // Fallback: if the authenticated email differs from the session owner,
       // treat it as an add-account regardless of the state flag (guards against
       // state decode failures where addAccount is missing).
-      const isAddAccount =
-        addAccount || (owner !== undefined && email !== owner);
       const { sessionToken } = isAddAccount
         ? { sessionToken: undefined }
         : await createOAuthSession(event, email, {
             hasProductionSession,
             desktop,
+            trackSignup: {
+              authProvider: "google",
+              isNewUser,
+            },
           });
 
       if (flowId && sessionToken) {
@@ -318,7 +385,6 @@ export const handleGoogleCallback = defineEventHandler(
         );
       }
 
-      // 4. Return platform-appropriate response
       return oauthCallbackResponse(event, email, {
         sessionToken,
         desktop,
@@ -351,7 +417,11 @@ export const getGoogleAddAccountUrl = defineEventHandler(
     try {
       const q = getQuery(event);
       const method = getMethod(event);
-      const redirectUri = resolveOAuthRedirectUri(event);
+      const redirectUri = resolveOAuthRedirectUri(
+        event,
+        "/_agent-native/google/add-account/callback",
+        { useNetlifyPreviewGoogleOAuthRelay: true },
+      );
       if (!redirectUri) {
         setResponseStatus(event, 400);
         return {
@@ -400,10 +470,15 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         desktopVerifierHash,
         desktopBrowserBindingHash,
       });
+      const oauthState = wrapNetlifyPreviewGoogleOAuthState(
+        event,
+        state,
+        "/_agent-native/google/add-account/callback",
+      );
       const url = await getAuthUrl(
         undefined,
         redirectUri,
-        state,
+        oauthState,
         session.email,
       );
       if (q.redirect === "1") {
@@ -428,6 +503,12 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         query.state as string | undefined,
         getAppUrl(event, "/_agent-native/google/add-account/callback"),
       );
+      if (!state.ok) {
+        logOAuthStateDecodeFailure(event, state.reason, "google");
+        throw new Error(
+          "Your sign-in link expired or is invalid. Please try again.",
+        );
+      }
       desktop = state.desktop ?? false;
       flowId = state.flowId;
       if (
@@ -442,7 +523,6 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         throw new Error("Desktop OAuth browser binding is invalid.");
       }
 
-      // Handle Google authorization errors (e.g. user denied access, invalid client)
       const googleError = query.error as string | undefined;
       if (googleError) {
         const errorDesc =
@@ -472,6 +552,17 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         undefined,
         redirectUri,
         ownerEmail,
+      );
+      track(
+        "account_connected",
+        {
+          app_name: "mail",
+          template_name: "mail",
+          connector_name: "google_mail",
+          is_additional_account: true,
+          source: "oauth",
+        },
+        { userId: ownerEmail },
       );
 
       return oauthCallbackResponse(event, addedEmail, {

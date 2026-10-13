@@ -8,6 +8,7 @@ import {
   validateCompiledNativeHtml,
 } from "@agent-native/creative-context";
 import {
+  assertCreativeContextLabEnabled,
   getGenerationCreativeContext,
   mergeCreativeContextReuseLabels,
   recordGenerationCreativeContext,
@@ -29,6 +30,11 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 import { getDeckUrl } from "./_app-url.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 import { withDeckLock } from "./patch-deck.js";
 
 export function cloneableNativeSlide(context: ContextDetail): {
@@ -99,9 +105,10 @@ export default defineAction({
   },
   http: false,
   run: async ({ deckId, itemId, itemVersionId, position, slideId }) => {
-    const contextState = (await readAppState("creative-context").catch(
-      () => null,
-    )) as { contextMode?: "auto" | "off" } | null;
+    await assertCreativeContextLabEnabled();
+    const contextState = (await readAppState("creative-context")) as {
+      contextMode?: "auto" | "off";
+    } | null;
     if (contextState?.contextMode === "off") {
       throw new Error(
         "Creative Context is off. Enable it before cloning a library slide.",
@@ -158,7 +165,7 @@ export default defineAction({
           ? slides.length
           : Math.max(0, Math.min(position, slides.length));
       slides.splice(insertAt, 0, clonedSlide);
-      const now = new Date().toISOString();
+      const now = nextDeckRevision(row.updatedAt);
       const existingContext =
         deck.creativeContext &&
         typeof deck.creativeContext === "object" &&
@@ -237,20 +244,25 @@ export default defineAction({
         })),
       );
 
-      await createDeckVersionSnapshot(
-        {
-          id: row.id,
-          title: row.title,
-          data: row.data,
-          ownerEmail: row.ownerEmail,
-        },
-        { label: "Before cloning Creative Context slide" },
-      );
       await db.transaction(async (tx: any) => {
-        await tx
+        await createDeckVersionSnapshot(
+          {
+            id: row.id,
+            title: row.title,
+            data: row.data,
+            ownerEmail: row.ownerEmail,
+          },
+          { label: "Before cloning Creative Context slide", db: tx },
+        );
+        const updateResult = await tx
           .update(schema.decks)
           .set({ data: JSON.stringify(deck), updatedAt: now })
-          .where(eq(schema.decks.id, deckId));
+          .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
+        assertDeckWriteApplied(
+          updateResult,
+          deckId,
+          "Creative Context slide clone",
+        );
         await recordGenerationCreativeContext(
           {
             appId: "slides",
@@ -264,7 +276,7 @@ export default defineAction({
           { db: tx },
         );
       });
-      notifyClients(deckId, { slideId: newSlideId, actor: "agent" });
+      await notifyClients(deckId, { slideId: newSlideId, actor: "agent" });
       return {
         deckId,
         slideId: newSlideId,

@@ -24,11 +24,17 @@ describe("MCP embed headers", () => {
   });
 
   it("allows frontend action-client headers from embedded apps", () => {
+    expect(MCP_EMBED_CORS_ALLOW_HEADERS.split(",")).toContain(
+      "X-Content-Save-Origin",
+    );
     expect(MCP_EMBED_CORS_ALLOW_HEADERS).toContain("X-Agent-Native-Frontend");
     expect(MCP_EMBED_CORS_ALLOW_HEADERS).toContain(
       "X-Agent-Native-Client-Compatibility",
     );
     expect(MCP_EMBED_CORS_ALLOW_HEADERS).toContain("X-Agent-Native-Build-Id");
+    expect(MCP_EMBED_CORS_ALLOW_HEADERS).toContain(
+      "X-Agent-Native-Browser-Tab",
+    );
   });
 
   it("hands cookies to the desktop dev renderer only in development", () => {
@@ -40,9 +46,6 @@ describe("MCP embed headers", () => {
   });
 
   it("allows the desktop verifier header", () => {
-    // The Tauri dev renderer runs on http://localhost:1420, so the dev server
-    // answers its sign-in preflight from this list instead of the auth CORS
-    // handler. Dropping the header here breaks desktop login in local dev only.
     expect(MCP_EMBED_CORS_ALLOW_HEADERS).toContain(
       "X-Agent-Native-Desktop-Verifier",
     );
@@ -107,9 +110,6 @@ describe("MCP embed headers", () => {
   });
 
   it("only allows explicitly configured or exact native origins to read credentialed responses", () => {
-    // Pinned: a localhost origin is credentialed in development by design, so
-    // asserting the deployed boundary means naming the environment rather than
-    // inheriting whatever NODE_ENV the machine running the suite carries.
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("CORS_ALLOWED_ORIGINS", "https://preview.example.com");
     expect(shouldAllowMcpEmbedCredentials("https://preview.example.com")).toBe(

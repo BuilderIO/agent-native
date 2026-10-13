@@ -1,9 +1,6 @@
 name: Deploy Agent-Native production sites from GitHub
+run-name: Deploy Agent-Native production sites `${{ inputs.sites }}`
 
-# Manual production cutover lane. It builds the same repository projects from
-# an exact main commit, uploads their prebuilt output to Netlify, publishes it,
-# and smoke-tests the live host. The existing production manager remains
-# available for rollback and for the workspace site without a local source map.
 on:
   workflow_dispatch:
     inputs:
@@ -32,9 +29,6 @@ permissions:
   contents: read
 
 concurrency:
-  # Keep fleet runs in their own queue. Per-site child-job concurrency below
-  # coordinates each cutover without letting a manager or promotion run evict
-  # a pending fleet run from GitHub's single pending slot.
   group: agent-native-production-fleet-${{ inputs.sites }}
   cancel-in-progress: false
 
@@ -45,7 +39,7 @@ jobs:
     outputs:
       source_ref: ${{ steps.source.outputs.source_ref }}
     steps:
-      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         id: source
         env:
           REQUESTED_SOURCE_REF: ${{ inputs.source_ref }}
@@ -142,35 +136,50 @@ jobs:
           console.log(`Discovered ${buildable.length} buildable production sites.`);
           NODE
 
-  # Opt-in pre-flight. Skipped entirely unless the dispatch asks for it, and a
-  # skipped job does not hold up the deploy below.
   beta-e2e:
     name: Beta E2E pre-flight
     if: ${{ inputs.beta_e2e }}
+    # GitHub checks nested permissions before the run starts, even when this job
+    # is skipped; beta-e2e.yml's report job needs actions: read.
+    permissions:
+      actions: read
+      contents: read
     uses: ./.github/workflows/beta-e2e.yml
+    # Duplicate job keys are rejected by the YAML parser.
     with:
       apps: all
       lane: public
     secrets: inherit
 
+  report-beta-e2e:
+    name: Report production Beta E2E pre-flight status
+    if: ${{ always() && inputs.beta_e2e && needs.beta-e2e.result != 'skipped' }}
+    needs: beta-e2e
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/beta-e2e-report.yml
+    with:
+      run_result: ${{ needs.beta-e2e.result }}
+      update_baseline: false
+    secrets:
+      QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}
+
   deploy:
     name: ${{ matrix.site }} production prebuilt deploy
+    permissions:
+      contents: read
     needs: [resolve-source, discover-sites, beta-e2e]
-    # Spelled out per dependency rather than with `needs.*.result`: the two
-    # source jobs must still have succeeded exactly as before, while the
-    # pre-flight only has to have not failed — which is the state it is in when
-    # it was skipped for not being requested.
     if: >-
       ${{ !cancelled()
       && needs.resolve-source.result == 'success'
       && needs.discover-sites.result == 'success'
       && needs.beta-e2e.result != 'failure' }}
     concurrency:
-      group: agent-native-production-site-${{ matrix.site }}
+      group: agent-native-production-fleet-child-${{ matrix.site }}
       cancel-in-progress: false
     strategy:
       fail-fast: false
-      max-parallel: 3
       matrix: ${{ fromJSON(needs.discover-sites.outputs.matrix) }}
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
@@ -183,3 +192,33 @@ jobs:
       deploy_mode: production
       smoke: ${{ inputs.smoke }}
     secrets: inherit
+
+  handoff-beta:
+    name: Hand off latest main to beta publisher
+    needs: deploy
+    if: ${{ !cancelled() && needs.deploy.result == 'success' }}
+    permissions:
+      actions: write
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Queue the current main source for beta
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            })).data.object.sha;
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'deploy-beta-sites-prebuilt.yml',
+              ref: 'main',
+              inputs: {
+                source_ref: mainSha,
+                handoff: 'true',
+              },
+            });
+            core.info(`Handed off current main ${mainSha} to the beta publisher.`);

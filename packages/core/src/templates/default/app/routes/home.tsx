@@ -1,0 +1,103 @@
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { docsUrl } from "@agent-native/core/shared";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
+import { useTheme } from "next-themes";
+import { Link } from "react-router";
+
+export function meta() {
+  return [{ title: "{{APP_TITLE}}" }];
+}
+
+export default function HomePage() {
+  const { resolvedTheme, setTheme } = useTheme();
+  const t = useT();
+  const isDark = resolvedTheme === "dark";
+  const { data } = useActionQuery("hello", { name: "{{APP_TITLE}}" });
+
+  return (
+    <div className="relative flex flex-col items-center justify-center min-h-screen px-6">
+      {/* The account menu holds Log out; Settings has no Log out row. */}
+      <div className="absolute end-4 top-4">
+        <OrgSwitcher compact />
+      </div>
+      <div className="max-w-md w-full space-y-8 text-center">
+        <div className="space-y-3">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            {t("home.title")}
+          </h1>
+          <p className="text-[14px] text-muted-foreground leading-relaxed">
+            {t("home.intro")}{" "}
+            <code className="text-[13px] bg-muted px-1.5 py-0.5 rounded font-mono">
+              app/routes/home.tsx
+            </code>
+          </p>
+        </div>
+
+        <div className="h-px bg-border" />
+
+        <div className="rounded-lg border border-border/50 px-4 py-3 text-left">
+          <p className="text-[13px] font-medium text-foreground">
+            {t("home.actionCardTitle")}
+          </p>
+          <p className="text-[12px] text-muted-foreground mt-0.5">
+            {data?.message ?? t("home.loadingAction")}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 text-left">
+          <a
+            href={docsUrl("getting-started", {
+              source: "app",
+              campaign: null,
+              content: "docs-card",
+            })}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 transition-colors"
+          >
+            <p className="text-[13px] font-medium text-foreground">
+              {t("home.docsTitle")}
+            </p>
+            <p className="text-[12px] text-muted-foreground mt-0.5">
+              {t("home.docsDescription")}
+            </p>
+          </a>
+          <button
+            onClick={() => setTheme(isDark ? "light" : "dark")}
+            className="rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 transition-colors text-left"
+          >
+            <p className="text-[13px] font-medium text-foreground">
+              {t("home.themeTitle")}
+            </p>
+            <p className="text-[12px] text-muted-foreground mt-0.5">
+              {t("home.themeDescription")}
+            </p>
+          </button>
+          <Link
+            to="/settings"
+            className="group rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 transition-colors"
+          >
+            <p className="text-[13px] font-medium text-foreground">
+              {t("home.settingsTitle")}
+            </p>
+            <p className="text-[12px] text-muted-foreground mt-0.5">
+              {t("home.settingsDescription")}
+            </p>
+          </Link>
+          <Link
+            to="/settings/agent"
+            className="group rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 transition-colors"
+          >
+            <p className="text-[13px] font-medium text-foreground">
+              {t("settings.agentTitle")}
+            </p>
+            <p className="text-[12px] text-muted-foreground mt-0.5">
+              {t("settings.agentDescription")}
+            </p>
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}

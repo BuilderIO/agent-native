@@ -12,7 +12,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-function renderRail(activePanel: "file" | "agent" | null) {
+function renderRail(
+  activePanel: "file" | "agent" | "threads" | null,
+  onMotionToggle?: () => void,
+) {
   const onPanelChange = vi.fn();
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -24,6 +27,8 @@ function renderRail(activePanel: "file" | "agent" | null) {
         <TooltipProvider>
           <DesignWorkspaceRail
             activePanel={activePanel}
+            motionOpen={false}
+            onMotionToggle={onMotionToggle}
             projectMenu={null}
             onPanelChange={onPanelChange}
           />
@@ -47,7 +52,7 @@ describe("DesignWorkspaceRail", () => {
   it("collapses the active panel when its rail tab is clicked again", async () => {
     const rail = renderRail("file");
     await rail.mount();
-    await rail.click("designEditor.leftRail.file");
+    await rail.click("designEditor.leftRail.layers");
 
     expect(rail.onPanelChange).toHaveBeenCalledWith(null);
     rail.root.unmount();
@@ -60,5 +65,45 @@ describe("DesignWorkspaceRail", () => {
 
     expect(rail.onPanelChange).toHaveBeenCalledWith("agent");
     rail.root.unmount();
+  });
+
+  it("opens the Motion dock from its workspace rail control", async () => {
+    const onMotionToggle = vi.fn();
+    const rail = renderRail("file", onMotionToggle);
+    await rail.mount();
+    await rail.click("designEditor.motion.dockLabel");
+
+    expect(onMotionToggle).toHaveBeenCalledOnce();
+    rail.root.unmount();
+  });
+
+  it("lists Layers, Agent, Tokens and Threads, in that order", async () => {
+    const rail = renderRail("file");
+    await rail.mount();
+
+    const labels = Array.from(
+      rail.host.querySelectorAll("nav button[aria-label]"),
+    ).map((button) => button.getAttribute("aria-label"));
+    expect(labels.slice(0, 4)).toEqual([
+      "designEditor.leftRail.layers",
+      "designEditor.leftRail.agent",
+      "designEditor.leftRail.tokens",
+      "designEditor.leftRail.threads",
+    ]);
+    rail.root.unmount();
+  });
+
+  it("opens Threads from the rail and collapses it when clicked again", async () => {
+    const opened = renderRail("file");
+    await opened.mount();
+    await opened.click("designEditor.leftRail.threads");
+    expect(opened.onPanelChange).toHaveBeenCalledWith("threads");
+    opened.root.unmount();
+
+    const collapsed = renderRail("threads");
+    await collapsed.mount();
+    await collapsed.click("designEditor.leftRail.threads");
+    expect(collapsed.onPanelChange).toHaveBeenCalledWith(null);
+    collapsed.root.unmount();
   });
 });

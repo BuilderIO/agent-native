@@ -1,5 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { getUserProfiles } from "@agent-native/core/user-profile/server";
+import { resolveRecordingKind } from "@shared/recording-kind";
 import {
   and,
   asc,
@@ -15,11 +17,13 @@ import {
 import { z } from "zod";
 
 import { effectiveDuration, parseEdits } from "../app/lib/timestamp-mapping.js";
+import { parseRedactions } from "../app/lib/video-redactions.js";
 import { getDb, schema } from "../server/db/index.js";
 import {
   agentRecordingAccessFilter,
   isAgentRecordingCaller,
 } from "../server/lib/agent-recording-access.js";
+import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
   countedViewCondition,
@@ -27,6 +31,8 @@ import {
   ownerEmailMatches,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
+import { profileNameFor } from "../server/lib/user-identities.js";
+import { transcriptHasTextSql } from "./lib/transcript-text.js";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
@@ -112,6 +118,17 @@ export default defineAction({
       .string()
       .nullish()
       .describe("Filter to recordings carrying this tag"),
+    recordingIds: z
+      .array(z.string().min(1))
+      .max(100)
+      .optional()
+      .describe("Restrict results to these recording IDs"),
+    kind: z
+      .enum(["video", "image", "all"])
+      .default("all")
+      .describe(
+        'Filter by what the row holds: "video" for clips, "image" for screenshots, "all" (the default) for both',
+      ),
     search: z
       .string()
       .nullish()
@@ -155,6 +172,14 @@ export default defineAction({
       ),
     ];
 
+    if (args.recordingIds) {
+      whereClauses.push(
+        args.recordingIds.length
+          ? inArray(schema.recordings.id, args.recordingIds)
+          : sql`1 = 0`,
+      );
+    }
+
     const orgId = await getActiveOrganizationId();
 
     // Library = "Your personal recordings in the active org". `accessFilter`
@@ -172,9 +197,6 @@ export default defineAction({
       }
     }
 
-    // Shared = recordings admitted by the normal sharing access filter but
-    // owned by someone else. This includes direct user/org grants and org-wide
-    // visibility, while public-only links remain excluded by accessFilter.
     if (args.view === "shared") {
       const email = getRequestUserEmail();
       whereClauses.push(
@@ -185,21 +207,7 @@ export default defineAction({
     }
 
     if (args.view === "library" || args.view === "shared") {
-      // Meeting recordings are transcript-only (no playable media) and live on
-      // the /meetings surface, so keep them out of clip library views. The link
-      // is meetings.recordingId (no meetingId column on recordings), so exclude
-      // any recording referenced by a meeting. Keep the exclusion database-side
-      // as a NOT IN (SELECT ...) subquery instead of pulling every meeting's
-      // recording id into memory — this table only grows. `await db` with no
-      // chain resolves the lazy proxy from create-get-db.ts to the real db
-      // instance without issuing a query; only *then* build the subquery off
-      // that resolved instance. Building it off `db` directly and handing the
-      // still-unresolved chain straight to notInArray() is the cold-start bug
-      // this used to have — drizzle reads `.getSQL()` on it synchronously, and
-      // the proxy throws rather than silently building wrong SQL. The subquery
-      // filters out NULLs so NOT IN doesn't collapse to an empty result under
-      // SQL NULL semantics.
-      const resolvedDb = await db;
+      const resolvedDb = await Promise.resolve(db);
       const meetingRecordingIds = resolvedDb
         .select({ id: schema.meetings.recordingId })
         .from(schema.meetings)
@@ -207,7 +215,6 @@ export default defineAction({
       whereClauses.push(notInArray(schema.recordings.id, meetingRecordingIds));
     }
 
-    // Lifecycle view filters
     if (args.view === "trash") {
       whereClauses.push(isNotNull(schema.recordings.trashedAt));
       if (orgId) {
@@ -222,10 +229,11 @@ export default defineAction({
       }
     }
 
-    // Folder scoping
     if (args.view === "library" || args.view === "space") {
       if (args.folderId !== undefined && args.folderId !== null) {
         whereClauses.push(eq(schema.recordings.folderId, args.folderId));
+      } else {
+        whereClauses.push(isNull(schema.recordings.folderId));
       }
     }
 
@@ -236,8 +244,6 @@ export default defineAction({
       if (orgId) {
         whereClauses.push(eq(schema.recordings.organizationId, orgId));
       }
-      // Match recordings where spaceIds JSON array contains spaceId.
-      // Use a LIKE check — works across SQLite/Postgres without JSON ops.
       const needle = `%"${args.spaceId.replace(/%/g, "")}"%`;
       whereClauses.push(sql`${schema.recordings.spaceIds} LIKE ${needle}`);
     }
@@ -249,6 +255,12 @@ export default defineAction({
       );
     }
 
+    // Screenshots and clips live in one table; the Screenshots view is this
+    // filter, and the unified library passes "all" so it still shows both.
+    if (args.kind === "image" || args.kind === "video") {
+      whereClauses.push(eq(schema.recordings.kind, args.kind));
+    }
+
     // Tag filter — join-ish via subquery
     if (args.tag) {
       whereClauses.push(
@@ -256,10 +268,6 @@ export default defineAction({
       );
     }
 
-    // Count-only callers (e.g. the sidebar badge) need just the total for the
-    // same filters, ignoring limit/offset. Run the COUNT and short-circuit
-    // before the row select, joins, and tag/view subqueries. Keeping it inside
-    // this branch means the normal list path doesn't pay for an extra query.
     if (args.countOnly) {
       const totalRows = await db
         .select({ count: sql<number>`COUNT(1)` })
@@ -268,7 +276,6 @@ export default defineAction({
       return { recordings: [], total: Number(totalRows[0]?.count ?? 0) };
     }
 
-    // Sort
     const countedViewerCount = sql<number>`(
       SELECT COUNT(1)
       FROM ${schema.recordingViewers}
@@ -282,8 +289,8 @@ export default defineAction({
     )`;
     // Same floor as `countRecordingViews`: `recording_views` only exists from
     // migration v46, so pre-migration clips have no log rows and must fall back
-    // to the counted-viewer count instead of sorting as zero. CASE rather than
-    // MAX()/GREATEST() — the two-argument spelling differs across dialects.
+    // to the counted-viewer count instead of sorting as zero. CASE keeps the
+    // ordering expression explicit about which count wins.
     const viewCountOrder = sql<number>`(
       CASE WHEN ${viewLogCount} > ${countedViewerCount}
         THEN ${viewLogCount}
@@ -294,19 +301,11 @@ export default defineAction({
       args.sort === "oldest"
         ? [asc(schema.recordings.createdAt)]
         : args.sort === "views"
-          ? // views are not on recordings row — use subquery count
-            [desc(viewCountOrder), desc(schema.recordings.createdAt)]
+          ? [desc(viewCountOrder), desc(schema.recordings.createdAt)]
           : [desc(schema.recordings.createdAt)];
 
     const rows = await db
       .select({
-        // Project only the columns the list grid renders. Bare
-        // `.select({ recording: schema.recordings })` would pull the whole row
-        // — including the potentially large `edits_json` / `chapters_json`
-        // blobs, `password`, and `video_url` — over the wire for every card,
-        // even though the mapper below drops them. The detail/editor/player
-        // paths (`get-recording-player-data`, `view-screen`) still read the
-        // full row.
         recording: {
           id: schema.recordings.id,
           title: schema.recordings.title,
@@ -314,16 +313,23 @@ export default defineAction({
           sourceAppName: schema.recordings.sourceAppName,
           sourceWindowTitle: schema.recordings.sourceWindowTitle,
           description: schema.recordings.description,
+          kind: schema.recordings.kind,
           thumbnailUrl: schema.recordings.thumbnailUrl,
           animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+          mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
           durationMs: schema.recordings.durationMs,
-          // Needed to derive the edited-length badge below; dropped before the
-          // response is built so the raw edits blob never reaches the client.
           editsJson: schema.recordings.editsJson,
           status: schema.recordings.status,
           uploadProgress: schema.recordings.uploadProgress,
           failureReason: schema.recordings.failureReason,
           visibility: schema.recordings.visibility,
+          hasPassword: sql<number>`(
+            CASE WHEN ${schema.recordings.password} IS NOT NULL
+              AND ${schema.recordings.password} <> ''
+              THEN 1 ELSE 0
+            END
+          )`,
+          expiresAt: schema.recordings.expiresAt,
           ownerEmail: schema.recordings.ownerEmail,
           folderId: schema.recordings.folderId,
           spaceIds: schema.recordings.spaceIds,
@@ -343,15 +349,8 @@ export default defineAction({
             : sql<string | null>`NULL`,
         },
         transcriptStatus: schema.recordingTranscripts.status,
-        // Compute the has-text signal in SQL instead of shipping the full
-        // transcript text + segments JSON per card just to derive a boolean.
-        // Mirrors the old `transcriptHasText()` helper: non-empty trimmed
-        // `full_text`, or a segment carrying a non-empty `"text"` value.
         transcriptHasText: sql<number>`(
-          CASE WHEN (
-            TRIM(COALESCE(${schema.recordingTranscripts.fullText}, '')) <> ''
-            OR COALESCE(${schema.recordingTranscripts.segmentsJson}, '') LIKE '%"text":"_%'
-          ) THEN 1 ELSE 0 END
+          CASE WHEN ${transcriptHasTextSql()} THEN 1 ELSE 0 END
         )`,
       })
       .from(schema.recordings)
@@ -365,27 +364,18 @@ export default defineAction({
       .offset(args.offset);
 
     const ids = rows.map((r) => r.recording.id);
+    const ownerProfilesPromise = getUserProfiles(
+      rows.map((row) => row.recording.ownerEmail),
+    );
 
-    // Gather tags for the result set in one query
-    let tagsByRec: Record<string, string[]> = {};
-    if (ids.length) {
-      const tagRows = await db
-        .select()
-        .from(schema.recordingTags)
-        .where(inArray(schema.recordingTags.recordingId, ids));
-      for (const t of tagRows) {
-        tagsByRec[t.recordingId] ??= [];
-        tagsByRec[t.recordingId].push(t.tag);
-      }
-    }
-
-    // Count views per recording — set-wide grouped reads, never one per
-    // recording.
-    let viewsByRec: Record<string, number> = {};
-    let agentViewsByRec: Record<string, number> = {};
-    if (ids.length) {
-      const [countedViewerRows, viewLogRows, agentViewRows] = await Promise.all(
-        [
+    const tagRowsPromise = ids.length
+      ? db
+          .select()
+          .from(schema.recordingTags)
+          .where(inArray(schema.recordingTags.recordingId, ids))
+      : Promise.resolve([]);
+    const viewRowsPromise = ids.length
+      ? Promise.all([
           db
             .select({
               recordingId: schema.recordingViewers.recordingId,
@@ -415,8 +405,24 @@ export default defineAction({
             .from(schema.recordingAgentViews)
             .where(inArray(schema.recordingAgentViews.recordingId, ids))
             .groupBy(schema.recordingAgentViews.recordingId),
-        ],
-      );
+        ])
+      : Promise.resolve(null);
+    const [ownerProfiles, tagRows, viewRows] = await Promise.all([
+      ownerProfilesPromise,
+      tagRowsPromise,
+      viewRowsPromise,
+    ]);
+
+    const tagsByRec: Record<string, string[]> = {};
+    for (const t of tagRows) {
+      tagsByRec[t.recordingId] ??= [];
+      tagsByRec[t.recordingId].push(t.tag);
+    }
+
+    let viewsByRec: Record<string, number> = {};
+    let agentViewsByRec: Record<string, number> = {};
+    if (viewRows) {
+      const [countedViewerRows, viewLogRows, agentViewRows] = viewRows;
       viewsByRec = mergeViewCounts(countedViewerRows, viewLogRows);
       agentViewsByRec = Object.fromEntries(
         agentViewRows.map((r) => [r.recordingId, Number(r.count ?? 0)]),
@@ -425,6 +431,7 @@ export default defineAction({
 
     const recordings = rows.map((row) => {
       const r = row.recording;
+      const edits = parseEdits(r.editsJson);
       return {
         id: r.id,
         title: r.title,
@@ -432,27 +439,27 @@ export default defineAction({
         sourceAppName: r.sourceAppName,
         sourceWindowTitle: r.sourceWindowTitle,
         description: r.description,
-        thumbnailUrl: r.thumbnailUrl,
-        animatedThumbnailUrl: r.animatedThumbnailUrl,
-        // Raw source length. StitchManager sums this across queued
-        // recordings to size the concatenated export, which always
-        // includes each source's full untrimmed media — trims are applied
-        // at export/playback time, not by dropping bytes from the source.
+        // A screenshot card has no duration, play affordance or transcript,
+        // so the grid has to be able to tell the two apart.
+        kind: resolveRecordingKind(r.kind),
+        thumbnailUrl: resolvePlayerThumbnailUrl(r),
+        animatedThumbnailUrl: r.animatedThumbnailUrl
+          ? resolvePlayerThumbnailUrl(r, { animated: true })
+          : null,
         durationMs: r.durationMs,
-        // Edited length, not the original recorded length — matches what
-        // the clip page itself shows once trims/cuts are applied.
-        effectiveDurationMs: effectiveDuration(
-          r.durationMs,
-          parseEdits(r.editsJson),
-        ),
+        effectiveDurationMs: effectiveDuration(r.durationMs, edits),
         status: r.status,
         uploadProgress: r.uploadProgress,
         failureReason: r.failureReason,
         visibility: r.visibility,
+        hasPassword: Number(r.hasPassword ?? 0) > 0,
+        expiresAt: r.expiresAt,
         ownerEmail: r.ownerEmail,
+        ownerName: profileNameFor(r.ownerEmail, null, ownerProfiles),
         folderId: r.folderId,
         spaceIds: parseSpaceIds(r.spaceIds),
         tags: tagsByRec[r.id] ?? [],
+        pendingRedactions: parseRedactions(edits.overlays).length,
         viewCount: viewsByRec[r.id] ?? 0,
         agentViewCount: agentViewsByRec[r.id] ?? 0,
         createdAt: r.createdAt,

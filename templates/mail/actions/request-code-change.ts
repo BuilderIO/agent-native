@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import {
   resolveBuilderBranchProjectId,
-  resolveBuilderCredentials,
+  resolveBuilderRequestAuthorization,
   runBuilderAgent,
 } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -50,8 +50,17 @@ export default defineAction({
       };
     }
 
-    const credentials = await resolveBuilderCredentials().catch(() => null);
-    if (!credentials?.privateKey || !credentials.publicKey) {
+    // OAuth custody wins when connected, falls back to a legacy private key
+    // otherwise — same precedence runBuilderAgent applies internally, so this
+    // gate must recognize the same two credential kinds or an OAuth-only-
+    // connected org gets told branch creation isn't configured at all.
+    const authorization = await resolveBuilderRequestAuthorization({
+      requiredScope: "builder:agents:run",
+    });
+    if (
+      !authorization ||
+      (authorization.source === "legacy" && !authorization.legacyPublicKey)
+    ) {
       return {
         status: "not_configured",
         projectId,
@@ -63,7 +72,7 @@ export default defineAction({
     }
 
     const userEmail = getRequestUserEmail() || undefined;
-    const userId = credentials.userId || undefined;
+    const userId = authorization.userId || undefined;
     if (!userEmail && !userId) {
       return {
         status: "not_authenticated",

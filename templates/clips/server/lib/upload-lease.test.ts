@@ -1,32 +1,68 @@
-// guard:allow-unscoped — in-memory test fixture, not a request path.
-import { createClient, type Client } from "@libsql/client";
+// guard:allow-unscoped - test fixture, not a request path.
+import { createRequire } from "node:module";
+
+const { PGlite } = createRequire(
+  new URL("../../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
+import { drizzle } from "drizzle-orm/pglite";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Real in-memory sqlite behind getDbExec: the bug class this replaces was
-// "the sweep selected the wrong population", so the reaper's population has to
-// be exercised against a real table rather than an asserted SQL string.
-let sqlite: Client;
+type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
+let db: ReturnType<typeof drizzle>;
+let client: PGliteClient;
+type SqlStatement = string | { sql: string; args?: unknown[] };
+
+function postgresSql(sql: string): string {
+  let index = 0;
+  return sql.replace(/\?/g, () => "$" + ++index);
+}
+
+async function execute(db: PGliteClient, statement: SqlStatement) {
+  if (typeof statement === "string") {
+    const results = [];
+    for (const sql of statement
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean)) {
+      results.push(await db.query(postgresSql(sql)));
+    }
+    return results[results.length - 1];
+  }
+  const result = await db.query(
+    postgresSql(statement.sql),
+    statement.args ?? [],
+  );
+  return { ...result, rowsAffected: result.affectedRows };
+}
+
 const mockAbortResumableUploadSession = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/db", () => ({
-  getDbExec: () => sqlite,
-  isPostgres: () => false,
+  getDbExec: () => ({
+    execute: (statement: SqlStatement) => execute(client, statement),
+  }),
 }));
 
-vi.mock("../db/index.js", () => ({
-  getDb: () => {
-    throw new Error("renewUploadLease is covered by the route tests");
-  },
-  schema: { recordings: {} },
-}));
+vi.mock("../db/index.js", async () => {
+  const schema = await import("../db/schema.js");
+  return { getDb: () => db, schema };
+});
 
 vi.mock("./resumable-upload-cleanup.js", () => ({
   abortResumableUploadSession: (...args: unknown[]) =>
     mockAbortResumableUploadSession(...args),
 }));
 
-const { reapExpiredUploads, UPLOAD_LEASE_EXPIRED_REASON, uploadLeaseExpiry } =
-  await import("./upload-lease.js");
+const {
+  reapExpiredUploads,
+  renewUploadLease,
+  UPLOAD_LEASE_EXPIRED_REASON,
+  UPLOAD_LEASE_MS,
+  uploadLeaseExpiry,
+  WAITING_STORAGE_EXPIRED_REASON,
+  WAITING_STORAGE_LEASE_MS,
+  waitingStorageLeaseExpiry,
+} = await import("./upload-lease.js");
 
 const NOW = Date.parse("2026-07-25T12:00:00.000Z");
 const iso = (offsetMs: number) => new Date(NOW + offsetMs).toISOString();
@@ -37,7 +73,7 @@ async function insertRecording(row: {
   lease?: string | null;
   updatedAt?: string;
 }) {
-  await sqlite.execute({
+  await execute(client, {
     sql: `INSERT INTO recordings (id, owner_email, status, upload_lease_expires_at, updated_at)
           VALUES (?, ?, ?, ?, ?)`,
     args: [
@@ -51,7 +87,7 @@ async function insertRecording(row: {
 }
 
 async function insertChunk(recordingId: string, index: number) {
-  await sqlite.execute({
+  await execute(client, {
     sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
     args: [
       `recording-chunks-${recordingId}-${String(index).padStart(6, "0")}`,
@@ -61,38 +97,207 @@ async function insertChunk(recordingId: string, index: number) {
 }
 
 async function chunkKeys(): Promise<string[]> {
-  const { rows } = await sqlite.execute(
+  const { rows } = await execute(
+    client,
     `SELECT key FROM application_state WHERE key LIKE 'recording-chunks-%' ORDER BY key`,
   );
   return rows.map((row: any) => String(row.key));
 }
 
 async function statusOf(id: string) {
-  const { rows } = await sqlite.execute({
-    sql: `SELECT status, failure_reason FROM recordings WHERE id = ?`,
+  const { rows } = await execute(client, {
+    sql: `SELECT status, failure_reason, failure_code FROM recordings WHERE id = ?`,
     args: [id],
   });
   const row = rows[0] as any;
-  return { status: row?.status, failure_reason: row?.failure_reason };
+  return {
+    status: row?.status,
+    failure_reason: row?.failure_reason,
+    failure_code: row?.failure_code,
+  };
 }
 
 describe("upload lease", () => {
   beforeEach(async () => {
-    sqlite = createClient({ url: ":memory:" });
+    client = await PGlite.create("memory://");
+    db = drizzle(client);
     mockAbortResumableUploadSession.mockResolvedValue(true);
-    await sqlite.execute(`CREATE TABLE recordings (
+    await execute(
+      client,
+      `CREATE TABLE recordings (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL,
       status TEXT NOT NULL,
+      upload_attempt_id TEXT,
+      recording_platform TEXT,
+      failure_code TEXT,
       failure_reason TEXT,
       upload_lease_expires_at TEXT,
+      upload_progress INTEGER NOT NULL DEFAULT 0,
       upload_generation_id TEXT,
+      loom_import_claim_id TEXT,
+      loom_import_claimed_at TEXT,
+      video_url TEXT,
+      video_size_bytes INTEGER,
+      duration_ms INTEGER,
       updated_at TEXT NOT NULL
-    )`);
-    await sqlite.execute(`CREATE TABLE application_state (
+    )`,
+    );
+    await execute(
+      client,
+      `CREATE TABLE application_state (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
-    )`);
+    )`,
+    );
+  });
+
+  it("renews only the owned processing Loom claim", async () => {
+    await insertRecording({
+      id: "loom-claim",
+      status: "processing",
+      lease: iso(-1_000),
+    });
+    await execute(client, {
+      sql: `UPDATE recordings SET loom_import_claim_id = ?, loom_import_claimed_at = ? WHERE id = ?`,
+      args: ["claim-current", iso(-30_000), "loom-claim"],
+    });
+
+    const wrongClaim = await renewUploadLease("loom-claim", {
+      now: NOW,
+      ownerEmail: "owner@example.com",
+      loomImportClaimId: "claim-old",
+    });
+    expect(wrongClaim).toMatchObject({ held: false, status: "processing" });
+
+    const wrongOwner = await renewUploadLease("loom-claim", {
+      now: NOW,
+      ownerEmail: "other@example.com",
+      loomImportClaimId: "claim-current",
+    });
+    expect(wrongOwner).toMatchObject({ held: false, status: null });
+
+    const { rows: unchangedRows } = await execute(client, {
+      sql: `SELECT upload_lease_expires_at, loom_import_claimed_at FROM recordings WHERE id = ?`,
+      args: ["loom-claim"],
+    });
+    expect(unchangedRows[0]).toMatchObject({
+      upload_lease_expires_at: iso(-1_000),
+      loom_import_claimed_at: iso(-30_000),
+    });
+
+    const renewed = await renewUploadLease("loom-claim", {
+      now: NOW,
+      ownerEmail: "OWNER@example.com",
+      loomImportClaimId: "claim-current",
+    });
+    expect(renewed).toEqual({ held: true });
+    const { rows: renewedRows } = await execute(client, {
+      sql: `SELECT upload_lease_expires_at, loom_import_claimed_at FROM recordings WHERE id = ?`,
+      args: ["loom-claim"],
+    });
+    expect(renewedRows[0]).toMatchObject({
+      upload_lease_expires_at: uploadLeaseExpiry(NOW),
+      loom_import_claimed_at: iso(0),
+    });
+
+    await insertRecording({
+      id: "loom-uploading",
+      status: "uploading",
+      lease: iso(-1_000),
+    });
+    await execute(client, {
+      sql: `UPDATE recordings SET loom_import_claim_id = ? WHERE id = ?`,
+      args: ["claim-uploading", "loom-uploading"],
+    });
+    const wrongStatus = await renewUploadLease("loom-uploading", {
+      now: NOW,
+      ownerEmail: "owner@example.com",
+      loomImportClaimId: "claim-uploading",
+    });
+    expect(wrongStatus).toMatchObject({ held: false, status: "uploading" });
+    const { rows: unchangedUploadingRows } = await execute(client, {
+      sql: `SELECT upload_lease_expires_at FROM recordings WHERE id = ?`,
+      args: ["loom-uploading"],
+    });
+    expect(unchangedUploadingRows[0]?.upload_lease_expires_at).toBe(
+      iso(-1_000),
+    );
+  });
+
+  it("clears a stale parked reason once the upload is live again", async () => {
+    await insertRecording({
+      id: "resumed",
+      status: "uploading",
+      lease: iso(-1_000),
+    });
+    await execute(client, {
+      sql: `UPDATE recordings SET failure_reason = ? WHERE id = ?`,
+      args: ["Connect storage to finish saving.", "resumed"],
+    });
+
+    expect(await renewUploadLease("resumed", { now: NOW })).toEqual({
+      held: true,
+    });
+    const reaped = await reapExpiredUploads({ now: NOW + UPLOAD_LEASE_MS + 1 });
+
+    expect(reaped.failed).toBe(1);
+    expect(await statusOf("resumed")).toMatchObject({
+      failure_code: "upload_timed_out",
+    });
+  });
+
+  it("preserves a parked lease during a storage-status retry and rejects stale attempts", async () => {
+    await insertRecording({
+      id: "preserved-parked",
+      status: "uploading",
+      lease: waitingStorageLeaseExpiry(NOW),
+    });
+    await execute(client, {
+      sql: `UPDATE recordings SET failure_reason = ?, upload_attempt_id = ?, upload_generation_id = ? WHERE id = ?`,
+      args: [
+        "Connect storage to finish saving.",
+        "attempt-current",
+        "generation-current",
+        "preserved-parked",
+      ],
+    });
+
+    const parked = await renewUploadLease("preserved-parked", {
+      now: NOW,
+      attemptId: "attempt-current",
+      generationId: "generation-current",
+      ownerEmail: "owner@example.com",
+      preserveParked: true,
+    });
+    expect(parked).toMatchObject({
+      held: false,
+      staleAttempt: false,
+      status: "uploading",
+      failureReason: "Connect storage to finish saving.",
+    });
+    const { rows: parkedRows } = await execute(client, {
+      sql: `SELECT upload_lease_expires_at, failure_reason FROM recordings WHERE id = ?`,
+      args: ["preserved-parked"],
+    });
+    expect(parkedRows[0]).toEqual({
+      upload_lease_expires_at: waitingStorageLeaseExpiry(NOW),
+      failure_reason: "Connect storage to finish saving.",
+    });
+
+    const stale = await renewUploadLease("preserved-parked", {
+      now: NOW,
+      attemptId: "attempt-stale",
+      generationId: "generation-current",
+      ownerEmail: "owner@example.com",
+      preserveParked: true,
+    });
+    expect(stale).toMatchObject({
+      held: false,
+      staleAttempt: true,
+      status: "uploading",
+      failureReason: "Connect storage to finish saving.",
+    });
   });
 
   it("leaves a leased, actively-uploading recording alone", async () => {
@@ -109,11 +314,39 @@ describe("upload lease", () => {
     expect(result.expired).toEqual([]);
     expect(result.failed).toBe(0);
     expect((await statusOf("live")).status).toBe("uploading");
-    // A live upload's scratch is claimed by its in-progress row and survives.
     expect(await chunkKeys()).toEqual([
       "recording-chunks-live-000000",
       "recording-chunks-live-000001",
     ]);
+  });
+
+  it("keeps a row parked for storage until its long lease, then fails it as setup-required and reclaims its scratch", async () => {
+    await insertRecording({
+      id: "parked",
+      status: "uploading",
+      lease: waitingStorageLeaseExpiry(NOW),
+    });
+    await execute(client, {
+      sql: `UPDATE recordings SET failure_reason = ? WHERE id = ?`,
+      args: ["Connect storage to finish saving.", "parked"],
+    });
+    await insertChunk("parked", 0);
+
+    const beforeTtl = await reapExpiredUploads({ now: NOW + 6 * 86_400_000 });
+    expect(beforeTtl.failed).toBe(0);
+    expect((await statusOf("parked")).status).toBe("uploading");
+    expect(await chunkKeys()).toEqual(["recording-chunks-parked-000000"]);
+
+    const afterTtl = await reapExpiredUploads({
+      now: NOW + WAITING_STORAGE_LEASE_MS + 1_000,
+    });
+    expect(afterTtl.failed).toBe(1);
+    expect(await statusOf("parked")).toEqual({
+      status: "failed",
+      failure_reason: WAITING_STORAGE_EXPIRED_REASON,
+      failure_code: "storage_setup_required",
+    });
+    expect(await chunkKeys()).toEqual([]);
   });
 
   it("fails an upload whose lease expired and reclaims its scratch", async () => {
@@ -131,6 +364,7 @@ describe("upload lease", () => {
     expect(await statusOf("dead")).toEqual({
       status: "failed",
       failure_reason: UPLOAD_LEASE_EXPIRED_REASON,
+      failure_code: "upload_timed_out",
     });
     expect(await chunkKeys()).toEqual([]);
   });
@@ -141,11 +375,11 @@ describe("upload lease", () => {
       status: "uploading",
       lease: iso(-1_000),
     });
-    await sqlite.execute({
+    await execute(client, {
       sql: `UPDATE recordings SET upload_generation_id = ? WHERE id = ?`,
       args: ["generation-1", "fenced-dead"],
     });
-    await sqlite.execute({
+    await execute(client, {
       sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
       args: [
         "resumable-session-fenced-dead-generation-1",
@@ -157,7 +391,7 @@ describe("upload lease", () => {
         }),
       ],
     });
-    await sqlite.execute({
+    await execute(client, {
       sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
       args: ["resumable-session-fenced-dead", "{}"],
     });
@@ -165,13 +399,15 @@ describe("upload lease", () => {
     const result = await reapExpiredUploads({ now: NOW });
 
     expect(result.failed).toBe(1);
-    const { rows } = await sqlite.execute({
+    const { rows } = await execute(client, {
       sql: `SELECT key FROM application_state WHERE key LIKE ? ORDER BY key`,
       args: ["resumable-session-fenced-dead%"],
     });
-    expect(rows.map((row) => String(row.key))).toEqual([
-      "resumable-session-fenced-dead",
-    ]);
+    expect(
+      rows.map((row: { key?: unknown }) =>
+        typeof row.key === "string" ? row.key : "",
+      ),
+    ).toEqual(["resumable-session-fenced-dead"]);
     expect(result.resumableSessionsAborted).toBe(1);
     expect(mockAbortResumableUploadSession).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -202,25 +438,30 @@ describe("upload lease", () => {
       lease: iso(-1_000),
     });
     await insertChunk("renewing", 0);
-    await sqlite.execute({
+    await execute(client, {
       sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
       args: ["resumable-session-renewing", "{}"],
     });
 
-    // The writer renews between the reaper's probe and its compare-and-set.
-    const realExecute = sqlite.execute.bind(sqlite);
+    const realQuery = client.query.bind(client);
     let renewed = false;
-    vi.spyOn(sqlite, "execute").mockImplementation(async (stmt: any) => {
-      const sql = typeof stmt === "string" ? stmt : stmt.sql;
-      if (!renewed && /^\s*UPDATE recordings/i.test(sql)) {
-        renewed = true;
-        await realExecute({
-          sql: `UPDATE recordings SET upload_lease_expires_at = ? WHERE id = ?`,
-          args: [iso(60 * 60 * 1000), "renewing"],
-        });
-      }
-      return realExecute(stmt);
-    });
+    vi.spyOn(client, "query").mockImplementation(
+      async (...queryArgs: unknown[]) => {
+        const [sql, args] = queryArgs;
+        if (
+          typeof sql === "string" &&
+          !renewed &&
+          /^\s*UPDATE recordings/i.test(sql)
+        ) {
+          renewed = true;
+          await realQuery(
+            `UPDATE recordings SET upload_lease_expires_at = $1 WHERE id = $2`,
+            [iso(60 * 60 * 1000), "renewing"],
+          );
+        }
+        return realQuery(sql as string, args as any[] | undefined);
+      },
+    );
 
     const result = await reapExpiredUploads({ now: NOW });
 
@@ -228,9 +469,8 @@ describe("upload lease", () => {
     expect(result.failed).toBe(0);
     expect(result.expired).toEqual([]);
     expect((await statusOf("renewing")).status).toBe("uploading");
-    // Its streaming session must survive too — losing it strands the upload
-    // just as thoroughly as failing the row would.
-    const { rows } = await realExecute(
+    const { rows } = await execute(
+      client,
       `SELECT key FROM application_state WHERE key = 'resumable-session-renewing'`,
     );
     expect(rows).toHaveLength(1);
@@ -240,7 +480,7 @@ describe("upload lease", () => {
   it("reclaims scratch left by finalized and hard-deleted recordings", async () => {
     await insertRecording({ id: "done", status: "ready", lease: iso(30_000) });
     await insertChunk("done", 0);
-    await insertChunk("gone", 0); // recording row was hard-deleted
+    await insertChunk("gone", 0);
 
     const result = await reapExpiredUploads({ now: NOW });
 

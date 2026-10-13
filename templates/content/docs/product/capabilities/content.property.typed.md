@@ -28,11 +28,11 @@ last_reviewed: "2026-07-29"
 
 ## Why this exists
 
-A field label alone cannot tell a database, export, or agent what a value means. Without durable types, dates become text and missing access becomes an innocent blank, quietly corrupting later work.
+A field label alone cannot tell a collection, export, or agent what a value means. Without durable types, dates become text and missing access becomes an innocent blank, quietly corrupting later work.
 
 ## Example workflow
 
-Dara adds a place field, describes it, and sees the same typed value in property panel, database view, and export.
+Dara adds a place field, describes it, and sees the same typed value in property panel, collection view, and export.
 
 ## Product contract
 

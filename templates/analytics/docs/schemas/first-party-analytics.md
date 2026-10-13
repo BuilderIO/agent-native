@@ -6,6 +6,14 @@ The analytics template can collect events into its own SQL database and query th
 
 Generate a public write key from **Data Sources > First-party Analytics**, or ask the agent to run `create-analytics-public-key --name "<label>"`.
 
+Manage replay origin restrictions in the same Data Sources card or with the
+`update-analytics-public-key` action. It accepts a key `id` and
+`addReplayAllowedOrigins`, an array of exact HTTPS origins to append. Existing
+origins and key settings are preserved. An empty allowlist accepts any origin;
+adding the first origin restricts replay to the list, so include every app that
+needs replay. Use `list-analytics-public-keys` after the update to verify the
+saved allowlist; the list and update actions never return the full public key.
+
 Set the key on emitting apps:
 
 ```sh
@@ -104,6 +112,70 @@ Events are stored in `analytics_events`. Common query columns include:
 | `url`, `path`, `hostname`, `referrer` | Page context                                           |
 | `properties`, `context`               | Original JSON objects                                  |
 
+## Action response telemetry
+
+`event_name = 'action.response'` records one browser transport attempt, not a
+user-level operation. Its `success` and `outcome` properties describe whether
+that attempt completed, timed out, was cancelled, or failed at the network or
+HTTP layer. Query retries and background polling are separate attempts.
+
+The client always records errors, slow responses, 4xx responses, and startup
+responses. Fast successes may be sampled. Those rows include `sample_rate`,
+`sampled`, and `sample_weight = 1 / sample_rate`; use the weight for aggregate
+counts instead of treating sampled rows as a complete request census. Keep
+`outcome = 'cancelled'` separate from failures, and split GET reads from
+mutations before presenting an action success rate. This metric is not a
+substitute for user-operation success or task completion.
+
+Read action reliability and latency through the `action-success-rate-over-time`,
+`action-reliability-by-action`, and `action-latency-p50-over-time` /
+`action-latency-p90-over-time` keys in `first-party-metric-catalog.ts` — the
+canonical, already-validated way to query this event, including the
+weighting, cancelled/suspended exclusions, and BigQuery-safe quantile math.
+
+A few fields need a value/absent distinction, not a guessed default:
+
+- `cold_start` is `true` when the response's `Server-Timing` header reports an
+  `app` phase (a live, non-cacheable response) with a `boot` phase alongside
+  it, `false` when it reports `app` without `boot` (a warm container that
+  timed its own request), and **absent** whenever `app` itself is missing —
+  including a CDN-cacheable response, which reports only an `origin`
+  timestamp snapshot and never per-invocation phases. A missing `app` phase
+  means unknown, not warm. `server_boot_ms`/`server_init_ms` are present only
+  on a cold request.
+- `response_bytes` reflects the response's `Content-Length` header and is
+  absent when that header is missing, never `0` — a `0`-byte body and an
+  unmeasured one are different facts.
+- `page_hidden` is `true` when the document was hidden at any point during the
+  attempt, including a call that starts in an already-backgrounded tab (a
+  cmd-click, session restore, a hidden desktop webview) and surfaces before
+  the call completes. A backgrounded tab or a sleeping device throttles JS
+  timers, which is why an `outcome = 'timeout'` row can otherwise read as many
+  minutes of `duration_ms` for a request that never really waited that long;
+  treat a `page_hidden` row's latency as unreliable rather than a real server
+  hang.
+- `timeout_ms` is the effective timeout applied to that attempt (60s by
+  default, or a caller's override) — compare it against `duration_ms` instead
+  of assuming every timeout used the same budget.
+
+## Server action response telemetry
+
+Server request timing is no longer recorded as an analytics event. Historical
+rows with `event_name = 'http.response'` remain queryable, and backfill skips
+them by default. Each request's timing is an OpenTelemetry `http.server` span
+on hosts with a tracing provider, and cold or slow requests write an
+`agent-native.slow_request` log line. Mutation user outcomes are represented
+by the server-side `action_started`, `action_completed`, and `action_failed`
+events.
+
+When a host has an OpenTelemetry provider, the reviewed timing-bearing events
+are mirrored as best-effort spans: `action.client` for browser action
+responses, `http.server` for server responses, `action.server` for mutation
+outcomes, and dedicated spans for agent, A2A, and LLM lifecycle events.
+Ordinary clicks and caller-defined event names stay in analytics rather than
+becoming spans. Server request boundaries await the queued OTel mirror before
+completion, while export remains optional and isolated from request failures.
+
 ## LLM observability events
 
 Core emits LLM usage, explicit user feedback, and optional inferred message
@@ -117,24 +189,25 @@ event_name = '$ai_sentiment'
 
 Useful query fields live in `properties`:
 
-| Property                                         | Description                                                                                       |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `$ai_trace_id`, `run_id`                         | Agent run id                                                                                      |
-| `$ai_session_id`, `thread_id`                    | Chat/thread id, when available                                                                    |
-| `$ai_model`, `model`                             | Model used                                                                                        |
-| `$ai_provider`, `provider`                       | Engine/provider name                                                                              |
-| `$ai_input_tokens`, `input_tokens`               | Input tokens                                                                                      |
-| `$ai_output_tokens`, `output_tokens`             | Output tokens                                                                                     |
-| `cache_read_tokens`, `cache_write_tokens`        | Prompt-cache token counts                                                                         |
-| `$ai_total_cost_usd`, `cost_usd`                 | Estimated run cost in USD                                                                         |
-| `cost_cents_x100`                                | Estimated run cost in centicents                                                                  |
-| `duration_ms`                                    | Run duration in milliseconds                                                                      |
-| `$ai_latency`                                    | Model time in seconds (run duration minus tool time), on `$ai_generation`                         |
-| `tool_calls`, `successful_tools`, `failed_tools` | Complete tool-call counts                                                                         |
-| `tools`, `tools_truncated`                       | First 50 tool names, offsets, durations, statuses, and error classes, including interrupted calls |
-| `delegated`, `delegation_protocol`, `caller_app` | Delegated-run attribution                                                                         |
-| `a2a_task_id`, `parent_run_id`, `parent_turn_id` | Cross-app trace linkage, when available                                                           |
-| `$ai_is_error`, `status`, `$ai_error`            | Error status and message, when applicable                                                         |
+| Property                                         | Description                                                                                                              |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `$ai_trace_id`, `run_id`                         | Agent run id                                                                                                             |
+| `$ai_session_id`, `thread_id`                    | Chat/thread id, when available                                                                                           |
+| `$ai_model`, `model`                             | Model used                                                                                                               |
+| `$ai_provider`, `provider`                       | Engine/provider name                                                                                                     |
+| `$ai_input_tokens`, `input_tokens`               | Input tokens                                                                                                             |
+| `$ai_output_tokens`, `output_tokens`             | Output tokens                                                                                                            |
+| `cache_read_tokens`, `cache_write_tokens`        | Prompt-cache token counts                                                                                                |
+| `$ai_total_cost_usd`, `cost_usd`                 | Estimated run cost in USD                                                                                                |
+| `cost_cents_x100`                                | Estimated run cost in centicents                                                                                         |
+| `duration_ms`                                    | Run duration in milliseconds                                                                                             |
+| `$ai_latency`                                    | Model time in seconds (run duration minus tool time), on `$ai_generation`                                                |
+| `tool_calls`, `successful_tools`, `failed_tools` | Complete tool-call counts                                                                                                |
+| `tools`, `tools_truncated`                       | First 50 tool names, offsets, durations, statuses, and error classes, including interrupted calls                        |
+| `delegated`, `delegation_protocol`, `caller_app` | Delegated-run attribution                                                                                                |
+| `a2a_task_id`, `parent_run_id`, `parent_turn_id` | Cross-app trace linkage, when available                                                                                  |
+| `$ai_is_error`, `status`, `$ai_error`            | Error status, terminal code, named cause, retryability, and a fixed code-derived message; run failure text is omitted    |
+| `$ai_http_status`                                | Provider HTTP status: 200 on a completed call, the reported status on a failed one, absent when the failure carried none |
 
 The `tools` array never includes tool arguments, results, or error messages.
 Use `tools_truncated` with the complete `tool_calls` count when a run exceeds

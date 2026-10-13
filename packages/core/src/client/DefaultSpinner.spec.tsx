@@ -4,7 +4,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DefaultSpinner } from "./DefaultSpinner.js";
+import { DefaultSpinner } from "../../../toolkit/src/app/shared/DefaultSpinner.js";
+import { LOADING_LABELS } from "../shared/loading-labels.js";
 
 describe("DefaultSpinner", () => {
   let container: HTMLDivElement;
@@ -19,18 +20,77 @@ describe("DefaultSpinner", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    delete window.__agentNativeLoadingLabelIndex;
+    delete window.__agentNativeLoadingLabelHydrated;
+    delete window.__agentNativeLoadingLabelInterval;
+    delete window.__agentNativeLoadingLabelCleanup;
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
 
-  it("does not render developer startup guidance in production", () => {
+  it("renders the concise cube loader", () => {
     vi.stubEnv("NODE_ENV", "production");
+    window.__agentNativeLoadingLabelIndex = 0;
 
     act(() => {
       root.render(<DefaultSpinner />);
     });
 
-    expect(container.textContent).not.toContain("dev server");
-    expect(container.querySelector(".an-stall-hint")).toBeNull();
+    expect(container.querySelector("span")?.textContent).toBe("Churning");
+    expect(container.querySelector(".agent-running-shimmer")).not.toBeNull();
+    expect(
+      container.querySelectorAll("[data-agent-native-cube-loader] rect"),
+    ).toHaveLength(9);
+    expect(container.textContent).not.toContain("2m");
+  });
+
+  it("rotates through playful loading labels", () => {
+    vi.useFakeTimers();
+    try {
+      window.__agentNativeLoadingLabelIndex = 0;
+
+      act(() => {
+        root.render(<DefaultSpinner />);
+      });
+
+      expect(
+        container.querySelector(".agent-running-shimmer")?.textContent,
+      ).toBe("Churning");
+
+      act(() => {
+        vi.advanceTimersByTime(3_000);
+      });
+
+      expect(
+        container.querySelector(".agent-running-shimmer")?.textContent,
+      ).toBe("Accomplishing");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses the randomized static-shell label on first render", () => {
+    window.__agentNativeLoadingLabelIndex = 3;
+
+    act(() => {
+      root.render(<DefaultSpinner />);
+    });
+
+    expect(container.querySelector(".agent-running-shimmer")?.textContent).toBe(
+      "Actualizing",
+    );
+  });
+
+  it("randomizes when no static-shell seed is present", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+
+    act(() => {
+      root.render(<DefaultSpinner />);
+    });
+
+    expect(container.querySelector(".agent-running-shimmer")?.textContent).toBe(
+      LOADING_LABELS[Math.floor(LOADING_LABELS.length / 2)],
+    );
   });
 
   it("uses a caller-provided accessible loading label", () => {
@@ -41,5 +101,35 @@ describe("DefaultSpinner", () => {
     expect(
       container.querySelector('[role="status"]')?.getAttribute("aria-label"),
     ).toBe("Mail is reloading");
+  });
+
+  it("can fill a dynamic viewport container", () => {
+    act(() => {
+      root.render(<DefaultSpinner height="100%" />);
+    });
+
+    expect((container.firstElementChild as HTMLElement).style.height).toBe(
+      "100%",
+    );
+  });
+
+  it("marks the static shell as hydrated", () => {
+    act(() => {
+      root.render(<DefaultSpinner />);
+    });
+
+    expect(window.__agentNativeLoadingLabelHydrated).toBe(true);
+  });
+
+  it("cleans up the static shell handoff when hydrating", () => {
+    const cleanup = vi.fn();
+    window.__agentNativeLoadingLabelCleanup = cleanup;
+
+    act(() => {
+      root.render(<DefaultSpinner />);
+    });
+
+    expect(cleanup).toHaveBeenCalledOnce();
+    expect(window.__agentNativeLoadingLabelCleanup).toBeUndefined();
   });
 });

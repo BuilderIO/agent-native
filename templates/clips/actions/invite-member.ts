@@ -1,15 +1,3 @@
-/**
- * Invite an email address to the active organization.
- *
- * Creates an `org_invitations` row with status `pending`. Clips role mapping:
- * `admin` → `admin`, everything else → `member`. Returns the invitation id
- * (which is the accept token). Sends an email via the framework email helper
- * when a provider is configured.
- *
- * Usage:
- *   pnpm action invite-member --email=alice@example.com --role=admin
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
@@ -20,6 +8,7 @@ import {
   renderEmail,
   emailStrong,
 } from "@agent-native/core/server";
+import { track } from "@agent-native/core/tracking";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -35,9 +24,6 @@ function getAppName(): string {
   return process.env.APP_NAME || "Clips";
 }
 
-// Accept the current admin/member surface plus legacy Clips roles for
-// backwards-compatible CLI/agent calls. Legacy non-admin roles collapse to
-// `member`.
 const ClipsRoleEnum = z.enum([
   "viewer",
   "creator-lite",
@@ -117,8 +103,6 @@ export default defineAction({
     const role = mapRole(args.role);
     const inviteeEmail = args.email.trim().toLowerCase();
 
-    // Rotate any existing pending invite for this email so the latest one is
-    // the only live token.
     const [existing] = await db
       .select({ id: orgInvitations.id })
       .from(orgInvitations)
@@ -153,22 +137,42 @@ export default defineAction({
 
     const orgName = await fetchOrgName(organizationId);
     const inviteUrl = `${baseUrl()}/invite/${token}`;
+    const emailConfigured = await isEmailConfigured();
+    let notified = false;
 
-    try {
-      await sendEmail({
-        ...renderClipsInviteEmail({
-          appName: getAppName(),
-          orgName,
-          inviter,
-          role,
-          inviteUrl,
-        }),
-        to: args.email,
-        templateId: CLIPS_ORGANIZATION_INVITE_EMAIL_ID,
-      });
-    } catch (err) {
-      console.warn("[invite-member] email send failed:", err);
+    if (emailConfigured) {
+      try {
+        await sendEmail({
+          ...renderClipsInviteEmail({
+            appName: getAppName(),
+            orgName,
+            inviter,
+            role,
+            inviteUrl,
+          }),
+          to: args.email,
+          templateId: CLIPS_ORGANIZATION_INVITE_EMAIL_ID,
+          authCritical: true,
+        });
+        notified = true;
+      } catch (err) {
+        console.warn("[invite-member] email send failed:", err);
+      }
     }
+
+    track(
+      "share_invite_sent",
+      {
+        app: "clips",
+        template: "clips",
+        resource_type: "organization",
+        resource_id: organizationId,
+        principal_type: "user",
+        role,
+        notified,
+      },
+      { userId: inviter },
+    );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
@@ -192,7 +196,7 @@ export default defineAction({
       status: "pending" as const,
       token,
       inviteUrl,
-      emailConfigured: await isEmailConfigured(),
+      emailConfigured,
     };
   },
 });

@@ -4,17 +4,7 @@ import {
   text as pgText,
   integer as pgInteger,
 } from "drizzle-orm/pg-core";
-import {
-  sqliteTable,
-  text as sqliteText,
-  integer as sqliteInteger,
-} from "drizzle-orm/sqlite-core";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-
-// `ensureAdditiveColumns` resolves `isPostgres()` / dialect-specific
-// `getTableConfig` through `./client.js`, which derives the dialect from
-// `process.env.DATABASE_URL`. Tests stub that env and pass a fake `DbExec`,
-// so no real database is required.
 
 describe("ensureAdditiveColumns", () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -27,11 +17,6 @@ describe("ensureAdditiveColumns", () => {
     vi.resetModules();
   });
 
-  // A tiny Postgres table: an existing `id` column, a NOT NULL column with a
-  // literal default (`count`), a nullable column with no default (`note`), a
-  // NOT NULL column with a `now()` sql default (`created_at`), and a NOT NULL
-  // column with NO renderable default (`required_no_default`) to exercise the
-  // skip path.
   const pgSessionRecordings = pgTable("session_recordings", {
     id: pgText("id").primaryKey(),
     networkErrorCount: pgInteger("network_error_count").notNull().default(0),
@@ -43,18 +28,6 @@ describe("ensureAdditiveColumns", () => {
   });
   const pgErrors = pgTable("error_events", {
     id: pgText("id").primaryKey(),
-  });
-
-  const sqliteSessionRecordings = sqliteTable("session_recordings", {
-    id: sqliteText("id").primaryKey(),
-    networkErrorCount: sqliteInteger("network_error_count")
-      .notNull()
-      .default(0),
-    note: sqliteText("note"),
-    createdAt: sqliteText("created_at")
-      .notNull()
-      .default(sql`(datetime('now'))`),
-    requiredNoDefault: sqliteText("required_no_default").notNull(),
   });
 
   function fakePgClient(opts: {
@@ -88,40 +61,25 @@ describe("ensureAdditiveColumns", () => {
     return { client, calls };
   }
 
-  function fakeSqliteClient(opts: {
-    tableExists: boolean;
-    liveColumns: string[];
-    onAlter?: (sql: string) => void | never;
-  }) {
-    const calls: string[] = [];
-    const client = {
-      execute: async (sqlArg: string | { sql: string; args?: unknown[] }) => {
-        const text = typeof sqlArg === "string" ? sqlArg : sqlArg.sql;
-        calls.push(text);
-        if (/sqlite_master/i.test(text)) {
-          return {
-            rows: opts.tableExists ? [{ ok: 1 }] : [],
-            rowsAffected: 0,
-          };
-        }
-        if (/PRAGMA table_info/i.test(text)) {
-          return {
-            rows: opts.liveColumns.map((name) => ({ name })),
-            rowsAffected: 0,
-          };
-        }
-        if (/ALTER TABLE/i.test(text)) {
-          opts.onAlter?.(text);
-        }
-        return { rows: [], rowsAffected: 0 };
-      },
-    } as any;
-    return { client, calls };
-  }
-
   describe("Postgres", () => {
     beforeEach(() => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+    });
+
+    it("skips catalog reads when the hosted function marker is present without NODE_ENV", async () => {
+      vi.stubEnv("NODE_ENV", "");
+      vi.stubEnv("NETLIFY_FUNCTION_NAME", "docs");
+      const { ensureAdditiveColumns } =
+        await import("./ensure-additive-columns.js");
+      const execute = vi.fn();
+
+      const result = await ensureAdditiveColumns({
+        db: { execute } as any,
+        tables: [pgSessionRecordings],
+      });
+
+      expect(result.mode).toBe("skipped-serverless");
+      expect(execute).not.toHaveBeenCalled();
     });
 
     it("adds a missing NOT NULL column with its literal default", async () => {
@@ -285,8 +243,6 @@ describe("ensureAdditiveColumns", () => {
         tables: [pgSessionRecordings, pgErrors],
       });
 
-      // The whole point: a clean result here would be indistinguishable from
-      // "every declared column already exists".
       expect(result.errors).toHaveLength(1);
       expect(result.errors[0].error).toMatch(/connection terminated/);
       expect(calls.some((c) => /ALTER TABLE/i.test(c))).toBe(false);
@@ -329,7 +285,6 @@ describe("ensureAdditiveColumns", () => {
         db: client,
         tables: [pgSessionRecordings],
       });
-      // network_error_count fails, created_at still gets applied.
       expect(result.errors).toHaveLength(1);
       expect(result.errors[0].column).toBe(
         "session_recordings.network_error_count",
@@ -381,91 +336,8 @@ describe("ensureAdditiveColumns", () => {
     });
   });
 
-  describe("SQLite", () => {
-    beforeEach(() => {
-      vi.stubEnv("DATABASE_URL", "file:./data/app.db");
-    });
-
-    it("adds a missing column using PRAGMA table_info introspection", async () => {
-      const { ensureAdditiveColumns } =
-        await import("./ensure-additive-columns.js");
-      const { client, calls } = fakeSqliteClient({
-        tableExists: true,
-        liveColumns: ["id", "note", "created_at", "required_no_default"],
-      });
-      const result = await ensureAdditiveColumns({
-        db: client,
-        tables: [sqliteSessionRecordings],
-      });
-      expect(result.applied).toEqual([
-        "session_recordings.network_error_count",
-      ]);
-      const alter = calls.find((c) => /ALTER TABLE/i.test(c));
-      expect(alter).toContain('ADD COLUMN "network_error_count"');
-      expect(alter).toContain("DEFAULT 0");
-    });
-
-    it("no-ops when the table does not exist", async () => {
-      const { ensureAdditiveColumns } =
-        await import("./ensure-additive-columns.js");
-      const { client, calls } = fakeSqliteClient({
-        tableExists: false,
-        liveColumns: [],
-      });
-      const result = await ensureAdditiveColumns({
-        db: client,
-        tables: [sqliteSessionRecordings],
-      });
-      expect(result.applied).toEqual([]);
-      expect(calls.some((c) => /ALTER TABLE/i.test(c))).toBe(false);
-    });
-
-    it("treats a duplicate-column race as success", async () => {
-      const { ensureAdditiveColumns } =
-        await import("./ensure-additive-columns.js");
-      const { client } = fakeSqliteClient({
-        tableExists: true,
-        liveColumns: ["id", "note", "created_at", "required_no_default"],
-        onAlter: () => {
-          throw new Error(
-            "SQLITE_ERROR: duplicate column name: network_error_count",
-          );
-        },
-      });
-      const result = await ensureAdditiveColumns({
-        db: client,
-        tables: [sqliteSessionRecordings],
-      });
-      expect(result.applied).toContain(
-        "session_recordings.network_error_count",
-      );
-      expect(result.errors).toEqual([]);
-    });
-
-    it("generates no ALTERs when every declared column already exists", async () => {
-      const { ensureAdditiveColumns } =
-        await import("./ensure-additive-columns.js");
-      const { client, calls } = fakeSqliteClient({
-        tableExists: true,
-        liveColumns: [
-          "id",
-          "network_error_count",
-          "note",
-          "created_at",
-          "required_no_default",
-        ],
-      });
-      const result = await ensureAdditiveColumns({
-        db: client,
-        tables: [sqliteSessionRecordings],
-      });
-      expect(result.applied).toEqual([]);
-      expect(calls.some((c) => /ALTER TABLE/i.test(c))).toBe(false);
-    });
-  });
-
   it("does not inspect schema from a production serverless function", async () => {
-    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NODE_ENV", "");
     vi.stubEnv("NETLIFY_FUNCTION_NAME", "analytics");
     const { ensureAdditiveColumns } =
       await import("./ensure-additive-columns.js");
@@ -481,6 +353,28 @@ describe("ensureAdditiveColumns", () => {
     expect(result.mode).toBe("skipped-serverless");
     expect(result.applied).toEqual([]);
     expect(client.execute).not.toHaveBeenCalled();
+  });
+
+  it("checks schema during an explicitly executing runtime migration", async () => {
+    vi.stubEnv("NODE_ENV", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "legacy-app");
+    const { ensureAdditiveColumns } =
+      await import("./ensure-additive-columns.js");
+    const { withMigrationExecutionRuntime } =
+      await import("./migration-runtime.js");
+    const { client, calls } = fakePgClient({
+      tableExists: true,
+      liveColumns: ["id", "created_at"],
+    });
+
+    await expect(
+      withMigrationExecutionRuntime(() =>
+        ensureAdditiveColumns({ db: client, tables: [pgSessionRecordings] }),
+      ),
+    ).resolves.toMatchObject({ mode: "checked" });
+    expect(
+      calls.some((call) => /information_schema\.columns/i.test(call)),
+    ).toBe(true);
   });
 
   it("logs applied/skipped/error lines through an injected logger", async () => {

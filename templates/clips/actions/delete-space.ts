@@ -1,13 +1,3 @@
-/**
- * Delete a space.
- *
- * Clears spaceIds from all recordings that referenced it, removes space_members
- * rows for the space, then deletes the space itself.
- *
- * Usage:
- *   pnpm action delete-space --id=<id>
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { and, eq, sql } from "drizzle-orm";
@@ -35,11 +25,14 @@ export default defineAction({
     if (!existing) throw new Error(`Space not found: ${args.id}`);
     await requireOrganizationAccess(existing.organizationId, ["admin"]);
 
-    // Clean recordings.spaceIds — use LIKE to find rows that reference the id.
     const needle = `%"${args.id.replace(/%/g, "")}"%`;
     const affected = await db
-      .select()
+      .select({
+        id: schema.recordings.id,
+        spaceIds: schema.recordings.spaceIds,
+      })
       .from(schema.recordings)
+      // guard:allow-unscoped — after organization-admin authorization, this cleanup scans recordings in that organization to remove references to its deleted space.
       .where(
         and(
           eq(schema.recordings.organizationId, existing.organizationId),
@@ -55,7 +48,13 @@ export default defineAction({
           spaceIds: stringifySpaceIds(ids),
           updatedAt: new Date().toISOString(),
         })
-        .where(eq(schema.recordings.id, r.id));
+        // guard:allow-unscoped — keep the cleanup update in the same organization-admin tenant scope as its source query.
+        .where(
+          and(
+            eq(schema.recordings.id, r.id),
+            eq(schema.recordings.organizationId, existing.organizationId),
+          ),
+        );
     }
 
     await db

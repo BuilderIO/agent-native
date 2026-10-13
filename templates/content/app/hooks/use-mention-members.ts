@@ -6,11 +6,6 @@ export interface MentionMember {
   name: string | null;
 }
 
-/**
- * Organization members available to @mention in a comment. Backed by the
- * framework's `/_agent-native/org/members` endpoint (the same source the share
- * dialog uses). Cached for a minute — the member list changes rarely.
- */
 export function useMentionMembers() {
   return useQuery<MentionMember[]>({
     queryKey: ["mention-members"],

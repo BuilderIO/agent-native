@@ -1,12 +1,9 @@
 import type { DesignEditorCommand } from "@/hooks/use-navigation-state";
+import { designEditorViewFromSearchParams } from "@/lib/design-editor-route";
 
 import { queryUniqueSelector } from "./dom-utils";
-import {
-  normalizeDesignLeftPanel,
-  normalizeDesignMode,
-  normalizeDesignTool,
-} from "./tool-state";
-import { type DesignFile, FOCUSED_SCREEN_ZOOM } from "./types";
+import { normalizeDesignLeftPanel, normalizeDesignTool } from "./tool-state";
+import type { DesignFile } from "./types";
 
 export function normalizeScreenTarget(value: string): string {
   return value
@@ -31,11 +28,27 @@ export function findDesignFileByScreenTarget(
   );
 }
 
+/**
+ * The screen a prototype link in Interact switches to: the one it names, unless
+ * that is the screen already showing. A link that names no screen of the
+ * design leads nowhere.
+ */
+export function findInteractLinkTarget(
+  files: DesignFile[],
+  target: string | null | undefined,
+  activeFileId: string | null,
+): DesignFile | null {
+  const file = findDesignFileByScreenTarget(files, target);
+  return file && file.id !== activeFileId ? file : null;
+}
+
 export function designEditorCommandFromSearchParams(
   designId: string,
   searchParams: URLSearchParams,
 ): DesignEditorCommand | null {
-  const editorView = searchParams.get("view");
+  const requestedEditorView = designEditorViewFromSearchParams(searchParams);
+  const editorView =
+    requestedEditorView === "single" ? "overview" : requestedEditorView;
   const inspector = searchParams.get("inspector");
   const leftPanel = normalizeDesignLeftPanel(searchParams.get("panel"));
   const screen =
@@ -43,21 +56,12 @@ export function designEditorCommandFromSearchParams(
     searchParams.get("fileId") ??
     searchParams.get("filename");
   const selection = searchParams.get("selection");
-  const rawZoom = searchParams.get("zoom");
+  const rawZoom =
+    requestedEditorView === "single" ? null : searchParams.get("zoom");
   const zoom = rawZoom !== null ? Number(rawZoom) : NaN;
   const tool = normalizeDesignTool(searchParams.get("tool"));
-  // `single` is the URL spelling for the responsive Interact surface. There
-  // is no focused editing view, so even an older URL without mode=interact
-  // must enter Interact directly instead of reviving the removed Full view.
-  const mode =
-    editorView === "single"
-      ? (normalizeDesignMode(searchParams.get("mode")) ?? "interact")
-      : undefined;
   if (
     editorView !== "overview" &&
-    editorView !== "single" &&
-    inspector !== "design" &&
-    inspector !== "tweaks" &&
     inspector !== "extensions" &&
     !leftPanel &&
     !screen &&
@@ -70,24 +74,15 @@ export function designEditorCommandFromSearchParams(
     designId,
     issuedAt: 0,
   };
-  if (editorView === "overview" || editorView === "single") {
-    command.editorView = editorView;
-  }
-  if (inspector === "design" || inspector === "tweaks") {
-    command.inspectorTab = inspector;
-  } else if (inspector === "extensions") {
-    command.leftPanel = "tools";
-  }
+  if (editorView) command.editorView = editorView;
+  if (inspector === "extensions") command.leftPanel = "tools";
   if (leftPanel) command.leftPanel = leftPanel;
   if (screen) command.screen = screen;
   if (selection) command.selection = selection;
   if (Number.isFinite(zoom)) {
     command.zoom = zoom;
-  } else if (editorView === "single") {
-    command.zoom = FOCUSED_SCREEN_ZOOM;
   }
   if (tool) command.tool = tool;
-  if (mode) command.mode = mode;
   return command;
 }
 
@@ -111,6 +106,11 @@ export function applyInlineStylesToHtml(
     const element = queryUniqueSelector(doc, selector) as HTMLElement | null;
     if (!element) return null;
     Object.entries(styles).forEach(([property, value]) => {
+      if (property.startsWith("--")) {
+        if (value) element.style.setProperty(property, value);
+        else element.style.removeProperty(property);
+        return;
+      }
       (element.style as any)[property] = value;
     });
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;

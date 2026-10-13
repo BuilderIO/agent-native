@@ -1,0 +1,57 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
+import { expect, test } from "@playwright/test";
+
+import { DESIGN_REVIEW_TOOLS_LAB } from "../shared/labs";
+import { enableLab, gotoEditor } from "./helpers";
+
+const AUTH_DIR = process.env.E2E_AUTH_DIR
+  ? path.resolve(process.env.E2E_AUTH_DIR)
+  : path.join(import.meta.dirname, ".auth");
+
+test("clicking a review finding opens its details", async ({ page }) => {
+  const { designId } = JSON.parse(
+    await readFile(path.join(AUTH_DIR, "seed.json"), "utf8"),
+  ) as { designId: string };
+  const restoreReviewPanel = await enableLab(page, DESIGN_REVIEW_TOOLS_LAB.key);
+
+  try {
+    await gotoEditor(page, designId);
+    const reviewHeading = page.getByRole("heading", {
+      name: "Review",
+      exact: true,
+    });
+    await reviewHeading.scrollIntoViewIfNeeded();
+    await expect(reviewHeading).toBeVisible();
+
+    await expect(page.getByTestId("review-panel")).toBeVisible();
+    const auditResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/run-design-audit") &&
+        response.request().method() !== "OPTIONS",
+    );
+    await page.getByRole("button", { name: "Run audit", exact: true }).click();
+    const response = await auditResponse;
+    expect(
+      response.ok(),
+      `run-design-audit returned ${response.status()}`,
+    ).toBe(true);
+
+    const finding = page.getByRole("button", {
+      name: "<img> is missing an alt attribute.",
+      exact: true,
+    });
+    await expect(finding).toHaveAttribute("aria-expanded", "false");
+    await finding.click();
+    await expect(
+      page.getByText(
+        'Add alt="" for decorative images or a descriptive alt for informative images.',
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(finding).toHaveAttribute("aria-expanded", "true");
+  } finally {
+    await restoreReviewPanel();
+  }
+});

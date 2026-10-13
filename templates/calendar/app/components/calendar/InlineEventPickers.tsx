@@ -29,13 +29,8 @@ import {
   type RecurrencePreset,
   type CustomRecurrenceDraft,
 } from "@/lib/event-form-utils";
+import { buildTimeOptions } from "@/lib/event-time-range";
 import { cn } from "@/lib/utils";
-
-const TIME_OPTIONS = Array.from({ length: 24 * 4 }, (_, index) => {
-  const hour = Math.floor(index / 4);
-  const minute = (index % 4) * 15;
-  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-});
 
 function formatTimeValue(value: string) {
   const [hourValue, minuteValue] = value.split(":").map(Number);
@@ -45,7 +40,7 @@ function formatTimeValue(value: string) {
   const period = hourValue >= 12 ? "PM" : "AM";
   const hour = hourValue % 12 || 12;
   return minuteValue === 0
-    ? `${hour}:00 ${period}`
+    ? `${hour} ${period}`
     : `${hour}:${String(minuteValue).padStart(2, "0")} ${period}`;
 }
 
@@ -60,19 +55,20 @@ export function TimePickerPopover({
   label,
   getOptionMeta,
   className,
+  after,
 }: {
   value: string;
   onChange: (value: string) => void;
   label: string;
   getOptionMeta?: (value: string) => string | undefined;
   className?: string;
+  after?: string;
 }) {
   const [open, setOpen] = useState(false);
   const selectedRef = useRef<HTMLButtonElement>(null);
   const options = useMemo(
-    () =>
-      TIME_OPTIONS.includes(value) ? TIME_OPTIONS : [value, ...TIME_OPTIONS],
-    [value],
+    () => buildTimeOptions({ value, after }),
+    [value, after],
   );
 
   useEffect(() => {
@@ -91,7 +87,7 @@ export function TimePickerPopover({
           variant="ghost"
           size="sm"
           className={cn(
-            "h-auto rounded px-1.5 py-0.5 text-base font-normal text-foreground hover:bg-muted",
+            "h-auto rounded px-1.5 py-0.5 text-[13px] leading-[18px] font-normal text-foreground hover:bg-muted",
             className,
           )}
           aria-label={label}
@@ -168,7 +164,7 @@ export function DatePickerPopover({
           variant="ghost"
           size="sm"
           className={cn(
-            "h-auto rounded px-1.5 py-0.5 text-base font-normal text-foreground hover:bg-muted",
+            "h-auto rounded px-1.5 py-0.5 text-[13px] leading-[18px] font-normal text-foreground hover:bg-muted",
             className,
           )}
           aria-label={label}
@@ -222,7 +218,7 @@ export function TimezonePickerPopover({
           className={cn(
             compact
               ? "size-7 rounded-full p-0 text-muted-foreground hover:bg-muted hover:text-foreground"
-              : "h-auto justify-start rounded px-1.5 py-0.5 text-sm font-normal text-muted-foreground hover:bg-muted hover:text-foreground",
+              : "h-auto justify-start rounded px-1.5 py-0.5 text-[13px] leading-[18px] font-normal text-muted-foreground hover:bg-muted hover:text-foreground",
           )}
           aria-label={label}
           title={compact ? label : undefined}
@@ -259,12 +255,14 @@ export function RepeatPicker({
   recurrence,
   onChange,
   onCustomChange,
+  compact = false,
 }: {
   preset: RecurrencePreset;
   referenceDate: string;
   recurrence?: string[];
   onChange: (preset: RecurrencePreset) => void;
   onCustomChange?: (draft: CustomRecurrenceDraft) => void;
+  compact?: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -338,10 +336,15 @@ export function RepeatPicker({
           type="button"
           variant="ghost"
           size="sm"
-          className="h-auto w-full justify-start rounded-md px-1.5 py-1 text-sm font-normal text-muted-foreground hover:bg-muted hover:text-foreground"
+          className={cn(
+            "h-auto font-normal text-muted-foreground hover:bg-muted hover:text-foreground",
+            compact
+              ? "rounded px-1.5 py-0.5 text-[13px] leading-[18px]"
+              : "w-full justify-start rounded-md px-1.5 py-1 text-[13px] leading-[18px]",
+          )}
           aria-label={t("eventForm.repeat")}
         >
-          <IconRefresh className="mr-2 size-4 shrink-0" />
+          {!compact && <IconRefresh className="mr-2 size-4 shrink-0" />}
           {triggerLabel}
         </Button>
       </PopoverTrigger>
@@ -459,7 +462,7 @@ function CustomRecurrenceEditor({
           onChange={(event) =>
             update({ interval: Math.max(1, Number(event.target.value) || 1) })
           }
-          className="h-9 w-16 text-center"
+          className="w-16 text-center"
           aria-label={t("eventForm.repeatEvery")}
         />
         <Select
@@ -471,7 +474,7 @@ function CustomRecurrenceEditor({
             })
           }
         >
-          <SelectTrigger className="h-9 flex-1">
+          <SelectTrigger className="flex-1">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -496,8 +499,8 @@ function CustomRecurrenceEditor({
                   key={value}
                   type="button"
                   variant={selected ? "default" : "secondary"}
-                  size="icon"
-                  className="size-8 rounded-full text-xs"
+                  size="icon-sm"
+                  className="rounded-full text-xs"
                   aria-pressed={selected}
                   onClick={() => toggleDay(value)}
                 >
@@ -531,12 +534,13 @@ function CustomRecurrenceEditor({
           />
           <span>{t("eventForm.on")}</span>
           <Input
+            size="sm"
             type="date"
             value={draft.endDate}
             onChange={(event) =>
               update({ endMode: "date", endDate: event.target.value })
             }
-            className="h-8 min-w-0 flex-1"
+            className="min-w-0 flex-1"
           />
         </label>
         <label className="flex items-center gap-2 text-sm text-foreground">
@@ -548,6 +552,7 @@ function CustomRecurrenceEditor({
           />
           <span>{t("eventForm.after")}</span>
           <Input
+            size="sm"
             type="number"
             min={1}
             max={999}
@@ -558,7 +563,7 @@ function CustomRecurrenceEditor({
                 count: Math.max(1, Number(event.target.value) || 1),
               })
             }
-            className="h-8 w-20"
+            className="w-20"
           />
           <span className="text-muted-foreground">
             {t("eventForm.occurrences")}

@@ -45,8 +45,6 @@ async function getJson(
     (response.status === 401 || isUnauthenticatedPayload(payload))
   ) {
     try {
-      // Electron's isolated Session transport can return an unauthenticated
-      // response for a cookie that succeeds through the main-process fetch.
       const fallbackResponse = await fetch(url, {
         method: "GET",
         headers,
@@ -55,8 +53,6 @@ async function getJson(
       response = fallbackResponse;
       payload = fallbackPayload;
     } catch (error) {
-      // Preserve the primary response as the authoritative failure when the
-      // fallback transport is unavailable.
       console.debug(
         "[desktop workspace apps] main-process fallback unavailable",
         {
@@ -75,6 +71,17 @@ function isUnauthenticatedPayload(value: unknown): boolean {
     Boolean(value) &&
     typeof value === "object" &&
     (value as Record<string, unknown>).error === "Not authenticated"
+  );
+}
+
+function isWorkspaceAppInventory(value: unknown): boolean {
+  return (
+    Array.isArray(value) ||
+    Boolean(
+      value &&
+      typeof value === "object" &&
+      Array.isArray((value as { apps?: unknown }).apps),
+    )
   );
 }
 
@@ -130,16 +137,18 @@ export async function loadDesktopWorkspaceApps(options: {
       origin,
       WORKSPACE_APPS_PATH,
     );
+    if (!isWorkspaceAppInventory(inventory)) {
+      throw new Error("Workspace app inventory response was malformed");
+    }
     const apps = normalizeWorkspaceAppConfigs(inventory, { baseUrl: origin });
     return {
       enabled: true,
       apps,
     };
   } catch (error) {
-    // Native shells fail closed while the rollout or session is unavailable.
     console.warn("[desktop workspace apps] failed to load inventory", {
       reason: error instanceof Error ? error.message : "unknown error",
     });
-    return { enabled: false, apps: [] };
+    return { enabled: true, apps: [], unavailable: true };
   }
 }

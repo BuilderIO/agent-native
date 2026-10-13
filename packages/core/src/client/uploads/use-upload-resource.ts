@@ -18,7 +18,7 @@ export function useUploadResource() {
       return res.json() as Promise<Resource>;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["resources"] });
+      void queryClient.invalidateQueries({ queryKey: ["resources"] });
     },
   });
 }

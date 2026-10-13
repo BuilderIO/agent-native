@@ -1,26 +1,27 @@
 ---
 title: "Acceso y autorización"
-description: "Quién puede llamar a una acción: las opciones de exposición (agentTool, mcpTool, toolCallable), el alcance basado en ctx, accessFilter/assertAccess y la guarda authorize."
+description: "Quién puede llamar a una acción: las opciones de exposición (agentTool, mcpTool, toolCallable), la opción declarativa access, el alcance basado en ctx, accessFilter/assertAccess y la guarda authorize."
 ---
 
 # Acceso y autorización
 
-Seis opciones deciden quién puede llamar a una acción: el agente, el frontend, una extensión, un invocador de API externo, o nadie sin la aprobación previa de un humano. La mayoría de las acciones nunca necesitan tocar ninguna de ellas, ya que los valores por defecto ya se ajustan al uso normal de UI y agente.
+Siete opciones deciden quién puede llamar a una acción: el agente, el frontend, una extensión, un invocador de API externo, o nadie sin la aprobación previa de un humano. La mayoría de las acciones nunca necesitan tocar ninguna de ellas, ya que los valores por defecto ya se ajustan al uso normal de UI y agente.
 
 ### Opciones de exposición {#exposure-flags}
 
-Las seis tienen por defecto el valor más permisivo — `mcpTool` heredando `agentTool` —, así que solo configuras una cuando necesitas restringir una superficie específica. La tabla de abajo es un resumen rápido. Las secciones posteriores añaden el detalle concreto que necesita cada opción.
+Las siete tienen por defecto el valor más permisivo — `mcpTool` heredando `agentTool` —, así que solo configuras una cuando necesitas restringir una superficie específica. La tabla de abajo es un resumen rápido. Las secciones posteriores añaden el detalle concreto que necesita cada opción.
 
-| Opción          | Predeterminado        | Valor restrictivo → quién puede seguir llamando                                        | Uso típico                                                                              |
-| --------------- | --------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `agentTool`     | `true`                | `false` → solo UI, HTTP y CLI (oculta para el modelo, MCP y A2A)                       | Acciones solo de UI o programáticas que no deberían ocupar una plaza de herramienta     |
-| `mcpTool`       | `agentTool`           | `false` → solo el agente de tu propia app (oculta para MCP y A2A)                      | Acciones que necesitan una pantalla o una sesión de la app al otro lado                 |
-| `toolCallable`  | `true`                | `false` → todo **excepto** el puente del iframe aislado de extensiones (403)           | Cambios sensibles de cuenta u organización (eliminar cuenta, cambiar membresía)         |
-| `publicAgent`   | desactivado (privado) | `{ expose: true }` → añade la acción a las superficies **públicas** de MCP/A2A/OpenAPI | Herramientas seguras de lectura o ingesta que no requieren autenticación                |
-| `needsApproval` | `false`               | `true` → el agente **se pausa**, y un humano debe aprobar la llamada específica        | Efectos secundarios de consecuencia (enviar un correo, cobrar una tarjeta, eliminar)    |
-| `authorize`     | ninguno               | una función de guarda → solo los invocadores que acepta, en **todas** las superficies  | Operaciones restringidas a un rol (RBAC por app, operaciones solo para administradores) |
+| Opción          | Predeterminado        | Valor restrictivo → quién puede seguir llamando                                                          | Uso típico                                                                              |
+| --------------- | --------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `agentTool`     | `true`                | `false` → solo UI, HTTP y CLI (oculta para el modelo, MCP y A2A)                                         | Acciones solo de UI o programáticas que no deberían ocupar una plaza de herramienta     |
+| `mcpTool`       | `agentTool`           | `false` → solo el agente de tu propia app (oculta para MCP y A2A)                                        | Acciones que necesitan una pantalla o una sesión de la app al otro lado                 |
+| `toolCallable`  | `true`                | `false` → todo **excepto** el puente del iframe aislado de extensiones (403)                             | Cambios sensibles de cuenta u organización (eliminar cuenta, cambiar membresía)         |
+| `publicAgent`   | desactivado (privado) | `{ expose: true }` → añade la acción a las superficies **públicas** de MCP/A2A/OpenAPI                   | Herramientas seguras de lectura o ingesta que no requieren autenticación                |
+| `needsApproval` | `false`               | `true` → el agente **se pausa**, y un humano debe aprobar la llamada específica                          | Efectos secundarios de consecuencia (enviar un correo, cobrar una tarjeta, eliminar)    |
+| `access`        | ninguno               | una política declarada → solo los invocadores que tienen el rol que nombra, en **todas** las superficies | Acciones que leen o cambian un único recurso compartido (editar un formulario)          |
+| `authorize`     | ninguno               | una función de guarda → solo los invocadores que acepta, en **todas** las superficies                    | Operaciones restringidas a un rol (RBAC por app, operaciones solo para administradores) |
 
-Estas opciones son independientes, con una excepción: un `mcpTool` sin declarar hereda `agentTool`. `agentTool` controla qué ve el modelo, consulta [Ocultar del modelo](#agent-tool) más abajo. `mcpTool` restringe eso solo a los agentes externos, consulta [Ocultar de los agentes externos](#mcp-tool) más abajo. `toolCallable` controla solo el iframe de extensiones, consulta [Bloquear iframes de extensión](#tool-callable) más abajo. `publicAgent` añade una superficie pública opcional, y una ruta web pública nunca implica exposición pública de la herramienta, consulta [Exponer a agentes públicos](#public-agent) más abajo. `needsApproval` controla la ejecución después de que la llamada ya se ha hecho, consulta [Requerir aprobación humana](#needs-approval) más abajo. `authorize` decide si este invocador puede ejecutar la acción, en cada ruta de despacho, antes de entrar en `run()`, consulta [Restringir invocadores por rol](#authorize) más abajo.
+Estas opciones son independientes, con una excepción: un `mcpTool` sin declarar hereda `agentTool`. `agentTool` controla qué ve el modelo, consulta [Ocultar del modelo](#agent-tool) más abajo. `mcpTool` restringe eso solo a los agentes externos, consulta [Ocultar de los agentes externos](#mcp-tool) más abajo. `toolCallable` controla solo el iframe de extensiones, consulta [Bloquear iframes de extensión](#tool-callable) más abajo. `publicAgent` añade una superficie pública opcional, y una ruta web pública nunca implica exposición pública de la herramienta, consulta [Exponer a agentes públicos](#public-agent) más abajo. `needsApproval` controla la ejecución después de que la llamada ya se ha hecho, consulta [Requerir aprobación humana](#needs-approval) más abajo. `access` declara el rol que el invocador debe tener sobre un recurso, y se comprueba en cada ruta de despacho antes de entrar en `run()`, consulta [Requerir acceso a un recurso](#access) más abajo. `authorize` decide si este invocador puede ejecutar la acción, en cada ruta de despacho, antes de entrar en `run()`, consulta [Restringir invocadores por rol](#authorize) más abajo.
 
 ## Ocultar del modelo {#agent-tool}
 
@@ -261,6 +262,48 @@ Ante `approval_required`, la UI de chat muestra un control de **Aprobar / Denega
 
 La acción `send-email` del template Mail es el uso canónico de esta guarda en el framework, y es intencionalmente poco frecuente. Configura `needsApproval: true` para que el agente pueda redactar y encolar correos libremente. Nunca puede enviar realmente un mensaje sin que un humano apruebe ese envío específico.
 
+## Requerir acceso a un recurso {#access}
+
+`access` declara lo que un invocador debe tener antes de que se ejecute una acción. Es un dato de la definición, no código dentro de `run()`. Su forma más común nombra un recurso compartido y el rol mínimo sobre él. La acción `update-form` del template Forms lo usa para que solo un editor de un formulario pueda cambiar ese formulario:
+
+```ts
+// actions/update-form.ts
+export default defineAction({
+  description: "Update an existing form.",
+  access: {
+    scope: "resource",
+    resource: { type: "form", idFrom: "id", level: "editor" },
+  },
+  schema: z.object({
+    id: z.string(),
+    title: z.string().optional(),
+  }),
+  run: async (args) => {
+    /* ...update the form... */
+  },
+});
+```
+
+`resource` toma tres campos:
+
+- **type**: el nombre con el que se registró el recurso mediante `registerShareableResource()`, como `"form"` o `"deck"`. Consulta [Compartir](/docs/sharing#building).
+- **idFrom**: el campo de entrada que contiene el id del recurso. Una ruta con puntos como `"target.formId"` lee un campo anidado. Si el valor falta o no es una cadena no vacía, la llamada se deniega.
+- **level**: el rol mínimo que necesita el invocador, uno de `"viewer"`, `"commenter"`, `"editor"`, `"admin"` o `"owner"`. Por defecto es `"viewer"`.
+
+Igual que `authorize`, la comprobación envuelve al propio `run()`, así que la UI, los invocadores HTTP, el agente dentro de la app, los clientes MCP, los invocadores A2A y la CLI pasan todos la misma comprobación antes de que se ejecute el cuerpo. Resuelve el rol del invocador igual que `assertAccess()`, así que cuentan la propiedad, las concesiones de acceso compartido y la visibilidad. Un invocador por debajo de `level` recibe un 403 como `Requires editor access to form <id>.` Un recurso que no existe recibe el mismo 403.
+
+Usa `access` cuando un campo de entrada nombra el único recurso que toca la acción. Usa `assertAccess()` dentro de `run()` cuando el id viene de otro lugar, como una fila que cargas primero, o cuando una sola llamada toca varios recursos. Las consultas de lista no tienen un único id que comprobar, así que usan `accessFilter()`. Consulta [Control de acceso en acciones](#access-control) más abajo. La comprobación `resource-action-access` de [doctor](/docs/doctor) acepta un `access` declarado o una llamada a `assertAccess()`.
+
+### Alcances de organización y de app {#access-scopes}
+
+Los demás campos comprueban la membresía en lugar de un único recurso. Todos los campos que configures deben pasar la comprobación.
+
+- **`scope: "org"`**: el invocador debe ser miembro activo de su organización actual.
+- **`scope: "app"`**: el invocador debe haber iniciado sesión, y el espacio de trabajo debe haber puesto esta app a su disposición.
+- **`permission`**: una clave de permiso del mapa `permissions` de `defineAppRoles()` de esta app. El invocador debe tener un rol de app que la conceda. Primero ejecuta la comprobación de `scope: "app"`.
+
+`scope: "app"` y `permission` leen el registro de apps del espacio de trabajo, así que son adecuados para apps desplegadas como parte de un espacio de trabajo. En una app independiente, protege un permiso de app con `authorize` y `requirePermission()` en su lugar, como se muestra en [Roles de app](/docs/organizations-teams-permissions#app-roles-per-app-rbac). Esa guarda también rechaza una clave de permiso no declarada cuando se carga el módulo. `access.permission` solo la deniega en el momento de la petición.
+
 ## Restringir invocadores por rol {#authorize}
 
 `authorize` responde a una pregunta concreta: **¿puede este invocador ejecutar esta operación?** Dale una función de guarda, y se ejecuta antes de `run()` para cada invocador: herramienta del agente, HTTP, frontend, MCP, A2A y CLI.
@@ -299,10 +342,10 @@ La guarda envuelve al propio `run()`, en lugar de engancharse a otra parte de la
 Los envoltorios se componen en este orden:
 
 ```text
-validar entrada -> authorize -> run -> validar salida -> audit
+validar entrada -> access -> authorize -> run -> validar salida -> audit
 ```
 
-La autorización se sitúa _dentro_ de la validación de entrada, así que una guarda que inspecciona `args` recibe el mismo valor analizado y verificado en tipos que recibe `run()`, no la forma cruda que envió el invocador. La auditoría es la más externa, así que una denegación también queda registrada.
+La autorización se sitúa _dentro_ de la validación de entrada, así que una guarda que inspecciona `args` recibe el mismo valor analizado y verificado en tipos que recibe `run()`, no la forma cruda que envió el invocador. `access` lee `idFrom` de ese mismo valor analizado. La auditoría es la más externa, así que una acción auditada también registra una denegación. Las acciones de solo lectura no se auditan por defecto, consulta [Registro de auditoría](#audit) más abajo.
 
 `requireAny()` falla en el momento de la definición, no en el de la petición. Llamarlo sin roles, o con un rol fuera de la lista declarada, lanza un error tan pronto como se carga el módulo. Así, un error, como `authorize: coachAccess.requireAny()` con un argumento omitido, se rompe justo donde ocurrió, en lugar de aparecer más tarde como un 403 inexplicable.
 
@@ -355,17 +398,20 @@ export default defineAction({
 });
 ```
 
+Cuando el id viene directamente de la entrada, como `id` aquí, una política [`access`](#access) declarada ejecuta la misma comprobación desde la definición de la acción.
+
 Una acción de creación no llama a ninguno de los dos ayudantes. Solo necesita estampar `ownerEmail` (y `orgId`) desde el contexto de la petición al insertar la nueva fila, ya que todavía no hay ninguna fila existente contra la que comprobar el acceso. Consulta [Compartir](/docs/sharing#building) para el patrón completo de registro y creación, y [Contexto de ejecución](/docs/actions-run-context) para la forma completa del segundo argumento `ctx` usado arriba.
 
-Los tres mecanismos no son intercambiables:
+Los cuatro mecanismos no son intercambiables:
 
 | Mecanismo                         | Pregunta que responde                                        | Se aplica a                                |
 | --------------------------------- | ------------------------------------------------------------ | ------------------------------------------ |
+| `access`                          | ¿Tiene el invocador el rol o la membresía declarados?        | Los seis puntos de despacho                |
 | `authorize`                       | ¿Puede este invocador realizar la operación?                 | Los seis puntos de despacho                |
 | `needsApproval`                   | ¿Debe un humano aprobar esta llamada permitida en concreto?  | Solo el bucle del agente                   |
 | `accessFilter()`/`assertAccess()` | ¿Qué filas puede ver o escribir este invocador ya permitido? | Dentro de `run()`, por consulta o por fila |
 
-Una acción de escritura restringida normalmente necesita tanto `authorize` como `assertAccess()`. La primera mantiene fuera de la operación a quien no sea coach. La segunda mantiene a un coach fuera del plan de otra organización. `needsApproval` es un eje aparte. Nunca restringe quién puede llamar, solo si el agente puede proceder sin supervisión.
+Una acción de escritura restringida normalmente necesita tanto `authorize` como una comprobación de fila. La primera mantiene fuera de la operación a quien no sea coach. La segunda mantiene a un coach fuera del plan de otra organización. La comprobación de fila es `assertAccess()`, o `access` cuando el id de la fila es un campo de entrada. `needsApproval` es un eje aparte. Nunca restringe quién puede llamar, solo si el agente puede proceder sin supervisión.
 
 `coachAccess`, usado arriba, proviene de `defineAppRoles()`, la capa de roles por app sobre la membresía de la organización. Consulta [Organizaciones, equipos y permisos → Roles de app](/docs/organizations-teams-permissions#app-roles-per-app-rbac) para el modelo de roles y sus garantías.
 

@@ -140,6 +140,26 @@ describe("CSRF middleware", () => {
     ).not.toBe(403);
   });
 
+  it("exempts token-authenticated automation webhooks", async () => {
+    expect(
+      await status(
+        { cookie: COOKIE, "content-type": "application/json" },
+        "POST",
+        "/_agent-native/automations/webhook/" + "a".repeat(43),
+      ),
+    ).not.toBe(403);
+  });
+
+  it("does not exempt a nested automation management route", async () => {
+    expect(
+      await status(
+        { cookie: COOKIE, "content-type": "text/plain" },
+        "POST",
+        "/_agent-native/automations/webhook/" + "a".repeat(43) + "/fire-test",
+      ),
+    ).toBe(403);
+  });
+
   // The remote-device relay lives under the HMAC-justified `/integrations/`
   // exemption but authenticates on the session cookie, so it must not inherit
   // it. Approving a browser-control operation is the state change at stake:
@@ -163,8 +183,6 @@ describe("CSRF middleware", () => {
   }
 
   it("still lets the extension's own device-token relay calls through", async () => {
-    // The extension posts JSON with a bearer token from `chrome-extension://`,
-    // so it carries no cookie and trips neither branch of the check.
     expect(
       await status(
         { "content-type": "application/json" },

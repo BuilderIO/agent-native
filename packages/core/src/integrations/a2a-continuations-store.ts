@@ -1,16 +1,15 @@
 import type { A2AArtifactIdentity } from "../a2a/artifact-response.js";
 import {
-  getDbExec,
-  isPostgres,
-  intType,
-  retryOnDdlRace,
-} from "../db/client.js";
+  A2APersistencePayloadError,
+  assertA2APersistablePayload,
+} from "../a2a/persistence-safety.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureTableExists,
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
-import { isDuplicateColumnError } from "../db/migrations.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import type { IncomingMessage, PlatformRunProgressRef } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -19,10 +18,43 @@ const PROCESSING_NEXT_CHECK_STALE_AFTER_MS = 60 * 1000;
 const TERMINAL_HISTORY_FINALIZATION_LEASE_MS = 60 * 1000;
 const MAX_VERIFIED_ARTIFACT_CHECKPOINT_CHARS = 16_000;
 const MAX_TERMINAL_HISTORY_PAYLOAD_CHARS = 64_000;
+const MAX_TERMINAL_HISTORY_TEXT_CHARS = 32_000;
+const MAX_TERMINAL_HISTORY_MESSAGE_REFS = 32;
+const MAX_TERMINAL_HISTORY_ARTIFACTS = 16;
+const MAX_TERMINAL_HISTORY_FIELD_CHARS = 256;
+const MAX_CONTINUATION_ERROR_CHARS = 2_000;
+const TERMINAL_HISTORY_OMISSION_NOTE =
+  "Delivered output omitted from retained history because it exceeded storage limits or contained inline file data.";
+const CONTINUATION_ERROR_OMISSION_NOTE =
+  "Continuation failure details omitted because they contained inline file data.";
 
-// Build the CREATE SQL lazily (not at module scope) so intType() runs at
-// RUNTIME, not import time — a module-scope call breaks any consumer whose
-// db/client mock doesn't stub intType (e.g. db-admin specs).
+type PersistabilityCheck =
+  | { safe: true }
+  | { safe: false; reason: "inline_file_bytes" | "invalid_payload" };
+
+type BoundedStringResult =
+  | { kind: "value"; value: string }
+  | { kind: "absent" }
+  | { kind: "omitted"; reason: "inline_file_bytes" | "invalid_payload" };
+
+function checkA2APersistability(
+  value: unknown,
+  label: string,
+): PersistabilityCheck {
+  try {
+    assertA2APersistablePayload(value, label);
+    return { safe: true };
+  } catch (error) {
+    return {
+      safe: false,
+      reason:
+        error instanceof A2APersistencePayloadError
+          ? "inline_file_bytes"
+          : "invalid_payload",
+    };
+  }
+}
+
 function buildCreateSql(): string {
   return `
   CREATE TABLE IF NOT EXISTS integration_a2a_continuations (
@@ -33,7 +65,7 @@ function buildCreateSql(): string {
     incoming_payload TEXT NOT NULL,
     placeholder_ref TEXT,
     progress_ref TEXT,
-    progress_ref_claimed ${intType()} NOT NULL DEFAULT 0,
+    progress_ref_claimed BIGINT NOT NULL DEFAULT 0,
     owner_email TEXT NOT NULL,
     org_id TEXT,
     agent_name TEXT NOT NULL,
@@ -43,155 +75,98 @@ function buildCreateSql(): string {
     a2a_auth_token TEXT,
     verified_artifact_checkpoint TEXT,
     terminal_delivery_kind TEXT,
-    terminal_delivery_confirmed_at ${intType()},
+    terminal_delivery_confirmed_at BIGINT,
     terminal_history_payload TEXT,
     status TEXT NOT NULL,
-    attempts ${intType()} NOT NULL DEFAULT 0,
-    next_check_at ${intType()} NOT NULL,
+    attempts BIGINT NOT NULL DEFAULT 0,
+    next_check_at BIGINT NOT NULL,
     error_message TEXT,
-    created_at ${intType()} NOT NULL,
-    updated_at ${intType()} NOT NULL,
-    completed_at ${intType()}
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    completed_at BIGINT
   )
 `;
 }
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const client = getDbExec();
       const createSql = buildCreateSql();
-      if (isPostgres()) {
-        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
-        await ensureTableExists("integration_a2a_continuations", createSql);
-        await ensureIndexExists(
-          "idx_a2a_continuations_status_next",
-          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_status_next ON integration_a2a_continuations(status, next_check_at)`,
-        );
-        await ensureIndexExists(
-          "idx_a2a_continuations_integration_task",
-          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_integration_task ON integration_a2a_continuations(integration_task_id)`,
-        );
-        await ensureIndexExists(
-          "idx_a2a_continuations_remote_task",
-          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_remote_task ON integration_a2a_continuations(integration_task_id, agent_url, a2a_task_id)`,
-        );
-        await ensureColumnExists(
-          "integration_a2a_continuations",
-          "a2a_auth_token",
-          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS a2a_auth_token TEXT`,
-        );
-        await ensureColumnExists(
-          "integration_a2a_continuations",
-          "dedupe_key",
-          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS dedupe_key TEXT`,
-        );
-        await ensureColumnExists(
-          "integration_a2a_continuations",
-          "progress_ref",
-          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref TEXT`,
-        );
-        await ensureColumnExists(
-          "integration_a2a_continuations",
-          "progress_ref_claimed",
-          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref_claimed ${intType()} NOT NULL DEFAULT 0`,
-        );
-        await ensureColumnExists(
-          "integration_a2a_continuations",
-          "verified_artifact_checkpoint",
-          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS verified_artifact_checkpoint TEXT`,
-        );
-        await ensureColumnExists(
-          "integration_a2a_continuations",
-          "terminal_delivery_kind",
-          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_delivery_kind TEXT`,
-        );
-        await ensureColumnExists(
-          "integration_a2a_continuations",
-          "terminal_delivery_confirmed_at",
-          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_delivery_confirmed_at ${intType()}`,
-        );
-        await ensureColumnExists(
-          "integration_a2a_continuations",
-          "terminal_history_payload",
-          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_history_payload TEXT`,
-        );
-        await backfillLegacyCompletedDeliveries(client);
-        await backfillProgressRefOwners(client);
-        await ensureIndexExists(
-          "idx_a2a_continuations_dedupe_key",
-          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
-        );
-        await ensureIndexExists(
-          "idx_a2a_continuations_one_progress_owner",
-          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_one_progress_owner ON integration_a2a_continuations(integration_task_id) WHERE progress_ref_claimed = 1`,
-        );
-        return;
-      }
-      // SQLite (local dev): keep existing behavior
-      await retryOnDdlRace(() => client.execute(createSql));
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_status_next ON integration_a2a_continuations(status, next_check_at)`,
-        ),
+      await ensureTableExists("integration_a2a_continuations", createSql);
+      await ensureIndexExists(
+        "idx_a2a_continuations_status_next",
+        `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_status_next ON integration_a2a_continuations(status, next_check_at)`,
       );
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_integration_task ON integration_a2a_continuations(integration_task_id)`,
-        ),
+      await ensureIndexExists(
+        "idx_a2a_continuations_integration_task",
+        `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_integration_task ON integration_a2a_continuations(integration_task_id)`,
       );
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_remote_task ON integration_a2a_continuations(integration_task_id, agent_url, a2a_task_id)`,
-        ),
+      await ensureIndexExists(
+        "idx_a2a_continuations_remote_task",
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_remote_task ON integration_a2a_continuations(integration_task_id, agent_url, a2a_task_id)`,
       );
-      await addColumnIfMissing("a2a_auth_token", "TEXT");
-      await addColumnIfMissing("dedupe_key", "TEXT");
-      await addColumnIfMissing("progress_ref", "TEXT");
-      await addColumnIfMissing(
+      await ensureColumnExists(
+        "integration_a2a_continuations",
+        "a2a_auth_token",
+        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS a2a_auth_token TEXT`,
+      );
+      await ensureColumnExists(
+        "integration_a2a_continuations",
+        "dedupe_key",
+        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS dedupe_key TEXT`,
+      );
+      await ensureColumnExists(
+        "integration_a2a_continuations",
+        "progress_ref",
+        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref TEXT`,
+      );
+      await ensureColumnExists(
+        "integration_a2a_continuations",
         "progress_ref_claimed",
-        `${intType()} NOT NULL DEFAULT 0`,
+        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref_claimed BIGINT NOT NULL DEFAULT 0`,
       );
-      await addColumnIfMissing("verified_artifact_checkpoint", "TEXT");
-      await addColumnIfMissing("terminal_delivery_kind", "TEXT");
-      await addColumnIfMissing("terminal_delivery_confirmed_at", intType());
-      await addColumnIfMissing("terminal_history_payload", "TEXT");
+      await ensureColumnExists(
+        "integration_a2a_continuations",
+        "verified_artifact_checkpoint",
+        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS verified_artifact_checkpoint TEXT`,
+      );
+      await ensureColumnExists(
+        "integration_a2a_continuations",
+        "terminal_delivery_kind",
+        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_delivery_kind TEXT`,
+      );
+      await ensureColumnExists(
+        "integration_a2a_continuations",
+        "terminal_delivery_confirmed_at",
+        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_delivery_confirmed_at BIGINT`,
+      );
+      await ensureColumnExists(
+        "integration_a2a_continuations",
+        "terminal_history_payload",
+        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_history_payload TEXT`,
+      );
       await backfillLegacyCompletedDeliveries(client);
       await backfillProgressRefOwners(client);
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
-        ),
+      await ensureIndexExists(
+        "idx_a2a_continuations_dedupe_key",
+        `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
       );
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_one_progress_owner ON integration_a2a_continuations(integration_task_id) WHERE progress_ref_claimed = 1`,
-        ),
+      await ensureIndexExists(
+        "idx_a2a_continuations_one_progress_owner",
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_one_progress_owner ON integration_a2a_continuations(integration_task_id) WHERE progress_ref_claimed = 1`,
       );
     })().catch((err) => {
-      // Retry init on the next call after a failed startup.
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }
 
 export async function ensureA2AContinuationsTable(): Promise<void> {
   await ensureTable();
-}
-
-async function addColumnIfMissing(name: string, definition: string) {
-  try {
-    await retryOnDdlRace(() =>
-      getDbExec().execute(
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN ${name} ${definition}`,
-      ),
-    );
-  } catch (err) {
-    if (isDuplicateColumnError(err)) return;
-    throw err;
-  }
 }
 
 async function backfillProgressRefOwners(
@@ -287,10 +262,6 @@ export interface A2AContinuation {
 const MAX_PROGRESS_REF_KIND_CHARS = 128;
 const MAX_PROGRESS_REF_STREAM_TS_CHARS = 256;
 
-/**
- * Keep only the tiny, adapter-owned continuation reference. Invalid rows are
- * treated as unavailable rather than throwing during a retry sweep.
- */
 function parseProgressRef(value: unknown): PlatformRunProgressRef | null {
   if (typeof value !== "string" || value.length === 0) return null;
   try {
@@ -400,6 +371,122 @@ function parseTerminalHistoryPayload(
   }
 }
 
+function sanitizeTerminalHistoryText(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const check = checkA2APersistability(value, "A2A terminal history text");
+  if (!check.safe) {
+    return TERMINAL_HISTORY_OMISSION_NOTE;
+  }
+  if (value.length <= MAX_TERMINAL_HISTORY_TEXT_CHARS) return value;
+  const marker = "\n[truncated]";
+  return `${value.slice(0, MAX_TERMINAL_HISTORY_TEXT_CHARS - marker.length)}${marker}`;
+}
+
+function boundedPersistableString(
+  value: unknown,
+  maxChars: number,
+): BoundedStringResult {
+  if (typeof value !== "string") return { kind: "absent" };
+  const check = checkA2APersistability(value, "A2A terminal history field");
+  if (!check.safe) {
+    return { kind: "omitted", reason: check.reason };
+  }
+  return { kind: "value", value: value.slice(0, maxChars) };
+}
+
+function sanitizeTerminalHistoryPayload(
+  input: A2ATerminalHistoryPayload,
+): A2ATerminalHistoryPayload {
+  const deliveredAtResult = boundedPersistableString(input?.deliveredAt, 128);
+  const deliveredAt =
+    deliveredAtResult.kind === "value"
+      ? deliveredAtResult.value
+      : new Date().toISOString();
+  const messageRefs = Array.isArray(input?.messageRefs)
+    ? input.messageRefs
+        .slice(0, MAX_TERMINAL_HISTORY_MESSAGE_REFS)
+        .flatMap((ref) => {
+          const safe = boundedPersistableString(
+            ref,
+            MAX_TERMINAL_HISTORY_FIELD_CHARS,
+          );
+          return safe.kind === "value" ? [safe.value] : [];
+        })
+    : [];
+  const artifacts = Array.isArray(input?.artifacts)
+    ? input.artifacts
+        .slice(0, MAX_TERMINAL_HISTORY_ARTIFACTS)
+        .flatMap((artifact): A2AArtifactIdentity[] => {
+          if (!artifact || typeof artifact !== "object") return [];
+          const artifactCheck = checkA2APersistability(
+            artifact,
+            "A2A terminal history artifact",
+          );
+          if (!artifactCheck.safe) {
+            return [];
+          }
+          const candidate = artifact as A2AArtifactIdentity;
+          const id = boundedPersistableString(
+            candidate.id,
+            MAX_TERMINAL_HISTORY_FIELD_CHARS,
+          );
+          const sourceAction = boundedPersistableString(
+            candidate.sourceAction,
+            MAX_TERMINAL_HISTORY_FIELD_CHARS,
+          );
+          const resourceType = boundedPersistableString(
+            candidate.resourceType,
+            MAX_TERMINAL_HISTORY_FIELD_CHARS,
+          );
+          if (
+            id.kind !== "value" ||
+            sourceAction.kind !== "value" ||
+            resourceType.kind !== "value"
+          ) {
+            return [];
+          }
+          const safe: A2AArtifactIdentity = {
+            id: id.value,
+            resourceType:
+              resourceType.value as A2AArtifactIdentity["resourceType"],
+            sourceAction: sourceAction.value,
+          };
+          if (candidate.titleAtAction != null) {
+            const titleAtAction = boundedPersistableString(
+              candidate.titleAtAction,
+              MAX_TERMINAL_HISTORY_FIELD_CHARS,
+            );
+            if (titleAtAction.kind !== "value") return [];
+            safe.titleAtAction = titleAtAction.value;
+          }
+          if (candidate.url != null) {
+            const url = boundedPersistableString(
+              candidate.url,
+              MAX_TERMINAL_HISTORY_FIELD_CHARS,
+            );
+            if (url.kind !== "value") return [];
+            safe.url = url.value;
+          }
+          return [safe];
+        })
+    : [];
+  let payload: A2ATerminalHistoryPayload = {
+    text: sanitizeTerminalHistoryText(input?.text),
+    deliveredAt,
+    messageRefs,
+    artifacts,
+  };
+  if (JSON.stringify(payload).length > MAX_TERMINAL_HISTORY_PAYLOAD_CHARS) {
+    payload = {
+      text: TERMINAL_HISTORY_OMISSION_NOTE,
+      deliveredAt,
+      messageRefs: [],
+      artifacts: [],
+    };
+  }
+  return payload;
+}
+
 export async function insertA2AContinuation(input: {
   integrationTaskId: string;
   platform: string;
@@ -415,6 +502,7 @@ export async function insertA2AContinuation(input: {
   a2aTaskId: string;
   a2aAuthToken?: string | null;
 }): Promise<A2AContinuation> {
+  assertA2APersistablePayload(input.incoming, "A2A incoming message");
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
@@ -460,11 +548,6 @@ export async function insertA2AContinuation(input: {
       input.a2aTaskId,
     );
     if (existing) {
-      // A retry can reach this row after the original invocation created it
-      // without a resumable progress surface (or with one that has gone
-      // stale). Keep the most recent valid adapter reference for active work,
-      // but never resurrect short-lived delivery state after a terminal row
-      // has deliberately scrubbed it.
       if (
         progressRef &&
         existing.status !== "completed" &&
@@ -497,12 +580,6 @@ export async function insertA2AContinuation(input: {
   return (await getA2AContinuation(id))!;
 }
 
-/**
- * A native platform stream has one terminal completion. Claim it for a single
- * downstream continuation, and retain the ownership marker after terminal
- * cleanup scrubs the short-lived stream reference. The partial unique index
- * makes concurrent downstream inserts safe across processes.
- */
 async function claimA2AContinuationProgressRef(
   id: string,
   progressRef: string,
@@ -515,8 +592,6 @@ async function claimA2AContinuationProgressRef(
       args: [progressRef, id],
     });
   } catch (err) {
-    // A sibling continuation already owns this stream and will finalize it.
-    // This continuation still delivers through the normal response path.
     if (isDuplicateContinuationError(err)) return;
     throw err;
   }
@@ -616,6 +691,7 @@ export async function failA2AContinuationsForIntegrationTask(
   integrationTaskId: string,
   errorMessage: string,
 ): Promise<void> {
+  const safeErrorMessage = safeContinuationFailureMessage(errorMessage);
   await ensureTable();
   const now = Date.now();
   await getDbExec().execute({
@@ -625,7 +701,7 @@ export async function failA2AContinuationsForIntegrationTask(
           WHERE integration_task_id = ?
             AND status IN ('pending', 'processing', 'delivering')
             AND terminal_delivery_confirmed_at IS NULL`,
-    args: [errorMessage.slice(0, 2000), now, now, integrationTaskId],
+    args: [safeErrorMessage, now, now, integrationTaskId],
   });
 }
 
@@ -703,8 +779,7 @@ export async function claimA2AContinuation(
   const processingCutoff = now - PROCESSING_STUCK_AFTER_MS;
   const staleNextCheckCutoff = now - PROCESSING_NEXT_CHECK_STALE_AFTER_MS;
   const result = await client.execute({
-    sql: isPostgres()
-      ? `UPDATE integration_a2a_continuations
+    sql: `UPDATE integration_a2a_continuations
            SET status = ?, attempts = attempts + 1, updated_at = ?
          WHERE id = ?
            AND (
@@ -714,30 +789,11 @@ export async function claimA2AContinuation(
                AND (updated_at <= ? OR next_check_at <= ?)
              )
            )
-         RETURNING *`
-      : `UPDATE integration_a2a_continuations
-           SET status = ?, attempts = attempts + 1, updated_at = ?
-         WHERE id = ?
-           AND (
-             status = 'pending'
-             OR (
-               status = 'processing'
-               AND (updated_at <= ? OR next_check_at <= ?)
-             )
-           )`,
+         RETURNING *`,
     args: ["processing", now, id, processingCutoff, staleNextCheckCutoff],
   });
   const rows = result.rows ?? [];
-  if (isPostgres()) {
-    return rows[0]
-      ? rowToContinuation(rows[0] as Record<string, unknown>)
-      : null;
-  }
-  const affected = (result as any)?.rowsAffected ?? (result as any)?.rowCount;
-  if (affected === 0) return null;
-  const fetched = await getA2AContinuation(id);
-  if (!fetched || fetched.status !== "processing") return null;
-  return fetched;
+  return rows[0] ? rowToContinuation(rows[0] as Record<string, unknown>) : null;
 }
 
 export async function claimDueA2AContinuations(
@@ -752,13 +808,6 @@ export async function claimDueA2AContinuations(
   return claimed;
 }
 
-/**
- * Makes stale leases eligible again and returns a bounded set of due ids.
- *
- * This intentionally does not claim anything. Durable schedulers use it only
- * to wake the normal processor, whose atomic claim remains the sole progress
- * and delivery owner under overlapping scheduler/self-dispatch executions.
- */
 export async function recoverDueA2AContinuationIds(
   limit = 5,
   integrationTaskIds?: string[],
@@ -777,10 +826,6 @@ export async function recoverDueA2AContinuationIds(
   const receiptFilter = confirmedDeliveryOnly
     ? " AND terminal_delivery_confirmed_at IS NOT NULL"
     : "";
-  // The two lease resets below and the due SELECT all only ever touch rows in
-  // these three statuses, so one probe short-circuits all three. Without it the
-  // 60s retry job pays two blind UPDATE round trips per app forever on a queue
-  // that has been empty since boot.
   const live = await client.execute({
     sql: `SELECT id FROM integration_a2a_continuations
           WHERE status IN ('pending', 'processing', 'delivering')${taskFilter}${receiptFilter}
@@ -788,9 +833,6 @@ export async function recoverDueA2AContinuationIds(
     args: [...taskArgs],
   });
   if ((live.rows?.length ?? 0) === 0) return [];
-  // If a processor dies after a provider receipt, retry history-only custody
-  // as soon as its short follow-up deadline passes. A pre-receipt delivery
-  // claim retains the longer stale cutoff before an at-least-once resend.
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
           SET status = ?, next_check_at = ?, updated_at = ?
@@ -839,17 +881,13 @@ export interface RecoverableA2AIntegrationTask {
   hasPendingConfirmedDelivery: boolean;
 }
 
-/**
- * Read due continuation owners and their rollout scope in one query. Recovery
- * can filter the canary in memory without an N+1 pending-task lookup loop.
- */
 export async function listRecoverableA2AIntegrationTasks(
   limit = 50,
 ): Promise<RecoverableA2AIntegrationTask[]> {
   await ensureTable();
   const now = Date.now();
   const { rows } = await getDbExec().execute({
-    sql: `SELECT DISTINCT c.integration_task_id, t.platform,
+    sql: `SELECT c.integration_task_id, t.platform,
                  t.external_thread_id, t.dispatch_scope, t.status,
                  EXISTS (
                    SELECT 1 FROM integration_a2a_continuations receipt
@@ -867,7 +905,10 @@ export async function listRecoverableA2AIntegrationTasks(
              OR (c.status = 'delivering' AND
                  ((c.terminal_delivery_confirmed_at IS NOT NULL AND c.next_check_at <= ?)
                    OR c.updated_at <= ?)))
-          ORDER BY c.integration_task_id ASC
+          GROUP BY c.integration_task_id, t.platform, t.external_thread_id,
+                   t.dispatch_scope, t.status
+          ORDER BY has_pending_confirmed_delivery DESC,
+                   MIN(c.next_check_at) ASC, c.integration_task_id ASC
           LIMIT ?`,
     args: [
       now,
@@ -890,6 +931,35 @@ export async function listRecoverableA2AIntegrationTasks(
   }));
 }
 
+export async function deferA2AContinuationsForRuntime(
+  integrationTaskIds: string[],
+  delayMs: number,
+): Promise<void> {
+  if (integrationTaskIds.length === 0) return;
+  await ensureTable();
+  const now = Date.now();
+  const taskFilter = integrationTaskIds.map(() => "?").join(", ");
+  await getDbExec().execute({
+    sql: `UPDATE integration_a2a_continuations
+          SET next_check_at = ?, updated_at = ?
+          WHERE integration_task_id IN (${taskFilter})
+            AND terminal_delivery_confirmed_at IS NULL
+            AND ((status = 'pending' AND next_check_at <= ?)
+              OR (status = 'processing' AND
+                  (updated_at <= ? OR next_check_at <= ?))
+              OR (status = 'delivering' AND updated_at <= ?))`,
+    args: [
+      now + delayMs,
+      now,
+      ...integrationTaskIds,
+      now,
+      now - PROCESSING_STUCK_AFTER_MS,
+      now - PROCESSING_NEXT_CHECK_STALE_AFTER_MS,
+      now - PROCESSING_STUCK_AFTER_MS,
+    ],
+  });
+}
+
 export async function claimA2AContinuationDelivery(
   id: string,
 ): Promise<A2AContinuation | null> {
@@ -897,27 +967,14 @@ export async function claimA2AContinuationDelivery(
   const client = getDbExec();
   const now = Date.now();
   const result = await client.execute({
-    sql: isPostgres()
-      ? `UPDATE integration_a2a_continuations
+    sql: `UPDATE integration_a2a_continuations
            SET status = ?, updated_at = ?
          WHERE id = ? AND status = 'processing'
-         RETURNING *`
-      : `UPDATE integration_a2a_continuations
-           SET status = ?, updated_at = ?
-         WHERE id = ? AND status = 'processing'`,
+         RETURNING *`,
     args: ["delivering", now, id],
   });
   const rows = result.rows ?? [];
-  if (isPostgres()) {
-    return rows[0]
-      ? rowToContinuation(rows[0] as Record<string, unknown>)
-      : null;
-  }
-  const affected = (result as any)?.rowsAffected ?? (result as any)?.rowCount;
-  if (affected === 0) return null;
-  const fetched = await getA2AContinuation(id);
-  if (!fetched || fetched.status !== "delivering") return null;
-  return fetched;
+  return rows[0] ? rowToContinuation(rows[0] as Record<string, unknown>) : null;
 }
 
 export async function rescheduleA2AContinuation(
@@ -933,6 +990,24 @@ export async function rescheduleA2AContinuation(
           WHERE id = ? AND status IN ('processing', 'delivering')`,
     args: ["pending", now + delayMs, now, id],
   });
+}
+
+export async function pauseA2AContinuationForRuntime(
+  id: string,
+  claimedAttempts: number,
+  delayMs: number,
+): Promise<boolean> {
+  await ensureTable();
+  const now = Date.now();
+  const result = await getDbExec().execute({
+    sql: `UPDATE integration_a2a_continuations
+          SET status = 'pending', attempts = attempts - 1,
+              next_check_at = ?, updated_at = ?
+          WHERE id = ? AND status = 'processing' AND attempts = ?
+          RETURNING id`,
+    args: [now + delayMs, now, id, claimedAttempts],
+  });
+  return (result.rows?.length ?? 0) > 0;
 }
 
 export async function retainA2AUnconfirmedDeliveryClaim(
@@ -956,6 +1031,7 @@ export async function saveA2AVerifiedArtifactCheckpoint(
   await ensureTable();
   const normalized = checkpoint.trim();
   if (!normalized) return null;
+  assertA2APersistablePayload(normalized, "A2A artifact checkpoint");
   if (normalized.length > MAX_VERIFIED_ARTIFACT_CHECKPOINT_CHARS) {
     throw new Error(
       `Verified artifact checkpoint exceeds ${MAX_VERIFIED_ARTIFACT_CHECKPOINT_CHARS} characters`,
@@ -980,13 +1056,19 @@ export async function recordA2ATerminalDeliveryReceipt(
   historyPayload: A2ATerminalHistoryPayload,
   errorMessage?: string,
 ): Promise<A2AContinuation> {
-  await ensureTable();
-  const serializedPayload = JSON.stringify(historyPayload);
-  if (serializedPayload.length > MAX_TERMINAL_HISTORY_PAYLOAD_CHARS) {
-    throw new Error(
-      `Terminal A2A history payload exceeds ${MAX_TERMINAL_HISTORY_PAYLOAD_CHARS} characters`,
+  const safeHistoryPayload = sanitizeTerminalHistoryPayload(historyPayload);
+  let safeErrorMessage = errorMessage?.slice(0, 2000) ?? null;
+  if (safeErrorMessage) {
+    const errorCheck = checkA2APersistability(
+      safeErrorMessage,
+      "A2A terminal error",
     );
+    if (!errorCheck.safe) {
+      safeErrorMessage = "The remote agent reported a delivery failure.";
+    }
   }
+  await ensureTable();
+  const serializedPayload = JSON.stringify(safeHistoryPayload);
   const now = Date.now();
   await getDbExec().execute({
     sql: `UPDATE integration_a2a_continuations
@@ -1004,7 +1086,7 @@ export async function recordA2ATerminalDeliveryReceipt(
       serializedPayload,
       now + TERMINAL_HISTORY_FINALIZATION_LEASE_MS,
       now,
-      errorMessage?.slice(0, 2000) ?? null,
+      safeErrorMessage,
       id,
       kind,
     ],
@@ -1081,6 +1163,7 @@ export async function failA2AContinuation(
   id: string,
   errorMessage: string,
 ): Promise<void> {
+  const safeErrorMessage = safeContinuationFailureMessage(errorMessage);
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
@@ -1090,6 +1173,16 @@ export async function failA2AContinuation(
               incoming_payload = ?, a2a_auth_token = NULL, progress_ref = NULL,
               verified_artifact_checkpoint = NULL
           WHERE id = ? AND status <> 'completed'`,
-    args: ["failed", now, errorMessage.slice(0, 2000), "{}", id],
+    args: ["failed", now, safeErrorMessage, "{}", id],
   });
+}
+
+function safeContinuationFailureMessage(errorMessage: string): string {
+  const bounded = errorMessage.slice(0, MAX_CONTINUATION_ERROR_CHARS);
+  try {
+    assertA2APersistablePayload(bounded, "A2A continuation failure");
+    return bounded;
+  } catch {
+    return CONTINUATION_ERROR_OMISSION_NOTE;
+  }
 }

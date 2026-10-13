@@ -98,6 +98,36 @@ Las cinco funciones lanzan un error ante una solicitud fallida, una respuesta no
 
 `requestSource` se establece comúnmente como `TAB_ID`, una constante simple que cada plantilla exporta desde `app/lib/tab-id.ts`: una cadena aleatoria corta que permanece igual durante la vida de una pestaña y difiere entre pestañas. Emparejar `requestSource: TAB_ID` en una escritura con `useDbSync({ ignoreSource: TAB_ID })` en el lado de lectura es cómo una pestaña evita recuperar su propia escritura mientras sigue reaccionando a todas las demás. Consulta [Conciencia del contexto](/docs/context-awareness#jitter-prevention) para el recorrido completo.
 
+## Sesiones aisladas del agente en segundo plano {#isolated-background-agent-sessions}
+
+Usa `startBackgroundAgentSession()` cuando cada invocación necesite un hilo
+nuevo y estable sin añadir una pestaña visible u oculta, estado de la barra
+lateral ni una entrada en la bandeja de ejecuciones. La ruta autenticada normal
+del chat y el gestor de ejecuciones compartido siguen controlando la
+persistencia, las herramientas, los reintentos y la ejecución duradera alojada.
+
+```ts
+import { startBackgroundAgentSession } from "@agent-native/core/client/agent-chat";
+
+const session = startBackgroundAgentSession({
+  message: "Analyze this import and create any missing records",
+  instructions: `Import batch id: ${batchId}`,
+  scope: { type: "import-batch", id: batchId },
+  model: "gpt-5.6-sol",
+  effort: "medium",
+});
+
+await session.accepted;
+const latest = await session.status();
+session.open({ prefill: "Show me what changed" });
+```
+
+El identificador expone `operationId`, `threadId` y `turnId` de inmediato.
+`accepted` espera a que se acepte la ejecución, `completion` sigue el flujo de
+respuesta y `status()` consulta por separado su estado duradero. `cancel()`
+detiene el turno. Al reintentar tras perder una confirmación, pasa de nuevo la
+`operationId` y el `threadId` originales.
+
 ## sendToAgentChat: envíos en segundo plano {#background-send}
 
 Usa `background: true` cuando una acción de UI deba iniciar trabajo real del agente sin

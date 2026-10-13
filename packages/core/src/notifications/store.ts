@@ -1,13 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  retryOnDdlRace,
-  safeJsonParse,
-} from "../db/client.js";
+import { getDbExec, safeJsonParse } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { recordChange } from "../server/poll.js";
 import type { Notification, NotificationSeverity } from "./types.js";
 
@@ -17,6 +12,8 @@ function bumpPoll(owner: string): void {
 
 let _initPromise: Promise<void> | undefined;
 
+const DELIVERY_CLAIM_LEASE_MS = 2 * 60 * 1000;
+
 function normalizeLimit(value: number | undefined, fallback = 50): number {
   if (!Number.isFinite(value) || value == null || value <= 0) return fallback;
   return Math.min(Math.floor(value), 200);
@@ -24,8 +21,7 @@ function normalizeLimit(value: number | undefined, fallback = 50): number {
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `
           CREATE TABLE IF NOT EXISTS notifications (
             id TEXT PRIMARY KEY,
@@ -35,38 +31,36 @@ export async function ensureTable(): Promise<void> {
             body TEXT,
             metadata TEXT,
             delivered_channels TEXT NOT NULL DEFAULT '[]',
-            created_at ${intType()} NOT NULL,
-            read_at ${intType()}
+            created_at BIGINT NOT NULL,
+            read_at BIGINT
           )
         `;
 
-      if (isPostgres()) {
-        // PG-guard: probe information_schema / pg_indexes first (no lock) and
-        // only issue DDL when the table/index is actually missing, wrapped in
-        // a transaction-scoped lock_timeout so a contended lock fails fast.
+      {
         await ensureTableExists("notifications", createSql);
         await ensureIndexExists(
           "idx_notifications_owner_unread",
           `CREATE INDEX IF NOT EXISTS idx_notifications_owner_unread ON notifications (owner, read_at)`,
         );
+        await ensureTableExists(
+          "notification_delivery_state",
+          `CREATE TABLE IF NOT EXISTS notification_delivery_state (
+            notification_id TEXT NOT NULL,
+            delivery_key TEXT NOT NULL,
+            state TEXT NOT NULL,
+            claim_token TEXT,
+            lease_expires_at BIGINT NOT NULL,
+            completed_at BIGINT,
+            PRIMARY KEY (notification_id, delivery_key)
+          )`,
+        );
         return;
       }
-
-      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep existing
-      // retryOnDdlRace behaviour.
-      await retryOnDdlRace(() => client.execute(createSql));
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_notifications_owner_unread ON notifications (owner, read_at)`,
-        ),
-      );
     })().catch((err) => {
-      // Reset on failure so a transient DB outage doesn't poison the cached
-      // promise and reject every future insert/list call for the lifetime of
-      // the process.
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }
@@ -98,6 +92,7 @@ export interface InsertNotificationInput {
   body?: string;
   metadata?: Record<string, unknown>;
   deliveredChannels?: string[];
+  idempotencyKey?: string;
 }
 
 export async function insertNotification(
@@ -105,12 +100,15 @@ export async function insertNotification(
 ): Promise<Notification> {
   await ensureTable();
   const client = getDbExec();
-  const id = randomUUID();
+  const id = input.idempotencyKey
+    ? notificationIdForIdempotencyKey(input.owner, input.idempotencyKey)
+    : randomUUID();
   const createdAt = Date.now();
-  await client.execute({
+  const inserted = await client.execute({
     sql: `INSERT INTO notifications
       (id, owner, severity, title, body, metadata, delivered_channels, created_at, read_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      ${input.idempotencyKey ? "ON CONFLICT (id) DO NOTHING" : ""}`,
     args: [
       id,
       input.owner,
@@ -122,6 +120,18 @@ export async function insertNotification(
       createdAt,
     ],
   });
+  if (input.idempotencyKey && inserted.rowsAffected === 0) {
+    const { rows } = await client.execute({
+      sql: `SELECT * FROM notifications WHERE id = ? AND owner = ? LIMIT 1`,
+      args: [id, input.owner],
+    });
+    if (!rows[0]) {
+      throw new Error(
+        "Idempotent notification insert conflicted without a row.",
+      );
+    }
+    return parseRow(rows[0]);
+  }
   bumpPoll(input.owner);
   return {
     id,
@@ -136,6 +146,171 @@ export async function insertNotification(
   };
 }
 
+export function notificationIdForIdempotencyKey(
+  owner: string,
+  idempotencyKey: string,
+): string {
+  return `idem_${createHash("sha256")
+    .update(`${owner}\0${idempotencyKey}`)
+    .digest("hex")}`;
+}
+
+function deliveryStateKey(key: string, kind: "channel" | "event"): string {
+  return `${kind}:${key}`;
+}
+
+/**
+ * Claims one idempotent notification side effect. Expired pending claims may
+ * be retried. Event claims may also be replayed after their dispatch lease
+ * expires because event subscribers deduplicate by the stable event ID;
+ * channel deliveries remain non-replayable once dispatch starts.
+ */
+export async function claimNotificationDelivery(
+  notificationId: string,
+  key: string,
+  kind: "channel" | "event" = "channel",
+): Promise<string | undefined> {
+  await ensureTable();
+  const client = getDbExec();
+  const token = randomUUID();
+  const now = Date.now();
+  const stateKey = deliveryStateKey(key, kind);
+  const inserted = await client.execute({
+    sql: `INSERT INTO notification_delivery_state
+      (notification_id, delivery_key, state, claim_token, lease_expires_at, completed_at)
+      VALUES (?, ?, 'pending', ?, ?, NULL)
+      ON CONFLICT (notification_id, delivery_key) DO NOTHING`,
+    args: [notificationId, stateKey, token, now + DELIVERY_CLAIM_LEASE_MS],
+  });
+  if ((inserted.rowsAffected ?? 0) > 0) return token;
+
+  const reclaimed = await client.execute({
+    sql: `UPDATE notification_delivery_state
+      SET state = 'pending', claim_token = ?, lease_expires_at = ?, completed_at = NULL
+      WHERE notification_id = ? AND delivery_key = ?
+        AND ((state = 'pending' AND lease_expires_at <= ?)
+          OR (? = 'event' AND state = 'dispatching' AND lease_expires_at <= ?))`,
+    args: [
+      token,
+      now + DELIVERY_CLAIM_LEASE_MS,
+      notificationId,
+      stateKey,
+      now,
+      kind,
+      now,
+    ],
+  });
+  if ((reclaimed.rowsAffected ?? 0) > 0) return token;
+
+  // Some DbExec adapters omit rowsAffected for successful inserts. Verify the
+  // token directly before treating this claim as unavailable.
+  const { rows } = await client.execute({
+    sql: `SELECT state, claim_token FROM notification_delivery_state
+      WHERE notification_id = ? AND delivery_key = ? LIMIT 1`,
+    args: [notificationId, stateKey],
+  });
+  return rows[0]?.state === "pending" && rows[0]?.claim_token === token
+    ? token
+    : undefined;
+}
+
+export async function markNotificationDeliveryDispatching(
+  notificationId: string,
+  key: string,
+  claimToken: string,
+  kind: "channel" | "event" = "channel",
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  const result = await client.execute({
+    sql: `UPDATE notification_delivery_state
+      SET state = 'dispatching', lease_expires_at = ?
+      WHERE notification_id = ? AND delivery_key = ?
+        AND state = 'pending' AND claim_token = ?`,
+    args: [
+      kind === "event" ? Date.now() + DELIVERY_CLAIM_LEASE_MS : 0,
+      notificationId,
+      deliveryStateKey(key, kind),
+      claimToken,
+    ],
+  });
+  if (result.rowsAffected === 0) {
+    throw new Error("Notification delivery claim was lost before dispatch.");
+  }
+}
+
+export async function completeNotificationDelivery(
+  notificationId: string,
+  key: string,
+  claimToken: string,
+  kind: "channel" | "event" = "channel",
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  const result = await client.execute({
+    sql: `UPDATE notification_delivery_state
+      SET state = 'delivered', claim_token = NULL, lease_expires_at = 0, completed_at = ?
+      WHERE notification_id = ? AND delivery_key = ?
+        AND state = 'dispatching' AND claim_token = ?`,
+    args: [Date.now(), notificationId, deliveryStateKey(key, kind), claimToken],
+  });
+  if (result.rowsAffected === 0) {
+    throw new Error("Notification delivery claim was lost before completion.");
+  }
+}
+
+export async function markNotificationDeliveryUncertain(
+  notificationId: string,
+  key: string,
+  claimToken: string,
+  kind: "channel" | "event" = "channel",
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  const result = await client.execute({
+    sql: `UPDATE notification_delivery_state
+      SET state = 'uncertain', claim_token = NULL, lease_expires_at = 0, completed_at = ?
+      WHERE notification_id = ? AND delivery_key = ?
+        AND state = 'dispatching' AND claim_token = ?`,
+    args: [Date.now(), notificationId, deliveryStateKey(key, kind), claimToken],
+  });
+  if (result.rowsAffected === 0) {
+    throw new Error(
+      "Notification delivery claim was lost before uncertainty was recorded.",
+    );
+  }
+}
+
+export async function releaseNotificationDelivery(
+  notificationId: string,
+  key: string,
+  claimToken: string,
+  kind: "channel" | "event" = "channel",
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  await client.execute({
+    sql: `DELETE FROM notification_delivery_state
+      WHERE notification_id = ? AND delivery_key = ?
+        AND state IN ('pending', 'dispatching') AND claim_token = ?`,
+    args: [notificationId, deliveryStateKey(key, kind), claimToken],
+  });
+}
+
+export async function listCompletedNotificationChannels(
+  notificationId: string,
+): Promise<string[]> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT delivery_key FROM notification_delivery_state
+      WHERE notification_id = ? AND state = 'delivered'
+        AND delivery_key LIKE 'channel:%'`,
+    args: [notificationId],
+  });
+  return rows.map((row) => String(row.delivery_key).slice("channel:".length));
+}
+
 export async function updateDeliveredChannels(
   id: string,
   channels: string[],
@@ -148,13 +323,75 @@ export async function updateDeliveredChannels(
   });
 }
 
+export async function addDeliveredChannel(
+  id: string,
+  channel: string,
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const { rows } = await client.execute({
+      sql: `SELECT delivered_channels FROM notifications WHERE id = ? LIMIT 1`,
+      args: [id],
+    });
+    const currentJson = String(rows[0]?.delivered_channels ?? "[]");
+    const current = safeJsonParse<string[]>(currentJson, []);
+    if (current.includes(channel)) return;
+    const merged = [...current, channel];
+    const updated = await client.execute({
+      sql: `UPDATE notifications SET delivered_channels = ?
+        WHERE id = ? AND delivered_channels = ?`,
+      args: [JSON.stringify(merged), id, currentJson],
+    });
+    if ((updated.rowsAffected ?? 0) > 0) return;
+  }
+  throw new Error(
+    `Could not record delivered notification channel "${channel}".`,
+  );
+}
+
 export interface ListNotificationsOptions {
-  /** When true, only return unread (read_at IS NULL). */
   unreadOnly?: boolean;
-  /** Max rows to return. Default 50. */
   limit?: number;
-  /** ISO timestamp cursor — returns rows with created_at < cursor. */
   before?: string;
+}
+
+export async function hasNotificationWithMetadata(
+  owner: string,
+  expected: Record<string, string | number | boolean>,
+): Promise<boolean> {
+  const entries = Object.entries(expected);
+  if (entries.length === 0) return false;
+  await ensureTable();
+  const client = getDbExec();
+  const predicates = entries
+    .map(() => "metadata LIKE ? ESCAPE '\\'")
+    .join(" AND ");
+  const args = [
+    owner,
+    ...entries.map(([key, value]) => {
+      const fragment = `${JSON.stringify(key)}:${JSON.stringify(value)}`;
+      const escaped = fragment.replace(/[\\%_]/g, "\\$&");
+      return `%${escaped}%`;
+    }),
+    25,
+  ];
+  const { rows } = await client.execute({
+    sql: `SELECT metadata FROM notifications
+      WHERE owner = ? AND ${predicates}
+      ORDER BY created_at DESC LIMIT ?`,
+    args,
+  });
+  return rows.some((row) => {
+    const metadata = safeJsonParse<Record<string, unknown> | undefined>(
+      row.metadata,
+      undefined,
+    );
+    return (
+      metadata !== undefined &&
+      entries.every(([key, value]) => metadata[key] === value)
+    );
+  });
 }
 
 export async function listNotifications(

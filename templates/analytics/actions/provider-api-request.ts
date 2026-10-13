@@ -5,7 +5,12 @@ import { requireRequestCredentialContext } from "../server/lib/credentials-conte
 import { getAnalyticsProviderApiRuntime } from "../server/lib/provider-api";
 import { ANALYTICS_APP_ID } from "../server/lib/provider-credentials";
 
-const ProviderSchema = z.string().min(1);
+const ProviderSchema = z
+  .string()
+  .min(1)
+  .refine((provider) => provider !== "dbt", {
+    message: "Use query-dbt-semantic-metric for dbt Semantic Layer metrics.",
+  });
 const MethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
 
 const PaginationSchema = z
@@ -80,7 +85,7 @@ export default createProviderApiRequestAction(
       "For APIs that page through POST bodies, pass cursorBodyPath instead of cursorParam.",
     schema: z.object({
       provider: ProviderSchema.describe(
-        "Configured built-in or custom provider API to call, e.g. hubspot, gong, slack, stripe, jira, bigquery, ga4, fullstory, or a provider registered for this organization.",
+        "Configured built-in or custom provider API to call, e.g. hubspot, gong, slack, stripe, jira, bigquery, ga4, fullstory, or a provider registered for this organization. Use query-dbt-semantic-metric for dbt Semantic Layer metrics.",
       ),
       method: MethodSchema.default("GET").describe("HTTP method to use."),
       path: z
@@ -212,12 +217,6 @@ export default createProviderApiRequestAction(
           "Enable cursor-based pagination. After each response, reads cursorPath from the JSON body and re-issues the request with cursorParam or cursorBodyPath set, accumulating items from itemsPath (or whole bodies) until cursor is empty or maxPages is reached. Combine with saveToFile to write the full dataset to a workspace file; use scratch/... for temporary staging.",
         ),
     }),
-    // Mounted over HTTP (POST) so the agent and frontend (`useActionMutation`)
-    // can reach it, consistent with provider-api-catalog / provider-api-docs.
-    // toolCallable: false blocks the extension iframe bridge — this action
-    // accepts arbitrary methods (PUT/DELETE/etc.) against provider APIs, so
-    // allowing shared extensions to call it would let malicious extension authors
-    // mutate provider data under the opener's credentials.
     http: { method: "POST" },
     toolCallable: false,
     appId: ANALYTICS_APP_ID,

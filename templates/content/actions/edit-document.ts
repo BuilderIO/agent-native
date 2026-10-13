@@ -1,12 +1,10 @@
+import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import {
-  agentTouchDocument,
-  hasCollabState,
-  searchAndReplace,
-} from "@agent-native/core/collab";
+import { agentTouchDocument } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
   recordGenerationCreativeContext,
@@ -18,18 +16,50 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  documentEditAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
+import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import { applyDocumentTextEdits } from "../shared/document-text-edits.js";
 import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
+import {
+  observeDocumentEditOutcome,
+  recordContentSaveOutcome,
+  type ContentSaveOutcomeDimensions,
+} from "./_content-save-outcomes.js";
+import { mutateDocumentBody } from "./_document-edit-mutation.js";
 import { editLinkedLocalDocumentThroughBrowser } from "./_linked-local-document-edit.js";
 
 interface TextEdit {
   find: string;
   replace: string;
 }
+
+const textEditsSchema = z.preprocess(
+  (value) => {
+    if (typeof value !== "string") return value;
+    try {
+      return JSON.parse(value);
+    } catch (error) {
+      throw new Error(
+        `Invalid --edits JSON: ${error instanceof Error ? error.message : "Unable to parse JSON"}`,
+      );
+    }
+  },
+  z.array(
+    z.object({
+      find: z.string().min(1),
+      replace: z.string().default(""),
+    }),
+  ),
+);
 
 const reuseLabelSchema = z.object({
   itemId: z.string().min(1).optional(),
@@ -43,91 +73,333 @@ const reuseLabelSchema = z.object({
     .optional(),
 });
 
+const editDocumentSchema = z.object({
+  id: z
+    .string()
+    .optional()
+    .describe("Stable ID of the document to edit (required)."),
+  baseRevision: z
+    .string()
+    .optional()
+    .describe(
+      "Opaque revision returned by get-document for the exact body being edited.",
+    ),
+  idempotencyKey: z
+    .string()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe("Caller-generated stable key for one logical document edit."),
+  find: z
+    .string()
+    .optional()
+    .describe("Exact non-empty text to replace in single-edit mode."),
+  replace: z
+    .string()
+    .optional()
+    .describe(
+      'Replacement text in single-edit mode; omit to delete the matched text (default: ""). ' +
+        'Plain Markdown body, no admonition/callout shorthand like "> [!TIP]" — use <callout icon="💡">...</callout> with the body indented one tab.',
+    ),
+  edits: textEditsSchema
+    .optional()
+    .describe(
+      "JSON array of {find, replace} objects for a snapshot-stable batch; use instead of find/replace.",
+    ),
+  initializeContent: z
+    .string()
+    .min(1)
+    .refine((value) => value.trim().length > 0, {
+      message: "initializeContent must contain non-whitespace content.",
+    })
+    .optional()
+    .describe(
+      "Exact Markdown containing non-whitespace content, used only to initialize a literally empty document body; mutually exclusive with find, replace, and edits.",
+    ),
+  contextPackId: z
+    .string()
+    .optional()
+    .describe("Exact Creative Context pack used for this edit."),
+  contextModeOverride: z
+    .literal("off")
+    .optional()
+    .describe(
+      "Disable Creative Context for this edit only without changing the saved preference.",
+    ),
+  reuseLabels: z
+    .array(reuseLabelSchema)
+    .optional()
+    .default([])
+    .describe("Exact item versions that influenced this document edit."),
+});
+
+const externalEditDocumentSchema = editDocumentSchema.extend({
+  id: z.string().min(1).describe("Stable ID of the document to edit."),
+  baseRevision: z
+    .string()
+    .min(1)
+    .describe(
+      "Required. Opaque revision returned by get-document for the exact body being edited.",
+    ),
+  idempotencyKey: z
+    .string()
+    .min(1)
+    .max(200)
+    .describe(
+      "Required. Caller-generated stable key for one logical document edit.",
+    ),
+});
+
+async function resolveEditCreativeContext(args: {
+  documentId: string;
+  contextPackId?: string;
+  contextModeOverride?: "off";
+  reuseLabels: CreativeContextReuseLabel[];
+}) {
+  const previousGeneration =
+    args.contextModeOverride === "off"
+      ? null
+      : await getGenerationCreativeContext({
+          appId: "content",
+          artifactType: "document",
+          artifactId: args.documentId,
+        });
+  if (
+    !previousGeneration &&
+    !args.contextPackId &&
+    !args.contextModeOverride &&
+    !args.reuseLabels.length
+  ) {
+    return undefined;
+  }
+  if (
+    args.contextPackId !== undefined &&
+    previousGeneration?.contextPackId &&
+    args.contextPackId !== previousGeneration.contextPackId
+  ) {
+    throw new Error(
+      "The document edit must preserve the document's creative-context pack",
+    );
+  }
+  const requestedLabels: CreativeContextReuseLabel[] = args.reuseLabels.length
+    ? args.reuseLabels
+    : [
+        {
+          kind: "document",
+          label: "Net-new document edit",
+          dataRole: "untrusted-reference",
+          elementId: args.documentId,
+          influence: "generated",
+        },
+      ];
+  const validated = await validateGenerationCreativeContext({
+    contextPackId: args.contextPackId ?? previousGeneration?.contextPackId,
+    contextPackSource:
+      args.contextPackId === undefined ? "inherited" : "explicit",
+    contextModeOverride: args.contextModeOverride,
+    reuseLabels: requestedLabels,
+    reuseLabelsSource: args.reuseLabels.length ? "explicit" : "inherited",
+  });
+  const elementProvenance = validated.reuseLabels.map((label) => ({
+    elementId: args.documentId,
+    influence: label.influence ?? ("reference-conditioned" as const),
+    ...(label.itemId ? { itemId: label.itemId } : {}),
+    ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
+    label: label.label,
+  }));
+  const contextMode =
+    validated.contextMode === "off"
+      ? "off"
+      : (previousGeneration?.contextMode ?? validated.contextMode);
+  return {
+    contextMode,
+    contextPackId: validated.contextPackId,
+    reuseLabels: validated.reuseLabels,
+    elementProvenance:
+      contextMode === "off"
+        ? elementProvenance
+        : replaceCreativeContextElementProvenance(
+            previousGeneration?.elementProvenance ?? [],
+            elementProvenance,
+          ),
+  };
+}
+
 export default defineAction({
   description:
-    "Surgically edit document content using search-and-replace. Preferred over update-document for modifications.",
-  schema: z.object({
-    id: z.string().optional().describe("Document ID (required)"),
-    find: z.string().optional().describe("Text to find (single edit mode)"),
-    replace: z
-      .string()
-      .optional()
-      .describe('Replacement text (single edit mode, default: "")'),
-    edits: z
-      .string()
-      .optional()
-      .describe("JSON array of {find, replace} objects (batch mode)"),
-    contextPackId: z
-      .string()
-      .optional()
-      .describe("Exact Creative Context pack used for this edit."),
-    contextModeOverride: z
-      .literal("off")
-      .optional()
-      .describe(
-        "Disable Creative Context for this edit only without changing the saved preference.",
-      ),
-    reuseLabels: z
-      .array(reuseLabelSchema)
-      .optional()
-      .default([])
-      .describe("Exact item versions that influenced this document edit."),
-  }),
+    "Edit an existing document's Markdown with exact search-and-replace operations, or initialize a literally empty body with initializeContent. Every find string must match exactly once in the immutable base. First call get-document, then pass its baseRevision and a caller-generated idempotencyKey.",
+  deferLoading: false,
+  mcpTool: true,
+  agentInputSchema: externalEditDocumentSchema,
+  schema: editDocumentSchema,
   http: false,
-  run: async (args, ctx) => {
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  changeResource: (input) => documentChangeResource(input.id),
+  run: observeDocumentEditOutcome(async (args, ctx, measurement) => {
+    const countOutcome = (
+      outcome: ContentSaveOutcomeDimensions["outcome"],
+      historyEffect: ContentSaveOutcomeDimensions["history_effect"],
+      reasonCode?: string,
+    ) => {
+      measurement.settled = true;
+      recordContentSaveOutcome("edit_document", {
+        outcome,
+        origin: "agent",
+        stale_base: "unknown",
+        history_effect: historyEffect,
+        reason_code: reasonCode,
+      });
+    };
     const id = args.id;
     if (!id) throw new Error("--id is required");
+    const actor = requireDocumentRequestActor(ctx);
 
-    // Only publish AI presence for genuine agent invocations (in-app tool loop,
-    // sub-agents/A2A → "tool"; external MCP agents → "mcp"). A browser or
-    // programmatic call must never light the "AI editing" flag.
     const isAgentCaller =
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
 
-    let edits: TextEdit[];
+    let edits: TextEdit[] = [];
+    const initializesBody = args.initializeContent !== undefined;
 
-    if (args.edits) {
-      try {
-        edits = JSON.parse(args.edits);
-        if (!Array.isArray(edits))
-          throw new Error("--edits must be a JSON array");
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Unable to parse JSON";
-        throw new Error(`Invalid --edits JSON: ${message}`);
-      }
+    if (
+      initializesBody &&
+      (args.find !== undefined ||
+        args.replace !== undefined ||
+        args.edits !== undefined)
+    ) {
+      throw new ActionContractError(
+        "initializeContent is mutually exclusive with find, replace, and edits.",
+        { errorCode: "DOCUMENT_EDIT_MODE_CONFLICT", statusCode: 400 },
+      );
+    }
+
+    if (initializesBody) {
+      edits = [];
+    } else if (Array.isArray(args.edits)) {
+      edits = args.edits;
+    } else if (args.edits !== undefined) {
+      throw new Error("--edits must be a JSON array");
     } else if (args.find !== undefined) {
       if (!args.find) throw new Error("--find cannot be empty");
       edits = [{ find: args.find, replace: args.replace ?? "" }];
     } else {
-      throw new Error("Either --find or --edits is required");
-    }
-
-    for (const edit of edits) {
-      if (!edit.find)
-        throw new Error("Each edit must have a non-empty 'find' field");
-      if (edit.replace === undefined) edit.replace = "";
+      throw new ActionContractError(
+        "One of initializeContent, find, or edits is required.",
+        { errorCode: "DOCUMENT_EDIT_MODE_REQUIRED", statusCode: 400 },
+      );
     }
 
     const access = await assertAccess("document", id, "editor");
     const existing = access.resource;
+    const isExternalCaller =
+      ctx?.caller === "tool" ||
+      ctx?.caller === "mcp" ||
+      ctx?.caller === "webmcp" ||
+      ctx?.caller === "a2a";
+    const suppliesRevisionProtocol =
+      args.baseRevision !== undefined || args.idempotencyKey !== undefined;
+    const usesRevisionProtocol =
+      isExternalCaller || initializesBody || suppliesRevisionProtocol;
+    if (usesRevisionProtocol) {
+      if (!args.baseRevision || !args.idempotencyKey) {
+        throw new ActionContractError(
+          "External document edits require baseRevision and idempotencyKey from get-document.",
+          { errorCode: "DOCUMENT_EDIT_PROTOCOL_REQUIRED", statusCode: 400 },
+        );
+      }
+      if (!ctx) {
+        throw new ActionContractError(
+          "Revisioned document edits require an authenticated caller context.",
+          { errorCode: "CALLER_SCOPE_REQUIRED", statusCode: 401 },
+        );
+      }
+      const isLinkedLocalSource =
+        existing.sourceMode === "local-files" &&
+        existing.sourceKind !== "folder" &&
+        Boolean(existing.sourcePath) &&
+        !id.startsWith("local-file:") &&
+        !id.startsWith("local-folder:");
+      if (isLinkedLocalSource) {
+        throw new ActionContractError(
+          "Revisioned external edits are unavailable for linked-local documents because the source-file write cannot share the SQL receipt transaction.",
+          {
+            errorCode: "LINKED_LOCAL_REVISION_PROTOCOL_UNAVAILABLE",
+            statusCode: 409,
+          },
+        );
+      }
+      const mutation = initializesBody
+        ? { initializeContent: args.initializeContent as string }
+        : { edits };
+      measurement.settled = true;
+      const result = await mutateDocumentBody({
+        documentId: id,
+        baseRevision: args.baseRevision,
+        idempotencyKey: args.idempotencyKey,
+        ...mutation,
+        creativeContextDigest: {
+          contextPackId: args.contextPackId ?? null,
+          contextModeOverride: args.contextModeOverride ?? null,
+          reuseLabels: args.reuseLabels,
+        },
+        resolveCreativeContext: () =>
+          resolveEditCreativeContext({
+            documentId: id,
+            contextPackId: args.contextPackId,
+            contextModeOverride: args.contextModeOverride,
+            reuseLabels: args.reuseLabels,
+          }),
+        ctx,
+      });
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      if (isAgentCaller) {
+        try {
+          agentTouchDocument(id, {
+            edit: {
+              descriptor: {
+                kind: "text",
+                quote:
+                  args.initializeContent?.slice(0, 80) ??
+                  edits?.[0]?.replace.slice(0, 80) ??
+                  "",
+              },
+              label: existing.title || undefined,
+            },
+          });
+        } catch (error) {
+          console.error("edit-document: agent presence publish failed", error);
+        }
+      }
+      if (isAgentCaller && result.applied > 0) {
+        track(
+          "ai_refine_used",
+          {
+            app_name: "content",
+            template_name: "content",
+            output_id: id,
+            output_type: "document",
+            edit_count: result.applied,
+            refine_type: initializesBody ? "full_update" : "exact_replace",
+          },
+          ctx,
+        );
+      }
+      return result;
+    }
 
-    // ─── Apply edits to the document markdown ───────────────────────────────
-    //
-    // Native documents edit canonical `documents.content`. A linked local file
-    // instead commits through its exact live source bridge before SQL mirrors
-    // the accepted bytes. The SQL change is delivered to open editors through
-    // normal change-sync and parsed through the real editor pipeline so new
-    // block structure renders correctly and merges through Yjs.
-    //
-    // (The old approach POSTed a Yjs search-replace to a localhost collab origin,
-    // which silently no-oped on serverless — different process, no localhost —
-    // and could only patch text inside existing nodes, never create structure.)
     const applied = applyDocumentTextEdits(existing.content ?? "", edits);
     let { content } = applied;
-    const { results, appliedEdits, changeCount } = applied;
+    const { results, changeCount } = applied;
 
     if (changeCount === 0) {
+      countOutcome(
+        edits.length === 0 ? "unchanged" : "refusal",
+        "none",
+        edits.length === 0 ? undefined : "EDIT_MATCH_MISSING",
+      );
       return { applied: 0, total: edits.length, results };
     }
 
@@ -155,91 +427,12 @@ export default defineAction({
         }
       | undefined;
 
-    const previousGeneration =
-      args.contextModeOverride === "off"
-        ? null
-        : await getGenerationCreativeContext({
-            appId: "content",
-            artifactType: "document",
-            artifactId: id,
-          });
-    let creativeContext:
-      | {
-          contextMode: "off" | "auto" | "pinned";
-          contextPackId: string | null;
-          reuseLabels: CreativeContextReuseLabel[];
-          elementProvenance: Array<{
-            elementId: string;
-            influence:
-              | "reused"
-              | "adapted"
-              | "reference-conditioned"
-              | "generated";
-            itemId?: string;
-            itemVersionId?: string;
-            label?: string;
-          }>;
-        }
-      | undefined;
-    if (
-      previousGeneration ||
-      args.contextPackId ||
-      args.contextModeOverride ||
-      args.reuseLabels.length
-    ) {
-      if (
-        args.contextPackId !== undefined &&
-        previousGeneration?.contextPackId &&
-        args.contextPackId !== previousGeneration.contextPackId
-      ) {
-        throw new Error(
-          "The document edit must preserve the document's creative-context pack",
-        );
-      }
-      const requestedLabels: CreativeContextReuseLabel[] = args.reuseLabels
-        .length
-        ? args.reuseLabels
-        : [
-            {
-              kind: "document",
-              label: "Net-new document edit",
-              dataRole: "untrusted-reference",
-              elementId: id,
-              influence: "generated",
-            },
-          ];
-      const validated = await validateGenerationCreativeContext({
-        contextPackId: args.contextPackId ?? previousGeneration?.contextPackId,
-        contextPackSource:
-          args.contextPackId === undefined ? "inherited" : "explicit",
-        contextModeOverride: args.contextModeOverride,
-        reuseLabels: requestedLabels,
-        reuseLabelsSource: args.reuseLabels.length ? "explicit" : "inherited",
-      });
-      const elementProvenance = validated.reuseLabels.map((label) => ({
-        elementId: id,
-        influence: label.influence ?? ("reference-conditioned" as const),
-        ...(label.itemId ? { itemId: label.itemId } : {}),
-        ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
-        label: label.label,
-      }));
-      const contextMode =
-        validated.contextMode === "off"
-          ? "off"
-          : (previousGeneration?.contextMode ?? validated.contextMode);
-      creativeContext = {
-        contextMode,
-        contextPackId: validated.contextPackId,
-        reuseLabels: validated.reuseLabels,
-        elementProvenance:
-          contextMode === "off"
-            ? elementProvenance
-            : replaceCreativeContextElementProvenance(
-                previousGeneration?.elementProvenance ?? [],
-                elementProvenance,
-              ),
-      };
-    }
+    const creativeContext = await resolveEditCreativeContext({
+      documentId: id,
+      contextPackId: args.contextPackId,
+      contextModeOverride: args.contextModeOverride,
+      reuseLabels: args.reuseLabels,
+    });
 
     const isLinkedLocalSource =
       existing.sourceMode === "local-files" &&
@@ -250,6 +443,7 @@ export default defineAction({
     if (isLinkedLocalSource) {
       const ownerEmail = getRequestUserEmail();
       if (!ownerEmail) {
+        countOutcome("refusal", "none", "local_source_unavailable");
         return {
           applied: 0,
           total: edits.length,
@@ -290,6 +484,7 @@ export default defineAction({
         receipt.status !== "source-persisted/history-pending" &&
         receipt.status !== "source-persisted/readback-pending"
       ) {
+        countOutcome("refusal", "none", "local_source_refused");
         return {
           applied: 0,
           total: edits.length,
@@ -306,10 +501,8 @@ export default defineAction({
       };
     }
 
-    // Persist. The fresh updatedAt is the signal the open editor uses to tell an
-    // intentional external edit apart from a stale autosave echo.
     const db = getDb();
-    const now = new Date().toISOString();
+    const now = nextDocumentUpdatedAt(existing.updatedAt);
     try {
       await db.transaction(async (tx: any) => {
         const primaryBlocksFields = await lockPrimaryBlocksFields(tx, id);
@@ -317,6 +510,8 @@ export default defineAction({
           .update(schema.documents)
           .set({
             content,
+            bodyRevision: existing.bodyRevision + 1,
+            ...documentEditAttribution(actor),
             updatedAt: now,
             ...(linkedLocalReconciliationDocument ?? {}),
           })
@@ -343,6 +538,18 @@ export default defineAction({
             now,
           });
         }
+        await recordDocumentHistoryTransition({
+          db: tx as unknown as ReturnType<typeof getDb>,
+          ownerEmail: existing.ownerEmail as string,
+          documentId: id,
+          before: {
+            title: existing.title,
+            content: existing.content ?? "",
+          },
+          after: { title: existing.title, content },
+          cause: { ctx, operation: "edit-document" },
+          now,
+        });
         if (creativeContext) {
           await recordGenerationCreativeContext(
             {
@@ -357,6 +564,7 @@ export default defineAction({
       });
     } catch (error) {
       if (!linkedLocalPersistence) throw error;
+      countOutcome("applied", "none", "source_persisted_history_pending");
       return {
         applied: changeCount,
         total: edits.length,
@@ -371,6 +579,11 @@ export default defineAction({
     }
 
     if (linkedLocalHistoryReconciliation) {
+      countOutcome(
+        "refusal",
+        "transition",
+        "source_persisted_history_reconciled",
+      );
       return {
         applied: 0,
         total: edits.length,
@@ -382,41 +595,47 @@ export default defineAction({
       };
     }
 
-    // Make the agent edit VISIBLE as a live collaborator. Content's collab doc
-    // binds the TipTap Y.XmlFragment("default"), so a live editing session is
-    // patched surgically through `searchAndReplace` (which also auto-publishes
-    // agent presence + a lingering recent-edit highlight on the changed text).
-    // When no collab session exists (no editor open, XmlFragment unseeded) the
-    // SQL write above is authoritative and reconciles on next open; we still
-    // touch agent presence best-effort so a viewer who opens the doc mid-linger
-    // sees the AI flag. All of this is wrapped so presence never fails the edit.
+    countOutcome(
+      "applied",
+      "transition",
+      linkedLocalPersistence?.status === "source-persisted/readback-pending"
+        ? "local_source_readback_pending"
+        : undefined,
+    );
+
     if (isAgentCaller) {
       try {
-        if (await hasCollabState(id)) {
-          for (const edit of appliedEdits) {
-            await searchAndReplace(id, edit.find, edit.replace, "agent");
-          }
-        } else {
-          const firstChange = appliedEdits.find((e) => e.replace)?.replace;
-          agentTouchDocument(id, {
-            edit: {
-              descriptor: {
-                kind: "text",
-                quote: (firstChange ?? appliedEdits[0]?.find ?? "").slice(
-                  0,
-                  80,
-                ),
-              },
-              label: existing.title || undefined,
+        const firstChange = edits.find((edit) => edit.replace)?.replace;
+        agentTouchDocument(id, {
+          edit: {
+            descriptor: {
+              kind: "text",
+              quote: (firstChange ?? edits[0]?.find ?? "").slice(0, 80),
             },
-          });
-        }
+            label: existing.title || undefined,
+          },
+        });
       } catch (error) {
         console.error("edit-document: agent presence publish failed", error);
       }
     }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
+
+    if (isAgentCaller && changeCount > 0) {
+      track(
+        "ai_refine_used",
+        {
+          app_name: "content",
+          template_name: "content",
+          output_id: id,
+          output_type: "document",
+          edit_count: changeCount,
+          refine_type: "exact_replace",
+        },
+        ctx,
+      );
+    }
 
     return {
       applied: changeCount,
@@ -438,5 +657,5 @@ export default defineAction({
           }
         : {}),
     };
-  },
+  }),
 });

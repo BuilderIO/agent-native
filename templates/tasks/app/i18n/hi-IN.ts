@@ -30,11 +30,6 @@ const messages = {
     pageExtension: "एक्सटेंशन",
     pageExtensions: "एक्सटेंशन्स",
   },
-  settings: {
-    languageTitle: "भाषा",
-    languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
-    languageLabel: "इंटरफ़ेस भाषा",
-  },
   agent: {
     emptyState: "इस ऐप का निरीक्षण करने या इसे बदलने के लिए एजेंट से पूछें।",
     suggestionCalendar: "मेरा कैलेंडर और मेल जांचें - क्या आज के लिए कोई कार्य हैं?",
@@ -153,6 +148,11 @@ const messages = {
     },
   },
   taskFields: {
+    suggestRoute: "कतार सुझाएँ",
+    noQueueMatch: "कोई उपयुक्त कतार नहीं",
+    urgentProbability: "तात्कालिकता की संभावना {{percent}}%",
+    applyRoute: "कतार लागू करें",
+    routingError: "कतार सुझाई नहीं जा सकी।",
     panelTitle: "फ़ील्ड्स",
     panelSubtitle: "कार्य विवरण",
     closeLabel: "फ़ील्ड पैनल बंद करें",

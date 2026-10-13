@@ -10,6 +10,7 @@
  * the raw secret never enters the model's context.
  */
 
+import { fail, isActionContractError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import {
@@ -119,33 +120,19 @@ function applyBrowserDefaults(
 }
 
 export interface FetchToolOptions {
-  /** Resolve ${keys.NAME} references. Injected by the plugin at setup time. */
   resolveKeys?: (text: string) => Promise<{
     resolved: string;
     usedKeys: string[];
     secretValues?: string[];
-    /**
-     * Optional: which scope (user/org/workspace) each used key actually
-     * resolved at. Populated by resolvers like
-     * `resolveKeyReferencesWithRequestScopes` so `validateUrl` can look up
-     * the allowlist at the scope the value came from rather than assuming
-     * user scope. Backwards compatible — callers that omit this (or a
-     * resolver that doesn't report it) are unaffected.
-     */
     resolvedKeys?: ResolvedKeyReference[];
   }>;
-  /** Validate URL against per-key allowlists. */
   validateUrl?: (
     url: string,
     usedKeys: string[],
-    /** Accumulated `resolvedKeys` from every `resolveKeys` call this request made, when the resolver reported them. */
     resolvedKeys?: ResolvedKeyReference[],
   ) => Promise<boolean>;
 }
 
-/**
- * Create the fetch tool entry for the agent tool registry.
- */
 export function createFetchToolEntry(
   opts: FetchToolOptions = {},
 ): Record<string, ActionEntry> {
@@ -251,7 +238,10 @@ export function createFetchToolEntry(
         const rawUrl = String(args.url ?? "");
         const method = normalizeExtensionProxyMethod(args.method || "GET");
         if (!method) {
-          return "Unsupported HTTP method. Allowed methods: GET, POST, PUT, PATCH, DELETE, HEAD.";
+          fail(
+            "Unsupported HTTP method. Allowed methods: GET, POST, PUT, PATCH, DELETE, HEAD.",
+            { errorCode: "web_request_invalid_method" },
+          );
         }
         const rawHeaders =
           typeof args.headers === "string"
@@ -273,7 +263,6 @@ export function createFetchToolEntry(
             ? Math.min(requestedMaxChars, 200_000)
             : 32_000;
 
-        // Resolve key references
         let resolvedUrl = rawUrl;
         let resolvedHeaders = rawHeaders;
         let resolvedBody = rawBody;
@@ -303,7 +292,9 @@ export function createFetchToolEntry(
               allResolvedKeys.push(...(bodyResult.resolvedKeys ?? []));
             }
           } catch (err: any) {
-            return `Error resolving key references: ${err?.message ?? err}`;
+            fail(`Error resolving key references: ${err?.message ?? err}`, {
+              errorCode: "web_request_key_resolution_failed",
+            });
           }
         }
         const secretValues = collectSecretValues(allSecretValues);
@@ -311,12 +302,13 @@ export function createFetchToolEntry(
           ? allResolvedKeys
           : undefined;
 
-        // Block SSRF targets regardless of key usage
         if (await isBlockedExtensionUrlWithDns(resolvedUrl)) {
-          return `Requests to private/internal addresses are not allowed: "${rawUrl}".`;
+          fail(
+            `Requests to private/internal addresses are not allowed: "${rawUrl}".`,
+            { errorCode: "web_request_url_blocked" },
+          );
         }
 
-        // Validate URL against per-key allowlists
         if (opts.validateUrl && allUsedKeys.length > 0) {
           try {
             const allowed = await opts.validateUrl(
@@ -325,28 +317,29 @@ export function createFetchToolEntry(
               resolvedKeys,
             );
             if (!allowed) {
-              return `URL "${rawUrl}" is not in the allowlist for the referenced keys. Check your key settings.`;
+              fail(
+                `URL "${rawUrl}" is not in the allowlist for the referenced keys. Check your key settings.`,
+                { errorCode: "web_request_url_blocked" },
+              );
             }
           } catch (err: any) {
-            return `URL validation error: ${err?.message ?? err}`;
+            if (isActionContractError(err)) throw err;
+            fail(`URL validation error: ${err?.message ?? err}`, {
+              errorCode: "web_request_url_validation_failed",
+            });
           }
         }
 
-        // Parse headers, then merge in browser-like defaults for any header the
-        // caller didn't already specify. Real-browser headers (User-Agent,
-        // Accept, Sec-Fetch-*) are what gets you past Cloudflare / PerimeterX /
-        // generic UA-sniffing middleware on sites the user pastes in chat;
-        // explicit caller headers always win so API calls keep their auth
-        // headers untouched.
         let headers: Record<string, string>;
         try {
           headers = sanitizeOutboundHeaders(JSON.parse(resolvedHeaders));
         } catch {
-          return `Invalid headers JSON: ${rawHeaders}`;
+          fail(`Invalid headers JSON: ${rawHeaders}`, {
+            errorCode: "web_request_invalid_headers",
+          });
         }
         headers = applyBrowserDefaults(headers);
 
-        // Make the request
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -378,7 +371,9 @@ export function createFetchToolEntry(
               redirectUrl &&
               (await isBlockedExtensionUrlWithDns(redirectUrl))
             ) {
-              return "Redirect to private/internal address blocked.";
+              fail("Redirect to private/internal address blocked.", {
+                errorCode: "web_request_url_blocked",
+              });
             }
             if (redirectUrl && opts.validateUrl && allUsedKeys.length > 0) {
               const allowed = await opts.validateUrl(
@@ -387,21 +382,27 @@ export function createFetchToolEntry(
                 resolvedKeys,
               );
               if (!allowed) {
-                return "Redirect URL is not in the allowlist for the referenced keys.";
+                fail(
+                  "Redirect URL is not in the allowlist for the referenced keys.",
+                  { errorCode: "web_request_url_blocked" },
+                );
               }
             }
-            return `HTTP ${response.status} ${response.statusText}\n\nRedirect: ${
-              redirectUrl ? redactString(redirectUrl, secretValues) : "(none)"
-            }`;
+            fail(
+              `HTTP ${response.status} ${response.statusText}\n\nRedirect: ${
+                redirectUrl ? redactString(redirectUrl, secretValues) : "(none)"
+              }`,
+              { errorCode: `http_${response.status}` },
+            );
           }
 
           const contentType =
             response.headers.get("content-type")?.split(";")[0].trim() ??
             "text/plain";
+          const httpErrorCode = response.ok
+            ? undefined
+            : `http_${response.status}`;
 
-          // A fetched image is useful as model context, not as text decoded
-          // from arbitrary bytes. Pass bounded bytes through the well-known
-          // result-image field so vision providers never refetch this URL.
           const saveToFilePath =
             typeof (args as Record<string, unknown>).saveToFile === "string"
               ? ((args as Record<string, unknown>).saveToFile as string).trim()
@@ -448,21 +449,49 @@ export function createFetchToolEntry(
           }
 
           let body: string;
+          let bodyResult: {
+            text: string;
+            truncated: boolean;
+            size: number;
+          };
           try {
-            // When saving to file allow larger reads (20MB), otherwise cap at proxy limit.
             const readLimit = saveToFilePath
               ? 20 * 1024 * 1024
               : MAX_EXTENSION_PROXY_RESPONSE_SIZE;
-            const result = await readResponseTextWithLimit(response, readLimit);
-            body = result.text;
+            bodyResult = await readResponseTextWithLimit(response, readLimit);
           } catch {
-            body = "(could not read response body)";
+            fail("(could not read response body)", {
+              errorCode: httpErrorCode ?? "web_request_body_unreadable",
+            });
           }
+          if (bodyResult.truncated) {
+            fail(
+              `HTTP ${response.status} ${response.statusText}\n\n${bodyResult.text}`,
+              {
+                errorCode: httpErrorCode ?? "web_request_response_too_large",
+              },
+            );
+          }
+          body = bodyResult.text;
           body = redactString(body, secretValues);
+          if (response.ok) {
+            const { providerApiResponseOutcomeForUrl } =
+              await import("../provider-api/index.js");
+            const outcome = providerApiResponseOutcomeForUrl(
+              resolvedUrl,
+              response,
+              body,
+            );
+            if (!outcome.ok)
+              fail(
+                `HTTP ${response.status} ${outcome.statusText}\n\n${body.slice(0, maxChars)}`,
+                { errorCode: "web_request_provider_failed" },
+              );
+          }
           let displayBody: string;
           let processedMode = "raw";
           try {
-            const processed = processWebContent({
+            const processed = await processWebContent({
               url: resolvedUrl,
               body,
               contentType,
@@ -478,15 +507,16 @@ export function createFetchToolEntry(
             processedMode = processed.mode;
             displayBody = formatWebContentResult(processed);
           } catch (err: any) {
-            return `web-request post-processing error: ${err?.message ?? String(err)}`;
+            fail(
+              `web-request post-processing error: ${err?.message ?? String(err)}`,
+              { errorCode: httpErrorCode ?? "web_request_processing_failed" },
+            );
           }
 
-          // Audit log
           console.log(
             `[fetch-tool] ${method} ${rawUrl} → ${response.status} (${elapsed}ms, keys: ${allUsedKeys.join(",") || "none"})`,
           );
 
-          // saveToFile: write full body to workspace and return compact summary.
           if (saveToFilePath) {
             try {
               const {
@@ -506,6 +536,12 @@ export function createFetchToolEntry(
                   : null;
               if (!scope)
                 throw new Error("No authenticated context for saveToFile");
+              const scratchPath = isScratchWorkspacePath(saveToFilePath);
+              if (!response.ok && !scratchPath) {
+                throw new Error(
+                  `Refusing to save a failed response to durable workspace file "${saveToFilePath}" (status ${response.status}). Use a scratch/... path for diagnostics.`,
+                );
+              }
               const meta = await writeWorkspaceFile(
                 scope,
                 saveToFilePath,
@@ -517,6 +553,11 @@ export function createFetchToolEntry(
               );
               const bytes = Buffer.byteLength(body, "utf8");
               const preview = displayBody.slice(0, 2000);
+              if (!response.ok)
+                fail(
+                  `HTTP ${response.status} ${response.statusText}\n\n${displayBody}`,
+                  { errorCode: `http_${response.status}` },
+                );
               return JSON.stringify({
                 savedToFile: true,
                 savedTo: saveToFilePath,
@@ -526,26 +567,35 @@ export function createFetchToolEntry(
                 responseMode: processedMode,
                 preview:
                   preview.length < displayBody.length ? `${preview}…` : preview,
-                // A durable (non-scratch) file renders a download card the
-                // moment it's created — no separate show-workspace-file call
-                // needed to get a link.
-                ...(isScratchWorkspacePath(saveToFilePath)
-                  ? {}
-                  : { file: toWorkspaceFileCard(meta) }),
+                ...(scratchPath ? {} : { file: toWorkspaceFileCard(meta) }),
               });
             } catch (saveErr: any) {
-              return `saveToFile error: ${saveErr?.message ?? String(saveErr)}\n\nHTTP ${response.status} ${response.statusText}\n\n${body.slice(0, maxChars)}`;
+              if (isActionContractError(saveErr)) throw saveErr;
+              fail(
+                `saveToFile error: ${saveErr?.message ?? String(saveErr)}\n\nHTTP ${response.status} ${response.statusText}\n\n${body.slice(0, maxChars)}`,
+                {
+                  errorCode: httpErrorCode ?? "web_request_save_failed",
+                },
+              );
             }
           }
 
+          if (!response.ok)
+            fail(
+              `HTTP ${response.status} ${response.statusText}\n\n${displayBody}`,
+              { errorCode: `http_${response.status}` },
+            );
           return `HTTP ${response.status} ${response.statusText}\n\n${displayBody}`;
         } catch (err: any) {
+          if (isActionContractError(err)) throw err;
           const elapsed = Date.now() - startTime;
           if (err?.name === "AbortError") {
             console.log(
               `[fetch-tool] ${method} ${rawUrl} → TIMEOUT (${elapsed}ms)`,
             );
-            return `Request timed out after ${timeoutMs}ms.`;
+            fail(`Request timed out after ${timeoutMs}ms.`, {
+              errorCode: "web_request_timeout",
+            });
           }
           const message = redactSecrets(
             err?.message ?? String(err),
@@ -554,7 +604,9 @@ export function createFetchToolEntry(
           console.log(
             `[fetch-tool] ${method} ${rawUrl} → ERROR: ${message} (${elapsed}ms)`,
           );
-          return `Request failed: ${message}`;
+          fail(`Request failed: ${message}`, {
+            errorCode: "web_request_failed",
+          });
         } finally {
           clearTimeout(timeout);
         }

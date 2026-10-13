@@ -8,16 +8,18 @@ import type {
 } from "@/pages/design-editor/command-types";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import { runtimeMultiplicityForElementProvenance } from "@/pages/design-editor/editor-helpers";
-import { MAX_DESIGN_UNDO_STACK } from "@/pages/design-editor/history";
 import type {
   PendingLiveNonStyleEdit,
   PendingLiveNonStyleUndoEntry,
   PendingLiveStructureUndoEntry,
   PendingLiveTextEdit,
+  PendingRelativeStyleOperation,
   PendingVisualStyleUndoEntry,
 } from "@/pages/design-editor/pending-edits";
 import {
-  mergePendingLiveNonStyleEdits,
+  appendPendingLiveNonStyleUndoEntry,
+  mergePendingLiveNonStyleEdit,
+  nextPendingLiveEditTimestamp,
   pendingLiveTextUndoRevertValue,
   reactSourceAnchorForPendingEdit,
 } from "@/pages/design-editor/pending-edits";
@@ -26,6 +28,7 @@ import type { DesignFile } from "@/pages/design-editor/types";
 export interface RecordPendingLiveTextEditArgs {
   activeFile: DesignFile;
   canEditDesign: boolean;
+  canEditLiveScreens?: ReadonlySet<string>;
   cancelPendingStructureVerification: (
     nextStatus?: PendingStructureVerificationStatus,
   ) => void;
@@ -40,6 +43,11 @@ export interface RecordPendingLiveTextEditArgs {
   >;
   pendingStructureRedoReplayTimerRef: RefObject<number | undefined>;
   pendingVisualStyleRedoStackRef: RefObject<PendingVisualStyleUndoEntry[]>;
+  recordPendingHistoryEntry?: (
+    kind: "pending-style" | "pending-live",
+    replayedRedo?: boolean,
+  ) => void;
+  canCoalescePendingLiveEdit?: () => boolean;
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
   selectedElement: ElementInfo | null;
   setPendingLiveNonStyleEdits: Dispatch<
@@ -51,6 +59,7 @@ export function runRecordPendingLiveTextEdit(
   {
     activeFile,
     canEditDesign,
+    canEditLiveScreens,
     cancelPendingStructureVerification,
     files,
     localhostConnectionRootPathByIdRef,
@@ -61,6 +70,8 @@ export function runRecordPendingLiveTextEdit(
     pendingStructureRedoReplayRef,
     pendingStructureRedoReplayTimerRef,
     pendingVisualStyleRedoStackRef,
+    recordPendingHistoryEntry,
+    canCoalescePendingLiveEdit,
     runtimeLayerSnapshotsById,
     selectedElement,
     setPendingLiveNonStyleEdits,
@@ -73,9 +84,11 @@ export function runRecordPendingLiveTextEdit(
     html?: string;
     originalValue?: string;
     originalHtml?: string;
+    routePath?: string;
+    relativeOperations?: Record<string, PendingRelativeStyleOperation>;
   },
 ) {
-  if (!canEditDesign) return;
+  if (!canEditDesign && !canEditLiveScreens?.has(screenId)) return;
   const screen = files.find((file) => file.id === screenId);
   const fallbackName = screen?.filename ?? screenId;
   const sourceId =
@@ -104,6 +117,7 @@ export function runRecordPendingLiveTextEdit(
     filename: fallbackName,
     screenName: prettyScreenName(fallbackName),
     selector,
+    ...(details?.routePath ? { routePath: details.routePath } : {}),
     sourceId,
     sourceAnchor: reactSourceAnchorForPendingEdit({
       info: elementInfo,
@@ -125,27 +139,34 @@ export function runRecordPendingLiveTextEdit(
     classes: elementInfo?.classes ?? [],
     value,
     html: details?.html,
+    ...(details?.relativeOperations
+      ? { relativeOperations: details.relativeOperations }
+      : {}),
     originalValue,
     originalHtml,
-    updatedAt: Date.now(),
+    updatedAt: nextPendingLiveEditTimestamp(),
   };
   const revert = pendingLiveTextUndoRevertValue(
     pendingLiveNonStyleEditsRef.current,
     nextEdit,
   );
-  pendingLiveNonStyleUndoStackRef.current = [
-    ...pendingLiveNonStyleUndoStackRef.current.slice(
-      -(MAX_DESIGN_UNDO_STACK - 1),
-    ),
+  const previousUndoLength = pendingLiveNonStyleUndoStackRef.current.length;
+  appendPendingLiveNonStyleUndoEntry(
+    pendingLiveNonStyleUndoStackRef.current,
     {
       kind: "text",
       edit: nextEdit,
       revertValue: revert.value,
       revertHtml: revert.html,
     },
-  ];
-  const nextPending = mergePendingLiveNonStyleEdits(
-    pendingLiveNonStyleUndoStackRef.current.map((entry) => entry.edit),
+    canCoalescePendingLiveEdit?.() ?? true,
+  );
+  if (pendingLiveNonStyleUndoStackRef.current.length > previousUndoLength) {
+    recordPendingHistoryEntry?.("pending-live");
+  }
+  const nextPending = mergePendingLiveNonStyleEdit(
+    pendingLiveNonStyleEditsRef.current,
+    nextEdit,
   );
   pendingLiveNonStyleEditsRef.current = nextPending;
   setPendingLiveNonStyleEdits(nextPending);

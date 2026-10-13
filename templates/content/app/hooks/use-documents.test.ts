@@ -4,11 +4,11 @@ import type { ContentDatabaseItem, Document } from "@shared/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { pageLinkTargetQueryKey } from "./use-content-links";
 import {
   buildDocumentTree,
-  DOCUMENT_QUERY_FRESHNESS_OPTIONS,
   documentUpdateSuccessPatch,
   fetchCompleteDocumentList,
   LIST_DOCUMENTS_QUERY_KEY,
@@ -16,6 +16,8 @@ import {
   documentQueryKey,
   filterDocumentTreeDocuments,
   isDocumentUpdateConflict,
+  isDocumentUpdateSuperseded,
+  isFavoritesDatabaseCache,
   mergeDocumentIntoDocumentCache,
   mergeDocumentIntoListDocumentsCache,
   patchDocumentCaches,
@@ -29,6 +31,7 @@ import {
   setDocumentFavoriteInDatabaseCache,
   setDocumentFavoriteInListCache,
   seedDatabaseItemDocumentCaches,
+  useDocument,
   useDocuments,
 } from "./use-documents";
 
@@ -239,12 +242,57 @@ describe("complete document discovery", () => {
 });
 
 describe("document query freshness", () => {
-  it("always replaces seeded row snapshots before the editor mounts", () => {
-    expect(DOCUMENT_QUERY_FRESHNESS_OPTIONS).toMatchObject({
-      staleTime: 0,
-      refetchOnMount: "always",
-      retry: false,
+  it("always replaces seeded row snapshots before the editor mounts", async () => {
+    const seeded = { ...doc("row-page", null), content: "Seeded snapshot" };
+    const fresh = { ...seeded, content: "Fresh from the server" };
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify(fresh), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    // A client that treats cached data as fresh forever: the seeded snapshot
+    // below only gets replaced if useDocument insists on refetching.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
     });
+    queryClient.setQueryData(documentQueryKey("row-page"), seeded);
+    let editorSees: Document | undefined;
+    function Consumer() {
+      editorSees = useDocument("row-page").data;
+      return null;
+    }
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(Consumer),
+          ),
+        );
+      });
+
+      await vi.waitFor(() =>
+        expect(editorSees?.content).toBe("Fresh from the server"),
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await act(async () => root.unmount());
+      actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      queryClient.clear();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("keeps membership contexts in separate Page query keys", () => {
@@ -405,6 +453,11 @@ describe("mergeDocumentIntoListDocumentsCache", () => {
 });
 
 describe("optimistic document favorites", () => {
+  it("does not treat an unavailable database cache entry as a Favorites response", () => {
+    expect(
+      isFavoritesDatabaseCache({ available: false, reason: "missing" }),
+    ).toBe(false);
+  });
   it("updates array and object list caches without disturbing other pages", () => {
     const favorite = { ...doc("a", null), isFavorite: true };
     expect(
@@ -447,6 +500,39 @@ describe("optimistic document favorites", () => {
     expect(updated.items[0].document.isFavorite).toBe(true);
     expect(updated.items[1].document.isFavorite).toBe(false);
     expect(database.items[0].document.isFavorite).toBe(false);
+  });
+
+  it("updates flat navigation rows without treating them as database rows", () => {
+    const navigation = {
+      items: [
+        {
+          membershipId: "item-a",
+          membershipPosition: 0,
+          documentId: "a",
+          title: "A",
+          icon: null,
+          isFavorite: false,
+        },
+        {
+          membershipId: "item-b",
+          membershipPosition: 1,
+          documentId: "b",
+          title: "B",
+          icon: null,
+          isFavorite: false,
+        },
+      ],
+      pagination: { hasMore: false, limit: 20, nextCursor: null },
+    } as any;
+
+    const updated = patchDocumentInDatabaseCache(navigation, "a", {
+      isFavorite: true,
+    })!;
+    expect(updated.items[0]).toMatchObject({
+      documentId: "a",
+      isFavorite: true,
+    });
+    expect(updated.items[1]).toBe(navigation.items[1]);
   });
 
   it("removes unfavorited pages from a cached Favorites database", () => {
@@ -604,12 +690,37 @@ describe("optimistic document titles", () => {
       "get-content-database",
       { databaseId: "files" },
     ] as const;
+    const databasePageKey = [
+      "action",
+      "query-content-database-items",
+      {
+        documentId: "files-page",
+        limit: 100,
+        tableQuery: {
+          search: "",
+          filters: [],
+          sorts: [{ key: "name", direction: "asc" }],
+          filterMode: "and",
+        },
+      },
+    ] as const;
     queryClient.setQueryData(documentQueryKey("a"), doc("a", null));
     queryClient.setQueryData(
       ["action", "list-documents", undefined],
       [doc("a", null)],
     );
     queryClient.setQueryData(databaseKey, {
+      items: [
+        {
+          id: "item-a",
+          databaseId: "files",
+          position: 0,
+          document: doc("a", null),
+          properties: [],
+        },
+      ],
+    });
+    queryClient.setQueryData(databasePageKey, {
       items: [
         {
           id: "item-a",
@@ -645,6 +756,57 @@ describe("optimistic document titles", () => {
     expect(
       queryClient.getQueryData<any>(databaseKey)?.items[0].document.content,
     ).toBe("Saved body");
+    expect(
+      queryClient.getQueryData<any>(databasePageKey)?.items[0].document.title,
+    ).toBe("Page one");
+  });
+
+  it("renames resolved page-link blocks and breadcrumb ancestors", () => {
+    const queryClient = new QueryClient();
+    const linkKey = pageLinkTargetQueryKey("0123456789abcdef0123456789abcdef");
+    const otherLinkKey = pageLinkTargetQueryKey("other");
+    const sourceKey = [
+      "action",
+      "resolve-content-links",
+      { sourcePaths: ["docs/a.md"] },
+    ];
+    const navigationKey = [
+      "action",
+      "get-content-navigation-context",
+      { id: "child" },
+    ];
+    queryClient.setQueryData(linkKey, {
+      documentId: "a",
+      title: "Old title",
+      icon: null,
+    });
+    queryClient.setQueryData(otherLinkKey, null);
+    queryClient.setQueryData(sourceKey, { links: [], sources: [] });
+    queryClient.setQueryData(navigationKey, {
+      document: doc("child", "a"),
+      path: [
+        { id: "a", parentId: null, title: "Old title" },
+        { id: "child", parentId: "a", title: "Child" },
+      ],
+    });
+
+    patchDocumentCaches(queryClient, "a", { title: "Renamed" });
+
+    expect(queryClient.getQueryData(linkKey)).toEqual({
+      documentId: "a",
+      title: "Renamed",
+      icon: null,
+    });
+    expect(queryClient.getQueryData(otherLinkKey)).toBeNull();
+    expect(queryClient.getQueryData(sourceKey)).toEqual({
+      links: [],
+      sources: [],
+    });
+    expect(
+      queryClient
+        .getQueryData<{ path: Array<{ title: string }> }>(navigationKey)
+        ?.path.map((entry) => entry.title),
+    ).toEqual(["Renamed", "Child"]);
   });
 
   it("patches Page-owned fields across contexts without exchanging memberships", () => {
@@ -722,6 +884,47 @@ describe("mergeDocumentIntoDocumentCache", () => {
         updated,
       ),
     ).toEqual({ ...updated, database });
+  });
+
+  it("copies the authoritative body revision metadata with server content", () => {
+    const current = {
+      ...doc("database-page", null),
+      content: "Local snapshot",
+      revision: "revision-1",
+      bodyRevision: 1,
+      contentHash: "hash-1",
+    };
+    const winning = {
+      ...current,
+      content: "Winning server snapshot",
+      revision: "revision-2",
+      bodyRevision: 2,
+      contentHash: "hash-2",
+    };
+
+    expect(mergeDocumentIntoDocumentCache(current, winning)).toMatchObject({
+      content: "Winning server snapshot",
+      revision: "revision-2",
+      bodyRevision: 2,
+      contentHash: "hash-2",
+    });
+  });
+
+  it("updates suggestion eligibility only when the response carries it", () => {
+    const current = { ...doc("page", null), canSuggest: true };
+
+    expect(
+      mergeDocumentIntoDocumentCache(current, {
+        ...doc("page", null),
+        title: "Updated without capability projection",
+      }),
+    ).toMatchObject({ canSuggest: true });
+    expect(
+      mergeDocumentIntoDocumentCache(current, {
+        ...doc("page", null),
+        canSuggest: false,
+      }),
+    ).toMatchObject({ canSuggest: false });
   });
 
   it("never copies membership or hydration context between query variants", () => {
@@ -835,6 +1038,31 @@ describe("isDocumentUpdateConflict", () => {
   });
 });
 
+describe("isDocumentUpdateSuperseded", () => {
+  it("recognizes a settled editor generation", () => {
+    expect(
+      isDocumentUpdateSuperseded({
+        superseded: true,
+        id: "doc-1",
+        document: { ...doc("doc-1", null), urlPath: "/page/doc-1" } as any,
+        editorSessionId: "tab-one",
+        editGeneration: 4,
+        discardedGeneration: 4,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not treat a normal saved document as superseded", () => {
+    expect(
+      isDocumentUpdateSuperseded({
+        ...doc("doc-1", null),
+        urlPath: "/page/doc-1",
+        softDeletedDatabaseIds: [],
+      } as any),
+    ).toBe(false);
+  });
+});
+
 describe("seedDatabaseItemDocumentCaches", () => {
   it("warms properties without treating a database row snapshot as an editable document", () => {
     const queryClient = new QueryClient();
@@ -875,6 +1103,12 @@ describe("seedDatabaseItemDocumentCaches", () => {
     };
 
     seedDatabaseItemDocumentCaches(queryClient, item);
+    expect(
+      queryClient
+        .getQueryCache()
+        .find({ queryKey: documentPropertiesQueryKey("row-page", "database") })
+        ?.isStaleByTime(30_000),
+    ).toBe(true);
 
     expect(queryClient.getQueryData(documentQueryKey("row-page"))).toBe(
       undefined,
@@ -886,6 +1120,8 @@ describe("seedDatabaseItemDocumentCaches", () => {
     ).toEqual({
       documentId: "row-page",
       databaseId: "database",
+      canEditValues: false,
+      canManageSchema: false,
       properties: item.properties,
     });
   });
@@ -993,6 +1229,8 @@ describe("seedDatabaseItemDocumentCaches", () => {
     ).toEqual({
       documentId: "row-page",
       databaseId: "database",
+      canEditValues: false,
+      canManageSchema: false,
       properties: [],
     });
   });
@@ -1041,6 +1279,8 @@ describe("seedDatabaseItemDocumentCaches", () => {
     ).toEqual({
       documentId: "row-page",
       databaseId: "database",
+      canEditValues: false,
+      canManageSchema: false,
       properties: [],
     });
   });

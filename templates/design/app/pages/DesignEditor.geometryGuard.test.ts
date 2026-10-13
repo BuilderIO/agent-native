@@ -4,18 +4,9 @@ import {
   isSaneCanvasFrameGeometryForPersist,
   MAX_SANE_FRAME_ASPECT_RATIO,
   MAX_SANE_FRAME_DIMENSION_PX,
+  quantizeCanvasFrameGeometryForPersist,
   sanitizeCanvasFrameGeometryForPersist,
 } from "./design-editor/geometry-persistence";
-
-/**
- * Frame-geometry persistence guard: while the overview zoom scalar was
- * corrupted (board zoom-basis flip, displayed zoom 10241.49%), ANY frame
- * interaction translated pointer deltas through the garbage scale and
- * persisted absurd canvasFrames/screenMetadata (observed in the wild:
- * 120x14976) that survived reload. Every canvasFrames persist path now runs
- * through sanitizeCanvasFrameGeometryForPersist; these specs pin the
- * accept/refuse decision.
- */
 
 describe("isSaneCanvasFrameGeometryForPersist", () => {
   it("accepts normal screen-frame geometry", () => {
@@ -72,16 +63,12 @@ describe("isSaneCanvasFrameGeometryForPersist", () => {
   });
 
   it("accepts a long-page frame whose aspect stays within the bound", () => {
-    // 1280 x 19000 → aspect ~14.8, a legitimately long scrolling page.
     expect(
       isSaneCanvasFrameGeometryForPersist({ width: 1280, height: 19000 }),
     ).toBe(true);
   });
 
   it("accepts a very tall but sane-aspect scrolling page beyond the old 20000px cap", () => {
-    // 1440 x 30000 → aspect ~20.8, well under MAX_SANE_FRAME_ASPECT_RATIO (50).
-    // The old 20000px absolute dimension ceiling used to silently revert this
-    // even though it's ordinary long-page content, not corruption.
     expect(30000 / 1440).toBeLessThan(MAX_SANE_FRAME_ASPECT_RATIO);
     expect(
       isSaneCanvasFrameGeometryForPersist({ width: 1440, height: 30000 }),
@@ -122,7 +109,6 @@ describe("sanitizeCanvasFrameGeometryForPersist", () => {
     const result = sanitizeCanvasFrameGeometryForPersist(next, previous);
     expect(result.rejectedFrameIds).toEqual(["screen-1"]);
     expect(result.geometryById["screen-1"]).toEqual(previous["screen-1"]);
-    // Untouched frames pass through unchanged.
     expect(result.geometryById["screen-2"]).toEqual(next["screen-2"]);
   });
 
@@ -202,5 +188,67 @@ describe("sanitizeCanvasFrameGeometryForPersist", () => {
     } finally {
       warnSpy.mockRestore();
     }
+  });
+});
+
+describe("quantizeCanvasFrameGeometryForPersist", () => {
+  it("rounds the fractional coordinates a zoomed gesture produces", () => {
+    expect(
+      quantizeCanvasFrameGeometryForPersist({
+        "screen-1": { x: 192.1, y: 168.4, width: 320.7, height: 640.2 },
+      }),
+    ).toEqual({
+      "screen-1": { x: 192, y: 168, width: 321, height: 640 },
+    });
+  });
+
+  it("quantizes changed coordinates without rounding unchanged fractional fields", () => {
+    const before = {
+      "screen-1": { x: 0.2, y: 0.2, width: 416.2, height: 416.2 },
+      "screen-2": { x: 2000.4, y: 0.6, width: 500.3, height: 700.1 },
+    };
+    expect(
+      quantizeCanvasFrameGeometryForPersist(
+        {
+          "screen-1": { ...before["screen-1"], x: 5.4 },
+          "screen-2": before["screen-2"],
+        },
+        before,
+      ),
+    ).toEqual({
+      "screen-1": { x: 5, y: 0.2, width: 416.2, height: 416.2 },
+      "screen-2": before["screen-2"],
+    });
+  });
+
+  it("leaves rotation and z alone — only x/y/width/height are pixel coordinates", () => {
+    expect(
+      quantizeCanvasFrameGeometryForPersist({
+        "screen-1": { x: 10.6, rotation: 11.5, z: 3 },
+      }),
+    ).toEqual({ "screen-1": { x: 11, rotation: 11.5, z: 3 } });
+  });
+
+  it("returns the same object when every frame is already whole, so a clean board never dirties a save", () => {
+    const geometry = {
+      "screen-1": { x: 0, y: 0, width: 1280, height: 800 },
+    };
+    expect(quantizeCanvasFrameGeometryForPersist(geometry)).toBe(geometry);
+  });
+
+  it("keeps an absent coordinate absent instead of inventing a zero", () => {
+    expect(quantizeCanvasFrameGeometryForPersist({ "screen-1": {} })).toEqual({
+      "screen-1": {},
+    });
+  });
+
+  it("passes a non-finite coordinate through so the sanity guard still sees it", () => {
+    const quantized = quantizeCanvasFrameGeometryForPersist({
+      "screen-1": { x: Number.NaN, y: 5 },
+    });
+    expect(quantized["screen-1"]!.x).toBeNaN();
+    expect(isSaneCanvasFrameGeometryForPersist(quantized["screen-1"]!)).toBe(
+      false,
+    );
   });
 });

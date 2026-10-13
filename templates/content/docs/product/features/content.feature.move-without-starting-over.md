@@ -29,7 +29,7 @@ Import or migrate a foreign corpus with resumable progress, provenance, repair, 
 
 ## Product contract
 
-- **Canonical import model:** Maps Pages, Databases, Properties, Blocks, relationships, files, and metadata into stable Content objects.
+- **Canonical import model:** Maps Pages, Collections, Properties, Blocks, relationships, files, and metadata into stable Content objects.
 - **Provider-specific adapters:** Interpret Notion, local vaults, Builder, Drive, and later formats without making any provider's dialect the core model.
 - **Checkpoint and resume:** Continues large migrations after interruption without duplicating already accepted records.
 - **Identity and deduplication:** Preserves stable source IDs and makes repeated imports repair or update the intended objects.

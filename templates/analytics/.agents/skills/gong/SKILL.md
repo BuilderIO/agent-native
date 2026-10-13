@@ -12,13 +12,15 @@ dive that asks what happened in customer conversations.
 
 ## Actions
 
-- `gong-native-insights` — one provider-native qualitative synthesis operation
-  (`ask_account`, `ask_deal`, or `generate_brief`) through Gong's connected MCP.
-  Use it for themes, risks, summaries, and deck narrative when the native tools
-  are connected. One action invocation makes at most one Gong AI request; omit
-  `operation` to inspect its schemas without spending a credit request, and set
-  `allowCreditRequest=true` only for the one consolidated request you intend to
-  send. Paid calls also require a workspace owner to enable them once with
+- `gong-native-insights` — lists the connected provider-native qualitative
+  synthesis operations (`ask_account`, `ask_deal`, `generate_brief`) and their
+  schemas. It never calls Gong AI or spends a credit request.
+- `run-gong-native-insight` — sends one of those operations through Gong's
+  connected MCP. Use it for themes, risks, summaries, and deck narrative when
+  the native tools are connected. One invocation makes at most one Gong AI
+  request; set `allowCreditRequest=true` only for the one consolidated request
+  you intend to send, and each paid request asks for approval. Paid calls also
+  require a workspace owner to enable them once with
   `configure-gong-native-insights`; the policy defaults off and disabling it
   never blocks the raw evidence path.
 - `account-deep-dive` — first choice for named account/deal deep dives that
@@ -39,7 +41,7 @@ native/indexed search can answer the question.
 
 ## Route Synthesis and Evidence Separately
 
-- Use `gong-native-insights` for qualitative synthesis where Gong may retrieve
+- Use `run-gong-native-insight` for qualitative synthesis where Gong may retrieve
   and analyze evidence internally. Its result is provider synthesis: coverage
   is unknown and raw transcript evidence is unavailable.
 - Use `gong-calls` or `provider-corpus-job` for quotes, exact counts, transcript

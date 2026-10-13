@@ -1,5 +1,3 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
 import { useChangeVersions } from "@agent-native/core/client/hooks";
 import {
   IconFileSearch,
@@ -13,16 +11,12 @@ import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { AutomationCreateDialog } from "../../components/automation-create-dialog";
 import { AutomationDetailsPanel } from "../../components/automation-details-panel";
 import { DispatchShell } from "../../components/dispatch-shell";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../../components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -134,57 +128,24 @@ function useToggleAutomation() {
   });
 }
 
-function CreateAutomationButton() {
+function CreateAutomationButton({ onCreated }: { onCreated: () => void }) {
   const [open, setOpen] = useState(false);
-  const [scope, setScope] = useState<"personal" | "organization">("personal");
-
-  function handleSubmit(text: string) {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    window.dispatchEvent(
-      new CustomEvent("agent-panel:set-mode", {
-        detail: { mode: "chat" },
-      }),
-    );
-    sendToAgentChat({
-      message: trimmed,
-      context: `The user wants to create a new automation. Scope: ${scope}. Use manage-automations with action=define to create it. Ask clarifying questions if needed about what event to trigger on, conditions, and what actions to take.`,
-      submit: true,
-      newTab: true,
-    });
-    setOpen(false);
-  }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button size="sm">
-          <IconPlus size={14} />
-          New automation
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-[min(100vw-2rem,24rem)] p-3">
-        <p className="pb-2 text-sm font-semibold text-foreground">
-          New automation
-        </p>
-        <PromptComposer
-          autoFocus
-          placeholder="Describe what you want to automate..."
-          draftScope="dispatch-automations:create"
-          onSubmit={handleSubmit}
-        />
-        <select
-          value={scope}
-          onChange={(event) =>
-            setScope(event.target.value as "personal" | "organization")
-          }
-          className="mt-2 w-full cursor-pointer rounded-md border border-input bg-background px-3 py-1.5 text-xs text-foreground"
-        >
-          <option value="personal">Personal</option>
-          <option value="organization">Organization</option>
-        </select>
-      </PopoverContent>
-    </Popover>
+    <>
+      <Button size="sm" onClick={() => setOpen(true)}>
+        <IconPlus size={14} />
+        New automation
+      </Button>
+      <AutomationCreateDialog
+        open={open}
+        onOpenChange={setOpen}
+        onCreated={() => {
+          setOpen(false);
+          onCreated();
+        }}
+      />
+    </>
   );
 }
 
@@ -194,6 +155,7 @@ export default function AutomationsRoute() {
   const [query, setQuery] = useState("");
   const automationsQuery = useAutomations();
   const toggleAutomation = useToggleAutomation();
+  const queryClient = useQueryClient();
   const automations = automationsQuery.data ?? [];
   const visibleAutomations = useMemo(
     () =>
@@ -215,6 +177,7 @@ export default function AutomationsRoute() {
         item.event,
         item.schedule,
         item.scheduleDescription,
+        item.webhookPath,
         item.body,
         item.model,
         item.domain,
@@ -227,9 +190,7 @@ export default function AutomationsRoute() {
   }, [ordered, query]);
   const enabledCount = visibleAutomations.filter((item) => item.enabled).length;
   const errorCount = visibleAutomations.filter(
-    (item) =>
-      item.enabled &&
-      (item.lastStatus === "error" || item.lastStatus === "skipped"),
+    (item) => item.enabled && item.lastStatus === "error",
   ).length;
   const pendingToggleIdentity = toggleAutomation.isPending
     ? toggleAutomation.variables
@@ -237,9 +198,6 @@ export default function AutomationsRoute() {
       : null
     : null;
 
-  // URL-backed selection (mirrors dreams.tsx's `?dreamId=`): the currently
-  // open automation lives in `automationId` so it survives reload, Back, and
-  // sharing a link, instead of vanishing local state.
   const selectedAutomationId = searchParams.get("automationId");
   const detailsTarget = selectedAutomationId
     ? (filtered.find(
@@ -248,9 +206,6 @@ export default function AutomationsRoute() {
     : null;
 
   function selectAutomation(item: DispatchAutomationItem) {
-    // Push, don't replace: each row click is an explicit selection the user
-    // should be able to Back out of one step at a time, not a URL
-    // canonicalization that should collapse into the current entry.
     const next = new URLSearchParams(searchParams);
     next.set("automationId", automationIdentity(item));
     setSearchParams(next);
@@ -259,7 +214,7 @@ export default function AutomationsRoute() {
   return (
     <DispatchShell
       title="Automations"
-      description="See scheduled and event-triggered jobs, inspect their checks and past runs, pause them, or ask the agent to create one."
+      description="Create schedule, webhook, or app-event automations, then inspect their checks and past runs."
     >
       <section className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -271,11 +226,12 @@ export default function AutomationsRoute() {
                 className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
               />
               <Input
+                size="sm"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search automations"
                 aria-label="Search automations"
-                className="h-8 pl-8 text-xs"
+                className="pl-8 text-xs"
               />
             </div>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -294,7 +250,8 @@ export default function AutomationsRoute() {
               }}
             >
               <SelectTrigger
-                className="h-8 w-[10.5rem] text-xs"
+                size="sm"
+                className="w-[10.5rem] text-xs"
                 aria-label="Automation view"
               >
                 <SelectValue />
@@ -304,7 +261,14 @@ export default function AutomationsRoute() {
                 <SelectItem value="all">All apps</SelectItem>
               </SelectContent>
             </Select>
-            <CreateAutomationButton />
+            <CreateAutomationButton
+              onCreated={() => {
+                toast.success("Automation created");
+                void queryClient.invalidateQueries({
+                  queryKey: AUTOMATIONS_QUERY_KEY,
+                });
+              }}
+            />
           </div>
         </div>
 
@@ -361,7 +325,14 @@ export default function AutomationsRoute() {
                         </div>
                       </button>
                       {item.lastError ? (
-                        <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-destructive">
+                        <div
+                          className={cn(
+                            "mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs",
+                            item.lastStatus === "skipped"
+                              ? "text-muted-foreground"
+                              : "text-destructive",
+                          )}
+                        >
                           <span className="min-w-0 break-words">
                             {item.lastError}
                           </span>

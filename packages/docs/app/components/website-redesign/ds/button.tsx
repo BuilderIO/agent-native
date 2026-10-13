@@ -13,6 +13,9 @@ export type ButtonVariant =
   | "primary-icon"
   | "secondary"
   | "secondary-icon"
+  // Borderless, muted and a step smaller — for the third action in a row,
+  // where a third outlined button would compete with the first two.
+  | "tertiary"
   // Stays white in both themes; see --b-action-white-* in tokens.css.
   | "white";
 
@@ -21,13 +24,7 @@ interface CommonProps {
   icon?: TablerIcon | null;
   children: ReactNode;
   forceState?: "default" | "hover" | "focus";
-  // Opt-in dimmer border for the `secondary` variants. The header's button
-  // cluster wants it; every other secondary button on the page does not.
   dimBorder?: boolean;
-  // Tighter horizontal padding, for the one place two of these have to sit
-  // side by side inside a 320px carousel card. Lives here rather than as a
-  // caller `px-3` because two padding utilities in one class list resolve by
-  // stylesheet order, not attribute order, so the caller would lose.
   compact?: boolean;
 }
 
@@ -43,7 +40,38 @@ type ButtonAsAnchor = CommonProps &
 type ButtonProps = ButtonAsButton | ButtonAsAnchor;
 
 const baseClass =
-  "inline-flex cursor-pointer select-none items-center justify-center gap-[6px] whitespace-nowrap rounded-[var(--b-radius)] border border-solid py-[10px] font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold leading-none tracking-[0.02em] no-underline outline-none transition-[background,box-shadow,border-color] duration-150";
+  "inline-flex cursor-pointer select-none items-center justify-center gap-[6px] whitespace-nowrap rounded-[var(--b-radius)] border border-solid py-[10px] font-[family-name:var(--b-font-mono)] font-semibold leading-none tracking-[0.02em] no-underline outline-none transition-[background,box-shadow,color,border-color] duration-150";
+
+function variantSizeClass(variant: ButtonVariant) {
+  return variant === "tertiary"
+    ? "text-[length:var(--b-t-label-2)]"
+    : "text-[length:var(--b-t-label-1)]";
+}
+
+export function buttonClassName({
+  variant = "primary",
+  dimBorder,
+  compact,
+  className,
+}: {
+  variant?: ButtonVariant;
+  dimBorder?: boolean;
+  compact?: boolean;
+  className?: string;
+} = {}) {
+  return [
+    baseClass,
+    variantSizeClass(variant),
+    compact ? "px-3" : "px-4",
+    variantTextClass(variant),
+    variantClasses(variant, dimBorder),
+    "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]",
+    "disabled:cursor-not-allowed disabled:opacity-40",
+    className,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
 
 function variantTextClass(variant: ButtonVariant) {
   switch (variant) {
@@ -55,6 +83,8 @@ function variantTextClass(variant: ButtonVariant) {
       return "text-[var(--b-action-primary-bg)]";
     case "white":
       return "text-[var(--b-action-white-text)]";
+    case "tertiary":
+      return "text-[var(--b-text-muted)] hover:text-[var(--b-text-primary)] data-[force=hover]:text-[var(--b-text-primary)]";
     case "secondary":
     case "secondary-icon":
     default:
@@ -62,10 +92,6 @@ function variantTextClass(variant: ButtonVariant) {
   }
 }
 
-// Showcase-only: forceState="hover" has to render the hover look with the
-// mouse elsewhere, so each hover rule is mirrored onto a `data-[force=hover]:`
-// variant. Forcing it through inline style instead would beat the real :hover
-// pseudo-class and make it inert.
 function variantClasses(variant: ButtonVariant, dimBorder?: boolean) {
   switch (variant) {
     case "cta":
@@ -77,6 +103,8 @@ function variantClasses(variant: ButtonVariant, dimBorder?: boolean) {
       return "border-[var(--b-action-primary-border)] bg-transparent";
     case "white":
       return "border-[var(--b-action-white-border)] bg-[var(--b-action-white-bg)] hover:bg-[var(--b-action-white-hover)] data-[force=hover]:bg-[var(--b-action-white-hover)]";
+    case "tertiary":
+      return "border-transparent bg-transparent";
     case "secondary":
     case "secondary-icon":
     default:
@@ -112,27 +140,17 @@ export function Button({
     </>
   );
 
-  // Appended, not spread through `rest`: a caller-supplied className there
-  // would land after this one on the element and replace the whole variant.
-  const className = [
-    baseClass,
-    compact ? "px-3" : "px-4",
-    variantTextClass(variant),
-    variantClasses(variant, dimBorder),
-    "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]",
-    "disabled:cursor-not-allowed disabled:opacity-40",
-    extraClassName,
-  ]
-    .filter(Boolean)
-    .join(" ");
+  const className = buttonClassName({
+    variant,
+    dimBorder,
+    compact,
+    className: extraClassName,
+  });
 
   const forceAttr = forceState === "hover" ? "hover" : undefined;
 
   if ("href" in rest && rest.href !== undefined) {
     const { href, target, ...anchorRest } = rest as ButtonAsAnchor;
-    // Same-site paths (no explicit target) go through react-router's Link so
-    // navigation doesn't force a full page reload; external/new-tab links stay
-    // plain anchors.
     if (href.startsWith("/") && !target) {
       return (
         <Link

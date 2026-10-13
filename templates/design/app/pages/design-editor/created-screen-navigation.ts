@@ -1,4 +1,13 @@
 import type { FrameBounds } from "@shared/canvas-math";
+import type { Dispatch, SetStateAction } from "react";
+
+export function clearOverviewInteractTarget(args: {
+  setOverviewInteractScreenId: Dispatch<SetStateAction<string | null>>;
+  overviewInteractScreenIdRef: { current: string | null };
+}): void {
+  args.setOverviewInteractScreenId(null);
+  args.overviewInteractScreenIdRef.current = null;
+}
 
 export interface CreatedScreenGeometry {
   x: number;
@@ -18,13 +27,13 @@ export interface CreatedScreenNavigationPlan {
   };
 }
 
-/**
- * A newly-created screen always becomes the one obvious target: active in the
- * layers panel, selected on the all-screens canvas, and revealed by a bounded
- * fit-camera move. The editor applies this plan in the same React commit as
- * its optimistic file insertion so there is no transient "nothing happened"
- * state or camera flash.
- */
+export interface FocusedScreenNavigationPlan extends CreatedScreenNavigationPlan {
+  editorMode: "edit";
+  tool: "move";
+  drawMode: false;
+  pinMode: false;
+}
+
 export function getCreatedScreenNavigationPlan(args: {
   screenId: string;
   geometry: CreatedScreenGeometry;
@@ -51,5 +60,19 @@ export function getCreatedScreenNavigationPlan(args: {
       },
       paddingScreenPx: args.paddingScreenPx ?? 96,
     },
+  };
+}
+
+export function getFocusedScreenNavigationPlan(args: {
+  screenId: string;
+  geometry: CreatedScreenGeometry;
+  paddingScreenPx?: number;
+}): FocusedScreenNavigationPlan {
+  return {
+    ...getCreatedScreenNavigationPlan(args),
+    editorMode: "edit",
+    tool: "move",
+    drawMode: false,
+    pinMode: false,
   };
 }

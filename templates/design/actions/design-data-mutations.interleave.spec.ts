@@ -1,13 +1,3 @@
-/**
- * Regression coverage for designs.data read/modify/write races.
- *
- * The tweak and token actions used to read the entire JSON blob, merge their
- * own keys in memory, then unconditionally replace the column. Two requests
- * that read the same base therefore dropped whichever sibling write landed
- * first. The fake database below deliberately lets non-transactional reads
- * interleave while serializing transaction callbacks, matching the guarantee
- * the production mutation helper now relies on.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type DesignRow = { id: string; data: string; updatedAt: string };
@@ -170,9 +160,6 @@ vi.mock("../server/db/index.js", () => {
     getDb: () => ({
       ...topLevelDb,
       transaction: <T>(callback: (tx: typeof txDb) => Promise<T>) => {
-        // Reaching the transaction path identifies the fixed implementation.
-        // The pre-fix actions never call transaction, so their two initial
-        // reads remain gated above and still reproduce the lost update.
         state.interleaveNonTransactionalDesignReads = false;
         const run = () => callback(txDb);
         const result = state.txTail.then(run, run);
@@ -348,8 +335,19 @@ describe("design data mutation interleaving", () => {
     const first = await applyTweaks.run(params);
     const retry = await applyTweaks.run(params);
 
+    expect(first.applied).toBe(true);
+    expect(retry.applied).toBe(true);
     expect(retry.appliedTweaks).toMatchObject({ density: "compact" });
     expect(retry.selectionsHash).toBe(first.selectionsHash);
+  });
+
+  it("does not report an empty tweak snapshot as applied", async () => {
+    const result = await applyTweaks.run({
+      designId: "design_1",
+      selections: {},
+    });
+
+    expect(result.applied).toBe(false);
   });
 
   it("lets only one of two full snapshots from the same base win", async () => {

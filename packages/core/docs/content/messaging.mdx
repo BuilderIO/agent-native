@@ -11,7 +11,7 @@ Connect your agent to Slack, Microsoft Teams, Discord interactions, email, Teleg
 
 <Callout tone="info">
 
-**Using the Dispatch template?** All of this is wired up for you in **Settings → Messaging**. Click to connect each platform — you don't need to read the rest of this page unless you're customizing or building your own template. See [Dispatch](/docs/dispatch) or the [Dispatch template reference](/docs/template-dispatch).
+**Using the Dispatch template?** All of this is wired up for you in **Admin → Messaging**. Click to connect each platform — you don't need to read the rest of this page unless you're customizing or building your own template. See [Dispatch](/docs/dispatch) or the [Dispatch template reference](/docs/template-dispatch).
 
 </Callout>
 
@@ -88,7 +88,7 @@ Managed OAuth is the recommended setup for Dispatch and multi-workspace apps.
 Each install gets its own encrypted bot-token bundle and health record, and
 Slack workspace, app, channel, and thread IDs are part of the conversation key.
 
-1. In **Settings → Messaging**, select **Agent manifest** to download the
+1. In **Admin → Messaging**, select **Agent manifest** to download the
    host-specific `agent-native-slack-manifest.json`, then create or update your
    Slack app at **[api.slack.com/apps](https://api.slack.com/apps)** by importing
    it from **App Manifest**. The manifest enables Slack's current `agent_view`
@@ -139,7 +139,7 @@ Slack workspace, app, channel, and thread IDs are part of the conversation key.
    ```
 
 6. Configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and
-   `SLACK_SIGNING_SECRET` on your app. Then open **Settings → Messaging** and
+   `SLACK_SIGNING_SECRET` on your app. Then open **Admin → Messaging** and
    click **Add to Slack**. Only an organization owner or admin can create a
    shared workspace install.
 7. Reinstall the Slack app after applying or changing the manifest, scopes,
@@ -417,7 +417,7 @@ Why this is nice:
 
 - **One agent, one inbox.** All your channels (Slack, email, Telegram, WhatsApp) flow into Dispatch. You only set up integrations once.
 - **Dispatch delegates.** Ask "summarize last week's signups" — Dispatch calls the analytics agent. Ask "draft a reply to Alice" — Dispatch calls the mail agent.
-- **Clicks, not config.** Dispatch's **Settings → Messaging** page has connect buttons for every platform with the env-var fields built in.
+- **Clicks, not config.** Dispatch's **Admin → Messaging** page has connect buttons for every platform with the env-var fields built in.
 
 If you don't need an orchestrator, any single template can wire up messaging directly using the env vars on this page.
 

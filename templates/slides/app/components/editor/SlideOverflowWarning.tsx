@@ -33,9 +33,6 @@ export function SlideOverflowWarning({
     <div
       role="status"
       aria-live="polite"
-      // w-max/nowrap: the containing block is the zoomed slide canvas, so at
-      // low zoom the banner would otherwise wrap to a height taller than its
-      // own -top-12 offset and spill down over the slide.
       className="absolute -top-12 left-0 z-20 flex w-max items-center gap-2 whitespace-nowrap rounded-md bg-card px-2 py-1 text-xs text-foreground shadow-sm"
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}

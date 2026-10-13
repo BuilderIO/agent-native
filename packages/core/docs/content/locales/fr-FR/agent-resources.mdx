@@ -1,15 +1,15 @@
 ---
 title: "Ressources de l'agent"
-description: "Personnalisation au niveau du code Claude par utilisateur – skills, mémoire, instructions, agents personnalisés, tâches planifiées, serveurs MCP – soutenue par SQL, et non par un système de fichiers."
+description: "Personnalisation au niveau du code Claude par utilisateur – skills, mémoire, instructions, agents personnalisés, tâches planifiées, serveurs MCP – soutenue par PostgreSQL/PGlite, et non par un système de fichiers."
 ---
 
 # Ressources de l'agent
 
 Chaque application native d'agent est livrée avec des **ressources de l'agent** : la couche de personnalisation qui fait de l'agent le vôtre. Il contient des instructions d'équipe (`AGENTS.md`), des apprentissages partagés (`LEARNINGS.md`), une mémoire structurée personnelle (`memory/MEMORY.md`), un skills que l'agent extrait à la demande, des sous-agents personnalisés, des tâches planifiées et des serveurs MCP connectés – tout ce que vous attendez d'une configuration Claude Code / Codex.
 
-Le twist : **il s'agit de lignes SQL, pas de fichiers du système de fichiers.** Chaque utilisateur obtient son propre ensemble de ressources de l'agent stocké dans la base de données. Il n'y a pas de boîte de développement à démarrer, pas de conteneur par utilisateur, pas de fichiers à monter. Un SaaS multi-locataires peut offrir à chaque utilisateur un agent entièrement personnalisable et essentiellement gratuit, car il s'agit uniquement de lignes (mémoire personnelle, serveurs MCP personnels, skills personnels, sous-agents personnels) et la base de code partagée les héberge toutes en même temps.
+Le twist : **il s'agit de lignes PostgreSQL/PGlite, pas de fichiers du système de fichiers.** Chaque utilisateur obtient son propre ensemble de ressources de l'agent stocké dans la base de données. Il n'y a pas de boîte de développement à démarrer, pas de conteneur par utilisateur, pas de fichiers à monter. Un SaaS multi-locataires peut offrir à chaque utilisateur un agent entièrement personnalisable et essentiellement gratuit, car il s'agit uniquement de lignes (mémoire personnelle, serveurs MCP personnels, skills personnels, sous-agents personnels) et la base de code partagée les héberge toutes en même temps.
 
-<Diagram id="doc-block-bkcqdw" title={"Une configuration Claude-Code, mais stockée sous forme de ressources de l'agent dans SQL"} summary={"La même couche de personnalisation (instructions, compétences, mémoire, agents, tâches, MCP) sauf que chaque fichier est une ligne dans une base de données mutualisée partagée."}>
+<Diagram id="doc-block-bkcqdw" title={"Une configuration Claude-Code, mais stockée sous forme de ressources de l'agent dans PostgreSQL/PGlite"} summary={"La même couche de personnalisation (instructions, compétences, mémoire, agents, tâches, MCP) sauf que chaque fichier est une ligne dans une base de données mutualisée partagée."}>
 
 ```html
 <div class="ws-map">
@@ -27,7 +27,9 @@ Le twist : **il s'agit de lignes SQL, pas de fichiers du système de fichiers.*
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card an">
     <span class="diagram-pill accent">Ressources agent-native</span
-    ><small class="diagram-muted">rows in one base de données SQL</small>
+    ><small class="diagram-muted"
+      >rows in one base de données PostgreSQL/PGlite</small
+    >
     <div class="ws-rows">
       <span class="diagram-pill">AGENTS.md</span
       ><span class="diagram-pill">skills/&hellip;</span
@@ -73,7 +75,7 @@ Le twist : **il s'agit de lignes SQL, pas de fichiers du système de fichiers.*
 
 | Code Claude / Codex                                  | Ressources natives de l'agent                                 |
 | ---------------------------------------------------- | ------------------------------------------------------------- |
-| Fichiers sur votre disque local                      | Lignes dans une base de données SQL partagée                  |
+| Fichiers sur votre disque local                      | Lignes dans une base de données PostgreSQL/PGlite partagée    |
 | Une base de code par développeur                     | Une base de code, plusieurs utilisateurs                      |
 | Nécessite une boîte de développement ou un conteneur | Fonctionne sur n'importe quel hôte sans serveur/edge          |
 | Personnalisation chez `~/.claude/`                   | Personnalisation par utilisateur, étendue `u:<email>:…`       |
@@ -103,6 +105,14 @@ Les chemins canoniques qui contrôlent la manière dont l'agent utilise chaque r
 | Serveurs HTTP MCP partagés      | `mcp-servers/<slug>.json`               | Chargé dans le registre d'outils MCP des applications accordées |
 
 Ces chemins s'appliquent aux trois étendues : espace de travail, organisation/application et personnel. La dernière portée l'emporte lorsque le même chemin existe à plusieurs niveaux.
+
+## Emporter vos ressources {#resource-pack}
+
+Exportez un pack JSON avec somme de contrôle des ressources texte que vous pouvez déjà lire (`export-resource-pack`), puis importez-le dans une autre app ou un autre utilisateur (`import-resource-pack`). Les commandes **Export pack** / **Import pack** de l’onglet Ressources appellent les mêmes actions.
+
+- L’export n’inclut que du texte. Les téléversements binaires sont omis. Les chaînes en forme de clé API et les champs de jeton MCP `env` / `headers` sont masqués ; reconnectez MCP après l’import.
+- L’import cible par défaut la portée **personnel** et ignore les conflits. L’import d’organisation exige la même ACL d’écriture admin que l’édition des fichiers d’organisation. L’import d’espace de travail n’est pas disponible.
+- Un pack de plus de 200 fichiers texte ou 1 Mo échoue avec `too_large` au lieu d’être tronqué. Une somme de contrôle incorrecte échoue de façon fermée.
 
 <Diagram id="doc-block-zk5bz1" title="Trois scopes, un fichier efficace" summary={"Le runtime résout le même chemin dans l’espace de travail, l’application et les étendues personnelles en lecture : l’étendue la plus spécifique l’emporte."}>
 
@@ -403,7 +413,7 @@ Le système de ressources fonctionne de manière identique dans les deux modes. 
 
 ## Connexions à l'espace de travail {#workspace-connections}
 
-Workspace Connections permet aux applications de partager le même compte de fournisseur (Slack, GitHub, HubSpot, etc.) sans dupliquer les informations d'identification. Une connexion enregistre l’identité du fournisseur, les étiquettes de compte, le statut, les étendues, les autorisations d’application et les références d’informations d’identification dans SQL. Les secrets restent dans le magasin d'informations d'identification ; les connexions pointent uniquement vers les noms de clés d'identification tels que `SLACK_BOT_TOKEN`.
+Workspace Connections permet aux applications de partager le même compte de fournisseur (Slack, GitHub, HubSpot, etc.) sans dupliquer les informations d'identification. Une connexion enregistre l’identité du fournisseur, les étiquettes de compte, le statut, les étendues, les autorisations d’application et les références d’informations d’identification dans PostgreSQL/PGlite. Les secrets restent dans le magasin d'informations d'identification ; les connexions pointent uniquement vers les noms de clés d'identification tels que `SLACK_BOT_TOKEN`.
 
 Voir [Workspace Connections](/docs/workspace-connections) pour le démarrage rapide, la connexion/l'octroi/l'accréditationRef API et les exemples concrets de Slack, HubSpot et GitHub.
 

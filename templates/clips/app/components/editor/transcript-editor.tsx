@@ -3,6 +3,7 @@ import { IconScissors } from "@tabler/icons-react";
 import { useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import {
   Tooltip,
   TooltipContent,
@@ -22,10 +23,6 @@ export interface TranscriptEditorProps {
   edits: EditsJson;
   currentMs: number;
   onSeek?: (originalMs: number) => void;
-  /**
-   * Fires with an (original) ms range when the user trims a selection — the
-   * parent should call `trim-recording` with it.
-   */
   onTrimRange?: (range: { startMs: number; endMs: number }) => void;
   className?: string;
 }
@@ -36,14 +33,6 @@ interface Selection {
   text: string;
 }
 
-/**
- * Transcript viewer with selection-to-trim support.
- *
- * Users select text → press Delete (or the "Trim selection" button) → we
- * resolve the selected text's timestamp range via `segmentsJson` and call
- * `onTrimRange` with it. Segments that fall inside an excluded range render
- * with strikethrough.
- */
 export function TranscriptEditor({
   segments,
   edits,
@@ -56,8 +45,6 @@ export function TranscriptEditor({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
 
-  // For each segment we add a data-start-ms attribute so we can resolve the
-  // browser's text Selection back to original timestamps.
   const resolveSelection = (): Selection | null => {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
@@ -162,9 +149,13 @@ export function TranscriptEditor({
         className="flex-1 overflow-auto p-3 text-[14px] leading-relaxed outline-none"
       >
         {segments.length === 0 ? (
-          <div className="text-muted-foreground text-sm">
-            {t("transcriptEditor.noTranscript")}
-          </div>
+          <Empty className="min-h-full gap-2 rounded-none p-4 md:p-6">
+            <EmptyHeader>
+              <EmptyTitle className="text-sm font-normal text-muted-foreground">
+                {t("transcriptEditor.noTranscript")}
+              </EmptyTitle>
+            </EmptyHeader>
+          </Empty>
         ) : (
           rendered
         )}

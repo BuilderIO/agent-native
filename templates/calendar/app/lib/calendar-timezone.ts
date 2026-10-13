@@ -1,13 +1,10 @@
 import type { CalendarEvent } from "@shared/api";
-import { addDaysToDateKey, isCalendarTimezone } from "@shared/timezone";
 import {
-  addDays,
-  endOfMonth,
-  endOfWeek,
-  format,
-  startOfMonth,
-  startOfWeek,
-} from "date-fns";
+  addDaysToDateKey,
+  getCalendarViewDateRange,
+  isCalendarTimezone,
+} from "@shared/timezone";
+import { format } from "date-fns";
 
 import { dateTimeInTimezoneToIso } from "./event-form-utils";
 
@@ -47,7 +44,15 @@ export function normalizeTimezone(timezone?: string): string {
   return isCalendarTimezone(timezone) ? timezone : getBrowserTimezone();
 }
 
-/** Date carriers are kept at local noon so browser DST never changes their date. */
+type CalendarEventTimeBounds = Pick<CalendarEvent, "allDay" | "start" | "end">;
+
+export function isAllDayCalendarEvent(event: CalendarEventTimeBounds): boolean {
+  return (
+    event.allDay ||
+    (DATE_ONLY_PATTERN.test(event.start) && DATE_ONLY_PATTERN.test(event.end))
+  );
+}
+
 export function dateKeyToDate(date: string): Date {
   const [year, month, day] = date.split("-").map(Number);
   return new Date(year, month - 1, day, 12, 0, 0, 0);
@@ -103,11 +108,6 @@ export function getDateTimePartsInTimezone(
   return dateTimeParts(value, normalizeTimezone(timezone));
 }
 
-/**
- * Build a local Date carrying an event's wall-clock fields so date-fns can
- * format those fields without converting them through the browser timezone.
- * The result is for display only; it must not be used for date arithmetic.
- */
 export function getDisplayDateInTimezone(
   value: Date | string,
   timezone?: string | null,
@@ -161,54 +161,31 @@ export function getViewDateRange(
   selectedDate: Date,
   timezone: string,
   weekStartsOn: 0 | 1 = 0,
+  numberOfDays = 7,
 ): { from: string; to: string } {
-  const normalizedTimezone = normalizeTimezone(timezone);
-  const weekOptions = { weekStartsOn };
-  let rangeStart: Date;
-  let rangeEndExclusive: Date;
-
-  if (viewMode === "month") {
-    rangeStart = startOfWeek(startOfMonth(selectedDate), weekOptions);
-    rangeEndExclusive = addDays(
-      endOfWeek(endOfMonth(selectedDate), weekOptions),
-      1,
-    );
-  } else if (viewMode === "week") {
-    rangeStart = startOfWeek(selectedDate, weekOptions);
-    rangeEndExclusive = addDays(endOfWeek(selectedDate, weekOptions), 1);
-  } else {
-    rangeStart = selectedDate;
-    rangeEndExclusive = addDays(selectedDate, 1);
-  }
-
-  return {
-    from: dateKeyToTimezoneIso(
-      dateToCalendarDateKey(rangeStart),
-      "00:00",
-      normalizedTimezone,
-    ),
-    to: dateKeyToTimezoneIso(
-      dateToCalendarDateKey(rangeEndExclusive),
-      "00:00",
-      normalizedTimezone,
-    ),
-  };
+  return getCalendarViewDateRange(
+    viewMode,
+    dateToCalendarDateKey(selectedDate),
+    normalizeTimezone(timezone),
+    weekStartsOn,
+    numberOfDays,
+  );
 }
 
-function dateOnlyPart(value: string | undefined): string | null {
+function eventDatePart(
+  value: string | undefined,
+  timezone: string,
+): string | null {
   if (!value) return null;
   if (DATE_ONLY_PATTERN.test(value)) return value;
-  return value.slice(0, 10);
+  return getDateTimePartsInTimezone(value, timezone)?.date ?? null;
 }
 
-function eventDateRange(
-  event: Pick<CalendarEvent, "start" | "end" | "allDay">,
-  timezone: string,
-) {
-  if (event.allDay) {
-    const startDate = dateOnlyPart(event.start);
+function eventDateRange(event: CalendarEventTimeBounds, timezone: string) {
+  if (isAllDayCalendarEvent(event)) {
+    const startDate = eventDatePart(event.start, timezone);
     const endDate =
-      dateOnlyPart(event.end) ??
+      eventDatePart(event.end, timezone) ??
       (startDate ? addCalendarDays(startDate, 1) : null);
     return startDate && endDate ? { startDate, endDate } : null;
   }
@@ -226,17 +203,17 @@ export function getEventDateKey(
 }
 
 export function moveEventToCalendarDate(
-  event: Pick<CalendarEvent, "start" | "end" | "allDay">,
+  event: CalendarEventTimeBounds,
   targetDate: Date,
   timezone: string,
-): { start: string; end: string } | null {
+): { start: string; end: string; allDay?: true } | null {
   const targetDateKey = dateToCalendarDateKey(targetDate);
   const sourceStartDate = getEventDateKey(event, timezone);
   if (!sourceStartDate) return null;
 
-  if (event.allDay) {
+  if (isAllDayCalendarEvent(event)) {
     const sourceEndDate =
-      dateOnlyPart(event.end) ?? addCalendarDays(sourceStartDate, 1);
+      eventDatePart(event.end, timezone) ?? addCalendarDays(sourceStartDate, 1);
     const spanDays = Math.max(
       1,
       Math.round(
@@ -248,6 +225,7 @@ export function moveEventToCalendarDate(
     return {
       start: targetDateKey,
       end: addCalendarDays(targetDateKey, spanDays),
+      allDay: true,
     };
   }
 
@@ -285,7 +263,7 @@ export function eventOverlapsCalendarDay(
 ): boolean {
   const normalizedTimezone = normalizeTimezone(timezone);
   const dayBounds = getCalendarDayBounds(day, normalizedTimezone);
-  if (event.allDay) {
+  if (isAllDayCalendarEvent(event)) {
     const range = eventDateRange(event, normalizedTimezone);
     const dayDate = dayBounds.date;
     return Boolean(

@@ -1,4 +1,7 @@
-import { createHash } from "node:crypto";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
+
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 
 export interface MediaFingerprint {
   sha256: string;
@@ -11,7 +14,7 @@ export function fingerprintMedia(
   mimeType?: string,
 ): MediaFingerprint {
   return {
-    sha256: createHash("sha256").update(data).digest("hex"),
+    sha256: bytesToHex(sha256(data)),
     byteLength: data.byteLength,
     ...(mimeType ? { mimeType } : {}),
   };
@@ -51,11 +54,6 @@ export async function extractDominantColors(
   limit = 6,
 ): Promise<string[]> {
   const sharp = await loadSharp();
-  if (!sharp) {
-    throw new Error(
-      "Image palette extraction requires the optional sharp dependency.",
-    );
-  }
   const output = await sharp(Buffer.from(data), { failOn: "none" })
     .resize(64, 64, { fit: "inside" })
     .removeAlpha()
@@ -101,9 +99,6 @@ export async function compareRasterImages(input: {
     throw new Error(`Image comparison input exceeds ${maxInputBytes} bytes.`);
   }
   const sharp = await loadSharp();
-  if (!sharp) {
-    throw new Error("Image comparison requires the optional sharp dependency.");
-  }
   const source = sharp(Buffer.from(input.source), { failOn: "none" });
   const rendered = sharp(Buffer.from(input.rendered), { failOn: "none" });
   const [sourceMetadata, renderedMetadata] = await Promise.all([
@@ -139,7 +134,6 @@ export async function compareRasterImages(input: {
   };
 }
 
-/** Crops a bounded raster region without retaining the source image. */
 export async function cropImageRegion(input: {
   data: Uint8Array;
   left: number;
@@ -170,9 +164,6 @@ export async function cropImageRegion(input: {
     throw new Error("Image crop region is invalid or exceeds the pixel limit.");
   }
   const sharp = await loadSharp();
-  if (!sharp) {
-    throw new Error("Image cropping requires the optional sharp dependency.");
-  }
   const pipeline = sharp(Buffer.from(input.data), { failOn: "none" });
   const metadata = await pipeline.metadata();
   if (
@@ -192,6 +183,58 @@ export async function cropImageRegion(input: {
   };
 }
 
+export interface ResizedImage {
+  data: Uint8Array;
+  mimeType: string;
+  width: number;
+  height: number;
+}
+
+export async function downscaleImageToFit(input: {
+  data: Uint8Array;
+  maxBytes: number;
+  minEdge?: number;
+}): Promise<ResizedImage | null> {
+  const sharp = await loadSharp();
+  const minEdge = input.minEdge ?? 256;
+  const source = Buffer.from(input.data);
+  const metadata = await sharp(source, { failOn: "none" }).metadata();
+  if (!metadata.width || !metadata.height) return null;
+
+  const mimeType = metadata.hasAlpha ? "image/png" : "image/jpeg";
+  const encode = (width: number, height: number) => {
+    const pipeline = sharp(source, { failOn: "none" }).resize(width, height, {
+      fit: "inside",
+    });
+    return (
+      metadata.hasAlpha
+        ? pipeline.png({ compressionLevel: 9 })
+        : pipeline.jpeg({ quality: 82 })
+    ).toBuffer();
+  };
+
+  const firstGuess = Math.min(
+    1,
+    Math.sqrt(input.maxBytes / Math.max(1, input.data.byteLength)) * 0.9,
+  );
+  let width = Math.max(1, Math.round(metadata.width * firstGuess));
+  let height = Math.max(1, Math.round(metadata.height * firstGuess));
+  while (true) {
+    const encoded = await encode(width, height);
+    if (encoded.byteLength <= input.maxBytes) {
+      return {
+        data: new Uint8Array(encoded),
+        mimeType,
+        width,
+        height,
+      };
+    }
+    if (Math.min(width, height) <= minEdge) return null;
+    width = Math.max(1, Math.round(width / 2));
+    height = Math.max(1, Math.round(height / 2));
+  }
+}
+
 export async function readBoundedResponseBytes(
   response: Response,
   maxBytes: number,
@@ -203,7 +246,13 @@ export async function readBoundedResponseBytes(
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
     throw new Error(`Remote artifact exceeds ${maxBytes} bytes.`);
   }
-  if (!response.body) return new Uint8Array(await response.arrayBuffer());
+  if (!response.body) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > maxBytes) {
+      throw new Error(`Remote artifact exceeds ${maxBytes} bytes.`);
+    }
+    return bytes;
+  }
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -233,14 +282,20 @@ interface SharpPipeline {
     options: { fit: "inside" },
   ): SharpPipeline;
   removeAlpha(): SharpPipeline;
-  metadata(): Promise<{ width?: number; height?: number; channels?: number }>;
+  metadata(): Promise<{
+    width?: number;
+    height?: number;
+    channels?: number;
+    hasAlpha?: boolean;
+  }>;
   extract(region: {
     left: number;
     top: number;
     width: number;
     height: number;
   }): SharpPipeline;
-  png(): SharpPipeline;
+  png(options?: { compressionLevel: number }): SharpPipeline;
+  jpeg(options?: { quality: number }): SharpPipeline;
   toBuffer(): Promise<Buffer>;
   raw(): SharpPipeline;
   toBuffer(options: { resolveWithObject: true }): Promise<{ data: Uint8Array }>;
@@ -251,14 +306,11 @@ type SharpFactory = (
   options: { failOn: "none" },
 ) => SharpPipeline;
 
-async function loadSharp(): Promise<SharpFactory | null> {
+async function loadSharp(): Promise<SharpFactory> {
   const specifier = "sharp";
-  try {
-    const module = (await import(/* @vite-ignore */ specifier)) as {
-      default?: SharpFactory;
-    };
-    return module.default ?? (module as unknown as SharpFactory);
-  } catch {
-    return null;
-  }
+  const module = (await loadOptionalPeer(
+    "sharp",
+    () => import(/* @vite-ignore */ specifier),
+  )) as { default?: SharpFactory };
+  return module.default ?? (module as unknown as SharpFactory);
 }

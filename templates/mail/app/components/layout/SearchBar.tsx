@@ -1,6 +1,7 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import type { EmailMessage } from "@shared/types";
-import { IconLoader2, IconX } from "@tabler/icons-react";
+import { IconLoader2, IconPin, IconX } from "@tabler/icons-react";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import {
   useState,
@@ -12,6 +13,20 @@ import {
 } from "react";
 import { useNavigate } from "react-router";
 
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -22,6 +37,7 @@ import {
   type Contact,
   type InfiniteEmails,
 } from "@/hooks/use-emails";
+import { getActiveDescendantId } from "@/lib/combobox-aria";
 import { ensureThread } from "@/lib/thread-cache";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
@@ -31,6 +47,7 @@ const MIN_REMOTE_QUERY_LENGTH = 3;
 
 interface SearchBarProps {
   onClose: () => void;
+  onSaveSearch?: (query: string, name: string) => void | Promise<void>;
   initialQuery?: string;
   autoFocus?: boolean;
   hasActiveSearch?: boolean;
@@ -38,6 +55,7 @@ interface SearchBarProps {
 
 export function SearchBar({
   onClose,
+  onSaveSearch,
   initialQuery = "",
   autoFocus = true,
   hasActiveSearch = false,
@@ -50,14 +68,27 @@ export function SearchBar({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const blurCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const lastSyncedQueryRef = useRef(initialQuery);
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [savePending, setSavePending] = useState(false);
 
   const { data: contacts = [] } = useContacts();
   const queryClient = useQueryClient();
 
-  // Sync from URL when it changes externally (e.g. browser back/forward).
-  // Track the last prop we absorbed so user typing isn't clobbered when the
-  // debounced navigate round-trips back through the URL.
+  useEffect(
+    () => () => {
+      if (blurCloseTimeoutRef.current !== null) {
+        clearTimeout(blurCloseTimeoutRef.current);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     if (initialQuery !== lastSyncedQueryRef.current) {
       lastSyncedQueryRef.current = initialQuery;
@@ -65,7 +96,6 @@ export function SearchBar({
     }
   }, [initialQuery]);
 
-  // Filter contacts matching the query
   const matchedContacts = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q || q.length < 2) return [];
@@ -77,9 +107,6 @@ export function SearchBar({
       .slice(0, 6);
   }, [query, contacts]);
 
-  // Instant local matches over already-cached email pages (subject/from/snippet
-  // substring), so something shows up before the debounced remote Gmail search
-  // fires and while it's in flight. Cheap and quota-free — no network call.
   const localMatches = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q || q.length < 2) return [];
@@ -104,8 +131,6 @@ export function SearchBar({
     return groupIntoThreads(messages).slice(0, LOCAL_MATCH_LIMIT);
   }, [query, queryClient]);
 
-  // True while a live Gmail search for the current query is in flight, so we
-  // can show a "searching Gmail" row under the instant local matches.
   const remoteSearchPending =
     useIsFetching({ queryKey: ["emails", "all", query.trim()] }) > 0;
 
@@ -113,7 +138,6 @@ export function SearchBar({
   const showDropdown =
     isFocused && (matchedContacts.length > 0 || showLocalResults);
 
-  // Reset selection when matches change
   useEffect(() => {
     setSelectedIndex(-1);
   }, [matchedContacts.length, localMatches.length]);
@@ -122,8 +146,18 @@ export function SearchBar({
     (q: string) => {
       const trimmed = q.trim();
       if (trimmed && trimmed !== lastSyncedQueryRef.current) {
+        trackEvent("mail_search_submitted", {
+          app_name: "mail",
+          template_name: "mail",
+          query_length_bucket:
+            trimmed.length <= 2
+              ? "1_2"
+              : trimmed.length <= 10
+                ? "3_10"
+                : "11_plus",
+        });
         lastSyncedQueryRef.current = trimmed;
-        navigate(`/all?q=${encodeURIComponent(trimmed)}`);
+        void navigate(`/all?q=${encodeURIComponent(trimmed)}`);
       }
     },
     [navigate],
@@ -132,9 +166,14 @@ export function SearchBar({
   const selectContact = useCallback(
     (contact: Contact) => {
       const q = contact.email;
+      trackEvent("mail_search_result_selected", {
+        app_name: "mail",
+        template_name: "mail",
+        result_type: "contact",
+      });
       setQuery(q);
       lastSyncedQueryRef.current = q;
-      navigate(`/all?q=${encodeURIComponent(q)}`);
+      void navigate(`/all?q=${encodeURIComponent(q)}`);
       inputRef.current?.blur();
     },
     [navigate],
@@ -144,17 +183,18 @@ export function SearchBar({
     (thread: ThreadSummary) => {
       const email = thread.latestMessage;
       const targetThreadId = email.threadId || email.id;
+      trackEvent("mail_search_result_selected", {
+        app_name: "mail",
+        template_name: "mail",
+        result_type: "thread",
+      });
       void ensureThread(targetThreadId, email.accountEmail).catch(() => {});
-      navigate(`/all/${targetThreadId}`);
+      void navigate(`/all/${targetThreadId}`);
       inputRef.current?.blur();
     },
     [navigate],
   );
 
-  // Debounced auto-search as you type (only for text queries, not contact
-  // selection). Kept at 400ms and gated to 3+ chars — Gmail's per-user search
-  // quota is tight, so this must not fire a live round trip per keystroke.
-  // Instant local matches (above) cover the gap while this waits/runs.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const q = query.trim();
@@ -168,8 +208,6 @@ export function SearchBar({
     };
   }, [query, executeSearch]);
 
-  // Combined keyboard-navigable list: contacts first, then instant local
-  // thread matches, matching the visual order of the dropdown.
   const combinedMatchCount = matchedContacts.length + localMatches.length;
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -194,8 +232,6 @@ export function SearchBar({
         executeSearch(query);
         inputRef.current?.blur();
       } else if (localMatches[0]) {
-        // Below the remote-search minimum: only ever run the local filter,
-        // never a live Gmail round trip for a 1-2 char query.
         selectThread(localMatches[0]);
       }
     } else if (e.key === "Escape") {
@@ -205,14 +241,12 @@ export function SearchBar({
     }
   };
 
-  // Scroll selected item into view
   useEffect(() => {
     if (selectedIndex < 0 || !listRef.current) return;
-    const items = listRef.current.querySelectorAll("[data-contact-item]");
+    const items = listRef.current.querySelectorAll("[data-search-item]");
     items[selectedIndex]?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
-  // Highlight matching text
   const highlight = (text: string, q: string) => {
     if (!q) return text;
     const idx = text.toLowerCase().indexOf(q.toLowerCase());
@@ -234,147 +268,298 @@ export function SearchBar({
     onClose();
   }, [onClose]);
 
+  const handleSaveSearch = useCallback(() => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery || !onSaveSearch) return;
+    setSaveError("");
+    setSaveName(trimmedQuery);
+    setSaveDialogOpen(true);
+  }, [onSaveSearch, query]);
+
+  const submitSavedSearch = useCallback(async () => {
+    const trimmedQuery = query.trim();
+    const trimmedName = saveName.trim();
+    if (!trimmedQuery || !trimmedName || !onSaveSearch || savePending) return;
+    setSaveError("");
+    setSavePending(true);
+    try {
+      await onSaveSearch(trimmedQuery, trimmedName);
+      setSaveDialogOpen(false);
+      setSaveName("");
+    } catch (error) {
+      setSaveError(
+        error instanceof Error && error.message
+          ? error.message
+          : t("mail.search.saveAsTabFailed"),
+      );
+    } finally {
+      setSavePending(false);
+    }
+  }, [onSaveSearch, query, saveName, savePending, t]);
+
   return (
     <div className="relative flex items-center gap-1.5">
-      <div
-        className={cn(
-          "relative flex items-center rounded bg-accent/80 focus-within:ring-1 focus-within:ring-primary/40",
-          hasActiveSearch ? "w-56 sm:w-64" : "w-40 sm:w-48",
-        )}
-      >
-        <input
-          ref={inputRef}
-          id="mail-search"
-          autoFocus={autoFocus}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onFocus={() => setIsFocused(true)}
-          onBlur={(e) => {
-            // Don't close if clicking on a dropdown item
-            if (
-              e.relatedTarget &&
-              (e.relatedTarget as HTMLElement).closest("[data-search-dropdown]")
-            ) {
-              return;
-            }
-            setIsFocused(false);
-            // Keep the bar mounted while a search is active — the user needs
-            // to see what they searched. Only collapse when empty.
-            if (hasActiveSearch || query.trim()) return;
-            setTimeout(onClose, 100);
-          }}
-          placeholder={t("mail.search.placeholder")}
-          className={cn(
-            "h-8 sm:h-7 flex-1 min-w-0 bg-transparent border-none px-2.5 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none",
-            hasActiveSearch && "font-medium",
-          )}
-        />
-        {(hasActiveSearch || query) && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  handleClear();
-                }}
-                className="flex h-5 w-5 me-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
-              >
-                <IconX className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("mail.search.clear")}</TooltipContent>
-          </Tooltip>
-        )}
-      </div>
-
-      {/* Contact + instant local-match suggestions dropdown */}
-      {showDropdown && (
-        <div
-          data-search-dropdown
-          ref={listRef}
-          className="absolute end-0 top-full mt-1 w-72 rounded-lg border border-border bg-popover shadow-lg z-50 py-1 overflow-hidden"
-        >
-          {matchedContacts.map((contact, i) => (
-            <button
-              key={contact.email}
-              data-contact-item
-              type="button"
-              tabIndex={-1}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                selectContact(contact);
+      <Popover open={showDropdown}>
+        <PopoverAnchor asChild>
+          <div
+            className={cn(
+              "relative flex items-center rounded bg-accent/80 focus-within:ring-1 focus-within:ring-primary/40",
+              hasActiveSearch ? "w-56 sm:w-64" : "w-40 sm:w-48",
+            )}
+          >
+            <input
+              ref={inputRef}
+              id="mail-search"
+              data-mail-search
+              role="combobox"
+              aria-label={t("mail.search.label")}
+              aria-autocomplete="list"
+              aria-controls={
+                showDropdown ? "mail-search-suggestions" : undefined
+              }
+              aria-expanded={showDropdown}
+              aria-activedescendant={getActiveDescendantId(
+                "mail-search-suggestion-",
+                showDropdown,
+                selectedIndex,
+                combinedMatchCount,
+              )}
+              autoFocus={autoFocus}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onFocus={() => {
+                if (blurCloseTimeoutRef.current !== null) {
+                  clearTimeout(blurCloseTimeoutRef.current);
+                  blurCloseTimeoutRef.current = null;
+                }
+                setIsFocused(true);
               }}
-              onMouseEnter={() => setSelectedIndex(i)}
+              onBlur={(e) => {
+                if (
+                  e.relatedTarget &&
+                  (e.relatedTarget as HTMLElement).closest(
+                    "[data-search-dropdown]",
+                  )
+                ) {
+                  return;
+                }
+                setIsFocused(false);
+                if (hasActiveSearch || query.trim()) return;
+                blurCloseTimeoutRef.current = setTimeout(() => {
+                  blurCloseTimeoutRef.current = null;
+                  onClose();
+                }, 100);
+              }}
+              placeholder={t("mail.search.placeholder")}
               className={cn(
-                "flex w-full items-center gap-3 px-3 py-2 text-start text-[13px]",
-                i === selectedIndex && "bg-accent",
+                "h-8 sm:h-7 flex-1 min-w-0 bg-transparent border-none px-2.5 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none",
+                hasActiveSearch && "font-medium",
               )}
-            >
-              <span className="min-w-0 flex-1 truncate text-foreground/90">
-                {highlight(contact.name || contact.email, query.trim())}
-              </span>
-              {contact.name && (
-                <span className="shrink-0 text-muted-foreground text-xs">
-                  {highlight(contact.email, query.trim())}
-                </span>
-              )}
-            </button>
-          ))}
-
-          {showLocalResults && localMatches.length > 0 && (
-            <div
-              className={cn(
-                "border-border/60",
-                matchedContacts.length > 0 && "border-t",
-              )}
-            >
-              <div className="px-3 pt-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
-                {t("mail.search.localResults")}
-              </div>
-              {localMatches.map((thread, i) => {
-                const combinedIndex = matchedContacts.length + i;
-                const email = thread.latestMessage;
-                return (
+            />
+            {hasActiveSearch && onSaveSearch && (
+              <Tooltip>
+                <TooltipTrigger asChild>
                   <button
-                    key={email.threadId || email.id}
-                    data-contact-item
                     type="button"
-                    tabIndex={-1}
+                    aria-label={t("mail.search.saveAsTab")}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={handleSaveSearch}
+                    className="flex h-5 w-5 me-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
+                  >
+                    <IconPin className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("mail.search.saveAsTab")}</TooltipContent>
+              </Tooltip>
+            )}
+            {(hasActiveSearch || query) && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={t("mail.search.clear")}
                     onMouseDown={(e) => {
                       e.preventDefault();
-                      selectThread(thread);
+                      handleClear();
                     }}
-                    onMouseEnter={() => setSelectedIndex(combinedIndex)}
-                    className={cn(
-                      "flex w-full items-center gap-2 px-3 py-2 text-start text-[13px]",
-                      combinedIndex === selectedIndex && "bg-accent",
-                    )}
+                    onClick={(e) => {
+                      if (e.detail === 0) handleClear();
+                    }}
+                    className="flex h-5 w-5 me-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
                   >
-                    <span className="min-w-0 flex-1 truncate text-foreground/90">
-                      {highlight(
-                        email.subject || email.from.name,
-                        query.trim(),
-                      )}
-                    </span>
-                    <span className="shrink-0 truncate max-w-[35%] text-muted-foreground text-xs">
-                      {email.from.name || email.from.email}
-                    </span>
+                    <IconX className="h-3.5 w-3.5" />
                   </button>
-                );
-              })}
-            </div>
-          )}
+                </TooltipTrigger>
+                <TooltipContent>{t("mail.search.clear")}</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        </PopoverAnchor>
 
-          {showLocalResults && remoteSearchPending && (
-            <div className="flex items-center gap-2 border-t border-border/60 px-3 py-2 text-[12px] text-muted-foreground">
-              <IconLoader2 className="h-3 w-3 animate-spin" />
-              {t("mail.search.searchingGmail")}
-            </div>
-          )}
-        </div>
-      )}
+        {/* Contact + instant local-match suggestions dropdown */}
+        {showDropdown && (
+          <PopoverContent
+            align="end"
+            data-search-dropdown
+            id="mail-search-suggestions"
+            role="listbox"
+            ref={listRef}
+            side="bottom"
+            sideOffset={4}
+            onOpenAutoFocus={(event) => event.preventDefault()}
+            className="w-72 max-w-[calc(100vw-1rem)] overflow-hidden rounded-lg p-0"
+          >
+            {matchedContacts.map((contact, i) => (
+              <button
+                key={contact.email}
+                data-contact-item
+                data-search-item
+                id={`mail-search-suggestion-${i}`}
+                role="option"
+                aria-selected={i === selectedIndex}
+                type="button"
+                tabIndex={-1}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  selectContact(contact);
+                }}
+                onMouseEnter={() => setSelectedIndex(i)}
+                className={cn(
+                  "flex w-full items-center gap-3 px-3 py-2 text-start text-[13px]",
+                  i === selectedIndex && "bg-accent",
+                )}
+              >
+                <span
+                  data-an-mask
+                  className="min-w-0 flex-1 truncate text-foreground/90"
+                >
+                  {highlight(contact.name || contact.email, query.trim())}
+                </span>
+                {contact.name && (
+                  <span
+                    data-an-mask
+                    className="shrink-0 text-muted-foreground text-xs"
+                  >
+                    {highlight(contact.email, query.trim())}
+                  </span>
+                )}
+              </button>
+            ))}
+
+            {showLocalResults && localMatches.length > 0 && (
+              <div
+                className={cn(
+                  "border-border/60",
+                  matchedContacts.length > 0 && "border-t",
+                )}
+              >
+                <div className="px-3 pt-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                  {t("mail.search.localResults")}
+                </div>
+                {localMatches.map((thread, i) => {
+                  const combinedIndex = matchedContacts.length + i;
+                  const email = thread.latestMessage;
+                  return (
+                    <button
+                      key={email.threadId || email.id}
+                      data-search-item
+                      id={`mail-search-suggestion-${combinedIndex}`}
+                      role="option"
+                      aria-selected={combinedIndex === selectedIndex}
+                      type="button"
+                      tabIndex={-1}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        selectThread(thread);
+                      }}
+                      onMouseEnter={() => setSelectedIndex(combinedIndex)}
+                      className={cn(
+                        "flex w-full items-center gap-2 px-3 py-2 text-start text-[13px]",
+                        combinedIndex === selectedIndex && "bg-accent",
+                      )}
+                    >
+                      <span
+                        data-an-mask
+                        className="min-w-0 flex-1 truncate text-foreground/90"
+                      >
+                        {highlight(
+                          email.subject || email.from.name,
+                          query.trim(),
+                        )}
+                      </span>
+                      <span
+                        data-an-mask
+                        className="shrink-0 truncate max-w-[35%] text-muted-foreground text-xs"
+                      >
+                        {email.from.name || email.from.email}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {showLocalResults && remoteSearchPending && (
+              <div className="flex items-center gap-2 border-t border-border/60 px-3 py-2 text-[12px] text-muted-foreground">
+                <IconLoader2 className="h-3 w-3 animate-spin" />
+                {t("mail.search.searchingGmail")}
+              </div>
+            )}
+          </PopoverContent>
+        )}
+      </Popover>
+
+      <Dialog
+        open={saveDialogOpen}
+        onOpenChange={(open) => {
+          setSaveDialogOpen(open);
+          if (!open) {
+            setSaveName("");
+            setSaveError("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t("mail.search.saveAsTab")}</DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitSavedSearch();
+            }}
+            className="space-y-3"
+          >
+            <label className="text-[12px] text-muted-foreground">
+              {t("mail.search.saveAsTabPrompt")}
+              <Input
+                autoFocus
+                value={saveName}
+                onChange={(event) => setSaveName(event.target.value)}
+                className="mt-1.5"
+              />
+            </label>
+            {saveError && (
+              <p role="alert" className="text-[12px] text-destructive">
+                {saveError}
+              </p>
+            )}
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSaveDialogOpen(false)}
+              >
+                {t("mail.compose.cancel")}
+              </Button>
+              <Button type="submit" disabled={!saveName.trim() || savePending}>
+                {t("mail.integrations.save")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -81,7 +81,7 @@ function listTasksOptimisticLifecycle(queryClient: QueryClient) {
       );
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: LIST_TASKS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: LIST_TASKS_QUERY_KEY });
     },
   };
 }
@@ -116,7 +116,6 @@ export function useTasks(opts?: {
   includeDone?: boolean;
   includeFields?: boolean;
 }) {
-  // Omit false so GET query params are not serialized as the string "false".
   const params = {
     ...(opts?.includeDone ? { includeDone: true } : {}),
     ...(opts?.includeFields ? { includeFields: true } : {}),
@@ -273,7 +272,7 @@ export function useReorderTasks() {
   const queryClient = useQueryClient();
   return useActionMutation("reorder-tasks", {
     onSettled: () => {
-      invalidateTasks(queryClient);
+      void invalidateTasks(queryClient);
     },
   });
 }

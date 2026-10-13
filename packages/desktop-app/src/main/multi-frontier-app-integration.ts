@@ -72,11 +72,6 @@ export interface MultiFrontierAppIntegrationOptions {
   pauseRecoveredRuns?: () => readonly unknown[];
 }
 
-/**
- * Installs the one main-process Multi-Frontier stack. It is deliberately lazy:
- * recovery writes only durable pause records and no provider process starts
- * before a status or collaboration request needs one.
- */
 export function initializeMultiFrontierAppIntegration(
   options: MultiFrontierAppIntegrationOptions,
 ): MultiFrontierAppIntegration {
@@ -85,8 +80,8 @@ export function initializeMultiFrontierAppIntegration(
   const readClaudeStatus =
     options.readClaudeStatus ?? (() => readClaudeSubscriptionStatus());
   const workspace = createRegisteredWorkspaceResolver({
-    listWorkspaces: options.listWorkspaces,
-    resolveDirectory: options.resolveDirectory,
+    listWorkspaces: () => options.listWorkspaces(),
+    resolveDirectory: (value) => options.resolveDirectory(value),
   });
   const runGit = options.runGit ?? runGitCommand;
   const manager = new MultiFrontierManager({

@@ -28,6 +28,10 @@ vi.mock("../server/lib/dispatch-store.js", () => ({
   getDestinationById: mocks.getDestinationById,
 }));
 
+vi.mock("../server/lib/app-roles.js", () => ({
+  authorizeDispatchAdmin: vi.fn(),
+}));
+
 const action = (await import("./send-platform-message.js")).default;
 
 describe("send-platform-message tenant scoping", () => {

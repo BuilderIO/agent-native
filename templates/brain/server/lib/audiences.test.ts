@@ -6,8 +6,6 @@ import {
   computeAudienceAclHash,
   computeCaptureAudienceId,
   filterAudienceIdsByDependencies,
-  isAudienceMembershipFresh,
-  SLACK_PRIVATE_AUDIENCE_TTL_MS,
 } from "./audiences.js";
 
 describe("audience ACL hashes", () => {
@@ -76,27 +74,6 @@ describe("audience ACL hashes", () => {
         { sourceOrgId: "org-a", sourceOwnerEmail: "b@example.com" },
       ]),
     ).toBe("org:org-a");
-  });
-
-  it("fails closed when private Slack membership has not been refreshed", () => {
-    const now = Date.parse("2026-07-19T12:00:00.000Z");
-    expect(
-      isAudienceMembershipFresh(
-        "slack-private-channel",
-        new Date(now - SLACK_PRIVATE_AUDIENCE_TTL_MS + 1).toISOString(),
-        now,
-      ),
-    ).toBe(true);
-    expect(
-      isAudienceMembershipFresh(
-        "slack-private-channel",
-        new Date(now - SLACK_PRIVATE_AUDIENCE_TTL_MS - 1).toISOString(),
-        now,
-      ),
-    ).toBe(false);
-    expect(
-      isAudienceMembershipFresh("meeting", "2020-01-01T00:00:00.000Z", now),
-    ).toBe(true);
   });
 
   it("removes derived audiences when any evidence audience is inaccessible", () => {

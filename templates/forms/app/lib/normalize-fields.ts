@@ -1,17 +1,8 @@
 import type { FormField, FormFieldType } from "@shared/types";
 
-// Single source of truth for coercing FormField[] coming back from the API
-// into a renderable shape. Both the agent and the UI can write arbitrary
-// JSON into form.fields — this helper protects every React consumer from:
-//   - missing/object/numeric `type` (defaults to "text" rather than dropping
-//     the field, so the user doesn't silently lose data)
-//   - `options` being a non-array, or an array of {label,value} objects /
-//     numbers / blanks / duplicates (any of which would crash a downstream
-//     `.map()` or render duplicate React keys)
-// FieldRenderer keeps its own `dedupeRenderableOptions` for the *builder*
-// preview where the user is mid-typing — that handles transient live-edit
-// state, not stored data.
-const KNOWN_FIELD_TYPES: FormFieldType[] = [
+import type { AppFormFieldType } from "@/lib/form-field-types";
+
+const KNOWN_FIELD_TYPES: AppFormFieldType[] = [
   "text",
   "email",
   "number",
@@ -23,6 +14,7 @@ const KNOWN_FIELD_TYPES: FormFieldType[] = [
   "date",
   "rating",
   "scale",
+  "file",
 ];
 
 function coerceOptionToString(raw: unknown): string | null {
@@ -34,7 +26,15 @@ function coerceOptionToString(raw: unknown): string | null {
     if (typeof v.value === "string") return v.value;
     return "";
   }
-  return String(raw);
+  if (
+    typeof raw === "number" ||
+    typeof raw === "boolean" ||
+    typeof raw === "bigint" ||
+    typeof raw === "symbol"
+  ) {
+    return String(raw);
+  }
+  return JSON.stringify(raw);
 }
 
 export function normalizeFields(fields: FormField[] | undefined): FormField[] {

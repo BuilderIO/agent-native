@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { createError, defineEventHandler, getHeader } from "h3";
 
 import { runBrainExportSweepOnce } from "../../../../jobs/brain-export.js";
+import { runTransactionalEmailsOnce } from "../../../../jobs/transactional-emails.js";
 import { reapExpiredUploads } from "../../../../lib/upload-lease.js";
 
 declare global {
@@ -41,11 +42,13 @@ export default defineEventHandler(async (event) => {
     !headerMatchesSecret(getHeader(event, "authorization"), secret)
   )
     throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
-  // Same per-minute schedule, different unit of maintenance: expired upload
-  // leases. Netlify only runs scheduled functions, so this is the one durable
-  // clock Clips has. Run it first so Brain discovery/export failures cannot
-  // starve cleanup or strand SQL scratch payloads.
   const uploads = await reapExpiredUploads();
+  const transactionalEmails = await runTransactionalEmailsOnce().catch(
+    (error) => {
+      console.error("[transactional-emails] scheduled run failed:", error);
+      return null;
+    },
+  );
   await runBrainExportSweepOnce();
-  return { ok: true, uploads };
+  return { ok: true, uploads, transactionalEmails };
 });

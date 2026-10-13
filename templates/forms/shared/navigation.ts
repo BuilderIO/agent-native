@@ -22,7 +22,7 @@ export const FORMS_NAVIGATION_VIEWS = [
 export type FormsNavigationView = (typeof FORMS_NAVIGATION_VIEWS)[number];
 
 export interface FormsNavigationTarget {
-  view?: FormsNavigationView | string | null;
+  view?: FormsNavigationView | (string & {}) | null;
   formId?: string | null;
   tab?: string | null;
   activeTab?: string | null;

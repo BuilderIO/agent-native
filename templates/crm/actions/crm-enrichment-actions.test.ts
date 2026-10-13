@@ -1,7 +1,3 @@
-// Integration tests for the enrichment surface. Real libsql, real migrations,
-// real sharing registry — the access scoping and the bitemporal write behaviour
-// are the parts worth proving, and mocking either would make them vacuous.
-
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `crm-enrichment-actions-test-${process.pid}-${Date.now()}.sqlite`,
+  `crm-enrichment-actions-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 const OWNER = "owner@example.test";
@@ -57,11 +53,6 @@ function run<T>(
 let counter = 0;
 const uniqueTitle = (prefix: string) => `${prefix} ${++counter}`;
 
-/**
- * A record the fill actions can target. `kind` matters for the contact slot:
- * it resolves a PERSON, so an account record legitimately reports `skipped`
- * rather than being asked at all.
- */
 async function seedRecord(
   id: string,
   displayName: string,
@@ -86,7 +77,6 @@ async function seedRecord(
     });
 }
 
-/** A fillable attribute; `createAttribute` cannot set fill mode itself. */
 async function seedFillableAttribute(input: {
   title: string;
   type: "status" | "text";
@@ -121,7 +111,7 @@ function currentFieldRows(recordId: string, apiSlug: string) {
 }
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -155,9 +145,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 describe("list-crm-enrichment-slots", () => {
@@ -319,8 +307,6 @@ describe("run-crm-attribute-fill: writes", () => {
       }),
     ).rejects.toThrow(/is not an option of/);
 
-    // Validation runs before any write: the valid first value must not have
-    // landed, or the column is half-filled with no way to tell which half.
     expect(await currentFieldRows("rec_unknown_a", attribute.apiSlug)).toEqual(
       [],
     );
@@ -399,7 +385,6 @@ describe("run-crm-attribute-fill: writes", () => {
           eq(schema.crmRecordFields.fieldName, attribute.apiSlug),
         ),
       );
-    // One row total: an equal value opens no history row.
     expect(all).toHaveLength(1);
   });
 
@@ -542,7 +527,6 @@ describe("run-crm-attribute-fill: writes", () => {
 });
 
 describe("the two-phase spend gate", () => {
-  /** Slot deps that answer every slot and record which targets were asked. */
   function recordingDeps(
     seen: string[],
     onExecute?: () => Promise<void>,
@@ -567,15 +551,6 @@ describe("the two-phase spend gate", () => {
     };
   }
 
-  /**
-   * Drive the action's body with a stubbed provider substrate.
-   *
-   * `defineAction` wraps `run` as `(args, ctx)` and drops anything further, so a
-   * stub handed to the wrapped action is never installed and every "the provider
-   * was not called with X" assertion passes vacuously. `runCrmEnrichment` is the
-   * exported body precisely so the injection is real; mutating the shared
-   * `providerApiSlotDeps` instead would leak into every later test in the file.
-   */
   function launch(
     args: unknown,
     deps: CrmEnrichmentSlotDeps,
@@ -615,9 +590,6 @@ describe("the two-phase spend gate", () => {
 
     expect(verify.status).toBe("completed");
     expect(verify.estimate.slots).not.toContain("contact");
-    // The contact slot's reveal flags are what makes a request billable; no
-    // verification request may carry them.
-    // Non-vacuous: the free slots really did call the substrate.
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.join(" ")).not.toContain("reveal_phone_number");
     for (const outcome of verify.outcomes) {
@@ -642,15 +614,12 @@ describe("the two-phase spend gate", () => {
 
     expect(spend.recordCount).toBe(1);
 
-    // Structural, not incidental: the persisted input set — the only thing the
-    // paid job reads — contains the approved record and nothing else.
     const [row] = await getDb()
       .select()
       .from(schema.crmEnrichmentRuns)
       .where(eq(schema.crmEnrichmentRuns.id, spend.runId));
     expect(JSON.parse(row.inputRecordIdsJson)).toEqual(["rec_appr_yes"]);
     expect(row.inputRecordIdsJson).not.toContain("rec_appr_no");
-    // Non-vacuous: the paid slot really ran, and only for the approved record.
     expect(seen.join(" ")).toContain("rec_appr_yes.example");
     expect(seen.join(" ")).not.toContain("rec_appr_no.example");
   });
@@ -696,7 +665,6 @@ describe("the two-phase spend gate", () => {
     );
     expect(probeError).toBeUndefined();
 
-    // A crash here leaves a claimable persisted row, not spend nobody recorded.
     expect(rowAtCallTime?.status).toBe("running");
     expect(rowAtCallTime?.claimNonce).toBeTruthy();
   });
@@ -742,8 +710,6 @@ describe("the two-phase spend gate", () => {
       },
       recordingDeps([]),
     );
-    // Verified before the cap is lowered: the point under test is the PAID
-    // pass being refused, not the free one.
     const nextVerify = await verifyRunFor(["rec_cap_2"]);
 
     const estimate = (await run(estimateEnrichmentAction, {
@@ -757,7 +723,6 @@ describe("the two-phase spend gate", () => {
       };
     };
 
-    // Two separate numbers, never one ambiguous total.
     expect(estimate.budget.spendToDate.actorUnits).toBeGreaterThan(0);
     expect(estimate.budget.spendToDate.workspaceUnits).toBeGreaterThanOrEqual(
       estimate.budget.spendToDate.actorUnits,

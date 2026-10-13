@@ -9,14 +9,14 @@ import {
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-// guard:allow-unscoped — isolated SQLite fixtures intentionally inspect exact rows.
+// guard:allow-unscoped — isolated PGlite fixtures intentionally inspect exact rows.
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `content-block-actions-${process.pid}-${Date.now()}.sqlite`,
+  `content-block-actions-${process.pid}-${Date.now()}.pglite`,
 );
 const TEST_DATABASE_URL =
-  process.env.CONTENT_BLOCK_ACTION_POSTGRES_URL ?? `file:${TEST_DB_PATH}`;
+  process.env.CONTENT_BLOCK_ACTION_POSTGRES_URL ?? `pglite:${TEST_DB_PATH}`;
 const OUTSIDER = "outsider@example.com";
 let ownerSequence = 0;
 let ownerEmail = "block-owner-0@example.com";
@@ -75,10 +75,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  if (!TEST_DATABASE_URL.startsWith("file:")) return;
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 async function fixture(initialMarkdown = "Alpha\nBeta\nGamma") {
@@ -625,44 +622,41 @@ describe("exact Content database block actions", () => {
     expect(stored?.content).toBe("Editor won\nSibling");
   });
 
-  it.skipIf(!TEST_DATABASE_URL.startsWith("postgres"))(
-    "serializes a direct title edit before validating the expected row revision",
-    async () => {
-      const state = await fixture("Before\nSibling");
-      let mutation!: Promise<unknown>;
-      await getDb().transaction(async (tx: any) => {
-        await tx
-          .update(schema.documents)
-          .set({ title: "UI title won", updatedAt: new Date().toISOString() })
-          .where(eq(schema.documents.id, state.target.rowDocumentId));
-        mutation = asOwner(() =>
-          mutateBlock.run({
-            ...envelope(state, "title-race"),
-            operation: "update",
-            blockId: state.listed.blocks[0]!.id,
-            block: { kind: "paragraph", nfm: "Agent write" },
-          }),
-        );
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      });
-
-      await expect(mutation).rejects.toMatchObject({
-        errorCode: "ROW_REVISION_CONFLICT",
-      });
-      const after = await asOwner(() =>
-        listBlocks.run({ target: state.target, limit: 100 }),
-      );
-      expect(after.blocks.map((block) => block.value.nfm)).toEqual([
-        "Before",
-        "Sibling",
-      ]);
-      const [document] = await getDb()
-        .select({ title: schema.documents.title })
-        .from(schema.documents)
+  it("serializes a direct title edit before validating the expected row revision", async () => {
+    const state = await fixture("Before\nSibling");
+    let mutation!: Promise<unknown>;
+    await getDb().transaction(async (tx: any) => {
+      await tx
+        .update(schema.documents)
+        .set({ title: "UI title won", updatedAt: new Date().toISOString() })
         .where(eq(schema.documents.id, state.target.rowDocumentId));
-      expect(document?.title).toBe("UI title won");
-    },
-  );
+      mutation = asOwner(() =>
+        mutateBlock.run({
+          ...envelope(state, "title-race"),
+          operation: "update",
+          blockId: state.listed.blocks[0]!.id,
+          block: { kind: "paragraph", nfm: "Agent write" },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+
+    await expect(mutation).rejects.toMatchObject({
+      errorCode: "ROW_REVISION_CONFLICT",
+    });
+    const after = await asOwner(() =>
+      listBlocks.run({ target: state.target, limit: 100 }),
+    );
+    expect(after.blocks.map((block) => block.value.nfm)).toEqual([
+      "Before",
+      "Sibling",
+    ]);
+    const [document] = await getDb()
+      .select({ title: schema.documents.title })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, state.target.rowDocumentId));
+    expect(document?.title).toBe("UI title won");
+  });
 
   it("rejects stale existing and absent additional-field writes without clobbering", async () => {
     const state = await fixture("Primary stays");

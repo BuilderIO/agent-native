@@ -1,4 +1,7 @@
-import { SimpleTextAttachmentAdapter } from "@assistant-ui/react";
+import {
+  SimpleTextAttachmentAdapter,
+  type PendingAttachment,
+} from "@assistant-ui/react";
 
 const BASE_DOCUMENT_ATTACHMENT_ACCEPT = [
   "application/pdf",
@@ -57,6 +60,7 @@ export const TEXT_ATTACHMENT_ACCEPT = [
   "text/yaml",
   "application/json",
   "application/x-yaml",
+  "message/rfc822",
   ".txt",
   ".md",
   ".markdown",
@@ -68,8 +72,72 @@ export const TEXT_ATTACHMENT_ACCEPT = [
   ".xml",
   ".yaml",
   ".yml",
+  ".eml",
 ].join(",");
+
+export const MAX_TEXT_ATTACHMENT_BYTES = 3 * 1024 * 1024;
+const MAX_REQUEST_BODY_BYTES = 4.5 * 1024 * 1024;
+const MAX_NON_ATTACHMENT_BODY_BYTES = 1 * 1024 * 1024;
+
+export const MAX_ESTIMATED_BODY_BYTES =
+  MAX_REQUEST_BODY_BYTES - MAX_NON_ATTACHMENT_BODY_BYTES;
+
+export function estimateAttachmentBodyBytes(values: string[]): number {
+  const encodedBytes = new TextEncoder();
+  const jsonBytes = values.reduce(
+    (sum, value) => sum + encodedBytes.encode(JSON.stringify(value)).byteLength,
+    0,
+  );
+  return jsonBytes * 1.15;
+}
+
+export function formatOversizedTextAttachmentError(
+  name: string,
+  size: number,
+): string {
+  const mb = (size / 1024 / 1024).toFixed(1);
+  const maxMb = (MAX_TEXT_ATTACHMENT_BYTES / 1024 / 1024).toFixed(1);
+  return `"${name}" is ${mb} MB - text attachments are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
+}
+
+export function formatAttachmentError(
+  error: unknown,
+  fallback: string,
+): string {
+  const message = error instanceof Error ? error.message.trim() : "";
+  if (
+    !message ||
+    message === "No matching adapter found for file" ||
+    /^File type .* is not accepted\. Accepted types: /.test(message)
+  ) {
+    return fallback;
+  }
+  return message;
+}
 
 export class TextAttachmentAdapter extends SimpleTextAttachmentAdapter {
   public accept = TEXT_ATTACHMENT_ACCEPT;
+
+  public async add(state: { file: File }): Promise<PendingAttachment> {
+    if (state.file.size > MAX_TEXT_ATTACHMENT_BYTES) {
+      throw new Error(
+        formatOversizedTextAttachmentError(state.file.name, state.file.size),
+      );
+    }
+    return { ...(await super.add(state)), id: crypto.randomUUID() };
+  }
+
+  public async send(
+    attachment: Parameters<SimpleTextAttachmentAdapter["send"]>[0],
+  ) {
+    if (attachment.file.size > MAX_TEXT_ATTACHMENT_BYTES) {
+      throw new Error(
+        formatOversizedTextAttachmentError(
+          attachment.file.name,
+          attachment.file.size,
+        ),
+      );
+    }
+    return super.send(attachment);
+  }
 }

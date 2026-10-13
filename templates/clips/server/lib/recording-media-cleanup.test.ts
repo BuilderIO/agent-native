@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockDeleteS3ObjectByUrl = vi.hoisted(() => vi.fn());
-const mockResolveBuilderCredentials = vi.hoisted(() => vi.fn());
+const mockResolveBuilderRequestAuthorization = vi.hoisted(() => vi.fn());
 const mockFetch = vi.hoisted(() => vi.fn());
 
 vi.mock("./s3-upload-provider.js", () => ({
@@ -9,19 +9,26 @@ vi.mock("./s3-upload-provider.js", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
-  resolveBuilderCredentials: () => mockResolveBuilderCredentials(),
+  BUILDER_ASSETS_WRITE_SCOPE: "builder:assets:write",
+  resolveBuilderRequestAuthorization: () =>
+    mockResolveBuilderRequestAuthorization(),
 }));
 
-import { deleteRecordingMediaObjects } from "./recording-media-cleanup";
+import {
+  deleteRecordingMediaObjects,
+  deleteStoredMediaUrl,
+  recordingMediaUrls,
+} from "./recording-media-cleanup";
 
 describe("recording-media-cleanup", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubGlobal("fetch", mockFetch);
     mockDeleteS3ObjectByUrl.mockResolvedValue(false);
-    mockResolveBuilderCredentials.mockResolvedValue({
-      privateKey: "private-key",
-      publicKey: "public-key",
+    mockResolveBuilderRequestAuthorization.mockResolvedValue({
+      authorization: "Bearer private-key",
+      source: "legacy",
+      legacyPublicKey: "public-key",
     });
     mockFetch.mockResolvedValue({
       ok: true,
@@ -63,6 +70,25 @@ describe("recording-media-cleanup", () => {
     });
   });
 
+  it("uses an OAuth token without legacy API key fields", async () => {
+    mockResolveBuilderRequestAuthorization.mockResolvedValue({
+      authorization: "Bearer oauth-token",
+      source: "oauth",
+    });
+
+    await deleteRecordingMediaObjects({
+      id: "rec_1",
+      videoUrl: "https://cdn.builder.io/api/v1/image/assets%2Fvideo.webm",
+    });
+
+    const requestUrl = new URL(String(mockFetch.mock.calls[0]?.[0]));
+    expect(requestUrl.searchParams.get("apiKey")).toBeNull();
+    expect(mockFetch.mock.calls[0]?.[1]).toMatchObject({
+      method: "DELETE",
+      headers: { Authorization: "Bearer oauth-token" },
+    });
+  });
+
   it("skips protected URLs before calling provider delete APIs", async () => {
     const result = await deleteRecordingMediaObjects(
       {
@@ -91,10 +117,7 @@ describe("recording-media-cleanup", () => {
   });
 
   it("skips Builder CDN URLs when request-scoped Builder credentials are missing", async () => {
-    mockResolveBuilderCredentials.mockResolvedValue({
-      privateKey: null,
-      publicKey: null,
-    });
+    mockResolveBuilderRequestAuthorization.mockResolvedValue(null);
 
     const result = await deleteRecordingMediaObjects({
       id: "rec_1",
@@ -110,5 +133,62 @@ describe("recording-media-cleanup", () => {
       errors: [],
     });
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  describe("deleteStoredMediaUrl", () => {
+    const url = "https://cdn.builder.io/api/v1/image/assets%2Fshot.png";
+    const respond = (status: number) => ({
+      ok: status < 300,
+      status,
+      statusText: String(status),
+      text: vi.fn(async () => ""),
+    });
+
+    it("counts an asset that is already gone as deleted", async () => {
+      // A retry after a delete whose response was lost: the object is gone,
+      // and a redaction waiting on it must be able to finish.
+      mockFetch
+        .mockResolvedValueOnce(respond(404))
+        .mockResolvedValueOnce(respond(404));
+      await expect(deleteStoredMediaUrl(url)).resolves.toBe(true);
+      expect(mockFetch.mock.calls[1]?.[1]).toMatchObject({ method: "HEAD" });
+      // The URL as stored, not the stripped one the delete API is given.
+      expect(String(mockFetch.mock.calls[1]?.[0])).toContain(
+        "assets%2Fshot.png?deleted-check=",
+      );
+    });
+
+    it("does not trust a 404 while the asset is still being served", async () => {
+      // The same 404 is what a key without rights to the asset gets.
+      mockFetch
+        .mockResolvedValueOnce(respond(404))
+        .mockResolvedValueOnce(respond(200));
+      await expect(deleteStoredMediaUrl(url)).resolves.toBe(false);
+    });
+  });
+
+  it("includes a screenshot's leftover files, so permanent delete removes them", () => {
+    // Nothing else points at them; a row deleted without them leaves the
+    // unredacted original in storage for good.
+    expect(
+      recordingMediaUrls({
+        kind: "image",
+        imageUrl: "https://store.example/burned.png",
+        editsJson: JSON.stringify({
+          unreclaimedUrls: ["https://store.example/copy.png"],
+          burnInProgress: { staleUrls: ["https://store.example/original.png"] },
+        }),
+      }),
+    ).toEqual([
+      "https://store.example/burned.png",
+      "https://store.example/original.png",
+      "https://store.example/copy.png",
+    ]);
+  });
+
+  it("refuses to list a screenshot's media when its edits cannot be read", () => {
+    expect(() =>
+      recordingMediaUrls({ kind: "image", editsJson: "{not json" }),
+    ).toThrow(/could not be read/);
   });
 });

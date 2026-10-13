@@ -1,0 +1,6561 @@
+import type {
+  AgentActionInvocation,
+  AgentActionResult,
+  AgentAnnotationSnapshot,
+  AgentApprovalResponse,
+  AgentConnectionResponse,
+  AgentCapabilityDescriptor,
+  AgentStreamIntegrityReport,
+  AgentCapabilityId,
+  AgentCapabilities,
+  AgentError,
+  AgentEvent,
+  AgentMessage,
+  AgentQueuedMessage,
+  AgentRequestAttachment,
+  AgentRequestContext,
+  AgentRunSnapshot,
+  AgentRunOptions,
+  AgentThread,
+  AgentThreadSnapshot,
+  AgentTransport,
+  AgentToolCall,
+  AgentUploadDescriptor,
+  AgentUploadTarget,
+  CreateThreadInput,
+  DataPart,
+  FilePart,
+  ForkThreadInput,
+  ListThreadsInput,
+  ListThreadsResult,
+  RunId,
+  ReasoningPart,
+  SubmitFeedbackInput,
+  TextPart,
+  ThreadId,
+  UpdateThreadInput,
+  UploadId,
+} from "../protocol/index.js";
+import {
+  AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+  AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
+  AgentProtocolValidationError,
+  AgentKitProtocolError,
+  agentEventSequenceEnd,
+  createRequestAbortedError,
+  createAgentKitProtocolVersionOffer,
+  isInlineDataUrl,
+  isPersistableAttachmentUrl,
+  MAX_AGENT_REQUEST_ATTACHMENTS,
+  parseAgentEvent,
+  parseStartRunInput,
+  projectAgentCapabilities,
+  resumeEntryFromApproval,
+} from "../protocol/index.js";
+import {
+  classifyAgentEvent,
+  createAgentThreadState,
+  hasActiveAgentRuns,
+  selectLatestAgentRun,
+  reduceAgentEvent,
+  retireSupersededConnectionRequests,
+  settleRunProjection,
+  type AgentKitSnapshot,
+  type AgentRunState,
+  type AgentThreadState,
+} from "./state.js";
+
+type TerminalRunState = AgentRunState & {
+  status: Extract<
+    AgentRunState["status"],
+    "completed" | "failed" | "cancelled"
+  >;
+};
+
+type TerminalRunSnapshot = AgentRunSnapshot & {
+  status: TerminalRunState["status"];
+};
+
+interface TerminalRunCatchUp {
+  threadId: ThreadId;
+  runId: RunId;
+  state: "pending" | "unconfirmable";
+  run: TerminalRunSnapshot;
+  snapshotHasNoActiveRuns: boolean;
+  snapshotMessages: AgentMessage[];
+  messageIdRemap: Map<string, string>;
+}
+
+export interface AgentKitClientOptions {
+  transport: AgentTransport;
+  /**
+   * Defaults to required so user-started dispatches fail closed when a
+   * transport cannot validate provider readiness. Use `not-applicable` only
+   * for transports whose readiness is owned elsewhere or has no shared setup.
+   */
+  aiSetupReadiness?: "required" | "not-applicable";
+  /**
+   * Borrowed transports are never disposed by the client and are the safe
+   * default for shared application services. Choose `owned` only when this
+   * client created the transport exclusively for its own lifecycle.
+   */
+  transportOwnership?: "borrowed" | "owned";
+  /**
+   * Keep accepted run subscriptions alive when their last visible thread lease
+   * releases. Chat shells use this so navigation changes presentation without
+   * cancelling agent work; disposal still stops every retained consumer.
+   */
+  retainActiveRunsOnThreadRelease?: boolean;
+  createId?: (prefix: string) => string;
+  now?: () => string;
+  reconnect?: {
+    attempts?: number;
+    delayMs?: (attempt: number) => number;
+  };
+  onError?: (error: AgentError) => void;
+  /**
+   * Called for stream integrity problems the client detects but cannot fix.
+   * Hosts route these to their own counters; failures here are swallowed so
+   * observability can never break the run it observes.
+   */
+  onIntegrityReport?: (report: AgentStreamIntegrityReport) => void;
+  upload?: AgentKitUploadDriver;
+}
+
+export interface AgentKitUploadFile {
+  name: string;
+  mediaType: string;
+  size: number;
+  body: Blob;
+}
+
+const MAX_QUEUED_IMAGE_UPLOAD_BYTES = 25 * 1024 * 1024;
+
+function estimateQueuedImageBytes(data: string, path: string): number {
+  const match = data.match(
+    /^data:image\/(?:gif|jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/i,
+  );
+  if (!match) {
+    throw new AgentProtocolValidationError(
+      path,
+      "expected a base64 raster image data URL",
+    );
+  }
+  const encoded = match[1]!;
+  const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
+  return Math.floor((encoded.length * 3) / 4) - padding;
+}
+
+function requestAttachmentFile(
+  attachment: AgentRequestAttachment,
+): AgentKitUploadFile | null {
+  if (!attachment.data) return null;
+  const match = attachment.data.match(
+    /^data:(image\/(?:gif|jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/i,
+  );
+  if (!match) {
+    throw new AgentProtocolValidationError(
+      "requestAttachments.data",
+      "expected a base64 raster image data URL",
+    );
+  }
+  const mediaType = match[1]!.toLowerCase();
+  const binary = atob(match[2]!);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return {
+    name: attachment.name,
+    mediaType,
+    size: bytes.byteLength,
+    body: new Blob([bytes], { type: mediaType }),
+  };
+}
+
+export type AgentKitUploadDriver = (
+  target: AgentUploadTarget,
+  file: AgentKitUploadFile,
+  context?: AgentRequestContext,
+) => Promise<void>;
+
+/**
+ * Creates the deterministic AgentKit controller used by every UI binding.
+ * Prefer this factory at application boundaries; the class remains public for
+ * dependency injection, extension, and test harnesses.
+ */
+export function createAgentKitClient(
+  options: AgentKitClientOptions,
+): AgentKitClient {
+  return new AgentKitClient(options);
+}
+
+const queueMessagePreflightTokenBrand: unique symbol = Symbol(
+  "queueMessagePreflightToken",
+);
+
+export interface QueueMessagePreflightToken {
+  readonly [queueMessagePreflightTokenBrand]: true;
+}
+
+interface QueueMessagePreflightState {
+  threadId: ThreadId;
+  engine: string | undefined;
+  hasAttachments: boolean;
+}
+
+export interface SendMessageInput {
+  threadId: ThreadId;
+  text: string;
+  attachments?: FilePart[];
+  requestAttachments?: AgentRequestAttachment[];
+  options?: AgentRunOptions;
+  metadata?: Record<string, unknown>;
+  /** Whether to queue when a run is active. Defaults to true. */
+  queueWhileRunning?: boolean;
+  /** Host snapshot for queued submits that follow a run through async preparation. */
+  queuedWhileRunActive?: boolean;
+  /** Host intent for a send that must interrupt the active run if it hits a server-side slot conflict. */
+  interruptActiveRun?: boolean;
+  /** Host-only acknowledgement after the recoverable message enters local state; never sent to the transport. */
+  onLocalSubmit?: () => void;
+  /** Reuses a host-created optimistic queue row while async preparation finishes. */
+  queuedMessageReservationId?: string;
+  /** Host-only attachment intent for queued submits prepared before upload. */
+  queueMessageHasAttachments?: boolean;
+  /** One-use proof of queue readiness checked before a host upload. */
+  queueMessagePreflightToken?: QueueMessagePreflightToken;
+  /** Host-only validation after queue preparation and immediately before the transport write. */
+  validateBeforeQueue?: () => void;
+}
+
+export interface AgentRunHandle {
+  runId: RunId;
+  completed: Promise<void>;
+  cancel(): Promise<void>;
+}
+
+function isTerminalRunEvent(event: AgentEvent): boolean {
+  return (
+    event.type === "run.completed" ||
+    event.type === "run.failed" ||
+    event.type === "run.cancelled" ||
+    (event.type === "run.status" &&
+      (event.status === "completed" ||
+        event.status === "failed" ||
+        event.status === "cancelled"))
+  );
+}
+
+function terminalRunEventStatus(
+  event: AgentEvent,
+): TerminalRunState["status"] | undefined {
+  if (event.type === "run.completed") return "completed";
+  if (event.type === "run.failed") return "failed";
+  if (event.type === "run.cancelled") return "cancelled";
+  if (
+    event.type === "run.status" &&
+    (event.status === "completed" ||
+      event.status === "failed" ||
+      event.status === "cancelled")
+  ) {
+    return event.status;
+  }
+  return undefined;
+}
+
+function metadataRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function selectedEngineForDispatch(input: {
+  metadata?: Record<string, unknown>;
+  options?: AgentRunOptions;
+}): string | undefined {
+  const engine = input.metadata?.engine ?? input.options?.metadata?.engine;
+  return typeof engine === "string" ? engine : undefined;
+}
+
+function sameQueuedMessageIds(
+  first: AgentQueuedMessage[],
+  second: AgentQueuedMessage[],
+): boolean {
+  return (
+    first.length === second.length &&
+    first.every((message, index) => message.id === second[index]?.id)
+  );
+}
+
+interface QueuedMessageOverride {
+  messages: AgentQueuedMessage[];
+  removedIds: Set<string>;
+}
+
+function mergeQueuedMessageOverride(
+  override: QueuedMessageOverride,
+  durable: AgentQueuedMessage[],
+): AgentQueuedMessage[] {
+  const expectedIds = new Set(override.messages.map((message) => message.id));
+  const durableVisible = durable.filter(
+    (message) => !override.removedIds.has(message.id),
+  );
+  const merged = [...override.messages];
+  for (let index = 0; index < durableVisible.length; index += 1) {
+    const message = durableVisible[index];
+    if (expectedIds.has(message.id)) continue;
+    let nextExpectedIndex = -1;
+    for (
+      let nextIndex = index + 1;
+      nextIndex < durableVisible.length;
+      nextIndex += 1
+    ) {
+      const candidateIndex = merged.findIndex(
+        (current) => current.id === durableVisible[nextIndex]?.id,
+      );
+      if (candidateIndex >= 0) {
+        nextExpectedIndex = candidateIndex;
+        break;
+      }
+    }
+    if (nextExpectedIndex >= 0) {
+      merged.splice(nextExpectedIndex, 0, message);
+      continue;
+    }
+    let previousExpectedIndex = -1;
+    for (
+      let previousIndex = index - 1;
+      previousIndex >= 0;
+      previousIndex -= 1
+    ) {
+      const candidateIndex = merged.findIndex(
+        (current) => current.id === durableVisible[previousIndex]?.id,
+      );
+      if (candidateIndex >= 0) {
+        previousExpectedIndex = candidateIndex;
+        break;
+      }
+    }
+    if (previousExpectedIndex >= 0) {
+      merged.splice(previousExpectedIndex + 1, 0, message);
+    } else {
+      merged.push(message);
+    }
+  }
+  return merged;
+}
+
+function mergeRuntimeRecordMap<T>(
+  loaded: Record<string, T>,
+  baseline: Record<string, T>,
+  current: Record<string, T>,
+): Record<string, T> {
+  if (current === baseline) return loaded;
+  const merged = { ...loaded };
+  for (const id of Object.keys(baseline)) {
+    if (!Object.prototype.hasOwnProperty.call(current, id)) delete merged[id];
+  }
+  for (const [id, record] of Object.entries(current)) {
+    if (
+      !Object.prototype.hasOwnProperty.call(baseline, id) ||
+      baseline[id] !== record
+    ) {
+      merged[id] = record;
+    }
+  }
+  return merged;
+}
+
+export interface AgentThreadLease {
+  readonly threadId: ThreadId;
+  /** False when the durable read completed but the requested thread was absent. */
+  readonly threadFound?: boolean;
+  getSnapshot(): AgentThreadState;
+  release(): void;
+  /** Alias for hosts whose lifecycle primitive uses disposable resources. */
+  dispose(): void;
+}
+
+export interface AgentKitController {
+  getSnapshot(): AgentKitSnapshot;
+  subscribe(listener: AgentKitListener): () => void;
+  getThread(threadId: ThreadId): AgentThreadState;
+  /**
+   * Persist through the configured transport when supported. Expected
+   * cancellation or queue deferral resolves without confirming that it saved;
+   * use persistThreadSnapshotWithResult() when the caller needs that status.
+   * Unexpected transport failures reject.
+   */
+  persistThreadSnapshot(
+    threadId: ThreadId,
+    messages?: AgentMessage[],
+  ): Promise<void>;
+  /**
+   * Return true when saved, false when failed, cancelled, or deferred, or
+   * undefined when unsupported.
+   */
+  persistThreadSnapshotWithResult?(
+    threadId: ThreadId,
+    messages?: AgentMessage[],
+    context?: AgentRequestContext,
+  ): Promise<boolean | undefined>;
+  openThread(
+    threadId: ThreadId,
+    context?: AgentRequestContext,
+  ): Promise<AgentThreadLease>;
+  loadThread(
+    threadId: ThreadId,
+    context?: AgentRequestContext,
+  ): Promise<AgentThreadState>;
+  getCapabilities(context?: AgentRequestContext): Promise<AgentCapabilities>;
+  createThread(
+    input?: CreateThreadInput,
+    context?: AgentRequestContext,
+  ): Promise<AgentThread>;
+  listThreads(
+    input?: ListThreadsInput,
+    context?: AgentRequestContext,
+  ): Promise<ListThreadsResult>;
+  /** Checks provider readiness before a user-initiated fork-and-resend. */
+  assertAiSetupReady(
+    input?: { engine?: string },
+    context?: AgentRequestContext,
+  ): Promise<void>;
+  /** Validates queue eligibility before a host performs an upload for the queued message. */
+  assertQueueMessageReady(
+    input: Pick<
+      SendMessageInput,
+      | "threadId"
+      | "text"
+      | "attachments"
+      | "requestAttachments"
+      | "metadata"
+      | "options"
+    > & { hasAttachments?: boolean },
+    context?: AgentRequestContext,
+  ): Promise<QueueMessagePreflightToken>;
+  sendMessage(
+    input: SendMessageInput,
+    context?: AgentRequestContext,
+  ): Promise<AgentRunHandle>;
+  /** Reattaches to an existing run stream; it never retries agent work. */
+  resubscribeRun(threadId: ThreadId, runId: RunId): Promise<void>;
+  cancelRun(
+    threadId: ThreadId,
+    runId: RunId,
+    context?: AgentRequestContext,
+  ): Promise<void>;
+  resolveApproval(
+    input: {
+      threadId: ThreadId;
+      runId: RunId;
+      approvalId: string;
+      optionId?: string;
+      response: AgentApprovalResponse;
+    },
+    context?: AgentRequestContext,
+  ): Promise<void>;
+  resolveConnectionRequest(
+    input: {
+      threadId: ThreadId;
+      runId: RunId;
+      requestId: string;
+      response: AgentConnectionResponse;
+    },
+    context?: AgentRequestContext,
+  ): Promise<void>;
+  invokeAction(
+    invocation: AgentActionInvocation,
+    context?: AgentRequestContext,
+  ): Promise<AgentActionResult>;
+  uploadFiles(
+    threadId: ThreadId,
+    files: AgentKitUploadFile[],
+    context?: AgentRequestContext,
+  ): Promise<FilePart[]>;
+  createUpload(
+    threadId: ThreadId,
+    descriptor: AgentUploadDescriptor,
+    context?: AgentRequestContext,
+  ): Promise<AgentUploadTarget>;
+  completeUpload(
+    threadId: ThreadId,
+    uploadId: UploadId,
+    context?: AgentRequestContext,
+  ): Promise<FilePart>;
+  cancelUpload(
+    threadId: ThreadId,
+    uploadId: UploadId,
+    context?: AgentRequestContext,
+  ): Promise<void>;
+  queueMessage(
+    input: SendMessageInput,
+    context?: AgentRequestContext,
+  ): Promise<AgentQueuedMessage>;
+  /** Adds a text-only local queue row before the host starts async preparation. */
+  reserveQueuedMessage(
+    input: Pick<SendMessageInput, "threadId" | "text">,
+    onLocalSubmit?: () => void,
+  ): AgentQueuedMessage;
+  /** Removes a local-only queue reservation after preparation fails or is canceled. */
+  cancelQueuedMessageReservation(threadId: ThreadId, messageId: string): void;
+  steerQueuedMessage(
+    threadId: ThreadId,
+    messageId: string,
+    context?: AgentRequestContext,
+    options?: { interruptActiveRun?: boolean },
+  ): Promise<AgentRunHandle | void>;
+  removeQueuedMessage(
+    threadId: ThreadId,
+    messageId: string,
+    context?: AgentRequestContext,
+  ): Promise<void>;
+  moveQueuedMessageToTop?(
+    threadId: ThreadId,
+    messageId: string,
+    context?: AgentRequestContext,
+  ): Promise<void>;
+  supportsQueuedMessageReordering?(): boolean;
+  continueRun?(
+    threadId: ThreadId,
+    runId: RunId,
+    context?: AgentRequestContext,
+  ): Promise<void>;
+  supportsRunContinuation?(): boolean;
+  submitFeedback(
+    threadId: ThreadId,
+    messageId: string,
+    value: "positive" | "negative" | "dismissed",
+    options?: Pick<
+      SubmitFeedbackInput,
+      "metadata" | "messageSeq" | "reason" | "runId"
+    >,
+    context?: AgentRequestContext,
+  ): Promise<void>;
+  forkThread(
+    threadId: ThreadId,
+    fromMessageId?: string,
+    options?: Omit<ForkThreadInput, "threadId" | "fromMessageId">,
+    context?: AgentRequestContext,
+  ): Promise<AgentThread>;
+  updateThread(
+    threadId: ThreadId,
+    patch: Omit<UpdateThreadInput, "threadId">,
+    context?: AgentRequestContext,
+  ): Promise<AgentThread>;
+  deleteThread(
+    threadId: ThreadId,
+    context?: AgentRequestContext,
+  ): Promise<void>;
+  /**
+   * Stops client work and awaits cleanup of an owned transport. Borrowed
+   * transports remain untouched.
+   */
+  shutdown(): Promise<void>;
+  /** Alias for hosts whose lifecycle primitive uses disposable resources. */
+  dispose(): Promise<void>;
+}
+
+export type AgentKitListener = () => void;
+
+function defaultCreateId(prefix: string): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function errorProperty(error: unknown, property: string): unknown {
+  return typeof error === "object" && error !== null
+    ? (error as Record<string, unknown>)[property]
+    : undefined;
+}
+
+function errorIsRetryable(error: unknown, fallback = true): boolean {
+  const explicit = errorProperty(error, "retryable");
+  if (typeof explicit === "boolean") return explicit;
+  if (
+    error instanceof AgentKitCapabilityError ||
+    error instanceof AgentKitOperationError ||
+    error instanceof AgentKitDisposedError ||
+    error instanceof AgentProtocolValidationError ||
+    (error instanceof Error && error.name === "AbortError")
+  ) {
+    return false;
+  }
+  const status = errorProperty(error, "status");
+  if (typeof status === "number") {
+    return (
+      status === 408 ||
+      status === 425 ||
+      status === 429 ||
+      (status >= 500 && status !== 501 && status !== 505)
+    );
+  }
+  return fallback;
+}
+
+function isAbortFailure(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function isExpectedRequestCancellation(error: unknown): boolean {
+  return (
+    errorProperty(error, "code") === "request_aborted" || isAbortFailure(error)
+  );
+}
+
+function isExpectedThreadSnapshotDeferral(error: unknown): boolean {
+  const code = errorProperty(error, "code");
+  return (
+    isExpectedRequestCancellation(error) ||
+    code === "thread_snapshot_queue_full" ||
+    code === "thread_snapshot_queue_stalled"
+  );
+}
+
+function toError(error: unknown, code = "agentkit_client_error"): AgentError {
+  const errorCode = errorProperty(error, "code");
+  const correlationId = errorProperty(error, "correlationId");
+  const details = errorProperty(error, "details");
+  return {
+    code: typeof errorCode === "string" ? errorCode : code,
+    message: error instanceof Error ? error.message : String(error),
+    retryable: errorIsRetryable(error),
+    ...(typeof correlationId === "string" ? { correlationId } : {}),
+    ...(details === undefined ? {} : { details }),
+  };
+}
+
+export class AgentKitCapabilityError extends Error {
+  public readonly code: "capability_unsupported" | "capability_unavailable";
+  public readonly retryable: boolean;
+
+  public constructor(
+    public readonly capability: AgentCapabilityId,
+    public readonly state: "unsupported" | "unavailable" = "unsupported",
+    message?: string,
+    retryable = state === "unavailable",
+    public readonly correlationId?: string,
+    public readonly details?: unknown,
+  ) {
+    super(
+      message ??
+        `This AgentKit controller does not support the ${capability} capability.`,
+    );
+    this.name = "AgentKitCapabilityError";
+    this.code =
+      state === "unavailable"
+        ? "capability_unavailable"
+        : "capability_unsupported";
+    this.retryable = retryable;
+  }
+}
+
+export class AgentKitRunSlotBusyError extends Error {
+  public readonly code = "run_slot_busy" as const;
+  public readonly retryable = true;
+
+  public constructor(public readonly activeRunId?: RunId) {
+    super("The current agent run still owns this thread.");
+    this.name = "AgentKitRunSlotBusyError";
+  }
+}
+
+function isAgentKitRunSlotBusyError(
+  error: unknown,
+): error is AgentKitRunSlotBusyError {
+  return (
+    error instanceof AgentKitRunSlotBusyError ||
+    (!!error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "run_slot_busy")
+  );
+}
+
+function isRetryableQueuePromotionError(error: unknown): boolean {
+  return (
+    isAgentKitRunSlotBusyError(error) ||
+    (errorProperty(error, "code") === "queue_item_busy" &&
+      errorProperty(error, "retryable") === true)
+  );
+}
+
+export class AgentKitOperationError extends Error {
+  public readonly code = "operation_unsupported" as const;
+  public readonly retryable = false;
+
+  public constructor(public readonly operation: string) {
+    super(`This AgentKit controller does not support ${operation}.`);
+    this.name = "AgentKitOperationError";
+  }
+}
+
+export interface AgentKitUploadFailure {
+  index: number;
+  name: string;
+  error: unknown;
+}
+
+/**
+ * One or more files in an upload batch failed. Each failed file is named, and
+ * the siblings that did upload are kept so a retry can reuse them instead of
+ * leaving them orphaned in storage.
+ */
+export class AgentKitUploadError extends Error {
+  public readonly code = "upload_failed" as const;
+  public readonly retryable: boolean;
+
+  public constructor(
+    public readonly failures: AgentKitUploadFailure[],
+    public readonly uploaded: Array<{ index: number; part: FilePart }>,
+  ) {
+    super(
+      failures
+        .map(({ name, error }) => {
+          const reason = error instanceof Error ? error.message.trim() : "";
+          return reason ? `${name}: ${reason}` : name;
+        })
+        .join("\n"),
+    );
+    this.name = "AgentKitUploadError";
+    this.retryable = failures.every(
+      ({ error }) => errorProperty(error, "retryable") === true,
+    );
+  }
+}
+
+export class AgentKitDisposedError extends Error {
+  public readonly code = "client_disposed" as const;
+  public readonly retryable = false;
+
+  public constructor() {
+    super("This AgentKit client has been disposed.");
+    this.name = "AgentKitDisposedError";
+  }
+}
+
+export class AgentKitHandshakeError extends Error {
+  public readonly retryable = false;
+
+  public constructor(
+    public readonly code: string,
+    message: string,
+    public readonly details?: unknown,
+    public readonly correlationId?: string,
+  ) {
+    super(message);
+    this.name = "AgentKitHandshakeError";
+  }
+}
+
+class AgentKitConsumerStoppedError extends Error {
+  public constructor(
+    public readonly reason: "cancelled" | "released" | "deleted" | "disposed",
+  ) {
+    super(`AgentKit run subscription stopped: ${reason}.`);
+    this.name = "AgentKitConsumerStoppedError";
+  }
+}
+
+async function defaultUploadDriver(
+  target: AgentUploadTarget,
+  file: AgentKitUploadFile,
+  context?: AgentRequestContext,
+): Promise<void> {
+  const body = target.fields
+    ? (() => {
+        const data = new FormData();
+        for (const [key, value] of Object.entries(target.fields)) {
+          data.set(key, value);
+        }
+        data.set("file", file.body, file.name);
+        return data;
+      })()
+    : file.body;
+  const response = await fetch(target.url, {
+    method: target.method,
+    headers: target.headers,
+    body,
+    signal: context?.signal,
+  });
+  if (!response.ok) {
+    throw new Error(`Upload failed with ${response.status}.`);
+  }
+}
+
+const MAX_TOOL_HISTORY_VALUE_BYTES = 64 * 1024;
+const MAX_TOOL_HISTORY_VALUE_DEPTH = 256;
+const MAX_TOOL_HISTORY_VALUE_WORK = 64 * 1024;
+const MAX_TOOL_HISTORY_SIGNATURE_KEYS = 4_096;
+const MAX_ADDED_TOOL_HISTORY_BYTES = 256 * 1024;
+const MAX_TOOL_HISTORY_CALLS = 64;
+const MAX_TOOL_HISTORY_SOURCE_EVENT_WORK = 4_096;
+const MAX_TOOL_HISTORY_SOURCE_EVENTS = MAX_TOOL_HISTORY_SOURCE_EVENT_WORK / 2;
+const MAX_TOOL_HISTORY_SOURCE_TOOLS = 4_096;
+const TOOL_HISTORY_OMISSION_TEXT =
+  "Some tool-call history could not be included in the history supplied for this turn.";
+const TOOL_HISTORY_ORDER_OMISSION_TEXT =
+  "Tool-call history was omitted because its position could not be reconstructed safely.";
+
+type StructuredToolHistoryPart =
+  | { type: "text"; text: string }
+  | { type: "tool-call"; id: string; name: string; input?: unknown }
+  | {
+      type: "tool-result";
+      toolCallId: string;
+      toolName?: string;
+      content: string;
+      isError?: true;
+    };
+
+interface ProjectedToolHistoryParts {
+  content: StructuredToolHistoryPart[];
+  results: StructuredToolHistoryPart[];
+}
+
+interface ProjectedToolHistoryPartSizes {
+  content: number[];
+  results: number[];
+}
+
+interface ProjectedToolHistoryGroupSize {
+  partBytes: number;
+  partCount: number;
+}
+
+interface ProjectedToolHistoryMessageSize {
+  assistant?: ProjectedToolHistoryGroupSize;
+  user?: ProjectedToolHistoryGroupSize;
+}
+
+const TOOL_HISTORY_ASSISTANT_GROUP_OVERHEAD =
+  '{"role":"assistant","content":[]}';
+const TOOL_HISTORY_USER_GROUP_OVERHEAD = '{"role":"user","content":[]}';
+const TOOL_HISTORY_OMISSION_PART: StructuredToolHistoryPart = {
+  type: "text",
+  text: TOOL_HISTORY_OMISSION_TEXT,
+};
+const TOOL_HISTORY_OMISSION_PART_BYTES = JSON.stringify(
+  TOOL_HISTORY_OMISSION_PART,
+).length;
+
+function projectStructuredToolHistoryParts(
+  parts: DataPart[],
+): ProjectedToolHistoryParts {
+  const content: StructuredToolHistoryPart[] = [];
+  const results: StructuredToolHistoryPart[] = [];
+  for (const part of parts) {
+    const data = part.data as Record<string, unknown>;
+    if (part.mediaType === AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE) {
+      if (typeof data.inputText === "string" && data.inputText.trim()) {
+        content.push({ type: "text", text: data.inputText });
+      }
+      content.push({
+        type: "tool-call",
+        id: data.id as string,
+        name: data.name as string,
+        ...(data.input === undefined ? {} : { input: data.input }),
+      });
+    } else if (part.mediaType === AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE) {
+      const result =
+        data.result === undefined
+          ? ((data.resultText as string | undefined) ??
+            "No tool result was recorded.")
+          : `${typeof data.result === "string" ? data.result : (JSON.stringify(data.result) ?? "Tool result could not be serialized for history.")}${data.resultText ? `\n${data.resultText as string}` : ""}`;
+      results.push({
+        type: "tool-result",
+        toolCallId: data.id as string,
+        ...(typeof data.name === "string" ? { toolName: data.name } : {}),
+        content: result,
+        ...(data.isError === true ? { isError: true } : {}),
+      });
+    }
+  }
+  return { content, results };
+}
+
+function projectedToolHistoryPartSizes(
+  parts: ProjectedToolHistoryParts,
+): ProjectedToolHistoryPartSizes | undefined {
+  try {
+    const size = (part: StructuredToolHistoryPart) => {
+      const serialized = JSON.stringify(part);
+      return serialized === undefined
+        ? undefined
+        : utf8ByteLength(serialized, MAX_ADDED_TOOL_HISTORY_BYTES);
+    };
+    const content = parts.content.map(size);
+    const results = parts.results.map(size);
+    if (
+      content.some((bytes) => bytes === undefined) ||
+      results.some((bytes) => bytes === undefined)
+    ) {
+      return undefined;
+    }
+    return {
+      content: content as number[],
+      results: results as number[],
+    };
+  } catch {
+    // coercion-ok: Unserializable history parts cannot be safely budgeted.
+    return undefined;
+  }
+}
+
+function createProjectedToolHistorySizer(
+  assistantMessageCopies: Map<string, number>,
+) {
+  const byMessageId = new Map<string, ProjectedToolHistoryMessageSize>();
+
+  const updateGroup = (
+    group: ProjectedToolHistoryGroupSize | undefined,
+    partSizes: number[],
+    direction: 1 | -1,
+  ) => {
+    if (partSizes.length === 0) return group;
+    const next = group ?? { partBytes: 0, partCount: 0 };
+    for (const partBytes of partSizes) {
+      next.partBytes += direction * partBytes;
+      next.partCount += direction;
+    }
+    return next.partCount === 0 ? undefined : next;
+  };
+
+  return {
+    update(
+      messageId: string,
+      sizes: ProjectedToolHistoryPartSizes,
+      direction: 1 | -1,
+    ) {
+      const messageSize = byMessageId.get(messageId) ?? {};
+      messageSize.assistant = updateGroup(
+        messageSize.assistant,
+        sizes.content,
+        direction,
+      );
+      messageSize.user = updateGroup(
+        messageSize.user,
+        sizes.results,
+        direction,
+      );
+      if (messageSize.assistant || messageSize.user) {
+        byMessageId.set(messageId, messageSize);
+      } else {
+        byMessageId.delete(messageId);
+      }
+    },
+    byteLength(omissionMessageId?: string): number {
+      let groupBytes = 0;
+      let groupCount = 0;
+      let omittedMessageCopies = 0;
+      if (omissionMessageId) {
+        omittedMessageCopies =
+          assistantMessageCopies.get(omissionMessageId) ?? 0;
+      }
+
+      for (const [messageId, messageSize] of byMessageId) {
+        const copies = assistantMessageCopies.get(messageId) ?? 0;
+        if (copies === 0) continue;
+        for (const [group, overhead] of [
+          [messageSize.assistant, TOOL_HISTORY_ASSISTANT_GROUP_OVERHEAD],
+          [messageSize.user, TOOL_HISTORY_USER_GROUP_OVERHEAD],
+        ] as const) {
+          if (!group) continue;
+          let partBytes = group.partBytes;
+          let partCount = group.partCount;
+          if (
+            messageId === omissionMessageId &&
+            group === messageSize.assistant
+          ) {
+            partBytes += TOOL_HISTORY_OMISSION_PART_BYTES;
+            partCount += 1;
+          }
+          const overheadBytes = overhead.length;
+          const size = overheadBytes + partBytes + Math.max(0, partCount - 1);
+          groupBytes += size * copies;
+          groupCount += copies;
+        }
+      }
+
+      if (
+        omittedMessageCopies > 0 &&
+        !byMessageId.get(omissionMessageId!)?.assistant
+      ) {
+        const overheadBytes = TOOL_HISTORY_ASSISTANT_GROUP_OVERHEAD.length;
+        groupBytes +=
+          (overheadBytes + TOOL_HISTORY_OMISSION_PART_BYTES) *
+          omittedMessageCopies;
+        groupCount += omittedMessageCopies;
+      }
+
+      const bytes = 2 + groupBytes + Math.max(0, groupCount - 1);
+      return Math.min(bytes, MAX_ADDED_TOOL_HISTORY_BYTES + 1);
+    },
+  };
+}
+
+type ToolHistoryValueProjection =
+  | { ok: true; value: unknown }
+  | { ok: false; omission: string };
+
+type BoundedJsonValueProjection =
+  | { kind: "value"; value: unknown; bytes: number }
+  | { kind: "omitted" }
+  | { kind: "too-large" }
+  | { kind: "unsupported" };
+
+function jsonStringByteLength(
+  value: string,
+  limit: number,
+): number | undefined {
+  if (value.length > limit) return undefined;
+  let bytes = 2;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code === 0x22 || code === 0x5c) {
+      bytes += 2;
+    } else if (
+      code === 0x08 ||
+      code === 0x09 ||
+      code === 0x0a ||
+      code === 0x0c ||
+      code === 0x0d
+    ) {
+      bytes += 2;
+    } else if (code < 0x20) {
+      bytes += 6;
+    } else if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index += 1;
+      } else {
+        bytes += 6;
+      }
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      bytes += 6;
+    } else if (code <= 0x7f) {
+      bytes += 1;
+    } else if (code <= 0x7ff) {
+      bytes += 2;
+    } else {
+      bytes += 3;
+    }
+    if (bytes > limit) return undefined;
+  }
+  return bytes;
+}
+
+function utf8ByteLength(value: string, limit: number): number | undefined {
+  if (value.length > limit) return undefined;
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index += 1;
+      } else {
+        bytes += 3;
+      }
+    } else if (code <= 0x7f) {
+      bytes += 1;
+    } else if (code <= 0x7ff) {
+      bytes += 2;
+    } else {
+      bytes += 3;
+    }
+    if (bytes > limit) return undefined;
+  }
+  return bytes;
+}
+
+function hasUnsupportedToJSON(
+  value: object,
+  inheritedPrototype: object | null,
+): boolean {
+  const ownDescriptor = Object.getOwnPropertyDescriptor(value, "toJSON");
+  if (
+    ownDescriptor &&
+    (!("value" in ownDescriptor) || typeof ownDescriptor.value === "function")
+  ) {
+    return true;
+  }
+  if (!inheritedPrototype) return false;
+  const inheritedDescriptor = Object.getOwnPropertyDescriptor(
+    inheritedPrototype,
+    "toJSON",
+  );
+  return Boolean(
+    inheritedDescriptor &&
+    (!("value" in inheritedDescriptor) ||
+      typeof inheritedDescriptor.value === "function"),
+  );
+}
+
+function projectBoundedJsonValue(
+  value: unknown,
+  position: "root" | "object" | "array",
+  ancestors: Set<object>,
+  work: { remaining: number },
+  limit: number,
+  depth: number,
+): BoundedJsonValueProjection {
+  if (value === null) return { kind: "value", value, bytes: 4 };
+  if (typeof value === "string") {
+    const bytes = jsonStringByteLength(value, limit);
+    return bytes === undefined
+      ? { kind: "too-large" }
+      : { kind: "value", value, bytes };
+  }
+  if (typeof value === "boolean") {
+    const bytes = value ? 4 : 5;
+    return bytes <= limit
+      ? { kind: "value", value, bytes }
+      : { kind: "too-large" };
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      return 4 <= limit
+        ? { kind: "value", value: null, bytes: 4 }
+        : { kind: "too-large" };
+    }
+    const bytes = JSON.stringify(value)!.length;
+    return bytes <= limit
+      ? { kind: "value", value, bytes }
+      : { kind: "too-large" };
+  }
+  if (
+    typeof value === "undefined" ||
+    typeof value === "function" ||
+    typeof value === "symbol"
+  ) {
+    if (position === "object") return { kind: "omitted" };
+    if (position === "array" && limit >= 4) {
+      return { kind: "value", value: null, bytes: 4 };
+    }
+    return position === "array"
+      ? { kind: "too-large" }
+      : { kind: "unsupported" };
+  }
+  if (typeof value !== "object" || depth >= MAX_TOOL_HISTORY_VALUE_DEPTH) {
+    return { kind: "unsupported" };
+  }
+  if (ancestors.has(value)) return { kind: "unsupported" };
+
+  try {
+    const isArray = Array.isArray(value);
+    const prototype = Object.getPrototypeOf(value);
+    if (
+      isArray
+        ? prototype !== Array.prototype && prototype !== null
+        : prototype !== Object.prototype && prototype !== null
+    ) {
+      return { kind: "unsupported" };
+    }
+    const inheritedPrototype = prototype === null ? null : prototype;
+    if (hasUnsupportedToJSON(value, inheritedPrototype)) {
+      return { kind: "unsupported" };
+    }
+    if (limit < 2) return { kind: "too-large" };
+
+    ancestors.add(value);
+    try {
+      if (isArray) {
+        const array = value as unknown[];
+        const length = array.length;
+        if (length === 0) {
+          return limit >= 2
+            ? {
+                kind: "value",
+                value: Object.setPrototypeOf([], null),
+                bytes: 2,
+              }
+            : { kind: "too-large" };
+        }
+        if (length * 2 + 1 > limit) return { kind: "too-large" };
+        if (length > work.remaining) return { kind: "unsupported" };
+
+        const projected = Object.setPrototypeOf(
+          new Array<unknown>(length),
+          null,
+        );
+        let bytes = 2;
+        for (let index = 0; index < length; index += 1) {
+          work.remaining -= 1;
+          const separatorBytes = index === 0 ? 0 : 1;
+          const available = limit - bytes - separatorBytes;
+          const descriptor = Object.getOwnPropertyDescriptor(
+            value,
+            String(index),
+          );
+          if (!descriptor) {
+            if (
+              prototype === Array.prototype &&
+              Object.getOwnPropertyDescriptor(Array.prototype, String(index))
+            ) {
+              return { kind: "unsupported" };
+            }
+            if (available < 4) return { kind: "too-large" };
+            projected[index] = null;
+            bytes += separatorBytes + 4;
+            continue;
+          }
+          if (!("value" in descriptor)) return { kind: "unsupported" };
+          const item = projectBoundedJsonValue(
+            descriptor.value,
+            "array",
+            ancestors,
+            work,
+            available,
+            depth + 1,
+          );
+          if (item.kind !== "value") return item;
+          projected[index] = item.value;
+          bytes += separatorBytes + item.bytes;
+        }
+        return { kind: "value", value: projected, bytes };
+      }
+
+      const projected: Record<string, unknown> = Object.create(null) as Record<
+        string,
+        unknown
+      >;
+      let bytes = 2;
+      let hasEntry = false;
+      for (const key in value) {
+        if (work.remaining <= 0) {
+          return { kind: "unsupported" };
+        }
+        work.remaining -= 1;
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (!descriptor || !descriptor.enumerable) continue;
+        if (!("value" in descriptor)) return { kind: "unsupported" };
+
+        const rawItem = descriptor.value;
+        if (
+          rawItem === undefined ||
+          typeof rawItem === "function" ||
+          typeof rawItem === "symbol"
+        ) {
+          continue;
+        }
+        const keyBytes = jsonStringByteLength(key, limit);
+        if (keyBytes === undefined) return { kind: "too-large" };
+        const separatorBytes = hasEntry ? 1 : 0;
+        const available = limit - bytes - separatorBytes - keyBytes - 1;
+        if (available < 0) return { kind: "too-large" };
+        const item = projectBoundedJsonValue(
+          rawItem,
+          "object",
+          ancestors,
+          work,
+          available,
+          depth + 1,
+        );
+        if (item.kind === "too-large" || item.kind === "unsupported") {
+          return item;
+        }
+        if (item.kind === "omitted") continue;
+
+        projected[key] = item.value;
+        bytes += separatorBytes + keyBytes + 1 + item.bytes;
+        hasEntry = true;
+      }
+      return { kind: "value", value: projected, bytes };
+    } finally {
+      ancestors.delete(value);
+    }
+  } catch {
+    return { kind: "unsupported" };
+  }
+}
+
+function projectToolHistoryValue(value: unknown): ToolHistoryValueProjection {
+  const projection = projectBoundedJsonValue(
+    value,
+    "root",
+    new Set<object>(),
+    { remaining: MAX_TOOL_HISTORY_VALUE_WORK },
+    MAX_TOOL_HISTORY_VALUE_BYTES,
+    0,
+  );
+  if (projection.kind !== "value") {
+    return {
+      ok: false,
+      omission:
+        projection.kind === "too-large"
+          ? "it exceeds 64 KiB"
+          : "it could not be serialized",
+    };
+  }
+  try {
+    const serialized = JSON.stringify(projection.value);
+    if (
+      serialized === undefined ||
+      new TextEncoder().encode(serialized).byteLength >
+        MAX_TOOL_HISTORY_VALUE_BYTES
+    ) {
+      return { ok: false, omission: "it exceeds 64 KiB" };
+    }
+    return { ok: true, value: JSON.parse(serialized) as unknown };
+  } catch {
+    return { ok: false, omission: "it could not be serialized" };
+  }
+}
+
+function toolHistoryTextOmission(value: string): string | undefined {
+  if (value.length > MAX_TOOL_HISTORY_VALUE_BYTES) {
+    return "it exceeds 64 KiB";
+  }
+  return new TextEncoder().encode(value).byteLength >
+    MAX_TOOL_HISTORY_VALUE_BYTES
+    ? "it exceeds 64 KiB"
+    : undefined;
+}
+
+interface IndexedToolHistoryEvent {
+  event: AgentEvent;
+  index: number;
+}
+
+interface OrderedThreadToolCalls {
+  calls: AgentToolCall[];
+  events: IndexedToolHistoryEvent[];
+  omitted: boolean;
+  sourceTruncated: boolean;
+  omissionMessageId?: string;
+}
+
+function orderedThreadToolCalls(
+  thread: AgentThreadState,
+): OrderedThreadToolCalls {
+  const eventCount = thread.events.length;
+  const indexedEvents: IndexedToolHistoryEvent[] = [];
+  const startedIds = new Set<string>();
+  const settledIds = new Set<string>();
+  const updatedIds = new Set<string>();
+  const unstartedUpdatesNewestFirst: string[] = [];
+  const selectedIdsNewestFirst: string[] = [];
+  const selectedIds = new Set<string>();
+  let omitted = false;
+  let sourceTruncated = false;
+  let omissionMessageId: string | undefined;
+
+  for (
+    let index = eventCount - 1;
+    index >= 0 && indexedEvents.length < MAX_TOOL_HISTORY_SOURCE_EVENTS;
+    index -= 1
+  ) {
+    const event = thread.events[index]!;
+    const eventType = event.type;
+    indexedEvents.push({ event, index });
+    if (eventType === "tool.updated" && event.toolCall.status !== "running") {
+      const id = event.toolCall.id;
+      if (id.length <= MAX_TOOL_HISTORY_VALUE_BYTES) {
+        settledIds.add(id);
+        if (!updatedIds.has(id)) {
+          updatedIds.add(id);
+          unstartedUpdatesNewestFirst.push(id);
+        }
+      } else {
+        omitted = true;
+        omissionMessageId = event.toolCall.messageId ?? omissionMessageId;
+      }
+    } else if (eventType === "tool.started") {
+      const id = event.toolCall.id;
+      if (id.length > MAX_TOOL_HISTORY_VALUE_BYTES) {
+        omitted = true;
+        omissionMessageId = event.toolCall.messageId ?? omissionMessageId;
+        continue;
+      }
+      startedIds.add(id);
+      if (!settledIds.has(id) || selectedIds.has(id)) continue;
+      const toolCall = thread.tools[id];
+      if (!toolCall || toolCall.status === "running") continue;
+      if (selectedIdsNewestFirst.length < MAX_TOOL_HISTORY_CALLS) {
+        selectedIds.add(id);
+        selectedIdsNewestFirst.push(id);
+      } else {
+        omitted = true;
+        omissionMessageId = thread.tools[id]?.messageId ?? omissionMessageId;
+      }
+    }
+  }
+
+  if (indexedEvents.length < eventCount) {
+    omitted = true;
+    sourceTruncated = true;
+  }
+  let selectedIdsChronological = selectedIdsNewestFirst.reverse();
+  if (indexedEvents.length === eventCount) {
+    const unstartedUpdateIdsNewestFirst: string[] = [];
+    for (const id of unstartedUpdatesNewestFirst) {
+      if (startedIds.has(id) || selectedIds.has(id)) continue;
+      const toolCall = thread.tools[id];
+      if (!toolCall || toolCall.status === "running") continue;
+      unstartedUpdateIdsNewestFirst.push(id);
+    }
+    const remainingUpdates =
+      MAX_TOOL_HISTORY_CALLS - selectedIdsChronological.length;
+    if (unstartedUpdateIdsNewestFirst.length > remainingUpdates) {
+      omitted = true;
+      const firstSkippedId = unstartedUpdateIdsNewestFirst[remainingUpdates];
+      omissionMessageId =
+        thread.tools[firstSkippedId!]?.messageId ?? omissionMessageId;
+    }
+    const selectedUnstartedUpdateIds = unstartedUpdateIdsNewestFirst
+      .slice(0, remainingUpdates)
+      .reverse();
+    selectedIdsChronological.push(...selectedUnstartedUpdateIds);
+    for (const id of selectedUnstartedUpdateIds) selectedIds.add(id);
+
+    if (selectedIdsChronological.length < MAX_TOOL_HISTORY_CALLS) {
+      const fallbackIds: string[] = [];
+      let inspectedTools = 0;
+      let fallbackScanComplete = true;
+      for (const id in thread.tools) {
+        if (inspectedTools >= MAX_TOOL_HISTORY_SOURCE_TOOLS) {
+          fallbackScanComplete = false;
+          break;
+        }
+        inspectedTools += 1;
+        if (!Object.prototype.hasOwnProperty.call(thread.tools, id)) continue;
+        if (startedIds.has(id) || updatedIds.has(id) || selectedIds.has(id)) {
+          continue;
+        }
+        const toolCall = thread.tools[id];
+        if (!toolCall || toolCall.status === "running") continue;
+        fallbackIds.push(id);
+      }
+      if (!fallbackScanComplete) {
+        omitted = true;
+        sourceTruncated = true;
+      } else {
+        const remaining =
+          MAX_TOOL_HISTORY_CALLS - selectedIdsChronological.length;
+        if (fallbackIds.length > remaining) {
+          omitted = true;
+          omissionMessageId =
+            thread.tools[fallbackIds[0]!]?.messageId ?? omissionMessageId;
+        }
+        selectedIdsChronological.push(...fallbackIds.slice(-remaining));
+      }
+    }
+  }
+
+  if (selectedIdsChronological.length > MAX_TOOL_HISTORY_CALLS) {
+    omitted = true;
+    selectedIdsChronological = selectedIdsChronological.slice(
+      -MAX_TOOL_HISTORY_CALLS,
+    );
+  }
+
+  const calls = selectedIdsChronological.flatMap((id) => {
+    const toolCall = thread.tools[id];
+    return toolCall ? [toolCall] : [];
+  });
+  omissionMessageId ??= omitted
+    ? calls.find((toolCall) => toolCall.messageId)?.messageId
+    : undefined;
+  return {
+    calls,
+    events: indexedEvents,
+    omitted,
+    sourceTruncated,
+    omissionMessageId,
+  };
+}
+
+interface RepresentedToolHistoryParts {
+  callIds: Set<string>;
+  resultIds: Set<string>;
+}
+
+interface OrderedToolHistoryPart {
+  part: AgentMessage["parts"][number];
+  order?: number;
+  preserveBoundary?: boolean;
+}
+
+interface ToolHistoryEventOrder {
+  call?: number;
+  result?: number;
+}
+
+interface OrderedMessageBody {
+  hasMessageEvent: boolean;
+  parts: OrderedToolHistoryPart[];
+}
+
+interface ToolHistoryEventIndex {
+  eventOrdersByToolCallId: Map<string, ToolHistoryEventOrder>;
+  messageBodiesByMessageId: Map<string, OrderedMessageBody>;
+}
+
+function representedToolHistoryParts(
+  message: AgentMessage,
+): RepresentedToolHistoryParts {
+  const represented = {
+    callIds: new Set<string>(),
+    resultIds: new Set<string>(),
+  };
+  for (const part of message.parts) {
+    if (part.type !== "data") continue;
+    const ids =
+      part.mediaType === AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE
+        ? represented.callIds
+        : part.mediaType === AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE
+          ? represented.resultIds
+          : undefined;
+    if (
+      !ids ||
+      typeof part.data !== "object" ||
+      part.data === null ||
+      Array.isArray(part.data)
+    )
+      continue;
+    const id = (part.data as Record<string, unknown>).id;
+    if (typeof id === "string") ids.add(id);
+  }
+  return represented;
+}
+
+function safeJsonSignature(value: unknown): string | undefined {
+  const ancestors = new Set<object>();
+  let work = 0;
+
+  const visit = (
+    current: unknown,
+    depth: number,
+    byteLimit: number,
+  ): { signature: string; bytes: number } | undefined => {
+    work += 1;
+    if (work > MAX_TOOL_HISTORY_VALUE_WORK) return undefined;
+    if (current === null) {
+      return byteLimit >= 4 ? { signature: "null", bytes: 4 } : undefined;
+    }
+    if (typeof current === "string") {
+      const bytes = jsonStringByteLength(current, byteLimit);
+      if (bytes === undefined) return undefined;
+      const signature = JSON.stringify(current);
+      return signature === undefined ? undefined : { signature, bytes };
+    }
+    if (typeof current === "boolean") {
+      const signature = current ? "true" : "false";
+      const bytes = current ? 4 : 5;
+      return bytes <= byteLimit ? { signature, bytes } : undefined;
+    }
+    if (typeof current === "number") {
+      if (!Number.isFinite(current)) return undefined;
+      const signature = JSON.stringify(current);
+      const bytes = signature
+        ? jsonStringByteLength(signature, byteLimit)
+        : undefined;
+      return bytes === undefined ? undefined : { signature, bytes };
+    }
+    if (
+      typeof current !== "object" ||
+      depth >= MAX_TOOL_HISTORY_VALUE_DEPTH ||
+      ancestors.has(current)
+    ) {
+      return undefined;
+    }
+
+    try {
+      const isArray = Array.isArray(current);
+      const prototype = Object.getPrototypeOf(current);
+      if (
+        isArray
+          ? prototype !== Array.prototype
+          : prototype !== Object.prototype && prototype !== null
+      ) {
+        return undefined;
+      }
+      if (hasUnsupportedToJSON(current, prototype)) return undefined;
+      if (byteLimit < 2) return undefined;
+
+      ancestors.add(current);
+      try {
+        if (isArray) {
+          const length = Object.getOwnPropertyDescriptor(current, "length");
+          if (
+            !length ||
+            !("value" in length) ||
+            typeof length.value !== "number" ||
+            length.value < 0 ||
+            !Number.isSafeInteger(length.value) ||
+            length.value * 2 > MAX_TOOL_HISTORY_VALUE_WORK - work ||
+            (length.value > 0 && length.value * 2 + 1 > byteLimit)
+          ) {
+            return undefined;
+          }
+
+          const items: string[] = [];
+          let bytes = 2;
+          let index = 0;
+          for (const key in current) {
+            work += 1;
+            if (
+              work > MAX_TOOL_HISTORY_VALUE_WORK ||
+              index >= length.value ||
+              key !== String(index)
+            ) {
+              return undefined;
+            }
+            const descriptor = Object.getOwnPropertyDescriptor(current, key);
+            if (
+              !descriptor ||
+              !descriptor.enumerable ||
+              !("value" in descriptor)
+            ) {
+              return undefined;
+            }
+            const separatorBytes = index === 0 ? 0 : 1;
+            const item = visit(
+              descriptor.value,
+              depth + 1,
+              byteLimit - bytes - separatorBytes,
+            );
+            if (!item) return undefined;
+            items.push(item.signature);
+            bytes += separatorBytes + item.bytes;
+            index += 1;
+          }
+          if (index !== length.value) return undefined;
+          return { signature: `[${items.join(",")}]`, bytes };
+        }
+
+        const entries: Array<{
+          key: string;
+          keyBytes: number;
+          value: unknown;
+        }> = [];
+        for (const key in current) {
+          work += 1;
+          if (
+            work > MAX_TOOL_HISTORY_VALUE_WORK ||
+            entries.length >= MAX_TOOL_HISTORY_SIGNATURE_KEYS ||
+            key === "toJSON"
+          ) {
+            return undefined;
+          }
+          const keyBytes = jsonStringByteLength(key, byteLimit);
+          if (keyBytes === undefined) return undefined;
+          const descriptor = Object.getOwnPropertyDescriptor(current, key);
+          if (
+            !descriptor ||
+            !descriptor.enumerable ||
+            !("value" in descriptor)
+          ) {
+            return undefined;
+          }
+          entries.push({ key, keyBytes, value: descriptor.value });
+        }
+        entries.sort((first, second) =>
+          first.key < second.key ? -1 : first.key > second.key ? 1 : 0,
+        );
+
+        const serializedEntries: string[] = [];
+        let bytes = 2;
+        for (const [index, entry] of entries.entries()) {
+          const separatorBytes = index === 0 ? 0 : 1;
+          const available =
+            byteLimit - bytes - separatorBytes - entry.keyBytes - 1;
+          if (available < 1) return undefined;
+          const item = visit(entry.value, depth + 1, available);
+          if (!item) return undefined;
+          serializedEntries.push(
+            `${index === 0 ? "" : ","}${JSON.stringify(entry.key)}:${item.signature}`,
+          );
+          bytes += separatorBytes + entry.keyBytes + 1 + item.bytes;
+        }
+        return { signature: `{${serializedEntries.join("")}}`, bytes };
+      } finally {
+        ancestors.delete(current);
+      }
+    } catch {
+      // coercion-ok: Uninspectable history payloads fail closed.
+      return undefined;
+    }
+  };
+
+  return visit(value, 0, MAX_TOOL_HISTORY_VALUE_BYTES)?.signature;
+}
+
+function safeToolHistoryDataSignature(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  try {
+    if (Array.isArray(value)) return undefined;
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return undefined;
+    const id = Object.getOwnPropertyDescriptor(value, "id");
+    if (
+      !id ||
+      !id.enumerable ||
+      !("value" in id) ||
+      typeof id.value !== "string"
+    ) {
+      return undefined;
+    }
+    return safeJsonSignature(value);
+  } catch {
+    // coercion-ok: Invalid reserved history data fails closed.
+    return undefined;
+  }
+}
+
+function messagePartsOrderSignature(
+  parts: AgentMessage["parts"],
+): string | undefined {
+  const segments: Array<
+    | ["text", string, TextPart["format"]]
+    | ["reasoning", string, ReasoningPart["visibility"], ReasoningPart["label"]]
+    | ["data", string, string]
+  > = [];
+  for (const part of parts) {
+    if (part.type === "text") {
+      const previous = segments.at(-1);
+      if (previous?.[0] === "text" && previous[2] === part.format) {
+        previous[1] += part.text;
+      } else {
+        segments.push(["text", part.text, part.format]);
+      }
+    } else if (part.type === "reasoning") {
+      const previous = segments.at(-1);
+      if (
+        previous?.[0] === "reasoning" &&
+        previous[2] === part.visibility &&
+        previous[3] === part.label
+      ) {
+        previous[1] += part.text;
+      } else {
+        segments.push(["reasoning", part.text, part.visibility, part.label]);
+      }
+    } else if (
+      part.type === "data" &&
+      (part.mediaType === AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE ||
+        part.mediaType === AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE)
+    ) {
+      const dataSignature = safeToolHistoryDataSignature(part.data);
+      if (dataSignature === undefined) return undefined;
+      segments.push(["data", part.mediaType, dataSignature]);
+    } else {
+      return undefined;
+    }
+  }
+  return JSON.stringify(segments);
+}
+
+function indexToolHistoryEvents(
+  eventsNewestFirst: IndexedToolHistoryEvent[],
+  toolCallIds: Set<string>,
+  messageIds: Set<string>,
+): ToolHistoryEventIndex {
+  const eventOrdersByToolCallId = new Map<string, ToolHistoryEventOrder>();
+  const messageBodiesByMessageId = new Map<string, OrderedMessageBody>();
+  for (
+    let eventOffset = eventsNewestFirst.length - 1;
+    eventOffset >= 0;
+    eventOffset -= 1
+  ) {
+    const { event, index } = eventsNewestFirst[eventOffset]!;
+    const eventType = event.type;
+    if (eventType === "tool.started" && toolCallIds.has(event.toolCall.id)) {
+      const order = eventOrdersByToolCallId.get(event.toolCall.id) ?? {};
+      order.call ??= index;
+      eventOrdersByToolCallId.set(event.toolCall.id, order);
+    } else if (
+      eventType === "tool.updated" &&
+      toolCallIds.has(event.toolCall.id) &&
+      event.toolCall.status !== "running"
+    ) {
+      const order = eventOrdersByToolCallId.get(event.toolCall.id) ?? {};
+      order.result ??= index;
+      eventOrdersByToolCallId.set(event.toolCall.id, order);
+    }
+
+    const messageId =
+      eventType === "message.created" || eventType === "message.completed"
+        ? event.message.id
+        : eventType === "message.delta" || eventType === "reasoning.delta"
+          ? event.messageId
+          : undefined;
+    if (!messageId || !messageIds.has(messageId)) continue;
+
+    const body = messageBodiesByMessageId.get(messageId) ?? {
+      hasMessageEvent: false,
+      parts: [],
+    };
+    if (
+      eventType === "message.created" &&
+      event.message.role === "assistant" &&
+      !body.hasMessageEvent
+    ) {
+      for (const part of event.message.parts) {
+        body.parts.push({ part, order: index });
+      }
+      body.hasMessageEvent = true;
+    } else if (eventType === "message.delta") {
+      body.parts.push({
+        part: {
+          type: "text",
+          text: event.text,
+          ...(event.format ? { format: event.format } : {}),
+        },
+        order: index,
+      });
+      body.hasMessageEvent = true;
+    } else if (eventType === "reasoning.delta") {
+      body.parts.push({
+        part: { type: "reasoning", text: event.text, visibility: "summary" },
+        order: index,
+      });
+      body.hasMessageEvent = true;
+    }
+    messageBodiesByMessageId.set(messageId, body);
+  }
+
+  return { eventOrdersByToolCallId, messageBodiesByMessageId };
+}
+
+function messagePartsWithToolHistory(
+  message: AgentMessage,
+  body: OrderedMessageBody | undefined,
+  historyParts: OrderedToolHistoryPart[],
+): AgentMessage["parts"] | undefined {
+  const reconstructedText = messagePartsOrderSignature(
+    body?.parts.map(({ part }) => part) ?? [],
+  );
+  const finalText = messagePartsOrderSignature(message.parts);
+  const hasOrderedBody =
+    body?.hasMessageEvent &&
+    reconstructedText !== undefined &&
+    reconstructedText === finalText &&
+    historyParts.every(
+      ({ part, order }) =>
+        part.type !== "data" ||
+        (part.mediaType !== AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE &&
+          part.mediaType !== AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE) ||
+        order !== undefined,
+    );
+  if (!hasOrderedBody) {
+    const hasToolHistoryParts = historyParts.some(
+      ({ part }) =>
+        part.type === "data" &&
+        (part.mediaType === AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE ||
+          part.mediaType === AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE),
+    );
+    return hasToolHistoryParts
+      ? undefined
+      : [...message.parts, ...historyParts.map(({ part }) => part)];
+  }
+
+  const orderedParts: OrderedToolHistoryPart[] = [
+    ...(body?.parts ?? []),
+    ...historyParts.map((entry) => ({
+      part: entry.part,
+      order: entry.order ?? Number.POSITIVE_INFINITY,
+      preserveBoundary: entry.preserveBoundary,
+    })),
+  ].sort(
+    (first, second) =>
+      (first.order ?? Number.POSITIVE_INFINITY) -
+      (second.order ?? Number.POSITIVE_INFINITY),
+  );
+  const parts: AgentMessage["parts"] = [];
+  let preserveNextBoundary = false;
+  for (const entry of orderedParts) {
+    const previous = parts.at(-1);
+    if (!preserveNextBoundary && !entry.preserveBoundary) {
+      if (
+        previous?.type === "text" &&
+        entry.part.type === "text" &&
+        previous.format === entry.part.format
+      ) {
+        parts[parts.length - 1] = {
+          ...previous,
+          text: previous.text + entry.part.text,
+        };
+        continue;
+      }
+      if (
+        previous?.type === "reasoning" &&
+        entry.part.type === "reasoning" &&
+        previous.visibility === entry.part.visibility &&
+        previous.label === entry.part.label
+      ) {
+        parts[parts.length - 1] = {
+          ...previous,
+          text: previous.text + entry.part.text,
+        };
+        continue;
+      }
+    }
+    parts.push(entry.part);
+    preserveNextBoundary = Boolean(entry.preserveBoundary);
+  }
+  return parts;
+}
+
+function messagesWithToolCallHistory(
+  messages: AgentMessage[],
+  selection: OrderedThreadToolCalls,
+): AgentMessage[] {
+  const {
+    calls: toolCalls,
+    events,
+    omitted: sourceOmitted,
+    sourceTruncated,
+  } = selection;
+  const assistantMessageIds = new Set<string>();
+  const assistantMessageCopies = new Map<string, number>();
+  const existingToolHistoryPartsByMessageId = new Map<
+    string,
+    RepresentedToolHistoryParts
+  >();
+  let firstAssistantMessageId: string | undefined;
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    firstAssistantMessageId ??= message.id;
+    assistantMessageIds.add(message.id);
+    assistantMessageCopies.set(
+      message.id,
+      (assistantMessageCopies.get(message.id) ?? 0) + 1,
+    );
+    existingToolHistoryPartsByMessageId.set(
+      message.id,
+      representedToolHistoryParts(message),
+    );
+  }
+  const eligibleCalls = toolCalls.filter((toolCall) => {
+    const messageId = toolCall.messageId;
+    const represented = messageId
+      ? existingToolHistoryPartsByMessageId.get(messageId)
+      : undefined;
+    return (
+      toolCall.status !== "running" &&
+      Boolean(
+        messageId &&
+        assistantMessageIds.has(messageId) &&
+        (!represented?.callIds.has(toolCall.id) ||
+          !represented.resultIds.has(toolCall.id)),
+      )
+    );
+  });
+  const representedToolCallIds = new Set<string>();
+  for (const represented of existingToolHistoryPartsByMessageId.values()) {
+    for (const id of represented.callIds) {
+      if (represented.resultIds.has(id)) representedToolCallIds.add(id);
+    }
+  }
+  const unlinkedCallsOmitted = toolCalls.some(
+    (toolCall) =>
+      toolCall.status !== "running" &&
+      !representedToolCallIds.has(toolCall.id) &&
+      !(toolCall.messageId && assistantMessageIds.has(toolCall.messageId)),
+  );
+  const historyPartsByMessageId = new Map<string, OrderedToolHistoryPart[]>();
+  const selectedCalls: Array<{
+    messageId: string;
+    toolCallId: string;
+    parts: DataPart[];
+    sizes: ProjectedToolHistoryPartSizes;
+  }> = [];
+  const historySizer = createProjectedToolHistorySizer(assistantMessageCopies);
+  const recentCalls = eligibleCalls.slice(-MAX_TOOL_HISTORY_CALLS);
+  let omittedHistory =
+    sourceOmitted ||
+    unlinkedCallsOmitted ||
+    recentCalls.length < eligibleCalls.length;
+  let omissionMessageId = sourceTruncated
+    ? firstAssistantMessageId
+    : selection.omissionMessageId;
+  if (omissionMessageId && !assistantMessageIds.has(omissionMessageId)) {
+    omissionMessageId = undefined;
+  }
+  if (!omissionMessageId && omittedHistory) {
+    omissionMessageId =
+      sourceOmitted || unlinkedCallsOmitted
+        ? firstAssistantMessageId
+        : (eligibleCalls[0]?.messageId ?? firstAssistantMessageId);
+  }
+
+  for (let index = recentCalls.length - 1; index >= 0; index--) {
+    const toolCall = recentCalls[index]!;
+    if (
+      toolHistoryTextOmission(toolCall.id) ||
+      toolHistoryTextOmission(toolCall.name)
+    ) {
+      omittedHistory = true;
+      omissionMessageId ??= toolCall.messageId;
+      continue;
+    }
+
+    const represented = existingToolHistoryPartsByMessageId.get(
+      toolCall.messageId!,
+    );
+    const parts = toolCallHistoryParts(toolCall, {
+      call: !represented?.callIds.has(toolCall.id),
+      result: !represented?.resultIds.has(toolCall.id),
+    });
+    const candidate = {
+      messageId: toolCall.messageId!,
+      toolCallId: toolCall.id,
+      parts,
+      sizes: projectedToolHistoryPartSizes(
+        projectStructuredToolHistoryParts(parts),
+      ),
+    };
+    const sizes = candidate.sizes;
+    if (sizes) {
+      historySizer.update(candidate.messageId, sizes, 1);
+    }
+    if (
+      !sizes ||
+      historySizer.byteLength(omissionMessageId) > MAX_ADDED_TOOL_HISTORY_BYTES
+    ) {
+      if (sizes) {
+        historySizer.update(candidate.messageId, sizes, -1);
+      }
+      omittedHistory = true;
+      omissionMessageId ??= candidate.messageId;
+      while (
+        selectedCalls.length > 0 &&
+        historySizer.byteLength(omissionMessageId) >
+          MAX_ADDED_TOOL_HISTORY_BYTES
+      ) {
+        const removed = selectedCalls.pop()!;
+        historySizer.update(removed.messageId, removed.sizes, -1);
+      }
+      continue;
+    }
+
+    selectedCalls.push({ ...candidate, sizes });
+  }
+
+  if (selectedCalls.length < recentCalls.length) omittedHistory = true;
+  const eventIndex =
+    selectedCalls.length > 0
+      ? indexToolHistoryEvents(
+          events,
+          new Set(selectedCalls.map(({ toolCallId }) => toolCallId)),
+          new Set([
+            ...selectedCalls.map(({ messageId }) => messageId),
+            ...(omissionMessageId ? [omissionMessageId] : []),
+          ]),
+        )
+      : {
+          eventOrdersByToolCallId: new Map(),
+          messageBodiesByMessageId: new Map(),
+        };
+  for (const { messageId, toolCallId, parts } of selectedCalls.reverse()) {
+    const historyParts = historyPartsByMessageId.get(messageId) ?? [];
+    const eventOrder = eventIndex.eventOrdersByToolCallId.get(toolCallId);
+    for (const part of parts) {
+      historyParts.push({
+        part,
+        order:
+          part.mediaType === AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE
+            ? eventOrder?.call
+            : eventOrder?.result,
+      });
+    }
+    historyPartsByMessageId.set(messageId, historyParts);
+  }
+
+  if (omittedHistory && omissionMessageId) {
+    const historyParts = historyPartsByMessageId.get(omissionMessageId) ?? [];
+    historyParts.push({
+      part: {
+        type: "text",
+        text: TOOL_HISTORY_OMISSION_TEXT,
+      },
+      preserveBoundary: true,
+    });
+    historyPartsByMessageId.set(omissionMessageId, historyParts);
+  }
+
+  if (historyPartsByMessageId.size === 0) {
+    if (!omittedHistory) return messages;
+    return messagesWithOmissionNote(messages, TOOL_HISTORY_OMISSION_TEXT);
+  }
+  let omittedUnorderedHistory = false;
+  const projectedMessages = messages.map((message) => {
+    const historyParts = historyPartsByMessageId.get(message.id);
+    if (!historyParts) return message;
+    const parts = messagePartsWithToolHistory(
+      message,
+      eventIndex.messageBodiesByMessageId.get(message.id),
+      historyParts,
+    );
+    if (!parts) {
+      omittedUnorderedHistory = true;
+      return message;
+    }
+    return { ...message, parts };
+  });
+  return omittedUnorderedHistory
+    ? messagesWithOmissionNote(
+        projectedMessages,
+        TOOL_HISTORY_ORDER_OMISSION_TEXT,
+      )
+    : projectedMessages;
+}
+
+// The note goes before a trailing user prompt: a request must end on the
+// user's turn, or the runtime treats the prompt as a standalone turn.
+function messagesWithOmissionNote(
+  messages: AgentMessage[],
+  text: string,
+): AgentMessage[] {
+  const messageIds = new Set(messages.map(({ id }) => id));
+  let id = "agentkit-tool-history-omission";
+  for (let suffix = 1; messageIds.has(id); suffix += 1) {
+    id = `agentkit-tool-history-omission-${suffix}`;
+  }
+  const lastUserMessageIndex =
+    messages.at(-1)?.role === "user" ? messages.length - 1 : messages.length;
+  return [
+    ...messages.slice(0, lastUserMessageIndex),
+    {
+      id,
+      role: "assistant",
+      parts: [{ type: "text", text }],
+      status: "complete",
+    },
+    ...messages.slice(lastUserMessageIndex),
+  ];
+}
+
+function toolCallHistoryParts(
+  toolCall: AgentToolCall,
+  include: { call: boolean; result: boolean },
+): DataPart[] {
+  const inputProjection =
+    !include.call || toolCall.input === undefined
+      ? undefined
+      : projectToolHistoryValue(toolCall.input);
+  const outputProjection =
+    !include.result || toolCall.output === undefined
+      ? undefined
+      : projectToolHistoryValue(toolCall.output);
+  const inputOmission =
+    inputProjection && !inputProjection.ok
+      ? inputProjection.omission
+      : undefined;
+  const outputOmission =
+    outputProjection && !outputProjection.ok
+      ? outputProjection.omission
+      : undefined;
+  const outputOmissionText =
+    include.result && outputOmission
+      ? `Tool output omitted from history because ${outputOmission}.`
+      : undefined;
+  const errorText = toolCall.error?.message
+    ? `Tool error: ${toolCall.error.message}`
+    : undefined;
+  const errorTextOmission = errorText
+    ? toolHistoryTextOmission(errorText)
+    : undefined;
+  const boundedErrorText = errorText
+    ? errorTextOmission
+      ? `Tool error omitted from history because ${errorTextOmission}.`
+      : errorText
+    : undefined;
+  const statusText = !include.result
+    ? undefined
+    : toolCall.output === undefined
+      ? boundedErrorText
+        ? undefined
+        : `Tool call ${toolCall.status} without a recorded result.`
+      : toolCall.status === "completed" || toolCall.error
+        ? undefined
+        : `Tool call ${toolCall.status} returned partial output without a recorded error.`;
+  const resultText = [outputOmissionText, boundedErrorText, statusText]
+    .filter((text): text is string => Boolean(text))
+    .join("\n");
+  const resultTextOmission = toolHistoryTextOmission(resultText);
+  const boundedResultText = resultTextOmission
+    ? `Tool result details omitted from history because ${resultTextOmission}.`
+    : resultText;
+
+  const parts: DataPart[] = [];
+  if (include.call) {
+    parts.push({
+      type: "data",
+      mediaType: AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+      data: {
+        id: toolCall.id,
+        name: toolCall.name,
+        ...(inputProjection?.ok ? { input: inputProjection.value } : {}),
+        ...(inputOmission !== undefined
+          ? {
+              inputText: `Tool input omitted from history because ${inputOmission}.`,
+            }
+          : {}),
+      },
+    });
+  }
+  if (include.result) {
+    parts.push({
+      type: "data",
+      mediaType: AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
+      data: {
+        id: toolCall.id,
+        name: toolCall.name,
+        ...(outputProjection?.ok ? { result: outputProjection.value } : {}),
+        ...(boundedResultText ? { resultText: boundedResultText } : {}),
+        ...(toolCall.status === "completed" && !toolCall.error
+          ? {}
+          : { isError: true }),
+      },
+    });
+  }
+  return parts;
+}
+
+export class AgentKitClient implements AgentKitController {
+  readonly transport: AgentTransport;
+
+  private readonly createId: (prefix: string) => string;
+  private readonly now: () => string;
+  private readonly reconnectAttempts: number;
+  private readonly reconnectDelay: (attempt: number) => number;
+  private readonly onError?: (error: AgentError) => void;
+  private readonly onIntegrityReport?: (
+    report: AgentStreamIntegrityReport,
+  ) => void;
+  private readonly upload: AgentKitUploadDriver;
+  private readonly aiSetupReadiness: NonNullable<
+    AgentKitClientOptions["aiSetupReadiness"]
+  >;
+  private readonly ownsTransport: boolean;
+  private readonly retainActiveRunsOnThreadRelease: boolean;
+  private readonly listeners = new Set<AgentKitListener>();
+  private readonly consumers = new Map<string, Promise<void>>();
+  private readonly terminalRunCatchUps = new Map<string, TerminalRunCatchUp>();
+  private readonly submittedUserMessages = new Map<string, string>();
+  private readonly consumerAbortControllers = new Map<
+    string,
+    AbortController
+  >();
+  private readonly threadLoads = new Map<ThreadId, Promise<AgentThreadState>>();
+  private readonly missingThreadStates = new WeakSet<AgentThreadState>();
+  private readonly threadLeaseCounts = new Map<ThreadId, number>();
+  private readonly queuedMessageOverrides = new Map<
+    ThreadId,
+    QueuedMessageOverride
+  >();
+  private readonly queueMutationChains = new Map<ThreadId, Promise<void>>();
+  private readonly queueSteerings = new Map<
+    string,
+    Promise<AgentRunHandle | void>
+  >();
+  private readonly queuePromotions = new Set<ThreadId>();
+  private readonly queuePromotionTerminalExpedites = new Set<ThreadId>();
+  private readonly queuePromotionAfterReconciliation = new Set<ThreadId>();
+  private readonly pendingQueueMessageIds = new Set<string>();
+  private readonly queuedMessageReservationIds = new Set<string>();
+  private readonly queueMessagePreflightTokens = new WeakMap<
+    QueueMessagePreflightToken,
+    QueueMessagePreflightState
+  >();
+  private readonly queuePromotionTimers = new Map<
+    ThreadId,
+    ReturnType<typeof setTimeout>
+  >();
+  private readonly queuePromotionRetryAttempts = new Map<ThreadId, number>();
+  private readonly pendingApprovalContinuations = new Map<ThreadId, number>();
+  private readonly requestAbortController = new AbortController();
+  private capabilitiesLoad?: Promise<AgentCapabilities>;
+  private shutdownPromise?: Promise<void>;
+  private disposed = false;
+  private snapshot: AgentKitSnapshot;
+
+  public constructor(options: AgentKitClientOptions) {
+    this.transport = options.transport;
+    this.aiSetupReadiness = options.aiSetupReadiness ?? "required";
+    this.ownsTransport = options.transportOwnership === "owned";
+    this.retainActiveRunsOnThreadRelease =
+      options.retainActiveRunsOnThreadRelease ?? false;
+    this.createId = options.createId ?? defaultCreateId;
+    this.now = options.now ?? (() => new Date().toISOString());
+    this.reconnectAttempts = options.reconnect?.attempts ?? 3;
+    this.reconnectDelay =
+      options.reconnect?.delayMs ??
+      ((attempt) => Math.min(250 * 2 ** attempt, 4_000));
+    this.onError = options.onError;
+    this.onIntegrityReport = options.onIntegrityReport;
+    this.upload = options.upload ?? defaultUploadDriver;
+    this.snapshot = {
+      connection: "idle",
+      capabilities: options.transport.capabilities ?? {},
+      capabilitiesStatus: options.transport.discoverCapabilities
+        ? "unknown"
+        : "ready",
+      threads: {},
+      revision: 0,
+    };
+  }
+
+  private createRequestContext(
+    context?: AgentRequestContext,
+  ): AgentRequestContext {
+    const lifetimeSignal = this.requestAbortController.signal;
+    const signal = context?.signal
+      ? context.signal === lifetimeSignal
+        ? lifetimeSignal
+        : AbortSignal.any([lifetimeSignal, context.signal])
+      : lifetimeSignal;
+    const requestContext: AgentRequestContext = {
+      signal,
+      correlationId: context?.correlationId ?? defaultCreateId("request"),
+    };
+    this.assertRequestActive(requestContext);
+    return requestContext;
+  }
+
+  private assertRequestActive(context: AgentRequestContext): void {
+    if (context.signal?.aborted) {
+      throw new AgentKitProtocolError(
+        createRequestAbortedError({ correlationId: context.correlationId }),
+      );
+    }
+  }
+
+  private invokeRequest<T>(
+    context: AgentRequestContext,
+    operation: (requestContext: AgentRequestContext) => Promise<T>,
+  ): Promise<T> {
+    this.assertRequestActive(context);
+    const signal = context.signal;
+    return new Promise<T>((resolve, reject) => {
+      let settled = false;
+      const finish = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener("abort", onAbort);
+        callback();
+      };
+      const abortError = () =>
+        new AgentKitProtocolError(
+          createRequestAbortedError({ correlationId: context.correlationId }),
+        );
+      const onAbort = () => finish(() => reject(abortError()));
+      signal?.addEventListener("abort", onAbort, { once: true });
+      void Promise.resolve()
+        .then(() => operation(context))
+        .then(
+          (value) => {
+            if (signal?.aborted) onAbort();
+            else finish(() => resolve(value));
+          },
+          (error: unknown) => {
+            if (signal?.aborted || isAbortFailure(error)) {
+              finish(() => reject(abortError()));
+            } else {
+              finish(() => reject(error));
+            }
+          },
+        );
+    });
+  }
+
+  public getSnapshot = (): AgentKitSnapshot => this.snapshot;
+
+  public subscribe = (listener: AgentKitListener): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  public getThread(threadId: ThreadId): AgentThreadState {
+    return this.snapshot.threads[threadId] ?? createAgentThreadState(threadId);
+  }
+
+  public async openThread(
+    threadId: ThreadId,
+    context?: AgentRequestContext,
+  ): Promise<AgentThreadLease> {
+    this.assertActive();
+    this.threadLeaseCounts.set(
+      threadId,
+      (this.threadLeaseCounts.get(threadId) ?? 0) + 1,
+    );
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      this.releaseThreadLease(threadId);
+    };
+    try {
+      const state = await this.loadThread(threadId, context);
+      this.assertActive();
+      return {
+        threadId,
+        threadFound: !this.missingThreadStates.has(state),
+        getSnapshot: () => this.getThread(threadId),
+        release,
+        dispose: release,
+      };
+    } catch (error) {
+      release();
+      throw error;
+    }
+  }
+
+  public async loadThread(
+    threadId: ThreadId,
+    context?: AgentRequestContext,
+  ): Promise<AgentThreadState> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    const existing = this.threadLoads.get(threadId);
+    if (existing) {
+      return this.invokeRequest(requestContext, () => existing);
+    }
+    // Durable projections can lag an accepted stream. Preserve the local
+    // cursor and event boundaries so refresh cannot reorder the transcript or
+    // turn the next streamed event into an artificial sequence gap.
+    const load = this.loadThreadProjection(threadId, requestContext, true);
+    this.threadLoads.set(threadId, load);
+    try {
+      return await load;
+    } finally {
+      if (this.threadLoads.get(threadId) === load) {
+        this.threadLoads.delete(threadId);
+      }
+    }
+  }
+
+  private enqueueQueueMutation<T>(
+    threadId: ThreadId,
+    mutation: () => Promise<T>,
+  ): Promise<T> {
+    const previous =
+      this.queueMutationChains.get(threadId) ?? Promise.resolve();
+    const next = previous.then(mutation);
+    const settled = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.queueMutationChains.set(threadId, settled);
+    return next.finally(() => {
+      if (this.queueMutationChains.get(threadId) === settled) {
+        this.queueMutationChains.delete(threadId);
+      }
+    });
+  }
+
+  private async loadThreadProjection(
+    threadId: ThreadId,
+    requestContext: AgentRequestContext,
+    preserveRuntimeProjection = false,
+  ): Promise<AgentThreadState> {
+    const baseline =
+      this.snapshot.threads[threadId] ?? createAgentThreadState(threadId);
+    if (!this.snapshot.threads[threadId]) this.setThread(threadId, baseline);
+    this.setConnection("connecting");
+    try {
+      await this.ensureCapabilities(requestContext);
+      this.assertActive();
+      if (!this.transport.getThreadSnapshot && !this.transport.getThread) {
+        throw new AgentKitOperationError("thread reads");
+      }
+      const getThreadSnapshot = this.transport.getThreadSnapshot;
+      const snapshot = getThreadSnapshot
+        ? await this.invokeRequest(requestContext, (context) =>
+            getThreadSnapshot({ threadId }, context),
+          )
+        : undefined;
+      this.assertActive();
+      const runSnapshots = new Map(
+        (snapshot?.runs ?? []).map((run) => [run.id, run] as const),
+      );
+      const durableQueuedMessages = snapshot?.queuedMessages;
+      const queuedOverride = this.queuedMessageOverrides.get(threadId);
+      const queuedOverrideMessages = queuedOverride
+        ? durableQueuedMessages
+          ? mergeQueuedMessageOverride(queuedOverride, durableQueuedMessages)
+          : queuedOverride.messages
+        : undefined;
+      if (
+        queuedOverride &&
+        durableQueuedMessages &&
+        queuedOverrideMessages &&
+        sameQueuedMessageIds(queuedOverrideMessages, durableQueuedMessages) &&
+        queuedOverride.removedIds.size === 0
+      ) {
+        this.queuedMessageOverrides.delete(threadId);
+      }
+      const snapshotActiveRunIds = snapshot?.activeRunIds ?? [];
+      const snapshotApprovalRunIds = (snapshot?.approvals ?? [])
+        .filter(
+          (approval) =>
+            approval.status === "pending" && approval.runId !== undefined,
+        )
+        .map((approval) => approval.runId as RunId);
+      const runIdsToResolve = Array.from(
+        new Set([...snapshotActiveRunIds, ...snapshotApprovalRunIds]),
+      );
+      const getRun = this.transport.getRun;
+      const runIdsToRefresh = getRun
+        ? runIdsToResolve.filter(
+            (runId) =>
+              !this.isTerminalStatus(
+                runSnapshots.get(runId)?.status ?? "running",
+              ),
+          )
+        : runIdsToResolve.filter((runId) => !runSnapshots.has(runId));
+      const activeRuns = runIdsToRefresh.length
+        ? await Promise.all(
+            runIdsToRefresh.map(async (runId) =>
+              getRun
+                ? await this.invokeRequest(requestContext, (context) =>
+                    getRun({ threadId, runId }, context),
+                  )
+                : undefined,
+            ),
+          )
+        : [];
+      this.assertActive();
+      const refreshedRuns = new Map<RunId, AgentRunSnapshot>();
+      const eventProjectionRunIds = new Set<RunId>();
+      runIdsToRefresh.forEach((runId, index) => {
+        const run = activeRuns[index];
+        const localSequence =
+          this.getThread(threadId).runs[runId]?.lastSequence ?? 0;
+        const snapshotRun = runSnapshots.get(runId);
+        const eventSequence =
+          snapshot?.events?.reduce(
+            (sequence, event) =>
+              event.runId === runId
+                ? Math.max(sequence, agentEventSequenceEnd(event))
+                : sequence,
+            0,
+          ) ?? 0;
+        const snapshotRunSequence =
+          snapshot?.events === undefined &&
+          snapshotRun &&
+          !this.isTerminalStatus(snapshotRun.status)
+            ? snapshotRun.lastSequence
+            : 0;
+        const hasExistingCatchUp = this.terminalRunCatchUps.has(
+          this.runKey(threadId, runId),
+        );
+        const appliedSequence = Math.max(
+          localSequence,
+          eventSequence,
+          snapshotRunSequence,
+        );
+        const hasReplayCursor =
+          snapshot?.events !== undefined ||
+          localSequence > 0 ||
+          snapshotRunSequence > 0 ||
+          hasExistingCatchUp;
+        if (run && !this.isTerminalStatus(run.status)) {
+          const responseIsBehindCursor = run.lastSequence < appliedSequence;
+          const refreshedRun = {
+            ...(responseIsBehindCursor && snapshotRun
+              ? { ...snapshotRun, ...run, status: snapshotRun.status }
+              : run),
+            lastSequence: appliedSequence,
+          };
+          runSnapshots.set(runId, refreshedRun);
+          if (responseIsBehindCursor) {
+            if (snapshot?.events !== undefined) {
+              eventProjectionRunIds.add(runId);
+            }
+          } else {
+            refreshedRuns.set(runId, refreshedRun);
+          }
+        } else if (run && this.isTerminalStatus(run.status)) {
+          if (hasReplayCursor && run.lastSequence > appliedSequence) {
+            this.rememberTerminalRunCatchUp(
+              threadId,
+              runId,
+              run as TerminalRunSnapshot,
+              this.snapshotHasNoActiveRuns(snapshot),
+              snapshot?.messages ?? [],
+            );
+          }
+          // The terminal status is authoritative, while lastSequence remains
+          // the accepted event cursor used to replay missing projection data.
+          runSnapshots.set(runId, {
+            ...run,
+            lastSequence: hasReplayCursor ? appliedSequence : run.lastSequence,
+          });
+        } else if (!runSnapshots.has(runId)) {
+          runSnapshots.set(runId, this.runSnapshot(threadId, runId));
+        }
+      });
+      for (const snapshotRun of snapshot?.runs ?? []) {
+        if (!this.isTerminalStatus(snapshotRun.status)) continue;
+        const acceptedSequence = this.acceptedEventCursor(
+          threadId,
+          snapshotRun.id,
+          snapshot,
+        );
+        const hasReplayCursor =
+          snapshot?.events !== undefined ||
+          (this.getThread(threadId).runs[snapshotRun.id]?.lastSequence ?? 0) >
+            0 ||
+          this.terminalRunCatchUps.has(this.runKey(threadId, snapshotRun.id));
+        runSnapshots.set(snapshotRun.id, {
+          ...snapshotRun,
+          lastSequence: hasReplayCursor
+            ? acceptedSequence
+            : snapshotRun.lastSequence,
+        });
+        if (hasReplayCursor && snapshotRun.lastSequence > acceptedSequence) {
+          this.rememberTerminalRunCatchUp(
+            threadId,
+            snapshotRun.id,
+            snapshotRun as TerminalRunSnapshot,
+            this.snapshotHasNoActiveRuns(snapshot),
+            snapshot?.messages ?? [],
+          );
+        }
+      }
+      const hydratedRuns = Object.fromEntries(
+        [...runSnapshots.entries()].map(([runId, run]) => [
+          runId,
+          this.runState(runId, run),
+        ]),
+      );
+      const activeRunIds = Array.from(
+        new Set([
+          ...(snapshot?.activeRunIds ?? []),
+          ...Object.values(hydratedRuns)
+            .filter((run) => !this.isTerminalStatus(run.status))
+            .map((run) => run.id),
+        ]),
+      ).filter(
+        (runId) =>
+          !this.isTerminalStatus(hydratedRuns[runId]?.status ?? "running"),
+      );
+      let thread: AgentThreadState;
+      let threadMissing = false;
+      if (snapshot) {
+        thread = this.hydrateThread(
+          snapshot,
+          hydratedRuns,
+          activeRunIds,
+          eventProjectionRunIds,
+        );
+      } else if (getThreadSnapshot) {
+        threadMissing = true;
+        thread = createAgentThreadState(threadId);
+      } else {
+        const listQueuedMessages = this.transport.listQueuedMessages;
+        const getThread = this.transport.getThread;
+        const [queuedMessages, loadedThread] = await Promise.all([
+          listQueuedMessages
+            ? this.invokeRequest(requestContext, (context) =>
+                listQueuedMessages({ threadId }, context),
+              )
+            : Promise.resolve([]),
+          getThread
+            ? this.invokeRequest(requestContext, (context) =>
+                getThread({ threadId }, context),
+              )
+            : Promise.resolve(undefined),
+        ]);
+        this.assertActive();
+        threadMissing = loadedThread === null;
+        thread = {
+          ...createAgentThreadState(threadId),
+          thread: loadedThread === null ? undefined : loadedThread,
+          queuedMessages,
+        };
+      }
+      if (preserveRuntimeProjection && snapshot) {
+        const current = this.getThread(threadId);
+        thread = this.mergeLoadedThread(
+          baseline,
+          current,
+          thread,
+          this.hasLiveMessageProjection(current, thread),
+        );
+        if (queuedOverrideMessages) {
+          // Queue mutations are already optimistic and independently durable.
+          // A completed-run snapshot can lag the accepted steer/remove write,
+          // so it must not resurrect work the client has already promoted.
+          thread = { ...thread, queuedMessages: queuedOverrideMessages };
+        }
+      }
+      const current = this.getThread(threadId);
+      if (current !== baseline || current.activeRunIds.length > 0) {
+        thread = this.mergeLoadedThread(
+          baseline,
+          current,
+          thread,
+          this.hasLiveMessageProjection(current, thread),
+        );
+      }
+      for (const [runId, run] of refreshedRuns) {
+        const currentRun = thread.runs[runId];
+        if (currentRun && this.isTerminalStatus(currentRun.status)) continue;
+        const refreshedRun = this.mergeRunState(
+          currentRun,
+          this.runState(runId, run),
+        );
+        if (refreshedRun === currentRun) continue;
+        const activeRunIds = this.isTerminalStatus(refreshedRun.status)
+          ? thread.activeRunIds.filter((id) => id !== runId)
+          : Array.from(new Set([...thread.activeRunIds, runId]));
+        thread = {
+          ...thread,
+          runs: { ...thread.runs, [runId]: refreshedRun },
+          activeRunIds,
+        };
+      }
+      for (const catchUp of this.terminalRunCatchUps.values()) {
+        if (
+          catchUp.threadId === threadId &&
+          catchUp.state === "unconfirmable" &&
+          this.findConfirmedTerminalEvent(thread, catchUp)
+        ) {
+          this.terminalRunCatchUps.delete(this.runKey(threadId, catchUp.runId));
+        }
+      }
+      thread = this.settleTerminalThread(
+        thread,
+        snapshot,
+        this.terminalRunCatchUpIds(threadId),
+        this.terminalRunCatchUpFailureIds(threadId),
+      );
+      if (threadMissing) this.missingThreadStates.add(thread);
+      this.setThread(threadId, thread);
+      this.setConnection("connected");
+      this.scheduleQueuePromotionIfIdle(threadId);
+      for (const runId of thread.activeRunIds) {
+        void this.resubscribeRun(threadId, runId).catch(() => {
+          // The consumer records the typed stream error in the client snapshot.
+        });
+      }
+      for (const catchUp of this.terminalRunCatchUps.values()) {
+        if (catchUp.threadId !== threadId) continue;
+        if (catchUp.state === "unconfirmable") continue;
+        const terminalEvent = this.findConfirmedTerminalEvent(thread, catchUp);
+        if (terminalEvent) {
+          thread = this.completeTerminalRunCatchUp(
+            thread,
+            catchUp,
+            terminalEvent,
+          );
+          this.setThread(threadId, thread);
+          continue;
+        }
+        void this.resubscribeRun(threadId, catchUp.runId).catch(() => {
+          // The consumer records incomplete replay as a stream error.
+        });
+      }
+      return thread;
+    } catch (error) {
+      if (this.disposed) throw error;
+      if (this.snapshot.capabilitiesStatus === "loading") {
+        this.patch({ capabilitiesStatus: "error" });
+      }
+      this.fail(error, "thread_load_failed");
+      throw error;
+    }
+  }
+
+  public async getCapabilities(
+    context?: AgentRequestContext,
+  ): Promise<AgentCapabilities> {
+    this.assertActive();
+    return this.ensureCapabilities(this.createRequestContext(context));
+  }
+
+  public async createThread(
+    input?: CreateThreadInput,
+    context?: AgentRequestContext,
+  ): Promise<AgentThread> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    await this.ensureCapabilities(requestContext);
+    const createThread = this.transport.createThread;
+    if (!createThread) {
+      throw new AgentKitOperationError("thread creation");
+    }
+    const thread = await this.invokeRequest(requestContext, (context) =>
+      createThread(input, context),
+    );
+    this.assertActive();
+    const current = this.getThread(thread.id);
+    this.setThread(thread.id, { ...current, thread });
+    return thread;
+  }
+
+  public async listThreads(
+    input?: ListThreadsInput,
+    context?: AgentRequestContext,
+  ): Promise<ListThreadsResult> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    await this.ensureCapabilities(requestContext);
+    const listThreads = this.transport.listThreads;
+    if (!listThreads) {
+      throw new AgentKitOperationError("thread listing");
+    }
+    const result = await this.invokeRequest(requestContext, (context) =>
+      listThreads(input, context),
+    );
+    this.assertActive();
+    return result;
+  }
+
+  public async assertAiSetupReady(
+    input?: { engine?: string; threadId?: ThreadId },
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    this.assertActive();
+    const assertReady = this.transport.assertAiSetupReady;
+    if (!assertReady) {
+      if (this.aiSetupReadiness === "not-applicable") return;
+      throw new AgentKitOperationError("AI setup readiness validation");
+    }
+    const requestContext = this.createRequestContext(context);
+    await this.invokeRequest(requestContext, (request) =>
+      assertReady(input ?? {}, request),
+    );
+    this.assertActive();
+  }
+
+  public async assertQueueMessageReady(
+    input: Pick<
+      SendMessageInput,
+      | "threadId"
+      | "text"
+      | "attachments"
+      | "requestAttachments"
+      | "metadata"
+      | "options"
+    > & { hasAttachments?: boolean },
+    context?: AgentRequestContext,
+  ): Promise<QueueMessagePreflightToken> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    const engine = selectedEngineForDispatch(input);
+    const hasAttachments = Boolean(
+      input.hasAttachments ||
+      input.attachments?.length ||
+      input.requestAttachments?.length,
+    );
+    await this.assertAiSetupReady(
+      { engine, threadId: input.threadId },
+      requestContext,
+    );
+    if (!this.transport.queueMessage) {
+      throw new AgentKitCapabilityError("messageQueue");
+    }
+    await this.requireCapability("messageQueue", requestContext);
+    if (hasAttachments) {
+      await this.requireCapability("attachments", requestContext);
+    }
+    this.assertActive();
+    const token = Object.freeze({}) as QueueMessagePreflightToken;
+    this.queueMessagePreflightTokens.set(token, {
+      threadId: input.threadId,
+      engine,
+      hasAttachments,
+    });
+    return token;
+  }
+
+  public async sendMessage(
+    input: SendMessageInput,
+    context?: AgentRequestContext,
+  ): Promise<AgentRunHandle> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    const current = this.getThread(input.threadId);
+    const activeRunId = current.activeRunIds.at(-1);
+    if (
+      (input.queueWhileRunning !== false || input.interruptActiveRun) &&
+      activeRunId &&
+      hasActiveAgentRuns(current) &&
+      this.transport.queueMessage
+    ) {
+      const queued = await this.queueMessage(
+        { ...input, queuedWhileRunActive: true },
+        requestContext,
+      );
+      if (input.interruptActiveRun) {
+        try {
+          const steered = await this.steerQueuedMessage(
+            input.threadId,
+            queued.id,
+            requestContext,
+            { interruptActiveRun: true },
+          );
+          if (steered) return steered;
+        } catch {
+          this.scheduleQueuePromotion(input.threadId);
+        }
+      }
+      return {
+        runId: activeRunId,
+        completed: this.resubscribeRun(input.threadId, activeRunId),
+        cancel: () =>
+          this.removeQueuedMessage(input.threadId, queued.id, requestContext),
+      };
+    }
+    await this.assertAiSetupReady(
+      { engine: selectedEngineForDispatch(input), threadId: input.threadId },
+      requestContext,
+    );
+    await this.ensureCapabilities(requestContext);
+    if (input.attachments?.length || input.requestAttachments?.length) {
+      await this.requireCapability("attachments", requestContext);
+    }
+    if (input.options?.model) {
+      await this.requireCapability("modelSelection", requestContext);
+    }
+    if (input.options?.toolChoice) {
+      await this.requireCapability("toolSelection", requestContext);
+    }
+    this.assertActive();
+    if (input.queuedMessageReservationId) {
+      this.cancelQueuedMessageReservation(
+        input.threadId,
+        input.queuedMessageReservationId,
+      );
+    }
+    const currentAfterReadiness = this.getThread(input.threadId);
+    const message: AgentMessage = {
+      id: this.createId("message"),
+      role: "user",
+      createdAt: this.now(),
+      status: "complete",
+      parts: [{ type: "text", text: input.text }, ...(input.attachments ?? [])],
+      metadata: input.metadata,
+    };
+    this.setThread(input.threadId, {
+      ...currentAfterReadiness,
+      messages: [...currentAfterReadiness.messages, message],
+      suggestions: [],
+      suggestionsPendingTurn: true,
+    });
+    this.setConnection("connecting");
+
+    try {
+      input.onLocalSubmit?.();
+      const messages = messagesWithToolCallHistory(
+        [...currentAfterReadiness.messages, message],
+        orderedThreadToolCalls(currentAfterReadiness),
+      );
+      const result = await this.invokeRequest(requestContext, (context) =>
+        this.transport.startRun(
+          {
+            threadId: input.threadId,
+            messages,
+            ...(input.requestAttachments?.length
+              ? { requestAttachments: input.requestAttachments }
+              : {}),
+            options: input.options,
+            metadata: input.metadata,
+          },
+          context,
+        ),
+      );
+      this.assertActive();
+      if (result.capabilities) {
+        this.patch({
+          capabilities: result.capabilities,
+          capabilitiesStatus: "ready",
+        });
+      }
+      this.markRunStarted(input.threadId, result.runId);
+      this.submittedUserMessages.set(
+        this.runKey(input.threadId, result.runId),
+        message.id,
+      );
+      const completed = this.consume(input.threadId, result.runId);
+      this.trackConsumer(input.threadId, result.runId, completed);
+      return {
+        runId: result.runId,
+        completed,
+        cancel: () => this.cancelRun(input.threadId, result.runId),
+      };
+    } catch (error) {
+      if (this.disposed) throw error;
+      if (
+        isAgentKitRunSlotBusyError(error) &&
+        (input.queueWhileRunning !== false || input.interruptActiveRun)
+      ) {
+        try {
+          let activeRunId = error.activeRunId;
+          if (
+            !activeRunId &&
+            (this.transport.getThreadSnapshot || this.transport.getThread)
+          ) {
+            try {
+              activeRunId = (
+                await this.loadThread(input.threadId, requestContext)
+              ).activeRunIds.at(-1);
+            } catch {
+              activeRunId = this.getThread(input.threadId).activeRunIds.at(-1);
+            }
+          }
+          const thread = this.getThread(input.threadId);
+          this.setThread(input.threadId, {
+            ...thread,
+            messages: thread.messages.filter(
+              (candidate) => candidate.id !== message.id,
+            ),
+          });
+          const queued = await this.queueMessage(
+            {
+              ...input,
+              onLocalSubmit: undefined,
+              queuedMessageReservationId: undefined,
+              queuedWhileRunActive: false,
+            },
+            requestContext,
+          );
+          if (activeRunId) this.markRunStarted(input.threadId, activeRunId);
+          else this.setConnection("connected");
+          if (input.interruptActiveRun) {
+            try {
+              const steered = await this.steerQueuedMessage(
+                input.threadId,
+                queued.id,
+                requestContext,
+                { interruptActiveRun: true },
+              );
+              if (steered) return steered;
+            } catch {
+              this.scheduleQueuePromotion(input.threadId);
+            }
+          } else {
+            this.scheduleQueuePromotion(input.threadId);
+          }
+          if (!activeRunId) {
+            return {
+              runId: queued.id,
+              completed: Promise.resolve(),
+              cancel: () =>
+                this.removeQueuedMessage(
+                  input.threadId,
+                  queued.id,
+                  requestContext,
+                ),
+            };
+          }
+          return {
+            runId: activeRunId,
+            completed: this.resubscribeRun(input.threadId, activeRunId),
+            cancel: () =>
+              this.removeQueuedMessage(
+                input.threadId,
+                queued.id,
+                requestContext,
+              ),
+          };
+        } catch (queueError) {
+          const current = this.getThread(input.threadId);
+          if (
+            !current.messages.some((candidate) => candidate.id === message.id)
+          ) {
+            this.setThread(input.threadId, {
+              ...current,
+              messages: [...current.messages, message],
+            });
+          }
+          error = queueError;
+        }
+      }
+      const failed = this.getThread(input.threadId);
+      this.setThread(input.threadId, {
+        ...failed,
+        messages: failed.messages.map((candidate) =>
+          candidate.id === message.id
+            ? { ...candidate, status: "error" }
+            : candidate,
+        ),
+      });
+      this.fail(error, "run_start_failed");
+      throw error;
+    }
+  }
+
+  public resubscribeRun(threadId: ThreadId, runId: RunId): Promise<void> {
+    this.assertActive();
+    const thread = this.getThread(threadId);
+    const status = thread.runs[runId]?.status;
+    const catchUp = this.terminalRunCatchUps.get(this.runKey(threadId, runId));
+    if (catchUp?.state === "unconfirmable") catchUp.state = "pending";
+    const isCatchingUp = this.hasTerminalRunCatchUp(threadId, runId);
+    // A failed stream can be explicitly reattached to recover from a
+    // transient disconnect. Terminal runs resume only to replay a confirmed
+    // terminal snapshot's missing event tail.
+    if (
+      ((status === "completed" || status === "cancelled") && !isCatchingUp) ||
+      (status === "failed" &&
+        !isCatchingUp &&
+        thread.events.some(
+          (event) => event.runId === runId && isTerminalRunEvent(event),
+        ))
+    ) {
+      return Promise.resolve();
+    }
+    const key = this.runKey(threadId, runId);
+    const existing = this.consumers.get(key);
+    if (existing) return existing;
+    const consumer = this.consume(threadId, runId);
+    this.trackConsumer(threadId, runId, consumer);
+    return consumer;
+  }
+
+  public async resolveApproval(
+    input: {
+      threadId: ThreadId;
+      runId: RunId;
+      approvalId: string;
+      optionId?: string;
+      response: AgentApprovalResponse;
+    },
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    this.pendingApprovalContinuations.set(
+      input.threadId,
+      (this.pendingApprovalContinuations.get(input.threadId) ?? 0) + 1,
+    );
+    let legacyApprovalResolved = false;
+    try {
+      await this.requireCapability("approvals", requestContext);
+      const resumeRun = this.transport.resumeRun;
+      const resolveApproval = this.transport.resolveApproval;
+      if (!resumeRun && !resolveApproval) {
+        throw new AgentKitCapabilityError("approvals");
+      }
+      if (!resumeRun) {
+        await this.invokeRequest(requestContext, (context) =>
+          resolveApproval!(input, context),
+        );
+        this.assertActive();
+        legacyApprovalResolved = true;
+        return;
+      }
+      const result = await this.invokeRequest(requestContext, (context) =>
+        resumeRun(
+          {
+            threadId: input.threadId,
+            runId: input.runId,
+            resume: [resumeEntryFromApproval(input)],
+          },
+          context,
+        ),
+      );
+      this.assertActive();
+      if (result.runId !== input.runId) {
+        this.retireInterruptedRun(input.threadId, input.runId);
+      }
+      // A runtime that suspends rather than terminates answers with the run that
+      // was already streaming, so adopting it blindly would open a second reader
+      // on one stream.
+      const key = this.runKey(input.threadId, result.runId);
+      const existingConsumer = this.consumers.get(key);
+      if (existingConsumer) {
+        void (async () => {
+          await Promise.allSettled([existingConsumer]);
+          if (!this.disposed) {
+            await this.resubscribeRun(input.threadId, result.runId);
+          }
+        })().catch(() => {
+          // The consumer records the typed stream error in the client snapshot.
+        });
+        return;
+      }
+      this.markRunStarted(input.threadId, result.runId);
+      this.trackConsumer(
+        input.threadId,
+        result.runId,
+        this.consume(input.threadId, result.runId),
+      );
+    } finally {
+      const pending =
+        this.pendingApprovalContinuations.get(input.threadId) ?? 0;
+      if (pending <= 1) {
+        this.pendingApprovalContinuations.delete(input.threadId);
+      } else {
+        this.pendingApprovalContinuations.set(input.threadId, pending - 1);
+      }
+      if (!this.disposed && pending <= 1) {
+        if (legacyApprovalResolved) {
+          this.scheduleQueuePromotion(input.threadId);
+        } else {
+          this.scheduleQueuePromotionIfIdle(input.threadId);
+        }
+      }
+    }
+  }
+
+  public async resolveConnectionRequest(
+    input: {
+      threadId: ThreadId;
+      runId: RunId;
+      requestId: string;
+      response: AgentConnectionResponse;
+    },
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    await this.requireCapability("connectionRequests", requestContext);
+    const resolveConnectionRequest = this.transport.resolveConnectionRequest;
+    if (!resolveConnectionRequest) {
+      throw new AgentKitCapabilityError("connectionRequests");
+    }
+    await this.invokeRequest(requestContext, (context) =>
+      resolveConnectionRequest(input, context),
+    );
+    this.assertActive();
+    const existingConsumer = this.consumers.get(
+      this.runKey(input.threadId, input.runId),
+    );
+    void (async () => {
+      // Wait off the UI path: an interrupted reader can close after resolution.
+      if (existingConsumer) await Promise.allSettled([existingConsumer]);
+      if (!this.disposed) {
+        await this.resubscribeRun(input.threadId, input.runId);
+      }
+    })().catch(() => {
+      // The consumer records the typed stream error in the client snapshot.
+    });
+  }
+
+  public async invokeAction(
+    invocation: AgentActionInvocation,
+    context?: AgentRequestContext,
+  ): Promise<AgentActionResult> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    await this.requireCapability("actions", requestContext);
+    const invokeAction = this.transport.invokeAction;
+    if (!invokeAction) {
+      throw new AgentKitCapabilityError("actions");
+    }
+    const thread = this.getThread(invocation.threadId);
+    this.setThread(invocation.threadId, {
+      ...thread,
+      actions: {
+        ...thread.actions,
+        [invocation.id]: { invocation },
+      },
+    });
+    try {
+      const result = await this.invokeRequest(requestContext, (context) =>
+        invokeAction({ invocation }, context),
+      );
+      this.assertActive();
+      const current = this.getThread(invocation.threadId);
+      this.setThread(invocation.threadId, {
+        ...current,
+        actions: {
+          ...current.actions,
+          [invocation.id]: {
+            ...current.actions[invocation.id],
+            invocation,
+            result,
+          },
+        },
+      });
+      return result;
+    } catch (error) {
+      if (this.disposed) throw error;
+      const current = this.getThread(invocation.threadId);
+      this.setThread(invocation.threadId, {
+        ...current,
+        actions: {
+          ...current.actions,
+          [invocation.id]: {
+            ...current.actions[invocation.id],
+            invocation,
+            result: {
+              invocationId: invocation.id,
+              status: "failed",
+              error: toError(error, "action_failed"),
+            },
+          },
+        },
+      });
+      throw error;
+    }
+  }
+
+  public async uploadFiles(
+    threadId: ThreadId,
+    files: AgentKitUploadFile[],
+    context?: AgentRequestContext,
+  ): Promise<FilePart[]> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    await this.requireCapability("uploads", requestContext);
+    const results = await Promise.allSettled(
+      files.map(async (file) => {
+        const target = await this.createUpload(
+          threadId,
+          {
+            name: file.name,
+            mediaType: file.mediaType,
+            size: file.size,
+            purpose: "message",
+          },
+          requestContext,
+        );
+        try {
+          await this.invokeRequest(requestContext, (context) =>
+            this.upload(target, file, context),
+          );
+          this.assertActive();
+          return await this.completeUpload(
+            threadId,
+            target.uploadId,
+            requestContext,
+          );
+        } catch (error) {
+          if (this.transport.cancelUpload) {
+            const cleanupContext = this.createRequestContext();
+            await Promise.allSettled([
+              this.transport.cancelUpload(
+                {
+                  threadId,
+                  uploadId: target.uploadId,
+                },
+                cleanupContext,
+              ),
+            ]);
+          }
+          throw error;
+        }
+      }),
+    );
+    const failures: AgentKitUploadFailure[] = [];
+    const uploaded: Array<{ index: number; part: FilePart }> = [];
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled") {
+        uploaded.push({ index, part: result.value });
+      } else {
+        failures.push({
+          index,
+          name: files[index]!.name,
+          error: result.reason,
+        });
+      }
+    });
+    if (this.disposed && failures.length) throw failures[0]!.error;
+    if (failures.length) throw new AgentKitUploadError(failures, uploaded);
+    return uploaded.map(({ part }) => part);
+  }
+
+  public async createUpload(
+    threadId: ThreadId,
+    descriptor: AgentUploadDescriptor,
+    context?: AgentRequestContext,
+  ): Promise<AgentUploadTarget> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    await this.requireCapability("uploads", requestContext);
+    const createUpload = this.transport.createUpload;
+    if (!createUpload) {
+      throw new AgentKitCapabilityError("uploads");
+    }
+    const target = await this.invokeRequest(requestContext, (context) =>
+      createUpload({ threadId, descriptor }, context),
+    );
+    this.assertActive();
+    return target;
+  }
+
+  public async completeUpload(
+    threadId: ThreadId,
+    uploadId: UploadId,
+    context?: AgentRequestContext,
+  ): Promise<FilePart> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    await this.requireCapability("uploads", requestContext);
+    const completeUpload = this.transport.completeUpload;
+    if (!completeUpload) {
+      throw new AgentKitCapabilityError("uploads");
+    }
+    const file = await this.invokeRequest(requestContext, (context) =>
+      completeUpload({ threadId, uploadId }, context),
+    );
+    this.assertActive();
+    return file;
+  }
+
+  public async cancelUpload(
+    threadId: ThreadId,
+    uploadId: UploadId,
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    await this.requireCapability("uploads", requestContext);
+    const cancelUpload = this.transport.cancelUpload;
+    if (!cancelUpload) {
+      throw new AgentKitCapabilityError("uploads");
+    }
+    await this.invokeRequest(requestContext, (context) =>
+      cancelUpload({ threadId, uploadId }, context),
+    );
+    this.assertActive();
+  }
+
+  private async queueSafeRequestAttachments(
+    threadId: ThreadId,
+    attachments: AgentRequestAttachment[] | undefined,
+    context: AgentRequestContext,
+  ): Promise<AgentRequestAttachment[] | undefined> {
+    if (!attachments?.length) return undefined;
+    if (attachments.length > MAX_AGENT_REQUEST_ATTACHMENTS) {
+      throw new AgentProtocolValidationError(
+        "requestAttachments",
+        `expected at most ${MAX_AGENT_REQUEST_ATTACHMENTS} attachments`,
+      );
+    }
+    parseStartRunInput({
+      threadId,
+      messages: [],
+      requestAttachments: attachments.map((attachment) => ({
+        ...attachment,
+        data: undefined,
+        url:
+          attachment.url ??
+          (typeof attachment.data === "string"
+            ? "https://queued-image.invalid"
+            : undefined),
+      })),
+    });
+    let totalUploadBytes = 0;
+    attachments.forEach((attachment, index) => {
+      if (
+        attachment.data !== undefined &&
+        typeof attachment.data !== "string"
+      ) {
+        throw new AgentProtocolValidationError(
+          `requestAttachments[${index}].data`,
+          "expected a string",
+        );
+      }
+      if (isPersistableAttachmentUrl(attachment.url)) return;
+      if (!attachment.data) {
+        throw new AgentProtocolValidationError(
+          `requestAttachments[${index}]`,
+          "expected a durable image URL or inline image data",
+        );
+      }
+      const size = estimateQueuedImageBytes(
+        attachment.data,
+        `requestAttachments[${index}].data`,
+      );
+      if (size > MAX_QUEUED_IMAGE_UPLOAD_BYTES) {
+        throw new AgentProtocolValidationError(
+          `requestAttachments[${index}].data`,
+          `image exceeds the ${MAX_QUEUED_IMAGE_UPLOAD_BYTES}-byte upload limit`,
+        );
+      }
+      totalUploadBytes += size;
+      if (totalUploadBytes > MAX_QUEUED_IMAGE_UPLOAD_BYTES) {
+        throw new AgentProtocolValidationError(
+          "requestAttachments",
+          `aggregate image uploads exceed the ${MAX_QUEUED_IMAGE_UPLOAD_BYTES}-byte limit`,
+        );
+      }
+    });
+    const safeAttachments: AgentRequestAttachment[] = attachments.map(
+      (attachment) => {
+        if (attachment.data && isPersistableAttachmentUrl(attachment.url)) {
+          const { data: _data, ...reference } = attachment;
+          return reference;
+        }
+        return attachment;
+      },
+    );
+    const uploads = safeAttachments.map(requestAttachmentFile);
+    if (!uploads.some(Boolean)) return safeAttachments;
+    const uploaded = await this.uploadFiles(
+      threadId,
+      uploads.filter((file): file is AgentKitUploadFile => file !== null),
+      context,
+    );
+    let uploadIndex = 0;
+    return safeAttachments.map((attachment, index) => {
+      const file = uploads[index];
+      if (!file) return attachment;
+      const result = uploaded[uploadIndex++];
+      if (!result?.url) {
+        throw new TypeError(
+          `Queued image ${attachment.name} did not receive a durable URL.`,
+        );
+      }
+      const { data: _data, ...reference } = attachment;
+      return { ...reference, url: result.url };
+    });
+  }
+
+  public reserveQueuedMessage(
+    input: Pick<SendMessageInput, "threadId" | "text">,
+    onLocalSubmit?: () => void,
+  ): AgentQueuedMessage {
+    this.assertActive();
+    const reservation: AgentQueuedMessage = {
+      id: this.createId("queued-message"),
+      threadId: input.threadId,
+      text: input.text,
+      createdAt: this.now(),
+    };
+    const thread = this.getThread(input.threadId);
+    const queuedMessages = [...thread.queuedMessages, reservation];
+    this.queuedMessageReservationIds.add(reservation.id);
+    this.pendingQueueMessageIds.add(reservation.id);
+    this.setThread(input.threadId, { ...thread, queuedMessages });
+    const previousOverride = this.queuedMessageOverrides.get(input.threadId);
+    const removedIds = new Set(previousOverride?.removedIds);
+    removedIds.delete(reservation.id);
+    this.queuedMessageOverrides.set(input.threadId, {
+      messages: queuedMessages,
+      removedIds,
+    });
+    try {
+      onLocalSubmit?.();
+    } catch (error) {
+      this.cancelQueuedMessageReservation(input.threadId, reservation.id);
+      throw error;
+    }
+    return reservation;
+  }
+
+  public cancelQueuedMessageReservation(
+    threadId: ThreadId,
+    messageId: string,
+  ): void {
+    if (!this.queuedMessageReservationIds.delete(messageId)) return;
+    this.pendingQueueMessageIds.delete(messageId);
+    const thread = this.getThread(threadId);
+    const queuedMessages = thread.queuedMessages.filter(
+      (message) => message.id !== messageId,
+    );
+    this.setThread(threadId, { ...thread, queuedMessages });
+    const override = this.queuedMessageOverrides.get(threadId);
+    if (override) {
+      this.queuedMessageOverrides.set(threadId, {
+        messages: override.messages.filter(
+          (message) => message.id !== messageId,
+        ),
+        removedIds: override.removedIds,
+      });
+    }
+    this.scheduleQueuePromotionIfIdle(threadId);
+  }
+
+  /** Queued rows are stored, so inline file bytes become durable uploads first. */
+  private async queueSafeFileParts(
+    threadId: ThreadId,
+    attachments: FilePart[] | undefined,
+    context: AgentRequestContext,
+  ): Promise<FilePart[] | undefined> {
+    if (!attachments?.some((part) => isInlineDataUrl(part.url))) {
+      return attachments;
+    }
+    const inline = await Promise.all(
+      attachments.flatMap((part) => {
+        if (!isInlineDataUrl(part.url)) return [];
+        return [
+          fetch(part.url).then(async (response) => {
+            const body = await response.blob();
+            const mediaType =
+              part.mediaType ?? (body.type || "application/octet-stream");
+            return {
+              name: part.name,
+              mediaType,
+              size: body.size,
+              body,
+            } satisfies AgentKitUploadFile;
+          }),
+        ];
+      }),
+    );
+    const uploaded = await this.uploadFiles(threadId, inline, context);
+    let uploadIndex = 0;
+    return attachments.map((part) => {
+      if (!isInlineDataUrl(part.url)) return part;
+      const durable = uploaded[uploadIndex++];
+      if (!durable?.url && !durable?.fileId) {
+        throw new TypeError(
+          `Queued file ${part.name} did not receive a durable reference.`,
+        );
+      }
+      return durable;
+    });
+  }
+
+  public async queueMessage(
+    input: SendMessageInput,
+    context?: AgentRequestContext,
+  ): Promise<AgentQueuedMessage> {
+    this.assertActive();
+    const threadAtSubmit = this.getThread(input.threadId);
+    const runWasActive =
+      input.queuedWhileRunActive || hasActiveAgentRuns(threadAtSubmit);
+    const runIdsBeforeWrite = new Set(Object.keys(threadAtSubmit.runs));
+    const requestContext = this.createRequestContext(context);
+    const queueMessage = this.transport.queueMessage;
+    let reservedMessage = input.queuedMessageReservationId
+      ? threadAtSubmit.queuedMessages.find(
+          (message) => message.id === input.queuedMessageReservationId,
+        )
+      : undefined;
+    if (
+      input.queuedMessageReservationId &&
+      (!this.queuedMessageReservationIds.has(
+        input.queuedMessageReservationId,
+      ) ||
+        !reservedMessage)
+    ) {
+      throw new TypeError("Queued message reservation is no longer available.");
+    }
+    if (reservedMessage) {
+      const preparingMessage = {
+        ...reservedMessage,
+        text: input.text,
+        attachments: input.attachments,
+        metadata: input.metadata,
+        options: input.options,
+      };
+      const thread = this.getThread(input.threadId);
+      const queuedMessages = thread.queuedMessages.map((message) =>
+        message.id === preparingMessage.id ? preparingMessage : message,
+      );
+      this.setThread(input.threadId, { ...thread, queuedMessages });
+      const override = this.queuedMessageOverrides.get(input.threadId);
+      if (override) {
+        this.queuedMessageOverrides.set(input.threadId, {
+          messages: override.messages.map((message) =>
+            message.id === preparingMessage.id ? preparingMessage : message,
+          ),
+          removedIds: override.removedIds,
+        });
+      }
+    }
+    const preflightToken = input.queueMessagePreflightToken;
+    const preflight = preflightToken
+      ? this.queueMessagePreflightTokens.get(preflightToken)
+      : undefined;
+    if (preflightToken) {
+      this.queueMessagePreflightTokens.delete(preflightToken);
+    }
+    const preflightMatches =
+      preflight?.threadId === input.threadId &&
+      preflight.engine === selectedEngineForDispatch(input) &&
+      preflight.hasAttachments ===
+        Boolean(
+          input.queueMessageHasAttachments ||
+          input.attachments?.length ||
+          input.requestAttachments?.length,
+        );
+    // Render immediately so readiness checks and uploads do not make the send
+    // feel like it was ignored. The payload is replaced with durable references
+    // before it crosses the transport boundary.
+    if (input.queuedMessageReservationId) {
+      reservedMessage = this.getThread(input.threadId).queuedMessages.find(
+        (message) => message.id === input.queuedMessageReservationId,
+      );
+      if (
+        !this.queuedMessageReservationIds.has(
+          input.queuedMessageReservationId,
+        ) ||
+        !reservedMessage
+      ) {
+        throw new TypeError(
+          "Queued message reservation is no longer available.",
+        );
+      }
+    }
+    const optimisticMessage: AgentQueuedMessage = reservedMessage
+      ? {
+          ...reservedMessage,
+          text: input.text,
+          attachments: input.attachments,
+          metadata: input.metadata,
+          options: input.options,
+        }
+      : {
+          id: this.createId("queued-message"),
+          threadId: input.threadId,
+          text: input.text,
+          createdAt: this.now(),
+          attachments: input.attachments,
+          metadata: input.metadata,
+          options: input.options,
+        };
+    this.pendingQueueMessageIds.add(optimisticMessage.id);
+    const localThread = this.getThread(input.threadId);
+    const optimisticQueue = reservedMessage
+      ? localThread.queuedMessages.map((message) =>
+          message.id === optimisticMessage.id ? optimisticMessage : message,
+        )
+      : [...localThread.queuedMessages, optimisticMessage];
+    this.setThread(input.threadId, {
+      ...localThread,
+      queuedMessages: optimisticQueue,
+    });
+    const previousOverride = this.queuedMessageOverrides.get(input.threadId);
+    const removedIds = new Set(previousOverride?.removedIds);
+    removedIds.delete(optimisticMessage.id);
+    this.queuedMessageOverrides.set(input.threadId, {
+      messages: optimisticQueue,
+      removedIds,
+    });
+    try {
+      if (!preflightMatches) {
+        await this.assertAiSetupReady(
+          {
+            engine: selectedEngineForDispatch(input),
+            threadId: input.threadId,
+          },
+          requestContext,
+        );
+        await this.requireCapability("messageQueue", requestContext);
+        if (
+          input.queueMessageHasAttachments ||
+          input.attachments?.length ||
+          input.requestAttachments?.length
+        ) {
+          await this.requireCapability("attachments", requestContext);
+        }
+      }
+      if (!queueMessage) {
+        throw new AgentKitCapabilityError("messageQueue");
+      }
+      if (!reservedMessage) input.onLocalSubmit?.();
+      return await this.enqueueQueueMutation(input.threadId, async () => {
+        this.assertActive();
+        await this.requireCapability("messageQueue", requestContext);
+        if (input.attachments?.length || input.requestAttachments?.length) {
+          await this.requireCapability("attachments", requestContext);
+        }
+        const requestAttachments = await this.queueSafeRequestAttachments(
+          input.threadId,
+          input.requestAttachments,
+          requestContext,
+        );
+        const attachments = await this.queueSafeFileParts(
+          input.threadId,
+          input.attachments,
+          requestContext,
+        );
+        if (requestAttachments?.length || attachments !== input.attachments) {
+          const durable = (message: AgentQueuedMessage) =>
+            message.id === optimisticMessage.id
+              ? {
+                  ...message,
+                  attachments,
+                  ...(requestAttachments?.length ? { requestAttachments } : {}),
+                }
+              : message;
+          const thread = this.getThread(input.threadId);
+          this.setThread(input.threadId, {
+            ...thread,
+            queuedMessages: thread.queuedMessages.map(durable),
+          });
+          const queueOverride = this.queuedMessageOverrides.get(input.threadId);
+          if (queueOverride) {
+            this.queuedMessageOverrides.set(input.threadId, {
+              messages: queueOverride.messages.map(durable),
+              removedIds: queueOverride.removedIds,
+            });
+          }
+        }
+        input.validateBeforeQueue?.();
+        const result = await this.invokeRequest(requestContext, (context) =>
+          queueMessage(
+            {
+              threadId: input.threadId,
+              id: optimisticMessage.id,
+              text: input.text,
+              attachments,
+              ...(requestAttachments?.length ? { requestAttachments } : {}),
+              metadata: input.metadata,
+              options: input.options,
+            },
+            context,
+          ),
+        );
+        this.assertActive();
+        this.queuedMessageReservationIds.delete(optimisticMessage.id);
+        this.pendingQueueMessageIds.delete(optimisticMessage.id);
+        const thread = this.getThread(input.threadId);
+        const queuedMessages = thread.queuedMessages.map((message) =>
+          message.id === optimisticMessage.id ? result.message : message,
+        );
+        this.setThread(input.threadId, { ...thread, queuedMessages });
+        const queueOverride = this.queuedMessageOverrides.get(input.threadId);
+        const nextRemovedIds = new Set(queueOverride?.removedIds);
+        nextRemovedIds.delete(optimisticMessage.id);
+        nextRemovedIds.delete(result.message.id);
+        this.queuedMessageOverrides.set(input.threadId, {
+          messages: queuedMessages,
+          removedIds: nextRemovedIds,
+        });
+        const updatedThread = this.getThread(input.threadId);
+        const runStartedDuringWrite = Object.keys(updatedThread.runs).some(
+          (runId) => !runIdsBeforeWrite.has(runId),
+        );
+        if (
+          !hasActiveAgentRuns(updatedThread) &&
+          (runWasActive || runStartedDuringWrite)
+        ) {
+          this.scheduleQueuePromotion(input.threadId);
+        }
+        return result.message;
+      });
+    } catch (error) {
+      this.queuedMessageReservationIds.delete(optimisticMessage.id);
+      this.pendingQueueMessageIds.delete(optimisticMessage.id);
+      const thread = this.getThread(input.threadId);
+      const queuedMessages = thread.queuedMessages.filter(
+        (message) => message.id !== optimisticMessage.id,
+      );
+      this.setThread(input.threadId, { ...thread, queuedMessages });
+      const override = this.queuedMessageOverrides.get(input.threadId);
+      if (override) {
+        this.queuedMessageOverrides.set(input.threadId, {
+          messages: override.messages.filter(
+            (message) => message.id !== optimisticMessage.id,
+          ),
+          removedIds: override.removedIds,
+        });
+      }
+      this.scheduleQueuePromotionIfIdle(input.threadId);
+      throw error;
+    }
+  }
+
+  public async removeQueuedMessage(
+    threadId: ThreadId,
+    messageId: string,
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    await this.requireCapability("messageQueue", requestContext);
+    const removeQueuedMessage = this.transport.removeQueuedMessage;
+    if (!removeQueuedMessage) {
+      throw new AgentKitCapabilityError("messageQueue");
+    }
+    return this.enqueueQueueMutation(threadId, async () => {
+      this.assertActive();
+      const previous = this.getThread(threadId);
+      const removedIndex = previous.queuedMessages.findIndex(
+        (message) => message.id === messageId,
+      );
+      const removed = previous.queuedMessages[removedIndex];
+      const previousOverride = this.queuedMessageOverrides.get(threadId);
+      if (removed) {
+        const queuedMessages = previous.queuedMessages.filter(
+          (message) => message.id !== messageId,
+        );
+        this.setThread(threadId, { ...previous, queuedMessages });
+        const removedIds = new Set(previousOverride?.removedIds);
+        removedIds.add(messageId);
+        this.queuedMessageOverrides.set(threadId, {
+          messages: queuedMessages,
+          removedIds,
+        });
+      }
+      try {
+        await this.invokeRequest(requestContext, (context) =>
+          removeQueuedMessage({ threadId, messageId }, context),
+        );
+        this.assertActive();
+      } catch (error) {
+        if (this.disposed) throw error;
+        if (removed) {
+          const current = this.getThread(threadId);
+          if (
+            !current.queuedMessages.some((message) => message.id === messageId)
+          ) {
+            const queuedMessages = [...current.queuedMessages];
+            queuedMessages.splice(
+              Math.min(removedIndex, queuedMessages.length),
+              0,
+              removed,
+            );
+            this.setThread(threadId, { ...current, queuedMessages });
+            const currentOverride = this.queuedMessageOverrides.get(threadId);
+            const removedIds = new Set(currentOverride?.removedIds);
+            removedIds.delete(messageId);
+            if (currentOverride || removedIds.size > 0) {
+              this.queuedMessageOverrides.set(threadId, {
+                messages: queuedMessages,
+                removedIds,
+              });
+            } else {
+              this.queuedMessageOverrides.delete(threadId);
+            }
+          }
+        }
+        throw error;
+      }
+    });
+  }
+
+  public supportsRunContinuation(): boolean {
+    return typeof this.transport.continueRun === "function";
+  }
+
+  public async continueRun(
+    threadId: ThreadId,
+    runId: RunId,
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    this.assertActive();
+    await this.assertAiSetupReady({ threadId }, context);
+    // A user-initiated continuation starts work, so it follows the same setup
+    // gate as a new prompt. Automatic run continuations use the transport path.
+    const continueRun = this.transport.continueRun;
+    if (!continueRun) throw new AgentKitOperationError("run continuation");
+    const attachments = this.continuationAttachments(threadId, runId);
+    const result = await this.invokeRequest(
+      this.createRequestContext(context),
+      (request) =>
+        continueRun(
+          { threadId, runId, ...(attachments.length ? { attachments } : {}) },
+          request,
+        ),
+    );
+    this.assertActive();
+    this.markRunStarted(threadId, result.runId);
+    this.trackConsumer(
+      threadId,
+      result.runId,
+      this.consume(threadId, result.runId),
+    );
+  }
+
+  /**
+   * The durable attachments of the turn a continued run belongs to. A runtime
+   * that no longer holds that turn in memory (a reload, another tab) would
+   * otherwise continue without the images the user asked about.
+   */
+  private continuationAttachments(
+    threadId: ThreadId,
+    runId: RunId,
+  ): FilePart[] {
+    const thread = this.getThread(threadId);
+    const submittedId = this.submittedUserMessages.get(
+      this.runKey(threadId, runId),
+    );
+    const message =
+      (submittedId &&
+        thread.messages.find((candidate) => candidate.id === submittedId)) ||
+      [...thread.messages].reverse().find(({ role }) => role === "user");
+    return (
+      message?.parts.filter(
+        (part): part is FilePart =>
+          part.type === "file" &&
+          !part.omitted &&
+          (part.fileId !== undefined || isPersistableAttachmentUrl(part.url)),
+      ) ?? []
+    );
+  }
+
+  public supportsQueuedMessageReordering(): boolean {
+    return typeof this.transport.moveQueuedMessageToTop === "function";
+  }
+
+  public async moveQueuedMessageToTop(
+    threadId: ThreadId,
+    messageId: string,
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    await this.requireCapability("messageQueue", requestContext);
+    const moveQueuedMessageToTop = this.transport.moveQueuedMessageToTop;
+    if (!moveQueuedMessageToTop) {
+      throw new AgentKitOperationError("queue reordering");
+    }
+    return this.enqueueQueueMutation(threadId, async () => {
+      this.assertActive();
+      const previous = this.getThread(threadId);
+      const index = previous.queuedMessages.findIndex(
+        (message) => message.id === messageId,
+      );
+      if (index < 0) throw new Error(`Unknown queued message: ${messageId}`);
+      if (index === 0) return;
+
+      const queued = previous.queuedMessages[index]!;
+      const queuedMessages = [
+        queued,
+        ...previous.queuedMessages.filter(
+          (message) => message.id !== messageId,
+        ),
+      ];
+      const previousOverride = this.queuedMessageOverrides.get(threadId);
+      const removedIds = new Set(previousOverride?.removedIds);
+      this.setThread(threadId, { ...previous, queuedMessages });
+      this.queuedMessageOverrides.set(threadId, {
+        messages: queuedMessages,
+        removedIds,
+      });
+
+      try {
+        await this.invokeRequest(requestContext, (request) =>
+          moveQueuedMessageToTop({ threadId, messageId }, request),
+        );
+        this.assertActive();
+      } catch (error) {
+        if (this.disposed) throw error;
+        const current = this.getThread(threadId);
+        const previousOrder = new Map(
+          previous.queuedMessages.map((message, itemIndex) => [
+            message.id,
+            itemIndex,
+          ]),
+        );
+        const restoredQueue = current.queuedMessages
+          .map((message, itemIndex) => ({ message, itemIndex }))
+          .sort((left, right) => {
+            const leftIndex = previousOrder.get(left.message.id);
+            const rightIndex = previousOrder.get(right.message.id);
+            if (leftIndex === undefined) {
+              return rightIndex === undefined
+                ? left.itemIndex - right.itemIndex
+                : 1;
+            }
+            if (rightIndex === undefined) return -1;
+            return leftIndex - rightIndex;
+          })
+          .map(({ message }) => message);
+        this.setThread(threadId, {
+          ...current,
+          queuedMessages: restoredQueue,
+        });
+        if (previousOverride) {
+          this.queuedMessageOverrides.set(threadId, previousOverride);
+        } else {
+          this.queuedMessageOverrides.delete(threadId);
+        }
+        throw error;
+      }
+    });
+  }
+
+  public steerQueuedMessage(
+    threadId: ThreadId,
+    messageId: string,
+    context?: AgentRequestContext,
+    options?: { interruptActiveRun?: boolean },
+  ): Promise<AgentRunHandle | void> {
+    const steeringKey = JSON.stringify([threadId, messageId]);
+    const existing = this.queueSteerings.get(steeringKey);
+    if (existing) {
+      if (!options?.interruptActiveRun) return existing;
+      const steering = existing.catch((error) => {
+        if (!isAgentKitRunSlotBusyError(error)) throw error;
+        return this.steerQueuedMessageNow(
+          threadId,
+          messageId,
+          context,
+          options,
+        );
+      });
+      this.queueSteerings.set(steeringKey, steering);
+      const clearSteering = () => {
+        if (this.queueSteerings.get(steeringKey) === steering) {
+          this.queueSteerings.delete(steeringKey);
+        }
+      };
+      void steering.then(clearSteering, clearSteering);
+      return steering;
+    }
+    const steering = this.steerQueuedMessageNow(
+      threadId,
+      messageId,
+      context,
+      options,
+    );
+    this.queueSteerings.set(steeringKey, steering);
+    const clearSteering = () => {
+      if (this.queueSteerings.get(steeringKey) === steering) {
+        this.queueSteerings.delete(steeringKey);
+      }
+    };
+    void steering.then(clearSteering, clearSteering);
+    return steering;
+  }
+
+  private async steerQueuedMessageNow(
+    threadId: ThreadId,
+    messageId: string,
+    context?: AgentRequestContext,
+    options?: { interruptActiveRun?: boolean },
+  ): Promise<AgentRunHandle | void> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    await this.requireCapability("messageQueue", requestContext);
+    const steerQueuedMessage = this.transport.steerQueuedMessage;
+    if (!steerQueuedMessage) {
+      throw new AgentKitCapabilityError("messageQueue");
+    }
+    return this.enqueueQueueMutation(threadId, async () => {
+      this.assertActive();
+      const previous = this.getThread(threadId);
+      const queued = previous.queuedMessages.find(
+        (message) => message.id === messageId,
+      );
+      if (!queued) {
+        if (previous.messages.some((message) => message.id === messageId))
+          return;
+        throw new Error(`Unknown queued message: ${messageId}`);
+      }
+      const message: AgentMessage = {
+        id: queued.id,
+        role: "user",
+        createdAt: queued.createdAt,
+        status: "complete",
+        parts: [
+          { type: "text", text: queued.text },
+          ...(queued.attachments ?? []),
+        ],
+        metadata: queued.metadata,
+      };
+      const previousConnection = this.snapshot.connection;
+      const previousError = this.snapshot.error;
+      this.setConnection("connecting");
+      try {
+        const result = await this.invokeRequest(requestContext, (context) =>
+          steerQueuedMessage(
+            {
+              threadId,
+              messageId,
+              ...(options?.interruptActiveRun
+                ? { interruptActiveRun: true }
+                : {}),
+            },
+            context,
+          ),
+        );
+        this.assertActive();
+        if (result && "alreadyRemoved" in result) {
+          this.removeQueuedMessageFromState(threadId, messageId);
+          await this.loadThread(threadId, requestContext);
+          this.assertActive();
+          return;
+        }
+        const reconcileSubmittedMessage = Boolean(result?.alreadySubmitted);
+        if (reconcileSubmittedMessage) {
+          this.removeQueuedMessageFromState(threadId, messageId);
+          await this.loadThread(threadId, requestContext);
+          this.assertActive();
+        }
+        const current = this.getThread(threadId);
+        const submittedMessage = reconcileSubmittedMessage
+          ? current.messages.find((candidate) => {
+              const custom = metadataRecord(candidate.metadata?.custom);
+              return (
+                candidate.id === messageId ||
+                custom?.agentNativeQueuedMessageId === messageId
+              );
+            })
+          : undefined;
+        if (reconcileSubmittedMessage && !submittedMessage) {
+          throw new TypeError(
+            `Submitted queue message ${messageId} is missing from thread history.`,
+          );
+        }
+        const visibleMessage = submittedMessage ?? message;
+        const queuedMessages = current.queuedMessages.filter(
+          (candidate) => candidate.id !== messageId,
+        );
+        this.setThread(threadId, {
+          ...current,
+          messages: current.messages.some(
+            (candidate) => candidate.id === visibleMessage.id,
+          )
+            ? current.messages
+            : [...current.messages, visibleMessage],
+          queuedMessages,
+          suggestions: [],
+          suggestionsPendingTurn: true,
+        });
+        const override = this.queuedMessageOverrides.get(threadId);
+        const removedIds = new Set(override?.removedIds);
+        removedIds.add(messageId);
+        this.queuedMessageOverrides.set(threadId, {
+          messages: queuedMessages,
+          removedIds,
+        });
+        if (!result) {
+          this.setConnection("connected");
+          if (!reconcileSubmittedMessage) {
+            this.queuePromotionAfterReconciliation.add(threadId);
+          }
+          return;
+        }
+        if (result.capabilities) {
+          this.patch({
+            capabilities: result.capabilities,
+            capabilitiesStatus: "ready",
+          });
+        }
+        this.markRunStarted(threadId, result.runId);
+        this.submittedUserMessages.set(
+          this.runKey(threadId, result.runId),
+          visibleMessage.id,
+        );
+        const completed = this.consume(threadId, result.runId);
+        this.trackConsumer(threadId, result.runId, completed);
+        return {
+          runId: result.runId,
+          completed,
+          cancel: () => this.cancelRun(threadId, result.runId),
+        };
+      } catch (error) {
+        if (this.disposed) throw error;
+        this.patch({ connection: previousConnection, error: previousError });
+        if (isRetryableQueuePromotionError(error)) {
+          if (!this.queuePromotions.has(threadId)) {
+            this.scheduleQueuePromotion(threadId);
+          }
+        } else {
+          this.report(error, "queue_steer_failed");
+        }
+        throw error;
+      }
+    });
+  }
+
+  private removeQueuedMessageFromState(
+    threadId: ThreadId,
+    messageId: string,
+  ): void {
+    const current = this.getThread(threadId);
+    const queuedMessages = current.queuedMessages.filter(
+      (candidate) => candidate.id !== messageId,
+    );
+    this.setThread(threadId, { ...current, queuedMessages });
+    const override = this.queuedMessageOverrides.get(threadId);
+    const removedIds = new Set(override?.removedIds);
+    removedIds.add(messageId);
+    this.queuedMessageOverrides.set(threadId, {
+      messages: queuedMessages,
+      removedIds,
+    });
+  }
+
+  public async cancelRun(
+    threadId: ThreadId,
+    runId: RunId,
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    await this.invokeRequest(requestContext, (context) =>
+      this.transport.cancelRun({ threadId, runId }, context),
+    );
+    this.assertActive();
+    const status = this.getThread(threadId).runs[runId]?.status;
+    if (status && this.isTerminalStatus(status)) return;
+    this.markRunCancelled(threadId, runId);
+    const key = this.runKey(threadId, runId);
+    const hasOtherConsumers = [...this.consumers.keys()].some(
+      (candidate) => candidate !== key,
+    );
+    this.stopConsumer(threadId, runId, "cancelled");
+    if (!hasOtherConsumers) this.setConnection("connected");
+  }
+
+  public async submitFeedback(
+    threadId: ThreadId,
+    messageId: string,
+    value: "positive" | "negative" | "dismissed",
+    options?: Pick<
+      SubmitFeedbackInput,
+      "metadata" | "messageSeq" | "reason" | "runId"
+    >,
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    await this.requireCapability("feedback", requestContext);
+    const submitFeedback = this.transport.submitFeedback;
+    if (!submitFeedback) {
+      throw new AgentKitCapabilityError("feedback");
+    }
+    await this.invokeRequest(requestContext, (context) =>
+      submitFeedback(
+        {
+          threadId,
+          messageId,
+          value,
+          ...options,
+        },
+        context,
+      ),
+    );
+    this.assertActive();
+  }
+
+  public async forkThread(
+    threadId: ThreadId,
+    fromMessageId?: string,
+    options?: Omit<ForkThreadInput, "threadId" | "fromMessageId">,
+    context?: AgentRequestContext,
+  ): Promise<AgentThread> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    await this.requireCapability("threadForking", requestContext);
+    const forkThread = this.transport.forkThread;
+    if (!forkThread) {
+      throw new AgentKitCapabilityError("threadForking");
+    }
+    const forked = await this.invokeRequest(requestContext, (context) =>
+      forkThread(
+        {
+          threadId,
+          fromMessageId,
+          ...options,
+        },
+        context,
+      ),
+    );
+    this.assertActive();
+    const current = this.getThread(forked.id);
+    this.setThread(forked.id, { ...current, thread: forked });
+    return forked;
+  }
+
+  public async updateThread(
+    threadId: ThreadId,
+    patch: Omit<UpdateThreadInput, "threadId">,
+    context?: AgentRequestContext,
+  ): Promise<AgentThread> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    await this.ensureCapabilities(requestContext);
+    const updateThread = this.transport.updateThread;
+    if (!updateThread) {
+      throw new AgentKitOperationError("thread updates");
+    }
+    const updated = await this.invokeRequest(requestContext, (context) =>
+      updateThread({ ...patch, threadId }, context),
+    );
+    this.assertActive();
+    const current = this.getThread(threadId);
+    this.setThread(threadId, { ...current, thread: updated });
+    return updated;
+  }
+
+  public async deleteThread(
+    threadId: ThreadId,
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    await this.ensureCapabilities(requestContext);
+    const deleteThread = this.transport.deleteThread;
+    if (!deleteThread) {
+      throw new AgentKitOperationError("thread deletion");
+    }
+    await this.invokeRequest(requestContext, (context) =>
+      deleteThread({ threadId }, context),
+    );
+    this.assertActive();
+    this.stopThreadConsumers(threadId, "deleted");
+    this.clearSubmittedUserMessages(threadId);
+    this.queuedMessageOverrides.delete(threadId);
+    this.clearTerminalRunCatchUps(threadId);
+    const threads = { ...this.snapshot.threads };
+    delete threads[threadId];
+    this.patch({ threads });
+  }
+
+  public shutdown(): Promise<void> {
+    if (this.shutdownPromise) return this.shutdownPromise;
+    this.disposed = true;
+    this.requestAbortController.abort(new AgentKitDisposedError());
+    for (const timer of this.queuePromotionTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.queuePromotionTimers.clear();
+    this.queuePromotionRetryAttempts.clear();
+    this.queuePromotionTerminalExpedites.clear();
+    this.pendingQueueMessageIds.clear();
+    this.queuedMessageReservationIds.clear();
+    this.queuePromotionAfterReconciliation.clear();
+    this.terminalRunCatchUps.clear();
+    for (const controller of this.consumerAbortControllers.values()) {
+      controller.abort(new AgentKitConsumerStoppedError("disposed"));
+    }
+    this.consumerAbortControllers.clear();
+    this.threadLeaseCounts.clear();
+    this.queueMutationChains.clear();
+    this.queuedMessageOverrides.clear();
+    this.submittedUserMessages.clear();
+    this.patch({ connection: "offline" });
+    this.listeners.clear();
+    this.consumers.clear();
+    this.shutdownPromise = this.ownsTransport
+      ? (async () => {
+          await this.transport.dispose?.();
+        })()
+      : Promise.resolve();
+    return this.shutdownPromise;
+  }
+
+  public dispose(): Promise<void> {
+    return this.shutdown();
+  }
+
+  private trackConsumer(
+    threadId: ThreadId,
+    runId: RunId,
+    completed: Promise<void>,
+  ): void {
+    this.consumers.set(this.runKey(threadId, runId), completed);
+    // `consume` reports failures through snapshot state and `onError` before it
+    // rejects. Observe internally-owned continuations here so a caller that
+    // cannot receive their completion promise never triggers an unhandled
+    // rejection; APIs that return `completed` still expose the original promise.
+    void completed.catch(() => undefined);
+  }
+
+  public async persistThreadSnapshot(
+    threadId: ThreadId,
+    messages?: AgentMessage[],
+  ): Promise<void> {
+    const result = await this.captureThreadSnapshotPersistence(
+      threadId,
+      messages,
+    );
+    if (!result || isExpectedThreadSnapshotDeferral(result.error)) return;
+    this.fail(result.error, "thread_snapshot_persist_failed");
+    throw new Error("Thread snapshot persistence failed.");
+  }
+
+  public async persistThreadSnapshotWithResult(
+    threadId: ThreadId,
+    messages?: AgentMessage[],
+    context?: AgentRequestContext,
+  ): Promise<boolean | undefined> {
+    if (!this.transport.persistThreadSnapshot) return undefined;
+    const result = await this.captureThreadSnapshotPersistence(
+      threadId,
+      messages,
+      context,
+    );
+    if (!result) return true;
+    if (!isExpectedThreadSnapshotDeferral(result.error)) {
+      this.fail(result.error, "thread_snapshot_persist_failed");
+    }
+    return false;
+  }
+
+  private async captureThreadSnapshotPersistence(
+    threadId: ThreadId,
+    messages?: AgentMessage[],
+    context?: AgentRequestContext,
+  ): Promise<{ error: unknown } | undefined> {
+    try {
+      return await this.persistThreadSnapshotToTransport(
+        threadId,
+        messages,
+        context,
+      );
+    } catch (error) {
+      return { error };
+    }
+  }
+
+  private persistThreadSnapshotToTransport(
+    threadId: ThreadId,
+    messages?: AgentMessage[],
+    context?: AgentRequestContext,
+  ): Promise<{ error: unknown } | undefined> {
+    const persist = this.transport.persistThreadSnapshot;
+    if (!persist) return Promise.resolve(undefined);
+    const thread = this.getThread(threadId);
+    const updatedAt = this.now();
+    const snapshotMessages = messages ?? thread.messages;
+    const messageIds = new Set(snapshotMessages.map((message) => message.id));
+    const annotations: AgentAnnotationSnapshot[] = Object.entries(
+      thread.annotations,
+    ).flatMap(([id, annotation]) => {
+      const messageId = thread.annotationMessageIds[id];
+      return messageId && messageIds.has(messageId)
+        ? [{ messageId, annotation }]
+        : [];
+    });
+    const snapshot: AgentThreadSnapshot = {
+      ...(thread.thread ?? {
+        id: threadId,
+        createdAt: updatedAt,
+        updatedAt,
+      }),
+      id: threadId,
+      updatedAt,
+      messages: snapshotMessages,
+      queuedMessages: thread.queuedMessages.filter(
+        (message) => !this.queuedMessageReservationIds.has(message.id),
+      ),
+      events: thread.events,
+      runs: Object.values(thread.runs).map((run) => ({
+        ...run,
+        threadId,
+      })),
+      activeRunIds: thread.activeRunIds,
+      suggestions: thread.suggestions,
+      activities: Object.values(thread.activities),
+      annotations,
+      toolCalls: Object.values(thread.tools),
+      widgets: Object.entries(thread.widgets).flatMap(([id, widget]) => {
+        const messageId = thread.widgetMessageIds[id];
+        return messageId ? [{ messageId, widget }] : [];
+      }),
+    };
+    return this.invokeRequest(
+      this.createRequestContext(context),
+      (requestContext) => persist({ threadId, snapshot }, requestContext),
+    )
+      .then(() => undefined)
+      .catch((error) => ({ error }));
+  }
+
+  private async consume(threadId: ThreadId, runId: RunId): Promise<void> {
+    const key = this.runKey(threadId, runId);
+    const abortController = new AbortController();
+    this.consumerAbortControllers.set(key, abortController);
+    let attempt = 0;
+    let interruptedForContinuation = [
+      "awaiting_approval",
+      "awaiting_input",
+    ].includes(this.getThread(threadId).runs[runId]?.status ?? "");
+    let terminalCatchUpFailed = false;
+    try {
+      while (true) {
+        const afterSequence =
+          this.getThread(threadId).runs[runId]?.lastSequence ?? 0;
+        let terminalEvent: AgentEvent | undefined;
+        let replayedTerminalSnapshot = false;
+        try {
+          this.setConnection(attempt === 0 ? "connected" : "reconnecting");
+          for await (const value of this.transport.subscribeToRun({
+            threadId,
+            runId,
+            afterSequence,
+            signal: abortController.signal,
+          })) {
+            if (
+              abortController.signal.reason instanceof
+              AgentKitConsumerStoppedError
+            ) {
+              return;
+            }
+            const event = parseAgentEvent(value);
+            if (event.threadId !== threadId) {
+              throw new AgentProtocolValidationError(
+                "event.threadId",
+                "must match the subscribed thread",
+              );
+            }
+            if (event.runId !== runId) {
+              throw new AgentProtocolValidationError(
+                "event.runId",
+                "must match the subscribed run",
+              );
+            }
+            this.applyEvent(event);
+            if (
+              event.type === "approval.requested" ||
+              event.type === "connection.requested"
+            ) {
+              interruptedForContinuation = true;
+            } else if (event.type === "approval.resolved") {
+              interruptedForContinuation = false;
+            } else if (
+              event.type === "connection.updated" &&
+              (event.request.status === "connected" ||
+                event.request.status === "declined" ||
+                event.request.status === "failed")
+            ) {
+              interruptedForContinuation = false;
+            }
+            if (isTerminalRunEvent(event)) {
+              terminalEvent = event;
+            }
+            const terminalCatchUp = this.terminalRunCatchUps.get(key);
+            if (terminalCatchUp) {
+              if (isTerminalRunEvent(event)) {
+                if (
+                  terminalRunEventStatus(event) !==
+                    terminalCatchUp.run.status ||
+                  event.sequence !== terminalCatchUp.run.lastSequence
+                ) {
+                  this.reportIntegrity({
+                    code: "run_missing_terminal",
+                    threadId,
+                    runId,
+                  });
+                  this.markTerminalRunCatchUpUnconfirmable(threadId, runId);
+                  terminalCatchUpFailed = true;
+                  throw new AgentProtocolValidationError(
+                    "run.events",
+                    `replay did not confirm terminal snapshot for run ${runId}`,
+                  );
+                }
+                const current = this.getThread(threadId);
+                const confirmed = this.findConfirmedTerminalEvent(
+                  current,
+                  terminalCatchUp,
+                );
+                if (!confirmed) {
+                  this.reportIntegrity({
+                    code: "run_missing_terminal",
+                    threadId,
+                    runId,
+                  });
+                  this.markTerminalRunCatchUpUnconfirmable(threadId, runId);
+                  terminalCatchUpFailed = true;
+                  throw new AgentProtocolValidationError(
+                    "run.events",
+                    `replay did not reach terminal snapshot cursor for run ${runId}`,
+                  );
+                }
+                this.setThread(
+                  threadId,
+                  this.completeTerminalRunCatchUp(
+                    current,
+                    terminalCatchUp,
+                    confirmed,
+                  ),
+                );
+                if (this.hasTerminalRunCatchUp(threadId, runId)) {
+                  throw new AgentProtocolValidationError(
+                    "run.events",
+                    `terminal replay could not be completed for run ${runId}`,
+                  );
+                }
+                replayedTerminalSnapshot = true;
+                break;
+              }
+              if (event.sequence >= terminalCatchUp.run.lastSequence) {
+                this.reportIntegrity({
+                  code: "run_missing_terminal",
+                  threadId,
+                  runId,
+                });
+                this.markTerminalRunCatchUpUnconfirmable(threadId, runId);
+                terminalCatchUpFailed = true;
+                throw new AgentProtocolValidationError(
+                  "run.events",
+                  `replay reached terminal snapshot cursor without a terminal event for run ${runId}`,
+                );
+              }
+            }
+          }
+          if (!terminalEvent) {
+            if (this.hasTerminalRunCatchUp(threadId, runId)) {
+              if (attempt < this.reconnectAttempts) {
+                attempt += 1;
+                this.setConnection("reconnecting");
+                await this.waitForReconnect(
+                  this.reconnectDelay(attempt),
+                  abortController.signal,
+                );
+                continue;
+              }
+              this.reportIntegrity({
+                code: "run_missing_terminal",
+                threadId,
+                runId,
+              });
+              this.markTerminalRunCatchUpUnconfirmable(threadId, runId);
+              terminalCatchUpFailed = true;
+              throw new AgentProtocolValidationError(
+                "run.events",
+                `replay ended without confirming terminal snapshot for run ${runId}`,
+              );
+            }
+            if (interruptedForContinuation) {
+              this.setConnection("connected");
+              return;
+            }
+            this.reportIntegrity({
+              code: "run_missing_terminal",
+              threadId,
+              runId,
+            });
+            throw new Error(
+              `AgentKit run ${runId} ended without a terminal event.`,
+            );
+          }
+          this.setConnection("connected");
+          await this.finishTerminalRun(threadId, terminalEvent, {
+            projectionAlreadyCaughtUp: replayedTerminalSnapshot,
+          });
+          return;
+        } catch (error) {
+          if (
+            abortController.signal.reason instanceof
+            AgentKitConsumerStoppedError
+          ) {
+            return;
+          }
+          if (terminalCatchUpFailed) {
+            this.restoreConnectionAfterTerminalCatchUp(key);
+            return;
+          }
+          if (terminalEvent && !this.hasTerminalRunCatchUp(threadId, runId)) {
+            await this.finishTerminalRun(threadId, terminalEvent);
+            this.fail(error, "run_stream_failed");
+            return;
+          }
+          if (
+            abortController.signal.aborted ||
+            !errorIsRetryable(error) ||
+            attempt >= this.reconnectAttempts
+          ) {
+            throw error;
+          }
+          attempt += 1;
+          this.setConnection("reconnecting");
+          await this.waitForReconnect(
+            this.reconnectDelay(attempt),
+            abortController.signal,
+          );
+        }
+      }
+    } catch (error) {
+      if (
+        abortController.signal.reason instanceof AgentKitConsumerStoppedError
+      ) {
+        return;
+      }
+      const runError = toError(error, "run_stream_failed");
+      if (
+        this.hasTerminalRunCatchUp(threadId, runId) &&
+        error instanceof AgentProtocolValidationError
+      ) {
+        this.markTerminalRunCatchUpUnconfirmable(threadId, runId);
+        this.reportIntegrity({
+          code: "run_missing_terminal",
+          threadId,
+          runId,
+        });
+        this.restoreConnectionAfterTerminalCatchUp(key);
+      } else if (this.hasTerminalRunCatchUp(threadId, runId)) {
+        const catchUp = this.terminalRunCatchUps.get(key);
+        if (catchUp) {
+          const terminalThread = this.preserveTerminalRunDuringCatchUp(
+            this.getThread(threadId),
+            catchUp,
+          );
+          const run = terminalThread.runs[runId];
+          this.setThread(
+            threadId,
+            run
+              ? settleRunProjection(
+                  terminalThread,
+                  runId,
+                  "failed",
+                  run.completedAt ?? this.now(),
+                  run.activeMessageId,
+                  catchUp.run.status,
+                )
+              : terminalThread,
+          );
+        }
+        this.fail(error, "run_stream_failed");
+      } else {
+        this.markRunFailed(threadId, runId, runError);
+        this.fail(error, "run_stream_failed");
+      }
+      throw error;
+    } finally {
+      this.consumers.delete(key);
+      this.consumerAbortControllers.delete(key);
+    }
+  }
+
+  private async finishTerminalRun(
+    threadId: ThreadId,
+    terminalEvent: AgentEvent,
+    options: { projectionAlreadyCaughtUp?: boolean } = {},
+  ): Promise<void> {
+    this.submittedUserMessages.delete(
+      this.runKey(threadId, terminalEvent.runId),
+    );
+    const snapshotPersistence = this.persistThreadSnapshotToTransport(threadId);
+    const completed =
+      terminalEvent.type === "run.completed" ||
+      (terminalEvent.type === "run.status" &&
+        terminalEvent.status === "completed");
+    const terminalThread = this.getThread(threadId);
+    const queuedWorkKnown =
+      terminalThread.queuedMessages.length > 0 &&
+      !hasActiveAgentRuns(terminalThread);
+    if (queuedWorkKnown) this.scheduleQueuePromotion(threadId, true);
+    const persistenceError = await snapshotPersistence;
+    if (completed) {
+      const shouldRefreshProjection =
+        !options.projectionAlreadyCaughtUp &&
+        !this.threadLoads.has(threadId) &&
+        (this.transport.getThreadSnapshot || this.transport.getThread);
+      if (shouldRefreshProjection) {
+        try {
+          await this.loadThreadProjection(
+            threadId,
+            this.createRequestContext(),
+            true,
+          );
+        } catch (error) {
+          // History hydration reports its own failure; it cannot undo a terminal run.
+          if (this.disposed) throw error;
+        }
+      }
+      if (!queuedWorkKnown && !hasActiveAgentRuns(this.getThread(threadId))) {
+        this.scheduleQueuePromotion(threadId, true);
+      }
+    }
+    if (
+      persistenceError &&
+      !isExpectedThreadSnapshotDeferral(persistenceError.error)
+    ) {
+      this.fail(persistenceError.error, "thread_snapshot_persist_failed");
+    }
+  }
+
+  private waitForReconnect(
+    duration: number,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (signal.aborted) {
+      return Promise.reject(signal.reason ?? this.abortError());
+    }
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        clearTimeout(timeout);
+        reject(signal.reason ?? this.abortError());
+      };
+      const timeout = setTimeout(() => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      }, duration);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+
+  private abortError(): Error {
+    const error = new Error("Aborted");
+    error.name = "AbortError";
+    return error;
+  }
+
+  private async ensureCapabilities(
+    context: AgentRequestContext,
+  ): Promise<AgentCapabilities> {
+    this.assertRequestActive(context);
+    if (
+      this.snapshot.capabilitiesStatus === "ready" &&
+      !this.capabilitiesExpired()
+    ) {
+      return this.snapshot.capabilities;
+    }
+    if (this.capabilitiesLoad) {
+      return this.invokeRequest(
+        context,
+        () => this.capabilitiesLoad as Promise<AgentCapabilities>,
+      );
+    }
+    this.patch({ capabilitiesStatus: "loading" });
+    const loadContext = this.createRequestContext({
+      correlationId: context.correlationId,
+    });
+    const load = (async () => {
+      if (this.transport.discoverCapabilities) {
+        const discoverCapabilities = this.transport.discoverCapabilities;
+        const discovery = await this.invokeRequest(
+          loadContext,
+          (requestContext) =>
+            discoverCapabilities(
+              { protocol: createAgentKitProtocolVersionOffer() },
+              requestContext,
+            ),
+        );
+        if (discovery.protocol.status === "incompatible") {
+          throw new AgentKitHandshakeError(
+            discovery.protocol.error.code,
+            discovery.protocol.error.message,
+            discovery.protocol.error.details,
+            discovery.protocol.error.correlationId,
+          );
+        }
+        const capabilities =
+          discovery.legacy ?? projectAgentCapabilities(discovery);
+        this.patch({
+          capabilities,
+          capabilityDiscovery: discovery,
+          capabilitiesStatus: "ready",
+        });
+        return capabilities;
+      }
+      const capabilities = this.transport.capabilities ?? {};
+      this.patch({ capabilities, capabilitiesStatus: "ready" });
+      return capabilities;
+    })().catch((error) => {
+      if (!this.disposed) this.patch({ capabilitiesStatus: "error" });
+      throw error;
+    });
+    this.capabilitiesLoad = load;
+    try {
+      return await this.invokeRequest(context, () => load);
+    } finally {
+      if (this.capabilitiesLoad === load) this.capabilitiesLoad = undefined;
+    }
+  }
+
+  private capabilitiesExpired(): boolean {
+    const expiresAt = this.snapshot.capabilityDiscovery?.expiresAt;
+    if (!expiresAt) return false;
+    const expiration = Date.parse(expiresAt);
+    const current = Date.parse(this.now());
+    return (
+      Number.isFinite(expiration) &&
+      Number.isFinite(current) &&
+      expiration <= current
+    );
+  }
+
+  private settleTerminalThread(
+    thread: AgentThreadState,
+    snapshot?: Pick<AgentThreadSnapshot, "activeRunIds" | "runs"> | null,
+    pendingCatchUpRunIds: ReadonlySet<RunId> = new Set(),
+    unconfirmableCatchUpRunIds: ReadonlySet<RunId> = new Set(),
+  ): AgentThreadState {
+    const runs = Object.values(thread.runs);
+    const terminalRuns = runs.filter(
+      (run): run is TerminalRunState =>
+        this.isTerminalStatus(run.status) && !pendingCatchUpRunIds.has(run.id),
+    );
+    // A snapshot lists a request with the status it had when it was written, so
+    // every load re-retires what the live event order already retired.
+    const settled = retireSupersededConnectionRequests(
+      terminalRuns.reduce(
+        (currentThread, run) =>
+          settleRunProjection(
+            currentThread,
+            run.id,
+            unconfirmableCatchUpRunIds.has(run.id) ? "failed" : run.status,
+            run.completedAt ?? this.now(),
+            run.activeMessageId,
+            run.status,
+          ),
+        thread,
+      ),
+    );
+    if (
+      pendingCatchUpRunIds.size > 0 ||
+      thread.activeRunIds.length > 0 ||
+      runs.some((run) => !this.isTerminalStatus(run.status))
+    ) {
+      return settled;
+    }
+
+    const snapshotHasNoActiveRuns =
+      snapshot?.activeRunIds?.length === 0 ||
+      (snapshot?.activeRunIds === undefined &&
+        snapshot?.runs !== undefined &&
+        snapshot.runs.length > 0 &&
+        snapshot.runs.every((run) => this.isTerminalStatus(run.status)));
+    if (!snapshotHasNoActiveRuns) return settled;
+
+    // A snapshot can outlive the event association for its assistant message.
+    // If any known run failed or was cancelled, settle an unassociated message
+    // as an error rather than presenting a partial response as successful.
+    const settledMessageStatus =
+      unconfirmableCatchUpRunIds.size > 0
+        ? "error"
+        : terminalRuns.length > 0 &&
+            terminalRuns.every((run) => run.status === "completed")
+          ? "complete"
+          : "error";
+    // Lifecycle events can age out independently of the message projection.
+    // Once the snapshot proves that no run remains active, any assistant
+    // message still marked streaming is stale rather than in-flight work.
+    return {
+      ...settled,
+      messages: settled.messages.map((message) =>
+        message.role === "assistant" && message.status === "streaming"
+          ? { ...message, status: settledMessageStatus }
+          : message,
+      ),
+    };
+  }
+
+  private hasTerminalRunCatchUp(threadId: ThreadId, runId?: RunId): boolean {
+    return runId
+      ? this.terminalRunCatchUps.get(this.runKey(threadId, runId))?.state ===
+          "pending"
+      : [...this.terminalRunCatchUps.values()].some(
+          (catchUp) =>
+            catchUp.threadId === threadId && catchUp.state === "pending",
+        );
+  }
+
+  private terminalRunCatchUpIds(threadId: ThreadId): Set<RunId> {
+    return new Set(
+      [...this.terminalRunCatchUps.values()]
+        .filter(
+          (catchUp) =>
+            catchUp.threadId === threadId && catchUp.state === "pending",
+        )
+        .map((catchUp) => catchUp.runId),
+    );
+  }
+
+  private terminalRunCatchUpFailureIds(threadId: ThreadId): Set<RunId> {
+    return new Set(
+      [...this.terminalRunCatchUps.values()]
+        .filter(
+          (catchUp) =>
+            catchUp.threadId === threadId && catchUp.state === "unconfirmable",
+        )
+        .map((catchUp) => catchUp.runId),
+    );
+  }
+
+  private rememberTerminalRunCatchUp(
+    threadId: ThreadId,
+    runId: RunId,
+    run: TerminalRunSnapshot,
+    snapshotHasNoActiveRuns: boolean,
+    snapshotMessages: AgentMessage[],
+  ): TerminalRunCatchUp {
+    const key = this.runKey(threadId, runId);
+    const current = this.terminalRunCatchUps.get(key);
+    if (current) {
+      if (
+        current.state === "unconfirmable" &&
+        current.run.status === run.status &&
+        current.run.lastSequence === run.lastSequence
+      ) {
+        current.snapshotHasNoActiveRuns = snapshotHasNoActiveRuns;
+        current.snapshotMessages = snapshotMessages;
+        return current;
+      }
+      if (run.lastSequence >= current.run.lastSequence) {
+        const changedSnapshot =
+          run.status !== current.run.status ||
+          run.lastSequence !== current.run.lastSequence;
+        current.state = "pending";
+        current.run = { ...run };
+        current.snapshotHasNoActiveRuns = snapshotHasNoActiveRuns;
+        current.snapshotMessages = snapshotMessages;
+        if (changedSnapshot) current.messageIdRemap.clear();
+      }
+      return current;
+    }
+    const catchUp: TerminalRunCatchUp = {
+      threadId,
+      runId,
+      state: "pending",
+      run: { ...run },
+      snapshotHasNoActiveRuns,
+      snapshotMessages,
+      messageIdRemap: new Map(),
+    };
+    this.terminalRunCatchUps.set(key, catchUp);
+    return catchUp;
+  }
+
+  private acceptedEventCursor(
+    threadId: ThreadId,
+    runId: RunId,
+    snapshot?: AgentThreadSnapshot | null,
+  ): number {
+    return Math.max(
+      this.getThread(threadId).runs[runId]?.lastSequence ?? 0,
+      snapshot?.events?.reduce(
+        (sequence, event) =>
+          event.runId === runId
+            ? Math.max(sequence, agentEventSequenceEnd(event))
+            : sequence,
+        0,
+      ) ?? 0,
+    );
+  }
+
+  private snapshotHasNoActiveRuns(
+    snapshot?: Pick<AgentThreadSnapshot, "activeRunIds" | "runs"> | null,
+  ): boolean {
+    return (
+      snapshot?.activeRunIds?.length === 0 ||
+      (snapshot?.activeRunIds === undefined &&
+        snapshot?.runs !== undefined &&
+        snapshot.runs.length > 0 &&
+        snapshot.runs.every((run) => this.isTerminalStatus(run.status)))
+    );
+  }
+
+  private clearTerminalRunCatchUps(threadId: ThreadId, runId?: RunId): void {
+    for (const [key, catchUp] of this.terminalRunCatchUps) {
+      if (
+        catchUp.threadId === threadId &&
+        (!runId || catchUp.runId === runId)
+      ) {
+        this.terminalRunCatchUps.delete(key);
+      }
+    }
+  }
+
+  private findConfirmedTerminalEvent(
+    thread: AgentThreadState,
+    catchUp: TerminalRunCatchUp,
+  ): AgentEvent | undefined {
+    if (
+      (thread.runs[catchUp.runId]?.lastSequence ?? 0) < catchUp.run.lastSequence
+    ) {
+      return undefined;
+    }
+    return thread.events.find(
+      (event) =>
+        event.runId === catchUp.runId &&
+        event.sequence === catchUp.run.lastSequence &&
+        terminalRunEventStatus(event) === catchUp.run.status,
+    );
+  }
+
+  private preserveTerminalRunDuringCatchUp(
+    thread: AgentThreadState,
+    catchUp: TerminalRunCatchUp,
+  ): AgentThreadState {
+    const currentRun = thread.runs[catchUp.runId];
+    if (!currentRun) return thread;
+    const authoritativeRun = this.runState(catchUp.runId, catchUp.run);
+    return {
+      ...thread,
+      runs: {
+        ...thread.runs,
+        [catchUp.runId]: {
+          ...currentRun,
+          ...authoritativeRun,
+          lastSequence: currentRun.lastSequence,
+          startedAt: authoritativeRun.startedAt ?? currentRun.startedAt,
+          completedAt: authoritativeRun.completedAt ?? currentRun.completedAt,
+          activeMessageId:
+            authoritativeRun.activeMessageId ?? currentRun.activeMessageId,
+          usage: authoritativeRun.usage ?? currentRun.usage,
+        },
+      },
+      activeRunIds: thread.activeRunIds.filter((id) => id !== catchUp.runId),
+    };
+  }
+
+  private completeTerminalRunCatchUp(
+    thread: AgentThreadState,
+    catchUp: TerminalRunCatchUp,
+    terminalEvent: AgentEvent,
+  ): AgentThreadState {
+    const key = this.runKey(catchUp.threadId, catchUp.runId);
+    if (
+      this.terminalRunCatchUps.get(key) !== catchUp ||
+      catchUp.state !== "pending" ||
+      terminalRunEventStatus(terminalEvent) !== catchUp.run.status ||
+      terminalEvent.sequence !== catchUp.run.lastSequence ||
+      (thread.runs[catchUp.runId]?.lastSequence ?? 0) < catchUp.run.lastSequence
+    ) {
+      return thread;
+    }
+    this.terminalRunCatchUps.delete(key);
+    const terminalThread = this.preserveTerminalRunDuringCatchUp(
+      thread,
+      catchUp,
+    );
+    return this.settleTerminalThread(
+      terminalThread,
+      catchUp.snapshotHasNoActiveRuns ? { activeRunIds: [] } : undefined,
+      this.terminalRunCatchUpIds(catchUp.threadId),
+      this.terminalRunCatchUpFailureIds(catchUp.threadId),
+    );
+  }
+
+  private markTerminalRunCatchUpUnconfirmable(
+    threadId: ThreadId,
+    runId: RunId,
+  ): void {
+    const catchUp = this.terminalRunCatchUps.get(this.runKey(threadId, runId));
+    if (!catchUp || catchUp.state !== "pending") return;
+    catchUp.state = "unconfirmable";
+    const thread = this.preserveTerminalRunDuringCatchUp(
+      this.getThread(threadId),
+      catchUp,
+    );
+    this.setThread(
+      threadId,
+      this.settleTerminalThread(
+        thread,
+        catchUp.snapshotHasNoActiveRuns ? { activeRunIds: [] } : undefined,
+        this.terminalRunCatchUpIds(threadId),
+        this.terminalRunCatchUpFailureIds(threadId),
+      ),
+    );
+  }
+
+  private remapTerminalCatchUpMessage(
+    event: AgentEvent,
+    catchUp: TerminalRunCatchUp,
+  ): { event: AgentEvent; sourceMessageId?: string } {
+    const sourceMessageId =
+      event.type === "message.created" || event.type === "message.completed"
+        ? event.message.id
+        : event.type === "message.delta" || event.type === "reasoning.delta"
+          ? event.messageId
+          : undefined;
+    if (!sourceMessageId) return { event };
+
+    const existingMessageId = catchUp.messageIdRemap.get(sourceMessageId);
+    if (existingMessageId) {
+      return {
+        event: this.remapEventMessageId(event, existingMessageId),
+        sourceMessageId,
+      };
+    }
+
+    if (
+      event.type !== "message.completed" ||
+      event.message.role !== "assistant" ||
+      !catchUp.run.activeMessageId
+    ) {
+      return { event };
+    }
+    const snapshotMessage = catchUp.snapshotMessages.find(
+      (message) => message.id === catchUp.run.activeMessageId,
+    );
+    if (
+      !snapshotMessage ||
+      snapshotMessage.role !== "assistant" ||
+      this.messageContentKey(snapshotMessage) !==
+        this.messageContentKey(event.message)
+    ) {
+      return { event };
+    }
+    catchUp.messageIdRemap.set(sourceMessageId, snapshotMessage.id);
+    return {
+      event: this.remapEventMessageId(event, snapshotMessage.id),
+      sourceMessageId,
+    };
+  }
+
+  private remapEventMessageId(
+    event: AgentEvent,
+    messageId: string,
+  ): AgentEvent {
+    switch (event.type) {
+      case "message.created":
+      case "message.completed":
+        return { ...event, message: { ...event.message, id: messageId } };
+      case "message.delta":
+      case "reasoning.delta":
+        return { ...event, messageId };
+      default:
+        return event;
+    }
+  }
+
+  private removeRemappedCatchUpMessage(
+    thread: AgentThreadState,
+    sourceMessageId: string | undefined,
+    catchUp: TerminalRunCatchUp,
+  ): AgentThreadState {
+    if (!sourceMessageId) return thread;
+    const canonicalMessageId = catchUp.messageIdRemap.get(sourceMessageId);
+    if (!canonicalMessageId || sourceMessageId === canonicalMessageId) {
+      return thread;
+    }
+    const canonicalMessage = catchUp.snapshotMessages.find(
+      (message) => message.id === canonicalMessageId,
+    );
+    const hasCanonicalMessage = thread.messages.some(
+      (message) => message.id === canonicalMessageId,
+    );
+    return {
+      ...thread,
+      messages: thread.messages.flatMap((message) =>
+        message.id === sourceMessageId
+          ? canonicalMessage && !hasCanonicalMessage
+            ? [canonicalMessage]
+            : []
+          : message.id === canonicalMessageId && canonicalMessage
+            ? [canonicalMessage]
+            : [message],
+      ),
+    };
+  }
+
+  private hydrateThread(
+    snapshot: AgentThreadSnapshot,
+    runs: AgentThreadState["runs"],
+    activeRunIds: RunId[],
+    eventProjectionRunIds: ReadonlySet<RunId> = new Set(),
+  ): AgentThreadState {
+    let hydrated = createAgentThreadState(snapshot.id);
+    for (const event of snapshot.events ?? []) {
+      hydrated = reduceAgentEvent(hydrated, event);
+    }
+    const snapshotApprovals = Object.fromEntries(
+      (snapshot.approvals ?? [])
+        .filter((approval) => approval.status === "pending")
+        .map((approval) => [approval.request.id, approval.request]),
+    );
+    const snapshotApprovalRunIds = Object.fromEntries(
+      (snapshot.approvals ?? [])
+        .filter(
+          (approval) =>
+            approval.status === "pending" && approval.runId !== undefined,
+        )
+        .map((approval) => [approval.request.id, approval.runId as RunId]),
+    );
+    const snapshotConnectionRequests = Object.fromEntries(
+      (snapshot.connectionRequests ?? []).map((entry) => [
+        entry.request.id,
+        entry.request,
+      ]),
+    );
+    const snapshotConnectionRequestRunIds = Object.fromEntries(
+      (snapshot.connectionRequests ?? [])
+        .filter((entry) => entry.runId !== undefined)
+        .map((entry) => [entry.request.id, entry.runId as RunId]),
+    );
+    const snapshotWidgets = Object.fromEntries(
+      (snapshot.widgets ?? []).map((entry) => [entry.widget.id, entry.widget]),
+    );
+    const snapshotWidgetMessageIds = Object.fromEntries(
+      (snapshot.widgets ?? []).map((entry) => [
+        entry.widget.id,
+        entry.messageId,
+      ]),
+    );
+    const snapshotAnnotations = Object.fromEntries(
+      (snapshot.annotations ?? []).map((entry) => [
+        entry.annotation.id,
+        entry.annotation,
+      ]),
+    );
+    const snapshotAnnotationMessageIds = Object.fromEntries(
+      (snapshot.annotations ?? []).map((entry) => [
+        entry.annotation.id,
+        entry.messageId,
+      ]),
+    );
+    const approvalRunIds =
+      snapshot.approvals === undefined
+        ? hydrated.approvalRunIds
+        : snapshotApprovalRunIds;
+    const mergedRuns = this.mergeRuns(hydrated.runs, runs);
+    for (const runId of eventProjectionRunIds) {
+      const eventRun = hydrated.runs[runId];
+      const mergedRun = mergedRuns[runId];
+      if (
+        eventRun &&
+        mergedRun &&
+        eventRun.lastSequence === mergedRun.lastSequence &&
+        !this.isTerminalStatus(eventRun.status) &&
+        !this.isTerminalStatus(mergedRun.status)
+      ) {
+        mergedRuns[runId] = {
+          ...mergedRun,
+          status: eventRun.status,
+          ...(eventRun.startedAt === undefined
+            ? {}
+            : { startedAt: eventRun.startedAt }),
+          ...(eventRun.completedAt === undefined
+            ? {}
+            : { completedAt: eventRun.completedAt }),
+          ...(eventRun.activeMessageId === undefined
+            ? {}
+            : { activeMessageId: eventRun.activeMessageId }),
+          ...(eventRun.usage === undefined ? {} : { usage: eventRun.usage }),
+          ...(eventRun.error === undefined ? {} : { error: eventRun.error }),
+        };
+      }
+    }
+    const currentActiveRunIds = Array.from(
+      new Set(
+        snapshot.activeRunIds ?? [
+          ...activeRunIds,
+          ...hydrated.activeRunIds,
+          ...Object.values(approvalRunIds),
+        ],
+      ),
+    ).filter(
+      (runId) => !this.isTerminalStatus(mergedRuns[runId]?.status ?? "running"),
+    );
+    const projected: AgentThreadState = {
+      ...hydrated,
+      thread: snapshot,
+      // The snapshot projection is authoritative. The event log rebuilds all
+      // rich, non-message state without replaying text deltas twice.
+      messages: snapshot.messages,
+      queuedMessages: snapshot.queuedMessages ?? hydrated.queuedMessages,
+      runs: mergedRuns,
+      activeRunIds: currentActiveRunIds,
+      tools: {
+        ...hydrated.tools,
+        ...Object.fromEntries(
+          (snapshot.toolCalls ?? []).map((tool) => [tool.id, tool]),
+        ),
+      },
+      activities: {
+        ...hydrated.activities,
+        ...Object.fromEntries(
+          (snapshot.activities ?? []).map((activity) => [
+            activity.id,
+            activity,
+          ]),
+        ),
+      },
+      tasks: {
+        ...hydrated.tasks,
+        ...Object.fromEntries(
+          (snapshot.tasks ?? []).map((task) => [task.id, task]),
+        ),
+      },
+      approvals:
+        snapshot.approvals === undefined
+          ? hydrated.approvals
+          : snapshotApprovals,
+      approvalRunIds,
+      connectionRequests: {
+        ...hydrated.connectionRequests,
+        ...snapshotConnectionRequests,
+      },
+      connectionRequestRunIds: {
+        ...hydrated.connectionRequestRunIds,
+        ...snapshotConnectionRequestRunIds,
+      },
+      widgets: { ...hydrated.widgets, ...snapshotWidgets },
+      widgetMessageIds: {
+        ...hydrated.widgetMessageIds,
+        ...snapshotWidgetMessageIds,
+      },
+      annotations: { ...hydrated.annotations, ...snapshotAnnotations },
+      annotationMessageIds: {
+        ...hydrated.annotationMessageIds,
+        ...snapshotAnnotationMessageIds,
+      },
+      agents: {
+        ...hydrated.agents,
+        ...Object.fromEntries(
+          (snapshot.agents ?? []).map((agent) => [agent.id, agent]),
+        ),
+      },
+      agentInteractions: snapshot.interactions ?? hydrated.agentInteractions,
+      artifacts: snapshot.artifacts ?? hydrated.artifacts,
+      suggestions:
+        snapshot.suggestions?.map((suggestion) => ({
+          ...suggestion,
+          runId:
+            suggestion.runId ??
+            hydrated.suggestions.find((item) => item.id === suggestion.id)
+              ?.runId,
+        })) ?? hydrated.suggestions,
+    };
+    const latestUserIndex = projected.messages.findLastIndex(
+      (message) => message.role === "user",
+    );
+    const latestAssistantIndex = projected.messages.findLastIndex(
+      (message) => message.role === "assistant",
+    );
+    const latestUser = projected.messages[latestUserIndex];
+    const latestRun = selectLatestAgentRun(projected);
+    projected.suggestionsUserMessageId =
+      latestAssistantIndex > latestUserIndex ||
+      (latestUser?.createdAt &&
+        latestRun?.startedAt &&
+        latestUser.createdAt <= latestRun.startedAt)
+        ? latestUser?.id
+        : hydrated.suggestionsUserMessageId;
+    return this.settleTerminalThread(
+      projected,
+      snapshot,
+      this.terminalRunCatchUpIds(snapshot.id),
+      this.terminalRunCatchUpFailureIds(snapshot.id),
+    );
+  }
+
+  private async requireCapability(
+    capability: AgentCapabilityId,
+    context: AgentRequestContext,
+  ): Promise<void> {
+    const capabilities = await this.ensureCapabilities(context);
+    this.assertActive();
+    const descriptor = this.snapshot.capabilityDiscovery?.capabilities.find(
+      (candidate) => candidate.id === capability,
+    );
+    if (descriptor?.state === "unsupported") {
+      throw this.capabilityError(descriptor);
+    }
+    if (descriptor?.state === "unavailable") {
+      throw this.capabilityError(descriptor);
+    }
+    if (this.snapshot.capabilityDiscovery && !descriptor) {
+      throw new AgentKitCapabilityError(
+        capability,
+        "unavailable",
+        `The ${JSON.stringify(capability)} capability was not included in discovery.`,
+        true,
+      );
+    }
+    if (capabilities[capability] === false) {
+      throw new AgentKitCapabilityError(capability);
+    }
+  }
+
+  private capabilityError(
+    descriptor: AgentCapabilityDescriptor,
+  ): AgentKitCapabilityError {
+    const unavailable = descriptor.state === "unavailable";
+    return new AgentKitCapabilityError(
+      descriptor.id,
+      unavailable ? "unavailable" : "unsupported",
+      descriptor.error?.message ?? descriptor.description,
+      descriptor.error?.retryable ?? unavailable,
+      descriptor.error?.correlationId,
+      descriptor.error?.details,
+    );
+  }
+
+  private mergeLoadedThread(
+    baseline: AgentThreadState,
+    current: AgentThreadState,
+    loaded: AgentThreadState,
+    preserveLiveMessages = false,
+  ): AgentThreadState {
+    const messagesChanged = current.messages !== baseline.messages;
+    const reconciliation =
+      loaded.messages.length > 0
+        ? this.reconcileMessages(current.messages, loaded.messages)
+        : undefined;
+    const hasMessageIdRemap = (reconciliation?.idRemap.size ?? 0) > 0;
+    // Keep the live projection as the winner only for identities accepted by
+    // a concurrent stream. A content match still needs the durable identity
+    // when the stream finished before this refresh established its baseline.
+    const live = reconciliation
+      ? this.remapThreadMessageReferences(current, reconciliation.idRemap)
+      : current;
+    const loadedSnapshot = loaded.thread as AgentThreadSnapshot | undefined;
+    const snapshotIncludes = (key: keyof AgentThreadSnapshot) =>
+      loadedSnapshot !== undefined &&
+      Object.prototype.hasOwnProperty.call(loadedSnapshot, key);
+    const snapshotIncludesRuntimeProjection = (
+      key: keyof AgentThreadSnapshot,
+    ) => snapshotIncludes(key) || snapshotIncludes("events");
+    const mergeRecordProjection = <T>(
+      loadedProjection: Record<string, T>,
+      baselineProjection: Record<string, T>,
+      currentProjection: Record<string, T>,
+      snapshotKey: keyof AgentThreadSnapshot,
+    ) =>
+      currentProjection === baselineProjection &&
+      !snapshotIncludesRuntimeProjection(snapshotKey)
+        ? currentProjection
+        : mergeRuntimeRecordMap(
+            loadedProjection,
+            baselineProjection,
+            currentProjection,
+          );
+    const mergeListProjection = <T extends { id: string }>(
+      loadedProjection: T[],
+      baselineProjection: T[],
+      currentProjection: T[],
+      snapshotKey: keyof AgentThreadSnapshot,
+    ) => {
+      if (
+        currentProjection === baselineProjection &&
+        !snapshotIncludesRuntimeProjection(snapshotKey)
+      ) {
+        return currentProjection;
+      }
+      if (currentProjection === baselineProjection) return loadedProjection;
+
+      const baselineById = new Map(
+        baselineProjection.map((item) => [item.id, item]),
+      );
+      const currentById = new Map(
+        currentProjection.map((item) => [item.id, item]),
+      );
+      const removedIds = new Set(
+        [...baselineById.keys()].filter((id) => !currentById.has(id)),
+      );
+      const changedItems = currentProjection.filter((item) => {
+        const baselineItem = baselineById.get(item.id);
+        return baselineItem === undefined || baselineItem !== item;
+      });
+      return this.mergeItemsById(
+        loadedProjection.filter((item) => !removedIds.has(item.id)),
+        changedItems,
+      );
+    };
+    const runs = this.mergeRuns(loaded.runs, live.runs);
+    const hasAuthoritativeActiveRunIds =
+      snapshotIncludes("activeRunIds") &&
+      loadedSnapshot?.activeRunIds !== undefined;
+    const runsChangedDuringLoad = current.activeRunIds.filter((runId) => {
+      const baselineRun = baseline.runs[runId];
+      const currentRun = current.runs[runId];
+      return (
+        (!baseline.activeRunIds.includes(runId) ||
+          baselineRun !== currentRun) &&
+        !this.isTerminalStatus(runs[runId]?.status ?? "running")
+      );
+    });
+    const activeRunIds = Array.from(
+      new Set(
+        hasAuthoritativeActiveRunIds
+          ? [...loaded.activeRunIds, ...runsChangedDuringLoad]
+          : [...loaded.activeRunIds, ...live.activeRunIds],
+      ),
+    ).filter(
+      (runId) => !this.isTerminalStatus(runs[runId]?.status ?? "running"),
+    );
+    return {
+      ...loaded,
+      thread:
+        current.thread === baseline.thread ? loaded.thread : current.thread,
+      // A snapshot can trail accepted events even when no event arrives
+      // during this load.
+      messages:
+        reconciliation &&
+        (preserveLiveMessages || messagesChanged || hasMessageIdRemap)
+          ? reconciliation.messages
+          : loaded.messages.length > 0 || current.messages.length === 0
+            ? loaded.messages
+            : current.messages,
+      queuedMessages:
+        current.queuedMessages === baseline.queuedMessages &&
+        !snapshotIncludes("queuedMessages")
+          ? current.queuedMessages
+          : this.mergeQueuedMessages(
+              baseline.queuedMessages,
+              loaded.queuedMessages,
+              live.queuedMessages,
+            ),
+      runs,
+      activeRunIds,
+      events: reconciliation
+        ? this.mergeEvents(loaded.events, live.events)
+        : current.events === baseline.events && !snapshotIncludes("events")
+          ? live.events
+          : current.events === baseline.events
+            ? loaded.events
+            : this.mergeEvents(loaded.events, live.events),
+      // Participants are never removed, and durable history drops agent.*
+      // events without listing agents, so a loaded registry can only add to
+      // or refresh the live one.
+      agents: {
+        ...live.agents,
+        ...mergeRecordProjection(
+          loaded.agents,
+          baseline.agents,
+          live.agents,
+          "agents",
+        ),
+      },
+      agentInteractions: mergeListProjection(
+        loaded.agentInteractions,
+        baseline.agentInteractions,
+        live.agentInteractions,
+        "interactions",
+      ),
+      activities: mergeRecordProjection(
+        loaded.activities,
+        baseline.activities,
+        live.activities,
+        "activities",
+      ),
+      tasks: mergeRecordProjection(
+        loaded.tasks,
+        baseline.tasks,
+        live.tasks,
+        "tasks",
+      ),
+      taskGroups: mergeRecordProjection(
+        loaded.taskGroups,
+        baseline.taskGroups,
+        live.taskGroups,
+        "taskGroups",
+      ),
+      tools: mergeRecordProjection(
+        loaded.tools,
+        baseline.tools,
+        live.tools,
+        "toolCalls",
+      ),
+      approvals: mergeRecordProjection(
+        loaded.approvals,
+        baseline.approvals,
+        live.approvals,
+        "approvals",
+      ),
+      approvalRunIds: mergeRecordProjection(
+        loaded.approvalRunIds,
+        baseline.approvalRunIds,
+        live.approvalRunIds,
+        "approvals",
+      ),
+      connectionRequests: mergeRecordProjection(
+        loaded.connectionRequests,
+        baseline.connectionRequests,
+        live.connectionRequests,
+        "connectionRequests",
+      ),
+      connectionRequestRunIds: mergeRecordProjection(
+        loaded.connectionRequestRunIds,
+        baseline.connectionRequestRunIds,
+        live.connectionRequestRunIds,
+        "connectionRequests",
+      ),
+      artifacts: mergeListProjection(
+        loaded.artifacts,
+        baseline.artifacts,
+        live.artifacts,
+        "artifacts",
+      ),
+      widgets: mergeRecordProjection(
+        loaded.widgets,
+        baseline.widgets,
+        live.widgets,
+        "widgets",
+      ),
+      widgetMessageIds: mergeRecordProjection(
+        loaded.widgetMessageIds,
+        baseline.widgetMessageIds,
+        live.widgetMessageIds,
+        "widgets",
+      ),
+      annotations: mergeRecordProjection(
+        loaded.annotations,
+        baseline.annotations,
+        live.annotations,
+        "annotations",
+      ),
+      annotationMessageIds: mergeRecordProjection(
+        loaded.annotationMessageIds,
+        baseline.annotationMessageIds,
+        live.annotationMessageIds,
+        "annotations",
+      ),
+      suggestions: snapshotIncludesRuntimeProjection("suggestions")
+        ? current.suggestions === baseline.suggestions
+          ? loaded.suggestions
+          : live.suggestions
+        : current.suggestions,
+      suggestionsPendingTurn: current.suggestionsPendingTurn,
+      suggestionsUserMessageId:
+        snapshotIncludesRuntimeProjection("suggestions") &&
+        current.suggestions === baseline.suggestions
+          ? loaded.suggestionsUserMessageId
+          : live.suggestionsUserMessageId,
+      actions: mergeRecordProjection(
+        loaded.actions,
+        baseline.actions,
+        live.actions,
+        "events",
+      ),
+      uploads: mergeRecordProjection(
+        loaded.uploads,
+        baseline.uploads,
+        live.uploads,
+        "events",
+      ),
+    };
+  }
+
+  private hasLiveMessageProjection(
+    thread: AgentThreadState,
+    loaded: AgentThreadState,
+  ): boolean {
+    if (thread.activeRunIds.length > 0) return true;
+    const loadedMessages = new Map(
+      loaded.messages.map((message) => [message.id, message]),
+    );
+    return thread.events.some((event) => {
+      if (event.type !== "message.completed") return false;
+      const currentMessage = thread.messages.find(
+        (message) => message.id === event.message.id,
+      );
+      const loadedMessage = loadedMessages.get(event.message.id);
+      return (
+        currentMessage !== undefined &&
+        (loadedMessage === undefined ||
+          currentMessage.status !== loadedMessage.status ||
+          this.messageContentKey(currentMessage) !==
+            this.messageContentKey(loadedMessage))
+      );
+    });
+  }
+
+  private mergeRuns(
+    first: AgentThreadState["runs"],
+    second: AgentThreadState["runs"],
+  ): AgentThreadState["runs"] {
+    const merged = { ...first };
+    for (const [runId, run] of Object.entries(second)) {
+      merged[runId] = this.mergeRunState(merged[runId], run);
+    }
+    return merged;
+  }
+
+  private mergeRunState(
+    current: AgentRunState | undefined,
+    incoming: AgentRunState,
+  ): AgentRunState {
+    if (!current) return incoming;
+    const currentIsTerminal = this.isTerminalStatus(current.status);
+    const incomingIsTerminal = this.isTerminalStatus(incoming.status);
+    const preferred =
+      currentIsTerminal !== incomingIsTerminal
+        ? incomingIsTerminal
+          ? incoming
+          : current
+        : incoming.lastSequence >= current.lastSequence
+          ? incoming
+          : current;
+    const lastSequence = Math.max(current.lastSequence, incoming.lastSequence);
+    return preferred.lastSequence === lastSequence
+      ? preferred
+      : { ...preferred, lastSequence };
+  }
+
+  private mergeQueuedMessages(
+    baseline: AgentQueuedMessage[],
+    loaded: AgentQueuedMessage[],
+    current: AgentQueuedMessage[],
+  ): AgentQueuedMessage[] {
+    const currentIds = new Set(current.map((message) => message.id));
+    const removedIds = new Set(
+      baseline
+        .filter((message) => !currentIds.has(message.id))
+        .map((message) => message.id),
+    );
+    return this.mergeItemsById(
+      loaded.filter((message) => !removedIds.has(message.id)),
+      current,
+    );
+  }
+
+  private mergeItemsById<T extends { id: string }>(
+    first: T[],
+    second: T[],
+  ): T[] {
+    const merged = [...first];
+    const indexById = new Map(merged.map((item, index) => [item.id, index]));
+    for (const item of second) {
+      const index = indexById.get(item.id);
+      if (index === undefined) {
+        indexById.set(item.id, merged.length);
+        merged.push(item);
+      } else {
+        merged[index] = item;
+      }
+    }
+    return merged;
+  }
+
+  private reconcileMessages(
+    current: AgentMessage[],
+    durable: AgentMessage[],
+  ): { messages: AgentMessage[]; idRemap: Map<string, string> } {
+    if (durable.length === 0) return { messages: current, idRemap: new Map() };
+    const durableIds = new Set(durable.map((message) => message.id));
+    const currentIds = new Set(current.map((message) => message.id));
+    const unmatchedContent = new Map<string, AgentMessage[]>();
+    for (const message of durable) {
+      // An explicit durable identity already present in the local projection
+      // owns its match. Content fallback is only for still-unidentified work.
+      if (currentIds.has(message.id)) continue;
+      const key = this.messageContentKey(message);
+      unmatchedContent.set(key, [
+        ...(unmatchedContent.get(key) ?? []),
+        message,
+      ]);
+    }
+    const idRemap = new Map<string, string>();
+    let hasMatchedMessage = false;
+    const liveMessages = current.map((message) => {
+      if (durableIds.has(message.id)) {
+        hasMatchedMessage = true;
+        return message;
+      }
+      const key = this.messageContentKey(message);
+      const matches = unmatchedContent.get(key);
+      const durableMatch = matches?.shift();
+      if (durableMatch) {
+        hasMatchedMessage = true;
+        idRemap.set(message.id, durableMatch.id);
+        return durableMatch;
+      }
+      return message;
+    });
+
+    if (!hasMatchedMessage) {
+      return { messages: [...durable, ...current], idRemap };
+    }
+
+    const presentIds = new Set(liveMessages.map((message) => message.id));
+    const messages = [...liveMessages];
+    for (let durableIndex = 0; durableIndex < durable.length; durableIndex++) {
+      const message = durable[durableIndex];
+      if (presentIds.has(message.id)) continue;
+      let insertBefore = -1;
+      for (
+        let nextIndex = durableIndex + 1;
+        nextIndex < durable.length;
+        nextIndex++
+      ) {
+        const nextId = durable[nextIndex]?.id;
+        if (!nextId) continue;
+        const candidateIndex = messages.findIndex(
+          (currentMessage) => currentMessage.id === nextId,
+        );
+        if (candidateIndex >= 0) {
+          insertBefore = candidateIndex;
+          break;
+        }
+      }
+      if (insertBefore >= 0) {
+        messages.splice(insertBefore, 0, message);
+      } else {
+        let previousDurableIndex = -1;
+        for (
+          let previousIndex = durableIndex - 1;
+          previousIndex >= 0;
+          previousIndex -= 1
+        ) {
+          const previousId = durable[previousIndex]?.id;
+          if (!previousId) continue;
+          const candidateIndex = messages.findIndex(
+            (currentMessage) => currentMessage.id === previousId,
+          );
+          if (candidateIndex >= 0) {
+            previousDurableIndex = candidateIndex;
+            break;
+          }
+        }
+        if (previousDurableIndex >= 0) {
+          messages.splice(previousDurableIndex + 1, 0, message);
+        } else {
+          messages.unshift(message);
+        }
+      }
+      presentIds.add(message.id);
+    }
+    return { messages, idRemap };
+  }
+
+  private remapThreadMessageReferences(
+    thread: AgentThreadState,
+    idRemap: Map<string, string>,
+  ): AgentThreadState {
+    if (idRemap.size === 0) return thread;
+    const remap = (messageId: string | undefined) =>
+      messageId ? (idRemap.get(messageId) ?? messageId) : undefined;
+    const events = thread.events.map((event): AgentEvent => {
+      switch (event.type) {
+        case "message.created":
+        case "message.completed":
+          return {
+            ...event,
+            message: {
+              ...event.message,
+              id: remap(event.message.id)!,
+            },
+          };
+        case "message.delta":
+        case "reasoning.delta":
+          return { ...event, messageId: remap(event.messageId)! };
+        case "tool.started":
+        case "tool.updated":
+          return {
+            ...event,
+            toolCall: {
+              ...event.toolCall,
+              ...(event.toolCall.messageId
+                ? { messageId: remap(event.toolCall.messageId) }
+                : {}),
+            },
+          };
+        case "widget.created":
+        case "widget.updated":
+        case "annotation.created":
+        case "annotation.updated":
+          return event.messageId
+            ? { ...event, messageId: remap(event.messageId) }
+            : event;
+        case "action.started":
+          return event.invocation.messageId
+            ? {
+                ...event,
+                invocation: {
+                  ...event.invocation,
+                  messageId: remap(event.invocation.messageId),
+                },
+              }
+            : event;
+        default:
+          return event;
+      }
+    });
+    const remapRecord = (record: Record<string, string>) =>
+      Object.fromEntries(
+        Object.entries(record).map(([id, messageId]) => [
+          id,
+          remap(messageId)!,
+        ]),
+      );
+    return {
+      ...thread,
+      suggestionsUserMessageId: remap(thread.suggestionsUserMessageId),
+      events,
+      tools: Object.fromEntries(
+        Object.entries(thread.tools).map(([id, tool]) => [
+          id,
+          tool.messageId ? { ...tool, messageId: remap(tool.messageId) } : tool,
+        ]),
+      ),
+      widgetMessageIds: remapRecord(thread.widgetMessageIds),
+      annotationMessageIds: remapRecord(thread.annotationMessageIds),
+      actions: Object.fromEntries(
+        Object.entries(thread.actions).map(([id, action]) => [
+          id,
+          action.invocation?.messageId
+            ? {
+                ...action,
+                invocation: {
+                  ...action.invocation,
+                  messageId: remap(action.invocation.messageId),
+                },
+              }
+            : action,
+        ]),
+      ),
+    };
+  }
+
+  private messageContentKey(message: AgentMessage): string {
+    const text = message.parts
+      .filter(
+        (
+          part,
+        ): part is Extract<AgentMessage["parts"][number], { type: "text" }> =>
+          part.type === "text",
+      )
+      .map((part) => part.text)
+      .join("");
+    return text
+      ? JSON.stringify([message.role, "text", text])
+      : JSON.stringify([message.role, "parts", message.parts]);
+  }
+
+  private mergeEvents(first: AgentEvent[], second: AgentEvent[]): AgentEvent[] {
+    const merged = [...first];
+    const indexByKey = new Map(
+      first.map((event, index) => [
+        `${event.threadId}\u0000${event.runId}\u0000${event.sequence}`,
+        index,
+      ]),
+    );
+    for (const event of second) {
+      const key = `${event.threadId}\u0000${event.runId}\u0000${event.sequence}`;
+      const existingIndex = indexByKey.get(key);
+      if (existingIndex === undefined) {
+        indexByKey.set(key, merged.length);
+        merged.push(event);
+      } else {
+        // The second projection is the live stream. It may contain richer
+        // payloads than a snapshot captured before that event was persisted.
+        merged[existingIndex] = event;
+      }
+    }
+
+    // Sequences are scoped to a run, so there is no valid global numeric sort.
+    // Keep cross-run interleaving stable while repairing each run's local
+    // order in the slots it already occupies.
+    const positionsByRun = new Map<string, number[]>();
+    merged.forEach((event, index) => {
+      const positions = positionsByRun.get(event.runId) ?? [];
+      positions.push(index);
+      positionsByRun.set(event.runId, positions);
+    });
+    for (const positions of positionsByRun.values()) {
+      const events = positions.map((index) => merged[index]);
+      events.sort((left, right) => left.sequence - right.sequence);
+      positions.forEach((index, position) => {
+        merged[index] = events[position];
+      });
+    }
+    return merged;
+  }
+
+  private releaseThreadLease(threadId: ThreadId): void {
+    const count = this.threadLeaseCounts.get(threadId) ?? 0;
+    if (count <= 1) {
+      this.threadLeaseCounts.delete(threadId);
+      if (!this.retainActiveRunsOnThreadRelease) {
+        this.stopThreadConsumers(threadId, "released");
+      }
+      return;
+    }
+    this.threadLeaseCounts.set(threadId, count - 1);
+  }
+
+  private stopThreadConsumers(
+    threadId: ThreadId,
+    reason: "released" | "deleted",
+  ): void {
+    for (const [key, controller] of this.consumerAbortControllers) {
+      if (key.startsWith(`${threadId}\u0000`)) {
+        controller.abort(new AgentKitConsumerStoppedError(reason));
+      }
+    }
+  }
+
+  private stopConsumer(
+    threadId: ThreadId,
+    runId: RunId,
+    reason: "cancelled",
+  ): void {
+    this.consumerAbortControllers
+      .get(this.runKey(threadId, runId))
+      ?.abort(new AgentKitConsumerStoppedError(reason));
+  }
+
+  private clearSubmittedUserMessages(threadId: ThreadId, runId?: RunId): void {
+    const prefix = `${threadId}\u0000`;
+    for (const key of this.submittedUserMessages.keys()) {
+      if (
+        runId ? key === this.runKey(threadId, runId) : key.startsWith(prefix)
+      ) {
+        this.submittedUserMessages.delete(key);
+      }
+    }
+  }
+
+  private markRunCancelled(threadId: ThreadId, runId: RunId): void {
+    this.clearSubmittedUserMessages(threadId, runId);
+    const thread = this.getThread(threadId);
+    const run = thread.runs[runId] ?? this.runState(runId);
+    const activeRunIds = thread.activeRunIds.filter((id) => id !== runId);
+    const completedAt = this.now();
+    this.setThread(
+      threadId,
+      settleRunProjection(
+        {
+          ...thread,
+          runs: {
+            ...thread.runs,
+            [runId]: {
+              ...run,
+              status: "cancelled",
+              completedAt,
+            },
+          },
+          activeRunIds,
+        },
+        runId,
+        "cancelled",
+        completedAt,
+        run.activeMessageId,
+      ),
+    );
+    this.scheduleQueuePromotionIfIdle(threadId);
+  }
+
+  private markRunFailed(
+    threadId: ThreadId,
+    runId: RunId,
+    error: AgentError,
+  ): void {
+    this.clearSubmittedUserMessages(threadId, runId);
+    const thread = this.getThread(threadId);
+    const run = thread.runs[runId] ?? this.runState(runId);
+    const completedAt = this.now();
+    this.setThread(
+      threadId,
+      settleRunProjection(
+        {
+          ...thread,
+          runs: {
+            ...thread.runs,
+            [runId]: {
+              ...run,
+              status: "failed",
+              completedAt,
+              error,
+            },
+          },
+          activeRunIds: thread.activeRunIds.filter((id) => id !== runId),
+        },
+        runId,
+        "failed",
+        completedAt,
+        run.activeMessageId,
+      ),
+    );
+    this.scheduleQueuePromotionIfIdle(threadId);
+  }
+
+  private markRunStarted(threadId: ThreadId, runId: RunId): void {
+    const thread = this.getThread(threadId);
+    const run = thread.runs[runId] ?? this.runState(runId);
+    const activeRunIds = Array.from(new Set([...thread.activeRunIds, runId]));
+    this.setThread(threadId, {
+      ...thread,
+      runs: {
+        ...thread.runs,
+        [runId]: { ...run, status: "running" },
+      },
+      activeRunIds,
+      suggestions: [],
+      suggestionsPendingTurn: false,
+    });
+  }
+
+  private retireInterruptedRun(threadId: ThreadId, runId: RunId): void {
+    this.submittedUserMessages.delete(this.runKey(threadId, runId));
+    const thread = this.getThread(threadId);
+    const run = thread.runs[runId];
+    this.setThread(threadId, {
+      ...thread,
+      runs:
+        run && !this.isTerminalStatus(run.status)
+          ? {
+              ...thread.runs,
+              [runId]: {
+                ...run,
+                status: "completed",
+                completedAt: run.completedAt ?? this.now(),
+              },
+            }
+          : thread.runs,
+      activeRunIds: thread.activeRunIds.filter((id) => id !== runId),
+    });
+  }
+
+  private runKey(threadId: ThreadId, runId: RunId): string {
+    return `${threadId}\u0000${runId}`;
+  }
+
+  private runState(runId: RunId, run?: AgentRunSnapshot | null) {
+    return {
+      id: runId,
+      status: run?.status ?? ("running" as const),
+      lastSequence: run?.lastSequence ?? 0,
+      startedAt: run?.startedAt,
+      completedAt: run?.completedAt,
+      usage: run?.usage,
+      error: run?.error,
+      activeMessageId: run?.activeMessageId,
+    };
+  }
+
+  private runSnapshot(threadId: ThreadId, runId: RunId): AgentRunSnapshot {
+    return {
+      id: runId,
+      threadId,
+      status: "running",
+      lastSequence: 0,
+    };
+  }
+
+  private isTerminalStatus(
+    status: AgentRunSnapshot["status"],
+  ): status is "completed" | "failed" | "cancelled" {
+    return ["completed", "failed", "cancelled"].includes(status);
+  }
+
+  private scheduleQueuePromotion(threadId: ThreadId, expedite = false): void {
+    if (this.disposed) return;
+    if (this.pendingApprovalContinuations.has(threadId)) return;
+    const thread = this.getThread(threadId);
+    const queued = thread.queuedMessages[0];
+    if (!queued) {
+      const timer = this.queuePromotionTimers.get(threadId);
+      if (timer) clearTimeout(timer);
+      this.queuePromotionTimers.delete(threadId);
+      this.queuePromotionRetryAttempts.delete(threadId);
+      this.queuePromotionTerminalExpedites.delete(threadId);
+      return;
+    }
+    if (this.pendingQueueMessageIds.has(queued.id)) return;
+    const retryTimer = this.queuePromotionTimers.get(threadId);
+    if (retryTimer) {
+      if (!expedite) return;
+      clearTimeout(retryTimer);
+      this.queuePromotionTimers.delete(threadId);
+      this.queuePromotionRetryAttempts.delete(threadId);
+    }
+    if (this.queuePromotions.has(threadId)) {
+      if (expedite) this.queuePromotionTerminalExpedites.add(threadId);
+      return;
+    }
+    if (!this.transport.steerQueuedMessage) {
+      this.reportIntegrity({
+        code: "queue_promotion_dropped",
+        threadId,
+        reason: "transport-cannot-steer",
+      });
+      return;
+    }
+    this.queuePromotions.add(threadId);
+    let retryAfterBusy = false;
+    void this.steerQueuedMessage(threadId, queued.id)
+      .then(() => {
+        this.queuePromotionRetryAttempts.delete(threadId);
+      })
+      .catch((error) => {
+        if (isRetryableQueuePromotionError(error) && !this.disposed) {
+          if (!this.getThread(threadId).queuedMessages.length) {
+            return;
+          }
+          retryAfterBusy = true;
+          const retryAttempt =
+            this.queuePromotionRetryAttempts.get(threadId) ?? 0;
+          const delay = Math.min(500 * 2 ** retryAttempt, 2_000);
+          this.queuePromotionRetryAttempts.set(threadId, retryAttempt + 1);
+          const activeRunId = errorProperty(error, "activeRunId");
+          if (typeof activeRunId === "string") {
+            this.markRunStarted(threadId, activeRunId);
+            void this.resubscribeRun(threadId, activeRunId).catch(() => {
+              // A short promotion retry remains active if the run cannot resume.
+            });
+          }
+          const timer = setTimeout(() => {
+            this.queuePromotionTimers.delete(threadId);
+            this.scheduleQueuePromotion(threadId);
+          }, delay);
+          this.queuePromotionTimers.set(threadId, timer);
+          return;
+        }
+        this.queuePromotionRetryAttempts.delete(threadId);
+        // The transport retains the queue item and reports the failure.
+      })
+      .finally(() => {
+        this.queuePromotions.delete(threadId);
+        const terminalExpedite =
+          this.queuePromotionTerminalExpedites.delete(threadId);
+        if (
+          this.queuePromotionAfterReconciliation.delete(threadId) &&
+          !this.disposed
+        ) {
+          this.scheduleQueuePromotionIfIdle(threadId);
+        }
+        if (terminalExpedite && retryAfterBusy && !this.disposed) {
+          this.scheduleQueuePromotion(threadId, true);
+        }
+      });
+  }
+
+  private scheduleQueuePromotionIfIdle(threadId: ThreadId): void {
+    const thread = this.getThread(threadId);
+    if (thread.queuedMessages.length > 0 && !hasActiveAgentRuns(thread)) {
+      this.scheduleQueuePromotion(threadId);
+    }
+  }
+
+  private assertActive(): void {
+    if (this.disposed) {
+      throw new AgentKitDisposedError();
+    }
+  }
+
+  private applyEvent(event: AgentEvent): void {
+    const catchUp = this.terminalRunCatchUps.get(
+      this.runKey(event.threadId, event.runId),
+    );
+    const catchUpMessage = catchUp
+      ? this.remapTerminalCatchUpMessage(event, catchUp)
+      : { event };
+    const appliedEvent = catchUpMessage.event;
+    const thread = this.reconcileSubmittedUserMessage(
+      this.getThread(appliedEvent.threadId),
+      appliedEvent,
+    );
+    const admission = classifyAgentEvent(thread, appliedEvent);
+    if (admission.status === "duplicate") {
+      this.reportIntegrity({
+        code: "duplicate_event",
+        threadId: appliedEvent.threadId,
+        runId: appliedEvent.runId,
+        expectedSequence: admission.lastSequence + 1,
+        receivedSequence: appliedEvent.sequence,
+      });
+    }
+    if (admission.status === "gap") {
+      this.reportIntegrity({
+        code: "sequence_gap",
+        threadId: appliedEvent.threadId,
+        runId: appliedEvent.runId,
+        expectedSequence: admission.expectedSequence,
+        receivedSequence: admission.receivedSequence,
+      });
+    }
+    const run = thread.runs[appliedEvent.runId];
+    const replayBase = catchUp
+      ? {
+          ...thread,
+          runs: {
+            ...thread.runs,
+            [appliedEvent.runId]: {
+              ...(run ?? this.runState(appliedEvent.runId, catchUp.run)),
+              status: "running" as const,
+            },
+          },
+        }
+      : thread;
+    const reduced = reduceAgentEvent(replayBase, appliedEvent);
+    if (appliedEvent.type === "queue.updated") {
+      // A replayed queue snapshot is the ordered server view. It supersedes
+      // the temporary protection used while a queue mutation catches up.
+      this.queuedMessageOverrides.delete(appliedEvent.threadId);
+    }
+    const remapped =
+      catchUp && catchUpMessage.sourceMessageId
+        ? this.remapThreadMessageReferences(
+            reduced,
+            new Map([
+              [
+                catchUpMessage.sourceMessageId,
+                catchUp.messageIdRemap.get(catchUpMessage.sourceMessageId) ??
+                  catchUpMessage.sourceMessageId,
+              ],
+            ]),
+          )
+        : reduced;
+    const reconciled = catchUp
+      ? this.removeRemappedCatchUpMessage(
+          remapped,
+          catchUpMessage.sourceMessageId,
+          catchUp,
+        )
+      : remapped;
+    const next = catchUp
+      ? this.preserveTerminalRunDuringCatchUp(reconciled, catchUp)
+      : reconciled;
+    this.setThread(appliedEvent.threadId, next);
+  }
+
+  private reconcileSubmittedUserMessage(
+    thread: AgentThreadState,
+    event: AgentEvent,
+  ): AgentThreadState {
+    if (
+      (event.type !== "message.created" &&
+        event.type !== "message.completed") ||
+      event.message.role !== "user"
+    ) {
+      return thread;
+    }
+    const runKey = this.runKey(event.threadId, event.runId);
+    const submittedMessageId = this.submittedUserMessages.get(runKey);
+    if (!submittedMessageId) return thread;
+    const submittedMessage = thread.messages.find(
+      (message) => message.id === submittedMessageId,
+    );
+    if (
+      submittedMessage?.role !== "user" ||
+      this.messageContentKey(submittedMessage) !==
+        this.messageContentKey(event.message)
+    ) {
+      return thread;
+    }
+
+    const idRemap = new Map([[submittedMessage.id, event.message.id]]);
+    const remapped = this.remapThreadMessageReferences(thread, idRemap);
+    const localCustom = metadataRecord(submittedMessage.metadata?.custom);
+    const confirmedCustom = metadataRecord(event.message.metadata?.custom);
+    const hasCustomMetadata =
+      localCustom !== undefined || confirmedCustom !== undefined;
+    const mergedMetadata = {
+      ...submittedMessage.metadata,
+      ...event.message.metadata,
+      ...(hasCustomMetadata
+        ? { custom: { ...localCustom, ...confirmedCustom } }
+        : {}),
+    };
+    const metadata =
+      Object.keys(mergedMetadata).length > 0 ? mergedMetadata : undefined;
+    const confirmedMessage: AgentMessage = {
+      ...submittedMessage,
+      ...event.message,
+      id: event.message.id,
+      parts: submittedMessage.parts,
+      metadata,
+    };
+    this.submittedUserMessages.set(runKey, event.message.id);
+    return {
+      ...remapped,
+      messages: remapped.messages.map((message) =>
+        message.id === event.message.id || message.id === submittedMessage.id
+          ? confirmedMessage
+          : message,
+      ),
+    };
+  }
+
+  private setThread(threadId: ThreadId, thread: AgentThreadState): void {
+    this.patch({
+      threads: { ...this.snapshot.threads, [threadId]: thread },
+      error: undefined,
+    });
+  }
+
+  private setConnection(connection: AgentKitSnapshot["connection"]): void {
+    if (this.snapshot.connection !== connection) this.patch({ connection });
+  }
+
+  private restoreConnectionAfterTerminalCatchUp(key: string): void {
+    const hasOtherConsumers = [...this.consumers.keys()].some(
+      (candidate) => candidate !== key,
+    );
+    if (!hasOtherConsumers) this.setConnection("connected");
+  }
+
+  private fail(error: unknown, code: string): void {
+    const agentError = toError(error, code);
+    this.patch({ connection: "error", error: agentError });
+    this.onError?.(agentError);
+  }
+
+  private report(error: unknown, code: string): void {
+    this.onError?.(toError(error, code));
+  }
+
+  private reportIntegrity(report: AgentStreamIntegrityReport): void {
+    try {
+      this.onIntegrityReport?.(report);
+      // coercion-ok: a counter must never affect the stream it counts.
+    } catch {}
+  }
+
+  private patch(patch: Partial<AgentKitSnapshot>): void {
+    this.snapshot = {
+      ...this.snapshot,
+      ...patch,
+      revision: this.snapshot.revision + 1,
+    };
+    for (const listener of this.listeners) listener();
+  }
+}

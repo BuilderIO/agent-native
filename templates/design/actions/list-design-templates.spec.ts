@@ -82,6 +82,7 @@ vi.mock("../server/db/index.js", () => {
   };
 });
 
+import { DESIGN_TEMPLATE_PRESETS } from "../shared/design-template-presets.js";
 import action from "./list-design-templates.js";
 
 describe("list-design-templates", () => {
@@ -123,7 +124,7 @@ describe("list-design-templates", () => {
       previewHtml: "<main>Saved preview</main>",
     });
     expect(result.templates[1]).toMatchObject({
-      id: "preset-social-square",
+      id: DESIGN_TEMPLATE_PRESETS[0]?.id,
       isBuiltIn: true,
       designSystemId: null,
     });
@@ -143,5 +144,17 @@ describe("list-design-templates", () => {
       id: "saved-template",
       designSystemId: null,
     });
+  });
+
+  it("can include built-in previews without loading saved-template HTML", async () => {
+    const result = await action.run({
+      includePreview: "true",
+      includeSavedPreview: "false",
+    });
+
+    expect(result.templates[0]).not.toHaveProperty("previewHtml");
+    expect(result.templates[1]?.previewHtml).toContain(
+      "data-agent-native-locked",
+    );
   });
 });

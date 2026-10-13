@@ -1,24 +1,6 @@
-/**
- * Tests for insert-design-native-asset.
- *
- * Coverage focus: the positioned-insertion follow-up (optional x/y/screenId
- * on the action schema, previously silently ignored — see the panel-side
- * NOTE this test file's sibling app code used to carry in
- * DesignExtensionsPanel.tsx). A usable {x, y} must wrap the inserted snippet
- * in an absolutely-positioned container at that exact point; an
- * omitted/unusable position must fall back to the exact append-before-
- * closing-tag behavior this action always had, byte-for-byte unchanged.
- */
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
-  // `where()` must behave both as a directly-awaited result (the initial
-  // multi-file lookup in insert-design-native-asset.ts) AND as a chain that
-  // supports a trailing `.limit(1)` (writeInlineSourceFile's internal
-  // re-select in server/source-workspace.ts, now used by the action's write
-  // path). Returning a real Promise with an extra `.limit()` method attached
-  // covers both call shapes with the same mocked resolved value.
   function makeWhereResult(rows: unknown[]) {
     const promise = Promise.resolve(rows) as Promise<unknown[]> & {
       limit: (n: number) => Promise<unknown[]>;
@@ -27,13 +9,6 @@ const mocks = vi.hoisted(() => {
     return promise;
   }
 
-  // Backing rows for the configured design's files. The initial multi-file
-  // lookup in insert-design-native-asset.ts filters by designId only (the
-  // fake accessFilter/and don't narrow further); writeInlineSourceFile's
-  // internal re-select filters by a single file id (`eq(designFiles.id,
-  // file.id)`), which this fake `where` recognizes by shape and narrows to,
-  // so a multi-file design (e.g. the screenId-wins test) resolves to the
-  // SAME row the action targeted, not just the first row in the table.
   let rows: Array<Record<string, unknown>> = [];
   const fileSelectChain = {
     from: vi.fn(),
@@ -59,14 +34,10 @@ const mocks = vi.hoisted(() => {
   const db = {
     select: vi.fn(() => fileSelectChain),
     update: vi.fn(() => updateChain),
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
+    transaction: vi.fn(async (callback) => callback(db)),
   };
 
-  // Shared with the @agent-native/core/collab mock below: writeInlineSourceFile
-  // re-reads getText() right after seedFromText/applyText to persist the
-  // "authoritative" collab content back to SQL, so seedFromText must
-  // actually store what getText reads back. Cleared per-test in beforeEach
-  // (the vi.mock factory only runs once per file, so without an explicit
-  // reset this map would leak seeded content across tests).
   const seededCollabText = new Map<string, string>();
 
   return {
@@ -107,6 +78,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("@agent-native/core/collab", () => {
   const seeded = mocks.seededCollabText;
   return {
+    CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
     hasCollabState: vi.fn().mockResolvedValue(false),
     getText: vi.fn(async (docId: string) => seeded.get(docId) ?? ""),
     applyText: vi.fn(async (docId: string, text: string) => {
@@ -116,6 +88,35 @@ vi.mock("@agent-native/core/collab", () => {
     seedFromText: vi.fn(async (docId: string, text: string) => {
       if (!seeded.has(docId)) seeded.set(docId, text);
     }),
+    applyTextToYDoc: vi.fn(
+      (doc: { content: string }, _fieldName: string, text: string) => {
+        doc.content = text;
+      },
+    ),
+    withPreparedYDocMutation: vi.fn(
+      async (
+        docId: string,
+        _requestSource: string | undefined,
+        run: (lease: {
+          doc: { content: string; getText: () => { toString: () => string } };
+          baseVersion: number | null;
+          persist: (_tx: unknown, text: string) => Promise<void>;
+        }) => Promise<unknown>,
+      ) => {
+        const doc = {
+          content: seeded.get(docId) ?? "",
+          getText: () => ({ toString: () => doc.content }),
+        };
+        const result = await run({
+          doc,
+          baseVersion: seeded.has(docId) ? 0 : null,
+          persist: async (_tx, text) => {
+            seeded.set(docId, text);
+          },
+        });
+        return result;
+      },
+    ),
   };
 });
 

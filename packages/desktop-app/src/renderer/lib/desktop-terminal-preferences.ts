@@ -9,8 +9,8 @@ export const DESKTOP_TERMINAL_AGENT_OPTIONS = [
   { id: "claude-code", label: "Claude Code", command: "claude" },
   { id: "codex", label: "Codex", command: "codex" },
   { id: "builder.io", label: "Builder.io", command: "builder" },
-  { id: "pi", label: "Pi", command: "pi" },
   { id: "opencode", label: "OpenCode", command: "opencode" },
+  { id: "pi", label: "Pi", command: "pi" },
 ] as const;
 
 export type DesktopTerminalAgentId =

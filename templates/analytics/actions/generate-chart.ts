@@ -2,6 +2,8 @@ import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "path";
 
 import { defineAction } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
 import type { ChartConfiguration, ChartType } from "chart.js";
 import type { ChartJSNodeCanvas as ChartJSNodeCanvasType } from "chartjs-node-canvas";
 import { z } from "zod";
@@ -59,17 +61,6 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/**
- * Returned alongside any validation `error` so the agent gets an unambiguous
- * recovery path. The previous behavior (a bare error string) led to retry
- * loops where the agent reformatted JSON until it gave up — and from the
- * user's chair, the chat said "I'll do something else" and no chart appeared.
- *
- * For in-chat data questions the right answer is always the live `/chart`
- * embed (see the `data-querying` skill's "Inline Charts In Chat" section for
- * the full shape). Only `save-analysis` artifacts need a static image, and
- * those flows have full data in hand before they call here.
- */
 const CHART_FALLBACK_HINT =
   "If you're answering an in-chat data question, do not retry generate-chart, and do not type this action's title/labels/data/type parameters as plain chat text (e.g. `/chart type=bar title=... labels=[...] data=[...]`) — that is not the supported syntax and only a best-effort compatibility fallback may recover a chart from it. Switch to the live /chart embed instead — it accepts a SqlPanel object directly and doesn't require pre-stringified JSON params. See the data-querying skill's \"Inline Charts In Chat\" section for the exact ```embed fence syntax. Only use generate-chart when you're building a save-analysis artifact.";
 
@@ -108,7 +99,7 @@ export default defineAction({
       .describe("Output filename stem (without extension)"),
   }),
   http: false,
-  run: async (args) => {
+  run: async (args, actionContext?: ActionRunContext) => {
     if (!args.title) {
       return { error: "--title is required", fallback: CHART_FALLBACK_HINT };
     }
@@ -283,6 +274,19 @@ export default defineAction({
       const buffer = await canvas.renderToBuffer(chartConfig);
       writeFileSync(pngFilepath, buffer);
 
+      track(
+        "chart_created",
+        {
+          app_name: "analytics",
+          template_name: "analytics",
+          output_type: "chart",
+          chart_type: chartType,
+          series_count: datasets.length,
+          row_count: labels.length,
+          renderer: "png",
+        },
+        actionContext,
+      );
       return {
         filename: pngFilename,
         url: chartUrl(pngFilename),
@@ -307,6 +311,19 @@ export default defineAction({
       });
       writeFileSync(join(mediaDir, svgFilename), svg, "utf8");
 
+      track(
+        "chart_created",
+        {
+          app_name: "analytics",
+          template_name: "analytics",
+          output_type: "chart",
+          chart_type: chartType,
+          series_count: datasets.length,
+          row_count: labels.length,
+          renderer: "svg_fallback",
+        },
+        actionContext,
+      );
       return {
         filename: svgFilename,
         url: signedSvgMediaUrl(svgFilename, svg) || chartUrl(svgFilename),

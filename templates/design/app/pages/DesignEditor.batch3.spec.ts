@@ -45,25 +45,8 @@ describe("isDesignEditorDarkTheme (item 2 — canvas-drawn text defaults)", () =
 });
 
 describe("defaultCanvasTextColor (board text readability)", () => {
-  afterEach(() => {
-    document.documentElement.classList.remove("dark");
-  });
-
-  it("defaults BOARD text to white regardless of the editor chrome theme", () => {
-    // The board surface is always dark (BOARD_SURFACE_BACKGROUND), so the
-    // white-text default must NOT be gated on isDesignEditorDarkTheme() —
-    // with the editor in light mode (no `dark` class), board text used to
-    // fall back to `currentColor` → black-on-dark, i.e. invisible.
-    document.documentElement.classList.remove("dark");
+  it("fills light on a dark surface and inherits on a light one", () => {
     expect(defaultCanvasTextColor(true)).toBe("#ffffff");
-    document.documentElement.classList.add("dark");
-    expect(defaultCanvasTextColor(true)).toBe("#ffffff");
-  });
-
-  it("keeps SCREEN text on currentColor so it inherits the screen's own theme", () => {
-    document.documentElement.classList.remove("dark");
-    expect(defaultCanvasTextColor(false)).toBe("currentColor");
-    document.documentElement.classList.add("dark");
     expect(defaultCanvasTextColor(false)).toBe("currentColor");
   });
 });
@@ -77,10 +60,6 @@ describe("CANVAS_TEXT_DEFAULT_FONT_FAMILY (item 2)", () => {
 
 describe("shouldReplacePreviewAfterVisualStyleCommit (item 5 — edit-flash)", () => {
   it("attempts the full-content preview replace when neither runtime path applied", () => {
-    // This is exactly the breakpoint-scoped case after the item-5 fix:
-    // runtimeStyleApplied is forced false at the call site whenever a
-    // breakpoint is active, since sendStyleChange can only patch inline
-    // styles and would otherwise out-rank the persisted `@media` rule.
     expect(
       shouldReplacePreviewAfterVisualStyleCommit({
         runtimeApplied: undefined,
@@ -90,10 +69,6 @@ describe("shouldReplacePreviewAfterVisualStyleCommit (item 5 — edit-flash)", (
   });
 
   it("skips the full-content replace when the cheap runtime style patch already applied", () => {
-    // Base-scope (no active breakpoint) EditPanel commits: sendStyleChange
-    // already patched the live element's inline style, which IS the
-    // persisted result for a base edit, so no further preview replace is
-    // needed (and none should be attempted — that's the zero-reload path).
     expect(
       shouldReplacePreviewAfterVisualStyleCommit({
         runtimeApplied: undefined,

@@ -1,13 +1,3 @@
-/**
- * McpClientManager — connects to configured MCP servers (stdio or remote
- * Streamable HTTP), enumerates their tools, and exposes a flat tool registry
- * prefixed with `mcp__<server-id>__` so the agent's tool-use loop can call them.
- *
- * Stdio servers are a strict no-op in non-Node runtimes (Cloudflare Workers,
- * browsers). HTTP servers work in any runtime with `fetch`; `reconfigure()`
- * lets callers add or remove servers at runtime without restarting the process.
- */
-
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
@@ -15,7 +5,7 @@ import {
   type ActionRunContext,
 } from "../action.js";
 import type { McpConfig, McpServerConfig } from "./config.js";
-import { formatMcpConnectError } from "./errors.js";
+import { formatMcpConnectError, httpStatusFromError } from "./errors.js";
 import {
   isFirstPartyRemoteEndpointTrusted,
   parseMergedKey,
@@ -24,35 +14,29 @@ import {
 export const MCP_TOOL_PREFIX = "mcp__";
 
 export interface McpTool {
-  /** Server id the tool belongs to */
   source: string;
-  /** Prefixed tool name (e.g. "mcp__claude-in-chrome__navigate") */
   name: string;
-  /** Original name as reported by the MCP server */
   originalName: string;
-  /** Human-readable description */
   description: string;
-  /** JSON-Schema input spec forwarded verbatim from the server */
   inputSchema: Record<string, unknown>;
-  /** Optional title as reported by the MCP server */
   title?: string;
-  /** JSON-Schema output spec forwarded verbatim from the server */
   outputSchema?: Record<string, unknown>;
-  /** MCP tool annotations forwarded verbatim from the server */
   annotations?: Record<string, unknown>;
-  /** MCP metadata forwarded verbatim from the server */
   _meta?: Record<string, unknown>;
-  /** Full raw tool object for extensions that depend on fields core does not know yet. */
   raw: Record<string, unknown>;
 }
 
 interface ServerEntry {
   id: string;
   config: McpServerConfig;
-  client: any | null;
-  transport: any | null;
+  client: any;
+  transport: any;
   tools: McpTool[];
   error?: string;
+  pendingRequests: number;
+  pendingRequestsDrained: Promise<void>;
+  resolvePendingRequests?: () => void;
+  replacement?: ServerEntry;
 }
 
 type ErrorSink = (error: unknown) => void;
@@ -73,10 +57,6 @@ export function buildMcpToolName(serverId: string, toolName: string): string {
   return buildPrefixedName(serverId, toolName);
 }
 
-/**
- * Parse a prefixed tool name back into its server id and original tool name.
- * Returns `null` if the name doesn't match the MCP prefix convention.
- */
 export function parseMcpToolName(
   prefixedName: string,
 ): { serverId: string; toolName: string } | null {
@@ -91,15 +71,7 @@ export function parseMcpToolName(
 }
 
 export interface McpClientManagerOptions {
-  /** Emit debug logs on startup */
   debug?: boolean;
-  /**
-   * Per-server budget for the connect and tools/list handshake. The default
-   * suits an interactive surface that must not stall on a dead server; raise it
-   * only for a caller whose target is expected to be cold-starting, and stay
-   * under the platform request wall. An explicit
-   * `AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS` still overrides this.
-   */
   connectTimeoutMs?: number;
 }
 
@@ -167,8 +139,8 @@ function guardClose(
 
 type SdkModules = {
   Client: any;
-  StdioClientTransport: any | null;
-  StreamableHTTPClientTransport: any | null;
+  StdioClientTransport: any;
+  StreamableHTTPClientTransport: any;
 };
 
 const DEFAULT_MCP_CONNECT_TIMEOUT_MS = 5_000;
@@ -215,8 +187,6 @@ export class McpClientManager {
   private sdk: SdkModules | null = null;
   private readonly listeners: Set<() => void> = new Set();
   private resolveToolAuthorization?: McpToolAuthorizationResolver;
-  /** Serialises reconfigure()/start() — two concurrent callers would
-   * otherwise race on `this.config` and on connect/disconnect ordering. */
   private reconfigureQueue: Promise<unknown> = Promise.resolve();
 
   constructor(config: McpConfig | null, options: McpClientManagerOptions = {}) {
@@ -234,37 +204,27 @@ export class McpClientManager {
     this.resolveToolAuthorization = resolver;
   }
 
-  /** True when the manager has any configured servers. */
   get enabled(): boolean {
     return !!this.config && Object.keys(this.config.servers).length > 0;
   }
 
-  /** Return the current config (read-only snapshot for callers that need to
-   *  merge new servers into the existing set before calling reconfigure). */
   getConfig(): McpConfig | null {
     return this.config;
   }
 
-  /** List of configured server ids (whether or not they're connected). */
   get configuredServers(): string[] {
     if (!this.config) return [];
     return Object.keys(this.config.servers);
   }
 
-  /** List of server ids that successfully connected and enumerated tools. */
   get connectedServers(): string[] {
     return Array.from(this.servers.values())
       .filter((s) => s.client && !s.error)
       .map((s) => s.id);
   }
 
-  /**
-   * Load MCP SDK modules lazily so non-Node bundles don't pull them in.
-   * Stdio transport is only loaded when a stdio server is actually configured.
-   */
   private async loadSdk(needStdio: boolean): Promise<SdkModules | null> {
     if (this.sdk) {
-      // If we previously loaded without stdio and now need it, top up.
       if (needStdio && !this.sdk.StdioClientTransport && isNode()) {
         try {
           const stdioMod = await import("@modelcontextprotocol/client/stdio");
@@ -304,11 +264,6 @@ export class McpClientManager {
     }
   }
 
-  /**
-   * Subscribe to tool-set changes (e.g. after `reconfigure()` adds/removes
-   * servers). The listener is called *after* connect/disconnect completes.
-   * Returns an unsubscribe function.
-   */
   onChange(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => {
@@ -362,10 +317,6 @@ export class McpClientManager {
     this.emitChange();
   }
 
-  /**
-   * Create a new ServerEntry and attempt to connect. Logs and records errors
-   * on the entry rather than throwing — callers iterate many servers.
-   */
   private async addServer(
     id: string,
     cfg: McpServerConfig,
@@ -382,6 +333,8 @@ export class McpClientManager {
       client: null,
       transport: null,
       tools: [],
+      pendingRequests: 0,
+      pendingRequestsDrained: Promise.resolve(),
     };
     this.servers.set(id, entry);
     try {
@@ -487,24 +440,26 @@ export class McpClientManager {
         versionNegotiation: { mode: "auto" },
       } as any,
     );
-    const recordConnectionError: ErrorSink = () => {};
+    let handshakeComplete = false;
+    let callbackError: unknown;
+    let callbackErrorsAreHttp400 = true;
+    const recordConnectionError: ErrorSink = (error) => {
+      const message = formatMcpConnectError(error);
+      entry.error = message;
+      callbackError ??= error;
+      callbackErrorsAreHttp400 &&= httpStatusFromError(error) === 400;
+      if (handshakeComplete) this.emitChange();
+      if (this.debug) {
+        console.warn(
+          `[mcp-client] ${handshakeComplete ? "runtime" : "handshake"} error from ${entry.id}: ${message}`,
+        );
+      }
+    };
     const restoreClientClose = guardClose(client, recordConnectionError);
     const restoreTransportClose = guardClose(transport, recordConnectionError);
     client.onerror = recordConnectionError;
-    // Attach a transport-level error handler before connect() so the SDK's
-    // internal fire-and-forget paths (initial SSE stream open, scheduled
-    // reconnects, message-handler-triggered reconnects — see processStream()
-    // in @modelcontextprotocol/client) cannot leak as
-    // unhandled promise rejections. On AWS Lambda the long-lived socket
-    // gets reaped ~60s after the function returns; without this handler the
-    // resulting `socket hang up` surfaces as an unhandledRejection and
-    // pollutes Sentry. Client.connect() chains its own onerror on top of
-    // ours (see protocol.js: const _onerror = transport.onerror; ...).
     transport.onerror = recordConnectionError;
 
-    // If connect or listTools throws, we still need to release the child
-    // process (stdio) or pending HTTP session — otherwise repeated failures
-    // leak transports. Assign to the entry only after the handshake succeeds.
     try {
       const timeoutMs = mcpConnectTimeoutMs(this.connectTimeoutMs);
       await withConnectTimeout(
@@ -512,11 +467,24 @@ export class McpClientManager {
         `MCP server ${entry.id} connect`,
         timeoutMs,
       );
+      if (callbackError) {
+        // Auto-negotiation can report its rejected probe before fallback succeeds.
+        const negotiatedAfterProbe =
+          cfg.type === "http" &&
+          httpStatusFromError(callbackError) === 400 &&
+          callbackErrorsAreHttp400 &&
+          typeof client.getNegotiatedProtocolVersion === "function" &&
+          Boolean(client.getNegotiatedProtocolVersion());
+        if (!negotiatedAfterProbe) throw callbackError;
+        callbackError = undefined;
+        entry.error = undefined;
+      }
       const listed = await withConnectTimeout(
         Promise.resolve(client.listTools()),
         `MCP server ${entry.id} tools/list`,
         timeoutMs,
       );
+      if (callbackError) throw callbackError;
       const rawTools: Array<{
         name: string;
         title?: string;
@@ -544,14 +512,7 @@ export class McpClientManager {
         ...(t._meta ? { _meta: t._meta } : {}),
         raw: { ...t },
       }));
-      client.onerror = (error: unknown) => {
-        entry.error = formatMcpConnectError(error);
-        if (this.debug) {
-          console.warn(
-            `[mcp-client] runtime error from ${entry.id}: ${entry.error}`,
-          );
-        }
-      };
+      handshakeComplete = true;
     } catch (err) {
       await safelyClose(client, recordConnectionError);
       await safelyClose(transport, recordConnectionError);
@@ -562,18 +523,115 @@ export class McpClientManager {
     }
   }
 
-  /**
-   * Replace the configured server set. Servers that appear in the new config
-   * under a different shape are reconnected; unchanged entries stay live;
-   * removed entries are disconnected. Safe to call while `start()` is in
-   * flight or after it has completed.
-   *
-   * Serialised against `start()` and any other `reconfigure()` call via the
-   * internal queue — two concurrent mutations would otherwise interleave on
-   * `this.config` and on connect/disconnect ordering.
-   *
-   * Returns a summary describing what happened for logging / UI feedback.
-   */
+  private async closeEntry(entry: ServerEntry): Promise<void> {
+    if (entry.client) entry.client.onerror = undefined;
+    if (entry.transport) entry.transport.onerror = undefined;
+    await safelyClose(entry.client);
+    await safelyClose(entry.transport);
+  }
+
+  private beginRequest(entry: ServerEntry): void {
+    if (entry.pendingRequests === 0) {
+      entry.pendingRequestsDrained = new Promise<void>((resolve) => {
+        entry.resolvePendingRequests = resolve;
+      });
+    }
+    entry.pendingRequests += 1;
+  }
+
+  private endRequest(entry: ServerEntry): void {
+    entry.pendingRequests -= 1;
+    if (entry.pendingRequests === 0) {
+      entry.resolvePendingRequests?.();
+      entry.resolvePendingRequests = undefined;
+    }
+  }
+
+  private async runRequest<T>(
+    entry: ServerEntry,
+    operation: (entry: ServerEntry) => Promise<T>,
+  ): Promise<T> {
+    this.beginRequest(entry);
+    try {
+      return await operation(entry);
+    } finally {
+      this.endRequest(entry);
+    }
+  }
+
+  private async reconnectExpiredSession(
+    entry: ServerEntry,
+    failedTransport: any,
+  ): Promise<ServerEntry | null> {
+    const task = this.reconfigureQueue.then(async () => {
+      if (
+        this.servers.get(entry.id) !== entry ||
+        entry.transport !== failedTransport
+      ) {
+        return this.servers.get(entry.id) === entry.replacement
+          ? (entry.replacement ?? null)
+          : null;
+      }
+
+      await entry.pendingRequestsDrained;
+      if (
+        this.servers.get(entry.id) !== entry ||
+        entry.transport !== failedTransport
+      ) {
+        return this.servers.get(entry.id) === entry.replacement
+          ? (entry.replacement ?? null)
+          : null;
+      }
+      this.servers.delete(entry.id);
+      await this.closeEntry(entry);
+      const sdk = await this.loadSdk(
+        (entry.config.type ?? "stdio") === "stdio",
+      );
+      if (!sdk) throw new Error("MCP SDK is unavailable");
+      await this.addServer(entry.id, entry.config, sdk);
+      entry.replacement = this.servers.get(entry.id);
+      this.emitChange();
+      return entry.replacement ?? null;
+    });
+    this.reconfigureQueue = task.catch(() => {
+      /* failures surface on the caller, not on the queue */
+    });
+    await task;
+    return task;
+  }
+
+  private async withExpiredSessionRetry<T>(
+    entry: ServerEntry,
+    operation: (entry: ServerEntry) => Promise<T>,
+  ): Promise<T> {
+    const failedTransport = entry.transport;
+    const sessionId = failedTransport?.sessionId;
+    try {
+      return await this.runRequest(entry, operation);
+    } catch (error) {
+      if (
+        typeof sessionId !== "string" ||
+        sessionId.length === 0 ||
+        httpStatusFromError(error) !== 404
+      ) {
+        throw error;
+      }
+      const replacement = await this.reconnectExpiredSession(
+        entry,
+        failedTransport,
+      );
+      if (!replacement) throw error;
+      if (!replacement.client) {
+        throw new Error(
+          `MCP server "${entry.id}" is not connected${
+            replacement.error ? `: ${replacement.error}` : ""
+          }`,
+        );
+      }
+      return this.runRequest(replacement, operation);
+    }
+  }
+
   async reconfigure(newConfig: McpConfig | null): Promise<{
     added: string[];
     removed: string[];
@@ -606,7 +664,6 @@ export class McpClientManager {
     const unchanged: string[] = [];
     const reconnected: string[] = [];
 
-    // Remove entries that vanished or changed shape.
     for (const id of Object.keys(prevServers)) {
       if (!(id in nextServers)) {
         removed.push(id);
@@ -628,16 +685,7 @@ export class McpClientManager {
         const entry = this.servers.get(id);
         if (!entry) return;
         this.servers.delete(id);
-        try {
-          if (entry.client?.close) await entry.client.close();
-        } catch {
-          // ignore
-        }
-        try {
-          if (entry.transport?.close) await entry.transport.close();
-        } catch {
-          // ignore
-        }
+        await this.closeEntry(entry);
       }),
     );
 
@@ -654,8 +702,6 @@ export class McpClientManager {
       }
     }
 
-    // If the manager was never started (e.g. empty initial config) but now has
-    // servers, mark it started so subsequent start() calls don't duplicate work.
     if (!this.started && Object.keys(nextServers).length > 0) {
       this.started = true;
     }
@@ -664,7 +710,6 @@ export class McpClientManager {
     return { added, removed, unchanged, reconnected };
   }
 
-  /** Flattened tool list across all connected servers. */
   getTools(): McpTool[] {
     if (!this.enabled) return [];
     const out: McpTool[] = [];
@@ -685,15 +730,16 @@ export class McpClientManager {
     return [...(this.servers.get(serverId)?.tools ?? [])];
   }
 
+  /** The config the server's current tools were loaded from. */
+  getServerConfig(serverId: string): McpServerConfig | null {
+    return this.servers.get(serverId)?.config ?? null;
+  }
+
   hasServer(serverId: string): boolean {
     const entry = this.servers.get(serverId);
     return !!entry?.client && !entry.error;
   }
 
-  /**
-   * Invoke an MCP tool by prefixed name. Routes to the owning server based on
-   * the `mcp__<serverId>__` prefix.
-   */
   async callTool(
     prefixedName: string,
     args: unknown,
@@ -713,8 +759,6 @@ export class McpClientManager {
         }`,
       );
     }
-    // Look up the tool so we fail loud for unknown names instead of forwarding
-    // garbage through to the server.
     const known = entry.tools.find((t) => t.name === prefixedName);
     if (!known) {
       throw new Error(
@@ -751,11 +795,17 @@ export class McpClientManager {
         `MCP server "${parsed.serverId}" changed while authorizing tool "${parsed.toolName}"`,
       );
     }
-    const result = await client.callTool({
-      name: parsed.toolName,
-      arguments: normalizedArgs,
+    return this.withExpiredSessionRetry(entry, (current) => {
+      if (!current.tools.some((t) => t.name === prefixedName)) {
+        throw new Error(
+          `MCP server "${parsed.serverId}" does not expose tool "${parsed.toolName}"`,
+        );
+      }
+      return current.client.callTool({
+        name: parsed.toolName,
+        arguments: normalizedArgs,
+      });
     });
-    return result;
   }
 
   async readResource(serverId: string, uri: string): Promise<unknown> {
@@ -770,16 +820,20 @@ export class McpClientManager {
         }`,
       );
     }
-    if (typeof entry.client.readResource === "function") {
-      return entry.client.readResource({ uri });
-    }
-    if (typeof entry.client.request === "function") {
-      return entry.client.request({
-        method: "resources/read",
-        params: { uri },
-      });
-    }
-    throw new Error(`MCP server "${serverId}" does not support resources/read`);
+    return this.withExpiredSessionRetry(entry, (current) => {
+      if (typeof current.client.readResource === "function") {
+        return current.client.readResource({ uri });
+      }
+      if (typeof current.client.request === "function") {
+        return current.client.request({
+          method: "resources/read",
+          params: { uri },
+        });
+      }
+      throw new Error(
+        `MCP server "${serverId}" does not support resources/read`,
+      );
+    });
   }
 
   async readResourceForTool(
@@ -795,28 +849,19 @@ export class McpClientManager {
     return this.readResource(parsed.serverId, uri);
   }
 
-  /** Cleanly close all MCP clients and child processes. */
   async stop(): Promise<void> {
-    const entries = Array.from(this.servers.values());
-    this.servers.clear();
-    this.started = false;
-    await Promise.all(
-      entries.map(async (entry) => {
-        try {
-          if (entry.client?.close) await entry.client.close();
-        } catch {
-          // ignore
-        }
-        try {
-          if (entry.transport?.close) await entry.transport.close();
-        } catch {
-          // ignore
-        }
-      }),
-    );
+    const task = this.reconfigureQueue.then(async () => {
+      const entries = Array.from(this.servers.values());
+      this.servers.clear();
+      this.started = false;
+      await Promise.all(entries.map((entry) => this.closeEntry(entry)));
+    });
+    this.reconfigureQueue = task.catch(() => {
+      /* failures surface on the caller, not on the queue */
+    });
+    await task;
   }
 
-  /** Diagnostic snapshot used by `/_agent-native/mcp/status`. */
   getStatus(): {
     configuredServers: string[];
     connectedServers: string[];
@@ -980,11 +1025,13 @@ async function mintFirstPartyMcpIdentityToken(
   trust: { orgId: string; appId: string; url: string } | null,
 ): Promise<string | null> {
   if (!trust) return null;
-  const [{ getRequestOrgId, getRequestUserEmail }, { signA2AToken }] =
-    await Promise.all([
-      import("../server/request-context.js"),
-      import("../a2a/client.js"),
-    ]);
+  const [
+    { getRequestOrgId, getRequestUserEmail },
+    { getGlobalA2ASecret, signA2AOrganizationToken, signA2AToken },
+  ] = await Promise.all([
+    import("../server/request-context.js"),
+    import("../a2a/client.js"),
+  ]);
   const userEmail = getRequestUserEmail();
   const requestOrgId = getRequestOrgId();
   if (requestOrgId && requestOrgId !== trust.orgId) {
@@ -995,24 +1042,25 @@ async function mintFirstPartyMcpIdentityToken(
   if (!(await isFirstPartyTrustCached({ ...trust, orgId }))) return null;
 
   const { orgDomain, orgSecret } = await resolveOrgSigningContext(orgId);
-  const subject =
-    userEmail && requestOrgId
-      ? userEmail
-      : (await import("../mcp/connect-store.js")).serviceIdentityEmail(
-          "mcp-client",
-          orgId,
-        );
-
-  return signA2AToken(subject, orgDomain, orgSecret, {
+  if (!orgDomain?.trim()) return null;
+  const extraClaims = {
+    jti: randomJti(),
+    scope: "mcp-connect",
+    agent_native_first_party_mcp: true,
+  };
+  const audience = firstPartyMcpAudienceForUrl(trust.url);
+  if (userEmail && requestOrgId && getGlobalA2ASecret()) {
+    return signA2AToken(userEmail, orgDomain, undefined, {
+      expiresIn: "5m",
+      audience,
+      preferGlobalSecret: true,
+      extraClaims,
+    });
+  }
+  return signA2AOrganizationToken(orgDomain, orgSecret, undefined, {
     expiresIn: "5m",
-    audience: firstPartyMcpAudienceForUrl(trust.url),
-    preferGlobalSecret: !orgSecret,
-    extraClaims: {
-      jti: randomJti(),
-      scope: "mcp-connect",
-      org_id: orgId,
-      agent_native_first_party_mcp: true,
-    },
+    audience,
+    extraClaims,
   });
 }
 

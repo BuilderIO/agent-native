@@ -9,11 +9,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { getResolvedTheme } from "@/lib/theme";
+import { getNextTheme, getResolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 export function ThemeToggle({ className }: { className?: string }) {
-  const { setTheme, resolvedTheme } = useTheme();
+  const { setTheme, resolvedTheme, theme } = useTheme();
   const t = useT();
   const [mounted, setMounted] = useState(false);
 
@@ -21,8 +21,7 @@ export function ThemeToggle({ className }: { className?: string }) {
 
   const resolved = getResolvedTheme(resolvedTheme);
   const isDark = mounted ? resolved === "dark" : false;
-  const toggleTheme = () =>
-    setTheme(getResolvedTheme(resolvedTheme) === "dark" ? "light" : "dark");
+  const toggleTheme = () => setTheme(getNextTheme(theme, resolvedTheme));
 
   return (
     <Tooltip>
@@ -52,7 +51,7 @@ export function ThemeToggle({ className }: { className?: string }) {
 }
 
 export function SidebarThemeRow() {
-  const { setTheme, resolvedTheme } = useTheme();
+  const { setTheme, resolvedTheme, theme } = useTheme();
   const t = useT();
   const [mounted, setMounted] = useState(false);
 
@@ -60,8 +59,7 @@ export function SidebarThemeRow() {
 
   const resolved = getResolvedTheme(resolvedTheme);
   const isDark = mounted ? resolved === "dark" : false;
-  const toggleTheme = () =>
-    setTheme(getResolvedTheme(resolvedTheme) === "dark" ? "light" : "dark");
+  const toggleTheme = () => setTheme(getNextTheme(theme, resolvedTheme));
 
   return (
     <button

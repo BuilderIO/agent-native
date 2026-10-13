@@ -1,9 +1,4 @@
 export {
-  HistoryTimeline,
-  VersionHistoryPanel,
-  type VersionHistoryPanelProps,
-} from "./VersionHistoryPanel.js";
-export {
   useCreateResourceVersion,
   useResourceHistory,
   useResourceVersion,

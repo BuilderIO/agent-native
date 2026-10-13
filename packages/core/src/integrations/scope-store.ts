@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 
 let initPromise: Promise<void> | undefined;
 
@@ -65,10 +66,6 @@ export interface IntegrationScope extends IntegrationScopeKey {
 export interface SaveIntegrationScopeInput extends IntegrationScopeKey {
   conversationType: IntegrationConversationType;
   trust?: IntegrationConversationTrust;
-  /**
-   * Omit to use the caller's active org, or pass null for a personal scope.
-   * Passing an org other than the caller's active org is always rejected.
-   */
   orgId?: string | null;
   installationId?: string | null;
   defaultModel?: string | null;
@@ -89,7 +86,7 @@ const TRUST_VALUES = new Set<IntegrationConversationTrust>([
 
 export async function ensureTable(): Promise<void> {
   if (!initPromise) {
-    initPromise = (async () => {
+    const initPromiseWithRequestDbPoolScope = (async () => {
       const db = getDbExec();
       const createSql = `CREATE TABLE IF NOT EXISTS integration_conversation_scopes (
         id TEXT PRIMARY KEY,
@@ -103,13 +100,13 @@ export async function ensureTable(): Promise<void> {
         installation_id TEXT,
         service_owner_email TEXT NOT NULL,
         default_model TEXT,
-        require_mention ${intType()} NOT NULL DEFAULT 1,
-        allow_direct_messages ${intType()} NOT NULL DEFAULT 0,
-        allow_guests ${intType()} NOT NULL DEFAULT 0,
-        allow_external_shared ${intType()} NOT NULL DEFAULT 0,
-        allow_unknown_trust ${intType()} NOT NULL DEFAULT 0,
-        created_at ${intType()} NOT NULL,
-        updated_at ${intType()} NOT NULL
+        require_mention BIGINT NOT NULL DEFAULT 1,
+        allow_direct_messages BIGINT NOT NULL DEFAULT 0,
+        allow_guests BIGINT NOT NULL DEFAULT 0,
+        allow_external_shared BIGINT NOT NULL DEFAULT 0,
+        allow_unknown_trust BIGINT NOT NULL DEFAULT 0,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
       )`;
       const uniqueIndexSql =
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_integration_scope_external_key ON integration_conversation_scopes(platform, tenant_id, conversation_id)";
@@ -118,7 +115,7 @@ export async function ensureTable(): Promise<void> {
       const orgIndexSql =
         "CREATE INDEX IF NOT EXISTS idx_integration_scope_org ON integration_conversation_scopes(org_id, platform, tenant_id)";
 
-      if (isPostgres()) {
+      {
         await ensureTableExists("integration_conversation_scopes", createSql);
         await ensureColumnExists(
           "integration_conversation_scopes",
@@ -140,7 +137,9 @@ export async function ensureTable(): Promise<void> {
           "ALTER TABLE integration_conversation_scopes ADD COLUMN default_model TEXT",
         );
       } catch (error) {
-        if (!/duplicate/i.test(String((error as Error)?.message ?? error))) {
+        if (
+          !/duplicate/i.test(stringifyValue((error as Error)?.message ?? error))
+        ) {
           throw error;
         }
       }
@@ -151,12 +150,13 @@ export async function ensureTable(): Promise<void> {
       initPromise = undefined;
       throw error;
     });
+    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
   }
   return initPromise;
 }
 
 function requiredString(value: unknown, name: string, maxLength = 255): string {
-  const normalized = String(value ?? "").trim();
+  const normalized = stringifyValue(value ?? "").trim();
   if (!normalized) throw new Error(`${name} is required`);
   if (normalized.length > maxLength) {
     throw new Error(`${name} must be at most ${maxLength} characters`);
@@ -187,7 +187,6 @@ function normalizeKey(key: IntegrationScopeKey): IntegrationScopeKey {
   };
 }
 
-/** A stable, non-secret subject key suitable for a scope budget. */
 export function integrationScopeSubjectKey(key: IntegrationScopeKey): string {
   const normalized = normalizeKey(key);
   return JSON.stringify([
@@ -237,18 +236,19 @@ function policyFromRow(row: Record<string, unknown>): IntegrationScopePolicy {
 
 function rowToScope(row: Record<string, unknown>): IntegrationScope {
   return {
-    id: String(row.id),
-    platform: String(row.platform),
-    tenantId: String(row.tenant_id),
-    conversationId: String(row.conversation_id),
+    id: stringifyValue(row.id),
+    platform: stringifyValue(row.platform),
+    tenantId: stringifyValue(row.tenant_id),
+    conversationId: stringifyValue(row.conversation_id),
     conversationType: row.conversation_type as IntegrationConversationType,
     trust: row.trust_level as IntegrationConversationTrust,
-    ownerEmail: String(row.owner_email),
-    orgId: row.org_id == null ? null : String(row.org_id),
+    ownerEmail: stringifyValue(row.owner_email),
+    orgId: row.org_id == null ? null : stringifyValue(row.org_id),
     installationId:
-      row.installation_id == null ? null : String(row.installation_id),
-    serviceOwnerEmail: String(row.service_owner_email),
-    defaultModel: row.default_model == null ? null : String(row.default_model),
+      row.installation_id == null ? null : stringifyValue(row.installation_id),
+    serviceOwnerEmail: stringifyValue(row.service_owner_email),
+    defaultModel:
+      row.default_model == null ? null : stringifyValue(row.default_model),
     policy: policyFromRow(row),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
@@ -263,7 +263,9 @@ const SELECT_COLUMNS = `id, platform, tenant_id, conversation_id,
 function isUniqueViolation(error: unknown): boolean {
   const value = error as { code?: string; message?: string } | null;
   if (value?.code === "23505") return true;
-  return /unique|duplicate/i.test(String(value?.message ?? error ?? ""));
+  return /unique|duplicate/i.test(
+    stringifyValue(value?.message ?? error ?? ""),
+  );
 }
 
 function normalizePolicy(
@@ -492,7 +494,16 @@ export function evaluateIntegrationScopePolicy(
   return { allowed: true };
 }
 
-/** Test-only reset for suites that swap the injected database. */
 export function _resetIntegrationScopeStoreForTests(): void {
   initPromise = undefined;
+}
+
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
 }

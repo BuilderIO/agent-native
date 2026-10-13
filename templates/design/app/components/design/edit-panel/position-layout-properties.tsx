@@ -3,6 +3,7 @@ import {
   composeTransform3D,
   isTransform3DActive,
   parseTransform3DParts,
+  quantizeToStep,
   type Transform3DParts,
 } from "@shared/canvas-math";
 import {
@@ -11,6 +12,7 @@ import {
   IconAxisY,
   IconFlipHorizontal,
   IconFlipVertical,
+  IconLink,
   IconLayoutAlignBottom,
   IconLayoutAlignCenter,
   IconLayoutAlignLeft,
@@ -20,6 +22,7 @@ import {
   IconLayoutDistributeHorizontal,
   IconPerspective,
   IconRotate3d,
+  IconUnlink,
 } from "@tabler/icons-react";
 import { useCallback, useState } from "react";
 
@@ -53,8 +56,23 @@ import {
   SectionIconToggle,
 } from "./inspector-controls";
 import { authoredStyleValue } from "./interaction-state-helpers";
-import { PanelSection, SubsectionLabel } from "./panel-primitives";
-import { roundToOneDecimal } from "./position-helpers";
+import { useLiveDragPosition } from "./live-drag-position";
+import { MotionOriginControl } from "./motion-inspector-properties";
+import {
+  INSPECTOR_GRID_ACTION_GUTTER_SPAN,
+  INSPECTOR_GRID_ACTION_PAIR_SPAN,
+  INSPECTOR_GRID_ACTION_SPAN,
+  INSPECTOR_GRID_MOTION_ACTION_SPAN,
+  INSPECTOR_GRID_MOTION_FIELD_SPAN,
+  INSPECTOR_GRID_MOTION_GUTTER_SPAN,
+  INSPECTOR_GRID_PAIR_GUTTER_SPAN,
+  INSPECTOR_GRID_PAIR_SPAN,
+  InspectorActionPairGrid,
+  InspectorGrid,
+  InspectorGridCell,
+  PanelSection,
+  SubsectionLabel,
+} from "./panel-primitives";
 import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
 import type {
   BreakpointOverrideFieldContext,
@@ -69,26 +87,146 @@ import {
   parseScaleValue,
 } from "./transform-helpers";
 
-/**
- * `authoredStyleValue()` returns the *inline* value when one is set, but
- * falls back to the *computed* style otherwise — and `getComputedStyle()`
- * reports "auto" for left/right/top/bottom on any element that has never had
- * one of those offsets explicitly authored (the ordinary case for a plain,
- * not-yet-repositioned element). A bare "auto" is not a real authored pin,
- * and the cross-selection Mixed sentinel isn't either. Without this guard,
- * `authoredLeft && authoredRight` truthiness checks below treated "auto" as
- * "yes, pinned", so a completely unconstrained element read as "left-right"/
- * "top-bottom" (pinned to both edges) in the Constraints preview, the X/Y
- * fields showed a parsed "0" instead of the element's real on-canvas
- * position, and picking "Left"/"Top" from an unconstrained element could
- * write the literal string `"auto"` as the new `left`/`top` value instead of
- * anchoring it at its current position. Exported for tests.
- */
 export function definiteAuthoredOffset(
   raw: string | undefined,
 ): string | undefined {
   if (!raw || raw === "auto" || isMixedValue(raw)) return undefined;
   return raw;
+}
+
+export function measuredPositionOffset(
+  element: Pick<
+    ElementInfo,
+    | "boundingRect"
+    | "parentBoundingRect"
+    | "parentAutoLayout"
+    | "positionReferenceRect"
+    | "positionContainingBlockOrigin"
+  >,
+  axis: "x" | "y",
+): number {
+  const referenceBounds =
+    element.positionReferenceRect ??
+    element.parentBoundingRect ??
+    element.parentAutoLayout?.boundingRect;
+  const childOffset = element.boundingRect[axis];
+  return referenceBounds ? childOffset - referenceBounds[axis] : childOffset;
+}
+
+function numericPositionOffset(raw: string | undefined): number | undefined {
+  if (
+    !raw ||
+    raw === "auto" ||
+    isMixedValue(raw) ||
+    !/^-?(?:\d+(?:\.\d*)?|\.\d+)(?:px)?$/u.test(raw.trim())
+  ) {
+    return undefined;
+  }
+  const value = Number.parseFloat(raw);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+export function authoredPositionPatch(
+  element: Pick<
+    ElementInfo,
+    | "boundingRect"
+    | "computedStyles"
+    | "inlineStyles"
+    | "parentBoundingRect"
+    | "parentAutoLayout"
+    | "positionReferenceRect"
+    | "positionContainingBlockOrigin"
+    | "positionContainingBlockTransform"
+  >,
+  axis: "x" | "y",
+  referenceOffset: number,
+): Partial<Record<"left" | "top", string>> {
+  const parentBounds =
+    element.parentBoundingRect ?? element.parentAutoLayout?.boundingRect;
+  const referenceBounds = element.positionReferenceRect ?? parentBounds;
+  const matrix =
+    element.positionContainingBlockTransform ??
+    ({ a: 1, b: 0, c: 0, d: 1 } as const);
+  const determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+  if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-8) {
+    return {};
+  }
+
+  const deltaX =
+    axis === "x" ? referenceOffset - measuredPositionOffset(element, "x") : 0;
+  const deltaY =
+    axis === "y" ? referenceOffset - measuredPositionOffset(element, "y") : 0;
+  const leftDelta = (matrix.d * deltaX - matrix.c * deltaY) / determinant;
+  const topDelta = (-matrix.b * deltaX + matrix.a * deltaY) / determinant;
+  const containingBlockOffset = (coordinate: "x" | "y") =>
+    element.positionContainingBlockOrigin && referenceBounds
+      ? element.positionContainingBlockOrigin[coordinate] -
+        referenceBounds[coordinate]
+      : parentBounds && referenceBounds
+        ? parentBounds[coordinate] - referenceBounds[coordinate]
+        : 0;
+  const authoredOffset = (coordinate: "x" | "y") => {
+    const property = coordinate === "x" ? "left" : "top";
+    return (
+      numericPositionOffset(element.computedStyles[property]) ??
+      numericPositionOffset(element.inlineStyles?.[property])
+    );
+  };
+  const currentOffset = (coordinate: "x" | "y") =>
+    authoredOffset(coordinate) ??
+    measuredPositionOffset(element, coordinate) -
+      containingBlockOffset(coordinate);
+  const patch: Partial<Record<"left" | "top", string>> = {};
+  const writeLeft =
+    axis === "x" || Math.abs(leftDelta) > 1e-8 || Math.abs(matrix.c) > 1e-8;
+  const writeTop =
+    axis === "y" || Math.abs(topDelta) > 1e-8 || Math.abs(matrix.b) > 1e-8;
+  if (writeLeft || authoredOffset("x") === undefined) {
+    patch.left = `${Number((currentOffset("x") + leftDelta).toFixed(2))}px`;
+  }
+  if (writeTop || authoredOffset("y") === undefined) {
+    patch.top = `${Number((currentOffset("y") + topDelta).toFixed(2))}px`;
+  }
+  return patch;
+}
+
+export function measuredPositionValue(
+  element: ElementInfo,
+  axis: "x" | "y",
+  livePosition?: { left: string; top: string },
+): string {
+  let referenceOffset = measuredPositionOffset(element, axis);
+  const liveLeft = livePosition
+    ? numericPositionOffset(livePosition.left)
+    : undefined;
+  const liveTop = livePosition
+    ? numericPositionOffset(livePosition.top)
+    : undefined;
+  const authoredLeft =
+    numericPositionOffset(element.computedStyles.left) ??
+    numericPositionOffset(element.inlineStyles?.left);
+  const authoredTop =
+    numericPositionOffset(element.computedStyles.top) ??
+    numericPositionOffset(element.inlineStyles?.top);
+
+  if (
+    liveLeft !== undefined &&
+    liveTop !== undefined &&
+    authoredLeft !== undefined &&
+    authoredTop !== undefined
+  ) {
+    const transform =
+      element.positionContainingBlockTransform ??
+      ({ a: 1, b: 0, c: 0, d: 1 } as const);
+    const deltaLeft = liveLeft - authoredLeft;
+    const deltaTop = liveTop - authoredTop;
+    referenceOffset +=
+      axis === "x"
+        ? transform.a * deltaLeft + transform.c * deltaTop
+        : transform.b * deltaLeft + transform.d * deltaTop;
+  }
+
+  return `${Number(referenceOffset.toFixed(2))}px`;
 }
 
 function percentageLength(raw: string | undefined): boolean {
@@ -103,13 +241,9 @@ function geometryPercent(value: number, total: number): string {
 }
 
 function geometryPx(value: number): string {
-  return `${Number(value.toFixed(3))}px`;
+  return `${quantizeToStep(value)}px`;
 }
 
-/** Once the bridge supplies an inline-style snapshot, absence is meaningful:
- * an absolutely-positioned left-only element still has a computed `right`,
- * but that resolved value is not an authored right pin. Older payloads omit
- * `inlineStyles` entirely, so only those fall back to computed styles. */
 function authoredConstraintValue(
   element: ElementInfo,
   property: string,
@@ -121,14 +255,6 @@ function authoredConstraintValue(
   return element.computedStyles[property];
 }
 
-/**
- * Derives the Constraints preview/widget state from an element's authored
- * left/right/top/bottom/width/height/transform. Pulled out as a standalone
- * pure function (mirrors `autoLayoutStylesForFlow` in layout-properties.tsx)
- * so the "auto"/Mixed-safe derivation fixed by `definiteAuthoredOffset` above
- * is directly unit-testable without rendering the whole panel. Exported for
- * tests.
- */
 export function deriveConstraintsValue(element: ElementInfo): ConstraintsValue {
   const authoredLeft = authoredConstraintValue(element, "left");
   const authoredRight = authoredConstraintValue(element, "right");
@@ -156,9 +282,7 @@ export function deriveConstraintsValue(element: ElementInfo): ConstraintsValue {
   return {
     horizontal: horizontalMixed
       ? "mixed"
-      : // Check scale before left+right: "scale" writes width:100% and clears
-        // left/right to auto, but legacy data may have 0px values that are truthy.
-        authoredWidth === "100%" ||
+      : authoredWidth === "100%" ||
           (percentageLength(authoredWidth) && percentageLength(definiteLeft))
         ? "scale"
         : definiteLeft && definiteRight
@@ -183,12 +307,6 @@ export function deriveConstraintsValue(element: ElementInfo): ConstraintsValue {
   };
 }
 
-/** Build the complete constraints edit before writing anything. The previous
- * implementation emitted position, four offsets, size, and transform as
- * separate writes, producing visible intermediate layouts and one undo entry
- * per property. Keeping this pure also makes the exact atomic patch directly
- * regression-testable. A mixed axis is intentionally left untouched until the
- * user chooses a concrete value for that axis. */
 export function constraintsStylePatch(
   element: ElementInfo,
   value: ConstraintsValue,
@@ -305,49 +423,42 @@ export function constraintsStylePatch(
   return patch;
 }
 
-/** Position, size, and spacing properties */
 export function PositionLayoutProperties({
   element,
   onStyleChange,
   onStylesChange,
   onAlignSelection,
+  alignSelectionDisabled = false,
   motionKeyframeContext,
   breakpointOverrideContext,
+  motionInspector = false,
+  onMotionOriginEditingChange,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
-  /**
-   * Moves the selection itself (Figma's real "Alignment" row semantics):
-   * aligns to the combined selection bounding box for a 2+ multi-selection,
-   * or to the parent for a single selected object. When provided, the
-   * alignment row's six buttons call this instead of writing flex-alignment
-   * properties on the selected element. See the `onAlignSelection` contract
-   * note above `PositionLayoutProperties` usage in this file for the exact
-   * edge semantics the caller (DesignEditor) must implement.
-   */
   onAlignSelection?: (
     edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom",
   ) => void;
+  alignSelectionDisabled?: boolean;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
+  motionInspector?: boolean;
+  onMotionOriginEditingChange?: (open: boolean) => void;
 }) {
   const t = useT();
   const applePlatform = useApplePlatform();
   const shortcut = (binding: string) =>
     formatShortcutLabel(binding, applePlatform);
   const styles = element.computedStyles;
+  const scaleIsMixed = isMixedValue(styles.scale);
+  const [scaleX, scaleY] = scaleIsMixed
+    ? [1, 1]
+    : parseScaleValue(styles.scale);
+  const [scaleAspectLocked, setScaleAspectLocked] = useState(true);
   const constrainedPosition =
     styles.position === "absolute" || styles.position === "fixed";
-  // NOTE: this row used to also write flex alignment (justifyContent/
-  // alignItems) on the selected element when it was a flex container —
-  // i.e. it aligned the element's own children. That duplicated exactly
-  // what FlexContainerControls' AutoLayoutMatrix already offers via its
-  // CompactAlignmentMatrix (onAlignmentChange, wired a few hundred lines
-  // up in this file) and was never real Figma behavior: Figma's Alignment
-  // row in the Position section always moves the selected object(s), not
-  // their children. That fallback has been removed — flex child alignment
-  // now lives exclusively in the auto-layout section's alignment matrix.
+  const alignmentDisabled = alignSelectionDisabled || !onAlignSelection;
   const handlePositionAlignH = (value: AlignmentMatrixValue["horizontal"]) => {
     onAlignSelection?.(
       value === "left" ? "left" : value === "right" ? "right" : "center-h",
@@ -358,29 +469,20 @@ export function PositionLayoutProperties({
       value === "top" ? "top" : value === "bottom" ? "bottom" : "center-v",
     );
   };
-  // Authored (not computed) left/top: used directly (not through
-  // `definiteAuthoredOffset`) below because the X/Y fields need to tell
-  // "Mixed" apart from "unset", and handleConstraintsChange's own fallback
-  // already normalizes through `definiteAuthoredOffset` at its call sites.
-  // Right/bottom and the scale/rotation checks needed for the Constraints
-  // preview live in `deriveConstraintsValue` (above) instead.
+  const liveDragPosition = useLiveDragPosition(element.selector);
   const authoredLeft = authoredStyleValue(element, "left");
   const authoredTop = authoredStyleValue(element, "top");
   const authoredTransform = authoredStyleValue(element, "transform");
+  const rotationTransform = isMixedValue(styles.transform)
+    ? undefined
+    : (authoredTransform ?? styles.transform);
   const constraintsValue = deriveConstraintsValue(element);
   const [constraintsExpanded, setConstraintsExpanded] = useState(false);
-  // position:absolute/fixed takes a child out of the parent's flex flow, so it
-  // still anchors and keeps constraints.
   const constraintsSuppressed =
     element.isFlexChild &&
     !["absolute", "fixed"].includes(
       (element.computedStyles?.position ?? "").toLowerCase(),
     );
-  // 3D rotation/perspective progressive-disclosure expander — mirrors
-  // CornerRadiusControl's showIndependentCorners pattern. Default-expanded
-  // when the authored transform already has non-zero X/Y rotation or
-  // perspective, so an element edited elsewhere (e.g. by the agent) doesn't
-  // hide its active 3D state behind a collapsed control.
   const initialTransform3DParts = parseTransform3DParts(
     isMixedValue(authoredTransform) ? undefined : authoredTransform,
   );
@@ -403,103 +505,143 @@ export function PositionLayoutProperties({
 
   return (
     <PanelSection
-      title={t("editPanel.sections.positionLayout")}
+      title={
+        motionInspector
+          ? t("designEditor.motion.transform")
+          : t("editPanel.sections.positionLayout")
+      }
       actions={
-        <SectionIconToggle
-          label={"Absolute position" /* i18n-ignore design inspector action */}
-          active={constrainedPosition}
-          onClick={() =>
-            onStyleChange(
-              "position",
-              constrainedPosition ? "relative" : "absolute",
-            )
-          }
-        >
-          <IconLayoutDistributeHorizontal className="size-3.5" />
-        </SectionIconToggle>
+        motionInspector ? (
+          <MotionOriginControl
+            element={element}
+            onStyleChange={onStyleChange}
+            onStylesChange={onStylesChange}
+            onEditingChange={onMotionOriginEditingChange}
+          />
+        ) : (
+          <SectionIconToggle
+            label={
+              "Absolute position" /* i18n-ignore design inspector action */
+            }
+            active={constrainedPosition}
+            onClick={() =>
+              commitStylePatch(
+                constrainedPosition
+                  ? {
+                      position: "relative",
+                      inset: "auto",
+                      left: "auto",
+                      right: "auto",
+                      top: "auto",
+                      bottom: "auto",
+                    }
+                  : { position: "absolute" },
+                onStyleChange,
+                onStylesChange,
+              )
+            }
+          >
+            <IconLayoutDistributeHorizontal className="size-3.5" />
+          </SectionIconToggle>
+        )
       }
     >
-      <div className="space-y-1.5">
-        <SubsectionLabel>
-          {"Alignment" /* i18n-ignore design inspector label */}
-        </SubsectionLabel>
-        <div className="flex items-center gap-3">
-          <InspectorSegment>
-            <InspectorIconButton
-              label={t("editPanel.textAligns.left")}
-              shortcut={shortcut("alt+a")}
-              onClick={() => handlePositionAlignH("left")}
-            >
-              <IconLayoutAlignLeft className="size-3.5" />
-            </InspectorIconButton>
-            <InspectorIconButton
-              label={t("editPanel.textAligns.center")}
-              shortcut={shortcut("alt+h")}
-              onClick={() => handlePositionAlignH("center")}
-            >
-              <IconLayoutAlignCenter className="size-3.5" />
-            </InspectorIconButton>
-            <InspectorIconButton
-              label={t("editPanel.textAligns.right")}
-              shortcut={shortcut("alt+d")}
-              onClick={() => handlePositionAlignH("right")}
-            >
-              <IconLayoutAlignRight className="size-3.5" />
-            </InspectorIconButton>
-          </InspectorSegment>
-          <InspectorSegment>
-            <InspectorIconButton
-              label={t("editPanel.alignSelfOptions.start")}
-              shortcut={shortcut("alt+w")}
-              onClick={() => handlePositionAlignV("top")}
-            >
-              <IconLayoutAlignTop className="size-3.5" />
-            </InspectorIconButton>
-            <InspectorIconButton
-              label={t("editPanel.alignSelfOptions.center")}
-              shortcut={shortcut("alt+v")}
-              onClick={() => handlePositionAlignV("middle")}
-            >
-              <IconLayoutAlignMiddle className="size-3.5" />
-            </InspectorIconButton>
-            <InspectorIconButton
-              label={t("editPanel.alignSelfOptions.end")}
-              shortcut={shortcut("alt+s")}
-              onClick={() => handlePositionAlignV("bottom")}
-            >
-              <IconLayoutAlignBottom className="size-3.5" />
-            </InspectorIconButton>
-          </InspectorSegment>
+      {!motionInspector ? (
+        <div className="design-sidebar-property-group">
+          <SubsectionLabel>
+            {"Alignment" /* i18n-ignore design inspector label */}
+          </SubsectionLabel>
+          <InspectorActionPairGrid
+            className="items-center"
+            left={
+              <InspectorSegment className="w-full">
+                <InspectorIconButton
+                  label={t("editPanel.positionAligns.left")}
+                  shortcut={shortcut("alt+a")}
+                  disabled={alignmentDisabled}
+                  onClick={() => handlePositionAlignH("left")}
+                >
+                  <IconLayoutAlignLeft className="size-3.5" />
+                </InspectorIconButton>
+                <InspectorIconButton
+                  label={t("editPanel.positionAligns.centerHorizontal")}
+                  shortcut={shortcut("alt+h")}
+                  disabled={alignmentDisabled}
+                  onClick={() => handlePositionAlignH("center")}
+                >
+                  <IconLayoutAlignCenter className="size-3.5" />
+                </InspectorIconButton>
+                <InspectorIconButton
+                  label={t("editPanel.positionAligns.right")}
+                  shortcut={shortcut("alt+d")}
+                  disabled={alignmentDisabled}
+                  onClick={() => handlePositionAlignH("right")}
+                >
+                  <IconLayoutAlignRight className="size-3.5" />
+                </InspectorIconButton>
+              </InspectorSegment>
+            }
+            right={
+              <InspectorSegment className="w-full">
+                <InspectorIconButton
+                  label={t("editPanel.positionAligns.top")}
+                  shortcut={shortcut("alt+w")}
+                  disabled={alignmentDisabled}
+                  onClick={() => handlePositionAlignV("top")}
+                >
+                  <IconLayoutAlignTop className="size-3.5" />
+                </InspectorIconButton>
+                <InspectorIconButton
+                  label={t("editPanel.positionAligns.centerVertical")}
+                  shortcut={shortcut("alt+v")}
+                  disabled={alignmentDisabled}
+                  onClick={() => handlePositionAlignV("middle")}
+                >
+                  <IconLayoutAlignMiddle className="size-3.5" />
+                </InspectorIconButton>
+                <InspectorIconButton
+                  label={t("editPanel.positionAligns.bottom")}
+                  shortcut={shortcut("alt+s")}
+                  disabled={alignmentDisabled}
+                  onClick={() => handlePositionAlignV("bottom")}
+                >
+                  <IconLayoutAlignBottom className="size-3.5" />
+                </InspectorIconButton>
+              </InspectorSegment>
+            }
+          />
         </div>
-      </div>
+      ) : null}
 
-      <div className="space-y-1.5">
+      <div className="design-sidebar-property-group">
         <SubsectionLabel>{t("editPanel.labels.position")}</SubsectionLabel>
-        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_1.75rem] gap-2">
-          <div className="group/field relative min-w-0">
+        <InspectorGrid className="items-center" layout="action-pair">
+          <InspectorGridCell
+            span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
+            className="group/field relative"
+          >
             <ScrubStyleInput
               label="X"
               ariaLabel="X-position"
               tooltipLabel="X-position"
+              precision={2}
               value={
-                isMixedValue(authoredLeft)
+                isMixedValue(authoredLeft) || isMixedValue(styles.left)
                   ? MIXED_VALUE
-                  : (definiteAuthoredOffset(authoredLeft) ?? "")
+                  : measuredPositionValue(
+                      element,
+                      "x",
+                      liveDragPosition ?? undefined,
+                    )
               }
-              placeholder={element.boundingRect.x}
               inputClassName="h-6"
               onChange={(v, meta) => {
-                // Typing X/Y on a static (non-positioned) element is a no-op on
-                // canvas unless we first give it a position to offset from —
-                // mirror handleConstraintsChange, which always sets
-                // position:absolute (the convention canvas drag/resize and
-                // primitive creation both use) before writing left/top.
                 commitStylePatch(
                   {
                     ...(!constrainedPosition
                       ? { position: "absolute" }
                       : undefined),
-                    left: `${roundToOneDecimal(v)}px`,
+                    ...authoredPositionPatch(element, "x", v),
                   },
                   onStyleChange,
                   onStylesChange,
@@ -507,27 +649,40 @@ export function PositionLayoutProperties({
                 );
               }}
             />
-            <FieldTrailer
-              element={element}
-              motionCssProperty="translate"
-              overrideProperty="left"
-              motionKeyframeContext={motionKeyframeContext}
-              breakpointOverrideContext={breakpointOverrideContext}
-              className="absolute -top-3.5 right-0"
-              hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
-            />
-          </div>
-          <div className="group/field relative min-w-0">
+            {!motionInspector ? (
+              <FieldTrailer
+                element={element}
+                motionCssProperty="translate"
+                overrideProperty="left"
+                motionKeyframeContext={motionKeyframeContext}
+                breakpointOverrideContext={breakpointOverrideContext}
+                className="absolute -top-3.5 right-0"
+                hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
+              />
+            ) : null}
+          </InspectorGridCell>
+          <InspectorGridCell
+            span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+            ariaHidden
+          />
+          <InspectorGridCell
+            span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
+            className="group/field relative"
+          >
             <ScrubStyleInput
               label="Y"
               ariaLabel="Y-position"
               tooltipLabel="Y-position"
+              precision={2}
               value={
-                isMixedValue(authoredTop)
+                isMixedValue(authoredTop) || isMixedValue(styles.top)
                   ? MIXED_VALUE
-                  : (definiteAuthoredOffset(authoredTop) ?? "")
+                  : measuredPositionValue(
+                      element,
+                      "y",
+                      liveDragPosition ?? undefined,
+                    )
               }
-              placeholder={element.boundingRect.y}
               inputClassName="h-6"
               onChange={(v, meta) => {
                 commitStylePatch(
@@ -535,7 +690,7 @@ export function PositionLayoutProperties({
                     ...(!constrainedPosition
                       ? { position: "absolute" }
                       : undefined),
-                    top: `${roundToOneDecimal(v)}px`,
+                    ...authoredPositionPatch(element, "y", v),
                   },
                   onStyleChange,
                   onStylesChange,
@@ -543,50 +698,81 @@ export function PositionLayoutProperties({
                 );
               }}
             />
-            <FieldTrailer
-              element={element}
-              motionCssProperty="translate"
-              overrideProperty="top"
-              motionKeyframeContext={motionKeyframeContext}
-              breakpointOverrideContext={breakpointOverrideContext}
-              className="absolute -top-3.5 right-0"
-              hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
-            />
-          </div>
-          {/* Figma: constraints cannot apply to a child of an auto layout
-              frame — the parent's layout owns the position. An absolutely
-              positioned descendant is out of that flow and still anchors. */}
-          {constraintsSuppressed ? null : (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={
-                    "Constraints" /* i18n-ignore design inspector action */
-                  }
-                  aria-pressed={constraintsExpanded}
-                  onClick={() =>
-                    setConstraintsExpanded((expanded) => !expanded)
-                  }
-                  className={cn(
-                    "flex size-7 items-center justify-center rounded-md transition-colors",
-                    "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                    "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                    constraintsExpanded
-                      ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]"
-                      : "text-muted-foreground",
-                  )}
-                >
-                  <ConstraintsPreview value={constraintsValue} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {"Constraints" /* i18n-ignore design inspector tooltip */}
-              </TooltipContent>
-            </Tooltip>
+            {!motionInspector ? (
+              <FieldTrailer
+                element={element}
+                motionCssProperty="translate"
+                overrideProperty="top"
+                motionKeyframeContext={motionKeyframeContext}
+                breakpointOverrideContext={breakpointOverrideContext}
+                className="absolute -top-3.5 right-0"
+                hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
+              />
+            ) : null}
+          </InspectorGridCell>
+          {motionInspector ? (
+            <>
+              <InspectorGridCell
+                span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+                ariaHidden
+              />
+              <InspectorGridCell
+                span={INSPECTOR_GRID_ACTION_SPAN}
+                className="flex items-center justify-center"
+              >
+                <FieldTrailer
+                  element={element}
+                  motionCssProperty="translate"
+                  motionKeyframeContext={motionKeyframeContext}
+                />
+              </InspectorGridCell>
+            </>
+          ) : (
+            <>
+              <InspectorGridCell
+                span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+                ariaHidden
+              />
+              <InspectorGridCell
+                span={INSPECTOR_GRID_ACTION_SPAN}
+                className="flex items-center justify-center"
+              >
+                {/* Auto-layout containers position in-flow children. An absolutely
+              positioned descendant leaves that flow and can still use anchors. */}
+                {constraintsSuppressed ? null : (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={
+                          "Constraints" /* i18n-ignore design inspector action */
+                        }
+                        aria-pressed={constraintsExpanded}
+                        onClick={() =>
+                          setConstraintsExpanded((expanded) => !expanded)
+                        }
+                        className={cn(
+                          "flex size-6 items-center justify-center rounded-md transition-colors",
+                          "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                          "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                          constraintsExpanded
+                            ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        <ConstraintsPreview value={constraintsValue} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {"Constraints" /* i18n-ignore design inspector tooltip */}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </InspectorGridCell>
+            </>
           )}
-        </div>
-        {constraintsExpanded && !constraintsSuppressed ? (
+        </InspectorGrid>
+        {!motionInspector && constraintsExpanded && !constraintsSuppressed ? (
           <ConstraintsWidget
             value={constraintsValue}
             onChange={handleConstraintsChange}
@@ -595,10 +781,124 @@ export function PositionLayoutProperties({
         ) : null}
       </div>
 
-      <div className="space-y-1.5">
+      {motionInspector ? (
+        <div className="design-sidebar-property-group">
+          <SubsectionLabel>{t("editPanel.scale.title")}</SubsectionLabel>
+          <InspectorGrid
+            className="group/field relative items-center"
+            layout="columns"
+          >
+            <InspectorGridCell
+              span={INSPECTOR_GRID_MOTION_FIELD_SPAN}
+              className="min-w-0"
+            >
+              <ScrubStyleInput
+                label="X"
+                ariaLabel={`${t("editPanel.scale.factor")} X`}
+                tooltipLabel={t("editPanel.scale.title")}
+                precision={2}
+                step={1}
+                unit="%"
+                value={scaleIsMixed ? MIXED_VALUE : String(scaleX * 100)}
+                inputClassName="h-6"
+                onChange={(value, meta) => {
+                  const nextX = value / 100;
+                  const ratio = scaleX === 0 ? 1 : scaleY / scaleX;
+                  const nextY = scaleAspectLocked ? nextX * ratio : scaleY;
+                  commitStylePatch(
+                    {
+                      scale: `${Number(nextX.toFixed(3))} ${Number(nextY.toFixed(3))}`,
+                    },
+                    onStyleChange,
+                    onStylesChange,
+                    meta,
+                  );
+                }}
+              />
+            </InspectorGridCell>
+            <InspectorGridCell
+              span={INSPECTOR_GRID_MOTION_GUTTER_SPAN}
+              ariaHidden
+            />
+            <InspectorGridCell
+              span={INSPECTOR_GRID_MOTION_FIELD_SPAN}
+              className="min-w-0"
+            >
+              <ScrubStyleInput
+                label="Y"
+                ariaLabel={`${t("editPanel.scale.factor")} Y`}
+                tooltipLabel={t("editPanel.scale.title")}
+                precision={2}
+                step={1}
+                unit="%"
+                value={scaleIsMixed ? MIXED_VALUE : String(scaleY * 100)}
+                inputClassName="h-6"
+                onChange={(value, meta) => {
+                  const nextY = value / 100;
+                  const ratio = scaleY === 0 ? 1 : scaleX / scaleY;
+                  const nextX = scaleAspectLocked ? nextY * ratio : scaleX;
+                  commitStylePatch(
+                    {
+                      scale: `${Number(nextX.toFixed(3))} ${Number(nextY.toFixed(3))}`,
+                    },
+                    onStyleChange,
+                    onStylesChange,
+                    meta,
+                  );
+                }}
+              />
+            </InspectorGridCell>
+            <InspectorGridCell
+              span={INSPECTOR_GRID_MOTION_GUTTER_SPAN}
+              ariaHidden
+            />
+            <InspectorGridCell
+              span={INSPECTOR_GRID_MOTION_ACTION_SPAN}
+              className="flex items-center justify-center"
+            >
+              <FieldTrailer
+                element={element}
+                motionCssProperty="scale"
+                overrideProperty="scale"
+                motionKeyframeContext={motionKeyframeContext}
+                breakpointOverrideContext={breakpointOverrideContext}
+              />
+            </InspectorGridCell>
+            <InspectorGridCell
+              span={INSPECTOR_GRID_MOTION_ACTION_SPAN}
+              className="flex items-center justify-center"
+            >
+              <SectionIconToggle
+                label={
+                  scaleAspectLocked
+                    ? t("editPanel.labels.unlockAspectRatio")
+                    : t("editPanel.labels.lockAspectRatio")
+                }
+                active={scaleAspectLocked}
+                onClick={() => setScaleAspectLocked((locked) => !locked)}
+              >
+                {scaleAspectLocked ? (
+                  <IconLink className="size-3.5" />
+                ) : (
+                  <IconUnlink className="size-3.5" />
+                )}
+              </SectionIconToggle>
+            </InspectorGridCell>
+          </InspectorGrid>
+        </div>
+      ) : null}
+
+      <div className="design-sidebar-property-group">
         <SubsectionLabel>{t("editPanel.labels.rotation")}</SubsectionLabel>
-        <div className="group flex items-center gap-2">
-          <div className="min-w-0 flex-1">
+        <InspectorGrid className="items-center" layout="action-pair">
+          <InspectorGridCell
+            span={
+              motionInspector
+                ? INSPECTOR_GRID_PAIR_SPAN
+                : INSPECTOR_GRID_ACTION_PAIR_SPAN
+            }
+            className="group relative"
+          >
             <ScrubStyleInput
               label="Rotation"
               ariaLabel={t("editPanel.labels.rotation")}
@@ -606,92 +906,127 @@ export function PositionLayoutProperties({
               hideIcon={false}
               icon={IconAngle}
               labelClassName="[&>span]:sr-only"
-              // Detect the Mixed sentinel BEFORE parsing: parseRotationValue
-              // would silently turn "Mixed" into 0 and render "0deg" instead
-              // of the mixed state (mirrors the opacity field's guard).
               value={
                 isMixedValue(styles.transform)
                   ? MIXED_VALUE
-                  : `${parseRotationValue(styles.transform)}deg`
+                  : `${-parseRotationValue(rotationTransform)}${motionInspector ? "°" : "deg"}`
               }
-              unit="deg"
+              unit={motionInspector ? "°" : "deg"}
               inputClassName="h-6"
-              onChange={(v, meta) =>
+              onChange={(v, meta) => {
+                const mixedRotation = isMixedValue(styles.transform);
+                const hasPerTargetOperation =
+                  typeof meta?.relativeDelta === "number" ||
+                  meta?.relativeExpression !== undefined;
+                const perTargetMeta =
+                  mixedRotation && !hasPerTargetOperation
+                    ? {
+                        ...meta,
+                        relativeExpression: {
+                          expression: `Mixed*0+${v}`,
+                          unit: "deg",
+                        },
+                      }
+                    : meta;
                 onStyleChange(
-                  "transform",
-                  // From a mixed selection the sentinel is not a transform —
-                  // treat it as absent so the typed value applies cleanly to
-                  // every selected object instead of producing
-                  // "Mixed rotate(…)". This field always writes the Z
-                  // rotation — back-compat: existing designs'
-                  // `transform: rotate()` is the Z axis. When the 3D
-                  // expander below is active (non-zero X/Y/perspective),
-                  // mergeRotationValue's plain rotate() slot still round-
-                  // trips correctly since composeTransform3D always emits a
-                  // trailing rotateZ() once 3D is active, which
-                  // ROTATE_FN_PATTERN also matches.
-                  mergeRotationValue(
-                    isMixedValue(styles.transform)
-                      ? undefined
-                      : styles.transform,
-                    v,
-                  ),
-                  meta,
-                )
-              }
+                  mixedRotation &&
+                    (hasPerTargetOperation || perTargetMeta?.relativeExpression)
+                    ? "rotation"
+                    : "transform",
+                  mergeRotationValue(rotationTransform, -v),
+                  perTargetMeta,
+                );
+              }}
             />
-          </div>
-          <FieldTrailer
-            element={element}
-            motionCssProperty="rotate"
-            overrideProperty="transform"
-            motionKeyframeContext={motionKeyframeContext}
-            breakpointOverrideContext={breakpointOverrideContext}
-            hoverRevealClassName="opacity-0 group-hover:opacity-100"
-          />
-          <InspectorSegment>
-            <InspectorIconButton
-              label={t("editPanel.labels.flipHorizontal")}
-              onClick={() => {
-                const [sx, sy] = parseScaleValue(styles.scale);
-                onStyleChange("scale", `${sx === -1 ? 1 : -1} ${sy}`);
-              }}
-            >
-              <IconFlipHorizontal className="size-4" />
-            </InspectorIconButton>
-            <InspectorIconButton
-              label={t("editPanel.labels.flipVertical")}
-              onClick={() => {
-                const [sx, sy] = parseScaleValue(styles.scale);
-                onStyleChange("scale", `${sx} ${sy === -1 ? 1 : -1}`);
-              }}
-            >
-              <IconFlipVertical className="size-4" />
-            </InspectorIconButton>
-          </InspectorSegment>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={t("editPanel.labels.rotation3d")}
-                aria-pressed={rotation3DExpanded}
-                onClick={() => setRotation3DExpanded((expanded) => !expanded)}
-                className={cn(
-                  "flex size-7 shrink-0 items-center justify-center rounded-md transition-colors",
-                  "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                  "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                  rotation3DExpanded
-                    ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]"
-                    : "text-muted-foreground",
-                )}
+            <FieldTrailer
+              element={element}
+              motionCssProperty="rotate"
+              overrideProperty="transform"
+              motionKeyframeContext={motionKeyframeContext}
+              breakpointOverrideContext={breakpointOverrideContext}
+              hoverRevealClassName="opacity-0 group-hover:opacity-100"
+            />
+          </InspectorGridCell>
+          {!motionInspector ? (
+            <>
+              <InspectorGridCell
+                span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+                ariaHidden
+              />
+              <InspectorGridCell
+                span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
+                className="group/field relative"
               >
-                <IconRotate3d className="size-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("editPanel.labels.rotation3d")}</TooltipContent>
-          </Tooltip>
-        </div>
-        {rotation3DExpanded ? (
+                <InspectorSegment className="w-full">
+                  <InspectorIconButton
+                    label={t("editPanel.labels.flipHorizontal")}
+                    onClick={() => {
+                      const [sx, sy] = parseScaleValue(styles.scale);
+                      onStyleChange("scale", `${sx === -1 ? 1 : -1} ${sy}`);
+                    }}
+                  >
+                    <IconFlipHorizontal className="size-4" />
+                  </InspectorIconButton>
+                  <InspectorIconButton
+                    label={t("editPanel.labels.flipVertical")}
+                    onClick={() => {
+                      const [sx, sy] = parseScaleValue(styles.scale);
+                      onStyleChange("scale", `${sx} ${sy === -1 ? 1 : -1}`);
+                    }}
+                  >
+                    <IconFlipVertical className="size-4" />
+                  </InspectorIconButton>
+                </InspectorSegment>
+                {motionInspector ? null : (
+                  <FieldTrailer
+                    element={element}
+                    motionCssProperty="scale"
+                    overrideProperty="scale"
+                    motionKeyframeContext={motionKeyframeContext}
+                    breakpointOverrideContext={breakpointOverrideContext}
+                    className="absolute -top-3.5 right-0"
+                    hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
+                  />
+                )}
+              </InspectorGridCell>
+              <InspectorGridCell
+                span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+                ariaHidden
+              />
+              <InspectorGridCell
+                span={INSPECTOR_GRID_ACTION_SPAN}
+                className="flex justify-center"
+              >
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={t("editPanel.labels.rotation3d")}
+                      aria-pressed={rotation3DExpanded}
+                      onClick={() =>
+                        setRotation3DExpanded((expanded) => !expanded)
+                      }
+                      className={cn(
+                        "flex size-6 shrink-0 items-center justify-center rounded-md transition-colors",
+                        "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                        "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                        rotation3DExpanded
+                          ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      <IconRotate3d className="size-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("editPanel.labels.rotation3d")}
+                  </TooltipContent>
+                </Tooltip>
+              </InspectorGridCell>
+            </>
+          ) : null}
+        </InspectorGrid>
+        {!motionInspector && rotation3DExpanded ? (
           <Rotation3DControls styles={styles} onStyleChange={onStyleChange} />
         ) : null}
       </div>
@@ -699,25 +1034,6 @@ export function PositionLayoutProperties({
   );
 }
 
-/**
- * Progressive-disclosure X/Y/Z rotation + perspective controls, revealed by
- * the 3D-rotation expander next to the plain (Z-axis) rotation field. See
- * `composeTransform3D`/`parseTransform3DParts` (shared/canvas-math.ts) for
- * the parse/compose contract this wraps.
- *
- * - Transform composition order: `perspective(Npx) rotateX(Xdeg)
- *   rotateY(Ydeg) rotateZ(Zdeg) <preserved translate/scale/etc>` — see the
- *   `composeTransform3D` doc comment for the full rationale (X→Y→Z is a
- *   common 3D-engine Euler convention; Figma hasn't published a composition
- *   order since 3D transforms are unshipped there as of this build).
- * - When X, Y, and Perspective are all zero/empty, the composed transform is
- *   the plain 2D `rotate(Zdeg)` form — zero output churn for existing
- *   designs that never touch this expander.
- * - `transform-style: preserve-3d` is intentionally NOT applied here:
- *   defaulting to flattened (no preserve-3d) matches the conservative,
- *   minimal-footprint choice for this first pass — see the build report for
- *   the preserve-3d-on-children tradeoff.
- */
 function Rotation3DControls({
   styles,
   onStyleChange,
@@ -757,55 +1073,62 @@ function Rotation3DControls({
   };
 
   return (
-    <div className="space-y-1.5 pt-1">
+    <div className="space-y-2 pt-1">
       {isCustomTransform ? (
         <p className="!text-[11px] text-muted-foreground">
           {t("editPanel.labels.customTransform")}
         </p>
       ) : null}
-      <div className="grid grid-cols-2 gap-1.5">
-        <AppearanceScrubField
-          label={t("editPanel.labels.rotationX")}
-          icon={IconAxisX}
-          value={transformMixed ? 0 : displayParts.rotateX}
-          onChange={(value, meta) => commitPart({ rotateX: value }, meta)}
-          mixed={transformMixed}
-          disabled={isCustomTransform}
-          step={1}
-          unit="deg"
-          precision={1}
-        />
-        <AppearanceScrubField
-          label={t("editPanel.labels.rotationY")}
-          icon={IconAxisY}
-          value={transformMixed ? 0 : displayParts.rotateY}
-          onChange={(value, meta) => commitPart({ rotateY: value }, meta)}
-          mixed={transformMixed}
-          disabled={isCustomTransform}
-          step={1}
-          unit="deg"
-          precision={1}
-        />
-        <ScrubInput
-          label={t("editPanel.labels.perspective")}
-          ariaLabel={t("editPanel.labels.perspective")}
-          tooltipLabel={t("editPanel.labels.perspectiveHint")}
-          icon={IconPerspective}
-          value={transformMixed ? 0 : displayParts.perspective}
-          onChange={(value, meta) =>
-            commitPart({ perspective: Math.max(0, value) }, meta)
-          }
-          mixed={transformMixed}
-          disabled={isCustomTransform}
-          min={0}
-          step={10}
-          unit="px"
-          precision={0}
-          className="col-span-2 gap-0"
-          labelClassName="h-6 w-7 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] [&>span]:sr-only"
-          inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-        />
-      </div>
+      <InspectorGrid className="items-center" layout="pair">
+        <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+          <AppearanceScrubField
+            label={t("editPanel.labels.rotationX")}
+            icon={IconAxisX}
+            value={transformMixed ? 0 : displayParts.rotateX}
+            onChange={(value, meta) => commitPart({ rotateX: value }, meta)}
+            mixed={transformMixed}
+            disabled={isCustomTransform}
+            step={1}
+            unit="deg"
+            precision={1}
+          />
+        </InspectorGridCell>
+        <InspectorGridCell span={INSPECTOR_GRID_PAIR_GUTTER_SPAN} ariaHidden />
+        <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+          <AppearanceScrubField
+            label={t("editPanel.labels.rotationY")}
+            icon={IconAxisY}
+            value={transformMixed ? 0 : displayParts.rotateY}
+            onChange={(value, meta) => commitPart({ rotateY: value }, meta)}
+            mixed={transformMixed}
+            disabled={isCustomTransform}
+            step={1}
+            unit="deg"
+            precision={1}
+          />
+        </InspectorGridCell>
+        <InspectorGridCell span={28}>
+          <ScrubInput
+            label={t("editPanel.labels.perspective")}
+            ariaLabel={t("editPanel.labels.perspective")}
+            tooltipLabel={t("editPanel.labels.perspectiveHint")}
+            icon={IconPerspective}
+            value={transformMixed ? 0 : displayParts.perspective}
+            onChange={(value, meta) =>
+              commitPart({ perspective: Math.max(0, value) }, meta)
+            }
+            mixed={transformMixed}
+            disabled={isCustomTransform}
+            min={0}
+            step={10}
+            unit="px"
+            precision={0}
+            className="w-full gap-0"
+            labelClassName="h-6 w-7 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] [&>span]:sr-only"
+            inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+          />
+        </InspectorGridCell>
+      </InspectorGrid>
     </div>
   );
 }

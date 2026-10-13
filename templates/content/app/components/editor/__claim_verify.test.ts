@@ -14,7 +14,6 @@ import { CodeBlock } from "./extensions/CodeBlockNode";
 import { NotionToggle } from "./extensions/NotionExtensions";
 import { EmptyLineParagraph } from "./VisualEditor";
 
-// Mirror the markdown editor used in existing tests + the real serialize path.
 function createMarkdownEditor(content: string) {
   return new Editor({
     extensions: [
@@ -32,7 +31,6 @@ function createMarkdownEditor(content: string) {
   });
 }
 
-// The REAL production round trip: stored NFM -> editor -> getMarkdown -> serializeEditorToNfm
 function realRoundTrip(stored: string): string {
   const editor = createMarkdownEditor(stored);
   try {

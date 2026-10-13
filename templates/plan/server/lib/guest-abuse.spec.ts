@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Control the mocked DB client per test. `execute` inspects the SQL to decide
-// which COUNT to return, captures every call, and can be forced to throw to
-// exercise the fail-open paths.
 const dbState = {
   mintCount: 0,
   ownedCount: 0,
@@ -26,13 +23,12 @@ const execute = vi.fn(async (input: { sql: string; args: unknown[] }) => {
   if (/FROM plan_guest_mints/i.test(sql) && /COUNT/i.test(sql)) {
     return { rows: [{ n: dbState.mintCount }] };
   }
-  if (/owner_email = \?/i.test(sql)) {
+  if (/owner_email = \$1/i.test(sql)) {
     return { rows: [{ n: dbState.ownedCount }] };
   }
-  if (/owner_email LIKE \?/i.test(sql)) {
+  if (/owner_email LIKE \$1/i.test(sql)) {
     return { rows: [{ n: dbState.globalCount }] };
   }
-  // INSERT / DELETE / anything else.
   return { rows: [] };
 });
 
@@ -40,7 +36,6 @@ vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute }),
 }));
 
-// h3 header/IP access is driven by mutable test fixtures.
 let headers: Record<string, string | undefined> = {};
 let peerIp: string | undefined;
 let requestIpThrows = false;
@@ -172,8 +167,8 @@ describe("assertGuestCreateWithinLimits — global throttle backstop", () => {
   it("throws once the global guest-create window is saturated", async () => {
     process.env.PLAN_GUEST_MAX_PLANS = "100";
     process.env.PLAN_GUEST_GLOBAL_CREATE_LIMIT = "10";
-    dbState.ownedCount = 0; // under per-guest cap
-    dbState.globalCount = 10; // at global limit
+    dbState.ownedCount = 0;
+    dbState.globalCount = 10;
     await expect(assertGuestCreateWithinLimits(GUEST)).rejects.toBeInstanceOf(
       GuestAbuseLimitError,
     );
@@ -183,7 +178,7 @@ describe("assertGuestCreateWithinLimits — global throttle backstop", () => {
     process.env.PLAN_GUEST_GLOBAL_CREATE_LIMIT = "1000";
     await assertGuestCreateWithinLimits(GUEST);
     const likeCall = dbState.calls.find((c) =>
-      /owner_email LIKE \?/i.test(c.sql),
+      /owner_email LIKE \$1/i.test(c.sql),
     );
     expect(likeCall?.args[0]).toBe("guest-%@agent-native.guest");
   });

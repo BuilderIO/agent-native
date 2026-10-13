@@ -43,11 +43,16 @@ app code.
 
 ## Discovery, Links, And The UI Stack
 
-Workspace apps are discovered from `apps/<app-name>/package.json`. There is no
-separate workspace app registry to edit for Dispatch to list the app. Always
-save a concise, human-readable `description` there; Dispatch lists and A2A
-connected-agent context use the app name plus description so agents know what
-the app does. Use relative workspace links like `/<app-name>` and never
+The local workspace gateway discovers apps from
+`apps/<app-name>/package.json`. Production Dispatch images that contain only
+`.output/` cannot scan those directories: set `AGENT_NATIVE_WORKSPACE_APPS_JSON`
+on the Dispatch service at runtime and the same
+`VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON` while building its client bundle. List
+only apps in that workspace, with each deployed `path` matching its
+`APP_BASE_PATH` and proxy route. Do not reuse another organization's manifest.
+Always save a concise, human-readable `description` in each package manifest;
+Dispatch and A2A connected-agent context use the app name plus description so
+agents know what it does. Use relative workspace links like `/<app-name>` and never
 hardcode `localhost`, `127.0.0.1`, `8080`, `8100`, or any dev port in app
 cards, instructions, redirects, or navigation; the active workspace
 gateway/browser origin owns the port. React Router apps must preserve
@@ -70,14 +75,13 @@ proxy, or re-export an action; the action endpoint already exists at
 `/_agent-native/actions/:name`. Action-backed UI is what makes agent-created or
 agent-edited records appear without a manual refresh.
 
-## Database Portability
+## PostgreSQL Database
 
-App database code must be provider-agnostic. Define schemas with
+App database code targets local PGlite and hosted Postgres. Define schemas with
 `@agent-native/core/db/schema` helpers and write app reads/writes with Drizzle's
-query builder and portable `drizzle-orm` operators. Do not import from
-`drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in app templates. Keep raw SQL
-for additive migrations, health checks, or carefully scoped maintenance, and
-never write SQLite-only or Postgres-only product code. Do not use SQL as object
+PostgreSQL query builder and `drizzle-orm` operators. Do not import raw schema
+drivers in app templates. Keep raw SQL
+for additive migrations, health checks, or carefully scoped maintenance. Do not use SQL as object
 storage; file bytes belong in upload/private-blob providers with only references
 saved to app tables.
 
@@ -89,6 +93,16 @@ workspace root. In production, Dispatch posts new-app requests to Builder
 branch creation; Builder should still scaffold the separate workspace app. The
 workspace dev gateway (`pnpm dev`) detects new `apps/<app-name>` directories
 automatically.
+
+Scaffolding the directory is not the app being live. Before saying the app is
+created, request `/<app-name>` on the running gateway and confirm it returns
+the new app, not a fallback route or another app's shell — then tell the user
+that exact path to open, since the preview root can still show a different
+app. If the preview/host isn't running the workspace gateway (root `pnpm
+dev`), say plainly that its run/dev command must point at the workspace root
+`pnpm dev` and name where to set it (Builder: project settings → dev
+command); the agent cannot change a host's run/dev command itself. Never
+report the app as created while the preview still shows something else.
 
 ## Finishing A Chat-Template App
 
@@ -103,5 +117,5 @@ app.
 - **workspace-conventions** — Shared workspace rules this workflow assumes.
 - **actions** — How to define the app operations the agent and UI share.
 - **composable-mini-apps** — Splitting work across focused sibling apps.
-- **portability** — Keeping database and hosting assumptions provider-agnostic.
+- **portability** — Keeping PostgreSQL and hosting assumptions explicit.
 - **shadcn-ui** — Adding and upgrading the UI primitives.

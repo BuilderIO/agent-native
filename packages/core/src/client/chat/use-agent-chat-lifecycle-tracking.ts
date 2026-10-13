@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import {
   ACTIVE_RUN_STATE_EVENT,
@@ -20,6 +20,9 @@ export function useAgentChatLifecycleTracking({
   tabId,
   onActiveRunChange,
 }: AgentChatLifecycleTrackingOptions): (runId?: string) => void {
+  const activeRef = useRef<boolean | null>(null);
+  const observedRunIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     trackAgentChatLifecycle({
       phase: "surface-mounted",
@@ -34,8 +37,13 @@ export function useAgentChatLifecycleTracking({
       const active = Boolean(
         threadId && state?.threadId === threadId && state.runId,
       );
-      onActiveRunChange?.(active);
+      if (activeRef.current !== active) {
+        activeRef.current = active;
+        onActiveRunChange?.(active);
+      }
       if (!active || !state) return;
+      if (observedRunIdRef.current === state.runId) return;
+      observedRunIdRef.current = state.runId;
       trackAgentChatLifecycle({
         phase: "run-observed",
         surface,

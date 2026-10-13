@@ -9,8 +9,6 @@ Agent-Native आपके कंपनी के React घटकों के �
 
 अडैप्टर कॉन्ट्रैक्ट में Tailwind, shadcn, Radix, `className` या किसी खास स्टाइलिंग रनटाइम की आवश्यकता नहीं है। कोई घटक theme provider, CSS-in-JS, CSS Modules, React Aria या सामान्य CSS का उपयोग कर सकता है। `className` और `style` वैकल्पिक इंटरऑपरेबिलिटी हुक हैं, स्टाइलिंग की अनिवार्यताएँ नहीं।
 
-पूरे अडैप्टर, theme-provider वायरिंग, डार्क मोड और v1 की दर्ज सीमाओं के लिए चलने वाले [Material UI Chat उदाहरण](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) और [Ant Design Chat उदाहरण](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) देखें।
-
 ## सबसे छोटा कस्टमाइज़ेशन स्तर चुनें
 
 | स्तर                    | इसका उपयोग करें                                                                | क्या साझा रहता है                                                      |
@@ -84,8 +82,6 @@ export function AppToolkitProvider({
 ```
 
 आंशिक अडैप्टर समर्थित हैं। जिस घटक को आप छोड़ देते हैं वह Agent-Native के डिफ़ॉल्ट अडैप्टर का उपयोग करता है। यदि रेंडर करते समय कोई कस्टम घटक त्रुटि देता है, तो प्रति-घटक error boundary विफलता लॉग करके उस नियंत्रण का डिफ़ॉल्ट घटक रेंडर करती है; बाकी कस्टम सिस्टम सक्रिय रहता है।
-
-दो पूर्ण Chat ऐप वास्तविक डिज़ाइन सिस्टम के साथ इस कॉन्ट्रैक्ट को परखते हैं: [Material UI उदाहरण](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) Emotion, `ThemeProvider` और MUI के overlay stack का उपयोग करता है, जबकि [Ant Design उदाहरण](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) `ConfigProvider` और Ant Design के form तथा overlay primitives का उपयोग करता है। उनकी `app/design-system.tsx` फ़ाइलें मुख्य इंटीग्रेशन संदर्भ हैं; ऊपर का Acme fixture जानबूझकर छोटा है और unit tests में उपयोग होता है।
 
 पुराना `components={{ Button }}` provider API अब भी संगत है और इसे सबसे कम प्राथमिकता वाला `ActionButton` अडैप्टर माना जाता है। दोनों दिए जाने पर `designSystem.components.ActionButton` जीतता है और development builds चेतावनी लॉग करते हैं।
 
@@ -223,8 +219,6 @@ Contract evolution semantic versioning का पालन करता है:
 
 ### MUI-style theme-provider systems
 
-[Chat + Material UI उदाहरण](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) मुख्य worked reference है। इसका एकल `app/design-system.tsx` मॉड्यूल semantic adapter, MUI के light और dark `createTheme` values तथा `defineTheme` token source export करता है। ऐप का `AppToolkitProvider` MUI `ThemeProvider` को shared Toolkit surfaces के ऊपर रखता है, जबकि `vite.config.ts` वही `theme` value build-time CSS generation के लिए import करता है। इससे Emotion styles, MUI portals और Agent-Native tokens एक ही source of truth पर रहते हैं।
-
 Company theme provider को `AppToolkitProvider` के ऊपर रखें और package boundary पर semantic props को adapt करें। `intent`, `emphasis` और `size` को अडैप्टर के अंदर अपने सिस्टम की vocabulary में मैप करें—Agent-Native feature code में नहीं। Overlays के लिए `portalContainer` को design system के container या portal prop तक forward करें और उसके focus manager से `initialFocusRef`/`restoreFocusRef` लागू करें।
 
 ```tsx
@@ -249,8 +243,6 @@ export const ActionButton: DesignSystemComponents["ActionButton"] = ({
 ```
 
 किसी feature का theme provider हर adapter component में कॉपी न करें। उसे app boundary पर एक बार install करें ताकि portals और overlays उसी context को inherit करें।
-
-[Chat MUI adapter](https://github.com/BuilderIO/agent-native/blob/main/examples/chat-mui/app/design-system.tsx) worked example है: यह एक `defineTheme` value export करता है, उस value को `defineDesignSystem` में import करता है और उसी मॉड्यूल को `vite.config.ts` से import करता है। यह single source of truth runtime theme generation के बिना MUI light/dark provider tokens और build-time semantic CSS tokens को aligned रखता है।
 
 ### React Aria-based systems
 
@@ -315,9 +307,3 @@ Version 1 में semantic bridge हर third-party UI ecosystem को repla
 - [**Toolkit UI Primitives**](/docs/toolkit-ui) — स्थानीय adapters, provider wiring और shared primitive imports।
 - [**Agent-Native Toolkit**](/docs/agent-native-toolkit) — पुन: उपयोग योग्य feature ownership और package boundaries।
 - [**Settings Kit**](/docs/toolkit-settings) और [**Sharing Kit**](/docs/toolkit-sharing) — shared feature controllers जो app actions और access contracts को बनाए रखते हैं।
-
-## Chat उदाहरण कवरेज
-
-चलने वाले [Material UI Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) और [Ant Design Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) उदाहरण सभी 17 contract components register करते हैं और adapters के माध्यम से 16/17 render करते हैं। `Menu` स्पष्ट gap बना रहता है, क्योंकि agent-panel header में एक live compound submenu है जिसे v1 data-only contract express नहीं कर सकता। assistant-ui composer/message renderer, cmdk internals और Tiptap editor v1 के non-goals बने रहते हैं।
-
-रोज़मर्रा का Chat share button अभी legacy popover है। shipped `/design-system-proof` route पूरे Core `ShareDialog` को reachable बनाता है, बिना उस popover को design-system dialog बताने के।

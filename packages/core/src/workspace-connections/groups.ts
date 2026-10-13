@@ -2,13 +2,15 @@ import { randomUUID } from "node:crypto";
 
 import {
   getDbExec,
-  intType,
-  isPostgres,
+  isProductionServerlessFunctionRuntime,
+  isUniqueViolation,
   retryOnDdlRace,
   safeJsonParse,
   type DbExec,
 } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { isMigrationAuthorizedRuntime } from "../db/migration-runtime.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { isOrgMember } from "../org/membership.js";
 import {
   getRequestOrgId,
@@ -41,13 +43,18 @@ export interface UpdateWorkspaceUserGroupMembersInput {
 }
 
 export function workspaceUserGroupsTable(): string {
-  return isPostgres()
-    ? "public.workspace_user_groups"
-    : "workspace_user_groups";
+  return "public.workspace_user_groups";
 }
 
+const WORKSPACE_USER_GROUP_NAME_INDEX =
+  "idx_workspace_user_groups_org_normalized_name";
+const WORKSPACE_USER_GROUP_NAME_TRIGGER =
+  "trg_workspace_user_groups_normalized_name";
+const WORKSPACE_USER_GROUP_NAME_FUNCTION =
+  "public.workspace_user_groups_set_normalized_name";
+
 function isDuplicateObjectError(err: unknown): boolean {
-  const code = String((err as { code?: unknown })?.code ?? "");
+  const code = stringifyValue((err as { code?: unknown })?.code ?? "");
   const message = String((err as { message?: unknown })?.message ?? err)
     .toLowerCase()
     .trim();
@@ -93,10 +100,14 @@ function normalizeGroupName(value: unknown): string {
   return name;
 }
 
+function duplicateWorkspaceUserGroupNameError(name: string): Error {
+  return new Error(`A workspace user group named "${name}" already exists.`);
+}
+
 function iso(value: unknown): string {
   if (value instanceof Date) return value.toISOString();
   if (typeof value === "number") return new Date(value).toISOString();
-  const parsed = Date.parse(String(value ?? ""));
+  const parsed = Date.parse(stringifyValue(value ?? ""));
   return Number.isFinite(parsed)
     ? new Date(parsed).toISOString()
     : new Date(0).toISOString();
@@ -119,13 +130,13 @@ function requireWorkspaceUserGroupScope(): {
 
 function parseRow(row: Record<string, unknown>): WorkspaceUserGroup {
   return {
-    id: String(row.id ?? ""),
-    orgId: String(row.org_id ?? ""),
-    name: String(row.name ?? ""),
+    id: stringifyValue(row.id ?? ""),
+    orgId: stringifyValue(row.org_id ?? ""),
+    name: stringifyValue(row.name ?? ""),
     memberEmails: normalizeMemberEmails(
       safeJsonParse<unknown>(row.member_emails_json, []),
     ),
-    createdByEmail: String(row.created_by_email ?? ""),
+    createdByEmail: stringifyValue(row.created_by_email ?? ""),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };
@@ -139,17 +150,16 @@ async function ensureWorkspaceUserGroupColumns(
     ["org_id", "TEXT NOT NULL DEFAULT ''"],
     ["name", "TEXT NOT NULL DEFAULT ''"],
     ["member_emails_json", "TEXT NOT NULL DEFAULT '[]'"],
+    ["normalized_name", "TEXT"],
     ["created_by_email", "TEXT NOT NULL DEFAULT ''"],
-    ["created_at", `${intType()} NOT NULL DEFAULT 0`],
-    ["updated_at", `${intType()} NOT NULL DEFAULT 0`],
+    ["created_at", `BIGINT NOT NULL DEFAULT 0`],
+    ["updated_at", `BIGINT NOT NULL DEFAULT 0`],
   ] as const;
   for (const [name, definition] of columns) {
     try {
       await retryOnDdlRace(() =>
         client.execute(
-          isPostgres()
-            ? `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${name} ${definition}`
-            : `ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`,
+          `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${name} ${definition}`,
         ),
       );
     } catch (error) {
@@ -158,11 +168,45 @@ async function ensureWorkspaceUserGroupColumns(
   }
 }
 
+async function ensureWorkspaceUserGroupNameTrigger(
+  client: DbExec,
+): Promise<void> {
+  await retryOnDdlRace(() =>
+    client.execute(`
+      CREATE OR REPLACE FUNCTION ${WORKSPACE_USER_GROUP_NAME_FUNCTION}()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS 'BEGIN
+        NEW.normalized_name := LOWER(BTRIM(NEW.name));
+        RETURN NEW;
+      END;'
+    `),
+  );
+  try {
+    await retryOnDdlRace(() =>
+      client.execute(`
+        CREATE TRIGGER ${WORKSPACE_USER_GROUP_NAME_TRIGGER}
+          BEFORE INSERT OR UPDATE OF name ON public.workspace_user_groups
+          FOR EACH ROW
+          EXECUTE FUNCTION ${WORKSPACE_USER_GROUP_NAME_FUNCTION}()
+      `),
+    );
+  } catch (error) {
+    if (!isDuplicateObjectError(error)) throw error;
+  }
+}
+
 let initPromise: Promise<void> | undefined;
 
 export async function ensureWorkspaceUserGroupsTable(): Promise<void> {
+  if (
+    isProductionServerlessFunctionRuntime() &&
+    !isMigrationAuthorizedRuntime()
+  ) {
+    return;
+  }
   if (!initPromise) {
-    initPromise = (async () => {
+    const initPromiseWithRequestDbPoolScope = (async () => {
       const client = getDbExec();
       const table = workspaceUserGroupsTable();
       const createSql = `
@@ -170,34 +214,51 @@ export async function ensureWorkspaceUserGroupsTable(): Promise<void> {
           id TEXT PRIMARY KEY,
           org_id TEXT NOT NULL DEFAULT '',
           name TEXT NOT NULL DEFAULT '',
+          normalized_name TEXT,
           member_emails_json TEXT NOT NULL DEFAULT '[]',
           created_by_email TEXT NOT NULL DEFAULT '',
-          created_at ${intType()} NOT NULL DEFAULT 0,
-          updated_at ${intType()} NOT NULL DEFAULT 0
+          created_at BIGINT NOT NULL DEFAULT 0,
+          updated_at BIGINT NOT NULL DEFAULT 0
         )
       `;
 
-      if (isPostgres()) {
+      {
         await ensureTableExists("workspace_user_groups", createSql);
         await ensureWorkspaceUserGroupColumns(client, table);
+        await ensureWorkspaceUserGroupNameTrigger(client);
         await ensureIndexExists(
           "idx_workspace_user_groups_org_updated",
           `CREATE INDEX IF NOT EXISTS idx_workspace_user_groups_org_updated ON ${table} (org_id, updated_at)`,
+        );
+        await ensureIndexExists(
+          WORKSPACE_USER_GROUP_NAME_INDEX,
+          `CREATE UNIQUE INDEX IF NOT EXISTS ${WORKSPACE_USER_GROUP_NAME_INDEX}
+             ON ${table} (org_id, normalized_name)
+             WHERE normalized_name IS NOT NULL`,
         );
         return;
       }
 
       await retryOnDdlRace(() => client.execute(createSql));
       await ensureWorkspaceUserGroupColumns(client, table);
+      await ensureWorkspaceUserGroupNameTrigger(client);
       await retryOnDdlRace(() =>
         client.execute(
           `CREATE INDEX IF NOT EXISTS idx_workspace_user_groups_org_updated ON ${table} (org_id, updated_at)`,
+        ),
+      );
+      await retryOnDdlRace(() =>
+        client.execute(
+          `CREATE UNIQUE INDEX IF NOT EXISTS ${WORKSPACE_USER_GROUP_NAME_INDEX}
+             ON ${table} (org_id, normalized_name)
+             WHERE normalized_name IS NOT NULL`,
         ),
       );
     })().catch((error) => {
       initPromise = undefined;
       throw error;
     });
+    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
   }
   return initPromise;
 }
@@ -276,7 +337,10 @@ export async function workspaceUserGroupRole(
     return null;
   }
   const { rows } = await getDbExec().execute({
-    sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+    sql: `SELECT role FROM org_members
+          WHERE org_id = ? AND LOWER(email) = ?
+            AND federation_removal_pending_at IS NULL
+          LIMIT 1`,
     args: [normalizedOrgId, normalizedEmail],
   });
   const role = String(
@@ -317,27 +381,52 @@ export async function upsertWorkspaceUserGroup(
   const now = Date.now();
   const createdByEmail =
     input.createdByEmail?.trim().toLowerCase() || requestScope.userEmail;
-  const update = await client.execute({
-    sql: `UPDATE ${table}
-      SET name = ?, member_emails_json = ?, updated_at = ?
-      WHERE id = ? AND org_id = ?`,
-    args: [name, JSON.stringify(memberEmails), now, id, orgId],
+  const duplicate = await client.execute({
+    sql: `SELECT id FROM ${table}
+      WHERE org_id = ? AND LOWER(BTRIM(name)) = LOWER(BTRIM(?)) AND id <> ?
+      LIMIT 1`,
+    args: [orgId, name, id],
   });
-  if (update.rowsAffected === 0) {
-    await client.execute({
-      sql: `INSERT INTO ${table}
-        (id, org_id, name, member_emails_json, created_by_email, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      args: [
-        id,
-        orgId,
-        name,
-        JSON.stringify(memberEmails),
-        createdByEmail,
-        now,
-        now,
-      ],
+  if (duplicate.rows.length > 0) {
+    throw duplicateWorkspaceUserGroupNameError(name);
+  }
+  try {
+    const update = await client.execute({
+      sql: `UPDATE ${table}
+        SET name = ?, normalized_name = LOWER(BTRIM(?)), member_emails_json = ?, updated_at = ?
+        WHERE id = ? AND org_id = ?`,
+      args: [name, name, JSON.stringify(memberEmails), now, id, orgId],
     });
+    if (update.rowsAffected === 0) {
+      await client.execute({
+        sql: `INSERT INTO ${table}
+          (id, org_id, name, normalized_name, member_emails_json, created_by_email, created_at, updated_at)
+          VALUES (?, ?, ?, LOWER(BTRIM(?)), ?, ?, ?, ?)`,
+        args: [
+          id,
+          orgId,
+          name,
+          name,
+          JSON.stringify(memberEmails),
+          createdByEmail,
+          now,
+          now,
+        ],
+      });
+    }
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      const conflict = await client.execute({
+        sql: `SELECT id FROM ${table}
+          WHERE org_id = ? AND LOWER(BTRIM(name)) = LOWER(BTRIM(?)) AND id <> ?
+          LIMIT 1`,
+        args: [orgId, name, id],
+      });
+      if (conflict.rows.length > 0) {
+        throw duplicateWorkspaceUserGroupNameError(name);
+      }
+    }
+    throw error;
   }
   const groups = await listWorkspaceUserGroupsForOrg(orgId, [id]);
   const group = groups[0];
@@ -419,13 +508,20 @@ export async function workspaceUserGroupsIncludeUser(
   if (!normalizedOrgId || !normalizedEmail || normalizedIds.length === 0) {
     return false;
   }
-  // Group rows can outlive roster membership. A stale email in the JSON
-  // member list must not keep granting access after that person leaves the
-  // organization.
   if (!(await isOrgMember(normalizedOrgId, normalizedEmail))) return false;
   const groups = await listWorkspaceUserGroupsForOrg(
     normalizedOrgId,
     normalizedIds,
   );
   return groups.some((group) => group.memberEmails.includes(normalizedEmail));
+}
+
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
 }

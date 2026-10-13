@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAppStateGet = vi.hoisted(() => vi.fn());
@@ -16,6 +18,7 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  getForwardedRequestURL: (event: { url: URL | string }) => new URL(event.url),
   getSession: (...args: unknown[]) => mockGetSession(...args),
   signScopedAgentAccessToken: (...args: unknown[]) =>
     mockSignScopedAgentAccessToken(...args),
@@ -55,18 +58,24 @@ vi.mock("../db/index.js", () => ({
 }));
 
 vi.mock("./share-password.js", () => ({
+  getRecordingAccessTokenResourceId: (id: string, password: string | null) =>
+    password ? `${id}:password-scoped` : `${id}:update-scoped`,
   verifySharePassword: vi.fn(() => false),
 }));
 
 import {
   buildPublicAgentContext,
   CLIPS_AGENT_ACCESS_TTL_SECONDS,
+  describeAgentAccessFailure,
   loadPublicAgentAccess,
+  loadRecordingMediaFile,
   loadRecordingMediaBytes,
   RecordingMediaFetchError,
 } from "./public-agent-context";
 
 const originalMaxMediaBytes = process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES;
+const originalMaxMediaFileBytes =
+  process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES;
 
 function makeRecording(overrides: Record<string, unknown> = {}) {
   return {
@@ -84,6 +93,7 @@ function makeRecording(overrides: Record<string, unknown> = {}) {
     videoSizeBytes: null,
     durationMs: 10_000,
     updatedAt: "2026-01-01T00:00:00.000Z",
+    sharePasswordVersion: "initial",
     ...overrides,
   };
 }
@@ -93,6 +103,15 @@ function streamFrom(chunks: Uint8Array[]) {
     start(controller) {
       for (const chunk of chunks) controller.enqueue(chunk);
       controller.close();
+    },
+  });
+}
+
+function streamThatFailsAfterChunk() {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(Buffer.from("partial"));
+      controller.error(new Error("connection reset"));
     },
   });
 }
@@ -122,9 +141,31 @@ describe("public agent context access", () => {
     }
     expect(mockSignScopedAgentAccessToken).toHaveBeenCalledWith({
       resourceKind: "clip-agent-context",
-      resourceId: "rec-1",
+      resourceId: "rec-1:password-scoped",
       ttlSeconds: CLIPS_AGENT_ACCESS_TTL_SECONDS,
     });
+  });
+
+  it("does not accept an agent token scoped before a password was added", async () => {
+    mockRecordings.rows = [
+      makeRecording({
+        visibility: "private",
+        password: "encrypted-password",
+      }),
+    ];
+
+    const result = await loadPublicAgentAccess({} as any, "rec-1", {
+      token: "old-agent-token",
+    });
+
+    expect(result).toMatchObject({ ok: false, failure: { status: 404 } });
+    expect(mockVerifyScopedAgentAccessToken).toHaveBeenCalledWith(
+      "old-agent-token",
+      {
+        resourceKind: "clip-agent-context",
+        resourceId: "rec-1:password-scoped",
+      },
+    );
   });
 
   it("allows a scoped agent token to read private clips without making them public", async () => {
@@ -148,7 +189,7 @@ describe("public agent context access", () => {
       "agent-token",
       {
         resourceKind: "clip-agent-context",
-        resourceId: "rec-1",
+        resourceId: "rec-1:update-scoped",
       },
     );
   });
@@ -169,10 +210,63 @@ describe("public agent context access", () => {
   });
 });
 
+describe("describeAgentAccessFailure", () => {
+  it("explains that a missing private share link needs agent access without exposing clip state", () => {
+    const failure = describeAgentAccessFailure({
+      status: 404,
+      body: { error: "Not found" },
+    });
+
+    expect(failure).toEqual({
+      status: 404,
+      body: {
+        failureKind: "access",
+        error: "This clip is unavailable from this link.",
+        nextStep:
+          "If this clip is private or password protected, ask the owner to open the Clips Share menu, choose Share with agents, and send the generated link.",
+      },
+    });
+  });
+
+  it("explains password, expired-link, and malformed-URL failures", () => {
+    expect(
+      describeAgentAccessFailure({
+        status: 401,
+        body: { error: "Password required" },
+      }).body,
+    ).toMatchObject({
+      failureKind: "access",
+      error: "This clip requires additional share access.",
+      nextStep: expect.stringContaining("Share with agents"),
+    });
+    expect(
+      describeAgentAccessFailure({
+        status: 410,
+        body: { error: "Expired" },
+      }).body,
+    ).toMatchObject({
+      failureKind: "expired",
+      error: "This clip share link has expired.",
+      nextStep: expect.stringContaining("extend or remove the clip's expiry"),
+    });
+    expect(
+      describeAgentAccessFailure({
+        status: 400,
+        body: { error: "id is required" },
+      }).body,
+    ).toMatchObject({
+      failureKind: "request",
+      error: "The clip id is missing.",
+      nextStep: expect.stringContaining("agent_access"),
+    });
+  });
+});
+
 describe("loadRecordingMediaBytes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES = "4";
+    process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES = "6";
   });
 
   afterEach(() => {
@@ -180,6 +274,12 @@ describe("loadRecordingMediaBytes", () => {
       delete process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES;
     } else {
       process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES = originalMaxMediaBytes;
+    }
+    if (originalMaxMediaFileBytes === undefined) {
+      delete process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES;
+    } else {
+      process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES =
+        originalMaxMediaFileBytes;
     }
   });
 
@@ -226,6 +326,43 @@ describe("loadRecordingMediaBytes", () => {
     await expect(
       loadRecordingMediaBytes(makeRecording({ videoFormat: "mp4" }) as any),
     ).rejects.toThrow(/too large/i);
+  });
+
+  it("streams large remote frame media to a temporary file", async () => {
+    mockSsrfSafeFetch.mockResolvedValue(
+      new Response(streamFrom([Buffer.from("12"), Buffer.from("345")]), {
+        status: 200,
+        headers: { "content-type": "video/mp4" },
+      }),
+    );
+
+    const result = await loadRecordingMediaFile(
+      makeRecording({ videoFormat: "mp4" }) as any,
+    );
+    try {
+      expect(await readFile(result.path, "utf8")).toBe("12345");
+      expect(result.mimeType).toBe("video/mp4");
+    } finally {
+      await result.cleanup();
+    }
+  });
+
+  it("classifies a failed response-body stream as a media fetch failure", async () => {
+    mockSsrfSafeFetch.mockResolvedValue(
+      new Response(streamThatFailsAfterChunk(), {
+        status: 200,
+        headers: { "content-type": "video/mp4" },
+      }),
+    );
+
+    await expect(
+      loadRecordingMediaFile(makeRecording({ videoFormat: "mp4" }) as any),
+    ).rejects.toMatchObject({
+      name: "RecordingMediaFetchError",
+      statusCode: 502,
+      message:
+        "Recording media download failed while reading the response body.",
+    });
   });
 
   it("wraps remote media fetch exceptions as fetch failures", async () => {
@@ -339,6 +476,12 @@ describe("buildPublicAgentContext", () => {
     expect(context.clip.sourceProvider).toBe("loom");
     expect(context.apis).toHaveProperty("frame");
     expect(context.recommendedFrames.length).toBeGreaterThan(0);
+    expect(context.instructions.join(" ")).toMatch(
+      /failureKind=processing, follow nextStep/i,
+    );
+    expect(context.instructions.join(" ")).toMatch(
+      /wait clip\.agentReadiness\.retryAfterSeconds and fetch apis\.context\.url/i,
+    );
   });
 
   it("tells agents to wait and retry while a transcript is pending", () => {
@@ -593,11 +736,48 @@ describe("buildPublicAgentContext", () => {
             durationMs: 40,
           },
         ],
+        timeline: [
+          {
+            timestampMs: 12,
+            elapsedMs: 12,
+            kind: "click",
+            target: "button#submit",
+          },
+          {
+            timestampMs: 140,
+            elapsedMs: 140,
+            kind: "network",
+            phase: "response",
+            type: "fetch",
+            method: "GET",
+            url: "https://api.example.com/fail?token=<redacted>",
+            status: 500,
+            durationMs: 120,
+          },
+        ],
       },
     });
 
     expect(context.browserDiagnostics?.summary.networkFailureCount).toBe(1);
-    // consoleLogs exposes the full stream (all levels), not just warn/error.
+    expect(context.browserDiagnostics?.timeline).toEqual([
+      {
+        timestampMs: 12,
+        kind: "click",
+        target: "button#submit",
+        url: null,
+      },
+      {
+        timestampMs: 140,
+        kind: "network",
+        phase: "response",
+        type: "fetch",
+        method: "GET",
+        url: "https://api.example.com/fail?token=<redacted>",
+        status: 500,
+        error: null,
+        durationMs: 120,
+      },
+    ]);
     expect(context.browserDiagnostics?.consoleLogs).toEqual([
       {
         timestampMs: 1,
@@ -610,7 +790,6 @@ describe("buildPublicAgentContext", () => {
         message: "Failed without token=<redacted>",
       },
     ]);
-    // consoleIssues remains the curated warn/error highlight list.
     expect(context.browserDiagnostics?.consoleIssues).toEqual([
       {
         timestampMs: 2,
@@ -618,7 +797,6 @@ describe("buildPublicAgentContext", () => {
         message: "Failed without token=<redacted>",
       },
     ]);
-    // networkRequests exposes the full stream with sanitized URLs.
     expect(context.browserDiagnostics?.networkRequests).toEqual([
       {
         timestampMs: 3,
@@ -639,7 +817,6 @@ describe("buildPublicAgentContext", () => {
         durationMs: 40,
       },
     ]);
-    // failedNetworkRequests remains the curated failure highlight list.
     expect(context.browserDiagnostics?.failedNetworkRequests).toEqual([
       {
         timestampMs: 3,
@@ -651,7 +828,6 @@ describe("buildPublicAgentContext", () => {
         durationMs: 120,
       },
     ]);
-    // The recording's own page URL is still never exposed.
     expect(context.browserDiagnostics).not.toHaveProperty("pageUrl");
   });
 });

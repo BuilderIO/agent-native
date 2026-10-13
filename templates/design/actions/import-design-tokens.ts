@@ -18,20 +18,18 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import {
   mutateDesignData,
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   isSafeCssTokenValue,
   isSafeCssVarName,
   resolveTweaksToCssVars,
 } from "../shared/resolve-tweaks.js";
 
-// Aliased, not re-declared: this was a hand-copy of BrandKitTokenType that
-// drifted, so tokens classified here could name a category the stored kit had
-// no word for.
 type ImportedTokenType = BrandKitTokenType;
 
 interface ImportedDesignToken {
@@ -114,7 +112,6 @@ function designDeepLink(designId: string): string {
   });
 }
 
-/** `120ms`, `0.2s`, `cubic-bezier(...)`, `ease-in-out`, `steps(4, end)`. */
 function isMotionValue(value: string): boolean {
   const v = value.trim().toLowerCase();
   return (
@@ -124,7 +121,6 @@ function isMotionValue(value: string): boolean {
   );
 }
 
-/** An offset/blur triple in px/rem/em with any color notation, or `none`. */
 function isShadowValue(value: string): boolean {
   const v = value.trim().toLowerCase();
   if (v === "none") return true;
@@ -296,10 +292,6 @@ function parseNamedLines(
         /duration|easing|ease|transition|animation|motion|delay/.test(lower) &&
         isMotionValue(value)
       ) {
-        // Motion is part of the brand. Dropping these here is why an imported
-        // system arrives with colors and type but nothing that moves. The
-        // value guard keeps prose out: this runs over free-text design.md
-        // lines, where "Release notes: v2" matches the label pattern.
         cssVar = tokenVar("motion", label);
       }
 
@@ -439,8 +431,9 @@ export default defineAction({
     "apply-design-token-edit. For Figma/.fig and full local-code indexing, use " +
     "the Builder-backed design-system import flow.",
   schema: tokenImportSchema,
-  run: async ({ designId, source, files, text }) => {
+  run: async ({ designId, source, files, text }, context) => {
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
 
     const db = getDb();
     let importFiles: { filename: string; content: string }[] = [];

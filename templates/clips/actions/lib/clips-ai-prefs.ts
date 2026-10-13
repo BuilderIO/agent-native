@@ -1,7 +1,3 @@
-/**
- * Server helper: load the current user's "include full video in AI" preference.
- */
-
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { getUserSetting } from "@agent-native/core/settings";
 

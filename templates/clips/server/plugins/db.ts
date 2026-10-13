@@ -4,28 +4,19 @@ import {
   runMigrations,
   deferMigration,
   getDbExec,
-  isPostgres,
   ensureAdditiveColumns,
   type MigrationRunResult,
 } from "@agent-native/core/db";
 import { registerEvent } from "@agent-native/core/event-bus";
 import { z } from "zod";
 
-// Side-effect import — registers `recording` as a shareable resource with the
-// framework before any HTTP request runs. The framework's auto-mounted
-// share-resource / set-resource-visibility / list-resource-shares actions
-// are loaded in a separate Vite SSR bundle from user actions, so we trigger
-// the registration eagerly from the always-loaded db plugin.
 import "../db/index.js";
 import * as schema from "../db/schema.js";
-import { uploadLeaseExpiry } from "../lib/upload-lease.js";
+import {
+  uploadLeaseExpiry,
+  waitingStorageLeaseExpiry,
+} from "../lib/upload-lease.js";
 
-/**
- * Every Drizzle table exported from schema.ts. Filters out type-only and
- * helper exports the same way db.spec.ts's `isDrizzleTable` regression guard
- * does: a real table carries a Symbol-keyed drizzle metadata bag, plain
- * exports don't.
- */
 function isDrizzleTable(value: unknown): value is object {
   return (
     !!value &&
@@ -38,24 +29,7 @@ function isDrizzleTable(value: unknown): value is object {
 
 const schemaTables = Object.values(schema).filter(isDrizzleTable);
 
-/**
- * Post-migration fixup for Postgres: retype boolean-mode columns from bigint
- * to boolean.
- *
- * The early table-create migrations (v4–v14 below) used `INTEGER` because
- * `runMigrations` needs dialect-neutral SQL; `adaptSqlForPostgres` rewrites
- * INTEGER → BIGINT on Postgres. But the Drizzle schema declares these
- * columns as `integer(..., { mode: "boolean" })` — which on Postgres maps
- * to the `boolean` type. Drizzle then sends `true`/`false` at insert, which
- * Postgres rejects against a bigint column (`invalid input syntax for type
- * bigint: "true"`).
- *
- * This function runs the ALTERs needed to realign live DBs. It's a no-op on
- * SQLite (where booleans are just 0/1 INTEGERs natively) and on Postgres
- * installations where the columns are already BOOLEAN (idempotent check).
- */
 async function retypeBooleanColumnsOnPostgres(): Promise<void> {
-  if (!isPostgres()) return;
   const exec = getDbExec();
   const alters: Array<[string, string, boolean]> = [
     ["recordings", "has_audio", true],
@@ -71,17 +45,9 @@ async function retypeBooleanColumnsOnPostgres(): Promise<void> {
     ["meeting_participants", "is_organizer", false],
     ["clips_meetings", "share_transcript", false],
   ];
-  // One probe for all of them, not one per column. This runs on every cold
-  // start, and eleven serialized information_schema round-trips before the
-  // process can serve is exactly the startup cost that made these apps slow —
-  // the same reason `ensureAdditiveColumns` batches its own introspection.
-  // After the first deploy every column already matches and the loop below
-  // does nothing, so the probes were the entire remaining cost.
   const typesByColumn = new Map<string, string>();
   try {
     const probe = await exec.execute({
-      // `information_schema` columns are the `name` type; the explicit
-      // ::text[] casts are what make the comparison legal.
       sql: `SELECT table_name, column_name, data_type
             FROM information_schema.columns
             WHERE table_name = ANY($1::text[]) AND column_name = ANY($2::text[])`,
@@ -103,9 +69,6 @@ async function retypeBooleanColumnsOnPostgres(): Promise<void> {
       }
     }
   } catch (err) {
-    // Probing is the optimization; a failure here must not skip the retype and
-    // silently leave int columns behind. Fall through with an empty map so each
-    // column is attempted individually below, as it was before batching.
     console.warn(
       "[db] batched boolean-column probe failed; retrying per column:",
       (err as Error)?.message ?? err,
@@ -116,7 +79,7 @@ async function retypeBooleanColumnsOnPostgres(): Promise<void> {
     try {
       const known = typesByColumn.get(`${table}.${column}`);
       if (known === "boolean") continue;
-      if (!known && typesByColumn.size > 0) continue; // absent column, nothing to retype
+      if (!known && typesByColumn.size > 0) continue;
       const def = defaultTrue ? "TRUE" : "FALSE";
       await exec.execute(
         `ALTER TABLE ${table} ALTER COLUMN ${column} DROP DEFAULT, ALTER COLUMN ${column} TYPE BOOLEAN USING (${column} <> 0), ALTER COLUMN ${column} SET DEFAULT ${def}`,
@@ -143,11 +106,11 @@ async function acquireRecordingOrgIdBackfillLease(): Promise<boolean> {
   const expiresAt = now + RECORDING_ORG_ID_BACKFILL_LEASE_MS;
   await exec.execute({
     sql: `INSERT INTO clips_backfill_leases (lease_key, holder, expires_at)
-      VALUES (?, ?, ?)
+      VALUES ($1, $2, $3)
       ON CONFLICT (lease_key) DO UPDATE SET
         holder = excluded.holder,
         expires_at = excluded.expires_at
-      WHERE clips_backfill_leases.expires_at <= ?`,
+      WHERE clips_backfill_leases.expires_at <= $4`,
     args: [
       RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
       recordingOrgIdBackfillHolder,
@@ -157,7 +120,7 @@ async function acquireRecordingOrgIdBackfillLease(): Promise<boolean> {
   });
   const result = await exec.execute({
     sql: `SELECT holder FROM clips_backfill_leases
-      WHERE lease_key = ? AND holder = ? AND expires_at > ?`,
+      WHERE lease_key = $1 AND holder = $2 AND expires_at > $3`,
     args: [
       RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
       recordingOrgIdBackfillHolder,
@@ -170,8 +133,8 @@ async function acquireRecordingOrgIdBackfillLease(): Promise<boolean> {
 async function renewRecordingOrgIdBackfillLease(): Promise<boolean> {
   const result = await getDbExec().execute({
     sql: `UPDATE clips_backfill_leases
-      SET expires_at = ?
-      WHERE lease_key = ? AND holder = ? AND expires_at > ?`,
+      SET expires_at = $1
+      WHERE lease_key = $2 AND holder = $3 AND expires_at > $4`,
     args: [
       Date.now() + RECORDING_ORG_ID_BACKFILL_LEASE_MS,
       RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
@@ -197,7 +160,7 @@ async function backfillRecordingOrgIdsInBatches(): Promise<void> {
             SELECT id FROM recordings
             WHERE org_id IS NULL AND workspace_id IS NOT NULL
             ORDER BY id
-            LIMIT ?
+            LIMIT $1
           )`,
         args: [RECORDING_ORG_ID_BACKFILL_BATCH_SIZE],
       });
@@ -215,7 +178,7 @@ async function backfillRecordingOrgIdsInBatches(): Promise<void> {
     await exec
       .execute({
         sql: `DELETE FROM clips_backfill_leases
-          WHERE lease_key = ? AND holder = ?`,
+          WHERE lease_key = $1 AND holder = $2`,
         args: [
           RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
           recordingOrgIdBackfillHolder,
@@ -238,9 +201,6 @@ function scheduleRecordingOrgIdBackfill(): void {
 // this list independently — see the v41 incident documented on v41 below.
 export const migrations = runMigrations(
   [
-    // ---------------------------------------------------------------------------
-    // Workspaces & members
-    // ---------------------------------------------------------------------------
     {
       version: 1,
       sql: `CREATE TABLE IF NOT EXISTS workspaces (
@@ -250,8 +210,8 @@ export const migrations = runMigrations(
       brand_color TEXT NOT NULL DEFAULT '#18181B',
       brand_logo_url TEXT,
       default_visibility TEXT NOT NULL DEFAULT 'public',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -279,12 +239,9 @@ export const migrations = runMigrations(
       invited_by TEXT NOT NULL,
       expires_at TEXT,
       accepted_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
-    // ---------------------------------------------------------------------------
-    // Spaces & folders
-    // ---------------------------------------------------------------------------
     {
       version: 4,
       sql: `CREATE TABLE IF NOT EXISTS spaces (
@@ -294,7 +251,7 @@ export const migrations = runMigrations(
       color TEXT NOT NULL DEFAULT '#18181B',
       icon_emoji TEXT,
       is_all_company BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -316,12 +273,9 @@ export const migrations = runMigrations(
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       name TEXT NOT NULL DEFAULT 'Untitled folder',
       position INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
-    // ---------------------------------------------------------------------------
-    // Recordings — the core resource
-    // ---------------------------------------------------------------------------
     {
       version: 7,
       sql: `CREATE TABLE IF NOT EXISTS recordings (
@@ -362,8 +316,8 @@ export const migrations = runMigrations(
       enable_downloads BOOLEAN NOT NULL DEFAULT TRUE,
       default_speed TEXT NOT NULL DEFAULT '1.2',
       animated_thumbnail_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       archived_at TEXT,
       trashed_at TEXT,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -380,12 +334,9 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
-    // ---------------------------------------------------------------------------
-    // Tags, transcripts, CTAs
-    // ---------------------------------------------------------------------------
     {
       version: 9,
       sql: `CREATE TABLE IF NOT EXISTS recording_tags (
@@ -405,8 +356,8 @@ export const migrations = runMigrations(
       full_text TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'pending',
       failure_reason TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -418,12 +369,9 @@ export const migrations = runMigrations(
       url TEXT NOT NULL,
       color TEXT NOT NULL DEFAULT '#18181B',
       placement TEXT NOT NULL DEFAULT 'throughout',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
-    // ---------------------------------------------------------------------------
-    // Comments & reactions
-    // ---------------------------------------------------------------------------
     {
       version: 12,
       sql: `CREATE TABLE IF NOT EXISTS recording_comments (
@@ -438,8 +386,8 @@ export const migrations = runMigrations(
       video_timestamp_ms INTEGER NOT NULL DEFAULT 0,
       emoji_reactions_json TEXT NOT NULL DEFAULT '{}',
       resolved BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -451,12 +399,9 @@ export const migrations = runMigrations(
       viewer_name TEXT,
       emoji TEXT NOT NULL,
       video_timestamp_ms INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
-    // ---------------------------------------------------------------------------
-    // Analytics
-    // ---------------------------------------------------------------------------
     {
       version: 14,
       sql: `CREATE TABLE IF NOT EXISTS recording_viewers (
@@ -464,8 +409,8 @@ export const migrations = runMigrations(
       recording_id TEXT NOT NULL,
       viewer_email TEXT,
       viewer_name TEXT,
-      first_viewed_at TEXT NOT NULL DEFAULT (datetime('now')),
-      last_viewed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      first_viewed_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      last_viewed_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       total_watch_ms INTEGER NOT NULL DEFAULT 0,
       completed_pct INTEGER NOT NULL DEFAULT 0,
       counted_view BOOLEAN NOT NULL DEFAULT FALSE,
@@ -481,18 +426,9 @@ export const migrations = runMigrations(
       kind TEXT NOT NULL,
       timestamp_ms INTEGER NOT NULL DEFAULT 0,
       payload TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
-    // ---------------------------------------------------------------------------
-    // Organization settings — Clips-specific sidecar to the framework
-    // `organizations` table.
-    //
-    // One row per organization. Brand color + logo + default visibility live
-    // here; membership and invitations live in `org_members` / `org_invitations`.
-    // This replaces `workspaces.brand_color` / `.brand_logo_url` / `.default_visibility`
-    // once callsites migrate.
-    // ---------------------------------------------------------------------------
     {
       version: 16,
       sql: `CREATE TABLE IF NOT EXISTS organization_settings (
@@ -500,13 +436,10 @@ export const migrations = runMigrations(
       brand_color TEXT NOT NULL DEFAULT '#18181B',
       brand_logo_url TEXT,
       default_visibility TEXT NOT NULL DEFAULT 'public',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
-    // ---------------------------------------------------------------------------
-    // Meetings (Granola-style) — additive only.
-    // ---------------------------------------------------------------------------
     {
       version: 17,
       sql: `CREATE TABLE IF NOT EXISTS meetings (
@@ -528,8 +461,8 @@ export const migrations = runMigrations(
       action_items_json TEXT NOT NULL DEFAULT '[]',
       source TEXT NOT NULL DEFAULT 'adhoc',
       reminder_fired_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       archived_at TEXT,
       trashed_at TEXT,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -546,7 +479,7 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -558,7 +491,7 @@ export const migrations = runMigrations(
       name TEXT,
       is_organizer BOOLEAN NOT NULL DEFAULT FALSE,
       attended_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -570,12 +503,9 @@ export const migrations = runMigrations(
       text TEXT NOT NULL,
       due_date TEXT,
       completed_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
-    // ---------------------------------------------------------------------------
-    // Calendar accounts + events
-    // ---------------------------------------------------------------------------
     {
       version: 21,
       sql: `CREATE TABLE IF NOT EXISTS calendar_accounts (
@@ -589,8 +519,8 @@ export const migrations = runMigrations(
       last_synced_at TEXT,
       last_sync_error TEXT,
       status TEXT NOT NULL DEFAULT 'connected',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -605,7 +535,7 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -624,13 +554,10 @@ export const migrations = runMigrations(
       attendees_json TEXT NOT NULL DEFAULT '[]',
       meeting_id TEXT,
       provider_updated_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
-    // ---------------------------------------------------------------------------
-    // Dictations (press-and-hold history)
-    // ---------------------------------------------------------------------------
     {
       version: 24,
       sql: `CREATE TABLE IF NOT EXISTS dictations (
@@ -641,9 +568,9 @@ export const migrations = runMigrations(
       audio_url TEXT,
       source TEXT NOT NULL DEFAULT 'fn-hold',
       target_app TEXT,
-      started_at TEXT NOT NULL DEFAULT (datetime('now')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      started_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -658,18 +585,9 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
-    // ---------------------------------------------------------------------------
-    // Namespaced rebuilds. Earlier migrations 17/18/24/25 used unprefixed table
-    // names (`meetings`, `dictations`, etc.) which collided with the
-    // meeting-notes and voice templates when those templates share a database.
-    // The collision was a no-op CREATE TABLE IF NOT EXISTS, so clips ended up
-    // querying the foreign template's table with the wrong column shape.
-    // These migrations create the correctly-shaped clips-prefixed tables.
-    // The legacy unprefixed tables stay in place (additive only — never drop).
-    // ---------------------------------------------------------------------------
     {
       version: 26,
       sql: `CREATE TABLE IF NOT EXISTS clips_meetings (
@@ -691,8 +609,8 @@ export const migrations = runMigrations(
       action_items_json TEXT NOT NULL DEFAULT '[]',
       source TEXT NOT NULL DEFAULT 'adhoc',
       reminder_fired_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       archived_at TEXT,
       trashed_at TEXT,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -709,7 +627,7 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -722,9 +640,9 @@ export const migrations = runMigrations(
       audio_url TEXT,
       source TEXT NOT NULL DEFAULT 'fn-hold',
       target_app TEXT,
-      started_at TEXT NOT NULL DEFAULT (datetime('now')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      started_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -739,13 +657,9 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
-    // -------------------------------------------------------------------------
-    // Indices for hot list-query paths on meetings + dictations. Additive only;
-    // CREATE INDEX IF NOT EXISTS works on both SQLite and Postgres.
-    // -------------------------------------------------------------------------
     {
       version: 30,
       sql: `CREATE INDEX IF NOT EXISTS clips_meetings_owner_email_idx ON clips_meetings (owner_email)`,
@@ -762,11 +676,6 @@ export const migrations = runMigrations(
       version: 33,
       sql: `CREATE INDEX IF NOT EXISTS clips_dictations_owner_started_idx ON clips_dictations (owner_email, started_at)`,
     },
-    // -------------------------------------------------------------------------
-    // Personal vocabulary auto-learn — Wispr-style. Strictly additive: a new
-    // table for {term, replacement} pairs the user has corrected post-paste,
-    // plus its standard shares table and a per-user lookup index.
-    // -------------------------------------------------------------------------
     {
       version: 34,
       sql: `CREATE TABLE IF NOT EXISTS clips_vocabulary (
@@ -795,7 +704,7 @@ export const migrations = runMigrations(
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     )`,
     },
     {
@@ -814,43 +723,14 @@ export const migrations = runMigrations(
       version: 40,
       sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS source_window_title TEXT`,
     },
-    // -------------------------------------------------------------------------
-    // Indices for the hot recordings list/read paths, per-recording comment
-    // loads, and the `accessFilter` share-lookup EXISTS subqueries that run on
-    // every list/read of recordings, meetings, dictations, and calendar
-    // accounts. Strictly additive; `CREATE INDEX IF NOT EXISTS` works on both
-    // SQLite and Postgres. The composite share index matches the subquery's
-    // `(resource_id, principal_type, principal_id)` predicate exactly.
-    //
-    // `clips_vocabulary_shares` already has a `resource_id` index (v37) and is
-    // intentionally left as-is. The legacy unprefixed `meeting_shares` (v18)
-    // and `dictation_shares` (v25) are NOT on any access path — the schema and
-    // every `accessFilter` callsite use the `clips_*` prefixed tables — so they
-    // are intentionally skipped.
-    //
-    // v41 was recorded as applied in `clips_migrations` on the shared Neon
-    // database, but none of its 8 indexes actually existed live (confirmed via
-    // `pg_indexes` — the exact "recorded but never ran" collision class
-    // `runMigrations` name-based tracking exists to fix; see
-    // packages/core/src/db/migrations.ts). All statements here are
-    // `CREATE INDEX IF NOT EXISTS` (unchanged, still idempotent), so it is
-    // named to re-apply by name regardless of this database's recorded
-    // MAX(version).
-    // -------------------------------------------------------------------------
     {
       version: 41,
       name: "recordings-comments-shares-hot-path-indexes",
       sql: [
-        // recordings list: library view filters owner_email + workspace_id and
-        // sorts by created_at; the accessFilter owner branch also scopes by
-        // org_id. Space view + org-scoped filters hit workspace_id alone.
         `CREATE INDEX IF NOT EXISTS recordings_owner_workspace_created_idx ON recordings (owner_email, workspace_id, created_at)`,
         `CREATE INDEX IF NOT EXISTS recordings_owner_org_created_idx ON recordings (owner_email, org_id, created_at)`,
         `CREATE INDEX IF NOT EXISTS recordings_workspace_id_idx ON recordings (workspace_id)`,
-        // recording_comments loaded per recording, sorted by created_at.
         `CREATE INDEX IF NOT EXISTS recording_comments_recording_created_idx ON recording_comments (recording_id, created_at)`,
-        // Shares tables on real accessFilter paths — composite matches the
-        // EXISTS subquery predicate exactly.
         `CREATE INDEX IF NOT EXISTS recording_shares_resource_principal_idx ON recording_shares (resource_id, principal_type, principal_id)`,
         `CREATE INDEX IF NOT EXISTS clips_meeting_shares_resource_principal_idx ON clips_meeting_shares (resource_id, principal_type, principal_id)`,
         `CREATE INDEX IF NOT EXISTS clips_dictation_shares_resource_principal_idx ON clips_dictation_shares (resource_id, principal_type, principal_id)`,
@@ -875,8 +755,8 @@ export const migrations = runMigrations(
           console_logs_json TEXT NOT NULL DEFAULT '[]',
           network_requests_json TEXT NOT NULL DEFAULT '[]',
           redaction_version INTEGER NOT NULL DEFAULT 1,
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
         )`,
         `CREATE INDEX IF NOT EXISTS recording_browser_diagnostics_owner_idx ON recording_browser_diagnostics (owner_email, updated_at)`,
       ].join("; "),
@@ -901,8 +781,8 @@ export const migrations = runMigrations(
           org_id TEXT,
           status TEXT NOT NULL DEFAULT 'connected',
           last_error TEXT,
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
         )`,
         `CREATE INDEX IF NOT EXISTS slack_installations_team_status_idx ON slack_installations (team_id, status)`,
         `CREATE INDEX IF NOT EXISTS slack_installations_team_app_status_idx ON slack_installations (team_id, api_app_id, status)`,
@@ -930,9 +810,9 @@ export const migrations = runMigrations(
           reporter_name TEXT,
           reporter_id TEXT,
           metadata_json TEXT NOT NULL DEFAULT '{}',
-          submitted_at TEXT NOT NULL DEFAULT (datetime('now')),
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+          submitted_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
         )`,
         `CREATE INDEX IF NOT EXISTS recording_bug_reports_owner_idx ON recording_bug_reports (owner_email, updated_at)`,
         `CREATE INDEX IF NOT EXISTS recording_bug_reports_project_idx ON recording_bug_reports (project_id, updated_at)`,
@@ -943,13 +823,6 @@ export const migrations = runMigrations(
       name: "recording-transcripts-retry-count",
       sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0`,
     },
-    // ---------------------------------------------------------------------------
-    // Per-view records — append-only log of counted views (who viewed a clip
-    // and when), backing the owner-facing "Viewed by" popover and the
-    // `list-clip-views` action. Newer rows include a per-player-open
-    // view_session_id so returning viewers can appear again while duplicate
-    // threshold posts for the same open are idempotent.
-    // ---------------------------------------------------------------------------
     {
       version: 46,
       name: "recording-views-per-view-log",
@@ -962,7 +835,7 @@ export const migrations = runMigrations(
           view_session_id TEXT,
           viewer_email TEXT,
           viewer_name TEXT,
-          viewed_at TEXT NOT NULL DEFAULT (datetime('now'))
+          viewed_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
         )`,
         `CREATE INDEX IF NOT EXISTS recording_views_recording_idx ON recording_views (recording_id, viewed_at)`,
       ].join("; "),
@@ -1000,11 +873,6 @@ export const migrations = runMigrations(
         `UPDATE organization_settings SET default_visibility = 'public' WHERE default_visibility = 'private' AND updated_at = created_at`,
       ].join("; "),
     },
-    // -------------------------------------------------------------------------
-    // Agent views — external agents polling a public clip's agent context,
-    // transcript, or frame APIs. Kept in its own table so human view counts
-    // cannot accidentally include agents.
-    // -------------------------------------------------------------------------
     {
       version: 51,
       name: "recording-agent-views",
@@ -1015,8 +883,8 @@ export const migrations = runMigrations(
           agent_key TEXT NOT NULL,
           agent_label TEXT,
           view_session_id TEXT NOT NULL,
-          first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
-          last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+          first_seen_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          last_seen_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
           request_count INTEGER NOT NULL DEFAULT 1
         )`,
         `CREATE UNIQUE INDEX IF NOT EXISTS recording_agent_views_session_unique_idx ON recording_agent_views (recording_id, agent_key, view_session_id)`,
@@ -1083,8 +951,8 @@ export const migrations = runMigrations(
       viewer_key TEXT NOT NULL,
       viewer_email TEXT,
       position_ms INTEGER NOT NULL DEFAULT 0,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     );
     CREATE UNIQUE INDEX IF NOT EXISTS recording_playback_positions_recording_viewer_key_unique_idx
       ON recording_playback_positions (recording_id, viewer_key)`,
@@ -1092,12 +960,10 @@ export const migrations = runMigrations(
     {
       version: 59,
       name: "backfill-recording-org-id",
-      // Keep the repair's lease in schema migrations, but run the historical
-      // data update below in bounded background batches after boot.
       sql: `CREATE TABLE IF NOT EXISTS clips_backfill_leases (
         lease_key TEXT PRIMARY KEY,
         holder TEXT NOT NULL,
-        expires_at INTEGER NOT NULL
+        expires_at BIGINT NOT NULL
       )`,
     },
     {
@@ -1114,91 +980,269 @@ export const migrations = runMigrations(
     {
       version: 61,
       name: "sync-workspaces-to-organizations",
-      // Run-only, and ordered after the legacy backfill exactly as the plugin
-      // body ran them. Nothing inserts into `workspaces` anywhere in the app
-      // any more, so this is a one-time backfill of historical rows rather
-      // than an ongoing reconciliation — there is nothing new to sync. It
-      // returns `deferMigration()` while the framework's org tables are still
-      // missing, so a first-boot race leaves it pending instead of applied.
       sql: {},
       run: syncWorkspacesToOrganizations,
     },
     {
       version: 62,
       name: "retype-boolean-columns-postgres",
-      // Run-only: the retype is driven by a fixed historical list of columns
-      // that predate BOOLEAN, and it probes information_schema to decide. Once
-      // applied it can never have anything left to do, so recording it removes
-      // the probe from the boot path entirely instead of paying it forever.
-      // No-ops on SQLite, which never had the wrong type.
       sql: {},
       run: retypeBooleanColumnsOnPostgres,
     },
     {
       version: 63,
       name: "recording-org-id-backfill-lease-table",
-      // v59 was already applied on some deployments before the data repair was
-      // moved off startup. This additive no-op makes the lease table available
-      // there as well, without re-running or blocking on the old UPDATE.
       sql: `CREATE TABLE IF NOT EXISTS clips_backfill_leases (
         lease_key TEXT PRIMARY KEY,
         holder TEXT NOT NULL,
-        expires_at INTEGER NOT NULL
+        expires_at BIGINT NOT NULL
       )`,
     },
     {
       version: 64,
       name: "recording-transcripts-failure-code",
-      // Additive. Existing rows keep failure_code NULL and their prose; new
-      // failures record a code that owns retryability instead of having it
-      // re-derived by regex over the message.
       sql: `ALTER TABLE recording_transcripts ADD COLUMN failure_code TEXT`,
     },
     {
       version: 65,
       name: "recording-media-updated-at",
-      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS media_updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS media_updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
+    },
+    {
+      version: 66,
+      name: "recording-comment-mentions",
+      sql: `ALTER TABLE recording_comments ADD COLUMN IF NOT EXISTS mentions_json TEXT`,
+    },
+    {
+      version: 67,
+      name: "clips-transactional-email-sql-store",
+      sql: [
+        `CREATE TABLE IF NOT EXISTS clips_transactional_email_jobs (
+          logical_key TEXT PRIMARY KEY,
+          type TEXT NOT NULL,
+          state TEXT NOT NULL,
+          recipient TEXT NOT NULL,
+          recording_ids_json TEXT NOT NULL,
+          share_id TEXT,
+          requested_by TEXT,
+          month TEXT,
+          generated_summary TEXT,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          ai_dispatched_at TEXT,
+          ai_claimed_by TEXT,
+          ready_at TEXT,
+          sending_at TEXT,
+          sent_at TEXT,
+          cancelled_at TEXT,
+          failed_at TEXT,
+          last_error TEXT,
+          lease_until TEXT,
+          lease_token TEXT
+        )`,
+        `CREATE INDEX IF NOT EXISTS clips_transactional_email_jobs_state_created_idx ON clips_transactional_email_jobs (state, created_at)`,
+        `CREATE TABLE IF NOT EXISTS clips_transactional_email_configs (
+          id TEXT PRIMARY KEY,
+          config_json TEXT NOT NULL
+        )`,
+      ].join("; "),
+    },
+    {
+      version: 68,
+      name: "recording-thumbnail-status",
+      sql: [
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS thumbnail_status TEXT`,
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS thumbnail_failure_reason TEXT`,
+        `CREATE INDEX IF NOT EXISTS recordings_thumbnail_status_idx ON recordings (status, thumbnail_status)`,
+      ].join("; "),
+    },
+    {
+      version: 69,
+      name: "clips-meeting-end-reason",
+      sql: `ALTER TABLE clips_meetings ADD COLUMN IF NOT EXISTS end_reason TEXT`,
+    },
+    {
+      version: 70,
+      name: "clips-backfill-leases-expires-at-bigint",
+      sql: `
+        -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
+        ALTER TABLE clips_backfill_leases ALTER COLUMN expires_at TYPE BIGINT
+      `,
+    },
+    {
+      version: 71,
+      name: "share-tables-notified-at",
+      sql: `
+        ALTER TABLE IF EXISTS recording_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS clips_meeting_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS clips_dictation_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS clips_vocabulary_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS calendar_account_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+      `,
+    },
+    {
+      version: 72,
+      name: "clips-intake-sessions",
+      sql: `CREATE TABLE IF NOT EXISTS clips_intake_sessions (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        organization_id TEXT NOT NULL,
+        recording_id TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE INDEX IF NOT EXISTS clips_intake_sessions_expires_idx
+        ON clips_intake_sessions (status, expires_at)`,
+    },
+    {
+      version: 73,
+      name: "recording-browser-diagnostics-interaction-events",
+      sql: `ALTER TABLE recording_browser_diagnostics ADD COLUMN IF NOT EXISTS interaction_events_json TEXT NOT NULL DEFAULT '[]'`,
+    },
+    {
+      version: 74,
+      name: "recording-failure-codes-platform",
+      sql: `
+        ALTER TABLE recordings ADD COLUMN IF NOT EXISTS failure_code TEXT;
+        ALTER TABLE recordings ADD COLUMN IF NOT EXISTS recording_platform TEXT;
+      `,
+    },
+    {
+      version: 75,
+      name: "recording-failure-backfill-cursor",
+      sql: `ALTER TABLE clips_backfill_leases ADD COLUMN IF NOT EXISTS cursor_id TEXT`,
+    },
+    {
+      version: 76,
+      name: "recording-failure-backfill-completion",
+      sql: `ALTER TABLE clips_backfill_leases ADD COLUMN IF NOT EXISTS completed_at TEXT`,
+    },
+    {
+      version: 77,
+      name: "recording-share-password-version",
+      // guard:allow-unscoped — initializes each row from its existing token scope.
+      // Keep the DDL atomic; the migration runner splits SQL on semicolons.
+      sql: `
+        DO 'BEGIN
+          EXECUTE ''ALTER TABLE recordings ADD COLUMN IF NOT EXISTS share_password_version TEXT'';
+          EXECUTE ''UPDATE recordings
+            SET share_password_version = ''''legacy:'''' || updated_at
+            WHERE share_password_version IS NULL'';
+          EXECUTE ''ALTER TABLE recordings ALTER COLUMN share_password_version SET DEFAULT ''''initial'''''';
+          EXECUTE ''ALTER TABLE recordings ALTER COLUMN share_password_version SET NOT NULL'';
+          EXECUTE format(
+            ''CREATE OR REPLACE FUNCTION public.clips_recordings_rotate_share_password_version()
+              RETURNS trigger
+              LANGUAGE plpgsql
+              AS %L'',
+            $function$BEGIN
+              IF NEW.password IS DISTINCT FROM OLD.password THEN
+                NEW.share_password_version := ''password-change:'' || COALESCE(NEW.share_password_version, OLD.share_password_version, ''initial'');
+              END IF;
+              RETURN NEW;
+            END;$function$
+          );
+          BEGIN
+            EXECUTE ''CREATE TRIGGER clips_recordings_rotate_share_password_version
+              BEFORE UPDATE OF password ON public.recordings
+              FOR EACH ROW
+              EXECUTE FUNCTION public.clips_recordings_rotate_share_password_version()'';
+          EXCEPTION WHEN duplicate_object THEN
+            NULL;
+          END;
+        END';
+      `,
+    },
+    {
+      version: 78,
+      name: "recording-kind-screenshots",
+      // Additive. Existing rows are videos; `image_url` stays NULL for videos.
+      sql: [
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'video'`,
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS image_url TEXT`,
+      ].join("; "),
+    },
+    {
+      version: 79,
+      name: "screenshot-base-image",
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS base_image_url TEXT`,
+    },
+    {
+      version: 80,
+      name: "recording-waiting-storage-lease",
+      // Rows parked for storage were saved with no lease, which the reaper
+      // never selects, so they waited forever. Idempotent: NULL leases only.
+      // guard:allow-unscoped — startup migration backfills every owner's rows.
+      sql: `UPDATE recordings SET upload_lease_expires_at = '${waitingStorageLeaseExpiry()}' WHERE upload_lease_expires_at IS NULL AND status = 'uploading' AND failure_reason IS NOT NULL`,
+    },
+    {
+      version: 81,
+      name: "recording-context-items",
+      // Additive. Mirrors `recordingContextItems` in server/db/schema.ts; keep
+      // the partial unique index predicate identical to the schema's.
+      sql: `CREATE TABLE IF NOT EXISTS recording_context_items (
+        id TEXT PRIMARY KEY,
+        recording_id TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'screen_history',
+        label TEXT,
+        requested_seconds INTEGER NOT NULL,
+        original_started_at TEXT NOT NULL,
+        original_ended_at TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        ended_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        media_recording_id TEXT,
+        duration_ms INTEGER,
+        width INTEGER,
+        height INTEGER,
+        error TEXT,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS recording_context_items_active_recording_unique_idx
+        ON recording_context_items (recording_id)
+        WHERE status <> 'removed';
+      CREATE INDEX IF NOT EXISTS recording_context_items_pending_idx
+        ON recording_context_items (created_at)
+        WHERE status = 'pending'`,
+    },
+    {
+      version: 82,
+      name: "recording-context-pending-footage",
+      // Additive. Mirrors `pendingMediaRecordingId` in server/db/schema.ts.
+      sql: `ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS pending_media_recording_id TEXT`,
+    },
+    {
+      version: 83,
+      name: "recording-context-footage-indexes",
+      // Additive. The in-use check looks up items by either footage column.
+      // Mirrors the indexes on `recordingContextItems` in server/db/schema.ts.
+      sql: `CREATE INDEX IF NOT EXISTS recording_context_items_media_recording_idx
+        ON recording_context_items (media_recording_id);
+      CREATE INDEX IF NOT EXISTS recording_context_items_pending_media_recording_idx
+        ON recording_context_items (pending_media_recording_id)`,
+    },
+    {
+      version: 84,
+      name: "recording-context-captured-device",
+      // Additive. Mirrors `capturedDeviceId` in server/db/schema.ts. NULL rows
+      // predate device scoping and stay visible to every device's queue.
+      sql: `ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS captured_device_id TEXT`,
     },
   ],
   { table: "clips_migrations" },
 );
 
-/**
- * Idempotent sync: for every Clips `workspaces` row, ensure there's a
- * matching framework `organizations` row (same id), an
- * `organization_settings` row, and — where owner has not already been
- * seeded — an admin `org_members` row. Invites are copied into
- * `org_invitations`.
- *
- * Clips uses the framework's email-based org system (`organizations` /
- * `org_members` / `org_invitations`), which the `/_agent-native/org/*`
- * endpoints + `useOrg` client hook + `share-resource` action all resolve
- * membership through.
- *
- * Runs on every startup after the schema migrations. Safe to re-run: all
- * inserts are guarded with WHERE-NOT-EXISTS so it only writes rows that
- * aren't there yet.
- */
 async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
   const exec = getDbExec();
-  const pg = isPostgres();
 
-  // 0) Skip cleanly if either source or dest tables don't exist yet. The
-  //    source may be missing on fresh installs after the workspace tables
-  //    are eventually dropped; the framework org tables are created via
-  //    their own migration bundle which may race with this plugin on
-  //    very first boot.
   const hasTable = async (name: string): Promise<boolean> => {
     try {
-      if (pg) {
-        const r = await exec.execute({
-          sql: `SELECT 1 FROM information_schema.tables WHERE table_name = $1 LIMIT 1`,
-          args: [name],
-        });
-        return (r.rows?.length ?? 0) > 0;
-      }
       const r = await exec.execute({
-        sql: `SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?`,
+        sql: `SELECT 1 FROM information_schema.tables WHERE table_name = $1 LIMIT 1`,
         args: [name],
       });
       return (r.rows?.length ?? 0) > 0;
@@ -1227,29 +1271,16 @@ async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
   //    `organizations` table has a simple shape: id, name, created_by, created_at.
   // guard:allow-unscoped — schema migration backfill — system-level by design
   try {
-    if (pg) {
-      await exec.execute(`
-        INSERT INTO organizations (id, name, created_by, created_at)
-        SELECT
-          w.id,
-          w.name,
-          w.owner_email,
-          EXTRACT(EPOCH FROM COALESCE(w.created_at::TIMESTAMPTZ, NOW())) * 1000
-        FROM workspaces w
-        WHERE NOT EXISTS (SELECT 1 FROM organizations o WHERE o.id = w.id)
-      `);
-    } else {
-      await exec.execute(`
-        INSERT INTO organizations (id, name, created_by, created_at)
-        SELECT
-          w.id,
-          w.name,
-          w.owner_email,
-          strftime('%s','now') * 1000
-        FROM workspaces w
-        WHERE NOT EXISTS (SELECT 1 FROM organizations o WHERE o.id = w.id)
-      `);
-    }
+    await exec.execute(`
+      INSERT INTO organizations (id, name, created_by, created_at)
+      SELECT
+        w.id,
+        w.name,
+        w.owner_email,
+        EXTRACT(EPOCH FROM COALESCE(w.created_at::TIMESTAMPTZ, NOW())) * 1000
+      FROM workspaces w
+      WHERE NOT EXISTS (SELECT 1 FROM organizations o WHERE o.id = w.id)
+    `);
   } catch (err) {
     console.warn(
       `[db] workspaces → organizations sync failed:`,
@@ -1275,41 +1306,21 @@ async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
     );
   }
 
-  // 3a) Seed each workspace owner as an owner `org_members` row. Owners
-  //     were implicitly members in the old Clips workspace model — this is
-  //     the step that lands the current user inside their new org.
   try {
-    if (pg) {
-      await exec.execute(`
-        INSERT INTO org_members (id, org_id, email, role, joined_at)
-        SELECT
-          'ownr-' || w.id,
-          w.id,
-          w.owner_email,
-          'admin',
-          EXTRACT(EPOCH FROM NOW()) * 1000
-        FROM workspaces w
-        WHERE NOT EXISTS (
-          SELECT 1 FROM org_members m
-          WHERE m.org_id = w.id AND LOWER(m.email) = LOWER(w.owner_email)
-        )
-      `);
-    } else {
-      await exec.execute(`
-        INSERT INTO org_members (id, org_id, email, role, joined_at)
-        SELECT
-          'ownr-' || w.id,
-          w.id,
-          w.owner_email,
-          'admin',
-          strftime('%s','now') * 1000
-        FROM workspaces w
-        WHERE NOT EXISTS (
-          SELECT 1 FROM org_members m
-          WHERE m.org_id = w.id AND LOWER(m.email) = LOWER(w.owner_email)
-        )
-      `);
-    }
+    await exec.execute(`
+      INSERT INTO org_members (id, org_id, email, role, joined_at)
+      SELECT
+        'ownr-' || w.id,
+        w.id,
+        w.owner_email,
+        'admin',
+        EXTRACT(EPOCH FROM NOW()) * 1000
+      FROM workspaces w
+      WHERE NOT EXISTS (
+        SELECT 1 FROM org_members m
+        WHERE m.org_id = w.id AND LOWER(m.email) = LOWER(w.owner_email)
+      )
+    `);
   } catch (err) {
     console.warn(
       `[db] workspace owners → org_members sync failed:`,
@@ -1317,41 +1328,21 @@ async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
     );
   }
 
-  // 3b) Copy workspace_members → org_members. Role mapping: clips `admin` →
-  //     framework `admin`, everything else (`creator`, `creator-lite`,
-  //     `viewer`) → `member`.
   try {
-    if (pg) {
-      await exec.execute(`
-        INSERT INTO org_members (id, org_id, email, role, joined_at)
-        SELECT
-          wm.id,
-          wm.workspace_id,
-          wm.email,
-          CASE WHEN wm.role = 'admin' THEN 'admin' ELSE 'member' END,
-          EXTRACT(EPOCH FROM NOW()) * 1000
-        FROM workspace_members wm
-        WHERE NOT EXISTS (
-          SELECT 1 FROM org_members m
-          WHERE m.org_id = wm.workspace_id AND LOWER(m.email) = LOWER(wm.email)
-        )
-      `);
-    } else {
-      await exec.execute(`
-        INSERT INTO org_members (id, org_id, email, role, joined_at)
-        SELECT
-          wm.id,
-          wm.workspace_id,
-          wm.email,
-          CASE WHEN wm.role = 'admin' THEN 'admin' ELSE 'member' END,
-          strftime('%s','now') * 1000
-        FROM workspace_members wm
-        WHERE NOT EXISTS (
-          SELECT 1 FROM org_members m
-          WHERE m.org_id = wm.workspace_id AND LOWER(m.email) = LOWER(wm.email)
-        )
-      `);
-    }
+    await exec.execute(`
+      INSERT INTO org_members (id, org_id, email, role, joined_at)
+      SELECT
+        wm.id,
+        wm.workspace_id,
+        wm.email,
+        CASE WHEN wm.role = 'admin' THEN 'admin' ELSE 'member' END,
+        EXTRACT(EPOCH FROM NOW()) * 1000
+      FROM workspace_members wm
+      WHERE NOT EXISTS (
+        SELECT 1 FROM org_members m
+        WHERE m.org_id = wm.workspace_id AND LOWER(m.email) = LOWER(wm.email)
+      )
+    `);
   } catch (err) {
     console.warn(
       `[db] workspace_members → org_members sync failed:`,
@@ -1359,39 +1350,21 @@ async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
     );
   }
 
-  // 4) Copy invites → org_invitations (pending only).
   try {
-    if (pg) {
-      await exec.execute(`
-        INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status)
-        SELECT
-          i.id,
-          i.workspace_id,
-          i.email,
-          i.invited_by,
-          EXTRACT(EPOCH FROM NOW()) * 1000,
-          CASE WHEN i.accepted_at IS NOT NULL THEN 'accepted' ELSE 'pending' END
-        FROM invites i
-        WHERE NOT EXISTS (
-          SELECT 1 FROM org_invitations x WHERE x.id = i.id
-        )
-      `);
-    } else {
-      await exec.execute(`
-        INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status)
-        SELECT
-          i.id,
-          i.workspace_id,
-          i.email,
-          i.invited_by,
-          strftime('%s','now') * 1000,
-          CASE WHEN i.accepted_at IS NOT NULL THEN 'accepted' ELSE 'pending' END
-        FROM invites i
-        WHERE NOT EXISTS (
-          SELECT 1 FROM org_invitations x WHERE x.id = i.id
-        )
-      `);
-    }
+    await exec.execute(`
+      INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status)
+      SELECT
+        i.id,
+        i.workspace_id,
+        i.email,
+        i.invited_by,
+        EXTRACT(EPOCH FROM NOW()) * 1000,
+        CASE WHEN i.accepted_at IS NOT NULL THEN 'accepted' ELSE 'pending' END
+      FROM invites i
+      WHERE NOT EXISTS (
+        SELECT 1 FROM org_invitations x WHERE x.id = i.id
+      )
+    `);
   } catch (err) {
     console.warn(
       `[db] invites → org_invitations sync failed:`,
@@ -1399,47 +1372,23 @@ async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
     );
   }
 
-  // 5) Set each user's `active-org-id` user-setting so the framework's
-  //    `getOrgContext()` resolves to their newest org on first load. The
-  //    value is stored as JSON in the settings table under the key
-  //    `u:<email>:active-org-id`. `settings.updated_at` is NOT NULL so we
-  //    set it to now.
   try {
-    if (pg) {
-      await exec.execute(`
-        INSERT INTO settings (key, value, updated_at)
-        SELECT
-          'u:' || LOWER(sub.email) || ':active-org-id',
-          '{"orgId":"' || sub.org_id || '"}',
-          EXTRACT(EPOCH FROM NOW()) * 1000
-        FROM (
-          SELECT DISTINCT ON (LOWER(email)) email, org_id
-          FROM org_members
-          ORDER BY LOWER(email), joined_at DESC
-        ) sub
-        WHERE NOT EXISTS (
-          SELECT 1 FROM settings s
-          WHERE s.key = 'u:' || LOWER(sub.email) || ':active-org-id'
-        )
-      `);
-    } else {
-      await exec.execute(`
-        INSERT INTO settings (key, value, updated_at)
-        SELECT
-          'u:' || LOWER(sub.email) || ':active-org-id',
-          '{"orgId":"' || sub.org_id || '"}',
-          strftime('%s','now') * 1000
-        FROM (
-          SELECT email, org_id, MAX(joined_at) AS jmax
-          FROM org_members
-          GROUP BY LOWER(email)
-        ) sub
-        WHERE NOT EXISTS (
-          SELECT 1 FROM settings s
-          WHERE s.key = 'u:' || LOWER(sub.email) || ':active-org-id'
-        )
-      `);
-    }
+    await exec.execute(`
+      INSERT INTO settings (key, value, updated_at)
+      SELECT
+        'u:' || LOWER(sub.email) || ':active-org-id',
+        '{"orgId":"' || sub.org_id || '"}',
+        EXTRACT(EPOCH FROM NOW()) * 1000
+      FROM (
+        SELECT DISTINCT ON (LOWER(email)) email, org_id
+        FROM org_members
+        ORDER BY LOWER(email), joined_at DESC
+      ) sub
+      WHERE NOT EXISTS (
+        SELECT 1 FROM settings s
+        WHERE s.key = 'u:' || LOWER(sub.email) || ':active-org-id'
+      )
+    `);
   } catch (err) {
     console.warn(
       `[db] active-org-id user-setting backfill failed:`,
@@ -1457,20 +1406,11 @@ function assertSafeIdentifier(name: string): string {
 
 async function tableExists(name: string): Promise<boolean> {
   const exec = getDbExec();
-  const pg = isPostgres();
   assertSafeIdentifier(name);
 
   try {
-    if (pg) {
-      const result = await exec.execute({
-        sql: `SELECT 1 FROM information_schema.tables WHERE table_name = $1 LIMIT 1`,
-        args: [name],
-      });
-      return (result.rows?.length ?? 0) > 0;
-    }
-
     const result = await exec.execute({
-      sql: `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`,
+      sql: `SELECT 1 FROM information_schema.tables WHERE table_name = $1 LIMIT 1`,
       args: [name],
     });
     return (result.rows?.length ?? 0) > 0;
@@ -1484,30 +1424,19 @@ async function tableHasColumns(
   columns: readonly string[],
 ): Promise<boolean> {
   const exec = getDbExec();
-  const pg = isPostgres();
   assertSafeIdentifier(name);
 
   if (!(await tableExists(name))) return false;
 
   try {
-    if (pg) {
-      const result = await exec.execute({
-        sql: `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
-        args: [name],
-      });
-      const present = new Set(
-        (result.rows as Array<{ column_name?: string }>).map(
-          (row) => row.column_name,
-        ),
-      );
-      return columns.every((column) => present.has(column));
-    }
-
-    const result = await exec.execute(
-      `PRAGMA table_info(${assertSafeIdentifier(name)})`,
-    );
+    const result = await exec.execute({
+      sql: `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
+      args: [name],
+    });
     const present = new Set(
-      (result.rows as Array<{ name?: string }>).map((row) => row.name),
+      (result.rows as Array<{ column_name?: string }>).map(
+        (row) => row.column_name,
+      ),
     );
     return columns.every((column) => present.has(column));
   } catch {
@@ -1515,11 +1444,6 @@ async function tableHasColumns(
   }
 }
 
-/**
- * Best-effort additive copy from the legacy unprefixed Clips tables into the
- * new namespaced tables. The legacy names are left untouched because other
- * templates may own them in shared databases.
- */
 async function backfillLegacyClipsTables(): Promise<void> {
   const exec = getDbExec();
 
@@ -1699,8 +1623,6 @@ export default async (nitroApp: any): Promise<void> => {
       );
     }
   } catch (err) {
-    // Never fail boot over the safety net itself — the authoritative
-    // migrations above already ran.
     console.warn(
       "[db] ensureAdditiveColumns failed (non-fatal):",
       err instanceof Error ? err.message : err,
@@ -1708,9 +1630,6 @@ export default async (nitroApp: any): Promise<void> => {
   }
   scheduleRecordingOrgIdBackfill();
 
-  // ---------------------------------------------------------------------------
-  // Register Clips template events for the automations system.
-  // ---------------------------------------------------------------------------
   registerEvent({
     name: "clip.created",
     description:

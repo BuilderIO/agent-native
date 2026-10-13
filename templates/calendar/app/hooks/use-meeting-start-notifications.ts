@@ -11,6 +11,16 @@ function supportsNotifications() {
   return typeof window !== "undefined" && "Notification" in window;
 }
 
+export function getMeetingStartNotificationPermission(): NotificationPermission | null {
+  return supportsNotifications() ? Notification.permission : null;
+}
+
+export async function requestMeetingStartNotificationPermission(): Promise<NotificationPermission | null> {
+  const permission = getMeetingStartNotificationPermission();
+  if (permission !== "default") return permission;
+  return Notification.requestPermission();
+}
+
 function loadSentKeys(): string[] {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);

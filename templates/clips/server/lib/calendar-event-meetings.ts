@@ -122,9 +122,6 @@ export async function resolveCalendarAccessToken(
       credentials: credentialCandidates,
     });
   } catch (err) {
-    // Only a permanent failure (dead refresh token / bad OAuth client) means
-    // "needs-reauth" — collapse those to `null` as before. During the refresh
-    // buffer, a transient failure can safely reuse the still-valid token.
     if (isPermanentRefreshFailure(err)) return null;
     if (
       bundle?.accessToken &&
@@ -182,7 +179,11 @@ export async function recordCalendarFetchError(
   options: { needsReauth?: boolean } = {},
 ): Promise<CalendarFetchError> {
   const message =
-    error instanceof Error ? error.message : String(error || "Calendar failed");
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error || "Calendar failed"
+        : "Calendar failed";
   const needsReauth = options.needsReauth ?? shouldMarkNeedsReauth(message);
   if (!account.ownerEmail) {
     return { accountId: account.id, error: message, needsReauth };
@@ -251,7 +252,7 @@ export function calendarEventParticipants(event: CalendarEvent) {
 export function calendarEventToMeetingView(args: {
   account: CalendarAccountForEvents;
   event: CalendarEvent;
-  meeting?: any | null;
+  meeting?: any;
 }) {
   const startIso = eventStartIso(args.event);
   const endIso = eventEndIso(args.event);
@@ -304,17 +305,10 @@ export async function lockCalendarAccount(
   return locked.length > 0;
 }
 
-/**
- * The calendar could not be read. Distinct from `null` (no such event, or the
- * caller cannot see it): the event may well exist and be visible, so callers
- * must offer a retry rather than reporting it permanently gone.
- */
 export class CalendarEventUnavailableError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message);
     this.name = "CalendarEventUnavailableError";
-    // Assigned rather than passed to `super`: the Error `cause` option needs
-    // the ES2022 lib, which this template does not target.
     if (options && "cause" in options) {
       (this as { cause?: unknown }).cause = options.cause;
     }
@@ -339,8 +333,6 @@ export async function fetchLiveCalendarEventFromId(virtualId: string) {
   try {
     accessToken = await resolveCalendarAccessToken(account);
   } catch (err) {
-    // Transient refresh failure — record the real error (won't match
-    // shouldMarkNeedsReauth) instead of a permanent needs-reauth marker.
     await recordCalendarFetchError(account, err);
     throw new CalendarEventUnavailableError(
       "Could not reach Google Calendar to load this event.",
@@ -468,9 +460,6 @@ export async function materializeCalendarMeetingFromVirtualId(
   const nowIso = new Date().toISOString();
 
   return db.transaction(async (tx: any) => {
-    // Disconnect takes this same account-row write lock before it snapshots
-    // and deletes events. If disconnect wins, the account is gone by the time
-    // this transaction reaches the lock and materialization becomes a no-op.
     if (
       !(await lockCalendarAccount(tx, live.account.id, live.account.ownerEmail))
     )
@@ -489,11 +478,6 @@ export async function materializeCalendarMeetingFromVirtualId(
       }
     }
 
-    // Claim the calendar_events row atomically before inserting the meeting
-    // row, so two concurrent materialize calls for the same event can't both
-    // insert a `meetings` row (check-then-act TOCTOU). Only the caller whose
-    // UPDATE actually matched a row (meetingId still NULL) proceeds to insert;
-    // the loser re-reads and returns the winner's meeting instead.
     const claimed = await tx
       .update(schema.calendarEvents)
       .set({ meetingId, updatedAt: nowIso })
@@ -506,7 +490,6 @@ export async function materializeCalendarMeetingFromVirtualId(
       .returning({ id: schema.calendarEvents.id });
 
     if (!claimed.length) {
-      // Someone else claimed it first — re-read and return the winner.
       const [winnerEvent] = await tx
         .select({ meetingId: schema.calendarEvents.meetingId })
         .from(schema.calendarEvents)
@@ -569,8 +552,6 @@ export async function materializeCalendarMeetingFromVirtualId(
         );
       }
     } catch (err) {
-      // Roll back the claim so a future call can retry — but only if it still
-      // points at our own meetingId (don't clobber a legitimate later claim).
       await tx
         .update(schema.calendarEvents)
         .set({ meetingId: null, updatedAt: new Date().toISOString() })

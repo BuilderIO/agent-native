@@ -1,17 +1,3 @@
-/**
- * Tests for duplicate-design.
- *
- * Coverage focus: duplicated designs/files always get fresh DB-level ids
- * (design id + designFiles.id), and duplicated HTML content gets any MISSING
- * data-agent-native-node-id attributes filled in (shared/screen-annotation.ts)
- * without disturbing ids the source screen already had. Existing
- * data-agent-native-node-id values are intentionally copied verbatim rather
- * than regenerated — see the long comment in duplicate-design.ts for why
- * (node ids are file-scoped, never looked up across designs, and
- * regenerating them would require rewriting motion/interaction-state CSS
- * selectors embedded in the same HTML in lockstep).
- */
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -28,9 +14,6 @@ const mocks = vi.hoisted(() => {
   const db = {
     select: vi.fn(() => fileSelectChain),
     insert,
-    // The action runs both inserts inside one db.transaction(); the mock
-    // hands the same insert-tracking db to the callback as `tx` so existing
-    // insertValues assertions keep working unchanged.
     transaction: vi.fn(async (callback: (tx: unknown) => Promise<void>) => {
       await callback(db);
     }),
@@ -134,8 +117,6 @@ describe("duplicate-design: fresh ids + node-id annotation", () => {
     const designInsert = mocks.insertValues.mock.calls[0]![0] as {
       id: string;
     };
-    // File inserts are now batched: `.values()` receives an array of rows in
-    // one call rather than one call per file.
     const fileInsert = (
       mocks.insertValues.mock.calls[1]![0] as Array<{
         id: string;
@@ -164,10 +145,7 @@ describe("duplicate-design: fresh ids + node-id annotation", () => {
     const fileInsert = (
       mocks.insertValues.mock.calls[1]![0] as Array<{ content: string }>
     )[0]!;
-    // Existing id on <main> is preserved verbatim (not regenerated).
     expect(fileInsert.content).toContain('data-agent-native-node-id="an-kept"');
-    // The <button>, which had no id in the source, gets one filled in on the
-    // copy.
     expect(fileInsert.content).toMatch(
       /<button data-agent-native-node-id="[^"]+">Buy<\/button>/,
     );

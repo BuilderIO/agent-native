@@ -1,0 +1,85 @@
+import { Slot } from "@radix-ui/react-slot";
+import { cva, type VariantProps } from "class-variance-authority";
+import * as React from "react";
+
+import { cn } from "../utils.js";
+import { Separator } from "./separator.js";
+
+const buttonGroupVariants = cva(
+  "flex w-fit items-stretch has-[>[data-slot=button-group]]:gap-2 [&>*]:focus-visible:relative [&>*]:focus-visible:z-10 has-[select[aria-hidden=true]:last-child]:[&>[data-slot=select-trigger]:last-of-type]:rounded-e-md [&>[data-slot=select-trigger]:not([class*='w-'])]:w-fit [&>input]:flex-1",
+  {
+    variants: {
+      orientation: {
+        horizontal:
+          "[&>*:first-child:not([data-slot=button-group]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:rounded-s-md [&>*:not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:first-child):not([data-slot=button-group]):not([data-slot=button-group]+*)]:rounded-s-none [&>*:not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:first-child):not([data-slot=button-group]):not([data-slot=button-group]+*)[class~='border']]:border-s-0 [&>*:not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:first-child):not([data-slot=button-group]):not([data-slot=button-group]+*):not([data-slot=button-group-separator]):not([data-slot=button-group-separator]+*):not([class~='border'])]:border-s [&>*:not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:first-child):not([data-slot=button-group]):not([data-slot=button-group]+*):not([data-slot=button-group-separator]):not([data-slot=button-group-separator]+*):not([class~='border'])]:border-s-current/20 [&>*:not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:last-child):not([data-slot=button-group]):not(:has(+[data-slot=button-group]))]:rounded-e-none [&>*:last-child:not([data-slot=button-group]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:rounded-e-md has-[>input[data-button-group-ignore]]:[&>*:nth-last-child(2)]:!rounded-e-md",
+        vertical:
+          "flex-col [&>*:first-child:not([data-slot=button-group]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:rounded-t-md [&>*:not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:first-child):not([data-slot=button-group]):not([data-slot=button-group]+*)]:rounded-t-none [&>*:not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:first-child):not([data-slot=button-group]):not([data-slot=button-group]+*)[class~='border']]:border-t-0 [&>*:not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:first-child):not([data-slot=button-group]):not([data-slot=button-group]+*):not([data-slot=button-group-separator]):not([data-slot=button-group-separator]+*):not([class~='border'])]:border-t [&>*:not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:first-child):not([data-slot=button-group]):not([data-slot=button-group]+*):not([data-slot=button-group-separator]):not([data-slot=button-group-separator]+*):not([class~='border'])]:border-t-current/20 [&>*:not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:last-child):not([data-slot=button-group]):not(:has(+[data-slot=button-group]))]:rounded-b-none [&>*:last-child:not([data-slot=button-group]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:rounded-b-md has-[>input[data-button-group-ignore]]:[&>*:nth-last-child(2)]:!rounded-b-md",
+      },
+    },
+    defaultVariants: {
+      orientation: "horizontal",
+    },
+  },
+);
+
+const ButtonGroup = React.forwardRef<
+  HTMLDivElement,
+  React.ComponentProps<"div"> & VariantProps<typeof buttonGroupVariants>
+>(function ButtonGroup({ className, orientation, ...props }, ref) {
+  return (
+    <div
+      ref={ref}
+      role="group"
+      data-slot="button-group"
+      data-orientation={orientation}
+      className={cn(buttonGroupVariants({ orientation }), className)}
+      {...props}
+    />
+  );
+});
+ButtonGroup.displayName = "ButtonGroup";
+
+function ButtonGroupText({
+  className,
+  asChild = false,
+  ...props
+}: React.ComponentProps<"div"> & {
+  asChild?: boolean;
+}) {
+  const Comp = asChild ? Slot : "div";
+
+  return (
+    <Comp
+      className={cn(
+        "bg-muted shadow-xs flex items-center gap-2 rounded-md border px-4 text-sm font-medium [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function ButtonGroupSeparator({
+  className,
+  orientation = "vertical",
+  ...props
+}: React.ComponentProps<typeof Separator>) {
+  return (
+    <Separator
+      data-slot="button-group-separator"
+      orientation={orientation}
+      className={cn(
+        "bg-input relative !m-0 self-stretch data-[orientation=vertical]:h-auto",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+export {
+  ButtonGroup,
+  ButtonGroupSeparator,
+  ButtonGroupText,
+  buttonGroupVariants,
+};

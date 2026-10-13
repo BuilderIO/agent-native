@@ -47,7 +47,7 @@ export async function transcribeWithBuilder(
   const auth = await resolveBuilderGatewayAuth();
   if (!auth) {
     throw new Error(
-      "Builder private key not configured. Connect your Builder.io account (free tier available) in Settings.",
+      "Builder private key is not configured. Use Builder.io (free tier available) in Settings to set it up.",
     );
   }
 
@@ -64,8 +64,6 @@ export async function transcribeWithBuilder(
 
   const url = `${getBuilderProxyOrigin()}/agent-native/transcribe-audio?${params.toString()}`;
 
-  // Copy to a plain ArrayBuffer so TS6 accepts it as BodyInit (Uint8Array
-  // with ArrayBufferLike doesn't satisfy the strict BlobPart/BodyInit types).
   const body = opts.audioBytes.buffer.slice(
     opts.audioBytes.byteOffset,
     opts.audioBytes.byteOffset + opts.audioBytes.byteLength,
@@ -84,8 +82,6 @@ export async function transcribeWithBuilder(
       headers: {
         Authorization: auth.authorization,
         "Content-Type": "application/octet-stream",
-        // A gateway token without a space id is rejected before any route
-        // policy is consulted, so the space id travels with every call.
         ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
         ...(auth.userId ? { "x-builder-user-id": auth.userId } : {}),
       },

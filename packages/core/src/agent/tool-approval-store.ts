@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { getDbExec, isPostgres, retryOnDdlRace } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import {
   AGENT_TOOL_APPROVAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
@@ -11,12 +12,6 @@ import {
   AGENT_TOOL_APPROVAL_TABLE_SQL,
 } from "./tool-approval-migrations.js";
 
-// 15 minutes was too short in practice: a user who steps away mid-approval
-// (switching tabs to update their client, checking something else) comes back
-// to a silently expired grant with no visible error — clicking Approve just
-// does nothing, because `consumeAgentToolApproval`'s `expires_at > ?` no
-// longer matches. An hour gives real human latency room while still bounding
-// how long a stale grant can be replayed.
 const APPROVAL_TTL_MS = 60 * 60_000;
 const APPROVAL_CLEANUP_AGE_MS = 24 * 60 * 60_000;
 
@@ -25,66 +20,50 @@ let policyInitPromise: Promise<void> | undefined;
 
 export async function ensureAgentToolApprovalTable(): Promise<void> {
   if (!initPromise) {
-    initPromise = (async () => {
-      const createSql =
-        AGENT_TOOL_APPROVAL_TABLE_SQL[isPostgres() ? "postgres" : "sqlite"];
-      if (isPostgres()) {
-        await ensureTableExists("agent_tool_approvals", createSql);
-        await ensureIndexExists(
-          "idx_agent_tool_approvals_binding",
-          AGENT_TOOL_APPROVAL_INDEX_SQL,
-        );
-        await ensureIndexExists(
-          "idx_agent_tool_approvals_logical",
-          AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
-        );
-        await ensureIndexExists(
-          "idx_agent_tool_approvals_recovery",
-          AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL,
-        );
-        return;
-      }
-      const client = getDbExec();
-      await retryOnDdlRace(() => client.execute(createSql));
-      await retryOnDdlRace(() => client.execute(AGENT_TOOL_APPROVAL_INDEX_SQL));
-      await retryOnDdlRace(() =>
-        client.execute(AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL),
+    const initPromiseWithRequestDbPoolScope = (async () => {
+      await ensureTableExists(
+        "agent_tool_approvals",
+        AGENT_TOOL_APPROVAL_TABLE_SQL.postgres,
       );
-      await retryOnDdlRace(() =>
-        client.execute(AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL),
+      await ensureIndexExists(
+        "idx_agent_tool_approvals_binding",
+        AGENT_TOOL_APPROVAL_INDEX_SQL,
+      );
+      await ensureIndexExists(
+        "idx_agent_tool_approvals_logical",
+        AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
+      );
+      await ensureIndexExists(
+        "idx_agent_tool_approvals_recovery",
+        AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL,
       );
     })().catch((error) => {
       initPromise = undefined;
       throw error;
     });
+    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
   }
   return initPromise;
 }
 
 export async function ensureAgentToolApprovalPolicyTable(): Promise<void> {
   if (!policyInitPromise) {
-    policyInitPromise = (async () => {
-      const createSql =
-        AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL[
-          isPostgres() ? "postgres" : "sqlite"
-        ];
-      if (isPostgres()) {
-        await ensureTableExists("agent_tool_approval_policies", createSql);
-        await ensureIndexExists(
-          "idx_agent_tool_approval_policies_scope",
-          AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL,
-        );
-        return;
-      }
-      const client = getDbExec();
-      await retryOnDdlRace(() => client.execute(createSql));
-      await retryOnDdlRace(() =>
-        client.execute(AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL),
+    const policyInitPromiseWithRequestDbPoolScope = (async () => {
+      await ensureTableExists(
+        "agent_tool_approval_policies",
+        AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL.postgres,
+      );
+      await ensureIndexExists(
+        "idx_agent_tool_approval_policies_scope",
+        AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL,
       );
     })().catch((error) => {
       policyInitPromise = undefined;
       throw error;
     });
+    policyInitPromise = retainRequestDbPoolScope(
+      policyInitPromiseWithRequestDbPoolScope,
+    );
   }
   return policyInitPromise;
 }
@@ -176,11 +155,6 @@ export async function isAgentToolAlwaysAllowed(
   return (result.rows ?? []).length > 0;
 }
 
-/**
- * Recover the durable scope for an approval continuation when a transport
- * drops the original turn id. A single pending logical turn is safe to
- * recover; multiple turns are deliberately ambiguous and stay unmatched.
- */
 export async function resolveAgentToolApprovalTurnId(binding: {
   ownerEmail: string;
   orgId?: string | null;
@@ -217,26 +191,17 @@ export async function resolveAgentToolApprovalTurnId(binding: {
 
   const turnIds = new Set(
     (result.rows ?? [])
-      .map((row) => {
+      .map((row: unknown) => {
         const value = (row as { turn_id?: unknown }).turn_id;
         return typeof value === "string" && value.trim() ? value.trim() : null;
       })
-      .filter((turnId): turnId is string => turnId !== null),
+      .filter((turnId: string | null): turnId is string => turnId !== null),
   );
   const requestedTurnId = binding.requestedTurnId?.trim();
   if (requestedTurnId && turnIds.has(requestedTurnId)) return requestedTurnId;
   return turnIds.size === 1 ? [...turnIds][0]! : null;
 }
 
-/**
- * Creates the durable pending-approval row and returns its id as the "ask"
- * identity for this specific gate hit. Every call is a fresh row (a fresh
- * id), including a second gate hit for the same `approvalKey` after a prior
- * grant failed to be consumed — so the id doubles as the signal the client
- * needs to tell "this approval_required is the one I already approved,
- * re-rendered" apart from "this is a NEW ask for the same tool call". See
- * `ApprovalAffordance` in client/chat/tool-call-display.tsx.
- */
 export async function createAgentToolApproval(
   binding: AgentToolApprovalBinding,
 ): Promise<string> {
@@ -264,9 +229,6 @@ export async function createAgentToolApproval(
     ],
   });
 
-  // Cleanup is hygiene only. Expired rows remain unusable because consume uses
-  // an atomic status and expiry predicate, so cleanup failures must not affect
-  // the approval that was just recorded.
   try {
     await getDbExec().execute({
       sql: `DELETE FROM agent_tool_approvals

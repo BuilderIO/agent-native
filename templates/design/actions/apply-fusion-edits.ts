@@ -1,16 +1,4 @@
-/**
- * apply-fusion-edits — batch pending queued edits into one prompt and send it
- * to the fusion app's in-container coding agent.
- *
- * Composes a single message from all pending edits (or a caller-specified
- * subset, still pending) so the app agent gets full context in one turn
- * instead of being spammed with one message per edit. Marks rows `sent` (with
- * a shared `batchId`) on success, or `error` (with the failure message) on
- * failure — so `list-fusion-edits` reflects the outcome without another call.
- */
-
-import { defineAction } from "@agent-native/core/action";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+import { defineAction, fail } from "@agent-native/core/action";
 import { sendFusionBranchMessage } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -19,8 +7,9 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
-import { FULL_APP_BUILDING, readFusionApp } from "../shared/full-app.js";
+import { isFullAppBuildingEnabled } from "../server/lib/full-app-lab.js";
+import "../server/db/index.js";
+import { readFusionApp } from "../shared/full-app.js";
 
 function parseTarget(raw: string | null): Record<string, unknown> | null {
   if (!raw) return null;
@@ -59,7 +48,8 @@ export default defineAction({
     "queue-fusion-edit has accumulated one or more edits the user wants " +
     "applied now. Marks sent edits with a shared batchId, or marks them " +
     "'error' if the send failed. Returns sentCount=0 with a message if there " +
-    "were no pending edits to send.",
+    "were no pending edits to send. A dispatch failure is returned as an " +
+    "action error after the rows are marked error.",
   schema: z.object({
     designId: z.string().describe("Design project ID backed by a fusion app."),
     editIds: z
@@ -71,16 +61,19 @@ export default defineAction({
       ),
   }),
   run: async ({ designId, editIds }, ctx) => {
-    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
-      throw new Error("Full app building is not enabled");
+    if (!(await isFullAppBuildingEnabled(ctx))) {
+      fail("Full app building is not enabled", {
+        errorCode: "full_app_building_disabled",
+      });
     }
 
     const access = await assertAccess("design", designId, "editor");
     const design = access.resource as typeof schema.designs.$inferSelect;
     const fusionApp = readFusionApp(design.data);
     if (!fusionApp) {
-      throw new Error(
+      fail(
         "This design has no fusion app linkage. Call create-fusion-app first.",
+        { errorCode: "fusion_app_linkage_required" },
       );
     }
 
@@ -136,10 +129,10 @@ export default defineAction({
           updatedAt: now,
         })
         .where(inArray(schema.designFusionEdits.id, ids));
-      return {
-        sentCount: 0,
-        error: result.error ?? "Failed to send edits to the app agent",
-      };
+      fail(result.error ?? "Failed to send edits to the app agent", {
+        errorCode: "fusion_edit_dispatch_failed",
+        statusCode: 502,
+      });
     }
 
     const batchId = nanoid();

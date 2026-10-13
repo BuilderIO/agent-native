@@ -1,41 +1,28 @@
-/**
- * Absolute links into the public Agent-Native docs site.
- *
- * Call `docsUrl("content-slug")` at call sites so the path is visible inline
- * (`docsUrl("template-design")` → `/docs/template-design`). Relative
- * `/docs/...` paths resolve against the app origin and 404 — always use this
- * helper for outbound docs links.
- */
-
 export const AGENT_NATIVE_DOCS_ORIGIN = "https://www.agent-native.com";
 
 export type DocsUrlOptions = {
   hash?: string;
-  /** UTM medium; defaults to `product` when any UTM field is set. */
+  source?: string;
   medium?: string;
-  /** UTM campaign; defaults to `docs` when any UTM field is set. */
-  campaign?: string;
+  /** Defaults to "docs" once any UTM option is set; `null` leaves it off. */
+  campaign?: string | null;
   content?: string | null;
 };
 
 function applyDocsUtm(params: URLSearchParams, options: DocsUrlOptions): void {
   const wantsUtm =
+    options.source != null ||
     options.medium != null ||
     options.campaign != null ||
     options.content != null;
   if (!wantsUtm) return;
-  params.set("utm_source", "agent-native");
+  params.set("utm_source", options.source ?? "agent-native");
   params.set("utm_medium", options.medium ?? "product");
-  params.set("utm_campaign", options.campaign ?? "docs");
+  const campaign = options.campaign === undefined ? "docs" : options.campaign;
+  if (campaign) params.set("utm_campaign", campaign);
   if (options.content) params.set("utm_content", options.content);
 }
 
-/**
- * Build an absolute docs URL for a content slug (the MDX stem under
- * `packages/core/docs/content/`).
- *
- * `getting-started` maps to `/docs` (the docs home).
- */
 export function docsUrl(slug: string, options: DocsUrlOptions = {}): string {
   const normalized = slug.replace(/^\/+/, "").replace(/\/+$/, "");
   const path =

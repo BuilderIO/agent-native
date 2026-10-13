@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The action modules only need Zod to construct their schemas. Keep this unit
-// test isolated from the workspace dependency installation while exercising
-// the action contract itself.
 const chain = () => {
   const value: Record<string, unknown> = {};
   for (const method of ["min", "max", "email", "int", "optional"]) {
@@ -70,8 +67,10 @@ vi.mock("../store.js", () => ({
 
 const listAction = (await import("./list-feature-flags.js")).default;
 const setAction = (await import("./set-feature-flag.js")).default;
+const labsRegistry = await import("../../labs/registry.js");
 
 beforeEach(() => {
+  labsRegistry._resetLabRegistryForTests();
   vi.clearAllMocks();
   listFeatureFlagsMock.mockReturnValue([
     { key: "new-editor", defaultValue: false },
@@ -159,6 +158,30 @@ describe("feature flag action contracts", () => {
         flags: [expect.objectContaining({ enabledForCurrentUser: true })],
       }),
     );
+  });
+
+  it("lists migrated flags as read-only and rejects stale operator writes", async () => {
+    labsRegistry.registerLabs([
+      { key: "design.builder", legacyFlagKeys: ["new-editor"] },
+    ]);
+    const result = await listAction.run(
+      {},
+      { caller: "frontend", userEmail: "admin@example.com", orgId: "org-1" },
+    );
+    expect(result.flags).toEqual([
+      expect.objectContaining({
+        key: "new-editor",
+        movedToLab: "design.builder",
+        canManage: false,
+      }),
+    ]);
+    await expect(
+      setAction.run(
+        { operation: "off", key: "new-editor" },
+        { caller: "frontend", userEmail: "admin@example.com", orgId: "org-1" },
+      ),
+    ).rejects.toThrow("managed in Labs");
+    expect(mutateFeatureFlagRulesMock).not.toHaveBeenCalled();
   });
 
   it("keeps administrative mutation out of extensions and returns persisted rules", async () => {

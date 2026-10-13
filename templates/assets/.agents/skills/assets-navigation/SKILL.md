@@ -26,13 +26,30 @@ generation, or embed target is unclear.
   use the right agent sidebar only on non-Create routes with view-transition
   handoff back to `/`.
 
-## Generation preset editor
+## Templates
 
-- Humans can edit an existing generation preset from
-  `/brand-kits/:libraryId/presets/:presetId`. Use `navigate` with
-  `{ view: "preset", libraryId, presetId }` when sending a user to that editor.
-- Preset skeletons are edited from the same route; see `logo-composite` for the
+- Humans browse Templates at `/templates` and edit one at
+  `/templates/:templateId`. Use `navigate` with `{ view: "templates" }` or
+  `{ view: "template", templateId }`. Legacy `{ view: "preset", libraryId,
+  presetId }` navigation still resolves for existing conversations.
+- Global templates work with any accessible brand kit. Associated templates are
+  limited to their kit and are required for pinned images, skeletons, and logo
+  compositing. See `logo-composite` for the
   `settings.skeletonSpec` shape and compositing behavior.
+
+## Settings
+
+- Assets › General (`/settings/app`) holds generation setup: Builder.io,
+  manual Gemini/OpenAI keys, and object storage (`#asset-generation-setup`,
+  `#asset-storage`). Keys and storage save at workspace scope, so only owners
+  and admins (or a solo workspace) can change them; members see them
+  read-only.
+- Assets › Notifications (`/settings/notifications`) holds the generation
+  email switch. Read or change it with `get-assets-notification-prefs` and
+  `update-assets-notification-prefs`, never a raw settings write.
+- Language is on core's Account › Preferences. Open a Settings page with core's
+  `open-settings-page`; `navigate` with `{ view: "settings" }` only opens
+  `/settings`.
 
 ## Context tab
 

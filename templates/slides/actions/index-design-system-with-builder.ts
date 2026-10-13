@@ -1,6 +1,8 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
+  assertBuilderDesignSystemCodeIndexingAllowed,
   buildBuilderDesignSystemIndexFiles,
+  FeatureNotConfiguredError,
   startBuilderDesignSystemIndex,
 } from "@agent-native/core/server";
 import {
@@ -10,6 +12,7 @@ import {
 import { z } from "zod";
 
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
+import { assertDesignSystemWorkflowsEnabled } from "../server/lib/design-system-workflows.js";
 
 const codeFileSchema = z.object({
   filename: z.string().trim().min(1).describe("File name or relative path"),
@@ -60,7 +63,7 @@ export default defineAction({
   description:
     "Start Builder DSI design-system indexing from connected code, a GitHub repository, code/design files, and optional design.md guidance. " +
     "Use this instead of legacy local code import when the user wants a reusable brand kit or slide design system. " +
-    "Requires Builder.io to be connected (free tier available); Builder owns the indexed design-system docs, generated guidance, token/component extraction, and job state.",
+    "Use Builder.io (free tier available) to index design systems; Builder owns the indexed design-system docs, generated guidance, token/component extraction, and job state.",
   schema: z.object({
     projectName: z
       .string()
@@ -106,18 +109,36 @@ export default defineAction({
     codeFiles,
     designMd,
   }) => {
+    await assertDesignSystemWorkflowsEnabled();
+    if (githubRepoUrl || githubSources?.length || codeFiles?.length) {
+      await assertBuilderDesignSystemCodeIndexingAllowed();
+    }
     const files = buildBuilderDesignSystemIndexFiles({
       codeFiles,
       designMd,
     });
-    const result = await startBuilderDesignSystemIndex({
-      projectName,
-      description,
-      githubRepoUrl,
-      githubRepos: githubSources,
-      connectedProjectId,
-      files,
-    });
+    let result: Awaited<ReturnType<typeof startBuilderDesignSystemIndex>>;
+    try {
+      result = await startBuilderDesignSystemIndex({
+        projectName,
+        description,
+        githubRepoUrl,
+        githubRepos: githubSources,
+        connectedProjectId,
+        files,
+      });
+    } catch (error) {
+      if (error instanceof FeatureNotConfiguredError) {
+        fail(error.message, {
+          errorCode: "builder_not_configured",
+          statusCode: 412,
+          ...(error.builderConnectUrl
+            ? { details: { builderConnectUrl: error.builderConnectUrl } }
+            : {}),
+        });
+      }
+      throw error;
+    }
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
 

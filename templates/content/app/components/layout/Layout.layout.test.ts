@@ -8,16 +8,69 @@ function readLayoutSource() {
   });
 }
 
+function readRootSource() {
+  return readFileSync(new URL("../../root.tsx", import.meta.url), "utf8");
+}
+
 describe("app layout", () => {
   it("exposes the sidebar width to editor content for responsive surfaces", () => {
     const source = readLayoutSource();
 
-    expect(source).toContain("const contentSidebarWidth = isMobile");
+    expect(source).toMatch(
+      /contentSidebarWidth\s*=\s*hostOwnsChrome\s*\|\|\s*isCompactLayout/,
+    );
     expect(source).toContain('"--content-sidebar-width"');
     expect(source).toContain("sidebarCollapsed");
   });
 
-  it("uses pending document navigation for immediate sidebar and editor feedback", () => {
+  it("sizes the sidebar from the shared width budget and settles overlay navigation on route commit", () => {
+    const source = readLayoutSource();
+
+    expect(source).toContain("useContentShellLayout({");
+    expect(source).toContain(
+      'const isCompactLayout = shellLayout.sidebar === "drawer"',
+    );
+    expect(source).toContain(
+      'const sidebarCollapsed = shellLayout.sidebar === "rail"',
+    );
+    expect(source).toContain(
+      "<ContentLayoutContext.Provider value={shellLayout}>",
+    );
+    expect(source).toContain("{isCompactLayout ? (");
+    expect(source).toContain("}, [location.key])");
+    expect(source).toContain(
+      'if (shellLayout.sidebar !== "drawer") setMobileSidebarOpen(false)',
+    );
+    expect(source).toContain(
+      'className="w-[85vw] max-w-80 border-sidebar-border bg-sidebar p-0 text-sidebar-foreground"',
+    );
+    expect(source).not.toContain("md:hidden");
+    expect(source).not.toContain("matchMedia");
+  });
+
+  it("never closes the agent panel to make room for the page", () => {
+    expect(readLayoutSource()).not.toContain("agent-panel:close");
+  });
+
+  it("persists the desktop sidebar collapse preference through the shared app shell", () => {
+    const source = readLayoutSource();
+
+    expect(source).toContain("usePersistentSidebarCollapsed");
+    expect(source).toContain("storageKey: SIDEBAR_COLLAPSED_KEY");
+    expect(
+      readFileSync(
+        new URL("./sidebar-preferences.ts", import.meta.url),
+        "utf8",
+      ),
+    ).toContain('"content.sidebar.collapsed"');
+    expect(source).toContain("defaultCollapsed: false");
+    expect(source).toContain("collapsed={false}");
+    expect(source).toContain(
+      "onToggleCollapsed={() => setMobileSidebarOpen(false)}",
+    );
+  });
+
+  it("uses pending document navigation for immediate sidebar and created-page editor feedback", () => {
     const source = readLayoutSource();
 
     expect(source).toContain("useNavigation()");
@@ -27,12 +80,53 @@ describe("app layout", () => {
       "const activeDocumentId = pendingDocumentId ?? currentDocumentId",
     );
     expect(source).toContain("const showPendingDocumentSkeleton =");
-    expect(source).toContain("<DocumentEditorSkeleton />");
+    expect(source).toContain("const activeDocumentWasCreated = Boolean(");
+    expect(source).toContain(
+      "const createdDocumentTransitionIdRef = useRef<string | null>(null);",
+    );
+    expect(source).toContain(
+      "activeDocumentWasCreated ||\n    createdDocumentTransitionIdRef.current === activeDocumentId",
+    );
+    expect(source).toContain(
+      "const showCurrentCreatedDocumentEditor = Boolean(",
+    );
+    expect(source).toContain(
+      "createdDocumentTransitionIdRef.current === currentDocumentId",
+    );
+    expect(source).toContain("const showDocumentTransition =");
+    expect(source).toContain("<PendingDocumentTransition");
+    expect(source).toContain("created={activeDocumentTransitionWasCreated}");
+    expect(source).toContain("if (!created) return fallback");
+    expect(source).toContain("return (\n    <DocumentEditor");
+    expect(source).toMatch(
+      /<DocumentEditorSkeleton\s+title=\{title\}\s+iconRow=\{readPageIconRowHint\(documentId\)\}\s+shape=\{readPageShapeHint\(documentId\)\}/,
+    );
   });
 
   it("creates keyboard pages without waiting for persistence before returning", () => {
     const source = readLayoutSource();
 
     expect(source).toContain("useCreatePage({ awaitPersist: false })");
+  });
+
+  it("returns command-menu focus to the recorded visible launcher without a timer", () => {
+    const source = readRootSource();
+
+    expect(source).toContain("CONTENT_COMMAND_MENU_OPEN_EVENT");
+    expect(source).toContain("commandTrigger.current =");
+    expect(source).toContain("target.focus()");
+    expect(source).not.toContain("setTimeout(() => target.focus");
+  });
+
+  it("includes the current document revision in chat history restores", () => {
+    const source = readLayoutSource();
+
+    expect(source).toContain("prepareRegisteredDocumentHistoryRestore");
+    expect(source).toContain("applyRegisteredDocumentHistoryRestore");
+    expect(source).toContain("expectedUpdatedAt:");
+    expect(source).toContain("onRestored: async (restored)");
+    expect(source).toContain(
+      'toast.error(t("editor.historyRestoreAppliedRefreshFailed"))',
+    );
   });
 });

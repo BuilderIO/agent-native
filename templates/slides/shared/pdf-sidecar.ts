@@ -1,0 +1,128 @@
+import {
+  normalizeSlideTransition,
+  SLIDE_TRANSITION_INPUTS,
+  SLIDE_TRANSITION_SPEED,
+  type SlideTransitionType,
+} from "./slide-transitions";
+
+export const SLIDES_PDF_SIDECAR_NAMESPACE =
+  "https://agent-native.com/ns/slides-deck/1.0/";
+
+export interface SlidesPdfSidecarAnimation {
+  id: string;
+  elementIndex: number;
+  elementPath?: number[];
+  type: "appear" | "fade" | "slide-up" | "zoom";
+}
+
+/**
+ * One slide, carried whole — with one deliberate omission. Everything the
+ * editor stores about how a slide *looks* travels, because dropping
+ * animations, transitions, or an Excalidraw scene would make the restore
+ * another partial reconstruction. Speaker notes do not: a PDF is the artifact
+ * people forward, and notes are private commentary the page never shows.
+ * `toSharedDeckSlide` already blanks them on every public surface, and
+ * PowerPoint and Google Slides both leave them out of a PDF export.
+ */
+export interface SlidesPdfSidecarSlide {
+  content: string;
+  layout?: string;
+  background?: string;
+  imageUrl?: string;
+  excalidrawData?: string;
+  transition?: SlideTransitionType;
+  transitionSpeed?: number;
+  splitByParagraph?: boolean;
+  skipped?: boolean;
+  animations?: SlidesPdfSidecarAnimation[];
+}
+
+export interface SlidesPdfSidecar {
+  v: 1;
+  title?: string;
+  aspectRatio?: string;
+  slides: SlidesPdfSidecarSlide[];
+}
+
+export const SLIDES_PDF_SIDECAR_MAX_JSON_BYTES = 4_000_000;
+
+export const SLIDES_PDF_SIDECAR_MAX_BASE64_BYTES = Math.ceil(
+  (SLIDES_PDF_SIDECAR_MAX_JSON_BYTES * 4) / 3 + 4,
+);
+
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || typeof value === "string";
+}
+
+const ANIMATION_TYPES = ["appear", "fade", "slide-up", "zoom"] as const;
+
+function isAnimationList(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value)) return false;
+  return value.every((entry) => {
+    if (typeof entry !== "object" || entry === null) return false;
+    const animation = entry as SlidesPdfSidecarAnimation;
+    if (typeof animation.id !== "string") return false;
+    if (!Number.isInteger(animation.elementIndex)) return false;
+    if (
+      animation.elementPath !== undefined &&
+      !(
+        Array.isArray(animation.elementPath) &&
+        animation.elementPath.every((step) => Number.isInteger(step))
+      )
+    ) {
+      return false;
+    }
+    return (ANIMATION_TYPES as readonly string[]).includes(animation.type);
+  });
+}
+
+function isOptionalTransitionSpeed(value: unknown): boolean {
+  if (value === undefined) return true;
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= SLIDE_TRANSITION_SPEED.min &&
+    value <= SLIDE_TRANSITION_SPEED.max
+  );
+}
+
+// Accepts legacy transition names (instant, slide, zoom) from PDFs exported
+// before the catalog existed. On success those are rewritten to canonical
+// values in place, so a guarded value always carries SlideTransitionType.
+export function isSlidesPdfSidecar(value: unknown): value is SlidesPdfSidecar {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<SlidesPdfSidecar>;
+  if (candidate.v !== 1) return false;
+  if (!isOptionalString(candidate.title)) return false;
+  if (!isOptionalString(candidate.aspectRatio)) return false;
+  if (!Array.isArray(candidate.slides)) return false;
+  const valid = candidate.slides.every((entry) => {
+    if (typeof entry !== "object" || entry === null) return false;
+    const slide = entry as SlidesPdfSidecarSlide;
+    if (typeof slide.content !== "string") return false;
+    for (const flag of [slide.splitByParagraph, slide.skipped]) {
+      if (flag !== undefined && typeof flag !== "boolean") return false;
+    }
+    if (!isAnimationList(slide.animations)) return false;
+    return (
+      isOptionalString(slide.layout) &&
+      isOptionalString(slide.background) &&
+      isOptionalString(slide.imageUrl) &&
+      isOptionalString(slide.excalidrawData) &&
+      (slide.transition === undefined ||
+        (SLIDE_TRANSITION_INPUTS as readonly unknown[]).includes(
+          slide.transition,
+        )) &&
+      isOptionalTransitionSpeed(slide.transitionSpeed)
+    );
+  });
+  if (!valid) return false;
+
+  for (const slide of candidate.slides) {
+    if (slide.transition !== undefined) {
+      slide.transition = normalizeSlideTransition(slide.transition);
+    }
+  }
+  return true;
+}

@@ -7,6 +7,14 @@ import {
 } from "./update-document";
 
 describe("update document", () => {
+  it("rejects favorite changes combined with document fields before mutation", async () => {
+    const action = (await import("./update-document")).default;
+    await expect(
+      action.run({ id: "document", isFavorite: true, title: "Changed" }),
+    ).rejects.toMatchObject({
+      errorCode: "FAVORITE_UPDATE_MUST_BE_SEPARATE",
+    });
+  });
   it("rejects stale empty body saves but allows a current legitimate clear", () => {
     expect(
       shouldRejectStaleEmptyBodySave({
@@ -28,6 +36,21 @@ describe("update document", () => {
 
     expect(isEffectivelyEmptyDocumentContent("<empty-block/>")).toBe(true);
     expect(isEffectivelyEmptyDocumentContent("Real content")).toBe(false);
+  });
+
+  it("rejects a stale save containing multiple empty-block sentinels", () => {
+    const incomingContent = "<empty-block/>\n<empty-block/>";
+
+    expect(isEffectivelyEmptyDocumentContent(incomingContent)).toBe(true);
+    expect(
+      shouldRejectStaleEmptyBodySave({
+        incomingContent,
+        currentContent: "Hydrated peer body",
+        loadedUpdatedAt: "2026-07-02T12:00:00.000Z",
+        currentUpdatedAt: "2026-07-02T12:00:02.000Z",
+        loadedContentWasEmpty: true,
+      }),
+    ).toBe(true);
   });
 
   it("rejects equal-timestamp empty saves when the client attests it loaded empty content", () => {

@@ -2,7 +2,7 @@
 name: ingestion-and-connectors
 description: >-
   Create, sync, and diagnose Brain sources across all providers (manual,
-  generic, clips, slack, granola, github) — health states, sync scheduling,
+  generic, clips, slack, granola, github, zoom) — health states, sync scheduling,
   and credential resolution. Use when adding a source, running or debugging a
   sync, or the user asks why a source is stale, erroring, or not importing.
 ---
@@ -16,7 +16,7 @@ provider-agnostic source lifecycle.
 ## Source Providers
 
 `create-source` accepts exactly `manual`, `generic`, `clips`, `slack`,
-`granola`, or `github` (`sourceProviderSchema` in `actions/_schemas.ts`), and
+`granola`, `github`, or `zoom` (`sourceProviderSchema` in `actions/_schemas.ts`), and
 rejects anything else. There is no arbitrary/custom
 provider string — a generic webhook-fed source uses `provider: "generic"`
 with a `sourceKey` + minted `ingestToken`, not a made-up provider id.
@@ -42,6 +42,95 @@ document captures, and reports each file's import or privacy outcome. Use the
 standard sharing actions to change a source to organization visibility or grant
 specific access. Do not use `sync-source` for a manual source.
 
+## Zoom
+
+Zoom sources import cloud-recording transcripts through a Server-to-Server
+OAuth app. Credentials are the vault secrets `ZOOM_ACCOUNT_ID`,
+`ZOOM_CLIENT_ID`, and `ZOOM_CLIENT_SECRET`; the app needs scopes
+`cloud_recording:read:list_account_recordings:admin` and
+`cloud_recording:read:recording:admin`, plus
+`cloud_recording:read:list_recording_files:admin` for transcript download URLs. Config is
+`{"zoom":{"meetingIds":[...],"userIds":[...],"lookbackDays":7}}`. Without `userIds`, one
+account-wide recording list (`/accounts/me/recordings`, which needs only the `:admin` scope) covers every user.
+`userIds` (up to 50, user ID or email) narrows the import to those users and
+additionally needs `cloud_recording:read:list_user_recordings:admin`.
+`lookbackDays` is 1-30, default 7.
+
+`meetingIds` (required, 1-100) is the allowlist of recurring meeting series
+whose owners opted in; spaces are allowed, as Zoom displays them, and every
+occurrence of a series keeps its ID. The S2S `:admin` scopes are account-wide
+and Zoom cannot narrow them to a series, so this allowlist is the only
+boundary: Brain lists recording and summary metadata, discards every
+unapproved meeting, and fetches recording details, transcript files, and
+summaries only for approved IDs. A detail response naming an unapproved
+meeting is dropped. With no approved IDs the sync fails before contacting
+Zoom. Titles are never matched (any host can reuse one); create/update reject
+`meetingTopics`. An approved personal meeting ID would admit every meeting in
+that room, so approve only real recurring series. Keep Zoom's account-wide
+auto-recording and AI Companion summary settings off and enable cloud
+recording per approved series; Brain ignores unapproved recordings either way.
+`update-source` replaces the whole `zoom` object, so send every Zoom field you
+want to keep, including `meetingIds`. Changing the allowlist or raising
+`lookbackDays` rewinds the next sync to the `lookbackDays` window, so newly
+approved series are backfilled (raise `lookbackDays`, up to 30, to reach
+further back). Run stats report `approvedMeetingSeries`,
+`meetingsSkippedByFilter` (a count only; unapproved meetings are not
+described), `filterChanged`, `transcriptsWithoutDownloadUrl`, and
+`matchedMeetings` (ID, title, start, file types). The account-wide list omits
+download URLs, so an approved meeting with a finished transcript is looked up
+with `/meetings/{uuid}/recordings`
+(`cloud_recording:read:list_recording_files:admin`) to get the transcript URL.
+
+Only Brain admins (organization owners and admins) can create a Zoom source or
+change a Zoom source's `config` (including `meetingIds`, `includeSummaries`,
+`lookbackDays`, `userIds`, `pollMinutes`, and `autoSync`) or cursor; anyone
+else gets `brain_admin_required` (403). Other editors can still change a Zoom
+source's title, status, or trusted-answer policy. A sync refuses to run when
+the source owner is not a Brain admin, which also covers sources created
+before this rule. When a non-admin asks to set up or change Zoom, tell them an
+organization owner or admin has to do it.
+
+`brain_zoom_audit_events` records: Zoom source creation, and edits that add or
+remove `meetingIds` or change `includeSummaries`, `lookbackDays`, or `userIds`
+(actor, series added/removed, settings changed; an edit to only `pollMinutes`
+or `autoSync` is not recorded); an allow record for each approved meeting whose
+recording details or transcripts a sync fetches, and for each new approved
+summary it requests; a deny record when Zoom's response names an unapproved
+meeting; refused syncs; and sync completion. Meetings the allowlist excludes
+are only counted in run stats (`meetingsSkippedByFilter`), never recorded
+individually. It never stores transcript or summary text, and no action reads
+it yet.
+
+The complete scope set Brain uses is
+`cloud_recording:read:list_account_recordings:admin`,
+`cloud_recording:read:list_recording_files:admin`,
+`cloud_recording:read:recording:admin`, `cloud_recording:read:list_user_recordings:admin`
+(only with `userIds`), and, with summaries on, `meeting:read:list_summaries:admin`
+and `meeting:read:summary:admin`. Remove every other scope from the app.
+Sources auto-sync hourly; each run overlaps the previous one by one day to
+catch late-processed transcripts, and captures dedupe by `zoom:<meeting uuid>`.
+Captures use the organization audience. There are no Zoom webhooks.
+
+`"includeSummaries": true` also imports AI Companion meeting summaries, which
+exist for meetings that were never recorded. It is off by default because it
+needs two more scopes, `meeting:read:list_summaries:admin` and
+`meeting:read:summary:admin`; without them the sync fails with Zoom's
+missing-scope error after importing that run's transcripts. Summaries are listed
+account-wide from `/meetings/meeting_summaries`, narrowed to approved
+`meetingIds` and by `userIds` (matched against the host ID or email), then fetched from
+`/meetings/{uuid}/meeting_summary`. Each becomes a `note` capture deduped by
+`zoom-summary:<meeting uuid>`, separate from that meeting's transcript, and goes
+through the same sensitivity check. A summary edited in Zoom after import is not
+re-imported. Turning the flag on rewinds the next sync to the `lookbackDays`
+window; every rewind keeps an older cursor that is held back for a pending
+transcript. A summary Zoom refuses (trashed, deleted) is recorded in
+`summaryFetchFailures` and the rest still import; the run ends as an error
+with `lastError` naming the first failure, and the cursor advances. Auth,
+missing-scope, timeout, and server errors (401, code 4711, 408, 5xx) instead
+fail the whole run and keep the cursor, so the next sync retries them. Run stats report `summariesListed`, `summariesSkippedByFilter`,
+`summariesAlreadyImported`, `summariesFetched`, `emptySummaries`,
+`summaryCapturesCreated`, and `summaryFetchFailures`.
+
 ## Blessed FAQ And Docs Publishers
 
 Approved FAQs, docs, handbooks, and similar owned resources use the same
@@ -66,7 +155,7 @@ The source answer policy is code-enforced:
 | `answerEligible`      | Excludes the source from `ask-brain` answers when false.                            |
 | `authority`           | Ranks otherwise eligible sources from 0 to 100.                                     |
 | `freshnessWindowDays` | Excludes source-backed results after the configured window; `null` disables expiry. |
-| `reviewRequired`      | Raw captures cannot support answers, and company knowledge enters review.           |
+| `reviewRequired`      | Raw captures cannot support `ask-brain` answers.                                    |
 | `conflictBehavior`    | Prefer higher authority, surface conflicts, or require review before raw support.   |
 
 Legacy sources remain `standard`, answer-eligible, authority 50, with no
@@ -79,14 +168,14 @@ source without recreating it.
 single action to check before telling a user "your source is broken" or
 "nothing has synced yet." Each source gets one deterministic `health` value:
 
-| Health | Meaning |
-| --- | --- |
-| `error` | Source `status === "error"`, has `lastError`, or its latest sync run failed. |
-| `paused` | Source `status` is `paused` or `archived`. |
-| `needs_setup` | Slack source with no configured channel allow-list yet (`channelIds`/`channels`/`allowedChannels` all empty). |
-| `needs_sync` | Auto-sync-eligible provider (slack/granola/github) that has never completed a sync (`lastSyncedAt` is null). |
-| `stale` | Past its computed `nextSyncAt` by more than a 15-minute grace window. |
-| `healthy` | None of the above. |
+| Health        | Meaning                                                                                                           |
+| ------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `error`       | Source `status === "error"`, has `lastError`, or its latest sync run failed.                                      |
+| `paused`      | Source `status` is `paused` or `archived`.                                                                        |
+| `needs_setup` | Slack source with no configured channel allow-list yet (`channelIds`/`channels`/`allowedChannels` all empty).     |
+| `needs_sync`  | Auto-sync-eligible provider (slack/granola/github/zoom) that has never completed a sync (`lastSyncedAt` is null). |
+| `stale`       | Past its computed `nextSyncAt` by more than a 15-minute grace window.                                             |
+| `healthy`     | None of the above.                                                                                                |
 
 `get-brain-health` also reports `distillationQueue` counts (`pending`,
 `failed`, `stale` — a `processing` row untouched for 15+ minutes counts as
@@ -100,11 +189,12 @@ individual sources by hand.
 - `sync-source --sourceId=<id>` runs one source's connector immediately
   (requires `editor` access on that source). Slack scans only its allow-listed
   channels; Granola polls accessible notes; GitHub imports approved
-  repository issues/PRs.
+  repository issues/PRs; Zoom imports recording transcripts.
 - `sync-due-sources` sweeps every accessible source whose `nextSyncAt` has
   passed. Prefer this for "catch everything up" requests instead of listing
   sources and calling `sync-source` in a loop.
-- Auto-sync only applies to `slack`, `granola`, and `github` sources, and only
+- Auto-sync (hourly by default) only applies to `slack`, `granola`, `github`,
+  and `zoom` sources, and only
   when the source's own config doesn't explicitly set `autoSync: false`
   (`sourceAutoSync` in `brain-health.ts`). `manual`, `generic`, and `clips`
   sources are push/import-driven, not polled — there's no `nextSyncAt` to
@@ -144,7 +234,10 @@ connection, not creating a new one.
 ## Editing And Removing Sources
 
 - `update-source` edits title, config, cursor, status, or answer policy on an
-  existing source.
+  existing source. From chat, pass config as `configJson`, a JSON object
+  encoded as a string (`create-source` accepts it too); model gateways strip
+  the keys of the free-form `config` object. Top-level keys are merged into the
+  stored config, and a call with no changes is rejected.
 - `delete-source` is a hard delete — there's no soft-archive alternative
   exposed as an action; setting `status: "paused"` via `update-source` is the
   reversible way to stop a source without losing its captures.

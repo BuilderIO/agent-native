@@ -6,12 +6,6 @@ import {
 
 import * as schema from "../db/schema.js";
 
-/**
- * Every Drizzle table exported from schema.ts. Filters out type-only and
- * helper exports the same way db.spec.ts's `isDrizzleTable` regression guard
- * does: a real table carries a Symbol-keyed drizzle metadata bag, plain
- * exports don't.
- */
 function isDrizzleTable(value: unknown): value is object {
   return (
     !!value &&
@@ -30,134 +24,117 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // this list independently — see the analytics template's v75-v83 incident
 // documented in templates/analytics/server/plugins/db.ts for the failure
 // class this guards against.
-export const runDesignMigrations = runMigrations(
-  [
-    {
-      version: 1,
-      sql: `CREATE TABLE IF NOT EXISTS designs (
+const designMigrations: Parameters<typeof runMigrations>[0] = [
+  {
+    version: 1,
+    sql: `CREATE TABLE IF NOT EXISTS designs (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     description TEXT,
     data TEXT NOT NULL,
     project_type TEXT NOT NULL DEFAULT 'prototype',
     design_system_id TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
   )`,
-    },
-    {
-      version: 2,
-      sql: `CREATE TABLE IF NOT EXISTS design_shares (
+  },
+  {
+    version: 2,
+    sql: `CREATE TABLE IF NOT EXISTS design_shares (
     id TEXT PRIMARY KEY,
     resource_id TEXT NOT NULL,
     principal_type TEXT NOT NULL,
     principal_id TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'viewer',
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   )`,
-    },
-    {
-      version: 3,
-      sql: `CREATE TABLE IF NOT EXISTS design_systems (
+  },
+  {
+    version: 3,
+    sql: `CREATE TABLE IF NOT EXISTS design_systems (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     description TEXT,
     data TEXT NOT NULL,
     assets TEXT,
     is_default INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
   )`,
-    },
-    {
-      version: 4,
-      sql: `CREATE TABLE IF NOT EXISTS design_system_shares (
+  },
+  {
+    version: 4,
+    sql: `CREATE TABLE IF NOT EXISTS design_system_shares (
     id TEXT PRIMARY KEY,
     resource_id TEXT NOT NULL,
     principal_type TEXT NOT NULL,
     principal_id TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'viewer',
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   )`,
-    },
-    {
-      version: 5,
-      sql: `CREATE TABLE IF NOT EXISTS design_files (
+  },
+  {
+    version: 5,
+    sql: `CREATE TABLE IF NOT EXISTS design_files (
     id TEXT PRIMARY KEY,
     design_id TEXT NOT NULL,
     filename TEXT NOT NULL,
     content TEXT NOT NULL,
     file_type TEXT NOT NULL DEFAULT 'html',
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP)
   )`,
-    },
-    {
-      version: 6,
-      sql: `CREATE TABLE IF NOT EXISTS design_versions (
+  },
+  {
+    version: 6,
+    sql: `CREATE TABLE IF NOT EXISTS design_versions (
     id TEXT PRIMARY KEY,
     design_id TEXT NOT NULL,
     label TEXT,
     snapshot TEXT NOT NULL,
-    created_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP)
   )`,
+  },
+  {
+    version: 7,
+    sql: {
+      postgres: `ALTER TABLE design_systems ALTER COLUMN is_default DROP DEFAULT`,
     },
-    // v7-v9: fix boolean columns on Postgres only. The adaptSqlForPostgres
-    // rewriter turns INTEGER -> BIGINT, so migration v3 created is_default
-    // as bigint. Drizzle's integer({ mode: "boolean" }) maps to pg boolean,
-    // so inserts send a JS boolean that Postgres rejects. Convert to boolean.
-    {
-      version: 7,
-      sql: {
-        postgres: `ALTER TABLE design_systems ALTER COLUMN is_default DROP DEFAULT`,
-      },
+  },
+  {
+    version: 8,
+    sql: {
+      postgres: `ALTER TABLE design_systems ALTER COLUMN is_default TYPE boolean USING is_default::int::boolean`,
     },
-    {
-      version: 8,
-      sql: {
-        postgres: `ALTER TABLE design_systems ALTER COLUMN is_default TYPE boolean USING is_default::int::boolean`,
-      },
+  },
+  {
+    version: 9,
+    sql: {
+      postgres: `ALTER TABLE design_systems ALTER COLUMN is_default SET DEFAULT false`,
     },
-    {
-      version: 9,
-      sql: {
-        postgres: `ALTER TABLE design_systems ALTER COLUMN is_default SET DEFAULT false`,
-      },
-    },
-    {
-      version: 10,
-      sql: `ALTER TABLE design_systems ADD COLUMN IF NOT EXISTS custom_instructions TEXT NOT NULL DEFAULT ''`,
-    },
-    // v11: performance indexes. The ownable tables had no indexes, so every
-    // accessFilter() scan (owner_email / org_id / visibility predicates plus
-    // correlated EXISTS against the shares table) and every list ORDER BY
-    // updated_at was a full table scan. Composite indexes match accessFilter's
-    // ownership predicate + the list sort, and the shares indexes cover the
-    // EXISTS subquery's resource_id / principal_type / principal_id lookup.
-    // Additive only; portable across Postgres and SQLite (no DESC / partial /
-    // PG-only syntax).
-    {
-      version: 11,
-      sql: `CREATE INDEX IF NOT EXISTS designs_owner_org_updated_idx ON designs (owner_email, org_id, updated_at);
+  },
+  {
+    version: 10,
+    sql: `ALTER TABLE design_systems ADD COLUMN IF NOT EXISTS custom_instructions TEXT NOT NULL DEFAULT ''`,
+  },
+  {
+    version: 11,
+    sql: `CREATE INDEX IF NOT EXISTS designs_owner_org_updated_idx ON designs (owner_email, org_id, updated_at);
 CREATE INDEX IF NOT EXISTS design_systems_owner_org_updated_idx ON design_systems (owner_email, org_id, updated_at);
 CREATE INDEX IF NOT EXISTS design_shares_resource_principal_idx ON design_shares (resource_id, principal_type, principal_id);
 CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design_system_shares (resource_id, principal_type, principal_id)`,
-    },
-    // v12: component_index — real-app component metadata (name, file path,
-    // export name, parsed prop types, cva/tailwind-variants variants, Storybook
-    // stories, runtime selectors). Ownable; access-checked via accessFilter /
-    // assertAccess.
-    {
-      version: 12,
-      sql: `CREATE TABLE IF NOT EXISTS component_index (
+  },
+  {
+    version: 12,
+    sql: `CREATE TABLE IF NOT EXISTS component_index (
     id TEXT PRIMARY KEY,
     design_id TEXT NOT NULL,
     source_ref TEXT,
@@ -168,20 +145,16 @@ CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design
     variants TEXT,
     stories TEXT,
     runtime_selectors TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
   )`,
-    },
-    // v13: motion_timeline — CSS-first keyframe animation tracks scoped to one
-    // design + source + screen/file. tracks JSON is the editing representation;
-    // the compiled CSS block (managed <style data-agent-native-motion>) is the
-    // runtime truth. compiled_hash guards drift between the two. Ownable.
-    {
-      version: 13,
-      sql: `CREATE TABLE IF NOT EXISTS motion_timeline (
+  },
+  {
+    version: 13,
+    sql: `CREATE TABLE IF NOT EXISTS motion_timeline (
     id TEXT PRIMARY KEY,
     design_id TEXT NOT NULL,
     source_ref TEXT,
@@ -190,19 +163,16 @@ CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design
     duration_ms INTEGER NOT NULL DEFAULT 300,
     default_ease TEXT NOT NULL DEFAULT 'ease',
     compiled_hash TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
   )`,
-    },
-    // v14: design_state — design states (alternate x-data/DOM snapshots for
-    // Default / Loading / Empty / Error), static data fixtures, and live
-    // captures of running-app route + props + API data. Ownable.
-    {
-      version: 14,
-      sql: `CREATE TABLE IF NOT EXISTS design_state (
+  },
+  {
+    version: 14,
+    sql: `CREATE TABLE IF NOT EXISTS design_state (
     id TEXT PRIMARY KEY,
     design_id TEXT NOT NULL,
     source_ref TEXT,
@@ -213,19 +183,16 @@ CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design
     fixture_data TEXT,
     capture_data TEXT,
     preview_ref TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
   )`,
-    },
-    // v15: design_review_snapshot — cached a11y audit results and visual diff
-    // data keyed by design + optional base/compare design_versions pair.
-    // status: 'pending' | 'ready' | 'error'. Ownable.
-    {
-      version: 15,
-      sql: `CREATE TABLE IF NOT EXISTS design_review_snapshot (
+  },
+  {
+    version: 15,
+    sql: `CREATE TABLE IF NOT EXISTS design_review_snapshot (
     id TEXT PRIMARY KEY,
     design_id TEXT NOT NULL,
     base_version_id TEXT,
@@ -234,20 +201,16 @@ CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design
     a11y_findings TEXT,
     visual_diff TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
   )`,
-    },
-    // v16: localhost source connections and write-consent grants. The schema
-    // existed before this migration in source, but fresh/existing DBs still
-    // need the concrete tables and the bridge_token column used by localhost
-    // write-back.
-    {
-      version: 16,
-      sql: `CREATE TABLE IF NOT EXISTS design_localhost_connections (
+  },
+  {
+    version: 16,
+    sql: `CREATE TABLE IF NOT EXISTS design_localhost_connections (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     source_type TEXT NOT NULL DEFAULT 'localhost',
@@ -262,8 +225,8 @@ CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design
     bridge_token TEXT,
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP)
   );
 ALTER TABLE design_localhost_connections ADD COLUMN IF NOT EXISTS bridge_token TEXT;
 ALTER TABLE design_localhost_connections ADD COLUMN IF NOT EXISTS preview_token TEXT;
@@ -274,41 +237,38 @@ CREATE TABLE IF NOT EXISTS design_localhost_write_grants (
     root_path TEXT NOT NULL,
     bridge_token TEXT NOT NULL,
     granted_until TEXT NOT NULL,
-    created_at TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
   );
 CREATE INDEX IF NOT EXISTS design_localhost_connections_owner_idx ON design_localhost_connections (owner_email, org_id, updated_at);
 CREATE INDEX IF NOT EXISTS design_localhost_write_grants_lookup_idx ON design_localhost_write_grants (design_id, connection_id, owner_email)`,
-    },
-    // v17: older local databases may already have motion_timeline from the
-    // pre-ownable prototype. Backfill the ownable columns additively so the
-    // first "Add track" insert can persist through the current Drizzle schema.
-    {
-      version: 17,
-      sql: `ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost';
+  },
+  {
+    version: 17,
+    sql: `ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost';
 ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS org_id TEXT;
 ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private';
 CREATE INDEX IF NOT EXISTS motion_timeline_owner_org_updated_idx ON motion_timeline (owner_email, org_id, updated_at)`,
-    },
-    // v18: intentionally no-op. New org-scoped designs now default to
-    // org-visible at creation time, but existing private org rows may have
-    // been intentionally private. There is no durable marker that separates
-    // old default-private rows from explicit private rows, so do not widen
-    // historical access in a migration.
-    {
-      version: 18,
-      sql: {},
-    },
-    // v19: design_fusion_edits — declared in schema.ts (queued AI edit intents
-    // for fusion-backed full-app designs) but never had a migration create the
-    // table, so any fresh/existing database without it 500s on first write.
-    // Named per the convention above since this is a new entry.
-    {
-      version: 19,
-      name: "design-fusion-edits-table",
-      sql: `CREATE TABLE IF NOT EXISTS design_fusion_edits (
+  },
+  // v18: intentionally no-op. New org-scoped designs now default to
+  // org-visible at creation time, but existing private org rows may have
+  // been intentionally private. There is no durable marker that separates
+  // old default-private rows from explicit private rows, so do not widen
+  // historical access in a migration.
+  {
+    version: 18,
+    sql: {},
+  },
+  // v19: design_fusion_edits — declared in schema.ts (queued AI edit intents
+  // for fusion-backed full-app designs) but never had a migration create the
+  // table, so any fresh/existing database without it 500s on first write.
+  // Named per the convention above since this is a new entry.
+  {
+    version: 19,
+    name: "design-fusion-edits-table",
+    sql: `CREATE TABLE IF NOT EXISTS design_fusion_edits (
     id TEXT PRIMARY KEY,
     design_id TEXT NOT NULL,
     screen_file_id TEXT,
@@ -318,34 +278,34 @@ CREATE INDEX IF NOT EXISTS motion_timeline_owner_org_updated_idx ON motion_timel
     batch_id TEXT,
     error TEXT,
     sent_at TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
   )`,
-    },
-    {
-      version: 20,
-      name: "design-data-operation-revisions",
-      sql: `ALTER TABLE designs ADD COLUMN IF NOT EXISTS data_operation_revisions TEXT NOT NULL DEFAULT '{}'`,
-    },
-    {
-      version: 21,
-      name: "design-file-content-operation-revisions",
-      sql: `ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_source TEXT;
+  },
+  {
+    version: 20,
+    name: "design-data-operation-revisions",
+    sql: `ALTER TABLE designs ADD COLUMN IF NOT EXISTS data_operation_revisions TEXT NOT NULL DEFAULT '{}'`,
+  },
+  {
+    version: 21,
+    name: "design-file-content-operation-revisions",
+    sql: `ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_source TEXT;
 ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_revision INTEGER;
 ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_result_hash TEXT`,
-    },
-    {
-      version: 22,
-      name: "design-localhost-preview-token",
-      sql: `ALTER TABLE design_localhost_connections ADD COLUMN IF NOT EXISTS preview_token TEXT`,
-    },
-    {
-      version: 23,
-      name: "design-templates",
-      sql: `CREATE TABLE IF NOT EXISTS design_templates (
+  },
+  {
+    version: 22,
+    name: "design-localhost-preview-token",
+    sql: `ALTER TABLE design_localhost_connections ADD COLUMN IF NOT EXISTS preview_token TEXT`,
+  },
+  {
+    version: 23,
+    name: "design-templates",
+    sql: `CREATE TABLE IF NOT EXISTS design_templates (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     description TEXT,
@@ -356,8 +316,8 @@ ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_result_hash 
     width INTEGER,
     height INTEGER,
     locked_layer_count INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private'
@@ -369,7 +329,7 @@ CREATE TABLE IF NOT EXISTS design_template_shares (
     principal_id TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'viewer',
     created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   );
 CREATE TABLE IF NOT EXISTS design_template_files (
     id TEXT PRIMARY KEY,
@@ -377,22 +337,229 @@ CREATE TABLE IF NOT EXISTS design_template_files (
     filename TEXT NOT NULL,
     content TEXT NOT NULL,
     file_type TEXT NOT NULL DEFAULT 'html',
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP)
   );
 CREATE INDEX IF NOT EXISTS design_templates_owner_org_updated_idx ON design_templates (owner_email, org_id, updated_at);
 CREATE INDEX IF NOT EXISTS design_template_shares_resource_principal_idx ON design_template_shares (resource_id, principal_type, principal_id);
 CREATE INDEX IF NOT EXISTS design_template_files_template_idx ON design_template_files (template_id, updated_at)`,
-    },
-    {
-      version: 24,
-      name: "design-files-design-type-index",
-      sql: `CREATE INDEX IF NOT EXISTS design_files_design_type_idx ON design_files (design_id, file_type);
+  },
+  {
+    version: 24,
+    name: "design-files-design-type-index",
+    sql: `CREATE INDEX IF NOT EXISTS design_files_design_type_idx ON design_files (design_id, file_type);
 CREATE INDEX IF NOT EXISTS designs_normalized_owner_org_updated_idx ON designs (lower(trim(owner_email)), org_id, updated_at)`,
-    },
-  ],
-  { table: "design_migrations" },
+  },
+  {
+    version: 25,
+    name: "design-version-chat-metadata",
+    sql: `ALTER TABLE design_versions ADD COLUMN IF NOT EXISTS chat_context TEXT;
+ALTER TABLE design_versions ADD COLUMN IF NOT EXISTS file_count INTEGER;
+CREATE INDEX IF NOT EXISTS design_versions_design_created_idx ON design_versions (design_id, created_at)`,
+  },
+  {
+    version: 26,
+    name: "share-tables-notified-at",
+    sql: `
+        ALTER TABLE IF EXISTS design_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS design_system_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS design_template_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+      `,
+  },
+  {
+    version: 27,
+    name: "design-access-requests",
+    sql: `CREATE TABLE IF NOT EXISTS design_access_requests (
+    id TEXT PRIMARY KEY,
+    design_id TEXT NOT NULL,
+    requester_email TEXT NOT NULL,
+    requester_name TEXT NOT NULL,
+    requested_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    notified_at TEXT
+  )`,
+  },
+  {
+    version: 28,
+    name: "design-access-request-notified-at",
+    sql: `ALTER TABLE design_access_requests ADD COLUMN IF NOT EXISTS notified_at TEXT`,
+  },
+  {
+    version: 29,
+    name: "design-access-request-notification-claim",
+    sql: `ALTER TABLE design_access_requests ADD COLUMN IF NOT EXISTS notification_claimed_at TEXT`,
+  },
+  {
+    version: 30,
+    name: "design-visual-edit-pending-handoff",
+    sql: `CREATE TABLE IF NOT EXISTS design_visual_edit_pending (
+    design_id TEXT PRIMARY KEY,
+    pending_edit_count INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'empty',
+    prompt TEXT NOT NULL DEFAULT '',
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    visibility TEXT NOT NULL DEFAULT 'private',
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT
+  )`,
+  },
+  {
+    version: 31,
+    name: "design-visual-edit-pending-revision",
+    sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 0`,
+  },
+  {
+    version: 32,
+    name: "design-visual-edit-fallback-snapshots",
+    sql: `CREATE TABLE IF NOT EXISTS design_visual_edit_snapshots (
+    design_id TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    html TEXT NOT NULL,
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    visibility TEXT NOT NULL DEFAULT 'private',
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT,
+    PRIMARY KEY (design_id, file_id),
+    FOREIGN KEY (design_id) REFERENCES designs(id) ON DELETE CASCADE,
+    FOREIGN KEY (file_id) REFERENCES design_files(id) ON DELETE CASCADE
+  )`,
+  },
+  {
+    version: 33,
+    name: "design-visual-edit-publisher-ordering",
+    sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS publisher_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS client_revision INTEGER NOT NULL DEFAULT 0`,
+  },
+  {
+    version: 34,
+    name: "design-visual-edit-snapshot-blob-ordering",
+    sql: `ALTER TABLE design_visual_edit_snapshots ADD COLUMN IF NOT EXISTS blob_handle TEXT;
+ALTER TABLE design_visual_edit_snapshots ADD COLUMN IF NOT EXISTS capture_revision BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE design_visual_edit_snapshots ADD COLUMN IF NOT EXISTS published_revision BIGINT NOT NULL DEFAULT 0`,
+  },
+  {
+    version: 35,
+    name: "design-visual-edit-snapshot-blob-cleanup",
+    sql: `CREATE TABLE IF NOT EXISTS design_visual_edit_snapshot_blob_cleanup (
+    blob_handle TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  )`,
+  },
+  {
+    version: 36,
+    name: "design-visual-edit-pending-bigint-revisions",
+    // guard:allow-unscoped — widen both publisher high-water marks in place so old and new workers keep sharing them.
+    sql: `-- guard:allow-destructive-ddl — losslessly widen the shipped int4 revisions so millisecond client revisions fit and workers share one high-water mark.
+ALTER TABLE design_visual_edit_pending
+ALTER COLUMN revision TYPE BIGINT USING revision::BIGINT;
+ALTER TABLE design_visual_edit_pending
+ALTER COLUMN client_revision TYPE BIGINT USING client_revision::BIGINT`,
+  },
+  {
+    version: 37,
+    name: "design-live-collaboration-opt-in",
+    sql: `ALTER TABLE designs ADD COLUMN IF NOT EXISTS live_collaboration_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
+  },
+  {
+    version: 38,
+    name: "design-board-replay-screenshots",
+    sql: `CREATE TABLE IF NOT EXISTS design_board_replay_screenshots (
+    id TEXT PRIMARY KEY,
+    design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+    board_file_id TEXT NOT NULL,
+    replay_id TEXT NOT NULL,
+    captured_at TEXT NOT NULL,
+    app TEXT NOT NULL,
+    route TEXT NOT NULL,
+    offset_ms INTEGER NOT NULL,
+    viewport_width INTEGER NOT NULL,
+    viewport_height INTEGER NOT NULL,
+    event_count INTEGER NOT NULL,
+    mime_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    blob_handle TEXT NOT NULL,
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    visibility TEXT NOT NULL DEFAULT 'private',
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT
+  );
+  CREATE INDEX IF NOT EXISTS design_board_replay_screenshots_design_idx
+    ON design_board_replay_screenshots (design_id)`,
+  },
+  {
+    version: 39,
+    name: "design-board-replay-source-stage-id",
+    sql: `ALTER TABLE design_board_replay_screenshots ADD COLUMN IF NOT EXISTS source_stage_id TEXT`,
+  },
+  {
+    version: 40,
+    name: "design-board-replay-capture-provenance",
+    sql: `ALTER TABLE design_board_replay_screenshots ALTER COLUMN route DROP NOT NULL;
+ALTER TABLE design_board_replay_screenshots ADD COLUMN IF NOT EXISTS capture_source_fingerprint TEXT`,
+  },
+  {
+    version: 41,
+    name: "design-screen-restore-claims",
+    sql: `CREATE TABLE IF NOT EXISTS design_screen_restore_claims (
+    id TEXT PRIMARY KEY,
+    design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+    source_file_id TEXT NOT NULL,
+    snapshot TEXT NOT NULL,
+    consumed_at TEXT,
+    restored_file_id TEXT,
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  );
+  CREATE INDEX IF NOT EXISTS design_screen_restore_claims_design_source_idx
+    ON design_screen_restore_claims (design_id, source_file_id)`,
+  },
+  {
+    version: 42,
+    name: "design-motion-timeline-text-document",
+    sql: `ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS text_document TEXT`,
+  },
+  {
+    version: 43,
+    name: "design-motion-bridge-receipt-challenges",
+    sql: `CREATE TABLE IF NOT EXISTS design_motion_bridge_receipt_challenges (
+    nonce TEXT PRIMARY KEY,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  );
+  CREATE INDEX IF NOT EXISTS design_motion_bridge_receipt_challenges_expires_idx
+    ON design_motion_bridge_receipt_challenges (expires_at)`,
+  },
+  {
+    version: 44,
+    name: "design-motion-bridge-relay-chains",
+    sql: `ALTER TABLE design_motion_bridge_receipt_challenges
+  ADD COLUMN IF NOT EXISTS chain_id TEXT;
+ALTER TABLE design_motion_bridge_receipt_challenges
+  ADD COLUMN IF NOT EXISTS receipt_hash TEXT;
+CREATE TABLE IF NOT EXISTS design_motion_bridge_relay_chains (
+  chain_id TEXT PRIMARY KEY,
+  action_name TEXT NOT NULL,
+  input_hash TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  completed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
 );
+CREATE INDEX IF NOT EXISTS design_motion_bridge_relay_chains_expires_idx
+  ON design_motion_bridge_relay_chains (expires_at);
+CREATE INDEX IF NOT EXISTS design_motion_bridge_receipt_challenges_chain_idx
+  ON design_motion_bridge_receipt_challenges (chain_id)`,
+  },
+];
+
+export const designVisualEditPendingBigintRevisionMigration =
+  designMigrations.find((migration) => migration.version === 36)!;
+export const designLiveCollaborationOptInMigration = designMigrations.find(
+  (migration) => migration.version === 37,
+)!;
+export const designBoardReplayScreenshotsMigration = designMigrations.find(
+  (migration) => migration.version === 38,
+)!;
+export const runDesignMigrations = runMigrations(designMigrations, {
+  table: "design_migrations",
+});
 
 /**
  * The migration list above is the authoritative source for tables, indexes,
@@ -405,13 +572,10 @@ CREATE INDEX IF NOT EXISTS designs_normalized_owner_org_updated_idx ON designs (
  * swallowed so it can never fail boot.
  */
 /**
- * Best-effort unique index guarding against the add-localhost-screens
- * cross-request race: two concurrent calls placing the same localhost route
- * each see "no existing design_files row" from their own snapshot and both
- * insert a fresh row using the same deterministic filename for that route
- * (see actions/add-localhost-screens.ts). A unique index on
- * (design_id, filename) makes the losing insert fail instead of silently
- * creating an overlapping duplicate screen.
+ * Best-effort unique indexes guarding cross-request insert races. Two
+ * concurrent calls can each see "no existing design_files row" from their
+ * own snapshot. The filename index protects localhost placement; the
+ * operation-source index protects retryable browser imports.
  *
  * This intentionally does NOT live in `runDesignMigrations` above:
  * `CREATE UNIQUE INDEX` fails outright against any database that already
@@ -442,6 +606,18 @@ async function ensureDesignFilesUniqueIndex(): Promise<void> {
       err instanceof Error ? err.message : err,
     );
   }
+  try {
+    await getDbExec().execute(
+      `CREATE UNIQUE INDEX IF NOT EXISTS design_files_design_operation_source_unique_idx ON design_files (design_id, content_operation_source) WHERE content_operation_source LIKE 'fig-import:%'`,
+    );
+  } catch (err) {
+    console.warn(
+      "[db] design_files_design_operation_source_unique_idx not created — " +
+        "pre-existing duplicate operation sources may require cleanup before " +
+        "concurrent browser-import retries are fully serialized:",
+      err instanceof Error ? err.message : err,
+    );
+  }
 }
 
 export default async (nitroApp: any): Promise<void> => {
@@ -459,8 +635,6 @@ export default async (nitroApp: any): Promise<void> => {
       );
     }
   } catch (err) {
-    // Never fail boot over the safety net itself — the authoritative
-    // migrations above already ran.
     console.warn(
       "[db] ensureAdditiveColumns failed (non-fatal):",
       err instanceof Error ? err.message : err,

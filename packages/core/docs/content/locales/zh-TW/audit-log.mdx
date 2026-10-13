@@ -28,7 +28,7 @@ description: "持久的、僅附加的紀錄，紀錄誰更改了哪些應用資
 - **操作** — 操作名稱（例如 `delete-recording`）。
 - **演員** - `agent`、`human` 或 `system`，加上演員的電子郵件 - 填充**即使是代理呼叫**，因此您會得到“代理，代表 alice@，...”。
 - **執行連結** - 觸發呼叫（工具呼叫）的代理 `threadId` / `turnId`，因此突變可以追溯到確切的代理回合。
-- **Surface** — `tool`（代理）、`frontend`、`http`、`cli`、`mcp` 或 `a2a`。
+- **Surface** — `tool`（代理）、`frontend`、`http`、`cli`、`mcp`、`webmcp` 或 `a2a`。這些是代理協定，因此透過 `mcp`、`webmcp` 或 `a2a` 發出的呼叫記錄為代表你操作的 `agent`，而不是你本人。
 - **結果** — `success`、`error`（帶有錯誤程式碼）或 `denied`（被人工核准門阻止）。
 - **輸入** — 呼叫參數，具有憑證形狀的值 [redacted](#privacy)。
 - **目標和所有者** — 操作更改的資源，用於 [scope reads](#reading)。
@@ -91,6 +91,21 @@ const { data } = useActionQuery("list-audit-events", {
 ```
 
 代理可以呼叫​​相同的操作 - 詢問它“你對此錄音做了什麼更改？”它會從蹤跡中回答。
+
+## 匯出到 SIEM (OCSF) {#ocsf}
+
+**`export-audit-ocsf`** 以 [OCSF](https://schema.ocsf.io) 1.9.0 API Activity 事件（`class_uid` 6003）的形式傳回組織的稽核軌跡，由舊到新排序，供 SIEM 定期擷取。僅限擁有者和管理員，讀取的 `org` 和 `admins` 事件與組織稽核日誌相同，絕不讀取任何人的私人列。
+
+| 輸入     | 意義                                                      |
+| -------- | --------------------------------------------------------- |
+| `since`  | 僅傳回此 ISO 8601 時間戳記或 epoch 毫秒（含）之後的事件。 |
+| `until`  | 僅傳回此 ISO 8601 時間戳記或 epoch 毫秒之前的事件。       |
+| `cursor` | 上一頁傳回的 `nextCursor`。                               |
+| `limit`  | 每頁事件數，最多 500（預設 100）。                        |
+
+傳回 `{ events, hasMore, nextCursor }`。每次都儲存傳回的 `nextCursor`，並在下次擷取時傳回，包括 `events` 為空時；空頁也會推進 ready watermark。游標會重新讀取五分鐘的重疊視窗以擷取延遲寫入，因此請在多次擷取之間使用 `metadata.uid` 去重。最近五秒的事件會被保留，以免略過延遲寫入的列。
+
+每個事件將 `status` 對應到 `status_id`（`success` 為 Success；`error` 和 `denied` 為 Failure，其中 `denied` 還會設定 `action_id` 為 Denied 並提高 `severity_id`），將執行者對應到 `actor.user`（服務主體的類型為 Service），將動作對應到 `api.operation`，將目標對應到 `resources`。執行、任務、父任務、執行緒、輪次和應用程式 ID 沒有對應的 OCSF 欄位，位於 `unmapped` 之下。呼叫參數絕不會被匯出。
 
 ## 隱私和保留 {#privacy}
 

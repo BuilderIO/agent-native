@@ -48,7 +48,10 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function renderPanel(findings: A11yFinding[]) {
+async function renderPanel(
+  findings: A11yFinding[],
+  onFindingClick?: (finding: A11yFinding) => void,
+) {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -61,6 +64,7 @@ async function renderPanel(findings: A11yFinding[]) {
       root!.render(
         <ReviewPanel
           findings={nextFindings}
+          onFindingClick={onFindingClick}
           fixSource={{ designId: "design-1", fileId: "file-1" }}
         />,
       );
@@ -90,9 +94,6 @@ describe("ReviewPanel FindingRow fix status", () => {
 
     expect(container!.textContent).toContain("Fixed");
 
-    // A fresh audit pass returns a *new* finding object with the same stable
-    // id — meaning the fix didn't actually resolve it. The row must not keep
-    // showing a stale "Fixed" checkmark for a currently-live issue.
     const reAudited = finding({
       message: "Contrast ratio 2.3:1 — minimum is 4.5:1",
     });
@@ -122,16 +123,31 @@ describe("ReviewPanel FindingRow fix status", () => {
     });
     expect(container!.textContent).toContain("Fixed");
 
-    // Re-rendering with the exact same finding reference (e.g. a parent
-    // re-render unrelated to the audit) must not reset the optimistic state.
     await rerender([original]);
     expect(container!.textContent).toContain("Fixed");
   });
 });
 
 describe("ReviewPanel FindingRow keyboard activation", () => {
+  it("opens finding details when the row is clicked", async () => {
+    const selected = finding({ detail: "The text contrast is too low." });
+    const onFindingClick = vi.fn();
+    await renderPanel([selected], onFindingClick);
+
+    const row = container!.querySelector('[role="button"]');
+    if (!row) throw new Error("Finding row did not render");
+    await act(async () => {
+      row.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container!.textContent).toContain("The text contrast is too low.");
+    expect(row.getAttribute("aria-expanded")).toBe("true");
+    expect(onFindingClick).toHaveBeenCalledWith(selected);
+  });
+
   it("prevents the default Space scroll when activating a finding row via keyboard", async () => {
     const onFindingClick = vi.fn();
+    const selected = finding({ detail: "The text contrast is too low." });
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -141,7 +157,7 @@ describe("ReviewPanel FindingRow keyboard activation", () => {
     };
     await act(async () => {
       root!.render(
-        <ReviewPanel findings={[finding()]} onFindingClick={onFindingClick} />,
+        <ReviewPanel findings={[selected]} onFindingClick={onFindingClick} />,
       );
     });
 
@@ -157,6 +173,8 @@ describe("ReviewPanel FindingRow keyboard activation", () => {
     });
 
     expect(event.defaultPrevented).toBe(true);
-    expect(onFindingClick).toHaveBeenCalledWith(finding());
+    expect(onFindingClick).toHaveBeenCalledWith(selected);
+    expect(container.textContent).toContain("The text contrast is too low.");
+    expect(row.getAttribute("aria-expanded")).toBe("true");
   });
 });

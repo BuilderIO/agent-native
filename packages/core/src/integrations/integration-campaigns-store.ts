@@ -1,11 +1,10 @@
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  type DbExec,
-  type DbExecStatement,
-} from "../db/client.js";
+import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import {
+  ensurePendingTasksTable,
+  MAX_RECOVERABLE_PENDING_TASK_AGE_MS,
+} from "./pending-tasks-store.js";
 
 let initPromise: Promise<void> | undefined;
 
@@ -53,25 +52,25 @@ function buildCreateSql(): string {
     thread_id TEXT NOT NULL,
     turn_id TEXT NOT NULL,
     status TEXT NOT NULL,
-    chunk_count ${intType()} NOT NULL DEFAULT 0,
+    chunk_count BIGINT NOT NULL DEFAULT 0,
     current_run_id TEXT,
     lease_token TEXT,
-    lease_expires_at ${intType()},
-    next_run_at ${intType()} NOT NULL,
+    lease_expires_at BIGINT,
+    next_run_at BIGINT NOT NULL,
     progress_ref TEXT,
     checkpoint TEXT,
     error_message TEXT,
-    created_at ${intType()} NOT NULL,
-    updated_at ${intType()} NOT NULL,
-    completed_at ${intType()}
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    completed_at BIGINT
   )`;
 }
 
 async function ensureTable(): Promise<void> {
   if (!initPromise) {
-    initPromise = (async () => {
+    const initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = buildCreateSql();
-      if (isPostgres()) {
+      {
         await ensureTableExists("integration_campaigns", createSql);
         await ensureIndexExists(
           "idx_integration_campaigns_due",
@@ -96,6 +95,7 @@ async function ensureTable(): Promise<void> {
       initPromise = undefined;
       throw error;
     });
+    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
   }
   return initPromise;
 }
@@ -255,16 +255,11 @@ export async function claimIntegrationCampaign(
   const dueClause = `(status IN ('pending', 'waiting') AND next_run_at <= ?)
     OR (status = 'processing' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?)`;
   const result = await getDbExec().execute({
-    sql: isPostgres()
-      ? `UPDATE integration_campaigns
+    sql: `UPDATE integration_campaigns
            SET status = ?, chunk_count = CASE WHEN status = 'waiting' OR checkpoint = ? THEN chunk_count ELSE chunk_count + 1 END, current_run_id = ?,
                lease_token = ?, lease_expires_at = ?, updated_at = ?, error_message = NULL
            WHERE id = ? AND (status = 'waiting' OR checkpoint = ? OR chunk_count < ?) AND (${dueClause})
-           RETURNING *`
-      : `UPDATE integration_campaigns
-           SET status = ?, chunk_count = CASE WHEN status = 'waiting' OR checkpoint = ? THEN chunk_count ELSE chunk_count + 1 END, current_run_id = ?,
-               lease_token = ?, lease_expires_at = ?, updated_at = ?, error_message = NULL
-           WHERE id = ? AND (status = 'waiting' OR checkpoint = ? OR chunk_count < ?) AND (${dueClause})`,
+           RETURNING *`,
     args: [
       "processing",
       A2A_WAITING_CHECKPOINT,
@@ -279,24 +274,13 @@ export async function claimIntegrationCampaign(
       now,
     ],
   });
-  if (isPostgres()) {
+  {
     const row = result.rows?.[0];
     if (row)
       return {
         kind: "claimed",
         campaign: rowToCampaign(row as Record<string, unknown>),
       };
-  } else if (affectedRows(result) > 0) {
-    const campaign = await getIntegrationCampaign(id);
-    if (
-      campaign &&
-      campaign.status === "processing" &&
-      campaign.currentRunId === input.runId &&
-      campaign.leaseToken === input.leaseToken
-    ) {
-      return { kind: "claimed", campaign };
-    }
-    return { kind: "not-due" };
   }
 
   const campaign = await getIntegrationCampaign(id);
@@ -324,22 +308,14 @@ export async function claimIntegrationCampaignDeliveryForTask(
   }
   const now = Date.now();
   const result = await getDbExec().execute({
-    sql: isPostgres()
-      ? `UPDATE integration_campaigns
+    sql: `UPDATE integration_campaigns
            SET status = 'processing', current_run_id = ?, lease_token = ?,
                lease_expires_at = ?, updated_at = ?
            WHERE integration_task_id = ?
              AND (status IN ('pending', 'waiting') OR
                   (status = 'processing' AND
                    (lease_expires_at IS NULL OR lease_expires_at <= ?)))
-           RETURNING *`
-      : `UPDATE integration_campaigns
-           SET status = 'processing', current_run_id = ?, lease_token = ?,
-               lease_expires_at = ?, updated_at = ?
-           WHERE integration_task_id = ?
-             AND (status IN ('pending', 'waiting') OR
-                  (status = 'processing' AND
-                   (lease_expires_at IS NULL OR lease_expires_at <= ?)))`,
+           RETURNING *`,
     args: [
       input.runId,
       input.leaseToken,
@@ -349,16 +325,8 @@ export async function claimIntegrationCampaignDeliveryForTask(
       now,
     ],
   });
-  if (isPostgres()) {
-    const row = result.rows?.[0];
-    return row ? rowToCampaign(row as Record<string, unknown>) : null;
-  }
-  if (affectedRows(result) === 0) return null;
-  const campaign = await getIntegrationCampaignForTask(integrationTaskId);
-  return campaign?.currentRunId === input.runId &&
-    campaign.leaseToken === input.leaseToken
-    ? campaign
-    : null;
+  const row = result.rows?.[0];
+  return row ? rowToCampaign(row as Record<string, unknown>) : null;
 }
 
 function leaseWhere(): string {
@@ -513,7 +481,7 @@ export async function completeIntegrationCampaignTask(
 ): Promise<boolean> {
   await ensureTable();
   const now = Date.now();
-  const previousWriteGuard = isPostgres() ? "" : "AND changes() = 1";
+  const previousWriteGuard = "";
   const statements: DbExecStatement[] = [
     {
       sql: `UPDATE integration_campaigns
@@ -772,7 +740,7 @@ export async function transitionIntegrationCampaignTaskToDeliveryRetry(
       MAX_ERROR_MESSAGE_CHARS,
       "errorMessage",
     ) ?? "Integration response delivery needs retry";
-  const previousWriteGuard = isPostgres() ? "" : "AND changes() = 1";
+  const previousWriteGuard = "";
   const statements: DbExecStatement[] = [
     {
       sql: `UPDATE integration_campaigns
@@ -860,7 +828,7 @@ export async function transitionIntegrationCampaignTaskToA2AReceiptRetry(
       MAX_ERROR_MESSAGE_CHARS,
       "errorMessage",
     ) ?? "A2A partial response history needs retry";
-  const previousWriteGuard = isPostgres() ? "" : "AND changes() = 1";
+  const previousWriteGuard = "";
   const statements: DbExecStatement[] = [
     {
       sql: `UPDATE integration_campaigns
@@ -957,7 +925,7 @@ export async function completeIntegrationCampaignTaskAfterA2A(
 ): Promise<boolean> {
   await ensureTable();
   const now = Date.now();
-  const previousWriteGuard = isPostgres() ? "" : "AND changes() = 1";
+  const previousWriteGuard = "";
   const statements: DbExecStatement[] = [
     {
       sql: `UPDATE integration_campaigns
@@ -1005,22 +973,52 @@ export async function completeIntegrationCampaignTaskAfterA2A(
   throw new Error("Database does not support atomic A2A parent completion");
 }
 
+export async function deferIntegrationCampaignForRuntime(
+  id: string,
+  delayMs: number,
+): Promise<boolean> {
+  await ensureTable();
+  const now = Date.now();
+  const nextRunAt = now + delayMs;
+  const result = await getDbExec().execute({
+    sql: `UPDATE integration_campaigns
+          SET next_run_at = ?,
+              lease_expires_at = CASE WHEN status = 'processing' THEN ? ELSE lease_expires_at END,
+              updated_at = ?
+          WHERE id = ? AND (
+            (status IN ('pending', 'waiting') AND next_run_at <= ?)
+            OR (status = 'processing' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?)
+          )
+          RETURNING id`,
+    args: [nextRunAt, nextRunAt, now, id, now, now],
+  });
+  return (result.rows?.length ?? 0) > 0;
+}
+
 export async function listDueIntegrationCampaignIds(
   limit = 25,
 ): Promise<string[]> {
-  await ensureTable();
+  await Promise.all([ensureTable(), ensurePendingTasksTable()]);
   const boundedLimit = Math.max(
     1,
     Math.min(Math.floor(limit), MAX_DUE_LIST_LIMIT),
   );
   const now = Date.now();
+  // A campaign continues its integration task, so it expires with that task.
+  // Expired campaigns stay due forever and sort first, so they must be filtered
+  // here rather than skipped after selection, or they fill every batch.
   const { rows } = await getDbExec().execute({
     sql: `SELECT id FROM integration_campaigns
-          WHERE (status IN ('pending', 'waiting') AND next_run_at <= ?)
-             OR (status = 'processing' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?)
+          WHERE ((status IN ('pending', 'waiting') AND next_run_at <= ?)
+             OR (status = 'processing' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?))
+            AND EXISTS (
+              SELECT 1 FROM integration_pending_tasks task
+              WHERE task.id = integration_campaigns.integration_task_id
+                AND task.created_at >= ?
+            )
           ORDER BY next_run_at ASC, id ASC
           LIMIT ?`,
-    args: [now, now, boundedLimit],
+    args: [now, now, now - MAX_RECOVERABLE_PENDING_TASK_AGE_MS, boundedLimit],
   });
   return rows.map((row) => String((row as Record<string, unknown>).id));
 }

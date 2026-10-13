@@ -43,12 +43,10 @@ export interface VersionedResourceRegistration {
     resourceId: string,
     ctx?: VersionedResourceContext,
   ) => Promise<VersionedResourceAccess | null> | VersionedResourceAccess | null;
-  getSnapshot?: (
-    context: VersionedResourceSnapshotContext,
-  ) => Promise<unknown> | unknown;
+  getSnapshot?: (context: VersionedResourceSnapshotContext) => Promise<unknown>;
   restoreSnapshot?: (
     context: VersionedResourceRestoreContext,
-  ) => Promise<unknown> | unknown;
+  ) => Promise<unknown>;
 }
 
 export interface ResourceVersion {

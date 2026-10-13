@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const testString = (value: unknown) =>
+  typeof value === "string"
+    ? value
+    : value instanceof URLSearchParams
+      ? value.toString()
+      : (JSON.stringify(value) ?? "");
+
 import {
   SLACK_PILOT_SOURCE,
   runSlackPilotCorpusEval,
@@ -122,7 +129,7 @@ const mocks = vi.hoisted(() => {
   };
 
   function likeNeedle(value: unknown) {
-    return String(value ?? "")
+    return testString(value ?? "")
       .replace(/^%|%$/g, "")
       .replace(/\\([\\%_])/g, "$1")
       .toLowerCase();
@@ -145,7 +152,7 @@ const mocks = vi.hoisted(() => {
       return condition.vals.includes(row[condition.col.name]);
     }
     if (condition.op === "like") {
-      const value = String(row[condition.col.name] ?? "").toLowerCase();
+      const value = testString(row[condition.col.name] ?? "").toLowerCase();
       return value.includes(likeNeedle(condition.val));
     }
     return false;
@@ -154,8 +161,8 @@ const mocks = vi.hoisted(() => {
   const applyOrder = (items: Row[], order?: { column?: Column }) => {
     if (!order?.column) return items;
     return [...items].sort((a, b) =>
-      String(b[order.column!.name] ?? "").localeCompare(
-        String(a[order.column!.name] ?? ""),
+      testString(b[order.column!.name] ?? "").localeCompare(
+        testString(a[order.column!.name] ?? ""),
       ),
     );
   };
@@ -252,7 +259,6 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 import askBrainAction from "../actions/ask-brain.js";
-import { tryAnswerBrainA2AQuestion } from "../server/lib/a2a-fallback.js";
 import { searchEverythingRows } from "../server/lib/search.js";
 
 function resetRows() {
@@ -477,29 +483,5 @@ describe("Brain Slack pilot eval corpus", () => {
     expect(result.citations).toEqual([]);
     expect(result.knowledge).toEqual([]);
     expect(result.captures).toEqual([]);
-  });
-
-  it("answers Brain A2A questions deterministically when citations exist", async () => {
-    const result = await tryAnswerBrainA2AQuestion(
-      "What should Brain do when citation support is missing?",
-    );
-
-    expect(result).toContain("When citation support is missing");
-    expect(result).toContain("Sources:");
-    expect(result).toContain("https://slack.example.com/");
-  });
-
-  it("leaves unanswerable or mutating A2A messages for the normal agent path", async () => {
-    await expect(
-      tryAnswerBrainA2AQuestion(
-        "Which office snack supplier catered the Friday lunch?",
-      ),
-    ).resolves.toBeNull();
-
-    await expect(
-      tryAnswerBrainA2AQuestion(
-        "Import what should Brain do when citation support is missing?",
-      ),
-    ).resolves.toBeNull();
   });
 });

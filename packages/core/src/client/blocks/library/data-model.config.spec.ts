@@ -7,12 +7,6 @@ import {
   type DataModelData,
 } from "./data-model.config.js";
 
-/**
- * Minimal `BlockAttrReader` over a plain attribute bag, mirroring the runtime
- * `createAttrReader` value-domain narrowing (string-vs-number-vs-array-vs-object).
- * Lets the test assert the `toAttrs` → `fromAttrs` round-trip without spinning up
- * the full MDX serialize/parse pipeline.
- */
 function reader(attrs: Record<string, unknown>): BlockAttrReader {
   const read = (name: string) => attrs[name];
   return {
@@ -32,7 +26,6 @@ function reader(attrs: Record<string, unknown>): BlockAttrReader {
   };
 }
 
-/** Re-decode data from the attribute bag `toAttrs` produced. */
 function roundTrip(data: DataModelData): DataModelData {
   const attrs = dataModelMdx.toAttrs(data) as Record<string, unknown>;
   return dataModelMdx.fromAttrs(reader(attrs), "");
@@ -137,8 +130,6 @@ describe("data-model block config", () => {
         },
       ],
     };
-    // No `relations` attribute is emitted, so the decode yields
-    // `relations: undefined`.
     expect(roundTrip(data)).toEqual({
       entities: data.entities,
       relations: undefined,

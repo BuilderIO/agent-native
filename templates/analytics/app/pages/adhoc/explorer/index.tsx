@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconChevronDown,
@@ -38,12 +39,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { useMetricsQuery } from "@/lib/query-metrics";
 
+import { DateRangeInput } from "../_shared/components/DateRangeInput";
 import { ChartTypePicker } from "./components/ChartTypePicker";
 import { DateRangePicker } from "./components/DateRangePicker";
 import { EventPanel } from "./components/EventPanel";
 import { ExplorerChart } from "./components/ExplorerChart";
 import { SqlPreview } from "./components/SqlPreview";
-import { buildSql } from "./sql-builder";
+import { buildSql, dateRangeToDays } from "./sql-builder";
+import type { DateRange } from "./types";
 import { useExplorerConfig } from "./use-explorer-config";
 
 export default function ExplorerPage() {
@@ -63,7 +66,6 @@ export default function ExplorerPage() {
     isSaving,
   } = useExplorerConfig();
 
-  // Support ?config=<id> URL param to auto-load a saved config
   const configParam = searchParams.get("config");
   const [loadedParam, setLoadedParam] = useState<string | null>(null);
   useEffect(() => {
@@ -72,7 +74,7 @@ export default function ExplorerPage() {
       configParam !== loadedParam &&
       configParam !== currentId
     ) {
-      loadConfig(configParam);
+      void loadConfig(configParam);
       setLoadedParam(configParam);
     }
   }, [configParam, loadedParam, currentId, loadConfig]);
@@ -94,9 +96,20 @@ export default function ExplorerPage() {
     { enabled: hasValidEvents && sql.length > 0 },
   );
 
+  useEffect(() => {
+    if (!result || result.error || !hasValidEvents) return;
+    trackEvent("sql_run", {
+      app_name: "analytics",
+      template_name: "analytics",
+      surface: "explorer",
+      row_count: result.rows.length,
+      column_count: result.schema?.length ?? 0,
+    });
+  }, [hasValidEvents, result]);
+
   const handleSave = () => {
     if (currentId) {
-      saveConfig();
+      void saveConfig();
     } else {
       setSaveName(config.name || "");
       setSaveDialogOpen(true);
@@ -111,8 +124,25 @@ export default function ExplorerPage() {
   const handleSaveConfirm = () => {
     const name = saveName.trim() || t("explorer.untitled");
     setConfig({ ...config, name });
-    saveConfig(name);
+    void saveConfig(name);
     setSaveDialogOpen(false);
+  };
+
+  const handleDateRangeChange = (dateRange: DateRange) => {
+    if (dateRange !== "custom") {
+      setConfig({ ...config, dateRange });
+      return;
+    }
+    const start = new Date();
+    start.setDate(start.getDate() - dateRangeToDays(config.dateRange));
+    setConfig({
+      ...config,
+      dateRange,
+      customDateStart:
+        config.customDateStart || start.toISOString().slice(0, 10),
+      customDateEnd:
+        config.customDateEnd || new Date().toISOString().slice(0, 10),
+    });
   };
 
   return (
@@ -198,8 +228,21 @@ export default function ExplorerPage() {
           {/* Date range */}
           <DateRangePicker
             value={config.dateRange}
-            onChange={(dateRange) => setConfig({ ...config, dateRange })}
+            onChange={handleDateRangeChange}
           />
+          {config.dateRange === "custom" && (
+            <DateRangeInput
+              label={t("sqlDashboard.customRange")}
+              startDate={config.customDateStart || ""}
+              endDate={config.customDateEnd || ""}
+              onStartChange={(customDateStart) =>
+                setConfig({ ...config, customDateStart })
+              }
+              onEndChange={(customDateEnd) =>
+                setConfig({ ...config, customDateEnd })
+              }
+            />
+          )}
         </div>
       </div>
 
@@ -277,7 +320,7 @@ export default function ExplorerPage() {
             <AlertDialogAction
               onClick={() => {
                 if (deleteConfirm) {
-                  deleteConfig(deleteConfirm.id);
+                  void deleteConfig(deleteConfirm.id);
                   setDeleteConfirm(null);
                 }
               }}

@@ -513,7 +513,6 @@ describe("buildGongSearchResult", () => {
       exhaustive: true,
     });
 
-    // All three returned despite limit=2 and a remaining cursor.
     expect(result.calls.map((c) => c.id)).toEqual(["b", "c", "a"]);
     expect(result.calls).toHaveLength(3);
     expect(result.limit).toBe(3);

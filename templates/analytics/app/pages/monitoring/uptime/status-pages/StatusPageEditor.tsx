@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   useActionMutation,
   useActionQuery,
@@ -115,7 +116,6 @@ export function StatusPageEditor({
   const slugTouched = useRef(false);
   const seededRef = useRef<string | null>(null);
 
-  // Seed the draft once from the loaded page (edit) or reset for a new page.
   useEffect(() => {
     if (!isEdit) {
       if (seededRef.current !== "new") {
@@ -227,6 +227,13 @@ export function StatusPageEditor({
     if (!publicUrl) return;
     try {
       await navigator.clipboard.writeText(publicUrl);
+      if (pageId) {
+        trackEvent("share_link_copied", {
+          resource_type: "status_page",
+          resource_id: pageId,
+          link_type: "share",
+        });
+      }
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -539,6 +546,7 @@ export function StatusPageEditor({
                           ) : null}
                         </div>
                         <Input
+                          size="sm"
                           value={ref.displayName}
                           placeholder={t.displayNamePlaceholder}
                           onChange={(e) =>
@@ -546,7 +554,7 @@ export function StatusPageEditor({
                               displayName: e.target.value,
                             })
                           }
-                          className="h-8 w-full text-xs sm:w-44"
+                          className="w-full text-xs sm:w-44"
                         />
                         <label className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
                           <Switch

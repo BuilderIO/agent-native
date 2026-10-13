@@ -75,6 +75,19 @@ describe("design data access policy", () => {
       ).toBe("viewer");
     });
 
+    it("matches the capability after decoding the scoped design ID", () => {
+      const encodedResource = {
+        id: "design/1",
+        data: JSON.stringify({ sourceType: "localhost" }),
+      };
+
+      expect(
+        publicDesignAccessRole(encodedResource, {
+          authCapability: "capability:visual-edit:design:design%2F1",
+        }),
+      ).toBe("editor");
+    });
+
     it.each(["inline", "fusion"])(
       "does not upgrade a matching %s design",
       (sourceType) => {

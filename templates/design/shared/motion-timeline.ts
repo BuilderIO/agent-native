@@ -1,17 +1,13 @@
-/**
- * Motion timeline types for the Design Studio motion dock (§6.3 + §4.3).
- *
- * A MotionTimeline compiles into a managed `<style data-agent-native-motion>`
- * block. The CSS is the runtime truth; the JSON `tracks` aid editing only.
- * `compiledHash` keeps the two in lockstep — `apply-motion-edit` must update
- * both atomically.
- */
-
+import type { MotionAnimationStyleDefinition } from "./motion-animation-styles";
 import {
   evaluateCssLinear,
+  isMotionEaseVariableReference,
   parseSpringToken,
+  resolveMotionEase,
   sampleSpring,
 } from "./motion-easing";
+import type { MotionEasingVariable } from "./motion-easing";
+import type { MotionNativeStyleInstance } from "./motion-native-style";
 
 export type MotionEase =
   | "linear"
@@ -21,150 +17,73 @@ export type MotionEase =
   | "ease-in-out"
   | "step-start"
   | "step-end"
-  | string; // cubic-bezier(...), steps(...), linear(...), or spring(...)
+  | (string & {});
 
-/**
- * Timeline playback mode (Figma Motion parity):
- * - "loop": repeats continuously.
- * - "once": plays a single time and stops on the final frame.
- * - "ping-pong": plays forward then backward, repeating.
- */
 export type MotionPlaybackMode = "loop" | "once" | "ping-pong";
 
-/** Playback mode applied when a timeline predates the playbackMode field. */
-export const MOTION_DEFAULT_PLAYBACK_MODE: MotionPlaybackMode = "once";
-
-export interface MotionKeyframe {
-  /**
-   * Normalised time in [0, 1] within the TRACK's own span (which is the whole
-   * timeline unless the track sets `delayMs`/`durationMs`). 0 = span start,
-   * 1 = span end. Matches Figma's normalized `timelinePosition`.
-   */
-  t: number;
-  /** CSS property value at this keyframe (e.g. "0px", "1", "#ff0000"). */
-  value: string;
-  /**
-   * Easing of the SEGMENT that leaves this keyframe toward the next one
-   * (standard CSS keyframe semantics; equivalently, Figma's "easing into the
-   * following keyframe"). The last keyframe's ease has no effect.
-   */
-  ease?: MotionEase;
+export interface MotionPathPoint {
+  x: number;
+  y: number;
 }
 
-/**
- * One property track for a single target node.
- * A node may have multiple tracks (e.g. opacity + translate + rotate).
- */
+/** Offsets are in px relative to the segment's start and end keyframes. */
+export interface MotionPathSegmentV1 {
+  version: 1;
+  type: "cubic";
+  control1: MotionPathPoint;
+  control2: MotionPathPoint;
+}
+
+export const MOTION_PATH_MAX_CONTROL_OFFSET_PX = 100_000;
+export const MOTION_PATH_MAX_POSITION_PX = 1_000_000;
+const MOTION_PATH_LENGTH_STEPS = 512;
+
+export const MOTION_DEFAULT_PLAYBACK_MODE: MotionPlaybackMode = "once";
+export const MOTION_TIMELINE_DEFAULT_DURATION_MS = 2_000;
+export const MOTION_TIMELINE_MAX_DURATION_MS = 120_000;
+
+export interface MotionKeyframe {
+  t: number;
+  value: string;
+  ease?: MotionEase;
+  motionPath?: MotionPathSegmentV1;
+}
+
 export interface MotionTrack {
-  /** Matches `data-agent-native-node-id` stamped on the target DOM element. */
   targetNodeId: string;
-  /** CSS property name being animated (e.g. "opacity", "translate", "rotate"). */
   property: string;
   keyframes: MotionKeyframe[];
-  /**
-   * Start-time offset of this track within the timeline, in milliseconds
-   * (compiled to `animation-delay`). Omitted / 0 = starts with the timeline.
-   */
+  enabled?: boolean;
   delayMs?: number;
-  /**
-   * Duration of this track's own animation span in milliseconds (compiled to
-   * a per-track `animation-duration`). Omitted = the timeline's `durationMs`.
-   */
   durationMs?: number;
-  /**
-   * Timeline-level playback mode, persisted on the FIRST track only so the
-   * stored `tracks` JSON column stays a plain array (additive, backward
-   * compatible — older readers simply ignore the extra field). Use
-   * `readTimelinePlaybackMode` / `withTimelinePlaybackMode`; do not read this
-   * field directly.
-   */
   timelinePlaybackMode?: MotionPlaybackMode;
 }
 
-/**
- * A complete animation timeline scoped to one design + source + screen/file.
- * A design may have many timelines (one per screen or logical animation group).
- */
 export interface MotionTimeline {
   id: string;
   designId: string;
-  /**
-   * Opaque source reference identifying the screen or file this timeline
-   * belongs to (fileId for inline designs, routeId for localhost/fusion).
-   * `null` when scoped to the entire design.
-   */
   sourceRef: string | null;
-  /**
-   * File path for real-app CSS module output.
-   * `null` for inline designs (CSS lives in the managed `<style>` block).
-   */
   filePath: string | null;
   tracks: MotionTrack[];
-  /** Total animation duration in milliseconds. */
+  animationStyles?: MotionAnimationStyleDefinition[];
+  nativeStyles?: MotionNativeStyleInstance[];
   durationMs: number;
-  /**
-   * Timeline playback mode. Omitted on rows written before this field existed
-   * — treat as {@link MOTION_DEFAULT_PLAYBACK_MODE}.
-   */
   playbackMode?: MotionPlaybackMode;
-  /** Default easing applied to keyframe intervals that omit a per-keyframe ease. */
   defaultEase: MotionEase;
-  /**
-   * Hash of the compiled CSS output. Used by `apply-motion-edit` to detect
-   * drift between the stored JSON tracks and the managed `<style>` block.
-   * Cleared to `null` when tracks are edited but CSS has not yet been recompiled.
-   */
   compiledHash: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-// ─── Animatable-property catalog + track factory ──────────────────────────────
-//
-// Shared by the MotionDock UI (the "add a track" picker) and unit tests. These
-// are pure helpers so the first-track-creation flow can be tested without
-// mounting React. They power the "create the FIRST track" path: a freshly
-// selected element has no tracks, so the dock seeds a default track from one of
-// these presets and the keyframes below.
-
-/**
- * One animatable-property preset offered when creating a brand-new track.
- * `from`/`to` seed the two default keyframes so the track is immediately
- * compilable and previewable (a track with < 1 keyframe is rejected by
- * `apply-motion-edit`).
- */
 export interface MotionPropertyPreset {
-  /** CSS property animated by the track (e.g. "opacity", "translate"). */
   property: string;
-  /** Human-readable label for the picker, verbatim from Figma's Add-motion menu. */
   label: string;
-  /** Value at t = 0. */
-  from: string;
-  /** Value at t = 1. */
-  to: string;
-  /**
-   * Menu placement, matching Figma Motion's "Add motion" submenu: "primary"
-   * items are listed directly; "more" items live under the "More" submenu.
-   */
+  from?: string;
+  to?: string;
   group: "primary" | "more";
+  additionalProperties?: readonly string[];
 }
 
-/**
- * Built-in property presets for the "Add motion" picker, matching Figma
- * Motion's submenu verbatim: Position / Scale / Rotation / Opacity, then
- * More ▸ Corner radius / Fill / Stroke paint / Stroke weight / Drop shadow.
- *
- * CSS mapping uses the modern individual transform properties (`translate`,
- * `scale`, `rotate`) instead of one shared `transform` string, so position,
- * scale, and rotation tracks compose freely on the same node without
- * colliding on a single (targetNodeId, property) pair.
- *
- * Every preset is a valid CSS identifier accepted by
- * `assertSafeMotionCssProperty` and yields two safe keyframe values. Presets
- * whose motion would be invisible with identical endpoints seed a small
- * visible change; color-like presets seed equal endpoints (edit values via
- * auto-keyframe or the inspector, as in Figma).
- */
 export const MOTION_PROPERTY_PRESETS: MotionPropertyPreset[] = [
   {
     property: "translate",
@@ -231,15 +150,6 @@ export const MOTION_PROPERTY_PRESETS: MotionPropertyPreset[] = [
   },
 ];
 
-/**
- * Build a brand-new {@link MotionTrack} for a target node + property, seeded
- * with two keyframes (start/end) so it is immediately valid for both the live
- * preview bridge and the `apply-motion-edit` managed CSS persist path. Used by
- * the MotionDock "create first track" path.
- *
- * When `preset` is omitted, a neutral 0 → 1 opacity-style pair is used so the
- * track still compiles; callers normally pass a {@link MotionPropertyPreset}.
- */
 export function createMotionTrack(
   targetNodeId: string,
   property: string,
@@ -257,27 +167,18 @@ export function createMotionTrack(
   };
 }
 
-/**
- * Build a track from a {@link MotionPropertyPreset}. Thin wrapper over
- * {@link createMotionTrack} that forwards the preset's seed values.
- */
 export function createMotionTrackFromPreset(
   targetNodeId: string,
   preset: MotionPropertyPreset,
   ease?: MotionEase,
 ): MotionTrack {
   return createMotionTrack(targetNodeId, preset.property, {
-    from: preset.from,
-    to: preset.to,
+    from: preset.from ?? "0",
+    to: preset.to ?? "1",
     ease,
   });
 }
 
-/**
- * Return `true` when a track for the given (targetNodeId, property) pair already
- * exists in `tracks`. The dock uses this to decide between "create a new track"
- * and "add a keyframe to the existing track" so a property is never duplicated.
- */
 export function hasTrackFor(
   tracks: MotionTrack[],
   targetNodeId: string,
@@ -288,27 +189,14 @@ export function hasTrackFor(
   );
 }
 
-// ─── Keyframe helpers (pure; shared by MotionDock + tests) ────────────────────
-
-/**
- * Two keyframes closer together than this (normalised time) are treated as the
- * same stop: upserts replace instead of accumulating invisible duplicates.
- */
 export const MOTION_KEYFRAME_TIME_EPSILON = 0.002;
 
-/** Return a copy of `keyframes` sorted ascending by `t` (stable). */
 export function sortMotionKeyframes(
   keyframes: MotionKeyframe[],
 ): MotionKeyframe[] {
   return [...keyframes].sort((a, b) => a.t - b.t);
 }
 
-/**
- * Insert `keyframe` into `keyframes`, replacing any existing keyframe whose
- * `t` is within `epsilon` of the new keyframe's time (so repeated adds at the
- * same playhead position never accumulate invisible duplicates). Returns a new
- * sorted array; the input is not mutated.
- */
 export function upsertMotionKeyframeAtTime(
   keyframes: MotionKeyframe[],
   keyframe: MotionKeyframe,
@@ -320,12 +208,6 @@ export function upsertMotionKeyframeAtTime(
   return sortMotionKeyframes([...withoutCurrentTime, keyframe]);
 }
 
-// ─── Easing evaluation ────────────────────────────────────────────────────────
-//
-// Mirrors CSS timing-function semantics closely enough for scrub preview and
-// value sampling. The canvas preview bridge carries its own dependency-free
-// copy of this algorithm (it cannot import modules); keep the two in sync.
-
 const EASE_KEYWORD_BEZIERS: Record<string, [number, number, number, number]> = {
   ease: [0.25, 0.1, 0.25, 1],
   "ease-in": [0.42, 0, 1, 1],
@@ -333,7 +215,6 @@ const EASE_KEYWORD_BEZIERS: Record<string, [number, number, number, number]> = {
   "ease-in-out": [0.42, 0, 0.58, 1],
 };
 
-/** Evaluate y for a CSS cubic-bezier timing function at progress x ∈ [0, 1]. */
 function cubicBezierY(
   x1: number,
   y1: number,
@@ -353,7 +234,6 @@ function cubicBezierY(
   const sampleY = (u: number) => ((ay * u + by) * u + cy) * u;
   const sampleDX = (u: number) => (3 * ax * u + 2 * bx) * u + cx;
 
-  // Newton-Raphson, falling back to bisection when the derivative flattens.
   let u = x;
   for (let i = 0; i < 8; i++) {
     const err = sampleX(u) - x;
@@ -373,24 +253,18 @@ function cubicBezierY(
   return sampleY(u);
 }
 
-/**
- * Evaluate a {@link MotionEase} timing function at linear progress `x ∈ [0, 1]`.
- *
- * Supports the CSS keywords (`linear`, `ease*`, `step-start`, `step-end`),
- * `cubic-bezier(...)` (including overshoot control points, used by the "back"
- * curve presets), `steps(n, position)`, CSS `linear(...)` stop lists, and
- * `spring(bounce[, settle])` tokens evaluated with the real damped-oscillator
- * sampler from `motion-easing.ts`. Unknown values fall back to linear. The
- * result may leave [0, 1] for overshoot beziers and bouncy springs by design.
- */
 export function evaluateMotionEase(
   ease: MotionEase | undefined,
   x: number,
+  easingVariables: readonly MotionEasingVariable[] = [],
 ): number {
   const clamped = x <= 0 ? 0 : x >= 1 ? 1 : x;
-  const raw = String(ease ?? "ease")
-    .trim()
-    .toLowerCase();
+  const authoredEase = String(ease ?? "ease").trim();
+  const raw = (
+    isMotionEaseVariableReference(authoredEase)
+      ? resolveMotionEase(authoredEase, easingVariables)
+      : authoredEase
+  ).toLowerCase();
   if (raw === "linear") return clamped;
   if (raw === "step-start") return clamped > 0 ? 1 : 0;
   if (raw === "step-end") return clamped >= 1 ? 1 : 0;
@@ -410,7 +284,6 @@ export function evaluateMotionEase(
   if (bezier) {
     const parts = bezier[1].split(",").map((part) => parseFloat(part));
     if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
-      // x control points must stay in [0, 1] (CSS requirement); y may overshoot.
       const x1 = Math.min(1, Math.max(0, parts[0]));
       const x2 = Math.min(1, Math.max(0, parts[2]));
       return cubicBezierY(x1, parts[1], x2, parts[3], clamped);
@@ -431,15 +304,12 @@ export function evaluateMotionEase(
     }
   }
 
-  // Real spring physics: `spring(bounce[, settle])` tokens (and the bare
-  // `spring` keyword) sample the shared damped-oscillator solution.
   if (raw.startsWith("spring")) {
     const spring = parseSpringToken(raw);
     if (spring) return sampleSpring(spring, clamped);
     return clamped;
   }
 
-  // CSS linear(...) stop lists (compiled springs / recovered timelines).
   if (raw.startsWith("linear(")) {
     const evaluated = evaluateCssLinear(raw, clamped);
     if (evaluated !== null) return evaluated;
@@ -448,18 +318,214 @@ export function evaluateMotionEase(
   return clamped;
 }
 
-// ─── Value sampling ───────────────────────────────────────────────────────────
-
 type MotionValueSegment =
   | { kind: "lit"; text: string }
   | { kind: "num"; value: number; unit: string };
 
 function formatSampledNumber(n: number): string {
   if (!Number.isFinite(n)) return "0";
-  return (Math.round(n * 10000) / 10000).toString();
+  const rounded = Math.round(n * 10000) / 10000;
+  return (Object.is(rounded, -0) ? 0 : rounded).toString();
 }
 
-/** Parse a hex / rgb(a) CSS color into [r, g, b, a], or null. */
+export function isMotionPathSegmentV1(
+  value: unknown,
+): value is MotionPathSegmentV1 {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (
+    candidate.version !== 1 ||
+    candidate.type !== "cubic" ||
+    Object.keys(candidate).some(
+      (key) => !["version", "type", "control1", "control2"].includes(key),
+    )
+  ) {
+    return false;
+  }
+  return (
+    isMotionPathPoint(candidate.control1) &&
+    isMotionPathPoint(candidate.control2)
+  );
+}
+
+function isMotionPathPoint(value: unknown): value is MotionPathPoint {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const point = value as Record<string, unknown>;
+  return (
+    Object.keys(point).every((key) => key === "x" || key === "y") &&
+    isValidMotionPathCoordinate(point.x, MOTION_PATH_MAX_CONTROL_OFFSET_PX) &&
+    isValidMotionPathCoordinate(point.y, MOTION_PATH_MAX_CONTROL_OFFSET_PX)
+  );
+}
+
+function isValidMotionPathCoordinate(
+  value: unknown,
+  max: number,
+): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    Math.abs(value) <= max
+  );
+}
+
+/** Parses the bounded 2D px subset used by Position motion paths. */
+export function parseMotionPosition(value: string): MotionPathPoint | null {
+  if (value.trim().toLowerCase() === "none") return { x: 0, y: 0 };
+  const number = "([+-]?(?:\\d+\\.?\\d*|\\.\\d+))";
+  const match = new RegExp(
+    `^\\s*${number}(px)?(?:\\s+${number}(px)?)?\\s*$`,
+    "i",
+  ).exec(value);
+  if (!match) return null;
+
+  const x = Number(match[1]);
+  const y = match[3] === undefined ? 0 : Number(match[3]);
+  const xUnit = match[2]?.toLowerCase() ?? "";
+  const yUnit = match[4]?.toLowerCase() ?? "";
+  if ((xUnit === "" && x !== 0) || (yUnit === "" && y !== 0)) return null;
+  if (
+    !isValidMotionPathCoordinate(x, MOTION_PATH_MAX_POSITION_PX) ||
+    !isValidMotionPathCoordinate(y, MOTION_PATH_MAX_POSITION_PX)
+  ) {
+    return null;
+  }
+  return { x, y };
+}
+
+export function formatMotionPosition(point: MotionPathPoint): string {
+  return `${formatSampledNumber(point.x)}px ${formatSampledNumber(point.y)}px`;
+}
+
+export interface MotionPathCubicPoints {
+  start: MotionPathPoint;
+  control1: MotionPathPoint;
+  control2: MotionPathPoint;
+  end: MotionPathPoint;
+}
+
+export function motionPathCubicPoints(
+  start: MotionPathPoint,
+  end: MotionPathPoint,
+  segment?: MotionPathSegmentV1,
+): MotionPathCubicPoints {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  return {
+    start,
+    control1: segment
+      ? { x: start.x + segment.control1.x, y: start.y + segment.control1.y }
+      : { x: start.x + dx / 3, y: start.y + dy / 3 },
+    control2: segment
+      ? { x: end.x + segment.control2.x, y: end.y + segment.control2.y }
+      : { x: end.x - dx / 3, y: end.y - dy / 3 },
+    end,
+  };
+}
+
+function cubicPoint(points: MotionPathCubicPoints, t: number): MotionPathPoint {
+  const inverse = 1 - t;
+  const startWeight = inverse * inverse * inverse;
+  const control1Weight = 3 * inverse * inverse * t;
+  const control2Weight = 3 * inverse * t * t;
+  const endWeight = t * t * t;
+  return {
+    x:
+      points.start.x * startWeight +
+      points.control1.x * control1Weight +
+      points.control2.x * control2Weight +
+      points.end.x * endWeight,
+    y:
+      points.start.y * startWeight +
+      points.control1.y * control1Weight +
+      points.control2.y * control2Weight +
+      points.end.y * endWeight,
+  };
+}
+
+export function motionPathSegmentLength(points: MotionPathCubicPoints): number {
+  let previous = points.start;
+  let length = 0;
+  for (let step = 1; step <= MOTION_PATH_LENGTH_STEPS; step += 1) {
+    const current = cubicPoint(points, step / MOTION_PATH_LENGTH_STEPS);
+    length += Math.hypot(current.x - previous.x, current.y - previous.y);
+    previous = current;
+  }
+  return length;
+}
+
+/** Samples a cubic by arc length so temporal easing stays separate from path shape. */
+export function sampleMotionPathPosition(
+  start: MotionPathPoint,
+  end: MotionPathPoint,
+  segment: MotionPathSegmentV1,
+  progress: number,
+): MotionPathPoint {
+  const points = motionPathCubicPoints(start, end, segment);
+
+  const samples: MotionPathPoint[] = [points.start];
+  const cumulative: number[] = [0];
+  for (let step = 1; step <= MOTION_PATH_LENGTH_STEPS; step += 1) {
+    const point = cubicPoint(points, step / MOTION_PATH_LENGTH_STEPS);
+    samples.push(point);
+    const previous = samples[step - 1]!;
+    cumulative.push(
+      cumulative[step - 1]! +
+        Math.hypot(point.x - previous.x, point.y - previous.y),
+    );
+  }
+
+  const total = cumulative[cumulative.length - 1]!;
+  if (total === 0) return points.end;
+  if (progress <= 0 || progress >= 1) {
+    if (progress === 0) return points.start;
+    if (progress === 1) return points.end;
+    const atStart = progress < 0;
+    const tangent = atStart
+      ? {
+          x:
+            points.control1.x - points.start.x ||
+            points.control2.x - points.start.x ||
+            points.end.x - points.start.x,
+          y:
+            points.control1.y - points.start.y ||
+            points.control2.y - points.start.y ||
+            points.end.y - points.start.y,
+        }
+      : {
+          x:
+            points.end.x - points.control2.x ||
+            points.end.x - points.control1.x ||
+            points.end.x - points.start.x,
+          y:
+            points.end.y - points.control2.y ||
+            points.end.y - points.control1.y ||
+            points.end.y - points.start.y,
+        };
+    const magnitude = Math.hypot(tangent.x, tangent.y);
+    if (magnitude === 0) return atStart ? points.start : points.end;
+    const distance = total * (progress - (atStart ? 0 : 1));
+    const origin = atStart ? points.start : points.end;
+    return {
+      x: origin.x + (tangent.x / magnitude) * distance,
+      y: origin.y + (tangent.y / magnitude) * distance,
+    };
+  }
+  const target = total * progress;
+  let upper = 1;
+  while (upper < cumulative.length && cumulative[upper]! < target) upper += 1;
+  const lower = upper - 1;
+  const segmentLength = cumulative[upper]! - cumulative[lower]!;
+  const local =
+    segmentLength > 0 ? (target - cumulative[lower]!) / segmentLength : 0;
+  const parameter = (lower + local) / MOTION_PATH_LENGTH_STEPS;
+  return cubicPoint(points, parameter);
+}
+
 function parseSimpleColor(
   value: string,
 ): [number, number, number, number] | null {
@@ -520,8 +586,6 @@ function tokenizeMotionValue(value: string): MotionValueSegment[] {
   let i = 0;
   let litStart = 0;
   while (i < value.length) {
-    // Skip numbers glued to an identifier (translate3d, matrix3d, …) or a hex
-    // color literal — those belong to the literal chunk, not a numeric arg.
     const prev = i > 0 ? value[i - 1] : "";
     if (!/[a-zA-Z#]/.test(prev)) {
       const nm = numRe.exec(value.slice(i));
@@ -553,12 +617,6 @@ function segmentShape(segs: MotionValueSegment[]): string {
     .join(" ");
 }
 
-/**
- * Linearly interpolate two CSS values at `ratio`. Handles matching numeric
- * skeletons (`translateY(16px)` → `translateY(0px)`) and simple colors
- * (hex / rgb(a)); anything non-interpolable holds the `from` value.
- * `ratio` may leave [0, 1] for overshoot easing.
- */
 export function lerpMotionValues(
   from: string,
   to: string,
@@ -601,17 +659,11 @@ export function lerpMotionValues(
   return from;
 }
 
-/**
- * Sample the value of a keyframe list at normalised time `t ∈ [0, 1]`,
- * honouring per-keyframe easing (each keyframe's `ease` shapes the interval to
- * the NEXT keyframe, standard CSS semantics). Used by the dock's
- * "add keyframe at playhead" so new keyframes seed with the value currently
- * shown by the preview instead of a hardcoded placeholder.
- */
 export function sampleMotionKeyframesAt(
   keyframes: MotionKeyframe[],
   t: number,
   defaultEase?: MotionEase,
+  easingVariables: readonly MotionEasingVariable[] = [],
 ): string {
   if (keyframes.length === 0) return "";
   const sorted = sortMotionKeyframes(keyframes);
@@ -627,27 +679,34 @@ export function sampleMotionKeyframesAt(
     const span = next.t - prev.t;
     if (span <= 0) return prev.value;
     const ratio = (clamped - prev.t) / span;
-    const eased = evaluateMotionEase(prev.ease ?? defaultEase, ratio);
+    const eased = evaluateMotionEase(
+      prev.ease ?? defaultEase,
+      ratio,
+      easingVariables,
+    );
+    if (prev.motionPath) {
+      const start = parseMotionPosition(prev.value);
+      const end = parseMotionPosition(next.value);
+      if (!start || !end || !isMotionPathSegmentV1(prev.motionPath)) {
+        throw new Error(
+          "Cubic Position motion paths require finite two-dimensional px keyframes and version 1 control offsets.",
+        );
+      }
+      return formatMotionPosition(
+        sampleMotionPathPosition(start, end, prev.motionPath, eased),
+      );
+    }
     return lerpMotionValues(prev.value, next.value, eased);
   }
   return last.value;
 }
 
-// ─── Track timing (per-track offset + duration) ──────────────────────────────
-
 export interface MotionTrackTiming {
-  /** Track start offset within the timeline, ms. */
   startMs: number;
-  /** Track animation span, ms. */
   durationMs: number;
-  /** Track end (startMs + durationMs), ms. */
   endMs: number;
 }
 
-/**
- * Resolve a track's absolute timing within its timeline. Tracks without
- * explicit `delayMs`/`durationMs` span the whole timeline (legacy behavior).
- */
 export function getMotionTrackTiming(
   track: Pick<MotionTrack, "delayMs" | "durationMs">,
   timelineDurationMs: number,
@@ -657,17 +716,50 @@ export function getMotionTrackTiming(
     1,
     track.durationMs !== undefined && Number.isFinite(track.durationMs)
       ? track.durationMs
-      : timelineDurationMs,
+      : timelineDurationMs - startMs,
   );
   return { startMs, durationMs, endMs: startMs + durationMs };
 }
 
-/**
- * Map an absolute timeline time (ms) to a track-local normalised time in
- * [0, 1], clamping outside the track's span (matching the compiled CSS's
- * `animation-fill-mode: both`: the first keyframe value holds before the
- * span, the last keyframe value holds after it).
- */
+export function hasPreviousMotionKeyframe(
+  track: MotionTrack,
+  currentTimelineTimeMs: number,
+  timelineDurationMs: number,
+): boolean {
+  const timing = getMotionTrackTiming(track, timelineDurationMs);
+  const previousTimeLimit =
+    currentTimelineTimeMs - MOTION_KEYFRAME_TIME_EPSILON * timing.durationMs;
+  return track.keyframes.some(
+    (keyframe) =>
+      timing.startMs + keyframe.t * timing.durationMs < previousTimeLimit,
+  );
+}
+
+export function motionTimelineDurationForTracks(
+  durationMs: number,
+  tracks: readonly Pick<MotionTrack, "delayMs" | "durationMs">[],
+): number {
+  return tracks.reduce(
+    (duration, track) =>
+      Math.max(duration, getMotionTrackTiming(track, durationMs).endMs),
+    durationMs,
+  );
+}
+
+export function motionTimelineDurationForContent(
+  durationMs: number,
+  tracks: readonly Pick<MotionTrack, "delayMs" | "durationMs">[],
+  textSpans: readonly Pick<MotionTrack, "delayMs" | "durationMs">[] = [],
+): number {
+  return Math.max(
+    motionTimelineDurationForTracks(durationMs, tracks),
+    ...textSpans.map(
+      (span) =>
+        Math.max(0, span.delayMs ?? 0) + Math.max(1, span.durationMs ?? 0),
+    ),
+  );
+}
+
 export function timelineTimeToTrackTime(
   track: Pick<MotionTrack, "delayMs" | "durationMs">,
   timelineTimeMs: number,
@@ -680,24 +772,20 @@ export function timelineTimeToTrackTime(
   );
 }
 
-/**
- * Sample a track's value at an absolute timeline time (ms), honouring the
- * track's own offset/duration and per-segment easing.
- */
 export function sampleMotionTrackAtTimelineTime(
   track: MotionTrack,
   timelineTimeMs: number,
   timelineDurationMs: number,
   defaultEase?: MotionEase,
+  easingVariables: readonly MotionEasingVariable[] = [],
 ): string {
   return sampleMotionKeyframesAt(
     track.keyframes,
     timelineTimeToTrackTime(track, timelineTimeMs, timelineDurationMs),
     defaultEase,
+    easingVariables,
   );
 }
-
-// ─── Timeline playback mode (persisted on the first track) ──────────────────
 
 const MOTION_PLAYBACK_MODES: MotionPlaybackMode[] = [
   "loop",
@@ -705,7 +793,6 @@ const MOTION_PLAYBACK_MODES: MotionPlaybackMode[] = [
   "ping-pong",
 ];
 
-/** Narrow an unknown value to a {@link MotionPlaybackMode}, or null. */
 export function parseMotionPlaybackMode(
   value: unknown,
 ): MotionPlaybackMode | null {
@@ -714,11 +801,6 @@ export function parseMotionPlaybackMode(
     : null;
 }
 
-/**
- * Read the timeline-level playback mode persisted in a `tracks` array
- * (stamped on the first track — see {@link MotionTrack.timelinePlaybackMode}).
- * Returns null when no track carries the field (pre-playbackMode timelines).
- */
 export function readTimelinePlaybackMode(
   tracks: MotionTrack[],
 ): MotionPlaybackMode | null {
@@ -729,11 +811,6 @@ export function readTimelinePlaybackMode(
   return null;
 }
 
-/**
- * Return a copy of `tracks` with the timeline-level playback mode stamped on
- * the first track only (and removed from every other track), keeping the
- * persisted JSON canonical. An empty `tracks` array is returned unchanged.
- */
 export function withTimelinePlaybackMode<T extends MotionTrack>(
   tracks: T[],
   mode: MotionPlaybackMode,
@@ -746,33 +823,14 @@ export function withTimelinePlaybackMode<T extends MotionTrack>(
   });
 }
 
-// ─── Auto-keyframe (pure part) ───────────────────────────────────────────────
-
 export interface MotionAutoKeyframeEdit {
-  /** `data-agent-native-node-id` of the element whose property was edited. */
   targetNodeId: string;
-  /** CSS property that was edited (e.g. "opacity", "translate"). */
   property: string;
-  /** The new CSS value entered by the user. */
   value: string;
-  /** Playhead position at edit time, normalised to the TIMELINE in [0, 1]. */
   playheadT: number;
-  /** Timeline duration in ms (needed to map onto offset tracks). */
   timelineDurationMs: number;
 }
 
-/**
- * Auto-keyframe core logic (Figma Motion parity): when a keyframeable
- * property value is edited while auto-keyframe is armed, upsert a keyframe at
- * the playhead on the matching track — creating one at the playhead when the
- * playhead is not already on an existing keyframe, or replacing the keyframe
- * value when it is (within {@link MOTION_KEYFRAME_TIME_EPSILON}).
- *
- * Pure and UI-free: returns the updated tracks array, or `null` when no track
- * animates `(targetNodeId, property)` — in that case the caller should apply
- * the edit as a plain style change (Figma only auto-keys properties that
- * already have motion; new properties are added via "Add motion").
- */
 export function applyMotionAutoKeyframe(
   tracks: MotionTrack[],
   edit: MotionAutoKeyframeEdit,
@@ -798,6 +856,7 @@ export function applyMotionAutoKeyframe(
   const keyframe: MotionKeyframe = {
     t: existing ? existing.t : localT,
     value: edit.value,
+    ...(existing?.motionPath ? { motionPath: existing.motionPath } : {}),
     ...(existing?.ease !== undefined
       ? { ease: existing.ease }
       : defaultEase !== undefined
@@ -812,20 +871,10 @@ export function applyMotionAutoKeyframe(
   return next;
 }
 
-// ─── Copy / paste animation + stagger (pure helpers) ─────────────────────────
-
-/**
- * A layer's animation, detached from its node id — the payload behind
- * "Copy animation" / "Paste animation".
- */
 export interface MotionAnimationClip {
   tracks: Array<Omit<MotionTrack, "targetNodeId" | "timelinePlaybackMode">>;
 }
 
-/**
- * Extract a node's tracks as a reusable {@link MotionAnimationClip}.
- * Returns null when the node has no tracks.
- */
 export function copyLayerAnimation(
   tracks: MotionTrack[],
   targetNodeId: string,
@@ -844,11 +893,6 @@ export function copyLayerAnimation(
   };
 }
 
-/**
- * Apply a {@link MotionAnimationClip} to a target node, replacing any tracks
- * the node already has for the clip's properties (other properties are kept).
- * The timeline-level playback mode stamp is re-normalised afterwards.
- */
 export function pasteLayerAnimation(
   tracks: MotionTrack[],
   clip: MotionAnimationClip,
@@ -872,11 +916,6 @@ export function pasteLayerAnimation(
   return mode ? withTimelinePlaybackMode(merged, mode) : merged;
 }
 
-/**
- * Stagger helper: offset each listed node's tracks by `index * stepMs`
- * (Figma recommends 40–80ms between instances). Nodes keep their relative
- * internal offsets; nodes not listed are untouched.
- */
 export function staggerLayerTracks(
   tracks: MotionTrack[],
   orderedNodeIds: string[],

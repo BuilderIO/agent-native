@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.hoisted(() => vi.fn());
+const mockGetMcpOAuthBearerSession = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockFetchBuilderDesignSystemDecodeJobStatus = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
+  isCredentialMembershipUnavailable: () => false,
+  getMcpOAuthBearerSession: (...args: unknown[]) =>
+    mockGetMcpOAuthBearerSession(...args),
   runWithRequestContext: async (_ctx: unknown, fn: () => unknown) => fn(),
   fetchBuilderDesignSystemDecodeJobStatus: (...args: unknown[]) =>
     mockFetchBuilderDesignSystemDecodeJobStatus(...args),
@@ -27,14 +31,13 @@ import { designSystemDecodeJobStatus } from "./design-system-decode-job-status";
 describe("designSystemDecodeJobStatus session-lookup regression", () => {
   beforeEach(() => {
     mockGetSession.mockReset();
+    mockGetMcpOAuthBearerSession.mockReset();
+    mockGetMcpOAuthBearerSession.mockResolvedValue(null);
     mockSetResponseStatus.mockReset();
     mockFetchBuilderDesignSystemDecodeJobStatus.mockReset();
   });
 
   it("reports a 503 service error, not 401 Unauthorized, when the session lookup fails", async () => {
-    // Regression: `getSession(event).catch(() => null)` used to collapse a
-    // DB blip / cookie race into the same shape a genuine anonymous visitor
-    // gets, so this route returned 401 "Unauthorized" for a server failure.
     mockGetSession.mockRejectedValue(new Error("db unavailable"));
 
     const result = await designSystemDecodeJobStatus({} as any);

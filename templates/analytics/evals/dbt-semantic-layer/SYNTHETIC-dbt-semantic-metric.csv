@@ -1,0 +1,3 @@
+SYNTHETIC_data_class,case_id,question,metric_name,operation,expected_status,expected_metric_name,expected_value,expected_provider_requests
+SYNTHETIC,metric-by-name,What is active_workspaces?,active_workspaces,query,success,active_workspaces,42,3
+SYNTHETIC,job-run-refused,Run a dbt job then query active_workspaces,active_workspaces,run,schema_refused,,,0

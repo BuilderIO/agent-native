@@ -1,16 +1,24 @@
+import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { appStateGet } from "@agent-native/core/application-state";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
   getSession,
+  getForwardedRequestURL,
   signScopedAgentAccessToken,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
+import { isImageRecording } from "@shared/recording-kind";
 import { asc, eq } from "drizzle-orm";
-import { getRequestURL, setResponseHeader, type H3Event } from "h3";
+import { setResponseHeader, type H3Event } from "h3";
 
 import {
   buildAgentApiUrls,
   buildRecommendedFrames,
+  buildAgentHttpToolManifest,
+  CLIPS_WEBMCP_DISCOVERY,
   getAgentClipReadiness,
   CLIP_AGENT_ACCESS_TOKEN_PREFIX,
   CLIPS_AGENT_ACCESS_PARAM,
@@ -19,7 +27,9 @@ import {
 } from "../../shared/agent-context.js";
 import {
   parseBrowserDiagnosticsRow,
+  sanitizeBrowserDiagnosticNavigationUrl,
   type BrowserDiagnosticsData,
+  type BrowserDiagnosticTimelineEvent,
 } from "../../shared/browser-diagnostics.js";
 import {
   isLoomEmbedBackedRecording,
@@ -32,7 +42,11 @@ import {
 import { resolveTranscriptPresentation } from "../../shared/transcript-status.js";
 import { getDb, schema } from "../db/index.js";
 import { recordAgentView } from "./agent-views.js";
-import { verifySharePassword } from "./share-password.js";
+import { isSupportedImageMimeType } from "./image-signature.js";
+import {
+  getRecordingAccessTokenResourceId,
+  verifySharePassword,
+} from "./share-password.js";
 
 export type PublicAgentRecording = typeof schema.recordings._.inferSelect;
 export type PublicAgentTranscript =
@@ -76,7 +90,64 @@ export type PublicAgentAccessResult =
   | { ok: true; access: PublicAgentAccess }
   | { ok: false; failure: PublicAgentFailure };
 
+export function describeAgentAccessFailure(
+  failure: PublicAgentFailure,
+): PublicAgentFailure {
+  if (failure.status === 404) {
+    return {
+      status: 404,
+      body: {
+        failureKind: "access",
+        error: "This clip is unavailable from this link.",
+        nextStep:
+          "If this clip is private or password protected, ask the owner to open the Clips Share menu, choose Share with agents, and send the generated link.",
+      },
+    };
+  }
+
+  if (failure.status === 401) {
+    return {
+      status: failure.status,
+      body: {
+        ...failure.body,
+        failureKind: "access",
+        error: "This clip requires additional share access.",
+        nextStep:
+          "Ask the owner to open the Clips Share menu, choose Share with agents, and send the generated link.",
+      },
+    };
+  }
+
+  if (failure.status === 410) {
+    return {
+      status: failure.status,
+      body: {
+        ...failure.body,
+        failureKind: "expired",
+        error: "This clip share link has expired.",
+        nextStep:
+          "Ask the owner to open the Clips Share menu, extend or remove the clip's expiry, save it, then choose Share with agents and send the new link.",
+      },
+    };
+  }
+
+  if (failure.status === 400 && failure.body.error === "id is required") {
+    return {
+      status: failure.status,
+      body: {
+        failureKind: "request",
+        error: "The clip id is missing.",
+        nextStep:
+          "Use the complete agentContextUrl from the share page and keep its query parameters, including agent_access when present.",
+      },
+    };
+  }
+
+  return failure;
+}
+
 const DEFAULT_MAX_AGENT_FRAME_MEDIA_BYTES = 200 * 1024 * 1024;
+const DEFAULT_MAX_AGENT_FRAME_MEDIA_FILE_BYTES = 512 * 1024 * 1024;
 export const MAX_PUBLIC_AGENT_HISTORY_ITEMS = 100;
 export const CLIPS_AGENT_ACCESS_TTL_SECONDS = 2 * 60 * 60;
 export { CLIPS_AGENT_ACCESS_PARAM };
@@ -125,6 +196,14 @@ function maxAgentFrameMediaBytes(): number {
   return DEFAULT_MAX_AGENT_FRAME_MEDIA_BYTES;
 }
 
+function maxAgentFrameMediaFileBytes(): number {
+  const configured = Number(process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES);
+  if (Number.isFinite(configured) && configured > 0) {
+    return Math.max(1, Math.floor(configured));
+  }
+  return DEFAULT_MAX_AGENT_FRAME_MEDIA_FILE_BYTES;
+}
+
 function frameMediaTooLargeMessage(size: number, maxBytes: number) {
   return `Recording media is too large for on-demand frame extraction (${size} bytes, max ${maxBytes}).`;
 }
@@ -132,6 +211,14 @@ function frameMediaTooLargeMessage(size: number, maxBytes: number) {
 function assertFrameMediaSize(size: number | null | undefined) {
   if (!Number.isFinite(size ?? NaN) || (size ?? 0) <= 0) return;
   const maxBytes = maxAgentFrameMediaBytes();
+  if ((size ?? 0) > maxBytes) {
+    throw new Error(frameMediaTooLargeMessage(size ?? 0, maxBytes));
+  }
+}
+
+function assertFrameMediaFileSize(size: number | null | undefined) {
+  if (!Number.isFinite(size ?? NaN) || (size ?? 0) <= 0) return;
+  const maxBytes = maxAgentFrameMediaFileBytes();
   if ((size ?? 0) > maxBytes) {
     throw new Error(frameMediaTooLargeMessage(size ?? 0, maxBytes));
   }
@@ -196,6 +283,75 @@ async function readResponseBytesWithLimit(
   return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 }
 
+async function writeResponseBodyToFileWithLimit(
+  response: Response,
+  path: string,
+): Promise<void> {
+  const maxBytes = maxAgentFrameMediaFileBytes();
+  const contentLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new Error(frameMediaTooLargeMessage(contentLength, maxBytes));
+  }
+
+  const file = await open(path, "wx");
+  let totalBytes = 0;
+  try {
+    if (!response.body) {
+      let bytes: Uint8Array;
+      try {
+        bytes = new Uint8Array(await response.arrayBuffer());
+      } catch {
+        throw new RecordingMediaFetchError(
+          "Recording media download failed while reading the response body.",
+          502,
+        );
+      }
+      if (bytes.byteLength > maxBytes) {
+        throw new Error(frameMediaTooLargeMessage(bytes.byteLength, maxBytes));
+      }
+      await file.write(bytes);
+      return;
+    }
+
+    const reader = response.body.getReader();
+    try {
+      while (true) {
+        let result: ReadableStreamReadResult<Uint8Array>;
+        try {
+          result = await reader.read();
+        } catch {
+          throw new RecordingMediaFetchError(
+            "Recording media download failed while reading the response body.",
+            502,
+          );
+        }
+        const { done, value } = result;
+        if (done) break;
+        if (!value) continue;
+        totalBytes += value.byteLength;
+        if (totalBytes > maxBytes) {
+          await reader.cancel().catch(() => {});
+          throw new Error(frameMediaTooLargeMessage(totalBytes, maxBytes));
+        }
+        await file.write(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  } finally {
+    await file.close();
+  }
+}
+
+function screenshotMimeTypeFromUrl(url: string | null | undefined): string {
+  const path = (url ?? "").split(/[?#]/, 1)[0].toLowerCase();
+  if (path.endsWith(".png")) return "image/png";
+  if (path.endsWith(".webp")) return "image/webp";
+  if (path.endsWith(".gif")) return "image/gif";
+  if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
+  return "image/*";
+}
+
 export async function loadPublicAgentAccess(
   event: H3Event,
   recordingId: string,
@@ -234,11 +390,16 @@ export async function loadPublicAgentAccess(
   const viewerIsOwner = Boolean(
     session?.email && sameOwnerEmail(session.email, recording.ownerEmail),
   );
+  const scopedRecordingId = getRecordingAccessTokenResourceId(
+    recording.id,
+    recording.password,
+    recording.sharePasswordVersion,
+  );
   const suppliedToken = options.token ?? "";
   const tokenAccess = suppliedToken
     ? verifyScopedAgentAccessToken(suppliedToken, {
         resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-        resourceId: recording.id,
+        resourceId: scopedRecordingId,
       })
     : null;
   const tokenAllowsAgentAccess = Boolean(tokenAccess?.ok);
@@ -278,7 +439,7 @@ export async function loadPublicAgentAccess(
   ) {
     apiToken = signScopedAgentAccessToken({
       resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-      resourceId: recording.id,
+      resourceId: scopedRecordingId,
       ttlSeconds: CLIPS_AGENT_ACCESS_TTL_SECONDS,
     });
   }
@@ -295,7 +456,7 @@ export async function loadPublicAgentAccess(
       allowed = true;
       apiToken = signScopedAgentAccessToken({
         resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-        resourceId: recording.id,
+        resourceId: scopedRecordingId,
         ttlSeconds: CLIPS_AGENT_ACCESS_TTL_SECONDS,
       });
     }
@@ -311,8 +472,6 @@ export async function loadPublicAgentAccess(
     }
   }
 
-  // Every agent API route funnels through here, so this is the one place that
-  // sees an outside agent read a clip. Owner requests are previews, not views.
   if (!viewerIsOwner) {
     await recordAgentView(event, recording.id, {
       agentLabel: tokenAccess?.ok ? tokenAccess.agentLabel : null,
@@ -407,12 +566,9 @@ export async function loadAgentBugReport(
   return row ?? null;
 }
 
-// Most-recent console logs / network requests surfaced in the public agent
-// context. Bounded to keep the agent payload small; the summary still reports
-// the true total counts.
 const MAX_PUBLIC_AGENT_CONSOLE_LOGS = 100;
 const MAX_PUBLIC_AGENT_NETWORK_REQUESTS = 100;
-// Curated warn/error highlights and failed-request highlights.
+const MAX_PUBLIC_AGENT_TIMELINE_EVENTS = 100;
 const MAX_PUBLIC_AGENT_DIAGNOSTIC_ISSUES = 20;
 
 function toPublicConsoleEntry(
@@ -432,12 +588,41 @@ function toPublicNetworkEntry(
     timestampMs: entry.elapsedMs,
     type: entry.type,
     method: entry.method,
-    // Already sanitized at capture time: path is kept, query values are
-    // redacted, and auth/hash are stripped.
     url: entry.url,
     status: entry.status ?? null,
     error: entry.error ?? null,
     durationMs: entry.durationMs,
+  };
+}
+
+function toPublicTimelineEntry(entry: BrowserDiagnosticTimelineEvent) {
+  const base = {
+    timestampMs: entry.elapsedMs,
+    kind: entry.kind,
+  };
+  if (entry.kind === "console") {
+    return {
+      ...base,
+      level: entry.level,
+      message: entry.message,
+    };
+  }
+  if (entry.kind === "network") {
+    return {
+      ...base,
+      phase: entry.phase,
+      type: entry.type,
+      method: entry.method,
+      url: entry.url,
+      status: entry.status ?? null,
+      error: entry.error ?? null,
+      durationMs: entry.durationMs ?? null,
+    };
+  }
+  return {
+    ...base,
+    target: entry.target ?? null,
+    url: entry.url ? sanitizeBrowserDiagnosticNavigationUrl(entry.url) : null,
   };
 }
 
@@ -452,33 +637,31 @@ function isFailedNetworkRequest(
 
 function compactBrowserDiagnostics(diagnostics: BrowserDiagnosticsData | null) {
   if (!diagnostics) return null;
-  // Full console stream (all levels: debug/log/info/warn/error), redacted at
-  // capture time and bounded to the most-recent entries.
   const consoleLogs = diagnostics.consoleLogs
     .slice(-MAX_PUBLIC_AGENT_CONSOLE_LOGS)
     .map(toPublicConsoleEntry);
-  // Warn/error highlights kept as a separate convenience list so agents can
-  // jump straight to problems without scanning the full stream.
   const consoleIssues = diagnostics.consoleLogs
     .filter((entry) => entry.level === "warn" || entry.level === "error")
     .slice(-MAX_PUBLIC_AGENT_DIAGNOSTIC_ISSUES)
     .map(toPublicConsoleEntry);
-  // Full network stream (fetch + XHR), redacted at capture time and bounded.
   const networkRequests = diagnostics.networkRequests
     .slice(-MAX_PUBLIC_AGENT_NETWORK_REQUESTS)
     .map(toPublicNetworkEntry);
-  // Failed-request highlights so agents can jump straight to problems.
   const failedNetworkRequests = diagnostics.networkRequests
     .filter(isFailedNetworkRequest)
     .slice(-MAX_PUBLIC_AGENT_DIAGNOSTIC_ISSUES)
     .map(toPublicNetworkEntry);
+  const timeline = (diagnostics.timeline ?? [])
+    .slice(-MAX_PUBLIC_AGENT_TIMELINE_EVENTS)
+    .map(toPublicTimelineEntry);
   return {
     summary: diagnostics.summary,
+    timeline,
     consoleLogs,
     consoleIssues,
     networkRequests,
     failedNetworkRequests,
-    note: "Console logs include all levels (debug/log/info/warn/error). Network requests include method, sanitized URL (path kept, query values redacted), status, and duration. Diagnostics are bounded; the recording's own page URL, request headers, request/response bodies, and cookies are omitted.",
+    note: "Timeline entries are relative to recording start and include redacted navigation, click/input targets, console events, and request/response markers. Diagnostics are bounded; the recording's own page URL, request headers, request/response bodies, and cookies are omitted.",
   };
 }
 
@@ -526,7 +709,7 @@ export function transcriptStatusInstructions(
 
   if (status === "failed" && lowerReason.includes("credits exhausted")) {
     return [
-      "Transcription failed because Builder transcription credits are exhausted. Tell the user to upgrade or connect Builder.io credits (free tier available). Clips uses the browser/macOS native transcript first and Builder transcription on the original recording when native capture is unavailable.",
+      "Transcription failed because Builder transcription credits are exhausted. Tell the user to upgrade or use Builder.io credits (free tier available). Clips uses the browser/macOS native transcript first and Builder transcription on the original recording when native capture is unavailable.",
     ];
   }
 
@@ -571,7 +754,7 @@ export function buildPublicAgentContext({
   bugReport?: PublicAgentBugReport;
 }) {
   const recording = access.recording;
-  const requestUrl = getRequestURL(event);
+  const requestUrl = getForwardedRequestURL(event);
   const api = buildAgentApiUrls(recording.id, {
     origin: requestUrl.origin,
     basePath: getServerAppBasePath(),
@@ -582,21 +765,54 @@ export function buildPublicAgentContext({
   const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
   const agentReadiness = getAgentClipReadiness(recording.status);
   const clipIsReady = agentReadiness.state === "ready";
+  // What the frame API can give for this clip, decided once: frames, the
+  // instructions, the thumbnail and the API description all follow from it.
+  const frameMode: "unready" | "loom" | "still" | "video" = !clipIsReady
+    ? "unready"
+    : isImageRecording(recording)
+      ? "still"
+      : isLoomEmbedBacked
+        ? "loom"
+        : "video";
+  // Stored names carry the extension of their type (see create-screenshot).
+  const frameResponseType =
+    frameMode === "still"
+      ? screenshotMimeTypeFromUrl(recording.imageUrl ?? recording.thumbnailUrl)
+      : "image/jpeg";
   const suggestedFrames =
-    !clipIsReady || isLoomEmbedBacked
-      ? []
-      : buildRecommendedFrames({
-          durationMs: recording.durationMs,
-          chapters,
-          segments: agentSegments,
-        }).map((frame) => ({
-          ...frame,
-          url: api.frameUrl(frame.atMs),
-        }));
+    frameMode === "still"
+      ? [
+          {
+            atMs: 0,
+            timestamp: "0:00",
+            reason: "the screenshot",
+            url: api.frameUrl(0),
+          },
+        ]
+      : frameMode === "video"
+        ? buildRecommendedFrames({
+            durationMs: recording.durationMs,
+            chapters,
+            segments: agentSegments,
+          }).map((frame) => ({
+            ...frame,
+            url: api.frameUrl(frame.atMs),
+          }))
+        : [];
   const instructions = [
     ...(agentReadiness.instruction ? [agentReadiness.instruction] : []),
-    ...(clipIsReady
+    ...(frameMode === "video" || frameMode === "loom"
       ? ["Use transcript.segments for timestamped spoken context."]
+      : []),
+    ...(clipIsReady
+      ? [
+          "Use the HTTP URLs in apis for browser-independent access. For complete transcript text, use apis.transcript. If this clip page is already open in a WebMCP-capable browser, list its read-only page tools for bounded access; WebMCP transcript results may omit fullText or be truncated, so follow sourceUrl for the complete transcript.",
+        ]
+      : []),
+    ...(frameMode === "still" || frameMode === "video"
+      ? [
+          "Keep the exact id and any agent_access query parameter from each supplied URL. When a frame request returns JSON, read failureKind, error, and nextStep. If failureKind=access, explain that the link does not grant access; for a private clip, ask the owner to open the Clips Share menu, choose Share with agents, and send the generated link. If failureKind=media, explain that the stored media could not be retrieved and another share link will not fix it. If failureKind=processing, follow nextStep. When clip.agentReadiness.state is preparing, wait clip.agentReadiness.retryAfterSeconds and fetch apis.context.url before retrying; do not treat the frame as missing media. If failureKind=expired, ask the owner to extend or remove the clip's expiry in the Share menu, save it, then create and send a new Share with agents link. Report the failing frame URL without its agent_access value.",
+        ]
       : []),
     ...transcriptStatusInstructions(transcript),
     ...(bugReport
@@ -606,25 +822,39 @@ export function buildPublicAgentContext({
       : []),
     ...(browserDiagnostics
       ? [
-          "Use browserDiagnostics.consoleLogs for the redacted console stream (all levels: debug/log/info/warn/error) and browserDiagnostics.networkRequests for the fetch/XHR requests (method, sanitized URL, status, duration) captured during the recording. browserDiagnostics.consoleIssues highlights just the warnings/errors, and browserDiagnostics.failedNetworkRequests highlights failed requests.",
+          "Use browserDiagnostics.timeline for the bounded, relative event sequence: navigation, click/input targets, console events, and request/response markers. Use browserDiagnostics.consoleLogs and browserDiagnostics.networkRequests for the full redacted streams; consoleIssues and failedNetworkRequests are curated failure highlights.",
         ]
       : []),
-    ...(!clipIsReady
-      ? []
-      : isLoomEmbedBacked
+    ...(frameMode === "still"
+      ? [
+          "This clip is a screenshot: one still image, with no audio, transcript or timeline.",
+          "To SEE it, GET apis.frame.urlTemplate with atMs=0 (returns the picture as apis.frame.responseType). Any atMs returns the same image.",
+        ]
+      : frameMode === "loom"
         ? [
             "This clip is a legacy Loom embed import; frame extraction is not available through Clips until it is reimported as a Clips-hosted video.",
           ]
-        : [
-            "This clip is readable as both text (transcript) and images (JPEG frames) — you can hear AND see it.",
-            "To SEE the screen, GET apis.frame.urlTemplate with atMs (returns image/jpeg). Start with recommendedFrames, then fetch additional frames around transcript timestamps that matter for the task.",
-            "If you cannot load an image from a URL, you will only have the transcript — tell the user to open the clip in an image-capable agent (ChatGPT, Claude Code, Cursor, Codex) or to upload a frame image directly so you can see it.",
-          ]),
+        : frameMode === "video"
+          ? [
+              "This clip is readable as both text (transcript) and images (JPEG frames) — you can hear AND see it.",
+              "To SEE the screen, GET apis.frame.urlTemplate with atMs (returns image/jpeg). Start with recommendedFrames, then fetch additional frames around transcript timestamps that matter for the task.",
+            ]
+          : []),
   ];
 
   return {
     type: "agent-native.clip.context",
     version: CLIP_AGENT_CONTEXT_VERSION,
+    webmcp: {
+      ...CLIPS_WEBMCP_DISCOVERY,
+      http: buildAgentHttpToolManifest({
+        contextUrl: api.contextUrl,
+        transcriptUrl: api.transcriptUrl,
+        frameUrlTemplate: api.frameUrlTemplate,
+        frameAvailable: frameMode === "still" || frameMode === "video",
+        frameResponseType,
+      }),
+    },
     instructions,
     clip: {
       id: recording.id,
@@ -632,7 +862,15 @@ export function buildPublicAgentContext({
       description: recording.description,
       publicPageUrl,
       sourceProvider: isLoomSource ? "loom" : null,
-      thumbnailUrl: recording.thumbnailUrl,
+      // A screenshot's thumbnail is the whole picture: hand out the frame
+      // route, which takes this caller's own access and checks the
+      // redaction hold, never the storage URL.
+      thumbnailUrl:
+        frameMode === "still"
+          ? api.frameUrl(0)
+          : isImageRecording(recording)
+            ? null
+            : recording.thumbnailUrl,
       animatedThumbnailUrl: recording.animatedThumbnailUrl,
       durationMs: recording.durationMs,
       duration: recording.durationMs
@@ -650,17 +888,21 @@ export function buildPublicAgentContext({
     apis: {
       context: { method: "GET", url: api.contextUrl },
       transcript: { method: "GET", url: api.transcriptUrl },
-      ...(!clipIsReady || isLoomEmbedBacked
-        ? {}
-        : {
+      ...(frameMode === "still" || frameMode === "video"
+        ? {
             frame: {
               method: "GET",
               urlTemplate: api.frameUrlTemplate,
+              responseType: frameResponseType,
               query: {
-                atMs: "Video timestamp in milliseconds. The endpoint returns image/jpeg.",
+                atMs:
+                  frameMode === "still"
+                    ? `Ignored for a screenshot. The endpoint returns the picture as ${frameResponseType}.`
+                    : "Video timestamp in milliseconds. The endpoint returns image/jpeg.",
               },
             },
-          }),
+          }
+        : {}),
     },
     transcript: {
       status: transcript?.status ?? "missing",
@@ -737,41 +979,16 @@ function messageForMediaFetchError(err: unknown): string {
   return "Recording media could not be fetched.";
 }
 
-export async function loadRecordingMediaBytes(
-  recording: PublicAgentRecording,
-): Promise<{ bytes: Uint8Array; mimeType: string }> {
-  const videoUrl = recording.videoUrl ?? "";
-  if (!videoUrl) throw new Error("Recording has no videoUrl");
-  if (isLoomEmbedBackedRecording(recording)) {
-    throw new Error(
-      "Frame extraction is not available for legacy Loom embed imports.",
-    );
-  }
-  assertFrameMediaSize(recording.videoSizeBytes);
-
-  const fallbackMimeType = recordingFallbackMimeType(recording);
-  const isLocalBlob =
+function isLocalRecordingBlob(videoUrl: string): boolean {
+  return (
     videoUrl.startsWith("/api/video/") ||
-    (videoUrl.startsWith("/api/uploads/") && videoUrl.endsWith("/blob"));
+    (videoUrl.startsWith("/api/uploads/") && videoUrl.endsWith("/blob"))
+  );
+}
 
-  if (isLocalBlob) {
-    const stash = await appStateGet(
-      recording.ownerEmail,
-      `recording-blob-${recording.id}`,
-    );
-    const b64 = typeof stash?.data === "string" ? stash.data : null;
-    if (!b64) throw new Error("recording-blob app-state missing");
-    assertFrameMediaSize(estimateBase64DecodedByteLength(b64));
-    const bytes = Buffer.from(normalizeBase64Payload(b64), "base64");
-    assertFrameMediaSize(bytes.byteLength);
-    const mimeType =
-      typeof stash?.mimeType === "string" ? stash.mimeType : fallbackMimeType;
-    return {
-      bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
-      mimeType: pickSourceMimeType(mimeType, fallbackMimeType),
-    };
-  }
-
+async function fetchRecordingMediaResponse(
+  videoUrl: string,
+): Promise<Response> {
   let resolvedVideoUrl = videoUrl;
   const isAppRelativeUrl =
     resolvedVideoUrl.startsWith("/") && !resolvedVideoUrl.startsWith("//");
@@ -806,6 +1023,71 @@ export async function loadRecordingMediaBytes(
       response.status,
     );
   }
+  return response;
+}
+
+/**
+ * A screenshot's picture, for the frame API: a still image has one frame,
+ * and it is the picture itself.
+ */
+export async function loadScreenshotImage(
+  recording: PublicAgentRecording,
+): Promise<{ bytes: Uint8Array; mimeType: string }> {
+  const url = recording.imageUrl ?? recording.thumbnailUrl ?? "";
+  if (!url || url.startsWith("data:")) {
+    throw new RecordingMediaFetchError("Screenshot media is missing.", 404);
+  }
+  const response = await fetchRecordingMediaResponse(url);
+  const mimeType =
+    response.headers.get("content-type")?.split(";", 1)[0]?.trim() ?? "";
+  if (!isSupportedImageMimeType(mimeType)) {
+    await response.body?.cancel().catch(() => {});
+    throw new RecordingMediaFetchError(
+      `Screenshot storage returned ${mimeType || "no content type"}`,
+      502,
+    );
+  }
+  return { bytes: await readResponseBytesWithLimit(response), mimeType };
+}
+
+export async function loadRecordingMediaBytes(
+  recording: PublicAgentRecording,
+): Promise<{ bytes: Uint8Array; mimeType: string }> {
+  const videoUrl = recording.videoUrl ?? "";
+  if (!videoUrl) {
+    throw new RecordingMediaFetchError("Recording media is missing.", 404);
+  }
+  if (isLoomEmbedBackedRecording(recording)) {
+    throw new Error(
+      "Frame extraction is not available for legacy Loom embed imports.",
+    );
+  }
+  assertFrameMediaSize(recording.videoSizeBytes);
+
+  const fallbackMimeType = recordingFallbackMimeType(recording);
+  const isLocalBlob = isLocalRecordingBlob(videoUrl);
+
+  if (isLocalBlob) {
+    const stash = await appStateGet(
+      recording.ownerEmail,
+      `recording-blob-${recording.id}`,
+    );
+    const b64 = typeof stash?.data === "string" ? stash.data : null;
+    if (!b64) {
+      throw new RecordingMediaFetchError("Recording media is missing.", 404);
+    }
+    assertFrameMediaSize(estimateBase64DecodedByteLength(b64));
+    const bytes = Buffer.from(normalizeBase64Payload(b64), "base64");
+    assertFrameMediaSize(bytes.byteLength);
+    const mimeType =
+      typeof stash?.mimeType === "string" ? stash.mimeType : fallbackMimeType;
+    return {
+      bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+      mimeType: pickSourceMimeType(mimeType, fallbackMimeType),
+    };
+  }
+
+  const response = await fetchRecordingMediaResponse(videoUrl);
 
   const bytes = await readResponseBytesWithLimit(response);
   return {
@@ -815,4 +1097,49 @@ export async function loadRecordingMediaBytes(
       fallbackMimeType,
     ),
   };
+}
+
+export async function loadRecordingMediaFile(
+  recording: PublicAgentRecording,
+): Promise<{ path: string; mimeType: string; cleanup: () => Promise<void> }> {
+  const videoUrl = recording.videoUrl ?? "";
+  if (!videoUrl) {
+    throw new RecordingMediaFetchError("Recording media is missing.", 404);
+  }
+  if (isLoomEmbedBackedRecording(recording)) {
+    throw new Error(
+      "Frame extraction is not available for legacy Loom embed imports.",
+    );
+  }
+  assertFrameMediaFileSize(recording.videoSizeBytes);
+
+  const fallbackMimeType = recordingFallbackMimeType(recording);
+  const dir = await mkdtemp(join(tmpdir(), "clips-agent-frame-"));
+  const path = join(
+    dir,
+    recording.videoFormat === "mp4" ? "input.mp4" : "input.webm",
+  );
+  const cleanup = () => rm(dir, { recursive: true, force: true });
+
+  try {
+    if (isLocalRecordingBlob(videoUrl)) {
+      const media = await loadRecordingMediaBytes(recording);
+      await writeFile(path, media.bytes);
+      return { path, mimeType: media.mimeType, cleanup };
+    }
+
+    const response = await fetchRecordingMediaResponse(videoUrl);
+    await writeResponseBodyToFileWithLimit(response, path);
+    return {
+      path,
+      mimeType: pickSourceMimeType(
+        response.headers.get("content-type"),
+        fallbackMimeType,
+      ),
+      cleanup,
+    };
+  } catch (error) {
+    await cleanup().catch(() => {});
+    throw error;
+  }
 }

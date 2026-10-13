@@ -2,14 +2,6 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-/**
- * The beta fleet under test.
- *
- * The site list is read from the same `scripts/netlify-beta-sites.json` the
- * deploy workflow publishes from, so a new beta site is covered by this suite
- * the moment it is deployable — there is no second list to forget.
- */
-
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -21,22 +13,17 @@ export interface BetaSite {
   id: string;
   siteId: string;
   host: string;
+  e2e?: boolean;
 }
 
-/**
- * Apps whose sign-in is Google-only (`googleOnly: true` in their auth plugin),
- * so a seeded session grants no provider tokens and the product surface behind
- * it is not meaningfully exercisable from CI. They still get the full
- * unauthenticated sweep — which is where their reported breakage lives.
- */
-const GOOGLE_ONLY_APPS = new Set(["mail", "calendar"]);
+const GOOGLE_ONLY_APPS = new Set(["calendar", "factory", "mail"]);
 
-/**
- * Apps that carry an agent chat surface worth spending model tokens on. Kept
- * explicit rather than derived: adding an app here costs real money per run,
- * so it should be a decision someone makes, not a side effect of deploying.
- */
 const CHAT_APPS = ["chat", "slides", "analytics", "content", "dispatch"];
+const AUTHENTICATED_ENTRY_PATHS: Record<string, string> = {
+  design: "/home",
+  content: "/home",
+  slides: "/home",
+};
 
 function readSites(): BetaSite[] {
   const file = path.join(repoRoot, "scripts", "netlify-beta-sites.json");
@@ -57,33 +44,31 @@ function readSites(): BetaSite[] {
         `${file}[${index}] host ${site.host} is not a beta host. This suite must never be pointed at production.`,
       );
     }
-    return { id: site.id, siteId: site.siteId, host: site.host };
+    return {
+      id: site.id,
+      siteId: site.siteId,
+      host: site.host,
+      e2e: site.e2e,
+    };
   });
 }
 
 export const ALL_SITES: BetaSite[] = readSites();
 
-/**
- * Restrict the run to a subset, e.g. `BETA_E2E_APPS=slides,analytics`.
- *
- * An unknown id is an error, not an empty selection: a typo in a workflow
- * input must not present as "everything passed".
- */
 export function selectedSites(): BetaSite[] {
   const raw = process.env.BETA_E2E_APPS?.trim();
-  if (!raw || raw === "all") return ALL_SITES;
+  const selectableSites = ALL_SITES.filter((site) => site.e2e !== false);
+  if (!raw || raw === "all") return selectableSites;
   const wanted = raw
     .split(",")
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
-  // A value like "," or " , " normalizes to nothing. Returning an empty fleet
-  // would let a promotion run finish green having probed no host at all.
   if (wanted.length === 0) {
     throw new Error(
       `BETA_E2E_APPS=${JSON.stringify(raw)} names no app. Use "all" or a comma-separated list of app ids.`,
     );
   }
-  const known = new Map(ALL_SITES.map((site) => [site.id, site]));
+  const known = new Map(selectableSites.map((site) => [site.id, site]));
   const unknown = wanted.filter((id) => !known.has(id));
   if (unknown.length > 0) {
     throw new Error(
@@ -108,7 +93,11 @@ export function originFor(site: BetaSite | string): string {
   return `https://${host}`;
 }
 
-/** The production twin of a beta host, used for isolation checks. */
+export function authenticatedEntryPath(site: BetaSite | string): string {
+  const id = typeof site === "string" ? site : site.id;
+  return AUTHENTICATED_ENTRY_PATHS[id] ?? "/";
+}
+
 export function productionHostFor(site: BetaSite): string {
   return site.host.replace(/^beta\./, "");
 }
@@ -118,12 +107,10 @@ export function isGoogleOnly(site: BetaSite | string): boolean {
   return GOOGLE_ONLY_APPS.has(id);
 }
 
-/** Sites eligible for an authenticated journey, honouring `BETA_E2E_APPS`. */
 export function authenticatableSites(): BetaSite[] {
   return selectedSites().filter((site) => !isGoogleOnly(site));
 }
 
-/** Sites whose agent chat is worth spending luna tokens on this run. */
 export function chatSites(): BetaSite[] {
   const selected = new Set(selectedSites().map((site) => site.id));
   return CHAT_APPS.filter((id) => selected.has(id)).map(siteById);

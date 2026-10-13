@@ -20,6 +20,8 @@ export default defineAction({
     status: z.enum(["processing", "ready", "failed"]),
     preRollRecordingId: z.string().optional(),
     actualDurationMs: z.number().int().positive().optional(),
+    preRollWidth: z.number().int().positive().optional(),
+    preRollHeight: z.number().int().positive().optional(),
     error: z.string().max(1200).optional(),
   }),
   run: async (args) => {
@@ -39,6 +41,8 @@ export default defineAction({
       ...(args.actualDurationMs
         ? { actualDurationMs: args.actualDurationMs }
         : {}),
+      ...(args.preRollWidth ? { preRollWidth: args.preRollWidth } : {}),
+      ...(args.preRollHeight ? { preRollHeight: args.preRollHeight } : {}),
       ...(args.error ? { error: args.error } : {}),
     };
     await writeAppState(key, next);

@@ -1,0 +1,507 @@
+// @vitest-environment happy-dom
+
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
+}));
+
+import { AlertDialog, AlertDialogContent } from "@/components/ui/alert-dialog";
+
+import {
+  isStorageStatusUnavailable,
+  localizedRecordingErrorMessage,
+  RecorderRouteStatus,
+  RecordingErrorCard,
+  RecordingLeaveChoices,
+  shouldAllowSkippingStorageSetup,
+  shouldPersistFirstRunStorageSetupDismissal,
+  shouldPreserveFirstRunStorageSetupIntent,
+  shouldRedirectToStorageSetupHome,
+  shouldShowFirstRunStorageSetup,
+} from "./record";
+
+describe("record route lifecycle shell", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("uses localized storage status copy instead of the response body", () => {
+    const error = Object.assign(
+      new Error('{"ok":false,"errorCode":"video_storage_status_unavailable"}'),
+      { errorCode: "video_storage_status_unavailable" },
+    );
+
+    expect(
+      localizedRecordingErrorMessage(error, "Localized storage status copy"),
+    ).toBe("Localized storage status copy");
+    expect(
+      localizedRecordingErrorMessage(
+        new Error("The upload failed."),
+        "Localized storage status copy",
+      ),
+    ).toBe("The upload failed.");
+  });
+
+  it("does not redirect a queued upload when storage is already configured", () => {
+    expect(
+      shouldRedirectToStorageSetupHome({
+        storageSetupRequested: true,
+        storageConfigured: true,
+        hasPendingUpload: true,
+        uiState: "idle",
+      }),
+    ).toBe(false);
+  });
+
+  it.each(["pickingSources", "countdown", "recording"] as const)(
+    "does not redirect while capture is %s",
+    (uiState) => {
+      expect(
+        shouldRedirectToStorageSetupHome({
+          storageSetupRequested: true,
+          storageConfigured: true,
+          hasPendingUpload: false,
+          uiState,
+        }),
+      ).toBe(false);
+    },
+  );
+
+  it("redirects a storage-only visit after storage is configured", () => {
+    expect(
+      shouldRedirectToStorageSetupHome({
+        storageSetupRequested: true,
+        storageConfigured: true,
+        hasPendingUpload: false,
+        uiState: "idle",
+      }),
+    ).toBe(true);
+  });
+
+  it("offers storage setup on the first unconfigured recorder visit", () => {
+    expect(
+      shouldShowFirstRunStorageSetup({
+        storageConfigured: false,
+        storageStatusUnavailable: false,
+        dismissal: "not-dismissed",
+        hasPendingUpload: false,
+        isClipIntake: false,
+        connectStorageRequested: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("offers the first-run choice and Skip when storage status is unavailable", () => {
+    const storageConfigured = null;
+    const storageStatusUnavailable = isStorageStatusUnavailable({
+      storageConfigured,
+      readFailed: true,
+    });
+    const firstRunStorageSetup = shouldShowFirstRunStorageSetup({
+      storageConfigured,
+      storageStatusUnavailable,
+      dismissal: "not-dismissed",
+      hasPendingUpload: false,
+      isClipIntake: false,
+      connectStorageRequested: false,
+    });
+
+    expect(firstRunStorageSetup).toBe(true);
+    expect(
+      shouldAllowSkippingStorageSetup({
+        firstRunStorageSetup,
+        firstRunStorageSetupIntent: false,
+        connectStorageRequested: false,
+        hasPendingUpload: false,
+        isClipIntake: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps cached configured storage out of first-run setup after a refetch error", () => {
+    const storageConfigured = true;
+
+    expect(
+      isStorageStatusUnavailable({
+        storageConfigured,
+        readFailed: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowFirstRunStorageSetup({
+        storageConfigured,
+        storageStatusUnavailable: true,
+        dismissal: "not-dismissed",
+        hasPendingUpload: false,
+        isClipIntake: false,
+        connectStorageRequested: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("preserves first-run setup intent while storage status refreshes", () => {
+    const intent = shouldPreserveFirstRunStorageSetupIntent({
+      firstRunStorageSetup: true,
+      currentIntent: false,
+      dismissal: "not-dismissed",
+    });
+
+    expect(intent).toBe(true);
+    expect(
+      shouldPreserveFirstRunStorageSetupIntent({
+        firstRunStorageSetup: false,
+        currentIntent: intent,
+        dismissal: "not-dismissed",
+      }),
+    ).toBe(true);
+    expect(
+      shouldPreserveFirstRunStorageSetupIntent({
+        firstRunStorageSetup: false,
+        currentIntent: intent,
+        dismissal: "dismissed",
+      }),
+    ).toBe(false);
+  });
+
+  it.each([
+    {
+      label: "the first-run prompt",
+      input: {
+        firstRunStorageSetup: true,
+        firstRunStorageSetupIntent: false,
+        connectStorageRequested: false,
+      },
+    },
+    {
+      label: "a storage setup link",
+      input: {
+        firstRunStorageSetup: false,
+        firstRunStorageSetupIntent: false,
+        connectStorageRequested: true,
+      },
+    },
+  ])("persists a skipped storage choice for $label", ({ input }) => {
+    expect(shouldPersistFirstRunStorageSetupDismissal(input)).toBe(true);
+  });
+
+  it("keeps Skip available and saves dismissal for latched setup intent", () => {
+    const input = {
+      firstRunStorageSetup: false,
+      firstRunStorageSetupIntent: true,
+      connectStorageRequested: false,
+      hasPendingUpload: false,
+      isClipIntake: false,
+    };
+
+    expect(shouldAllowSkippingStorageSetup(input)).toBe(true);
+    expect(shouldPersistFirstRunStorageSetupDismissal(input)).toBe(true);
+  });
+
+  it.each([
+    {
+      storageConfigured: true,
+      storageStatusUnavailable: false,
+      dismissal: "not-dismissed",
+      hasPendingUpload: false,
+      isClipIntake: false,
+      connectStorageRequested: false,
+    },
+    {
+      storageConfigured: null,
+      storageStatusUnavailable: false,
+      dismissal: "not-dismissed",
+      hasPendingUpload: false,
+      isClipIntake: false,
+      connectStorageRequested: false,
+    },
+    {
+      storageConfigured: false,
+      storageStatusUnavailable: false,
+      dismissal: "dismissed",
+      hasPendingUpload: false,
+      isClipIntake: false,
+      connectStorageRequested: false,
+    },
+    {
+      storageConfigured: false,
+      storageStatusUnavailable: false,
+      dismissal: "not-dismissed",
+      hasPendingUpload: true,
+      isClipIntake: false,
+      connectStorageRequested: false,
+    },
+    {
+      storageConfigured: false,
+      storageStatusUnavailable: false,
+      dismissal: "not-dismissed",
+      hasPendingUpload: false,
+      isClipIntake: true,
+      connectStorageRequested: false,
+    },
+    {
+      storageConfigured: false,
+      storageStatusUnavailable: false,
+      dismissal: "not-dismissed",
+      hasPendingUpload: false,
+      isClipIntake: false,
+      connectStorageRequested: true,
+    },
+  ] as const)("does not show the first-run prompt for $dismissal", (input) => {
+    expect(shouldShowFirstRunStorageSetup(input)).toBe(false);
+  });
+
+  it("uses the shared classifier and sanitized body for dropped-file uploads", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/routes/record.tsx"),
+      "utf8",
+    );
+    const uploadStart = source.indexOf("const uploadFile = useCallback");
+    const uploadEnd = source.indexOf("const doStop = useCallback", uploadStart);
+    const uploadFlow = source.slice(uploadStart, uploadEnd);
+
+    expect(uploadStart).toBeGreaterThan(-1);
+    expect(uploadEnd).toBeGreaterThan(uploadStart);
+    expect(uploadFlow).toContain("classifyUploadResponseError");
+    expect(uploadFlow).toContain("responseError.responseText");
+    expect(uploadFlow).toContain("failureCode: responseError.failureCode");
+    expect(uploadFlow).toContain("...uploadAbortMetadata(err)");
+  });
+
+  it.each([true, false])(
+    "keeps the recording unless Leave and discard is chosen (canKeep=%s)",
+    (canKeep) => {
+      const onKeep = vi.fn();
+      const onDiscard = vi.fn();
+      const onDownload = vi.fn();
+      act(() => {
+        root.render(
+          <AlertDialog open>
+            <AlertDialogContent>
+              <RecordingLeaveChoices
+                canKeep={canKeep}
+                onKeep={onKeep}
+                onDiscard={onDiscard}
+                onDownload={onDownload}
+              />
+            </AlertDialogContent>
+          </AlertDialog>,
+        );
+      });
+      const button = (label: string) =>
+        Array.from(document.body.querySelectorAll("button")).find(
+          (el) => el.textContent?.trim() === label,
+        );
+
+      expect(document.body.textContent).toContain(
+        canKeep
+          ? "recordRoute.leaveKeepDescription"
+          : "recordRoute.leaveConfirmDescription",
+      );
+      if (canKeep) {
+        act(() => button("recordRoute.leaveAndKeep")!.click());
+        expect(onKeep).toHaveBeenCalledOnce();
+      } else {
+        expect(button("recordRoute.leaveAndKeep")).toBeUndefined();
+        act(() => button("recordRoute.downloadCopy")!.click());
+        expect(onDownload).toHaveBeenCalledOnce();
+      }
+      expect(onDiscard).not.toHaveBeenCalled();
+
+      act(() => button("recordRoute.leaveAndDiscard")!.click());
+      expect(onDiscard).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("announces real progress without including action controls", () => {
+    act(() => {
+      root.render(
+        <RecorderRouteStatus busy progress={1.4} label="Saving recording">
+          <button type="button">Discard recording</button>
+        </RecorderRouteStatus>,
+      );
+    });
+
+    const status = container.querySelector('[role="status"]');
+    const progress = container.querySelector('[role="progressbar"]');
+    const action = container.querySelector("button");
+
+    expect(status?.getAttribute("aria-live")).toBe("polite");
+    expect(status?.getAttribute("aria-busy")).toBe("true");
+    expect(status?.contains(progress)).toBe(true);
+    expect(status?.contains(action)).toBe(false);
+    expect(status?.parentElement?.contains(action)).toBe(true);
+    expect(progress?.getAttribute("aria-valuenow")).toBe("100");
+    expect(progress?.querySelector("div")?.getAttribute("style")).toContain(
+      "width: 100%",
+    );
+    expect(container.textContent).toContain("100%");
+    expect(container.textContent).toContain("Discard recording");
+  });
+
+  it("keeps blocking recovery assertive while actions stay outside", () => {
+    act(() => {
+      root.render(
+        <RecorderRouteStatus role="alert" label="Session expired">
+          <button type="button">Log in</button>
+        </RecorderRouteStatus>,
+      );
+    });
+
+    const alert = container.querySelector('[role="alert"]');
+    const action = container.querySelector("button");
+    expect(alert?.getAttribute("aria-live")).toBe("assertive");
+    expect(alert?.hasAttribute("aria-busy")).toBe(false);
+    expect(alert?.contains(action)).toBe(false);
+    expect(alert?.parentElement?.contains(action)).toBe(true);
+  });
+
+  it("keeps failed uploads recoverable without placing actions in the alert", () => {
+    const onTryAgain = vi.fn();
+    act(() => {
+      root.render(
+        <RecordingErrorCard
+          error="Upload failed at chunk 2"
+          mode="screen"
+          micDeviceId={null}
+          canRetryUpload
+          canDownloadRecording={false}
+          onDownloadRecording={vi.fn()}
+          onTryAgain={onTryAgain}
+        />,
+      );
+    });
+
+    const alert = container.querySelector('[role="alert"]');
+    const retry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "recordRoute.retryUpload",
+    );
+    expect(alert?.getAttribute("aria-live")).toBe("assertive");
+    expect(retry).toBeDefined();
+    expect(alert?.contains(retry!)).toBe(false);
+
+    act(() => retry?.click());
+    expect(onTryAgain).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps camera permission failures in route recovery", () => {
+    const onTryAgain = vi.fn();
+    act(() => {
+      root.render(
+        <RecordingErrorCard
+          error="Camera permission denied"
+          mode="camera"
+          micDeviceId={null}
+          canRetryUpload={false}
+          canDownloadRecording={false}
+          onDownloadRecording={vi.fn()}
+          onTryAgain={onTryAgain}
+        />,
+      );
+    });
+
+    const retry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "recordRoute.tryAgain",
+    );
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    expect(retry).toBeDefined();
+
+    act(() => retry?.click());
+    expect(onTryAgain).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the setup centered with a quiet desktop CTA and semantic colors", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/routes/record.tsx"),
+      "utf8",
+    );
+    const tokens = readFileSync(
+      resolve(process.cwd(), "app/global.css"),
+      "utf8",
+    );
+    const callout = source.slice(
+      source.indexOf("function DesktopRecorderCallout"),
+      source.indexOf("export function RecorderRouteStatus"),
+    );
+
+    expect(source).toContain("min-h-[100dvh]");
+    expect(source).toContain("max-w-[420px]");
+    expect(source).toContain(
+      'className="mx-auto grid w-full max-w-[420px] gap-2"',
+    );
+    expect(callout).toContain('variant="ghost"');
+    expect(callout).toContain("pt-3");
+    expect(callout).toContain("CaptureInstallMenu");
+    expect(callout).toContain("text-sm font-medium");
+    expect(source).not.toContain("xl:grid-cols-[288px_320px_288px]");
+    expect(source).not.toContain("xl:absolute");
+    expect(source).not.toMatch(
+      /\b(?:bg-black|text-white|from-zinc|to-black)\b/,
+    );
+    expect(source).not.toContain("transition-all");
+    expect(tokens).toContain("--recorder-mode-option-radius: 1.125rem");
+    expect(tokens).toContain("--recorder-mode-toggle-inset: 0.3125rem");
+    expect(tokens).toContain(
+      "var(--recorder-mode-option-radius) + var(--recorder-mode-toggle-inset)",
+    );
+  });
+
+  it("keeps upload handoff outside the recorder panel", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/routes/record.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("takePendingUploadFile");
+    expect(source).toContain("if (file) void uploadFile(file)");
+    expect(source).not.toContain('params.get("autoUpload") === "1"');
+    expect(source).not.toContain("autoUploadInputRef");
+    expect(source).not.toContain("data-auto-upload-bridge");
+    expect(source).not.toContain("onUpload={uploadFile}");
+    expect(source).not.toContain("importLoomHref=");
+    expect(source).not.toContain("autoOpenUpload=");
+  });
+
+  it("clears the saving toolbar state before showing the saved recording", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/routes/record.tsx"),
+      "utf8",
+    );
+    const start = source.indexOf("const finishSavedRecording");
+    const end = source.indexOf("const doStop = useCallback", start);
+    const finish = source.slice(start, end);
+
+    expect(finish.indexOf("setSavingKind(null);")).toBeGreaterThanOrEqual(0);
+    expect(finish.indexOf("setSavingKind(null);")).toBeLessThan(
+      finish.indexOf('setUiState("complete");'),
+    );
+  });
+
+  it("keeps the browser route free of server-only app-state imports", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/routes/record.tsx"),
+      "utf8",
+    );
+
+    expect(source).not.toContain('from "@agent-native/core/application-state"');
+    expect(source).toContain("async function writeAppState");
+    expect(source).toContain("/_agent-native/application-state/");
+  });
+});

@@ -2,8 +2,8 @@
 record_type: "capability"
 spec_version: 2
 id: "content.view.scale"
-name: "Large Database performance"
-user_promise: "Databases stay responsive and incrementally queryable well beyond a few hundred rows"
+name: "Large Collection performance"
+user_promise: "Collections stay responsive and incrementally queryable well beyond a few hundred rows"
 primary_user_job: "Find, change, and navigate a large authorized collection without waiting for every row to arrive or trusting an incomplete result as final."
 kind: "surface"
 state: "failing"
@@ -24,7 +24,7 @@ superseded_by: null
 last_reviewed: "2026-07-29"
 ---
 
-# Large Database performance
+# Large Collection performance
 
 ## Why this exists
 
@@ -33,7 +33,7 @@ View. Scale must preserve both responsiveness and truthful result boundaries.
 
 ## Example workflow
 
-An editor filters a large Database, scrolls to another window, edits a visible record,
+An editor filters a large Collection, scrolls to another window, edits a visible record,
 and refreshes after another editor changes the result. The interface identifies partial
 loading and does not count unseen rows as if it had completed the query.
 

@@ -2,17 +2,51 @@ import {
   ensureAdditiveColumns,
   getDbExec,
   runMigrations,
-  intType,
 } from "@agent-native/core/db";
+import { registerIdentityColumns } from "@agent-native/core/org";
 
 import * as schema from "../db/schema.js";
 
-/**
- * Every Drizzle table exported from schema.ts. Filters out type-only and
- * helper exports the same way db.spec.ts's `isDrizzleTable` regression guard
- * does: a real table carries a Symbol-keyed drizzle metadata bag, plain
- * exports don't.
- */
+// Mailbox rows belong to their owner_email. account_email is the connected
+// provider mailbox, which an app email change does not rename.
+registerIdentityColumns([
+  ...[
+    "mail_sync_accounts",
+    "mail_inbox_threads",
+    "mail_inbox_push_invalidations",
+    "queued_email_drafts",
+    "scheduled_jobs",
+  ].map((table) => ({
+    table,
+    column: "account_email",
+    emailChange: "retain" as const,
+    offboard: "retain" as const,
+    reason: "Connected provider mailbox address, not the member.",
+  })),
+  {
+    table: "mail_inbox_threads",
+    column: "from_email",
+    emailChange: "retain",
+    offboard: "retain",
+    reason: "Message sender address.",
+  },
+  {
+    table: "contact_frequency",
+    column: "contact_email",
+    emailChange: "retain",
+    offboard: "retain",
+    reason: "Correspondent address counted for the owner.",
+  },
+  {
+    table: "queued_email_drafts",
+    column: "requester_email",
+    emailChange: "rekey",
+    offboard: "retain",
+    reason:
+      "Gives the requester access to their request while they are in the org; the draft belongs to its owner.",
+  },
+]);
+
 function isDrizzleTable(value: unknown): value is object {
   return (
     !!value &&
@@ -76,9 +110,9 @@ export const runMailMigrations = runMigrations(
     owner_email TEXT NOT NULL,
     contact_email TEXT NOT NULL,
     contact_name TEXT NOT NULL DEFAULT '',
-    send_count ${intType()} NOT NULL DEFAULT 0,
-    receive_count ${intType()} NOT NULL DEFAULT 0,
-    last_contacted_at ${intType()} NOT NULL
+    send_count BIGINT NOT NULL DEFAULT 0,
+    receive_count BIGINT NOT NULL DEFAULT 0,
+    last_contacted_at BIGINT NOT NULL
   )`,
     },
     {
@@ -87,10 +121,10 @@ export const runMailMigrations = runMigrations(
     pixel_token TEXT PRIMARY KEY,
     message_id TEXT NOT NULL,
     owner_email TEXT NOT NULL,
-    sent_at ${intType()} NOT NULL,
-    opens_count ${intType()} NOT NULL DEFAULT 0,
-    first_opened_at ${intType()},
-    last_opened_at ${intType()},
+    sent_at BIGINT NOT NULL,
+    opens_count BIGINT NOT NULL DEFAULT 0,
+    first_opened_at BIGINT,
+    last_opened_at BIGINT,
     last_user_agent TEXT
   )`,
     },
@@ -104,9 +138,9 @@ export const runMailMigrations = runMigrations(
     click_token TEXT PRIMARY KEY,
     pixel_token TEXT NOT NULL,
     url TEXT NOT NULL,
-    clicks_count ${intType()} NOT NULL DEFAULT 0,
-    first_clicked_at ${intType()},
-    last_clicked_at ${intType()}
+    clicks_count BIGINT NOT NULL DEFAULT 0,
+    first_clicked_at BIGINT,
+    last_clicked_at BIGINT
   )`,
     },
     {
@@ -133,9 +167,9 @@ export const runMailMigrations = runMigrations(
     compose_id TEXT,
     sent_message_id TEXT,
     status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued', 'in_review', 'sent', 'dismissed')),
-    created_at ${intType()} NOT NULL,
-    updated_at ${intType()} NOT NULL,
-    sent_at ${intType()}
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    sent_at BIGINT
   )`,
     },
     {
@@ -147,13 +181,6 @@ export const runMailMigrations = runMigrations(
       sql: `CREATE INDEX IF NOT EXISTS idx_queued_email_drafts_requester ON queued_email_drafts(org_id, requester_email, created_at)`,
     },
     {
-      // Cover the hot list/read paths that previously had no supporting index:
-      // - scheduled_jobs is filtered by status on the inbox snooze-filter path
-      //   (listPendingJobs) and the due-job cron (status + run_at).
-      // - contact_frequency is filtered by owner_email on the contacts
-      //   autocomplete path (getContactFrequencyMap).
-      // - automation_rules is filtered by owner_email on the automations list
-      //   and the per-account automation engine load.
       version: 14,
       sql: `CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_status_run_at ON scheduled_jobs(status, run_at);
 CREATE INDEX IF NOT EXISTS idx_contact_frequency_owner ON contact_frequency(owner_email);
@@ -167,17 +194,12 @@ CREATE INDEX IF NOT EXISTS idx_automation_rules_owner ON automation_rules(owner_
     owner_email TEXT NOT NULL,
     name TEXT NOT NULL,
     body TEXT NOT NULL,
-    created_at ${intType()} NOT NULL,
-    updated_at ${intType()} NOT NULL
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
   );
 CREATE INDEX IF NOT EXISTS idx_snippets_owner_name ON snippets(owner_email, name)`,
     },
     {
-      // listPendingJobs (jobs.ts) scopes its WHERE clause to
-      // (status, owner_email) on every inbox/unread list load. The v14 index
-      // only covers (status, run_at), which doesn't serve the owner-scoped
-      // lookup, so add the composite index so that read stays indexed as the
-      // scheduled_jobs table grows across all users.
       version: 16,
       name: "scheduled-jobs-owner-status-run-at-idx",
       sql: `CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_owner_status_run_at ON scheduled_jobs(owner_email, status, run_at)`,
@@ -186,7 +208,7 @@ CREATE INDEX IF NOT EXISTS idx_snippets_owner_name ON snippets(owner_email, name
       version: 17,
       name: "queued-draft-send-claim",
       sql: `ALTER TABLE queued_email_drafts ADD COLUMN IF NOT EXISTS send_claim_id TEXT;
-ALTER TABLE queued_email_drafts ADD COLUMN IF NOT EXISTS send_claimed_at ${intType()}`,
+ALTER TABLE queued_email_drafts ADD COLUMN IF NOT EXISTS send_claimed_at BIGINT`,
     },
     {
       version: 18,
@@ -196,9 +218,9 @@ ALTER TABLE queued_email_drafts ADD COLUMN IF NOT EXISTS send_claimed_at ${intTy
     owner_email TEXT NOT NULL,
     query_fingerprint TEXT NOT NULL,
     state TEXT NOT NULL,
-    version ${intType()} NOT NULL DEFAULT 1,
-    expires_at ${intType()} NOT NULL,
-    updated_at ${intType()} NOT NULL
+    version BIGINT NOT NULL DEFAULT 1,
+    expires_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
   );
 CREATE INDEX IF NOT EXISTS idx_mail_inventory_cursors_owner_expiry ON mail_inventory_cursors(owner_email, expires_at);`,
     },
@@ -206,7 +228,248 @@ CREATE INDEX IF NOT EXISTS idx_mail_inventory_cursors_owner_expiry ON mail_inven
       version: 19,
       name: "mail-inventory-cursor-leases",
       sql: `ALTER TABLE mail_inventory_cursors ADD COLUMN IF NOT EXISTS claim_id TEXT;
-ALTER TABLE mail_inventory_cursors ADD COLUMN IF NOT EXISTS claimed_at ${intType()}`,
+ALTER TABLE mail_inventory_cursors ADD COLUMN IF NOT EXISTS claimed_at BIGINT`,
+    },
+    {
+      version: 20,
+      name: "automation-rules-kind",
+      sql: `ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'automation';
+CREATE INDEX IF NOT EXISTS idx_automation_rules_owner_kind ON automation_rules(owner_email, kind)`,
+    },
+    {
+      version: 21,
+      name: "mail-sync-accounts",
+      sql: `CREATE TABLE IF NOT EXISTS mail_sync_accounts (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    account_email TEXT NOT NULL,
+    history_id TEXT,
+    full_sync_page_token TEXT,
+    full_sync_history_id TEXT,
+    full_sync_started_at BIGINT,
+    status TEXT NOT NULL DEFAULT 'idle' CHECK(status IN ('idle', 'syncing', 'error', 'needs_reauth')),
+    last_error TEXT,
+    last_synced_at BIGINT,
+    sync_claim_id TEXT,
+    sync_claimed_at BIGINT,
+    labels_json TEXT,
+    labels_updated_at BIGINT,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS idx_mail_sync_accounts_owner ON mail_sync_accounts(owner_email);`,
+    },
+    {
+      version: 22,
+      name: "mail-inbox-threads",
+      sql: `CREATE TABLE IF NOT EXISTS mail_inbox_threads (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    account_email TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    history_id TEXT,
+    in_inbox INTEGER NOT NULL,
+    is_unread INTEGER,
+    is_starred INTEGER,
+    is_important INTEGER,
+    is_automated INTEGER,
+    latest_date BIGINT NOT NULL,
+    latest_message_id TEXT,
+    subject TEXT,
+    snippet TEXT,
+    from_name TEXT,
+    from_email TEXT,
+    to_json TEXT,
+    label_ids_json TEXT NOT NULL,
+    message_ids_json TEXT NOT NULL,
+    message_count INTEGER,
+    unread_count INTEGER,
+    has_attachments INTEGER,
+    synced_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS idx_mail_inbox_threads_owner_inbox_date ON mail_inbox_threads(owner_email, in_inbox, latest_date);
+CREATE INDEX IF NOT EXISTS idx_mail_inbox_threads_owner_account ON mail_inbox_threads(owner_email, account_email);`,
+    },
+    {
+      version: 23,
+      name: "mail-inbox-local-mutation-fence",
+      sql: `ALTER TABLE mail_inbox_threads ADD COLUMN IF NOT EXISTS local_mutation_at BIGINT`,
+    },
+    {
+      version: 24,
+      name: "mail-inbox-mutation-evidence",
+      sql: `ALTER TABLE mail_inbox_threads
+ADD COLUMN IF NOT EXISTS local_mutation_history_id TEXT;
+ALTER TABLE mail_inbox_threads
+ADD COLUMN IF NOT EXISTS local_mutation_fields INTEGER`,
+    },
+    {
+      version: 25,
+      name: "mail-inbox-push-invalidations",
+      sql: `CREATE TABLE IF NOT EXISTS mail_inbox_push_invalidations (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    account_email TEXT NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS idx_mail_inbox_push_invalidations_owner_account
+  ON mail_inbox_push_invalidations(owner_email, account_email);`,
+    },
+    {
+      version: 26,
+      name: "mail-inbox-push-generation",
+      sql: `ALTER TABLE mail_inbox_push_invalidations
+  ADD COLUMN IF NOT EXISTS generation BIGINT NOT NULL DEFAULT 1;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS last_push_generation BIGINT NOT NULL DEFAULT 0;`,
+    },
+    {
+      version: 27,
+      name: "mail-ai-filter-rule-undo",
+      sql: `CREATE TABLE IF NOT EXISTS mail_ai_filter_rule_undo (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    rules_json TEXT NOT NULL,
+    expires_at BIGINT NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS mail_ai_filter_rule_undo_owner_expiry_idx
+  ON mail_ai_filter_rule_undo(owner_email, expires_at);`,
+    },
+    {
+      version: 28,
+      name: "mail-ai-filter-rule-undo-expiry-index",
+      sql: `CREATE INDEX IF NOT EXISTS mail_ai_filter_rule_undo_expires_idx
+  ON mail_ai_filter_rule_undo(expires_at);`,
+    },
+    {
+      version: 29,
+      name: "mail-ai-filter-backfills",
+      sql: `CREATE TABLE IF NOT EXISTS mail_ai_filter_backfills (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'completed', 'failed', 'undoing', 'undone')),
+    state_json TEXT NOT NULL,
+    undo_token TEXT,
+    undo_expires_at BIGINT,
+    expires_at BIGINT NOT NULL,
+    claim_id TEXT,
+    claimed_at BIGINT,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS mail_ai_filter_backfills_owner_created_idx
+  ON mail_ai_filter_backfills(owner_email, created_at);
+CREATE INDEX IF NOT EXISTS mail_ai_filter_backfills_status_updated_idx
+  ON mail_ai_filter_backfills(status, updated_at);
+CREATE INDEX IF NOT EXISTS mail_ai_filter_backfills_expires_idx
+  ON mail_ai_filter_backfills(expires_at);`,
+    },
+    {
+      version: 30,
+      name: "mail-ai-filter-backfill-rule-set",
+      sql: `ALTER TABLE mail_ai_filter_backfills
+  ADD COLUMN IF NOT EXISTS rule_set_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS mail_ai_filter_backfills_owner_rule_set_active_idx
+  ON mail_ai_filter_backfills(owner_email, rule_set_key)
+  WHERE rule_set_key IS NOT NULL AND status IN ('queued', 'running', 'undoing');`,
+    },
+    {
+      version: 31,
+      name: "mail-gmail-watch-renewal-claims",
+      sql: `ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS last_watch_renewed_at BIGINT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS last_watch_attempted_at BIGINT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS last_automation_attempted_at BIGINT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS watch_renew_claim_id TEXT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS watch_renew_claimed_at BIGINT;
+CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_status_run_at_id
+  ON scheduled_jobs(status, run_at, id);`,
+    },
+    {
+      version: 32,
+      name: "mail-background-account-sweep-order",
+      sql: `CREATE INDEX IF NOT EXISTS mail_sync_accounts_automation_attempted_id_idx
+  ON mail_sync_accounts (COALESCE(last_automation_attempted_at, 0), id);
+CREATE INDEX IF NOT EXISTS mail_sync_accounts_watch_attempted_id_idx
+  ON mail_sync_accounts (COALESCE(last_watch_attempted_at, 0), id);`,
+    },
+    {
+      version: 33,
+      name: "mail-scheduled-job-processing-leases",
+      sql: `ALTER TABLE scheduled_jobs ADD COLUMN IF NOT EXISTS processing_claim_id TEXT;
+ALTER TABLE scheduled_jobs ADD COLUMN IF NOT EXISTS processing_lease_until BIGINT;
+ALTER TABLE scheduled_jobs ADD COLUMN IF NOT EXISTS send_started_at BIGINT;
+UPDATE scheduled_jobs
+  SET send_started_at = COALESCE(created_at, run_at, 0)
+  WHERE status = 'processing' AND type = 'send_later' AND send_started_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_processing_lease
+  ON scheduled_jobs(status, processing_lease_until, run_at, id);`,
+    },
+    {
+      version: 34,
+      name: "mail-scheduled-job-uncertain-send-recovery",
+      sql: `ALTER TABLE scheduled_jobs
+  DROP CONSTRAINT IF EXISTS scheduled_jobs_status_check;
+ALTER TABLE scheduled_jobs
+  ADD CONSTRAINT scheduled_jobs_status_check
+  CHECK(status IN ('pending', 'processing', 'done', 'cancelled', 'uncertain', 'retry_queued'));`,
+    },
+    {
+      version: 35,
+      name: "mail-gmail-account-quota-budget",
+      sql: `CREATE TABLE IF NOT EXISTS mail_gmail_quota_budgets (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    account_email TEXT NOT NULL,
+    quota_window_started_at BIGINT NOT NULL DEFAULT 0,
+    quota_units_used INTEGER NOT NULL DEFAULT 0,
+    quota_background_units_used INTEGER NOT NULL DEFAULT 0,
+    quota_backfill_units_used INTEGER NOT NULL DEFAULT 0,
+    quota_cooldown_until BIGINT,
+    quota_cooldown_attempts INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS mail_gmail_quota_budgets_owner_idx
+      ON mail_gmail_quota_budgets(owner_email);`,
+    },
+    {
+      version: 36,
+      name: "mail-inbox-id-reconciliation",
+      sql: `ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS full_sync_phase TEXT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS full_sync_reconcile_page_token TEXT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS full_sync_reconcile_pending_ids_json TEXT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS full_sync_reconcile_passes INTEGER NOT NULL DEFAULT 0;`,
+    },
+    {
+      version: 37,
+      name: "mail-gmail-quota-budget-timestamps-bigint",
+      sql: `-- guard:allow-destructive-ddl — widen quota timestamps so Date.now() values fit without losing existing data.
+ALTER TABLE mail_gmail_quota_budgets
+  ALTER COLUMN created_at TYPE BIGINT USING created_at::BIGINT;
+ALTER TABLE mail_gmail_quota_budgets
+  ALTER COLUMN updated_at TYPE BIGINT USING updated_at::BIGINT;`,
+    },
+    {
+      version: 38,
+      name: "mail-gmail-token-accounts",
+      sql: `CREATE TABLE IF NOT EXISTS mail_gmail_token_accounts (
+    token_hash TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    account_email TEXT NOT NULL,
+    expires_at BIGINT NOT NULL,
+    created_at BIGINT NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS mail_gmail_token_accounts_expires_idx
+      ON mail_gmail_token_accounts(expires_at);`,
     },
   ],
   { table: "mail_migrations" },
@@ -235,8 +498,6 @@ export default async (nitroApp: any): Promise<void> => {
       );
     }
   } catch (err) {
-    // Never fail boot over the safety net itself — the authoritative
-    // migrations above already ran.
     console.warn(
       "[db] ensureAdditiveColumns failed (non-fatal):",
       err instanceof Error ? err.message : err,

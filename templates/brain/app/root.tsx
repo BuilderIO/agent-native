@@ -1,16 +1,12 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { useDbSync } from "@agent-native/core/client/hooks";
-import {
-  AppProviders,
-  createAgentNativeQueryClient,
-} from "@agent-native/core/client/hooks";
+import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import { IconHierarchy2, IconMoon, IconSun } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -150,7 +146,14 @@ function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const navigate = useNavigate();
   const t = useT();
-  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  // The home chat composer takes focus on load, and without this the shortcut
+  // is swallowed whenever a contenteditable has focus.
+  useCommandMenuShortcut(
+    useCallback(() => setCmdkOpen(true), []),
+    {
+      allowContentEditable: true,
+    },
+  );
   return (
     <>
       <CommandMenu
@@ -158,9 +161,10 @@ function AppContent() {
         onOpenChange={setCmdkOpen}
         changelog={changelog}
         changelogKey="brain"
+        chatStorageKey="brain"
       >
         <CommandMenu.Group heading={t("root.commandNavigate")}>
-          <CommandMenu.Item onSelect={() => navigate("/")}>
+          <CommandMenu.Item onSelect={() => navigate("/home")}>
             {t("navigation.askBrain")}
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/search")}>
@@ -177,9 +181,6 @@ function AppContent() {
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/ops")}>
             {t("navigation.ops")}
-          </CommandMenu.Item>
-          <CommandMenu.Item onSelect={() => navigate("/settings")}>
-            {t("navigation.settings")}
           </CommandMenu.Item>
           <CommandMenu.Item
             onSelect={() => navigate("/settings/agent")}
@@ -212,21 +213,17 @@ export default function Root() {
     createAgentNativeQueryClient({
       defaultOptions: {
         queries: {
-          // Brain has a faster sync cadence for source distillation status;
-          // 20 s keeps the source list fresh without hammering the server.
           staleTime: 20_000,
-          // Flat retry: Brain data fetches are rarely auth failures so a
-          // flat count is sufficient.
           retry: 1,
         },
       },
     }),
   );
-
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="assistant"
         tooltipDelayDuration={250}
         i18n={{ catalog: i18nCatalog }}
       >
@@ -237,4 +234,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

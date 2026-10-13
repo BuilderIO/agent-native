@@ -6,6 +6,7 @@ import approveVaultRequest from "./approve-vault-request.js";
 import archiveWorkspaceApp from "./archive-workspace-app.js";
 import askApp from "./ask_app.js";
 import askAppStatus from "./ask_app_status.js";
+import claimWorkspaceAppOrganization from "./claim-workspace-app-organization.js";
 import connectExternalAgent from "./connect-external-agent.js";
 import createBrowserChatSession from "./create-browser-chat-session.js";
 import createDreamReport from "./create-dream-report.js";
@@ -58,6 +59,7 @@ import listVaultRequests from "./list-vault-requests.js";
 import listVaultSecretOptions from "./list-vault-secret-options.js";
 import listVaultSecrets from "./list-vault-secrets.js";
 import listWorkspaceApps from "./list-workspace-apps.js";
+import listWorkspaceConnections from "./list-workspace-connections.js";
 import listWorkspaceResourceGrants from "./list-workspace-resource-grants.js";
 import listWorkspaceResourceOptions from "./list-workspace-resource-options.js";
 import listWorkspaceResourcesForApp from "./list-workspace-resources-for-app.js";
@@ -100,18 +102,13 @@ import updateWorkspaceResource from "./update-workspace-resource.js";
 import upsertDestination from "./upsert-destination.js";
 import viewScreen from "./view-screen.js";
 
-/**
- * Dispatch's actions registered as a flat name→entry map. Imported by
- * `@agent-native/dispatch/server`'s side-effect block, which calls
- * `registerPackageActions(dispatchActions)` so the framework's action
- * loader picks them up.
- */
 export const dispatchActions: Record<string, ActionEntry> = {
   "approve-dispatch-change": approveDispatchChange,
   "approve-vault-request": approveVaultRequest,
   "archive-workspace-app": archiveWorkspaceApp,
   ask_app: askApp,
   ask_app_status: askAppStatus,
+  "claim-workspace-app-organization": claimWorkspaceAppOrganization,
   "connect-external-agent": connectExternalAgent,
   "create-link-token": createLinkToken,
   "create-pylon-ticket": createPylonTicket,
@@ -163,6 +160,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-vault-secret-options": listVaultSecretOptions,
   "list-vault-secrets": listVaultSecrets,
   "list-workspace-apps": listWorkspaceApps,
+  "list-workspace-connections": listWorkspaceConnections,
   "list-workspace-resource-options": listWorkspaceResourceOptions,
   "list-workspace-resource-grants": listWorkspaceResourceGrants,
   "list-workspace-resources-for-app": listWorkspaceResourcesForApp,

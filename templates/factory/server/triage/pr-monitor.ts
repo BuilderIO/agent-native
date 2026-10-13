@@ -10,6 +10,9 @@ export type PullRequestReviewState =
 export interface PullRequestReviewObservation {
   author: string;
   state: PullRequestReviewState;
+  commitSha?: string | null;
+  htmlUrl?: string | null;
+  body?: string | null;
   observedAt: string;
 }
 
@@ -18,7 +21,8 @@ export type PullRequestCheckState =
   | "in_progress"
   | "passed"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "informational";
 
 export interface PullRequestCheckObservation {
   name: string;

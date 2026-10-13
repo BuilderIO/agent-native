@@ -266,11 +266,6 @@ async function controlLocalCodeBackgroundAgentRun(
     }
     case "resume":
     case "retry": {
-      // A control action must return immediately — awaiting
-      // executeExistingCodeAgentRun() runs the entire code session
-      // (potentially minutes), which times out the HTTP/IPC caller.
-      // Kick the run off in the background; progress is surfaced via the
-      // transcript/poll, exactly like the initial run start.
       void executeExistingCodeAgentRun(run.id, {
         stdout: input.stdout,
       }).catch((err) => {

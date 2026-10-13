@@ -1,16 +1,8 @@
-/**
- * OAuth 2.1 client support for remote MCP servers.
- *
- * MCP servers advertise their OAuth endpoints through the standard protected
- * resource and authorization-server metadata documents. The SDK handles the
- * protocol details; this module owns the framework-specific encrypted storage
- * and refresh boundary.
- */
-
 import crypto from "node:crypto";
 
 import {
   auth,
+  discoverOAuthServerInfo,
   refreshAuthorization,
   validateAuthorizationResponseIssuer,
   type AuthorizationServerMetadata,
@@ -24,6 +16,7 @@ import {
   OAuthTokens,
 } from "@modelcontextprotocol/client";
 
+import { getAppConfig } from "../app-config/index.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
   readOAuthCredentialState,
@@ -218,10 +211,41 @@ function startGoogleMcpOAuthAuthorization(
 async function readOAuthResponseJson(
   response: Response,
 ): Promise<Record<string, unknown>> {
-  const text = await response.text();
-  if (Buffer.byteLength(text) > MAX_OAUTH_RESPONSE_BYTES) {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_OAUTH_RESPONSE_BYTES
+  ) {
+    await response.body?.cancel().catch(() => undefined);
     throw new Error("MCP OAuth response exceeded the size limit.");
   }
+  if (!response.body) {
+    throw new Error("MCP OAuth response had no body.");
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      byteLength += value.byteLength;
+      if (byteLength > MAX_OAUTH_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error("MCP OAuth response exceeded the size limit.");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  const text = new TextDecoder().decode(bytes);
   try {
     const parsed = JSON.parse(text) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -288,13 +312,6 @@ async function finishGoogleMcpOAuthAuthorization(
   };
 }
 
-/**
- * RFC 8707 resource identifiers are exact strings. WHATWG `URL` origin-only
- * values stringify with a trailing slash (`https://api.builder.io/` vs
- * `https://api.builder.io`), and the MCP SDK puts `resource.href` on authorize
- * and token requests. Servers that registered the unsuffixed identifier reject
- * the canonical form as unregistered.
- */
 class Rfc8707ResourceUrl extends URL {
   readonly identifier: string;
 
@@ -485,9 +502,35 @@ export interface McpOAuthProviderOptions {
   serverUrl: string;
   redirectUrl: string;
   state: string;
+  tokenEndpointAuthMethod?: OAuthClientMetadata["token_endpoint_auth_method"];
   clientInformation?: StoredOAuthClientInformation;
   codeVerifier?: string;
   discoveryState?: McpOAuthDiscoveryState;
+  /**
+   * Runs the moment the SDK persists discovery, which is before it selects a
+   * resource, resolves scope, or registers a client. Throwing here is how a
+   * caller refuses a flow that discovery has already proven cannot finish.
+   * Receives this provider's `clientMetadataUrl` because whether the SDK can
+   * skip registration depends on it as well as on the server's metadata.
+   */
+  onDiscoveryState?: (
+    state: McpOAuthDiscoveryState,
+    clientMetadataUrl: string | undefined,
+  ) => void;
+}
+
+function dynamicClientAuthMethod(
+  metadata: AuthorizationServerMetadata | undefined,
+): OAuthClientMetadata["token_endpoint_auth_method"] {
+  const methods = metadata?.token_endpoint_auth_methods_supported;
+  if (!Array.isArray(methods)) return "client_secret_basic";
+  if (methods.includes("none")) return "none";
+  for (const method of ["client_secret_basic", "client_secret_post"] as const) {
+    if (methods.includes(method)) return method;
+  }
+  throw new Error(
+    "MCP OAuth server does not support a client authentication method this connector can register with.",
+  );
 }
 
 function issuerForDiscovery(
@@ -543,11 +586,32 @@ function applicationTypeForRedirect(redirectUrl: string): "native" | "web" {
   return "web";
 }
 
-/**
- * A small adapter around the MCP SDK's OAuth provider interface. The route
- * stores the adapter's state in an encrypted, short-lived browser cookie; the
- * durable credential bundle is written only after the callback succeeds.
- */
+function brandedOAuthClientMetadata(): Pick<
+  OAuthClientMetadata,
+  "client_name" | "client_uri" | "logo_uri"
+> {
+  const app = getAppConfig().app;
+  const metadata: Pick<
+    OAuthClientMetadata,
+    "client_name" | "client_uri" | "logo_uri"
+  > = {
+    client_name: app.name?.trim() || "Agent-Native MCP connector",
+  };
+
+  if (app.logoUrl) {
+    try {
+      const logoUrl = new URL(app.logoUrl);
+      if (logoUrl.protocol === "https:") {
+        metadata.logo_uri = logoUrl.href;
+        metadata.client_uri = logoUrl.origin;
+      }
+    } catch {
+      // coercion-ok: an invalid optional logo is omitted from OAuth metadata.
+    }
+  }
+  return metadata;
+}
+
 export class McpOAuthClientProvider implements OAuthClientProvider {
   private readonly redirectUrlValue: string;
   private readonly stateValue: string;
@@ -557,6 +621,11 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   private savedCodeVerifier?: string;
   private savedDiscovery?: McpOAuthDiscoveryState;
   private authorizationUrl?: URL;
+  private readonly onDiscoveryState?: (
+    state: McpOAuthDiscoveryState,
+    clientMetadataUrl: string | undefined,
+  ) => void;
+  readonly clientMetadataUrl?: string;
 
   constructor(options: McpOAuthProviderOptions) {
     this.redirectUrlValue = options.redirectUrl;
@@ -564,6 +633,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     this.clientInfo = options.clientInformation;
     this.savedCodeVerifier = options.codeVerifier;
     this.savedDiscovery = options.discoveryState;
+    this.onDiscoveryState = options.onDiscoveryState;
     const recordedIssuer = issuerForDiscovery(this.savedDiscovery);
     if (
       this.clientInfo &&
@@ -577,12 +647,12 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
       this.clientInfo = { ...this.clientInfo, issuer: recordedIssuer };
     }
     this.metadata = {
+      ...brandedOAuthClientMetadata(),
       redirect_uris: [options.redirectUrl],
-      token_endpoint_auth_method: "none",
+      token_endpoint_auth_method: options.tokenEndpointAuthMethod ?? "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       application_type: applicationTypeForRedirect(options.redirectUrl),
-      client_name: "Agent-Native MCP connector",
     };
   }
 
@@ -654,6 +724,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   }): void {
     validateDiscoveryUrls(state);
     this.savedDiscovery = state;
+    this.onDiscoveryState?.(state, this.clientMetadataUrl);
   }
 
   discoveryState(): McpOAuthDiscoveryState | undefined {
@@ -694,12 +765,99 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   }
 }
 
+/**
+ * The authorization server behind this MCP endpoint cannot mint a client on
+ * demand: its metadata advertises neither an RFC 7591 registration_endpoint nor
+ * SEP-991 Client ID Metadata Documents. Retrying never helps, which is what
+ * separates it from a transient discovery or network failure.
+ */
+export class McpOAuthRegistrationUnsupportedError extends Error {
+  readonly issuer?: string;
+  readonly authorizationServerUrl?: string;
+
+  constructor(details: { issuer?: string; authorizationServerUrl?: string }) {
+    const server =
+      details.issuer ?? details.authorizationServerUrl ?? "(unknown)";
+    super(
+      `MCP OAuth authorization server ${server} does not support dynamic client registration`,
+    );
+    this.name = "McpOAuthRegistrationUnsupportedError";
+    this.issuer = details.issuer;
+    this.authorizationServerUrl = details.authorizationServerUrl;
+  }
+}
+
+export async function resolveMcpOAuthAuthorizationServerUrl(
+  value: string,
+): Promise<string> {
+  return (await resolveMcpOAuthAuthorizationServerDiscovery(value))
+    .authorizationServerUrl;
+}
+
+export async function resolveMcpOAuthAuthorizationServerDiscovery(
+  value: string,
+): Promise<McpOAuthDiscoveryState> {
+  const candidate = checkedRemoteUrl(value, "authorization server metadata");
+  const response = await guardedOAuthFetch()(candidate, {
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    return { authorizationServerUrl: candidate.toString() };
+  }
+  const contentType =
+    response.headers.get("content-type")?.split(";", 1)[0]?.trim() ?? "";
+  if (!contentType.includes("json")) {
+    await response.body?.cancel().catch(() => undefined);
+    return { authorizationServerUrl: candidate.toString() };
+  }
+  const metadata = await readOAuthResponseJson(response);
+  const issuer = typeof metadata.issuer === "string" ? metadata.issuer : null;
+  const state: McpOAuthDiscoveryState = {
+    authorizationServerUrl: issuer
+      ? checkedRemoteUrl(issuer, "authorization server").toString()
+      : candidate.toString(),
+    ...(issuer
+      ? { authorizationServerMetadata: metadata as AuthorizationServerMetadata }
+      : {}),
+  };
+  validateDiscoveryUrls(state);
+  return state;
+}
+
+/**
+ * Refuse a start the moment discovery proves it cannot finish, rather than
+ * inferring the reason from a later rejection. Discovery lands before the SDK
+ * selects a resource, resolves scope, or registers, so a failure raised here is
+ * known to be the missing registration path; anything thrown afterwards is a
+ * different problem and keeps its own error.
+ */
+function assertRegisterableClient(
+  state: McpOAuthDiscoveryState,
+  clientMetadataUrl: string | undefined,
+): void {
+  const metadata = state.authorizationServerMetadata as
+    | (AuthorizationServerMetadata & {
+        client_id_metadata_document_supported?: boolean;
+      })
+    | undefined;
+  if (!metadata) return;
+  if (metadata.registration_endpoint) return;
+  if (
+    metadata.client_id_metadata_document_supported === true &&
+    clientMetadataUrl
+  ) {
+    return;
+  }
+  throw new McpOAuthRegistrationUnsupportedError({
+    issuer: typeof metadata.issuer === "string" ? metadata.issuer : undefined,
+    authorizationServerUrl: state.authorizationServerUrl,
+  });
+}
+
 export async function startMcpOAuthAuthorization(
   options: McpOAuthProviderOptions & {
     scope?: string;
-    // Override the protected-resource metadata URL for servers whose metadata
-    // is not at the RFC 9728 default path; the SDK still discovers the resource
-    // and authorization-server endpoints from it live.
     resourceMetadataUrl?: string;
   },
 ): Promise<McpOAuthStartResult> {
@@ -711,7 +869,44 @@ export async function startMcpOAuthAuthorization(
       googleScopes,
     );
   }
-  const provider = new McpOAuthClientProvider(options);
+  const resourceMetadataUrl = options.resourceMetadataUrl
+    ? checkedRemoteUrl(options.resourceMetadataUrl, "resource metadata").href
+    : undefined;
+  const discoveredState =
+    !options.clientInformation && !options.discoveryState
+      ? await discoverOAuthServerInfo(serverUrl, {
+          fetchFn: guardedOAuthFetch(),
+          ...(resourceMetadataUrl
+            ? { resourceMetadataUrl: new URL(resourceMetadataUrl) }
+            : {}),
+        })
+      : undefined;
+  const discoveryState =
+    options.discoveryState ??
+    (discoveredState
+      ? {
+          ...discoveredState,
+          ...(resourceMetadataUrl ? { resourceMetadataUrl } : {}),
+        }
+      : undefined);
+  if (discoveryState) validateDiscoveryUrls(discoveryState);
+  if (!options.clientInformation && discoveryState) {
+    assertRegisterableClient(discoveryState, undefined);
+  }
+  const provider = new McpOAuthClientProvider({
+    ...options,
+    ...(discoveryState ? { discoveryState } : {}),
+    ...(!options.clientInformation
+      ? {
+          tokenEndpointAuthMethod: dynamicClientAuthMethod(
+            discoveryState?.authorizationServerMetadata,
+          ),
+        }
+      : {}),
+    ...(options.clientInformation
+      ? {}
+      : { onDiscoveryState: assertRegisterableClient }),
+  });
   const result = await auth(provider, {
     serverUrl: options.serverUrl,
     scope: options.scope,
@@ -944,13 +1139,15 @@ export async function revokeMcpOAuthCredentials(options: {
 /**
  * Resolve an access token for the MCP manager. Refreshing happens only when a
  * token is near expiry, so ordinary manager reconfiguration does not perform
- * a network request for every connector.
+ * a network request for every connector. `forceRefresh` is for a caller whose
+ * request was just refused with 401 by a token that had not expired yet.
  */
 export async function getMcpOAuthAccessToken(options: {
   key: string;
   scope: "user" | "org";
   scopeId: string;
   serverUrl: string;
+  forceRefresh?: boolean;
 }): Promise<string | null> {
   const validation = validateRemoteUrl(options.serverUrl);
   if (!validation.ok || !validation.url) return null;
@@ -963,6 +1160,7 @@ export async function getMcpOAuthAccessToken(options: {
       validateCredential: (credential) =>
         serverUrlsMatch(credential.serverUrl, serverUrl),
       expirySkewMs: TOKEN_EXPIRY_SKEW_MS,
+      forceRefresh: options.forceRefresh,
       refresh: async ({ credential: credentials }) => {
         const refreshToken = credentials.tokens.refresh_token;
         const discovery = credentials.discoveryState;

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import markdownNegotiation, {
   acceptsMarkdown,
+  config,
 } from "../netlify/edge-functions/markdown-negotiation";
 
 describe("markdown negotiation edge function", () => {
@@ -99,5 +100,24 @@ describe("markdown negotiation edge function", () => {
     ]) {
       expect(config).toContain(`"${redirectPath}"`);
     }
+  });
+});
+
+describe("edge function exclusions", () => {
+  it("excludes every path netlify.toml redirects", () => {
+    const toml = readFileSync(
+      new URL("../netlify.toml", import.meta.url),
+      "utf8",
+    );
+    const redirectSources = [...toml.matchAll(/^from\s*=\s*"([^"]+)"/gm)].map(
+      (match) => match[1],
+    );
+
+    expect(redirectSources.length).toBeGreaterThan(0);
+
+    const excluded = new Set(config.excludedPath);
+    expect(redirectSources.filter((source) => !excluded.has(source))).toEqual(
+      [],
+    );
   });
 });

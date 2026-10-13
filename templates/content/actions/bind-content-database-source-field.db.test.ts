@@ -1,8 +1,3 @@
-// Integration tests for the row-union per-source column field-binding action
-// (slice 6c + its Codex review fixes). Boots a real in-memory libsql DB, runs
-// the actual migrations, seeds a 2-source row-union, and drives the bind action
-// through `run` (with an owner request context so assertAccess passes).
-
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,7 +17,7 @@ import {
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `bind-source-field-test-${process.pid}-${Date.now()}.sqlite`,
+  `bind-source-field-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 let getDb: () => any;
@@ -35,7 +30,7 @@ let removeRowsOwnedOnlyBySource: typeof import("./change-content-database-source
 const OWNER = "owner@example.com";
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -58,9 +53,7 @@ afterEach(() => {
 });
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 let counter = 0;
@@ -68,12 +61,6 @@ async function asOwner<T>(fn: () => Promise<T>): Promise<T> {
   return runWithRequestContext({ userEmail: OWNER }, fn);
 }
 
-/**
- * Seed a row-union database with two Builder sources. Source A has two rows
- * carrying a `data.cat` value (one of which is empty), plus a multi-value
- * `data.labels` field; source B has one row. A text column "Tag" is the bind
- * target. Returns the ids needed to drive and assert against the action.
- */
 async function seedRowUnion() {
   const db = getDb();
   const now = new Date().toISOString();
@@ -111,7 +98,6 @@ async function seedRowUnion() {
     });
     return id;
   }
-  // A is the primary (older); B is the secondary.
   const sourceA = await addSource("collection-a", "2026-01-01T00:00:00.000Z");
   const sourceB = await addSource("collection-b", "2026-01-02T00:00:00.000Z");
 
@@ -154,7 +140,7 @@ async function seedRowUnion() {
     return docId;
   }
   const a1 = await addRow(sourceA, "a1", { "data.cat": "Alpha" });
-  const a2 = await addRow(sourceA, "a2", {}); // no cat value (sparse)
+  const a2 = await addRow(sourceA, "a2", {});
   const b1 = await addRow(sourceB, "b1", { "data.cat": "Beta" });
 
   async function addField(
@@ -184,7 +170,6 @@ async function seedRowUnion() {
   const fieldALabels = await addField(sourceA, "data.labels", "list");
   const fieldBCat = await addField(sourceB, "data.cat", "text");
 
-  // Target text column "Tag".
   const tagPropertyId = `prop_tag_${suffix}`;
   await db.insert(schema.documentPropertyDefinitions).values({
     id: tagPropertyId,
@@ -334,13 +319,22 @@ describe("bind-content-database-source-field (row-union)", () => {
   it("fails closed when the source field disappears before the bind update", async () => {
     const f = await seedRowUnion();
     const triggerName = `delete_bound_field_${counter}`;
+    const functionName = `${triggerName}_fn`;
+    await getDbExec().execute(
+      `CREATE FUNCTION ${functionName}() RETURNS trigger
+       LANGUAGE plpgsql AS $bind$
+       BEGIN
+         IF OLD.id = '${f.fields.fieldACat}' AND NEW.property_id IS NOT NULL THEN
+           DELETE FROM content_database_source_fields WHERE id = OLD.id;
+         END IF;
+         RETURN NEW;
+       END;
+       $bind$`,
+    );
     await getDbExec().execute(
       `CREATE TRIGGER ${triggerName}
-       BEFORE UPDATE OF property_id ON content_database_source_fields
-       WHEN OLD.id = '${f.fields.fieldACat}' AND NEW.property_id IS NOT NULL
-       BEGIN
-         DELETE FROM content_database_source_fields WHERE id = OLD.id;
-       END`,
+       AFTER UPDATE OF property_id ON content_database_source_fields
+       FOR EACH ROW EXECUTE FUNCTION ${functionName}()`,
     );
     try {
       await expect(
@@ -353,7 +347,10 @@ describe("bind-content-database-source-field (row-union)", () => {
         ),
       ).rejects.toThrow(/deleted before its binding could be saved/i);
     } finally {
-      await getDbExec().execute(`DROP TRIGGER IF EXISTS ${triggerName}`);
+      await getDbExec().execute(
+        `DROP TRIGGER IF EXISTS ${triggerName} ON content_database_source_fields`,
+      );
+      await getDbExec().execute(`DROP FUNCTION IF EXISTS ${functionName}()`);
     }
   });
 
@@ -407,7 +404,6 @@ describe("bind-content-database-source-field (row-union)", () => {
         propertyId: f.tagPropertyId,
       }),
     );
-    // Source A's row with a value gets it; source B's row is untouched.
     expect(await tagValue(f.docs.a1, f.tagPropertyId)).toBe("Alpha");
     expect(await tagValue(f.docs.b1, f.tagPropertyId)).toBeUndefined();
   });
@@ -456,7 +452,6 @@ describe("bind-content-database-source-field (row-union)", () => {
   it("clears a stale column value when the newly bound field is empty", async () => {
     const f = await seedRowUnion();
     const db = getDb();
-    // Pre-seed a stale value on a2 (whose data.cat is empty).
     await db.insert(schema.documentPropertyValues).values({
       id: `pv_stale_${f.docs.a2}`,
       ownerEmail: OWNER,
@@ -473,7 +468,6 @@ describe("bind-content-database-source-field (row-union)", () => {
         propertyId: f.tagPropertyId,
       }),
     );
-    // The empty-valued row no longer shows the stale value.
     expect(await tagValue(f.docs.a2, f.tagPropertyId)).toBeUndefined();
     expect(await tagValue(f.docs.a1, f.tagPropertyId)).toBe("Alpha");
   });
@@ -678,11 +672,9 @@ describe("bind-content-database-source-field (row-union)", () => {
         propertyId: f.tagPropertyId,
       }),
     );
-    // Both sources now feed "Tag": A's a1 and B's b1 both populated.
     expect(await tagValue(f.docs.a1, f.tagPropertyId)).toBe("Alpha");
     expect(await tagValue(f.docs.b1, f.tagPropertyId)).toBe("Beta");
 
-    // Unbind source A's field; its mapping reverts to unmapped.
     await asOwner(() =>
       bindAction.run({
         databaseId: f.databaseId,
@@ -987,7 +979,10 @@ describe("add-content-database-source-field-property Builder refresh", () => {
     delete process.env.BUILDER_CMS_PRIVATE_KEY;
     process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = input instanceof URL ? input : new URL(String(input));
+      const url =
+        input instanceof URL
+          ? input
+          : new URL(typeof input === "string" ? input : input.url);
       const limit = Number(url.searchParams.get("limit"));
       const offset = Number(url.searchParams.get("offset"));
       requests.push({ limit, offset });

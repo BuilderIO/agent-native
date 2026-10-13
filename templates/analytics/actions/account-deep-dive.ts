@@ -193,9 +193,13 @@ function buildGongSearchQueries(input: {
   const dealTerms = input.deals.flatMap((deal) => {
     const properties = deal.properties as Record<string, unknown>;
     return [
-      String(properties.dealname ?? ""),
-      String(properties.company_name ?? ""),
-      String(properties.hs_primary_company_name ?? ""),
+      typeof properties.dealname === "string" ? properties.dealname : "",
+      typeof properties.company_name === "string"
+        ? properties.company_name
+        : "",
+      typeof properties.hs_primary_company_name === "string"
+        ? properties.hs_primary_company_name
+        : "",
     ];
   });
   const companyTerms = input.companies.flatMap((company) => [
@@ -413,6 +417,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   grounding: true,
   run: async (args) => {

@@ -1,18 +1,23 @@
 import { defineAction } from "@agent-native/core/action";
 import { createBuilderEngine } from "@agent-native/core/agent/engine";
+import type { BUILDER_MODEL_CONFIG } from "@agent-native/core/agent/model-config";
 import {
-  resolveBuilderCredentials,
-  resolveSecret,
+  resolveGeminiApiKey,
+  resolveHasBuilderGatewayCredential,
 } from "@agent-native/core/server";
 import type { GeneratedSlide } from "@shared/api";
 import { z } from "zod";
 
-const BUILDER_MODEL = "gpt-5-6-luna";
+// Typed against the Builder catalog so a retired id fails typecheck instead of
+// every generation call.
+const BUILDER_MODEL: (typeof BUILDER_MODEL_CONFIG.supportedModels)[number] =
+  "gpt-6-luna";
 const GEMINI_MODEL = "gemini-2.0-flash";
 
 export default defineAction({
+  mcpTool: false,
   description:
-    "Legacy helper for the Generate Slides dialog that drafts a whole new deck outline (multiple slides) from a topic. It returns markdown slide drafts, not the app's rendered slide HTML. Agent chat should create decks with create-deck slides: [] plus add-slide HTML instead of this action. Do NOT use this for a request to generate one or more images/image variations for an existing slide — use generate-image-api for that. When Builder is connected, this uses GPT-5.6 Luna; otherwise it falls back to a user Gemini API key.",
+    "Legacy helper for the Generate Slides dialog that drafts a whole new deck outline (multiple slides) from a topic. It returns markdown slide drafts, not the app's rendered slide HTML. Agent chat should create decks with create-deck slides: [] plus add-slide HTML instead of this action. Do NOT use this for a request to generate one or more images/image variations for an existing slide — use generate-image-api for that. The configured Slides model and user Gemini fallback are implementation details, not visual direction.",
   schema: z.object({
     topic: z.string().describe("Presentation topic"),
     slideCount: z.coerce
@@ -30,10 +35,6 @@ export default defineAction({
   }),
   run: async (args) => {
     const topic = args.topic;
-    // Cap at 10. Single-shot JSON generation reliably truncates
-    // beyond that — the resulting JSON fails to parse and the user sees
-    // an error. Larger decks should be assembled with sequential
-    // `add-slide` calls from the agent chat instead.
     const slideCount = Math.min(args.slideCount ?? 8, 10);
     const style = args.style;
     const includeImages = args.includeImages !== false;
@@ -44,17 +45,19 @@ export default defineAction({
 
     const styleInstruction = style
       ? `The presentation style should be: ${style}.`
-      : `The presentation should be professional, modern, and visually clean.`;
+      : `Choose a deliberate editorial direction from the topic and keep it consistent across the deck.`;
 
     const prompt = `Generate a ${slideCount}-slide presentation about: "${topic}"
 
-${styleInstruction}
+    ${styleInstruction}
+
+Before drafting slide objects, establish one deck-level visual contract: a single background family, text/surface/accent roles, type pairing, spacing rhythm, and image treatment. Apply that same contract to every slide; vary composition and hierarchy, never alternate dark and light canvases or switch to a new palette or font per slide. Avoid generic AI presentation patterns such as repeated card grids, gradient text, glass panels, fake logos, and filler bullets.
 
 Return a JSON array of slide objects. Each slide has:
 - "content": Markdown content for the slide. Use ## for titles, bullet points, **bold**, *italic* as appropriate. For "image" layout slides, include the image description in markdown like ![description](PLACEHOLDER_IMAGE).
 - "layout": One of "title", "content", "two-column", "image", "blank". The first slide should always be "title". Use "two-column" for comparison slides (separate columns with ---). Use "image" for visual slides.
 - "notes": Brief speaker notes for the slide.
-- "background": Either "bg-[#000000]" for dark slides or omit for default.
+- "background": Optional background value. Use one coherent canvas/background choice for the entire deck; omit it when the default canvas is appropriate.
 ${includeImages ? '- "imagePrompt": (optional) A detailed prompt to generate an image for this slide. Only for "image" layout slides.' : ""}
 
 Rules:
@@ -63,16 +66,13 @@ Rules:
 - Content should be concise and presentation-ready (not paragraphs)
 - Use bullet points for lists, keep each point brief
 - Keep title, section, statement, and call-to-action slides centered with generous, even margins
-- Do not use emoji as decorative icons or bullets; use plain text bullets or HTML/CSS shapes instead
+- Do not use emoji as decorative icons or bullets; use plain text or numbered bullets
 - Do not invent factual numbers, metrics, URLs, source attributions, dates, success rates, benchmarks, customer names, or case-study results. Only include concrete factual claims if they are present in the topic/context. If a useful metric is unknown, use qualitative wording, [metric TBD], or clearly label it as a draft assumption.
 - ${imageInstruction}
 
 Respond ONLY with valid JSON. No markdown code fences, no explanation. Just the JSON array.`;
 
-    const builderCreds = await resolveBuilderCredentials();
-    const builderConfigured = Boolean(
-      builderCreds.privateKey && builderCreds.publicKey,
-    );
+    const builderConfigured = await resolveHasBuilderGatewayCredential();
     let text: string | undefined;
     let builderError: Error | null = null;
 
@@ -86,12 +86,12 @@ Respond ONLY with valid JSON. No markdown code fences, no explanation. Just the 
     }
 
     if (!text?.trim()) {
-      const apiKey = await resolveSecret("GEMINI_API_KEY");
+      const apiKey = await resolveGeminiApiKey();
       if (!apiKey) {
         throw (
           builderError ??
           new Error(
-            "Slides outline generation needs Builder.io Connect (free tier available) or GEMINI_API_KEY.",
+            "Slides outline generation needs Builder.io (free tier available) or a Gemini API key (GOOGLE_GENERATIVE_AI_API_KEY).",
           )
         );
       }
@@ -114,7 +114,6 @@ Respond ONLY with valid JSON. No markdown code fences, no explanation. Just the 
       const parsed = JSON.parse(text);
       slides = Array.isArray(parsed) ? parsed : parsed.slides || [];
     } catch {
-      // Try to extract JSON from the response
       const jsonMatch = text.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
         slides = JSON.parse(jsonMatch[0]);
@@ -123,7 +122,6 @@ Respond ONLY with valid JSON. No markdown code fences, no explanation. Just the 
       }
     }
 
-    // Validate and sanitize slides
     slides = slides.map((slide) => ({
       content: slide.content || "",
       layout: ["title", "content", "two-column", "image", "blank"].includes(

@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getDb: vi.fn(),
   currentOwnerEmail: vi.fn(() => "owner@example.test"),
   currentOrgId: vi.fn(() => null),
+  authorizeDispatchAdmin: vi.fn(),
   getApprovalPolicy: vi.fn(),
   createApprovalRequest: vi.fn(),
   recordAudit: vi.fn(),
@@ -20,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   createWorkspaceResource: vi.fn(),
   listWorkspaceResources: vi.fn(),
   updateWorkspaceResource: vi.fn(),
+  resolveEngine: vi.fn(),
+  isResolvedEngineUsableForRequest: vi.fn(),
 }));
 
 vi.mock("../../db/index.js", async () => {
@@ -42,6 +45,10 @@ vi.mock("./dispatch-store.js", () => ({
   recordAudit: mocks.recordAudit,
 }));
 
+vi.mock("./app-roles.js", () => ({
+  authorizeDispatchAdmin: mocks.authorizeDispatchAdmin,
+}));
+
 vi.mock("./thread-debug-store.js", () => ({
   searchAgentThreads: mocks.searchAgentThreads,
   getAgentThreadDebug: mocks.getAgentThreadDebug,
@@ -50,9 +57,22 @@ vi.mock("./thread-debug-store.js", () => ({
 
 vi.mock("@agent-native/core/resources/store", () => ({
   SHARED_OWNER: "__shared__",
+  organizationIdFromResourceOwner: (owner: string) =>
+    owner.startsWith("__organization__:")
+      ? owner.slice("__organization__:".length)
+      : null,
   resourceGetByPath: mocks.resourceGetByPath,
   resourceList: mocks.resourceList,
   resourcePut: mocks.resourcePut,
+}));
+
+vi.mock("@agent-native/core/agent/engine", () => ({
+  resolveEngine: mocks.resolveEngine,
+  isResolvedEngineUsableForRequest: mocks.isResolvedEngineUsableForRequest,
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  runWithRequestContext: (_context: unknown, run: () => unknown) => run(),
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
@@ -72,6 +92,7 @@ import { schema } from "../../db/index.js";
 import {
   applyApprovedDreamProposal,
   applyDreamProposal,
+  authorizeDreamProposalMutation,
   buildProposalInputs,
   ensureDreamJob,
   getDreamSettings,
@@ -251,7 +272,6 @@ beforeEach(() => {
         current: true,
         connected: true,
         databaseUrlEnv: "DATABASE_URL",
-        databaseAuthTokenEnv: null,
         canInspectAll: true,
       },
     ],
@@ -300,6 +320,78 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+});
+
+describe("authorizeDreamProposalMutation", () => {
+  it("allows an owner to change a personal-memory proposal", async () => {
+    mocks.getDb.mockReturnValue(createDbMock(pendingProposal()));
+
+    await expect(
+      authorizeDreamProposalMutation(
+        { id: "proposal-1" },
+        {
+          caller: "http",
+          orgId: null,
+          userEmail: "owner@example.test",
+        },
+      ),
+    ).resolves.toBeUndefined();
+    expect(mocks.authorizeDispatchAdmin).not.toHaveBeenCalled();
+  });
+
+  it("requires Dispatch admin authorization for shared proposals", async () => {
+    mocks.getDb.mockReturnValue(
+      createDbMock(
+        pendingProposal({
+          orgId: "org-1",
+          targetType: "shared-learnings",
+          targetPath: "LEARNINGS.md",
+        }),
+      ),
+    );
+    mocks.authorizeDispatchAdmin.mockResolvedValue(undefined);
+
+    await expect(
+      authorizeDreamProposalMutation(
+        { id: "proposal-1" },
+        {
+          caller: "http",
+          orgId: "org-1",
+          userEmail: "member@example.test",
+        },
+      ),
+    ).resolves.toBeUndefined();
+    expect(mocks.authorizeDispatchAdmin).toHaveBeenCalledWith(
+      { id: "proposal-1" },
+      expect.objectContaining({
+        orgId: "org-1",
+        userEmail: "member@example.test",
+      }),
+    );
+  });
+
+  it("does not let an organization member change another user's personal proposal", async () => {
+    mocks.getDb.mockReturnValue(
+      createDbMock(
+        pendingProposal({
+          ownerEmail: "other@example.test",
+          orgId: "org-1",
+        }),
+      ),
+    );
+
+    await expect(
+      authorizeDreamProposalMutation(
+        { id: "proposal-1" },
+        {
+          caller: "http",
+          orgId: "org-1",
+          userEmail: "member@example.test",
+        },
+      ),
+    ).rejects.toThrow("can only be changed by their owner");
+    expect(mocks.authorizeDispatchAdmin).not.toHaveBeenCalled();
+  });
 });
 
 describe("listDreamCandidates", () => {
@@ -391,7 +483,6 @@ describe("listDreamCandidates", () => {
           current: false,
           connected: true,
           databaseUrlEnv: "VOICE_DATABASE_URL",
-          databaseAuthTokenEnv: null,
           canInspectAll: true,
         },
         {
@@ -401,7 +492,6 @@ describe("listDreamCandidates", () => {
           current: false,
           connected: true,
           databaseUrlEnv: "MAIL_DATABASE_URL",
-          databaseAuthTokenEnv: null,
           canInspectAll: true,
         },
       ],
@@ -1421,6 +1511,73 @@ describe("ensureDreamJob", () => {
       "Invalid cron expression",
     );
     expect(mocks.resourcePut).not.toHaveBeenCalled();
+  });
+
+  it("does not look up an LLM credential for a personal owner", async () => {
+    await ensureDreamJob({});
+    expect(mocks.resolveEngine).not.toHaveBeenCalled();
+    expect(mocks.isResolvedEngineUsableForRequest).not.toHaveBeenCalled();
+    expect(mocks.resourcePut).toHaveBeenCalled();
+  });
+
+  describe("for an organization or shared owner", () => {
+    beforeEach(() => {
+      mocks.currentOwnerEmail.mockReturnValue("__organization__:acme");
+      mocks.currentOrgId.mockReturnValue("acme" as never);
+      mocks.resolveEngine.mockResolvedValue({ name: "builder" });
+    });
+
+    it("does not schedule a job whose identity has no LLM provider, and records why once", async () => {
+      mocks.isResolvedEngineUsableForRequest.mockResolvedValue(false);
+
+      await expect(ensureDreamJob({})).rejects.toMatchObject({
+        errorCode: "missing_credentials",
+        statusCode: 409,
+        message: expect.stringContaining("__organization__:acme"),
+      });
+
+      expect(mocks.resourcePut).not.toHaveBeenCalled();
+      expect(mocks.recordAudit).toHaveBeenCalledTimes(1);
+      expect(mocks.recordAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "dream.job.skipped",
+          metadata: {
+            reason: "missing_credentials",
+            owner: "__organization__:acme",
+          },
+        }),
+      );
+      expect(mocks.isResolvedEngineUsableForRequest).toHaveBeenCalledWith(
+        { name: "builder" },
+        {
+          credentialIdentity: {
+            userEmail: "__organization__:acme",
+            orgId: "acme",
+          },
+        },
+      );
+    });
+
+    it("schedules the job once the identity has a provider", async () => {
+      mocks.isResolvedEngineUsableForRequest.mockResolvedValue(true);
+
+      await expect(ensureDreamJob({})).resolves.toMatchObject({
+        path: "jobs/dispatch-dream.md",
+        enabled: true,
+      });
+      expect(mocks.resourcePut).toHaveBeenCalledOnce();
+    });
+
+    it("treats the shared owner the same way", async () => {
+      mocks.currentOwnerEmail.mockReturnValue("__shared__");
+      mocks.currentOrgId.mockReturnValue(null);
+      mocks.isResolvedEngineUsableForRequest.mockResolvedValue(false);
+
+      await expect(ensureDreamJob({})).rejects.toMatchObject({
+        errorCode: "missing_credentials",
+      });
+      expect(mocks.resourcePut).not.toHaveBeenCalled();
+    });
   });
 
   it("persists recurring dream settings", async () => {

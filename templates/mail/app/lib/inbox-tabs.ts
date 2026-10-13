@@ -1,20 +1,15 @@
-import { mailLabelsInclude, mailLabelsIncludeAny } from "@shared/gmail-labels";
+import { AI_FILTER_LABEL } from "@shared/ai-filter";
+import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
+import {
+  isInboxScopedAppLabel,
+  mailLabelsInclude,
+  mailLabelsIncludeAny,
+} from "@shared/gmail-labels";
+import { ALL_TAB_PARAM } from "@shared/inbox-threads";
+import { emailMessageMatchesSearch } from "@shared/search";
 import { isSelfAddressedThread } from "@shared/self-notes";
-import type { EmailMessage } from "@shared/types";
+import type { EmailMessage, Label, SavedMailFilter } from "@shared/types";
 
-/**
- * Single source of truth for partitioning the loaded inbox into the top-bar
- * tabs (Important / pinned triage labels / "Other").
- *
- * The badge counts (AppLayout) and the rendered list (InboxPage) BOTH go
- * through these helpers so a tab's number can never disagree with the emails
- * it shows. Before this existed, the badge sliced the loaded inbox query
- * client-side while the list fired a separate Gmail `label:` search with a
- * different membership rule, so e.g. a tab could read "7" yet list nothing.
- */
-
-/** System views that render as their own collapsible sections, not triage
- * tabs that partition inbox mail. */
 export const COLLAPSIBLE_VIEW_IDS = [
   "unread",
   "starred",
@@ -22,36 +17,134 @@ export const COLLAPSIBLE_VIEW_IDS = [
   "drafts",
   "archive",
   "trash",
+  AI_FILTER_LABEL,
 ] as const;
 
-// Keep the synthetic remainder tab's UI identity separate from user-label IDs.
-// Its public URL remains `tab=other` for existing links and agent commands.
 export const OTHER_INBOX_TAB_ID = "__inbox_other__";
 export const OTHER_INBOX_TAB_PARAM = "other";
 
-/** Pinned labels include a virtual "important" tab when Google is connected. */
-export function resolvePinnedLabels(
-  userPinnedLabels: readonly string[],
-  isGoogleConnected: boolean,
-): string[] {
-  return isGoogleConnected
-    ? ["important", ...userPinnedLabels.filter((id) => id !== "important")]
-    : [...userPinnedLabels];
+export function isInboxScopedLabel(
+  activeLabel: string | null,
+  labels: readonly Label[],
+): boolean {
+  if (!activeLabel) return false;
+  const normalizedId = activeLabel.includes("/")
+    ? activeLabel
+        .slice(activeLabel.lastIndexOf("/") + 1)
+        .replace(/_/g, " ")
+        .toLowerCase()
+    : activeLabel.toLowerCase();
+  const label = labels.find(
+    (item) =>
+      item.id === activeLabel ||
+      item.id === normalizedId ||
+      item.name.toLowerCase() === activeLabel.toLowerCase(),
+  );
+  return (
+    label?.type !== "user" && isInboxScopedAppLabel(label?.id ?? activeLabel)
+  );
 }
 
-/** Pinned labels that act as inbox triage tabs (drop system views). */
+export function resolveInboxEmailQueryScope(options: {
+  view: string;
+  activeLabel: string | null;
+  activeInboxTab: string | null;
+  activeLabelIsInboxScoped: boolean;
+  activeSavedFilter: boolean;
+  combineInbox: boolean;
+  triageLabels: readonly string[];
+  searchQuery?: string;
+}) {
+  const shouldNormalizeCombinedInboxRoute =
+    options.combineInbox &&
+    options.view === "inbox" &&
+    (options.activeLabelIsInboxScoped ||
+      options.activeInboxTab === OTHER_INBOX_TAB_PARAM ||
+      options.activeInboxTab === ALL_TAB_PARAM);
+  const mailboxWideLabelTab =
+    options.view === "inbox" &&
+    !!options.activeLabel &&
+    !options.activeLabelIsInboxScoped;
+  const isPinnedTab =
+    !!options.activeLabel &&
+    options.view === "inbox" &&
+    mailLabelsInclude(options.triageLabels, options.activeLabel);
+  const clientSliceTab =
+    !options.combineInbox &&
+    isPinnedTab &&
+    !options.searchQuery &&
+    !mailboxWideLabelTab;
+  return {
+    shouldNormalizeCombinedInboxRoute,
+    mailboxWideLabelTab,
+    clientSliceTab,
+    effectiveLabel: shouldNormalizeCombinedInboxRoute
+      ? undefined
+      : clientSliceTab
+        ? undefined
+        : (options.activeLabel ?? undefined),
+    emailView: options.activeSavedFilter
+      ? "inbox"
+      : mailboxWideLabelTab
+        ? "all"
+        : options.view,
+  };
+}
+
+export function inboxThreadKey(
+  email: Pick<EmailMessage, "accountEmail" | "threadId" | "id">,
+): string {
+  return `${email.accountEmail?.trim().toLowerCase() ?? ""}:${email.threadId || email.id}`;
+}
+
+export function resolvePinnedLabels(
+  userPinnedLabels: readonly string[] | undefined,
+  isGoogleConnected: boolean,
+): string[] {
+  if (userPinnedLabels === undefined) {
+    return isGoogleConnected ? ["important"] : [];
+  }
+  return [...userPinnedLabels];
+}
+
+export function labelTabHref(labelId: string): string {
+  const view = isInboxScopedAppLabel(labelId) ? "inbox" : "all";
+  return `/${view}?label=${encodeURIComponent(labelId)}`;
+}
+
+export function resolveDefaultMailHref(opts: {
+  combineInbox?: boolean;
+  showAllTab?: boolean;
+  pinnedLabels?: readonly string[];
+  isGoogleConnected?: boolean;
+  savedFilters?: readonly Pick<SavedMailFilter, "id">[];
+}): string {
+  if (opts.combineInbox) return "/inbox";
+  if (opts.showAllTab !== false) return `/inbox?tab=${ALL_TAB_PARAM}`;
+  const resolved = resolvePinnedLabels(
+    opts.pinnedLabels,
+    opts.isGoogleConnected ?? true,
+  );
+  if (resolved.length > 0) {
+    const firstId = resolved[0];
+    if ((COLLAPSIBLE_VIEW_IDS as readonly string[]).includes(firstId)) {
+      if (firstId === AI_FILTER_LABEL) return labelTabHref(firstId);
+      return `/${firstId}`;
+    }
+    return labelTabHref(firstId);
+  }
+  if (opts.savedFilters && opts.savedFilters.length > 0) {
+    return `/inbox?filter=${encodeURIComponent(opts.savedFilters[0].id)}`;
+  }
+  return "/inbox";
+}
+
 export function pinnedTriageLabels(pinnedLabels: readonly string[]): string[] {
   return pinnedLabels.filter(
     (id) => !(COLLAPSIBLE_VIEW_IDS as readonly string[]).includes(id),
   );
 }
 
-/**
- * Self-addressed threads get a virtual "note-to-self" label when that tab is
- * pinned. Other self-sent mail still gets virtual "important" so it lands in
- * the matching triage tab. Both the count and the list apply this so they
- * agree on self-authored threads.
- */
 export function augmentSelfSentLabels(
   emails: EmailMessage[],
   opts: {
@@ -66,7 +159,7 @@ export function augmentSelfSentLabels(
   if (opts.hasNoteToSelf) {
     const threads = new Map<string, EmailMessage[]>();
     for (const e of emails) {
-      const key = e.threadId || e.id;
+      const key = inboxThreadKey(e);
       const thread = threads.get(key) ?? [];
       thread.push(e);
       threads.set(key, thread);
@@ -79,7 +172,7 @@ export function augmentSelfSentLabels(
   }
 
   return emails.map((e) => {
-    const key = e.threadId || e.id;
+    const key = inboxThreadKey(e);
     const isSelfSent = opts.connectedEmails.has(e.from.email.toLowerCase());
     const virtualLabel = opts.hasNoteToSelf
       ? selfNoteThreads.has(key)
@@ -101,24 +194,22 @@ export function augmentSelfSentLabels(
   });
 }
 
-/**
- * Does a thread (represented by its latest message's labels) belong to the
- * given top-bar tab?
- *
- * - `tab === null` → the "Other" remainder: latest message carries none of the
- *   pinned triage labels.
- * - otherwise → latest message carries `tab`. "important" is exclusive: a
- *   thread that also matches another pinned tab belongs to that tab instead.
- */
 export function qualifiesForInboxTab(
   latestLabelIds: readonly string[],
   tab: string | null,
   triageLabels: readonly string[],
 ): boolean {
   if (tab === null) {
-    return !mailLabelsIncludeAny(latestLabelIds, triageLabels);
+    return (
+      !mailLabelsIncludeAny(latestLabelIds, triageLabels) &&
+      !mailLabelsInclude(latestLabelIds, AI_IMPORTANT_LABEL)
+    );
   }
-  if (!mailLabelsInclude(latestLabelIds, tab)) return false;
+  const isImportant =
+    mailLabelsInclude(latestLabelIds, tab) ||
+    (tab === "important" &&
+      mailLabelsInclude(latestLabelIds, AI_IMPORTANT_LABEL));
+  if (!isImportant) return false;
   if (tab === "important") {
     const others = triageLabels.filter((l) => l !== "important");
     if (mailLabelsIncludeAny(latestLabelIds, others)) return false;
@@ -126,11 +217,10 @@ export function qualifiesForInboxTab(
   return true;
 }
 
-/** Latest message per thread, by date. */
 function latestByThread(emails: EmailMessage[]): Map<string, EmailMessage> {
   const map = new Map<string, EmailMessage>();
   for (const e of emails) {
-    const key = e.threadId || e.id;
+    const key = inboxThreadKey(e);
     const existing = map.get(key);
     if (!existing || new Date(e.date) > new Date(existing.date)) {
       map.set(key, e);
@@ -139,26 +229,41 @@ function latestByThread(emails: EmailMessage[]): Map<string, EmailMessage> {
   return map;
 }
 
-/**
- * Filter a flat inbox message list down to the messages of every thread that
- * belongs to `tab` (or the "Other" remainder when `tab` is null). Returns all
- * messages of qualifying threads so thread grouping/detail stays intact.
- *
- * This is the list-side counterpart of {@link qualifiesForInboxTab} — the same
- * latest-message rule the badge counts use.
- */
+export function savedFilterThreadIds(
+  emails: EmailMessage[],
+  savedFilterQueries: readonly string[] = [],
+): Set<string> {
+  const queries = savedFilterQueries
+    .map((query) => query.trim())
+    .filter(Boolean);
+  const matched = new Set<string>();
+  for (const email of emails) {
+    if (queries.some((query) => emailMessageMatchesSearch(email, query))) {
+      matched.add(inboxThreadKey(email));
+    }
+  }
+  return matched;
+}
+
 export function filterInboxTabEmails(
   emails: EmailMessage[],
   tab: string | null,
   pinnedLabels: readonly string[],
+  savedFilterQueries: readonly string[] = [],
 ): EmailMessage[] {
   const triage = pinnedTriageLabels(pinnedLabels);
   const latest = latestByThread(emails);
+  const savedFilterThreads = savedFilterThreadIds(emails, savedFilterQueries);
   const qualified = new Set<string>();
   for (const [key, latestMsg] of latest) {
-    if (qualifiesForInboxTab(latestMsg.labelIds, tab, triage)) {
+    if (
+      (!savedFilterThreads.has(key) &&
+        qualifiesForInboxTab(latestMsg.labelIds, tab, triage)) ||
+      (tab === "important" &&
+        mailLabelsInclude(latestMsg.labelIds, AI_IMPORTANT_LABEL))
+    ) {
       qualified.add(key);
     }
   }
-  return emails.filter((e) => qualified.has(e.threadId || e.id));
+  return emails.filter((e) => qualified.has(inboxThreadKey(e)));
 }

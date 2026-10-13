@@ -17,7 +17,6 @@ function workspaceRoot(): string {
 const ROOT = workspaceRoot();
 
 const PAGE_CHAT_TEMPLATES = [
-  "chat",
   "assets",
   "analytics",
   "brain",
@@ -68,13 +67,48 @@ describe("page-chat handoff defaults", () => {
     },
   );
 
-  it("lets Chat and Assets restore the shared active thread at chat home", () => {
-    for (const template of ["chat", "assets"] as const) {
-      const route = readTemplateFile(template, "app/routes/_index.tsx");
-      expect(route).toContain("const threadUrlSync = threadId");
-      expect(route).toContain("threadUrlSync={threadUrlSync}");
-      expect(route).not.toContain("routeThreadId: threadId ?? null");
-    }
+  it("route-controls the Assets chat thread: create is blank, thread routes own their id", () => {
+    const route = readTemplateFile("assets", "app/routes/home.tsx");
+    expect(route).toContain("routeThreadId: threadId ?? null");
+    expect(route).toContain("getPath: chatThreadPath");
+    expect(route).toContain("threadUrlSync={threadUrlSync}");
+    expect(route).not.toContain("const threadUrlSync = threadId");
+  });
+
+  it("keeps the starter home and routes the new-chat entry to AgentKit Chat", () => {
+    const route = readTemplateFile("chat", "app/routes/home.tsx");
+    // source-read-ok: verifies the exported template keeps the new-chat route wired to its durable handoff.
+    const newChatRoute = readTemplateFile("chat", "app/routes/chat._index.tsx");
+    // source-read-ok: verifies the production route's durable handoff wiring.
+    const redirect = readTemplateFile(
+      "chat",
+      "app/components/chat/ChatHomeRedirect.tsx",
+    );
+    const chatSurface = readTemplateFile(
+      "chat",
+      "app/components/chat/ChatRouteContent.tsx",
+    );
+    expect(route).toContain("<HomePage />");
+    expect(newChatRoute).toContain("ChatHomeRedirect");
+    expect(redirect).toContain('markAgentChatHomeHandoff("chat")');
+    expect(redirect).toContain("getChatHomeThreadId");
+    const usesClientNavigate =
+      redirect.includes("useNavigate") &&
+      /navigate\(\s*`\/chat\/\$\{encodeURIComponent\(threadId\)\}`,\s*\{\s*replace:\s*true,?\s*\}\s*\)/s.test(
+        redirect,
+      );
+    const usesDurableHardNavigation =
+      redirect.includes(
+        'import { appPath } from "@agent-native/core/client/api-path";',
+      ) &&
+      redirect.includes(
+        "window.location.replace(appPath(chatThreadPath(threadId)));",
+      );
+    expect(usesClientNavigate || usesDurableHardNavigation).toBe(true);
+    expect(redirect).toContain("return null;");
+    expect(redirect).toContain("useState(");
+    expect(chatSurface).toContain("AgentKitRoot");
+    expect(chatSurface).toContain("AgentKitChat");
   });
 
   it("does not force Plan's page chat to start a fresh thread", () => {

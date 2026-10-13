@@ -5,29 +5,30 @@ export type PendingTextEditKeyAction =
   | { action: "clear-and-swallow" }
   | { action: "pass" };
 
-/**
- * Run text-edit activation immediately unless it was requested from inside a
- * pointer gesture's mouseup handler. Browsers dispatch the trailing `click`
- * after mouseup; focusing the new editable before that click makes the click
- * immediately blur it again. Deferring one task preserves the already-armed
- * keystroke buffer while letting that trailing click finish first.
- */
 export function schedulePendingTextEditActivation(
   activate: () => void,
   options: {
     afterPointerGesture?: boolean;
     schedule?: (callback: () => void, delayMs: number) => void;
   } = {},
-): void {
+): () => void {
   if (!options.afterPointerGesture) {
     activate();
-    return;
+    return () => {};
   }
+  let canceled = false;
   const schedule =
     options.schedule ??
-    ((callback: () => void, delayMs: number) =>
-      window.setTimeout(callback, delayMs));
-  schedule(activate, POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS);
+    ((callback: () => void, delayMs: number) => {
+      window.setTimeout(callback, delayMs);
+    });
+  schedule(() => {
+    if (canceled) return;
+    activate();
+  }, POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS);
+  return () => {
+    canceled = true;
+  };
 }
 
 export function routePendingTextEditKey(event: {
@@ -53,10 +54,33 @@ export function routePendingTextEditKey(event: {
   return { action: "pass" };
 }
 
-export const PENDING_TEXT_EDIT_TIMEOUT_MS = 3000;
-
-// Overview creation patches the target iframe document after persistence.
-// Waiting through that bounded replacement avoids opening an edit session in
-// the outgoing DOM (visible caret blink, then lost focus). Keystrokes remain
-// lossless because DesignCanvas arms its pending buffer before scheduling.
 export const POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS = 300;
+
+const BEGIN_TEXT_EDIT_FINAL_RETRY_MS = 4200;
+
+export const BEGIN_TEXT_EDIT_RETRY_DELAYS_MS = [
+  POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS,
+  600,
+  900,
+  1200,
+  1800,
+  2400,
+  3200,
+  BEGIN_TEXT_EDIT_FINAL_RETRY_MS,
+];
+
+export const BEGIN_TEXT_EDIT_ACTIVATION_CONFIRM_DELAY_MS = 300;
+
+export const TEXT_EDIT_STATUS_PROBE_TIMEOUT_MS = 250;
+
+export const PENDING_TEXT_EDIT_TIMEOUT_MS =
+  BEGIN_TEXT_EDIT_FINAL_RETRY_MS +
+  BEGIN_TEXT_EDIT_ACTIVATION_CONFIRM_DELAY_MS +
+  TEXT_EDIT_STATUS_PROBE_TIMEOUT_MS;
+
+export const BRIDGE_READINESS_PROBE_INTERVAL_MS = 250;
+export const BRIDGE_READINESS_PROBE_ATTEMPTS = 20;
+
+export const PENDING_TEXT_INTERCEPT_CAP_MS =
+  PENDING_TEXT_EDIT_TIMEOUT_MS +
+  BRIDGE_READINESS_PROBE_INTERVAL_MS * BRIDGE_READINESS_PROBE_ATTEMPTS;

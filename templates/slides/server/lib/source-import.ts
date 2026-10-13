@@ -17,8 +17,16 @@ export interface SourceImportMetadata {
   slideIds: string[];
   slides: SourceImportSlideSnapshot[];
   imagesSkipped?: number;
-  /** Count of PPTX `graphicFrame` shapes (tables, or the charts/SmartArt/OLE objects that have no shape structure to reconstruct) that could not be fully converted — same fidelity-signal contract as `imagesSkipped`. */
   tablesDegraded?: number;
+}
+
+export interface SourceImportCoverage {
+  complete: boolean;
+  ordered: boolean;
+  expectedSlideIds: string[];
+  actualSlideIds: string[];
+  missingSlideIds: string[];
+  unexpectedSlideIds: string[];
 }
 
 export function buildSourceImportMetadata(args: {
@@ -94,6 +102,41 @@ export function sourceImportForDeck(
   return record as SourceImportMetadata;
 }
 
+export function sourceImportCoverage(
+  metadata: SourceImportMetadata | null,
+  actualSlideIds: readonly string[],
+): SourceImportCoverage | null {
+  if (!metadata) return null;
+
+  const expectedSlideIds =
+    Array.isArray(metadata.slideIds) && metadata.slideIds.length > 0
+      ? [...metadata.slideIds]
+      : metadata.slides.map((slide) => slide.id);
+  const actual = [...actualSlideIds];
+  const expectedSet = new Set(expectedSlideIds);
+  const missingSlideIds = expectedSlideIds.filter(
+    (slideId) => !actual.includes(slideId),
+  );
+  const unexpectedSlideIds = actual.filter(
+    (slideId) => !expectedSet.has(slideId),
+  );
+  const ordered =
+    expectedSlideIds.length === actual.length &&
+    expectedSlideIds.every((slideId, index) => actual[index] === slideId);
+
+  return {
+    complete:
+      ordered &&
+      missingSlideIds.length === 0 &&
+      unexpectedSlideIds.length === 0,
+    ordered,
+    expectedSlideIds,
+    actualSlideIds: actual,
+    missingSlideIds,
+    unexpectedSlideIds,
+  };
+}
+
 function extractImageUrls(content: string): string[] {
   const urls: string[] = [];
   const seen = new Set<string>();
@@ -120,12 +163,6 @@ function sourceWords(value: string): Set<string> {
   );
 }
 
-/**
- * Protects an imported deck from the common "make it prettier" failure mode:
- * the agent replaces a source slide with a generic card and silently drops the
- * original artwork or most of its factual copy. Explicit rewrite requests can
- * opt out with preserveSource=false.
- */
 export function assertSourceSlidePreserved(args: {
   metadata: SourceImportMetadata | null;
   slideId: string;

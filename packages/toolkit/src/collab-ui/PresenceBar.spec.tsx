@@ -21,24 +21,144 @@ describe("PresenceBar", () => {
     act(() => root.unmount());
     container.remove();
     vi.restoreAllMocks();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
-  it("gives the integrated AI editing label space after the avatar", () => {
+  it("shows AI initials with an editing tooltip", () => {
+    vi.useFakeTimers();
+    act(() => {
+      root.render(<PresenceBar activeUsers={[]} agentActive agentPresent />);
+    });
+
+    const avatar = container.querySelector<HTMLElement>(
+      '[aria-label="AI is editing"]',
+    );
+    expect(avatar?.textContent).toBe("AI");
+    expect(container.textContent).toBe("AI");
+
+    act(() => {
+      avatar?.dispatchEvent(new Event("pointermove", { bubbles: true }));
+      vi.advanceTimersByTime(200);
+    });
+
+    expect(
+      document
+        .querySelector('[data-agent-native-tooltip="true"]')
+        ?.textContent?.includes("AI is editing"),
+    ).toBe(true);
+
+    act(() => {
+      root.render(<PresenceBar activeUsers={[]} agentPresent />);
+    });
+    expect(container.querySelector('[aria-label="AI agent"]')).not.toBeNull();
+  });
+
+  it("keeps the AI avatar display-only when agent follow is disabled", () => {
+    const onAvatarClick = vi.fn();
     act(() => {
       root.render(
         <PresenceBar
           activeUsers={[]}
           agentPresent
-          agentActive
-          showAgentEditingDot={false}
+          onAvatarClick={onAvatarClick}
+          disableAgentClick
         />,
       );
     });
 
-    const label = Array.from(container.querySelectorAll("span")).find(
-      (element) => element.textContent === "AI editing",
+    const avatar = container.querySelector<HTMLElement>(
+      '[aria-label="AI agent"]',
     );
-    expect(label?.style.padding).toBe("0px 0px 0px 2px");
+    expect(avatar?.getAttribute("role")).toBeNull();
+    expect(avatar?.style.cursor).toBe("default");
+
+    act(() =>
+      avatar?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+    expect(onAvatarClick).not.toHaveBeenCalled();
+  });
+
+  it("can show the current user without allowing self-follow", () => {
+    const onAvatarClick = vi.fn();
+    const currentUser = {
+      email: "steve@example.com",
+      name: "Steve",
+      color: "#123456",
+    };
+    const otherUser = {
+      email: "other@example.com",
+      name: "Other",
+      color: "#654321",
+    };
+
+    act(() => {
+      root.render(
+        <PresenceBar
+          activeUsers={[currentUser, otherUser]}
+          currentUserEmail={currentUser.email}
+          showCurrentUser
+          onAvatarClick={onAvatarClick}
+        />,
+      );
+    });
+
+    const currentAvatar = container.querySelector<HTMLElement>(
+      '[aria-label="Steve (steve@example.com)"]',
+    );
+    expect(currentAvatar?.getAttribute("role")).toBeNull();
+
+    act(() =>
+      currentAvatar?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+    expect(onAvatarClick).not.toHaveBeenCalled();
+
+    const otherAvatar = container.querySelector<HTMLElement>(
+      '[aria-label="Other (other@example.com)"]',
+    );
+    act(() =>
+      otherAvatar?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+    expect(onAvatarClick).toHaveBeenCalledWith(otherUser);
+  });
+
+  it("keeps overflow collaborators available for follow mode", () => {
+    const onAvatarClick = vi.fn();
+    const activeUsers = Array.from({ length: 6 }, (_, index) => ({
+      email: `user-${index}@example.com`,
+      name: `User ${index}`,
+      color: "#123456",
+    }));
+
+    act(() => {
+      root.render(
+        <PresenceBar activeUsers={activeUsers} onAvatarClick={onAvatarClick} />,
+      );
+    });
+
+    const overflow = container.querySelector<HTMLButtonElement>(
+      '[aria-label="1 more collaborator"]',
+    );
+    expect(overflow).not.toBeNull();
+
+    act(() => {
+      overflow?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+
+    const hiddenUser = Array.from(
+      document.querySelectorAll('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("User 5"));
+    expect(hiddenUser).not.toBeUndefined();
+
+    act(() => {
+      hiddenUser?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      hiddenUser?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onAvatarClick).toHaveBeenCalledWith(activeUsers[5]);
   });
 });

@@ -1,19 +1,25 @@
 import { emit } from "@agent-native/core/event-bus";
+import { getOrgContext, orgMembers } from "@agent-native/core/org";
 import {
   getSession,
+  getAppProductionUrl,
+  getForwardedRequestOrigin,
+  getRequestContext,
   recordChange,
   readBody,
   runWithRequestContext,
   verifyCaptcha,
+  withConfiguredAppBasePath,
 } from "@agent-native/core/server";
 import { getSetting, getUserSetting } from "@agent-native/core/settings";
+import { testUserRegex } from "@agent-native/core/shared";
 import { accessFilter } from "@agent-native/core/sharing";
-import { eq, and, gt, gte, lt, lte, ne, inArray } from "drizzle-orm";
+import { track } from "@agent-native/core/tracking";
+import { and, eq, gt, gte, inArray, lt, lte, ne, or, sql } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
   getQuery,
-  getRequestURL,
   getRouterParam,
   setResponseStatus,
   type H3Event,
@@ -25,7 +31,6 @@ import type {
   Booking,
   CalendarEvent,
   AvailabilityConfig,
-  ConferencingConfig,
   CustomField,
   TimeSlot,
 } from "../../shared/api.js";
@@ -45,14 +50,25 @@ import {
   buildBookingEventTitle,
 } from "../lib/booking-event-details.js";
 import {
+  getEligibleHostAvailability,
+  type EligibleHostAvailability,
+} from "../lib/booking-host-availability.js";
+import {
   getBookingLinkCoHostEmails,
   getBookingLinkRequiredHostEmails,
+  isBookingLinkHost,
   normalizeBookingHosts,
+  parseBookingConferencingConfig,
 } from "../lib/booking-link-utils.js";
 import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
 import { eventBlocksAvailability } from "../lib/calendar-availability.js";
 import * as googleCalendar from "../lib/google-calendar.js";
-import { createZoomMeeting } from "../lib/zoom.js";
+import {
+  createZoomMeeting,
+  deleteZoomMeeting,
+  needsZoomCancellationReview,
+} from "../lib/zoom.js";
+import { getBookingUsernameOwner } from "./booking-usernames.js";
 
 async function requireRequestContext<T>(
   event: H3Event,
@@ -80,20 +96,33 @@ async function getBookingLinkSlugsForOwners(
   return Array.from(new Set(rows.map((row) => row.slug)));
 }
 
-async function getBookingLinkOwnerEmail(
-  slug: string,
-): Promise<string | undefined> {
+async function getBookingLinkDetails(slug: string) {
   if (!slug) return undefined;
-  const row = await getDb()
-    .select({ ownerEmail: schema.bookingLinks.ownerEmail })
+  return getDb()
+    .select({
+      ownerEmail: schema.bookingLinks.ownerEmail,
+      hosts: schema.bookingLinks.hosts,
+      conferencing: schema.bookingLinks.conferencing,
+    })
     .from(schema.bookingLinks)
     .where(eq(schema.bookingLinks.slug, slug))
     .then((rows) => rows[0]);
-  return row?.ownerEmail;
+}
+
+async function getBookingLinkOwnerEmail(
+  slug: string,
+): Promise<string | undefined> {
+  return (await getBookingLinkDetails(slug))?.ownerEmail;
 }
 
 function stripCrlf(value: unknown): string {
-  return String(value ?? "")
+  return (
+    typeof value === "string"
+      ? value
+      : value == null
+        ? ""
+        : JSON.stringify(value)
+  )
     .replace(/[\r\n]+/g, " ")
     .trim();
 }
@@ -101,6 +130,8 @@ function stripCrlf(value: unknown): string {
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
+
+const MAX_ADDITIONAL_BOOKING_GUESTS = 5;
 
 export async function resolveBookingCalendarAccount({
   booking,
@@ -128,7 +159,7 @@ export async function resolveBookingCalendarAccount({
   return googleCalendar.getDefaultAccountSelection(ownerEmail);
 }
 
-async function deleteGoogleEventForBooking({
+export async function deleteGoogleEventForBooking({
   booking,
   hostEmail,
 }: {
@@ -147,7 +178,7 @@ async function deleteGoogleEventForBooking({
     });
     if (!account) return;
     await googleCalendar.deleteEvent(booking.googleEventId, account, {
-      sendUpdates: "none",
+      sendUpdates: "all",
     });
   } catch (error) {
     console.warn(
@@ -174,6 +205,7 @@ type AvailabilityContext = {
   effectiveConfig: AvailabilityConfig | null;
   ownerEmail?: string;
   hostEmails: string[];
+  eligibleHosts: EligibleHostAvailability[];
   slug: string;
   bookingLink?: BookingLinkRow;
   durationSource?: BookingDurationSource;
@@ -185,6 +217,41 @@ type ConflictResult = { items: ConflictItem[]; unavailableReason?: string };
 type BookingLinkRow = typeof schema.bookingLinks.$inferSelect;
 type ConflictDb = Pick<ReturnType<typeof getDb>, "select">;
 const BOOKING_SLOT_STEP_MINUTES = 30;
+
+type SameOrgBookingViewer = { email: string; orgId: string };
+
+function resolveSameOrgBookingViewer(
+  session: { email?: string; orgId?: string } | null,
+  bookingLink?: BookingLinkRow,
+): SameOrgBookingViewer | undefined {
+  const viewerEmail = session?.email?.trim().toLowerCase();
+  if (!viewerEmail || !session?.orgId || !bookingLink) return undefined;
+  if (viewerEmail === bookingLink.ownerEmail.trim().toLowerCase()) {
+    return undefined;
+  }
+  return bookingLink.orgId === session.orgId
+    ? { email: viewerEmail, orgId: session.orgId }
+    : undefined;
+}
+
+async function resolveBookingViewer(
+  event: H3Event,
+  bookingLink?: BookingLinkRow,
+): Promise<SameOrgBookingViewer | undefined> {
+  const session = await getSession(event);
+  if (!session?.email || !bookingLink) return undefined;
+  if (
+    session.email.trim().toLowerCase() ===
+    bookingLink.ownerEmail.trim().toLowerCase()
+  ) {
+    return undefined;
+  }
+  const orgContext = await getOrgContext(event);
+  return resolveSameOrgBookingViewer(
+    { ...session, orgId: orgContext.orgId ?? undefined },
+    bookingLink,
+  );
+}
 
 const bookingAvailabilityDraftSchema = z
   .object({
@@ -318,6 +385,8 @@ function getTimezoneOffsetMs(date: Date, timezone: string): number {
   return utcForLocalParts - date.getTime();
 }
 
+class SkippedLocalDateError extends Error {}
+
 function zonedTimeToUtc(
   localDate: string,
   localTime: string,
@@ -330,6 +399,26 @@ function zonedTimeToUtc(
     utcGuess - getTimezoneOffsetMs(new Date(utcGuess), timezone),
   );
   result = new Date(utcGuess - getTimezoneOffsetMs(result, timezone));
+
+  let roundTrip = getLocalDateTimeParts(result, timezone);
+  if (roundTrip.hour !== hour || roundTrip.minute !== minute) {
+    const offsetBefore = getTimezoneOffsetMs(
+      new Date(utcGuess - 24 * 60 * 60 * 1000),
+      timezone,
+    );
+    result = new Date(utcGuess - offsetBefore);
+    roundTrip = getLocalDateTimeParts(result, timezone);
+  }
+
+  if (
+    roundTrip.year !== year ||
+    roundTrip.month !== month ||
+    roundTrip.day !== day
+  ) {
+    throw new SkippedLocalDateError(
+      `${localDate} does not exist in time zone ${timezone} (skipped calendar date)`,
+    );
+  }
   return result;
 }
 
@@ -443,6 +532,38 @@ function dateEndIso(date: string, timezone: string): string {
   ).toISOString();
 }
 
+const BOUNDARY_SKIP_SEARCH_DAYS = 3;
+
+function safeRangeStartIso(date: string, timezone: string): string {
+  let cursor = date;
+  for (let i = 0; i <= BOUNDARY_SKIP_SEARCH_DAYS; i++) {
+    try {
+      return dateStartIso(cursor, timezone);
+    } catch (error) {
+      if (!(error instanceof SkippedLocalDateError)) throw error;
+      cursor = addDateString(cursor, -1);
+    }
+  }
+  throw new SkippedLocalDateError(
+    `No valid local date found near ${date} in time zone ${timezone}`,
+  );
+}
+
+function safeRangeEndIso(date: string, timezone: string): string {
+  let cursor = date;
+  for (let i = 0; i <= BOUNDARY_SKIP_SEARCH_DAYS; i++) {
+    try {
+      return dateEndIso(cursor, timezone);
+    } catch (error) {
+      if (!(error instanceof SkippedLocalDateError)) throw error;
+      cursor = addDateString(cursor, 1);
+    }
+  }
+  throw new SkippedLocalDateError(
+    `No valid local date found near ${date} in time zone ${timezone}`,
+  );
+}
+
 function formatAvailabilityUnavailableReason(email?: string): string {
   return email
     ? `Calendar availability unavailable for ${email}`
@@ -458,22 +579,18 @@ function unavailableAvailabilityResponse(event: H3Event) {
   };
 }
 
-function formatLocalTime(totalMinutes: number): string {
-  const hour = Math.floor(totalMinutes / 60);
-  const minute = totalMinutes % 60;
-  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-}
-
 async function resolveAvailabilityContext({
   slug,
+  username,
   draft,
   db = getDb(),
 }: {
   slug: string;
+  username?: string;
   draft?: BookingAvailabilityDraft;
   db?: ConflictDb;
 }): Promise<AvailabilityContext> {
-  const [configRaw, bookingLink] = await Promise.all([
+  const [configRaw, bookingLink, usernameOwnerEmail] = await Promise.all([
     getSetting("calendar-availability"),
     slug
       ? db
@@ -494,6 +611,9 @@ async function resolveAvailabilityContext({
           )
           .then((rows) => rows[0])
       : Promise.resolve(undefined),
+    username && !draft
+      ? getBookingUsernameOwner(username)
+      : Promise.resolve(null),
   ]);
   if (draft && !bookingLink) {
     throw createError({
@@ -501,27 +621,57 @@ async function resolveAvailabilityContext({
       statusMessage: "Booking link not found",
     });
   }
+  if (username && !draft && !usernameOwnerEmail) {
+    throw createError({
+      statusCode: 404,
+      statusMessage: "Booking page not found",
+    });
+  }
+  if (username && !draft && bookingLink) {
+    if (bookingLink.ownerEmail !== usernameOwnerEmail) {
+      throw createError({
+        statusCode: 404,
+        statusMessage: "Booking page not found",
+      });
+    }
+  } else if (username && !draft) {
+    return {
+      effectiveConfig: null,
+      ownerEmail: undefined,
+      hostEmails: [],
+      eligibleHosts: [],
+      slug,
+      bookingLink: undefined,
+      durationSource: undefined,
+      conflictSlugs: [],
+    };
+  }
   const config = configRaw as unknown as AvailabilityConfig | null;
   const ownerEmail = bookingLink?.ownerEmail;
   const overrides = bookingLink
     ? resolveBookingLinkAvailabilityOverrides({ bookingLink, draft })
     : undefined;
   const hostEmails = overrides?.hostEmails ?? (ownerEmail ? [ownerEmail] : []);
-  const [ownerConfigRaw, ownerSettingsRaw, conflictSlugs] = await Promise.all([
-    ownerEmail
-      ? getUserSetting(ownerEmail, "calendar-availability")
-      : Promise.resolve(null),
-    ownerEmail
-      ? getUserSetting(ownerEmail, "calendar-settings")
-      : Promise.resolve(null),
-    ownerEmail
-      ? getBookingLinkSlugsForOwners(hostEmails, db)
-      : slug
-        ? Promise.resolve([slug])
+  const [ownerConfigRaw, ownerSettingsRaw, ownerLinkSlugs, eligibleHosts] =
+    await Promise.all([
+      ownerEmail
+        ? getUserSetting(ownerEmail, "calendar-availability")
+        : Promise.resolve(null),
+      ownerEmail
+        ? getUserSetting(ownerEmail, "calendar-settings")
+        : Promise.resolve(null),
+      ownerEmail
+        ? getBookingLinkSlugsForOwners(hostEmails, db)
         : Promise.resolve([]),
-  ]);
-  const ownerConfig = ownerConfigRaw as unknown as AvailabilityConfig | null;
+      getEligibleHostAvailability(ownerEmail, hostEmails),
+    ]);
+  const ownerConfig = ownerConfigRaw as AvailabilityConfig | null;
   const ownerSettings = ownerSettingsRaw as { timezone?: string } | null;
+  const conflictSlugs = ownerEmail
+    ? Array.from(new Set([slug, ...ownerLinkSlugs]))
+    : slug
+      ? [slug]
+      : [];
 
   return {
     effectiveConfig:
@@ -533,6 +683,7 @@ async function resolveAvailabilityContext({
         : config),
     ownerEmail,
     hostEmails,
+    eligibleHosts,
     slug,
     bookingLink,
     durationSource: overrides?.durationSource,
@@ -545,6 +696,8 @@ export async function getConflictItems({
   ownerEmail,
   hostEmails,
   conflictSlugs,
+  viewerEmail,
+  viewerOrgId,
   rangeStartIso,
   rangeEndIso,
   timezone,
@@ -553,6 +706,8 @@ export async function getConflictItems({
   ownerEmail?: string;
   hostEmails: string[];
   conflictSlugs: string[];
+  viewerEmail?: string;
+  viewerOrgId?: string;
   rangeStartIso: string;
   rangeEndIso: string;
   timezone: string;
@@ -567,14 +722,24 @@ export async function getConflictItems({
   );
   const freeBusyResolvedHosts = new Set<string>();
 
-  // Google is an availability enhancement, not a requirement: an owner who
-  // hasn't connected Google still has a schedule-only availability computed
-  // below from the weekly schedule and existing SQL bookings. Only actual
-  // Google failures (free/busy errors, event-listing errors, thrown
-  // exceptions) mark availability unavailable — not "not connected".
-  const ownerConnected = ownerEmail
-    ? await googleCalendar.isConnected(ownerEmail)
-    : false;
+  let ownerConnected = false;
+  try {
+    ownerConnected = ownerEmail
+      ? await googleCalendar.isConnected(ownerEmail)
+      : false;
+  } catch {
+    return {
+      items: [],
+      unavailableReason: formatAvailabilityUnavailableReason(ownerEmail),
+    };
+  }
+
+  if (requiredHosts.length > 0 && !ownerConnected) {
+    return {
+      items: [],
+      unavailableReason: formatAvailabilityUnavailableReason(ownerEmail),
+    };
+  }
 
   if (ownerConnected) {
     try {
@@ -602,9 +767,14 @@ export async function getConflictItems({
         }
         for (const [email, calendar] of Object.entries(freeBusy.calendars)) {
           const normalizedEmail = email.toLowerCase();
-          if (!calendar.errors || calendar.errors.length === 0) {
-            freeBusyResolvedHosts.add(normalizedEmail);
+          if (calendar.errors && calendar.errors.length > 0) {
+            return {
+              items: [],
+              unavailableReason:
+                formatAvailabilityUnavailableReason(normalizedEmail),
+            };
           }
+          freeBusyResolvedHosts.add(normalizedEmail);
           conflictItems.push(
             ...calendar.busy.map((busy) => ({
               start: busy.start,
@@ -638,19 +808,67 @@ export async function getConflictItems({
     }
   }
 
-  if (requiredHosts.length > 1) {
-    const owner = ownerEmail?.toLowerCase();
-    const unresolvedCoHosts = requiredHosts.filter(
-      (email) => email !== owner && !freeBusyResolvedHosts.has(email),
-    );
-    if (unresolvedCoHosts.length > 0) {
+  const unresolvedHosts = requiredHosts.filter(
+    (email) => !freeBusyResolvedHosts.has(email),
+  );
+  if (unresolvedHosts.length > 0) {
+    return {
+      items: conflictItems,
+      unavailableReason: `Availability unavailable for ${unresolvedHosts.join(", ")}`,
+    };
+  }
+
+  if (viewerEmail && !requiredHosts.includes(viewerEmail)) {
+    try {
+      const viewerAccounts =
+        await googleCalendar.getOwnedAccountEmails(viewerEmail);
+      if (viewerAccounts.length > 0) {
+        const viewerEvents = await googleCalendar.listEvents(
+          rangeStartIso,
+          rangeEndIso,
+          viewerEmail,
+          { accountEmails: viewerAccounts },
+        );
+        if (viewerEvents.errors.length > 0) {
+          return {
+            items: [],
+            unavailableReason: formatAvailabilityUnavailableReason(
+              viewerEvents.errors[0]?.email || viewerEmail,
+            ),
+          };
+        }
+        conflictItems.push(
+          ...viewerEvents.events
+            .filter(eventBlocksAvailability)
+            .map((event) => ({
+              start: event.start,
+              end: event.end,
+            })),
+        );
+      }
+    } catch {
       return {
-        items: conflictItems,
-        unavailableReason: `Availability unavailable for ${unresolvedCoHosts.join(", ")}`,
+        items: [],
+        unavailableReason: formatAvailabilityUnavailableReason(viewerEmail),
       };
     }
   }
 
+  const viewerBookingScope =
+    viewerEmail && viewerOrgId
+      ? and(
+          eq(schema.bookings.email, viewerEmail),
+          eq(schema.bookings.orgId, viewerOrgId),
+        )
+      : undefined;
+  const bookingScope =
+    conflictSlugs.length > 0 && viewerBookingScope
+      ? or(inArray(schema.bookings.slug, conflictSlugs), viewerBookingScope)
+      : conflictSlugs.length > 0
+        ? inArray(schema.bookings.slug, conflictSlugs)
+        : viewerBookingScope
+          ? viewerBookingScope
+          : undefined;
   const bookings = await db
     .select()
     .from(schema.bookings)
@@ -659,9 +877,7 @@ export async function getConflictItems({
         ne(schema.bookings.status, "cancelled"),
         lte(schema.bookings.start, rangeEndIso),
         gte(schema.bookings.end, rangeStartIso),
-        conflictSlugs.length > 0
-          ? inArray(schema.bookings.slug, conflictSlugs)
-          : undefined,
+        bookingScope,
       ),
     );
 
@@ -675,34 +891,146 @@ export async function getConflictItems({
   return { items: conflictItems };
 }
 
+type ScheduleWindow = { start: Date; end: Date };
+
+const DAY_NAMES = [
+  "sunday",
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+] as const;
+
+function getScheduleWindowsForLocalDate(
+  date: string,
+  timezone: string,
+  weeklySchedule: AvailabilityConfig["weeklySchedule"],
+): ScheduleWindow[] {
+  const targetNoon = zonedTimeToUtc(date, "12:00", timezone);
+  const dayName = DAY_NAMES[getDayOfWeekInTimezone(targetNoon, timezone)];
+  const daySchedule = weeklySchedule[dayName as keyof typeof weeklySchedule];
+  if (!daySchedule || !daySchedule.enabled || daySchedule.slots.length === 0) {
+    return [];
+  }
+
+  const windows: ScheduleWindow[] = [];
+  for (const slot of normalizeAvailabilitySlots(daySchedule.slots)) {
+    const start = zonedTimeToUtc(date, slot.start, timezone);
+    const end = zonedTimeToUtc(date, slot.end, timezone);
+    if (end > start) windows.push({ start, end });
+  }
+  return windows;
+}
+
+function getScheduleWindowsOverlappingRange(
+  rangeStart: Date,
+  rangeEnd: Date,
+  timezone: string,
+  weeklySchedule: AvailabilityConfig["weeklySchedule"],
+): ScheduleWindow[] {
+  const startDate = formatLocalDateInTimezone(
+    new Date(rangeStart.getTime() - 24 * 60 * 60 * 1000),
+    timezone,
+  );
+  const endDate = formatLocalDateInTimezone(
+    new Date(rangeEnd.getTime() + 24 * 60 * 60 * 1000),
+    timezone,
+  );
+
+  const windows: ScheduleWindow[] = [];
+  for (
+    let cursor = startDate;
+    cursor <= endDate;
+    cursor = addDateString(cursor, 1)
+  ) {
+    let dayWindows: ScheduleWindow[];
+    try {
+      dayWindows = getScheduleWindowsForLocalDate(
+        cursor,
+        timezone,
+        weeklySchedule,
+      );
+    } catch (error) {
+      if (!(error instanceof SkippedLocalDateError)) throw error;
+      continue;
+    }
+    windows.push(...dayWindows);
+  }
+  return windows.filter(
+    (window) => window.end > rangeStart && window.start < rangeEnd,
+  );
+}
+
+function intersectScheduleWindows(
+  a: ScheduleWindow[],
+  b: ScheduleWindow[],
+): ScheduleWindow[] {
+  const result: ScheduleWindow[] = [];
+  for (const windowA of a) {
+    for (const windowB of b) {
+      const start =
+        windowA.start > windowB.start ? windowA.start : windowB.start;
+      const end = windowA.end < windowB.end ? windowA.end : windowB.end;
+      if (end > start) result.push({ start, end });
+    }
+  }
+  return result;
+}
+
+function roundUpToStepInTimezone(
+  date: Date,
+  timezone: string,
+  stepMinutes: number,
+): Date {
+  const parts = getLocalDateTimeParts(date, timezone);
+  const currentMinutes = parts.hour * 60 + parts.minute;
+  const roundedMinutes = Math.ceil(currentMinutes / stepMinutes) * stepMinutes;
+  const diffMs =
+    (roundedMinutes - currentMinutes) * 60 * 1000 - parts.second * 1000;
+  return new Date(date.getTime() + diffMs);
+}
+
 export function generateAvailableSlotsForDate({
   date,
   duration,
   config,
   conflictItems,
+  hostSchedules = [],
 }: {
   date: string;
   duration: number;
   config: AvailabilityConfig;
   conflictItems: ConflictItem[];
+  hostSchedules?: EligibleHostAvailability[];
 }): TimeSlot[] {
   const timezone = config.timezone || "UTC";
-  const dayNames = [
-    "sunday",
-    "monday",
-    "tuesday",
-    "wednesday",
-    "thursday",
-    "friday",
-    "saturday",
-  ] as const;
-  const targetNoon = zonedTimeToUtc(date, "12:00", timezone);
-  const dayName = dayNames[getDayOfWeekInTimezone(targetNoon, timezone)];
-  const daySchedule =
-    config.weeklySchedule[dayName as keyof typeof config.weeklySchedule];
+  let windows = getScheduleWindowsForLocalDate(
+    date,
+    timezone,
+    config.weeklySchedule,
+  );
+  if (windows.length === 0) return [];
 
-  if (!daySchedule || !daySchedule.enabled || daySchedule.slots.length === 0) {
-    return [];
+  for (const host of hostSchedules) {
+    if (!host.weeklySchedule) continue;
+    const rangeStart = windows.reduce(
+      (min, w) => (w.start < min ? w.start : min),
+      windows[0].start,
+    );
+    const rangeEnd = windows.reduce(
+      (max, w) => (w.end > max ? w.end : max),
+      windows[0].end,
+    );
+    const hostWindows = getScheduleWindowsOverlappingRange(
+      rangeStart,
+      rangeEnd,
+      host.timezone || timezone,
+      host.weeklySchedule,
+    );
+    windows = intersectScheduleWindows(windows, hostWindows);
+    if (windows.length === 0) return [];
   }
 
   const availableSlots: TimeSlot[] = [];
@@ -729,35 +1057,17 @@ export function generateAvailableSlotsForDate({
     timezone,
   );
 
-  for (const scheduleSlot of normalizeAvailabilitySlots(daySchedule.slots)) {
-    const [startHour, startMin] = scheduleSlot.start.split(":").map(Number);
-    const [endHour, endMin] = scheduleSlot.end.split(":").map(Number);
-    if (
-      !Number.isFinite(startHour) ||
-      !Number.isFinite(startMin) ||
-      !Number.isFinite(endHour) ||
-      !Number.isFinite(endMin)
-    ) {
-      continue;
-    }
-
-    const slotStart = zonedTimeToUtc(date, scheduleSlot.start, timezone);
-    const slotEnd = zonedTimeToUtc(date, scheduleSlot.end, timezone);
-    if (slotEnd <= slotStart) continue;
-
-    const scheduleStartMinutes = startHour * 60 + startMin;
-    const firstSlotStartMinutes =
-      Math.ceil(scheduleStartMinutes / BOOKING_SLOT_STEP_MINUTES) *
-      BOOKING_SLOT_STEP_MINUTES;
-    if (firstSlotStartMinutes >= 24 * 60) continue;
-
-    let current = zonedTimeToUtc(
-      date,
-      formatLocalTime(firstSlotStartMinutes),
+  for (const window of windows) {
+    let current = roundUpToStepInTimezone(
+      window.start,
       timezone,
+      BOOKING_SLOT_STEP_MINUTES,
     );
 
-    while (current.getTime() + slotDuration * 60 * 1000 <= slotEnd.getTime()) {
+    while (
+      current.getTime() + slotDuration * 60 * 1000 <=
+      window.end.getTime()
+    ) {
       const candidateStart = new Date(current);
       const candidateEnd = new Date(
         current.getTime() + slotDuration * 60 * 1000,
@@ -797,13 +1107,17 @@ async function requestedSlotIsCurrentlyAvailable({
   start,
   end,
   duration,
+  viewerEmail,
+  viewerOrgId,
 }: {
   db?: ConflictDb;
   slug: string;
   start: Date;
   end: Date;
   duration: number;
-}): Promise<boolean> {
+  viewerEmail?: string;
+  viewerOrgId?: string;
+}): Promise<boolean | { unavailableReason: string }> {
   const context = await resolveAvailabilityContext({ slug, db });
   if (!context.effectiveConfig) return false;
 
@@ -814,16 +1128,21 @@ async function requestedSlotIsCurrentlyAvailable({
     ownerEmail: context.ownerEmail,
     hostEmails: context.hostEmails,
     conflictSlugs: context.conflictSlugs,
+    viewerEmail,
+    viewerOrgId,
     rangeStartIso: dateStartIso(date, timezone),
-    rangeEndIso: dateEndIso(date, timezone),
+    rangeEndIso: safeRangeEndIso(date, timezone),
     timezone,
   });
-  if (conflictResult.unavailableReason) return false;
+  if (conflictResult.unavailableReason) {
+    return { unavailableReason: conflictResult.unavailableReason };
+  }
   const slots = generateAvailableSlotsForDate({
     date,
     duration,
     config: context.effectiveConfig,
     conflictItems: conflictResult.items,
+    hostSchedules: context.eligibleHosts,
   });
   const startMs = start.getTime();
   const endMs = end.getTime();
@@ -861,7 +1180,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
   try {
     const body = await readBody(event);
 
-    // Verify captcha token
     const captchaResult = await verifyCaptcha(body.captchaToken ?? "");
     if (!captchaResult.success) {
       setResponseStatus(event, 403);
@@ -873,9 +1191,25 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     const cancelToken = nanoid();
     const attendeeName = stripCrlf(body.name);
     const attendeeEmail = stripCrlf(body.email).toLowerCase();
+    if (
+      body.additionalGuestEmails !== undefined &&
+      !Array.isArray(body.additionalGuestEmails)
+    ) {
+      setResponseStatus(event, 400);
+      return { error: "additionalGuestEmails must be an array" };
+    }
+    const normalizedAdditionalGuestEmails: string[] = Array.isArray(
+      body.additionalGuestEmails,
+    )
+      ? (body.additionalGuestEmails as unknown[]).map((email) =>
+          stripCrlf(email).toLowerCase(),
+        )
+      : [];
+    const additionalGuestEmails: string[] = Array.from(
+      new Set(normalizedAdditionalGuestEmails.filter((email) => email.length)),
+    ).filter((email) => email !== attendeeEmail);
     const notes = String(body.notes ?? "").trim();
 
-    // Validate required fields
     if (!attendeeName || !attendeeEmail || !body.start || !body.end) {
       setResponseStatus(event, 400);
       return { error: "name, email, start, and end are required" };
@@ -883,6 +1217,16 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     if (!isValidEmail(attendeeEmail)) {
       setResponseStatus(event, 400);
       return { error: "Enter a valid email address" };
+    }
+    if (additionalGuestEmails.length > MAX_ADDITIONAL_BOOKING_GUESTS) {
+      setResponseStatus(event, 400);
+      return {
+        error: `You can add up to ${MAX_ADDITIONAL_BOOKING_GUESTS} guests`,
+      };
+    }
+    if (additionalGuestEmails.some((email) => !isValidEmail(email))) {
+      setResponseStatus(event, 400);
+      return { error: "Enter valid email addresses for additional guests" };
     }
     const requestedSlug = stripCrlf(body.slug);
 
@@ -899,9 +1243,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 404);
       return { error: "Booking link not found" };
     }
-    // After the guard above, bookingLink is either undefined (no requestedSlug)
-    // or the full DB row. Cast away the "" from the short-circuit type.
     const link = bookingLink || undefined;
+
+    const viewer = await resolveBookingViewer(event, link);
 
     const hostEmail = (link as any)?.ownerEmail || (link as any)?.owner_email;
     if (!hostEmail) {
@@ -938,7 +1282,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       attendeeName,
     });
 
-    // Validate custom field responses
     let customFields: CustomField[] = [];
     if (link?.customFields) {
       try {
@@ -947,7 +1290,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     }
     const rawFieldResponses: Record<string, string | boolean> =
       body.fieldResponses || {};
-    // Filter to only declared field IDs — don't persist arbitrary caller keys
     const fieldResponses: Record<string, string | boolean> = Object.fromEntries(
       customFields
         .map((f) => [f.id, rawFieldResponses[f.id]] as const)
@@ -994,21 +1336,14 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         return { error: `${field.label} must be a valid email address` };
       }
       if (field.pattern && typeof value === "string" && value) {
-        // Cap input length to mitigate ReDoS on user-defined patterns
-        const safeValue = value.slice(0, 1000);
-        let re: RegExp;
-        // Limit pattern length and reject obviously dangerous constructs
-        if (field.pattern.length > 200) {
+        const result = testUserRegex(field.pattern, value);
+        if (result.status === "unevaluated") {
           setResponseStatus(event, 400);
-          return { error: `Validation pattern too long for ${field.label}` };
+          return {
+            error: `Invalid validation pattern for ${field.label}: ${result.reason}`,
+          };
         }
-        try {
-          re = new RegExp(field.pattern);
-        } catch {
-          setResponseStatus(event, 400);
-          return { error: `Invalid validation pattern for ${field.label}` };
-        }
-        if (!re.test(safeValue)) {
+        if (result.status === "no-match") {
           setResponseStatus(event, 400);
           return {
             error:
@@ -1019,11 +1354,33 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       }
     }
 
-    // Check for conflicts + insert atomically in a transaction
+    const parsedConferencing = parseBookingConferencingConfig(
+      link?.conferencing,
+    );
+    if (parsedConferencing.status === "invalid") {
+      setResponseStatus(event, 422);
+      return {
+        error: "Failed to create booking",
+        code: "invalid_conferencing_config",
+      };
+    }
+    const conferencing =
+      parsedConferencing.status === "valid"
+        ? parsedConferencing.config
+        : undefined;
     const db = getDb();
     const insertResult = await db.transaction(async (tx) => {
-      // Serialize booking creation per required host. The no-op write takes row
-      // locks on each host's booking links without changing user-visible data.
+      if (viewer) {
+        await tx
+          .update(orgMembers)
+          .set({ email: sql`${orgMembers.email}` })
+          .where(
+            and(
+              eq(orgMembers.orgId, viewer.orgId),
+              sql`lower(${orgMembers.email}) = ${viewer.email}`,
+            ),
+          );
+      }
       for (const email of requiredHostEmails) {
         await tx
           .update(schema.bookingLinks)
@@ -1037,15 +1394,19 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           ? [requestedSlug]
           : [];
 
-      if (
-        !(await requestedSlotIsCurrentlyAvailable({
-          db: tx,
-          slug: requestedSlug,
-          start: requestedRange.start,
-          end: requestedRange.end,
-          duration: requestedRange.duration,
-        }))
-      ) {
+      const slotAvailability = await requestedSlotIsCurrentlyAvailable({
+        db: tx,
+        slug: requestedSlug,
+        start: requestedRange.start,
+        end: requestedRange.end,
+        duration: requestedRange.duration,
+        viewerEmail: viewer?.email,
+        viewerOrgId: viewer?.orgId,
+      });
+      if (typeof slotAvailability !== "boolean") {
+        return slotAvailability;
+      }
+      if (!slotAvailability) {
         return { conflict: true } as const;
       }
 
@@ -1071,6 +1432,10 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
         id,
         name: attendeeName,
         email: attendeeEmail,
+        additionalGuestEmails:
+          additionalGuestEmails.length > 0
+            ? JSON.stringify(additionalGuestEmails)
+            : null,
         start: requestedRange.start.toISOString(),
         end: requestedRange.end.toISOString(),
         slug: requestedSlug,
@@ -1081,6 +1446,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
             ? JSON.stringify(fieldResponses)
             : null,
         cancelToken,
+        zoomNeedsReview: conferencing?.type === "zoom",
         status: "confirmed",
         createdAt: now,
         ownerEmail: hostEmail,
@@ -1090,23 +1456,21 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       return { conflict: false } as const;
     });
 
+    if ("unavailableReason" in insertResult) {
+      return unavailableAvailabilityResponse(event);
+    }
     if (insertResult.conflict) {
       setResponseStatus(event, 409);
       return { error: "This time slot is no longer available" };
     }
 
-    // Resolve conferencing config
-    let conferencing: ConferencingConfig | undefined;
-    if (link?.conferencing) {
-      try {
-        conferencing = JSON.parse(link.conferencing);
-      } catch {}
-    }
     let meetingLink: string | undefined;
     let googleEventId: string | undefined;
     let calendarAccountId: string | undefined;
+    let meetingLinkPending = false;
+    let zoomMeetingId: string | undefined;
+    let zoomAccountId: string | undefined;
 
-    // For custom-URL conferencing, use the static URL — only http(s).
     if (conferencing?.type === "custom" && conferencing.url) {
       try {
         const parsed = new URL(conferencing.url);
@@ -1118,8 +1482,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       }
     }
 
-    // For Zoom, create a real meeting via the host's connected OAuth
-    // account. The booking link's owner_email is the host.
     if (conferencing?.type === "zoom") {
       try {
         const zoomResult = await createZoomMeeting({
@@ -1129,23 +1491,35 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           endTime: requestedRange.end.toISOString(),
           timezone: bookingTimeZone,
         });
-        if (zoomResult?.meetingUrl) {
-          meetingLink = zoomResult.meetingUrl;
+        if (
+          zoomResult.status === "not_started" ||
+          zoomResult.status === "rejected"
+        ) {
+          await getDb()
+            .update(schema.bookings)
+            .set({ status: "cancelled" })
+            .where(eq(schema.bookings.id, id));
+          setResponseStatus(event, 503);
+          return { error: "Failed to create booking" };
         }
-      } catch {
-        // Fall through — booking still succeeds without a Zoom link.
+        if (!zoomResult.meetingUrl) {
+          throw new Error("Zoom meeting was not created");
+        }
+        meetingLink = zoomResult.meetingUrl;
+        zoomMeetingId = zoomResult.meetingId;
+        zoomAccountId = zoomResult.accountId;
+      } catch (error) {
+        console.error(
+          `[bookings] Failed to create Zoom meeting for ${hostEmail}:`,
+          error,
+        );
+        meetingLinkPending = true;
       }
     }
 
-    // Build the manage-booking URL for the event description
-    const reqUrl = getRequestURL(event);
-    const origin = reqUrl.origin;
+    const origin = getForwardedRequestOrigin(event);
     const manageUrl = `${origin}/booking/manage/${cancelToken}`;
 
-    // Create a corresponding Google Calendar event on the booking link owner's
-    // connected Google account. Public booking requests do not have an
-    // authenticated request context, so this must be explicitly scoped to the
-    // host rather than relying on ambient user state.
     if (await googleCalendar.isConnected(hostEmail)) {
       try {
         const account =
@@ -1190,6 +1564,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
             attendeeEmail,
             attendeeName,
             hostEmails: coHostEmails,
+            additionalGuestEmails,
           }),
           createdAt: now,
           updatedAt: now,
@@ -1199,7 +1574,6 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           addGoogleMeet: conferencing?.type === "google_meet",
           sendUpdates: "all",
         });
-        // Google Meet link is returned by the API when created
         googleEventId = result.id;
         calendarAccountId = account.accountEmail;
         if (result.meetLink) {
@@ -1214,15 +1588,29 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       }
     }
 
-    // Persist provider details created after the initial booking insert.
-    if (meetingLink || googleEventId) {
+    meetingLinkPending = meetingLinkPending && !meetingLink;
+    if (meetingLink || googleEventId || meetingLinkPending) {
       const providerUpdates: {
         meetingLink?: string;
         googleEventId?: string;
         calendarAccountId?: string;
-      } = {};
+        zoomNeedsReview?: boolean;
+        zoomMeetingId?: string;
+        zoomAccountId?: string;
+        meetingLinkPending: boolean;
+      } = { meetingLinkPending };
       if (meetingLink) providerUpdates.meetingLink = meetingLink;
       if (googleEventId) providerUpdates.googleEventId = googleEventId;
+      if (zoomMeetingId) providerUpdates.zoomMeetingId = zoomMeetingId;
+      if (zoomAccountId) providerUpdates.zoomAccountId = zoomAccountId;
+      if (
+        conferencing?.type === "zoom" &&
+        meetingLink &&
+        zoomMeetingId &&
+        zoomAccountId
+      ) {
+        providerUpdates.zoomNeedsReview = false;
+      }
       if (googleEventId && calendarAccountId) {
         providerUpdates.calendarAccountId = calendarAccountId;
       }
@@ -1236,6 +1624,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       id,
       name: attendeeName,
       email: attendeeEmail,
+      additionalGuestEmails:
+        additionalGuestEmails.length > 0 ? additionalGuestEmails : undefined,
       start: requestedRange.start.toISOString(),
       end: requestedRange.end.toISOString(),
       slug: requestedSlug,
@@ -1244,8 +1634,10 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       fieldResponses:
         Object.keys(fieldResponses).length > 0 ? fieldResponses : undefined,
       meetingLink,
+      ...(meetingLinkPending ? { meetingLinkPending: true } : {}),
       googleEventId,
       cancelToken,
+      zoomNeedsReview: conferencing?.type === "zoom" && meetingLinkPending,
       status: "confirmed",
       createdAt: now,
     };
@@ -1274,6 +1666,22 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     } catch {
       // best-effort
     }
+    track(
+      "booking_received",
+      {
+        app_name: "calendar",
+        template_name: "calendar",
+        output_id: id,
+        output_type: "booking",
+        booking_type_id: link?.id ?? requestedSlug ?? "default",
+        guest_count: 1 + additionalGuestEmails.length,
+        duration_minutes: Math.round(
+          (requestedRange.end.getTime() - requestedRange.start.getTime()) /
+            60000,
+        ),
+      },
+      { userId: hostEmail },
+    );
     recordBookingsChanged(hostEmail);
 
     setResponseStatus(event, 201);
@@ -1294,6 +1702,7 @@ async function getAvailableSlotsForQuery(
   const to = parseDateOnly(query.to);
   const hasRangeQuery = query.from !== undefined || query.to !== undefined;
   const slug = typeof query.slug === "string" ? query.slug : "";
+  const username = typeof query.username === "string" ? query.username : "";
 
   if (hasRangeQuery) {
     if (!from || !to) {
@@ -1318,7 +1727,7 @@ async function getAvailableSlotsForQuery(
     return { error: "date query parameter is required" };
   }
 
-  const context = await resolveAvailabilityContext({ slug, draft });
+  const context = await resolveAvailabilityContext({ slug, username, draft });
   if (!context.effectiveConfig) {
     return hasRangeQuery ? { dates: [] } : { slots: [] };
   }
@@ -1332,19 +1741,28 @@ async function getAvailableSlotsForQuery(
     return { error: durationResult.error };
   }
   const duration = durationResult.duration;
+  const viewer = await resolveBookingViewer(event, context.bookingLink);
 
   if (hasRangeQuery) {
     const rangeStart = formatDateOnly(from!);
     const rangeEnd = formatDateOnly(to!);
     const timezone = context.effectiveConfig.timezone || "UTC";
-    const conflictResult = await getConflictItems({
-      ownerEmail: context.ownerEmail,
-      hostEmails: context.hostEmails,
-      conflictSlugs: context.conflictSlugs,
-      rangeStartIso: dateStartIso(rangeStart, timezone),
-      rangeEndIso: dateEndIso(rangeEnd, timezone),
-      timezone,
-    });
+    let conflictResult;
+    try {
+      conflictResult = await getConflictItems({
+        ownerEmail: context.ownerEmail,
+        hostEmails: context.hostEmails,
+        conflictSlugs: context.conflictSlugs,
+        viewerEmail: viewer?.email,
+        viewerOrgId: viewer?.orgId,
+        rangeStartIso: safeRangeStartIso(rangeStart, timezone),
+        rangeEndIso: safeRangeEndIso(rangeEnd, timezone),
+        timezone,
+      });
+    } catch (error) {
+      if (!(error instanceof SkippedLocalDateError)) throw error;
+      return { dates: [] };
+    }
     if (conflictResult.unavailableReason) {
       return unavailableAvailabilityResponse(event);
     }
@@ -1355,12 +1773,19 @@ async function getAvailableSlotsForQuery(
       cursor = addLocalDays(cursor, 1)
     ) {
       const day = formatDateOnly(cursor);
-      const slots = generateAvailableSlotsForDate({
-        date: day,
-        duration,
-        config: context.effectiveConfig,
-        conflictItems: conflictResult.items,
-      });
+      let slots: TimeSlot[];
+      try {
+        slots = generateAvailableSlotsForDate({
+          date: day,
+          duration,
+          config: context.effectiveConfig,
+          conflictItems: conflictResult.items,
+          hostSchedules: context.eligibleHosts,
+        });
+      } catch (error) {
+        if (!(error instanceof SkippedLocalDateError)) throw error;
+        continue;
+      }
       if (slots.length > 0) {
         dates.push(day);
       }
@@ -1369,23 +1794,32 @@ async function getAvailableSlotsForQuery(
   }
 
   const timezone = context.effectiveConfig.timezone || "UTC";
-  const conflictResult = await getConflictItems({
-    ownerEmail: context.ownerEmail,
-    hostEmails: context.hostEmails,
-    conflictSlugs: context.conflictSlugs,
-    rangeStartIso: dateStartIso(date, timezone),
-    rangeEndIso: dateEndIso(date, timezone),
-    timezone,
-  });
-  if (conflictResult.unavailableReason) {
-    return unavailableAvailabilityResponse(event);
+  let availableSlots: TimeSlot[];
+  try {
+    const conflictResult = await getConflictItems({
+      ownerEmail: context.ownerEmail,
+      hostEmails: context.hostEmails,
+      conflictSlugs: context.conflictSlugs,
+      viewerEmail: viewer?.email,
+      viewerOrgId: viewer?.orgId,
+      rangeStartIso: dateStartIso(date, timezone),
+      rangeEndIso: safeRangeEndIso(date, timezone),
+      timezone,
+    });
+    if (conflictResult.unavailableReason) {
+      return unavailableAvailabilityResponse(event);
+    }
+    availableSlots = generateAvailableSlotsForDate({
+      date,
+      duration,
+      config: context.effectiveConfig,
+      conflictItems: conflictResult.items,
+      hostSchedules: context.eligibleHosts,
+    });
+  } catch (error) {
+    if (!(error instanceof SkippedLocalDateError)) throw error;
+    return { slots: [] };
   }
-  const availableSlots = generateAvailableSlotsForDate({
-    date,
-    duration,
-    config: context.effectiveConfig,
-    conflictItems: conflictResult.items,
-  });
 
   return { slots: availableSlots };
 }
@@ -1419,62 +1853,113 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
   }
 });
 
+export async function cancelBookingById(
+  id: string,
+  options: { zoomMeetingResolved?: boolean } = {},
+) {
+  if (!id)
+    throw createError({ statusCode: 400, statusMessage: "id is required" });
+
+  const db = getDb();
+  const existing = await db
+    .select()
+    .from(schema.bookings)
+    .where(eq(schema.bookings.id, id))
+    .then((rows) => rows[0]);
+
+  if (!existing) {
+    throw createError({ statusCode: 404, statusMessage: "Booking not found" });
+  }
+
+  const accessibleLinks = await db
+    .select({
+      slug: schema.bookingLinks.slug,
+      ownerEmail: schema.bookingLinks.ownerEmail,
+      hosts: schema.bookingLinks.hosts,
+      conferencing: schema.bookingLinks.conferencing,
+    })
+    .from(schema.bookingLinks)
+    .where(
+      accessFilter(
+        schema.bookingLinks,
+        schema.bookingLinkShares,
+        undefined,
+        "editor",
+      ),
+    );
+  const link = accessibleLinks.find((item) => item.slug === existing.slug);
+  if (!link) {
+    throw createError({ statusCode: 403, statusMessage: "Access denied" });
+  }
+
+  if (existing.status === "cancelled") {
+    return { success: true, alreadyCancelled: true };
+  }
+
+  if (
+    options.zoomMeetingResolved === true &&
+    !isBookingLinkHost(link, getRequestContext()?.userEmail)
+  ) {
+    throw createError({ statusCode: 403, statusMessage: "Access denied" });
+  }
+
+  if (
+    needsZoomCancellationReview({
+      ...existing,
+      conferencing: link.conferencing,
+    }) &&
+    options.zoomMeetingResolved !== true
+  ) {
+    throw createError({
+      statusCode: 409,
+      statusMessage:
+        "Check the Zoom meeting and resolve it before canceling this booking",
+    });
+  }
+
+  if (existing.zoomMeetingId && existing.zoomAccountId) {
+    await deleteZoomMeeting({
+      accountId: existing.zoomAccountId,
+      meetingId: existing.zoomMeetingId,
+    });
+  }
+
+  const hostEmail = link.ownerEmail;
+  const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
+  const bookAgainUrl = existing.slug
+    ? `${withConfiguredAppBasePath(getAppProductionUrl())}/book/${existing.slug}`
+    : undefined;
+  await sendBookingCancellationEmails({
+    booking: rowToBooking(existing),
+    hostEmail,
+    bookAgainUrl,
+    timeZone: bookingTimeZone,
+  });
+  await deleteGoogleEventForBooking({ booking: existing, hostEmail });
+  await db
+    .update(schema.bookings)
+    .set({ status: "cancelled", zoomNeedsReview: false })
+    .where(eq(schema.bookings.id, id));
+  recordBookingsChanged(hostEmail);
+  return { success: true };
+}
+
 export const deleteBooking = defineEventHandler(async (event: H3Event) => {
   return requireRequestContext(event, async () => {
     try {
-      const id = getRouterParam(event, "id") as string;
-      const db = getDb();
-
-      const existing = await db
-        .select()
-        .from(schema.bookings)
-        .where(eq(schema.bookings.id, id))
-        .then((rows) => rows[0]);
-
-      if (!existing) {
-        setResponseStatus(event, 404);
-        return { error: "Booking not found" };
+      const body = await readBody(event);
+      const parsed = z
+        .object({ zoomMeetingResolved: z.boolean().optional() })
+        .strict()
+        .safeParse(body ?? {});
+      if (!parsed.success) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid cancellation options" };
       }
-
-      // Verify the caller has access to the booking link that owns this booking.
-      // Bookings have no ownerEmail of their own — scoping is via the slug →
-      // bookingLink ownership/sharing chain.
-      const accessibleLinks = await db
-        .select({ slug: schema.bookingLinks.slug })
-        .from(schema.bookingLinks)
-        .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
-      const accessibleSlugs = new Set(accessibleLinks.map((l) => l.slug));
-
-      if (!accessibleSlugs.has(existing.slug)) {
-        setResponseStatus(event, 403);
-        return { error: "Access denied" };
-      }
-
-      if (existing.status === "cancelled") {
-        return { success: true, alreadyCancelled: true };
-      }
-
-      const hostEmail = await getBookingLinkOwnerEmail(existing.slug);
-      const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
-      const reqUrl = getRequestURL(event);
-      const bookAgainUrl = existing.slug
-        ? `${reqUrl.origin}/book/${existing.slug}`
-        : undefined;
-
-      await sendBookingCancellationEmails({
-        booking: rowToBooking(existing),
-        hostEmail,
-        bookAgainUrl,
-        timeZone: bookingTimeZone,
-      });
-      await deleteGoogleEventForBooking({ booking: existing, hostEmail });
-
-      await db
-        .update(schema.bookings)
-        .set({ status: "cancelled" })
-        .where(eq(schema.bookings.id, id));
-      recordBookingsChanged(hostEmail);
-      return { success: true };
+      return await cancelBookingById(
+        getRouterParam(event, "id") as string,
+        parsed.data,
+      );
     } catch (error: any) {
       setResponseStatus(event, error?.statusCode ?? 500);
       return { error: error.message };
@@ -1482,7 +1967,6 @@ export const deleteBooking = defineEventHandler(async (event: H3Event) => {
   });
 });
 
-/** Look up a booking by its cancel token (public, no auth) */
 export const getBookingByToken = defineEventHandler(async (event: H3Event) => {
   try {
     const token = getRouterParam(event, "token") as string;
@@ -1502,8 +1986,8 @@ export const getBookingByToken = defineEventHandler(async (event: H3Event) => {
       return { error: "Booking not found" };
     }
 
-    // Return limited info — don't expose internal IDs
     const booking = rowToBooking(row);
+    const link = await getBookingLinkDetails(row.slug);
     return {
       eventTitle: booking.eventTitle,
       name: booking.name,
@@ -1511,6 +1995,11 @@ export const getBookingByToken = defineEventHandler(async (event: H3Event) => {
       end: booking.end,
       slug: booking.slug,
       meetingLink: booking.meetingLink,
+      zoomCancellationNeedsReview: needsZoomCancellationReview({
+        ...row,
+        conferencing: link?.conferencing,
+      }),
+      meetingLinkPending: booking.meetingLinkPending,
       status: booking.status,
     };
   } catch (error: any) {
@@ -1519,7 +2008,6 @@ export const getBookingByToken = defineEventHandler(async (event: H3Event) => {
   }
 });
 
-/** Cancel a booking by its cancel token (public, no auth) */
 export const cancelBookingByToken = defineEventHandler(
   async (event: H3Event) => {
     try {
@@ -1545,17 +2033,42 @@ export const cancelBookingByToken = defineEventHandler(
         return { success: true, alreadyCancelled: true };
       }
 
+      const link = await getBookingLinkDetails(row.slug);
+      if (
+        needsZoomCancellationReview({
+          ...row,
+          conferencing: link?.conferencing,
+        })
+      ) {
+        setResponseStatus(event, 409);
+        return {
+          error:
+            "The organizer must review the Zoom meeting before this booking can be canceled",
+          code: "zoom_meeting_review_required",
+        };
+      }
+
+      if (row.zoomMeetingId && row.zoomAccountId) {
+        await deleteZoomMeeting({
+          accountId: row.zoomAccountId,
+          meetingId: row.zoomMeetingId,
+        });
+      }
+
       await db
         .update(schema.bookings)
-        .set({ status: "cancelled" })
-        .where(eq(schema.bookings.id, row.id));
+        .set({ status: "cancelled", zoomNeedsReview: false })
+        .where(
+          and(
+            eq(schema.bookings.id, row.id),
+            eq(schema.bookings.ownerEmail, row.ownerEmail),
+          ),
+        );
 
-      const hostEmail = await getBookingLinkOwnerEmail(row.slug);
+      const hostEmail = link?.ownerEmail;
       const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
-      const reqUrl = getRequestURL(event);
-      const bookAgainUrl = row.slug
-        ? `${reqUrl.origin}/book/${row.slug}`
-        : undefined;
+      const origin = getForwardedRequestOrigin(event);
+      const bookAgainUrl = row.slug ? `${origin}/book/${row.slug}` : undefined;
       await sendBookingCancellationEmails({
         booking: rowToBooking(row),
         hostEmail,
@@ -1567,13 +2080,12 @@ export const cancelBookingByToken = defineEventHandler(
 
       return { success: true, slug: row.slug };
     } catch (error: any) {
-      setResponseStatus(event, 500);
+      setResponseStatus(event, error?.statusCode ?? 500);
       return { error: error.message };
     }
   },
 );
 
-// Helper to convert DB row to Booking type
 function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
   let fieldResponses: Record<string, string | boolean> | undefined;
   if (row.fieldResponses) {
@@ -1581,10 +2093,14 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
       fieldResponses = JSON.parse(row.fieldResponses);
     } catch {}
   }
+  const additionalGuestEmails = parseAdditionalGuestEmails(
+    row.additionalGuestEmails,
+  );
   return {
     id: row.id,
     name: row.name,
     email: row.email,
+    additionalGuestEmails,
     start: row.start,
     end: row.end,
     slug: row.slug,
@@ -1592,8 +2108,27 @@ function rowToBooking(row: typeof schema.bookings.$inferSelect): Booking {
     notes: row.notes ?? undefined,
     fieldResponses,
     meetingLink: row.meetingLink ?? undefined,
+    meetingLinkPending:
+      row.meetingLinkPending && !row.meetingLink ? true : undefined,
     googleEventId: row.googleEventId ?? undefined,
     status: row.status,
     createdAt: row.createdAt,
   };
+}
+
+function parseAdditionalGuestEmails(
+  value: string | null | undefined,
+): string[] | undefined {
+  if (!value) return undefined;
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed)) {
+    throw new Error("Invalid stored additional guest emails");
+  }
+  const emails = parsed.filter(
+    (email): email is string => typeof email === "string",
+  );
+  if (emails.length !== parsed.length) {
+    throw new Error("Invalid stored additional guest emails");
+  }
+  return emails;
 }

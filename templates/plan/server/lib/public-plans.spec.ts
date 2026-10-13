@@ -1,40 +1,19 @@
-/**
- * Adversarial coverage for the anonymous-owner / public-viewer resolution in
- * public-plans.ts.
- *
- * This is the prime auth-bypass surface for the plan app: a signed-out HTTP
- * caller's effective identity for reading/writing ownable plans is whatever
- * these resolvers return. We try to break the visibility gate and the
- * plan-id-from-request parsing (which decides WHICH plan's visibility is
- * checked) with cross-origin Referer, query-param injection, path traversal,
- * non-public plans, and missing-plan cases.
- *
- * The db is mocked so we can (a) observe the exact id the resolver looks up and
- * (b) control the returned visibility, exercising the real gate logic in
- * public-plans.ts rather than re-implementing it.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// --- controllable request shape (headers + cookies + url) ------------------
 const headers = new Map<string, string>();
 const cookieStore = new Map<string, string>();
 const setCookieSpy = vi.fn();
 
 let requestUrl = "/";
 
-// --- controllable DB --------------------------------------------------------
 type PlanRow = { id: string; visibility: string } | undefined;
 const dbState = vi.hoisted(() => ({
-  // map planId -> visibility, or a function to fully control the result
   byId: new Map<string, string>(),
   lastQueriedId: undefined as string | undefined,
   queryCount: 0,
 }));
 
 vi.mock("../db/index.js", () => {
-  // Minimal drizzle-ish select().from().where().limit() recorder. The plan
-  // resolver calls .where(eq(plans.id, id)).limit(1); we capture the id from
-  // the eq() fragment and look it up in dbState.byId.
   return {
     getDb: () => ({
       select: () => ({
@@ -60,7 +39,6 @@ vi.mock("../db/index.js", () => {
 });
 
 vi.mock("drizzle-orm", () => ({
-  // Capture the compared value so the db mock knows which id was requested.
   eq: (_col: unknown, val: unknown) => ({ _eqVal: val }),
 }));
 
@@ -98,7 +76,6 @@ const { resolvePlanAnonymousOwner, resolvePublicPlanViewerOwner } =
 const { isAnonymousPublicViewer, LOCAL_PLAN_OWNER_EMAIL } =
   await import("./local-identity.js");
 
-// The resolver reads event.node.req.url / event.path; provide both.
 function makeEvent() {
   return { node: { req: { url: requestUrl } }, path: requestUrl } as never;
 }
@@ -116,8 +93,6 @@ beforeEach(() => {
   requestUrl = "/";
   savedEnv = {};
   for (const k of ENV_KEYS) savedEnv[k] = process.env[k];
-  // Default to a hosted-style env so the LOCAL fallback does NOT mask the
-  // public-viewer gate; individual tests override as needed.
   for (const k of ENV_KEYS) delete process.env[k];
   process.env.NODE_ENV = "production";
 });
@@ -141,7 +116,6 @@ describe("resolvePublicPlanViewerOwner", () => {
     expect(owner).toMatch(PUBLIC_RE);
     expect(isAnonymousPublicViewer(owner)).toBe(true);
     expect(dbState.lastQueriedId).toBe("plan_pub");
-    // A fresh viewer cookie was set (httpOnly + Secure auto-detect off on http).
     expect(setCookieSpy).toHaveBeenCalledTimes(1);
     const [name, , opts] = setCookieSpy.mock.calls[0];
     expect(name).toBe("plan_public_viewer");
@@ -155,7 +129,6 @@ describe("resolvePublicPlanViewerOwner", () => {
     const owner = await resolvePublicPlanViewerOwner(makeEvent());
     expect(owner).toBeNull();
     expect(setCookieSpy).not.toHaveBeenCalled();
-    // It DID look up the right plan id; the gate is the visibility, not the id.
     expect(dbState.lastQueriedId).toBe("plan_priv");
   });
 
@@ -179,7 +152,6 @@ describe("resolvePublicPlanViewerOwner", () => {
     requestUrl = "/some/unrelated/path";
     const owner = await resolvePublicPlanViewerOwner(makeEvent());
     expect(owner).toBeNull();
-    // No id => no DB lookup at all.
     expect(dbState.queryCount).toBe(0);
   });
 
@@ -252,7 +224,6 @@ describe("plan-id derivation (adversarial)", () => {
 
   it("falls back to the Referer path only when it is SAME-ORIGIN", async () => {
     dbState.byId.set("plan_ref", "public");
-    // No id in the request URL itself.
     requestUrl = "/_agent-native/actions/get-visual-plan";
     headers.set("host", "plan.example.com");
     headers.set("x-forwarded-proto", "https");
@@ -267,12 +238,10 @@ describe("plan-id derivation (adversarial)", () => {
     requestUrl = "/_agent-native/actions/get-visual-plan";
     headers.set("host", "plan.example.com");
     headers.set("x-forwarded-proto", "https");
-    // Attacker's page references a real public plan id, but from evil.com.
     headers.set("referer", "https://evil.com/plans/plan_evil");
 
     const owner = await resolvePublicPlanViewerOwner(makeEvent());
     expect(owner).toBeNull();
-    // The cross-origin referer id must NOT be looked up.
     expect(dbState.lastQueriedId).toBeUndefined();
     expect(dbState.queryCount).toBe(0);
   });
@@ -287,8 +256,6 @@ describe("plan-id derivation (adversarial)", () => {
   });
 
   it("does not derive an id from a path that merely contains 'plans' as a prefix segment", async () => {
-    // "/plansomething" must not be parsed as plans/<id>; the regex requires a
-    // boundary before "plans/".
     requestUrl = "/plansomething/abc";
     const owner = await resolvePublicPlanViewerOwner(makeEvent());
     expect(owner).toBeNull();
@@ -367,9 +334,6 @@ describe("resolvePlanAnonymousOwner (composition: public-viewer THEN local)", ()
   });
 
   it("in LOCAL dev, a public-plan target STILL resolves to the public viewer (read-only), not the local owner", async () => {
-    // A public plan loaded with no session in local dev should keep the
-    // read-only public-viewer identity rather than being upgraded to the
-    // local owner (which would let an anonymous viewer edit it).
     dbState.byId.set("plan_pub", "public");
     requestUrl = "/plans/plan_pub";
     process.env.NODE_ENV = "development";

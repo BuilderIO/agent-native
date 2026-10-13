@@ -33,6 +33,80 @@ describe("design review agent instructions", () => {
   });
 });
 
+describe("external design authoring catalog", () => {
+  it("keeps context reads and writes on the compact connector surface", () => {
+    for (const name of [
+      "open-visual-edit",
+      "get-visual-edit-pending",
+      "connect-localhost",
+      "add-localhost-screens",
+      "list-localhost-connections",
+      "update-screen-source",
+      "add-breakpoint",
+      "remove-breakpoint",
+      "list-designs",
+      "list-design-systems",
+      "get-design-snapshot",
+      "create-design",
+      "create-design-from-template",
+      "edit-design",
+      "generate-design",
+    ]) {
+      expect(agentChatSource).toContain(`\"${name}\"`);
+    }
+    expect(agentChatSource).toContain(
+      "connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES",
+    );
+    expect(agentChatSource).toContain(
+      'keyToolNames: ["get-visual-edit-pending"]',
+    );
+    const connectorCatalog = agentChatSource.slice(
+      agentChatSource.indexOf("const EXTERNAL_CONNECTOR_TOOL_NAMES = ["),
+      agentChatSource.indexOf("const INITIAL_TOOL_NAMES = ["),
+    );
+    expect(connectorCatalog).toContain('"get-visual-edit-pending"');
+    expect(agentChatSource).toContain(
+      'externalAgents: { writes: "allowlisted" }',
+    );
+    expect(agentChatSource).toContain("designSystem.agentContext");
+  });
+
+  it("keeps explicit multi-page and prototype behavior in the acceptance contract", () => {
+    expect(agentChatSource).toContain(
+      "requested content, named pages, and page counts as acceptance criteria",
+    );
+    expect(agentChatSource).toContain(
+      "call generate-screens with every requested page",
+    );
+    expect(agentChatSource).toContain(
+      "Generated controls that look interactive must work in the prototype",
+    );
+    expect(agentChatSource).toContain(
+      "Exercise the primary links and buttons before reporting completion",
+    );
+  });
+});
+
+describe("design autosave tool coverage", () => {
+  it("treats screen renames as persisted design edits", () => {
+    const editToolsStart = agentChatSource.indexOf("const DESIGN_EDIT_TOOLS");
+    const fileTargetStart = agentChatSource.indexOf(
+      "const DESIGN_FILE_TARGET_TOOLS",
+    );
+    const helperStart = agentChatSource.indexOf("function eventRecord");
+
+    expect(agentChatSource.slice(editToolsStart, fileTargetStart)).toContain(
+      '"rename-screen"',
+    );
+    expect(agentChatSource.slice(fileTargetStart, helperStart)).toContain(
+      '"rename-screen"',
+    );
+    expect(agentChatSource).toContain(
+      'tool === "delete-file" || tool === "rename-screen" || tool === "update-file"',
+    );
+  });
+});
+
 describe("select and reprompt agent contract", () => {
   it("keeps the preview-only rule in every always-visible instruction surface", () => {
     expect(agentChatSource).toContain(

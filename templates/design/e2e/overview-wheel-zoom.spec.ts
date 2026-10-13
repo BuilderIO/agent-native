@@ -5,18 +5,10 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
 import { appPath } from "./helpers";
 
-/**
- * Cmd/Ctrl+wheel over a screen, in a real browser, with real trusted wheel
- * events. Both halves of the report need that: the gesture has to survive the
- * iframe bridge at all, and a mouse notch has to move zoom by a notch-sized
- * step rather than the trackpad curve's ~1.65x.
- */
-
-const BASE_URL =
-  process.env.E2E_BASE_URL ??
-  `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`;
+const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Wheel zoom</title></head>
@@ -73,7 +65,6 @@ async function createDesign(request: APIRequestContext) {
   return { designId, fileId };
 }
 
-/** The scale the world layer is actually painted at. */
 async function worldScale(page: Page) {
   return page.evaluate(() => {
     const world = document.querySelector<HTMLElement>(
@@ -95,13 +86,9 @@ async function openOverview(page: Page, designId: string) {
       timeout: 40_000,
     })
     .toBeGreaterThan(0);
-  // The gesture bridge is injected with the screen document; give it the same
-  // settle the other overview specs use before driving input.
   await page.waitForTimeout(2500);
 }
 
-/** Centre of the live screen preview — the pointer must be over iframe
- *  content, which is where the gesture was being swallowed. */
 async function screenContentPoint(page: Page) {
   const box = await page.locator("[data-screen-card]").first().boundingBox();
   if (!box) throw new Error("no screen card rendered");
@@ -150,9 +137,6 @@ test("one mouse notch moves zoom by a notch-sized step, not the pinch curve", as
     await openOverview(page, designId);
     const before = await worldScale(page);
 
-    // 66.7 is what a Windows notch reports at fractional display scaling, and
-    // the shape macOS sends for an accelerated wheel. Read as a pinch it
-    // multiplies zoom by ~1.65 per detent.
     const point = await screenContentPoint(page);
     await page.mouse.move(point.x, point.y);
     await page.keyboard.down("Control");
@@ -178,7 +162,7 @@ test("a wheel burst over screen content does not log a scroll Intervention", asy
   const interventions: string[] = [];
   page.on("console", (message) => {
     const text = message.text();
-    if (/intervention/i.test(text)) interventions.push(text);
+    if (text.toLowerCase().includes("intervention")) interventions.push(text);
   });
   try {
     await openOverview(page, designId);
@@ -191,6 +175,65 @@ test("a wheel burst over screen content does not log a scroll Intervention", asy
     await page.waitForTimeout(600);
 
     expect(interventions).toEqual([]);
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("the zoom percentage input updates the overview canvas scale", async ({
+  page,
+  request,
+}) => {
+  const { designId } = await createDesign(request);
+  try {
+    await openOverview(page, designId);
+    const zoomControl = page.getByRole("button", { name: /^\d+%$/ }).first();
+    await zoomControl.click();
+    const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
+    await zoomInput.fill("25%");
+    await zoomInput.press("Enter");
+    await expect(zoomControl).toHaveText("25%");
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("zoom"))
+      .toBe("25");
+
+    await expect
+      .poll(async () => {
+        const scale = await worldScale(page);
+        return scale !== null && Math.abs(scale - 0.25) <= 0.005;
+      })
+      .toBe(true);
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("clearing the zoom percentage keeps the current overview scale", async ({
+  page,
+  request,
+}) => {
+  const { designId } = await createDesign(request);
+  try {
+    await openOverview(page, designId);
+    const before = await worldScale(page);
+    const beforeZoomQuery = new URL(page.url()).searchParams.get("zoom");
+    const beforeZoomLabel = Math.round(before! * 100);
+    const zoomControl = page.getByRole("button", { name: /^\d+%$/ }).first();
+    await zoomControl.click();
+    const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
+    await zoomInput.fill("");
+    await zoomInput.press("Enter");
+
+    await expect(zoomInput).toHaveValue(String(beforeZoomLabel));
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("zoom"))
+      .toBe(beforeZoomQuery);
+    await expect
+      .poll(async () => {
+        const scale = await worldScale(page);
+        return scale !== null && Math.abs(scale - before!) <= 0.005;
+      })
+      .toBe(true);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

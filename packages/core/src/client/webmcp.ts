@@ -1,3 +1,8 @@
+import { initializeWebMCPPolyfill } from "@mcp-b/webmcp-polyfill";
+
+import { agentNativeToolTitle } from "../shared/agent-mcp-metadata.js";
+import { agentNativePath } from "./api-path.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import type {
   AgentNativeClientAction,
   AgentNativeClientActions,
@@ -13,7 +18,6 @@ export interface AgentNativeWebMcpToolAnnotations {
   untrustedContentHint?: boolean;
 }
 
-/** Serializable WebMCP metadata. The native RegisteredTool also has a Window. */
 export interface AgentNativeWebMcpTool {
   name: string;
   title?: string;
@@ -70,9 +74,11 @@ interface NativeModelContext {
   }): Promise<NativeRegisteredTool[]>;
   executeTool(
     tool: NativeRegisteredTool,
-    inputObject?: string,
+    inputObject?: string | Record<string, unknown>,
     options?: AgentNativeWebMcpToolExecutionOptions,
   ): Promise<unknown>;
+  codexExecuteTool?: (...args: unknown[]) => unknown;
+  codexGetTools?: (...args: unknown[]) => unknown;
   addEventListener?(type: "toolchange", listener: EventListener): void;
   removeEventListener?(type: "toolchange", listener: EventListener): void;
 }
@@ -93,7 +99,7 @@ interface NativeContextTool {
   annotations?: AgentNativeWebMcpToolAnnotations;
   execute: (
     input: Record<string, unknown>,
-    options: NativeContextToolExecuteOptions,
+    options?: NativeContextToolExecuteOptions,
   ) => string | Promise<string>;
 }
 
@@ -112,8 +118,8 @@ interface NativeRegisteredTool {
   annotations?: unknown;
 }
 
-const DEFAULT_INPUT_CHARS = 20_000;
-const DEFAULT_RESULT_CHARS = 50_000;
+const DEFAULT_INPUT_CHARS = 500_000;
+const DEFAULT_RESULT_CHARS = 500_000;
 const DEFAULT_SCHEMA_CHARS = 50_000;
 const DEFAULT_DESCRIPTION_CHARS = 2_000;
 const DEFAULT_TOOL_COUNT = 100;
@@ -150,6 +156,134 @@ function getModelContext(
     return undefined;
   }
   return value;
+}
+
+const WEBMCP_STATUS_KEY = "__agentNativeWebMcpStatus";
+
+export type AgentNativeWebMcpRegistrationState =
+  | "registering"
+  | "ready"
+  | "failed";
+
+export interface AgentNativeWebMcpStatus {
+  state: AgentNativeWebMcpRegistrationState;
+  registered: number;
+  total: number;
+  error?: string;
+}
+
+const registrationStatuses = new WeakMap<
+  object,
+  Map<symbol, AgentNativeWebMcpStatus>
+>();
+
+function statusHost(
+  targetDocument: Document | undefined,
+): Record<string, unknown> | undefined {
+  const view = getDocument(targetDocument)?.defaultView;
+  if (view) return view as unknown as Record<string, unknown>;
+  if (typeof window === "undefined") return undefined;
+  return window as unknown as Record<string, unknown>;
+}
+
+function publishRegistrationStatus(
+  targetDocument: Document | undefined,
+  registrationId: symbol,
+  status: AgentNativeWebMcpStatus | undefined,
+): void {
+  const host = statusHost(targetDocument);
+  if (!host) return;
+  let statuses = host[WEBMCP_STATUS_KEY]
+    ? registrationStatuses.get(host)
+    : undefined;
+  if (!statuses) registrationStatuses.delete(host);
+  if (!status) {
+    statuses?.delete(registrationId);
+    if (!statuses?.size) {
+      registrationStatuses.delete(host);
+      delete host[WEBMCP_STATUS_KEY];
+      const helper = host[WEBMCP_HELPER_KEY];
+      if (isRecord(helper) && registrationOwnedHelpers.has(helper)) {
+        helperDisposers.get(helper)?.();
+        delete host[WEBMCP_HELPER_KEY];
+      }
+      settleReadyWaiters(host, {
+        state: "failed",
+        registered: 0,
+        total: 0,
+        error: "WebMCP registration stopped",
+      });
+      return;
+    }
+  } else {
+    if (!statuses) {
+      statuses = new Map();
+      registrationStatuses.set(host, statuses);
+    }
+    statuses.set(registrationId, { ...status });
+  }
+
+  const records = [...statuses.values()];
+  const failed = records.find((record) => record.state === "failed");
+  const registering = records.some((record) => record.state === "registering");
+  const next = {
+    state: failed ? "failed" : registering ? "registering" : "ready",
+    registered: records.reduce((sum, record) => sum + record.registered, 0),
+    total: records.reduce((sum, record) => sum + record.total, 0),
+    ...(failed?.error ? { error: failed.error } : {}),
+  } satisfies AgentNativeWebMcpStatus;
+  host[WEBMCP_STATUS_KEY] = next;
+  if (next.state !== "registering") settleReadyWaiters(host, next);
+}
+
+const readyWaiters = new WeakMap<
+  object,
+  Set<(status: AgentNativeWebMcpStatus) => void>
+>();
+
+function settleReadyWaiters(
+  host: object,
+  status: AgentNativeWebMcpStatus,
+): void {
+  const waiters = readyWaiters.get(host);
+  if (!waiters) return;
+  readyWaiters.delete(host);
+  waiters.forEach((resolve) => resolve(status));
+}
+
+function waitForSettledStatus(host: object): Promise<AgentNativeWebMcpStatus> {
+  return new Promise((resolve) => {
+    let waiters = readyWaiters.get(host);
+    if (!waiters) {
+      waiters = new Set();
+      readyWaiters.set(host, waiters);
+    }
+    waiters.add(resolve);
+  });
+}
+
+export function getAgentNativeWebMcpStatus(
+  targetDocument?: Document,
+): AgentNativeWebMcpStatus | undefined {
+  const value = statusHost(targetDocument)?.[WEBMCP_STATUS_KEY];
+  return isRecord(value)
+    ? (value as unknown as AgentNativeWebMcpStatus)
+    : undefined;
+}
+
+export function initializeAgentNativeWebMcp(): boolean {
+  if (typeof Object.hasOwn !== "function") {
+    Object.defineProperty(Object, "hasOwn", {
+      configurable: true,
+      writable: true,
+      value: (object: object, key: PropertyKey) =>
+        Object.prototype.hasOwnProperty.call(object, key),
+    });
+  }
+  if (isAgentNativeWebMcpSupported()) return true;
+  if (typeof window === "undefined") return false;
+  initializeWebMCPPolyfill();
+  return isAgentNativeWebMcpSupported();
 }
 
 export function isAgentNativeWebMcpSupported(
@@ -203,12 +337,20 @@ function normalizeTool(
   ) {
     throw new Error(`WebMCP tool "${tool.name}" has an invalid title`);
   }
-  if (tool.inputSchema !== undefined) {
-    if (!isRecord(tool.inputSchema)) {
+  let inputSchema = tool.inputSchema as unknown;
+  if (typeof inputSchema === "string") {
+    try {
+      inputSchema = JSON.parse(inputSchema);
+    } catch {
+      throw new Error(`WebMCP tool "${tool.name}" has an invalid input schema`);
+    }
+  }
+  if (inputSchema !== undefined) {
+    if (!isRecord(inputSchema)) {
       throw new Error(`WebMCP tool "${tool.name}" has an invalid input schema`);
     }
     jsonLength(
-      tool.inputSchema,
+      inputSchema,
       `WebMCP tool "${tool.name}" input schema`,
       options.maxSchemaChars,
     );
@@ -221,7 +363,7 @@ function normalizeTool(
     name: tool.name,
     ...(tool.title ? { title: tool.title } : {}),
     description: tool.description,
-    ...(tool.inputSchema ? { inputSchema: tool.inputSchema } : {}),
+    ...(isRecord(inputSchema) ? { inputSchema } : {}),
     ...(tool.origin ? { origin: tool.origin } : {}),
     ...(annotations ? { annotations } : {}),
   };
@@ -286,10 +428,27 @@ export interface AgentNativeWebMcpClientOptions {
   maxManifestChars?: number;
 }
 
+interface NativeToolBinding {
+  context: NativeModelContext;
+  tool: NativeRegisteredTool;
+  fromOrigins?: string[];
+}
+
+const webMcpClientContextGetters = new WeakMap<
+  AgentNativeWebMcpClient,
+  () => NativeModelContext | undefined
+>();
+const webMcpClientListingContexts = new WeakMap<
+  AgentNativeWebMcpClient,
+  NativeModelContext
+>();
+
 export function createAgentNativeWebMcpClient(
   options: AgentNativeWebMcpClientOptions = {},
 ): AgentNativeWebMcpClient {
-  const modelContext = getModelContext(options.document);
+  if (!options.document) initializeAgentNativeWebMcp();
+  const getCurrentModelContext = () => getModelContext(options.document);
+  const initialModelContext = getCurrentModelContext();
   const defaultFromOrigins = options.fromOrigins;
   const limits = {
     maxInputChars: options.maxInputChars ?? DEFAULT_INPUT_CHARS,
@@ -300,56 +459,90 @@ export function createAgentNativeWebMcpClient(
     maxToolCount: options.maxToolCount ?? DEFAULT_TOOL_COUNT,
     maxManifestChars: options.maxManifestChars ?? DEFAULT_MANIFEST_CHARS,
   };
-  // Keep bindings for in-flight approvals; each descriptor is a listing capability.
-  const listedNativeTools = new WeakMap<object, NativeRegisteredTool>();
+  const listedNativeTools = new WeakMap<object, NativeToolBinding>();
+  type ToolChangeSubscription = {
+    context: NativeModelContext | undefined;
+    handler: EventListener;
+  };
+  const toolChangeSubscriptions = new Set<ToolChangeSubscription>();
+
+  function syncToolChangeListeners(): void {
+    const currentContext = getCurrentModelContext();
+    for (const subscription of toolChangeSubscriptions) {
+      if (subscription.context === currentContext) continue;
+      subscription.context?.removeEventListener?.(
+        "toolchange",
+        subscription.handler,
+      );
+      currentContext?.addEventListener?.("toolchange", subscription.handler);
+      subscription.context = currentContext;
+    }
+  }
 
   function requireModelContext(): NativeModelContext {
-    if (!modelContext) throw new AgentNativeWebMcpUnsupportedError();
-    return modelContext;
+    const context = getCurrentModelContext();
+    if (!context) throw new AgentNativeWebMcpUnsupportedError();
+    return context;
   }
 
   async function listTools(
     listOptions: { fromOrigins?: string[] } = {},
   ): Promise<AgentNativeWebMcpTool[]> {
-    const context = requireModelContext();
-    const fromOrigins = listOptions.fromOrigins ?? defaultFromOrigins;
-    const result = fromOrigins
-      ? await context.getTools({ fromOrigins })
-      : await context.getTools();
-    if (!Array.isArray(result)) {
-      throw new Error("WebMCP returned an invalid tool list");
-    }
-    if (result.length > limits.maxToolCount) {
-      throw new Error(
-        `WebMCP returned more than the ${limits.maxToolCount}-tool limit`,
-      );
-    }
-    const normalizedTools = result.map((tool) => normalizeTool(tool, limits));
-    jsonLength(
-      normalizedTools,
-      "WebMCP tool manifest",
-      limits.maxManifestChars,
-    );
-    const seenKeys = new Set<string>();
-    normalizedTools.forEach((tool) => {
-      const key = toolKey(tool);
-      if (seenKeys.has(key)) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const context = requireModelContext();
+      syncToolChangeListeners();
+      const fromOrigins = listOptions.fromOrigins ?? defaultFromOrigins;
+      let result: NativeRegisteredTool[];
+      try {
+        result = fromOrigins
+          ? await context.getTools({ fromOrigins })
+          : await context.getTools();
+      } catch (error) {
+        if (context !== getCurrentModelContext()) continue;
+        throw error;
+      }
+      if (context !== getCurrentModelContext()) continue;
+      if (!Array.isArray(result)) {
+        throw new Error("WebMCP returned an invalid tool list");
+      }
+      if (result.length > limits.maxToolCount) {
         throw new Error(
-          `WebMCP returned duplicate tool "${tool.name}" for origin "${tool.origin ?? ""}"`,
+          `WebMCP returned more than the ${limits.maxToolCount}-tool limit`,
         );
       }
-      seenKeys.add(key);
-    });
-    normalizedTools.forEach((tool, index) => {
-      listedNativeTools.set(tool, result[index]);
-    });
-    return normalizedTools;
+      const normalizedTools = result.map((tool) => normalizeTool(tool, limits));
+      jsonLength(
+        normalizedTools,
+        "WebMCP tool manifest",
+        limits.maxManifestChars,
+      );
+      const seenKeys = new Set<string>();
+      normalizedTools.forEach((tool) => {
+        const key = toolKey(tool);
+        if (seenKeys.has(key)) {
+          throw new Error(
+            `WebMCP returned duplicate tool "${tool.name}" for origin "${tool.origin ?? ""}"`,
+          );
+        }
+        seenKeys.add(key);
+      });
+      normalizedTools.forEach((tool, index) => {
+        listedNativeTools.set(tool, {
+          context,
+          tool: result[index],
+          ...(fromOrigins ? { fromOrigins: [...fromOrigins] } : {}),
+        });
+      });
+      webMcpClientListingContexts.set(client, context);
+      return normalizedTools;
+    }
+    throw new Error("WebMCP page context changed during tool listing");
   }
 
   function findListedNativeTool(
     tools: AgentNativeWebMcpTool[],
     tool: Pick<AgentNativeWebMcpTool, "name" | "origin">,
-  ): NativeRegisteredTool | undefined {
+  ): NativeToolBinding | undefined {
     const matches = tools.filter(
       (candidate) =>
         candidate.name === tool.name &&
@@ -366,7 +559,7 @@ export function createAgentNativeWebMcpClient(
 
   async function executeNativeTool(
     tool: Pick<AgentNativeWebMcpTool, "name">,
-    nativeTool: NativeRegisteredTool,
+    binding: NativeToolBinding,
     input: unknown,
     executionOptions: AgentNativeWebMcpToolExecutionOptions,
   ): Promise<AgentNativeWebMcpToolResult> {
@@ -374,9 +567,13 @@ export function createAgentNativeWebMcpClient(
       throw new Error(`WebMCP tool "${tool.name}" input must be an object`);
     }
     jsonLength(input, `WebMCP tool "${tool.name}" input`, limits.maxInputChars);
-    const result = await requireModelContext().executeTool(
+    const { context, tool: nativeTool } = binding;
+    const usesCodexPageAdapter =
+      typeof context.codexExecuteTool === "function" ||
+      typeof context.codexGetTools === "function";
+    const result = await context.executeTool(
       nativeTool,
-      JSON.stringify(input),
+      usesCodexPageAdapter ? input : JSON.stringify(input),
       executionOptions,
     );
     return normalizeToolResult(
@@ -390,18 +587,24 @@ export function createAgentNativeWebMcpClient(
     tool: Pick<AgentNativeWebMcpTool, "name" | "origin">,
     input: unknown = {},
     executionOptions: AgentNativeWebMcpToolExecutionOptions = {},
+    listOptions: { fromOrigins?: string[] } = {},
   ): Promise<AgentNativeWebMcpToolResult> {
     requireModelContext();
     if (!tool || typeof tool.name !== "string" || !tool.name.trim()) {
       throw new Error("A WebMCP tool name is required");
     }
 
-    const listedTools = await listTools();
-    const nativeTool = findListedNativeTool(listedTools, tool);
-    if (!nativeTool) {
-      throw new Error(`WebMCP tool "${tool.name}" is no longer available`);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const listedTools = await listTools(listOptions);
+      const binding = findListedNativeTool(listedTools, tool);
+      if (!binding) {
+        throw new Error(`WebMCP tool "${tool.name}" is no longer available`);
+      }
+      if (binding.context === requireModelContext()) {
+        return executeNativeTool(tool, binding, input, executionOptions);
+      }
     }
-    return executeNativeTool(tool, nativeTool, input, executionOptions);
+    throw new Error("WebMCP page context changed during tool execution");
   }
 
   async function executeListedTool(
@@ -412,32 +615,485 @@ export function createAgentNativeWebMcpClient(
     if (!tool || typeof tool.name !== "string" || !tool.name.trim()) {
       throw new Error("A WebMCP tool name is required");
     }
-    const nativeTool = listedNativeTools.get(tool);
-    if (!nativeTool) {
+    const binding = listedNativeTools.get(tool);
+    if (!binding) {
       throw new Error(
         `WebMCP tool "${tool.name}" was not returned by a live listing`,
       );
     }
-    return executeNativeTool(tool, nativeTool, input, executionOptions);
+    if (binding.context !== getCurrentModelContext()) {
+      return executeTool(tool, input, executionOptions, {
+        fromOrigins: binding.fromOrigins,
+      });
+    }
+    return executeNativeTool(tool, binding, input, executionOptions);
   }
 
   const client: AgentNativeWebMcpClient = {
-    supported: Boolean(modelContext),
+    get supported() {
+      return Boolean(getCurrentModelContext());
+    },
     listTools,
     executeTool,
     executeListedTool,
-    ...(modelContext?.addEventListener
+    ...(initialModelContext?.addEventListener
       ? {
           onToolChange(listener) {
             const handler: EventListener = () => listener();
-            modelContext.addEventListener?.("toolchange", handler);
-            return () =>
-              modelContext?.removeEventListener?.("toolchange", handler);
+            const subscription: ToolChangeSubscription = {
+              context: undefined,
+              handler,
+            };
+            toolChangeSubscriptions.add(subscription);
+            syncToolChangeListeners();
+            return () => {
+              if (!toolChangeSubscriptions.delete(subscription)) return;
+              subscription.context?.removeEventListener?.(
+                "toolchange",
+                subscription.handler,
+              );
+              subscription.context = undefined;
+            };
           },
         }
       : {}),
   };
+  webMcpClientContextGetters.set(client, getCurrentModelContext);
   return client;
+}
+
+const WEBMCP_HELPER_KEY = "__agentNativeWebMcp";
+const registrationOwnedHelpers = new WeakSet<object>();
+const helperDisposers = new WeakMap<object, () => void>();
+const HELPER_MAX_ATTEMPTS = 10;
+const HELPER_MAX_OUTCOMES = 200;
+const HELPER_DEFAULT_WAIT_MS = 20_000;
+const HELPER_SUMMARY_DESCRIPTION_CHARS = 240;
+const STALE_DESCRIPTOR_RE =
+  /RegisteredTool must be an object|not found in registry|^Tool not found|^Tool unregistered|no longer available|not returned by a live listing/i;
+const ACTION_FAILURE_RE = /Tool was executed|invocation failed/i;
+
+function isStaleDescriptorError(message: string): boolean {
+  return !ACTION_FAILURE_RE.test(message) && STALE_DESCRIPTOR_RE.test(message);
+}
+
+export interface AgentNativeWebMcpToolSummary {
+  name: string;
+  title?: string;
+  description: string;
+  required: string[];
+  readOnly: boolean;
+  origin?: string;
+}
+
+export type AgentNativeWebMcpCallFailureCode =
+  | "unsupported"
+  | "registering"
+  | "not-registered"
+  | "execution-failed";
+
+export type AgentNativeWebMcpCallOutcome =
+  | {
+      id: string;
+      state: "done";
+      ok: true;
+      tool: string;
+      attempts: number;
+      result: unknown;
+    }
+  | {
+      id: string;
+      state: "done";
+      ok: false;
+      tool: string;
+      attempts: number;
+      code: AgentNativeWebMcpCallFailureCode;
+      error: string;
+      status?: AgentNativeWebMcpStatus;
+    }
+  | {
+      id: string;
+      state: "pending";
+      tool: string;
+      status?: AgentNativeWebMcpStatus;
+    }
+  | { id: string; state: "unknown" };
+
+export interface AgentNativeWebMcpPageHelper {
+  status(): AgentNativeWebMcpStatus | undefined;
+  ready(options?: { waitMs?: number }): Promise<AgentNativeWebMcpStatus>;
+  tools(filter?: string | RegExp): Promise<AgentNativeWebMcpToolSummary[]>;
+  describe(
+    name: string,
+    origin?: string,
+  ): Promise<AgentNativeWebMcpTool | undefined>;
+  call(
+    name: string,
+    args?: Record<string, unknown>,
+    options?: { waitMs?: number; origin?: string },
+  ): Promise<AgentNativeWebMcpCallOutcome>;
+  result(id: string): AgentNativeWebMcpCallOutcome;
+}
+
+function parseToolResult(value: AgentNativeWebMcpToolResult): unknown {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!/^[[{]/.test(trimmed)) return value;
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+function toolMatches(
+  tool: AgentNativeWebMcpTool,
+  filter: string | RegExp | undefined,
+): boolean {
+  if (filter === undefined) return true;
+  const haystack = `${tool.name} ${tool.title ?? ""} ${tool.description}`;
+  if (filter instanceof RegExp) {
+    const pattern = new RegExp(
+      filter.source,
+      filter.flags.replace(/[gy]/g, ""),
+    );
+    return pattern.test(tool.name) || pattern.test(haystack);
+  }
+  return haystack.toLowerCase().includes(filter.toLowerCase());
+}
+
+function summarizeTool(
+  tool: AgentNativeWebMcpTool,
+): AgentNativeWebMcpToolSummary {
+  const required = tool.inputSchema?.required;
+  return {
+    name: tool.name,
+    ...(tool.title ? { title: tool.title } : {}),
+    description:
+      tool.description.length > HELPER_SUMMARY_DESCRIPTION_CHARS
+        ? `${tool.description.slice(0, HELPER_SUMMARY_DESCRIPTION_CHARS - 1)}…`
+        : tool.description,
+    required: Array.isArray(required)
+      ? required.filter((key): key is string => typeof key === "string")
+      : [],
+    readOnly: tool.annotations?.readOnlyHint === true,
+    ...(tool.origin ? { origin: tool.origin } : {}),
+  };
+}
+
+function settleWithin<T>(
+  promise: Promise<T>,
+  waitMs: number,
+): Promise<{ settled: true; value: T } | { settled: false }> {
+  if (waitMs <= 0) return Promise.resolve({ settled: false });
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve({ settled: false }), waitMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve({ settled: true, value });
+      },
+      () => {
+        clearTimeout(timer);
+        resolve({ settled: false });
+      },
+    );
+  });
+}
+
+export function createAgentNativeWebMcpPageHelper(options?: {
+  document?: Document;
+}): AgentNativeWebMcpPageHelper {
+  const targetDocument = options?.document;
+  const host = statusHost(targetDocument);
+  const client = createAgentNativeWebMcpClient({
+    ...(targetDocument ? { document: targetDocument } : {}),
+    maxToolCount: 1_000,
+    maxDescriptionChars: 10_000,
+  });
+  const outcomes = new Map<string, AgentNativeWebMcpCallOutcome>();
+  let sequence = 0;
+  let listing: AgentNativeWebMcpTool[] | undefined;
+  let inflight: Promise<AgentNativeWebMcpTool[]> | undefined;
+  let listingGeneration = 0;
+  const cacheable = typeof client.onToolChange === "function";
+  const getClientModelContext = webMcpClientContextGetters.get(client);
+  let listingContext = getClientModelContext?.();
+  const invalidateListing = () => {
+    listing = undefined;
+    inflight = undefined;
+    listingGeneration += 1;
+  };
+  const unsubscribe = cacheable
+    ? client.onToolChange?.(invalidateListing)
+    : undefined;
+  const pageOrigin =
+    getDocument(targetDocument)?.defaultView?.location?.origin ??
+    (typeof location === "undefined" ? undefined : location.origin);
+  const supportsToolChange = () =>
+    typeof getClientModelContext?.()?.addEventListener === "function";
+  async function list(origin?: string): Promise<AgentNativeWebMcpTool[]> {
+    if (origin && origin !== pageOrigin) {
+      return client.listTools({ fromOrigins: [origin] });
+    }
+    const currentContext = getClientModelContext?.();
+    if (currentContext !== listingContext) {
+      listingContext = currentContext;
+      invalidateListing();
+    }
+    if (!cacheable || !supportsToolChange()) return client.listTools();
+    if (listing) return listing;
+    if (inflight) return inflight;
+    let request!: Promise<AgentNativeWebMcpTool[]>;
+    request = (async () => {
+      let generation = listingGeneration;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const tools = await client.listTools();
+        const listedContext = webMcpClientListingContexts.get(client);
+        const currentContext = getClientModelContext?.();
+        if (listedContext !== currentContext) {
+          listingContext = currentContext;
+          listing = undefined;
+          listingGeneration += 1;
+          generation = listingGeneration;
+          continue;
+        }
+        listingContext = currentContext;
+        if (generation === listingGeneration) listing = tools;
+        if (inflight === request) inflight = undefined;
+        return tools;
+      }
+      if (inflight === request) inflight = undefined;
+      throw new Error("WebMCP page context changed during tool listing");
+    })();
+    request.catch(() => {
+      if (inflight === request) inflight = undefined;
+    });
+    inflight = request;
+    return request;
+  }
+  function remember(id: string, outcome: AgentNativeWebMcpCallOutcome): void {
+    outcomes.set(id, outcome);
+    while (outcomes.size > HELPER_MAX_OUTCOMES) {
+      const oldest = outcomes.keys().next().value;
+      if (oldest === undefined) break;
+      outcomes.delete(oldest);
+    }
+  }
+
+  const status = () => getAgentNativeWebMcpStatus(targetDocument);
+
+  async function ready(readyOptions?: {
+    waitMs?: number;
+  }): Promise<AgentNativeWebMcpStatus> {
+    const current = status();
+    if (current && current.state !== "registering") return current;
+    const none: AgentNativeWebMcpStatus = {
+      state: "failed",
+      registered: 0,
+      total: 0,
+      error: "No WebMCP registration is active on this page",
+    };
+    if (!host) return none;
+    const settled = await settleWithin(
+      waitForSettledStatus(host),
+      readyOptions?.waitMs ?? HELPER_DEFAULT_WAIT_MS,
+    );
+    if (settled.settled) return settled.value;
+    return status() ?? none;
+  }
+
+  async function run(
+    id: string,
+    name: string,
+    args: Record<string, unknown>,
+    waitMs: number,
+    origin: string | undefined,
+  ): Promise<AgentNativeWebMcpCallOutcome> {
+    if (!client.supported) {
+      return {
+        id,
+        state: "done",
+        ok: false,
+        tool: name,
+        attempts: 0,
+        code: "unsupported",
+        error: "document.modelContext is not available on this page",
+      };
+    }
+    const settledStatus = await ready({ waitMs });
+    let attempts = 0;
+    let lastError = "";
+    for (; attempts < HELPER_MAX_ATTEMPTS; attempts += 1) {
+      let tools: AgentNativeWebMcpTool[];
+      try {
+        tools = await list(origin);
+      } catch (error) {
+        return {
+          id,
+          state: "done",
+          ok: false,
+          tool: name,
+          attempts: attempts + 1,
+          code: "execution-failed",
+          error: error instanceof Error ? error.message : String(error),
+          ...(status() ? { status: status() } : {}),
+        };
+      }
+      const matches = tools.filter(
+        (candidate) =>
+          candidate.name === name && (!origin || candidate.origin === origin),
+      );
+      if (matches.length > 1) {
+        return {
+          id,
+          state: "done",
+          ok: false,
+          tool: name,
+          attempts: attempts + 1,
+          code: "execution-failed",
+          error: `"${name}" is exposed by multiple origins (${matches
+            .map((candidate) => candidate.origin ?? "")
+            .join(", ")}); pass { origin }`,
+          ...(status() ? { status: status() } : {}),
+        };
+      }
+      const tool = matches[0];
+      if (!tool) {
+        const current = status() ?? settledStatus;
+        const registering = current.state === "registering";
+        invalidateListing();
+        return {
+          id,
+          state: "done",
+          ok: false,
+          tool: name,
+          attempts: attempts + 1,
+          code: registering ? "registering" : "not-registered",
+          error: registering
+            ? `"${name}" is not registered yet (${current.registered}/${current.total}); call again`
+            : `"${name}" is not a tool on this page (${tools.length} listed)`,
+          status: current,
+        };
+      }
+      try {
+        const result = await client.executeListedTool(tool, args);
+        return {
+          id,
+          state: "done",
+          ok: true,
+          tool: name,
+          attempts: attempts + 1,
+          result: parseToolResult(result),
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+        if (isStaleDescriptorError(lastError)) {
+          invalidateListing();
+          continue;
+        }
+        attempts += 1;
+        break;
+      }
+    }
+    return {
+      id,
+      state: "done",
+      ok: false,
+      tool: name,
+      attempts,
+      code: "execution-failed",
+      error: lastError,
+      ...(status() ? { status: status() } : {}),
+    };
+  }
+
+  const helper: AgentNativeWebMcpPageHelper = {
+    status,
+    ready,
+    async tools(filter) {
+      if (!client.supported) return [];
+      const listed = await list();
+      return listed
+        .filter((tool) => toolMatches(tool, filter))
+        .map(summarizeTool);
+    },
+    async describe(name, origin) {
+      if (!client.supported) return undefined;
+      const listed = await list(origin);
+      return listed.find(
+        (tool) => tool.name === name && (!origin || tool.origin === origin),
+      );
+    },
+    async call(name, args = {}, callOptions) {
+      const id = `webmcp-call-${++sequence}`;
+      const waitMs = callOptions?.waitMs ?? HELPER_DEFAULT_WAIT_MS;
+      remember(id, { id, state: "pending", tool: name });
+      const promise = run(id, name, args, waitMs, callOptions?.origin)
+        .catch(
+          (error): AgentNativeWebMcpCallOutcome => ({
+            id,
+            state: "done",
+            ok: false,
+            tool: name,
+            attempts: 0,
+            code: "execution-failed",
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        )
+        .then((outcome) => {
+          remember(id, outcome);
+          return outcome;
+        });
+      const settled = await settleWithin(promise, waitMs);
+      if (settled.settled) return settled.value;
+      const current = status();
+      return {
+        id,
+        state: "pending",
+        tool: name,
+        ...(current ? { status: current } : {}),
+      };
+    },
+    result(id) {
+      return outcomes.get(id) ?? { id, state: "unknown" };
+    },
+  };
+  if (unsubscribe) helperDisposers.set(helper, unsubscribe);
+  return helper;
+}
+
+export function installAgentNativeWebMcpPageHelper(options?: {
+  document?: Document;
+}): AgentNativeWebMcpPageHelper | undefined {
+  return installPageHelper(options?.document, false);
+}
+
+function installPageHelper(
+  targetDocument: Document | undefined,
+  ownedByRegistration: boolean,
+): AgentNativeWebMcpPageHelper | undefined {
+  const host = statusHost(targetDocument);
+  if (!host) return undefined;
+  const existing = host[WEBMCP_HELPER_KEY];
+  if (isRecord(existing) && typeof existing.call === "function") {
+    return existing as unknown as AgentNativeWebMcpPageHelper;
+  }
+  const helper = createAgentNativeWebMcpPageHelper(
+    targetDocument ? { document: targetDocument } : undefined,
+  );
+  host[WEBMCP_HELPER_KEY] = helper;
+  if (ownedByRegistration) registrationOwnedHelpers.add(helper);
+  return helper;
+}
+
+export function getAgentNativeWebMcpPageHelper(
+  targetDocument?: Document,
+): AgentNativeWebMcpPageHelper | undefined {
+  const value = statusHost(targetDocument)?.[WEBMCP_HELPER_KEY];
+  return isRecord(value) && typeof value.call === "function"
+    ? (value as unknown as AgentNativeWebMcpPageHelper)
+    : undefined;
 }
 
 export interface AgentNativeWebMcpApprovalRequest {
@@ -460,6 +1116,7 @@ export interface AgentNativeWebMcpRegistrationOptions {
   commands?: AgentNativeHostCommandHandlers;
   approve?: (
     request: AgentNativeWebMcpApprovalRequest,
+    signal?: AbortSignal,
   ) => boolean | Promise<boolean>;
   maxInputChars?: number;
   maxResultChars?: number;
@@ -474,6 +1131,95 @@ export interface AgentNativeWebMcpRegistration {
   readonly registered: number;
   start(): Promise<void>;
   stop(): void;
+}
+
+interface AgentNativeServerActionManifest {
+  name: string;
+  title?: string;
+  description: string;
+  inputSchema?: Record<string, unknown>;
+  readOnly?: boolean;
+}
+
+export function createAgentNativeServerActionWebMcpRegistration(options?: {
+  document?: Document;
+  fetch?: typeof fetch;
+  excludeActionNames?: readonly string[];
+}): AgentNativeWebMcpRegistration {
+  const fetchImpl =
+    options?.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
+  return createAgentNativeWebMcpRegistration({
+    document: options?.document,
+    maxToolCount: 1_000,
+    maxDescriptionChars: 10_000,
+    commands: {
+      refreshData: ({ payload }) => {
+        const view = options?.document?.defaultView ?? window;
+        view.dispatchEvent(
+          new CustomEvent("agentNative:refresh-data", { detail: payload }),
+        );
+        return { dispatched: true };
+      },
+    },
+    actions: async () => {
+      const response = await fetchImpl(
+        agentNativePath("/_agent-native/webmcp/manifest"),
+        {
+          credentials: "same-origin",
+          headers: {
+            Accept: "application/json",
+            "X-Agent-Native-Browser-Tab": getBrowserTabId(),
+          },
+        },
+      );
+      if (!response.ok) {
+        throw new Error(`Unable to load WebMCP actions (${response.status})`);
+      }
+      const manifest =
+        (await response.json()) as AgentNativeServerActionManifest[];
+      if (!Array.isArray(manifest)) {
+        throw new Error("WebMCP action manifest must be an array");
+      }
+      const excludedActionNames = new Set(options?.excludeActionNames ?? []);
+      return manifest
+        .filter((action) => !excludedActionNames.has(action.name))
+        .map((action) => ({
+          name: action.name,
+          title: agentNativeToolTitle(action.name, action.title),
+          description: action.description,
+          ...(action.inputSchema ? { schema: action.inputSchema } : {}),
+          ...(action.readOnly ? { readOnly: true } : {}),
+          run: async (args, runtime) => {
+            const result = await fetchImpl(
+              agentNativePath(
+                `/_agent-native/webmcp/actions/${encodeURIComponent(action.name)}`,
+              ),
+              {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                  Accept: "application/json",
+                  "Content-Type": "application/json",
+                  "X-Agent-Native-Browser-Tab": getBrowserTabId(),
+                },
+                body: JSON.stringify(args),
+                ...(runtime.signal ? { signal: runtime.signal } : {}),
+              },
+            );
+            const body = await result.json();
+            if (!result.ok) {
+              throw new Error(
+                isRecord(body) && typeof body.error === "string"
+                  ? body.error
+                  : `WebMCP action failed (${result.status})`,
+              );
+            }
+            if (!action.readOnly) await runtime.refresh();
+            return body;
+          },
+        }));
+    },
+  });
 }
 
 function resolveActions(
@@ -522,7 +1268,11 @@ function sensitiveAction(action: AgentNativeClientAction): boolean {
 function actionManifest(
   action: AgentNativeClientAction,
 ): AgentNativeWebMcpActionManifest {
-  const { run: _run, ...manifest } = action;
+  const manifest = {
+    ...action,
+    title: agentNativeToolTitle(action.name, action.title),
+  };
+  delete (manifest as Partial<AgentNativeClientAction>).run;
   return manifest;
 }
 
@@ -536,6 +1286,7 @@ function actionRuntime(
   options: AgentNativeWebMcpRegistrationOptions,
   context: AgentNativeHostContext,
   session: AgentNativeHostSession,
+  signal?: AbortSignal,
 ): AgentNativeClientActionRuntime {
   const origin = options.origin ?? "agent-native-webmcp";
   const runCommand = async (command: string, payload?: unknown) => {
@@ -551,6 +1302,7 @@ function actionRuntime(
     );
   };
   return {
+    ...(signal ? { signal } : {}),
     origin,
     context,
     session,
@@ -597,16 +1349,21 @@ function serializeWebMcpResult(
 export function createAgentNativeWebMcpRegistration(
   options: AgentNativeWebMcpRegistrationOptions,
 ): AgentNativeWebMcpRegistration {
+  if (!options.document) initializeAgentNativeWebMcp();
   const modelContext = getModelContext(options.document);
   let controller: AbortController | undefined;
   let registered = 0;
   let started = false;
   let generation = 0;
+  let startPromise: Promise<void> | undefined;
+  const registrationId = Symbol("webmcp-registration");
 
-  async function start(): Promise<void> {
+  async function runStart(): Promise<void> {
     if (started || options.enabled === false || !modelContext) return;
     const startGeneration = ++generation;
+    registered = 0;
     started = true;
+    let total = 0;
     const runController =
       typeof AbortController === "undefined"
         ? undefined
@@ -635,8 +1392,15 @@ export function createAgentNativeWebMcpRegistration(
         "WebMCP tool manifest",
         options.maxManifestChars ?? DEFAULT_MANIFEST_CHARS,
       );
+      total = actions.length;
+      installPageHelper(options.document, true);
+      publishRegistrationStatus(options.document, registrationId, {
+        state: "registering",
+        registered: 0,
+        total,
+      });
       const session = createSession(options.session);
-      for (const action of actions) {
+      const registerAction = async (action: AgentNativeClientAction) => {
         if (!isActive()) return;
         if (!action?.name || !action.description) {
           throw new Error("WebMCP actions require a name and description");
@@ -672,7 +1436,7 @@ export function createAgentNativeWebMcpRegistration(
         await modelContext.registerTool(
           {
             name: action.name,
-            ...(action.title ? { title: action.title } : {}),
+            title: agentNativeToolTitle(action.name, action.title),
             description: action.description,
             inputSchema,
             annotations: {
@@ -682,7 +1446,12 @@ export function createAgentNativeWebMcpRegistration(
                 : {}),
             },
             execute: async (input, executionOptions) => {
-              if (executionOptions.signal.aborted) {
+              if (!isActive()) {
+                throw new Error(
+                  `WebMCP action "${action.name}" was unregistered`,
+                );
+              }
+              if (executionOptions?.signal?.aborted) {
                 throw new Error(`WebMCP action "${action.name}" was aborted`);
               }
               validateBoundedJson(
@@ -693,6 +1462,11 @@ export function createAgentNativeWebMcpRegistration(
               const context = options.getContext
                 ? await options.getContext()
                 : {};
+              if (!isActive()) {
+                throw new Error(
+                  `WebMCP action "${action.name}" was unregistered`,
+                );
+              }
               const request = {
                 action,
                 args: input,
@@ -701,7 +1475,7 @@ export function createAgentNativeWebMcpRegistration(
               } satisfies AgentNativeWebMcpApprovalRequest;
               if (requiresApproval) {
                 const approved = options.approve
-                  ? await options.approve(request)
+                  ? await options.approve(request, executionOptions?.signal)
                   : await (
                       options.commands?.requestApproval ??
                       options.commands?.["request-approval"]
@@ -733,12 +1507,30 @@ export function createAgentNativeWebMcpRegistration(
                     `WebMCP action "${action.name}" was not approved`,
                   );
                 }
+                if (executionOptions?.signal?.aborted) {
+                  throw new Error(`WebMCP action "${action.name}" was aborted`);
+                }
+              }
+              if (!isActive()) {
+                throw new Error(
+                  `WebMCP action "${action.name}" was unregistered`,
+                );
               }
               const result = await action.run(
                 input,
-                actionRuntime(options, context, session),
+                actionRuntime(
+                  options,
+                  context,
+                  session,
+                  executionOptions?.signal,
+                ),
               );
-              if (executionOptions.signal.aborted) {
+              if (!isActive()) {
+                throw new Error(
+                  `WebMCP action "${action.name}" was unregistered`,
+                );
+              }
+              if (executionOptions?.signal?.aborted) {
                 throw new Error(`WebMCP action "${action.name}" was aborted`);
               }
               return serializeWebMcpResult(
@@ -755,15 +1547,42 @@ export function createAgentNativeWebMcpRegistration(
         );
         if (!isActive()) return;
         registered += 1;
-      }
+        publishRegistrationStatus(options.document, registrationId, {
+          state: "registering",
+          registered,
+          total,
+        });
+      };
+      await Promise.all(actions.map(registerAction));
+      if (!isActive()) return;
+      publishRegistrationStatus(options.document, registrationId, {
+        state: "ready",
+        registered,
+        total,
+      });
     } catch (error) {
       if (!isActive()) return;
       runController?.abort();
-      registered = 0;
       started = false;
       controller = undefined;
+      publishRegistrationStatus(options.document, registrationId, {
+        state: "failed",
+        registered,
+        total,
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
+  }
+
+  function start(): Promise<void> {
+    if (startPromise) return startPromise;
+    const promise = runStart();
+    const settled = promise.finally(() => {
+      if (startPromise === settled) startPromise = undefined;
+    });
+    startPromise = settled;
+    return settled;
   }
 
   return {
@@ -780,6 +1599,8 @@ export function createAgentNativeWebMcpRegistration(
       controller = undefined;
       registered = 0;
       started = false;
+      startPromise = undefined;
+      publishRegistrationStatus(options.document, registrationId, undefined);
     },
   };
 }

@@ -1,0 +1,64 @@
+---
+title: "Diapositivas: Hablar con el Agent"
+description: "Lo que ve el agente en Diapositivas, y peticiones útiles por tarea."
+---
+
+# Hablar con el Agent
+
+El agente de Diapositivas crea, edita, importa, exporta y da estilo a las presentaciones a través de las mismas acciones que usa la interfaz, así que todo lo que puedes hacer con un clic también puedes pedirlo. Esta página cubre lo que ve automáticamente y las peticiones organizadas por tarea. Es útil tanto si eres un usuario habitual como si estás construyendo sobre Diapositivas.
+
+## Cómo ve el agente tu pantalla
+
+El agente siempre sabe qué presentación está abierta, en qué diapositiva estás y la lista completa de diapositivas de esa presentación. No tienes que decir "diapositiva 4", ya sabe qué hay ahí. Cuando estás editando en el editor visual, también ve tu selección activa: el elemento concreto en el que hiciste clic, la herramienta que estás usando y los detalles de estilo calculados, así que "hazlo más grande" actúa sobre lo que realmente seleccionaste en lugar de adivinar.
+
+El chat vive en la barra lateral para idas y venidas rápidas. Diapositivas también tiene una vista de Agent a pantalla completa para sesiones más largas con más espacio de trabajo.
+
+### Ediciones conscientes de la selección
+
+Selecciona texto en una diapositiva y haz clic en el botón **Revisar con IA** del menú de burbujas, o selecciona uno o más elementos arrastrando un recuadro y haz clic en **Enviar al agente** en la burbuja flotante, para darle al agente exactamente lo que has resaltado. "Hazlo más contundente" o "traduce solo esto" entonces actúa solo sobre tu selección, no sobre toda la diapositiva.
+
+## Peticiones útiles por tarea
+
+Cada petición de abajo se convierte en una acción real sobre tu presentación real, la misma que lee y escribe la interfaz. Aquí hay un ejemplo resuelto:
+
+<Comparison>
+
+### :blue: Tú preguntas
+
+"Genera una presentación de 10 diapositivas para un servicio de suscripción de café, el público son inversores."
+
+### :green: Qué sucede
+
+El agente planifica primero el esquema y luego transmite cada diapositiva al editor en vivo a medida que la construye, así que ves cómo la presentación va tomando forma en lugar de esperar a que llegue todo de golpe.
+
+</Comparison>
+
+<Cards columns={2}>
+
+### Generar
+
+- **"Resume este PDF como una presentación de 6 diapositivas."** Adjunta el PDF y el agente lo convierte en una presentación editable.
+- **"Convierte este Google Doc en una presentación."** La misma idea, pero empezando a partir de un Google Doc.
+
+### Editar y cambiar el estilo
+
+_Con una diapositiva abierta, "esta diapositiva" se resuelve por sí sola._
+
+- **"Añade una diapositiva de precios después de la diapositiva 3."** La nueva diapositiva aparece de inmediato en la tira de película.
+- **"Agranda el título de esta diapositiva y cambia el color de acento a verde."** El cambio se aplica en vivo a la diapositiva abierta.
+- **"Reemplaza la palabra 'clientes' por 'miembros' en toda esta presentación."** Todas las diapositivas se actualizan a la vez.
+
+### Importar y exportar
+
+- "Importa este PPTX y convierte cada diapositiva en una diapositiva editable aquí."
+- "Exporta esta presentación como PowerPoint."
+- "Prepara esto para abrirlo en Google Slides."
+
+</Cards>
+
+## Qué sigue
+
+- [**Funciones**](/docs/template-slides-features) — el editor, los sistemas de diseño y los medios sobre los que actúan estas peticiones
+- [**Diapositivas en un espacio de trabajo con varias apps**](/docs/template-slides-integrations) — envíos a la Creative Context Library y delegación a Assets desde una perspectiva entre apps
+- [**Guía para desarrolladores**](/docs/template-slides-developers) — todas las acciones mencionadas arriba
+- [**Resumen de Diapositivas**](/docs/template-slides) — de vuelta al resumen de la app

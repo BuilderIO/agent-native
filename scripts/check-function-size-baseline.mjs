@@ -1,26 +1,8 @@
 #!/usr/bin/env node
-/**
- * Fail a deploy whose serverless functions grew past their recorded size.
- *
- * The existing budget (`netlifyFunctionSizeBudget`, build.ts) is a single
- * 120MB ceiling plus allowances. It has never fired, because it was set above
- * the fleet's worst app and every app sat under it while quietly doubling —
- * docs went 59.8MB to 159.9MB inside that headroom. A ceiling nobody is near
- * measures nothing; growth from where an app actually is, does.
- *
- * This compares each emitted function against a committed per-app baseline and
- * fails on growth beyond the tolerance. An app with no baseline fails too: a
- * deploy nothing has measured is unmeasured, not small, and letting it exit 0
- * would rebuild the same "everything passes" signal this replaces. The only
- * apps allowed through unmeasured are the ones named in UNMEASURABLE_APPS, so
- * every gap is a line in the diff a reviewer can see.
- *
- * Usage:
- *   node scripts/check-function-size-baseline.mjs --site slides --dir <functions-internal>
- *   node scripts/check-function-size-baseline.mjs --site slides --dir <dir> --update
- */
 import {
   existsSync,
+  lstatSync,
+  opendirSync,
   readdirSync,
   readFileSync,
   statSync,
@@ -33,71 +15,26 @@ const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const BASELINE_FILE = path.join(
-  REPO_ROOT,
-  "scripts",
-  "serverless-function-baseline.json",
-);
+const BASELINE_FILE =
+  process.env.AGENT_NATIVE_FUNCTION_SIZE_BASELINE_FILE ||
+  path.join(REPO_ROOT, "scripts", "serverless-function-baseline.json");
 
-/**
- * Growth under this is normal drift — a dependency patch, a few new routes.
- * Above it is the shape that has actually hurt: a package tree arriving in the
- * function graph. Both bounds must be exceeded, so a small function is not
- * tripped by a rounding-scale change.
- */
 const TOLERANCE_RATIO = 1.1;
 const TOLERANCE_BYTES = 5 * 1024 * 1024;
 
-/**
- * A function the baseline has never seen fails only from here up.
- *
- * Conditionally emitted functions are ordinary: AGENT_NATIVE_ENABLE_KEEP_WARM,
- * AGENT_INTEGRATION_DURABLE_DISPATCH, AGENT_CHAT_DURABLE_BACKGROUND and
- * AGENT_NATIVE_DISABLE_RECURRING_JOBS each add or remove one, so which
- * functions exist is a property of the deploy's configuration, not a
- * regression. Failing on the name means every flag not enumerated breaks a
- * deploy. Failing on the size means the risk that motivated the check — a large
- * new payload shipping unmeasured — is still caught, and a new trigger entry
- * is just reported.
- */
 const NEW_FUNCTION_FAIL_BYTES = 5 * 1024 * 1024;
+const GENERATED_SCAN_MAX_ENTRIES = 4096;
+const GENERATED_SCAN_MAX_DEPTH = 8;
+const GENERATED_SCAN_MAX_REPORTED_FILES = 20;
+const GENERATED_PATH_SEGMENT = /^[a-zA-Z0-9_.@+-]+$/;
+const GENERATED_PATH_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/;
 
-/**
- * Apps with no recorded baseline that may still deploy, and why none exists.
- *
- * This waives only this check. It cannot rescue a deploy that failed earlier —
- * a build that never emitted functions never reaches here — so an entry means
- * exactly one thing: if this app does build, its size ships unasserted until
- * someone records a baseline.
- *
- * Both entries are here because the app could not be built locally to measure,
- * not because anything about them is unmeasurable in principle. Remove an entry
- * the moment a baseline is recorded; the app is then protected like the other
- * fifteen.
- */
 const mb = (bytes) => (bytes / 1024 / 1024).toFixed(1);
 
-/**
- * Functions emitted only when a build flag is set, so whether they exist
- * differs between a local build and a deploy. They can be neither recorded nor
- * missed reliably: baseline one and every build without the flag fails
- * "no longer emitted"; leave it out and every build with the flag fails
- * "not in baseline".
- *
- * So their absence is never a failure — but their presence still has to be
- * bounded, or the exemption becomes somewhere a payload can hide. Each entry
- * carries the ceiling that applies whenever it IS emitted:
- *
- *   bytes    a fixed ceiling, for trigger-sized entries
- *   like     the name of another function it is derived from and can never
- *            legitimately exceed
- */
 const BUILD_FLAG_GATED_FUNCTIONS = new Map([
   [
     "agent-native-keep-warm",
     {
-      // A scheduled ping, 4KB today. AGENT_NATIVE_ENABLE_KEEP_WARM=1 in the
-      // beta workflow; a plain local build does not emit it.
       bytes: 1024 * 1024,
       why: "a scheduled trigger entry, not a bundle",
     },
@@ -105,9 +42,6 @@ const BUILD_FLAG_GATED_FUNCTIONS = new Map([
   [
     "server-integration-recovery",
     {
-      // AGENT_INTEGRATION_DURABLE_DISPATCH, which no workflow sets today but a
-      // Netlify site env var can. It is a clone of the server function with the
-      // SSR island pruned, so server is the ceiling it cannot legitimately pass.
       like: "server",
       why: "a pruned clone of the server function",
     },
@@ -130,11 +64,6 @@ function gatedFunctionCap(name, measured, recorded) {
   return measured?.[rule.like] ?? recorded?.[rule.like] ?? null;
 }
 
-/**
- * Gated functions in `measured` that exceed their ceiling. Every exit path runs
- * this — including --update and the unmeasurable-app allowance — because a
- * ceiling only enforced on one path is not a ceiling.
- */
 function oversizedGatedFunctions(measured, recorded) {
   const over = [];
   for (const [name, bytes] of Object.entries(measured)) {
@@ -183,14 +112,6 @@ function arg(name) {
   return value && !value.startsWith("--") ? value : undefined;
 }
 
-/**
- * Total bytes under `dir`, or a throw.
- *
- * An unreadable entry must never be counted as zero here: this number decides
- * whether a payload grew, so a permissions or filesystem error that silently
- * shrinks the measurement is the one direction the check cannot fail in. A
- * partial measurement is not a small one.
- */
 function dirSize(dir) {
   let total = 0;
   const stack = [dir];
@@ -224,11 +145,70 @@ function dirSize(dir) {
   return total;
 }
 
+const DEPLOY_GATED_RUNTIME_PAYLOADS = [
+  {
+    relativePath: path.join("node_modules", "ffmpeg-static"),
+    reason: "bundled only when AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH matches",
+    excludeFromBaseline: false,
+  },
+];
+
+const RESVG_NATIVE_PACKAGE_NAME =
+  /^resvg-js-(?:darwin|win32|linux|android|freebsd)-[a-z0-9]+(?:-[a-z0-9]+)?$/;
+
+function deployGatedPayloads(functionDir) {
+  const found = [];
+  for (const payload of DEPLOY_GATED_RUNTIME_PAYLOADS) {
+    const payloadDir = path.join(functionDir, payload.relativePath);
+    if (!existsSync(payloadDir)) continue;
+    found.push({ ...payload, bytes: dirSize(payloadDir) });
+  }
+
+  const resvgScopeDir = path.join(functionDir, "node_modules", "@resvg");
+  if (existsSync(resvgScopeDir)) {
+    for (const entry of readdirSync(resvgScopeDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !RESVG_NATIVE_PACKAGE_NAME.test(entry.name))
+        continue;
+      const packageDir = path.join(resvgScopeDir, entry.name);
+      found.push({
+        relativePath: path.relative(functionDir, packageDir),
+        reason: "selected for the serverless runtime platform",
+        excludeFromBaseline: true,
+        bytes: dirSize(packageDir),
+      });
+    }
+  }
+
+  return found;
+}
+
 function measure(functionsDir) {
   const sizes = {};
+  const gated = [];
   for (const entry of readdirSync(functionsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    sizes[entry.name] = dirSize(path.join(functionsDir, entry.name));
+    const functionDir = path.join(functionsDir, entry.name);
+    const payloads = deployGatedPayloads(functionDir);
+    const excluded = payloads
+      .filter((payload) => payload.excludeFromBaseline)
+      .reduce((total, payload) => total + payload.bytes, 0);
+    sizes[entry.name] = dirSize(functionDir) - excluded;
+    for (const payload of payloads) {
+      gated.push({ fn: entry.name, ...payload });
+    }
+  }
+  if (gated.length > 0) {
+    console.log(
+      `\n[size-baseline] ${gated.length} deploy-gated runtime payload(s) are in this ` +
+        "build. Platform-native payloads are excluded from the comparison; the " +
+        "remaining payloads stay in the raw size:",
+    );
+    for (const item of gated) {
+      console.log(
+        `  ${item.fn}: ${item.relativePath} ${mb(item.bytes)}MB ` +
+          `(${item.reason}; ${item.excludeFromBaseline ? "excluded" : "included"})`,
+      );
+    }
   }
   return sizes;
 }
@@ -236,6 +216,160 @@ function measure(functionsDir) {
 function readBaseline() {
   if (!existsSync(BASELINE_FILE)) return {};
   return JSON.parse(readFileSync(BASELINE_FILE, "utf8"));
+}
+
+function reportGeneratedChunkInventory(functionDir) {
+  const files = [];
+  const directories = [];
+  const missingDirectories = [];
+  let entriesScanned = 0;
+  let excludedEntries = 0;
+  let excludedNonFileEntries = 0;
+  let symlinkEntriesSkipped = 0;
+  let symlinkDirectoriesSkipped = 0;
+  let entryLimitTruncated = false;
+  let depthTruncated = false;
+  let unsafePathsOmitted = false;
+
+  function scanDirectory(fullDirectory, relativeParts, depth, summary) {
+    const directory = opendirSync(fullDirectory);
+    try {
+      while (true) {
+        const entry = directory.readSync();
+        if (!entry) return;
+        if (entriesScanned >= GENERATED_SCAN_MAX_ENTRIES) {
+          entryLimitTruncated = true;
+          return;
+        }
+        entriesScanned++;
+        const fullPath = path.join(fullDirectory, entry.name);
+        const pathParts = [...relativeParts, entry.name];
+
+        if (entry.isSymbolicLink()) {
+          excludedEntries++;
+          symlinkEntriesSkipped++;
+          continue;
+        }
+
+        if (entry.isDirectory()) {
+          const directoryMetadata = lstatSync(fullPath);
+          if (directoryMetadata.isSymbolicLink()) {
+            excludedEntries++;
+            symlinkEntriesSkipped++;
+            continue;
+          }
+          if (!directoryMetadata.isDirectory()) {
+            excludedEntries++;
+            excludedNonFileEntries++;
+            continue;
+          }
+          if (depth >= GENERATED_SCAN_MAX_DEPTH) {
+            depthTruncated = true;
+            continue;
+          }
+          scanDirectory(fullPath, pathParts, depth + 1, summary);
+          continue;
+        }
+
+        if (!entry.isFile()) {
+          excludedEntries++;
+          excludedNonFileEntries++;
+          continue;
+        }
+
+        const fileMetadata = lstatSync(fullPath);
+        if (fileMetadata.isSymbolicLink()) {
+          excludedEntries++;
+          symlinkEntriesSkipped++;
+          continue;
+        }
+        if (!fileMetadata.isFile()) {
+          excludedEntries++;
+          excludedNonFileEntries++;
+          continue;
+        }
+
+        const safePath =
+          entry.name.endsWith(".mjs") &&
+          pathParts.every(
+            (segment) =>
+              segment !== "." &&
+              segment !== ".." &&
+              !segment.startsWith(".") &&
+              GENERATED_PATH_SEGMENT.test(segment) &&
+              !GENERATED_PATH_CONTROL_CHARACTERS.test(segment),
+          );
+        if (!safePath) unsafePathsOmitted = true;
+
+        files.push({
+          path: safePath ? pathParts.join("/") : null,
+          sortPath: pathParts.join("/"),
+          bytes: fileMetadata.size,
+        });
+        summary.scannedFileCount++;
+        summary.scannedFileBytes += fileMetadata.size;
+      }
+    } finally {
+      directory.closeSync();
+    }
+  }
+
+  for (const directoryName of ["_chunks", "_libs"]) {
+    const fullDirectory = path.join(functionDir, directoryName);
+    let metadata;
+    try {
+      metadata = lstatSync(fullDirectory);
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        missingDirectories.push(directoryName);
+        continue;
+      }
+      throw error;
+    }
+
+    const summary = {
+      path: directoryName,
+      scannedFileCount: 0,
+      scannedFileBytes: 0,
+    };
+    directories.push(summary);
+
+    if (entriesScanned >= GENERATED_SCAN_MAX_ENTRIES) {
+      entryLimitTruncated = true;
+      continue;
+    }
+    entriesScanned++;
+
+    if (metadata.isSymbolicLink()) {
+      excludedEntries++;
+      symlinkDirectoriesSkipped++;
+      continue;
+    }
+
+    scanDirectory(fullDirectory, [directoryName], 0, summary);
+  }
+
+  files.sort(
+    (left, right) =>
+      right.bytes - left.bytes || left.sortPath.localeCompare(right.sortPath),
+  );
+  const reported = files.slice(0, GENERATED_SCAN_MAX_REPORTED_FILES);
+  const scanTruncated =
+    entryLimitTruncated ||
+    depthTruncated ||
+    symlinkEntriesSkipped > 0 ||
+    symlinkDirectoriesSkipped > 0 ||
+    excludedNonFileEntries > 0;
+  const truncated =
+    scanTruncated || files.length > reported.length || unsafePathsOmitted;
+  console.error(
+    `[chunk-inventory] ${JSON.stringify({ scanned: files.length, scannedBytes: files.reduce((total, file) => total + file.bytes, 0), reported: reported.length, selection: "largest-within-bounded-scan", entriesScanned, maxEntries: GENERATED_SCAN_MAX_ENTRIES, maxDepth: GENERATED_SCAN_MAX_DEPTH, entryLimitTruncated, depthTruncated, excludedEntries, excludedNonFileEntries, symlinkEntriesSkipped, symlinkDirectoriesSkipped, unsafePathsOmitted, directories, missingDirectories, scanTruncated, scanComplete: !scanTruncated, truncated })}`,
+  );
+  for (const file of reported) {
+    console.error(
+      `[chunk-inventory] ${JSON.stringify({ path: file.path, pathOmitted: file.path === null, bytes: file.bytes })}`,
+    );
+  }
 }
 
 const site = arg("site");
@@ -257,9 +391,6 @@ const measured = measure(functionsDir);
 const baseline = readBaseline();
 
 if (update) {
-  // Recording is how a size becomes the thing future builds are measured
-  // against, so it must not be the way an over-ceiling gated function gets
-  // written in and normalised.
   const over = oversizedGatedFunctions(measured, baseline[site]);
   if (over.length > 0) {
     reportOversizedGated(site, over);
@@ -267,9 +398,6 @@ if (update) {
     process.exit(1);
   }
   baseline[site] = measured;
-  // Sort by rebuilding the object. JSON.stringify's second argument is a key
-  // ALLOWLIST, not a sort order — passing site names there silently drops every
-  // function entry and writes `{"slides":{}}`.
   const sorted = {};
   for (const key of Object.keys(baseline).sort()) {
     const fns = baseline[key];
@@ -293,9 +421,6 @@ if (!recorded) {
     console.log(`    ${name} ${mb(bytes)}MB`);
   }
   if (allowed) {
-    // The app-level allowance waives the baseline, never a gated function's own
-    // ceiling: an allowance is for a size nobody has measured, not a licence
-    // for one that is measured and too big.
     const over = oversizedGatedFunctions(measured, undefined);
     if (over.length > 0) {
       reportOversizedGated(site, over);
@@ -319,15 +444,12 @@ if (!recorded) {
 }
 
 const grown = [];
+const shrunk = [];
 const unrecorded = [];
 const oversizedGated = [];
 const newSmall = [];
 for (const [name, bytes] of Object.entries(measured).sort()) {
   const before = recorded[name];
-  // The ceiling applies whether or not the function is recorded. Being in the
-  // baseline would otherwise buy it the general tolerance, where both bounds
-  // must be exceeded — so a 4KB trigger entry could reach 5MB unchallenged,
-  // the opposite of what the ceiling is for.
   if (BUILD_FLAG_GATED_FUNCTIONS.has(name)) {
     const cap = gatedFunctionCap(name, measured, recorded);
     if (cap !== null && bytes > cap) {
@@ -339,13 +461,6 @@ for (const [name, bytes] of Object.entries(measured).sort()) {
     continue;
   }
   if (before === undefined) {
-    // A function the baseline has never seen is unmeasured, so it cannot be
-    // asserted — but whether that matters is a question of bytes, not of
-    // which build flag produced it. Enumerating the conditional functions was
-    // the losing version of this: there are at least five build flags that add
-    // or remove one, and every flag missed from the list breaks a deploy.
-    // Bound the thing that actually matters instead. A brand new 100MB
-    // function still cannot ship unchallenged; a new trigger entry is noise.
     if (bytes < NEW_FUNCTION_FAIL_BYTES) {
       console.log(`  new  ${name} ${mb(bytes)}MB (not in baseline, under cap)`);
       newSmall.push({ name, bytes });
@@ -360,16 +475,9 @@ for (const [name, bytes] of Object.entries(measured).sort()) {
   const label = overRatio && overBytes ? "GREW" : "ok  ";
   console.log(`  ${label} ${name} ${mb(before)}MB -> ${mb(bytes)}MB`);
   if (overRatio && overBytes) grown.push({ name, before, bytes });
+  if (before - bytes > 3 * 1024 * 1024) shrunk.push({ name, before, bytes });
 }
 
-// A function in the baseline that the build no longer emits is not a pass. It
-// is a route, cron, or background worker that silently stopped shipping, and
-// "nothing grew" is exactly the wrong thing to say about it.
-// Reported, never failed. A function is absent because a feature is switched
-// off for this deploy at least as often as because something broke, and an
-// absence is not a size regression either way. Failing here would make a
-// legitimate configuration — durable background off, recurring jobs disabled —
-// unable to deploy.
 const missing = Object.keys(recorded)
   .filter((name) => measured[name] === undefined)
   .sort();
@@ -408,6 +516,15 @@ if (grown.length > 0) {
     console.error(
       `  - ${g.name}: ${mb(g.before)}MB -> ${mb(g.bytes)}MB (+${mb(g.bytes - g.before)}MB)`,
     );
+    if (site === "chat" && g.name === "server") {
+      try {
+        reportGeneratedChunkInventory(path.join(functionsDir, g.name));
+      } catch {
+        console.error(
+          '[chunk-inventory] {"failed":true,"reason":"inventory-unavailable"}',
+        );
+      }
+    }
   }
   console.error(
     "\nEvery byte here is unzipped on each cold start, and Netlify uploads every\n" +
@@ -417,9 +534,20 @@ if (grown.length > 0) {
   );
 }
 
-// Individually under the bar, together over it. Without this, an unbounded
-// number of small unrecorded functions ships unasserted, which is the same
-// hole the per-function bar closes, arrived at by addition.
+if (shrunk.length > 0) {
+  console.error(
+    `\n[size-baseline] ${site}: function sizes fell more than 3MB below baseline:`,
+  );
+  for (const item of shrunk) {
+    console.error(
+      `  - ${item.name}: ${mb(item.before)}MB -> ${mb(item.bytes)}MB (-${mb(item.before - item.bytes)}MB)`,
+    );
+  }
+  console.error(
+    "This is a warning only. Re-record the baseline after confirming the smaller artifact is intentional.",
+  );
+}
+
 const newSmallTotal = newSmall.reduce((sum, fn) => sum + fn.bytes, 0);
 if (newSmall.length > 0) {
   console.log(

@@ -51,6 +51,14 @@ function mockAnthropicProvider() {
   return { createAnthropic, provider, anthropicModel };
 }
 
+function makeTool(name: string) {
+  return {
+    name,
+    description: name,
+    inputSchema: { type: "object" as const, properties: {} },
+  };
+}
+
 describe("AISDKEngine Anthropic thinking-budget headroom", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -127,6 +135,29 @@ describe("AISDKEngine Anthropic thinking-budget headroom", () => {
     expect(call.providerOptions.anthropic.outputConfig).toBeUndefined();
   });
 
+  it("uses adaptive thinking for Claude Haiku 5.5 with an Anthropic key", async () => {
+    const { streamText } = mockAiSdk();
+    mockAnthropicProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("anthropic", { apiKey: "key" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "claude-haiku-5-5",
+      }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    expect(call.providerOptions.anthropic.thinking).toEqual({
+      type: "adaptive",
+    });
+    expect(call.providerOptions.anthropic.outputConfig).toEqual({
+      effort: "high",
+    });
+  });
+
   it("does not add an implicit effort beside explicit Anthropic thinking", async () => {
     const { streamText } = mockAiSdk();
     mockAnthropicProvider();
@@ -190,9 +221,6 @@ describe("AISDKEngine Google Gemini thinking config", () => {
         ...BASE_STREAM_OPTIONS,
         model: "gemini-2.5-flash",
         reasoningEffort: "medium",
-        // Generous maxOutputTokens (matches the interactive chat floor) so
-        // the headroom clamp below is a no-op and the raw effort->budget
-        // mapping is what's under test here.
         maxOutputTokens: 32_000,
       }),
     );
@@ -220,9 +248,6 @@ describe("AISDKEngine Google Gemini thinking config", () => {
         ...BASE_STREAM_OPTIONS,
         model: "gemini-2.5-flash",
         reasoningEffort: "medium",
-        // Unclamped, "medium" effort maps to a 4096-token thinkingBudget —
-        // identical to this maxOutputTokens, which would leave zero tokens
-        // for the actual response (the empty-response bug this fixes).
         maxOutputTokens: 4_096,
       }),
     );
@@ -380,13 +405,6 @@ describe("AISDKEngine error tagging", () => {
     expect(clearProviderCredentialAuthFailure).not.toHaveBeenCalled();
   });
 
-  // Prod, 2026-08-26 (slides): "The saved provider key was rejected" kept
-  // returning to whoever prompted first. A 401 pins the rejected credential so
-  // the next lane serves everyone after it — but this cleanup ran after EVERY
-  // stream, error or not, so one unrelated failure (a 500, an overload, a
-  // context stop) unpinned it and the next person's first prompt paid to
-  // rediscover the same rejection. Clearing asserts the credential works, and
-  // only a turn that completed proves that.
   it("keeps the auth-failure marker when the turn ends in an unrelated error", async () => {
     const clearProviderCredentialAuthFailure = vi.fn(async () => {});
     vi.doMock("../../server/credential-provider.js", () => ({
@@ -528,6 +546,31 @@ describe("AISDKEngine OpenAI model selection", () => {
     );
   });
 
+  it("keeps an explicit first-party endpoint on the Responses API path", async () => {
+    vi.stubEnv("OPENAI_BASE_URL", "https://deploy-gateway.example/v1");
+    const { streamText } = mockAiSdk();
+    const { createOpenAI, provider, responsesModel } = mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", {
+      apiKey: "sk-test",
+      baseUrl: "https://api.openai.com/v1",
+    });
+
+    await drain(engine.stream(BASE_STREAM_OPTIONS));
+
+    expect(createOpenAI).toHaveBeenCalledWith({
+      apiKey: "sk-test",
+      baseURL: "https://api.openai.com/v1",
+      fetch: expect.any(Function),
+    });
+    expect(provider).toHaveBeenCalledWith("gpt-5.5");
+    expect(provider.chat).not.toHaveBeenCalled();
+    expect(streamText).toHaveBeenCalledWith(
+      expect.objectContaining({ model: responsesModel }),
+    );
+  });
+
   it("never reaches the deploy key when env fallback is disabled", async () => {
     vi.stubEnv("OPENAI_API_KEY", "sk-deploy");
     const { streamText } = mockAiSdk();
@@ -539,10 +582,6 @@ describe("AISDKEngine OpenAI model selection", () => {
     const events: any[] = [];
     for await (const e of engine.stream(BASE_STREAM_OPTIONS)) events.push(e);
 
-    // Previously this constructed the provider with `apiKey: ""` so the AI SDK
-    // could not read the ambient deploy key itself. That kept the deploy key
-    // out, but shipped a guaranteed-401 unauthenticated request. Failing closed
-    // keeps the deploy key out just as firmly and reports the real cause.
     expect(createOpenAI).not.toHaveBeenCalled();
     expect(streamText).not.toHaveBeenCalled();
     expect(events.find((e) => e.type === "stop")?.errorCode).toBe(
@@ -565,6 +604,7 @@ describe("AISDKEngine OpenAI model selection", () => {
     expect(createOpenAI).toHaveBeenCalledWith({
       apiKey: "sk-test",
       baseURL: "https://gateway.example/v1",
+      fetch: expect.any(Function),
     });
     expect(provider).not.toHaveBeenCalled();
     expect(provider.chat).toHaveBeenCalledWith("gpt-5.5");
@@ -572,6 +612,113 @@ describe("AISDKEngine OpenAI model selection", () => {
       expect.objectContaining({ model: chatModel }),
     );
     expect(engine.preserveCustomModels).toBe(true);
+  });
+
+  it("guards custom endpoint requests without losing Request fields", async () => {
+    const ssrfSafeFetch = vi.fn().mockResolvedValue(new Response("ok"));
+    vi.doMock("../../extensions/url-safety.js", () => ({ ssrfSafeFetch }));
+    try {
+      mockAiSdk();
+      const { createOpenAI } = mockOpenAIProvider();
+      const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+      await drain(
+        createAISDKEngine("openai", {
+          apiKey: "sk-test",
+          baseUrl: "https://gateway.example/v1",
+        }).stream(BASE_STREAM_OPTIONS),
+      );
+
+      const providerConfig = createOpenAI.mock.calls[0][0];
+      const requestFetch = providerConfig.fetch as typeof fetch;
+      const controller = new AbortController();
+      const request = new Request(
+        "https://gateway.example/v1/chat/completions",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: '{"model":"gpt-test"}',
+          signal: controller.signal,
+        },
+      );
+      await requestFetch(request, { headers: { "x-provider-test": "kept" } });
+
+      expect(ssrfSafeFetch).toHaveBeenCalledTimes(1);
+      expect(ssrfSafeFetch).toHaveBeenCalledWith(
+        "https://gateway.example/v1/chat/completions",
+        expect.objectContaining({
+          method: "POST",
+          signal: expect.any(AbortSignal),
+          duplex: "half",
+        }),
+        expect.objectContaining({
+          followRedirects: false,
+          requireDispatcher: true,
+        }),
+      );
+      const requestInit = ssrfSafeFetch.mock.calls[0][1] as RequestInit;
+      const requestSignal = requestInit.signal as AbortSignal;
+      expect(new Headers(requestInit.headers).get("x-provider-test")).toBe(
+        "kept",
+      );
+      expect(requestInit.body).toBeInstanceOf(ReadableStream);
+      controller.abort();
+      expect(requestSignal.aborted).toBe(true);
+      await expect(
+        requestFetch("https://other.example/v1/chat/completions"),
+      ).rejects.toThrow(/provider request escaped its configured origin/);
+      expect(ssrfSafeFetch).toHaveBeenCalledTimes(1);
+
+      ssrfSafeFetch.mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { location: "http://127.0.0.1/" },
+        }),
+      );
+      await expect(
+        requestFetch("https://gateway.example/v1/chat/completions"),
+      ).rejects.toThrow(/provider endpoint redirects are disabled/);
+      expect(ssrfSafeFetch).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.doUnmock("../../extensions/url-safety.js");
+      vi.resetModules();
+    }
+  });
+
+  it("keeps configured provider requests available in edge runtimes", async () => {
+    const ssrfSafeFetch = vi.fn().mockResolvedValue(new Response("ok"));
+    vi.doMock("../../extensions/url-safety.js", () => ({ ssrfSafeFetch }));
+    vi.doMock("../../shared/runtime.js", () => ({
+      isNodeRuntime: () => false,
+    }));
+    try {
+      mockAiSdk();
+      const { createOpenAI } = mockOpenAIProvider();
+      const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+      await drain(
+        createAISDKEngine("openai", {
+          apiKey: "sk-test",
+          baseUrl: "https://gateway.example/v1",
+        }).stream(BASE_STREAM_OPTIONS),
+      );
+
+      const requestFetch = createOpenAI.mock.calls[0][0].fetch as typeof fetch;
+      await requestFetch("https://gateway.example/v1/chat/completions", {
+        method: "POST",
+      });
+
+      expect(ssrfSafeFetch).toHaveBeenCalledWith(
+        "https://gateway.example/v1/chat/completions",
+        { method: "POST" },
+        expect.objectContaining({
+          followRedirects: false,
+          requireDispatcher: false,
+        }),
+      );
+    } finally {
+      vi.doUnmock("../../extensions/url-safety.js");
+      vi.doUnmock("../../shared/runtime.js");
+      vi.resetModules();
+    }
   });
 
   it("keeps arbitrary local Ollama model ids", async () => {
@@ -583,22 +730,54 @@ describe("AISDKEngine OpenAI model selection", () => {
     expect(engine.preserveCustomModels).toBe(true);
   });
 
-  // Real prod incident (Sentry AGENT-NATIVE-BROWSER-94, gpt-5.6-terra): OpenAI
-  // rejects `reasoning_effort` together with function tools on the legacy
-  // Chat Completions surface — "Function tools with reasoning_effort are not
-  // supported for <model> in /v1/chat/completions." `createProviderModel`
-  // forces Chat Completions whenever a custom baseUrl is configured (the test
-  // above), so that combination is reachable in prod whenever the app also
-  // has tools available, not just for one specific model name.
+  it("passes arbitrary OpenRouter model ids through runtime execution", async () => {
+    const { streamText } = mockAiSdk();
+    const provider = vi.fn().mockReturnValue({ id: "openrouter-model" });
+    const createOpenRouter = vi.fn().mockReturnValue(provider);
+    vi.doMock("@openrouter/ai-sdk-provider", () => ({ createOpenRouter }));
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const { normalizeModelForEngine } = await import("./registry.js");
+    const engine = createAISDKEngine("openrouter", { apiKey: "sk-or-test" });
+    const model = normalizeModelForEngine(engine, "z-ai/glm-5.3-flash");
+
+    await drain(engine.stream({ ...BASE_STREAM_OPTIONS, model }));
+
+    expect(engine.preserveCustomModels).toBe(true);
+    expect(provider).toHaveBeenCalledWith("z-ai/glm-5.3-flash");
+    expect(streamText).toHaveBeenCalled();
+  });
+
+  it("caps AI SDK provider tools at 128 and keeps tool-search", async () => {
+    const { streamText } = mockAiSdk();
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+    const tools = Array.from({ length: 129 }, (_, index) =>
+      makeTool(index === 128 ? "tool-search" : `tool-${index}`),
+    );
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        tools,
+      }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    const toolNames = Object.keys(call.tools);
+    expect(toolNames).toHaveLength(128);
+    expect(toolNames).toContain("tool-search");
+    expect(toolNames).not.toContain("tool-127");
+  });
+
   const TEST_TOOL = {
     name: "test-tool",
     description: "A test tool",
     inputSchema: { type: "object" as const, properties: {} },
   };
 
-  // Omitting the field is NOT enough: OpenAI applies the model's own default
-  // effort when `reasoning_effort` is absent and rejects the call identically.
-  // Only the explicit "none" clears it.
   it("sends reasoning effort 'none' when tools are present on a forced Chat Completions base URL", async () => {
     const { streamText } = mockAiSdk();
     mockOpenAIProvider();
@@ -665,6 +844,37 @@ describe("AISDKEngine OpenAI model selection", () => {
 
     expect(streamText).toHaveBeenCalledWith(
       expect.objectContaining({
+        providerOptions: expect.objectContaining({
+          openai: expect.objectContaining({ reasoningEffort: "medium" }),
+        }),
+      }),
+    );
+  });
+
+  it("applies reasoning effort with tools on an explicit first-party endpoint", async () => {
+    const { streamText } = mockAiSdk();
+    const { provider, responsesModel } = mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", {
+      apiKey: "sk-test",
+      baseUrl: "https://api.openai.com/v1",
+    });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        tools: [TEST_TOOL],
+        reasoningEffort: "medium",
+      }),
+    );
+
+    expect(engine.preserveCustomModels).toBe(false);
+    expect(provider).toHaveBeenCalledWith("gpt-5.5");
+    expect(provider.chat).not.toHaveBeenCalled();
+    expect(streamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: responsesModel,
         providerOptions: expect.objectContaining({
           openai: expect.objectContaining({ reasoningEffort: "medium" }),
         }),
@@ -915,11 +1125,6 @@ describe("AISDKEngine missing-credential fail-closed", () => {
     vi.unstubAllEnvs();
   });
 
-  // Production: the clips app ran `ai-sdk:openrouter` with no OPENROUTER_API_KEY.
-  // The provider factory was built with no apiKey, the SDK sent no Authorization
-  // header, and the gateway's 401 "Missing Authentication header" was classified
-  // `http_401` — a transport error naming the wrong cause, retried every 30
-  // minutes forever. 18/18 scheduled runs failed this way.
   it("fails closed with missing_credentials instead of sending an unauthenticated request", async () => {
     const { streamText } = mockAiSdk();
     const createOpenRouter = vi.fn();
@@ -937,7 +1142,6 @@ describe("AISDKEngine missing-credential fail-closed", () => {
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("missing_credentials");
     expect(stop?.error).toContain("OPENROUTER_API_KEY");
-    // The whole point: no request was ever built or sent.
     expect(createOpenRouter).not.toHaveBeenCalled();
     expect(streamText).not.toHaveBeenCalled();
   });
@@ -956,7 +1160,6 @@ describe("AISDKEngine missing-credential fail-closed", () => {
     expect(streamText).toHaveBeenCalled();
   });
 
-  // A self-hosted or local gateway may legitimately accept no credential.
   it("allows a keyless provider when a baseUrl is configured", async () => {
     const { streamText } = mockAiSdk();
     const provider = vi.fn().mockReturnValue({ id: "m" });
@@ -974,10 +1177,6 @@ describe("AISDKEngine missing-credential fail-closed", () => {
     expect(streamText).toHaveBeenCalled();
   });
 
-  // The exemption above is for a gateway you host. A PUBLIC one still needs a
-  // key, and exempting every baseUrl reopened the exact hole this guard closes:
-  // prod recorded repeated `http_401` "Missing Authentication header" against
-  // OPENROUTER_API_KEY, which reads to the user as the chat being broken.
   it.each([
     ["https://openrouter.ai/api/v1"],
     ["https://api.example.com/v1"],

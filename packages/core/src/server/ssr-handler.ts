@@ -1,30 +1,19 @@
 import { defineEventHandler } from "h3";
-/**
- * Shared SSR catch-all handler for React Router framework mode.
- *
- * Templates wire this up via:
- *
- *   // server/routes/[...page].get.ts
- *   import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
- *   export default createH3SSRHandler(
- *     () => import("virtual:react-router/server-build"),
- *   );
- *
- * The `getBuild` callback MUST live in the template's own source so Vite's
- * @react-router/dev plugin can resolve the `virtual:` module. Pulling the
- * import into core (e.g. via a re-export) puts it in node_modules where
- * Vite's SSR externalizer leaves it untouched and Node's ESM loader rejects
- * the unknown scheme — silently 302'ing every request to "/".
- */
 import { createRequestHandler } from "react-router";
 
+import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
+  resolveChunkRecoveryCacheHeaders,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
+import {
+  CHUNK_RECOVERY_PATH_SUFFIX,
+  isLegacyChunkRecoveryRequest,
+} from "../shared/route-chunk-recovery-bootstrap.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
@@ -33,12 +22,18 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
   withAgentNativeSocialImageCacheBuster,
 } from "../shared/social-meta.js";
+import { getSsrAuthRedirectScript } from "../shared/ssr-auth-redirect.js";
 import {
   getAppBasePathFromViteEnv,
   stripAppBasePath as canonicalStripAppBasePath,
 } from "./app-base-path.js";
 import { getAppOriginClientConfigScript } from "./app-origin-config.js";
 import { captureError } from "./capture-error.js";
+import {
+  frameworkSessionHintCookieName,
+  resolveAuthCookieNamespace,
+} from "./cookie-namespace.js";
+import { getFrameworkRoutePrefix } from "./framework-route-prefix.js";
 import { getPostHogClientConfigScript } from "./posthog-config.js";
 import { runWithRequestContext } from "./request-context.js";
 import {
@@ -54,6 +49,7 @@ export {
   isSsrCacheEnabled,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
+  resolveSsrNetlifyQueryVary,
   SSR_CACHE_ENV_VAR,
 } from "../shared/cache-control.js";
 
@@ -63,6 +59,67 @@ function getAppBasePath(): string {
 
 function stripAppBasePath(pathname: string): string {
   return canonicalStripAppBasePath(pathname, getAppBasePath());
+}
+
+function splitReactRouterDataPathname(pathname: string): {
+  routePath: string;
+  dataSuffix: string;
+  trailingSlash: string;
+} {
+  const trailingSlash = pathname.endsWith("/") ? "/" : "";
+  const pathWithoutTrailingSlash = trailingSlash
+    ? pathname.slice(0, -trailingSlash.length)
+    : pathname;
+  if (pathWithoutTrailingSlash.endsWith("/_.data")) {
+    return {
+      routePath: pathWithoutTrailingSlash.slice(0, -"/_.data".length),
+      dataSuffix: "/_.data",
+      trailingSlash,
+    };
+  }
+  if (pathWithoutTrailingSlash.endsWith(".data")) {
+    return {
+      routePath: pathWithoutTrailingSlash.slice(0, -".data".length),
+      dataSuffix: ".data",
+      trailingSlash,
+    };
+  }
+  return {
+    routePath: pathWithoutTrailingSlash,
+    dataSuffix: "",
+    trailingSlash,
+  };
+}
+
+function stripChunkRecoveryPathSuffix(pathname: string): string {
+  const { routePath, dataSuffix, trailingSlash } =
+    splitReactRouterDataPathname(pathname);
+  const routeHasTrailingSlash = routePath.endsWith("/");
+  const routePathWithoutTrailingSlash = routeHasTrailingSlash
+    ? routePath.slice(0, -1)
+    : routePath;
+  if (!routePathWithoutTrailingSlash.endsWith(CHUNK_RECOVERY_PATH_SUFFIX)) {
+    return pathname;
+  }
+
+  const routePathWithoutAlias =
+    routePathWithoutTrailingSlash.slice(
+      0,
+      -CHUNK_RECOVERY_PATH_SUFFIX.length,
+    ) || "/";
+  const separator =
+    routePathWithoutAlias === "/" && dataSuffix.startsWith("/")
+      ? dataSuffix.slice(1)
+      : dataSuffix;
+  const suffix = `${separator}${trailingSlash}`;
+  return routePathWithoutAlias === "/" && suffix === "/"
+    ? "/"
+    : `${routePathWithoutAlias}${suffix}`;
+}
+
+function isChunkRecoveryPath(pathname: string): boolean {
+  const { routePath } = splitReactRouterDataPathname(pathname);
+  return routePath.replace(/\/+$/, "").endsWith(CHUNK_RECOVERY_PATH_SUFFIX);
 }
 
 function stripBasePath(pathname: string, basePath: string): string {
@@ -129,7 +186,13 @@ function requestForAnonymousSsr(request: Request): Request {
 
 function prefixMountedPath(path: string, basePath: string): string {
   if (!basePath || !path.startsWith("/") || path.startsWith("//")) return path;
-  if (path === basePath || path.startsWith(`${basePath}/`)) return path;
+  const pathname = path.split(/[?#]/, 1)[0] ?? path;
+  if (
+    pathname === basePath ||
+    pathname === `${basePath}.data` ||
+    pathname.startsWith(`${basePath}/`)
+  )
+    return path;
   return `${basePath}${path}`;
 }
 
@@ -146,15 +209,6 @@ function prefixMountedHtml(html: string, basePath: string): string {
       return `url(${q}${prefixMountedPath(path, basePath)}${q})`;
     });
 
-  // React Router serializes the server-side basename into its hydration
-  // context. The request above is deliberately rendered mount-relative, so
-  // that value is normally "/" even though the browser URL is mounted at a
-  // workspace prefix such as "/analytics". If the client hydrates that
-  // context unchanged, the mounted pathname no longer matches the route tree:
-  // index redirects can stall and child pages can fall through to the 404.
-  // Keep the serialized router state consistent with the URLs we just
-  // prefixed. Template entry clients also set this defensively for older
-  // responses, but the initial hydration state must be correct at the source.
   return prefixedHtml.replace(
     /(window\.__reactRouterContext\s*=\s*\{\s*"basename"\s*:\s*)"(?:\\.|[^"\\])*"/,
     `$1${JSON.stringify(basePath)}`,
@@ -221,21 +275,6 @@ function injectDefaultSocialImageMeta(html: string, imageUrl: string): string {
   return html.slice(0, headCloseIdx) + tags.join("") + html.slice(headCloseIdx);
 }
 
-/**
- * A "not found" shell is exactly as impersonal as a 200 shell, and leaving it
- * uncached is expensive in a way that is invisible until it is not: every dead
- * link, stale bookmark, renamed slug and crawler miss re-invoked the render
- * function, and Netlify runs one request per container. Measured on
- * www.agent-native.com, `/docs/<anything>` cost ~5s and cost the SAME ~5s on
- * the very next identical request, because `no-cache` meant nothing was ever
- * stored. Those invocations draw from the account-wide concurrency pool every
- * other site shares, so one crawler walking dead links slowed unrelated apps.
- *
- * Only 404/410 join the shared policy. A 5xx is transient and must stay
- * uncacheable — pinning one at the edge for the SWR window would turn a blip
- * into an outage. 401/403 stay out because an auth-shaped response is the one
- * error that could carry viewer-specific meaning.
- */
 const CACHEABLE_ERROR_STATUSES = new Set([404, 410]);
 
 function isSsrHtmlOrDataResponse(
@@ -256,12 +295,14 @@ function isSsrHtmlOrDataResponse(
  * ┌──────────────────────────────────────────────────────────────────────────┐
  * │ SSR IS A PUBLIC, HARD-CDN-CACHED SHELL — SERVED IDENTICALLY TO EVERYONE.   │
  * │                                                                            │
- * │ Every SSR HTML / React Router `.data` response gets the same public        │
- * │ stale-while-revalidate policy for ALL visitors, authenticated or not, so   │
- * │ the edge serves one shared copy and never stampedes origin.                │
+ * │ Normal SSR HTML / React Router `.data` responses get the same public      │
+ * │ stale-while-revalidate policy for ALL visitors, authenticated or not, so  │
+ * │ the edge serves one shared copy and never stampedes origin. Recovery via │
+ * │ the fixed path or exact legacy marker revalidates in browsers and bypasses│
+ * │ CDN storage so the reload always gets the current shell.                  │
  * │                                                                            │
  * │ DO NOT reintroduce per-user / cookie-based cache variation here (no        │
- * │ `private`, no `no-store`, no `Vary: Cookie`, no "authenticated → don't     │
+ * │ `private`, no `Vary: Cookie`, no "authenticated → don't                    │
  * │ cache" branch). That makes pages uncacheable for every logged-in visitor,  │
  * │ which is slow and expensive — exactly the regression this guardrail        │
  * │ prevents. The reason it is SAFE to hard-cache is that the SSR response is  │
@@ -275,9 +316,9 @@ function isSsrHtmlOrDataResponse(
  * │ HOW LONG the shell is cached is deployment-wide and configurable through   │
  * │ AGENT_NATIVE_SSR_CACHE (see `resolveSsrCacheHeaders`), for hosts that do   │
  * │ not purge their CDN on deploy. What remains forbidden is PER-REQUEST /     │
- * │ PER-USER variation — no `private`, no `Vary: Cookie`, no per-route escape  │
- * │ hatch — because that is what poisons a shared CDN cache key. A value fixed │
- * │ for the whole deployment cannot.                                           │
+ * │ PER-USER response variation — no `private`, no `Vary: Cookie`, and no     │
+ * │ request-specific content. Recovery keeps a bounded alias and never adds  │
+ * │ arbitrary query-key variation to the normally cached shell.               │
  * └──────────────────────────────────────────────────────────────────────────┘
  *
  * The same sharing rule governs any DIAGNOSTIC header on this response. A
@@ -292,11 +333,19 @@ function applyDefaultSsrCacheHeader(
   headers: Headers,
   status: number,
   pathname: string,
+  isRecoveryAlias = false,
+  isLegacyRecovery = false,
 ) {
-  const varyByQuery =
+  const responseRequestsQueryVary =
     headers.get(SSR_QUERY_CACHE_KEY_HEADER)?.trim().toLowerCase() === "query";
   headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
+
+  // Current recovery uses one fixed path alias. Still-deployed clients use the
+  // exact legacy marker below, which varies only on that allowlisted query key.
+  // Do not cache recovery responses at the CDN: a stale alias shell can make
+  // the recovery reload repeat the same missing-chunk failure.
+  const varyByQuery = responseRequestsQueryVary;
 
   // A public shell must never set a viewer cookie or vary by credentials.
   // Preserve harmless content-negotiation dimensions such as Accept-Encoding.
@@ -319,22 +368,23 @@ function applyDefaultSsrCacheHeader(
     else headers.delete("vary");
   }
 
-  // Netlify Functions/proxies are not cached by default. Set all three cache
-  // headers: Cache-Control for browsers, CDN-Cache-Control for generic CDNs,
-  // and Netlify-CDN-Cache-Control (with durable) so Netlify's shared cache
-  // actually serves SSR HTML/.data from the edge instead of forwarding every
-  // request to origin — for every visitor, authenticated or not.
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     headers.set(name, value);
   }
-  const cacheKeyHeaders = resolveSsrCacheKeyHeaders();
-  const netlifyVary = varyByQuery
-    ? cacheKeyHeaders["netlify-vary"]
-      ? "query"
-      : undefined
-    : cacheKeyHeaders["netlify-vary"];
+  const cacheKeyHeaders = resolveSsrCacheKeyHeaders(undefined, {
+    varyByQuery,
+    varyByLegacyRecovery: isLegacyRecovery,
+  });
+  const netlifyVary = cacheKeyHeaders["netlify-vary"];
   if (netlifyVary) headers.set("netlify-vary", netlifyVary);
   else headers.delete("netlify-vary");
+  if (isRecoveryAlias || isLegacyRecovery) {
+    for (const [name, value] of Object.entries(
+      resolveChunkRecoveryCacheHeaders(),
+    )) {
+      headers.set(name, value);
+    }
+  }
 }
 
 function applyDefaultSpeculationRulesHeader(
@@ -348,44 +398,17 @@ function applyDefaultSpeculationRulesHeader(
   const contentType = headers.get("content-type")?.toLowerCase() ?? "";
   if (!contentType.includes("text/html")) return;
 
-  // Cloudflare Speed Brain injects its own Speculation-Rules header when the
-  // origin omits one. Those browser prefetches carry `Sec-Purpose: prefetch`,
-  // and Cloudflare refuses cache-ineligible dynamic pages with a 503 before
-  // the request can reach Netlify/origin. We publish an explicit no-op ruleset
-  // by default so Cloudflare does not inject its edge prefetch rules. Preserve
-  // an app-provided Speculation-Rules header above if a template deliberately
-  // owns this behavior.
   const rulesPath = prefixMountedPath(DEFAULT_SPECULATION_RULES_PATH, basePath);
   headers.set("speculation-rules", `"${rulesPath}"`);
 }
 
-/**
- * Strip document-level CSP from app HTML responses.
- *
- * Hosted templates inject framework bootstrap scripts, analytics, Sentry config,
- * and app-owned inline scripts whose exact bytes vary by build/template. Any
- * shared CSP header, even Report-Only, can block or noisily report Google Tag
- * Manager and those bootstraps. Extension iframes and webviews keep their own
- * route-specific sandboxes; normal app documents deliberately do not emit CSP.
- */
 function removeDocumentCsp(headers: Headers): void {
   headers.delete("content-security-policy");
   headers.delete("content-security-policy-report-only");
 }
 
-/**
- * Render an error message safely as a `text/plain` body.
- *
- * Vite ids its virtual modules with a leading NUL (`\0virtual:react-router/…`),
- * and those ids travel verbatim inside module-resolution error messages. One raw
- * NUL is enough for curl to refuse to print the response as text, hiding the only
- * line that says what broke. Escape the control bytes rather than deleting them:
- * the NUL is part of the real resolved id, so a reader who greps for it or pastes
- * it into a bug report must be able to see that it is there.
- */
 function textSafeErrorMessage(err: unknown): string {
   const message = String((err as { message?: unknown })?.message ?? err);
-  // C0 controls except tab, newline, and carriage return, which are real formatting.
   return message.replace(
     /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,
     (char) => {
@@ -419,6 +442,8 @@ async function rewriteMountedResponse(
   basePath: string,
   pathname: string,
   requestUrl: string,
+  isRecoveryAlias = false,
+  isLegacyRecovery = false,
 ): Promise<Response> {
   const clientConfigScript =
     [
@@ -426,11 +451,26 @@ async function rewriteMountedResponse(
       getPostHogClientConfigScript(),
       getRealtimeClientConfigScript(),
       getAppOriginClientConfigScript(),
+      pathname === "/"
+        ? getSsrAuthRedirectScript(
+            frameworkSessionHintCookieName(
+              resolveAuthCookieNamespace().frameworkCookieName,
+            ),
+            resolveAppHomePath(getAppConfig().app, getAppConfig().workspace),
+            getFrameworkRoutePrefix(),
+          )
+        : null,
     ]
       .filter(Boolean)
       .join("") || null;
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname);
+  applyDefaultSsrCacheHeader(
+    headers,
+    response.status,
+    pathname,
+    isRecoveryAlias,
+    isLegacyRecovery,
+  );
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
 
   const location = headers.get("location");
@@ -473,15 +513,14 @@ async function rewriteMountedResponse(
   );
 }
 
-/**
- * Create an h3 catch-all that hands page routes to React Router and
- * returns 404 for framework / asset paths that React Router doesn't own.
- */
-export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
+export function createH3SSRHandler(getBuild: () => unknown) {
   const handler = createRequestHandler(getBuild as any);
   return defineEventHandler(async (event) => {
     const basePath = getAppBasePath();
-    const p = stripAppBasePath(event.url.pathname);
+    const appPath = stripAppBasePath(event.url.pathname);
+    const isRecoveryAlias = isChunkRecoveryPath(appPath);
+    const isLegacyRecovery = isLegacyChunkRecoveryRequest(event.url);
+    const p = stripChunkRecoveryPathSuffix(appPath);
     if (isFrameworkOrAssetPath(p)) {
       return new Response(null, { status: 404 });
     }
@@ -489,17 +528,6 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       const request = requestForAnonymousSsr(
         requestWithPathname(event.req as Request, p, basePath),
       );
-      // SSR renders an IMPERSONAL public shell — we deliberately do NOT read the
-      // request's session/cookies here, and pin an explicitly anonymous request
-      // context. That keeps the SSR HTML/.data identical for every visitor so it
-      // can be hard-cached at the CDN for everyone (see applyDefaultSsrCacheHeader).
-      //
-      // Consequence: SSR loaders that call `getRequestUserEmail()` / `accessFilter()`
-      // always see the unauthenticated branch and render public content only. Any
-      // per-user view (private records, share-grant access, who's logged in) MUST
-      // be resolved CLIENT-SIDE after load, never baked into SSR. Do not re-pin the
-      // session here to "fix" a per-user page — that silently makes the page
-      // uncacheable and/or leaks one user's data into another's cached copy.
       const ctx = { userEmail: undefined, orgId: undefined };
       if (request.method === "HEAD") {
         const getRequest = new Request(request.url, {
@@ -519,6 +547,8 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
           basePath,
           p,
           request.url,
+          isRecoveryAlias,
+          isLegacyRecovery,
         );
       }
       return await rewriteMountedResponse(
@@ -526,12 +556,10 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
         basePath,
         p,
         request.url,
+        isRecoveryAlias,
+        isLegacyRecovery,
       );
     } catch (err) {
-      // Log the full stack server-side, but never leak it to the client.
-      // Stack traces expose file paths, library versions, and code structure
-      // that aid reconnaissance attacks. In dev we surface the message text
-      // so devtools shows something useful; in prod we return a bare 500.
       console.error("[ssr-handler] SSR error:", err);
       captureError(err, {
         route: p,

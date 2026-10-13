@@ -1,21 +1,21 @@
 #!/usr/bin/env node
-import { execFileSync } from "node:child_process";
+import { execGuardCommand } from "./lib/changed-lines.mjs";
 
-const trackedFiles = execFileSync("git", ["ls-files"], {
+const trackedFiles = execGuardCommand("git", ["ls-files"], {
   encoding: "utf8",
+  maxBuffer: 1 << 28,
 })
   .split("\n")
   .filter(Boolean);
 const deletedFiles = new Set(
-  execFileSync("git", ["diff", "--name-only", "--diff-filter=D"], {
+  execGuardCommand("git", ["diff", "--name-only", "--diff-filter=D"], {
     encoding: "utf8",
+    maxBuffer: 1 << 28,
   })
     .split("\n")
     .filter(Boolean),
 );
 
-// The repository-level Claude settings are source-controlled hook configuration,
-// not generated workspace state.
 const forbidden = trackedFiles.filter(
   (file) =>
     !deletedFiles.has(file) &&

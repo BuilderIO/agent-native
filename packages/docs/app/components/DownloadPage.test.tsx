@@ -9,8 +9,17 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const { appBasePathMock, WorkspaceAppMountResolutionError } = vi.hoisted(() => {
+  class WorkspaceAppMountResolutionError extends Error {}
+  const appBasePathMock = vi.fn((): string => {
+    throw new WorkspaceAppMountResolutionError("Workspace mount is unknown");
+  });
+  return { appBasePathMock, WorkspaceAppMountResolutionError };
+});
+
 vi.mock("@agent-native/core/client/api-path", () => ({
-  appBasePath: () => "",
+  appBasePath: appBasePathMock,
+  WorkspaceAppMountResolutionError,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -23,16 +32,31 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "downloadPage.downloadAgain": "Didn't work? Try downloading again",
       "downloadPage.checkingRelease": "Checking the latest desktop release...",
       "downloadPage.loadError": "Could not load the latest desktop installer.",
+      "downloadPage.mountError":
+        "The desktop download page could not find its workspace path. Ask your workspace admin to check the app mount configuration.",
       "downloadPage.retry": "Retry",
       "downloadPage.unavailable": "Installer unavailable for this platform",
+      "downloadPage.allPlatforms": "All platforms",
       "downloadPage.stable": "Stable",
       "downloadPage.nightly": "Nightly",
-      "downloadPage.switchToNightly": "Switch to Nightly builds",
-      "downloadPage.switchToStable": "Switch to stable builds",
       "downloadPage.runFromSource": "Or run from source",
       "downloadPage.runFromSourceBody": "Run locally.",
       "downloadPage.platforms.mac.primary": "Download for Apple Silicon",
       "downloadPage.platforms.mac.alternative": "Intel Mac",
+      "downloadPage.platforms.mac.gridPrimary": "Apple Silicon",
+      "downloadPage.platforms.mac.gridAlternative": "Intel",
+      "downloadPage.platforms.windows.primary": "Download for Windows",
+      "downloadPage.platforms.windows.alternative": "ARM64",
+      "downloadPage.platforms.windows.gridPrimary": "x64 installer",
+      "downloadPage.platforms.windows.gridAlternative": "Arm64 installer",
+      "downloadPage.platforms.linux.primary": "Download Linux archive",
+      "downloadPage.platforms.linux.appImage": "Download AppImage",
+      "downloadPage.platforms.linux.deb": "Download .deb",
+      "downloadPage.platforms.linux.gridPrimary": "x86_64",
+      "downloadPage.platforms.linux.gridAppImage": "Universal",
+      "downloadPage.platforms.linux.gridDeb": "Debian / Ubuntu",
+      "common.copyCommand": "Copy command",
+      "common.copied": "Copied",
     };
     return messages[key] ?? key;
   },
@@ -75,6 +99,7 @@ describe("DownloadPage", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    appBasePathMock.mockReturnValue("");
     window.localStorage.clear();
     Object.defineProperty(window.navigator, "userAgent", {
       configurable: true,
@@ -94,10 +119,12 @@ describe("DownloadPage", () => {
     cleanup();
     window.localStorage.clear();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
   it("switches the title and direct installer links between stable and Nightly", async () => {
+    appBasePathMock.mockReturnValue("/docs");
     render(<DownloadPage />);
 
     await waitFor(() => {
@@ -115,13 +142,12 @@ describe("DownloadPage", () => {
     expect(screen.queryByText(nightlyManifest.version)).toBeNull();
     expect(screen.queryByRole("link", { name: /GitHub/i })).toBeNull();
     expect(
-      screen.getByRole("switch").parentElement?.querySelector("span:last-child")
-        ?.className,
-    ).not.toContain("text-blue");
+      screen
+        .getByRole("radio", { name: "Stable" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
 
-    fireEvent.click(
-      screen.getByRole("switch", { name: "Switch to Nightly builds" }),
-    );
+    fireEvent.click(screen.getByRole("radio", { name: "Nightly" }));
 
     expect(
       screen.getByRole("heading", { name: "Download Agent-Native Nightly" }),
@@ -129,8 +155,13 @@ describe("DownloadPage", () => {
     expect(
       screen
         .getByRole("heading", { name: "Download Agent-Native Nightly" })
-        .querySelector("span")?.className,
-    ).toContain("text-blue-600");
+        .querySelector("span"),
+    ).toBeNull();
+    expect(
+      screen
+        .getByRole("radio", { name: "Nightly" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
     await waitFor(() => {
       expect(
         screen
@@ -139,12 +170,10 @@ describe("DownloadPage", () => {
       ).toBe(nightlyManifest.assets[0].url);
     });
     expect(fetchMock).toHaveBeenLastCalledWith(
-      "/api/desktop-latest.json?channel=nightly",
+      "/docs/api/desktop-latest.json?channel=nightly",
     );
 
-    fireEvent.click(
-      screen.getByRole("switch", { name: "Switch to stable builds" }),
-    );
+    fireEvent.click(screen.getByRole("radio", { name: "Stable" }));
 
     expect(
       screen.getByRole("heading", { name: "Download Agent-Native" }),
@@ -156,6 +185,20 @@ describe("DownloadPage", () => {
           .getAttribute("href"),
       ).toBe(productionManifest.assets[0].url);
     });
+  });
+
+  it("shows a non-retryable error when workspace mount details are unavailable", async () => {
+    appBasePathMock.mockImplementation(() => {
+      throw new WorkspaceAppMountResolutionError("Workspace mount is unknown");
+    });
+    render(<DownloadPage />);
+
+    const error = await screen.findByRole("alert");
+    expect(error.textContent).toContain(
+      "Ask your workspace admin to check the app mount configuration.",
+    );
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("shows a confirmed state and retry link after starting a download", async () => {

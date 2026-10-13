@@ -1,15 +1,3 @@
-/**
- * export-design-as-figma-svg.spec.ts
- *
- * Covers the DB-shaped branch logic (missing designId/fileId, file not
- * found, wrong file type, chromium-unavailable fallback, success shape) with
- * a mocked drizzle chain and a mocked `renderDesignToFigmaSvg`. The actual
- * render path (real headless Chromium producing real geometry) requires a
- * live browser and DB-backed design_files row — not exercised here, same
- * split as `take-design-screenshot.spec.ts` (see that file's docblock) and
- * `design-to-figma-svg.spec.ts`.
- */
-
 import { describe, expect, it, vi } from "vitest";
 
 import { buildCodeLayerProjection } from "../shared/code-layer.js";
@@ -22,7 +10,6 @@ const mockRow = {
   content: "<div>hi</div>",
 };
 
-/** Matches the `source` triple `resolveFigmaSvgNodeSelector` builds from `file`/`designId`. */
 const MOCK_SOURCE = {
   kind: "design-file" as const,
   designId: "design_1",

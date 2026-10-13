@@ -3,8 +3,8 @@ import { IconArrowLeft } from "@tabler/icons-react";
 import { Link, useParams, type LoaderFunctionArgs } from "react-router";
 
 import { BuilderImage } from "../components/builder-image";
+import { firstPartyAppUrl } from "../components/deployment-links";
 import { sitePathForLocale } from "../components/docs-locale";
-import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import {
   TemplateFinalCta,
@@ -17,19 +17,13 @@ import {
   trackEvent,
   type Template,
 } from "../components/TemplateCard";
+import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
 import enUS from "../i18n/en-US";
 import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
 
-const genericFaqCounts: Partial<Record<Template["slug"], number>> = {
-  assets: 4,
-  chat: 3,
-};
+const genericFaqCounts: Partial<Record<Template["slug"], number>> = {};
 
-const genericHeroScreenshots: Partial<Record<Template["slug"], string>> = {
-  assets:
-    "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8670a102c1f44808aa158c4a7a66f6e6",
-  chat: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc6afb337a30240e19f1e0523aaef6865",
-};
+const genericHeroScreenshots: Partial<Record<Template["slug"], string>> = {};
 
 function findTemplate(slug: string | undefined) {
   return templates.find((t) => t.slug === slug);
@@ -65,8 +59,7 @@ export const meta = ({ params }: { params: { slug?: string } }) => {
 
 function TemplateFallbackArt({ template }: { template: Template }) {
   const t = useT();
-  const screenshot =
-    genericHeroScreenshots[template.slug] ?? template.screenshot;
+  const screenshot = genericHeroScreenshots[template.slug];
 
   if (screenshot) {
     return (
@@ -82,15 +75,24 @@ function TemplateFallbackArt({ template }: { template: Template }) {
   }
 
   return (
-    <div
-      className="flex min-h-[320px] w-full items-center justify-center"
-      style={{
-        background: `linear-gradient(135deg, ${template.color}, ${template.color}22)`,
-      }}
-    >
-      <span className="rounded-xl bg-[var(--bg)]/85 px-6 py-3 text-lg font-semibold text-[var(--fg)] shadow-sm">
-        {template.name}
-      </span>
+    <div className="builder-brand-tokens relative w-full">
+      <BuilderImage
+        src={template.screenshot.dark}
+        crossOrigin="anonymous"
+        alt={t("templateCard.screenshotAlt", { name: template.name })}
+        loading="lazy"
+        decoding="async"
+        className="theme-img-dark h-auto max-h-[640px] w-full object-cover object-top"
+      />
+      <BuilderImage
+        src={template.screenshot.light}
+        crossOrigin="anonymous"
+        alt=""
+        aria-hidden="true"
+        loading="lazy"
+        decoding="async"
+        className="theme-img-light absolute inset-0 h-full w-full object-cover object-top"
+      />
     </div>
   );
 }
@@ -148,17 +150,22 @@ export default function GenericTemplatePage() {
             {t("common.freeAndOpenSource")}
           </span>
         }
-        title={t("templateDetail.title", { name: template.name })}
+        title={
+          <span className="inline-flex flex-wrap items-center gap-3">
+            {t("templateDetail.title", { name: template.name })}
+            <AppStatusBadge appId={template.slug} />
+          </span>
+        }
+        customizeTemplate={template}
         description={<p className="m-0">{description}</p>}
         headingAction={
           hasDemoUrl ? (
             <a
-              href={template.demoUrl}
+              href={firstPartyAppUrl(template.demoUrl)}
               target="_blank"
               rel="noopener noreferrer"
               className="primary-button"
-              onClick={(event) => {
-                applyFirstTouchAttributionToLink(event.currentTarget);
+              onClick={() => {
                 trackEvent("try live demo", {
                   template: template.slug,
                   location: "generic_template_page_hero",

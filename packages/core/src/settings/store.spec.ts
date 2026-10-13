@@ -1,57 +1,65 @@
-import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-let sqlite: Database.Database;
+import { createTestPglite } from "../a2a/test-pglite.js";
+
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+let originalEnv: NodeJS.ProcessEnv;
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(input.sql);
+    const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
     if (/^\s*select/i.test(input.sql)) {
-      return { rows: stmt.all(...args), rowsAffected: 0 };
+      return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
-    const info = stmt.run(...args);
+    const info = await stmt.run(...args);
     return { rows: [], rowsAffected: info.changes };
   }),
 };
 
-vi.mock("../db/client.js", () => ({
-  getDbExec: () => rawClient,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
-}));
+vi.mock("../db/client.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../db/client.js")>();
+  return { ...actual, getDbExec: () => rawClient };
+});
 
 const {
   getSetting,
+  getSettings,
   putSetting,
   deleteSetting,
   deleteSettingIfValue,
   mutateSetting,
 } = await import("./store.js");
+const { runWithRequestContext } = await import("../server/request-context.js");
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
-  sqlite.exec(`CREATE TABLE IF NOT EXISTS settings (
+beforeEach(async () => {
+  originalEnv = { ...process.env };
+  process.env.NODE_ENV = "test";
+  delete process.env.NETLIFY_FUNCTION_NAME;
+  delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+  delete process.env.LAMBDA_TASK_ROOT;
+  delete process.env.VERCEL_FUNCTION_ID;
+  delete process.env.VERCEL_REGION;
+  pglite = await createTestPglite();
+  await pglite.exec(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
-    updated_at INTEGER NOT NULL
+    updated_at BIGINT NOT NULL
   )`);
 });
 
-afterEach(() => {
-  sqlite.close();
+afterEach(async () => {
+  process.env = originalEnv;
+  await pglite.close();
   vi.clearAllMocks();
 });
 
 describe("settings store", () => {
   it("issues the poll-path index DDL on init", async () => {
-    // The first store call triggers ensureTable(), which must create the
-    // settings_updated_at_idx index so MAX(updated_at) poll queries avoid
-    // full table scans. Capture which SQL strings are executed and assert.
     const seen: string[] = [];
     const orig = rawClient.execute.getMockImplementation()!;
     rawClient.execute.mockImplementation(
@@ -67,8 +75,11 @@ describe("settings store", () => {
       rawClient.execute.mockImplementation(orig);
     }
     expect(seen).toContain(
-      "CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON settings (updated_at)",
+      "CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON public.settings (updated_at)",
     );
+    expect(
+      seen.filter((sql) => /information_schema|pg_indexes|pg_class/i.test(sql)),
+    ).toHaveLength(6);
   });
 
   it("round-trips a value via put/get", async () => {
@@ -77,9 +88,58 @@ describe("settings store", () => {
     expect(result).toEqual({ value: "dark" });
   });
 
+  it("rejects nested inline image bytes before setting writes", async () => {
+    await putSetting("safe", { nested: { enabled: true } });
+    await expect(getSetting("safe")).resolves.toEqual({
+      nested: { enabled: true },
+    });
+
+    const unsafe = {
+      nested: {
+        attachment: { type: "image", data: "data:image/png;base64,ZmFrZQ==" },
+      },
+    };
+    rawClient.execute.mockClear();
+    await expect(putSetting("unsafe", unsafe)).rejects.toThrow(/stores inline/);
+    expect(rawClient.execute).not.toHaveBeenCalled();
+
+    await expect(
+      mutateSetting("safe", () => ({ settings: unsafe })),
+    ).rejects.toThrow(/stores inline/);
+    const writes = rawClient.execute.mock.calls.filter(([input]) => {
+      const sql = typeof input === "string" ? input : input.sql;
+      return /^\s*(insert|update|delete)\b/i.test(sql);
+    });
+    expect(writes).toHaveLength(0);
+  });
+
   it("returns null for a missing key", async () => {
     const result = await getSetting("does-not-exist");
     expect(result).toBeNull();
+  });
+
+  it("throws for a corrupted (unparseable) stored value instead of reporting it missing", async () => {
+    await pglite
+      .prepare(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`)
+      .run("corrupt", "{not valid json", Date.now());
+
+    await expect(getSetting("corrupt")).rejects.toThrow(SyntaxError);
+  });
+
+  it("throws for a corrupted value already sitting in the request cache", async () => {
+    await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
+      await pglite
+        .prepare(
+          `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`,
+        )
+        .run("corrupt-cached", "{not valid json", Date.now());
+
+      await getSettings(["corrupt-cached"]);
+      rawClient.execute.mockClear();
+
+      await expect(getSetting("corrupt-cached")).rejects.toThrow(SyntaxError);
+      expect(rawClient.execute).not.toHaveBeenCalled();
+    });
   });
 
   it("deletes an existing key and returns true", async () => {
@@ -135,6 +195,46 @@ describe("settings store", () => {
     expect(await getSetting("new-counter")).toEqual({ value: 8 });
   });
 
+  it("does not write or publish a change when the updater returns the stored value", async () => {
+    const { getSettingsEmitter } = await import("./store.js");
+    const events: unknown[] = [];
+    const listener = (event: unknown) => events.push(event);
+    getSettingsEmitter().on("settings", listener);
+    try {
+      await putSetting("steady", { value: 1, nested: { a: [1, 2] } });
+      const before = await pglite.query(
+        "SELECT updated_at FROM settings WHERE key = ?",
+        ["steady"],
+      );
+      events.length = 0;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+
+      const results = await Promise.all(
+        Array.from({ length: 5 }, () =>
+          mutateSetting("steady", (current) => ({ ...current! })),
+        ),
+      );
+
+      expect(results).toEqual(
+        Array(5).fill({ value: 1, nested: { a: [1, 2] } }),
+      );
+      expect(events).toEqual([]);
+      expect(
+        (
+          await pglite.query("SELECT updated_at FROM settings WHERE key = ?", [
+            "steady",
+          ])
+        ).rows,
+      ).toEqual(before.rows);
+
+      await mutateSetting("steady", (current) => ({ ...current!, value: 2 }));
+      expect(events).toHaveLength(1);
+      expect(await getSetting("steady")).toMatchObject({ value: 2 });
+    } finally {
+      getSettingsEmitter().off("settings", listener);
+    }
+  });
+
   it("lists and isolates keys by prefix", async () => {
     await putSetting("builder-connect-pending:a", { expiresAt: 1 });
     await putSetting("builder-connect-pending:b", { expiresAt: 2 });
@@ -146,5 +246,132 @@ describe("settings store", () => {
       "builder-connect-pending:a",
       "builder-connect-pending:b",
     ]);
+  });
+
+  it("bounds and orders prefix reads when requested", async () => {
+    await putSetting("dashboard:c", { id: "c" });
+    await putSetting("dashboard:a", { id: "a" });
+    await putSetting("dashboard:b", { id: "b" });
+
+    const { listSettingsByPrefix } = await import("./store.js");
+    const rows = await listSettingsByPrefix("dashboard:", { limit: 2 });
+
+    expect(rows.map((row) => row.key)).toEqual(["dashboard:a", "dashboard:b"]);
+    expect(rawClient.execute).toHaveBeenLastCalledWith({
+      sql: expect.stringContaining("ORDER BY key ASC LIMIT ?"),
+      args: ["dashboard:%", 2],
+    });
+  });
+});
+
+it("reads settings through a supplied transaction without another connection", async () => {
+  const execute = vi.fn(async () => ({
+    rows: [{ value: '{"enabled":true}' }],
+    rowsAffected: 0,
+  }));
+  rawClient.execute.mockClear();
+  expect(await getSetting("flag", { transaction: { execute } })).toEqual({
+    enabled: true,
+  });
+  expect(execute).toHaveBeenCalledOnce();
+  expect(rawClient.execute).not.toHaveBeenCalled();
+});
+
+describe("getSettings (batched read)", () => {
+  it("reads N distinct keys in a single query", async () => {
+    await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
+      await putSetting("k1", { v: 1 });
+      await putSetting("k2", { v: 2 });
+      rawClient.execute.mockClear();
+
+      const values = await getSettings(["k1", "k2", "k3"]);
+
+      expect(values).toEqual(
+        new Map([
+          ["k1", { v: 1 }],
+          ["k2", { v: 2 }],
+          ["k3", null],
+        ]),
+      );
+      expect(rawClient.execute).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("seeds the request cache so a later getSetting costs no query, including for a missing key", async () => {
+    await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
+      await putSetting("hit", { v: 1 });
+      rawClient.execute.mockClear();
+
+      await getSettings(["hit", "miss"]);
+      rawClient.execute.mockClear();
+
+      expect(await getSetting("hit")).toEqual({ v: 1 });
+      expect(await getSetting("miss")).toBeNull();
+      expect(rawClient.execute).not.toHaveBeenCalled();
+    });
+  });
+
+  it("serves keys already in the request cache without re-querying", async () => {
+    await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
+      await putSetting("cached", { v: 1 });
+      await getSetting("cached");
+      rawClient.execute.mockClear();
+
+      const values = await getSettings(["cached"]);
+
+      expect(values).toEqual(new Map([["cached", { v: 1 }]]));
+      expect(rawClient.execute).not.toHaveBeenCalled();
+    });
+  });
+
+  it("chunks an IN-list larger than the batch size into separate queries", async () => {
+    await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
+      const keys = Array.from({ length: 501 }, (_, i) => `chunk-${i}`);
+      rawClient.execute.mockClear();
+
+      const values = await getSettings(keys);
+
+      expect(values.size).toBe(501);
+      expect([...values.values()].every((v) => v === null)).toBe(true);
+      expect(rawClient.execute).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("returns an empty map for an empty key list without querying", async () => {
+    rawClient.execute.mockClear();
+    expect(await getSettings([])).toEqual(new Map());
+    expect(rawClient.execute).not.toHaveBeenCalled();
+  });
+
+  it("isolates a corrupted key's JSON from the rest of the batch", async () => {
+    await putSetting("good", { v: 1 });
+    await pglite
+      .prepare(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`)
+      .run("corrupt", "{not valid json", Date.now());
+
+    const values = await getSettings(["good", "corrupt"]);
+
+    expect(values).toEqual(
+      new Map([
+        ["good", { v: 1 }],
+        ["corrupt", null],
+      ]),
+    );
+  });
+
+  it("bypasses and does not populate the request cache when bypassCache is set", async () => {
+    await pglite
+      .prepare(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`)
+      .run("k", JSON.stringify({ v: 1 }), Date.now());
+
+    await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
+      rawClient.execute.mockClear();
+
+      await getSettings(["k"], { bypassCache: true });
+      rawClient.execute.mockClear();
+
+      await getSetting("k");
+      expect(rawClient.execute).toHaveBeenCalledTimes(1);
+    });
   });
 });

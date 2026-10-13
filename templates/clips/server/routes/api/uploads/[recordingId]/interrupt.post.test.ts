@@ -41,8 +41,8 @@ vi.mock("@agent-native/core/application-state", () => ({
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
-vi.mock("@agent-native/core/feature-flags", () => ({
-  isFeatureFlagEnabled: (...args: unknown[]) =>
+vi.mock("../../../../lib/recording-policy.js", () => ({
+  getUploadRecoveryPolicy: (...args: unknown[]) =>
     mockIsFeatureFlagEnabled(...args),
 }));
 vi.mock("@agent-native/core/server", () => ({
@@ -69,6 +69,12 @@ vi.mock("../../../../lib/recordings.js", () => ({
     orgId: "org-1",
   }),
   ownerEmailMatches: () => "owner-match",
+}));
+vi.mock("../../../../lib/upload-lease.js", () => ({
+  isParkedForStorage: (row: {
+    status: string;
+    failureReason?: string | null;
+  }) => row.status === "uploading" && Boolean(row.failureReason),
 }));
 vi.mock("./abort.post.js", () => ({
   default: (...args: unknown[]) => mockAbortUpload(...args),
@@ -136,6 +142,91 @@ describe("/api/uploads/:recordingId/interrupt route", () => {
         bytesReceived: 7_864_320,
         interruptionDetail: "TypeError: Load failed",
       }),
+    );
+  });
+
+  it("leaves a storage-parked upload untouched after a delayed interruption", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        failureReason: "Waiting for storage setup",
+        videoUrl: null,
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+    ];
+    mockBody.value = {
+      detail: "Video storage status was unavailable (503)",
+      attemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: true,
+      recordingId: "rec-1",
+      status: "uploading",
+      parkedForStorage: true,
+    });
+
+    expect(mockUpdateSets).toHaveLength(0);
+    expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
+    expect(mockReadAppState).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("redacts HTML response bodies while preserving the failure code", async () => {
+    mockBody.value = {
+      detail:
+        "Upload failed: <!DOCTYPE html><html>private proxy content</html>",
+      failureCode: "chunk_html_error",
+      failureStage: "chunk_upload",
+      httpStatus: 502,
+    };
+
+    await handler({} as any);
+
+    expect(mockUpdateSets).toEqual([
+      expect.objectContaining({
+        status: "failed",
+        failureCode: "chunk_html_error",
+        failureReason:
+          "Upload was interrupted. The local recording is safe; retry from the Clips desktop app. Last error: Upload returned an HTML error response.",
+      }),
+    ]);
+    expect(mockCompareAndSetAppState).toHaveBeenCalledWith(
+      "recording-upload-rec-1",
+      expect.any(Object),
+      expect.objectContaining({
+        interruptionDetail: "Upload returned an HTML error response.",
+      }),
+    );
+    expect(JSON.stringify(mockUpdateSets)).not.toContain(
+      "private proxy content",
+    );
+    expect(JSON.stringify(mockCompareAndSetAppState.mock.calls)).not.toContain(
+      "private proxy content",
+    );
+  });
+
+  it("redacts an HTML body even when the caller omits classification", async () => {
+    mockBody.value = {
+      detail:
+        "Upload failed: <!DOCTYPE html><html>private proxy content</html>",
+    };
+
+    await handler({} as any);
+
+    expect(mockUpdateSets).toEqual([
+      expect.objectContaining({
+        failureCode: "chunk_html_error",
+        failureReason: expect.stringContaining(
+          "Last error: Upload returned an HTML error response.",
+        ),
+      }),
+    ]);
+    expect(JSON.stringify(mockUpdateSets)).not.toContain(
+      "private proxy content",
     );
   });
 

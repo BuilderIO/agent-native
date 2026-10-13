@@ -144,7 +144,7 @@ export function WorkspaceTemplateCard({
       const message = (result as { message?: string } | null)?.message;
       if (mode === "builder") {
         toast.success(labels.remixSuccess);
-      } else if (mode === "builder-unavailable") {
+      } else if (mode === "builder-unavailable" || mode === "app-id-taken") {
         toast.error(message || labels.remixError);
       } else if (mode === "coming-soon") {
         toast.info(message || labels.remixSuccess);

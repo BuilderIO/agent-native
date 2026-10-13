@@ -55,7 +55,7 @@ export async function executeConnectorProviderRequest(
     const status = response.status ?? "unknown";
     const detail = response.text ?? response.json ?? response.statusText ?? "";
     throw new Error(
-      `Provider request failed (${String(status)}): ${brief(detail)}`,
+      `Provider request failed (${String(status as string | number | boolean)}): ${brief(detail)}`,
     );
   }
   if (response.json !== undefined) return response.json;

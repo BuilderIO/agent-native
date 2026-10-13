@@ -3,6 +3,11 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import {
+  type FrameElementTarget,
+  frameElementTarget,
+  type PortableStyleSnapshotRead,
+} from "@/components/design/multi-screen/read-portable-style-snapshot";
+import {
   getDesignClipboardTrustToken,
   plainTextFromDesignHtml,
   writeDesignClipboard,
@@ -14,6 +19,7 @@ import type {
 import { serializeDesignClipboardPayload } from "@/lib/design-import";
 import { resolveClipboardLayerSourceHtml } from "@/pages/design-editor/clipboard-layer-source";
 import { preserveClipboardLayerName } from "@/pages/design-editor/clone-and-pen-edit";
+import { preferredCodeLayerSelector } from "@/pages/design-editor/code-layer-state";
 import type {
   CanvasLayerClipboardEntry,
   LiveScreenSnapshot,
@@ -39,10 +45,40 @@ export interface CopySelectionArgs {
   overviewScreens: OverviewScreen[];
   overviewSelectedScreenIds: string[];
   pasteCascadeRef: RefObject<number>;
+  readPortableStyleSnapshot: (
+    screenId: string,
+    target: FrameElementTarget,
+  ) => PortableStyleSnapshotRead;
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
   setHasCanvasClipboard: Dispatch<SetStateAction<boolean>>;
   t: (key: string, options?: Record<string, unknown>) => string;
   viewModeRef: RefObject<"single" | "overview">;
+}
+
+function portableStylesForClipboard(
+  snapshot: SelectedCanvasLayerSnapshot,
+  readPortableStyleSnapshot: CopySelectionArgs["readPortableStyleSnapshot"],
+): Pick<
+  CanvasLayerClipboardEntry,
+  "portableStyleSnapshot" | "styleSnapshotCaptureFailed"
+> {
+  if (snapshot.portableStyleSnapshot || snapshot.styleSnapshotCaptureFailed) {
+    return {
+      portableStyleSnapshot: snapshot.portableStyleSnapshot,
+      styleSnapshotCaptureFailed: snapshot.styleSnapshotCaptureFailed,
+    };
+  }
+  const read = readPortableStyleSnapshot(
+    snapshot.sourceFileId,
+    frameElementTarget(preferredCodeLayerSelector(snapshot.node), snapshot),
+  );
+  if (read.status === "captured") {
+    return { portableStyleSnapshot: read.snapshot };
+  }
+  if (read.status === "failed" || snapshot.styleSnapshotReadOnDemand) {
+    return { styleSnapshotCaptureFailed: true };
+  }
+  return {};
 }
 
 export async function runCopySelection({
@@ -60,24 +96,21 @@ export async function runCopySelection({
   overviewScreens,
   overviewSelectedScreenIds,
   pasteCascadeRef,
+  readPortableStyleSnapshot,
   runtimeLayerSnapshotsById,
   setHasCanvasClipboard,
   t,
   viewModeRef,
 }: CopySelectionArgs) {
-  const entries = getSelectedLayerSnapshots().map((snapshot) => ({
+  const snapshots = getSelectedLayerSnapshots();
+  const entries: CanvasLayerClipboardEntry[] = snapshots.map((snapshot) => ({
     html: preserveClipboardLayerName(snapshot.html, snapshot.node.layerName),
     rootNodeId: snapshot.rootNodeId,
+    sourceParentNodeId: snapshot.sourceParentNodeId,
     sourceFileId: snapshot.sourceFileId,
-    portableStyleSnapshot: snapshot.portableStyleSnapshot,
+    ...portableStylesForClipboard(snapshot, readPortableStyleSnapshot),
     managedStyleSnapshot: snapshot.managedStyleSnapshot,
   }));
-  // Whole-screen copy (U6): getSelectedLayerSnapshots explicitly excludes
-  // file/screen ids from layer candidates, so selecting one or more whole
-  // screens/frames in the overview and pressing Cmd+C previously produced
-  // zero entries and silently no-opped, leaving the clipboard unchanged.
-  // Fall back to screen-level snapshots (full file content + geometry) when
-  // there is no deeper layer selection to copy.
   const screens: DesignClipboardPayload["screens"] =
     entries.length === 0 && viewModeRef.current === "overview"
       ? overviewSelectedScreenIds
@@ -113,7 +146,9 @@ export async function runCopySelection({
             Boolean(entry),
           )
       : [];
-  if (entries.length === 0 && screens.length === 0) return false;
+  if (entries.length === 0 && screens.length === 0) {
+    return { copied: false, written: false };
+  }
   const copiedHtml =
     entries.length > 0
       ? entries.map((entry) => entry.html).join("\n")
@@ -123,10 +158,6 @@ export async function runCopySelection({
       ? entries.map((entry) => entry.html)
       : screens.map((screen) => screen.content),
   );
-  // The lossless layer payload stays in text/html while text/plain contains
-  // only readable content. This mirrors Figma's clipboard behavior: Design
-  // can round-trip structure across tabs without dumping source and marker
-  // data into ordinary text destinations.
   const clipboardHtml = serializeDesignClipboardPayload(
     copiedHtml,
     {
@@ -143,14 +174,13 @@ export async function runCopySelection({
   lastWrittenClipboardPlainTextRef.current = plainText;
   pasteCascadeRef.current = 0;
   setHasCanvasClipboard(true);
+  const writePromise = writeDesignClipboard({ plainText, html: clipboardHtml });
+  let written = false;
   try {
-    await writeDesignClipboard({ plainText, html: clipboardHtml });
+    await writePromise;
+    written = true;
   } catch {
-    // The OS clipboard write failing is tolerated: the in-memory refs
-    // above are already populated, so in-app cut-then-paste still works.
-    // Only the true "nothing was captured at all" case (the early return
-    // above) should abort a cut (see U15).
     toast.error(t("designEditor.toasts.clipboardBlocked"));
   }
-  return true;
+  return { copied: true, written };
 }

@@ -1,11 +1,7 @@
 import type { DbExec } from "../db/client.js";
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec, retryOnDdlRace } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import {
   assertValidComputerCommandEnvelope,
   ComputerSupervisionError,
@@ -50,7 +46,7 @@ let _initPromise: Promise<void> | undefined;
 
 export async function ensureComputerApprovalStore(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `CREATE TABLE IF NOT EXISTS integration_computer_approvals (
   id TEXT PRIMARY KEY,
   owner_email TEXT NOT NULL,
@@ -64,13 +60,13 @@ export async function ensureComputerApprovalStore(): Promise<void> {
   status TEXT NOT NULL,
   decision_result_json TEXT,
   decided_by TEXT,
-  decided_at ${intType()},
-  expires_at ${intType()} NOT NULL,
-  consumed_at ${intType()},
-  created_at ${intType()} NOT NULL,
-  updated_at ${intType()} NOT NULL
+  decided_at BIGINT,
+  expires_at BIGINT NOT NULL,
+  consumed_at BIGINT,
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL
 )`;
-      if (isPostgres()) {
+      {
         await ensureTableExists("integration_computer_approvals", createSql);
         await ensureIndexExists(
           "idx_computer_approvals_owner",
@@ -98,6 +94,7 @@ export async function ensureComputerApprovalStore(): Promise<void> {
       _initPromise = undefined;
       throw error;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }
@@ -262,11 +259,6 @@ export async function listComputerApprovalsForOwner(input: {
   return rows.map((row) => rowToApproval(row as Record<string, unknown>));
 }
 
-/**
- * Authorizes an operation immediately before it is enqueued. Callers should
- * pass their transaction handle so one-shot approval consumption and command
- * insertion commit atomically.
- */
 export async function authorizeComputerOperation(
   input: {
     ownerEmail: string;

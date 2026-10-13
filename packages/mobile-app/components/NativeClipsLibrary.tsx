@@ -1,3 +1,4 @@
+import { useFocusEffect } from "@react-navigation/native";
 import {
   IconArrowLeft,
   IconCamera,
@@ -11,7 +12,6 @@ import {
   IconUsers,
   IconVideo,
 } from "@tabler/icons-react-native";
-import { useFocusEffect, useRouter } from "expo-router";
 import { useVideoPlayer } from "expo-video";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -52,6 +52,7 @@ import {
 } from "@/lib/clips-library";
 import { getClipsSession } from "@/lib/clips-session";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
+import { useMobileNavigation } from "@/lib/navigation";
 import { useTabBarLayout } from "@/lib/tab-bar-layout";
 
 interface NativeClipsLibraryProps {
@@ -711,7 +712,7 @@ export default function NativeClipsLibrary({
   const { mutedForeground, primaryForeground, errorText } =
     useMobileThemeColors();
   const { contentInset } = useTabBarLayout();
-  const router = useRouter();
+  const navigation = useMobileNavigation();
   const [view, setView] = useState<ClipsLibraryView>("library");
   const [recordings, setRecordings] = useState<NativeClipSummary[]>([]);
   const [searchResults, setSearchResults] = useState<
@@ -832,7 +833,7 @@ export default function NativeClipsLibrary({
           </View>
         ) : (
           <EmptyLibrary
-            onRecord={() => router.push("/capture/video" as never)}
+            onRecord={() => navigation.push("/capture/video")}
             searching={searchResults !== null}
             view={view}
           />
@@ -855,7 +856,7 @@ export default function NativeClipsLibrary({
             <Pressable
               accessibilityLabel="Record a new clip"
               accessibilityRole="button"
-              onPress={() => router.push("/capture/video" as never)}
+              onPress={() => navigation.push("/capture/video")}
               className="flex-row items-center gap-1.75 bg-primary rounded-xl px-3.5 h-10.5 active:opacity-75"
             >
               <IconCamera color={primaryForeground} size={17} strokeWidth={2} />

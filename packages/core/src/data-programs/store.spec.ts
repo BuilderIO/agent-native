@@ -1,13 +1,7 @@
-/**
- * Store tests for the data-programs primitive. Uses a real in-memory
- * better-sqlite3 database (via `drizzle-orm/better-sqlite3`) wired in place
- * of `../db/client.js` / `../db/create-get-db.js`, mirroring the pattern in
- * `../sharing/restricted-sharing.spec.ts` and `../extensions/store.spec.ts`.
- */
-
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { createTestPglite } from "../a2a/test-pglite.js";
 
 interface FrameworkClient {
   execute(arg: string | { sql: string; args: any[] }): Promise<{
@@ -16,21 +10,23 @@ interface FrameworkClient {
   }>;
 }
 
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let drizzleDb: ReturnType<typeof drizzle>;
 let sharedClient: FrameworkClient;
 
-function makeClient(db: Database.Database): FrameworkClient {
+function makeClient(
+  db: Awaited<ReturnType<typeof createTestPglite>>,
+): FrameworkClient {
   return {
     async execute(arg) {
       const sql = typeof arg === "string" ? arg : arg.sql;
       const args = typeof arg === "string" ? [] : (arg.args ?? []);
-      const stmt = db.prepare(sql);
+      const stmt = await db.prepare(sql);
       if (/^\s*select/i.test(sql)) {
-        const rows = stmt.all(...args) as any[];
+        const rows = (await stmt.all(...args)) as any[];
         return { rows, rowsAffected: 0 };
       }
-      const result = stmt.run(...args);
+      const result = await stmt.run(...args);
       return { rows: [], rowsAffected: Number(result.changes ?? 0) };
     },
   };
@@ -38,9 +34,7 @@ function makeClient(db: Database.Database): FrameworkClient {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => sharedClient,
-  getDialect: () => "sqlite",
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
 }));
 
@@ -55,15 +49,15 @@ vi.mock("../sharing/registry.js", async () => {
   return actual;
 });
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
-  drizzleDb = drizzle(sqlite);
-  sharedClient = makeClient(sqlite);
+beforeEach(async () => {
+  pglite = await createTestPglite();
+  drizzleDb = drizzle(pglite.db);
+  sharedClient = makeClient(pglite);
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.resetModules();
-  sqlite.close();
+  await pglite.close();
 });
 
 async function loadStore() {
@@ -76,17 +70,21 @@ describe("data-programs/store", () => {
       const { ensureDataProgramTables } = await loadStore();
       await ensureDataProgramTables();
 
-      const tables = sqlite
-        .prepare(`SELECT name FROM sqlite_master WHERE type='table'`)
-        .all() as Array<{ name: string }>;
+      const tables = (await pglite
+        .prepare(
+          `SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public'`,
+        )
+        .all()) as Array<{ name: string }>;
       const names = tables.map((t) => t.name);
       expect(names).toContain("data_programs");
       expect(names).toContain("data_program_shares");
       expect(names).toContain("data_program_runs");
 
-      const runColumns = sqlite
-        .prepare(`PRAGMA table_info(data_program_runs)`)
-        .all() as Array<{ name: string }>;
+      const runColumns = (await pglite
+        .prepare(
+          `SELECT column_name AS name FROM information_schema.columns WHERE table_name = 'data_program_runs'`,
+        )
+        .all()) as Array<{ name: string }>;
       expect(runColumns.map((c) => c.name)).toContain("truncated");
     });
 
@@ -129,7 +127,9 @@ describe("data-programs/store", () => {
       expect(created.refreshMode).toBe("ttl");
       expect(created.refreshTtlMs).toBe(300_000);
 
-      const fetched = await getDataProgram(created.id);
+      const fetched = await getDataProgram(created.id, appId, {
+        userEmail: owner,
+      });
       expect(fetched?.name).toBe("risk-cohort");
       expect(fetched?.title).toBe("Risk Cohort");
       expect(fetched?.appId).toBe(appId);
@@ -210,6 +210,35 @@ describe("data-programs/store", () => {
       expect(mine.map((p) => p.name)).toEqual(["mine"]);
     });
 
+    it("does not read or archive another owner's program", async () => {
+      const {
+        ensureDataProgramTables,
+        upsertDataProgram,
+        getDataProgram,
+        archiveDataProgram,
+      } = await loadStore();
+      await ensureDataProgramTables();
+      const row = await upsertDataProgram({
+        appId,
+        name: "private-program",
+        title: "Private program",
+        code: "emit([])",
+        ownerEmail: owner,
+      });
+
+      await expect(
+        getDataProgram(row.id, appId, { userEmail: "other@example.com" }),
+      ).resolves.toBeNull();
+      await expect(
+        archiveDataProgram(row.id, appId, {
+          userEmail: "other@example.com",
+        }),
+      ).resolves.toBe(false);
+      await expect(
+        getDataProgram(row.id, appId, { userEmail: owner }),
+      ).resolves.toMatchObject({ archivedAt: null });
+    });
+
     it("excludes archived programs from listDataPrograms by default", async () => {
       const {
         ensureDataProgramTables,
@@ -226,7 +255,7 @@ describe("data-programs/store", () => {
         code: "emit([])",
         ownerEmail: owner,
       });
-      await archiveDataProgram(row.id);
+      await archiveDataProgram(row.id, appId, { userEmail: owner });
 
       const active = await listDataPrograms(appId, { userEmail: owner });
       expect(active).toEqual([]);
@@ -256,10 +285,12 @@ describe("data-programs/store", () => {
         code: "emit([])",
         ownerEmail: owner,
       });
-      const archived = await archiveDataProgram(row.id);
+      const archived = await archiveDataProgram(row.id, appId, {
+        userEmail: owner,
+      });
       expect(archived).toBe(true);
 
-      const still = await getDataProgram(row.id);
+      const still = await getDataProgram(row.id, appId, { userEmail: owner });
       expect(still).not.toBeNull();
       expect(still?.archivedAt).not.toBeNull();
     });
@@ -267,7 +298,11 @@ describe("data-programs/store", () => {
     it("archiveDataProgram returns false for an unknown id", async () => {
       const { ensureDataProgramTables, archiveDataProgram } = await loadStore();
       await ensureDataProgramTables();
-      expect(await archiveDataProgram("dp_does_not_exist")).toBe(false);
+      expect(
+        await archiveDataProgram("dp_does_not_exist", appId, {
+          userEmail: owner,
+        }),
+      ).toBe(false);
     });
 
     it("archiveDataProgram scopes deletes by appId when provided", async () => {
@@ -287,15 +322,21 @@ describe("data-programs/store", () => {
         ownerEmail: owner,
       });
 
-      await expect(archiveDataProgram(row.id, "other-app")).resolves.toBe(
-        false,
-      );
-      await expect(getDataProgram(row.id)).resolves.toMatchObject({
+      await expect(
+        archiveDataProgram(row.id, "other-app", { userEmail: owner }),
+      ).resolves.toBe(false);
+      await expect(
+        getDataProgram(row.id, appId, { userEmail: owner }),
+      ).resolves.toMatchObject({
         archivedAt: null,
       });
 
-      await expect(archiveDataProgram(row.id, appId)).resolves.toBe(true);
-      await expect(getDataProgram(row.id)).resolves.toMatchObject({
+      await expect(
+        archiveDataProgram(row.id, appId, { userEmail: owner }),
+      ).resolves.toBe(true);
+      await expect(
+        getDataProgram(row.id, appId, { userEmail: owner }),
+      ).resolves.toMatchObject({
         appId,
         archivedAt: expect.any(String),
       });
@@ -305,10 +346,6 @@ describe("data-programs/store", () => {
       const { ensureDataProgramTables, upsertDataProgram } = await loadStore();
       await ensureDataProgramTables();
 
-      // Directly seed the count check via repeated creates would be slow —
-      // instead, exercise the cap logic by inserting one program then
-      // asserting the count-based query path with a tiny cap-equivalent
-      // scenario: create one, then update it repeatedly (should never throw).
       const row = await upsertDataProgram({
         appId,
         name: "only-one",

@@ -13,7 +13,6 @@ function safeKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9_-]/g, "");
 }
 
-/** GET /_agent-native/settings/:key */
 export const getSettingHandler = defineEventHandler(async (event: H3Event) => {
   const key = safeKey(String(getRouterParam(event, "key")));
   const value = await getSetting(key);
@@ -24,7 +23,6 @@ export const getSettingHandler = defineEventHandler(async (event: H3Event) => {
   return value;
 });
 
-/** PUT /_agent-native/settings/:key */
 export const putSettingHandler = defineEventHandler(async (event: H3Event) => {
   const key = safeKey(String(getRouterParam(event, "key")));
   const body = await readBody(event);
@@ -33,7 +31,6 @@ export const putSettingHandler = defineEventHandler(async (event: H3Event) => {
   return body;
 });
 
-/** DELETE /_agent-native/settings/:key */
 export const deleteSettingHandler = defineEventHandler(
   async (event: H3Event) => {
     const key = safeKey(String(getRouterParam(event, "key")));

@@ -1,5 +1,5 @@
-import { CodeSurface } from "@agent-native/core/blocks";
 import { docsUrl } from "@agent-native/core/shared";
+import { CodeSurface } from "@agent-native/toolkit/app/blocks";
 import {
   IconAlertTriangle,
   IconBug,
@@ -346,7 +346,6 @@ function IssueListSkeleton() {
   );
 }
 
-/** Issue titles are "Type: message"; the type is shown as a badge already. */
 function stripTypePrefix(title: string, type: string): string {
   const prefix = `${type}: `;
   return title.startsWith(prefix) ? title.slice(prefix.length) : title;

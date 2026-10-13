@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SqlPanel } from "../../app/pages/adhoc/sql-dashboard/types";
 
@@ -90,6 +90,10 @@ beforeEach(() => {
   mocks.renderReportChartSvg.mockReturnValue(
     "<svg xmlns='http://www.w3.org/2000/svg'/>",
   );
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("fetchReportPanelData", () => {
@@ -341,6 +345,7 @@ describe("fetchReportPanelData", () => {
     expect(data.get("slow")).toEqual({
       status: "query-failed",
       message: "Panel query timed out after 0s",
+      timedOut: true,
     });
     expect(data.get("fast")).toEqual({
       status: "rows",
@@ -463,7 +468,7 @@ describe("renderReportEmail", () => {
           "x",
           {
             status: "rows" as const,
-            rows: [{ name: "<img src=x onerror=alert(1)>" }],
+            rows: [{ name: "<img src=x onerror=alert(1)> | second\nline" }],
             schema: [],
           },
         ],
@@ -474,6 +479,9 @@ describe("renderReportEmail", () => {
     expect(rendered.html).not.toContain("<img src=x");
     expect(rendered.html).toContain("&lt;script&gt;");
     expect(rendered.html).toContain("&lt;img src=x onerror=alert(1)&gt;");
+    expect(rendered.text).toContain(
+      "<img src=x onerror=alert(1)> \\| second line",
+    );
   });
 
   it("only emits http(s) hrefs for link columns", async () => {
@@ -554,6 +562,53 @@ describe("renderReportEmail", () => {
     expect(chartInput.labels).toEqual(["2026-07-01", "2026-07-02"]);
     expect(chartInput.series).toEqual([
       { label: "signups", data: [3, 5], color: expect.any(String) },
+    ]);
+  });
+
+  it("pads finite dashboard ranges in email charts through today", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00Z"));
+    const dailyPanel = panel({
+      id: "daily",
+      chartType: "line",
+      config: {
+        pivot: { xKey: "date", seriesKey: "template", valueKey: "visitors" },
+      },
+    });
+
+    await renderReportEmail({
+      snapshot: {
+        ...snapshotOf([dailyPanel]),
+        filters: { f_timeRange: "5d" },
+      },
+      panelData: new Map([
+        [
+          "daily",
+          {
+            status: "rows" as const,
+            rows: [
+              { date: "2026-07-03", template: "content", visitors: 1 },
+              { date: "2026-07-04", template: "content", visitors: 4 },
+            ],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    const chartInput = mocks.renderReportChartSvg.mock.calls[0][0] as {
+      labels: string[];
+      series: Array<{ label: string; data: Array<number | null> }>;
+    };
+    expect(chartInput.labels).toEqual([
+      "2026-07-01",
+      "2026-07-02",
+      "2026-07-03",
+      "2026-07-04",
+      "2026-07-05",
+    ]);
+    expect(chartInput.series).toEqual([
+      { label: "content", data: [0, 0, 1, 4, 0], color: expect.any(String) },
     ]);
   });
 
@@ -639,13 +694,18 @@ describe("renderReportEmail", () => {
 
   it("pivots table panels the way the dashboard does", async () => {
     const rendered = await renderReportEmail({
-      snapshot: snapshotOf([
-        panel({
-          id: "pivoted",
-          chartType: "table",
-          config: { pivot: { xKey: "day", seriesKey: "team", valueKey: "n" } },
-        }),
-      ]),
+      snapshot: {
+        ...snapshotOf([
+          panel({
+            id: "pivoted",
+            chartType: "table",
+            config: {
+              pivot: { xKey: "day", seriesKey: "team", valueKey: "n" },
+            },
+          }),
+        ]),
+        filters: { f_timeRange: "all" },
+      },
       panelData: new Map([
         [
           "pivoted",
@@ -720,8 +780,6 @@ describe("renderReportEmail", () => {
     const chartInput = mocks.renderReportChartSvg.mock.calls[0][0] as {
       series: Array<{ color: string }>;
     };
-    // The palette's first slot, i.e. the dashboard's light-mode --brand-blue —
-    // not the "region" column name that config.color actually holds.
     expect(chartInput.series[0].color).toBe("#0284c7");
   });
 
@@ -749,5 +807,27 @@ describe("renderReportEmail", () => {
     expect(rendered.attachments).toEqual([]);
     expect(rendered.degradedPanelIds).toEqual(["chart"]);
     expect(rendered.html).toContain("Failed to load native binding");
+  });
+});
+
+describe("reportPanelVariables", () => {
+  it("passes a text filter value through unchanged, even when it matches the multi-select marker", async () => {
+    const { reportPanelVariables } = await import("./dashboard-report-render");
+    const vars = reportPanelVariables({
+      variables: {},
+      filters: { f_query: "__empty__" },
+    } as unknown as Parameters<typeof reportPanelVariables>[0]);
+
+    expect(vars.query).toBe("__empty__");
+  });
+
+  it("keeps a cleared multi-select empty over a dashboard variable of the same name", async () => {
+    const { reportPanelVariables } = await import("./dashboard-report-render");
+    const vars = reportPanelVariables({
+      variables: { plan: "enterprise" },
+      filters: { f_plan: "" },
+    } as unknown as Parameters<typeof reportPanelVariables>[0]);
+
+    expect(vars.plan).toBe("");
   });
 });

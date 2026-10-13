@@ -11,12 +11,6 @@ import {
   pruneSsrIslandFromRewritingClone,
 } from "@agent-native/core/deploy/function-bundle";
 
-/**
- * Each sweep worker is a full clone of the server bundle, but its entry rewrites
- * the pathname to one scheduled route. It can reach neither the SSR pages nor an
- * agent turn, yet it shipped both the page island and the 79MB browser runtime —
- * six times over, and Netlify zips every function separately.
- */
 function writeWorkerEntry(dest: string, name: string, source: string): void {
   writeFileSync(path.join(dest, `${name}.mjs`), source);
   const freed =

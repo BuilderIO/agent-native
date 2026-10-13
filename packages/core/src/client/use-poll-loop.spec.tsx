@@ -59,6 +59,23 @@ describe("usePollLoop", () => {
     expect(attempt).toHaveBeenCalledTimes(1);
   });
 
+  it("resolves a dynamic interval after each attempt", async () => {
+    let intervalMs = 1000;
+    const attempt = vi.fn(async () => {
+      intervalMs = 5000;
+    });
+    const root = mount();
+    await act(async () =>
+      root.render(<Probe attempt={attempt} intervalMs={() => intervalMs} />),
+    );
+    expect(attempt).toHaveBeenCalledOnce();
+
+    await act(async () => vi.advanceTimersByTimeAsync(4999));
+    expect(attempt).toHaveBeenCalledOnce();
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(attempt).toHaveBeenCalledTimes(2);
+  });
+
   it("relaxes cadence (does not stop) while hidden by default", async () => {
     const attempt = vi.fn().mockResolvedValue(undefined);
     const root = mount();
@@ -68,7 +85,6 @@ describe("usePollLoop", () => {
     expect(attempt).toHaveBeenCalledTimes(1);
 
     await act(async () => setHidden(true));
-    // Relaxed cadence floors at 10_000ms even though intervalMs is 1000.
     await act(async () => vi.advanceTimersByTimeAsync(1000));
     expect(attempt).toHaveBeenCalledTimes(1);
     await act(async () => vi.advanceTimersByTimeAsync(9000));
@@ -95,7 +111,6 @@ describe("usePollLoop", () => {
 
   it("does not run a leading attempt when mounted hidden with pauseWhenHidden", async () => {
     const attempt = vi.fn().mockResolvedValue(undefined);
-    // Hidden before mount — a background restore or prerendered tab.
     setHidden(true);
     const root = mount();
     await act(async () =>
@@ -107,7 +122,6 @@ describe("usePollLoop", () => {
     await act(async () => vi.advanceTimersByTimeAsync(60_000));
     expect(attempt).not.toHaveBeenCalled();
 
-    // Becoming visible is what arms the loop.
     await act(async () => setHidden(false));
     expect(attempt).toHaveBeenCalledTimes(1);
   });
@@ -119,7 +133,6 @@ describe("usePollLoop", () => {
     await act(async () =>
       root.render(<Probe attempt={attempt} intervalMs={1000} />),
     );
-    // This mode must still reach a backgrounded tab (e.g. notifications).
     expect(attempt).toHaveBeenCalledTimes(1);
   });
 

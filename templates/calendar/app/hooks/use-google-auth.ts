@@ -7,6 +7,11 @@ import type { GoogleAuthStatus } from "@shared/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  isSharedCalendarDemo,
+  SHARED_CALENDAR_DEMO_STATUS,
+} from "@/lib/shared-calendar-demo";
+
 export interface DesktopAuthIssue {
   error?: string;
   message?: string;
@@ -38,8 +43,6 @@ interface DesktopGlobals {
 }
 
 const DESKTOP_AUTH_POLL_INTERVAL_MS = 1500;
-// Bounds each poll tick's fetches so a hung request can't leave
-// pollInFlightRef stuck and stall the interval forever.
 const DESKTOP_AUTH_POLL_ABORT_MS = Math.max(
   10_000,
   DESKTOP_AUTH_POLL_INTERVAL_MS * 4,
@@ -47,9 +50,9 @@ const DESKTOP_AUTH_POLL_ABORT_MS = Math.max(
 
 function newDesktopOAuthVerifier(): string | null {
   const cryptoApi = globalThis.crypto;
-  const randomUuid = cryptoApi?.randomUUID;
+  const randomUuid = cryptoApi?.randomUUID?.bind(cryptoApi);
   if (typeof randomUuid === "function") {
-    return `${randomUuid.call(cryptoApi)}${randomUuid.call(cryptoApi)}`;
+    return `${randomUuid()}${randomUuid()}`;
   }
   if (typeof cryptoApi?.getRandomValues === "function") {
     const bytes = new Uint8Array(32);
@@ -105,8 +108,6 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
     const cause = err instanceof Error ? err.message : String(err);
     throw new Error(`Network error: ${cause}`);
   }
-  // Track read failures separately from "no body" so a transport hiccup on a
-  // 2xx response doesn't silently turn into a `null` success.
   let raw = "";
   let readFailed = false;
   let readError: unknown;
@@ -122,15 +123,12 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
     try {
       body = JSON.parse(raw);
     } catch {
-      // not JSON — leave body undefined
       parseFailed = true;
     }
   }
   if (!res.ok) {
     throw bodyError(body, raw, res, "Request failed");
   }
-  // 2xx but the body couldn't be read (stream interruption, decode failure,
-  // etc.). Surface the failure rather than treating it as "no data".
   if (readFailed) {
     const cause =
       readError instanceof Error ? readError.message : String(readError);
@@ -138,10 +136,6 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
     (error as any).status = res.status;
     throw error;
   }
-  // 2xx with a non-empty, non-JSON body — almost always a misconfigured proxy
-  // or server returning an HTML page with status 200. Throw so callers (status
-  // checks, auth URL hooks) surface the failure instead of silently treating
-  // the response as "no data" / disconnected.
   if (parseFailed) {
     throw bodyError(body, raw, res, "Unexpected non-JSON response");
   }
@@ -149,14 +143,16 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
 }
 
 export function useGoogleAuthStatus() {
+  const demo = isSharedCalendarDemo();
   return useQuery<GoogleAuthStatus>({
     queryKey: ["google-status"],
     queryFn: async () => {
+      if (demo) return SHARED_CALENDAR_DEMO_STATUS;
       return fetchJson<GoogleAuthStatus>(
         agentNativePath("/_agent-native/google/status"),
       );
     },
-    staleTime: 30_000,
+    staleTime: demo ? Infinity : 30_000,
   });
 }
 
@@ -176,17 +172,15 @@ export function useGoogleAuthUrl(enabled = false) {
     retry: false,
   });
 
-  // Clear cached error when disabled so next enable triggers a fresh fetch
   useEffect(() => {
     if (!enabled && query.isError) {
-      queryClient.resetQueries({ queryKey: ["google-auth-url"] });
+      void queryClient.resetQueries({ queryKey: ["google-auth-url"] });
     }
   }, [enabled, query.isError, queryClient]);
 
   return query;
 }
 
-/** Hook for adding an additional Google account (user is already logged in). */
 export function useGoogleAddAccountUrl(enabled = false) {
   const queryClient = useQueryClient();
   const query = useQuery<{ url: string }>({
@@ -205,7 +199,7 @@ export function useGoogleAddAccountUrl(enabled = false) {
 
   useEffect(() => {
     if (!enabled && query.isError) {
-      queryClient.resetQueries({ queryKey: ["google-add-account-url"] });
+      void queryClient.resetQueries({ queryKey: ["google-add-account-url"] });
     }
   }, [enabled, query.isError, queryClient]);
 
@@ -431,7 +425,7 @@ export function useDisconnectGoogle() {
       );
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["google-status"] });
+      void queryClient.invalidateQueries({ queryKey: ["google-status"] });
     },
   });
 }
@@ -445,7 +439,9 @@ export function useSyncGoogle() {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-events"],
+      });
     },
   });
 }

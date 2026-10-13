@@ -15,12 +15,6 @@ export const CRM_PROVIDERS = [
 
 export type CrmProvider = (typeof CRM_PROVIDERS)[number];
 
-/**
- * `hybrid` is DEPRECATED. Per-field `authority` on an attribute expresses
- * everything hybrid promised, per field instead of per connection. The enum
- * value stays so existing rows remain valid — treat it as `mirrored`
- * everywhere and do not offer it in new UI or docs.
- */
 export const CRM_CONNECTION_MODES = ["connected", "hybrid", "native"] as const;
 
 export type CrmConnectionMode = (typeof CRM_CONNECTION_MODES)[number];
@@ -103,15 +97,8 @@ export interface CrmFieldDefinition {
   required: boolean;
   options?: Array<{ value: string; label: string; active?: boolean }>;
   referencedObjectType?: string;
-  /**
-   * The typed-attribute surface a field-policy writer should stamp onto
-   * `crm_field_policies`. Optional: providers that only discover the legacy
-   * `valueType` (HubSpot, Salesforce) leave this unset and the writer falls
-   * back to `text`, matching the column's own default.
-   */
   attributeType?: CrmAttributeType;
   multi?: boolean;
-  /** `{ currency: { code } }`, `{ reference: { allowedObjectTypes } }`, … */
   config?: Record<string, unknown>;
 }
 
@@ -149,21 +136,14 @@ export interface CrmAttributeOption {
   color?: string;
   position: number;
   archived: boolean;
-  /** `status` only — stage SLA in days. */
   targetDays?: number | null;
-  /** `status` only. */
   celebrate?: boolean;
 }
 
-/**
- * A typed attribute. Persisted in `crm_field_policies`, which is the attribute
- * table — there is no parallel attributes table.
- */
 export interface CrmAttributeDefinition {
   id: string;
   connectionId: string;
   target: "object" | "list";
-  /** objectType for `object`, listId for `list`. */
   targetId: string;
   apiSlug: string;
   label: string;
@@ -177,9 +157,7 @@ export interface CrmAttributeDefinition {
   position: number;
   inverseAttributeId?: string | null;
   fillMode?: CrmAttributeFillMode | null;
-  /** Agent/formula fill configuration. Never auto-runs; manual trigger only. */
   fillConfig?: Record<string, unknown>;
-  /** `{ currency: { code } }`, `{ reference: { allowedObjectTypes } }`, … */
   config?: Record<string, unknown>;
   options?: CrmAttributeOption[];
   storagePolicy: CrmFieldStoragePolicy;
@@ -190,10 +168,6 @@ export interface CrmAttributeDefinition {
   required: boolean;
 }
 
-/**
- * Lists are always local-authoritative, on every backend including HubSpot and
- * Salesforce. An imported list keeps its provider origin for reference only.
- */
 export interface CrmListDefinition {
   id: string;
   connectionId: string;
@@ -209,10 +183,6 @@ export interface CrmListDefinition {
   lastSyncedAt?: string | null;
 }
 
-/**
- * One record's membership in one list. A record may appear in the same list
- * more than once — there is deliberately no unique `(listId, recordId)`.
- */
 export interface CrmListEntry {
   id: string;
   listId: string;
@@ -229,21 +199,11 @@ export interface CrmSavedViewDefinition {
   description?: string;
   viewKind: "table" | "board";
   targetKind: "object" | "list";
-  /** objectType for `object`, listId for `list`. */
   targetId?: string | null;
-  /** Board views only; must reference a `status` attribute. */
   groupByAttributeId?: string | null;
   columns: string[];
-  /**
-   * Filter condition values may be the literal `"@currentUser"`, resolved
-   * server-side against the calling actor — never resolved on the client.
-   */
   filters: Record<string, unknown>;
   sort: Array<{ field: string; direction: "asc" | "desc" }>;
-  /**
-   * Projection of the framework `visibility` column on `crm_saved_views`:
-   * `private` reads as personal, `org` as shared. There is no separate column.
-   */
   audience: "personal" | "shared";
   pinned: boolean;
 }

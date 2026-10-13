@@ -1,18 +1,8 @@
-/**
- * Durable links between a verified provider identity and an Agent-Native user.
- * Provider credentials and raw provider payloads never belong in this table.
- */
-
 import { randomUUID } from "node:crypto";
 
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  isUniqueViolation,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec, isUniqueViolation, retryOnDdlRace } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 
 const TABLE = "integration_identity_links";
 let _initPromise: Promise<void> | undefined;
@@ -29,7 +19,7 @@ export interface IntegrationIdentityLink {
 }
 
 function createSql(): string {
-  const integer = intType();
+  const integer = "BIGINT";
   return `CREATE TABLE IF NOT EXISTS ${TABLE} (
     id TEXT PRIMARY KEY,
     platform TEXT NOT NULL,
@@ -57,9 +47,9 @@ const INDEXES = [
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const client = getDbExec();
-      if (isPostgres()) {
+      {
         await ensureTableExists(TABLE, createSql());
         for (const [name, sql] of INDEXES) {
           await ensureIndexExists(name, sql);
@@ -74,6 +64,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw error;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }
@@ -130,7 +121,6 @@ function matchesVerifiedLink(
   return row.userEmail === input.userEmail && row.orgId === input.orgId;
 }
 
-/** Persist a verified mapping and fail closed if it changes identity later. */
 export async function upsertVerifiedIntegrationIdentity(input: {
   platform: string;
   tenantId: string;

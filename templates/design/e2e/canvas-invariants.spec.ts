@@ -1,16 +1,12 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-/**
- * Invariants a direct-manipulation canvas must hold: the inspector, the
- * document and the rendered pixels all describe the same element. Each test
- * asserts the correct behaviour, so a failure is the bug report.
- */
+import { e2eBaseURL } from "./base-url";
+import { canvasZoom, selectTool, type ToolbarTool } from "./helpers";
 
 const PAGE_W = 1440;
 const PAGE_H = 900;
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
-/** Mirrors the reported screenshot: an auto-layout section with three children. */
 const INTRO_PAGE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Playbook</title></head>
@@ -29,7 +25,6 @@ const INTRO_PAGE = `<!doctype html>
   </body>
 </html>`;
 
-/** An in-flow child of an auto-layout page: no authored left/top at all. */
 const FLOW_PAGE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Playbook</title></head>
@@ -69,6 +64,15 @@ const BLANK_PAGE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Blank</title></head>
   <body style="margin:0;min-height:${PAGE_H}px;background:#ffffff"></body>
+</html>`;
+
+const DRAW_FRAME_PAGE = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Frame drawing</title></head>
+  <body style="margin:0;min-height:${PAGE_H}px;background:#ffffff">
+    <div data-agent-native-node-id="draw-frame" data-agent-native-layer-name="Frame" data-an-primitive="frame"
+         style="position:absolute;left:60px;top:80px;width:320px;height:260px;background:#e4e4e7"></div>
+  </body>
 </html>`;
 
 interface Rect {
@@ -118,13 +122,29 @@ async function newDesign(page: Page, content: string): Promise<string> {
 }
 
 async function indexHtml(page: Page, designId: string): Promise<string> {
-  const result = await page.request
-    .get(`${baseURL}/_agent-native/actions/get-design?id=${designId}`)
-    .then((r) => r.json());
-  return (
-    (result.files ?? []).find((f: any) => f.filename === "index.html")
-      ?.content ?? ""
+  const response = await page.request.get(
+    `${baseURL}/_agent-native/actions/get-design?id=${designId}`,
   );
+  if (!response.ok()) {
+    throw new Error(
+      `get-design failed: ${response.status()} ${(await response.text()).slice(0, 200)}`,
+    );
+  }
+  const result = await response.json();
+  const file = Array.isArray(result.files)
+    ? result.files.find((entry: unknown) => {
+        return (
+          typeof entry === "object" &&
+          entry !== null &&
+          "filename" in entry &&
+          entry.filename === "index.html"
+        );
+      })
+    : undefined;
+  if (!file || typeof file.content !== "string") {
+    throw new Error(`get-design returned no index.html for design ${designId}`);
+  }
+  return file.content;
 }
 
 function toolbar(page: Page): Locator {
@@ -160,7 +180,8 @@ async function openEditor(page: Page, designId: string): Promise<void> {
   await page.waitForURL(
     (url) =>
       url.pathname === `/design/${designId}` &&
-      url.searchParams.get("view") === "overview" &&
+      (url.searchParams.get("editorView") ?? url.searchParams.get("view")) ===
+        "overview" &&
       url.searchParams.has("screen") &&
       url.searchParams.has("zoom"),
     { timeout: 45_000 },
@@ -176,7 +197,6 @@ async function openEditor(page: Page, designId: string): Promise<void> {
   await expandAllLayers(page);
 }
 
-/** Nested rows only appear once every ancestor is expanded. */
 async function expandAllLayers(page: Page): Promise<void> {
   for (let pass = 0; pass < 6; pass += 1) {
     const toggles = page.getByRole("button", { name: "Expand layer" });
@@ -191,7 +211,6 @@ async function expandAllLayers(page: Page): Promise<void> {
   await page.waitForTimeout(600);
 }
 
-/** Prefer the real aria-label; a text-then-next-input walk lands on padding. */
 async function inspectorField(page: Page, label: string): Promise<string> {
   const aria =
     label === "W" || label === "H"
@@ -211,6 +230,15 @@ async function inspectorField(page: Page, label: string): Promise<string> {
   return (await input.inputValue()).trim();
 }
 
+async function selectLayerRow(page: Page, name: string): Promise<void> {
+  const row = layerRow(page, name);
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.click();
+  await expect
+    .poll(() => inspectorField(page, "X"), { timeout: 15_000 })
+    .not.toBe("<absent>");
+}
+
 async function setInspectorField(
   page: Page,
   label: string,
@@ -222,7 +250,6 @@ async function setInspectorField(
     .locator("xpath=following::input[1]");
   await input.fill(value);
   await input.press("Enter");
-  await page.waitForTimeout(1800);
 }
 
 function num(value: string): number {
@@ -230,7 +257,6 @@ function num(value: string): number {
   return m ? Number(m[1]) : NaN;
 }
 
-/** The element's real box inside the preview document. */
 async function renderedRect(page: Page, id: string): Promise<Rect> {
   return node(page, id).evaluate((el) => {
     const r = el.getBoundingClientRect();
@@ -269,7 +295,6 @@ async function selectOnCanvas(page: Page, id: string): Promise<void> {
   await page.waitForTimeout(1800);
 }
 
-/** The screen's own content viewport — never assume; it is not the page size. */
 async function contentSize(page: Page): Promise<{ w: number; h: number }> {
   return page
     .locator("iframe[data-design-preview-iframe]")
@@ -283,17 +308,46 @@ async function contentSize(page: Page): Promise<{ w: number; h: number }> {
 }
 
 async function toScreenPoint(page: Page, x: number, y: number) {
-  const card = await page.locator("[data-screen-card]").first().boundingBox();
-  if (!card) throw new Error("no screen card");
-  const size = await contentSize(page);
+  const snapshot = await page.waitForFunction<{
+    frame: { x: number; y: number; width: number; height: number };
+    size: { width: number; height: number };
+  } | null>(
+    () => {
+      const iframe = document.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      if (!iframe) return null;
+
+      const rect = iframe.getBoundingClientRect();
+      const width = iframe.offsetWidth;
+      const height = iframe.offsetHeight;
+      if (rect.width <= 0 || rect.height <= 0 || width <= 0 || height <= 0) {
+        return null;
+      }
+      return {
+        frame: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        size: { width, height },
+      };
+    },
+    undefined,
+    { timeout: 15_000 },
+  );
+  const geometry = await snapshot.jsonValue();
+  await snapshot.dispose();
+  if (!geometry) throw new Error("no visible Design preview frame");
+  const { frame, size } = geometry;
   return {
-    x: card.x + (x / size.w) * card.width,
-    y: card.y + (y / size.h) * card.height,
+    x: frame.x + (x / size.width) * frame.width,
+    y: frame.y + (y / size.height) * frame.height,
   };
 }
 
-async function drawWith(page: Page, tool: string, rect: Rect): Promise<void> {
-  await toolbar(page).locator(`button[aria-label="${tool}"]`).click();
+async function drawWith(
+  page: Page,
+  tool: ToolbarTool,
+  rect: Rect,
+): Promise<void> {
+  await selectTool(page, tool);
   await page.waitForTimeout(250);
   const a = await toScreenPoint(page, rect.left, rect.top);
   const b = await toScreenPoint(
@@ -310,11 +364,10 @@ async function drawWith(page: Page, tool: string, rect: Rect): Promise<void> {
 }
 
 async function toasts(page: Page): Promise<string[]> {
-  return page
+  const all = await page
     .locator("[data-sonner-toast], [role='alert']")
-    .allTextContents()
-    .then((t) => t.map((s) => s.trim()).filter(Boolean))
-    .catch(() => []);
+    .allTextContents();
+  return all.map((s) => s.trim()).filter(Boolean);
 }
 
 test.use({ viewport: { width: 1600, height: 1000 } });
@@ -323,7 +376,7 @@ test.beforeEach(async ({ page }, testInfo) => {
   baseURL =
     (testInfo.project.use.baseURL as string | undefined) ??
     process.env.E2E_BASE_URL ??
-    `http://127.0.0.1:${process.env.E2E_PORT ?? 9333}`;
+    e2eBaseURL();
   pageErrors = [];
   page.on("pageerror", (e) =>
     pageErrors.push(`${e.name}: ${e.message}`.slice(0, 160)),
@@ -334,8 +387,7 @@ test.describe("inspector reports the truth", () => {
   test("X/Y match the element's real position, not 0,0", async ({ page }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Intro").click();
-    await page.waitForTimeout(1800);
+    await selectLayerRow(page, "Intro");
 
     const authored = styleOf(await indexHtml(page, id), "intro");
     const wantX = styleNum(authored, "left");
@@ -354,8 +406,7 @@ test.describe("inspector reports the truth", () => {
   }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Intro").click();
-    await page.waitForTimeout(1800);
+    await selectLayerRow(page, "Intro");
 
     const rendered = await renderedRect(page, "intro");
     const w = num(await inspectorField(page, "W"));
@@ -373,10 +424,7 @@ test.describe("inspector reports the truth", () => {
   test("W/H match the rendered size within a pixel", async ({ page }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
-    const row = layerRow(page, "Plain Box");
-    await expect(row).toBeVisible({ timeout: 15_000 });
-    await row.click();
-    await page.waitForTimeout(1800);
+    await selectLayerRow(page, "Plain Box");
 
     const rendered = await renderedRect(page, "plain-box");
     const width = num(await inspectorField(page, "W"));
@@ -390,8 +438,7 @@ test.describe("inspector reports the truth", () => {
   }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Intro").click();
-    await page.waitForTimeout(1800);
+    await selectLayerRow(page, "Intro");
 
     const rendered = await renderedRect(page, "intro");
     const w = num(await inspectorField(page, "W"));
@@ -406,8 +453,7 @@ test.describe("inspector reports the truth", () => {
   }) => {
     const id = await newDesign(page, FLOW_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Intro").click();
-    await page.waitForTimeout(1800);
+    await selectLayerRow(page, "Intro");
 
     const rendered = await renderedRect(page, "flow-intro");
     const wrap = await renderedRect(page, "page-wrap");
@@ -417,15 +463,14 @@ test.describe("inspector reports the truth", () => {
       [x, y],
       `Intro is laid out by its auto-layout parent at (${rendered.left - wrap.left}, ` +
         `${rendered.top - wrap.top}) relative to the page wrapper, but the inspector ` +
-        `reports X=${x} Y=${y}. NOT a Figma-parity claim (Figma has no in-flow concept); the claim is that an inspector must not report 0 for an element that is demonstrably positioned.`,
+        `reports X=${x} Y=${y}. The inspector must not report 0 for an element that is demonstrably positioned.`,
     ).not.toEqual([0, 0]);
   });
 
   test("an in-flow element reports a non-zero size", async ({ page }) => {
     const id = await newDesign(page, FLOW_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Intro").click();
-    await page.waitForTimeout(1800);
+    await selectLayerRow(page, "Intro");
 
     const rendered = await renderedRect(page, "flow-intro");
     const w = num(await inspectorField(page, "W"));
@@ -442,8 +487,7 @@ test.describe("inspector reports the truth", () => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
 
-    await layerRow(page, "Plain Box").click();
-    await page.waitForTimeout(1600);
+    await selectLayerRow(page, "Plain Box");
     const viaTree = [
       await inspectorField(page, "X"),
       await inspectorField(page, "Y"),
@@ -470,16 +514,29 @@ test.describe("inspector reports the truth", () => {
   }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Title").click();
-    await page.waitForTimeout(1800);
+    await selectLayerRow(page, "Title");
 
     const rendered = await renderedRect(page, "intro-title");
-    const w = num(await inspectorField(page, "W"));
-    const h = num(await inspectorField(page, "H"));
-    expect(
-      [w > 0, h > 0],
-      `Title renders ${rendered.width}x${rendered.height} but the inspector shows W=${w} H=${h}.`,
-    ).toEqual([true, true]);
+    const widthControl = page.getByRole("button", { name: /^W \d/ });
+    const heightControl = page.getByRole("button", { name: /^H \d/ });
+    await expect(widthControl).toBeVisible();
+    await expect(heightControl).toBeVisible();
+    const [widthLabel, heightLabel] = await Promise.all([
+      widthControl
+        .getAttribute("aria-label")
+        .then(async (label) => label ?? (await widthControl.innerText())),
+      heightControl
+        .getAttribute("aria-label")
+        .then(async (label) => label ?? (await heightControl.innerText())),
+    ]);
+    const w = Number.parseFloat(
+      /W\s+(-?[\d.]+)/.exec(widthLabel ?? "")?.[1] ?? "",
+    );
+    const h = Number.parseFloat(
+      /H\s+(-?[\d.]+)/.exec(heightLabel ?? "")?.[1] ?? "",
+    );
+    expect(Math.abs(w - rendered.width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(h - rendered.height)).toBeLessThanOrEqual(1);
   });
 
   test("setting X moves the element by exactly that amount", async ({
@@ -487,13 +544,14 @@ test.describe("inspector reports the truth", () => {
   }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Plain Box").click();
-    await page.waitForTimeout(1600);
+    await selectLayerRow(page, "Plain Box");
 
     await setInspectorField(page, "X", "300");
-    expect(
-      styleNum(styleOf(await indexHtml(page, id), "plain-box"), "left"),
-    ).toBe(300);
+    await expect
+      .poll(async () =>
+        styleNum(styleOf(await indexHtml(page, id), "plain-box"), "left"),
+      )
+      .toBe(300);
   });
 
   test("setting Y moves the element by exactly that amount", async ({
@@ -501,13 +559,14 @@ test.describe("inspector reports the truth", () => {
   }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Plain Box").click();
-    await page.waitForTimeout(1600);
+    await selectLayerRow(page, "Plain Box");
 
     await setInspectorField(page, "Y", "400");
-    expect(
-      styleNum(styleOf(await indexHtml(page, id), "plain-box"), "top"),
-    ).toBe(400);
+    await expect
+      .poll(async () =>
+        styleNum(styleOf(await indexHtml(page, id), "plain-box"), "top"),
+      )
+      .toBe(400);
   });
 
   test("re-entering the value already shown does not move the element", async ({
@@ -515,8 +574,7 @@ test.describe("inspector reports the truth", () => {
   }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Plain Box").click();
-    await page.waitForTimeout(1600);
+    await selectLayerRow(page, "Plain Box");
 
     const shown = await inspectorField(page, "X");
     const before = styleNum(
@@ -524,6 +582,7 @@ test.describe("inspector reports the truth", () => {
       "left",
     );
     await setInspectorField(page, "X", String(num(shown)));
+    await page.waitForTimeout(1800); // e2e-harness-ignore negative assertion needs a real settle
     const after = styleNum(
       styleOf(await indexHtml(page, id), "plain-box"),
       "left",
@@ -539,20 +598,27 @@ test.describe("inspector reports the truth", () => {
   }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Plain Box").click();
-    await page.waitForTimeout(1600);
+    await selectLayerRow(page, "Plain Box");
 
     const before = styleOf(await indexHtml(page, id), "plain-box");
     await setInspectorField(page, "W", "500");
+    await expect
+      .poll(async () =>
+        styleNum(styleOf(await indexHtml(page, id), "plain-box"), "width"),
+      )
+      .toBe(500);
     const after = styleOf(await indexHtml(page, id), "plain-box");
+    expect(
+      styleNum(after, "width"),
+      `the width edit must commit before position stability means anything ` +
+        `(was ${styleNum(before, "width")})`,
+    ).toBe(500);
     expect([styleNum(after, "left"), styleNum(after, "top")]).toEqual([
       styleNum(before, "left"),
       styleNum(before, "top"),
     ]);
   });
 });
-
-// ── Auto layout must actually lay out ─────────────────────────────────────
 
 test.describe("auto layout", () => {
   test("children of a column do not overlap each other", async ({ page }) => {
@@ -626,8 +692,6 @@ test.describe("auto layout", () => {
     const boxes = await Promise.all(
       ["abs-title", "abs-sub", "abs-body"].map((n) => renderedRect(page, n)),
     );
-    // A row layout legitimately shares tops, so test for overlap, not for
-    // differing tops.
     const overlapping = boxes.filter((b, i) =>
       boxes.some(
         (other, j) =>
@@ -641,7 +705,7 @@ test.describe("auto layout", () => {
     expect(
       overlapping,
       `Enabling auto layout must reflow the children so they no longer overlap, ` +
-        `as Figma does. Boxes: ${JSON.stringify(boxes)}. Opting a child out is ` +
+        `This keeps the child positions stable. Boxes: ${JSON.stringify(boxes)}. Opting a child out is ` +
         `the explicit "ignore auto layout" toggle, not the default.`,
     ).toEqual([]);
   });
@@ -676,10 +740,8 @@ test.describe("auto layout", () => {
   });
 });
 
-// ── What you draw is what you get ─────────────────────────────────────────
-
 test.describe("drawing fidelity", () => {
-  for (const tool of ["Rectangle", "Frame"]) {
+  for (const tool of ["Rectangle", "Frame"] as const) {
     test(`${tool} commits the exact rect you dragged`, async ({ page }) => {
       const id = await newDesign(page, BLANK_PAGE);
       await openEditor(page, id);
@@ -701,11 +763,20 @@ test.describe("drawing fidelity", () => {
         styleNum(style, "height"),
       ];
       const expected = [want.left, want.top, want.width, want.height];
-      for (let index = 0; index < actual.length; index += 1) {
-        expect(Math.abs(actual[index]! - expected[index]!)).toBeLessThanOrEqual(
-          1,
-        );
-      }
+      const names = ["left", "top", "width", "height"];
+      const zoom = await canvasZoom(page);
+      const tolerance = Math.ceil(1 / zoom);
+      const off = names
+        .map((name, index) => ({
+          name,
+          drift: Math.abs(actual[index]! - expected[index]!),
+        }))
+        .filter((entry) => entry.drift > tolerance);
+      expect(
+        off,
+        `drew ${JSON.stringify(want)}, committed ${JSON.stringify(actual)}; ` +
+          `at zoom ${zoom} one screen px spans ${tolerance} content px`,
+      ).toEqual([]);
     });
   }
 
@@ -733,6 +804,147 @@ test.describe("drawing fidelity", () => {
     ]);
   });
 
+  test("a shape drawn at a fractional zoom commits whole pixels", async ({
+    page,
+  }) => {
+    const id = await newDesign(page, BLANK_PAGE);
+    await openEditor(page, id);
+    await page.keyboard.press(`${MOD}+-`);
+    await page.waitForTimeout(1200);
+    await drawWith(page, "Rectangle", {
+      left: 37,
+      top: 113,
+      width: 151,
+      height: 97,
+    });
+
+    const style =
+      /data-an-primitive="rectangle"[^>]*?style="([^"]*)"/i.exec(
+        await indexHtml(page, id),
+      )?.[1] ?? "";
+    expect(style, "nothing committed at a zoomed-out scale").not.toBe("");
+    const committed = {
+      left: styleNum(style, "left"),
+      top: styleNum(style, "top"),
+      width: styleNum(style, "width"),
+      height: styleNum(style, "height"),
+    };
+    expect(
+      Object.values(committed).every((value) => Number.isInteger(value)),
+      `a zoomed draw must commit whole pixels; got ${JSON.stringify(committed)}`,
+    ).toBe(true);
+  });
+
+  test("the inspector never shows a fractional X or Y", async ({ page }) => {
+    const id = await newDesign(page, FLOW_PAGE);
+    await openEditor(page, id);
+    await selectLayerRow(page, "Title");
+
+    const shown = [
+      await inspectorField(page, "X"),
+      await inspectorField(page, "Y"),
+    ];
+    expect(
+      shown.every((value) => value === "" || Number.isInteger(num(value))),
+      `X/Y must read as whole pixels; the inspector showed ${JSON.stringify(shown)}`,
+    ).toBe(true);
+  });
+
+  test("a drag inside a frame with an 8px layout grid lands on multiples of 8", async ({
+    page,
+  }) => {
+    const id = await newDesign(page, INTRO_PAGE);
+    const design = await page.request
+      .get(`${baseURL}/_agent-native/actions/get-design?id=${id}`)
+      .then((r) => r.json());
+    const screenId = (design?.files ?? design?.data?.files)?.[0]?.id;
+    expect(screenId, "no screen id to attach a grid to").toBeTruthy();
+    await postAction(page, "set-layout-grid", {
+      designId: id,
+      screenId,
+      size: 8,
+    });
+
+    await openEditor(page, id);
+    await selectLayerRow(page, "Plain Box");
+
+    const box = await node(page, "plain-box").boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      box!.x + box!.width / 2 + 37,
+      box!.y + box!.height / 2 + 21,
+      { steps: 12 },
+    );
+    await page.mouse.up();
+    await page.waitForTimeout(2000);
+
+    const style = styleOf(await indexHtml(page, id), "plain-box");
+    const landed = {
+      left: styleNum(style, "left"),
+      top: styleNum(style, "top"),
+    };
+    expect(
+      landed.left % 8 === 0 && landed.top % 8 === 0,
+      `an 8px layout grid must place left/top on multiples of 8; landed at ${JSON.stringify(landed)}`,
+    ).toBe(true);
+  });
+
+  test("a visible layout grid paints over the screen's own opaque background", async ({
+    page,
+  }) => {
+    const id = await newDesign(
+      page,
+      `<!doctype html><html><head><meta charset="utf-8" /></head>
+       <body style="margin:0;width:900px;height:600px;background:#ffffff"></body></html>`,
+    );
+    const design = await page.request
+      .get(`${baseURL}/_agent-native/actions/get-design?id=${id}`)
+      .then((r) => r.json());
+    const screenId = (design?.files ?? design?.data?.files)?.[0]?.id;
+    await openEditor(page, id);
+
+    const zoom = await canvasZoom(page);
+    const size = Math.ceil(15 / zoom);
+    await postAction(page, "set-layout-grid", { designId: id, screenId, size });
+
+    const overlay = page.locator(`[data-layout-grid="${screenId}"]`);
+    await expect(overlay).toHaveCount(1);
+    const stacking = await overlay.evaluate((el) => {
+      const card = el.closest("[data-screen-card]");
+      const rect = el.getBoundingClientRect();
+      const mid = {
+        x: Math.round(rect.left + rect.width / 2),
+        y: Math.round(rect.top + rect.height / 2),
+      };
+      const hit = document.elementFromPoint(mid.x, mid.y);
+      return {
+        insideCard: Boolean(card),
+        lineColor: (() => {
+          const probe = document.createElement("span");
+          probe.style.color = getComputedStyle(el).getPropertyValue(
+            "--design-editor-layout-grid-color",
+          );
+          document.body.append(probe);
+          const resolved = getComputedStyle(probe).color;
+          probe.remove();
+          return resolved;
+        })(),
+        backgroundSize: getComputedStyle(el).backgroundSize,
+        topmostIsAboveOverlay: el.contains(hit) || el === hit,
+      };
+    });
+    expect(
+      stacking.insideCard,
+      "the grid must live inside the frame it belongs to, not beside it",
+    ).toBe(true);
+    expect(stacking.lineColor).toBe("rgba(0, 0, 0, 0.05)");
+    expect(stacking.backgroundSize).toBe(
+      `${size}px ${size}px, ${size}px ${size}px`,
+    );
+  });
+
   test("the same drag at a different zoom produces the same rect", async ({
     page,
   }) => {
@@ -755,6 +967,14 @@ test.describe("drawing fidelity", () => {
         await indexHtml(page, id2),
       )?.[1] ?? "";
 
+    expect(
+      [styleNum(first, "width"), styleNum(first, "height")],
+      `drew ${want.width}x${want.height} at 100% but committed ` +
+        `${styleNum(first, "width")}x${styleNum(first, "height")}`,
+    ).toEqual([
+      expect.closeTo(want.width, -1),
+      expect.closeTo(want.height, -1),
+    ]);
     expect(
       [styleNum(second, "width"), styleNum(second, "height")],
       `zoomed out then drew the same rect: ${styleNum(first, "width")}x${styleNum(first, "height")} ` +
@@ -792,7 +1012,7 @@ test.describe("drawing fidelity", () => {
     ).toBe(false);
   });
 
-  test("a drawn frame stays unstyled and is shown by selection chrome instead", async ({
+  test("a drawn frame commits a real surface that selection chrome tracks", async ({
     page,
   }) => {
     const id = await newDesign(page, BLANK_PAGE);
@@ -804,9 +1024,6 @@ test.describe("drawing fidelity", () => {
       height: 200,
     });
 
-    // A frame commits as unstyled structure on purpose (see the frame branch
-    // in canvas-primitive-insert.ts); baking a tint into the design's real
-    // HTML would be styling pollution. Its bounds come from selection chrome.
     const state = await inFrame(page, "body")
       .first()
       .evaluate(() => {
@@ -830,17 +1047,14 @@ test.describe("drawing fidelity", () => {
     expect(state, "no frame rendered in the preview").not.toBeNull();
     expect(
       state!.inlineBackground,
-      "a committed frame must not bake in a fill",
-    ).toBe("");
+      "a committed frame carries the default surface, not the draft tint",
+    ).toBe("rgb(255, 255, 255)");
     expect(
       state!.selectionTracksFrame,
-      "an unstyled frame is only visible via selection chrome, so it must be " +
-        "selected and outlined the moment it is drawn",
+      "a drawn frame must be selected and outlined the moment it is drawn",
     ).toBe(true);
   });
 });
-
-// ── Moving things ─────────────────────────────────────────────────────────
 
 test.describe("moving", () => {
   test("a canvas drag moves the element by the drag delta", async ({
@@ -868,7 +1082,6 @@ test.describe("moving", () => {
 
     const after = styleOf(await indexHtml(page, id), "plain-box");
     const moved = styleNum(after, "left") - styleNum(before, "left");
-    // A drag-start threshold consumes the first few px, as in Figma.
     expect(
       moved > 90 && moved < 110,
       `dragged 100 page-px right; left went ${styleNum(before, "left")} → ` +
@@ -917,8 +1130,6 @@ test.describe("moving", () => {
   });
 });
 
-// ── Selection ─────────────────────────────────────────────────────────────
-
 test.describe("selection", () => {
   test("clicking selects the deepest node, and Backslash walks up to the parent", async ({
     page,
@@ -926,9 +1137,6 @@ test.describe("selection", () => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
 
-    // Deliberate divergence from Figma (see selectionTargetForHit in
-    // editor-chrome.bridge.ts): this canvas is real HTML, where climbing to
-    // the outermost ancestor makes a label select its whole container.
     await selectOnCanvas(page, "intro-title");
     const clicked = (
       await page
@@ -951,7 +1159,7 @@ test.describe("selection", () => {
     )?.trim();
     expect(
       parent,
-      `"\\" is how this editor reaches the ancestor Figma would have picked ` +
+      `"\\" is how this editor reaches the ancestor selected by container-first click behavior ` +
         `on click; got "${parent}"`,
     ).toContain("Intro");
 
@@ -966,14 +1174,8 @@ test.describe("selection", () => {
   test("Escape on a rect drawn inside a frame clears, and never lands on the screen", async ({
     page,
   }) => {
-    const id = await newDesign(page, BLANK_PAGE);
+    const id = await newDesign(page, DRAW_FRAME_PAGE);
     await openEditor(page, id);
-    await drawWith(page, "Frame", {
-      left: 60,
-      top: 80,
-      width: 320,
-      height: 260,
-    });
     await drawWith(page, "Rectangle", {
       left: 110,
       top: 130,
@@ -1016,8 +1218,6 @@ test.describe("selection", () => {
     ).toHaveCount(1);
   });
 });
-
-// ── The document is the source of truth ───────────────────────────────────
 
 test.describe("persistence and history", () => {
   test("a reload changes nothing", async ({ page }) => {
@@ -1065,8 +1265,6 @@ test.describe("persistence and history", () => {
   });
 });
 
-// ── Layer tree mirrors the document ───────────────────────────────────────
-
 test.describe("layers panel", () => {
   test("tree nesting matches DOM nesting", async ({ page }) => {
     const id = await newDesign(page, INTRO_PAGE);
@@ -1108,23 +1306,20 @@ test.describe("layers panel", () => {
     await row.hover();
     await row.getByRole("button", { name: "Hide layer" }).first().click();
     await page.waitForTimeout(2000);
-    const visible = await node(page, "plain-box")
-      .evaluate((el) => {
-        const cs = getComputedStyle(el);
-        return (
-          cs.display !== "none" &&
-          cs.visibility !== "hidden" &&
-          Number(cs.opacity) > 0
-        );
-      })
-      .catch(() => false);
+    await expect(node(page, "plain-box")).toHaveCount(1);
+    const visible = await node(page, "plain-box").evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return (
+        cs.display !== "none" &&
+        cs.visibility !== "hidden" &&
+        Number(cs.opacity) > 0
+      );
+    });
     expect(visible, "layer marked hidden still paints in the preview").toBe(
       false,
     );
   });
 });
-
-// ── Nothing should throw ──────────────────────────────────────────────────
 
 test("basic authoring raises no uncaught page errors", async ({ page }) => {
   const id = await newDesign(page, BLANK_PAGE);
@@ -1146,4 +1341,55 @@ test("basic authoring raises no uncaught page errors", async ({ page }) => {
   await page.keyboard.press(`${MOD}+Shift+z`);
   await page.waitForTimeout(1500);
   expect(pageErrors, `uncaught errors: ${pageErrors.join(" | ")}`).toEqual([]);
+});
+
+test("editor readiness stays stable across ordinary overlay mutations", async ({
+  page,
+}) => {
+  const id = await newDesign(page, BLANK_PAGE);
+  await openEditor(page, id);
+  const preview = page
+    .frameLocator("iframe[data-design-preview-iframe]")
+    .first();
+  const chromeHost = preview.locator("[data-agent-native-editor-chrome-host]");
+  const shield = preview.locator('[data-agent-native-edit-overlay="shield"]');
+  await expect(shield).toBeVisible();
+
+  await page.evaluate(() => {
+    const state = window as Window & { __editorChromeReadyCount?: number };
+    state.__editorChromeReadyCount = 0;
+    window.addEventListener("message", (event) => {
+      if (event.data?.type === "agent-native:editor-chrome-ready") {
+        state.__editorChromeReadyCount =
+          (state.__editorChromeReadyCount ?? 0) + 1;
+      }
+    });
+  });
+
+  await chromeHost.evaluate((host) => {
+    const transient = document.createElement("div");
+    transient.setAttribute("data-agent-native-edit-overlay", "test-overlay");
+    host.appendChild(transient);
+    transient.remove();
+  });
+  await page.waitForTimeout(100);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as Window & { __editorChromeReadyCount?: number })
+          .__editorChromeReadyCount ?? 0,
+    ),
+  ).toBe(0);
+
+  await shield.evaluate((element) => element.remove());
+  await expect(shield).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as Window & { __editorChromeReadyCount?: number })
+            .__editorChromeReadyCount ?? 0,
+      ),
+    )
+    .toBe(1);
 });

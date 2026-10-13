@@ -1,5 +1,6 @@
 import { registerDataProgramsShareable } from "@agent-native/core/data-programs";
 import { createGetDb } from "@agent-native/core/db";
+import { registerIdentityColumns } from "@agent-native/core/org";
 import { registerShareableResource } from "@agent-native/core/sharing";
 
 import {
@@ -13,10 +14,25 @@ import * as schema from "./schema.js";
 export const getDb = createGetDb(schema);
 export { schema };
 
-// Core data-program tables live outside analytics/schema.ts; register the
-// sharing type here so get-data-program / resolveAccess work in dev, CLI, and
-// extension iframes (same side-effect pattern as dashboard/analysis below).
 registerDataProgramsShareable();
+
+registerIdentityColumns([
+  {
+    table: "session_recordings",
+    column: "session_id",
+    emailChange: "retain",
+    offboard: "retain",
+    reason:
+      "Legacy last-known session pointer for recordings predating association history.",
+  },
+  {
+    table: "session_recording_session_associations",
+    column: "session_id",
+    emailChange: "retain",
+    offboard: "retain",
+    reason: "Observed session ids preserve replay association history.",
+  },
+]);
 
 registerShareableResource({
   type: "dashboard",

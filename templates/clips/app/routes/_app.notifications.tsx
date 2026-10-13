@@ -9,15 +9,22 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/library/page-header";
+import {
+  CommentComposer,
+  type MentionEntry,
+} from "@/components/player/comment-composer";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   NotificationsList,
   type NotificationItem,
   type NotificationKind,
 } from "@/components/workspace/notifications-list";
+import { useMentionMembers } from "@/hooks/use-mention-members";
 import enMessages from "@/i18n/en-US";
+
+import { mentionsForCommentText } from "../../shared/comment-mentions";
 
 export function meta() {
   return [{ title: enMessages.notificationsRoute.pageTitle }];
@@ -37,6 +44,11 @@ export default function NotificationsRoute() {
   const [filter, setFilter] = useState<"all" | NotificationKind>("all");
   const [replyFor, setReplyFor] = useState<NotificationItem | null>(null);
   const [replyText, setReplyText] = useState("");
+  const [replyMentions, setReplyMentions] = useState<MentionEntry[]>([]);
+  const { data: mentionMembers = [] } = useMentionMembers(
+    replyFor?.recordingId,
+    !!replyFor,
+  );
 
   const qc = useQueryClient();
   const {
@@ -66,6 +78,7 @@ export default function NotificationsRoute() {
       threadId?: string;
       parentId?: string;
       videoTimestampMs?: number;
+      mentions?: MentionEntry[];
     }
   >("add-comment");
 
@@ -78,12 +91,14 @@ export default function NotificationsRoute() {
         recordingId: replyFor.recordingId,
         content,
         threadId: replyFor.id.replace(/^c:/, ""),
+        mentions: mentionsForCommentText(content, replyMentions),
       });
       toast.success(t("notificationsRoute.replySent"));
       setReplyText("");
+      setReplyMentions([]);
       setReplyFor(null);
-      qc.invalidateQueries({ queryKey: ["action", "list-notifications"] });
-      qc.invalidateQueries({ queryKey: ["action", "list-comments"] });
+      void qc.invalidateQueries({ queryKey: ["action", "list-notifications"] });
+      void qc.invalidateQueries({ queryKey: ["action", "list-comments"] });
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : t("notificationsRoute.sendFailed"),
@@ -123,9 +138,22 @@ export default function NotificationsRoute() {
 
         <div className="mt-4">
           {isLoading ? (
-            <div className="py-16 text-center text-sm text-muted-foreground">
-              {t("notificationsRoute.loading")}
-            </div>
+            <ul aria-busy="true" className="divide-y">
+              {Array.from({ length: 5 }, (_, index) => (
+                <li key={index} className="flex items-start gap-3 py-3">
+                  <Skeleton className="size-9 shrink-0 rounded-full" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-4 w-24" />
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="ms-auto h-3 w-12" />
+                    </div>
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-2/3" />
+                  </div>
+                </li>
+              ))}
+            </ul>
           ) : isError ? (
             <div className="flex flex-col items-center gap-3 py-16 text-center">
               <IconAlertTriangle className="size-9 text-destructive" />
@@ -142,7 +170,14 @@ export default function NotificationsRoute() {
               </Button>
             </div>
           ) : (
-            <NotificationsList items={filtered} onReply={setReplyFor} />
+            <NotificationsList
+              items={filtered}
+              onReply={(item) => {
+                setReplyText("");
+                setReplyMentions([]);
+                setReplyFor(item);
+              }}
+            />
           )}
         </div>
 
@@ -150,24 +185,29 @@ export default function NotificationsRoute() {
           <div className="mt-6 rounded-md border bg-muted/30 p-3">
             <div className="text-xs text-muted-foreground mb-1.5">
               {t("notificationsRoute.replyTo", {
-                email: replyFor.authorEmail,
+                email: replyFor.authorName?.trim() || replyFor.authorEmail,
               })}{" "}
               <span className="font-medium text-foreground">
                 {replyFor.recordingTitle}
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              <Input
+            <div className="flex items-end gap-2">
+              <CommentComposer
                 value={replyText}
-                onChange={(e) => setReplyText(e.target.value)}
+                onChange={setReplyText}
+                onMentionAdd={(mention) =>
+                  setReplyMentions((current) =>
+                    current.some((entry) => entry.email === mention.email)
+                      ? current
+                      : [...current, mention],
+                  )
+                }
+                members={mentionMembers}
+                onSubmit={() => void handleSendReply()}
                 placeholder={t("notificationsRoute.replyPlaceholder")}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendReply();
-                  }
-                }}
                 autoFocus
+                submitOnEnter
+                className="min-h-10 flex-1 resize-none bg-background text-sm"
               />
               <Button
                 onClick={handleSendReply}
@@ -176,7 +216,14 @@ export default function NotificationsRoute() {
               >
                 <IconSend className="size-4" />
               </Button>
-              <Button variant="ghost" onClick={() => setReplyFor(null)}>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setReplyText("");
+                  setReplyMentions([]);
+                  setReplyFor(null);
+                }}
+              >
                 {t("common.cancel")}
               </Button>
             </div>

@@ -1,16 +1,3 @@
-/**
- * Regression coverage for edit-design's conflict-retry path.
- *
- * writeInlineSourceFile throws SourceWorkspaceEditConflictError when a
- * concurrent writer's change lands between edit-design's live read and its
- * persist call. Before this fix, that error propagated straight to the
- * agent with no fresh content to retry against, forcing a separate
- * get-design-snapshot round trip that may or may not happen. For
- * search-replace mode, edit-design now re-reads the live file and reapplies
- * the same edits automatically; replace-file mode still fails closed on the
- * first conflict since a full-document replacement computed from a stale
- * snapshot can't be safely retried blind.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -58,8 +45,23 @@ const mocks = vi.hoisted(() => {
 
   const readLiveSourceFile = vi.fn();
   const writeInlineSourceFile = vi.fn();
+  const getGenerationCreativeContext = vi.fn().mockResolvedValue(null);
+  const recordGenerationCreativeContext = vi.fn().mockResolvedValue(undefined);
+  const validateGenerationCreativeContext = vi.fn().mockResolvedValue({
+    contextMode: "off",
+    contextPackId: null,
+    reuseLabels: [],
+  });
 
-  return { db, fileRow, readLiveSourceFile, writeInlineSourceFile };
+  return {
+    db,
+    fileRow,
+    readLiveSourceFile,
+    writeInlineSourceFile,
+    getGenerationCreativeContext,
+    recordGenerationCreativeContext,
+    validateGenerationCreativeContext,
+  };
 });
 
 vi.mock("../server/db/index.js", () => ({
@@ -89,17 +91,16 @@ vi.mock("@agent-native/core/collab", () => ({
 }));
 
 vi.mock("@agent-native/creative-context/server", () => ({
-  getGenerationCreativeContext: vi.fn().mockResolvedValue(null),
-  recordGenerationCreativeContext: vi.fn().mockResolvedValue(undefined),
+  getGenerationCreativeContext: (...args: unknown[]) =>
+    mocks.getGenerationCreativeContext(...args),
+  recordGenerationCreativeContext: (...args: unknown[]) =>
+    mocks.recordGenerationCreativeContext(...args),
   replaceCreativeContextElementProvenance: (
     _previous: unknown,
     next: unknown,
   ) => next,
-  validateGenerationCreativeContext: vi.fn().mockResolvedValue({
-    contextMode: "off",
-    contextPackId: null,
-    reuseLabels: [],
-  }),
+  validateGenerationCreativeContext: (...args: unknown[]) =>
+    mocks.validateGenerationCreativeContext(...args),
 }));
 
 vi.mock("../server/source-workspace.js", async () => {
@@ -120,6 +121,15 @@ describe("edit-design conflict retry", () => {
   beforeEach(() => {
     mocks.readLiveSourceFile.mockReset();
     mocks.writeInlineSourceFile.mockReset();
+    mocks.getGenerationCreativeContext.mockReset().mockResolvedValue(null);
+    mocks.recordGenerationCreativeContext
+      .mockReset()
+      .mockResolvedValue(undefined);
+    mocks.validateGenerationCreativeContext.mockReset().mockResolvedValue({
+      contextMode: "off",
+      contextPackId: null,
+      reuseLabels: [],
+    });
   });
 
   it("re-reads and reapplies search-replace edits after a persist conflict", async () => {
@@ -152,13 +162,13 @@ describe("edit-design conflict retry", () => {
 
     expect(mocks.readLiveSourceFile).toHaveBeenCalledTimes(2);
     expect(mocks.writeInlineSourceFile).toHaveBeenCalledTimes(2);
-    // The retried write must be computed from the SECOND (fresh) read, not
-    // the original stale one — proving it isn't just blindly resubmitting
-    // the same doomed content.
     expect(mocks.writeInlineSourceFile.mock.calls[1][0].content).toBe(
       "<main>Hi base, plus a concurrent change</main>",
     );
     expect(result).toMatchObject({ changed: true, editsApplied: 1 });
+    expect(mocks.getGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mocks.validateGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mocks.recordGenerationCreativeContext).not.toHaveBeenCalled();
   });
 
   it("does not retry replace-file mode on conflict", async () => {

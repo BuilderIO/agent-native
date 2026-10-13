@@ -133,13 +133,23 @@ vi.mock("@agent-native/core/secrets", () => ({
 }));
 
 vi.mock("@agent-native/core/credentials", () => ({
-  resolveCredential: vi.fn(async () => mocks.localCredential),
+  resolveCredentialDetailed: vi.fn(
+    async (_key: string, ctx: { userEmail: string }) =>
+      mocks.localCredential
+        ? {
+            value: mocks.localCredential,
+            scope: "user",
+            scopeId: ctx.userEmail,
+          }
+        : undefined,
+  ),
 }));
 
 import {
   assertSourceCredentialAvailable,
   inspectSourceCredentialAvailability,
   resolveSourceCredential,
+  resolveSourceCredentialWithProvenance,
 } from "./source-credentials.js";
 
 describe("resolveSourceCredential", () => {
@@ -201,6 +211,7 @@ describe("resolveSourceCredential", () => {
         grantId: "grant-1",
         appAccessMode: "explicit-grant",
         scope: "org",
+        scopeId: "org-1",
       },
       missingMessage: null,
     });
@@ -218,6 +229,20 @@ describe("resolveSourceCredential", () => {
         ctx: { userEmail: "owner@example.test", orgId: "org-1" },
       }),
     ).resolves.toBe("brain-local-token");
+    await expect(
+      resolveSourceCredentialWithProvenance({
+        provider: "github",
+        key: "GITHUB_TOKEN",
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toMatchObject({
+      value: "brain-local-token",
+      provenance: {
+        source: "brain_local",
+        scope: "user",
+        scopeId: "owner@example.test",
+      },
+    });
 
     mocks.localCredential = undefined;
     mocks.secrets.set("org:org-1:GITHUB_TOKEN", "registered-token");
@@ -228,6 +253,20 @@ describe("resolveSourceCredential", () => {
         ctx: { userEmail: "owner@example.test", orgId: "org-1" },
       }),
     ).resolves.toBe("registered-token");
+    await expect(
+      resolveSourceCredentialWithProvenance({
+        provider: "github",
+        key: "GITHUB_TOKEN",
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toMatchObject({
+      value: "registered-token",
+      provenance: {
+        source: "registered_secret",
+        scope: "org",
+        scopeId: "org-1",
+      },
+    });
   });
 
   it("does not fall back to deploy env credentials for source credentials", async () => {

@@ -1,17 +1,17 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
+import { resolveUserProfileName } from "@agent-native/core/user-profile";
+import { getUserProfiles } from "@agent-native/core/user-profile/server";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isOverviewScreenFile } from "../shared/design-files.js";
 
 const DESIGN_LIST_DEFAULT_PAGE_SIZE = 12;
 const DESIGN_LIST_MAX_PAGE_SIZE = 50;
 
-// Truncate preview HTML so the listing payload stays reasonable. The home
-// screen only needs enough HTML to render a recognizable thumbnail; full
-// content loads on demand when the user opens an editor.
 const PREVIEW_MAX_BYTES = 50_000;
 
 function escapeLike(value: string): string {
@@ -21,8 +21,9 @@ function escapeLike(value: string): string {
 export default defineAction({
   description:
     "List design projects accessible to the current user. Pass page and " +
-    "pageSize for pagination; omit them for the complete lightweight list. " +
-    "Returns optional HTML previews.",
+    "pageSize for pagination; omitted values use the first bounded page. " +
+    "Set includeAll only for a lightweight UI picker; it returns the first " +
+    "bounded picker page. Returns optional HTML previews.",
   schema: z.object({
     page: z.coerce
       .number()
@@ -37,10 +38,18 @@ export default defineAction({
       .max(DESIGN_LIST_MAX_PAGE_SIZE)
       .optional()
       .describe("Maximum designs returned in this page"),
-    createdBy: z
-      .enum(["all", "me"])
+    includeAll: z
+      .boolean()
       .optional()
-      .describe("Set to 'me' to list only designs created by the current user"),
+      .describe(
+        "Set to true only for a lightweight UI picker; it returns the first bounded picker page and hasMore when more exist.",
+      ),
+    createdBy: z
+      .enum(["all", "me", "not-me"])
+      .optional()
+      .describe(
+        "Set to 'me' or 'not-me' to filter by whether the current user owns each design",
+      ),
     search: z
       .string()
       .trim()
@@ -62,12 +71,23 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
+  mcpApp: { compactCatalog: true },
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args) => {
-    const isPaginated = args.page !== undefined || args.pageSize !== undefined;
-    const page = args.page ?? 1;
-    const pageSize = args.pageSize ?? DESIGN_LIST_DEFAULT_PAGE_SIZE;
+    const includeAll = args.includeAll === true;
+    const page = includeAll ? 1 : (args.page ?? 1);
+    const pageSize = includeAll
+      ? DESIGN_LIST_MAX_PAGE_SIZE
+      : (args.pageSize ?? DESIGN_LIST_DEFAULT_PAGE_SIZE);
     const ownerEmail = getRequestUserEmail()?.trim().toLowerCase() || null;
-    if (args.createdBy === "me" && !ownerEmail) {
+    if (
+      (args.createdBy === "me" || args.createdBy === "not-me") &&
+      !ownerEmail
+    ) {
       return {
         count: 0,
         totalCount: 0,
@@ -85,16 +105,15 @@ export default defineAction({
       accessFilter(schema.designs, schema.designShares),
       args.createdBy === "me"
         ? sql`lower(trim(${schema.designs.ownerEmail})) = ${ownerEmail}`
-        : undefined,
+        : args.createdBy === "not-me"
+          ? sql`lower(trim(${schema.designs.ownerEmail})) <> ${ownerEmail}`
+          : undefined,
       search
         ? sql`lower(${schema.designs.title}) LIKE ${`%${escapeLike(search)}%`} ESCAPE '\\'`
         : undefined,
     );
-    const offset = isPaginated ? (page - 1) * pageSize : 0;
+    const offset = (page - 1) * pageSize;
 
-    // Project only the columns the list path uses. The `data` TEXT column holds
-    // the full design JSON (tweaks, selections, etc.) which can be large and is
-    // never read on the listing — detail/editor views load it via get-design.
     const designsQuery = db
       .select({
         id: schema.designs.id,
@@ -110,9 +129,7 @@ export default defineAction({
       .from(schema.designs)
       .where(where)
       .orderBy(desc(schema.designs.updatedAt), desc(schema.designs.id));
-    const rowsPromise = isPaginated
-      ? designsQuery.limit(pageSize).offset(offset)
-      : designsQuery;
+    const rowsPromise = designsQuery.limit(pageSize).offset(offset);
     const [countRows, rows] = await Promise.all([
       db
         .select({ count: sql<number>`count(*)` })
@@ -122,8 +139,6 @@ export default defineAction({
     ]);
     const totalCount = Number(countRows[0]?.count ?? 0);
 
-    // Look up one preview per design when requested. Prefer the entry point
-    // (`index.html`) and fall back to the first HTML file we find.
     const previews = new Map<string, string>();
     if (
       args.includePreview === "true" &&
@@ -148,7 +163,7 @@ export default defineAction({
 
       const byDesign = new Map<string, typeof fileRows>();
       for (const f of fileRows) {
-        if (f.fileType !== "html") continue;
+        if (!isOverviewScreenFile(f)) continue;
         const list = byDesign.get(f.designId);
         if (list) list.push(f);
         else byDesign.set(f.designId, [f]);
@@ -166,6 +181,11 @@ export default defineAction({
       }
     }
 
+    const profiles =
+      args.compact === "true"
+        ? new Map()
+        : await getUserProfiles(rows.map((row) => row.ownerEmail));
+
     const items = rows.map((row) => {
       if (args.compact === "true") {
         return {
@@ -182,6 +202,11 @@ export default defineAction({
         designSystemId: row.designSystemId,
         visibility: row.visibility,
         ownerEmail: row.ownerEmail,
+        ownerName: resolveUserProfileName(
+          row.ownerEmail,
+          null,
+          profiles.get(row.ownerEmail.toLowerCase())?.name,
+        ),
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };
@@ -191,20 +216,14 @@ export default defineAction({
       return base;
     });
 
-    const hasMore = isPaginated && offset + rows.length < totalCount;
-    const totalPages = isPaginated
-      ? Math.ceil(totalCount / pageSize)
-      : totalCount > 0
-        ? 1
-        : 0;
+    const hasMore = offset + rows.length < totalCount;
+    const totalPages = Math.ceil(totalCount / pageSize);
     return {
       count: totalCount,
       totalCount,
       hasMore,
       page,
-      pageSize: isPaginated
-        ? pageSize
-        : totalCount || DESIGN_LIST_DEFAULT_PAGE_SIZE,
+      pageSize,
       totalPages,
       designs: items,
     };

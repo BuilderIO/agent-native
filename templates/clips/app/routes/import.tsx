@@ -2,13 +2,13 @@ import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
-import { callAction } from "@agent-native/core/client/hooks";
+import { callAction, getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { AgentMark } from "@agent-native/toolkit/app/shared";
 import {
   IconArrowLeft,
   IconCheck,
   IconLink,
-  IconSparkles,
   IconUpload,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -21,12 +21,14 @@ import {
   type FormEvent,
 } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { toast } from "sonner";
 
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+import { StorageStatusRetry } from "@/components/recorder/storage-status-retry";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
+import { useUploadVideoPicker } from "@/hooks/use-upload-video-picker";
 import {
   VIDEO_STORAGE_STATUS_KEY,
   useVideoStorageStatus,
@@ -56,11 +58,16 @@ async function copyRecordingLink(recordingId: string): Promise<void> {
 }
 
 async function writeNavigateAppState(recordingId: string): Promise<void> {
-  await fetch(agentNativePath("/_agent-native/application-state/navigate"), {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ view: "recording", recordingId }),
-  }).catch(() => {});
+  await fetch(
+    agentNativePath(
+      `/_agent-native/application-state/navigate:${getBrowserTabId()}`,
+    ),
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ view: "recording", recordingId }),
+    },
+  ).catch(() => {});
 }
 
 function userFacingActionErrorMessage(error: string): string {
@@ -82,6 +89,12 @@ export default function ImportRoute() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const storageQuery = useVideoStorageStatus();
+  const {
+    error: failImportToast,
+    info: infoImportToast,
+    start: startImportToast,
+    success: completeImportToast,
+  } = useSonnerLifecycleToast();
   const storageConfigured: boolean | null = storageQuery.isLoading
     ? null
     : !!storageQuery.data?.configured;
@@ -103,13 +116,7 @@ export default function ImportRoute() {
     return qs ? `/record?${qs}` : "/record";
   }, [spaceIdFromUrl, folderIdFromUrl]);
 
-  const uploadHref = useMemo(() => {
-    const params = new URLSearchParams();
-    if (spaceIdFromUrl) params.set("spaceId", spaceIdFromUrl);
-    if (folderIdFromUrl) params.set("folderId", folderIdFromUrl);
-    params.set("autoUpload", "1");
-    return `/record?${params.toString()}`;
-  }, [spaceIdFromUrl, folderIdFromUrl]);
+  const { input: uploadInput, openUploadPicker } = useUploadVideoPicker();
 
   const [loomUrl, setLoomUrl] = useState("");
   const [phase, setPhase] = useState<ImportPhase>("form");
@@ -156,6 +163,11 @@ export default function ImportRoute() {
     };
   }, [clearTimers]);
 
+  useEffect(() => {
+    if (phase !== "importing") return;
+    startImportToast(importStages[stageIndex] ?? importStages[0]);
+  }, [importStages, phase, stageIndex, startImportToast]);
+
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -169,8 +181,6 @@ export default function ImportRoute() {
       stageTimerRef.current = setInterval(() => {
         setStageIndex((prev) => Math.min(prev + 1, importStages.length - 1));
       }, 1300);
-      // Ease the accent bar toward ~92% while the request is in flight; the
-      // real completion snaps it to 100%.
       progressTimerRef.current = setInterval(() => {
         setProgress((p) => (p >= 92 ? p : p + Math.max(0.6, (92 - p) * 0.07)));
       }, 120);
@@ -190,7 +200,7 @@ export default function ImportRoute() {
         };
         const recordingId = result?.recordingId;
         if (!recordingId) {
-          throw new Error("Loom import did not return a recording id.");
+          throw new Error(t("recordRoute.couldNotImportLoom"));
         }
 
         clearTimers();
@@ -201,19 +211,19 @@ export default function ImportRoute() {
           result?.storageSetupRequired ||
           result?.status === "waiting_storage"
         ) {
-          toast.info(t("recordRoute.storageNeededToFinishLoomImport"), {
+          infoImportToast(t("recordRoute.storageNeededToFinishLoomImport"), {
             description: t("recordRoute.connectStorageToRetryLoom"),
             duration: 12_000,
           });
           await writeNavigateAppState(recordingId);
-          navigate(`/r/${recordingId}`);
+          void navigate(`/r/${recordingId}`);
           return;
         }
 
         await copyRecordingLink(recordingId);
         await writeNavigateAppState(recordingId);
 
-        // Linger on the "done" reveal, then fade out into the clip.
+        completeImportToast(t("recordRoute.loomImported"));
         setPhase("done");
         timeoutsRef.current.push(
           setTimeout(() => setPhase("leaving"), 1900),
@@ -223,17 +233,24 @@ export default function ImportRoute() {
         clearTimers();
         setProgress(0);
         setPhase("form");
-        setLoomError(
+        const message =
           err instanceof Error
             ? userFacingActionErrorMessage(err.message)
-            : t("recordRoute.couldNotImportLoom"),
-        );
+            : t("recordRoute.couldNotImportLoom");
+        setLoomError(message);
+        failImportToast(t("recordRoute.couldNotImportLoom"), {
+          description: message,
+          duration: 12_000,
+        });
       }
     },
     [
       busy,
       clearTimers,
+      completeImportToast,
+      failImportToast,
       folderIdFromUrl,
+      infoImportToast,
       importStages.length,
       loomUrl,
       navigate,
@@ -276,7 +293,9 @@ export default function ImportRoute() {
         </p>
 
         <div className="mx-auto w-full max-w-lg">
-          {storageConfigured === null ? (
+          {storageQuery.isError ? (
+            <StorageStatusRetry onRetry={() => void storageQuery.refetch()} />
+          ) : storageConfigured === null ? (
             <ImportPanelSkeleton />
           ) : storageConfigured ? (
             <div
@@ -296,7 +315,7 @@ export default function ImportRoute() {
               <div className="p-6">
                 {phase === "importing" ? (
                   <div className="flex flex-col items-center gap-2 py-8 text-center">
-                    <IconSparkles className="h-6 w-6 animate-pulse text-primary" />
+                    <AgentMark className="h-6 w-6 animate-pulse text-primary" />
                     <p
                       key={stageIndex}
                       className="text-base font-semibold text-foreground"
@@ -311,7 +330,7 @@ export default function ImportRoute() {
                 ) : phase === "done" || phase === "leaving" ? (
                   <div className="flex flex-col items-center gap-4 py-6 text-center">
                     <div className="flex items-center gap-2 text-primary">
-                      <IconSparkles className="h-6 w-6" />
+                      <AgentMark className="h-6 w-6" />
                       <p className="text-base font-semibold text-foreground">
                         {t("importRoute.doneHeading")}
                       </p>
@@ -364,13 +383,14 @@ export default function ImportRoute() {
 
               {!busy ? (
                 <div className="flex items-center justify-center gap-4 border-t border-border px-6 py-4">
-                  <Link
-                    to={uploadHref}
+                  <button
+                    type="button"
+                    onClick={() => openUploadPicker(recordHref)}
                     className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
                   >
                     <IconUpload className="h-3.5 w-3.5" />
                     {t("preRecord.uploadVideo")}
-                  </Link>
+                  </button>
                   <Link
                     to={recordHref}
                     className="text-xs font-medium text-muted-foreground hover:text-foreground"
@@ -389,6 +409,7 @@ export default function ImportRoute() {
           )}
         </div>
       </div>
+      {uploadInput}
     </div>
   );
 }

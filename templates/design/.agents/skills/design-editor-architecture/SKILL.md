@@ -1,10 +1,12 @@
 ---
 name: design-editor-architecture
 description: >-
-  Where design editor behavior lives and how to navigate DesignEditor.tsx. Use
-  before changing any editor behavior — undo/redo, paste, delete, duplicate,
-  style commit, layer move/rename, export, structure change — or before opening
-  `app/pages/DesignEditor.tsx`.
+  Where design editor behavior lives and how the editor component is split
+  across `DesignEditor.tsx`, the `use-editor-*` hooks, and the view render
+  functions.
+  Use before changing any editor behavior — undo/redo, paste, delete,
+  duplicate, style commit, layer move/rename, export, structure change — or
+  before editing `app/pages/DesignEditor.tsx` or a `use-editor-*` hook.
 scope: dev
 metadata:
   internal: true
@@ -14,23 +16,28 @@ metadata:
 
 ## The routing rule
 
-Editor **behavior** lives in `app/pages/design-editor/`, not in
-`app/pages/DesignEditor.tsx`.
+Editor **behavior** lives in `app/pages/design-editor/`, not in the editor
+component.
 
-`DesignEditor.tsx` is ~20,900 lines and holds only three things: state
-declarations, the `useCallback` wrappers that gather arguments, and the JSX.
-Every wrapper delegates to a `run<Name>()` command module.
+The component is split three ways. `app/pages/DesignEditor.tsx` is a short
+shell that calls 21 `useEditor*` hooks in a fixed order and returns
+`renderDesignEditorView(...)`. The hooks (`design-editor/domains/use-editor-*.ts`)
+hold the state declarations, effects, and the `useCallback` wrappers that
+gather arguments. `design-editor/design-editor-view.tsx` lays out the page and
+calls the render functions in `design-editor/view/` (menus, sidebars, canvas
+area, inspector, dialogs). Every wrapper delegates to a `run<Name>()` command
+module.
 
 **To change what an editor action does, edit the command module.** Opening
-`DesignEditor.tsx` to change behavior is almost always the wrong move — it will
-exhaust your context before you find the code.
+the hooks to change behavior is almost always the wrong move — they only
+gather arguments.
 
 | Directory | Holds |
 | --- | --- |
 | `design-editor/commands/` | 86 one-per-action modules, each exporting `run<Name>(args, …)`. Start at `commands/README.md` |
 | `design-editor/effects/` | Subscription and autosave loops (collab text, motion autosave, agent selection mirroring) |
 | `design-editor/derive/` | Pure derivations (`overview-screens.ts`, `design-breakpoints.ts`) |
-| `design-editor/domains/` | Whole-domain hooks owning state + refs + effects + handlers together (`use-tweaks.ts`) |
+| `design-editor/domains/` | The editor component's hooks (`use-editor-*.ts`) and whole-domain hooks owning state + refs + effects + handlers together (`use-tweaks.ts`) |
 | `design-editor/*.ts` | Shared helpers: `history.ts`, `selection-state.ts`, `pending-edits.ts`, `editor-state.ts`, `editor-helpers.ts`, … |
 
 ## Common task → file
@@ -50,30 +57,55 @@ exhaust your context before you find the code.
 | Export | `commands/render-png-blob.ts`, `download-pdf.ts`, `download-svg.ts`, `copy-as-figma-svg.ts` |
 | Save / persistence | `commands/save-file-content.ts`, `commands/apply-file-content-update.ts` |
 | Breakpoints | `responsive-breakpoints` skill; `derive/design-breakpoints.ts` |
+| Canvas speed, memory, previews vs editors | `design-editor-performance` skill; `multi-screen/culling.ts` |
 
 A `screen-` prefix means the command is addressed by an explicit `screenId`
 (overview canvas or board). The unprefixed twin acts on the focused screen.
 
-Before adding a `domains/` hook, count what it would expose. Past roughly 16
-returned values the hook stops hiding anything and just relocates the wiring —
-measured surfaces for share/export (20), generation (18), and motion (48) are
-all why those still live inline. Also check no input it needs is declared after
-the point where its own outputs are first consumed; responsive-interact fails
-that test and cannot be extracted without changing when values are read.
+## Working in the `use-editor-*` hooks
 
-## Navigating DesignEditor.tsx when you must
+They are one component's body split in dependency order, not encapsulated
+domains: most return 20–130 values, and each name says what the hook mostly
+holds. Each hook takes earlier hooks' results, destructures what it reads, and
+returns what later hooks or the view read. Values only flow forward:
 
-The file carries ~82 section banners. This prints a table of contents:
+- To read a value declared in an earlier hook, return it there and destructure
+  it here.
+- A value declared in a later hook is not available. Put the code in that hook
+  or a later one instead of threading the value backwards.
+- Keep every `useEffect`, `useLayoutEffect`, and effectful custom hook in its
+  current order relative to the others. Effects that share refs, timers, or
+  listeners depend on that order, and moving one into an earlier hook runs it
+  sooner.
+
+A new whole-domain hook like `use-tweaks.ts` is worth it only while its surface
+stays small, roughly 16 returned values or fewer; past that it just relocates
+the wiring.
+
+Find where a value or handler lives:
 
 ```bash
-grep -n "──" app/pages/DesignEditor.tsx
+rg -n "const \[?handleDownloadPng\b" app/pages/design-editor/domains
 ```
 
-Read one region with an offset and a limit instead of opening the file. Every
-section is under ~800 lines. Banners use `// ── Name ──` in the component body
-and `{/* ── Render: name ── */}` inside the JSX.
+`design-editor-view.tsx` and the `view/` modules keep the
+`{/* ── Render: name ── */}` banners; `grep -rn "── Render" app/pages/design-editor/`
+prints a table of contents. Each `render<Name>()` receives the hooks' result
+objects plus a few values the view narrows (`id`, `design` after the loading
+and access early returns) or computes.
 
-When you add or move a region, add a banner for it.
+**View pieces are render functions, never components, and never call hooks.**
+They run inline in the editor's render, so the React tree matches a single
+component's. A component boundary would let React's dev build deep-diff the
+hook objects, which reads every React Query result field and re-renders the
+editor on each poll.
+
+`MultiScreenCanvas` takes grouped props (`review`, `board`, `breakpoints`,
+`camera`, `creation`, `geometry`, `selection`; see
+`multi-screen/types.ts`). Its memo comparator compares group members one by
+one, so passing a fresh group object literal each render is fine; passing a
+flat member through a `{...spread}` is not, because the canvas only reads
+members from their group.
 
 ## Hard constraints
 
@@ -82,9 +114,10 @@ zero runtime named exports.** Type-only exports are fine. Both routes
 (`app/routes/design.$id.tsx`, `app/routes/visual-edit.$id.tsx`) import that
 default. A named export breaks React Fast Refresh for the whole editor.
 
-**The render-callback trio's dependency arrays are load-bearing.**
-`DesignEditor.routeRefreshBoundary.test.ts` parses the file with the TypeScript
-compiler and enforces:
+**The render-callback trio's dependency arrays are load-bearing.** The trio
+lives in `domains/use-editor-screen-rendering.tsx`;
+`DesignEditor.routeRefreshBoundary.test.ts` parses the editor source with the
+TypeScript compiler and enforces:
 
 - `renderScreenContent` deps are exactly `[renderEditableScreenContent]`
 - `renderBreakpointContent` deps are exactly `[renderEditableScreenContent]`
@@ -95,9 +128,96 @@ compiler and enforces:
 That last one exists because cached overview canvases must invalidate on
 preview-only state changes. Dropping a name from it renders a stale canvas.
 
-**Many specs read source as text.** ~20 specs `readFileSync` either
-`DesignEditor.tsx` or a command module and slice it with `indexOf` markers, then
-assert on the source string. Moving code breaks them with a confusing failure.
-Re-point the path and the marker in the same commit that moves the code. Prefer
-asserting against the command module (`commandSource("undo.ts")`) over the
-editor file.
+**Many specs read source as text.** Specs about the editor component read it
+through `readDesignEditorSource()` (`design-editor/read-design-editor-source.ts`),
+which returns the shell, the hooks in call order, and the view as one string;
+others read a command module. Many slice with `indexOf` markers, so moving code
+between files can break them with a confusing failure. Re-point the marker in
+the same commit that moves the code. Prefer asserting against the command
+module (`commandSource("undo.ts")`) over the editor source.
+
+## Prove the gesture, not just the outcome
+
+A gesture test can pass without the gesture. `Shift+drag locks movement to one
+axis` asserted only that `top` was unchanged — true of a drag that moves
+nothing — and would have kept passing if dragging broke entirely.
+
+Audit by mutation, not by reading. Neuter the gesture in the shared helper and
+re-run: every test whose name promises it must fail. You need more than one
+mutation, because removing the travel (`{ steps: N }`) leaves a click, and a
+click still creates a default-sized primitive — `frame-screen-nesting` passed
+8/8 that way and failed 6/8 once `mouse.down()` was removed instead. Prefer the
+mutation that removes the precondition over one that corrupts it: committing a
+*wrong* inspector value hid a hole that committing *nothing* exposed in one run.
+
+Two traps make a "clean" result meaningless. Mutating one helper audits nothing
+that builds its own gesture — inline `mouse.move`, `locator.dragTo()`, keyboard
+nudges, and the synthetic events `dragInsideScreen`/`pressPrimaryShortcut`
+dispatch inside `page.evaluate` each need their own. And a literal-matching
+mutator silently skips variable call sites (`press(undoShortcut)`) and reports
+them passing. Map the mutation back to the enclosing tests before concluding.
+
+Five hole shapes, each of which passed with the gesture removed:
+
+- **Only the property that stays still** — assert the one that must change.
+- **Only survival** (exists / not hidden / in viewport) — capture position
+  first and require it to change.
+- **Two runs compared only to each other** — they agree when both are equally
+  wrong. Anchor one side to the value actually requested.
+- **`indexOf`'s `-1` used as a position** — a *deleted* element reads as
+  "correctly ordered". Check both indexes are `> -1` first.
+- **A read that coerces its own failure into the asserted value** —
+  `.catch(() => [])` before "the list is empty", or `.catch(() => false)`
+  before `.toBe(false)`. Let the read throw, or prove the thing exists.
+  `guard:e2e-harness` fails on new ones.
+
+A negative-only test ("Escape cancels the move") cannot distinguish any of this
+alone; it is sound only while a positive test for the same gesture sits beside
+it, and deleting that partner silently guts both.
+
+## Prove the bug before you fix it
+
+Drag, drop, reparent, undo, and duplicate are the behaviors this editor keeps
+re-breaking, and they are the ones a reader cannot verify by eye. So a fix to
+any of them lands as two things: a test that **fails on the current code for
+the reason you claim**, then the change that turns it green. Run the test
+before the fix and paste the failure; a test written after the fix only proves
+the code does what it does.
+
+**Prove it at the fastest layer that can express the bug.** The E2E suite is
+post-merge only, so a bug proven *only* there cannot fail anyone's pull
+request — it will rot the way 63 of these specs already did. Reach for the
+browser last:
+
+1. A pure function — `tool-state.ts`, `code-layer.ts`, `shared/`, a module
+   under `commands/`. These run in PR CI with ~500 other vitest files, in
+   seconds. Most drag/undo defects are decidable here once the geometry or
+   placement decision is extracted from the gesture.
+2. A component test, when it needs React state but not a real iframe.
+3. E2E, only when the bug genuinely needs the bridge, a real pointer, or a
+   cross-document boundary.
+
+If a bug is only reproducible in E2E, that is worth saying out loud in the PR:
+it means the regression net for it is a post-merge run nobody is blocked by.
+
+Most of what looks like a bug here is not. Sweeping this suite turned up tests
+asserting an `"Add layer"` label no component renders, a Stroke section that
+never had layer rows, a `data-smart-selection` attribute nobody built, a port
+(`9340`) nothing serves, and a Frame tool that grew a Frame/Screen split. So
+before changing product code, establish which side is wrong:
+
+- **Does the control exist?** `grep` the label and the i18n key. A translation
+  is rendered only when the active catalog loads its locale file.
+- **Does the gate allow it?** Read the condition, not the intent —
+  `frameToolDraws === "screen"`, `canRenderAuthenticatedShare`,
+  `responsiveInteractActive`. A test that skips the gate is the broken one.
+- **Is the assertion self-consistent?** Two specs asserted opposite rectangle
+  drop behavior. No code change satisfies both; that needs a contract decision.
+
+When the bug is real and you are not fixing it now, `test.fixme` it with the
+symptom in a comment directly above — the observed value, not a guess.
+`guard:e2e-quarantine` fails on a parked test with no reason and on the count
+growing past its ceiling, so silencing a test to get green is a visible choice
+rather than a quiet one.
+
+`pnpm guards` runs that check. Lower the ceiling whenever you fix one.

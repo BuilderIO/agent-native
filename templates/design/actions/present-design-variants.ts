@@ -1,4 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { fail } from "@agent-native/core/action";
 import {
   deleteAppState,
   writeAppStateForCurrentTab,
@@ -6,26 +7,38 @@ import {
 import { seedFromText } from "@agent-native/core/collab";
 import { buildDeepLink } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
+import {
+  assertSingleCanvasOutput,
+  resolveCanvasIntent,
+} from "../shared/canvas-dimensions.js";
 import {
   mergeCanvasFramePlacements,
   nextFreeCanvasRowY,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
-import { isUniqueConstraintViolation } from "../shared/db-conflict.js";
+import { getOverviewScreenFileIds } from "../shared/design-files.js";
 import { assertDesignHtmlWellFormed } from "../shared/html-integrity.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
 import {
+  getResponsiveBreakpointWidths,
+  getResponsiveGroupHeight,
   getResponsiveGroupWidth,
+  MAX_SANE_FRAME_ASPECT_RATIO,
+  MAX_SANE_FRAME_DIMENSION_PX,
   visibleBreakpointWidths,
 } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import { hasSpecifiedDesignPrompt } from "../shared/specified-design-prompt.js";
 
 const VARIANT_GAP = 96;
 const MAX_COLUMNS = 3;
@@ -35,9 +48,6 @@ const TABLET_WIDTH = 768;
 const TABLET_HEIGHT = 1024;
 const DESKTOP_WIDTH = 1440;
 const DESKTOP_HEIGHT = 900;
-// Desktop-base default: the primary/base frame is Desktop (1440), so the
-// breakpoint set is Mobile only. The primary width is never included and no
-// tablet is auto-added, matching generate-design's device derivation.
 const DEFAULT_RESPONSIVE_BREAKPOINTS = [MOBILE_WIDTH].map((widthPx) => ({
   id: `generated-${widthPx}`,
   label: "Mobile",
@@ -45,36 +55,19 @@ const DEFAULT_RESPONSIVE_BREAKPOINTS = [MOBILE_WIDTH].map((widthPx) => ({
   prefix: widthToPrefix(widthPx),
 }));
 
-const SPECIFICATION_SIGNAL_PATTERNS = [
-  /\b(?:attached|uploaded|reference|mockup|screenshot|wireframe|source of truth|source-of-truth)\b/i,
-  /\b(?:\d+\s*[- ]\s*col(?:umn)?|grid spec|layout spec|section order|feature list)\b/i,
-  /\b(?:design system|brand system|brand kit|visual language|tokens?)\b/i,
-] as const;
-
-/**
- * Direction summaries are useful for genuinely open-ended exploration, but
- * the fallback renderer cannot reproduce a supplied layout or system. Keep a
- * complete-HTML requirement at the action boundary so a model cannot turn a
- * detailed screen brief into generic cards just by omitting `content`.
- *
- * The weakest of the two signals, and never the only one: `prompt` is the chat
- * caption this same model writes for the picker, so an agent that has just
- * decided to explore writes an exploration-flavored caption and clears the
- * check for free. `hasLinkedDesignSystem` below is the fact the server owns.
- */
-export function hasSpecifiedDesignPrompt(prompt?: string): boolean {
-  const value = prompt?.trim() ?? "";
-  if (!value) return false;
-  return SPECIFICATION_SIGNAL_PATTERNS.some((pattern) => pattern.test(value));
+function isModelVisibleImageAttachment(attachment: {
+  type?: string;
+  name?: string;
+  contentType?: string;
+  displayOnly?: boolean;
+}): boolean {
+  if (attachment.displayOnly === true) return false;
+  if (attachment.type === "image") return true;
+  const contentType = attachment.contentType?.split(";", 1)[0]?.trim();
+  if (contentType) return contentType.toLowerCase().startsWith("image/");
+  return /\.(?:avif|gif|jpe?g|png|svg|webp)$/i.test(attachment.name ?? "");
 }
 
-/**
- * The one specification signal that survives an intake round-trip. Attachments
- * are turn-scoped (see `ActionRunContext.attachments`), so by the time the
- * agent asks its questions and comes back to present variants, the reference
- * screenshot the user supplied is no longer visible to this action — but the
- * design system they linked still is.
- */
 async function hasLinkedDesignSystem(designId: string): Promise<boolean> {
   const [design] = await getDb()
     .select({ designSystemId: schema.designs.designSystemId })
@@ -88,12 +81,6 @@ async function hasLinkedDesignSystem(designId: string): Promise<boolean> {
   return Boolean(design?.designSystemId?.trim());
 }
 
-/**
- * Absent, or present but unreadable — the caller must not treat these alike.
- * A malformed set is still the user's data: overwriting it with the generated
- * default silently discards breakpoints they configured, so it reports
- * `"malformed"` and the install is skipped rather than clobbering it.
- */
 function classifyBreakpointSet(
   value: unknown,
 ): "absent" | "malformed" | "present" {
@@ -114,7 +101,7 @@ function designDeepLink(designId: string): string {
     app: "design",
     view: "editor",
     params: { designId, editorView: "overview" },
-    to: `/design/${encodeURIComponent(designId)}?view=overview`,
+    to: `/design/${encodeURIComponent(designId)}?editorView=overview`,
   });
 }
 
@@ -200,34 +187,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-const MAX_FILENAME_INSERT_ATTEMPTS = 5;
-
-/**
- * True only when `rawSet` proves none of its screens has ever been removed by
- * delete-file.ts. This action stamps every variant set it creates with
- * `screenCount` — the exact number of screens it generated, which never
- * changes afterward (present-design-variants.ts never mutates an existing
- * set's `screenCount`, and delete-file.ts's `pruneDesignVariantSets` only
- * ever shortens/removes a set's `screens` array, never touches `screenCount`).
- * The moment any member is deleted, `screens.length` drops below the
- * recorded `screenCount` (or the whole entry is removed once <=1 screens
- * remain) — either way, `screens.length === screenCount` no longer holds. So
- * this equality proves no delete-file call has EVER resolved against this
- * set.
- *
- * IMPORTANT: this does NOT prove the user never picked a screen from the set.
- * A pick only exists as a chat instruction (see `VARIANT_PICK_SUBMIT_MESSAGE`)
- * until the agent's follow-up turn actually calls delete-file for the losers;
- * there is no synchronous server-side seam that records a pick before that
- * turn runs (an agent retry after a run cutoff, or a second
- * present-design-variants call, can both land before the delete-file calls
- * do). So `isUntouchedVariantSet` is used only to decide whether a set is
- * eligible to be *marked* superseded — never as authority to delete its
- * files. See `markSupersededVariantSets` / `deleteVariantSetsByIds` below.
- * Sets without a numeric `screenCount` at all (legacy data predating this
- * field) are NOT treated as untouched either, since we cannot prove those
- * were never picked.
- */
 function isUntouchedVariantSet(
   rawSet: unknown,
 ): rawSet is { screens: unknown[]; screenCount: number } & Record<
@@ -276,27 +235,6 @@ function pruneKeyedRecordForIds(
   return next;
 }
 
-/**
- * Marks each PREVIOUS present-design-variants set for this design that is
- * proven untouched (see `isUntouchedVariantSet`) as `superseded: true`,
- * whenever a new variant set is created for the same design. This is
- * bookkeeping ONLY — it never deletes files, never touches `canvasFrames` or
- * `screenMetadata`, and is always safe to run unconditionally. A set with
- * `superseded: true` still renders normally; the flag only makes it eligible
- * for the opt-in `deleteSupersededSetIds` path below.
- *
- * Deletion is intentionally NOT automatic here. The failure mode this
- * guards against: set V1=[S1,S2,S3] is generated; the user picks S2 in chat;
- * before the agent's delete-file turn for S1/S3 actually runs (run cutoff,
- * retry, or a second present-design-variants call arriving first),
- * `screens.length === screenCount` still holds for V1 — a pick is not
- * observable server-side until delete-file resolves it. Auto-deleting on
- * that inference would have hard-deleted the picked screen S2 with no
- * recovery. So this function only records bookkeeping; real deletion
- * requires the agent to explicitly name the set via `deleteSupersededSetIds`
- * — see that action param's description for the discipline expected of
- * callers.
- */
 async function markSupersededVariantSets(
   designId: string,
 ): Promise<{ markedSetIds: string[] }> {
@@ -373,33 +311,12 @@ async function markSupersededVariantSets(
   return { markedSetIds };
 }
 
-/**
- * Explicit, opt-in permanent deletion of specific variant sets by id. This is
- * the ONLY path that hard-deletes variant-set files; it never runs
- * automatically. The caller (the agent) must pass `deleteSupersededSetIds`
- * naming the exact sets it knows were abandoned without any user pick — e.g.
- * generating a brand-new set after the user asked to see different options.
- * Never pass a previous set's id here on the strength of a guess or a retry;
- * only do so when there is no reason to believe the user discussed or picked
- * one of its screens.
- *
- * As a safety net, a requested id is only honored when the set is already
- * flagged `superseded: true` by `markSupersededVariantSets` (i.e. proven
- * untouched by any delete-file call as of this same run). A set that has
- * already had even one delete-file call resolve against it — the normal sign
- * that a pick is mid-flight — is never marked superseded and is therefore
- * never eligible here, regardless of what the caller requests.
- */
 async function deleteVariantSetsByIds(
   designId: string,
   requestedSetIds: string[],
 ): Promise<{ removedSetIds: string[]; removedFileIds: string[] }> {
   const db = getDb();
 
-  // Same cheap early-exit as markSupersededVariantSets: skip the
-  // updatedAt-bumping mutateDesignData commit when none of the requested set
-  // ids currently qualifies for deletion. The authoritative check still runs
-  // inside the mutate() callback below.
   const [designRow] = await db
     .select({ data: schema.designs.data })
     .from(schema.designs)
@@ -491,14 +408,17 @@ async function deleteVariantSetsByIds(
   });
 
   if (removedFileIds.length > 0) {
-    await db
-      .delete(schema.designFiles)
-      .where(inArray(schema.designFiles.id, removedFileIds));
+    await withDesignSourceMutationTransaction(designId, async (tx) => {
+      await tx
+        .delete(schema.designFiles)
+        .where(
+          and(
+            eq(schema.designFiles.designId, designId),
+            inArray(schema.designFiles.id, removedFileIds),
+          ),
+        );
+    });
 
-    // Closes the small window between the metadata prune above and the
-    // physical row delete: mirrors delete-file.ts's before/delete/after
-    // pattern so a sibling request that refreshed canvasFrames/screenMetadata
-    // for one of these now-deleted ids in that window still gets swept.
     await mutateDesignData({
       designId,
       mutate: (current, { updatedAt }) => ({
@@ -574,14 +494,43 @@ function boundedDimension(value: unknown, min: number, max: number) {
     : undefined;
 }
 
+function fitVariantAspectRatio(width: number, height: number) {
+  if (width / height > MAX_SANE_FRAME_ASPECT_RATIO) {
+    return {
+      width,
+      height: Math.ceil(width / MAX_SANE_FRAME_ASPECT_RATIO),
+    };
+  }
+  if (height / width > MAX_SANE_FRAME_ASPECT_RATIO) {
+    return {
+      width: Math.ceil(height / MAX_SANE_FRAME_ASPECT_RATIO),
+      height,
+    };
+  }
+  return { width, height };
+}
+
 function inferVariantSize(
   variant: z.infer<typeof variantSchema>,
   prompt?: string,
+  intent = resolveCanvasIntent(prompt),
 ) {
-  const explicitWidth = boundedDimension(variant.width, 240, 1920);
-  const explicitHeight = boundedDimension(variant.height, 240, 3000);
+  const promptDimensions =
+    intent.kind === "fixed" ? intent.dimensions : undefined;
+  if (promptDimensions) return promptDimensions;
+
+  const explicitWidth = boundedDimension(
+    variant.width,
+    1,
+    MAX_SANE_FRAME_DIMENSION_PX,
+  );
+  const explicitHeight = boundedDimension(
+    variant.height,
+    1,
+    MAX_SANE_FRAME_DIMENSION_PX,
+  );
   if (explicitWidth && explicitHeight) {
-    return { width: explicitWidth, height: explicitHeight };
+    return fitVariantAspectRatio(explicitWidth, explicitHeight);
   }
 
   const content = variant.content ?? "";
@@ -595,16 +544,23 @@ function inferVariantSize(
   const inferredWidth = boundedDimension(cssWidth, 240, 1920);
   const inferredHeight = boundedDimension(cssHeight, 240, 3000);
   if (inferredWidth && inferredWidth <= 560) {
-    return {
-      width: explicitWidth ?? inferredWidth,
-      height: explicitHeight ?? inferredHeight ?? MOBILE_HEIGHT,
-    };
+    return fitVariantAspectRatio(
+      explicitWidth ?? inferredWidth,
+      explicitHeight ?? inferredHeight ?? MOBILE_HEIGHT,
+    );
   }
   if (inferredWidth && inferredHeight) {
-    return {
-      width: explicitWidth ?? inferredWidth,
-      height: explicitHeight ?? inferredHeight,
-    };
+    return fitVariantAspectRatio(
+      explicitWidth ?? inferredWidth,
+      explicitHeight ?? inferredHeight,
+    );
+  }
+
+  if (intent.kind === "fixed") {
+    return fitVariantAspectRatio(
+      explicitWidth ?? DESKTOP_WIDTH,
+      explicitHeight ?? DESKTOP_HEIGHT,
+    );
   }
 
   const lowercase = [
@@ -620,22 +576,22 @@ function inferVariantSize(
     /\b(?:mobile|phone|iphone|android)\b/.test(lowercase) ||
     /\b(?:max-w-sm|max-w-md|w-\[(?:360|375|390|393|414)px\])\b/.test(lowercase)
   ) {
-    return {
-      width: explicitWidth ?? MOBILE_WIDTH,
-      height: explicitHeight ?? MOBILE_HEIGHT,
-    };
+    return fitVariantAspectRatio(
+      explicitWidth ?? MOBILE_WIDTH,
+      explicitHeight ?? MOBILE_HEIGHT,
+    );
   }
   if (/\b(?:tablet|ipad)\b/.test(lowercase)) {
-    return {
-      width: explicitWidth ?? TABLET_WIDTH,
-      height: explicitHeight ?? TABLET_HEIGHT,
-    };
+    return fitVariantAspectRatio(
+      explicitWidth ?? TABLET_WIDTH,
+      explicitHeight ?? TABLET_HEIGHT,
+    );
   }
 
-  return {
-    width: explicitWidth ?? DESKTOP_WIDTH,
-    height: explicitHeight ?? DESKTOP_HEIGHT,
-  };
+  return fitVariantAspectRatio(
+    explicitWidth ?? DESKTOP_WIDTH,
+    explicitHeight ?? DESKTOP_HEIGHT,
+  );
 }
 
 function escapeHtml(value: string) {
@@ -712,7 +668,7 @@ function fallbackVariantContent(
 body { margin: 0; width: ${screenWidth}px; min-height: ${screenHeight}px; overflow: hidden; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f8fafc; background:
   radial-gradient(circle at 18% 8%, color-mix(in srgb, var(--accent) 42%, transparent), transparent 30%),
   linear-gradient(140deg, #05070b 0%, #111827 48%, #05070b 100%); }
-.shell { width: ${screenWidth}px; min-height: ${screenHeight}px; padding: ${compact ? "18" : "34"}px; display: grid; grid-template-columns: ${compact ? "1fr" : tablet ? "220px 1fr" : "258px 1fr 304px"}; gap: ${compact ? "14" : "22"}px; }
+.shell { box-sizing: border-box; width: 100%; max-width: ${screenWidth}px; min-height: ${screenHeight}px; padding: ${compact ? "18" : "34"}px; display: grid; grid-template-columns: ${compact ? "1fr" : tablet ? "220px 1fr" : "258px 1fr 304px"}; gap: ${compact ? "14" : "22"}px; }
 .panel { border: 1px solid var(--line); background: var(--panel); border-radius: ${density === "dense" ? "14" : "22"}px; box-shadow: 0 24px 80px rgba(0,0,0,.35); backdrop-filter: blur(${density === "glass" ? "26" : "10"}px); }
 .sidebar { padding: 22px; display: flex; flex-direction: column; gap: 18px; }
 .brand { display:flex; align-items:center; justify-content:space-between; gap:12px; }
@@ -744,6 +700,7 @@ p { margin: 0; color: var(--muted); line-height: 1.5; }
 .shortcut { margin-top:auto; border-top:1px solid var(--line); padding-top:14px; display:flex; justify-content:space-between; gap:10px; color:#cbd5e1; font-size:12px; }
 ${tablet ? ".right { display: none; }" : ""}
 ${compact ? ".sidebar { padding: 16px; } .nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .nav div { padding: 10px; } .main { padding: 18px; } .top { display: grid; } .top .badge { width: fit-content; } h1 { font-size: 26px; } .right { display: none; } .column:nth-child(n+3) { display: none; }" : ""}
+@media (max-width: 900px) { body { width: 100%; max-width: ${screenWidth}px; overflow-x: hidden; overflow-y: auto; } .shell { grid-template-columns: 1fr; padding: 18px; gap: 14px; } .nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .top { display: grid; } .top .badge { width: fit-content; } .board { grid-template-columns: 1fr; } .right { display: none; } .column:nth-child(n+3) { display: none; } }
 </style>
 </head>
 <body>
@@ -795,19 +752,9 @@ ${compact ? ".sidebar { padding: 16px; } .nav { grid-template-columns: repeat(2,
 </html>`;
 }
 
-/**
- * Lays the generated directions out in rows of up to three.
- *
- * Each cell reserves the screen's WHOLE painted footprint, not just its
- * primary frame: this action also installs a design-wide breakpoint set, and
- * the overview paints one preview per breakpoint to the right of every primary
- * frame. Spacing by `width + VARIANT_GAP` alone drops the next direction on top
- * of the previous one's breakpoint row.
- */
 function placeVariantScreens(
   screens: VariantScreen[],
   breakpointWidths: readonly number[],
-  /** Y to start the lineup at, so an additional set clears the existing one. */
   originY = 0,
 ) {
   const placements: CanvasFramePlacement[] = [];
@@ -820,6 +767,10 @@ function placeVariantScreens(
     let rowHeight = 0;
 
     for (const [offset, screen] of row.entries()) {
+      const visibleWidths = visibleBreakpointWidths(
+        breakpointWidths,
+        screen.width,
+      );
       placements.push({
         fileId: screen.id,
         filename: screen.filename,
@@ -832,15 +783,19 @@ function placeVariantScreens(
       x +=
         getResponsiveGroupWidth({
           primaryWidth: screen.width,
-          // Frames are placed at their natural device width, so the breakpoint
-          // previews beside them are drawn unscaled.
           scale: 1,
-          visibleWidths: visibleBreakpointWidths(
-            breakpointWidths,
-            screen.width,
-          ),
+          visibleWidths,
         }) + VARIANT_GAP;
-      rowHeight = Math.max(rowHeight, screen.height);
+      rowHeight = Math.max(
+        rowHeight,
+        getResponsiveGroupHeight({
+          primaryHeight: screen.height,
+          scale: 1,
+          sourceWidth: screen.width,
+          sourceHeight: screen.height,
+          visibleWidths,
+        }),
+      );
     }
 
     rowY += rowHeight + VARIANT_GAP;
@@ -849,20 +804,11 @@ function placeVariantScreens(
   return placements;
 }
 
-/** Widths the overview will paint beside each primary frame once this call
- * settles: the design's own set when it has one, otherwise the set this action
- * is about to install. */
 function effectiveBreakpointWidths(currentBreakpointSet: unknown): number[] {
-  const breakpoints = hasBreakpointSet(currentBreakpointSet)
-    ? ((currentBreakpointSet as { breakpoints: Array<{ widthPx?: unknown }> })
-        .breakpoints ?? [])
-    : DEFAULT_RESPONSIVE_BREAKPOINTS;
-  return breakpoints
-    .map((breakpoint) => breakpoint.widthPx)
-    .filter(
-      (widthPx): widthPx is number =>
-        typeof widthPx === "number" && Number.isFinite(widthPx) && widthPx > 0,
-    );
+  if (!hasBreakpointSet(currentBreakpointSet)) {
+    return DEFAULT_RESPONSIVE_BREAKPOINTS.map(({ widthPx }) => widthPx);
+  }
+  return getResponsiveBreakpointWidths(currentBreakpointSet);
 }
 
 export default defineAction({
@@ -875,17 +821,25 @@ export default defineAction({
     "call get-design-snapshot with fileId for the kept screen before " +
     "calling edit-design on that same fileId in a bounded pass. Use " +
     '`mode: "replace-file"` when expanding the representative placeholder ' +
-    "into a complete but compact product UI in the chosen direction. Do not call generate-design after a " +
+    "into a complete but compact product UI in the chosen direction. Pass " +
+    "the original user request in `brief` and keep `prompt` as the short chat " +
+    "caption so size and output type are preserved. Do not call generate-design after a " +
     "variant pick. Stop after the first successful edit-design save. For " +
     "complex apps, " +
     "make each variant a " +
     "compact representative screen; pass concise labels/descriptions/features " +
-    "and omit content only for open-ended exploration. For a prompt with a " +
-    "specific product surface, reference, layout, or design system, provide " +
-    "complete self-contained HTML for every variant; the generic fallback is " +
+    "and omit content only for open-ended exploration. For a fixed canvas " +
+    "(exact size, ad, social post), an attached reference image, or a brief " +
+    "with a specific reference, layout, or design system, provide complete " +
+    "self-contained HTML for every variant; the generic fallback is " +
     "blocked there. Design will render compact screens from direction data only " +
     "for open-ended exploration. Expand the chosen direction after the user " +
-    "picks. Screens from an earlier variant set are never " +
+    "picks. Exact pixel dimensions in the original brief set every variant's " +
+    "exact canvas size and suppress extra mobile or tablet frames. Static " +
+    "artwork such as ads, banners, social posts, flyers, and posters also has " +
+    "no responsive frames. Use one exact " +
+    "canvas size per call; different sizes require separate calls scoped to " +
+    "each screen. Screens from an earlier variant set are never " +
     "deleted automatically: if you are knowingly replacing your own earlier " +
     "set that the user never picked from or discussed, pass its set id in " +
     "deleteSupersededSetIds; otherwise leave old sets in place.",
@@ -895,12 +849,24 @@ export default defineAction({
       .string()
       .optional()
       .describe("Caption shown in chat above the variant choice buttons"),
+    brief: z
+      .string()
+      .optional()
+      .describe(
+        "Original user request for this design. Keep requested output type and exact dimensions here; prompt is only the short chat caption.",
+      ),
     variants: z
       .array(variantSchema)
       .min(2)
       .max(5)
       .describe(
         "2-5 concise, visually distinct generated design options to place as overview screens (3 is the sweet spot). Prefer short label/description/features for each direction; include inline HTML content only when it is compact enough to finish.",
+      ),
+    responsive: z
+      .boolean()
+      .optional()
+      .describe(
+        "Whether generated app direction screens should include responsive breakpoint frames. Defaults to true for app surfaces; exact dimensions and static artwork such as ads suppress extra device frames.",
       ),
     deleteSupersededSetIds: z
       .array(z.string())
@@ -927,15 +893,48 @@ export default defineAction({
       height: 720,
     }),
   },
-  run: async ({ designId, prompt, variants, deleteSupersededSetIds }) => {
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  run: async (
+    { designId, prompt, brief, variants, deleteSupersededSetIds, responsive },
+    context,
+  ) => {
     await assertAccess("design", designId, "editor");
+    const originalBrief =
+      brief?.trim() ||
+      (prompt?.trim() && !/^pick a direction$/i.test(prompt.trim())
+        ? prompt.trim()
+        : "");
+    const intentPrompt = originalBrief;
+    const canvasIntent = resolveCanvasIntent(intentPrompt);
+    assertSingleCanvasOutput(canvasIntent);
+    const promptDimensions =
+      canvasIntent.kind === "fixed" ? canvasIntent.dimensions : undefined;
+    await snapshotDesignBeforeAgentEdit(designId, context);
+    const useResponsiveFrames =
+      canvasIntent.kind !== "fixed" && responsive !== false;
 
     const omittedContent = variants.filter(
       (variant) => !variant.content?.trim(),
     );
+    const hasUnrenderedImageReference = context?.attachments?.some(
+      isModelVisibleImageAttachment,
+    );
+    if (omittedContent.length > 0 && hasUnrenderedImageReference) {
+      fail(
+        "Every variant must include complete HTML when an image attachment is present; the direction-only fallback does not use attached image references.",
+        {
+          errorCode: "image_attachment_requires_variant_content",
+          statusCode: 422,
+        },
+      );
+    }
     if (
       omittedContent.length > 0 &&
-      (hasSpecifiedDesignPrompt(prompt) ||
+      (hasSpecifiedDesignPrompt(intentPrompt) ||
         (await hasLinkedDesignSystem(designId)))
     ) {
       throw new Error(
@@ -948,12 +947,6 @@ export default defineAction({
       );
     }
 
-    // Before any mutation. These are model-authored screens created by raw
-    // insert, so they need the same well-formedness gate as generate-design —
-    // though not its document-shape rules, since a variant may be a sketch with
-    // `<html>`/`<body>` implied. Ordering is the load-bearing part: the
-    // supersession and deletion below are irreversible, so throwing after them
-    // would destroy existing variant sets and create nothing to replace them.
     for (const variant of variants) {
       const candidate = variant.content?.trim();
       if (!candidate) continue;
@@ -963,13 +956,6 @@ export default defineAction({
       });
     }
 
-    // Non-destructive bookkeeping: flag earlier still-complete variant sets
-    // as superseded. Files are NEVER deleted automatically — a user's pick
-    // exists only as a chat instruction until the agent's delete-file turn
-    // runs, so an automatic sweep here could destroy the picked screen. Real
-    // deletion happens only for set ids the caller explicitly opts into via
-    // `deleteSupersededSetIds` below (and only when the set is provably
-    // untouched by any delete-file call).
     await markSupersededVariantSets(designId);
     const variantSetCleanup =
       deleteSupersededSetIds && deleteSupersededSetIds.length > 0
@@ -978,45 +964,50 @@ export default defineAction({
 
     const db = getDb();
     const now = new Date().toISOString();
-    const existingFiles = await db
-      .select()
-      .from(schema.designFiles)
-      .where(eq(schema.designFiles.designId, designId));
-    const usedFilenames = new Set(existingFiles.map((file) => file.filename));
     const variantSetId = nanoid();
-    const screens: VariantScreen[] = [];
+    let screenFileIds: string[] = [];
+    const screenContents = new Map<string, string>();
+    const screens = await withDesignSourceMutationTransaction(
+      designId,
+      async (tx) => {
+        const existingFiles = await tx
+          .select()
+          .from(schema.designFiles)
+          .where(eq(schema.designFiles.designId, designId));
+        const usedFilenames = new Set(
+          existingFiles.map((file) => file.filename),
+        );
+        screenFileIds = getOverviewScreenFileIds(existingFiles);
+        const createdScreens: VariantScreen[] = [];
 
-    for (let index = 0; index < variants.length; index += 1) {
-      const variant = variants[index]!;
-      const label = variant.label.trim() || optionName(index);
-      const slug = slugify(label, `option-${index + 1}`);
-      let filename = uniqueFilename(`variant-${slug}.html`, usedFilenames);
-      let fileId = nanoid();
-      const providedContent = variant.content?.trim();
-      const initialSize = inferVariantSize(variant, prompt);
-      const rawContent =
-        providedContent ||
-        fallbackVariantContent(variant, index, prompt, initialSize);
-      const { width, height } = providedContent
-        ? inferVariantSize({ ...variant, content: rawContent })
-        : initialSize;
-      // Stamp missing data-agent-native-node-id attributes before persisting
-      // so each variant screen is fully addressable by id-keyed editor
-      // operations as soon as it lands on the overview board.
-      const content = annotateScreenHtmlForPersist(rawContent, "html");
+        for (let index = 0; index < variants.length; index += 1) {
+          const variant = variants[index]!;
+          const label = variant.label.trim() || optionName(index);
+          const slug = slugify(label, `option-${index + 1}`);
+          const filename = uniqueFilename(
+            `variant-${slug}.html`,
+            usedFilenames,
+          );
+          const fileId = nanoid();
+          const providedContent = variant.content?.trim();
+          const initialSize = inferVariantSize(
+            variant,
+            intentPrompt,
+            canvasIntent,
+          );
+          const rawContent =
+            providedContent ||
+            fallbackVariantContent(variant, index, intentPrompt, initialSize);
+          const { width, height } = providedContent
+            ? inferVariantSize(
+                { ...variant, content: rawContent },
+                promptDimensions ? intentPrompt : undefined,
+                canvasIntent,
+              )
+            : initialSize;
+          const content = annotateScreenHtmlForPersist(rawContent, "html");
 
-      // `usedFilenames` is a snapshot taken once at the top of run(), so a
-      // concurrent present-design-variants call (an agent retry after a
-      // timeout is the common trigger) can independently compute the same
-      // (designId, filename) pair and win the insert first. The
-      // `design_files_design_filename_unique_idx` unique index (see
-      // server/plugins/db.ts) turns the loser's insert into a constraint
-      // error instead of a silently duplicated screen; recover by refreshing
-      // the real filename list from the DB, picking a fresh unique name, and
-      // retrying — bounded so a persistent non-race failure still surfaces.
-      for (let attempt = 0; ; attempt += 1) {
-        try {
-          await db.insert(schema.designFiles).values({
+          await tx.insert(schema.designFiles).values({
             id: fileId,
             designId,
             filename,
@@ -1025,59 +1016,50 @@ export default defineAction({
             createdAt: now,
             updatedAt: now,
           });
-          break;
-        } catch (err) {
-          if (
-            !isUniqueConstraintViolation(err) ||
-            attempt >= MAX_FILENAME_INSERT_ATTEMPTS
-          ) {
-            throw err;
-          }
-          const freshFiles = await db
-            .select({ filename: schema.designFiles.filename })
-            .from(schema.designFiles)
-            .where(eq(schema.designFiles.designId, designId));
-          for (const file of freshFiles) usedFilenames.add(file.filename);
-          filename = uniqueFilename(`variant-${slug}.html`, usedFilenames);
-          fileId = nanoid();
+          usedFilenames.add(filename);
+          screenContents.set(fileId, content);
+
+          createdScreens.push({
+            id: fileId,
+            variantId: variant.id,
+            label,
+            filename,
+            width,
+            height,
+          });
         }
-      }
-      await seedFromText(fileId, content);
+        return createdScreens;
+      },
+    );
+    await Promise.all(
+      screens.map((screen) =>
+        seedFromText(screen.id, screenContents.get(screen.id)!),
+      ),
+    );
 
-      screens.push({
-        id: fileId,
-        variantId: variant.id,
-        label,
-        filename,
-        width,
-        height,
-      });
-    }
-
-    // Presenting options should not silently reconfigure the design. When it
-    // does, the overview paints an extra preview beside EVERY primary frame
-    // from then on — including screens created later — so the caller is told.
     let installedBreakpointSet = false;
 
     await mutateDesignData({
       designId,
       mutate: (current, { updatedAt }) => {
         installedBreakpointSet =
+          useResponsiveFrames &&
           classifyBreakpointSet(current.breakpointSet) === "absent";
-        // Placement depends on the breakpoint set in effect after this call, so
-        // it is resolved here (inside the compare-and-set body) rather than
-        // against a design snapshot that a concurrent write may have moved on
-        // from.
+        const currentBreakpointWidths = effectiveBreakpointWidths(
+          current.breakpointSet,
+        );
         const mergedFrames = mergeCanvasFramePlacements({
           existing: current.canvasFrames,
           placements: placeVariantScreens(
             screens,
-            effectiveBreakpointWidths(current.breakpointSet),
-            // Start below what is already on the board. The set being written is
-            // excluded so re-running the same set lands where it was instead of
-            // marching further down each time.
+            useResponsiveFrames ? currentBreakpointWidths : [],
             nextFreeCanvasRowY(current.canvasFrames, VARIANT_GAP, {
               ignoreFileIds: screens.map((screen) => screen.id),
+              responsiveLayout: {
+                screenFileIds,
+                screenMetadataByFileId: current.screenMetadata,
+                breakpointWidths: currentBreakpointWidths,
+              },
             }),
           ),
           resolveFileId: (placement) => placement.fileId,
@@ -1089,7 +1071,9 @@ export default defineAction({
           ? { ...current.designVariantSets }
           : {};
         for (const screen of screens) {
-          previousMetadata[screen.id] = {
+          const existingMetadata = previousMetadata[screen.id];
+          const metadata: Record<string, unknown> = {
+            ...(isRecord(existingMetadata) ? existingMetadata : {}),
             sourceType: "inline",
             previewState: "preview",
             title: screen.label,
@@ -1098,17 +1082,22 @@ export default defineAction({
             variantSetId,
             variantId: screen.variantId,
           };
+          if (useResponsiveFrames) {
+            delete metadata.breakpointWidths;
+          } else {
+            metadata.breakpointWidths = [];
+          }
+          if (canvasIntent.kind === "fixed") {
+            metadata.heightPinned = true;
+            metadata.heightMode = "fixed";
+          }
+          previousMetadata[screen.id] = metadata;
         }
         previousVariantSets[variantSetId] = {
           id: variantSetId,
           prompt: prompt ?? "Pick a direction",
+          ...(originalBrief ? { brief: originalBrief } : {}),
           createdAt: now,
-          // Immutable record of how many screens this set started with, so a
-          // later present-design-variants call can prove no delete-file call
-          // has ever resolved against any of this set's screens — see
-          // markSupersededVariantSets / isUntouchedVariantSet above.
-          // delete-file.ts's pruneDesignVariantSets only ever shortens or
-          // removes `screens`; it never rewrites this field.
           screenCount: screens.length,
           screens: screens.map((screen) => ({
             id: screen.id,
@@ -1125,9 +1114,8 @@ export default defineAction({
           canvasFrames: mergedFrames.canvasFrames,
           screenMetadata: previousMetadata,
           designVariantSets: previousVariantSets,
-          // Only when genuinely absent. A malformed set is the user's data in
-          // a shape this action cannot read, not a blank slate to overwrite.
-          ...(classifyBreakpointSet(current.breakpointSet) !== "absent"
+          ...(!useResponsiveFrames ||
+          classifyBreakpointSet(current.breakpointSet) !== "absent"
             ? {}
             : {
                 breakpointSet: {
@@ -1154,16 +1142,30 @@ export default defineAction({
           : null;
         const persistedScreens = Array.isArray(set?.screens) ? set.screens : [];
         return (
-          hasBreakpointSet(current.breakpointSet) &&
-          screens.every(
-            (screen) =>
-              isRecord(canvasFrames[screen.id]) &&
-              isRecord(metadata[screen.id]) &&
+          (!useResponsiveFrames || hasBreakpointSet(current.breakpointSet)) &&
+          screens.every((screen) => {
+            const frame = canvasFrames[screen.id];
+            const screenMetadata = metadata[screen.id];
+            return (
+              isRecord(frame) &&
+              frame.width === screen.width &&
+              frame.height === screen.height &&
+              isRecord(screenMetadata) &&
+              screenMetadata.width === screen.width &&
+              screenMetadata.height === screen.height &&
+              (useResponsiveFrames
+                ? screenMetadata.breakpointWidths === undefined
+                : Array.isArray(screenMetadata.breakpointWidths) &&
+                  screenMetadata.breakpointWidths.length === 0) &&
+              (!promptDimensions ||
+                (screenMetadata.heightPinned === true &&
+                  screenMetadata.heightMode === "fixed")) &&
               persistedScreens.some(
                 (persisted) =>
                   isRecord(persisted) && persisted.id === screen.id,
-              ),
-          )
+              )
+            );
+          })
         );
       },
     });
@@ -1172,12 +1174,8 @@ export default defineAction({
       view: "editor",
       designId,
       editorView: "overview",
-      path: `/design/${encodeURIComponent(designId)}?view=overview`,
+      path: `/design/${encodeURIComponent(designId)}?editorView=overview`,
     });
-    // The pick opens a continuation turn that inherits nothing from this one,
-    // and that turn is what expands the kept placeholder into the real screen.
-    // Without this, the expansion is design-system-blind even though the user
-    // linked one before generating.
     const [linkedDesign] = await db
       .select({ designSystemId: schema.designs.designSystemId })
       .from(schema.designs)
@@ -1188,8 +1186,8 @@ export default defineAction({
         ),
       );
     const variantPickContext = [
-      prompt?.trim()
-        ? `The user's original request for this design: "${prompt.trim()}". Expand the kept direction into that, not into a generic version of it.`
+      originalBrief
+        ? `The user's original request for this design: "${originalBrief}". Expand the kept direction into that, not into a generic version of it.`
         : "",
       linkedDesign?.designSystemId
         ? `This design is linked to design system "${linkedDesign.designSystemId}". Call \`get-design-system\` for that id and apply its tokens, typography, and usage notes while expanding the kept screen — do not substitute a generic palette or font.`
@@ -1216,7 +1214,7 @@ export default defineAction({
           allowOther: false,
           includeExplore: false,
           includeDecide: false,
-          submitOnSelect: true,
+          submitOnSelect: false,
           options: screens.map((screen, index) => {
             const otherScreens = screens
               .filter((other) => other.id !== screen.id)
@@ -1238,13 +1236,25 @@ export default defineAction({
     });
     await deleteAppState("design-variants").catch(() => false);
 
+    track(
+      "variants_generated",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: designId,
+        output_type: "design",
+        variant_count: screens.length,
+      },
+      context,
+    );
+
     return {
       designId,
       prompt: prompt ?? "Pick a direction",
       variantSetId,
       count: screens.length,
       screens,
-      path: `/design/${encodeURIComponent(designId)}?view=overview`,
+      path: `/design/${encodeURIComponent(designId)}?editorView=overview`,
       embed: true,
       cleanedUpPreviousVariantScreens: variantSetCleanup.removedFileIds.length,
       deletedSupersededSetIds: variantSetCleanup.removedSetIds,

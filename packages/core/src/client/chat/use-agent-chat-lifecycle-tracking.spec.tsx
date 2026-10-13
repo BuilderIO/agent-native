@@ -10,7 +10,11 @@ const analyticsMock = vi.hoisted(() => ({
 
 vi.mock("../analytics.js", () => analyticsMock);
 
-import { clearActiveRun, setActiveRun } from "../active-run-state.js";
+import {
+  clearActiveRun,
+  setActiveRun,
+  updateActiveRunSeq,
+} from "../active-run-state.js";
 import { useAgentChatLifecycleTracking } from "./use-agent-chat-lifecycle-tracking.js";
 
 describe("useAgentChatLifecycleTracking", () => {
@@ -52,6 +56,7 @@ describe("useAgentChatLifecycleTracking", () => {
       threadId: "thread-1",
       tabId: "tab-1",
     });
+
     expect(onActiveRunChange).toHaveBeenLastCalledWith(false);
 
     await act(async () => {
@@ -69,6 +74,17 @@ describe("useAgentChatLifecycleTracking", () => {
       runId: "run-1",
       tabId: "tab-1",
     });
+
+    await act(async () => {
+      updateActiveRunSeq("thread-1", "run-1", 1, true);
+      updateActiveRunSeq("thread-1", "run-1", 2, true);
+    });
+    expect(onActiveRunChange).toHaveBeenCalledTimes(2);
+    expect(
+      analyticsMock.trackAgentChatLifecycle.mock.calls.filter(
+        ([event]) => event.phase === "run-observed",
+      ),
+    ).toHaveLength(1);
 
     stop?.("run-1");
     expect(analyticsMock.trackAgentChatLifecycle).toHaveBeenCalledWith({

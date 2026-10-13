@@ -34,10 +34,6 @@ afterEach(() => {
   resetAppConfigForTests();
 });
 
-// Only two run-lifecycle bounds are configuration, because only two are facts
-// about the host or the deployment rather than relationships this package owns.
-// The rest are constants with one home — which is why there is no parity test
-// here any more. There is nothing left to keep in step.
 describe("configurable run-lifecycle bounds", () => {
   it("exposes the two a deployment has a real reason to change", () => {
     expect(resolveBackgroundRunHardTimeoutMs()).toBe(
@@ -55,7 +51,6 @@ describe("configurable run-lifecycle bounds", () => {
         backgroundFunction: true,
       }),
     ).toBe(300_000);
-    // Foreground stays clamped to its fraction of the chunk budget.
     expect(resolveRunNoProgressTimeoutMs({ softTimeoutMs: 40_000 })).toBe(
       30_000,
     );
@@ -72,9 +67,6 @@ describe("configurable run-lifecycle bounds", () => {
     ).toBe(0);
   });
 
-  // A deployment lowering the GLOBAL soft timeout used to shrink the chunk
-  // without shrinking the background backstop, so the backstop stopped being
-  // reachable inside the chunk it guards — silently, with nothing asserting it.
   it("keeps the background backstop inside a chunk shrunk by global configuration", () => {
     defineAppConfig({ agent: { runSoftTimeoutMs: 20_000 } });
     const soft = resolveRunSoftTimeoutMs(undefined, {
@@ -90,8 +82,6 @@ describe("configurable run-lifecycle bounds", () => {
   });
 
   it("derives the automation chunk budget from the automation's own hard abort", () => {
-    // The pair that shipped violated: a 13-minute chunk budget under a
-    // 10-minute hard abort, so the recoverable boundary was unreachable.
     expect(BACKGROUND_SOFT_TIMEOUT_CEILING_MS).toBeGreaterThan(
       BACKGROUND_RUN_HARD_TIMEOUT_MS,
     );
@@ -107,9 +97,6 @@ describe("configurable run-lifecycle bounds", () => {
     );
   });
 
-  // Both call sites had `turnRunCount > budget` while the current run's row was
-  // already counted and the successor's row is inserted after the check, so at
-  // equality they allowed one row past the documented ceiling.
   it("refuses the run that would take the turn past its ceiling, not one after", () => {
     const budget = resolveTurnRunLedgerBudget();
     expect(budget).toBe(
@@ -123,9 +110,6 @@ describe("configurable run-lifecycle bounds", () => {
 describe("run-lifecycle invariants", () => {
   const base = () => ({ ...getAppConfig().agent });
 
-  // With one home per number these relationships can no longer be broken by a
-  // deployment — only by someone editing a constant. So this is the test that
-  // catches that edit, at CI time rather than at deploy time.
   it("holds on the shipped values", () => {
     expect(() => assertRunLifecycleInvariants(base())).not.toThrow();
   });
@@ -136,11 +120,6 @@ describe("run-lifecycle invariants", () => {
     );
   });
 
-  // CLIENT-ABOVE-SERVER, measured against the EFFECTIVE limits. Comparing the
-  // nominal ones hid two real inversions: the turn ceiling is tested at chunk
-  // boundaries, so a turn passing it one chunk short still gets a whole further
-  // chunk; and the durable ledger allows the chain bound PLUS the recovery
-  // slack in run rows, which is what the client counts.
   it("leaves the client following past the server's effective limits", () => {
     expect(
       MAX_TURN_WALL_CLOCK_MS + BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
@@ -153,8 +132,6 @@ describe("run-lifecycle invariants", () => {
     );
   });
 
-  // The two configurable bounds are the ones a deploy can still get wrong, so
-  // they are the ones the runtime check still has to cover.
   it("refuses a background backstop that outlives the chunk it guards", () => {
     expect(() =>
       assertRunLifecycleInvariants({
@@ -195,8 +172,6 @@ describe("run-lifecycle invariants", () => {
         agent: { backgroundNoProgressTimeoutMs: 20 * 60_000 },
       }),
     ).not.toThrow();
-    // Set-time validation is per layer; the ordering check runs on the merged
-    // result, which is what `getAppConfig()` resolves.
     expect(() => getAppConfig()).toThrow(RunLifecycleInvariantError);
   });
 

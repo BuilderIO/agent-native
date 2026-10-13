@@ -113,6 +113,30 @@ async function countRows(
   return Number(row?.value ?? 0);
 }
 
+export async function listFactoryInboxPreview(
+  orgId: string,
+  factoryId: string,
+  limit = 8,
+) {
+  const items = await getDb()
+    .select({
+      id: triageItems.id,
+      title: triageItems.title,
+      status: triageItems.status,
+      source: triageItems.source,
+    })
+    .from(triageItems)
+    .where(
+      and(eq(triageItems.orgId, orgId), eq(triageItems.factoryId, factoryId)),
+    )
+    .orderBy(desc(triageItems.updatedAt), desc(triageItems.id))
+    .limit(limit);
+  return {
+    itemCount: await countRows(triageItems, orgId, factoryId),
+    items,
+  };
+}
+
 export function defaultFactoryDefinition() {
   return {
     id: DEFAULT_FACTORY_ID,

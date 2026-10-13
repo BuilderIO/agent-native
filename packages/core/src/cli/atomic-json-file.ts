@@ -9,10 +9,6 @@ const lockWaiter = new Int32Array(new SharedArrayBuffer(4));
 export interface FileLockOptions {
   lockWaitMs?: number;
   staleLockMs?: number;
-  /**
-   * Durable writers wait long enough to reclaim a fresh dead owner. Hot paths
-   * may opt out and handle a short best-effort timeout themselves.
-   */
   reclaimFreshDeadOwner?: boolean;
 }
 

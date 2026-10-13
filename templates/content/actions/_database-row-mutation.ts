@@ -1,16 +1,28 @@
 import { createHash } from "node:crypto";
 
-import { ActionContractError } from "@agent-native/core";
+import { ActionContractError, isActionContractError } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import {
+  accessFilter,
+  assertAccess,
+  ForbiddenError,
+} from "@agent-native/core/sharing";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  documentCreationAttribution,
+  documentEditAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
 import type {
   ContentDatabaseMutationContract,
   ContentDatabaseRowMutationReceipt,
   ContentDatabaseRowMutationResult,
+  ContentDatabaseRowPatchBatchResult,
+  ContentDatabaseRowPatchReceipt,
 } from "../shared/api.js";
 import {
   isBlocksPropertyType,
@@ -22,14 +34,20 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
+import { contentDatabaseSourceManagedPropertyIds } from "../shared/source-field-policy.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
 } from "./_content-database-mutation-lock.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import {
+  normalizeDatabasePropertyInput,
+  type DatabasePropertyEntry,
+} from "./_database-property-input.js";
+import {
   databaseItemsPositionScope,
   documentsPositionScope,
+  nextAppendPosition,
   withPositionLock,
 } from "./_position-utils.js";
 import { nanoid } from "./_property-utils.js";
@@ -42,39 +60,65 @@ const databaseMutationAuthorityScopeSchema = z.discriminatedUnion("kind", [
 export const databaseMutationTargetSchema = z.object({
   authorityScope: databaseMutationAuthorityScopeSchema,
   spaceId: z.string().min(1).describe("Exact Content space ID"),
-  databaseId: z.string().min(1).describe("Exact Content database ID"),
+  databaseId: z.string().min(1).describe("Exact Content collection ID"),
   databaseDocumentId: z
     .string()
     .min(1)
-    .describe("Exact page ID backing the Content database"),
+    .describe("Exact page ID backing the Content collection"),
 });
 
 export const databaseMutationTargetInputSchema = z.object({
   authorityScope: databaseMutationAuthorityScopeSchema
     .optional()
     .describe(
-      "Optional legacy assertion only. Agents must omit it; the authenticated server derives authority from the selected database.",
+      "Optional legacy assertion only. Agents must omit it; the authenticated server derives authority from the selected collection.",
     ),
   spaceId: z
     .string()
     .min(1)
-    .describe("Exact Content space ID returned by database discovery"),
+    .describe("Exact Content space ID returned by collection discovery"),
   databaseId: z
     .string()
     .min(1)
     .describe(
-      "Exact Content database ID returned by database discovery; never derive it from a title or number in the request",
+      "Exact Content collection ID returned by collection discovery; never derive it from a title or number in the request",
     ),
   databaseDocumentId: z
     .string()
     .min(1)
     .describe(
-      "Exact page ID backing the database, returned by database discovery",
+      "Exact page ID backing the collection, returned by collection discovery",
     ),
 });
 
 export const databaseMutationAgentTargetSchema =
   databaseMutationTargetInputSchema.omit({ authorityScope: true });
+
+export function assertDatabaseWidgetWriteTarget(
+  target: Pick<
+    DatabaseMutationTargetInput,
+    "spaceId" | "databaseId" | "databaseDocumentId"
+  >,
+  actionName: "add-database-item" | "update-database-item",
+  context: ActionRunContext | undefined,
+): void {
+  if (context?.caller !== "mcp-widget-write") return;
+
+  const grant = context?.mcpDirectoryWidgetWrite;
+  if (
+    !grant ||
+    grant.appId !== "content" ||
+    !grant.actionNames.includes(actionName) ||
+    grant.resourceIds.databaseId !== target.databaseId ||
+    grant.resourceIds.spaceId !== target.spaceId ||
+    grant.resourceIds.databaseDocumentId !== target.databaseDocumentId
+  ) {
+    throw new ActionContractError(
+      "This Content widget write capability is missing or scoped to a different collection or action.",
+      { errorCode: "mcp_widget_write_scope_mismatch", statusCode: 403 },
+    );
+  }
+}
 
 export const databaseMutationEnvelopeSchema = z.object({
   target: databaseMutationTargetInputSchema,
@@ -131,6 +175,24 @@ export interface UpdateDatabaseRowMutationInput extends CreateDatabaseRowMutatio
 export interface UpsertDatabaseRowMutationInput extends CreateDatabaseRowMutationInput {
   keyValue: string;
   expectedRowRevision: string | null;
+}
+
+export const DATABASE_ROW_PATCH_LIMIT = 250;
+
+export interface DatabaseRowPatchInput {
+  itemId: string;
+  documentId: string;
+  expectedRowRevision: string;
+  title?: string;
+  propertyEntries?: DatabasePropertyEntry[];
+  propertyValues?: Record<string, unknown>;
+}
+
+export interface PatchDatabaseRowsMutationInput {
+  target: DatabaseMutationTargetInput;
+  expectedSchemaRevision: string;
+  idempotencyKey: string;
+  rows: DatabaseRowPatchInput[];
 }
 
 function canonical(value: unknown): string {
@@ -243,21 +305,51 @@ function acceptedShape(type: DocumentPropertyType): string {
   }
 }
 
+export function systemDatabaseMutationMessage(systemRole: string) {
+  switch (systemRole) {
+    case "workspaces":
+      return "This is the Workspaces catalog, which only lists workspaces. A workspace row here is not the workspace's collection: to add pages inside a workspace, call create-document with that workspace's spaceId or spaceName (see list-content-spaces), and to add rows to a collection inside it, target that collection's databaseId.";
+    case "files":
+      return "This is a workspace's Files collection. Create pages in it with create-document using the workspace spaceId rather than a row mutation.";
+    case "favorites":
+      return "This is the Favorites collection, whose rows follow the favorite flag on each page. Change a page's favorite state instead of creating rows here.";
+    default:
+      return "Reliable row mutations are supported only for ordinary Content collections.";
+  }
+}
+
+/** Database state the caller already read in this request. */
+export type LoadedDatabaseSchema = {
+  database: DatabaseRow;
+  definitions: DefinitionRow[];
+  sourceManagedPropertyIds: Set<string>;
+};
+
 export async function loadContext(
   target: DatabaseMutationTargetInput,
   role: "viewer" | "editor",
   db: Db = getDb(),
   accessAlreadyResolved = false,
+  includeDeleted = false,
+  loaded?: LoadedDatabaseSchema,
 ): Promise<MutationContext> {
-  const [database] = await db
-    .select()
-    .from(schema.contentDatabases)
-    .where(
-      and(
-        eq(schema.contentDatabases.id, target.databaseId),
-        isNull(schema.contentDatabases.deletedAt),
-      ),
-    );
+  const [database] = loaded
+    ? [loaded.database].filter(
+        (candidate) =>
+          candidate.id === target.databaseId &&
+          (includeDeleted || !candidate.deletedAt),
+      )
+    : await db
+        .select()
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            eq(schema.contentDatabases.id, target.databaseId),
+            includeDeleted
+              ? undefined
+              : isNull(schema.contentDatabases.deletedAt),
+          ),
+        );
   if (!database) {
     throw new ActionContractError("Content database not found.", {
       errorCode: "DATABASE_NOT_FOUND",
@@ -272,7 +364,7 @@ export async function loadContext(
           .where(
             and(
               eq(schema.documents.id, database.documentId),
-              isNull(schema.documents.trashedAt),
+              includeDeleted ? undefined : isNull(schema.documents.trashedAt),
             ),
           )
       )[0]
@@ -307,16 +399,33 @@ export async function loadContext(
   }
   if (database.systemRole) {
     throw new ActionContractError(
-      "Reliable row mutations are supported only for ordinary Content databases.",
+      systemDatabaseMutationMessage(database.systemRole),
       { errorCode: "SYSTEM_DATABASE_UNSUPPORTED", statusCode: 400 },
     );
+  }
+  if (loaded) {
+    return {
+      database,
+      databaseDocument,
+      definitions: loaded.definitions,
+      sourceManagedPropertyIds: loaded.sourceManagedPropertyIds,
+      schemaRevision: schemaRevisionFor(
+        database,
+        loaded.definitions,
+        loaded.sourceManagedPropertyIds,
+      ),
+    };
   }
   const definitions = await db
     .select()
     .from(schema.documentPropertyDefinitions)
     .where(eq(schema.documentPropertyDefinitions.databaseId, database.id));
   const sourceFields = await db
-    .select({ propertyId: schema.contentDatabaseSourceFields.propertyId })
+    .select({
+      propertyId: schema.contentDatabaseSourceFields.propertyId,
+      writeOwner: schema.contentDatabaseSourceFields.writeOwner,
+      readOnly: schema.contentDatabaseSourceFields.readOnly,
+    })
     .from(schema.contentDatabaseSourceFields)
     .innerJoin(
       schema.contentDatabaseSources,
@@ -326,11 +435,8 @@ export async function loadContext(
       ),
     )
     .where(eq(schema.contentDatabaseSources.databaseId, database.id));
-  const sourceManagedPropertyIds = new Set(
-    sourceFields.flatMap((field) =>
-      field.propertyId ? [field.propertyId] : [],
-    ),
-  );
+  const sourceManagedPropertyIds =
+    contentDatabaseSourceManagedPropertyIds(sourceFields);
   return {
     database,
     databaseDocument,
@@ -346,13 +452,18 @@ export async function loadContext(
 
 export async function getDatabaseMutationContract(
   target: DatabaseMutationTarget,
-  options: { accessAlreadyResolved?: boolean } = {},
+  options: {
+    accessAlreadyResolved?: boolean;
+    loaded?: LoadedDatabaseSchema;
+  } = {},
 ): Promise<ContentDatabaseMutationContract> {
   const context = await loadContext(
     target,
     "viewer",
     getDb(),
     options.accessAlreadyResolved,
+    false,
+    options.loaded,
   );
   return {
     target: {
@@ -677,49 +788,80 @@ export async function rowSnapshot(
   documentId: string,
   revisionPropertyIds: Set<string>,
 ): Promise<RowSnapshot | null> {
-  const [row] = await db
-    .select({ item: schema.contentDatabaseItems, document: schema.documents })
-    .from(schema.contentDatabaseItems)
-    .innerJoin(
-      schema.documents,
-      eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-    )
-    .where(
-      and(
-        eq(schema.contentDatabaseItems.id, itemId),
-        eq(schema.contentDatabaseItems.databaseId, databaseId),
-        eq(schema.contentDatabaseItems.documentId, documentId),
-        isNull(schema.documents.trashedAt),
-      ),
-    );
-  if (!row) return null;
+  const snapshots = await rowSnapshots(
+    db,
+    databaseId,
+    [{ itemId, documentId }],
+    revisionPropertyIds,
+  );
+  return snapshots.get(itemId) ?? null;
+}
+
+export async function rowSnapshots(
+  db: Db,
+  databaseId: string,
+  rows: ReadonlyArray<{ itemId: string; documentId: string }>,
+  revisionPropertyIds: Set<string>,
+): Promise<Map<string, RowSnapshot>> {
+  if (rows.length === 0) return new Map();
+  const requested = new Map(rows.map((row) => [row.itemId, row.documentId]));
+  const found = (
+    await db
+      .select({ item: schema.contentDatabaseItems, document: schema.documents })
+      .from(schema.contentDatabaseItems)
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+      )
+      .where(
+        and(
+          inArray(schema.contentDatabaseItems.id, [...requested.keys()]),
+          eq(schema.contentDatabaseItems.databaseId, databaseId),
+          isNull(schema.documents.trashedAt),
+        ),
+      )
+  ).filter((row) => requested.get(row.item.id) === row.item.documentId);
   const values =
-    revisionPropertyIds.size === 0
+    revisionPropertyIds.size === 0 || found.length === 0
       ? []
       : await db
           .select()
           .from(schema.documentPropertyValues)
           .where(
             and(
-              eq(schema.documentPropertyValues.documentId, documentId),
+              inArray(
+                schema.documentPropertyValues.documentId,
+                found.map((row) => row.item.documentId),
+              ),
               inArray(schema.documentPropertyValues.propertyId, [
                 ...revisionPropertyIds,
               ]),
             ),
           );
-  const valueMap = new Map(
-    values.map((value) => [value.propertyId, value.valueJson]),
-  );
-  const revision = databaseRowRevision({
-    itemId,
-    documentId,
-    title: row.document.title,
-    values: [...valueMap.entries()].map(([propertyId, valueJson]) => ({
-      propertyId,
-      value: parsePropertyValue(valueJson),
-    })),
-  });
-  return { ...row, values: valueMap, revision };
+  const valuesByDocument = new Map<string, Map<string, string>>();
+  for (const value of values) {
+    let valueMap = valuesByDocument.get(value.documentId);
+    if (!valueMap) {
+      valueMap = new Map();
+      valuesByDocument.set(value.documentId, valueMap);
+    }
+    valueMap.set(value.propertyId, value.valueJson);
+  }
+  const snapshots = new Map<string, RowSnapshot>();
+  for (const row of found) {
+    const valueMap = valuesByDocument.get(row.item.documentId) ?? new Map();
+    const revision = databaseRowRevision({
+      itemId: row.item.id,
+      documentId: row.item.documentId,
+      title: row.document.title,
+      values: [...valueMap.entries()].map(([propertyId, valueJson]) => ({
+        propertyId,
+        value: parsePropertyValue(valueJson),
+      })),
+    });
+    snapshots.set(row.item.id, { ...row, values: valueMap, revision });
+  }
+  return snapshots;
 }
 
 export function revisionPropertyIds(context: MutationContext) {
@@ -832,7 +974,7 @@ function resultForReceipt(
     row: {
       itemId: snapshot.item.id,
       documentId: snapshot.document.id,
-      urlPath: `/page/${snapshot.document.id}`,
+      urlPath: `/page/${encodeURIComponent(snapshot.document.id)}?${new URLSearchParams({ databaseId: context.database.id, databaseDocumentId: context.database.documentId }).toString()}`,
       rowRevision: snapshot.revision,
     },
     affected: {
@@ -965,26 +1107,6 @@ async function withMutationLocks<T>(
   );
 }
 
-export function nextPosition(max: unknown): number {
-  const raw = max ?? -1;
-  const value =
-    typeof raw === "number"
-      ? raw
-      : typeof raw === "string" && raw.trim() !== ""
-        ? Number(raw)
-        : Number.NaN;
-  const next = value + 1;
-  if (
-    !Number.isSafeInteger(value) ||
-    value < -1 ||
-    !Number.isSafeInteger(next) ||
-    next > 2_147_483_647
-  ) {
-    throw new Error("Database position is outside the supported range.");
-  }
-  return next;
-}
-
 async function createInsideTransaction(
   tx: Db,
   context: MutationContext,
@@ -996,10 +1118,11 @@ async function createInsideTransaction(
   },
 ) {
   const now = new Date().toISOString();
+  const actor = requireDocumentRequestActor();
   const documentId = args.documentId ?? nanoid();
   const itemId = args.itemId ?? nanoid();
   const [maxDoc] = await tx
-    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
     .from(schema.documents)
     .where(
       and(
@@ -1008,7 +1131,7 @@ async function createInsideTransaction(
       ),
     );
   const [maxItem] = await tx
-    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
     .from(schema.contentDatabaseItems)
     .where(eq(schema.contentDatabaseItems.databaseId, context.database.id));
   const shares = await tx
@@ -1028,10 +1151,11 @@ async function createInsideTransaction(
     title: args.title?.trim() ?? "",
     content: "",
     icon: null,
-    position: nextPosition(maxDoc?.max),
+    position: nextAppendPosition(maxDoc?.max),
     isFavorite: 0,
     hideFromSearch: context.databaseDocument.hideFromSearch ?? 0,
     visibility: context.databaseDocument.visibility ?? "private",
+    ...documentCreationAttribution(actor),
     createdAt: now,
     updatedAt: now,
   });
@@ -1041,7 +1165,7 @@ async function createInsideTransaction(
     orgId: context.database.orgId,
     databaseId: context.database.id,
     documentId,
-    position: nextPosition(maxItem?.max),
+    position: nextAppendPosition(maxItem?.max),
     createdAt: now,
     updatedAt: now,
   });
@@ -1090,6 +1214,43 @@ async function createInsideTransaction(
   return snapshot;
 }
 
+function nextRowUpdatedAt(now: string, before: RowSnapshot) {
+  return now > before.document.updatedAt
+    ? now
+    : new Date(new Date(before.document.updatedAt).getTime() + 1).toISOString();
+}
+
+async function writeRowTitle(
+  tx: Db,
+  actor: ReturnType<typeof requireDocumentRequestActor>,
+  now: string,
+  before: RowSnapshot,
+  args: { title: string; expectedRowRevision: string },
+) {
+  const [updatedDocument] = await tx
+    .update(schema.documents)
+    .set({
+      title: args.title.trim(),
+      updatedAt: nextRowUpdatedAt(now, before),
+      ...documentEditAttribution(actor),
+    })
+    .where(
+      and(
+        eq(schema.documents.id, before.document.id),
+        eq(schema.documents.updatedAt, before.document.updatedAt),
+        isNull(schema.documents.trashedAt),
+      ),
+    )
+    .returning({ id: schema.documents.id });
+  if (!updatedDocument) {
+    conflict("ROW_REVISION_CONFLICT", "The database row changed.", {
+      expected: args.expectedRowRevision,
+      itemId: before.item.id,
+      documentId: before.document.id,
+    });
+  }
+}
+
 async function updateInsideTransaction(
   tx: Db,
   context: MutationContext,
@@ -1101,7 +1262,7 @@ async function updateInsideTransaction(
     values: Map<string, string>;
   },
 ) {
-  await assertAccess("document", args.documentId, "editor");
+  const actor = requireDocumentRequestActor();
   const [lockedDocument] = await tx
     .update(schema.documents)
     .set({ updatedAt: sql`${schema.documents.updatedAt}` })
@@ -1156,30 +1317,10 @@ async function updateInsideTransaction(
   const titleChanged =
     args.title !== undefined && args.title.trim() !== before.document.title;
   if (titleChanged) {
-    const nextUpdatedAt =
-      now > before.document.updatedAt
-        ? now
-        : new Date(
-            new Date(before.document.updatedAt).getTime() + 1,
-          ).toISOString();
-    const [updatedDocument] = await tx
-      .update(schema.documents)
-      .set({ title: args.title!.trim(), updatedAt: nextUpdatedAt })
-      .where(
-        and(
-          eq(schema.documents.id, args.documentId),
-          eq(schema.documents.updatedAt, before.document.updatedAt),
-          isNull(schema.documents.trashedAt),
-        ),
-      )
-      .returning({ id: schema.documents.id });
-    if (!updatedDocument) {
-      conflict("ROW_REVISION_CONFLICT", "The database row changed.", {
-        expected: args.expectedRowRevision,
-        itemId: args.itemId,
-        documentId: args.documentId,
-      });
-    }
+    await writeRowTitle(tx, actor, now, before, {
+      title: args.title!,
+      expectedRowRevision: args.expectedRowRevision,
+    });
   }
   for (const [propertyId, valueJson] of changedValues) {
     const existing = before.values.get(propertyId);
@@ -1250,8 +1391,15 @@ export async function createDatabaseRow(
   assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   assertSchema(initial, input.expectedSchemaRevision);
   const values = await normalizePatch(initial, input.propertyValues);
-  const result = await withMutationLocks(initial.database, () =>
-    getDb().transaction(async (tx) => {
+  const result = await withMutationLocks(initial.database, async () => {
+    await assertAccess("document", initial.database.documentId, "editor");
+    const lockedReplay = await replayReceipt(
+      initial,
+      input.idempotencyKey,
+      replayDigests,
+    );
+    if (lockedReplay) return lockedReplay;
+    return getDb().transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as Db,
         initial.database.id,
@@ -1260,14 +1408,8 @@ export async function createDatabaseRow(
         input.target,
         "editor",
         tx as unknown as Db,
+        true,
       );
-      const lockedReplay = await replayReceipt(
-        locked,
-        input.idempotencyKey,
-        replayDigests,
-        tx as unknown as Db,
-      );
-      if (lockedReplay) return lockedReplay;
       assertPropertyTypeAssertions(locked, input.propertyTypeAssertions);
       assertSchema(locked, input.expectedSchemaRevision);
       await touchContentDatabase(
@@ -1301,8 +1443,8 @@ export async function createDatabaseRow(
         built,
       );
       return built;
-    }),
-  );
+    });
+  });
   return result;
 }
 
@@ -1329,8 +1471,16 @@ export async function updateDatabaseRow(
   assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   assertSchema(initial, input.expectedSchemaRevision);
   const values = await normalizePatch(initial, input.propertyValues);
-  const result = await withMutationLocks(initial.database, () =>
-    getDb().transaction(async (tx) => {
+  const result = await withMutationLocks(initial.database, async () => {
+    await assertAccess("document", initial.database.documentId, "editor");
+    await assertAccess("document", input.documentId, "editor");
+    const lockedReplay = await replayReceipt(
+      initial,
+      input.idempotencyKey,
+      replayDigests,
+    );
+    if (lockedReplay) return lockedReplay;
+    return getDb().transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as Db,
         initial.database.id,
@@ -1339,14 +1489,8 @@ export async function updateDatabaseRow(
         input.target,
         "editor",
         tx as unknown as Db,
+        true,
       );
-      const lockedReplay = await replayReceipt(
-        locked,
-        input.idempotencyKey,
-        replayDigests,
-        tx as unknown as Db,
-      );
-      if (lockedReplay) return lockedReplay;
       assertPropertyTypeAssertions(locked, input.propertyTypeAssertions);
       assertSchema(locked, input.expectedSchemaRevision);
       const updated = await updateInsideTransaction(
@@ -1391,8 +1535,8 @@ export async function updateDatabaseRow(
         built,
       );
       return built;
-    }),
-  );
+    });
+  });
   return result;
 }
 
@@ -1478,8 +1622,18 @@ export async function upsertDatabaseRow(
   if (initialClaim) {
     await assertAccess("document", initialClaim.documentId, "editor");
   }
-  const result = await withMutationLocks(initial.database, () =>
-    getDb().transaction(async (tx) => {
+  const result = await withMutationLocks(initial.database, async () => {
+    await assertAccess("document", initial.database.documentId, "editor");
+    if (initialClaim) {
+      await assertAccess("document", initialClaim.documentId, "editor");
+    }
+    const lockedReplay = await replayReceipt(
+      initial,
+      input.idempotencyKey,
+      replayDigests,
+    );
+    if (lockedReplay) return lockedReplay;
+    return getDb().transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as Db,
         initial.database.id,
@@ -1488,14 +1642,8 @@ export async function upsertDatabaseRow(
         input.target,
         "editor",
         tx as unknown as Db,
+        true,
       );
-      const lockedReplay = await replayReceipt(
-        locked,
-        input.idempotencyKey,
-        replayDigests,
-        tx as unknown as Db,
-      );
-      if (lockedReplay) return lockedReplay;
       assertPropertyTypeAssertions(locked, input.propertyTypeAssertions);
       assertSchema(locked, input.expectedSchemaRevision);
       if (locked.database.naturalKeyPropertyId !== keyPropertyId) {
@@ -1629,7 +1777,764 @@ export async function upsertDatabaseRow(
         built,
       );
       return built;
-    }),
-  );
+    });
+  });
   return result;
+}
+
+const ROW_PATCH_RECEIPT_OPERATION = "batch:patch";
+const ROW_PATCH_WRITE_CHUNK = 500;
+
+interface CanonicalRowPatch {
+  itemId: string;
+  documentId: string;
+  expectedRowRevision: string;
+  title?: string;
+  propertyValues?: Record<string, unknown>;
+  propertyTypeAssertions?: Record<string, string>;
+}
+
+interface RowPatchIssue {
+  index: number;
+  itemId: string;
+  documentId: string;
+  [detail: string]: unknown;
+}
+
+/** Drizzle wraps the driver's error, so the violation can sit in `cause`. */
+export function isUniqueConstraintError(error: unknown): boolean {
+  const candidate = error as {
+    code?: unknown;
+    message?: unknown;
+    cause?: unknown;
+  };
+  const code =
+    typeof candidate?.code === "string"
+      ? candidate.code
+      : (JSON.stringify(candidate?.code) ?? "");
+  const message =
+    typeof candidate?.message === "string"
+      ? candidate.message
+      : (JSON.stringify(candidate?.message) ?? "");
+  return (
+    code === "23505" ||
+    /unique constraint|primary key constraint|duplicate key/i.test(message) ||
+    (candidate?.cause !== undefined &&
+      candidate.cause !== error &&
+      isUniqueConstraintError(candidate.cause))
+  );
+}
+
+function rowPatchIssues(
+  errorCode: string,
+  message: string,
+  rows: RowPatchIssue[],
+  statusCode?: number,
+) {
+  if (rows.length === 0) return;
+  throw new ActionContractError(message, {
+    errorCode,
+    details: { rows },
+    statusCode,
+  });
+}
+
+function rowPatchValidationIssue(
+  index: number,
+  row: { itemId: string; documentId: string },
+  error: unknown,
+): RowPatchIssue {
+  if (!isActionContractError(error)) throw error;
+  return {
+    index,
+    itemId: row.itemId,
+    documentId: row.documentId,
+    errorCode: error.errorCode,
+    message: error.message,
+    ...(error.details ? { details: error.details } : {}),
+  };
+}
+
+function chunked<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let start = 0; start < items.length; start += size) {
+    chunks.push(items.slice(start, start + size));
+  }
+  return chunks;
+}
+
+// The set-based form of ensureNaturalKeyClaim: a few statements for the whole
+// batch, so a full batch doesn't hold the collection lock through per-row
+// round trips. A claimed key still can't change, and when several rows claim
+// one key, ON CONFLICT DO NOTHING keeps the first, as the per-row loop did.
+async function claimNaturalKeys(
+  tx: Db,
+  context: MutationContext,
+  rows: CanonicalRowPatch[],
+  patches: Map<string, string>[],
+  now: string,
+): Promise<RowPatchIssue[]> {
+  const propertyId = context.database.naturalKeyPropertyId;
+  if (!propertyId) return [];
+  const requested = rows.flatMap((row, index) => {
+    const keyValueJson = patches[index].get(propertyId);
+    return keyValueJson === undefined ? [] : [{ index, row, keyValueJson }];
+  });
+  if (requested.length === 0) return [];
+  const claims = schema.contentDatabaseItemKeyClaims;
+  const scope = and(
+    eq(claims.databaseId, context.database.id),
+    eq(claims.propertyId, propertyId),
+  );
+  const claimedKeys = new Map(
+    (
+      await tx
+        .select({
+          documentId: claims.documentId,
+          keyValueJson: claims.keyValueJson,
+        })
+        .from(claims)
+        .where(
+          and(
+            scope,
+            inArray(
+              claims.documentId,
+              requested.map(({ row }) => row.documentId),
+            ),
+          ),
+        )
+    ).map((claim) => [claim.documentId, claim.keyValueJson]),
+  );
+  const issues: RowPatchIssue[] = [];
+  const claimable = requested.filter(({ index, row, keyValueJson }) => {
+    const claimed = claimedKeys.get(row.documentId);
+    if (claimed === undefined || claimed === keyValueJson) return true;
+    issues.push({
+      index,
+      itemId: row.itemId,
+      documentId: row.documentId,
+      errorCode: "NATURAL_KEY_IMMUTABLE",
+      message:
+        "A claimed database natural key cannot be changed. Create a new row instead.",
+      details: { propertyId, itemId: row.itemId, documentId: row.documentId },
+    });
+    return false;
+  });
+  if (claimable.length > 0) {
+    for (const chunk of chunked(claimable, ROW_PATCH_WRITE_CHUNK)) {
+      await tx
+        .insert(claims)
+        .values(
+          chunk.map(({ row, keyValueJson }) => ({
+            id: nanoid(),
+            ownerEmail: context.database.ownerEmail,
+            orgId: context.database.orgId,
+            databaseId: context.database.id,
+            propertyId,
+            keyValueJson,
+            itemId: row.itemId,
+            documentId: row.documentId,
+            createdAt: now,
+            updatedAt: now,
+          })),
+        )
+        .onConflictDoNothing();
+    }
+    const owners = new Map(
+      (
+        await tx
+          .select({
+            keyValueJson: claims.keyValueJson,
+            itemId: claims.itemId,
+            documentId: claims.documentId,
+          })
+          .from(claims)
+          .where(
+            and(
+              scope,
+              inArray(
+                claims.keyValueJson,
+                claimable.map(({ keyValueJson }) => keyValueJson),
+              ),
+            ),
+          )
+      ).map((owner) => [owner.keyValueJson, owner]),
+    );
+    for (const { index, row, keyValueJson } of claimable) {
+      const owner = owners.get(keyValueJson);
+      if (owner?.itemId === row.itemId && owner.documentId === row.documentId) {
+        continue;
+      }
+      issues.push({
+        index,
+        itemId: row.itemId,
+        documentId: row.documentId,
+        errorCode: "NATURAL_KEY_CONFLICT",
+        message: "The natural key is already in use.",
+        details: { propertyId },
+      });
+    }
+  }
+  return issues.sort((left, right) => left.index - right.index);
+}
+
+function canonicalRowPatches(rows: DatabaseRowPatchInput[]) {
+  if (rows.length === 0 || rows.length > DATABASE_ROW_PATCH_LIMIT) {
+    throw new ActionContractError(
+      `Patch between 1 and ${DATABASE_ROW_PATCH_LIMIT} rows per call.`,
+      {
+        errorCode: "ROW_PATCH_LIMIT",
+        details: { requested: rows.length, limit: DATABASE_ROW_PATCH_LIMIT },
+        statusCode: 400,
+      },
+    );
+  }
+  const seenItems = new Set<string>();
+  const seenDocuments = new Set<string>();
+  rowPatchIssues(
+    "DUPLICATE_ROW",
+    "Each row may appear only once in a patch batch.",
+    rows.flatMap((row, index) => {
+      const duplicate =
+        seenItems.has(row.itemId) || seenDocuments.has(row.documentId);
+      seenItems.add(row.itemId);
+      seenDocuments.add(row.documentId);
+      return duplicate
+        ? [{ index, itemId: row.itemId, documentId: row.documentId }]
+        : [];
+    }),
+    400,
+  );
+  const canonical: CanonicalRowPatch[] = [];
+  const issues: RowPatchIssue[] = [];
+  rows.forEach((row, index) => {
+    const { propertyEntries, propertyValues, ...rest } = row;
+    try {
+      const normalized = normalizeDatabasePropertyInput({
+        propertyEntries,
+        propertyValues,
+      });
+      if (
+        rest.title === undefined &&
+        Object.keys(normalized.propertyValues ?? {}).length === 0
+      ) {
+        throw new ActionContractError(
+          "Each row needs a title or at least one property entry.",
+          { errorCode: "EMPTY_ROW_PATCH", statusCode: 400 },
+        );
+      }
+      canonical.push({ ...rest, ...normalized });
+    } catch (error) {
+      issues.push(rowPatchValidationIssue(index, row, error));
+    }
+  });
+  rowPatchIssues(
+    "INVALID_ROW_PATCHES",
+    "Some row patches are invalid; nothing was written.",
+    issues,
+    400,
+  );
+  return canonical;
+}
+
+function rowPatchPayloadDigest(
+  input: PatchDatabaseRowsMutationInput,
+  rows: CanonicalRowPatch[],
+) {
+  const { authorityScope: _authorityScope, ...stableTarget } = input.target;
+  return digest({
+    operation: ROW_PATCH_RECEIPT_OPERATION,
+    target: stableTarget,
+    expectedSchemaRevision: input.expectedSchemaRevision,
+    idempotencyKey: input.idempotencyKey,
+    rows: rows
+      .map(({ propertyTypeAssertions: _propertyTypeAssertions, ...row }) => row)
+      .sort((left, right) => left.itemId.localeCompare(right.itemId)),
+  });
+}
+
+async function editableDocumentIds(db: Db, documentIds: string[]) {
+  return new Set(
+    (
+      await db
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(
+          and(
+            inArray(schema.documents.id, documentIds),
+            accessFilter(
+              schema.documents,
+              schema.documentShares,
+              undefined,
+              "editor",
+            ),
+          ),
+        )
+    ).map((document) => document.id),
+  );
+}
+
+async function assertRowEditorAccess(
+  rows: CanonicalRowPatch[],
+  db: Db = getDb(),
+) {
+  const accessible = await editableDocumentIds(
+    db,
+    rows.map((row) => row.documentId),
+  );
+  rowPatchIssues(
+    "ROW_ACCESS_DENIED",
+    "Editor access is required for every row; these rows were not found or are not editable.",
+    rows.flatMap((row, index) =>
+      accessible.has(row.documentId)
+        ? []
+        : [{ index, itemId: row.itemId, documentId: row.documentId }],
+    ),
+    403,
+  );
+}
+
+async function normalizeRowPatches(
+  context: MutationContext,
+  rows: CanonicalRowPatch[],
+) {
+  const patches: Map<string, string>[] = [];
+  const issues: RowPatchIssue[] = [];
+  for (const [index, row] of rows.entries()) {
+    try {
+      assertPropertyTypeAssertions(context, row.propertyTypeAssertions);
+      patches.push(await normalizePatch(context, row.propertyValues));
+    } catch (error) {
+      issues.push(rowPatchValidationIssue(index, row, error));
+    }
+  }
+  rowPatchIssues(
+    "INVALID_ROW_PATCHES",
+    "Some row patches are invalid; nothing was written.",
+    issues,
+    400,
+  );
+  return patches;
+}
+
+async function replayRowPatchReceipt(
+  context: MutationContext,
+  idempotencyKey: string,
+  payloadDigest: string,
+  rows: CanonicalRowPatch[],
+  db: Db = getDb(),
+): Promise<ContentDatabaseRowPatchBatchResult | null> {
+  const [stored] = await db
+    .select()
+    .from(schema.contentDatabaseRowMutationReceipts)
+    .where(
+      and(
+        eq(
+          schema.contentDatabaseRowMutationReceipts.databaseId,
+          context.database.id,
+        ),
+        eq(
+          schema.contentDatabaseRowMutationReceipts.idempotencyKey,
+          idempotencyKey,
+        ),
+      ),
+    );
+  if (!stored) return null;
+  if (
+    stored.operation !== ROW_PATCH_RECEIPT_OPERATION ||
+    stored.payloadDigest !== payloadDigest
+  ) {
+    conflict(
+      "IDEMPOTENCY_KEY_REUSED",
+      "This idempotency key was already used for a different row mutation.",
+      { idempotencyKey },
+    );
+  }
+  const parsed = JSON.parse(
+    stored.resultJson,
+  ) as ContentDatabaseRowPatchBatchResult;
+  const storedRows = new Map(
+    parsed.receipt.rows.map((receipt) => [receipt.itemId, receipt]),
+  );
+  const ordered = rows.map((row) => storedRows.get(row.itemId));
+  if (
+    parsed.receipt.receiptId !== stored.id ||
+    storedRows.size !== rows.length ||
+    ordered.some((receipt) => !receipt)
+  ) {
+    conflict(
+      "RECEIPT_MISMATCH",
+      "The stored database row patch receipt is inconsistent.",
+      { receiptId: stored.id },
+    );
+  }
+  return {
+    receipt: {
+      ...parsed.receipt,
+      idempotency: { ...parsed.receipt.idempotency, result: "replayed" },
+      rows: ordered as ContentDatabaseRowPatchReceipt[],
+    },
+  };
+}
+
+async function patchRowsInsideTransaction(
+  tx: Db,
+  context: MutationContext,
+  rows: CanonicalRowPatch[],
+  patches: Map<string, string>[],
+): Promise<ContentDatabaseRowPatchReceipt[]> {
+  const actor = requireDocumentRequestActor();
+  const itemIds = rows.map((row) => row.itemId);
+  const documentIds = rows.map((row) => row.documentId);
+  await tx
+    .update(schema.documents)
+    .set({ updatedAt: sql`${schema.documents.updatedAt}` })
+    .where(
+      and(
+        inArray(schema.documents.id, documentIds),
+        isNull(schema.documents.trashedAt),
+      ),
+    );
+  await tx
+    .update(schema.contentDatabaseItems)
+    .set({ updatedAt: sql`${schema.contentDatabaseItems.updatedAt}` })
+    .where(
+      and(
+        inArray(schema.contentDatabaseItems.id, itemIds),
+        eq(schema.contentDatabaseItems.databaseId, context.database.id),
+      ),
+    );
+  const revisionIds = revisionPropertyIds(context);
+  const before = await rowSnapshots(tx, context.database.id, rows, revisionIds);
+  // Missing and stale rows share one report so a single reread covers both.
+  const unavailable: RowPatchIssue[] = [];
+  for (const [index, row] of rows.entries()) {
+    const actual = before.get(row.itemId)?.revision;
+    if (actual === row.expectedRowRevision) continue;
+    unavailable.push({
+      index,
+      itemId: row.itemId,
+      documentId: row.documentId,
+      ...(actual === undefined
+        ? { reason: "not_found" }
+        : {
+            reason: "stale_revision",
+            expected: row.expectedRowRevision,
+            actual,
+          }),
+    });
+  }
+  const missing = unavailable.some((issue) => issue.reason === "not_found");
+  rowPatchIssues(
+    missing ? "ROW_NOT_FOUND" : "ROW_REVISION_CONFLICT",
+    "Some rows are not active members of this collection or changed since they were read; nothing was written. Reread the listed rows before retrying.",
+    unavailable,
+    missing ? 404 : 409,
+  );
+
+  const now = new Date().toISOString();
+  const valueUpdates: Array<{
+    documentId: string;
+    propertyId: string;
+    valueJson: string;
+  }> = [];
+  const valueInserts: typeof valueUpdates = [];
+  const planned = rows.map((row, index) => {
+    const snapshot = before.get(row.itemId)!;
+    const changedPropertyIds: string[] = [];
+    for (const [propertyId, valueJson] of patches[index]) {
+      const existing = snapshot.values.get(propertyId);
+      if (existing === valueJson) continue;
+      changedPropertyIds.push(propertyId);
+      (existing === undefined ? valueInserts : valueUpdates).push({
+        documentId: row.documentId,
+        propertyId,
+        valueJson,
+      });
+    }
+    const titleChanged =
+      row.title !== undefined && row.title.trim() !== snapshot.document.title;
+    return { snapshot, changedPropertyIds, titleChanged };
+  });
+
+  const documents = schema.documents;
+  const titleWrites = planned.flatMap((plan, index) =>
+    plan.titleChanged
+      ? [{ index, snapshot: plan.snapshot, title: rows[index].title!.trim() }]
+      : [],
+  );
+  const staleTitles: RowPatchIssue[] = [];
+  for (const chunk of chunked(titleWrites, ROW_PATCH_WRITE_CHUNK)) {
+    const written = await tx
+      .update(documents)
+      .set({
+        title: sql`CASE ${sql.join(
+          chunk.map(
+            (write) =>
+              sql`WHEN ${documents.id} = ${write.snapshot.document.id} THEN ${write.title}`,
+          ),
+          sql` `,
+        )} ELSE ${documents.title} END`,
+        updatedAt: sql`CASE ${sql.join(
+          chunk.map(
+            (write) =>
+              sql`WHEN ${documents.id} = ${write.snapshot.document.id} THEN ${nextRowUpdatedAt(now, write.snapshot)}`,
+          ),
+          sql` `,
+        )} ELSE ${documents.updatedAt} END`,
+        ...documentEditAttribution(actor),
+      })
+      .where(
+        and(
+          isNull(documents.trashedAt),
+          or(
+            ...chunk.map((write) =>
+              and(
+                eq(documents.id, write.snapshot.document.id),
+                eq(documents.updatedAt, write.snapshot.document.updatedAt),
+              ),
+            ),
+          ),
+        ),
+      )
+      .returning({ id: documents.id });
+    const writtenIds = new Set(written.map((document) => document.id));
+    for (const write of chunk) {
+      if (writtenIds.has(write.snapshot.document.id)) continue;
+      staleTitles.push({
+        index: write.index,
+        itemId: write.snapshot.item.id,
+        documentId: write.snapshot.document.id,
+        reason: "stale_revision",
+        expected: rows[write.index].expectedRowRevision,
+      });
+    }
+  }
+  rowPatchIssues(
+    "ROW_REVISION_CONFLICT",
+    "Some rows changed while the batch was writing; nothing was written. Reread the listed rows before retrying.",
+    staleTitles,
+    409,
+  );
+  const values = schema.documentPropertyValues;
+  for (const chunk of chunked(valueUpdates, ROW_PATCH_WRITE_CHUNK)) {
+    await tx
+      .update(values)
+      .set({
+        valueJson: sql`CASE ${sql.join(
+          chunk.map(
+            (update) =>
+              sql`WHEN ${values.documentId} = ${update.documentId} AND ${values.propertyId} = ${update.propertyId} THEN ${update.valueJson}`,
+          ),
+          sql` `,
+        )} ELSE ${values.valueJson} END`,
+        updatedAt: now,
+      })
+      .where(
+        or(
+          ...chunk.map((update) =>
+            and(
+              eq(values.documentId, update.documentId),
+              eq(values.propertyId, update.propertyId),
+            ),
+          ),
+        ),
+      );
+  }
+  for (const chunk of chunked(valueInserts, ROW_PATCH_WRITE_CHUNK)) {
+    await tx.insert(values).values(
+      chunk.map((insert) => ({
+        id: nanoid(),
+        ownerEmail: context.database.ownerEmail,
+        documentId: insert.documentId,
+        propertyId: insert.propertyId,
+        valueJson: insert.valueJson,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+  }
+  rowPatchIssues(
+    "NATURAL_KEY_CONFLICT",
+    "Some rows claim a natural key that is already in use or cannot change; nothing was written.",
+    await claimNaturalKeys(tx, context, rows, patches, now),
+  );
+
+  const after = await rowSnapshots(tx, context.database.id, rows, revisionIds);
+  return rows.map((row, index) => {
+    const snapshot = after.get(row.itemId);
+    const patch = patches[index];
+    if (
+      !snapshot ||
+      [...patch].some(
+        ([propertyId, valueJson]) =>
+          snapshot.values.get(propertyId) !== valueJson,
+      ) ||
+      (row.title !== undefined && snapshot.document.title !== row.title.trim())
+    ) {
+      throw new Error(
+        "Patched row readback did not match the requested values.",
+      );
+    }
+    const plan = planned[index];
+    return {
+      itemId: row.itemId,
+      documentId: row.documentId,
+      outcome:
+        plan.titleChanged || plan.changedPropertyIds.length > 0
+          ? "updated"
+          : "unchanged",
+      affected: {
+        title: plan.titleChanged,
+        propertyIds: plan.changedPropertyIds.sort(),
+      },
+      revisions: { before: plan.snapshot.revision, after: snapshot.revision },
+      readback: {
+        verified: true,
+        ...(row.title !== undefined ? { title: snapshot.document.title } : {}),
+        propertyValues: Object.fromEntries(
+          [...patch.keys()]
+            .sort()
+            .map((propertyId) => [
+              propertyId,
+              parsePropertyValue(snapshot.values.get(propertyId)!),
+            ]),
+        ),
+      },
+    };
+  });
+}
+
+export async function patchDatabaseRows(
+  input: PatchDatabaseRowsMutationInput,
+): Promise<ContentDatabaseRowPatchBatchResult> {
+  const rows = canonicalRowPatches(input.rows);
+  const initial = await loadContext(input.target, "editor");
+  await assertRowEditorAccess(rows);
+  const inputDigest = rowPatchPayloadDigest(input, rows);
+  const replay = await replayRowPatchReceipt(
+    initial,
+    input.idempotencyKey,
+    inputDigest,
+    rows,
+  );
+  if (replay) return replay;
+  assertSchema(initial, input.expectedSchemaRevision);
+  const patches = await normalizeRowPatches(initial, rows);
+  return withMutationLocks(initial.database, async () => {
+    try {
+      return await patchRowsTransaction(
+        input,
+        initial,
+        rows,
+        patches,
+        inputDigest,
+      );
+    } catch (error) {
+      // Another instance committed this key first. Replay its receipt, or
+      // report the key reuse, instead of surfacing the unique violation.
+      if (!isUniqueConstraintError(error)) throw error;
+      const raced = await replayRowPatchReceipt(
+        initial,
+        input.idempotencyKey,
+        inputDigest,
+        rows,
+      );
+      if (raced) return raced;
+      throw error;
+    }
+  });
+}
+
+function patchRowsTransaction(
+  input: PatchDatabaseRowsMutationInput,
+  initial: MutationContext,
+  rows: CanonicalRowPatch[],
+  patches: Map<string, string>[],
+  inputDigest: string,
+): Promise<ContentDatabaseRowPatchBatchResult> {
+  return getDb().transaction(async (tx) => {
+    const db = tx as unknown as Db;
+    await lockContentDatabaseMutation(db, initial.database.id);
+    // Access can be revoked while this call waits for the collection lock,
+    // so recheck editor access on the collection page and every row here.
+    const databaseDocumentId = initial.database.documentId;
+    const editable = await editableDocumentIds(db, [databaseDocumentId]);
+    if (!editable.has(databaseDocumentId)) {
+      throw new ForbiddenError(
+        `Requires editor role on document ${databaseDocumentId}`,
+      );
+    }
+    await assertRowEditorAccess(rows, db);
+    // The collection lock serializes every row, block, and batch writer, so
+    // a receipt committed by any of them is visible here.
+    const lockedReplay = await replayRowPatchReceipt(
+      initial,
+      input.idempotencyKey,
+      inputDigest,
+      rows,
+      db,
+    );
+    if (lockedReplay) return lockedReplay;
+    const locked = await loadContext(input.target, "editor", db, true);
+    assertSchema(locked, input.expectedSchemaRevision);
+    const rowReceipts = await patchRowsInsideTransaction(
+      db,
+      locked,
+      rows,
+      patches,
+    );
+    const now = new Date().toISOString();
+    await touchContentDatabase(db, locked.database.id, now);
+    const updated = rowReceipts.filter(
+      (receipt) => receipt.outcome === "updated",
+    ).length;
+    const result: ContentDatabaseRowPatchBatchResult = {
+      receipt: {
+        receiptId: nanoid(),
+        target: {
+          authorityScope: authorityScopeForContext(locked),
+          spaceId: locked.database.spaceId!,
+          databaseId: locked.database.id,
+          databaseDocumentId: locked.database.documentId,
+        },
+        schemaRevision: locked.schemaRevision,
+        idempotency: {
+          key: input.idempotencyKey,
+          result: "applied",
+          payloadDigest: inputDigest,
+        },
+        counts: {
+          requested: rows.length,
+          updated,
+          unchanged: rows.length - updated,
+        },
+        rows: rowReceipts,
+      },
+    };
+    // One receipt under the exact key keeps key reuse detectable across row,
+    // block, and batch mutations. Its row columns describe the first patched
+    // row; resultJson carries every row's receipt for replay.
+    const [first] = rowReceipts;
+    await db.insert(schema.contentDatabaseRowMutationReceipts).values({
+      id: result.receipt.receiptId,
+      ownerEmail: locked.database.ownerEmail,
+      orgId: locked.database.orgId,
+      spaceId: locked.database.spaceId!,
+      databaseId: locked.database.id,
+      databaseDocumentId: locked.database.documentId,
+      operation: ROW_PATCH_RECEIPT_OPERATION,
+      itemId: first.itemId,
+      documentId: first.documentId,
+      idempotencyKey: input.idempotencyKey,
+      payloadDigest: inputDigest,
+      schemaRevision: locked.schemaRevision,
+      preRowRevision: first.revisions.before,
+      postRowRevision: first.revisions.after,
+      resultJson: JSON.stringify(result),
+      createdAt: now,
+      updatedAt: now,
+    });
+    return result;
+  });
 }

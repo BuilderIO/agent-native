@@ -16,7 +16,6 @@ import { ipcMain, type IpcMainInvokeEvent } from "electron";
 import type { ContentFilesGrant } from "../index";
 
 export interface ContentFilesIpcDeps {
-  /** Rejects requests that don't come from the Content app's own webview. */
   requireContentFilesWebviewAccess: (
     event: IpcMainInvokeEvent,
   ) => DesktopContentFilesResult | null;
@@ -58,11 +57,6 @@ export interface ContentFilesIpcDeps {
   ) => DesktopContentFilesResult;
 }
 
-/**
- * Registers the Content-app local-folder sync IPC handlers (get/choose/write/
- * write-file/delete-file/read/reveal-file/clear). All access is gated to the
- * Content app's own webview via `requireContentFilesWebviewAccess`.
- */
 export function registerContentFilesIpc(deps: ContentFilesIpcDeps): void {
   const {
     requireContentFilesWebviewAccess,

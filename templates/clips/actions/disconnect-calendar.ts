@@ -1,13 +1,3 @@
-/**
- * disconnect-calendar
- *
- * Best-effort revokes Google tokens, deletes the secrets from
- * `app_secrets`, and removes the `calendar_accounts` row + any
- * `calendar_events` we synced for it. Access is enforced via
- * `assertAccess` so you can only disconnect accounts you own (or have
- * admin rights on).
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { deleteAppSecret, readAppSecret } from "@agent-native/core/secrets";
@@ -46,7 +36,6 @@ export default defineAction({
     // else's account must still hit the right (scope, scopeId, key) row.
     const secretScopeEmail = account.ownerEmail;
 
-    // Best-effort revoke of any live access/refresh tokens.
     try {
       if (account.refreshTokenSecretRef) {
         const ref = await readAppSecret({
@@ -66,7 +55,6 @@ export default defineAction({
             const parsed = JSON.parse(ref.value) as { accessToken?: string };
             if (parsed.accessToken) await revokeToken(parsed.accessToken);
           } catch {
-            // Stored as raw token (older shape) — try directly.
             await revokeToken(ref.value);
           }
         }
@@ -75,7 +63,6 @@ export default defineAction({
       // Non-fatal — we still want to delete the row.
     }
 
-    // Drop the secrets.
     if (account.accessTokenSecretRef) {
       await deleteAppSecret({
         key: account.accessTokenSecretRef,
@@ -92,17 +79,10 @@ export default defineAction({
     }
 
     await db.transaction(async (tx) => {
-      // Materialization takes this same account-row write lock before it
-      // snapshots/claims an event and inserts a meeting. Taking it before
-      // this cleanup snapshot prevents a new unrecorded meeting from being
-      // inserted after the rows below have been inspected.
       if (!(await lockCalendarAccount(tx, args.id, account.ownerEmail))) {
         throw new Error(`Calendar account not found: ${args.id}`);
       }
 
-      // Preserve recorded meetings, but hide unrecorded calendar placeholders
-      // tied to this account. Without this cleanup, those materialized rows
-      // stay visible after the account and its event cache are removed.
       const syncedEvents = await tx
         .select({
           id: schema.calendarEvents.id,
@@ -137,12 +117,10 @@ export default defineAction({
           );
       }
 
-      // Drop the synced events for this account so the meetings tab clears.
       await tx
         .delete(schema.calendarEvents)
         .where(eq(schema.calendarEvents.calendarAccountId, args.id));
 
-      // Drop the account row itself.
       await tx
         .delete(schema.calendarAccounts)
         .where(eq(schema.calendarAccounts.id, args.id));

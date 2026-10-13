@@ -5,11 +5,10 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { appPath } from "./helpers";
+import { e2eBaseURL } from "./base-url";
+import { appPath, selectTool } from "./helpers";
 
-const BASE_URL =
-  process.env.E2E_BASE_URL ??
-  `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`;
+const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Screen</title></head>
 <body style="margin:0;min-height:900px">
@@ -78,7 +77,6 @@ async function openOverview(page: Page, designId: string) {
   await page.waitForTimeout(2500);
 }
 
-/** Drags a shape inside the first screen card, offset so repeat draws don't overlap. */
 async function drawShape(page: Page, offset: number) {
   const box = (await page.locator("[data-screen-card]").first().boundingBox())!;
   const x = Math.max(box.x, 0) + 60 + offset;
@@ -90,7 +88,6 @@ async function drawShape(page: Page, offset: number) {
   await page.waitForTimeout(2000);
 }
 
-/** Border radii of every drawn ellipse in the screen's live preview. */
 async function drawnEllipseRadii(page: Page) {
   return page.evaluate(() => {
     const frame = document.querySelector<HTMLIFrameElement>(
@@ -106,7 +103,8 @@ async function drawnEllipseRadii(page: Page) {
   });
 }
 
-test("the shape button keeps drawing the shape it was last set to", async ({
+// oracle: none — verifies which shape the Shapes button keeps arming, not parity with a design reference.
+test("the Shapes button keeps drawing the shape it was last set to", async ({
   page,
   request,
 }) => {
@@ -115,18 +113,19 @@ test("the shape button keeps drawing the shape it was last set to", async ({
     await openOverview(page, designId);
 
     const toolbar = page.locator("[data-design-bottom-toolbar]");
-    await toolbar.getByRole("button", { name: "Rectangle options" }).click();
-    await page.getByRole("menuitem", { name: "Ellipse" }).click();
+    await selectTool(page, "Ellipse");
     await drawShape(page, 0);
 
-    // Drawing drops back to Move by design; the group button must not.
     const shapeButton = toolbar.getByRole("button", {
       name: "Ellipse",
       exact: true,
     });
     await expect(shapeButton).toBeVisible();
+    // Drawing hands the pointer back to Move, but the button still offers an Ellipse.
+    await expect(shapeButton).toHaveAttribute("aria-pressed", "false");
 
     await shapeButton.click();
+    await expect(shapeButton).toHaveAttribute("aria-pressed", "true");
     await drawShape(page, 200);
 
     const radii = await drawnEllipseRadii(page);

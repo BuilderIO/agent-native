@@ -116,7 +116,39 @@ export type CreativeContextMessageKey =
   | "suggestions"
   | "logo";
 
-export type CreativeContextMessages = Record<CreativeContextMessageKey, string>;
+export interface CreativeContextShareMessages {
+  title: string;
+  documentation: string;
+  tabLabel: string;
+  pendingResource: string;
+  publishedResource: string;
+  canonical: string;
+  reference: string;
+  pendingReview: string;
+  published: string;
+  withdraw: string;
+  requestChanges: string;
+  remove: string;
+  chooseContext: string;
+  selectedResources: string;
+  noContexts: string;
+  purpose: string;
+  reviewerNote: string;
+  submit: string;
+  broaderPublication: string;
+  newContextName: string;
+  new: string;
+  partialSubmission: string;
+  resourceSubmitted: string;
+  resourcesSubmitted: string;
+}
+
+export type CreativeContextMessages = Record<
+  CreativeContextMessageKey,
+  string
+> & {
+  share: CreativeContextShareMessages;
+};
 
 export const creativeContextMessagesByLocale: Record<
   CreativeContextLocale,
@@ -235,6 +267,34 @@ export const creativeContextMessagesByLocale: Record<
       "Choose the presentations Google should make available to this Library connection. No Drive-wide permission is requested.",
     suggestions: "Review suggestions",
     logo: "Canonical logo",
+    share: {
+      title: "Creative context",
+      documentation: "Creative Context documentation",
+      tabLabel: "Context",
+      pendingResource: "Pending resource",
+      publishedResource: "Published resource",
+      canonical: "Canonical",
+      reference: "Reference",
+      pendingReview: "Pending review",
+      published: "Published",
+      withdraw: "Withdraw",
+      requestChanges: "Request changes",
+      remove: "Remove",
+      chooseContext: "Choose a context",
+      selectedResources: "{{count}} selected resources",
+      noContexts: "No contexts are available yet.",
+      purpose: "Purpose",
+      reviewerNote: "Note for reviewers",
+      submit: "Submit",
+      broaderPublication:
+        "This context is shared more broadly than this resource. Publishing creates a governed copy available to the context's audience.",
+      newContextName: "New context name",
+      new: "New",
+      partialSubmission:
+        "{{submitted}} submitted; {{failed}} could not be submitted.",
+      resourceSubmitted: "{{count}} resource submitted.",
+      resourcesSubmitted: "{{count}} resources submitted.",
+    },
   },
   "zh-TW": {
     title: "資料庫",
@@ -342,6 +402,33 @@ export const creativeContextMessagesByLocale: Record<
       "選擇要提供給此資料庫連線的簡報，不會要求整個雲端硬碟的存取權。",
     suggestions: "審核建議",
     logo: "標準標誌",
+    share: {
+      title: "創意脈絡",
+      documentation: "Creative Context 文件",
+      tabLabel: "脈絡",
+      pendingResource: "待處理資源",
+      publishedResource: "已發布資源",
+      canonical: "標準",
+      reference: "參考",
+      pendingReview: "待審核",
+      published: "已發布",
+      withdraw: "撤回",
+      requestChanges: "要求修改",
+      remove: "移除",
+      chooseContext: "選擇脈絡",
+      selectedResources: "已選取 {{count}} 個資源",
+      noContexts: "目前沒有可用的脈絡。",
+      purpose: "用途",
+      reviewerNote: "給審核者的備註",
+      submit: "提交",
+      broaderPublication:
+        "此脈絡的分享範圍比此資源更廣。發布後會建立可供脈絡受眾使用的受治理副本。",
+      newContextName: "新脈絡名稱",
+      new: "新增",
+      partialSubmission: "已提交 {{submitted}} 個；{{failed}} 個無法提交。",
+      resourceSubmitted: "已提交 {{count}} 個資源。",
+      resourcesSubmitted: "已提交 {{count}} 個資源。",
+    },
   },
   "zh-CN": {
     title: "资料库",
@@ -450,6 +537,33 @@ export const creativeContextMessagesByLocale: Record<
       "选择要提供给此资料库连接的演示文稿，不会请求整个云端硬盘的访问权限。",
     suggestions: "审核建议",
     logo: "标准徽标",
+    share: {
+      title: "创意上下文",
+      documentation: "Creative Context 文档",
+      tabLabel: "上下文",
+      pendingResource: "待处理资源",
+      publishedResource: "已发布资源",
+      canonical: "规范",
+      reference: "参考",
+      pendingReview: "待审核",
+      published: "已发布",
+      withdraw: "撤回",
+      requestChanges: "请求修改",
+      remove: "移除",
+      chooseContext: "选择上下文",
+      selectedResources: "已选择 {{count}} 个资源",
+      noContexts: "暂无可用的上下文。",
+      purpose: "用途",
+      reviewerNote: "给审核者的备注",
+      submit: "提交",
+      broaderPublication:
+        "此上下文的共享范围比此资源更广。发布后会创建可供上下文受众使用的受治理副本。",
+      newContextName: "新上下文名称",
+      new: "新建",
+      partialSubmission: "已提交 {{submitted}} 个；{{failed}} 个无法提交。",
+      resourceSubmitted: "已提交 {{count}} 个资源。",
+      resourcesSubmitted: "已提交 {{count}} 个资源。",
+    },
   },
   "es-ES": {
     title: "Biblioteca",
@@ -565,6 +679,34 @@ export const creativeContextMessagesByLocale: Record<
       "Elige las presentaciones disponibles para esta conexión. No se solicita acceso a todo Drive.",
     suggestions: "Revisar sugerencias",
     logo: "Logotipo canónico",
+    share: {
+      title: "Contexto creativo",
+      documentation: "Documentación de Creative Context",
+      tabLabel: "Contexto",
+      pendingResource: "Recurso pendiente",
+      publishedResource: "Recurso publicado",
+      canonical: "Canónico",
+      reference: "Referencia",
+      pendingReview: "Revisión pendiente",
+      published: "Publicado",
+      withdraw: "Retirar",
+      requestChanges: "Solicitar cambios",
+      remove: "Eliminar",
+      chooseContext: "Elegir un contexto",
+      selectedResources: "{{count}} recursos seleccionados",
+      noContexts: "Aún no hay contextos disponibles.",
+      purpose: "Propósito",
+      reviewerNote: "Nota para revisores",
+      submit: "Enviar",
+      broaderPublication:
+        "Este contexto se comparte más ampliamente que este recurso. Al publicarlo se crea una copia gobernada disponible para la audiencia del contexto.",
+      newContextName: "Nuevo nombre de contexto",
+      new: "Nuevo",
+      partialSubmission:
+        "{{submitted}} enviados; no se pudieron enviar {{failed}}.",
+      resourceSubmitted: "{{count}} recurso enviado.",
+      resourcesSubmitted: "{{count}} recursos enviados.",
+    },
   },
   "fr-FR": {
     title: "Bibliothèque",
@@ -681,6 +823,34 @@ export const creativeContextMessagesByLocale: Record<
       "Choisissez les présentations accessibles à cette connexion. Aucun accès à l’ensemble de Drive n’est demandé.",
     suggestions: "Examiner les suggestions",
     logo: "Logo canonique",
+    share: {
+      title: "Contexte créatif",
+      documentation: "Documentation de Creative Context",
+      tabLabel: "Contexte",
+      pendingResource: "Ressource en attente",
+      publishedResource: "Ressource publiée",
+      canonical: "Canonique",
+      reference: "Référence",
+      pendingReview: "Révision en attente",
+      published: "Publié",
+      withdraw: "Retirer",
+      requestChanges: "Demander des modifications",
+      remove: "Supprimer",
+      chooseContext: "Choisir un contexte",
+      selectedResources: "{{count}} ressources sélectionnées",
+      noContexts: "Aucun contexte n'est encore disponible.",
+      purpose: "Objectif",
+      reviewerNote: "Note pour les réviseurs",
+      submit: "Envoyer",
+      broaderPublication:
+        "Ce contexte est partagé plus largement que cette ressource. La publication crée une copie gouvernée disponible pour l'audience du contexte.",
+      newContextName: "Nom du nouveau contexte",
+      new: "Nouveau",
+      partialSubmission:
+        "{{submitted}} envoyées ; {{failed}} n'ont pas pu être envoyées.",
+      resourceSubmitted: "{{count}} ressource envoyée.",
+      resourcesSubmitted: "{{count}} ressources envoyées.",
+    },
   },
   "de-DE": {
     title: "Bibliothek",
@@ -796,6 +966,34 @@ export const creativeContextMessagesByLocale: Record<
       "Wähle die Präsentationen für diese Bibliotheksverbindung aus. Es wird kein Zugriff auf das gesamte Drive angefordert.",
     suggestions: "Vorschläge prüfen",
     logo: "Kanonisches Logo",
+    share: {
+      title: "Kreativer Kontext",
+      documentation: "Creative-Context-Dokumentation",
+      tabLabel: "Kontext",
+      pendingResource: "Ausstehende Ressource",
+      publishedResource: "Veröffentlichte Ressource",
+      canonical: "Kanonisch",
+      reference: "Referenz",
+      pendingReview: "Prüfung ausstehend",
+      published: "Veröffentlicht",
+      withdraw: "Zurückziehen",
+      requestChanges: "Änderungen anfordern",
+      remove: "Entfernen",
+      chooseContext: "Kontext auswählen",
+      selectedResources: "{{count}} ausgewählte Ressourcen",
+      noContexts: "Noch keine Kontexte verfügbar.",
+      purpose: "Zweck",
+      reviewerNote: "Notiz für Prüfer",
+      submit: "Senden",
+      broaderPublication:
+        "Dieser Kontext wird umfassender geteilt als diese Ressource. Beim Veröffentlichen wird eine verwaltete Kopie für die Zielgruppe des Kontexts erstellt.",
+      newContextName: "Name des neuen Kontexts",
+      new: "Neu",
+      partialSubmission:
+        "{{submitted}} gesendet; {{failed}} konnten nicht gesendet werden.",
+      resourceSubmitted: "{{count}} Ressource gesendet.",
+      resourcesSubmitted: "{{count}} Ressourcen gesendet.",
+    },
   },
   "ja-JP": {
     title: "ライブラリ",
@@ -914,6 +1112,34 @@ export const creativeContextMessagesByLocale: Record<
       "このライブラリ接続で利用するプレゼンテーションを選択します。Drive 全体への権限は要求しません。",
     suggestions: "候補を確認",
     logo: "正式ロゴ",
+    share: {
+      title: "クリエイティブコンテキスト",
+      documentation: "Creative Context のドキュメント",
+      tabLabel: "コンテキスト",
+      pendingResource: "保留中のリソース",
+      publishedResource: "公開済みリソース",
+      canonical: "標準",
+      reference: "参照",
+      pendingReview: "レビュー待ち",
+      published: "公開済み",
+      withdraw: "取り下げ",
+      requestChanges: "変更をリクエスト",
+      remove: "削除",
+      chooseContext: "コンテキストを選択",
+      selectedResources: "{{count}}件のリソースを選択",
+      noContexts: "利用できるコンテキストはまだありません。",
+      purpose: "目的",
+      reviewerNote: "レビュアーへのメモ",
+      submit: "送信",
+      broaderPublication:
+        "このコンテキストはこのリソースより広く共有されます。公開すると、コンテキストの対象者が利用できる管理対象コピーが作成されます。",
+      newContextName: "新しいコンテキスト名",
+      new: "新規",
+      partialSubmission:
+        "{{submitted}}件を送信しました。{{failed}}件は送信できませんでした。",
+      resourceSubmitted: "{{count}}件のリソースを送信しました。",
+      resourcesSubmitted: "{{count}}件のリソースを送信しました。",
+    },
   },
   "ko-KR": {
     title: "라이브러리",
@@ -1027,6 +1253,34 @@ export const creativeContextMessagesByLocale: Record<
       "이 라이브러리 연결에서 사용할 프레젠테이션을 선택하세요. Drive 전체 권한은 요청하지 않습니다.",
     suggestions: "추천 검토",
     logo: "대표 로고",
+    share: {
+      title: "크리에이티브 컨텍스트",
+      documentation: "Creative Context 문서",
+      tabLabel: "컨텍스트",
+      pendingResource: "대기 중인 리소스",
+      publishedResource: "게시된 리소스",
+      canonical: "표준",
+      reference: "참조",
+      pendingReview: "검토 대기 중",
+      published: "게시됨",
+      withdraw: "철회",
+      requestChanges: "변경 요청",
+      remove: "삭제",
+      chooseContext: "컨텍스트 선택",
+      selectedResources: "{{count}}개 리소스 선택됨",
+      noContexts: "사용 가능한 컨텍스트가 아직 없습니다.",
+      purpose: "용도",
+      reviewerNote: "검토자 메모",
+      submit: "제출",
+      broaderPublication:
+        "이 컨텍스트는 이 리소스보다 넓게 공유됩니다. 게시하면 컨텍스트 대상자가 사용할 수 있는 관리된 사본이 생성됩니다.",
+      newContextName: "새 컨텍스트 이름",
+      new: "새로 만들기",
+      partialSubmission:
+        "{{submitted}}개 제출됨, {{failed}}개는 제출할 수 없습니다.",
+      resourceSubmitted: "{{count}}개 리소스가 제출되었습니다.",
+      resourcesSubmitted: "{{count}}개 리소스가 제출되었습니다.",
+    },
   },
   "pt-BR": {
     title: "Biblioteca",
@@ -1142,6 +1396,34 @@ export const creativeContextMessagesByLocale: Record<
       "Escolha as apresentações disponíveis para esta conexão. Nenhum acesso a todo o Drive é solicitado.",
     suggestions: "Revisar sugestões",
     logo: "Logotipo canônico",
+    share: {
+      title: "Contexto criativo",
+      documentation: "Documentação do Creative Context",
+      tabLabel: "Contexto",
+      pendingResource: "Recurso pendente",
+      publishedResource: "Recurso publicado",
+      canonical: "Canônico",
+      reference: "Referência",
+      pendingReview: "Revisão pendente",
+      published: "Publicado",
+      withdraw: "Retirar",
+      requestChanges: "Solicitar alterações",
+      remove: "Remover",
+      chooseContext: "Escolha um contexto",
+      selectedResources: "{{count}} recursos selecionados",
+      noContexts: "Ainda não há contextos disponíveis.",
+      purpose: "Finalidade",
+      reviewerNote: "Nota para revisores",
+      submit: "Enviar",
+      broaderPublication:
+        "Este contexto é compartilhado mais amplamente que este recurso. A publicação cria uma cópia governada disponível ao público do contexto.",
+      newContextName: "Nome do novo contexto",
+      new: "Novo",
+      partialSubmission:
+        "{{submitted}} enviados; {{failed}} não puderam ser enviados.",
+      resourceSubmitted: "{{count}} recurso enviado.",
+      resourcesSubmitted: "{{count}} recursos enviados.",
+    },
   },
   "hi-IN": {
     title: "लाइब्रेरी",
@@ -1254,6 +1536,34 @@ export const creativeContextMessagesByLocale: Record<
       "इस लाइब्रेरी कनेक्शन के लिए प्रेज़ेंटेशन चुनें। पूरे Drive की अनुमति नहीं मांगी जाती।",
     suggestions: "सुझावों की समीक्षा करें",
     logo: "मानक लोगो",
+    share: {
+      title: "क्रिएटिव संदर्भ",
+      documentation: "Creative Context दस्तावेज़",
+      tabLabel: "संदर्भ",
+      pendingResource: "लंबित संसाधन",
+      publishedResource: "प्रकाशित संसाधन",
+      canonical: "कैनोनिकल",
+      reference: "संदर्भ",
+      pendingReview: "समीक्षा लंबित",
+      published: "प्रकाशित",
+      withdraw: "वापस लें",
+      requestChanges: "बदलाव का अनुरोध करें",
+      remove: "हटाएँ",
+      chooseContext: "संदर्भ चुनें",
+      selectedResources: "{{count}} संसाधन चुने गए",
+      noContexts: "अभी कोई संदर्भ उपलब्ध नहीं है।",
+      purpose: "उद्देश्य",
+      reviewerNote: "समीक्षकों के लिए नोट",
+      submit: "जमा करें",
+      broaderPublication:
+        "यह संदर्भ इस संसाधन से अधिक व्यापक रूप से साझा किया जाता है। प्रकाशित करने पर संदर्भ के दर्शकों के लिए एक नियंत्रित प्रति बनाई जाती है।",
+      newContextName: "नए संदर्भ का नाम",
+      new: "नया",
+      partialSubmission:
+        "{{submitted}} जमा किए गए; {{failed}} जमा नहीं किए जा सके।",
+      resourceSubmitted: "{{count}} संसाधन जमा किया गया।",
+      resourcesSubmitted: "{{count}} संसाधन जमा किए गए।",
+    },
   },
   "ar-SA": {
     title: "المكتبة",
@@ -1366,5 +1676,32 @@ export const creativeContextMessagesByLocale: Record<
       "اختر العروض المتاحة لهذا الاتصال بالمكتبة. لا يتم طلب إذن للوصول إلى Drive بالكامل.",
     suggestions: "مراجعة الاقتراحات",
     logo: "الشعار المعتمد",
+    share: {
+      title: "السياق الإبداعي",
+      documentation: "توثيق Creative Context",
+      tabLabel: "السياق",
+      pendingResource: "مورد قيد الانتظار",
+      publishedResource: "مورد منشور",
+      canonical: "أساسي",
+      reference: "مرجع",
+      pendingReview: "المراجعة معلقة",
+      published: "منشور",
+      withdraw: "سحب",
+      requestChanges: "طلب تغييرات",
+      remove: "إزالة",
+      chooseContext: "اختر سياقًا",
+      selectedResources: "تم تحديد {{count}} من الموارد",
+      noContexts: "لا توجد سياقات متاحة بعد.",
+      purpose: "الغرض",
+      reviewerNote: "ملاحظة للمراجعين",
+      submit: "إرسال",
+      broaderPublication:
+        "تتم مشاركة هذا السياق على نطاق أوسع من هذا المورد. يؤدي النشر إلى إنشاء نسخة محكومة متاحة لجمهور السياق.",
+      newContextName: "اسم السياق الجديد",
+      new: "جديد",
+      partialSubmission: "تم إرسال {{submitted}}؛ تعذر إرسال {{failed}}.",
+      resourceSubmitted: "تم إرسال {{count}} من الموارد.",
+      resourcesSubmitted: "تم إرسال {{count}} من الموارد.",
+    },
   },
 };

@@ -10,6 +10,12 @@ export interface TextToolShortcutEvent {
   target: EventTarget | null;
 }
 
+interface SlideToolShortcutOptions {
+  canEdit: boolean;
+  activeElement: Element | null;
+  blockingSurfaceOpen: boolean;
+}
+
 const EDITABLE_OR_BLOCKING_SELECTOR = [
   "input",
   "textarea",
@@ -28,24 +34,17 @@ function isEditableOrBlockingTarget(target: EventTarget | null): boolean {
   );
 }
 
-export function shouldActivateTextTool(
+function shouldActivateSlideTool(
   event: TextToolShortcutEvent,
-  {
-    canEdit,
-    activeElement,
-    blockingSurfaceOpen,
-  }: {
-    canEdit: boolean;
-    activeElement: Element | null;
-    blockingSurfaceOpen: boolean;
-  },
+  key: "r" | "t",
+  { canEdit, activeElement, blockingSurfaceOpen }: SlideToolShortcutOptions,
 ): boolean {
   if (
     !canEdit ||
     event.defaultPrevented ||
     event.repeat ||
     event.isComposing ||
-    event.key.toLowerCase() !== "t" ||
+    event.key.toLowerCase() !== key ||
     event.altKey ||
     event.ctrlKey ||
     event.metaKey ||
@@ -59,4 +58,18 @@ export function shouldActivateTextTool(
     !isEditableOrBlockingTarget(event.target) &&
     !isEditableOrBlockingTarget(activeElement)
   );
+}
+
+export function shouldActivateTextTool(
+  event: TextToolShortcutEvent,
+  options: SlideToolShortcutOptions,
+): boolean {
+  return shouldActivateSlideTool(event, "t", options);
+}
+
+export function shouldActivateRectangleTool(
+  event: TextToolShortcutEvent,
+  options: SlideToolShortcutOptions,
+): boolean {
+  return shouldActivateSlideTool(event, "r", options);
 }

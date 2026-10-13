@@ -1,8 +1,15 @@
 import { accessFilter } from "@agent-native/core/sharing";
-/**
- * Data access for bookings + their attendees, references, and notes.
- */
-import { eq, and, gte, lt, or, desc, asc, isNotNull } from "drizzle-orm";
+import {
+  eq,
+  and,
+  gte,
+  lt,
+  or,
+  desc,
+  asc,
+  isNotNull,
+  isNull,
+} from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import type {
@@ -24,6 +31,8 @@ function rowToBooking(
     uid: row.uid,
     eventTypeId: row.eventTypeId,
     hostEmail: row.hostEmail,
+    ownerEmail: row.ownerEmail ?? row.hostEmail,
+    orgId: row.orgId ?? null,
     title: row.title,
     description: row.description ?? undefined,
     startTime: row.startTime,
@@ -77,6 +86,7 @@ function parseJson<T = any>(s: string | null | undefined): T | undefined {
 export async function getBookingByUid(uid: string): Promise<Booking | null> {
   const { getDb, schema } = getSchedulingContext();
   const db = getDb();
+  // guard:allow-unscoped — opaque booking UID is an authorization lookup; all public callers verify host or bearer token before exposing or mutating the row
   const rows = await db
     .select()
     .from(schema.bookings)
@@ -98,16 +108,9 @@ export interface ListBookingsFilter {
   eventTypeId?: string;
   status?: BookingStatus | "upcoming" | "past" | "unconfirmed" | "recurring";
   attendeeEmail?: string;
-  /** Inclusive start (ISO) */
   from?: string;
-  /** Exclusive end (ISO) */
   to?: string;
   limit?: number;
-  /**
-   * If true, admit any booking the current user owns, has been shared on, or
-   * matches via org-visibility — in addition to the explicit `hostEmail`
-   * filter (which still narrows further when set).
-   */
   useAccessFilter?: boolean;
 }
 
@@ -177,9 +180,11 @@ export async function listBookings(
 }
 
 export async function countBookingsByHostInRange(
+  eventTypeId: string,
   hostEmail: string,
   fromIso: string,
   toIso: string,
+  orgId?: string | null,
 ): Promise<number> {
   const { getDb, schema } = getSchedulingContext();
   const rows = await getDb()
@@ -188,6 +193,11 @@ export async function countBookingsByHostInRange(
     .where(
       and(
         eq(schema.bookings.hostEmail, hostEmail),
+        eq(schema.bookings.ownerEmail, hostEmail),
+        orgId
+          ? eq(schema.bookings.orgId, orgId)
+          : isNull(schema.bookings.orgId),
+        eq(schema.bookings.eventTypeId, eventTypeId),
         gte(schema.bookings.startTime, fromIso),
         lt(schema.bookings.startTime, toIso),
         eq(schema.bookings.status, "confirmed"),

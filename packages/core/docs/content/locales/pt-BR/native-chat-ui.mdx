@@ -94,7 +94,7 @@ carga útil correspondente:
 
 O servidor actions deve importar os auxiliares e esquemas seguros para o servidor de
 `@agent-native/core/data-widgets`; o código do cliente pode importar os mesmos tipos de
-`@agent-native/core/client/chat` ou `@agent-native/core/client`.
+`@agent-native/core/client/widgets` ou `@agent-native/core/client`.
 
 ```ts
 import { defineAction } from "@agent-native/core/action";
@@ -228,7 +228,7 @@ Registre componentes específicos do produto pelo ID exato do renderizador e, em
 na ação:
 
 ```tsx
-import { registerActionChatRenderer } from "@agent-native/core/client/chat";
+import { registerActionChatRenderer } from "@agent-native/toolkit/app/chat";
 
 registerActionChatRenderer({
   id: "crm.deal-card",
@@ -255,6 +255,48 @@ definida para resolver uma porcentagem — `height: 40%` na barra de um gráfico
 para zero em vez de gerar erro, o que parece um renderer que falhou ao desenhar. Dê aos
 gráficos e outros visuais dependentes de altura uma base em pixels (ou `rem`); larguras
 em porcentagem funcionam, pois a coluna da transcrição tem largura definida.
+
+### Escolha quando a interface da ação aparece {#conditional-native-ui}
+
+Uma ação pode ter várias operações, mas só alguns resultados precisam de um cartão. Adicione `when(args, result)` a `chatUI` para selecionar essas chamadas. O servidor chama esse predicado após uma ação bem-sucedida. Se ele retornar `false`, o resultado continua no histórico comum de ferramentas recolhível. O predicado não é salvo nem enviado ao navegador.
+
+No Mail, `manage-draft` usa isso para mostrar um cartão nos resultados de criação, enquanto atualizações e exclusões continuam como chamadas comuns:
+
+```ts
+chatUI: {
+  renderer: "mail.draft-created",
+  when: (args, result) => {
+    if (
+      args.action !== "create" ||
+      !result ||
+      typeof result !== "object" ||
+      Array.isArray(result)
+    ) {
+      return false;
+    }
+    const output = result as Record<string, unknown>;
+    return typeof output.deepLink === "string" && Boolean(output.draft);
+  },
+},
+```
+
+Para ações com várias operações de gravação, verifique os argumentos e o resultado bem-sucedido. A ação de filtros do Gmail no Mail seleciona o cartão da regra somente para filtros criados ou substituídos com os campos de resumo:
+
+```ts
+when: (args, result) => {
+  if (
+    (args.operation !== "create" && args.operation !== "replace") ||
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result)
+  ) {
+    return false;
+  }
+  const output = result as Record<string, unknown>;
+  const filter = output.filter as Record<string, unknown> | undefined;
+  return output.ok === true && Boolean(filter?.criteriaSummary);
+},
+```
 
 ## Tempos de execução do agente BYO {#byo-agent-runtimes}
 
@@ -322,15 +364,13 @@ descrito abaixo.
 
 </Diagram>
 
-Todos os conectores são exportados de `@agent-native/core/client/chat` (e da raiz
+Todos os conectores são exportados de `@agent-native/core/client/agent-chat` (e da raiz
 entrada `@agent-native/core/client`). Use o tempo de execução genérico HTTP quando seu agente
 pode expor um endpoint POST que retorna eventos de tempo de execução SSE ou NDJSON:
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   id: "external:mastra",
@@ -356,7 +396,7 @@ import {
   createOpenAIAgentsChatRuntime,
   createOpenAIResponsesChatRuntime,
   createVercelAiChatRuntime,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/core/client/agent-chat";
 
 const openAiAgentsRuntime = createOpenAIAgentsChatRuntime({
   endpoint: "/api/openai-agents/chat",
@@ -399,7 +439,7 @@ iframes.
 Quando desejar o transporte Agent-Native integrado como um objeto de tempo de execução, use:
 
 ```ts
-import { createAgentNativeChatRuntime } from "@agent-native/core/client/chat";
+import { createAgentNativeChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createAgentNativeChatRuntime({
   threadId: "forms-chat",
@@ -407,10 +447,9 @@ const runtime = createAgentNativeChatRuntime({
 });
 ```
 
-Use `<AssistantChat createAdapter={...} />` somente quando precisar de full
-controle do adaptador assistant-ui. Use `PromptComposer` sozinho quando seu produto
-possui toda a transcrição externa e só quer o compositor de Agent-Native
-campo.
+Use `<AssistantChat createTransport={...} />` para um transporte AgentKit personalizado ou passe `runtime` se o host já executar os turnos. Implementações existentes de `assistant-ui ChatModelAdapter` precisam ser portadas para `AgentTransport` ou `AgentChatRuntime` para usar a transcrição e o compositor do AgentKit. Use `PromptComposer` sozinho quando seu produto possuir toda a transcrição externa e precisar apenas do campo de composição Agent-Native.
+
+Consulte o [guia de migração do chat do AgentKit](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md) para ver o mapa das APIs antigas e novas e as etapas de migração.
 
 Os fluxos OpenAI, AG-UI, Claude Agent SDK e Vercel AI SDK podem usar o padrão
 ajudantes de conector. ACP permanece interoperabilidade agente de codificação/editor, não o

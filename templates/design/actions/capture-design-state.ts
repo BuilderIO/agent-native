@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -9,7 +9,12 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
+import {
+  CAPTURE_DATA_MAX_BYTES,
+  sanitizeMarkup,
+} from "../shared/capture-sanitize.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
 import type { DesignSourceCapabilities } from "../shared/design-source-capabilities.js";
 import {
@@ -18,10 +23,6 @@ import {
   type DesignSourceDescriptor,
 } from "../shared/source-mode.js";
 
-/**
- * Resolve the capabilities for the design's source type.
- * Falls back to inline capabilities when not present in stored data.
- */
 function resolveCapabilities(
   designData: string | null,
 ): DesignSourceCapabilities {
@@ -55,51 +56,10 @@ function resolveCapabilities(
   return resolveDescriptorCapabilities({ sourceType: "inline" });
 }
 
-/**
- * Maximum serialised size of a captured/replayed `captureData` payload.
- * Captured DOM snapshots are arbitrary caller markup; cap them so a single
- * capture can't bloat the design row (and the shareable content it feeds).
- */
-const CAPTURE_DATA_MAX_BYTES = 256 * 1024; // 256KB
-
-/**
- * Strip stored-XSS vectors out of an HTML/markup string before it is persisted
- * and later replayed into shareable design content. Mirrors the framework's
- * text-edit HTML sanitiser: removes script/style/iframe/object/embed/link/meta/
- * base tags, inline `on*` handlers, and `javascript:` / `vbscript:` / `data:`
- * URLs in `href` / `src` / `xlink:href`.
- */
-function sanitizeMarkup(html: string): string {
-  return html
-    .replace(
-      /<\s*(script|style|iframe|object|embed|link|meta|base)\b[\s\S]*?<\s*\/\s*\1\s*>/gi,
-      "",
-    )
-    .replace(
-      /<\s*(script|style|iframe|object|embed|link|meta|base)\b[^>]*\/?\s*>/gi,
-      "",
-    )
-    .replace(/\s+on[A-Za-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/g, "")
-    .replace(
-      /\s+(href|src|xlink:href)\s*=\s*(?:(["'])\s*(?:javascript|vbscript|data):[\s\S]*?\2|(?:javascript|vbscript|data):[^\s>]*)/gi,
-      "",
-    );
-}
-
-/**
- * A string "looks like markup" — and is therefore worth sanitising — when it
- * contains an angle-bracket tag opener or an Alpine `x-`/`@`/`:` binding that
- * could carry script. Plain data strings (route names, ids) are left untouched.
- */
 function looksLikeMarkup(value: string): boolean {
   return /<[a-zA-Z!/]/.test(value) || value.includes("</");
 }
 
-/**
- * Recursively sanitise every string value inside a captured/replayed
- * `captureData` object (e.g. `domHtml`, `domSnapshot`, `x-data` markup) so no
- * untrusted DOM is persisted raw. Non-string leaves pass through unchanged.
- */
 function sanitizeCaptureData(value: unknown): unknown {
   if (typeof value === "string") {
     return looksLikeMarkup(value) ? sanitizeMarkup(value) : value;
@@ -178,7 +138,6 @@ export default defineAction({
 
     const db = getDb();
 
-    // Capability gate — captureState must be available for this design source.
     const [design] = await db
       .select({ data: schema.designs.data })
       .from(schema.designs)
@@ -191,9 +150,10 @@ export default defineAction({
 
     const caps = resolveCapabilities(design.data);
     if (!hasCapability(caps, "captureState")) {
-      throw new Error(
+      fail(
         "The design's source does not support captureState. " +
-          "Connect Builder (free tier available) or a localhost bridge to enable live captures.",
+          "Use Builder.io (free tier available) or a localhost bridge to enable live captures.",
+        { errorCode: "capture_state_not_supported", statusCode: 422 },
       );
     }
 
@@ -203,8 +163,6 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
 
-    // Sanitise captured DOM/markup (stored-XSS guard) and enforce a size cap so
-    // a single capture can't bloat the row / the shareable content it feeds.
     const sanitizedCaptureData = sanitizeCaptureData(captureData);
     const captureDataJson = JSON.stringify(sanitizedCaptureData);
     if (Buffer.byteLength(captureDataJson, "utf8") > CAPTURE_DATA_MAX_BYTES) {
@@ -215,21 +173,24 @@ export default defineAction({
       );
     }
 
-    await db.insert(schema.designState).values({
-      id,
-      designId,
-      sourceRef: sourceRef ?? null,
-      name,
-      kind: "capture",
-      breakpoint,
-      route: route ?? null,
-      fixtureData: null,
-      captureData: captureDataJson,
-      previewRef: previewRef ?? null,
-      createdAt: now,
-      updatedAt: now,
-      ownerEmail,
-      orgId,
+    await withDesignSourceMutationTransaction(designId, async (tx) => {
+      await assertAccess("design", designId, "editor");
+      await tx.insert(schema.designState).values({
+        id,
+        designId,
+        sourceRef: sourceRef ?? null,
+        name,
+        kind: "capture",
+        breakpoint,
+        route: route ?? null,
+        fixtureData: null,
+        captureData: captureDataJson,
+        previewRef: previewRef ?? null,
+        createdAt: now,
+        updatedAt: now,
+        ownerEmail,
+        orgId,
+      });
     });
 
     return {

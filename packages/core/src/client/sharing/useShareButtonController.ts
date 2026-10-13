@@ -47,6 +47,7 @@ export interface ShareButtonSharesResponse {
 export interface ShareButtonOrgMember {
   email: string;
   name?: string | null;
+  image?: string | null;
   role?: string | null;
   joinedAt?: number | null;
 }
@@ -65,6 +66,7 @@ export interface ShareButtonControllerOptions {
   resourceId: string;
   defaultOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
+  onShareSuccess?: () => void;
   shareTabs?: {
     defaultValue?: string;
     onValueChange?: (value: string) => void;
@@ -136,6 +138,10 @@ export function useShareButtonController(
   const [activeShareTab, setActiveShareTab] = useState(shareTabDefaultValue);
   const [visibilityOverride, setVisibilityOverride] =
     useState<ShareButtonVisibility | null>(null);
+  const visibilitySequenceStartRef = useRef<{
+    visibility: ShareButtonVisibility;
+    shares: ShareButtonSharesResponse | undefined;
+  } | null>(null);
   const appliedDefaultOpenRef = useRef(false);
   const {
     queryKey: shareQueryKey,
@@ -144,12 +150,18 @@ export function useShareButtonController(
   } = useShareQuery<ShareButtonSharesResponse>(
     options.resourceType,
     options.resourceId,
+    open,
+    0,
   );
   const { setVisibility, share, unshare } = useShareMutations();
   const visibilityGuard = useShareMutationGuard();
   const data = sharesQuery.data;
   const canManage = data?.role === "owner" || data?.role === "admin";
   const [shareError, setShareError] = useState<string | null>(null);
+  const visibility =
+    visibilityOverride ?? data?.visibility ?? ("private" as const);
+  const triggerVisibility =
+    visibilityOverride ?? (data ? (data.visibility ?? "private") : null);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -158,10 +170,9 @@ export function useShareButtonController(
       if (nextOpen) {
         setActiveShareTab(shareTabDefaultValue);
         options.shareTabs?.onValueChange?.(shareTabDefaultValue);
-        if (visibilityOverride === null) sharesQuery.refetch();
       }
     },
-    [options, shareTabDefaultValue, sharesQuery, visibilityOverride],
+    [options, shareTabDefaultValue],
   );
 
   useEffect(() => {
@@ -169,6 +180,7 @@ export function useShareButtonController(
     setSelectedGroup(null);
     setShareMessage("");
     setMessageOpen(false);
+    visibilitySequenceStartRef.current = null;
   }, [options.resourceId, options.resourceType]);
 
   useEffect(() => {
@@ -198,6 +210,7 @@ export function useShareButtonController(
           shareQueryKey,
           (prev) => (prev ? { ...prev, visibility: next } : prev),
         );
+      visibilitySequenceStartRef.current ??= { visibility, shares: previous };
       setVisibilityOverride(next);
       return new Promise((resolve, reject) => {
         setVisibility.mutate(
@@ -208,12 +221,19 @@ export function useShareButtonController(
           } as never,
           {
             onSuccess: (result: unknown) => {
+              const resultVisibility =
+                typeof result === "object" &&
+                result !== null &&
+                "visibility" in result &&
+                (result as { visibility?: unknown }).visibility;
               if (visibilityGuard.isLatest(requestId)) {
-                const resultVisibility =
-                  typeof result === "object" &&
-                  result !== null &&
-                  "visibility" in result &&
-                  (result as { visibility?: unknown }).visibility;
+                if (
+                  visibilitySequenceStartRef.current?.visibility ===
+                    "private" &&
+                  (resultVisibility === "org" || resultVisibility === "public")
+                ) {
+                  options.onShareSuccess?.();
+                }
                 optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
                   queryClient,
                   shareQueryKey,
@@ -236,13 +256,21 @@ export function useShareButtonController(
                 .finally(() => {
                   if (visibilityGuard.isLatest(requestId)) {
                     setVisibilityOverride(null);
+                    visibilitySequenceStartRef.current = null;
                   }
                 });
             },
             onError: (error) => {
               if (visibilityGuard.isLatest(requestId)) {
+                const sequenceStart = visibilitySequenceStartRef.current;
                 setVisibilityOverride(null);
-                rollbackShareCache(queryClient, shareQueryKey, previous);
+                visibilitySequenceStartRef.current = null;
+                rollbackShareCache(
+                  queryClient,
+                  shareQueryKey,
+                  sequenceStart ? sequenceStart.shares : previous,
+                );
+                void sharesQuery.refetch();
               }
               reject(error);
             },
@@ -259,6 +287,8 @@ export function useShareButtonController(
       sharesQuery,
       canManage,
       visibilityGuard,
+      options.onShareSuccess,
+      visibility,
     ],
   );
 
@@ -266,12 +296,6 @@ export function useShareButtonController(
     allowPublic: true,
     requireOrgMemberForUserShares: false,
   };
-  const visibility =
-    visibilityOverride ?? data?.visibility ?? ("private" as const);
-  const triggerVisibility =
-    visibilityOverride ?? (data ? (data.visibility ?? "private") : null);
-  // Keep draft and optimistic state in the controller so closing and reopening
-  // the popover cannot drop an in-flight mutation or an unsent invite.
   const [role, setRole] = useState<ShareButtonRole>("viewer");
   useEffect(() => {
     const allowedRoles = options.allowedRoles;
@@ -302,12 +326,6 @@ export function useShareButtonController(
       next.delete(key);
       return next;
     });
-  }, []);
-
-  useEffect(() => {
-    sharesQuery.refetch();
-    // The resource identity is intentionally stable for this controller.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const memberSearch = useShareOrgMemberSearch(
@@ -444,8 +462,18 @@ export function useShareButtonController(
         ...(message ? { message } : {}),
       } as never,
       {
-        onSuccess: () => {
-          sharesQuery.refetch().then(() => {
+        onSuccess: (result: unknown) => {
+          if (
+            !(
+              typeof result === "object" &&
+              result !== null &&
+              "updated" in result &&
+              (result as { updated?: unknown }).updated === true
+            )
+          ) {
+            options.onShareSuccess?.();
+          }
+          void sharesQuery.refetch().then(() => {
             setPendingAdds((previous) =>
               previous.filter((item) => item.id !== optimistic.id),
             );
@@ -470,11 +498,11 @@ export function useShareButtonController(
     addInFlight,
     canManage,
     clearInFlight,
-    inFlight,
     inviteEmail,
     notifyPeople,
     options.resourceId,
     options.resourceType,
+    options.onShareSuccess,
     options.shareUrl,
     role,
     selectedGroup,
@@ -521,7 +549,7 @@ export function useShareButtonController(
         } as never,
         {
           onSuccess: () => {
-            sharesQuery.refetch().then(() => {
+            void sharesQuery.refetch().then(() => {
               setRoleOverrides((previous) => {
                 const { [key]: _removed, ...rest } = previous;
                 return rest;
@@ -545,7 +573,6 @@ export function useShareButtonController(
       addInFlight,
       canManage,
       clearInFlight,
-      inFlight,
       options.resourceId,
       options.resourceType,
       queryClient,
@@ -586,7 +613,7 @@ export function useShareButtonController(
         } as never,
         {
           onSuccess: () => {
-            sharesQuery.refetch().then(() => {
+            void sharesQuery.refetch().then(() => {
               setPendingRemoves((previous) => {
                 const next = new Set(previous);
                 next.delete(key);
@@ -612,7 +639,6 @@ export function useShareButtonController(
       addInFlight,
       canManage,
       clearInFlight,
-      inFlight,
       options.resourceId,
       options.resourceType,
       queryClient,

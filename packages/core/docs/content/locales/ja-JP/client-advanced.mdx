@@ -98,6 +98,36 @@ const { values, missing } = await readClientAppStateMany([
 
 `requestSource` には、一般的に `TAB_ID` が設定されます。これは、すべてのテンプレートが `app/lib/tab-id.ts` からエクスポートする普通の定数で、タブの生存期間中は同じままで、タブ間で異なる短いランダムな文字列です。書き込み側で `requestSource: TAB_ID` を、読み取り側で `useDbSync({ ignoreSource: TAB_ID })` をペアリングすることが、タブが他の全員の変更には反応しつつ、自分自身の書き込みの再フェッチを避ける方法です。完全な手順については [Context Awareness](/docs/context-awareness#jitter-prevention) を参照してください。
 
+## 分離されたバックグラウンド Agent セッション {#isolated-background-agent-sessions}
+
+呼び出しごとに新しい安定したスレッドが必要で、表示中または非表示のタブ、
+サイドバー状態、実行トレイ項目を追加してはいけない場合は
+`startBackgroundAgentSession()` を使います。通常の認証済み Agent チャット
+ルートを使うため、永続化、ツール、再試行、ホストされた永続実行は引き続き
+共有 Run Manager が管理します。
+
+```ts
+import { startBackgroundAgentSession } from "@agent-native/core/client/agent-chat";
+
+const session = startBackgroundAgentSession({
+  message: "Analyze this import and create any missing records",
+  instructions: `Import batch id: ${batchId}`,
+  scope: { type: "import-batch", id: batchId },
+  model: "gpt-5.6-sol",
+  effort: "medium",
+});
+
+await session.accepted;
+const latest = await session.status();
+session.open({ prefill: "Show me what changed" });
+```
+
+ハンドルは `operationId`、`threadId`、`turnId` をすぐに返します。
+`accepted` は受付まで、`completion` はレスポンスストリームを追跡し、
+`status()` は永続的な実行状態を個別に読み取ります。`cancel()` はターンを
+停止します。応答確認を失って再試行する場合は、元の `operationId` と
+`threadId` の両方を渡してください。
+
 ## sendToAgentChat: バックグラウンド送信 {#background-send}
 
 UI アクションが、サイドバーを開いたりフォーカスしたりせずに、実際のエージェントの作業を開始すべきときは `background: true` を使用してください。これでも通常のチャット スレッド/実行が作成され、エージェントのツール/アクション/コンテキストを使用し、実行トレイを通じて作業を監視可能な状態に保ちます。これは生の単発モデル呼び出しではありません。

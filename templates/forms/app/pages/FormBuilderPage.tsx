@@ -1,18 +1,28 @@
-import {
-  AgentToggleButton,
-  useSendToAgentChat,
-} from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
-import { useReconciledState } from "@agent-native/core/client/hooks";
+import {
+  setClientAppState,
+  useReconciledState,
+} from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { ShareButton } from "@agent-native/core/client/sharing";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat/composer";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
+import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import type {
+  FormCompletionMode,
   FormField,
   FormFieldType,
   FormIntegration,
   FormSettings,
   IntegrationType,
+} from "@shared/types";
+import {
+  DEFAULT_FORM_COMPLETION_REFRESH_SECONDS,
+  getFormCompletionMode,
+  MAX_FORM_COMPLETION_REFRESH_SECONDS,
+  MIN_FORM_COMPLETION_REFRESH_SECONDS,
 } from "@shared/types";
 import {
   IconExternalLink,
@@ -46,7 +56,8 @@ import { toast } from "sonner";
 
 import { FieldPropertiesPanel } from "@/components/builder/FieldPropertiesPanel";
 import { FieldRenderer } from "@/components/builder/FieldRenderer";
-import { CloudUpgrade } from "@/components/CloudUpgrade";
+import { CommunityPromotionCell } from "@/components/CommunityPromotionCell";
+import { ResponseValue } from "@/components/ResponseValue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -62,6 +73,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -72,7 +90,6 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
-import { useDbStatus } from "@/hooks/use-db-status";
 import {
   useForm,
   useUpdateForm,
@@ -85,15 +102,37 @@ import {
   normalizeFormBuilderTab,
   type FormBuilderTab,
 } from "@/lib/form-builder-tabs";
+import type { AppFormFieldType } from "@/lib/form-field-types";
 import { normalizeFields } from "@/lib/normalize-fields";
 import { getPublishedFormUrl } from "@/lib/public-form-link";
+import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
 type Translator = ReturnType<typeof useT>;
 
+interface FormsSelectionState {
+  formId: string;
+  selectedFieldId: string;
+  selectedFieldLabel: string;
+  selectedFieldType: FormFieldType;
+}
+
+function publishFormsSelection(state: FormsSelectionState | null) {
+  const keys = [
+    appStateKeyForBrowserTab("forms-selection", TAB_ID),
+    "forms-selection",
+  ];
+  for (const key of keys) {
+    setClientAppState(key, state, {
+      requestSource: TAB_ID,
+      keepalive: true,
+    }).catch(() => {});
+  }
+}
+
 function getFieldTypeDefaults(
   t: Translator,
-): Record<FormFieldType, Partial<FormField>> {
+): Record<AppFormFieldType, Partial<FormField>> {
   const defaultOptions = [
     t("builder.fieldDefaults.option1"),
     t("builder.fieldDefaults.option2"),
@@ -135,11 +174,14 @@ function getFieldTypeDefaults(
       label: t("builder.fieldDefaults.scaleLabel"),
       validation: { min: 1, max: 10 },
     },
+    file: {
+      label: t("builder.fieldDefaults.fileLabel"),
+    },
   };
 }
 
 type FieldOp =
-  | { op: "upsert"; field: Record<string, any> }
+  | { op: "upsert"; field: FormField }
   | { op: "remove"; id: string }
   | { op: "reorder"; ids: string[] };
 
@@ -169,13 +211,9 @@ export function FormBuilderPage() {
   );
   const activeBuilderTab: FormBuilderTab = canEdit ? activeTab : "edit";
   const [copied, setCopied] = useState(false);
-  // Target status while a publish/unpublish is in flight (and until the cache
-  // refetch catches up). `null` once the displayed form.status matches it.
   const [pendingStatus, setPendingStatus] = useState<
     "published" | "draft" | null
   >(null);
-  const { isLocal } = useDbStatus();
-  const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
   const publishedFormUrl =
     form && typeof window !== "undefined"
       ? getPublishedFormUrl(form, window.location.origin)
@@ -192,6 +230,11 @@ export function FormBuilderPage() {
   const setBuilderTab = useCallback(
     (value: string) => {
       const nextTab = normalizeFormBuilderTab(value);
+      trackEvent("form_builder_tab_changed", {
+        app_name: "forms",
+        template_name: "forms",
+        tab: nextTab,
+      });
       setActiveTab(nextTab);
       const nextParams = new URLSearchParams(searchParams);
       nextParams.set("tab", formBuilderTabSearchParam(nextTab));
@@ -215,11 +258,6 @@ export function FormBuilderPage() {
     setSearchParams(nextParams, { replace: true });
   }, [activeBuilderTab, form, searchParams, setSearchParams, tabParam]);
 
-  // Local state for text inputs and fields — prevents polling-driven refetches
-  // from resetting input values while the user is typing or losing optimistic
-  // updates (e.g. newly added fields). `useReconciledState` re-adopts the
-  // server/agent value whenever the field isn't focused, so an agent edit to
-  // the title/description shows up live without yanking in-progress typing.
   const titleFocused = useRef(false);
   const descriptionFocused = useRef(false);
   const fieldsDirty = useRef(false);
@@ -249,7 +287,6 @@ export function FormBuilderPage() {
   const titleMeasureRef = useRef<HTMLSpanElement>(null);
   const [titleInputWidth, setTitleInputWidth] = useState<number | undefined>();
 
-  // Esc to deselect field
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape" && selectedFieldId) {
@@ -260,30 +297,50 @@ export function FormBuilderPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedFieldId]);
 
-  // Measure title text width for auto-sizing input
+  const selectedFieldForSync = localFields.find(
+    (f) => f.id === selectedFieldId,
+  );
+  useEffect(() => {
+    if (!form) return;
+    publishFormsSelection(
+      selectedFieldForSync
+        ? {
+            formId: form.id,
+            selectedFieldId: selectedFieldForSync.id,
+            selectedFieldLabel: selectedFieldForSync.label,
+            selectedFieldType: selectedFieldForSync.type,
+          }
+        : null,
+    );
+  }, [
+    form?.id,
+    selectedFieldId,
+    selectedFieldForSync?.label,
+    selectedFieldForSync?.type,
+  ]);
+
+  useEffect(() => {
+    return () => publishFormsSelection(null);
+  }, []);
+
   useEffect(() => {
     if (titleMeasureRef.current) {
       setTitleInputWidth(Math.max(titleMeasureRef.current.offsetWidth + 4, 60));
     }
   }, [localTitle]);
 
-  // Sync fields from server when not dirty (e.g. agent updates the fields).
-  // Title/description re-sync is handled by `useReconciledState` above.
   useEffect(() => {
     if (form && !fieldsDirty.current)
       setLocalFields(normalizeFields(form.fields));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form?.fields]);
 
-  // Clear pending publish state once the refetched form reflects the new
-  // status — otherwise the spinner stops before the badge/label updates.
   useEffect(() => {
     if (pendingStatus && form?.status === pendingStatus) {
       setPendingStatus(null);
     }
   }, [form?.status, pendingStatus]);
 
-  // Auto-grow description textarea
   useEffect(() => {
     const el = descriptionRef.current;
     if (el) {
@@ -292,8 +349,6 @@ export function FormBuilderPage() {
     }
   }, [localDescription]);
 
-  // Debounced save for non-field form properties (title, description, status,
-  // settings). Full-array field saves are handled by saveFieldOps below.
   const saveTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
   const save = useCallback(
     (data: Parameters<typeof updateForm.mutate>[0]) => {
@@ -321,8 +376,6 @@ export function FormBuilderPage() {
     [updateForm],
   );
 
-  // Debounced field-op save — uses patch-form-fields (server-side merge) so
-  // concurrent edits to different fields both survive.
   const fieldOpTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
   const pendingOps = useRef<FieldOp[]>([]);
   const saveFieldOps = useCallback(
@@ -359,15 +412,15 @@ export function FormBuilderPage() {
     return (
       <div className="flex flex-col h-full">
         {/* Top bar */}
-        <div className="flex items-center justify-between border-b border-border ps-12 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
+        <div className="flex items-center justify-between border-b border-border ps-14 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   asChild
                   variant="ghost"
-                  size="icon"
-                  className="size-10 shrink-0 active:scale-[0.96]"
+                  size="icon-lg"
+                  className="shrink-0 active:scale-[0.96]"
                   aria-label={t("builder.backToForms")}
                 >
                   <Link to="/forms">
@@ -419,9 +472,6 @@ export function FormBuilderPage() {
   }
 
   if (error && !form) {
-    // `get-form` throws the same "not found" for both missing forms and forms
-    // the current user has no access to. Phrase the message so it works for
-    // both without leaking which case applies.
     const errorMessage = error instanceof Error ? error.message : "";
     const isAccessIssue = /not found|forbidden|no access/i.test(errorMessage);
     return (
@@ -448,22 +498,26 @@ export function FormBuilderPage() {
 
   const fields = localFields;
   const selectedField = fields.find((f) => f.id === selectedFieldId);
-  // Viewers can see the form but not edit it or peek at responses / settings /
-  // integrations. The role is set by `get-form` based on ownership + shares.
 
-  function addField(type: FormFieldType) {
+  function addField(type: AppFormFieldType) {
+    trackEvent("form_field_type_selected", {
+      app_name: "forms",
+      template_name: "forms",
+      field_type: type,
+    });
     const fieldTypeDefaults = getFieldTypeDefaults(t);
     const defaults = fieldTypeDefaults[type] || {};
-    const newField: FormField = {
+    const newField = {
       id: nanoid(8),
-      type,
+      type: type as FormFieldType,
       label: defaults.label || t("builder.fieldDefaults.newField"),
       placeholder: defaults.placeholder,
       required: false,
       options: defaults.options,
       validation: defaults.validation,
       width: "full",
-    };
+      ...(type === "file" ? { multiple: true } : {}),
+    } as FormField;
     setLocalFields((prev) => [...prev, newField]);
     fieldsDirty.current = true;
     saveFieldOps([{ op: "upsert", field: newField }]);
@@ -490,7 +544,6 @@ export function FormBuilderPage() {
       const next = [...prev];
       const [moved] = next.splice(from, 1);
       next.splice(to, 0, moved);
-      // Emit a reorder op with the new order.
       saveFieldOps([{ op: "reorder", ids: next.map((f) => f.id) }]);
       return next;
     });
@@ -526,10 +579,6 @@ export function FormBuilderPage() {
 
   function handleTogglePublish() {
     const newStatus = loadedForm.status === "published" ? "draft" : "published";
-    if (newStatus === "published" && isLocal) {
-      setShowCloudUpgrade(true);
-      return;
-    }
     setPendingStatus(newStatus);
     updateForm.mutate(
       { id: loadedForm.id, status: newStatus },
@@ -540,8 +589,6 @@ export function FormBuilderPage() {
               ? t("builder.publishedToast")
               : t("builder.unpublishedToast"),
           ),
-        // Errors (including publish-validation failures) are surfaced by
-        // useUpdateForm's onError, which echoes the server's actual message.
         onError: () => setPendingStatus(null),
       },
     );
@@ -553,7 +600,7 @@ export function FormBuilderPage() {
       {
         onSuccess: () => {
           toast.success(t("forms.movedToArchive"));
-          navigate("/forms");
+          void navigate("/forms");
         },
       },
     );
@@ -564,7 +611,15 @@ export function FormBuilderPage() {
       toast.info(t("builder.publishBeforeCopyToast"));
       return;
     }
-    navigator.clipboard.writeText(publishedFormUrl);
+    void navigator.clipboard.writeText(publishedFormUrl).then(
+      () =>
+        trackEvent("share_link_copied", {
+          resource_type: "form",
+          resource_id: loadedForm.id,
+          link_type: "share",
+        }),
+      () => undefined,
+    );
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
     toast.success(t("builder.linkCopiedToast"));
@@ -574,15 +629,15 @@ export function FormBuilderPage() {
     <div className="flex flex-col h-full">
       {codeRequiredDialog}
       {/* Top bar */}
-      <div className="flex items-center justify-between border-b border-border ps-12 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
+      <div className="flex items-center justify-between border-b border-border ps-14 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
         <div className="flex items-center gap-1 sm:gap-2 relative min-w-0 flex-1 me-2">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 asChild
                 variant="ghost"
-                size="icon"
-                className="size-10 shrink-0 active:scale-[0.96]"
+                size="icon-lg"
+                className="shrink-0 active:scale-[0.96]"
                 aria-label={t("builder.backToForms")}
               >
                 <Link to="/forms">
@@ -600,6 +655,7 @@ export function FormBuilderPage() {
             {localTitle || " "}
           </span>
           <Input
+            size="sm"
             value={localTitle}
             onChange={(e) => {
               setLocalTitle(e.target.value);
@@ -608,7 +664,7 @@ export function FormBuilderPage() {
             onFocus={() => (titleFocused.current = true)}
             onBlur={() => (titleFocused.current = false)}
             style={{ width: titleInputWidth }}
-            className="h-8 text-sm font-medium border-none bg-transparent px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 max-w-[50vw] sm:max-w-80"
+            className="text-sm font-medium border-none bg-transparent px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 max-w-[50vw] sm:max-w-80"
           />
           <Badge
             variant="outline"
@@ -629,11 +685,21 @@ export function FormBuilderPage() {
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
+                  size="icon-lg"
+                  className="active:scale-[0.96] motion-reduce:active:scale-100"
                   asChild
                 >
-                  <a href={publishedFormUrl} target="_blank" rel="noopener">
+                  <a
+                    href={publishedFormUrl}
+                    target="_blank"
+                    rel="noopener"
+                    onClick={() =>
+                      trackEvent("form_preview_opened", {
+                        app_name: "forms",
+                        template_name: "forms",
+                      })
+                    }
+                  >
                     <IconExternalLink className="h-4 w-4" />
                   </a>
                 </Button>
@@ -649,8 +715,8 @@ export function FormBuilderPage() {
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
+                  size="icon-lg"
+                  className="active:scale-[0.96] motion-reduce:active:scale-100"
                   onClick={copyShareLink}
                   aria-label={t("builder.copyPublicFormLink")}
                 >
@@ -744,8 +810,8 @@ export function FormBuilderPage() {
                   <DropdownMenuTrigger asChild>
                     <Button
                       variant="ghost"
-                      size="icon"
-                      className="h-10 w-10 bg-transparent active:scale-[0.96] motion-reduce:active:scale-100"
+                      size="icon-lg"
+                      className="bg-transparent active:scale-[0.96] motion-reduce:active:scale-100"
                       aria-label={t("forms.formActions")}
                     >
                       <IconDotsVertical className="h-4 w-4" />
@@ -920,21 +986,9 @@ export function FormBuilderPage() {
           </div>
         </div>
       )}
-
-      {showCloudUpgrade && (
-        <CloudUpgrade
-          title={t("forms.publishCloudTitle")}
-          description={t("forms.publishCloudDescription")}
-          onClose={() => setShowCloudUpgrade(false)}
-        />
-      )}
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Builder content (form editor + properties panel)
-// ---------------------------------------------------------------------------
 
 function BuilderContent({
   form,
@@ -988,13 +1042,13 @@ function BuilderContent({
   onDragStart: (idx: number) => void;
   onDragOver: (e: React.DragEvent, idx: number) => void;
   onDragEnd: () => void;
-  onAddField: (type: FormFieldType) => void;
+  onAddField: (type: AppFormFieldType) => void;
   onAgentPopoverChange: (open: boolean) => void;
   onAgentPromptChange: (v: string) => void;
   onSubmitAgent: () => void;
 }) {
   const t = useT();
-  const fieldTypeLabels: Record<FormFieldType, string> = {
+  const fieldTypeLabels: Record<AppFormFieldType, string> = {
     text: t("fieldProperties.fieldTypes.text"),
     email: t("fieldProperties.fieldTypes.email"),
     number: t("fieldProperties.fieldTypes.number"),
@@ -1006,6 +1060,7 @@ function BuilderContent({
     date: t("fieldProperties.fieldTypes.date"),
     rating: t("fieldProperties.fieldTypes.rating"),
     scale: t("fieldProperties.fieldTypes.scale"),
+    file: t("fieldProperties.fieldTypes.file"),
   };
 
   return (
@@ -1070,8 +1125,11 @@ function BuilderContent({
                         dragIdx === idx && "opacity-50",
                       )}
                     >
+                      {/* Sits in the row's negative-margin gutter (sm:-mx-4 / sm:px-4
+                          = 16px). Offset must clear the handle's own width (size-10 =
+                          40px) or the grip icon bleeds across the input's left border. */}
                       <div
-                        className="absolute -start-5 top-1/2 hidden size-10 -translate-y-1/2 items-center justify-center cursor-grab text-muted-foreground opacity-0 transition-[color,opacity,transform] duration-150 ease-out group-hover:opacity-100 group-focus-within:opacity-100 hover:text-foreground sm:flex"
+                        className="absolute -start-8 top-1/2 hidden size-10 -translate-y-1/2 items-center justify-center cursor-grab text-muted-foreground opacity-0 transition-[color,opacity,transform] duration-150 ease-out group-hover:opacity-100 group-focus-within:opacity-100 hover:text-foreground sm:flex"
                         aria-label={t("builder.dragToReorder")}
                       >
                         <IconGripVertical className="h-4 w-4 translate-x-px" />
@@ -1086,7 +1144,6 @@ function BuilderContent({
                     className="w-[calc(100vw-2rem)] max-h-[70vh] overflow-auto rounded-lg p-0 shadow-md sm:w-72 sm:max-h-[520px]"
                     onOpenAutoFocus={(e) => e.preventDefault()}
                     onInteractOutside={(e) => {
-                      // Don't close when interacting with dropdowns portaled to body
                       const target = e.target as HTMLElement;
                       if (
                         target.closest("[data-radix-popper-content-wrapper]") ||
@@ -1135,7 +1192,7 @@ function BuilderContent({
                   {Object.entries(fieldTypeLabels).map(([type, label]) => (
                     <DropdownMenuItem
                       key={type}
-                      onClick={() => onAddField(type as FormFieldType)}
+                      onClick={() => onAddField(type as AppFormFieldType)}
                     >
                       {label}
                     </DropdownMenuItem>
@@ -1195,8 +1252,8 @@ function BuilderContent({
                     </span>
                     <Button
                       variant="secondary"
-                      size="icon"
-                      className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
+                      size="icon-lg"
+                      className="active:scale-[0.96] motion-reduce:active:scale-100"
                       onClick={onSubmitAgent}
                       disabled={
                         !agentPrompt.trim() ||
@@ -1217,14 +1274,15 @@ function BuilderContent({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Results content (responses table)
-// ---------------------------------------------------------------------------
-
 function responseValueAsString(val: unknown): string {
   if (val === undefined || val === null) return "";
   if (Array.isArray(val)) return val.join(", ");
-  return String(val);
+  return typeof val === "string" ||
+    typeof val === "number" ||
+    typeof val === "boolean" ||
+    typeof val === "bigint"
+    ? String(val)
+    : JSON.stringify(val);
 }
 
 function compareResponseValues(a: unknown, b: unknown): number {
@@ -1248,10 +1306,10 @@ function compareResponseValues(a: unknown, b: unknown): number {
 
 function ResultsContent({ formId, form }: { formId: string; form: any }) {
   const t = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const { data, isLoading, error, refetch } = useFormResponses(formId);
   const [search, setSearch] = useState("");
-  // `_submitted` is the synthetic Submitted column. Field columns sort by id.
   const [sortKey, setSortKey] = useState<string>("_submitted");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
@@ -1266,11 +1324,16 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
 
   const allResponses = data?.responses || [];
   const fields: FormField[] = data?.fields || form?.fields || [];
+  const isCommunitySubmissionForm = form?.slug === "community-app-submission";
   const hasSubmitterEmail = allResponses.some((r: any) =>
     responseValueAsString(r.submitterEmail).trim(),
   );
   const responseTableMinWidth =
-    64 + 160 + (hasSubmitterEmail ? 224 : 0) + Math.max(fields.length, 1) * 320;
+    64 +
+    160 +
+    (hasSubmitterEmail ? 224 : 0) +
+    (isCommunitySubmissionForm ? 168 : 0) +
+    Math.max(fields.length, 1) * 320;
 
   const filtered = search.trim()
     ? allResponses.filter((r: any) => {
@@ -1402,11 +1465,12 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
           <div className="relative">
             <IconSearch className="absolute start-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
             <Input
+              size="sm"
               type="search"
               placeholder={t("builder.results.searchPlaceholder")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-8 ps-7 text-xs w-44 sm:w-56"
+              className="ps-7 text-xs w-44 sm:w-56"
             />
           </div>
           <Button
@@ -1430,6 +1494,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
               <col className="w-16" />
               <col className="w-40" />
               {hasSubmitterEmail ? <col className="w-56" /> : null}
+              {isCommunitySubmissionForm ? <col className="w-40" /> : null}
               {fields.map((f, index) => (
                 <col
                   key={f.id}
@@ -1469,6 +1534,14 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                     />
                   </th>
                 )}
+                {isCommunitySubmissionForm && (
+                  <th
+                    scope="col"
+                    className="px-4 py-2.5 text-start text-xs font-medium text-muted-foreground whitespace-nowrap"
+                  >
+                    {t("responses.communityReview")}
+                  </th>
+                )}
                 {fields.map((f) => (
                   <th
                     key={f.id}
@@ -1489,7 +1562,12 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
               {responses.length === 0 && (
                 <tr>
                   <td
-                    colSpan={2 + (hasSubmitterEmail ? 1 : 0) + fields.length}
+                    colSpan={
+                      2 +
+                      (hasSubmitterEmail ? 1 : 0) +
+                      (isCommunitySubmissionForm ? 1 : 0) +
+                      fields.length
+                    }
                     className="px-4 py-8 text-center text-xs text-muted-foreground"
                   >
                     {t("builder.results.noSearchMatches")}
@@ -1512,6 +1590,11 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                       {responseValueAsString(response.submitterEmail) || "-"}
                     </td>
                   )}
+                  {isCommunitySubmissionForm && (
+                    <td className="px-4 py-3 align-top">
+                      <CommunityPromotionCell response={response} />
+                    </td>
+                  )}
                   {fields.map((f) => {
                     const val = response.data[f.id];
                     const display = responseValueAsString(val) || "-";
@@ -1521,7 +1604,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                         className="min-w-48 px-4 py-3 align-top text-xs leading-5 whitespace-pre-wrap break-words"
                         title={display}
                       >
-                        {display}
+                        <ResponseValue value={val} />
                       </td>
                     );
                   })}
@@ -1581,10 +1664,6 @@ function ResultsSortableHeader({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Settings editor (general settings)
-// ---------------------------------------------------------------------------
-
 function SettingsEditor({
   form,
   onSave,
@@ -1594,6 +1673,7 @@ function SettingsEditor({
 }) {
   const t = useT();
   const [settings, setSettings] = useState<FormSettings>({ ...form.settings });
+  const completionMode = getFormCompletionMode(settings);
 
   function update(partial: Partial<FormSettings>) {
     setSettings((prev) => ({ ...prev, ...partial }));
@@ -1606,9 +1686,10 @@ function SettingsEditor({
           {t("builder.settings.submitButtonText")}
         </Label>
         <Input
+          size="sm"
           value={settings.submitText || t("builder.settings.defaultSubmitText")}
           onChange={(e) => update({ submitText: e.target.value })}
-          className="h-8 text-sm"
+          className="text-sm"
         />
       </div>
 
@@ -1628,14 +1709,74 @@ function SettingsEditor({
       </div>
 
       <div className="space-y-2">
-        <Label className="text-xs">{t("builder.settings.redirectUrl")}</Label>
-        <Input
-          value={settings.redirectUrl || ""}
-          onChange={(e) => update({ redirectUrl: e.target.value })}
-          placeholder="https://..."
-          className="h-8 text-sm"
-        />
+        <Label className="text-xs">
+          {t("builder.settings.completionMode")}
+        </Label>
+        <Select
+          value={completionMode}
+          onValueChange={(value) =>
+            update({ completionMode: value as FormCompletionMode })
+          }
+        >
+          <SelectTrigger size="sm" className="text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="message" className="text-sm">
+              {t("builder.settings.completionMessage")}
+            </SelectItem>
+            <SelectItem value="redirect" className="text-sm">
+              {t("builder.settings.completionRedirect")}
+            </SelectItem>
+            <SelectItem value="message_then_refresh" className="text-sm">
+              {t("builder.settings.completionMessageThenRefresh")}
+            </SelectItem>
+            <SelectItem value="refresh" className="text-sm">
+              {t("builder.settings.completionRefresh")}
+            </SelectItem>
+          </SelectContent>
+        </Select>
       </div>
+
+      {completionMode === "redirect" && (
+        <div className="space-y-2">
+          <Label className="text-xs">{t("builder.settings.redirectUrl")}</Label>
+          <Input
+            size="sm"
+            value={settings.redirectUrl || ""}
+            onChange={(e) => update({ redirectUrl: e.target.value })}
+            placeholder="https://..."
+            className="text-sm"
+          />
+        </div>
+      )}
+
+      {completionMode === "message_then_refresh" && (
+        <div className="space-y-2">
+          <Label className="text-xs">
+            {t("builder.settings.completionRefreshSeconds")}
+          </Label>
+          <Input
+            size="sm"
+            type="number"
+            min={MIN_FORM_COMPLETION_REFRESH_SECONDS}
+            max={MAX_FORM_COMPLETION_REFRESH_SECONDS}
+            step={1}
+            value={
+              settings.completionRefreshSeconds ??
+              DEFAULT_FORM_COMPLETION_REFRESH_SECONDS
+            }
+            onChange={(e) => {
+              const value = e.target.value;
+              update({
+                completionRefreshSeconds:
+                  value === "" ? undefined : Number(value),
+              });
+            }}
+            className="text-sm"
+          />
+        </div>
+      )}
 
       <div className="flex items-start justify-between gap-4 rounded-lg border border-border/60 bg-card p-3">
         <div className="space-y-1">
@@ -1683,10 +1824,6 @@ function SettingsEditor({
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Integrations editor
-// ---------------------------------------------------------------------------
 
 const integrationMeta: Record<
   IntegrationType,
@@ -1928,8 +2065,8 @@ function IntegrationsEditor({
               />
               <Button
                 variant="ghost"
-                size="icon"
-                className="h-10 w-10 shrink-0 text-muted-foreground hover:text-destructive active:scale-[0.96] motion-reduce:active:scale-100"
+                size="icon-lg"
+                className="shrink-0 text-muted-foreground hover:text-destructive active:scale-[0.96] motion-reduce:active:scale-100"
                 onClick={() => removeIntegration(integration.id)}
               >
                 <IconTrash className="h-4 w-4" />
@@ -1947,7 +2084,7 @@ function IntegrationsEditor({
                     name: e.target.value,
                   })
                 }
-                className="h-9 text-sm font-medium"
+                className="text-sm font-medium"
               />
             </div>
 
@@ -1961,7 +2098,7 @@ function IntegrationsEditor({
                   updateIntegration(integration.id, { url: e.target.value })
                 }
                 placeholder={meta.placeholder}
-                className="h-9 text-sm font-mono"
+                className="text-sm font-mono"
               />
             </div>
 

@@ -1,11 +1,13 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { PoweredByBadge } from "@agent-native/core/client/ui";
+import { getConfiguredAppBasePath } from "@agent-native/core/server";
 import {
   AGENT_ACCESS_PARAM,
   normalizeDocumentTitle,
 } from "@agent-native/core/shared";
+import { buildResourceSocialMeta } from "@agent-native/core/shared";
+import { PoweredByBadge } from "@agent-native/toolkit/app/shared";
 import {
   IconCalendar,
   IconCheck,
@@ -33,7 +35,13 @@ import {
 } from "@/components/meetings/attendee-stack";
 import { TranscriptBubbles } from "@/components/meetings/transcript-bubbles";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { Skeleton } from "@/components/ui/skeleton";
 import enMessages from "@/i18n/en-US";
 import {
   fetchPublicMeeting,
@@ -51,13 +59,21 @@ import {
 } from "../../shared/transcript-segments";
 import { resolveTranscriptPresentation } from "../../shared/transcript-status";
 
-type LoaderData = { meeting: PublicMeeting | null };
+type LoaderData = {
+  meeting: PublicMeeting | null;
+  isPublic: boolean;
+  origin: string;
+  basePath: string;
+};
 
 function shareMeetingLoaderData(
   payload: LoaderData,
   privateAgentAccess = false,
+  varyByQuery = false,
 ) {
-  return privateAgentAccess ? privateShareLoaderData(payload) : payload;
+  return privateAgentAccess
+    ? privateShareLoaderData(payload, 200, varyByQuery)
+    : payload;
 }
 
 export function headers({ loaderHeaders }: HeadersArgs) {
@@ -66,7 +82,11 @@ export function headers({ loaderHeaders }: HeadersArgs) {
 
 export async function loader({ params, url }: LoaderFunctionArgs) {
   const meetingId = params.meetingId;
-  if (!meetingId) return { meeting: null };
+  const origin = url.origin;
+  const basePath = getConfiguredAppBasePath();
+  if (!meetingId) {
+    return { meeting: null, isPublic: false, origin, basePath };
+  }
 
   const { verifyScopedAgentAccessToken } =
     await import("@agent-native/core/server");
@@ -109,7 +129,10 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     )
     .limit(1);
   if (!meeting) {
-    return shareMeetingLoaderData({ meeting: null }, hasAgentAccessToken);
+    return shareMeetingLoaderData(
+      { meeting: null, isPublic: false, origin, basePath },
+      hasAgentAccessToken,
+    );
   }
 
   const [participants, actionItems, transcriptRows] = await Promise.all([
@@ -170,9 +193,6 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     }
   } catch {}
 
-  // The owner's email is only safe to disclose here when it's already public
-  // via the attendee list — an unauthenticated viewer must never learn an
-  // account email that isn't otherwise visible on this page.
   const ownerEmailIsPublic = participants.some(
     (participant) =>
       participant.email.trim().toLowerCase() ===
@@ -202,13 +222,17 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
             }
           : null,
       },
+      isPublic: meeting.visibility === "public",
+      origin,
+      basePath,
     },
     hasAgentAccessToken,
+    tokenGrantsAgentAccess,
   );
 }
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
-  const meeting = loaderData?.meeting;
+  const meeting = loaderData?.isPublic ? loaderData.meeting : null;
   const meetingTitle = meeting?.title
     ? normalizeDocumentTitle(meeting.title, enMessages.shareMeeting.pageTitle)
     : null;
@@ -218,6 +242,17 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
   const description = meetingTitle
     ? `AI meeting notes for "${meetingTitle}"`
     : enMessages.shareMeeting.description;
+  if (meetingTitle && loaderData) {
+    return [
+      { title },
+      ...buildResourceSocialMeta({
+        title,
+        description,
+        origin: loaderData.origin,
+        basePath: loaderData.basePath,
+      }),
+    ];
+  }
   return [
     { title },
     { name: "description", content: description },
@@ -228,21 +263,53 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
 
 export function HydrateFallback() {
   return (
-    <div className="flex h-screen w-full items-center justify-center bg-background">
-      <Spinner className="size-8 text-muted-foreground" />
+    <div aria-busy="true" className="min-h-screen bg-background">
+      <header className="border-b border-border">
+        <div className="mx-auto flex max-w-2xl items-center gap-3 px-4 py-3">
+          <Skeleton className="h-4 w-48 flex-1" />
+          <Skeleton className="h-8 w-24 shrink-0 rounded-md" />
+        </div>
+      </header>
+      <main className="mx-auto max-w-2xl px-4 py-8">
+        <div className="mb-8 flex items-center gap-3">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-4 w-24" />
+        </div>
+        <div className="space-y-8">
+          <section className="space-y-3">
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-11/12" />
+            <Skeleton className="h-4 w-4/5" />
+          </section>
+          <section className="space-y-3">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-10/12" />
+            <Skeleton className="h-4 w-3/4" />
+          </section>
+          <section className="space-y-3">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-11/12" />
+            <Skeleton className="h-4 w-4/5" />
+          </section>
+        </div>
+      </main>
     </div>
   );
 }
 
-function formatDateTime(iso?: string | null): string {
+function formatDateTime(iso?: string | null, stable = false): string {
   if (!iso) return "";
   try {
-    return new Date(iso).toLocaleString([], {
+    return new Date(iso).toLocaleString(stable ? "en-US" : [], {
       weekday: "short",
       month: "short",
       day: "numeric",
       hour: "numeric",
       minute: "2-digit",
+      ...(stable ? { timeZone: "UTC" } : {}),
     });
   } catch {
     return "";
@@ -292,6 +359,7 @@ export default function ShareMeetingRoute() {
   const agentAccessToken = searchParams.get(AGENT_ACCESS_PARAM) ?? "";
   const pollingStartedAtRef = useRef<number | null>(null);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
+  const [hasHydrated, setHasHydrated] = useState(false);
   const initialMeetingResult: PublicMeetingResult | undefined =
     loaderData.meeting
       ? {
@@ -350,6 +418,8 @@ export default function ShareMeetingRoute() {
     );
     document.title = `${meetingTitle} · Clips`;
   }, [meeting?.title]);
+
+  useEffect(() => setHasHydrated(true), []);
 
   if (!meeting && (sessionLoading || meetingQuery.isLoading)) {
     return <HydrateFallback />;
@@ -419,7 +489,7 @@ export default function ShareMeetingRoute() {
           {meeting.scheduledStart && (
             <span className="inline-flex items-center gap-1">
               <IconCalendar className="size-3.5" />
-              {formatDateTime(meeting.scheduledStart)}
+              {formatDateTime(meeting.scheduledStart, !hasHydrated)}
             </span>
           )}
           {attendees.length > 0 && (
@@ -434,9 +504,16 @@ export default function ShareMeetingRoute() {
         </div>
 
         {!hasNotes ? (
-          <p className="text-sm italic text-muted-foreground">
-            {t("shareMeeting.noAiNotes")}
-          </p>
+          <Empty className="border py-12">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <IconNotes />
+              </EmptyMedia>
+              <EmptyTitle className="text-base">
+                {t("shareMeeting.noAiNotes")}
+              </EmptyTitle>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <div className="space-y-8">
             {meeting.summaryMd && (

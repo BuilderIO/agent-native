@@ -39,7 +39,6 @@ vi.mock("@agent-native/core/server", () => ({
 import navigateAction from "./navigate.js";
 import showDesignQuestionsAction from "./show-design-questions.js";
 
-/** Mirrors the client's read order: tab-scoped key first, then the global. */
 function navigateCommandVisibleTo(
   browserTabId: string,
 ): Record<string, unknown> | null {

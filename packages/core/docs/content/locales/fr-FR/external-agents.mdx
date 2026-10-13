@@ -1,7 +1,7 @@
 ---
-title: "Agents externes : Claude, ChatGPT, Codex, Curseur, Cowork"
-description: "Connectez Claude, ChatGPT, Codex, Cursor, Claude Cowork ou tout hôte compatible MCP à une application native d'agent hébergée, puis transférez les artefacts aller-retour dans le UI en cours d'exécution avec les applications MCP et les liens profonds."
-search: "Claude ChatGPT Claude Code Codex Curseur Claude Cowork MCP Applications agent natif connecter outils d'agent local agents externes"
+title: "Agents externes : Claude, ChatGPT, Codex, Curseur, Cowork, Grok"
+description: "Connectez Claude, ChatGPT, Codex, Cursor, Claude Cowork, Grok ou tout hôte compatible MCP à une application native d'agent hébergée, puis transférez les artefacts aller-retour dans le UI en cours d'exécution avec les applications MCP et les liens profonds."
+search: "Claude Anthropic ChatGPT OpenAI Claude Code Codex Curseur Claude Cowork Grok xAI MCP Applications agent natif connecter outils d'agent local agents externes"
 ---
 
 # Agents externes
@@ -93,7 +93,18 @@ La règle d'identité est la charnière de sécurité : le lien est simplement 
 
 ## Configuration facile {#easy-setup}
 
-Ajoutez un connecteur MCP distant à l'hôte sur lequel vous souhaitez utiliser Agent-Native.
+Chaque application Agent-Native expose une URL MCP canonique :
+
+```text
+https://<your-app>.agent-native.com/mcp
+```
+
+Dans l'application, ouvrez **Settings → Connections → Integrations** et recherchez le nom
+d'hôte que vous connaissez déjà : Claude, Claude Cowork, Claude Code,
+Anthropic, ChatGPT, OpenAI, Codex, Grok ou xAI. L'unique résultat d'hôte
+externe ouvre **Settings → MCP server** avec le guide le plus adapté déjà sélectionné.
+Copiez la **MCP server URL** et collez-la dans l'hôte d'IA. L'URL correspond à
+l'URL de base de l'application déployée suivie de `/mcp`.
 
 Pour le travail dans un espace de travail ou entre applications, utilisez Dispatch :
 
@@ -115,18 +126,27 @@ https://<your-app>.agent-native.com/mcp
 
 Chaque application hébergée dispose également d'une page d'aide à l'adresse
 `https://&lt;app&gt;/mcp/connect` avec le URL copiable et
-Onglets spécifiques à l'hôte pour Claude, ChatGPT, Cursor, Claude Code, Codex et autres.
+des onglets propres à chaque hôte pour Claude, ChatGPT, Cursor, VS Code, Claude Code, Codex, Grok et Autre.
 
-### L'onglet Access dans l'application {#access-tab}
+## Liens Content privés {#private-content-links}
 
-Les applications qui montent `AgentTabsPage` proposent le même flux de connexion
-dans l'onglet **Access**. Il affiche l'URL MCP, une fiche d'agent A2A si elle est
-disponible et les guides de configuration communs pour Claude, ChatGPT, Cursor,
-Claude Code, Codex et les autres clients. Utilisez-le comme point de départ dans
-l'application, puis ouvrez `/mcp/connect` pour le flux complet et le repli par
-jeton. Il s'agit d'une interface de configuration, pas d'une console générale
-d'accès : l'onglet ne gère pas encore les grants, la modification du périmètre
-ou la révocation.
+Un lien de partage Content privé peut identifier le document sans en exposer le contenu. Ajoutez l’URL `/mcp` de la même instance Content comme serveur MCP distant dans votre agent, authentifiez-vous avec votre compte Agent-Native, activez la connexion ou ses outils, puis relancez la demande initiale. La page `/mcp/connect` fournit les options de configuration, mais son ouverture seule n’installe pas la connexion.
+
+Ce parcours fonctionne avec tout hôte compatible MCP, notamment Claude, ChatGPT, Claude Code, Codex, Cursor, Antigravity, OpenCode et GitHub Copilot / VS Code. Les écrans et invites d’authentification varient selon l’hôte. Antigravity gère les serveurs distants dans **Settings → Customizations → Installed MCP Servers** ou dans sa configuration MCP ; la commande `connect` d’Agent-Native ne configure pas encore Antigravity.
+
+L’authentification identifie le compte connecté sans élargir ses autorisations. Un document public reste lisible depuis son lien de partage. Un document privé n’est lisible via MCP que si ce compte y a déjà accès. Si `get-document` renvoie « introuvable » après la connexion, cette réponse ne distingue pas une autorisation manquante d’un identifiant de document obsolète, supprimé ou invalide. Vérifiez le lien et l’accès du compte connecté avant de modifier les autorisations.
+
+La réinstallation du connecteur ou la modification du lien de partage public ne résout pas un refus d’autorisation confirmé du compte connecté.
+
+<a id="access-tab"></a>
+
+### Le réglage MCP dans l'application {#mcp-settings}
+
+Les réglages incluent une page **MCP server** dans le groupe de
+l'application. Il affiche l'URL MCP canonique de l'application, une fiche
+d'agent A2A si elle est disponible et les mêmes guides que la page de connexion
+complète. Utilisez **Settings → MCP server** comme point de départ ou ouvrez
+`/mcp/connect` directement pour le flux complet et le repli par jeton.
 
 ### Claude et ChatGPT OAuth {#oauth}
 
@@ -135,10 +155,16 @@ Claude / Claude Desktop : ajoutez un connecteur personnalisé, collez le MCP UR
 et activez le connecteur dans un chat. Le code Claude utilise le même URL : ajoutez-le en tant que
 Serveur HTTP MCP distant, exécutez `/mcp`, puis choisissez **Authentifier**.
 
-ChatGPT : utilisez un espace de travail où se trouvent des connecteurs MCP personnalisés ou des applications en mode développeur
-activé, créez un connecteur/une application personnalisé, collez le même MCP URL, choisissez OAuth,
-analysez/découvrez les outils, connectez-vous avec Agent-Native, approuvez les étendues et activez
-le connecteur dans une discussion.
+ChatGPT : les applications MCP personnalisées nécessitent un espace de travail
+Web ChatGPT compatible. Si vous y avez accès, ouvrez **Settings → Apps →
+Advanced settings**, activez le mode développeur si nécessaire, choisissez
+**Create app**, collez la même URL MCP, choisissez OAuth, analysez les outils,
+connectez-vous avec Agent-Native, approuvez les portées demandées et activez
+l'application dans une discussion. Les espaces Business, Enterprise et Edu
+prennent en charge MCP complet, y compris les actions d'écriture ; Pro prend en
+charge la lecture et la récupération en mode développeur. Si **Apps** ou
+**Create app** n'apparaît pas, votre offre ou la politique de votre espace de
+travail n'autorise pas cette configuration.
 
 Les subventions OAuth sont par hôte et par utilisateur. L'hôte stocke les jetons et
 intervient dans les appels d'outils/ressources, de sorte que les aperçus de l'application MCP en ligne ne reçoivent jamais de données brutes
@@ -151,9 +177,40 @@ instantanés. Les portées `mcp:read` / `mcp:write` / `mcp:apps` / `offline_acce
 que celles décrites plus bas dans
 [OAuth MCP distant standard](#standard-oauth).
 
-Cursor, Goose, Postman, MCPJam et VS Code GitHub Copilot utilisent la même télécommande
-MCP URL via leur propre serveur MCP UI lorsque leur version prend en charge les OAuth distants
-Serveurs MCP.
+### Cursor, VS Code et Codex {#install-links}
+
+Les onglets **Cursor** et **VS Code** de **Settings → MCP server** et de
+`/mcp/connect` proposent des boutons d’installation. **Ajouter à Cursor** ouvre
+l’invite **Install MCP server?** de Cursor. **Ajouter à VS Code** et **Ajouter à
+VS Code Insiders** ouvrent une page de serveur avec un bouton **Install**. Un
+lien ne contient que le nom du serveur, le transport et l’URL MCP ; il ne
+contient jamais de jeton, d’en-tête ni d’information de compte. Le client lance
+sa propre connexion OAuth lors de sa première connexion. Dans VS Code, les
+outils apparaissent ensuite dans la vue Chat, en mode Agent.
+
+Pour Codex, exécutez `codex mcp add <server-name> --url <mcp-url>`, puis
+`codex mcp login <server-name>` pour vous connecter avec OAuth. L’onglet
+**Codex** renseigne les deux valeurs.
+
+Goose, Postman, MCPJam et les autres clients utilisent la même URL MCP distante
+depuis leurs propres écrans de serveurs MCP lorsque leur version prend en
+charge les serveurs MCP distants avec OAuth.
+
+### Noms de serveur {#server-names}
+
+L’app nomme son serveur MCP, et chaque surface utilise ce nom : les liens
+d’installation, les commandes à copier et
+`npx @agent-native/core@latest connect`.
+La production utilise le nom sans préfixe, par exemple `agent-native-mail`. Les
+déploiements bêta, d’aperçu et locaux placent l’environnement en tête, par
+exemple `beta-agent-native-mail`, pour qu’un même client puisse garder une
+entrée de production et une entrée bêta côte à côte. Ces préfixes sont
+réservés : `mcp.serverName` ne peut pas commencer par `beta-`, `preview-` ou
+`local-`, si bien qu’un nom bêta ne correspond jamais au nom de production
+d’une autre app. Les scripts peuvent lire le nom avec
+`GET /mcp/connect/identity`, qui ne demande aucune connexion et renvoie le nom
+du serveur, le nom de l’app, l’URL de l’app, l’URL MCP et l’environnement, ainsi
+que l’indicateur `connect`, qui vaut `false` lorsque `mcp.connect` est désactivé.
 
 ### Invite de test rapide {#quick-test}
 
@@ -243,7 +300,9 @@ La connexion est **par utilisateur, limitée et révocable**. Dans le chemin OAu
 
 ### Ré-authentification après un 401 {#reconnect}
 
-Une fois connecté, l'authentification doit persister à long terme : les jetons d'accès durent 30 jours par défaut (remplacement par `MCP_OAUTH_ACCESS_TOKEN_TTL` sur le serveur, par exemple `7d` ou `12h`) avec une fenêtre d'actualisation glissante de 365 jours, les 401 aléatoires devraient donc être rares. Lorsque cela se produit, utilisez la commande légère de reconnexion plutôt que de réinstaller :
+La mise à jour du lien de propriété OAuth impose à chaque connexion OAuth existante de [se reconnecter une fois](/docs/external-agents#reconnect). Les anciens jetons d'accès OAuth sont refusés après le déploiement. Les anciens jetons d'actualisation sans lien de propriété renvoient `invalid_grant`, et les anciens codes d'autorisation encore en attente doivent reprendre le consentement. Les jetons d'accès nouvellement émis utilisent la durée de validité configurée et les vérifications d'appartenance à chaque requête. Cette transition ne modifie ni les anciens identifiants `mcp-connect` au format A2A ni les jetons A2A entre applications. Les connexions utilisant d’anciens jetons Connect au format OAuth doivent aussi être rétablies.
+
+Une fois connecté, l'authentification doit persister à long terme : les jetons d'accès durent 30 jours par défaut (remplacement par `MCP_OAUTH_ACCESS_TOKEN_TTL` sur le serveur, par exemple `7d` ou `12h`) et les jetons d'actualisation n'ont pas de date d'expiration fixe, les 401 aléatoires devraient donc être rares. Lorsque cela se produit, utilisez la commande légère de reconnexion plutôt que de réinstaller :
 
 ```bash
 npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
@@ -291,7 +350,7 @@ Il s'agit de la même entrée réservée uniquement à URL que `npx @agent-nativ
 https://dispatch.agent-native.com/mcp
 ```
 
-Le flux OAuth est le code d'autorisation + PKCE avec rotation du jeton d'actualisation. Les jetons d'accès sont liés au public à la ressource MCP exacte URL et portent l'identité signée de l'utilisateur/de l'organisation. Ainsi, les appels d'outils, `resources/read` et MCP initiés par iframe de l'application `tools/call` s'exécutent tous via la même portée de locataire `runWithRequestContext` que le chemin JWT existant créé par la connexion. L'iframe ne reçoit jamais de jetons OAuth bruts ; l'hôte négocie les appels via la connexion authentifiée MCP.
+Le flux OAuth est le code d'autorisation + PKCE avec des jetons d'actualisation, qui ne font pas l'objet d'une rotation. Les jetons d'accès sont liés au public à la ressource MCP exacte URL et portent l'identité signée de l'utilisateur/de l'organisation. Ainsi, les appels d'outils, `resources/read` et MCP initiés par iframe de l'application `tools/call` s'exécutent tous via la même portée de locataire `runWithRequestContext` que le chemin JWT existant créé par la connexion. L'iframe ne reçoit jamais de jetons OAuth bruts ; l'hôte négocie les appels via la connexion authentifiée MCP.
 
 Les champs d'application actuels sont les suivants :
 
@@ -502,6 +561,8 @@ Pour les hôtes d'application OAuth de style ChatGPT/Claude, la surface de déco
 Cela rend la même surface d'application disponible pour chaque hôte compatible plutôt que de créer des cales par client. Quels hôtes restituent les applications MCP en ligne (et le cache du connecteur se déclenche après les modifications des métadonnées) se trouvent dans [MCP Apps → Client support and caching](/docs/mcp-apps#client-support) – cette page est l'accueil unique de la matrice client.
 
 En pratique, chaque application native d'agent doit être créée avec les deux : applications MCP pour la révision/modification en ligne sur des hôtes compatibles, et `link` pour un aller-retour universel vers l'application complète. Les clients CLI/code-editor qui n’affichent pas d’iframe reviennent au lien profond. Les outils de sélection humaine peuvent ajouter une étape de collage à cette solution de secours : par exemple, le sélecteur d'actifs s'ouvre à partir du lien de secours, permet à l'utilisateur de choisir un média dans le navigateur, puis copie un résumé de transfert que l'utilisateur recolle dans le chat.
+
+Les agents externes reçoivent les vrais outils de création/mise à jour de l'application — les mêmes actions nommées que l'agent intégré appelle — donc quand un utilisateur demande un nouveau contenu (un design, une présentation, un formulaire, un document), créez-le directement et enregistrez-le avec ces outils au lieu de déléguer le travail via `ask_app`. Les actions marquées `endsTurn: true`, comme un formulaire de questions intégré qui attend la réponse de l'utilisateur dans le chat de cette application, sont masquées de MCP, WebMCP et A2A sauf si `mcpTool: true` — voir [endsTurn dans Définir des actions](/docs/actions-defining). Les entrées et résultats d'outils supportent jusqu'à 500 000 caractères sur WebMCP, afin qu'un écran, une présentation ou un document entier tienne en une seule écriture — voir [WebMCP](/docs/webmcp). Les appels WebMCP locaux à la page transmettent l'identifiant de l'onglet du navigateur (la même valeur `getBrowserTabId()` que celle utilisée par l'UI — voir [Conscience du contexte](/docs/context-awareness)), afin que la navigation et la sélection propres à l'onglet se résolvent vers l'onglet que l'agent pilote, même lorsqu'il est masqué.
 
 ### Pont d'application MCP de première classe {#mcp-app-bridge}
 
@@ -813,6 +874,7 @@ Le flux `connect` hébergé de secours ne copie jamais le secret partagé du dé
 ## Connexe {#related}
 
 - [MCP Apps](/docs/mcp-apps) : création de l'application MCP UI, du pont intégré et du pont hôte API.
+- [WebMCP](/docs/webmcp) : outils locaux à la page, la limite de 500 000 caractères pour l'entrée/le résultat, et l'en-tête d'identifiant d'onglet du navigateur.
 - [MCP Protocol](/docs/mcp-protocol) : le serveur MCP monté automatiquement et le méta-outil `ask-agent`.
 - [MCP Clients](/docs/mcp-clients) — la direction symétrique : votre application consomme des serveurs MCP locaux/distants.
 - [A2A Protocol](/docs/a2a-protocol) : le méta-outil `ask-agent` et les appels homologues JSON-RPC.

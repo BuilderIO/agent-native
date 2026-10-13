@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DataGrid,
   dataGridColumnTemplate,
+  dataGridDistanceFromStart,
   type DataGridColumn,
 } from "./index.js";
 
@@ -48,6 +49,33 @@ const rows: readonly Row[] = [
 ];
 
 describe("data-grid", () => {
+  it("normalizes distance from the RTL start across browser scroll models", () => {
+    expect(
+      dataGridDistanceFromStart({
+        direction: "rtl",
+        scrollLeft: -75,
+        maxScroll: 200,
+        rtlScrollType: "negative",
+      }),
+    ).toBe(75);
+    expect(
+      dataGridDistanceFromStart({
+        direction: "rtl",
+        scrollLeft: 75,
+        maxScroll: 200,
+        rtlScrollType: "reverse",
+      }),
+    ).toBe(75);
+    expect(
+      dataGridDistanceFromStart({
+        direction: "rtl",
+        scrollLeft: 125,
+        maxScroll: 200,
+        rtlScrollType: "default",
+      }),
+    ).toBe(75);
+  });
+
   it("builds a bounded template and includes the selection column only when requested", () => {
     expect(dataGridColumnTemplate(columns, { name: 40 }, "none")).toBe(
       "96px 120px",
@@ -238,6 +266,143 @@ describe("data-grid", () => {
       expect(renderBody).toHaveBeenCalledWith(
         expect.objectContaining({ rows, columns }),
       );
+    });
+
+    it("shows opt-in overflow edges without replacing the scroll surface", () => {
+      act(() => {
+        root.render(
+          <DataGrid
+            rows={rows}
+            columns={columns}
+            getRowId={(row) => row.id}
+            horizontalOverflowAffordance="edges"
+          />,
+        );
+      });
+
+      const scrollContainer = container.querySelector<HTMLElement>(
+        "[data-data-grid-scroll-container=true]",
+      );
+      expect(scrollContainer).not.toBeNull();
+      if (!scrollContainer) return;
+      Object.defineProperties(scrollContainer, {
+        clientWidth: { configurable: true, value: 200 },
+        scrollWidth: { configurable: true, value: 400 },
+        scrollLeft: { configurable: true, writable: true, value: 0 },
+      });
+
+      act(() => window.dispatchEvent(new Event("resize")));
+      expect(
+        container.querySelector("[data-data-grid-overflow-edge=start]"),
+      ).toBeNull();
+      const endEdge = container.querySelector<HTMLElement>(
+        "[data-data-grid-overflow-edge=end]",
+      );
+      expect(endEdge?.getAttribute("aria-hidden")).toBe("true");
+      expect(endEdge?.className).toContain("pointer-events-none");
+      expect(scrollContainer.className).toContain("overflow-x-auto");
+
+      scrollContainer.scrollLeft = 200;
+      act(() => scrollContainer.dispatchEvent(new Event("scroll")));
+      expect(
+        container.querySelector("[data-data-grid-overflow-edge=end]"),
+      ).toBeNull();
+      expect(
+        container.querySelector("[data-data-grid-overflow-edge=start]"),
+      ).not.toBeNull();
+    });
+
+    it("does not render overflow edges unless an app opts in", () => {
+      act(() => {
+        root.render(
+          <DataGrid rows={rows} columns={columns} getRowId={(row) => row.id} />,
+        );
+      });
+
+      act(() => window.dispatchEvent(new Event("resize")));
+      expect(
+        container.querySelector("[data-data-grid-overflow-edge]"),
+      ).toBeNull();
+    });
+
+    it("tracks logical overflow edges in RTL", () => {
+      act(() => {
+        root.render(
+          <DataGrid
+            rows={rows}
+            columns={columns}
+            getRowId={(row) => row.id}
+            horizontalOverflowAffordance="edges"
+          />,
+        );
+      });
+
+      const scrollContainer = container.querySelector<HTMLElement>(
+        "[data-data-grid-scroll-container=true]",
+      );
+      expect(scrollContainer).not.toBeNull();
+      if (!scrollContainer) return;
+      scrollContainer.style.direction = "rtl";
+      Object.defineProperties(scrollContainer, {
+        clientWidth: { configurable: true, value: 200 },
+        scrollWidth: { configurable: true, value: 400 },
+        scrollLeft: { configurable: true, writable: true, value: -100 },
+      });
+
+      act(() => scrollContainer.dispatchEvent(new Event("scroll")));
+      expect(
+        container.querySelector("[data-data-grid-overflow-edge=start]"),
+      ).not.toBeNull();
+      expect(
+        container.querySelector("[data-data-grid-overflow-edge=end]"),
+      ).not.toBeNull();
+
+      scrollContainer.scrollLeft = -200;
+      act(() => scrollContainer.dispatchEvent(new Event("scroll")));
+      expect(
+        container.querySelector("[data-data-grid-overflow-edge=start]"),
+      ).not.toBeNull();
+      expect(
+        container.querySelector("[data-data-grid-overflow-edge=end]"),
+      ).toBeNull();
+    });
+
+    it("cleans up overflow resize observers and listeners", () => {
+      const observe = vi.fn();
+      const disconnect = vi.fn();
+      const addEventListener = vi.spyOn(window, "addEventListener");
+      const removeEventListener = vi.spyOn(window, "removeEventListener");
+      vi.stubGlobal(
+        "ResizeObserver",
+        class {
+          observe = observe;
+          disconnect = disconnect;
+        },
+      );
+
+      act(() => {
+        root.render(
+          <DataGrid
+            rows={rows}
+            columns={columns}
+            getRowId={(row) => row.id}
+            horizontalOverflowAffordance="edges"
+          />,
+        );
+      });
+      expect(observe).toHaveBeenCalledTimes(2);
+      expect(addEventListener).toHaveBeenCalledWith(
+        "resize",
+        expect.any(Function),
+      );
+
+      act(() => root.unmount());
+      expect(disconnect).toHaveBeenCalledOnce();
+      expect(removeEventListener).toHaveBeenCalledWith(
+        "resize",
+        expect.any(Function),
+      );
+      root = createRoot(container);
     });
   });
 });

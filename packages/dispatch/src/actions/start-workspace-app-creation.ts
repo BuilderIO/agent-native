@@ -7,6 +7,34 @@ import { z } from "zod";
 
 import { startWorkspaceAppCreation } from "../server/lib/app-creation-store.js";
 
+const attachmentSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("upload"),
+    contentType: z.enum([
+      "image/webp",
+      "image/png",
+      "image/jpeg",
+      "image/gif",
+      "application/pdf",
+      "application/json",
+      "text/plain",
+    ]),
+    name: z.string().min(1),
+    dataUrl: z.string(),
+    text: z.string().optional(),
+    size: z.number().int().nonnegative(),
+    id: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("url"),
+    value: z.string().url(),
+  }),
+]);
+
+export type StartWorkspaceAppCreationAttachment = z.infer<
+  typeof attachmentSchema
+>;
+
 export default defineAction({
   description:
     'Start creating a new workspace app from Dispatch when the request truly needs its own app. For Claude Web, ChatGPT Web, or either host\'s web Project, this action is the Builder handoff: call it after forming a bounded source brief and do not scaffold or edit files in the host sandbox. This handoff is autonomous once the brief exists: do not ask the user for non-blocking product or UX choices; choose recommended defaults and let Builder record assumptions while it implements. Callers should include a concise generated description by default; Dispatch generates one from the prompt when omitted. In local dev this returns a code-agent prompt; in production it reuses the connected Agent-Native workspace project or, for an organization owner/admin, provisions it through the Builder Projects API before starting the Builder Cloud Agent branch. If no project is configured, organization members must ask an owner/admin to configure it first. The result must be a separate workspace app under apps/<app-id>, not a new route or file in apps/chat. If chat is used as the source template, the finished app must be branded as the requested app and must not leave visible "Chat", "Starter", "Blank app", or "New app" UI behind. If the request needs Mail, Calendar, Analytics, Brain, Assets, or another first-party app, use the existing hosted/connected app via links or A2A; do not wrap or nest those apps inside the new app unless the user explicitly asks for a customized app from that template.',
@@ -49,6 +77,12 @@ export default defineAction({
       .optional()
       .describe(
         "Dispatch workspace resource IDs or knowledge packs to grant to the app",
+      ),
+    attachments: z
+      .array(attachmentSchema)
+      .optional()
+      .describe(
+        "Optional Builder message attachments. Uploads use supported image, PDF, text, or JSON content; attachments are model context, not workspace files.",
       ),
   }),
   run: async (args) => startWorkspaceAppCreation(args),

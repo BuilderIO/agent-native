@@ -23,7 +23,7 @@ import { stableId } from "../server/triage/ids.js";
 
 export default defineAction({
   description:
-    "Create or update a Factory rule. Disabled and shadow modes are accepted; execution still requires an explicit approval action.",
+    "Create or update a Factory rule. Disabled and shadow modes are accepted; dispatch still goes through dispatch-factory-item or govern-factory-pull-request.",
   schema: z.object({
     factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     id: z.string().min(1).optional(),

@@ -1,12 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveSecretMock = vi.hoisted(() => vi.fn());
+const prefetchSecretsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/credential-provider.js", () => ({
+  prefetchSecrets: (...args: unknown[]) => prefetchSecretsMock(...args),
   resolveSecret: (...args: unknown[]) => resolveSecretMock(...args),
 }));
 
-import { s3FileUploadProvider } from "./s3.js";
+import {
+  listFileUploadProviders,
+  registerFileUploadProvider,
+  unregisterFileUploadProvider,
+} from "./registry.js";
+import { ensureS3FileUploadProvider, s3FileUploadProvider } from "./s3.js";
+import type { FileUploadProvider } from "./types.js";
 
 describe("s3FileUploadProvider", () => {
   const originalEnv = { ...process.env };
@@ -31,10 +39,32 @@ describe("s3FileUploadProvider", () => {
     }
     resolveSecretMock.mockReset();
     resolveSecretMock.mockResolvedValue(null);
+    prefetchSecretsMock.mockReset();
+    prefetchSecretsMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     process.env = { ...originalEnv };
+  });
+
+  it("batches every storage key into one prefetch before resolving them", async () => {
+    const order: string[] = [];
+    prefetchSecretsMock.mockImplementation(async () => {
+      order.push("prefetch");
+    });
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      order.push(key);
+      return null;
+    });
+
+    await s3FileUploadProvider.isConfiguredForRequest?.();
+
+    expect(prefetchSecretsMock).toHaveBeenCalledTimes(1);
+    const [prefetched] = prefetchSecretsMock.mock.calls[0] as [string[]];
+    const resolved = order.slice(1);
+    expect(order[0]).toBe("prefetch");
+    expect(new Set(prefetched)).toEqual(new Set(resolved));
+    expect(resolved).toHaveLength(12);
   });
 
   it("is unavailable until all public URL and credential values exist", async () => {
@@ -105,6 +135,36 @@ describe("s3FileUploadProvider", () => {
     });
   });
 
+  it("treats a missing S3 object as already deleted", async () => {
+    const secrets: Record<string, string> = {
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_BUCKET: "uploads-example",
+      S3_ACCESS_KEY_ID: "access-example",
+      S3_SECRET_ACCESS_KEY: "secret-example",
+      S3_REGION: "us-east-1",
+      S3_PUBLIC_BASE_URL: "https://cdn.example.com/assets",
+    };
+    resolveSecretMock.mockImplementation(
+      async (key: string) => secrets[key] ?? null,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+        text: async () => "",
+      })),
+    );
+
+    await expect(
+      s3FileUploadProvider.delete!({
+        url: "https://cdn.example.com/assets/uploads/missing.mp4",
+        id: "uploads/missing.mp4",
+      }),
+    ).resolves.toBe(true);
+  });
+
   it("uploads through environment-backed storage when scoped secrets are absent", async () => {
     Object.assign(process.env, {
       S3_ENDPOINT: "https://s3.example.com",
@@ -133,5 +193,39 @@ describe("s3FileUploadProvider", () => {
       }),
     ).resolves.toMatchObject({ provider: "s3" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ensureS3FileUploadProvider", () => {
+  afterEach(() => {
+    unregisterFileUploadProvider("s3");
+  });
+
+  it("claims the slot when it is free", () => {
+    ensureS3FileUploadProvider();
+    expect(listFileUploadProviders()).toContain(s3FileUploadProvider);
+  });
+
+  it("is idempotent", () => {
+    ensureS3FileUploadProvider();
+    ensureS3FileUploadProvider();
+    expect(
+      listFileUploadProviders().filter((provider) => provider.id === "s3"),
+    ).toHaveLength(1);
+  });
+
+  it("leaves an app's own provider in the slot", () => {
+    const appProvider: FileUploadProvider = {
+      id: "s3",
+      name: "App storage",
+      isConfigured: () => true,
+      upload: async () => ({
+        url: "https://app.example.com/a",
+        provider: "s3",
+      }),
+    };
+    registerFileUploadProvider(appProvider);
+    ensureS3FileUploadProvider();
+    expect(listFileUploadProviders()).toStrictEqual([appProvider]);
   });
 });

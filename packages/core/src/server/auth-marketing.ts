@@ -1,10 +1,21 @@
+import {
+  AUTH_MARKETING_PRESENTATION,
+  type AuthMarketingPresentation,
+} from "../shared/auth-marketing-presentation.js";
+
+export {
+  AUTH_MARKETING_PRESENTATION,
+  type AuthMarketingPresentation,
+} from "../shared/auth-marketing-presentation.js";
+
 export interface AuthMarketingContent {
   appName: string;
   tagline: string;
   description?: string;
   features?: string[];
-  /** @deprecated Local execution is no longer offered from auth pages. */
-  runLocalCommand?: string;
+  authHeadline?: string;
+  authDescription?: string;
+  learnMoreUrl?: string;
   signupLocalModeNote?: {
     text: string;
     command: string;
@@ -35,7 +46,7 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
     tagline:
       "A company memory layer where raw conversations become reviewed, searchable institutional knowledge.",
     features: [
-      "Import transcripts, notes, Slack exports, and Granola summaries",
+      "Import transcripts, notes, Slack exports, and meeting summaries",
       "Validate every fact against exact source quotes",
       "Review company-wide knowledge through proposal workflows",
     ],
@@ -283,10 +294,25 @@ export function resolveBuiltInAuthMarketing(
   return marketing ? cloneMarketing(marketing) : undefined;
 }
 
+export function resolveBuiltInAuthMarketingPresentation(
+  marketing: AuthMarketingContent | undefined,
+  opts: ResolveBuiltInAuthMarketingOptions = {},
+): AuthMarketingPresentation | undefined {
+  const slug =
+    resolveBuiltInAuthMarketingSlug(opts) ?? normalizeSlug(marketing?.appName);
+  return slug ? AUTH_MARKETING_PRESENTATION[slug] : undefined;
+}
+
 export function resolveBuiltInAuthMarketingSlug(
   opts: ResolveBuiltInAuthMarketingOptions = {},
 ): string | undefined {
   return candidateSlugs(opts).find((slug) => !!BUILT_IN_AUTH_MARKETING[slug]);
+}
+
+export function resolveBuiltInAuthMarketingSlugFromName(
+  name: string | undefined,
+): string | undefined {
+  return normalizeSlug(name);
 }
 
 export function resolveBuiltInAuthMarketingByName(

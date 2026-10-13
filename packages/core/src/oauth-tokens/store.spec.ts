@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Deterministic key so the at-rest encryption round-trips within the test.
-// Must be set before importing ./store.js (which pulls in secrets/crypto).
 process.env.SECRETS_ENCRYPTION_KEY ||= "oauth-store-test-key";
 
 const { decryptSecretValue, isEncryptedSecretValue } =
@@ -18,7 +16,6 @@ let existingTokens: Record<string, unknown> | null = null;
 let existingRevision = 100;
 let existingLegacyRevision = 100;
 let existingStorageVersion = JSON.stringify({});
-let mockPostgres = false;
 let conflictOwnerAfterUpsert: string | null = null;
 let upsertAttempted = false;
 
@@ -120,8 +117,11 @@ const mockDb = {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
-  intType: () => (mockPostgres ? "BIGINT" : "INTEGER"),
-  isPostgres: () => mockPostgres,
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
+  ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 const {
@@ -130,6 +130,7 @@ const {
   getOAuthTokenSnapshot,
   getOAuthTokenSnapshotForUserOwner,
   getOAuthTokens,
+  listOAuthTokenOwners,
   replaceOAuthTokensIfRevision,
   saveOAuthTokens,
 } = await import("./store.js");
@@ -148,10 +149,42 @@ describe("oauth token store", () => {
     existingRevision = 100;
     existingLegacyRevision = 100;
     existingStorageVersion = JSON.stringify({});
-    mockPostgres = false;
     conflictOwnerAfterUpsert = null;
     upsertAttempted = false;
     vi.clearAllMocks();
+  });
+
+  it("reads token owners for many accounts in bounded batches", async () => {
+    const accountIds = Array.from({ length: 1_100 }, (_, i) => `acct-${i}`);
+    const original = mockDb.execute.getMockImplementation()!;
+    mockDb.execute.mockImplementation(async (input) => {
+      const sql = typeof input === "string" ? input : input.sql;
+      const args = typeof input === "string" ? [] : (input.args ?? []);
+      execCalls.push({ sql, args });
+      if (
+        /SELECT account_id, owner FROM/i.test(sql) &&
+        args.includes("acct-7")
+      ) {
+        return {
+          rows: [{ account_id: "acct-7", owner: "user:ann@example.com" }],
+        };
+      }
+      return { rows: [], rowsAffected: 0 };
+    });
+
+    await expect(
+      listOAuthTokenOwners("mcp", [...accountIds, "acct-7"]),
+    ).resolves.toEqual([
+      { accountId: "acct-7", owner: "user:ann@example.com" },
+    ]);
+
+    const reads = execCalls.filter((call) =>
+      /SELECT account_id, owner FROM/i.test(call.sql),
+    );
+    expect(reads.map((call) => call.args.length - 1)).toEqual([500, 500, 100]);
+    expect(reads.every((call) => call.args[0] === "mcp")).toBe(true);
+    await expect(listOAuthTokenOwners("mcp", [])).resolves.toEqual([]);
+    mockDb.execute.mockImplementation(original);
   });
 
   it("refuses to rebind a Google account owned by a different user", async () => {
@@ -204,9 +237,9 @@ describe("oauth token store", () => {
       ),
     ).resolves.toBeUndefined();
 
-    expect(lastInsert().sql).toContain("SET owner=excluded.owner");
+    expect(lastInsert().sql).toContain("SET owner=EXCLUDED.owner");
     expect(lastInsert().sql).toContain(
-      "LOWER(oauth_tokens.owner) = LOWER(excluded.owner)",
+      "LOWER(public.oauth_tokens.owner) = LOWER(EXCLUDED.owner)",
     );
     expect(lastInsert().args[2]).toBe("user:alice@example.com");
   });
@@ -261,7 +294,7 @@ describe("oauth token store", () => {
     });
 
     expect(lastInsert().sql).toContain(
-      "WHERE oauth_tokens.owner = excluded.owner",
+      "WHERE public.oauth_tokens.owner = EXCLUDED.owner",
     );
   });
 
@@ -444,8 +477,6 @@ describe("oauth token store", () => {
   });
 
   it("qualifies the real oauth_tokens table on Postgres so temp scoped views cannot shadow OAuth callbacks", async () => {
-    mockPostgres = true;
-
     await saveOAuthTokens(
       "google",
       "steve@builder.io",
@@ -479,7 +510,6 @@ describe("oauth token store", () => {
     );
 
     const storedColumn = lastInsert().args[4] as string;
-    // Tokens are encrypted at rest, not stored as plaintext JSON.
     expect(isEncryptedSecretValue(storedColumn)).toBe(true);
     const stored = JSON.parse(decryptSecretValue(storedColumn));
     expect(stored).toMatchObject({
@@ -500,12 +530,11 @@ describe("oauth token store", () => {
     );
 
     expect(lastInsert().sql).toContain(
-      "revision=MAX(COALESCE(oauth_tokens.revision, 0) + 1, excluded.revision)",
+      "revision=GREATEST(COALESCE(public.oauth_tokens.revision, 0) + 1, EXCLUDED.revision)",
     );
   });
 
   it("advances a null legacy revision atomically on Postgres", async () => {
-    mockPostgres = true;
     existingOwner = "user:alice@example.com";
 
     await saveOAuthTokens(

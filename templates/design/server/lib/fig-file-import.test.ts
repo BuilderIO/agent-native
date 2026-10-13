@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import * as zlib from "node:zlib";
 
 import {
@@ -8,6 +9,19 @@ import {
 } from "kiwi-schema";
 import { describe, expect, it, vi } from "vitest";
 
+const fileUploadMocks = vi.hoisted(() => ({
+  uploadFile: vi.fn(),
+  deleteUploadedFile: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/file-upload", () => fileUploadMocks);
+
+import { buildCodeLayerProjection } from "../../shared/code-layer.js";
+import {
+  convertDecodedFigToEditableHtml as convertShared,
+  inspectDecodedFig,
+  shouldWarnForFigImport,
+} from "../../shared/fig-to-frames.js";
 import {
   assertSafeDecodedFigDocument,
   decodeFig,
@@ -17,7 +31,12 @@ import {
   convertDecodedFigToEditableHtml,
   importFigFileToEditableHtml,
 } from "./fig-file-import.js";
-import { renderHtmlTemplates } from "./fig-file-to-html.js";
+import { BROWSER_FIG_LIMITS, SERVER_FIG_LIMITS } from "./fig-file-limits.js";
+import {
+  collectTopLevelFrames,
+  renderHtmlTemplates,
+  type FigNode,
+} from "./fig-file-to-html.js";
 
 function kiwiContainer(chunks: Buffer[], version = 124): Buffer {
   const header = Buffer.alloc(12);
@@ -34,7 +53,80 @@ function kiwiContainer(chunks: Buffer[], version = 124): Buffer {
   ]);
 }
 
-function encodedHelloFig(): Buffer {
+function storedZip(entries: Array<[string, Buffer]>): Buffer {
+  const locals: Buffer[] = [];
+  const central: Buffer[] = [];
+  let offset = 0;
+  for (const [name, data] of entries) {
+    const nameBytes = Buffer.from(name);
+    const crc = zlib.crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    locals.push(local, nameBytes, data);
+    const header = Buffer.alloc(46);
+    header.writeUInt32LE(0x02014b50, 0);
+    header.writeUInt32LE(crc, 16);
+    header.writeUInt32LE(data.length, 20);
+    header.writeUInt32LE(data.length, 24);
+    header.writeUInt16LE(nameBytes.length, 28);
+    header.writeUInt32LE(offset, 42);
+    central.push(header, nameBytes);
+    offset += 30 + nameBytes.length + data.length;
+  }
+  const directory = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, directory, end]);
+}
+
+function deflatedZip(
+  entries: Array<{ name: string; data: Buffer; declaredSize?: number }>,
+): Buffer {
+  const locals: Buffer[] = [];
+  const central: Buffer[] = [];
+  let offset = 0;
+  for (const { name, data, declaredSize = data.length } of entries) {
+    const nameBytes = Buffer.from(name);
+    const compressed = zlib.deflateRawSync(data);
+    const crc = zlib.crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(8, 8);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(compressed.length, 18);
+    local.writeUInt32LE(declaredSize, 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    locals.push(local, nameBytes, compressed);
+    const header = Buffer.alloc(46);
+    header.writeUInt32LE(0x02014b50, 0);
+    header.writeUInt16LE(8, 10);
+    header.writeUInt32LE(crc, 16);
+    header.writeUInt32LE(compressed.length, 20);
+    header.writeUInt32LE(declaredSize, 24);
+    header.writeUInt16LE(nameBytes.length, 28);
+    header.writeUInt32LE(offset, 42);
+    central.push(header, nameBytes);
+    offset += 30 + nameBytes.length + compressed.length;
+  }
+  const directory = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, directory, end]);
+}
+
+function encodedHelloFig(extraChunks: Buffer[] = []): Buffer {
   const schema = parseSchema("message Message { string hello = 1; }");
   const compiled = compileSchema(schema) as {
     encodeMessage(value: { hello: string }): Uint8Array;
@@ -42,6 +134,7 @@ function encodedHelloFig(): Buffer {
   return kiwiContainer([
     Buffer.from(encodeBinarySchema(schema)),
     Buffer.from(compiled.encodeMessage({ hello: "world" })),
+    ...extraChunks,
   ]);
 }
 
@@ -126,6 +219,178 @@ describe("bounded .fig decoding", () => {
     expect(decoded.document).toEqual({ hello: "world" });
   });
 
+  it("keeps bounded binary fields as bytes while direct strings stay bounded", () => {
+    const fieldNames = ["blob"];
+    const schema = parseSchema(
+      `message Message { ${fieldNames.map((name, index) => `byte[] ${name} = ${index + 1};`).join(" ")} }`,
+    );
+    const compiled = compileSchema(schema) as {
+      encodeMessage(value: Record<string, Uint8Array>): Uint8Array;
+    };
+    const blob = new Uint8Array(3 * 1024 * 1024);
+    const document = Object.fromEntries(
+      fieldNames.map((name) => [name, blob]),
+    ) as Record<string, Uint8Array>;
+    const decoded = decodeFig(
+      kiwiContainer([
+        Buffer.from(encodeBinarySchema(schema)),
+        Buffer.from(compiled.encodeMessage(document)),
+      ]),
+    );
+
+    expect((decoded.document as { blob: unknown }).blob).toBeInstanceOf(
+      Uint8Array,
+    );
+    expect(() => assertSafeDecodedFigDocument(decoded.document)).not.toThrow();
+    expect(() =>
+      assertSafeDecodedFigDocument({
+        blobs: [{ bytes: "00".repeat(3 * 1024 * 1024) }],
+      }),
+    ).toThrow(/too much string data/i);
+  });
+
+  it("counts bigint serialization against the decoded string budget", () => {
+    const schema = parseSchema("message Message { uint64[] values = 1; }");
+    const compiled = compileSchema(schema) as {
+      encodeMessage(value: { values: bigint[] }): Uint8Array;
+    };
+    const values = new Array(1_700_000).fill(18_446_744_073_709_551_615n);
+    const decoded = decodeFig(
+      kiwiContainer([
+        Buffer.from(encodeBinarySchema(schema)),
+        Buffer.from(compiled.encodeMessage({ values })),
+      ]),
+    );
+
+    expect(decoded.document).toBeNull();
+    expect(decoded.decodeError).toMatch(/too much string data/i);
+  });
+
+  it("applies the raw file ceiling from the limits profile", () => {
+    const fig = encodedHelloFig();
+    const limits = { ...SERVER_FIG_LIMITS, fileBytes: fig.byteLength - 1 };
+
+    expect(() => decodeFig(fig, { limits })).toThrow(/too large/);
+    expect(decodeFig(fig, { limits: BROWSER_FIG_LIMITS }).document).toEqual({
+      hello: "world",
+    });
+  });
+
+  it("caps each chunk by the remaining aggregate inflate budget", () => {
+    const fig = encodedHelloFig([Buffer.alloc(64 * 1024)]);
+    const limits = {
+      ...SERVER_FIG_LIMITS,
+      inflatedBytes: 4 * 1024,
+      inflatedChunkBytes: 1024 * 1024,
+    };
+
+    expect(() => decodeFig(fig, { limits })).toThrow(
+      /Decompressed .fig data is too large \(max 0 MB\)/,
+    );
+    expect(decodeFig(fig, { limits: SERVER_FIG_LIMITS }).document).toEqual({
+      hello: "world",
+    });
+  });
+
+  it("stops inflating a zip entry at its declared size", () => {
+    const canvas = encodedHelloFig();
+    const zip = deflatedZip([
+      { name: "canvas.fig", data: canvas },
+      { name: "images/a", data: Buffer.alloc(256 * 1024), declaredSize: 1024 },
+    ]);
+
+    expect(() => decodeFig(zip, { limits: BROWSER_FIG_LIMITS })).toThrow(
+      /Size mismatch for "images\/a": inflates past its declared 1024 bytes/,
+    );
+  });
+
+  it("shares one inflate budget between the zip and its canvas.fig", () => {
+    const canvas = encodedHelloFig([randomBytes(40 * 1024)]);
+    const zip = deflatedZip([{ name: "canvas.fig", data: canvas }]);
+    const limits = { ...SERVER_FIG_LIMITS, inflatedBytes: 64 * 1024 };
+
+    expect(canvas.length).toBeGreaterThan(32 * 1024);
+    expect(canvas.length).toBeLessThan(limits.inflatedBytes);
+    expect(() => decodeFig(zip, { limits })).toThrow(
+      /Decompressed .fig data is too large/,
+    );
+    expect(decodeFig(zip).document).toEqual({ hello: "world" });
+  });
+
+  it("keeps stored zip entries as views outside the inflate budget", () => {
+    const image = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      randomBytes(4096),
+    ]);
+    const zipBytes = storedZip([
+      ["canvas.fig", encodedHelloFig()],
+      ["images/a", image],
+    ]);
+    const zip = new Uint8Array(
+      zipBytes.buffer,
+      zipBytes.byteOffset,
+      zipBytes.byteLength,
+    );
+    const limits = { ...BROWSER_FIG_LIMITS, inflatedBytes: 1024 };
+
+    const decoded = decodeFig(zip, { limits });
+
+    expect(decoded.format).toBe("zip");
+    expect(decoded.document).toEqual({ hello: "world" });
+    expect(decoded.images).toHaveLength(1);
+    expect(decoded.images[0]!.bytes.buffer).toBe(zip.buffer);
+    expect(() =>
+      decodeFig(zip, { limits: { ...limits, zipEntries: 1 } }),
+    ).toThrow(/too many entries \(max 1\)/);
+  });
+
+  it("rejects stored zip entries that alias the same bytes", () => {
+    const image = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      randomBytes(4096),
+    ]);
+    const zip = storedZip([
+      ["canvas.fig", encodedHelloFig()],
+      ["images/a", image],
+    ]);
+    const directoryOffset = zip.readUInt32LE(zip.length - 6);
+    const firstHeaderLength = 46 + zip.readUInt16LE(directoryOffset + 28);
+    const imageHeader = zip.subarray(
+      directoryOffset + firstHeaderLength,
+      zip.length - 22,
+    );
+    const aliases = Array.from({ length: 8 }, () => imageHeader);
+    const end = Buffer.from(zip.subarray(zip.length - 22));
+    end.writeUInt16LE(2 + aliases.length, 8);
+    end.writeUInt16LE(2 + aliases.length, 10);
+    end.writeUInt32LE(
+      zip.length - 22 - directoryOffset + imageHeader.length * aliases.length,
+      12,
+    );
+    const aliased = Buffer.concat([
+      zip.subarray(0, zip.length - 22),
+      ...aliases,
+      end,
+    ]);
+
+    expect(() => decodeFig(aliased, { limits: BROWSER_FIG_LIMITS })).toThrow(
+      /Overlapping .fig zip entries/,
+    );
+  });
+
+  it("decodes valid browser-local containers above the server upload ceiling", () => {
+    const fig = encodedHelloFig([
+      randomBytes(25 * 1024 * 1024),
+      randomBytes(25 * 1024 * 1024),
+    ]);
+
+    expect(fig.byteLength).toBeGreaterThan(50 * 1024 * 1024);
+    expect(() => decodeFig(fig)).toThrow(/too large/);
+    expect(decodeFig(fig, { limits: BROWSER_FIG_LIMITS }).document).toEqual({
+      hello: "world",
+    });
+  }, 30_000);
+
   it("rejects malformed and over-complex containers before rendering", () => {
     expect(() => decodeFig(Buffer.from("not-a-fig"))).toThrow(/fig-kiwi/i);
 
@@ -182,7 +447,7 @@ describe("bounded .fig decoding", () => {
     expect(decoded.document).toBeNull();
   });
 
-  it("accepts current Figma schemas whose NodeChange message has 2000 fields", () => {
+  it("accepts a generated NodeChange schema with 2000 fields", () => {
     const fields = Array.from(
       { length: 2000 },
       (_, index) => `string field${index} = ${index + 1};`,
@@ -240,6 +505,73 @@ describe("bounded .fig decoding", () => {
 });
 
 describe("editable .fig conversion", () => {
+  it("reports bounded skip counts without rejecting an otherwise usable import", async () => {
+    const document = editableDocument();
+    const nodeChanges = document.nodeChanges as Array<Record<string, unknown>>;
+    nodeChanges[3]!.variableConsumptionMap = {
+      entries: [
+        {
+          variableField: "STACK_SPACING",
+          variableData: {
+            value: { alias: { guid: { sessionID: 99, localID: 99 } } },
+          },
+        },
+      ],
+    };
+    nodeChanges.push(
+      {
+        guid: { sessionID: 1, localID: 5 },
+        parentIndex: {
+          guid: { sessionID: 1, localID: 2 },
+          position: "b",
+        },
+        type: "RECTANGLE",
+        name: "Skipped canvas node",
+      },
+      {
+        guid: { sessionID: 1, localID: 6 },
+        parentIndex: {
+          guid: { sessionID: 1, localID: 3 },
+          position: "b",
+        },
+        type: "INSTANCE",
+        name: "Missing component",
+        symbolData: {
+          symbolID: { sessionID: 99, localID: 98 },
+          symbolOverrides: [
+            {
+              guidPath: { guids: [{ sessionID: 99, localID: 97 }] },
+              textData: { characters: "Unused" },
+            },
+          ],
+        },
+      },
+    );
+
+    const result = await convertDecodedFigToEditableHtml(
+      {
+        format: "kiwi",
+        version: 124,
+        document,
+        images: [],
+        thumbnail: null,
+      },
+      {
+        originalName: "sample.fig",
+        ownerEmail: "example@example.com",
+        uploader: vi.fn(),
+      },
+    );
+
+    expect(result.files).toHaveLength(1);
+    expect(result.stats.skipCounts).toEqual({
+      unresolvedOverrideCount: 1,
+      unresolvedVariableAliasCount: 1,
+      missingComponentCount: 1,
+      skippedNodeTypeCount: 1,
+    });
+  });
+
   it("converts pages and frames into editable HTML screens with geometry", async () => {
     const result = await convertDecodedFigToEditableHtml(
       {
@@ -263,7 +595,34 @@ describe("editable .fig conversion", () => {
       preferredFrame: { title: "Card", width: 320, height: 200 },
     });
     expect(result.files[0]!.content).toContain("Editable title");
-    expect(result.files[0]!.content).toContain('layer-name="Card"');
+    expect(result.files[0]!.content).toContain(
+      'data-agent-native-layer-name="Card"',
+    );
+    expect(result.files[0]!.content).toContain(
+      'data-agent-native-layer-name="Title"',
+    );
+    expect(result.files[0]!.content).not.toMatch(/\s+layer-name\s*=/);
+    const projection = buildCodeLayerProjection(result.files[0]!.content, {
+      source: { kind: "design-file", fileId: "fig-import" },
+    });
+    expect(
+      projection.nodes.find(
+        (node) =>
+          node.dataAttributes["data-agent-native-layer-name"] === "Card",
+      ),
+    ).toMatchObject({
+      layerName: "Card",
+      layerNameAttribute: "data-agent-native-layer-name",
+    });
+    expect(
+      projection.nodes.find(
+        (node) =>
+          node.dataAttributes["data-agent-native-layer-name"] === "Title",
+      ),
+    ).toMatchObject({
+      layerName: "Title",
+      layerNameAttribute: "data-agent-native-layer-name",
+    });
     expect(result.files[0]!.content).not.toMatch(/data:[^;]+;base64/i);
     expect(result.warnings).toEqual([]);
     expect(result.stats).toMatchObject({
@@ -276,7 +635,6 @@ describe("editable .fig conversion", () => {
 
   it("keeps a frame-child at its parent-relative offset, ignoring the frame's canvas position", () => {
     const document = editableDocument();
-    // Frame far out on the canvas.
     document.nodeChanges[2]!.transform = {
       m00: 1,
       m01: 0,
@@ -285,7 +643,6 @@ describe("editable .fig conversion", () => {
       m11: 1,
       m12: 800,
     };
-    // Child at a parent-relative offset (Kiwi transforms are relativeTransform).
     document.nodeChanges[3]!.transform = {
       m00: 1,
       m01: 0,
@@ -299,7 +656,6 @@ describe("editable .fig conversion", () => {
 
     expect(rendered.frames[0]!.html).toContain("left: 26.19px");
     expect(rendered.frames[0]!.html).toContain("top: 0px");
-    // The frame's own canvas offset must not leak into the child.
     expect(rendered.frames[0]!.html).not.toContain("left: 826.19px");
     expect(rendered.frames[0]!.html).not.toContain("left: -773");
   });
@@ -344,7 +700,6 @@ describe("editable .fig conversion", () => {
           type: "FRAME",
           name: "Image wrapper",
           size: { x: 200, y: 100 },
-          // Parent-relative offset inside the offset frame.
           transform: {
             m00: 1,
             m01: 0,
@@ -382,6 +737,116 @@ describe("editable .fig conversion", () => {
     expect(rendered.frames[0]!.html).toContain("left: 10px; top: 20px");
   });
 
+  it("sorts section frames by their full accumulated affine transform", () => {
+    const guid = (localID: number) => ({ sessionID: 1, localID });
+    const transform = (
+      m00: number,
+      m01: number,
+      m02: number,
+      m10: number,
+      m11: number,
+      m12: number,
+    ) => ({
+      m00,
+      m01,
+      m02,
+      m10,
+      m11,
+      m12,
+    });
+    const page: FigNode = { guid: guid(1), type: "CANVAS" };
+    const rotatedSection: FigNode = {
+      guid: guid(2),
+      type: "SECTION",
+      transform: transform(0, -1, 100, 1, 0, 0),
+    };
+    const rotatedFrame: FigNode = {
+      guid: guid(3),
+      type: "FRAME",
+      name: "Rotated section frame",
+      transform: transform(1, 0, 0, 0, 1, 200),
+    };
+    const rightSection: FigNode = {
+      guid: guid(4),
+      type: "SECTION",
+      transform: transform(1, 0, -50, 0, 1, 0),
+    };
+    const rightFrame: FigNode = {
+      guid: guid(5),
+      type: "FRAME",
+      name: "Right frame",
+      transform: transform(1, 0, 0, 0, 1, 0),
+    };
+    const childrenOf = new Map<string, FigNode[]>([
+      ["1:1", [rotatedSection, rightSection]],
+      ["1:2", [rotatedFrame]],
+      ["1:4", [rightFrame]],
+    ]);
+
+    expect(
+      collectTopLevelFrames(page, childrenOf).map((frame) => frame.name),
+    ).toEqual(["Rotated section frame", "Right frame"]);
+  });
+
+  it("sorts transformed frames by their rendered bounds, not just their origin", () => {
+    const guid = (localID: number) => ({ sessionID: 1, localID });
+    const page: FigNode = { guid: guid(1), type: "CANVAS" };
+    const rotatedSection: FigNode = {
+      guid: guid(2),
+      type: "SECTION",
+      transform: {
+        m00: 0,
+        m01: -1,
+        m02: 100,
+        m10: 1,
+        m11: 0,
+        m12: 0,
+      },
+    };
+    const rotatedFrame: FigNode = {
+      guid: guid(3),
+      type: "FRAME",
+      name: "Rotated bounds frame",
+      size: { x: 20, y: 300 },
+    };
+    const rightFrame: FigNode = {
+      guid: guid(4),
+      type: "FRAME",
+      name: "Right frame",
+      size: { x: 20, y: 20 },
+    };
+    const childrenOf = new Map<string, FigNode[]>([
+      ["1:1", [rotatedSection, rightFrame]],
+      ["1:2", [rotatedFrame]],
+    ]);
+
+    expect(
+      collectTopLevelFrames(page, childrenOf).map((frame) => frame.name),
+    ).toEqual(["Rotated bounds frame", "Right frame"]);
+  });
+
+  it("bounds section traversal by the caller's node budget", () => {
+    const guid = (localID: number) => ({ sessionID: 1, localID });
+    const page: FigNode = { guid: guid(1), type: "CANVAS" };
+    const section: FigNode = { guid: guid(2), type: "SECTION" };
+    const shapes: FigNode[] = Array.from({ length: 8 }, (_, index) => ({
+      guid: guid(10 + index),
+      type: "RECTANGLE",
+    }));
+    const frame: FigNode = { guid: guid(3), type: "FRAME", name: "Frame" };
+    const childrenOf = new Map<string, FigNode[]>([
+      ["1:1", [section]],
+      ["1:2", [...shapes, frame]],
+    ]);
+
+    expect(() => collectTopLevelFrames(page, childrenOf, 5)).toThrow(
+      /section traversal exceeded its node budget/,
+    );
+    expect(
+      collectTopLevelFrames(page, childrenOf, 10).map((node) => node.name),
+    ).toEqual(["Frame"]);
+  });
+
   it("imports all frames from the uploaded file", async () => {
     const result = await convertDecodedFigToEditableHtml(
       {
@@ -398,6 +863,203 @@ describe("editable .fig conversion", () => {
     );
 
     expect(result.files).toHaveLength(2);
+  });
+
+  it("imports files with more than 200 top-level frames", () => {
+    const nodes: FigNode[] = [
+      { guid: { sessionID: 1, localID: 1 }, type: "DOCUMENT" },
+      {
+        guid: { sessionID: 1, localID: 2 },
+        parentIndex: {
+          guid: { sessionID: 1, localID: 1 },
+          position: "a",
+        },
+        type: "CANVAS",
+        name: "Page 1",
+      },
+      ...Array.from({ length: 201 }, (_, index) => ({
+        guid: { sessionID: 1, localID: index + 3 },
+        parentIndex: {
+          guid: { sessionID: 1, localID: 2 },
+          position: String(index).padStart(3, "0"),
+        },
+        type: "FRAME",
+        name: `Frame ${index + 1}`,
+        size: { x: 320, y: 200 },
+        transform: {
+          m00: 1,
+          m01: 0,
+          m02: index * 320,
+          m10: 0,
+          m11: 1,
+          m12: 0,
+        },
+      })),
+    ];
+
+    expect(renderHtmlTemplates({ nodeChanges: nodes }).frames).toHaveLength(
+      201,
+    );
+
+    const tooManyNodes = [
+      ...nodes,
+      ...Array.from({ length: 100 }, (_, index) => ({
+        guid: { sessionID: 1, localID: index + 204 },
+        parentIndex: {
+          guid: { sessionID: 1, localID: 2 },
+          position: String(index + 201).padStart(3, "0"),
+        },
+        type: "FRAME",
+        name: `Frame ${index + 202}`,
+        size: { x: 320, y: 200 },
+        transform: {
+          m00: 1,
+          m01: 0,
+          m02: (index + 201) * 320,
+          m10: 0,
+          m11: 1,
+          m12: 0,
+        },
+      })),
+    ];
+    expect(() => renderHtmlTemplates({ nodeChanges: tooManyNodes })).toThrow(
+      /max 300/i,
+    );
+  });
+
+  it("summarizes the document and warns before an oversized import", () => {
+    const decoded = {
+      format: "kiwi" as const,
+      document: twoFrameEditableDocument(),
+      images: [],
+      thumbnail: null,
+    };
+
+    const summary = inspectDecodedFig(decoded);
+
+    expect(summary).toMatchObject({
+      pageCount: 1,
+      frameCount: 2,
+      nodeCount: 5,
+      imageCount: 0,
+    });
+    expect(summary.frames.map((frame) => frame.frameName)).toEqual([
+      "Card",
+      "Banner",
+    ]);
+    expect(shouldWarnForFigImport(1024, summary)).toBe(false);
+    expect(shouldWarnForFigImport(10 * 1024 * 1024, summary)).toBe(true);
+  });
+
+  it("renders and uploads only selected frames and their images", async () => {
+    const document = twoFrameEditableDocument();
+    const card = document.nodeChanges[2]! as {
+      fillPaints?: unknown[];
+    };
+    card.fillPaints = [{ type: "IMAGE", image: { hash: "image-a" } }];
+    const banner = document.nodeChanges[4]! as {
+      fillPaints?: unknown[];
+    };
+    banner.fillPaints = [{ type: "IMAGE", image: { hash: "image-b" } }];
+    const uploader = vi.fn().mockResolvedValue({
+      url: "https://assets.example.com/selected.png",
+    });
+
+    const result = await convertShared(
+      {
+        format: "kiwi",
+        document,
+        images: [
+          { hash: "image-a", ext: "png", bytes: Buffer.from([1, 2, 3]) },
+          { hash: "image-b", ext: "png", bytes: Buffer.from([4, 5, 6]) },
+        ],
+        thumbnail: null,
+      },
+      {
+        originalName: "selected.fig",
+        ownerEmail: "example@example.com",
+        normalizeHtml: (content) => content,
+        selection: new Set(["1:3"]),
+        uploader,
+      },
+    );
+
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0]!.preferredFrame?.title).toBe("Card");
+    expect(uploader).toHaveBeenCalledTimes(1);
+    expect(uploader).toHaveBeenCalledWith(
+      expect.objectContaining({ filename: "figma-image-a.png" }),
+    );
+    expect(result.stats.uploadedImageCount).toBe(1);
+  });
+
+  it("renders a selected frame nested inside a section", () => {
+    const document = editableDocument();
+    document.nodeChanges[2]!.parentIndex = {
+      guid: { sessionID: 1, localID: 5 },
+      position: "a",
+    };
+    document.nodeChanges.splice(2, 0, {
+      guid: { sessionID: 1, localID: 5 },
+      parentIndex: {
+        guid: { sessionID: 1, localID: 2 },
+        position: "a",
+      },
+      type: "SECTION",
+      name: "Section",
+    });
+
+    const result = renderHtmlTemplates(document, {
+      selection: new Set(["1:3"]),
+    });
+
+    expect(result.frames).toHaveLength(1);
+    expect(result.frames[0]!.frameName).toBe("Card");
+  });
+
+  it("imports multi-frame flows in left-to-right canvas order, not layer/creation order", async () => {
+    const document = editableDocument();
+    const frame = (
+      localID: number,
+      position: string,
+      name: string,
+      x: number,
+    ) => ({
+      guid: { sessionID: 1, localID },
+      parentIndex: { guid: { sessionID: 1, localID: 2 }, position },
+      type: "FRAME" as const,
+      name,
+      size: { x: 320, y: 200 },
+      transform: { m00: 1, m01: 0, m02: x, m10: 0, m11: 1, m12: 0 },
+      fillPaints: [{ type: "SOLID", color: { r: 1, g: 1, b: 1, a: 1 } }],
+    });
+    document.nodeChanges = [
+      document.nodeChanges[0]!,
+      document.nodeChanges[1]!,
+      frame(10, "a", "Right", 800),
+      frame(11, "b", "Middle", 400),
+      frame(12, "c", "Left", 0),
+    ];
+
+    const result = await convertDecodedFigToEditableHtml(
+      {
+        format: "kiwi",
+        document,
+        images: [],
+        thumbnail: null,
+      },
+      {
+        originalName: "reordered-frames.fig",
+        ownerEmail: "example@example.com",
+        uploader: vi.fn(),
+      },
+    );
+
+    expect(result.files.map((file) => file.preferredFrame?.title)).toEqual([
+      "Left",
+      "Middle",
+      "Right",
+    ]);
   });
 
   it("uploads embedded images through file storage and persists only the URL", async () => {
@@ -440,32 +1102,167 @@ describe("editable .fig conversion", () => {
     expect(result.stats.uploadedImageCount).toBe(1);
   });
 
-  it("omits image bytes safely and reports the degradation when storage is unavailable", async () => {
-    const result = await convertDecodedFigToEditableHtml(
-      {
-        format: "kiwi",
-        document: editableDocument("abc123"),
-        images: [
-          {
-            hash: "abc123",
-            ext: "png",
-            bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
-          },
-        ],
-        thumbnail: null,
-      },
-      {
-        originalName: "no-storage.fig",
-        ownerEmail: "example@example.com",
-        uploader: vi.fn().mockResolvedValue(null),
-      },
-    );
+  it("rejects the whole import when storage is unavailable instead of omitting images", async () => {
+    const uploader = vi.fn().mockResolvedValue(null);
 
-    expect(result.files[0]!.content).toContain("about:blank");
-    expect(result.files[0]!.content).not.toMatch(/data:[^;]+;base64/i);
-    expect(result.warnings).toContainEqual(expect.stringMatching(/omitted/i));
-    expect(result.warnings.join(" ")).not.toMatch(/proprietary/i);
-    expect(result.stats.omittedImageCount).toBe(1);
+    await expect(
+      convertDecodedFigToEditableHtml(
+        {
+          format: "kiwi",
+          document: editableDocument("abc123"),
+          images: [
+            {
+              hash: "abc123",
+              ext: "png",
+              bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+            },
+          ],
+          thumbnail: null,
+        },
+        {
+          originalName: "no-storage.fig",
+          ownerEmail: "example@example.com",
+          uploader,
+        },
+      ),
+    ).rejects.toThrow(/file storage was unavailable or rejected the upload/i);
+    expect(uploader).toHaveBeenCalledOnce();
+  });
+
+  it("stops later image batches and rejects when an upload is rejected", async () => {
+    const cleanup = vi.fn().mockResolvedValue(true);
+    const uploader = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("provider unavailable"))
+      .mockResolvedValue({
+        url: "https://assets.example.com/image.png",
+        cleanup,
+      });
+    const images = Array.from({ length: 5 }, (_, index) => ({
+      hash: index === 0 ? "abc123" : `extra${index}`,
+      ext: "png",
+      bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47, index]),
+    }));
+
+    await expect(
+      convertDecodedFigToEditableHtml(
+        {
+          format: "kiwi",
+          document: editableDocument("abc123"),
+          images,
+          thumbnail: null,
+        },
+        {
+          originalName: "rejected-image.fig",
+          ownerEmail: "example@example.com",
+          uploader,
+        },
+      ),
+    ).rejects.toThrow(/file storage was unavailable or rejected the upload/i);
+    expect(uploader).toHaveBeenCalledTimes(4);
+    expect(cleanup).toHaveBeenCalledTimes(3);
+  });
+
+  it("reports when a provider cannot delete successful uploads from a failed batch", async () => {
+    const cleanup = vi.fn().mockResolvedValue(false);
+    const uploader = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("provider unavailable"))
+      .mockResolvedValue({
+        url: "https://assets.example.com/image.png",
+        cleanup,
+      });
+
+    await expect(
+      convertDecodedFigToEditableHtml(
+        {
+          format: "kiwi",
+          document: editableDocument("abc123"),
+          images: Array.from({ length: 2 }, (_, index) => ({
+            hash: `cleanup${index}`,
+            ext: "png",
+            bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47, index]),
+          })),
+          thumbnail: null,
+        },
+        {
+          originalName: "failed-cleanup.fig",
+          ownerEmail: "example@example.com",
+          uploader,
+        },
+      ),
+    ).rejects.toThrow(/storage cleanup failed for 1 uploaded image/i);
+    expect(cleanup).toHaveBeenCalledOnce();
+  });
+
+  it("deletes server uploads from a failed batch through the active provider", async () => {
+    fileUploadMocks.uploadFile.mockReset();
+    fileUploadMocks.deleteUploadedFile.mockReset();
+    fileUploadMocks.uploadFile
+      .mockResolvedValueOnce({
+        url: "https://assets.example.com/first.png",
+        provider: "s3",
+        id: "uploads/first.png",
+      })
+      .mockRejectedValueOnce(new Error("provider unavailable"));
+    fileUploadMocks.deleteUploadedFile.mockResolvedValue(true);
+
+    await expect(
+      convertDecodedFigToEditableHtml(
+        {
+          format: "kiwi",
+          document: editableDocument("abc123"),
+          images: ["abc123", "extra"].map((hash, index) => ({
+            hash,
+            ext: "png",
+            bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47, index]),
+          })),
+          thumbnail: null,
+        },
+        {
+          originalName: "failed-server-batch.fig",
+          ownerEmail: "example@example.com",
+        },
+      ),
+    ).rejects.toThrow(/file storage was unavailable or rejected the upload/i);
+    expect(fileUploadMocks.deleteUploadedFile).toHaveBeenCalledWith("s3", {
+      url: "https://assets.example.com/first.png",
+      id: "uploads/first.png",
+    });
+  });
+
+  it("cleans uploaded images when HTML normalization fails", async () => {
+    const cleanup = vi.fn().mockResolvedValue(true);
+    const uploader = vi.fn().mockResolvedValue({
+      url: "https://assets.example.com/image.png",
+      cleanup,
+    });
+
+    await expect(
+      convertShared(
+        {
+          format: "kiwi",
+          document: editableDocument("abc123"),
+          images: [
+            {
+              hash: "abc123",
+              ext: "png",
+              bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+            },
+          ],
+          thumbnail: null,
+        },
+        {
+          originalName: "normalize-failure.fig",
+          ownerEmail: "example@example.com",
+          uploader,
+          normalizeHtml: () => {
+            throw new Error("normalizer failed");
+          },
+        },
+      ),
+    ).rejects.toThrow("normalizer failed");
+    expect(cleanup).toHaveBeenCalledOnce();
   });
 
   it("validates renderable frames before uploading any extracted blobs", async () => {

@@ -1,6 +1,10 @@
+import type {
+  MCPConfig,
+  McpDirectoryWidgetTarget,
+} from "../../mcp/build-server.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
+import type { McpDirectoryWidgetReadArgument } from "../../shared/embed-auth.js";
 
-/** App icon descriptor surfaced during the MCP `initialize` handshake. */
 export interface AgentChatMcpIcon {
   src: string;
   mimeType?: string;
@@ -8,73 +12,61 @@ export interface AgentChatMcpIcon {
   theme?: "light" | "dark";
 }
 
-/**
- * Everything the agent-chat plugin can configure about its MCP mount, in one
- * object.
- *
- * Before this existed, the MCP settings were five unrelated top-level keys
- * (`disableMcp`, `mcpServerInfo`, `connectorCatalog`, `externalAgents`) and
- * several `MCPConfig` fields with no route through the plugin at all —
- * `builtinCrossAppTools` was reachable only by calling `mountMCP` directly,
- * which is why `frameworkTools` could never remove the cross-app builtins from
- * an app that used the normal plugin entry point.
- */
 export interface AgentChatMcpOptions {
-  /**
-   * Mount the remote MCP protocol route. Defaults to `true`.
-   *
-   * Set `false` for hosted apps with a dedicated early MCP plugin, so their
-   * external connector does not depend on the heavier chat plugin
-   * initialization path.
-   */
   enabled?: boolean;
-  /**
-   * `"app"` serves external callers exactly this app's own tool registry,
-   * flat — the same actions the in-app agent holds, with no cross-app
-   * builtins, no `ask-agent`, no `tool-search`, and no compact/connector
-   * trimming. `connectorCatalog` and the `--full-catalog` opt-ins are inert
-   * once this is set; `externalAgents.denyActions` and OAuth scopes still
-   * apply.
-   *
-   * Weigh the token cost before setting it: an app registering ~100 actions
-   * puts every one of their schemas in the caller's context on `tools/list`,
-   * which is the exact footgun the compact default exists to avoid.
-   */
-  catalog?: "app";
-  /**
-   * Curated allow-list of action names served to external connector clients.
-   * Trims both the advertised and the callable surface — a name outside the
-   * list is rejected, not merely hidden.
-   */
+  catalog?: "app" | "directory";
   connectorCatalog?: string[];
-  /**
-   * Default authenticated external-agent policy. In `auto` read mode, every
-   * action explicitly marked as GET + readOnly + publicAgent.requiresAuth is
-   * added to the connector surface automatically. Writes remain ask_app-only
-   * unless `writes: "allowlisted"` is explicitly selected.
-   */
+  directoryProfile?: {
+    connectorCatalog: string[];
+    instructions?: string;
+    widgets?: boolean;
+    widgetTargets?: Record<
+      string,
+      (
+        args: Record<string, unknown>,
+        result: unknown,
+      ) => McpDirectoryWidgetTarget | null
+    >;
+    authorizeWidgetWrite?: NonNullable<
+      MCPConfig["directoryProfile"]
+    >["authorizeWidgetWrite"];
+    widgetReadActionArguments?: Record<
+      string,
+      Record<string, McpDirectoryWidgetReadArgument>
+    >;
+    widgetWriteActionArguments?: Record<
+      string,
+      Record<string, McpDirectoryWidgetReadArgument>
+    >;
+    /** Actions whose capability-backed `mcp-widget` execution is strictly read-only. */
+    widgetReadOnlyActions?: readonly string[];
+    /** Unlisted public reads that are available only through a scoped widget ticket. */
+    widgetReadPublicActions?: readonly string[];
+    /** Unlisted authenticated reads available only through a scoped widget ticket. */
+    widgetReadPrivateActions?: readonly string[];
+    /** Authenticated reads surfaced on other agent profiles, but only scoped here. */
+    widgetReadAuthenticatedActions?: readonly string[];
+    /** Scoped reads minted only into a write capability that lists the mapped write action. */
+    widgetReadActionWriteGates?: Record<string, string>;
+    /** Omit the one shared resource title when tools have distinct invocation labels. */
+    widgetResourceTitle?: string | false;
+    keyToolNames?: readonly string[];
+    toolDescriptions?: Record<string, string>;
+    toolParameterDescriptions?: Record<string, Record<string, string>>;
+    hiddenToolParameters?: Record<string, string[]>;
+    projectResult?: (toolName: string, result: unknown) => unknown;
+  };
   externalAgents?: ExternalAgentPolicy;
-  /**
-   * Merge the generic cross-app builtins (`list_apps`, `open_app`, `ask_app`,
-   * `ask_app_status`, `create_embed_session`, `create_workspace_app`,
-   * `list_templates`). Defaults to `true`.
-   *
-   * These are added by the MCP layer itself, downstream of `frameworkTools`,
-   * so they are NOT removed by `frameworkTools: "minimal"` or
-   * `workspaceApps: false` — this is the switch that turns them off.
-   */
   builtinCrossAppTools?: boolean;
-  /** Human-facing title. Defaults to the capitalized app id/name. */
   title?: string;
-  /** Host-facing description. Defaults to "Agent-Native <app> agent". */
   description?: string;
-  /** Canonical app URL. Relative URLs are resolved against the request origin. */
   websiteUrl?: string;
-  /** App icons. Relative `src` values are resolved against the request origin. */
+  widgetDomain?: string;
   icons?: AgentChatMcpIcon[];
+  instructions?: string;
+  keyToolNames?: readonly string[];
 }
 
-/** The legacy top-level keys `mcp` replaces. */
 export interface AgentChatMcpLegacyInput {
   /** @deprecated Use `mcp.enabled: false`. */
   disableMcp?: boolean;
@@ -84,24 +76,30 @@ export interface AgentChatMcpLegacyInput {
     description?: string;
     websiteUrl?: string;
     icons?: AgentChatMcpIcon[];
+    instructions?: string;
   };
   /** @deprecated Use `mcp.connectorCatalog`. */
   connectorCatalog?: string[];
   /** @deprecated Use `mcp.externalAgents`. */
   externalAgents?: ExternalAgentPolicy;
+  initialToolNames?: readonly string[];
   mcp?: AgentChatMcpOptions;
 }
 
 export interface ResolvedAgentChatMcp {
   enabled: boolean;
-  catalog: "app" | undefined;
+  catalog: "app" | "directory" | undefined;
   connectorCatalog: string[] | undefined;
+  directoryProfile: AgentChatMcpOptions["directoryProfile"] | undefined;
   externalAgents: ExternalAgentPolicy | undefined;
   builtinCrossAppTools: boolean | undefined;
   title: string | undefined;
   description: string | undefined;
   websiteUrl: string | undefined;
+  widgetDomain: string | undefined;
   icons: AgentChatMcpIcon[] | undefined;
+  instructions: string | undefined;
+  keyToolNames: readonly string[] | undefined;
 }
 
 function conflict(
@@ -119,14 +117,6 @@ function conflict(
 
 const warnedLegacyKeys = new Set<string>();
 
-/**
- * Nested value wins, but only when the two forms agree.
- *
- * Disagreement throws at plugin init rather than picking a side: an app that
- * boots with an MCP surface nobody chose is how a "why can't the connector see
- * this tool" report ends up unexplainable. Same contract as
- * `resolveFrameworkTools`.
- */
 function pick<T>(
   key: string,
   legacyKey: string,
@@ -149,18 +139,12 @@ function pick<T>(
   return nestedValue ?? legacyValue;
 }
 
-/**
- * Collapse the nested `mcp` option and the legacy top-level keys into the one
- * shape the plugin threads into `mountMCP`.
- */
 export function resolveAgentChatMcpOptions(
   input: AgentChatMcpLegacyInput | undefined,
 ): ResolvedAgentChatMcp {
   const mcp = input?.mcp ?? {};
   const legacyInfo = input?.mcpServerInfo;
 
-  // `disableMcp` is the inverse of `enabled`, so normalize before comparing —
-  // otherwise `disableMcp: true` + `enabled: false` would read as a conflict.
   const legacyEnabled =
     input?.disableMcp === undefined ? undefined : !input.disableMcp;
   const enabled = pick("enabled", "disableMcp", legacyEnabled, mcp.enabled);
@@ -171,12 +155,6 @@ export function resolveAgentChatMcpOptions(
     input?.connectorCatalog,
     mcp.connectorCatalog,
   );
-  // `catalogMode: "app"` short-circuits `connectorCatalogActive` in
-  // `build-server.ts`, so declaring both served the app's FULL registry while
-  // the allow-list sat in the config looking authoritative. That is the same
-  // unexplainable-report shape `pick` throws on, minus the legacy/nested pair:
-  // an allow-list is written to keep something off the external surface, and
-  // silently ignoring it hands every action schema to every connector client.
   if (
     mcp.catalog === "app" &&
     connectorCatalog &&
@@ -194,6 +172,7 @@ export function resolveAgentChatMcpOptions(
     enabled: enabled ?? true,
     catalog: mcp.catalog,
     connectorCatalog,
+    directoryProfile: mcp.directoryProfile,
     externalAgents: pick(
       "externalAgents",
       "externalAgents",
@@ -214,6 +193,14 @@ export function resolveAgentChatMcpOptions(
       legacyInfo?.websiteUrl,
       mcp.websiteUrl,
     ),
+    widgetDomain: mcp.widgetDomain,
     icons: pick("icons", "mcpServerInfo.icons", legacyInfo?.icons, mcp.icons),
+    instructions: pick(
+      "instructions",
+      "mcpServerInfo.instructions",
+      legacyInfo?.instructions,
+      mcp.instructions,
+    ),
+    keyToolNames: mcp.keyToolNames ?? input?.initialToolNames,
   };
 }

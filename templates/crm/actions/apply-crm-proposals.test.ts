@@ -7,10 +7,6 @@ const state = vi.hoisted(() => ({
   link: { available: true, url: "https://app.hubspot.com/record" } as unknown,
 }));
 
-/**
- * `.limit()` is optional in the action: the record-field read is an unbounded
- * `where(...)` await, every other read chains `.limit(1)`.
- */
 function query(rows: unknown[]) {
   return Object.assign(rows, { limit: vi.fn().mockResolvedValue(rows) });
 }
@@ -203,8 +199,6 @@ describe("apply-crm-proposals", () => {
         updatedAt: expect.any(String),
       },
     ]);
-    // Distinguishable from applied (`appliedAt`/`status: "applied"`) and from
-    // failed (`status: "failed"`/`"rejected"` with a non-null `error`).
     const [ledger] = state.updates as Array<Record<string, unknown>>;
     expect(ledger).not.toHaveProperty("appliedAt");
     expect(ledger.error).toBeNull();

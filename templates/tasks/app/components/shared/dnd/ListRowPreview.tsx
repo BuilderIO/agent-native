@@ -1,10 +1,5 @@
 import { type ReactNode } from "react";
 
-/**
- * Drag overlay wrapper. It renders the real row (passed as children) so the
- * preview always matches the actual row — no per-list chrome duplication. It
- * only adds the block-drag count badge and the overlay test hook.
- */
 interface ListRowPreviewProps {
   id: string;
   overlayDataAttribute: string;

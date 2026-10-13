@@ -1,21 +1,53 @@
 import type * as amplitude from "@amplitude/analytics-browser";
 import type * as Sentry from "@sentry/browser";
 
+import { recordTrackingEvent } from "../observability/tracing.js";
+import {
+  AGENT_NATIVE_LIFECYCLE_EVENTS,
+  AGENT_SIGNALS_PAGEVIEW_PROPERTY,
+  AGENT_SIGNALS_VERSION,
+  canonicalTrackingEvent,
+  legacyLifecycleEvent,
+  normalizeTrackingDimension,
+  PAGE_LOAD_PAGEVIEW_PROPERTY,
+  isWaitedActionResponse,
+  SLOW_ACTION_RESPONSE_MS,
+  TRACKING_EVENT_ALIAS_ID_PROPERTY,
+  withCanonicalTrackingProperties,
+  type AgentNativeLifecycleEventName,
+} from "../shared/analytics-events.js";
 import {
   ANALYTICS_CLIENT_PLATFORM_PROPERTY,
   type AnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
 import {
+  hasAttributionSource,
+  type AttributionTouch,
+} from "../shared/attribution-source.js";
+import { resolveLaneEndpoint } from "../shared/environment-lanes.js";
+import {
+  classifyErrorNoise,
+  type ErrorNoiseFrame,
+} from "../shared/error-noise.js";
+import {
   llmConnectionTrackingProperties,
   type LlmConnectionStatus,
 } from "../shared/llm-connection.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
+import { isTestIdentityEmail } from "../shared/qa-test-email.js";
+import { isSyntheticTrafficValue } from "../shared/test-traffic.js";
 import { toPostHogExceptionProperties } from "../tracking/posthog-exception.js";
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import {
+  getAnalyticsPageLoadId,
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
+import { clientBuildId } from "./build-compatibility.js";
+import { clientFailureContext } from "./failure-report.js";
+import { replayEndpointFromAnalyticsEndpoint } from "./session-replay-endpoint.js";
+import { scheduleAfterPaint } from "./use-after-paint.js";
 export {
   clearAnalyticsSessionId,
   setAnalyticsSessionId,
@@ -25,15 +57,22 @@ import {
   fetchAuthSessionStatus,
 } from "./client-status-requests.js";
 import {
+  firstPartyHosts,
   installErrorCapture,
   type CapturedExceptionEvent,
 } from "./error-capture.js";
-import { isDynamicImportFailureMessage } from "./route-chunk-recovery.js";
+import { currentRouteTemplate } from "./route-template.js";
 import type {
   SessionReplayOptions,
   SessionReplayStartResult,
 } from "./session-replay.js";
 import { scrubUrl } from "./url-scrub.js";
+import {
+  installWebVitals,
+  type PageViewVitals,
+  type WebVitalsController,
+  type WebVitalsLocation,
+} from "./web-vitals.js";
 export { scrubUrl } from "./url-scrub.js";
 export {
   addErrorBreadcrumb,
@@ -50,46 +89,38 @@ export type {
   SessionReplayNetworkOptions,
   SessionReplayOptions,
   SessionReplayStartResult,
-  SessionReplayContext,
-  SessionReplayLinkOptions,
   SessionReplayUrlMatcher,
 } from "./session-replay.js";
 export {
   getSessionReplayContext,
   getSessionReplayUrl,
-} from "./session-replay.js";
+} from "./session-replay-context.js";
+export type {
+  SessionReplayContext,
+  SessionReplayLinkOptions,
+} from "./session-replay-context.js";
 
 declare global {
   interface Window {
     gtag?: (...args: any[]) => void;
+    __AGENT_NATIVE_GA_GTAG__?: (...args: any[]) => void;
+    __AGENT_NATIVE_SYNTHETIC_TRAFFIC__?: string;
     __AGENT_NATIVE_CONFIG__?: {
-      /**
-       * This app's origins, projected by server/app-origin-config.ts. These
-       * replace the `VITE_` mirrors of APP_URL / WORKSPACE_* — the prefix only
-       * ever answered "how does this reach the browser", which the shell
-       * answers better. Impersonal, so safe in the CDN-cached shell.
-       */
+      appHomePath?: string;
       appUrl?: string;
       workspaceGatewayUrl?: string;
       workspaceOAuthOrigin?: string;
       workspaceRuntime?: boolean;
+      workspaceAppPath?: string;
+      workspaceAppMountPaths?: string[];
       sentryDsn?: string;
       sentryEnvironment?: string;
       deploymentEnvironment?: string;
-      /**
-       * Public PostHog project key + host. Publishable and identical for every
-       * visitor, so it ships inside the CDN-cached SSR shell alongside the
-       * Sentry DSN. Absent when no public key is configured.
-       */
       posthogKey?: string;
       posthogHost?: string;
       posthogErrorTracking?: boolean;
-      /**
-       * Hosted Realtime Gateway config. Impersonal (same for every visitor),
-       * so it is safe inside the CDN-cached SSR shell — unlike the per-user
-       * subscribe token, which is minted client-side after load. Absent when
-       * the app uses the in-process (local) transport.
-       */
+      agentNativeAnalyticsPublicKey?: string;
+      agentNativeAnalyticsEndpoint?: string;
       realtime?: { transport?: string; gatewayBaseUrl?: string };
     };
   }
@@ -103,67 +134,40 @@ type GetDefaultProps = (
 type PageviewTrackingState = {
   installed: boolean;
   lastPageviewKey: string | null;
+  webVitalsInstalled?: boolean;
+  webVitals?: WebVitalsController | null;
+};
+
+type AppEntryTrackingState = {
+  entryKey?: string | null;
+  entryKeys?: Set<string>;
 };
 
 type AgentChatTrackingState = {
   seen: Map<string, number>;
 };
 
-/**
- * First-party, Sentry-style error capture configuration. Pass `true`/`false`
- * to force on/off, or an options object to tune it. When omitted, error
- * capture auto-enables whenever a first-party analytics public key is
- * configured (mirroring pageview + session-replay auto-enable).
- */
 export type ErrorCaptureConfigOptions = {
-  /** Build/release identifier attached to every captured exception. */
   release?: string;
-  /** Deployment environment (e.g. "production"). Defaults to Vite MODE. */
   environment?: string;
-  /** Auto-capture `window.onerror`. Defaults to true. */
   captureGlobalErrors?: boolean;
-  /** Auto-capture `unhandledrejection`. Defaults to true. */
   captureUnhandledRejections?: boolean;
-  /** Breadcrumb ring-buffer size. Defaults to 20. */
   maxBreadcrumbs?: number;
 };
 
 export type ConfigureTrackingOptions = {
-  /** Platform attribution attached to every event emitted by this client. */
   clientPlatform?: AnalyticsClientPlatform;
-  /**
-   * Agent-Native first-party analytics public key. This mirrors hosted
-   * analytics SDKs where consumers pass the key at setup time instead of
-   * relying on build-time environment variables.
-   */
   key?: string;
-  /** Alias for `key`, matching the replay ingest payload name. */
   publicKey?: string;
-  /** First-party analytics track endpoint. */
   endpoint?: string;
   getDefaultProps?: GetDefaultProps;
-  /**
-   * Disable content-capturing analytics such as interaction autocapture and
-   * session replay while retaining pageviews, explicit events, and Sentry.
-   */
   contentCapture?: boolean;
-  /** Resolve content capture synchronously for each browser pathname. */
   contentCaptureForPath?: (pathname: string) => boolean;
-  /**
-   * Whether tracking may read the authenticated agent-engine status endpoint.
-   * Disable this on anonymous/public routes to avoid an expected 401 request.
-   */
   llmConnectionStatus?: boolean;
-  /** Disable framework auth refresh when the host owns identity/session state. */
   authSessionRefresh?: boolean;
-  /** Disable automatic history/pageview events when the host emits its own. */
   pageviewTracking?: boolean;
+  webVitals?: boolean;
   sessionReplay?: boolean | SessionReplayOptions;
-  /**
-   * First-party, Sentry-style error capture. Auto-captures uncaught errors
-   * and unhandled rejections and exposes `captureException`/`captureMessage`.
-   * Auto-enables when a public key is present; pass `false` to disable.
-   */
   errorCapture?: boolean | ErrorCaptureConfigOptions;
 };
 
@@ -171,13 +175,21 @@ export type TrackingIdentityUser = {
   id?: string;
   email?: string;
   username?: string;
+  authUserId?: string;
+  /**
+   * The session endpoint's `testIdentity`: covers identities the deployment
+   * configured, which the built-in matcher here cannot see.
+   */
+  testIdentity?: boolean;
 };
 
 type TrackingIdentity = {
   userId?: string;
+  authUserId?: string;
   userEmail?: string;
   userName?: string;
   orgId?: string | null;
+  testIdentity?: boolean;
 };
 
 let _getDefaultProps: GetDefaultProps | null = null;
@@ -199,6 +211,7 @@ let _pendingSentryCaptures: Array<{
 let _llmConnectionStatus: LlmConnectionStatus | null = null;
 let _llmConnectionRefresh: Promise<void> | null = null;
 let _llmConnectionRefreshInstalled = false;
+let _llmConnectionBootRefresh: Promise<void> | null = null;
 let _trackingIdentity: TrackingIdentity | null = null;
 let _trackingIdentityResolved = false;
 let _trackingSessionRefresh: Promise<void> | null = null;
@@ -214,44 +227,36 @@ let _sessionReplayModuleForCapture:
   | null = null;
 let _trackingContentCaptureEnabled = true;
 let _contentCaptureForPath: ((pathname: string) => boolean) | null = null;
-// Buffer for setSentryUser calls made before Sentry has initialized.
-// `undefined` means "no pending update"; `null` means "pending clear".
 let _pendingSentryUser: TrackingIdentityUser | null | undefined = undefined;
 let _pendingSentryOrgId: string | null | undefined = undefined;
 
 const AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT =
   "https://analytics.agent-native.com/track";
-/**
- * Dedicated first-party analytics event name for captured exceptions. The
- * analytics server ingest forks events with this name into the error-capture
- * tables (error_issues / error_events) while still recording them in
- * analytics_events for alerting. Keep in sync with the template server ingest.
- */
 export const AGENT_NATIVE_EXCEPTION_EVENT_NAME = "$exception";
 const PAGEVIEW_TRACKING_STATE_KEY = Symbol.for(
   "agent-native.client.pageviewTracking",
+);
+const APP_ENTRY_TRACKING_STATE_KEY = Symbol.for(
+  "agent-native.client.appEntryTracking",
 );
 const AGENT_CHAT_TRACKING_STATE_KEY = Symbol.for(
   "agent-native.client.agentChatTracking",
 );
 const AGENT_CHAT_LIFECYCLE_DEDUPE_TTL_MS = 10 * 60 * 1_000;
 const MAX_AGENT_CHAT_LIFECYCLE_DEDUPE_KEYS = 1_000;
+const PAGEVIEW_STARTUP_WAIT_MS = 250;
 
 const LLM_CONNECTION_STORAGE_KEY = "agent-native.llm_connection_status";
 const LLM_CONNECTION_CACHE_TTL_MS = 5 * 60 * 1000;
 
-// First-touch referral attribution (viral attribution). Captured once on the
-// visitor's first page load and persisted across the signup boundary so the
-// server-side `signup` event can record where the user came from. First-write
-// wins — an existing value is never overwritten.
 const FIRST_TOUCH_STORAGE_KEY = "an_attribution";
 const FIRST_TOUCH_COOKIE_NAME = "an_ft";
-// 30 days, matching the session cookie lifetime — long enough to bridge a
-// "land today, sign up next week" path without retaining attribution forever.
+const APP_ENTRY_STORAGE_KEY = "agent-native.app_entry";
+const APP_LAST_ENTRY_STORAGE_KEY_PREFIX = "agent-native.app_last_entry";
+const MAX_APP_ENTRY_KEYS = 100;
+const RETURN_USAGE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 const FIRST_TOUCH_COOKIE_MAX_AGE_SECONDS = 2592000;
 const FIRST_TOUCH_MAX_FIELD_LENGTH = 120;
-// Keep the serialized cookie well under the ~4KB browser cap; we bail rather
-// than write a runaway cookie if some field combination blows past this.
 const FIRST_TOUCH_MAX_COOKIE_BYTES = 1500;
 const FIRST_TOUCH_QUERY_FIELDS = [
   "ref",
@@ -261,7 +266,102 @@ const FIRST_TOUCH_QUERY_FIELDS = [
   "utm_campaign",
   "utm_content",
   "utm_term",
+  "gclid",
+  "msclkid",
+  "vector_source",
+  "site_referrer",
+  "site_landing_path",
 ] as const;
+const FIRST_TOUCH_COOKIE_FIELD_PRIORITY = [
+  "gclid",
+  "msclkid",
+  "vector_source",
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "ref",
+  "via",
+  "utm_content",
+  "utm_term",
+  "landing_path",
+  "landing_referrer",
+  "site_referrer",
+  "site_landing_path",
+  "landed_at",
+] as const satisfies readonly (keyof FirstTouchAttribution)[];
+const LAST_TOUCH_STORAGE_KEY = "an_last_touch";
+const LAST_TOUCH_COOKIE_NAME = "an_lt";
+// Small enough that both cookies still fit the signup handoff header.
+const LAST_TOUCH_MAX_COOKIE_BYTES = 700;
+// What a sourced visit keeps as last touch, besides its path and time.
+const LAST_TOUCH_SOURCE_FIELDS = [
+  "ref",
+  "via",
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_content",
+  "utm_term",
+  "gclid",
+  "msclkid",
+  "vector_source",
+  "landing_referrer",
+  "site_referrer",
+] as const satisfies readonly (keyof LastTouchAttribution)[];
+// Which fields the cookie keeps first when they don't all fit.
+const LAST_TOUCH_COOKIE_FIELD_PRIORITY = [
+  "ref",
+  "gclid",
+  "msclkid",
+  "vector_source",
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "via",
+  "utm_content",
+  "utm_term",
+  "landing_referrer",
+  "site_referrer",
+  "landing_path",
+  "touched_at",
+  "site_landing_path",
+] as const satisfies readonly (keyof LastTouchAttribution)[];
+// The marketing site forwards its own last touch under these names when it
+// differs from the first touch it forwards as plain campaign params.
+const FORWARDED_LAST_TOUCH_FIELDS = {
+  last_ref: "ref",
+  last_via: "via",
+  last_utm_source: "utm_source",
+  last_utm_medium: "utm_medium",
+  last_utm_campaign: "utm_campaign",
+  last_utm_content: "utm_content",
+  last_utm_term: "utm_term",
+  last_gclid: "gclid",
+  last_msclkid: "msclkid",
+  last_vector_source: "vector_source",
+  last_referrer: "site_referrer",
+  last_landing_path: "site_landing_path",
+} as const satisfies Record<string, keyof LastTouchAttribution>;
+// When the site's latest sourced visit happened, so an older site visit can't
+// replace a newer one the app already has.
+const FORWARDED_LAST_TOUCH_AT_PARAM = "last_at";
+
+interface AttributionCookieSpec {
+  name: string;
+  maxBytes: number;
+  priority: readonly string[];
+}
+
+const FIRST_TOUCH_COOKIE: AttributionCookieSpec = {
+  name: FIRST_TOUCH_COOKIE_NAME,
+  maxBytes: FIRST_TOUCH_MAX_COOKIE_BYTES,
+  priority: FIRST_TOUCH_COOKIE_FIELD_PRIORITY,
+};
+const LAST_TOUCH_COOKIE: AttributionCookieSpec = {
+  name: LAST_TOUCH_COOKIE_NAME,
+  maxBytes: LAST_TOUCH_MAX_COOKIE_BYTES,
+  priority: LAST_TOUCH_COOKIE_FIELD_PRIORITY,
+};
 
 let _firstTouchCaptured = false;
 
@@ -273,9 +373,35 @@ export interface FirstTouchAttribution {
   utm_campaign?: string;
   utm_content?: string;
   utm_term?: string;
+  gclid?: string;
+  msclkid?: string;
+  vector_source?: string;
   landing_path?: string;
   landing_referrer?: string;
+  site_referrer?: string;
+  site_landing_path?: string;
   landed_at?: string;
+  capture_truncated?: string;
+}
+
+/** The latest visit that had a source; see `captureLastTouchAttribution`. */
+export interface LastTouchAttribution {
+  ref?: string;
+  via?: string;
+  utm_source?: string;
+  utm_medium?: string;
+  utm_campaign?: string;
+  utm_content?: string;
+  utm_term?: string;
+  gclid?: string;
+  msclkid?: string;
+  vector_source?: string;
+  landing_referrer?: string;
+  site_referrer?: string;
+  site_landing_path?: string;
+  landing_path?: string;
+  touched_at?: string;
+  capture_truncated?: string;
 }
 
 function safeStorageGet(key: string): string | null {
@@ -310,6 +436,9 @@ function readCachedLlmConnectionStatus(): LlmConnectionStatus | null {
     }
     return {
       configured: parsed.configured,
+      ...(typeof parsed.chatEligible === "boolean"
+        ? { chatEligible: parsed.chatEligible }
+        : {}),
       engine: parsed.engine,
       model: parsed.model,
       source: parsed.source,
@@ -330,15 +459,20 @@ function cacheLlmConnectionStatus(status: LlmConnectionStatus): void {
 
 function normalizeAgentEngineStatus(data: unknown): LlmConnectionStatus {
   const value = data as Record<string, unknown> | null;
-  if (!value || value.configured !== true) {
-    return { configured: false };
-  }
+  if (!value) return { configured: false };
   return {
-    configured: true,
-    engine: typeof value.engine === "string" ? value.engine : null,
-    model: typeof value.model === "string" ? value.model : null,
-    source: typeof value.source === "string" ? value.source : null,
-    envVar: typeof value.envVar === "string" ? value.envVar : null,
+    configured: value.configured === true,
+    ...(typeof value.chatEligible === "boolean"
+      ? { chatEligible: value.chatEligible }
+      : {}),
+    ...(value.configured === true
+      ? {
+          engine: typeof value.engine === "string" ? value.engine : null,
+          model: typeof value.model === "string" ? value.model : null,
+          source: typeof value.source === "string" ? value.source : null,
+          envVar: typeof value.envVar === "string" ? value.envVar : null,
+        }
+      : {}),
   };
 }
 
@@ -366,7 +500,14 @@ function installLlmConnectionRefresh(): void {
   if (typeof window === "undefined" || _llmConnectionRefreshInstalled) return;
   _llmConnectionRefreshInstalled = true;
   _llmConnectionStatus = readCachedLlmConnectionStatus();
-  void refreshLlmConnectionStatus();
+  _llmConnectionBootRefresh = new Promise<void>((resolve) => {
+    scheduleAfterPaint(() => {
+      void Promise.race([
+        refreshLlmConnectionStatus(),
+        new Promise<void>((resolve) => window.setTimeout(resolve, 250)),
+      ]).finally(resolve);
+    });
+  });
   window.addEventListener("focus", () => {
     void refreshLlmConnectionStatus();
   });
@@ -377,6 +518,24 @@ function installLlmConnectionRefresh(): void {
 
 function readTrackingString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function isQaTrackingIdentity(identity: TrackingIdentity | null): boolean {
+  return Boolean(
+    identity &&
+    (identity.testIdentity === true ||
+      isTestIdentityEmail(identity.userId) ||
+      isTestIdentityEmail(identity.userEmail)),
+  );
+}
+
+function isQaTrackingUser(user: TrackingIdentityUser | null): boolean {
+  return Boolean(
+    user &&
+    (user.testIdentity === true ||
+      isTestIdentityEmail(user.id) ||
+      isTestIdentityEmail(user.email)),
+  );
 }
 
 function stopSessionReplayForAuthClear(
@@ -413,8 +572,9 @@ function setTrackingIdentityFromSession(data: unknown): void {
     return;
   }
   const email = readTrackingString(session.email);
+  const canonicalAuthUserId = readTrackingString(session.authUserId);
   const authUserId = readTrackingString(session.userId);
-  const userId = email || authUserId;
+  const userId = email || canonicalAuthUserId || authUserId;
   if (!userId) {
     clearTrackingIdentity();
     return;
@@ -422,26 +582,29 @@ function setTrackingIdentityFromSession(data: unknown): void {
   const userName = readTrackingString(session.name);
   _trackingIdentity = {
     userId,
+    ...(canonicalAuthUserId ? { authUserId: canonicalAuthUserId } : {}),
     ...(email ? { userEmail: email } : {}),
     ...(userName ? { userName } : {}),
     orgId: readTrackingString(session.orgId) ?? null,
+    ...(session.testIdentity === true ? { testIdentity: true } : {}),
   };
 }
 
 function refreshTrackingAuthSession(): Promise<void> {
-  if (typeof window === "undefined" || typeof fetch !== "function") {
+  if (typeof window === "undefined") {
     _trackingIdentityResolved = true;
     return Promise.resolve();
   }
+  if (typeof fetch !== "function") return Promise.resolve();
   if (_trackingSessionRefresh) return _trackingSessionRefresh;
   _trackingSessionRefresh = fetchAuthSessionStatus()
     .then((result) => {
       if (result.state === "available") {
         setTrackingIdentityFromSession(result.value);
+        _trackingIdentityResolved = true;
       }
     })
     .finally(() => {
-      _trackingIdentityResolved = true;
       _trackingSessionRefresh = null;
     });
   return _trackingSessionRefresh;
@@ -460,11 +623,12 @@ function applyTrackingIdentity(
   properties: Record<string, unknown>,
   identity: TrackingIdentity | null = _trackingIdentity,
 ): Record<string, unknown> {
-  if (!identity) return properties;
-  let next = properties;
+  let next = { ...properties };
+  delete next.auth_user_id;
+  delete next.authUserId;
+  if (!identity) return next;
   const assign = (key: string, value: unknown) => {
     if (value !== undefined && value !== null && next[key] === undefined) {
-      if (next === properties) next = { ...properties };
       next[key] = value;
     }
   };
@@ -475,13 +639,25 @@ function applyTrackingIdentity(
   return next;
 }
 
-/**
- * The signed-in user id used to attribute browser events, or `undefined` when
- * signed out. Same value the server attributes its events to (email, falling
- * back to the auth user id), so a person is one person across both.
- */
 function getTrackingUserId(): string | undefined {
   return _trackingIdentity?.userId;
+}
+
+function getTrackingAuthUserId(): string | undefined {
+  return _trackingIdentity?.authUserId;
+}
+
+export function getAnalyticsIdentityKey(): string | undefined {
+  return getTrackingUserId() || getOrCreateAnonymousId();
+}
+
+export async function resolveAnalyticsIdentityKey(): Promise<
+  string | undefined
+> {
+  if (!_trackingIdentityResolved) {
+    await (_trackingSessionRefresh ?? refreshTrackingAuthSession());
+  }
+  return _trackingIdentityResolved ? getAnalyticsIdentityKey() : undefined;
 }
 
 function getOrCreateAnonymousId(): string | undefined {
@@ -507,11 +683,6 @@ function truncateFirstTouchField(value: string | null | undefined): string {
   return trimmed.slice(0, FIRST_TOUCH_MAX_FIELD_LENGTH);
 }
 
-/**
- * Extract just the host of a referrer URL — never the full URL or query
- * string (those can carry tokens). Returns "" when there's no usable host or
- * the referrer is same-origin (a same-site navigation isn't a referral).
- */
 function scrubReferrerHost(referrer: string | undefined): string {
   if (!referrer) return "";
   try {
@@ -530,7 +701,9 @@ function scrubReferrerHost(referrer: string | undefined): string {
   }
 }
 
-function buildFirstTouchAttribution(): FirstTouchAttribution {
+function buildFirstTouchAttribution(
+  landingPathname: string,
+): FirstTouchAttribution {
   const attribution: FirstTouchAttribution = {};
   let params: URLSearchParams | null = null;
   try {
@@ -544,7 +717,7 @@ function buildFirstTouchAttribution(): FirstTouchAttribution {
       if (value) attribution[field] = value;
     }
   }
-  const landingPath = truncateFirstTouchField(window.location.pathname);
+  const landingPath = truncateFirstTouchField(landingPathname);
   if (landingPath) attribution.landing_path = landingPath;
   const landingReferrer =
     typeof document !== "undefined" ? scrubReferrerHost(document.referrer) : "";
@@ -553,7 +726,7 @@ function buildFirstTouchAttribution(): FirstTouchAttribution {
   return attribution;
 }
 
-function readFirstTouchCookie(): string | null {
+function readAttributionCookie(cookieName: string): string | null {
   if (typeof document === "undefined") return null;
   try {
     const cookies = document.cookie ? document.cookie.split(";") : [];
@@ -561,7 +734,7 @@ function readFirstTouchCookie(): string | null {
       const eq = part.indexOf("=");
       if (eq === -1) continue;
       const name = part.slice(0, eq).trim();
-      if (name === FIRST_TOUCH_COOKIE_NAME) {
+      if (name === cookieName) {
         return part.slice(eq + 1).trim();
       }
     }
@@ -571,75 +744,275 @@ function readFirstTouchCookie(): string | null {
   return null;
 }
 
-function writeFirstTouchCookie(encodedValue: string): void {
+function attributionCookieAssignment(
+  cookieName: string,
+  encodedValue: string,
+): string {
+  return (
+    `${cookieName}=${encodedValue}; path=/; ` +
+    `max-age=${FIRST_TOUCH_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`
+  );
+}
+
+function fitAttributionCookieValue(
+  value: string,
+  spec: AttributionCookieSpec,
+): string {
+  const source = JSON.parse(value) as Record<string, unknown>;
+  const compact: Record<string, string> = {};
+  let truncated = false;
+  const fits = (encoded: string) =>
+    attributionCookieAssignment(spec.name, encoded).length <= spec.maxBytes;
+
+  for (const field of spec.priority) {
+    const rawValue = source[field];
+    if (typeof rawValue !== "string" || !rawValue) continue;
+    const candidate = {
+      ...compact,
+      [field]: rawValue.slice(0, FIRST_TOUCH_MAX_FIELD_LENGTH),
+    };
+    if (fits(encodeURIComponent(JSON.stringify(candidate)))) {
+      compact[field] = candidate[field];
+    } else {
+      truncated = true;
+    }
+  }
+
+  if (truncated) {
+    compact.capture_truncated = "1";
+    // Keep the auth handoff under its 4 KB header limit after re-encoding.
+    for (const field of [...spec.priority].reverse()) {
+      const encoded = encodeURIComponent(JSON.stringify(compact));
+      if (fits(encoded)) return encoded;
+      delete compact[field];
+    }
+  }
+
+  const encoded = encodeURIComponent(JSON.stringify(compact));
+  if (!fits(encoded)) {
+    throw new Error(`Attribution exceeded the ${spec.name} cookie budget`);
+  }
+  return encoded;
+}
+
+function writeAttributionCookie(
+  value: string,
+  spec: AttributionCookieSpec,
+): void {
   if (typeof document === "undefined") return;
-  // Non-sensitive, written by client JS, so no HttpOnly. SameSite=Lax keeps it
-  // on top-level navigations (which is how share links arrive) without leaking
-  // it to cross-site subresource requests.
-  const cookie =
-    `${FIRST_TOUCH_COOKIE_NAME}=${encodedValue}; path=/; ` +
-    `max-age=${FIRST_TOUCH_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`;
-  if (cookie.length > FIRST_TOUCH_MAX_COOKIE_BYTES) return;
+  const encodedValue = fitAttributionCookieValue(value, spec);
   try {
-    document.cookie = cookie;
+    document.cookie = attributionCookieAssignment(spec.name, encodedValue);
   } catch {
     // best-effort
   }
 }
 
+function storeAttribution(
+  storageKey: string,
+  spec: AttributionCookieSpec,
+  attribution: object,
+): void {
+  const json = JSON.stringify(attribution);
+  safeStorageSet(storageKey, json);
+  writeAttributionCookie(json, spec);
+}
+
 /**
- * Capture the visitor's first-touch referral attribution exactly once. Reads
- * the current URL query params + landing info and, IF no attribution is
- * already stored (first-write-wins), persists it to both `localStorage`
- * (`an_attribution`) and the first-party `an_ft` cookie. Fully defensive and
- * SSR-safe — any failure is swallowed so it can never break app boot.
+ * Restore a cookie that expired or was cleared from its stored value, so the
+ * signup boundary still sees it.
  */
-function captureFirstTouchAttribution(): void {
+function backfillAttributionCookie(
+  storageKey: string,
+  spec: AttributionCookieSpec,
+): void {
+  if (readAttributionCookie(spec.name)) return;
+  const stored = safeStorageGet(storageKey);
+  if (!stored) return;
+  try {
+    writeAttributionCookie(stored, spec);
+  } catch {
+    // coercion-ok: localStorage still holds the value; only this page's
+    // signup handoff goes without it.
+  }
+}
+
+/**
+ * Capture the visitor's referral attribution once per page load, into both
+ * `localStorage` and a first-party cookie the signup boundary reads. Fully
+ * defensive and SSR-safe — any failure is swallowed so it can never break app
+ * boot.
+ *
+ * First touch (`an_attribution` / `an_ft`) is first-write-wins, except over a
+ * visit that had no source: the first visit that says where this person came
+ * from replaces it. Without that, an untagged first visit would hide every
+ * tagged visit after it.
+ */
+function captureFirstTouchAttribution(
+  options: CaptureAttributionOptions = {},
+): void {
   if (_firstTouchCaptured) return;
   _firstTouchCaptured = true;
   if (typeof window === "undefined") return;
   try {
-    const existing = safeStorageGet(FIRST_TOUCH_STORAGE_KEY);
-    if (existing) {
-      // Already captured in a prior visit. Backfill the cookie if it expired
-      // or was cleared so the signup boundary still sees first-touch data, but
-      // never overwrite the stored value itself (first-write-wins).
-      if (!readFirstTouchCookie()) {
-        try {
-          writeFirstTouchCookie(encodeURIComponent(existing));
-        } catch {
-          // ignore
-        }
-      }
-      return;
+    const current = buildFirstTouchAttribution(
+      options.landingPath ?? window.location.pathname,
+    );
+    const existing = getFirstTouchAttribution();
+    if (
+      existing &&
+      (hasAttributionSource(existing) || !hasAttributionSource(current))
+    ) {
+      backfillAttributionCookie(FIRST_TOUCH_STORAGE_KEY, FIRST_TOUCH_COOKIE);
+    } else {
+      storeAttribution(FIRST_TOUCH_STORAGE_KEY, FIRST_TOUCH_COOKIE, current);
     }
-    const attribution = buildFirstTouchAttribution();
-    const json = JSON.stringify(attribution);
-    safeStorageSet(FIRST_TOUCH_STORAGE_KEY, json);
-    writeFirstTouchCookie(encodeURIComponent(json));
+    captureLastTouchAttribution(current);
   } catch {
     // Attribution is best-effort telemetry; never let it break boot.
   }
 }
 
 /**
- * Return the parsed first-touch referral attribution captured for this
- * visitor, or `null` when none is stored. Reads from `localStorage`
- * (`an_attribution`). SSR-safe and defensive.
+ * Last touch (`an_last_touch` / `an_lt`) is the latest visit that had a
+ * source. When the marketing site forwards its own last touch, that visit is
+ * the one to keep, not the site's first touch riding on the same link. A site
+ * visit keeps the time it happened, and loses to a newer visit the app has
+ * already recorded.
  */
-export function getFirstTouchAttribution(): FirstTouchAttribution | null {
-  if (typeof window === "undefined") return null;
+function captureLastTouchAttribution(current: FirstTouchAttribution): void {
+  const forwarded = readForwardedLastTouch();
+  const source = forwarded ?? (hasAttributionSource(current) ? current : null);
+  const forwardedAt = readForwardedLastTouchAt();
+  const existing = getLastTouchAttribution();
+  const existingAt = Date.parse(existing?.touched_at ?? "");
+  if (
+    !source ||
+    (forwardedAt &&
+      hasAttributionSource(existing) &&
+      existingAt > Date.parse(forwardedAt))
+  ) {
+    backfillAttributionCookie(LAST_TOUCH_STORAGE_KEY, LAST_TOUCH_COOKIE);
+    return;
+  }
+  const lastTouch: LastTouchAttribution = {};
+  for (const field of LAST_TOUCH_SOURCE_FIELDS) {
+    const value = source[field];
+    if (value) lastTouch[field] = value;
+  }
+  // As for first touch, `landing_path` is where the visitor entered this app
+  // and `site_landing_path` the marketing-site page the touch landed on.
+  if (current.landing_path) lastTouch.landing_path = current.landing_path;
+  if (source.site_landing_path) {
+    lastTouch.site_landing_path = source.site_landing_path;
+  }
+  lastTouch.touched_at = forwardedAt ?? current.landed_at;
+  storeAttribution(LAST_TOUCH_STORAGE_KEY, LAST_TOUCH_COOKIE, lastTouch);
+}
+
+function readForwardedLastTouchAt(): string | undefined {
+  const raw = new URLSearchParams(window.location.search).get(
+    FORWARDED_LAST_TOUCH_AT_PARAM,
+  );
+  const time = Date.parse(raw ?? "");
+  // A visit can't be in the future; a bad clock or value means "now".
+  if (!Number.isFinite(time) || time > Date.now()) return undefined;
+  return new Date(time).toISOString();
+}
+
+function readForwardedLastTouch(): LastTouchAttribution | null {
+  const params = new URLSearchParams(window.location.search);
+  const forwarded: LastTouchAttribution = {};
+  for (const [param, field] of Object.entries(FORWARDED_LAST_TOUCH_FIELDS)) {
+    const value = truncateFirstTouchField(params.get(param));
+    if (value) forwarded[field] = value;
+  }
+  return hasAttributionSource(forwarded) ? forwarded : null;
+}
+
+function parseAttribution<T>(raw: string | null): T | null {
+  if (!raw) return null;
   try {
-    const raw = safeStorageGet(FIRST_TOUCH_STORAGE_KEY);
-    if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return null;
     }
-    return parsed as FirstTouchAttribution;
+    // Every field is a string; a corrupted non-string one would make source
+    // detection throw, so it is dropped like any unreadable value.
+    const touch: Record<string, string> = {};
+    for (const [field, value] of Object.entries(parsed)) {
+      if (typeof value === "string") touch[field] = value;
+    }
+    return touch as T;
   } catch {
+    // coercion-ok: an unparseable value holds no touch; the caller tries the
+    // next source.
     return null;
   }
+}
+
+function readAttributionCookieValue<T>(cookieName: string): T | null {
+  const cookie = readAttributionCookie(cookieName);
+  if (!cookie) return null;
+  try {
+    return parseAttribution<T>(decodeURIComponent(cookie));
+  } catch {
+    // coercion-ok: a malformed cookie encoding holds no touch.
+    return null;
+  }
+}
+
+/**
+ * The stored touch, unless only its cookie says where the visitor came from:
+ * storage can be blocked, cleared, or hold an unreadable or empty value. The
+ * cookie is what signup reads, so a source that survives only there still
+ * counts, and capture must not overwrite it as if this were a first visit.
+ */
+function readStoredAttribution<T extends AttributionTouch>(
+  storageKey: string,
+  cookieName: string,
+): T | null {
+  if (typeof window === "undefined") return null;
+  const stored = parseAttribution<T>(safeStorageGet(storageKey));
+  if (hasAttributionSource(stored)) return stored;
+  const cookie = readAttributionCookieValue<T>(cookieName);
+  return hasAttributionSource(cookie) ? cookie : (stored ?? cookie);
+}
+
+export function getFirstTouchAttribution(): FirstTouchAttribution | null {
+  return readStoredAttribution<FirstTouchAttribution>(
+    FIRST_TOUCH_STORAGE_KEY,
+    FIRST_TOUCH_COOKIE_NAME,
+  );
+}
+
+export function getLastTouchAttribution(): LastTouchAttribution | null {
+  return readStoredAttribution<LastTouchAttribution>(
+    LAST_TOUCH_STORAGE_KEY,
+    LAST_TOUCH_COOKIE_NAME,
+  );
+}
+
+export interface CaptureAttributionOptions {
+  /**
+   * The app path this visit entered, when the page isn't it. The sign-in page
+   * stands in front of the path the visitor asked for, and `landing_path`
+   * must name that path, not the sign-in page.
+   */
+  landingPath?: string;
+}
+
+/**
+ * Store the visitor's first and last touch now instead of in
+ * `configureTracking()`, for a page that reads them before tracking starts,
+ * or that never starts tracking, like the sign-in page. It runs once per page
+ * load, so tracking's own capture is then a no-op.
+ */
+export function captureAttribution(
+  options: CaptureAttributionOptions = {},
+): void {
+  if (isSyntheticBrowserTraffic()) return;
+  captureFirstTouchAttribution(options);
 }
 
 function isLocalAnalyticsHostname(hostname: string | undefined): boolean {
@@ -654,7 +1027,15 @@ function isLocalAnalyticsHostname(hostname: string | undefined): boolean {
   );
 }
 
+function isSyntheticBrowserTraffic(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    isSyntheticTrafficValue(window.__AGENT_NATIVE_SYNTHETIC_TRAFFIC__)
+  );
+}
+
 function ensureAmplitude(): boolean {
+  if (isSyntheticBrowserTraffic()) return false;
   if (_amplitudeInitialized) return true;
   const key = (import.meta.env as Record<string, string | undefined>)
     ?.VITE_AMPLITUDE_API_KEY;
@@ -662,11 +1043,11 @@ function ensureAmplitude(): boolean {
   _amplitudeApiKey = key;
   if (_amplitudeLoadPromise) return false;
 
-  _amplitudeLoadPromise = import("@amplitude/analytics-browser")
+  _amplitudeLoadPromise = loadOptionalPeer(
+    "@amplitude/analytics-browser",
+    () => import("@amplitude/analytics-browser"),
+  )
     .then((module) => {
-      // Standard pageviews and explicit events are emitted below. Keep SDK-level
-      // DOM/network autocapture off so rendered user content is never collected as
-      // an implicit analytics side effect.
       module.init(key, { autocapture: false });
       _amplitudeModule = module;
       _amplitudeInitialized = true;
@@ -676,8 +1057,9 @@ function ensureAmplitude(): boolean {
       _pendingAmplitudeEvents = [];
       return module;
     })
-    .catch(() => {
+    .catch((error: unknown) => {
       _pendingAmplitudeEvents = [];
+      console.error("[agent-native] Browser analytics failed to load.", error);
       return null;
     })
     .finally(() => {
@@ -686,215 +1068,33 @@ function ensureAmplitude(): boolean {
   return false;
 }
 
-function hasOnlySourcelessFrames(value: {
-  stacktrace?: {
-    frames?: Array<{
-      filename?: unknown;
-      abs_path?: unknown;
-      function?: unknown;
-    }>;
-  };
-}): boolean {
-  const frames = value.stacktrace?.frames ?? [];
-  return (
-    frames.length === 0 ||
-    frames.every((frame) => {
-      const filename = String(frame.filename ?? frame.abs_path ?? "")
-        .trim()
-        .toLowerCase();
-      const functionName = String(frame.function ?? "").trim();
-      return (
-        !functionName &&
-        (!filename || filename === "undefined" || filename === "<anonymous>")
-      );
-    })
+function hasBrowserTrackingDestination(): boolean {
+  const env = import.meta.env as Record<string, string | undefined>;
+  return Boolean(
+    _agentNativeAnalyticsPublicKey ||
+    window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsPublicKey ||
+    env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY ||
+    env.VITE_AMPLITUDE_API_KEY,
   );
 }
 
-function isAgentNativeDocsUrl(url: string): boolean {
-  if (!url) return false;
-  try {
-    const parsed = new URL(url);
-    return (
-      parsed.hostname === "www.agent-native.com" ||
-      parsed.hostname === "agent-native.com"
-    );
-  } catch {
-    return false;
-  }
+function sentryFramesInnermostFirst(
+  value: Sentry.Exception,
+): ErrorNoiseFrame[] {
+  // Sentry orders frames oldest first; the shared rules read them like V8 does.
+  return [...(value.stacktrace?.frames ?? [])].reverse().map((frame) => ({
+    function: frame.function ?? undefined,
+    filename: frame.filename ?? frame.abs_path,
+    lineno: frame.lineno,
+  }));
 }
 
-function isSessionReplayUrl(url: string): boolean {
-  if (!url) return false;
-  try {
-    const parsed = new URL(url);
-    return /^\/sessions\/[^/]+\/?$/.test(parsed.pathname);
-  } catch {
-    return false;
-  }
-}
-
+// Sentry's `beforeSend` is a second door to the same noise: it applies the one
+// shared rule set (`shared/error-noise`) rather than keeping a list of its own.
 function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
-  const exceptionValues = event.exception?.values ?? [];
   const taggedUrl =
     typeof event.tags?.url === "string" ? event.tags.url : undefined;
-  const requestUrl = (event.request?.url ?? taggedUrl ?? "").toLowerCase();
-  const isDocsPage = isAgentNativeDocsUrl(requestUrl);
-  // React Router's stale-chunk recovery handles these failures by reloading
-  // the page. Keep the external Sentry stream aligned with first-party
-  // capture, which already drops the prevented browser event.
-  if (
-    exceptionValues.some((value) =>
-      isDynamicImportFailureMessage(
-        `${value.type ?? ""}: ${value.value ?? ""}`,
-      ),
-    )
-  ) {
-    return true;
-  }
-  // A server-owned run can emit an expected run_timeout while handing off to
-  // its continuation. AssistantChat retries these transitions automatically;
-  // only locally timed-out or ultimately unrecoverable runs should create a
-  // Sentry issue. Keep this scoped to the explicit chat tags so real provider
-  // and network timeout errors remain visible.
-  if (
-    event.tags?.context === "agent-native-chat" &&
-    event.tags?.errorCode === "run_timeout" &&
-    event.tags?.reconnectTimedOut === "false" &&
-    event.tags?.reconnectTerminalReason === "run_timeout"
-  ) {
-    return true;
-  }
-  // rrweb 2.1.0 replays recorded media interactions with `void media.play()`.
-  // Browsers may reject that promise when the recorded media was unmuted and
-  // no user activation is still active, which becomes a source-less unhandled
-  // rejection even though the replay player keeps working. Keep this scoped to
-  // the replay detail route and the exact browser autoplay-policy message.
-  if (
-    isSessionReplayUrl(requestUrl) &&
-    exceptionValues.some((value) => {
-      const exceptionValue = String(value.value ?? "")
-        .trim()
-        .toLowerCase();
-      return (
-        exceptionValue.includes("notallowederror: play() failed") &&
-        exceptionValue.includes("user didn't interact with the document first")
-      );
-    })
-  ) {
-    return true;
-  }
-  // AgentAutoContinueSignal is a control-flow sentinel thrown to bubble
-  // out of the SSE stream parser when the agent run needs to be
-  // auto-continued. It's caught by the chat adapter and is never a real
-  // error. Drop it unconditionally — capturing it as a Sentry exception
-  // pollutes the issue list with sentinels that have no actionable stack.
-  if (
-    exceptionValues.some((value) => value.type === "AgentAutoContinueSignal")
-  ) {
-    return true;
-  }
-  // Browser-side access control rejections usually mean a tab outlived the
-  // session or hit a protected route while signed out. The server Sentry setup
-  // already drops these bare auth errors; mirror that here for client-captured
-  // route/query failures.
-  if (
-    exceptionValues.some((value) => {
-      const exceptionType = String(value.type ?? "")
-        .trim()
-        .toLowerCase();
-      const exceptionValue = String(value.value ?? "")
-        .trim()
-        .toLowerCase();
-      return (
-        exceptionType === "unauthorizederror" ||
-        exceptionType === "unauthenticatederror" ||
-        exceptionValue === "unauthorized" ||
-        exceptionValue === "unauthenticated"
-      );
-    })
-  ) {
-    return true;
-  }
-  // Safari occasionally reports a source-less global `EmptyRanges` reference
-  // error while browsing public pages. There is no script URL or function to
-  // map back to our bundle, so keep the filter narrow and only drop it when
-  // every frame is missing/undefined.
-  if (
-    exceptionValues.some((value) => {
-      const exceptionType = String(value.type ?? "")
-        .trim()
-        .toLowerCase();
-      const exceptionValue = String(value.value ?? "")
-        .trim()
-        .toLowerCase();
-      if (
-        exceptionType !== "referenceerror" ||
-        !exceptionValue.includes("emptyranges")
-      ) {
-        return false;
-      }
-      return hasOnlySourcelessFrames(value);
-    })
-  ) {
-    return true;
-  }
-  if (
-    isDocsPage &&
-    exceptionValues.some((value) => {
-      const exceptionValue = String(value.value ?? "").toLowerCase();
-      return exceptionValue.includes(
-        "window.webkit.messagehandlers.scrolleventhandler.postmessage",
-      );
-    })
-  ) {
-    return true;
-  }
-  if (
-    isDocsPage &&
-    exceptionValues.some((value) => {
-      const exceptionType = String(value.type ?? "")
-        .trim()
-        .toLowerCase();
-      const exceptionValue = String(value.value ?? "")
-        .trim()
-        .toLowerCase();
-      return (
-        exceptionType === "rangeerror" &&
-        exceptionValue.includes("maximum call stack") &&
-        hasOnlySourcelessFrames(value)
-      );
-    })
-  ) {
-    return true;
-  }
-  // Exact user/navigation aborts are expected browser behavior. Keep other
-  // AbortError shapes visible unless they match this common non-bug message.
-  if (
-    exceptionValues.some((value) => {
-      const exceptionType = String(value.type ?? "")
-        .trim()
-        .toLowerCase();
-      const exceptionValue = String(value.value ?? "")
-        .trim()
-        .toLowerCase();
-      return (
-        exceptionValue === "the user aborted a request." ||
-        exceptionValue === "signal is aborted without reason" ||
-        exceptionValue === "aborterror: the user aborted a request." ||
-        exceptionValue === "aborterror: signal is aborted without reason" ||
-        (exceptionType === "aborterror" &&
-          (exceptionValue.includes("the user aborted a request") ||
-            exceptionValue.includes("signal is aborted without reason")))
-      );
-    })
-  ) {
-    return true;
-  }
-  const exceptionText = exceptionValues
-    .map((value) => `${value.type ?? ""} ${value.value ?? ""}`)
-    .join(" ")
-    .toLowerCase();
+  const requestUrl = event.request?.url ?? taggedUrl ?? "";
   const breadcrumbText = (event.breadcrumbs ?? [])
     .map((crumb) => {
       const data = crumb.data as Record<string, unknown> | undefined;
@@ -904,15 +1104,26 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
         typeof data?.url === "string" ? data.url : "",
       ].join(" ");
     })
-    .join(" ")
-    .toLowerCase();
-  const combined = `${exceptionText} ${requestUrl} ${breadcrumbText}`;
-  return (
-    combined.includes("api2.amplitude.com") &&
-    (combined.includes("failed to fetch") ||
-      combined.includes("networkerror") ||
-      combined.includes("load failed"))
-  );
+    .join(" ");
+  const tags: Record<string, string> = {};
+  for (const [key, tag] of Object.entries(event.tags ?? {})) {
+    if (typeof tag === "string") tags[key] = tag;
+  }
+  // `values` is the linked-error chain, causes first: the last entry is the
+  // exception that was thrown. A noisy cause (Safari's stackless `Load failed`)
+  // under a first-party wrapper is a first-party error, not noise.
+  const primary = event.exception?.values?.at(-1);
+  if (!primary) return false;
+  return classifyErrorNoise({
+    surface: "browser",
+    type: primary.type,
+    value: primary.value,
+    frames: sentryFramesInnermostFirst(primary),
+    pageUrl: requestUrl,
+    contextText: `${requestUrl} ${breadcrumbText}`,
+    tags,
+    firstPartyHosts: firstPartyHosts(),
+  }).drop;
 }
 
 function firstNonEmpty(...values: Array<string | undefined>): string {
@@ -956,6 +1167,10 @@ function resolveClientDeploymentEnvironment(): string {
   );
 }
 
+function resolveClientRelease(): string {
+  return `agent-native-client@${clientBuildId() || "development"}`;
+}
+
 function captureWithSentry(
   module: typeof Sentry,
   error: unknown,
@@ -982,10 +1197,14 @@ function captureWithSentry(
 }
 
 function ensureSentry(loadWithoutDsn = false): void {
+  if (isSyntheticBrowserTraffic()) return;
   if (_sentryInitialized || _sentryLoadPromise) return;
   const dsn = getClientSentryDsn();
   if (!dsn && !loadWithoutDsn) return;
-  _sentryLoadPromise = import("@sentry/browser")
+  _sentryLoadPromise = loadOptionalPeer(
+    "@sentry/browser",
+    () => import("@sentry/browser"),
+  )
     .then((module) => {
       _sentryModule = module;
       if (!dsn) {
@@ -998,7 +1217,9 @@ function ensureSentry(loadWithoutDsn = false): void {
       module.init({
         dsn,
         environment: resolveClientDeploymentEnvironment(),
+        release: resolveClientRelease(),
         beforeSend(event) {
+          if (isSyntheticBrowserTraffic()) return null;
           event.tags = {
             ...event.tags,
             deployment_environment: resolveClientDeploymentEnvironment(),
@@ -1006,14 +1227,9 @@ function ensureSentry(loadWithoutDsn = false): void {
           if (shouldDropBrowserSentryNoise(event)) {
             return null;
           }
-          // Strip sensitive query params from the request URL. React Router
-          // history can include share tokens, ?signin=1, password reset codes,
-          // public-share password params (audit F-07), etc.
           if (event.request?.url) {
             event.request.url = scrubUrl(event.request.url);
           }
-          // Clean the same params from breadcrumb URLs (Sentry captures
-          // history.pushState breadcrumbs by default).
           if (Array.isArray(event.breadcrumbs)) {
             for (const crumb of event.breadcrumbs) {
               if (crumb && typeof crumb === "object" && "data" in crumb) {
@@ -1039,7 +1255,6 @@ function ensureSentry(loadWithoutDsn = false): void {
         resolveClientDeploymentEnvironment(),
       );
       _sentryInitialized = true;
-      // Flush any user/tag that was set before init.
       if (_pendingSentryUser !== undefined) {
         module.setUser(_pendingSentryUser);
         _pendingSentryUser = undefined;
@@ -1054,40 +1269,50 @@ function ensureSentry(loadWithoutDsn = false): void {
       _pendingSentryCaptures = [];
       return module;
     })
-    .catch(() => null)
+    .catch((error: unknown) => {
+      console.error("[agent-native] Browser Sentry failed to load.", error);
+      return null;
+    })
     .finally(() => {
       _sentryLoadPromise = null;
     });
 }
 
-/**
- * Attach the current user to Sentry events from the browser. Pass `null` to
- * clear (e.g. on logout). If Sentry isn't initialized yet, the value is
- * buffered and applied once `ensureSentry()` runs.
- *
- * Pass `orgId` to also tag events with the active organization ID — useful
- * for filtering Sentry by tenant.
- */
 export function setSentryUser(
   user: TrackingIdentityUser | null,
   orgId?: string | null,
 ): void {
+  const previousIdentity = _trackingIdentity;
+  const suppressTracking = isQaTrackingUser(user);
   let shouldRetryReplay = false;
+  let sentryUser: TrackingIdentityUser | null = null;
   if (user) {
+    sentryUser = {
+      id: user.id,
+      email: user.email,
+      username: user.username,
+    };
     const userId = user.email || user.id;
     if (userId) {
+      const authUserId = readTrackingString(user.authUserId);
       _trackingIdentity = {
         userId,
+        ...(authUserId ? { authUserId } : {}),
         ...(user.email ? { userEmail: user.email } : {}),
         ...(user.username ? { userName: user.username } : {}),
         orgId: orgId ?? null,
+        ...(user.testIdentity === true ? { testIdentity: true } : {}),
       };
     } else {
       clearTrackingIdentity();
     }
-    shouldRetryReplay = Boolean(user.email);
+    shouldRetryReplay = Boolean(user.email) && !suppressTracking;
   } else {
     clearTrackingIdentity();
+  }
+  if (suppressTracking) {
+    _pendingSentryCaptures = [];
+    stopSessionReplayForAuthClear(previousIdentity);
   }
   _trackingIdentityResolved = true;
   if (
@@ -1098,19 +1323,18 @@ export function setSentryUser(
     void startConfiguredSessionReplay(_sessionReplayOptions);
   }
   if (_sentryInitialized && _sentryModule) {
-    _sentryModule.setUser(user);
+    _sentryModule.setUser(suppressTracking ? null : sentryUser);
     if (orgId !== undefined) {
       _sentryModule.setTag("orgId", orgId ?? null);
     }
     return;
   }
-  _pendingSentryUser = user;
+  _pendingSentryUser = suppressTracking ? null : sentryUser;
   if (orgId !== undefined) {
     _pendingSentryOrgId = orgId ?? null;
   }
 }
 
-/** Neutral alias for hosts that own identity outside Sentry. */
 export function setTrackingIdentity(
   user: TrackingIdentityUser | null,
   orgId?: string | null,
@@ -1119,35 +1343,18 @@ export function setTrackingIdentity(
 }
 
 export interface ClientCaptureContext {
-  /** Searchable Sentry tags (low-cardinality strings only). */
   tags?: Record<string, string | undefined>;
-  /**
-   * High-cardinality / structured payload — not searchable but visible in
-   * the Sentry event detail (file sizes, request URLs, response body
-   * tails, etc.).
-   */
   extra?: Record<string, unknown>;
-  /**
-   * Grouped contexts shown as separate cards in the Sentry event UI.
-   */
   contexts?: Record<string, Record<string, unknown>>;
 }
 
-/**
- * Capture an exception to Sentry from browser code without forcing the
- * caller to depend on `@sentry/browser` directly.
- *
- * Templates can route a thrown Error through here on a known failure path
- * (chunk-upload 500, thumbnail upload, etc.) to attach searchable tags and
- * structured extra context. No-ops gracefully when Sentry isn't
- * initialized — never throws back into the caller, so a Sentry hiccup
- * can't mask the original error.
- */
 export function captureClientException(
   error: unknown,
   context: ClientCaptureContext = {},
 ): string | undefined {
   if (typeof window === "undefined") return undefined;
+  if (isSyntheticBrowserTraffic()) return undefined;
+  if (isQaTrackingIdentity(_trackingIdentity)) return undefined;
   try {
     ensureSentry(true);
     if (_sentryModule) return captureWithSentry(_sentryModule, error, context);
@@ -1160,12 +1367,6 @@ export function captureClientException(
   }
 }
 
-/**
- * Public browser-side error capture utility, mirroring `trackEvent()`:
- * templates can call `captureError(err, { tags, extra, contexts })` without
- * depending on Sentry directly. Sentry receives the event when a browser DSN
- * is configured; otherwise this is a quiet no-op.
- */
 export function captureError(
   error: unknown,
   context: ClientCaptureContext = {},
@@ -1186,6 +1387,21 @@ function getPageviewTrackingState(): PageviewTrackingState {
   return g[PAGEVIEW_TRACKING_STATE_KEY];
 }
 
+function getAppEntryTrackingState(): AppEntryTrackingState {
+  const g = globalThis as typeof globalThis & {
+    [APP_ENTRY_TRACKING_STATE_KEY]?: AppEntryTrackingState;
+  };
+  if (!g[APP_ENTRY_TRACKING_STATE_KEY]) {
+    g[APP_ENTRY_TRACKING_STATE_KEY] = { entryKeys: new Set() };
+  } else if (!g[APP_ENTRY_TRACKING_STATE_KEY].entryKeys) {
+    const entryKey = g[APP_ENTRY_TRACKING_STATE_KEY].entryKey;
+    g[APP_ENTRY_TRACKING_STATE_KEY].entryKeys = entryKey
+      ? new Set([entryKey])
+      : new Set();
+  }
+  return g[APP_ENTRY_TRACKING_STATE_KEY];
+}
+
 function getAgentChatTrackingState(): AgentChatTrackingState {
   const g = globalThis as typeof globalThis & {
     [AGENT_CHAT_TRACKING_STATE_KEY]?: AgentChatTrackingState;
@@ -1204,14 +1420,9 @@ export type AgentChatLifecycleEvent = {
   tabId?: string;
 };
 
-/**
- * Record a content-free, browser-session-linked chat lifecycle marker and add
- * the same marker to session replay when replay is configured. The bounded
- * global de-dupe survives React Strict Mode remounts without retaining keys
- * forever.
- */
 export function trackAgentChatLifecycle(input: AgentChatLifecycleEvent): void {
   if (typeof window === "undefined") return;
+  if (isSyntheticBrowserTraffic()) return;
   const surface = input.surface?.trim() || "app";
   const dedupeKey = [
     input.phase,
@@ -1251,17 +1462,23 @@ export function trackAgentChatLifecycle(input: AgentChatLifecycleEvent): void {
         : (replayResult?.reason ?? "not-configured"),
     };
     trackEvent("agent_chat_lifecycle", properties);
-    _sessionReplayModuleForCapture?.emitSessionReplayAgentChatEvent?.({
-      phase: input.phase,
-      surface,
-      ...(input.threadId ? { threadId: input.threadId } : {}),
-      ...(input.runId ? { runId: input.runId } : {}),
-      ...(input.tabId ? { tabId: input.tabId } : {}),
-    });
+    if (!isQaTrackingIdentity(_trackingIdentity)) {
+      _sessionReplayModuleForCapture?.emitSessionReplayAgentChatEvent?.({
+        phase: input.phase,
+        surface,
+        ...(input.threadId ? { threadId: input.threadId } : {}),
+        ...(input.runId ? { runId: input.runId } : {}),
+        ...(input.tabId ? { tabId: input.tabId } : {}),
+      });
+    }
   })();
 }
 
 export function configureTracking(options: ConfigureTrackingOptions): void {
+  if (isSyntheticBrowserTraffic()) {
+    _trackingContentCaptureEnabled = false;
+    return;
+  }
   if (options.clientPlatform) {
     _configuredAnalyticsClientPlatform = options.clientPlatform;
   }
@@ -1290,9 +1507,6 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
     if (options.authSessionRefresh !== false) {
       installTrackingAuthSessionRefresh();
     }
-    if (options.pageviewTracking !== false) {
-      installPageviewTracking();
-    }
     maybeInstallSessionReplay(
       options.sessionReplay,
       {
@@ -1301,6 +1515,10 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
       },
       _trackingContentCaptureEnabled,
     );
+    if (options.pageviewTracking !== false) {
+      installPageviewTracking();
+      if (options.webVitals !== false) installWebVitalsTracking();
+    }
     maybeInstallErrorCapture(options.errorCapture);
   }
 }
@@ -1324,12 +1542,6 @@ function syncTrackingContentCaptureForLocation(): void {
   );
 }
 
-/**
- * Lazily load the session-replay module so error capture can read the active
- * replay id and surface manual captures on the replay timeline without a
- * static import (which would create an analytics <-> session-replay import
- * cycle and pull the replay module into the analytics chunk eagerly).
- */
 function loadSessionReplayModuleForCapture(): void {
   if (_sessionReplayModuleForCapture) return;
   import("./session-replay.js")
@@ -1354,9 +1566,29 @@ function errorCaptureSessionContext(): {
   };
 }
 
+/**
+ * An exception that happened in a chat thread names it: the issue page links
+ * `extra.failureContext.threadUrl`. A caller's own packet wins, and an error
+ * outside any thread carries none (the page URL and release are already on
+ * the event).
+ */
+function exceptionExtra(
+  event: CapturedExceptionEvent,
+): Record<string, unknown> | undefined {
+  try {
+    const failure = clientFailureContext();
+    if (!failure.threadId) return event.extra;
+    return { failureContext: failure, ...event.extra };
+  } catch {
+    // coercion-ok: the event is reported without its thread link.
+    return event.extra;
+  }
+}
+
 function exceptionEventProperties(
   event: CapturedExceptionEvent,
 ): Record<string, unknown> {
+  const extra = exceptionExtra(event);
   return {
     exceptionType: event.type,
     exceptionMessage: event.message,
@@ -1372,7 +1604,7 @@ function exceptionEventProperties(
       : {}),
     ...(event.breadcrumbs?.length ? { breadcrumbs: event.breadcrumbs } : {}),
     ...(event.tags ? { exceptionTags: event.tags } : {}),
-    ...(event.extra ? { exceptionExtra: event.extra } : {}),
+    ...(extra ? { exceptionExtra: extra } : {}),
   };
 }
 
@@ -1389,19 +1621,10 @@ function amplitudeEventProperties(
   return stableProperties;
 }
 
-/**
- * Resolve browser PostHog config, or `undefined` when error capture should not
- * reach PostHog. Reads the SSR-injected shell config first, then Vite env for
- * static/SPA builds that never render through the SSR handler.
- */
 function posthogErrorConfig(): { key: string; host: string } | undefined {
   const shell = window.__AGENT_NATIVE_CONFIG__;
   if (shell?.posthogErrorTracking === false) return undefined;
   const env = import.meta.env as Record<string, string | undefined>;
-  // Static/SPA builds never render through the SSR handler, so they never see
-  // the shell config that carries the server-side opt-out. Without this a
-  // Vite-only deployment could not honour `POSTHOG_ERROR_TRACKING=false`
-  // short of deleting the public key.
   if (env?.VITE_POSTHOG_ERROR_TRACKING?.trim().toLowerCase() === "false") {
     return undefined;
   }
@@ -1415,17 +1638,8 @@ function posthogErrorConfig(): { key: string; host: string } | undefined {
   return { key, host };
 }
 
-/**
- * Send the exception straight to PostHog's event endpoint.
- *
- * Not relayed through `/_agent-native/track`: that route requires a resolved
- * session, so every signed-out crash would be dropped without a trace.
- *
- * `distinct_id` uses the signed-in user id when we have one so browser events
- * join the server's events for the same person; otherwise the stable anonymous
- * id, which `$identify` later aliases on login.
- */
 function sendPostHogExceptionEvent(event: CapturedExceptionEvent): void {
+  if (isSyntheticBrowserTraffic()) return;
   const config = posthogErrorConfig();
   if (!config) return;
 
@@ -1456,7 +1670,6 @@ function sendPostHogExceptionEvent(event: CapturedExceptionEvent): void {
     const endpoint = `${config.host}/i/v0/e/`;
 
     if (navigator.sendBeacon) {
-      // text/plain avoids a CORS preflight the page may not survive.
       const blob = new Blob([body], { type: "text/plain;charset=UTF-8" });
       if (navigator.sendBeacon(endpoint, blob)) return;
     }
@@ -1473,10 +1686,8 @@ function sendPostHogExceptionEvent(event: CapturedExceptionEvent): void {
 }
 
 function sendExceptionEvent(event: CapturedExceptionEvent): void {
-  // Route through the existing first-party analytics ingest as a dedicated
-  // `$exception` event. This reuses the public-key auth + sendBeacon/keepalive
-  // transport; the server forks it into error_issues/error_events and still
-  // records it in analytics_events for alerting.
+  if (isSyntheticBrowserTraffic()) return;
+  if (isQaTrackingIdentity(_trackingIdentity)) return;
   trackEvent(
     AGENT_NATIVE_EXCEPTION_EVENT_NAME,
     exceptionEventProperties(event),
@@ -1485,6 +1696,8 @@ function sendExceptionEvent(event: CapturedExceptionEvent): void {
 }
 
 function emitExceptionToReplay(event: CapturedExceptionEvent): void {
+  if (isSyntheticBrowserTraffic()) return;
+  if (isQaTrackingIdentity(_trackingIdentity)) return;
   _sessionReplayModuleForCapture?.emitSessionReplayException?.({
     type: event.type,
     message: event.message,
@@ -1497,10 +1710,9 @@ function emitExceptionToReplay(event: CapturedExceptionEvent): void {
 function errorCaptureAutoEnabled(): boolean {
   const publicKey =
     _agentNativeAnalyticsPublicKey ||
+    window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsPublicKey ||
     (import.meta.env as Record<string, string | undefined>)
       ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
-  // A PostHog public key is an equally explicit opt-in — an app running
-  // PostHog and no Agent-Native Analytics should still report browser crashes.
   return !!publicKey || !!posthogErrorConfig();
 }
 
@@ -1524,7 +1736,9 @@ function maybeInstallErrorCapture(
     getSessionContext: errorCaptureSessionContext,
     emitReplayEvent: emitExceptionToReplay,
     environment: options.environment || resolveClientDeploymentEnvironment(),
-    ...(options.release ? { release: options.release } : {}),
+    // Without a release, a regression cannot be tied to the deploy that
+    // introduced it; the first-party event used to carry `null` here.
+    release: options.release || resolveClientRelease(),
     ...(options.captureGlobalErrors !== undefined
       ? { captureGlobalErrors: options.captureGlobalErrors }
       : {}),
@@ -1563,17 +1777,24 @@ function configuredSessionReplayOptions(
   tracking: { endpoint?: string; publicKey?: string } = {},
 ): SessionReplayOptions | null {
   const env = (import.meta.env as Record<string, string | undefined>) ?? {};
+  const runtimeConfig =
+    typeof window === "undefined" ? undefined : window.__AGENT_NATIVE_CONFIG__;
   const publicKey =
     tracking.publicKey ||
     _agentNativeAnalyticsPublicKey ||
+    runtimeConfig?.agentNativeAnalyticsPublicKey ||
     env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
   const trackingEndpoint =
     tracking.endpoint ||
     _agentNativeAnalyticsEndpoint ||
+    runtimeConfig?.agentNativeAnalyticsEndpoint ||
     env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
     (publicKey ? AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT : undefined);
   const endpoint = trackingEndpoint
-    ? replayEndpointFromTrackingEndpoint(trackingEndpoint)
+    ? (replayEndpointFromAnalyticsEndpoint(
+        trackingEndpoint,
+        typeof document === "undefined" ? undefined : document.baseURI,
+      ) ?? undefined)
     : undefined;
   const withTrackingDefaults = (
     options: SessionReplayOptions,
@@ -1585,18 +1806,38 @@ function configuredSessionReplayOptions(
       ...(publicKey && !options.publicKey ? { publicKey } : {}),
       ...(endpoint && !options.endpoint ? { endpoint } : {}),
       ...options,
-      onUploadRejected:
-        options.onUploadRejected ??
-        ((details) => {
+      onRecordingStarted: (recordingAttemptId) => {
+        try {
+          trackEvent("session_replay_started", {
+            recording_attempt_id: recordingAttemptId,
+          });
+        } catch {
+          // coercion-ok: keep capture running if optional telemetry fails.
+        }
+        options.onRecordingStarted?.(recordingAttemptId);
+      },
+      onUploadRejected: options.onUploadRejected,
+      onUploadRejectedWithAttemptId: (details, recordingAttemptId) => {
+        try {
           trackEvent("session replay upload rejected", {
+            recording_attempt_id: recordingAttemptId,
             status: details.status,
             restart_attempted: details.restartAttempted,
             restart_succeeded: details.restartSucceeded,
+            ...(details.failureReason
+              ? { failure_reason: details.failureReason }
+              : {}),
+            ...(details.retryAfterSeconds !== undefined
+              ? { retry_after_seconds: details.retryAfterSeconds }
+              : {}),
             ...(details.restartReason
               ? { restart_reason: details.restartReason }
               : {}),
           });
-        }),
+        } finally {
+          options.onUploadRejectedWithAttemptId?.(details, recordingAttemptId);
+        }
+      },
       requireSignedInUser:
         options.requireSignedInUser ??
         sessionReplayRequiresSignedInUserFromEnv() ??
@@ -1632,37 +1873,12 @@ function replayExtraPropertiesWithDefaults(
           : {};
     const props = rawProps && typeof rawProps === "object" ? rawProps : {};
     const withDefaults = _getDefaultProps?.("session_replay", props) ?? props;
+    const identity = _trackingIdentity ?? _sessionReplayIdentitySnapshot;
     return applyTrackingIdentity(
       withDefaults,
-      _trackingIdentity ?? _sessionReplayIdentitySnapshot,
+      isQaTrackingIdentity(identity) ? null : identity,
     );
   };
-}
-
-function replayEndpointFromTrackingEndpoint(value: string): string | undefined {
-  try {
-    const url = new URL(value);
-    if (url.pathname.endsWith("/api/analytics/track")) {
-      url.pathname = url.pathname.replace(
-        /\/api\/analytics\/track$/,
-        "/api/analytics/replay",
-      );
-      return url.toString();
-    }
-    if (url.pathname.endsWith("/track")) {
-      url.pathname = url.pathname.replace(/\/track$/, "/api/analytics/replay");
-      return url.toString();
-    }
-  } catch {
-    // Fall through to relative-path handling below.
-  }
-  if (value.endsWith("/api/analytics/track")) {
-    return value.replace(/\/api\/analytics\/track$/, "/api/analytics/replay");
-  }
-  if (value.endsWith("/track")) {
-    return value.replace(/\/track$/, "/api/analytics/replay");
-  }
-  return undefined;
 }
 
 function maybeInstallSessionReplay(
@@ -1680,6 +1896,7 @@ function maybeInstallSessionReplay(
 async function waitForSessionReplayAuthIfRequired(
   options: SessionReplayOptions,
 ): Promise<boolean> {
+  if (isQaTrackingIdentity(_trackingIdentity)) return false;
   if (!options.requireSignedInUser) return true;
   if (_trackingIdentity?.userEmail) return true;
   try {
@@ -1691,12 +1908,17 @@ async function waitForSessionReplayAuthIfRequired(
   } catch {
     // best-effort; missing identity below keeps replay off
   }
-  return !!_trackingIdentity?.userEmail;
+  return (
+    !!_trackingIdentity?.userEmail && !isQaTrackingIdentity(_trackingIdentity)
+  );
 }
 
 async function startConfiguredSessionReplay(
   options: SessionReplayOptions,
 ): Promise<SessionReplayStartResult | null> {
+  if (isSyntheticBrowserTraffic()) {
+    return { started: false, reason: "disabled" };
+  }
   if (_sessionReplayStartPromise) return _sessionReplayStartPromise;
   _sessionReplayStartPromise = (async () => {
     if (!_trackingContentCaptureEnabled) {
@@ -1716,7 +1938,9 @@ async function startConfiguredSessionReplay(
     return mod.startSessionReplay({
       ...options,
       shouldStart: () =>
-        _trackingContentCaptureEnabled && (options.shouldStart?.() ?? true),
+        _trackingContentCaptureEnabled &&
+        !isQaTrackingIdentity(_trackingIdentity) &&
+        (options.shouldStart?.() ?? true),
     });
   })()
     .catch(() => ({ started: false, reason: "import-failed" as const }))
@@ -1729,6 +1953,9 @@ async function startConfiguredSessionReplay(
 export async function startSessionReplay(
   options: SessionReplayOptions = {},
 ): Promise<SessionReplayStartResult> {
+  if (isSyntheticBrowserTraffic()) {
+    return { started: false, reason: "disabled" };
+  }
   if (!_trackingContentCaptureEnabled) {
     return { started: false, reason: "disabled" };
   }
@@ -1741,13 +1968,18 @@ export async function startSessionReplay(
   return mod.startSessionReplay({
     ...configured,
     shouldStart: () =>
-      _trackingContentCaptureEnabled && (configured.shouldStart?.() ?? true),
+      _trackingContentCaptureEnabled &&
+      !isQaTrackingIdentity(_trackingIdentity) &&
+      (configured.shouldStart?.() ?? true),
   });
 }
 
 export async function maybeStartSessionReplay(
   options: SessionReplayOptions = {},
 ): Promise<SessionReplayStartResult> {
+  if (isSyntheticBrowserTraffic()) {
+    return { started: false, reason: "disabled" };
+  }
   if (!_trackingContentCaptureEnabled) {
     return { started: false, reason: "disabled" };
   }
@@ -1759,7 +1991,9 @@ export async function maybeStartSessionReplay(
   return mod.maybeStartSessionReplay({
     ...configured,
     shouldStart: () =>
-      _trackingContentCaptureEnabled && (configured.shouldStart?.() ?? true),
+      _trackingContentCaptureEnabled &&
+      !isQaTrackingIdentity(_trackingIdentity) &&
+      (configured.shouldStart?.() ?? true),
   });
 }
 
@@ -1783,10 +2017,38 @@ function inferTemplateName(properties: Record<string, unknown>): string | null {
   return app;
 }
 
+/**
+ * Events that name their page only by route template. A path can hold a slug
+ * or an email, so it never rides along, not even from an app's default props.
+ */
+const ROUTE_ONLY_EVENT_NAMES = new Set(["web_vitals"]);
+
 function resolveProps(
   name: string,
   params?: Record<string, unknown>,
 ): Record<string, unknown> {
+  if (name === "session_replay_started") {
+    return params?.recording_attempt_id === undefined
+      ? {}
+      : { recording_attempt_id: params.recording_attempt_id };
+  }
+  if (
+    name === "session replay upload rejected" ||
+    name === "session_replay_upload_rejected"
+  ) {
+    const allowed = [
+      "recording_attempt_id",
+      "status",
+      "restart_attempted",
+      "restart_succeeded",
+      "failure_reason",
+      "retry_after_seconds",
+      "restart_reason",
+    ];
+    return Object.fromEntries(
+      Object.entries(params ?? {}).filter(([key]) => allowed.includes(key)),
+    );
+  }
   if (typeof window === "undefined") return { ...params };
   const base: Record<string, unknown> = {
     url: window.location.origin + window.location.pathname,
@@ -1811,12 +2073,29 @@ function resolveProps(
   for (const [key, value] of Object.entries(replayProps)) {
     if (enriched[key] === undefined) enriched[key] = value;
   }
-  return {
-    ...applyTrackingIdentity(enriched),
+  const sessionId = hasBrowserTrackingDestination()
+    ? getOrCreateSessionId()
+    : undefined;
+  const standard = withCanonicalTrackingProperties({
+    ...enriched,
+    ...(sessionId ? { session_id: sessionId } : {}),
+  });
+  const withIdentity = applyTrackingIdentity(standard);
+  const identity = _trackingIdentity;
+  const resolved: Record<string, unknown> = {
+    ...withIdentity,
+    ...(getTrackingUserId() ? { user_id: getTrackingUserId() } : {}),
+    ...(identity?.userEmail ? { user_email: identity.userEmail } : {}),
+    ...(identity?.orgId ? { workspace_id: identity.orgId } : {}),
     [ANALYTICS_CLIENT_PLATFORM_PROPERTY]: getAnalyticsClientPlatform(
       _configuredAnalyticsClientPlatform ?? undefined,
     ),
   };
+  if (ROUTE_ONLY_EVENT_NAMES.has(name)) {
+    delete resolved.url;
+    delete resolved.path;
+  }
+  return resolved;
 }
 
 function sessionReplayTrackingProperties(): Record<string, unknown> {
@@ -1837,23 +2116,28 @@ function sessionReplayTrackingProperties(): Record<string, unknown> {
   };
 }
 
-function pageviewKey(): string {
-  return window.location.href;
-}
+type PageviewSnapshot = {
+  key: string;
+  pathname: string;
+  hostname: string;
+  properties: Record<string, unknown>;
+};
 
-function pageviewProperties(reason: string): Record<string, unknown> {
+function snapshotPageview(reason: string): PageviewSnapshot {
+  const { href, origin, pathname, hostname, search } = window.location;
+  const contentCaptureEnabled = _trackingContentCaptureEnabled;
   const properties: Record<string, unknown> = {
-    url: !_trackingContentCaptureEnabled
-      ? window.location.origin + window.location.pathname
-      : scrubUrl(window.location.href),
-    path: window.location.pathname,
-    hostname: window.location.hostname,
+    url: !contentCaptureEnabled ? origin + pathname : scrubUrl(href),
+    path: pathname,
+    hostname,
     navigation_type: reason,
+    [AGENT_SIGNALS_PAGEVIEW_PROPERTY]: AGENT_SIGNALS_VERSION,
+    [PAGE_LOAD_PAGEVIEW_PROPERTY]: getAnalyticsPageLoadId(),
   };
-  if (_trackingContentCaptureEnabled && window.location.search) {
-    properties.search = scrubUrl(window.location.search);
+  if (contentCaptureEnabled && search) {
+    properties.search = scrubUrl(search);
   }
-  if (_trackingContentCaptureEnabled && typeof document !== "undefined") {
+  if (contentCaptureEnabled && typeof document !== "undefined") {
     if (document.referrer) {
       properties.referrer = scrubUrl(document.referrer);
     }
@@ -1861,24 +2145,128 @@ function pageviewProperties(reason: string): Record<string, unknown> {
       properties.title = document.title;
     }
   }
-  return properties;
+  return { key: href, pathname, hostname, properties };
 }
 
-function emitPageview(reason: string): void {
+function readAppEntryKeys(): string[] {
+  const stored = safeStorageGet(APP_ENTRY_STORAGE_KEY);
+  if (!stored) return [];
+  try {
+    const parsed = JSON.parse(stored) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((value): value is string => typeof value === "string")
+        .slice(-MAX_APP_ENTRY_KEYS);
+    }
+    // coercion-ok: invalid JSON is treated as the legacy single entry marker.
+  } catch {
+    // Migrate the previous single-key value below.
+  }
+  return [stored];
+}
+
+function rememberAppEntryKey(entryKey: string): boolean {
+  const state = getAppEntryTrackingState();
+  const keys = new Set(state.entryKeys ?? []);
+  for (const storedKey of readAppEntryKeys()) keys.add(storedKey);
+  if (keys.has(entryKey)) {
+    state.entryKeys = new Set([...keys].slice(-MAX_APP_ENTRY_KEYS));
+    state.entryKey = entryKey;
+    return false;
+  }
+
+  keys.add(entryKey);
+  const boundedKeys = [...keys].slice(-MAX_APP_ENTRY_KEYS);
+  state.entryKeys = new Set(boundedKeys);
+  state.entryKey = entryKey;
+  safeStorageSet(APP_ENTRY_STORAGE_KEY, JSON.stringify(boundedKeys));
+  return true;
+}
+
+function rememberLastAppEntry(appName: string, now: number): number | null {
+  const key = `${APP_LAST_ENTRY_STORAGE_KEY_PREFIX}:${appName}`;
+  const stored = safeStorageGet(key);
+  const previous = stored ? Number(stored) : NaN;
+  safeStorageSet(key, String(now));
+  return Number.isFinite(previous) ? previous : null;
+}
+
+let _appEntryAuthRetry: Promise<void> | null = null;
+
+function waitForTrackingIdentityBeforeAppEntry(entryPath: string): boolean {
+  const pending = _trackingSessionRefresh;
+  if (!pending || _trackingIdentityResolved) return false;
+  if (!_appEntryAuthRetry) {
+    _appEntryAuthRetry = pending
+      .catch(() => {})
+      .then(() => {
+        _appEntryAuthRetry = null;
+        emitAppEntered(entryPath);
+      });
+  }
+  return true;
+}
+
+function emitAppEntered(entryPath?: string): void {
+  if (typeof window === "undefined" || !_getDefaultProps) return;
+  const scheduledEntryPath = entryPath ?? window.location.pathname;
+  if (waitForTrackingIdentityBeforeAppEntry(scheduledEntryPath)) return;
+  const properties = resolveProps(AGENT_NATIVE_LIFECYCLE_EVENTS.appEntered, {
+    entry_path: scheduledEntryPath,
+  });
+  const appName = normalizeTrackingDimension(
+    properties.app_name ?? properties.app,
+  );
+  const sessionId =
+    typeof properties.session_id === "string"
+      ? properties.session_id
+      : undefined;
+  if (!appName) return;
+  const entryKey = sessionId ? `${appName}:${sessionId}` : appName;
+  if (!rememberAppEntryKey(entryKey)) return;
+  const now = Date.now();
+  const previousEntryAt = rememberLastAppEntry(appName, now);
+  const attribution = getFirstTouchAttribution();
+  trackEvent(AGENT_NATIVE_LIFECYCLE_EVENTS.appEntered, {
+    app_name: appName,
+    entry_path: scheduledEntryPath,
+    ...(attribution?.ref ? { source: attribution.ref } : {}),
+    ...(attribution?.landing_referrer
+      ? { referrer: attribution.landing_referrer }
+      : {}),
+  });
+  if (previousEntryAt !== null) {
+    const daysSinceLast = Math.floor((now - previousEntryAt) / 86_400_000);
+    if (now - previousEntryAt >= RETURN_USAGE_THRESHOLD_MS) {
+      trackEvent(AGENT_NATIVE_LIFECYCLE_EVENTS.returnUsage, {
+        app_name: appName,
+        days_since_last: daysSinceLast,
+      });
+    }
+  }
+}
+
+function emitPageview(snapshot: PageviewSnapshot): void {
   if (typeof window === "undefined") return;
-  if (isLocalAnalyticsHostname(window.location.hostname)) return;
+  if (isLocalAnalyticsHostname(snapshot.hostname)) return;
   const state = getPageviewTrackingState();
-  const key = pageviewKey();
-  if (state.lastPageviewKey === key) return;
-  state.lastPageviewKey = key;
-  trackEvent("pageview", pageviewProperties(reason));
+  if (state.lastPageviewKey === snapshot.key) return;
+  state.lastPageviewKey = snapshot.key;
+  trackEvent("pageview", snapshot.properties);
+  emitAppEntered(snapshot.pathname);
 }
 
 function schedulePageview(reason: string): void {
   if (!_trackingContentCaptureEnabled) {
     void stopSessionReplay("local-plan-privacy");
   }
-  const run = () => emitPageview(reason);
+  const snapshot = snapshotPageview(reason);
+  const run = () => emitPageview(snapshot);
+  const deferredBootRefresh =
+    _llmConnectionBootRefresh && !_llmConnectionStatus
+      ? _llmConnectionBootRefresh
+      : null;
+  const replayStart = _sessionReplayStartPromise;
   const pendingStartupContext: Array<Promise<void>> = [];
   if (_llmConnectionRefresh && !_llmConnectionStatus) {
     pendingStartupContext.push(_llmConnectionRefresh);
@@ -1886,11 +2274,29 @@ function schedulePageview(reason: string): void {
   if (_trackingSessionRefresh && !_trackingIdentityResolved) {
     pendingStartupContext.push(_trackingSessionRefresh);
   }
-  if (pendingStartupContext.length > 0) {
+  if (deferredBootRefresh !== null) {
+    if (pendingStartupContext.length > 0 || replayStart) {
+      const timeout = new Promise<void>((resolve) =>
+        window.setTimeout(resolve, PAGEVIEW_STARTUP_WAIT_MS),
+      );
+      const startupContext = [
+        ...pendingStartupContext,
+        ...(replayStart ? [replayStart.then(() => undefined)] : []),
+      ];
+      void Promise.all([
+        deferredBootRefresh,
+        Promise.race([Promise.allSettled(startupContext), timeout]),
+      ]).finally(run);
+      return;
+    }
+    void deferredBootRefresh.finally(run);
+    return;
+  }
+  if (replayStart) {
     const timeout = new Promise<void>((resolve) =>
-      window.setTimeout(resolve, 250),
+      window.setTimeout(resolve, PAGEVIEW_STARTUP_WAIT_MS),
     );
-    Promise.race([Promise.allSettled(pendingStartupContext), timeout]).finally(
+    void Promise.race([replayStart.then(() => undefined), timeout]).finally(
       run,
     );
     return;
@@ -1909,12 +2315,13 @@ function installPageviewTracking(): void {
 
   schedulePageview("load");
 
-  const originalPushState = window.history.pushState;
-  const originalReplaceState = window.history.replaceState;
+  const originalPushState = window.history.pushState.bind(window.history);
+  const originalReplaceState = window.history.replaceState.bind(window.history);
 
   window.history.pushState = function pushState(...args) {
     const result = originalPushState.apply(this, args);
     syncTrackingContentCaptureForLocation();
+    state.webVitals?.navigate("push");
     schedulePageview("pushState");
     return result;
   };
@@ -1922,33 +2329,71 @@ function installPageviewTracking(): void {
   window.history.replaceState = function replaceState(...args) {
     const result = originalReplaceState.apply(this, args);
     syncTrackingContentCaptureForLocation();
+    state.webVitals?.navigate("replace");
     schedulePageview("replaceState");
     return result;
   };
 
   window.addEventListener("popstate", () => {
     syncTrackingContentCaptureForLocation();
+    state.webVitals?.navigate("push");
     schedulePageview("popstate");
   });
+}
+
+function webVitalsLocation(): WebVitalsLocation {
+  return {
+    route: currentRouteTemplate(),
+    pathname: window.location.pathname,
+  };
+}
+
+function reportPageViewVitals(vitals: PageViewVitals): void {
+  _sessionReplayModuleForCapture?.emitSessionReplayWebVitals?.(vitals);
+  trackEvent("web_vitals", {
+    ...(vitals.route ? { route: vitals.route } : {}),
+    navigation_type: vitals.navigationType,
+    ttfb_ms: vitals.ttfbMs,
+    lcp_ms: vitals.lcpMs,
+    inp_ms: vitals.inpMs,
+    cls: vitals.cls,
+  });
+}
+
+function installWebVitalsTracking(): void {
+  const state = getPageviewTrackingState();
+  if (state.webVitalsInstalled) return;
+  state.webVitalsInstalled = true;
+  if (isLocalAnalyticsHostname(window.location.hostname)) return;
+  try {
+    state.webVitals = installWebVitals(webVitalsLocation, reportPageViewVitals);
+  } catch (error) {
+    console.warn("[analytics] Web Vitals capture is unavailable:", error);
+  }
 }
 
 function sendAgentNativeAnalytics(
   name: string,
   properties: Record<string, unknown>,
 ): void {
+  if (isSyntheticBrowserTraffic()) return;
   if (isLocalAnalyticsHostname(window.location.hostname)) return;
 
   const publicKey =
     _agentNativeAnalyticsPublicKey ||
+    window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsPublicKey ||
     (import.meta.env as Record<string, string | undefined>)
       ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
   if (!publicKey) return;
 
-  const endpoint =
+  const endpoint = resolveLaneEndpoint(
     _agentNativeAnalyticsEndpoint ||
-    (import.meta.env as Record<string, string | undefined>)
-      ?.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
-    AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT;
+      window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsEndpoint ||
+      (import.meta.env as Record<string, string | undefined>)
+        ?.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
+      AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT,
+    window.location.hostname,
+  );
   const userId =
     typeof properties.userId === "string" ? properties.userId : undefined;
   const body = JSON.stringify({
@@ -1977,15 +2422,32 @@ function sendAgentNativeAnalytics(
   }
 }
 
-export function trackEvent(
+function createTrackingAliasId(): string | undefined {
+  return typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : undefined;
+}
+
+function emitBrowserTrackingEvent(
   name: string,
-  params?: Record<string, unknown>,
+  props: Record<string, unknown>,
+  options: {
+    gtagProperties?: Record<string, unknown>;
+    agentNativeProperties?: Record<string, unknown>;
+    sendGtag?: boolean;
+  } = {},
 ): void {
-  if (typeof window === "undefined") return;
-  ensureSentry();
-  const props = resolveProps(name, params);
+  const {
+    agentNativeProperties = props,
+    gtagProperties = props,
+    sendGtag = true,
+  } = options;
   const amplitudeProps = amplitudeEventProperties(name, props);
-  window.gtag?.("event", name.replace(/\s+/g, "_"), props);
+  if (sendGtag) {
+    const gtag = window.__AGENT_NATIVE_GA_GTAG__ ?? window.gtag;
+    gtag?.("event", name.replace(/\s+/g, "_"), gtagProperties);
+  }
   if (ensureAmplitude()) {
     _amplitudeModule?.track(name, amplitudeProps);
   } else if (_amplitudeApiKey) {
@@ -1993,7 +2455,111 @@ export function trackEvent(
       _pendingAmplitudeEvents.push([name, amplitudeProps]);
     }
   }
-  sendAgentNativeAnalytics(name, props);
+  const authUserId = getTrackingAuthUserId();
+  sendAgentNativeAnalytics(
+    name,
+    authUserId
+      ? { ...agentNativeProperties, auth_user_id: authUserId }
+      : agentNativeProperties,
+  );
+}
+
+// Browser events that are telemetry or already have their own replay marker.
+const REPLAY_UNMARKED_EVENT_NAMES = new Set([
+  "pageview",
+  "session status",
+  "session_status",
+  "action.response",
+  "web_vitals",
+  "agent_chat_lifecycle",
+  "session_replay_started",
+  "session replay upload rejected",
+  "session_replay_upload_rejected",
+  AGENT_NATIVE_EXCEPTION_EVENT_NAME,
+]);
+
+function markTrackedEventInSessionReplay(
+  name: string,
+  props: Record<string, unknown>,
+): void {
+  if (
+    name === "action.response" &&
+    typeof props.duration_ms === "number" &&
+    props.duration_ms >= SLOW_ACTION_RESPONSE_MS &&
+    isWaitedActionResponse(props)
+  ) {
+    _sessionReplayModuleForCapture?.emitSessionReplaySlowRequest?.(props);
+  }
+  if (REPLAY_UNMARKED_EVENT_NAMES.has(name)) return;
+  _sessionReplayModuleForCapture?.emitSessionReplayAnalyticsEvent?.(name);
+}
+
+export function trackEvent(
+  name: string,
+  params?: Record<string, unknown>,
+): void {
+  trackBrowserEvent(name, params, true);
+}
+
+function trackBrowserEvent(
+  name: string,
+  params: Record<string, unknown> | undefined,
+  markInReplay: boolean,
+): void {
+  if (typeof window === "undefined") return;
+  if (isSyntheticBrowserTraffic()) return;
+  if (isQaTrackingIdentity(_trackingIdentity)) return;
+  ensureSentry();
+  const props = resolveProps(name, params);
+  const canonical = canonicalTrackingEvent(name, props);
+  const aliasId = canonical ? createTrackingAliasId() : undefined;
+  const gtagNameMatchesCanonical =
+    canonical !== null && name.replace(/\s+/g, "_") === canonical.name;
+  emitBrowserTrackingEvent(name, props, {
+    agentNativeProperties: aliasId
+      ? { ...props, [TRACKING_EVENT_ALIAS_ID_PROPERTY]: aliasId }
+      : props,
+    gtagProperties: gtagNameMatchesCanonical ? canonical.properties : props,
+  });
+  if (canonical) {
+    emitBrowserTrackingEvent(canonical.name, canonical.properties, {
+      agentNativeProperties: aliasId
+        ? {
+            ...canonical.properties,
+            [TRACKING_EVENT_ALIAS_ID_PROPERTY]: aliasId,
+          }
+        : canonical.properties,
+      sendGtag: !gtagNameMatchesCanonical,
+    });
+  }
+  if (markInReplay) {
+    markTrackedEventInSessionReplay(canonical?.name ?? name, props);
+  }
+  void recordTrackingEvent(name, props, "client");
+  const lifecycle = legacyLifecycleEvent(name, props);
+  // The alias describes the same moment, so it gets no second replay marker.
+  if (lifecycle) trackBrowserEvent(lifecycle.name, lifecycle.properties, false);
+}
+
+export function trackAnonymousEvent(
+  name: string,
+  properties: Record<string, unknown>,
+): void {
+  if (
+    typeof window === "undefined" ||
+    isSyntheticBrowserTraffic() ||
+    isQaTrackingIdentity(_trackingIdentity)
+  ) {
+    return;
+  }
+  sendAgentNativeAnalytics(name, properties);
+}
+
+export function trackLifecycleEvent(
+  name: AgentNativeLifecycleEventName,
+  params?: Record<string, unknown>,
+): void {
+  trackEvent(name, params);
 }
 
 export function trackSessionStatus(signedIn: boolean): void {

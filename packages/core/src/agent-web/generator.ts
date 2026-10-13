@@ -49,6 +49,17 @@ export interface BuildAgentWebStaticFilesOptions {
   developerResources?: AgentWebResource[];
   whenToUse?: string[];
   organization?: AgentWebOrganization;
+  /**
+   * Splits the sitemap by the returned key: `sitemap.xml` becomes a sitemap
+   * index pointing at one `sitemap-{key}.xml` per key. Keys are lowercased
+   * and must then match `/^[a-z0-9][a-z0-9-]*$/`.
+   */
+  sitemapGroup?: (page: AgentWebPage) => string;
+}
+
+export interface AgentWebSitemapIndexEntry {
+  path: string;
+  lastmod?: string | Date;
 }
 
 export interface AgentWebStaticFile {
@@ -94,10 +105,7 @@ export function buildAgentWebStaticFiles(
         config: options.config,
       }),
     },
-    {
-      path: "sitemap.xml",
-      content: buildSitemapXml(options.pages, options.siteUrl),
-    },
+    ...buildSitemapFiles(options),
   ];
 
   if (options.config.llmsTxt) {
@@ -177,6 +185,90 @@ export function buildSitemapXml(
 ${entries}
 </urlset>
 `;
+}
+
+export function buildSitemapIndexXml(
+  entries: AgentWebSitemapIndexEntry[],
+  siteUrl: string,
+): string {
+  const sitemaps = entries
+    .map((entry) => {
+      const lines = [
+        "  <sitemap>",
+        `    <loc>${xmlEscape(absoluteUrl(siteUrl, entry.path))}</loc>`,
+      ];
+      const lastmod = normalizeLastmod(entry.lastmod);
+      if (lastmod) lines.push(`    <lastmod>${xmlEscape(lastmod)}</lastmod>`);
+      lines.push("  </sitemap>");
+      return lines.join("\n");
+    })
+    .join("\n");
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${sitemaps}
+</sitemapindex>
+`;
+}
+
+const SITEMAP_GROUP_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+
+function buildSitemapFiles(
+  options: Pick<
+    BuildAgentWebStaticFilesOptions,
+    "pages" | "siteUrl" | "sitemapGroup"
+  >,
+): AgentWebStaticFile[] {
+  const { pages, siteUrl, sitemapGroup } = options;
+  if (!sitemapGroup) {
+    return [{ path: "sitemap.xml", content: buildSitemapXml(pages, siteUrl) }];
+  }
+
+  const groups = new Map<string, AgentWebPage[]>();
+  let rootGroup: string | undefined;
+  for (const page of pages) {
+    const group = sitemapGroupKey(sitemapGroup(page), page.path);
+    if (page.path === "/") rootGroup = group;
+    const groupPages = groups.get(group);
+    if (groupPages) groupPages.push(page);
+    else groups.set(group, [page]);
+  }
+
+  const keys = Array.from(groups.keys()).sort((a, b) => {
+    if (a === rootGroup) return -1;
+    if (b === rootGroup) return 1;
+    return a < b ? -1 : 1;
+  });
+  // A sitemap may only list URLs under its own directory, so child sitemaps
+  // live at the site root.
+  const childPath = (group: string) => `sitemap-${group}.xml`;
+
+  return [
+    {
+      path: "sitemap.xml",
+      // No index lastmod: the newest page date stays put when a child sitemap
+      // changes because an older page was added or a page was removed.
+      content: buildSitemapIndexXml(
+        keys.map((group) => ({ path: `/${childPath(group)}` })),
+        siteUrl,
+      ),
+    },
+    ...keys.map((group) => ({
+      path: childPath(group),
+      content: buildSitemapXml(groups.get(group)!, siteUrl),
+    })),
+  ];
+}
+
+function sitemapGroupKey(value: unknown, pagePath: string): string {
+  const key = typeof value === "string" ? value.toLowerCase() : undefined;
+  if (!key || !SITEMAP_GROUP_PATTERN.test(key)) {
+    throw new Error(
+      `sitemapGroup returned ${JSON.stringify(value)} for ${pagePath}; ` +
+        `sitemap group keys must match ${SITEMAP_GROUP_PATTERN} after lowercasing.`,
+    );
+  }
+  return key;
 }
 
 export function buildLlmsTxt(
@@ -364,9 +456,9 @@ export function markdownUrlForPage(
   markdownPath?: string,
 ): string {
   if (markdownPath) return normalizePagePath(markdownPath);
-  const normalized = normalizePagePath(pagePath);
-  if (normalized === "/") return "/index.md";
-  return `${normalized}.md`;
+  const base = trimTrailingSlash(normalizePagePath(pagePath));
+  if (!base) return "/index.md";
+  return `${base}.md`;
 }
 
 export function markdownFilePathForPage(
@@ -389,11 +481,7 @@ function absoluteResourceUrl(siteUrl: string, resourceUrl: string): string {
 }
 
 function normalizePagePath(pagePath: string): string {
-  const withSlash = pagePath.startsWith("/") ? pagePath : `/${pagePath}`;
-  if (withSlash.length > 1 && withSlash.endsWith("/")) {
-    return withSlash.slice(0, -1);
-  }
-  return withSlash;
+  return pagePath.startsWith("/") ? pagePath : `/${pagePath}`;
 }
 
 function trimTrailingSlash(value: string): string {
@@ -418,13 +506,14 @@ function breadcrumbItemsForPath(
   const normalized = normalizePagePath(pagePath);
   if (normalized === "/") return [{ name: "Home", path: "/" }];
   const segments = normalized.split("/").filter(Boolean);
+  const trailing = normalized.endsWith("/") ? "/" : "";
   const items = [{ name: "Home", path: "/" }];
   let current = "";
   for (const segment of segments) {
     current += `/${segment}`;
     items.push({
       name: titleFromSegment(segment),
-      path: current,
+      path: `${current}${trailing}`,
     });
   }
   return items;

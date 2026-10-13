@@ -1,5 +1,6 @@
 import { chromium } from "@playwright/test";
 
+import { SetupDeadlineError, withHostDeadline } from "./lib/deadline";
 import {
   authenticatableSites,
   chatSites,
@@ -7,7 +8,11 @@ import {
   selectedSites,
 } from "./lib/fleet";
 import { warm } from "./lib/http";
-import { installOpenAiKey, resolveOpenAiKey } from "./lib/provider-key";
+import {
+  installOpenAiKey,
+  resolveOpenAiKey,
+  validateOpenAiKey,
+} from "./lib/provider-key";
 import {
   authStatePath,
   bootstrapAppSession,
@@ -17,30 +22,30 @@ import {
   markAuthedLaneReady,
   missingCredentialsMessage,
 } from "./lib/session";
+import {
+  BETA_E2E_TEST_TRAFFIC_HEADERS,
+  installBetaE2ETrafficMarker,
+} from "./lib/test-traffic";
 
-/**
- * Prepare the run.
- *
- * Two jobs: warm every host so a cold start does not read as a failure, and —
- * when the authenticated lane is in play — establish one signed-in session per
- * app and install the dedicated OpenAI key against it.
- *
- * The authenticated lane either works or the run stops here. Degrading to an
- * anonymous session would leave every authed assertion passing against a
- * signed-out app, which is worse than no coverage because it reads as proof.
- */
+// Slow beta hosts cost 20-40s per page load from a GitHub runner, so this has to
+// cover a session exchange plus a key install without tripping on a cold host.
+const HOST_SETUP_DEADLINE_MS = 150_000;
+// Hosts that hang rather than fail; past this the run is not going to recover
+// and each further host would only burn another full deadline.
+const MAX_HUNG_HOSTS = 3;
+
+function providerKeyRequired(): boolean {
+  return process.env.BETA_E2E_CLUSTER?.trim().toLowerCase() === "chat";
+}
 
 export function authedLaneRequested(): boolean {
   const explicit = process.env.BETA_E2E_AUTHED?.trim().toLowerCase();
   if (explicit === "0" || explicit === "false") return false;
   if (explicit === "1" || explicit === "true") return true;
-  // Unset: run the authed lane when a credential was supplied.
   return hasSessionCredentials();
 }
 
 async function globalSetup(): Promise<void> {
-  // Clear first: a marker left by a previous run would let this run's specs
-  // believe they are authenticated when they are not.
   clearAuthedLaneMarker();
 
   const sites = selectedSites();
@@ -49,9 +54,6 @@ async function globalSetup(): Promise<void> {
   );
 
   console.log("[beta-e2e] warming hosts…");
-  // Modest concurrency: a burst large enough to look like a flood gets
-  // throttled at the edge, and a throttled probe is indistinguishable from a
-  // down host unless we avoid causing it.
   const queue = [...sites];
   await Promise.all(
     Array.from({ length: 4 }, async () => {
@@ -71,8 +73,9 @@ async function globalSetup(): Promise<void> {
   if (!hasSessionCredentials()) throw new Error(missingCredentialsMessage());
 
   const email = expectedEmail();
-  const resolvedKey = resolveOpenAiKey();
-  if (!resolvedKey) {
+  const needsProviderKey = providerKeyRequired();
+  const resolvedKey = needsProviderKey ? resolveOpenAiKey() : undefined;
+  if (needsProviderKey && !resolvedKey) {
     throw new Error(
       [
         "The authenticated lane was requested but no OpenAI credential was supplied.",
@@ -83,14 +86,16 @@ async function globalSetup(): Promise<void> {
       ].join("\n"),
     );
   }
-  const apiKey = resolvedKey.key;
-  if (resolvedKey.source === "shared") {
+  const apiKey = resolvedKey?.key;
+  if (resolvedKey?.source === "shared") {
     console.warn(
       "[beta-e2e] billing the SHARED OPENAI_API_KEY. This run's agent-turn spend is pooled with every other consumer of that key and cannot be attributed to the suite. Create BETA_E2E_OPENAI_API_KEY to separate it.",
     );
-  } else {
+  } else if (resolvedKey) {
     console.log("[beta-e2e] billing the dedicated BETA_E2E_OPENAI_API_KEY.");
   }
+
+  if (apiKey) await validateOpenAiKey(apiKey);
 
   const targets = authenticatableSites();
   if (targets.length === 0) {
@@ -114,33 +119,62 @@ async function globalSetup(): Promise<void> {
 
   const browser = await chromium.launch();
   const failures: string[] = [];
+  let hungHosts = 0;
   try {
-    for (const site of targets) {
+    for (const [index, site] of targets.entries()) {
+      if (hungHosts >= MAX_HUNG_HOSTS) {
+        failures.push(
+          `${targets
+            .slice(index)
+            .map((remaining) => remaining.id)
+            .join(
+              ", ",
+            )}: not attempted — ${hungHosts} earlier hosts hung past their setup deadline.`,
+        );
+        break;
+      }
       const origin = originFor(site);
+      const installsKey = needsProviderKey && needsKey.has(site.id);
       try {
-        const identity = await bootstrapAppSession(browser, site);
+        await withHostDeadline(
+          site.id,
+          HOST_SETUP_DEADLINE_MS,
+          async (step) => {
+            step("bootstrapping the session");
+            const identity = await bootstrapAppSession(browser, site, step);
 
-        if (needsKey.has(site.id)) {
-          const context = await browser.newContext({
-            storageState: authStatePath(site.id),
-          });
-          try {
-            const install = await installOpenAiKey(context, origin, apiKey);
-            if (!install.installed) {
-              failures.push(
-                `${site.id}: signed in as ${identity.email} but the dedicated OpenAI key was rejected (HTTP ${install.status}: ${install.body}). Turns here would bill an unintended credential.`,
-              );
-              continue;
+            if (installsKey) {
+              step("installing the OpenAI key");
+              const context = await browser.newContext({
+                storageState: authStatePath(site.id),
+                extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS,
+              });
+              await installBetaE2ETrafficMarker(context);
+              try {
+                if (!apiKey) {
+                  throw new Error(
+                    "No validated OpenAI credential is available.",
+                  );
+                }
+                const install = await installOpenAiKey(context, origin, apiKey);
+                if (!install.installed) {
+                  failures.push(
+                    `${site.id}: signed in as ${identity.email} but the dedicated OpenAI key was not confirmed at runtime (install HTTP ${install.status}; status HTTP ${install.runtimeStatus.status}: ${install.runtimeStatus.body}). Turns here would bill an unintended credential.`,
+                  );
+                  return;
+                }
+              } finally {
+                await context.close();
+              }
             }
-          } finally {
-            await context.close();
-          }
-        }
 
-        console.log(
-          `[beta-e2e]   ${site.id}: session ok as ${identity.email}${needsKey.has(site.id) ? `, ${resolvedKey.source} OpenAI key installed` : ""}`,
+            console.log(
+              `[beta-e2e]   ${site.id}: session ok as ${identity.email}${installsKey ? `, ${resolvedKey?.source} OpenAI key installed` : ""}`,
+            );
+          },
         );
       } catch (error) {
+        if (error instanceof SetupDeadlineError) hungHosts += 1;
         failures.push(
           `${site.id}: ${error instanceof Error ? error.message : String(error)}`,
         );

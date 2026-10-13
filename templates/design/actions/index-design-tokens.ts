@@ -1,20 +1,16 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { extractCssVars } from "@agent-native/core/server/design-token-utils";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import type { DesignSystemData } from "../shared/api.js";
 import {
   isDirectCssVarSelectionKey,
   resolveTweaksToCssVars,
 } from "../shared/resolve-tweaks.js";
-
-// ---------------------------------------------------------------------------
-// Token type classification
-// ---------------------------------------------------------------------------
 
 function classifyVar(
   name: string,
@@ -51,7 +47,6 @@ function classifyVar(
   return "other";
 }
 
-/** Derive a friendly display name from a CSS var name like `--primary-color`. */
 function friendlyName(cssVar: string): string {
   return cssVar
     .replace(/^--/, "")
@@ -59,39 +54,26 @@ function friendlyName(cssVar: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-// ---------------------------------------------------------------------------
-// Token entry shape
-// ---------------------------------------------------------------------------
-
 export interface DesignToken {
-  /** Human-readable display name, e.g. "Primary Color". */
   name: string;
-  /** CSS custom property, e.g. "--primary-color". */
   cssVar: string;
-  /** Resolved string value, e.g. "#3B82F6" or "0.5rem". */
   value: string;
-  /** Semantic token category. */
   type: "color" | "typography" | "spacing" | "radius" | "shadow" | "other";
-  /** Opaque source chip label, e.g. "globals.css" or "Brand Kit". */
   source: string;
-  /**
-   * True when the value comes from the design's own tweak selections (i.e.
-   * the user has already customised this token in the editor).
-   */
+  sources?: string[];
+  sourceValues?: Record<string, string>;
   isTweakOverride?: boolean;
 }
-
-// ---------------------------------------------------------------------------
-// Action
-// ---------------------------------------------------------------------------
 
 export default defineAction({
   description:
     "Index the design tokens for a design as a friendly { name, cssVar, " +
     "value, type, source } list. Parses CSS custom properties from the " +
     "design's HTML :root block, the linked Brand Kit / design system, and " +
-    "the user's applied tweak selections.  Returns tokens grouped by type " +
-    "(color, typography, spacing, radius, shadow, other).",
+    "the user's applied tweak selections. When multiple files declare the " +
+    "same cssVar, also returns `sources` (every contributing filename) and " +
+    "`sourceValues` (per-file value) if those files disagree. Returns tokens " +
+    "grouped by type (color, typography, spacing, radius, shadow, other).",
   schema: z.object({
     designId: z.string().describe("Design project ID"),
   }),
@@ -100,35 +82,55 @@ export default defineAction({
   run: async ({ designId }) => {
     const access = await resolveAccess("design", designId);
     if (!access) {
-      throw new Error("Design not found");
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
     }
     const design = access.resource;
     const db = getDb();
 
-    // ------------------------------------------------------------------
-    // 1. Parse tokens from the design's own HTML files (:root vars)
-    // ------------------------------------------------------------------
-    const files = await db
-      .select({
-        filename: schema.designFiles.filename,
-        content: schema.designFiles.content,
-      })
-      .from(schema.designFiles)
-      .where(eq(schema.designFiles.designId, designId));
+    const files = (
+      await db
+        .select({
+          filename: schema.designFiles.filename,
+          content: schema.designFiles.content,
+        })
+        .from(schema.designFiles)
+        .where(eq(schema.designFiles.designId, designId))
+    ).sort((a, b) => (a.filename ?? "").localeCompare(b.filename ?? ""));
 
-    /** cssVar -> { value, source } */
-    const rawTokens: Map<string, { value: string; source: string }> = new Map();
-    // Persisted Brand Kit JSON can outlive its schema. Keep one malformed token
-    // from taking down the whole read action while preserving valid siblings.
+    interface RawTokenEntry {
+      value: string;
+      source: string;
+      sources: string[];
+      sourceValues?: Record<string, string>;
+    }
+    const rawTokens: Map<string, RawTokenEntry> = new Map();
     const setRawToken = (
       cssVar: string,
       value: unknown,
       source: unknown,
+      opts?: { accumulate?: boolean },
     ): void => {
       if (typeof value !== "string") return;
+      const src = typeof source === "string" && source ? source : "Unknown";
+
+      const existing = opts?.accumulate ? rawTokens.get(cssVar) : undefined;
+      if (!existing) {
+        rawTokens.set(cssVar, {
+          value,
+          source: src,
+          sources: [src],
+          sourceValues: { [src]: value },
+        });
+        return;
+      }
+
+      const sources = existing.sources.includes(src)
+        ? existing.sources
+        : [...existing.sources, src];
       rawTokens.set(cssVar, {
-        value,
-        source: typeof source === "string" && source ? source : "Unknown",
+        ...existing,
+        sources,
+        sourceValues: { ...existing.sourceValues, [src]: value },
       });
     };
 
@@ -145,17 +147,11 @@ export default defineAction({
       };
       extractCssVars(state, file.content);
       for (const [k, v] of Object.entries(state.cssCustomProperties)) {
-        setRawToken(k, v, file.filename);
+        setRawToken(k, v, file.filename, { accumulate: true });
       }
     }
 
-    // ------------------------------------------------------------------
-    // 2. Overlay tokens from the linked Brand Kit / design system
-    // ------------------------------------------------------------------
     if (design.designSystemId) {
-      // Design systems are their own access boundary (same pattern as
-      // get-design-system.ts). A user who can read the design but has no
-      // access to the linked design system must NOT receive its tokens.
       const dsAccess = await resolveAccess(
         "design-system",
         design.designSystemId,
@@ -172,7 +168,6 @@ export default defineAction({
       if (dsRow?.data) {
         try {
           const dsData = JSON.parse(dsRow.data) as Partial<DesignSystemData>;
-          // Flatten the Brand Kit's known token fields into CSS vars
           const brandColors = dsData.colors ?? {};
           const colorRoleMap: Record<string, string> = {
             primary: "--color-primary",
@@ -187,11 +182,9 @@ export default defineAction({
             const v = (brandColors as Record<string, string>)[role];
             if (v) setRawToken(cssVar, v, "Brand Kit");
           }
-          // Border radius
           if (dsData.borders?.radius) {
             setRawToken("--radius", dsData.borders.radius, "Brand Kit");
           }
-          // Spacing
           if (dsData.spacing?.elementGap) {
             setRawToken(
               "--spacing-element-gap",
@@ -212,9 +205,6 @@ export default defineAction({
       }
     }
 
-    // ------------------------------------------------------------------
-    // 3. Overlay tweak-resolved values (user customisations win)
-    // ------------------------------------------------------------------
     let designData: Record<string, unknown> = {};
     try {
       designData = design.data
@@ -246,7 +236,6 @@ export default defineAction({
         ? (designData.tokenImportSources as Record<string, string>)
         : {};
 
-    // Cast tweaks array to the shape resolveTweaksToCssVars expects
     type TweakDef = Parameters<typeof resolveTweaksToCssVars>[0][number];
     const resolvedOverrides = resolveTweaksToCssVars(
       tweaks as TweakDef[],
@@ -260,22 +249,25 @@ export default defineAction({
       setRawToken(cssVar, value, tokenImportSources[cssVar] ?? "Tweaks");
     }
 
-    // ------------------------------------------------------------------
-    // 4. Build friendly token list
-    // ------------------------------------------------------------------
     const tokens: DesignToken[] = [];
-    for (const [cssVar, { value, source }] of rawTokens) {
+    for (const [
+      cssVar,
+      { value, source, sources, sourceValues },
+    ] of rawTokens) {
       tokens.push({
         name: friendlyName(cssVar),
         cssVar,
         value,
         type: classifyVar(cssVar, value),
         source,
+        ...(sources.length > 1 ? { sources } : {}),
+        ...(sourceValues && new Set(Object.values(sourceValues)).size > 1
+          ? { sourceValues }
+          : {}),
         isTweakOverride: tweakCssVars.has(cssVar),
       });
     }
 
-    // Group by type for the panel
     type TokenGroup = { type: DesignToken["type"]; tokens: DesignToken[] };
     const ORDER: DesignToken["type"][] = [
       "color",

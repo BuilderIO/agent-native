@@ -1,99 +1,109 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { convertSetCookieToCookie, getTestInstance } from "better-auth/test";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
+const mockAcceptPendingInvitationsForEmail = vi.hoisted(() => vi.fn());
+const mockLoadOptionalPeer = vi.hoisted(() => vi.fn());
+
+vi.mock("../org/accept-pending.js", () => ({
+  acceptPendingInvitationsForEmail: mockAcceptPendingInvitationsForEmail,
+}));
+
+vi.mock("../shared/optional-peer.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../shared/optional-peer.js")>()),
+  loadOptionalPeer: mockLoadOptionalPeer,
+}));
+
+import { getAppConfig, resetAppConfigForTests } from "../app-config/index.js";
+import { closeDbExec, resumePgliteClientAccess } from "../db/client.js";
+import { DEPLOY_SETTINGS_REQUIRED_CODE } from "../shared/runtime-config.js";
 import {
-  buildDatabaseConfig,
-  configureLocalSqlite,
   desktopMagicLinkLandingUrl,
   ensureGoogleAuthIdentityWithAdapter,
+  getBetterAuth,
+  getBetterAuthSync,
   getAuthSecret,
+  normalizeBetterAuthInternalAdapter,
+  resetBetterAuth,
+  withBetterAuthActionSession,
   type BetterAuthInternalAdapter,
 } from "./better-auth-instance.js";
 import { deriveServerSecret } from "./derived-secret.js";
 
-describe("configureLocalSqlite", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+mockLoadOptionalPeer.mockImplementation(
+  (_packageName: string, load: () => Promise<unknown>) => load(),
+);
 
-  it("waits for competing app writes before giving up", async () => {
-    const pragma = vi.fn();
-
-    await configureLocalSqlite({ pragma });
-
-    expect(pragma.mock.calls).toEqual([
-      ["busy_timeout = 10000"],
-      ["journal_mode = WAL"],
-    ]);
-  });
-
-  it("retries a stale-runtime lock while enabling WAL instead of throwing straight out of boot", async () => {
-    vi.useFakeTimers();
-    const locked = Object.assign(new Error("database is locked"), {
-      code: "SQLITE_BUSY",
-    });
-    const pragma = vi
-      .fn()
-      .mockReturnValueOnce(undefined) // busy_timeout = 10000
-      .mockImplementationOnce(() => {
-        throw locked; // journal_mode = WAL, first attempt: still locked by the app connection's migration burst
-      })
-      .mockReturnValueOnce([{ journal_mode: "wal" }]); // journal_mode = WAL, retry succeeds
-
-    const pending = configureLocalSqlite({ pragma, close: vi.fn() });
-    await vi.advanceTimersByTimeAsync(500);
-    await pending;
-
-    expect(pragma.mock.calls).toEqual([
-      ["busy_timeout = 10000"],
-      ["journal_mode = WAL"],
-      ["journal_mode = WAL"],
-    ]);
-  });
-
-  it("closes the handle and surfaces a lock that outlasts every retry", async () => {
-    vi.useFakeTimers();
-    const locked = Object.assign(new Error("database is locked"), {
-      code: "SQLITE_BUSY",
-    });
-    const pragma = vi.fn((statement: string) => {
-      if (statement === "journal_mode = WAL") throw locked;
-    });
-    const close = vi.fn();
-
-    const pending = expect(
-      configureLocalSqlite({ pragma, close }),
-    ).rejects.toBe(locked);
-    await vi.advanceTimersByTimeAsync(5_000);
-    await pending;
-
-    expect(pragma.mock.calls).toEqual([
-      ["busy_timeout = 10000"],
-      ["journal_mode = WAL"],
-      ["journal_mode = WAL"],
-      ["journal_mode = WAL"],
-      ["journal_mode = WAL"],
-      ["journal_mode = WAL"],
-    ]);
-    expect(close).toHaveBeenCalledOnce();
-  });
-
-  it("retries the WAL negotiation while a dev-server handoff holds the file", async () => {
-    const pragma = vi.fn((statement: string) => {
-      if (statement === "journal_mode = WAL" && pragma.mock.calls.length <= 2) {
-        throw Object.assign(new Error("database is locked"), {
-          code: "SQLITE_BUSY",
+describe("Better Auth initialization during PGlite shutdown", () => {
+  it("does not publish a pre-close instance over the replacement initialization", async () => {
+    const appRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "better-auth-pglite-close-race-"),
+    );
+    const previousCwd = process.cwd();
+    const pendingSsoLoads: Array<() => void> = [];
+    mockLoadOptionalPeer.mockImplementation(
+      (packageName: string, load: () => Promise<unknown>) => {
+        if (packageName !== "@better-auth/sso") return load();
+        return new Promise((resolve, reject) => {
+          pendingSsoLoads.push(() => {
+            void load().then(resolve, reject);
+          });
         });
-      }
-      return undefined;
-    });
-    const close = vi.fn();
+      },
+    );
 
-    await configureLocalSqlite({ pragma, close });
+    try {
+      process.chdir(appRoot);
+      vi.stubEnv("DATABASE_URL", `pglite:${path.join(appRoot, "pglite")}`);
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-".repeat(5));
+      vi.stubEnv("AUTH_SSO", "1");
+      resetAppConfigForTests();
+      expect(getAppConfig().access.sso.enabled).toBe(true);
+      await resetBetterAuth();
 
-    expect(close).not.toHaveBeenCalled();
-    expect(
-      pragma.mock.calls.filter(([s]) => s === "journal_mode = WAL"),
-    ).toHaveLength(2);
+      const staleInitialization = getBetterAuth();
+      await vi.waitFor(() => expect(pendingSsoLoads).toHaveLength(1), {
+        timeout: 10_000,
+      });
+
+      await closeDbExec();
+      resumePgliteClientAccess();
+
+      const currentInitialization = getBetterAuth();
+      await vi.waitFor(() => expect(pendingSsoLoads).toHaveLength(2), {
+        timeout: 10_000,
+      });
+
+      pendingSsoLoads[1]();
+      const currentAuth = await currentInitialization;
+      expect(getBetterAuthSync()).toBe(currentAuth);
+
+      pendingSsoLoads[0]();
+      await expect(staleInitialization).rejects.toThrow(
+        /initialization was invalidated before it completed/,
+      );
+      expect(getBetterAuthSync()).toBe(currentAuth);
+
+      const concurrentInitialization = getBetterAuth();
+      expect(pendingSsoLoads).toHaveLength(2);
+      await expect(concurrentInitialization).resolves.toBe(currentAuth);
+      expect(getBetterAuthSync()).toBe(currentAuth);
+    } finally {
+      await closeDbExec();
+      resumePgliteClientAccess();
+      await resetBetterAuth();
+      resetAppConfigForTests();
+      mockLoadOptionalPeer.mockReset();
+      mockLoadOptionalPeer.mockImplementation(
+        (_packageName: string, load: () => Promise<unknown>) => load(),
+      );
+      vi.unstubAllEnvs();
+      process.chdir(previousCwd);
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
   });
 });
 
@@ -143,27 +153,6 @@ describe("desktopMagicLinkLandingUrl", () => {
   });
 });
 
-describe("buildDatabaseConfig", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("uses the Cloudflare D1 binding for Better Auth", async () => {
-    const d1 = { prepare: vi.fn() };
-    vi.stubGlobal("__env__", { DB: d1 });
-
-    const database = await buildDatabaseConfig("d1");
-
-    expect(database).toEqual(expect.any(Function));
-  });
-
-  it("fails clearly when the D1 binding is unavailable", async () => {
-    await expect(buildDatabaseConfig("d1")).rejects.toThrow(
-      "Cloudflare D1 database binding is unavailable",
-    );
-  });
-});
-
 describe("resolveAuthSecret", () => {
   const originalEnv = { ...process.env };
 
@@ -172,6 +161,8 @@ describe("resolveAuthSecret", () => {
     delete process.env.A2A_SECRET;
     delete process.env.AGENT_NATIVE_WORKSPACE;
     delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
+    delete process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT;
+    delete process.env.SENTRY_ENVIRONMENT;
     delete process.env.NODE_ENV;
   });
 
@@ -190,6 +181,74 @@ describe("resolveAuthSecret", () => {
   it("throws in production when BETTER_AUTH_SECRET is missing", () => {
     process.env.NODE_ENV = "production";
     expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
+  });
+
+  // The fallback auth routes turn this code into the sign-in page's setup
+  // guidance instead of a generic failure.
+  it("carries the deploy-settings code on the refusal", () => {
+    process.env.NODE_ENV = "production";
+    let thrown: unknown;
+    try {
+      getAuthSecret();
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({
+      name: "MissingAuthSecretError",
+      code: DEPLOY_SETTINGS_REQUIRED_CODE,
+    });
+  });
+
+  it("rethrows one refusal per process instead of building one per request", () => {
+    process.env.NODE_ENV = "production";
+    const refusals = [0, 1, 2].map(() => {
+      try {
+        getAuthSecret();
+      } catch (error) {
+        return error;
+      }
+      return undefined;
+    });
+    expect(refusals[0]).toMatchObject({ name: "MissingAuthSecretError" });
+    expect(new Set(refusals).size).toBe(1);
+
+    process.env.BETTER_AUTH_SECRET = "configured-later";
+    expect(getAuthSecret()).toBe("configured-later");
+  });
+
+  it.each(["beta", "preview", "production"])(
+    "never persists a generated secret in %s",
+    (environment) => {
+      process.env.NODE_ENV = "development";
+      process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT = environment;
+      expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
+    },
+  );
+
+  it("does not let Sentry metadata weaken the production guard", () => {
+    process.env.NODE_ENV = "production";
+    process.env.SENTRY_ENVIRONMENT = "development";
+    expect(() => getAuthSecret()).toThrow(/BETTER_AUTH_SECRET is not set/);
+  });
+
+  it("allows the dedicated deployment setting to opt into local development", () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT = "local";
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dev-auth-secret-"));
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(appRoot);
+    try {
+      // Opting in must not throw like production does: it mints a random
+      // 32-byte secret, persists it under the app root, and keeps returning
+      // that same value.
+      const secret = getAuthSecret();
+      const secretFile = path.join(appRoot, ".agent-native", "dev-auth-secret");
+      expect(secret).toMatch(/^[0-9a-f]{64}$/);
+      expect(fs.readFileSync(secretFile, "utf8").trim()).toBe(secret);
+      expect(getAuthSecret()).toBe(secret);
+    } finally {
+      cwd.mockRestore();
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
   });
 
   it("derives a production workspace auth secret from A2A_SECRET", () => {
@@ -218,10 +277,19 @@ describe("resolveAuthSecret", () => {
     expect(() => getAuthSecret()).toThrow(/openssl rand -hex 32/);
   });
 
-  it("does not throw in dev when missing (auto-generates instead)", () => {
+  it("persists and reuses a generated secret in local development", () => {
     process.env.NODE_ENV = "development";
-    expect(() => getAuthSecret()).not.toThrow();
-    expect(getAuthSecret()).toBeTruthy();
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dev-auth-secret-"));
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(appRoot);
+    try {
+      const first = getAuthSecret();
+      const secretFile = path.join(appRoot, ".agent-native", "dev-auth-secret");
+      expect(fs.readFileSync(secretFile, "utf8").trim()).toBe(first);
+      expect(getAuthSecret()).toBe(first);
+    } finally {
+      cwd.mockRestore();
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
   });
 
   // SECURITY (audit 09 LOW-2): the dev-mode fallback used to chain to
@@ -235,12 +303,27 @@ describe("resolveAuthSecret", () => {
     delete process.env.BETTER_AUTH_SECRET;
     delete process.env.GOOGLE_CLIENT_SECRET;
     delete process.env.ACCESS_TOKEN;
-    const secret = getAuthSecret();
-    expect(secret).not.toBe("agent-native-local-dev-secret-k9x2m7q4w8");
+    const appRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dev-auth-secret-"));
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(appRoot);
+    try {
+      const secret = getAuthSecret();
+      expect(secret).not.toBe("agent-native-local-dev-secret-k9x2m7q4w8");
+    } finally {
+      cwd.mockRestore();
+      fs.rmSync(appRoot, { recursive: true, force: true });
+    }
   });
 });
 
 describe("ensureGoogleAuthIdentityWithAdapter", () => {
+  beforeEach(() => {
+    mockAcceptPendingInvitationsForEmail.mockReset();
+    mockAcceptPendingInvitationsForEmail.mockResolvedValue({
+      accepted: [],
+      activeOrgId: null,
+    });
+  });
+
   function adapterFor(user: any = null) {
     const linkAccount = vi.fn(async () => undefined);
     const replaceUnverifiedCredentialWithGoogle = vi.fn(async () => undefined);
@@ -248,19 +331,23 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
       user: { id: "google-user" },
       account: {},
     }));
+    const updateUser = vi.fn(async () => undefined);
     const adapter: BetterAuthInternalAdapter = {
       findUserByEmail: vi.fn(async () => user),
       linkAccount,
       createUser: vi.fn(async () => ({ id: "created-user" })),
       createOAuthUser,
+      deleteSession: vi.fn(async () => undefined),
       findAccountByProviderId: vi.fn(async () => null),
       replaceUnverifiedCredentialWithGoogle,
+      updateUser,
     };
     return {
       adapter,
       linkAccount,
       createOAuthUser,
       replaceUnverifiedCredentialWithGoogle,
+      updateUser,
     };
   }
 
@@ -277,6 +364,22 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
     expect(createOAuthUser).toHaveBeenCalledWith(
       { email: "owner@example.com", name: "Owner", emailVerified: true },
       { providerId: "google", accountId: "google-sub-1" },
+    );
+  });
+
+  it("reconciles pending invitations for a fallback-created Google user", async () => {
+    const { adapter, createOAuthUser } = adapterFor();
+    delete adapter.createOAuthUser;
+
+    const created = await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: " Owner@Example.com ",
+      accountId: "google-sub-1",
+    });
+
+    expect(created).toBe(true);
+    expect(createOAuthUser).not.toHaveBeenCalled();
+    expect(mockAcceptPendingInvitationsForEmail).toHaveBeenCalledWith(
+      "owner@example.com",
     );
   });
 
@@ -310,6 +413,53 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
 
     expect(created).toBe(false);
     expect(linkAccount).not.toHaveBeenCalled();
+  });
+
+  it("stores the connected Google profile image on a new canonical user", async () => {
+    const { adapter, createOAuthUser } = adapterFor();
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+      name: "Owner",
+      image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+    });
+
+    expect(createOAuthUser).toHaveBeenCalledWith(
+      {
+        email: "owner@example.com",
+        name: "Owner",
+        emailVerified: true,
+        image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+      },
+      { providerId: "google", accountId: "google-sub-1" },
+    );
+  });
+
+  it("refreshes an email-derived profile with the connected Google identity", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        name: "owner",
+        image: null,
+        emailVerified: true,
+      },
+      accounts: [],
+    };
+    const { adapter, updateUser } = adapterFor(existing);
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+      name: "Owner Name",
+      image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+    });
+
+    expect(updateUser).toHaveBeenCalledWith("existing-user", {
+      name: "Owner Name",
+      image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+    });
   });
 
   it("links an already verified canonical user", async () => {
@@ -367,6 +517,106 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
     expect(linkAccount).not.toHaveBeenCalled();
   });
 
+  it("reconciles pending invitations when Google verifies a password identity", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: false,
+      },
+      accounts: [
+        {
+          id: "credential-account",
+          providerId: "credential",
+          accountId: "existing-user",
+        },
+      ],
+    };
+    const { adapter } = adapterFor(existing);
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: " Owner@Example.com ",
+      accountId: "google-sub-1",
+    });
+
+    expect(mockAcceptPendingInvitationsForEmail).toHaveBeenCalledWith(
+      "owner@example.com",
+    );
+  });
+
+  it("promotes an unverified user whose only other account is the identity-SSO link", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: false,
+      },
+      accounts: [
+        {
+          id: "credential-account",
+          providerId: "credential",
+          accountId: "existing-user",
+        },
+        {
+          id: "identity-sso-account",
+          providerId: "agent-native",
+          accountId: "owner@example.com",
+        },
+      ],
+    };
+    const { adapter, replaceUnverifiedCredentialWithGoogle } =
+      adapterFor(existing);
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+    });
+
+    expect(replaceUnverifiedCredentialWithGoogle).toHaveBeenCalledWith({
+      userId: "existing-user",
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+    });
+  });
+
+  it("keeps account-claim protection when a third party sits beside the identity-SSO link", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: false,
+      },
+      accounts: [
+        {
+          id: "credential-account",
+          providerId: "credential",
+          accountId: "existing-user",
+        },
+        {
+          id: "identity-sso-account",
+          providerId: "agent-native",
+          accountId: "owner@example.com",
+        },
+        {
+          id: "github-account",
+          providerId: "github",
+          accountId: "github-sub-1",
+        },
+      ],
+    };
+    const { adapter, linkAccount, replaceUnverifiedCredentialWithGoogle } =
+      adapterFor(existing);
+
+    await expect(
+      ensureGoogleAuthIdentityWithAdapter(adapter, {
+        email: "owner@example.com",
+        accountId: "google-sub-1",
+      }),
+    ).rejects.toThrow("unverified email/password identity");
+    expect(replaceUnverifiedCredentialWithGoogle).not.toHaveBeenCalled();
+    expect(linkAccount).not.toHaveBeenCalled();
+  });
+
   it("keeps account-claim protection for an unverified user with another account", async () => {
     const existing = {
       user: {
@@ -398,5 +648,311 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
     ).rejects.toThrow("unverified email/password identity");
     expect(replaceUnverifiedCredentialWithGoogle).not.toHaveBeenCalled();
     expect(linkAccount).not.toHaveBeenCalled();
+  });
+});
+
+describe("normalizeBetterAuthInternalAdapter", () => {
+  it("bridges Better Auth 1.7 account keys to the framework lookup", async () => {
+    const findAccountByKey = vi.fn(async () => ({
+      id: "google-account",
+      userId: "user-1",
+    }));
+    const adapter = normalizeBetterAuthInternalAdapter({
+      findUserByEmail: vi.fn(),
+      linkAccount: vi.fn(),
+      createUser: vi.fn(),
+      createSession: vi.fn(),
+      deleteSession: vi.fn(),
+      findAccountByKey,
+    });
+
+    expect(adapter).toBeDefined();
+    await expect(
+      adapter!.findAccountByProviderId("google-sub-1", "google"),
+    ).resolves.toEqual({ id: "google-account", userId: "user-1" });
+    expect(findAccountByKey).toHaveBeenCalledWith({
+      accountId: "google-sub-1",
+      providerId: "google",
+    });
+  });
+});
+
+describe("withBetterAuthActionSession", () => {
+  const authContext = {
+    authCookies: {
+      sessionToken: { name: "better-auth.session_token" },
+      sessionData: { name: "better-auth.session_data" },
+      dontRememberToken: { name: "better-auth.dont_remember" },
+    },
+    secret: "better-auth-action-session-test-secret",
+  };
+
+  function authFor(getSession: ReturnType<typeof vi.fn>): {
+    api: { getSession: ReturnType<typeof vi.fn> };
+    $context: Promise<unknown>;
+  } {
+    return {
+      api: { getSession },
+      $context: Promise.resolve(authContext),
+    };
+  }
+
+  function adapterFor(deleteSession: ReturnType<typeof vi.fn>) {
+    return { deleteSession } as any;
+  }
+
+  it("reuses an existing Better Auth session and rejects identity mismatches", async () => {
+    const getSession = vi.fn().mockResolvedValue({
+      user: { email: "Alice@Example.com" },
+    });
+    const action = vi.fn(async (headers: Headers) => headers);
+    const createSession = vi.fn();
+    const deleteSession = vi.fn();
+
+    await expect(
+      withBetterAuthActionSession(
+        "alice@example.com",
+        new Headers({ cookie: "an_session=legacy-session" }),
+        action,
+        {
+          auth: authFor(getSession) as any,
+          createSession,
+          adapter: adapterFor(deleteSession),
+        },
+      ),
+    ).resolves.toEqual(new Headers({ cookie: "an_session=legacy-session" }));
+    expect(createSession).not.toHaveBeenCalled();
+    expect(deleteSession).not.toHaveBeenCalled();
+
+    getSession.mockResolvedValue({ user: { email: "other@example.com" } });
+    await expect(
+      withBetterAuthActionSession("alice@example.com", new Headers(), action, {
+        auth: authFor(getSession) as any,
+      }),
+    ).rejects.toThrow("Authenticated user mismatch");
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  it("bridges a legacy session through the real Better Auth password endpoint", async () => {
+    const instance = await getTestInstance(
+      {
+        emailAndPassword: {
+          enabled: true,
+          requireEmailVerification: false,
+        },
+        session: { cookieCache: { enabled: true } },
+      },
+      {
+        testUser: {
+          email: "bridge@example.com",
+          name: "Bridge User",
+          password: "old-password",
+        },
+      },
+    );
+    const testAuthContext = await instance.auth.$context;
+    const internalAdapter = testAuthContext.internalAdapter;
+    let bridgeExpiresAt: number | undefined;
+    const deleteSession = vi.fn(async (token: string) => {
+      const storedSession = await internalAdapter.findSession(token);
+      expect(bridgeExpiresAt).toBeDefined();
+      expect(storedSession?.session.expiresAt.getTime()).toBe(bridgeExpiresAt);
+      return internalAdapter.deleteSession(token);
+    });
+    const adapter = { ...internalAdapter, deleteSession } as any;
+    const createSession = async (
+      email: string,
+      _config?: unknown,
+      options?: { expiresAt?: Date },
+    ) => {
+      const existing = await adapter.findUserByEmail(email, {
+        includeAccounts: false,
+      });
+      if (!existing) return null;
+      bridgeExpiresAt = options?.expiresAt?.getTime();
+      const session = options
+        ? await adapter.createSession(existing.user.id, true, options, true)
+        : await adapter.createSession(existing.user.id);
+      return {
+        email: existing.user.email,
+        token: session.token,
+        userId: existing.user.id,
+      };
+    };
+
+    let cachedCookieHeader = "";
+    await instance.client.signUp.email({
+      email: "cached@example.com",
+      name: "Cached User",
+      password: "cached-password",
+      fetchOptions: {
+        onSuccess(context) {
+          cachedCookieHeader =
+            convertSetCookieToCookie(new Headers(context.response.headers)).get(
+              "cookie",
+            ) ?? "";
+        },
+      },
+    });
+    const sessionDataCookieName = testAuthContext.authCookies.sessionData.name;
+    const cachedSessionDataCookies = cachedCookieHeader
+      .split(";")
+      .filter((part) => {
+        const cookieName = part.split("=", 1)[0]?.trim() ?? "";
+        return (
+          cookieName === sessionDataCookieName ||
+          cookieName.startsWith(`${sessionDataCookieName}.`)
+        );
+      })
+      .join("; ");
+    expect(cachedSessionDataCookies).toContain(`${sessionDataCookieName}=`);
+
+    const result = await withBetterAuthActionSession(
+      "bridge@example.com",
+      new Headers({
+        cookie: `${cachedSessionDataCookies}; an_session=legacy-session`,
+      }),
+      (headers) => {
+        expect(headers.get("cookie")).not.toContain(sessionDataCookieName);
+        expect(headers.get("cookie")).toContain(
+          `${testAuthContext.authCookies.dontRememberToken.name}=`,
+        );
+        return instance.auth.api.changePassword({
+          body: {
+            currentPassword: "old-password",
+            newPassword: "new-password",
+          },
+          headers,
+        });
+      },
+      {
+        auth: instance.auth as any,
+        createSession,
+        adapter,
+      },
+    );
+
+    expect(result).toMatchObject({ user: { email: "bridge@example.com" } });
+    expect(deleteSession).toHaveBeenCalledOnce();
+  });
+
+  it("preserves action outcomes when temporary-session cleanup fails", async () => {
+    const getSession = vi.fn().mockResolvedValue(null);
+    const createSession = vi.fn().mockResolvedValue({
+      email: "alice@example.com",
+      token: "temporary-session",
+      userId: "user-1",
+    });
+    const cleanupError = new Error("cleanup failed");
+    const deleteSession = vi.fn().mockRejectedValue(cleanupError);
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(
+      withBetterAuthActionSession(
+        "alice@example.com",
+        new Headers(),
+        async () => ({ status: true }),
+        {
+          auth: authFor(getSession) as any,
+          createSession,
+          adapter: adapterFor(deleteSession),
+        },
+      ),
+    ).resolves.toEqual({ status: true });
+    expect(log).toHaveBeenCalled();
+
+    const actionError = new Error("invalid password");
+    deleteSession.mockRejectedValueOnce(cleanupError);
+    await expect(
+      withBetterAuthActionSession(
+        "alice@example.com",
+        new Headers(),
+        async () => {
+          throw actionError;
+        },
+        {
+          auth: authFor(getSession) as any,
+          createSession,
+          adapter: adapterFor(deleteSession),
+        },
+      ),
+    ).rejects.toBe(actionError);
+    expect(log).toHaveBeenCalled();
+    log.mockRestore();
+  });
+
+  it("bounds cleanup when deleting a temporary session hangs", async () => {
+    vi.useFakeTimers();
+    const getSession = vi.fn().mockResolvedValue(null);
+    const createSession = vi.fn().mockResolvedValue({
+      email: "alice@example.com",
+      token: "temporary-session",
+      userId: "user-1",
+    });
+    const deleteSession = vi.fn(() => new Promise<void>(() => {}));
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      const result = withBetterAuthActionSession(
+        "alice@example.com",
+        new Headers(),
+        async () => ({ status: true }),
+        {
+          auth: authFor(getSession) as any,
+          createSession,
+          adapter: adapterFor(deleteSession),
+        },
+      );
+
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(result).resolves.toEqual({ status: true });
+      expect(log).toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("buildDatabaseConfig hosted-runtime local database guard", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
+  });
+
+  it("rejects instead of opening PGlite on a hosted function invocation with no database URL", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "app-server");
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+    const { buildDatabaseConfig } = await import("./better-auth-instance.js");
+    const { HostedRuntimeLocalDatabaseError } = await import("../db/client.js");
+
+    await expect(buildDatabaseConfig()).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
+  });
+
+  it("rejects on a Cloudflare Worker invocation with no database URL", async () => {
+    vi.stubEnv("APP_NAME", "");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.stubGlobal("__cf_env", {});
+
+    const { buildDatabaseConfig } = await import("./better-auth-instance.js");
+    const { HostedRuntimeLocalDatabaseError } = await import("../db/client.js");
+
+    await expect(buildDatabaseConfig()).rejects.toThrow(
+      HostedRuntimeLocalDatabaseError,
+    );
   });
 });

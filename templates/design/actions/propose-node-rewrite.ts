@@ -18,6 +18,7 @@ import type { CodeLayerSource } from "../shared/code-layer.js";
 import {
   designRepromptPendingStateKey,
   designRepromptProposalStateKey,
+  isNodeRewriteProposal,
   MAX_NODE_REWRITE_PROPOSAL_BYTES,
   resolveNodeRewriteTarget,
   validateNodeRewriteVariant,
@@ -153,6 +154,27 @@ function targetsMatch(a: NodeRewriteTarget, b: NodeRewriteTarget): boolean {
   );
 }
 
+function proposalResult(proposal: NodeRewriteProposal) {
+  const bridgeMessages: NodeHtmlPreviewBridgeMessage[] = [
+    {
+      type: "node-html-preview",
+      proposalId: proposal.proposalId,
+      target: proposal.resolvedTarget,
+      html: proposal.variants[0]!.html,
+      operation: "preview",
+    },
+  ];
+  return {
+    proposalId: proposal.proposalId,
+    repromptId: proposal.repromptId,
+    designId: proposal.designId,
+    fileId: proposal.fileId,
+    target: proposal.resolvedTarget,
+    variants: proposal.variants,
+    bridgeMessages,
+  };
+}
+
 export default defineAction({
   description:
     "Propose one to three scoped HTML rewrites for a pending Design selection. " +
@@ -182,7 +204,9 @@ export default defineAction({
     }
 
     const pendingKey = designRepromptPendingStateKey(file.designId, file.id);
-    const pending = pendingRepromptSchema.parse(await readAppState(pendingKey));
+    const pendingState = await readAppState(pendingKey);
+    if (!pendingState) throw new Error("Pending reprompt was not found.");
+    const pending = pendingRepromptSchema.parse(pendingState);
     if (pending.repromptId !== repromptId) {
       throw new Error("Pending reprompt does not match this request.");
     }
@@ -245,8 +269,10 @@ export default defineAction({
     const publishOperations: AppStateCompareAndSetOperation[] = [
       {
         key: pendingKey,
-        expectedValue: pending as unknown as Record<string, unknown>,
-        nextValue: pending as unknown as Record<string, unknown>,
+        // CAS compares serialized JSON exactly. Validate a parsed copy above,
+        // but retain the original snapshot so schema key order cannot fake a race.
+        expectedValue: pendingState,
+        nextValue: pendingState,
       },
       {
         key: proposalKey,
@@ -271,28 +297,36 @@ export default defineAction({
     }
     const published = await compareAndSetManyAppState(publishOperations);
     if (!published) {
+      // A tool retry can race the first successful publish for the same
+      // request. Reuse that winner only while its pending/proposal pair is
+      // still atomically current; a genuinely newer selection must still win.
+      const winner = await readAppState(proposalKey);
+      if (
+        isNodeRewriteProposal(winner) &&
+        winner.repromptId === repromptId &&
+        winner.designId === file.designId &&
+        winner.fileId === file.id &&
+        winner.baseVersionHash === baseVersionHash &&
+        targetsMatch(winner.target, authoritativeTarget)
+      ) {
+        const winnerIsCurrent = await compareAndSetManyAppState([
+          {
+            key: pendingKey,
+            expectedValue: pendingState,
+            nextValue: pendingState,
+          },
+          {
+            key: proposalKey,
+            expectedValue: winner,
+            nextValue: winner,
+          },
+        ]);
+        if (winnerIsCurrent) return proposalResult(winner);
+      }
       throw new Error(
         "This regeneration was superseded by a newer request before its candidates were published.",
       );
     }
-
-    const bridgeMessages: NodeHtmlPreviewBridgeMessage[] = [
-      {
-        type: "node-html-preview",
-        proposalId,
-        target: resolvedTarget,
-        html: validatedVariants[0]!.html,
-        operation: "preview",
-      },
-    ];
-    return {
-      proposalId,
-      repromptId,
-      designId: file.designId,
-      fileId: file.id,
-      target: resolvedTarget,
-      variants: validatedVariants,
-      bridgeMessages,
-    };
+    return proposalResult(proposal);
   },
 });

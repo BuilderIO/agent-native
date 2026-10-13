@@ -11,9 +11,6 @@ describe("isColorValue", () => {
   });
 
   it("rejects malformed hex lengths instead of matching them as colors", () => {
-    // A bare `{3,8}` digit-count range (the original regex) incorrectly
-    // matched 5- and 7-digit hex strings, which aren't valid CSS colors and
-    // render as a blank swatch instead of falling back to the type icon.
     expect(isColorValue("#12345")).toBe(false);
     expect(isColorValue("#1234567")).toBe(false);
   });
@@ -41,9 +38,6 @@ describe("normalizeCssVarName", () => {
   });
 
   it("trims surrounding whitespace before checking the prefix", () => {
-    // Regression: trimming after the startsWith("--") check meant a leading
-    // space (e.g. pasted input) produced a doubled, server-rejected name
-    // like "-- --foo" instead of "--foo".
     expect(normalizeCssVarName("  --foo  ")).toBe("--foo");
     expect(normalizeCssVarName("  foo  ")).toBe("--foo");
   });

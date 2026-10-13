@@ -58,7 +58,7 @@ export function resolveDashboardFunnelRows(
     "";
 
   const parsed = rows.flatMap((row) => {
-    const label = String(row[labelKey] ?? "").trim();
+    const label = typeof row[labelKey] === "string" ? row[labelKey].trim() : "";
     const value = finiteNumber(row[valueKey]);
     if (!label || value === null || value < 0) return [];
     return [{ label, value }];

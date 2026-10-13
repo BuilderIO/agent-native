@@ -38,6 +38,7 @@ const clientState = vi.hoisted(() => {
     legacyMutateError: null as Error | null,
     legacyErrorMutateAsync,
     inBuilderFrame: false,
+    clientSurface: "web" as "web" | "electron" | "tauri",
     frameLoadHandler: null as (() => void) | null,
     suppressFrameLoad: false,
     theme: "dark" as "dark" | "light",
@@ -46,14 +47,7 @@ const clientState = vi.hoisted(() => {
   };
 });
 
-vi.mock("@agent-native/core/client/chat-first", () => ({
-  CHAT_FIRST_DEFAULT_APP_IDS: [
-    "content",
-    "design",
-    "mail",
-    "calendar",
-    "clips",
-  ],
+vi.mock("@agent-native/toolkit/app/chat/chat-first/app-pane", () => ({
   ChatFirstAppPane: ({
     app,
     embedUrl,
@@ -87,7 +81,14 @@ vi.mock("@agent-native/core/client/chat-first", () => ({
         : null}
     </div>
   ),
+}));
+
+vi.mock("@agent-native/toolkit/app/chat/chat-first-copy", () => ({
   defaultChatFirstCopy: (key: string) => key,
+}));
+
+vi.mock("@agent-native/toolkit/app/chat/AgentSidebar", () => ({
+  AgentSidebar: () => null,
 }));
 
 vi.mock("@agent-native/core/client/feature-flags", () => ({
@@ -95,6 +96,7 @@ vi.mock("@agent-native/core/client/feature-flags", () => ({
 }));
 
 vi.mock("@agent-native/core/client/host", () => ({
+  getClientSurface: () => clientState.clientSurface,
   isInBuilderFrame: () => clientState.inBuilderFrame,
 }));
 
@@ -190,6 +192,7 @@ describe("WorkspaceAppKeepAlive", () => {
     clientState.legacyMutateError = null;
     clientState.legacyErrorMutateAsync.mockReset();
     clientState.inBuilderFrame = false;
+    clientState.clientSurface = "web";
     clientState.frameLoadHandler = null;
     clientState.suppressFrameLoad = false;
     clientState.workspaceSsoMutateAsync.mockClear();
@@ -246,37 +249,33 @@ describe("WorkspaceAppKeepAlive", () => {
       )?.params,
     ).toEqual({ includeAgentCards: false, includeArchived: true });
     expect(
-      clientState.actionQueryOptions.find((query) => query.name === "list_apps")
-        ?.options?.enabled,
+      clientState.actionQueryParams.some((query) => query.name === "list_apps"),
     ).toBe(false);
   });
 
-  it("resolves a granted external app instead of showing app not found", async () => {
+  it("does not resolve apps granted through Dispatch MCP", async () => {
     await act(async () => {
       root.render(
-        <WorkspaceAppKeepAlive activeAppId="analytics.agent-native.com" />,
+        <MemoryRouter>
+          <WorkspaceAppKeepAlive activeAppId="analytics.agent-native.com" />
+        </MemoryRouter>,
       );
       await Promise.resolve();
       await Promise.resolve();
     });
 
     expect(
-      container.querySelector(
-        '[data-dispatch-workspace-app-cache-entry="analytics.agent-native.com"]',
-      ),
-    ).not.toBeNull();
-    expect(
       container.querySelector('[data-chat-first-app-status="ready"]'),
-    ).not.toBeNull();
-    expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
-      app: "analytics.agent-native.com",
-      url: "https://analytics.agent-native.com",
-      chrome: "minimal",
-    });
+    ).toBeNull();
+    expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
     expect(
-      clientState.actionQueryOptions.find((query) => query.name === "list_apps")
-        ?.options?.enabled,
-    ).toBe(true);
+      clientState.actionQueryParams.some((query) => query.name === "list_apps"),
+    ).toBe(false);
+    expect(
+      clientState.actionQueryParams.some(
+        (query) => query.name === "list-connected-agents",
+      ),
+    ).toBe(false);
   });
 
   it("does not resolve archived workspace apps from granted discovery", async () => {
@@ -327,7 +326,7 @@ describe("WorkspaceAppKeepAlive", () => {
 
     expect(clientState.workspaceSsoMutateAsync).toHaveBeenCalledWith({
       app: "mail",
-      url: "https://mail.agent-native.com",
+      url: "https://mail.agent-native.com/home",
       chrome: "minimal",
     });
     expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
@@ -357,6 +356,29 @@ describe("WorkspaceAppKeepAlive", () => {
       chrome: "minimal",
     });
     expect(clientState.workspaceSsoMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("uses a registered workspace home path for embedded sessions", async () => {
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{
+            id: "mail",
+            name: "Mail",
+            path: "/mail",
+            homePath: "/inbox",
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
+      app: "mail",
+      path: "/mail/inbox",
+      chrome: "minimal",
+    });
   });
 
   it("uses the granted-app session action for mounted apps outside the SSO registry", async () => {
@@ -421,7 +443,7 @@ describe("WorkspaceAppKeepAlive", () => {
     expect(container.querySelector("iframe")).toBeNull();
   });
 
-  it("sends the parent theme on iframe load and when the parent changes", async () => {
+  it("sends the parent origin and theme on iframe load", async () => {
     await act(async () => {
       root.render(
         <WorkspaceAppFrame app={{ id: "mail", name: "Mail", path: "/mail" }} />,
@@ -445,7 +467,16 @@ describe("WorkspaceAppKeepAlive", () => {
       await Promise.resolve();
     });
 
-    expect(postMessage).toHaveBeenCalledWith(
+    expect(postMessage).toHaveBeenNthCalledWith(
+      1,
+      {
+        type: "agentNative.frameOrigin",
+        origin: window.location.origin,
+      },
+      "*",
+    );
+    expect(postMessage).toHaveBeenNthCalledWith(
+      2,
       {
         type: "agent-native-theme-update",
         theme: "dark",
@@ -657,10 +688,38 @@ describe("WorkspaceAppKeepAlive", () => {
     expect(topWindow.location.href).toBe("");
     expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
       app: "mail",
-      path: "/mail",
+      path: "/mail/home",
       chrome: "minimal",
     });
     expect(container.querySelector("iframe")).not.toBeNull();
+  });
+
+  it("opens the app in the top window for a native desktop host", async () => {
+    const topWindow = { location: { href: "" } } as unknown as Window;
+    const expectedUrl = new URL("/mail/inbox", window.location.href).href;
+    clientState.clientSurface = "electron";
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      value: topWindow,
+    });
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{
+            id: "mail",
+            name: "Mail",
+            path: "/mail",
+            homePath: "/inbox",
+          }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(topWindow.location.href).toBe(expectedUrl);
+    expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
+    expect(container.querySelector("iframe")).toBeNull();
   });
 
   it("falls back to the embedded app when top-window navigation is blocked", async () => {
@@ -683,10 +742,10 @@ describe("WorkspaceAppKeepAlive", () => {
       await Promise.resolve();
     });
 
-    expect(navigateToTopWindow).toHaveBeenCalledWith("/mail");
+    expect(navigateToTopWindow).toHaveBeenCalledWith("/mail/home");
     expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
       app: "mail",
-      path: "/mail",
+      path: "/mail/home",
       chrome: "minimal",
     });
     expect(container.querySelector("iframe")).not.toBeNull();
@@ -726,7 +785,7 @@ describe("WorkspaceAppKeepAlive", () => {
 
   it("opens the app in the top window for a Builder webview", async () => {
     const topWindow = { location: { href: "" } } as unknown as Window;
-    const expectedUrl = new URL("/mail", window.location.href).href;
+    const expectedUrl = new URL("/mail/home", window.location.href).href;
     clientState.inBuilderFrame = true;
     Object.defineProperty(window, "top", {
       configurable: true,

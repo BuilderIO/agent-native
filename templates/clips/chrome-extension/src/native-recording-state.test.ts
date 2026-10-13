@@ -1,13 +1,30 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  claimRecordingFinalization,
   hasLiveOffscreenSession,
   restartUploadModeFromResponse,
   restartUploadResetBody,
+  shouldClearTerminalSavingOverlay,
   shouldReconcilePersistedRecording,
 } from "./native-recording-state";
 
 describe("persisted native recording state", () => {
+  it("allows only one finalizer per recording session", () => {
+    const release = claimRecordingFinalization("session-1");
+    expect(release).toBeTypeOf("function");
+    expect(claimRecordingFinalization("session-1")).toBeNull();
+
+    const releaseOther = claimRecordingFinalization("session-2");
+    expect(releaseOther).toBeTypeOf("function");
+    releaseOther?.();
+
+    release?.();
+    const retry = claimRecordingFinalization("session-1");
+    expect(retry).toBeTypeOf("function");
+    retry?.();
+  });
+
   it("recognizes an active or prepared offscreen session", () => {
     expect(
       hasLiveOffscreenSession("session-1", { activeSessionId: "session-1" }),
@@ -36,6 +53,13 @@ describe("persisted native recording state", () => {
     expect(shouldReconcilePersistedRecording("complete", "session-1", {})).toBe(
       false,
     );
+  });
+
+  it("clears a restored saving overlay only after a terminal result", () => {
+    expect(shouldClearTerminalSavingOverlay("saving", "error")).toBe(true);
+    expect(shouldClearTerminalSavingOverlay("saving", "complete")).toBe(true);
+    expect(shouldClearTerminalSavingOverlay("saving", "uploading")).toBe(false);
+    expect(shouldClearTerminalSavingOverlay("recording", "error")).toBe(false);
   });
 
   it("requests a new resumable session when restarting a recording", () => {

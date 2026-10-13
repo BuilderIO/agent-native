@@ -2,14 +2,14 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import type { SlidePointerTarget } from "../slide-pointer-target";
 import {
   createSlidesCanvasGestureController,
   createSlidesCanvasInteractionCore,
-  isWithinSlidesCanvasEdgeMoveBand,
-  resolveSlidesCanvasDragTarget,
   resolveSlidesCanvasNudge,
-  resolveSlidesCanvasPointerIntent,
-  SLIDES_CANVAS_EDGE_MOVE_BAND,
+  resolveSlidesCanvasRotation,
+  resolveSlidesCanvasTargetIntent,
+  SLIDES_CANVAS_DRAG_THRESHOLD,
 } from "./slides-canvas-adapter";
 
 describe("Slides canvas interaction adapter", () => {
@@ -23,15 +23,18 @@ describe("Slides canvas interaction adapter", () => {
       action: "select-object",
       selectedObjectIds: ["title"],
     });
-    expect(core.hasCrossedDragThreshold({ x: 0, y: 0 }, { x: 1, y: 1 })).toBe(
+    expect(core.hasCrossedDragThreshold({ x: 0, y: 0 }, { x: 2, y: 2 })).toBe(
       false,
     );
-    expect(core.hasCrossedDragThreshold({ x: 0, y: 0 }, { x: 2, y: 0 })).toBe(
+    expect(core.hasCrossedDragThreshold({ x: 0, y: 0 }, { x: 3, y: 0 })).toBe(
+      false,
+    );
+    expect(core.hasCrossedDragThreshold({ x: 0, y: 0 }, { x: 4, y: 0 })).toBe(
       true,
     );
     expect(core.shouldDuplicateDrag({ altKey: true })).toBe(true);
     expect(core.shouldDuplicateDrag({ metaKey: true })).toBe(false);
-    expect(SLIDES_CANVAS_EDGE_MOVE_BAND).toBe(8);
+    expect(SLIDES_CANVAS_DRAG_THRESHOLD).toBe(4);
   });
 
   it("advertises the supported snapping and multi-object layout capabilities", () => {
@@ -40,8 +43,8 @@ describe("Slides canvas interaction adapter", () => {
     expect(core.capabilities.snapping).toBe(true);
     expect(core.capabilities.alignment).toBe(true);
     expect(core.capabilities.distribution).toBe(true);
-    expect(core.capabilities.grouping).toBe(false);
-    expect(core.capabilities.rotation).toBe(false);
+    expect(core.capabilities.grouping).toBe(true);
+    expect(core.capabilities.rotation).toBe(true);
   });
 
   it("uses the shared nudge and resize geometry", () => {
@@ -130,109 +133,78 @@ describe("Slides canvas interaction adapter", () => {
     );
   });
 
-  it("reserves only a selected object's edge band for movement", () => {
+  it("maps Alt+Arrow to 15-degree rotation and Shift+Alt+Arrow to one degree", () => {
     expect(
-      resolveSlidesCanvasPointerIntent({
-        hasSelectedObject: true,
-        targetWithinSelectedObject: true,
-        targetContainsSelectedObject: false,
-        pointerWithinMoveBand: true,
-        targetIsEditableText: true,
+      resolveSlidesCanvasRotation({
+        key: "ArrowRight",
+        altKey: true,
+        shiftKey: false,
+        metaKey: false,
+        ctrlKey: false,
       }),
-    ).toBe("move-object-perimeter");
+    ).toBe(15);
     expect(
-      resolveSlidesCanvasPointerIntent({
-        hasSelectedObject: true,
-        targetWithinSelectedObject: true,
-        targetContainsSelectedObject: false,
-        pointerWithinMoveBand: false,
-        targetIsEditableText: true,
+      resolveSlidesCanvasRotation({
+        key: "ArrowLeft",
+        altKey: true,
+        shiftKey: true,
+        metaKey: false,
+        ctrlKey: false,
       }),
-    ).toBe("edit-text");
+    ).toBe(-1);
     expect(
-      resolveSlidesCanvasPointerIntent({
-        hasSelectedObject: true,
-        targetWithinSelectedObject: true,
-        targetContainsSelectedObject: false,
-        pointerWithinMoveBand: false,
-        targetIsEditableText: false,
+      resolveSlidesCanvasRotation({
+        key: "ArrowRight",
+        altKey: true,
+        shiftKey: false,
+        metaKey: true,
+        ctrlKey: false,
       }),
-    ).toBe("move-object-body");
+    ).toBeNull();
+    expect(
+      resolveSlidesCanvasRotation({
+        key: "ArrowUp",
+        altKey: true,
+        shiftKey: false,
+        metaKey: false,
+        ctrlKey: false,
+      }),
+    ).toBeNull();
   });
 
-  it("keeps a direct text-leaf click in edit mode outside the move band", () => {
+  it("starts text editing on text bounds and a move on every other object pixel", () => {
+    const object = document.createElement("div");
+    const target = (
+      hit: "text" | "body",
+      grab: "edit" | "move" | "none",
+    ): SlidePointerTarget => ({
+      kind: "object",
+      object,
+      hit,
+      textRoot: object,
+      cursor: hit === "text" ? "text" : "move",
+      hoverOutline: object,
+      grab,
+    });
+
+    expect(resolveSlidesCanvasTargetIntent(target("text", "edit"))).toBe(
+      "edit-text",
+    );
+    expect(resolveSlidesCanvasTargetIntent(target("body", "move"))).toBe(
+      "move-object-body",
+    );
+    expect(resolveSlidesCanvasTargetIntent(target("text", "move"))).toBe(
+      "move-object-body",
+    );
+    expect(resolveSlidesCanvasTargetIntent(target("text", "none"))).toBe(
+      "none",
+    );
     expect(
-      resolveSlidesCanvasPointerIntent({
-        hasSelectedObject: true,
-        targetWithinSelectedObject: true,
-        targetContainsSelectedObject: false,
-        pointerWithinMoveBand: false,
-        targetIsEditableText: true,
+      resolveSlidesCanvasTargetIntent({
+        kind: "whitespace",
+        cursor: "default",
       }),
-    ).toBe("edit-text");
-  });
-
-  it("uses the object under the pointer when no prior selection exists", () => {
-    const image = document.createElement("img");
-    const wrapper = document.createElement("div");
-
-    expect(resolveSlidesCanvasDragTarget(null, image)).toBe(image);
-    expect(resolveSlidesCanvasDragTarget(null, wrapper)).toBe(wrapper);
-  });
-
-  it("keeps a selected parent as the drag target for nested content", () => {
-    const wrapper = document.createElement("div");
-    const image = document.createElement("img");
-    wrapper.append(image);
-
-    expect(resolveSlidesCanvasDragTarget(wrapper, image)).toBe(wrapper);
-    expect(resolveSlidesCanvasDragTarget(image, wrapper)).toBe(image);
-  });
-
-  it("uses the same measured outside edge band for hover and pointer intent", () => {
-    const rect = {
-      left: 100,
-      right: 300,
-      top: 200,
-      bottom: 260,
-      width: 200,
-      height: 60,
-    };
-
-    expect(isWithinSlidesCanvasEdgeMoveBand(rect, 96, 230)).toBe(true);
-    expect(
-      resolveSlidesCanvasPointerIntent({
-        hasSelectedObject: true,
-        targetWithinSelectedObject: false,
-        targetContainsSelectedObject: true,
-        pointerWithinMoveBand: true,
-        targetIsEditableText: false,
-      }),
-    ).toBe("move-object-perimeter");
-  });
-
-  it("does not steal an outside edge-band press from a nearby object", () => {
-    expect(
-      resolveSlidesCanvasPointerIntent({
-        hasSelectedObject: true,
-        targetWithinSelectedObject: false,
-        targetContainsSelectedObject: false,
-        pointerWithinMoveBand: true,
-        targetIsEditableText: true,
-      }),
-    ).toBe("edit-text");
-  });
-
-  it("moves the selected object from whitespace over its selection perimeter", () => {
-    expect(
-      resolveSlidesCanvasPointerIntent({
-        hasSelectedObject: true,
-        targetWithinSelectedObject: false,
-        targetContainsSelectedObject: false,
-        pointerWithinMoveBand: true,
-        targetIsEditableText: false,
-      }),
-    ).toBe("move-object-perimeter");
+    ).toBe("none");
   });
 
   it("passes semantic commands through the supplied HTML persistence adapter", () => {
@@ -289,8 +261,6 @@ describe("Slides canvas interaction adapter", () => {
       committed: true,
       gesture: { canvasDelta: { x: 20, y: 20 } },
     });
-    // Releasing at the already-previewed pointer does not run a second
-    // preview, so DOM-backed adapters cannot flash or mutate twice on drop.
     expect(preview).toHaveBeenCalledTimes(1);
     expect(commit).toHaveBeenCalledTimes(1);
   });
@@ -327,7 +297,7 @@ describe("Slides canvas interaction adapter", () => {
       viewport: { left: 0, top: 0, width: 100, height: 100 },
       canvas: { width: 100, height: 100 },
     });
-    controller.pointerMove({ x: 3, y: 0, altKey: true });
+    controller.pointerMove({ x: 5, y: 0, altKey: true });
     expect(controller.cancel()).toMatchObject({ cancelled: true });
     expect(cancel).toHaveBeenCalledTimes(1);
     expect(commit).not.toHaveBeenCalled();

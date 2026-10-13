@@ -17,6 +17,10 @@ const WORKSPACE_ENV_KEYS = [
   "VITE_AGENT_NATIVE_WORKSPACE",
   "AGENT_NATIVE_WORKSPACE_APPS_JSON",
   "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+  "AGENT_NATIVE_WORKSPACE_AUTH_MODE",
+  "VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE",
+  "AGENT_NATIVE_WORKSPACE_APP_ID",
+  "VITE_AGENT_NATIVE_WORKSPACE_APP_ID",
 ];
 
 describe("resolveAuthCookieNamespace", () => {
@@ -100,6 +104,22 @@ describe("resolveAuthCookieNamespace", () => {
     });
   });
 
+  it("isolates apps in an explicitly isolated workspace realm", () => {
+    expect(
+      resolveAuthCookieNamespace({
+        NODE_ENV: "production",
+        APP_NAME: "account-tiering",
+        AGENT_NATIVE_WORKSPACE: "1",
+        AGENT_NATIVE_WORKSPACE_AUTH_MODE: "isolated",
+        AGENT_NATIVE_WORKSPACE_APP_ID: "account-tiering",
+      }),
+    ).toMatchObject({
+      frameworkCookieName: "an_session_account_tiering",
+      betterAuthCookiePrefix: "an_account_tiering",
+      betterAuthCookieDomain: undefined,
+    });
+  });
+
   it("uses app-config-only workspace mode for the production namespace", () => {
     defineAppConfig({ workspace: { isWorkspace: true } });
 
@@ -177,6 +197,35 @@ describe("resolveAuthCookieNamespace", () => {
       frameworkCookieName: "an_session_slides",
       betterAuthCookiePrefix: "an_slides",
     });
+  });
+
+  it("isolates a first-party beta app and clears old shared cookies without COOKIE_DOMAIN", () => {
+    expect(
+      resolveAuthCookieNamespace({
+        NODE_ENV: "production",
+        URL: "https://beta.calendar.agent-native.com",
+      }),
+    ).toMatchObject({
+      appSlug: "calendar",
+      frameworkCookieName: "an_session_calendar",
+      frameworkCookieNamesToRead: ["an_session_calendar"],
+      frameworkCookieNamesToClear: ["an_session_calendar", "an_session"],
+      frameworkCookieDomain: undefined,
+      frameworkCookieDomainsToClear: [".agent-native.com"],
+      betterAuthCookiePrefix: "an_calendar",
+      betterAuthCookieDomain: undefined,
+      isFirstPartyCookieDomain: true,
+    });
+  });
+
+  it("only reads the current cookie name in isolated first-party apps", () => {
+    expect(
+      resolveAuthCookieNamespace({
+        NODE_ENV: "production",
+        APP_NAME: "slides",
+        COOKIE_DOMAIN: ".agent-native.com",
+      }).frameworkCookieNamesToRead,
+    ).toEqual(["an_session_slides"]);
   });
 
   it.each(["BETTER_AUTH_URL", "VITE_BETTER_AUTH_URL"])(

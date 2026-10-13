@@ -1,52 +1,51 @@
-/**
- * save-deck — create-or-replace a deck's whole JSON payload.
- *
- * The browser editor saves through `patch-deck`; this full-payload write is
- * reserved for the paths that already hold an authoritative snapshot (undo/redo
- * and bulk slide replacement). Hidden from the agent, which edits through
- * `patch-deck`, `update-slide`, and `add-slide` so concurrent writers on
- * different slides don't clobber each other.
- */
 import { defineAction } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import {
+  createDeckVersionSnapshot,
+  deckVersionContentSignature,
+} from "../server/lib/deck-versions.js";
 import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
 import {
+  createLayoutFitRevision,
+  deckFitRenderFieldsChanged,
+  slideFitRenderFieldsChanged,
+} from "../shared/slide-fit.js";
+import {
   ensureUniqueSlideIds,
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
+import { getDeckUrl } from "./_app-url.js";
+import {
+  trackDeckCreationStarted,
+  trackSlideContentEdited,
+} from "./_deck-tracking.js";
 import {
   assertDesignSystemReadable,
   assertValidAspectRatio,
+  assertDeckWriteApplied,
+  assertDeckClientWriteCurrent,
+  deckClientWriteFields,
+  deckClientWriteSchema,
   deckDesignSystemId,
   deckHttpError,
   deckTitle,
+  deckRevisionWhere,
+  nextDeckRevision,
   type DeckPayload,
 } from "./_deck-write.js";
+import { assertNoDeckRenderArtifacts } from "./_render-artifacts.js";
 import { withDeckLock } from "./patch-deck.js";
-
-function comparableDeckData(raw: unknown): string {
-  try {
-    const data = typeof raw === "string" ? JSON.parse(raw) : raw;
-    const clone = JSON.parse(JSON.stringify(data ?? {}));
-    delete clone.updatedAt;
-    return JSON.stringify(clone);
-  } catch {
-    return String(raw ?? "");
-  }
-}
 
 function shouldSnapshotDeckWrite(
   current: { title?: string | null; data?: string | null },
@@ -55,7 +54,8 @@ function shouldSnapshotDeckWrite(
 ): boolean {
   return (
     (current.title ?? "Untitled") !== nextTitle ||
-    comparableDeckData(current.data ?? "") !== comparableDeckData(nextDeck)
+    deckVersionContentSignature(current.data ?? "") !==
+      deckVersionContentSignature(nextDeck)
   );
 }
 
@@ -65,13 +65,13 @@ export default defineAction({
   schema: z.object({
     deckId: z.string().min(1).describe("Deck ID"),
     deck: z.record(z.string(), z.unknown()).describe("Full deck JSON payload"),
+    clientWrite: deckClientWriteSchema.optional(),
   }),
   http: { method: "PUT" },
   agentTool: false,
-  run: async (args) =>
-    withDeckLock(args.deckId, async () => {
-      const deckId = args.deckId;
-      const deck = args.deck as DeckPayload;
+  run: async ({ deckId, deck: inputDeck, clientWrite }, ctx) =>
+    withDeckLock(deckId, async () => {
+      const deck = inputDeck as DeckPayload;
       if (Array.isArray(deck.slides)) {
         const normalized = ensureUniqueSlideIds(
           deck.slides as Array<{ id?: unknown }>,
@@ -96,18 +96,25 @@ export default defineAction({
       deck.id = deckId;
       deck.updatedAt = now;
       const requestedTitle = deckTitle(deck);
-      const nextDesignSystemId = deckDesignSystemId(deck);
 
-      // Resolve access first — this loads the row AND tells us the caller's
-      // effective role in one pass, so we never run an unscoped existence
-      // SELECT that would leak "this id exists" to non-owners.
       const access = await resolveAccess("deck", deckId);
+      if (access) {
+        const writeDisposition = assertDeckClientWriteCurrent(
+          access.resource,
+          deckId,
+          clientWrite,
+        );
+        if (writeDisposition === "already-applied") {
+          return {
+            ...(JSON.parse(access.resource.data) as DeckPayload),
+            updatedAt: access.resource.updatedAt,
+            appUrl: getDeckUrl(deckId),
+          };
+        }
+      }
+      const previous = stampChangedSlideRevisions(access?.resource.data, deck);
 
       if (!access) {
-        // Either the deck does not exist OR the caller cannot see it. In both
-        // cases we treat this as a create for the caller. If the row actually
-        // exists but is owned by someone else, the INSERT below fails on the
-        // primary key — mapped to a 404 so we never reveal that the id is taken.
         const ownerEmail = getRequestUserEmail();
         if (!ownerEmail) {
           throw deckHttpError(403, "Sign in to create a deck");
@@ -117,21 +124,21 @@ export default defineAction({
           requestedTitle;
         assertHumanReadableDeckTitle(title);
         deck.title = title;
-        await assertDesignSystemReadable(nextDesignSystemId);
+        await assertDesignSystemReadable(deckDesignSystemId(deck));
+        assertNoDeckRenderArtifacts(null, deck);
         try {
           await db.insert(schema.decks).values({
             id: deckId,
             title,
             data: JSON.stringify(deck),
-            designSystemId: nextDesignSystemId,
+            designSystemId: deckDesignSystemId(deck),
+            ...deckClientWriteFields(clientWrite, now),
             ownerEmail,
             orgId: getRequestOrgId() ?? null,
             createdAt: now,
             updatedAt: now,
           });
         } catch {
-          // Some adapters wrap duplicate-key failures in a generic query error
-          // that includes bound params, so never surface the raw error here.
           throw deckHttpError(404, "Deck not found");
         }
       } else if (
@@ -147,36 +154,85 @@ export default defineAction({
           ) ?? requestedTitle;
         assertHumanReadableDeckTitle(title);
         deck.title = title;
+        const updatedAt = nextDeckRevision(access.resource.updatedAt);
+        deck.updatedAt = updatedAt;
+        const nextDesignSystemId = Object.hasOwn(deck, "designSystemId")
+          ? deckDesignSystemId(deck)
+          : (access.resource.designSystemId ?? null);
         await assertDesignSystemReadable(nextDesignSystemId);
-        if (shouldSnapshotDeckWrite(access.resource, title, deck)) {
-          await createDeckVersionSnapshot(
-            {
-              id: access.resource.id,
-              title: access.resource.title,
-              data: access.resource.data,
-              ownerEmail: access.resource.ownerEmail as string,
-            },
-            { label: "Before editor save" },
-          );
+        assertNoDeckRenderArtifacts(access.resource.data, deck);
+        if (!shouldSnapshotDeckWrite(access.resource, title, deck)) {
+          if (clientWrite) {
+            const updateResult = await db
+              .update(schema.decks)
+              .set(
+                deckClientWriteFields(clientWrite, access.resource.updatedAt),
+              )
+              .where(
+                deckRevisionWhere(
+                  schema.decks,
+                  deckId,
+                  access.resource.updatedAt,
+                ),
+              );
+            assertDeckWriteApplied(updateResult, deckId, "deck save replay");
+          }
+          return { ...deck, updatedAt: access.resource.updatedAt };
         }
-        await db
-          .update(schema.decks)
-          .set({
-            title,
-            data: JSON.stringify(deck),
-            designSystemId:
-              nextDesignSystemId ?? access.resource.designSystemId,
-            updatedAt: now,
-          })
-          .where(eq(schema.decks.id, deckId));
+        await db.transaction(async (tx: any) => {
+          if (shouldSnapshotDeckWrite(access.resource, title, deck)) {
+            await createDeckVersionSnapshot(
+              {
+                id: access.resource.id,
+                title: access.resource.title,
+                data: access.resource.data,
+                ownerEmail: access.resource.ownerEmail as string,
+              },
+              { label: "Before editor save", db: tx },
+            );
+          }
+          const updateResult = await tx
+            .update(schema.decks)
+            .set({
+              title,
+              data: JSON.stringify(deck),
+              designSystemId: nextDesignSystemId,
+              updatedAt,
+              ...deckClientWriteFields(clientWrite, updatedAt),
+            })
+            .where(
+              deckRevisionWhere(
+                schema.decks,
+                deckId,
+                access.resource.updatedAt,
+              ),
+            );
+          assertDeckWriteApplied(updateResult, deckId, "deck save");
+        });
       } else {
-        // Viewer-only access — same 404 as no-access so we don't leak that the
-        // deck exists with restricted permissions.
         throw deckHttpError(404, "Deck not found");
       }
 
-      notifyClients(deckId);
-      return deck;
+      // An insert here is an undo/restore of a deleted deck (or a save racing
+      // add-deck), not a new deck; only add-deck records creations.
+      if (access) {
+        trackSlideContentEdited(
+          "save_deck",
+          deckId,
+          previous.slides,
+          deck,
+          ctx,
+        );
+        trackDeckCreationStarted(
+          deckId,
+          previous.generationContext,
+          deck.generationContext,
+          ctx,
+        );
+      }
+
+      await notifyClients(deckId);
+      return { ...deck, appUrl: getDeckUrl(deckId) };
     }),
 });
 
@@ -184,4 +240,47 @@ function firstSlideContent(deck: DeckPayload): string | null {
   const slides = Array.isArray(deck.slides) ? deck.slides : [];
   const content = slides[0] && (slides[0] as Record<string, unknown>).content;
   return typeof content === "string" ? content : null;
+}
+
+/** Returns the parsed stored deck so callers don't parse it a second time. */
+export function stampChangedSlideRevisions(
+  previousData: string | null | undefined,
+  nextDeck: DeckPayload,
+): {
+  aspectRatio?: unknown;
+  designSystemId?: unknown;
+  slides?: unknown;
+  generationContext?: unknown;
+} {
+  const previous = previousData
+    ? (JSON.parse(previousData) as {
+        aspectRatio?: unknown;
+        designSystemId?: unknown;
+        slides?: unknown;
+        generationContext?: unknown;
+      })
+    : {};
+  const deckFitFieldsChanged = deckFitRenderFieldsChanged(previous, nextDeck);
+  const previousSlides = (
+    Array.isArray(previous.slides) ? previous.slides : []
+  ) as Array<Record<string, unknown>>;
+  const nextSlides = Array.isArray(nextDeck.slides)
+    ? (nextDeck.slides as Array<Record<string, unknown>>)
+    : [];
+
+  for (const slide of nextSlides) {
+    const prior = previousSlides.find((candidate) => candidate.id === slide.id);
+    if (
+      deckFitFieldsChanged ||
+      !prior ||
+      slideFitRenderFieldsChanged(prior, slide)
+    ) {
+      slide.layoutFitRevision = createLayoutFitRevision();
+    } else if (typeof prior.layoutFitRevision === "string") {
+      slide.layoutFitRevision = prior.layoutFitRevision;
+    } else {
+      delete slide.layoutFitRevision;
+    }
+  }
+  return previous;
 }

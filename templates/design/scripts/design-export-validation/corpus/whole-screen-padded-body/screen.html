@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Whole-screen export, padded body</title>
+    <style>
+      /* A body that is NOT the screen frame — centred and padded, the shape every
+     design derived from the built-in template presets has. A whole-screen
+     export must still be sized by the frame, not by the body's own box. */
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        background: #d9d6cf;
+        font-family: Inter, Helvetica, Arial, sans-serif;
+      }
+      body {
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+      .artboard {
+        position: relative;
+        width: 552px;
+        height: 352px;
+        overflow: hidden;
+        background: #f3efe6;
+        box-shadow: 0 18px 44px rgba(22, 20, 16, 0.2);
+      }
+      .mark {
+        position: absolute;
+        top: 28px;
+        left: 32px;
+        width: 20px;
+        height: 20px;
+        border-radius: 50% 50% 8% 50%;
+        background: #11110f;
+      }
+      h1 {
+        position: absolute;
+        left: 32px;
+        bottom: 96px;
+        margin: 0;
+        font-size: 44px;
+        font-weight: 800;
+        letter-spacing: -0.045em;
+        line-height: 0.95;
+        color: #11110f;
+      }
+      .rule {
+        position: absolute;
+        left: 32px;
+        right: 32px;
+        bottom: 72px;
+        border-top: 1px solid rgba(17, 17, 15, 0.16);
+      }
+      .cta {
+        position: absolute;
+        left: 32px;
+        bottom: 28px;
+        display: inline-flex;
+        align-items: center;
+        min-height: 34px;
+        padding: 0 16px;
+        border-radius: 999px;
+        background: #11110f;
+        color: #fff;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="artboard">
+      <span class="mark"></span>
+      <h1>Sized by the frame,<br />not the body</h1>
+      <div class="rule"></div>
+      <span class="cta">Export</span>
+    </main>
+  </body>
+</html>

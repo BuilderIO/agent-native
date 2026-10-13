@@ -19,6 +19,7 @@ import {
 import { cn } from "../utils.js";
 
 export {
+  cancelActiveScrubInputs,
   VisualScrubInput,
   resolvePendingScrubCommit,
   type PendingScrubCommit,
@@ -28,8 +29,10 @@ export {
 export {
   formatScrubValue,
   getScrubStepFromEvent,
+  normalizeScrubMixedExpression,
   normalizeScrubNumber,
   parseScrubExpression,
+  parseScrubRelativeExpression,
   roundScrubDragValue,
   scrubSnapsToInteger,
   SCRUB_DRAG_THRESHOLD_PX,
@@ -39,6 +42,7 @@ export {
   type ScrubDragState,
   type ScrubDragTick,
   type ScrubExpressionOptions,
+  type ScrubRelativeExpression,
 } from "./scrub-input-utils.js";
 
 export type VisualControlValue = string | number | boolean;
@@ -88,8 +92,11 @@ interface HsvaColor {
   a: number;
 }
 
-const CHECKERBOARD_IMAGE =
-  "linear-gradient(45deg, #d4d4d4 25%, transparent 25%), linear-gradient(-45deg, #d4d4d4 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #d4d4d4 75%), linear-gradient(-45deg, transparent 75%, #d4d4d4 75%)";
+// guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
+const CHECKER_A = "#e5e5e5";
+// guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
+const CHECKER_B = "#ffffff";
+const CHECKERBOARD_IMAGE = `conic-gradient(${CHECKER_A} 25%, ${CHECKER_B} 0 50%, ${CHECKER_A} 0 75%, ${CHECKER_B} 0)`;
 const FALLBACK_RGBA: RgbaColor = { r: 0, g: 0, b: 0, a: 1 };
 
 function normalizeRgba(color: RgbaColor): RgbaColor {
@@ -242,7 +249,8 @@ function swatchBackground(value: string) {
   if (value === "transparent" || value === "rgba(0, 0, 0, 0)") {
     return {
       background: CHECKERBOARD_IMAGE,
-      backgroundPosition: "0 0, 0 4px, 4px -4px, -4px 0",
+      backgroundColor: CHECKER_B,
+      backgroundPosition: "0 0",
       backgroundSize: "8px 8px",
     };
   }
@@ -359,12 +367,9 @@ export function VisualSwatchControl({
                 "border-foreground/70 ring-2 ring-foreground/40 ring-offset-1 ring-offset-card",
             )}
             style={{
-              background: isTransparent
-                ? "linear-gradient(45deg, hsl(var(--muted)) 25%, transparent 25%), linear-gradient(-45deg, hsl(var(--muted)) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, hsl(var(--muted)) 75%), linear-gradient(-45deg, transparent 75%, hsl(var(--muted)) 75%)"
-                : swatch,
-              backgroundPosition: isTransparent
-                ? "0 0, 0 4px, 4px -4px, -4px 0"
-                : undefined,
+              background: isTransparent ? CHECKERBOARD_IMAGE : swatch,
+              backgroundColor: isTransparent ? CHECKER_B : undefined,
+              backgroundPosition: isTransparent ? "0 0" : undefined,
               backgroundSize: isTransparent ? "8px 8px" : undefined,
             }}
           />
@@ -406,9 +411,7 @@ export function VisualColorPicker({
     Record<`data-${string}`, string | undefined>;
   mixed?: boolean;
   mixedLabel?: string;
-  /** `swatch` drops the value text and caret for dense horizontal toolbars. */
   variant?: "outline" | "filled" | "swatch";
-  /** With `swatch`, renders this over a bar of the current color instead of a plain square. */
   glyph?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -497,14 +500,6 @@ export function VisualColorPicker({
         )}
       >
         {glyph && variant === "swatch" ? (
-          /* A real underline rather than a stacked bar: the browser places
-             it against the glyph's baseline, so the pair cannot drift out of
-             alignment the way hand-positioned boxes do. The current color
-             can be anything (including near-white), so a plain colored
-             underline can vanish against this toolbar's own light
-             background — the four cardinal drop-shadows fake a thin outline
-             around the underline itself (a box-shadow/border can't reach a
-             text-decoration) that stays visible regardless of the color. */
           <span
             aria-hidden="true"
             className="text-[13px] font-semibold leading-none text-foreground underline decoration-[3px] underline-offset-[3px] [filter:drop-shadow(0.5px_0_0_rgba(0,0,0,0.25))_drop-shadow(-0.5px_0_0_rgba(0,0,0,0.25))_drop-shadow(0_0.5px_0_rgba(0,0,0,0.25))_drop-shadow(0_-0.5px_0_rgba(0,0,0,0.25))]"
@@ -604,9 +599,11 @@ export function VisualColorPicker({
                 value={Math.round(color.a * 100)}
                 min={0}
                 max={100}
-                backgroundImage={`${CHECKERBOARD_IMAGE}, linear-gradient(90deg, rgba(${color.r}, ${color.g}, ${color.b}, 0), rgba(${color.r}, ${color.g}, ${color.b}, 1))`}
-                backgroundSize="8px 8px, 8px 8px, 8px 8px, 8px 8px, 100% 100%"
-                backgroundPosition="0 0, 0 4px, 4px -4px, -4px 0, 0 0"
+                // guard:allow-raw-color — dynamic alpha gradient must use the selected RGB values.
+                backgroundImage={`linear-gradient(90deg, rgba(${color.r}, ${color.g}, ${color.b}, 0), rgba(${color.r}, ${color.g}, ${color.b}, 1)), ${CHECKERBOARD_IMAGE}`}
+                backgroundColor={CHECKER_B}
+                backgroundSize="100% 100%, 8px 8px"
+                backgroundPosition="0 0, 0 0"
                 onChange={(nextOpacity) => {
                   const nextColor = normalizeRgba({
                     ...color,
@@ -787,6 +784,7 @@ function VisualColorTrack({
   min,
   max,
   backgroundImage,
+  backgroundColor,
   backgroundSize,
   backgroundPosition,
   onChange,
@@ -796,6 +794,7 @@ function VisualColorTrack({
   min: number;
   max: number;
   backgroundImage: string;
+  backgroundColor?: string;
   backgroundSize?: string;
   backgroundPosition?: string;
   onChange: (value: number) => void;
@@ -860,7 +859,12 @@ function VisualColorTrack({
         draggingRef.current = false;
       }}
       className="relative h-3.5 cursor-pointer rounded-full border border-border/60 outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:cursor-grabbing"
-      style={{ backgroundImage, backgroundSize, backgroundPosition }}
+      style={{
+        backgroundImage,
+        backgroundColor,
+        backgroundSize,
+        backgroundPosition,
+      }}
     >
       <span
         className="pointer-events-none absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_hsl(var(--foreground)/0.6)]"

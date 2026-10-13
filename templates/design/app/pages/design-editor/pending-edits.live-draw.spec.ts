@@ -69,6 +69,54 @@ describe("live screen canvas primitive source targeting", () => {
     ).toEqual(["src/Layout.tsx"]);
   });
 
+  it("uses an app-authored owner when a toolkit leaf is outside the root", () => {
+    expect(
+      pendingStructureEditSourcePaths(
+        liveDrawEdit({
+          insertedHtml: undefined,
+          sourceAnchor: {
+            id: "subject",
+            sourceFile: "/workspace/toolkit/Button.tsx",
+            ownerRelPath: "src/App.tsx",
+            line: 71,
+            column: 7,
+            ownerLine: 42,
+            ownerColumn: 9,
+            runtimeMultiplicity: 1,
+            scope: "unknown",
+          },
+          anchorSourceAnchor: {
+            id: "target",
+            relPath: "src/App.tsx",
+            sourceFile: "/workspace/app/src/App.tsx",
+            line: 42,
+            column: 9,
+            runtimeMultiplicity: 1,
+            scope: "unknown",
+          },
+        }),
+      ),
+    ).toEqual(["src/App.tsx", "src/App.tsx"]);
+  });
+
+  it("refuses a toolkit-only target without an app-authored owner", () => {
+    expect(
+      pendingStructureEditSourcePaths(
+        liveDrawEdit({
+          insertedHtml: undefined,
+          anchorSourceAnchor: {
+            id: "target",
+            sourceFile: "/workspace/toolkit/Button.tsx",
+            line: 71,
+            column: 7,
+            runtimeMultiplicity: 1,
+            scope: "unknown",
+          },
+        }),
+      ),
+    ).toBeNull();
+  });
+
   it("keeps the Apply prompt bounded to the route file without inventing a body source line", () => {
     const prompt = formatPendingVisualStylePrompt({
       designId: "design-1",

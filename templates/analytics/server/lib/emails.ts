@@ -1,10 +1,3 @@
-/**
- * Catalog entries for the transactional emails Analytics sends.
- *
- * Registered from `server/plugins/transactional-emails.ts` so Dispatch can list
- * and preview them without the app having sent anything yet.
- */
-
 import { defineTransactionalEmail } from "@agent-native/core/email-catalog";
 import { emailStrong, renderEmail } from "@agent-native/core/server";
 
@@ -27,9 +20,6 @@ export function registerAnalyticsEmails(): void {
     senderLabel: "Default sender",
     sender:
       "The configured default sender. This call site sets no `from`, `fromName`, `replyTo`, or `appSender`.",
-    // The real renderer runs every panel query and rasterizes charts, so it
-    // cannot back a preview that must stay offline. This shows the frame a
-    // recipient sees; the panel body is whatever that run produced.
     preview: () => ({
       subject: "Daily dashboard: Growth overview — 3/4/2025",
       ...renderEmail({

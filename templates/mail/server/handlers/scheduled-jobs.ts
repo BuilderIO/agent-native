@@ -7,14 +7,13 @@ import {
   type H3Event,
 } from "h3";
 
+import { isValidAddressList } from "../lib/email-address-validation.js";
 import {
   scheduleEmailSend,
   scheduleSnooze,
   sendScheduledJobNowForOwner,
   type SendLaterPayload,
 } from "../lib/jobs.js";
-
-// ─── NL Date Parsing ──────────────────────────────────────────────────────────
 
 function ianaToOffsetMinutes(iana: string, ref: Date): number {
   try {
@@ -43,8 +42,6 @@ export function parseNlDate(input: string, timezone: string): Date | null {
   const parsed = chrono.parse(input, ref, opts);
   if (!parsed.length) return null;
   const result = parsed[0].start.date();
-  // Default to 8am only when chrono didn't extract an explicit time component
-  // (e.g. "tomorrow" → 8am, but "1 hour" or "3pm" keep their parsed time)
   const hasTime =
     parsed[0].start.isCertain("hour") || parsed[0].start.isCertain("minute");
   if (!hasTime) {
@@ -53,9 +50,6 @@ export function parseNlDate(input: string, timezone: string): Date | null {
   return result;
 }
 
-// ─── Route Handlers ───────────────────────────────────────────────────────────
-
-/** POST /api/scheduled-jobs/:id/send-now — send a pending scheduled email now */
 export const sendScheduledJobNow = defineEventHandler(
   async (event: H3Event) => {
     const session = await getSession(event);
@@ -83,7 +77,6 @@ export const sendScheduledJobNow = defineEventHandler(
   },
 );
 
-/** POST /api/parse-date — NL date parsing (for UI preview) */
 export const parseDateNl = defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event);
   const { nlInput, timezone } = body as {
@@ -168,9 +161,23 @@ export const scheduleEmail = defineEventHandler(async (event: H3Event) => {
     runAt?: number;
   };
 
-  if (!body.to || body.subject === undefined || body.body === undefined) {
+  if (
+    typeof body.to !== "string" ||
+    !body.to.trim() ||
+    body.subject === undefined ||
+    body.body === undefined
+  ) {
     setResponseStatus(event, 400);
     return { error: "Missing required fields: to, subject, body" };
+  }
+
+  if (
+    !isValidAddressList(body.to) ||
+    !isValidAddressList(body.cc) ||
+    !isValidAddressList(body.bcc)
+  ) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid recipient address" };
   }
 
   if (!body.runAt || !Number.isFinite(body.runAt) || body.runAt <= Date.now()) {

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
@@ -8,30 +8,62 @@ import {
   replaceCreativeContextElementProvenance,
   validateGenerationCreativeContext,
 } from "@agent-native/creative-context/server";
-import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
+import type {
+  CreativeContextElementProvenance,
+  CreativeContextReuseLabel,
+} from "@agent-native/creative-context/types";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
-import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
+import { normalizeSlidePaddingForWrite } from "../app/lib/normalize-slide-padding.js";
+import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import {
+  createDeckVersionSnapshot,
+  deckVersionChangeGroupFromAction,
+  deckVersionChatContextFromAction,
+} from "../server/lib/deck-versions.js";
 import {
   applySlideContentEdits,
   formatSlideHtml,
   type SlideContentEdit,
 } from "../server/lib/slide-content-patch.js";
 import {
+  HYGIENE_ACTION_DESCRIPTION,
+  slideHygieneResult,
+} from "../server/lib/slide-hygiene.js";
+import {
+  generationAttemptIdOf,
+  trackSlides,
+} from "../server/lib/slides-tracking.js";
+import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
 } from "../server/lib/source-import.js";
-import { hashSlideContent } from "../shared/slide-fit.js";
-import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
+import { assertSlideAnimationsResolve } from "../server/lib/validate-slide-animations.js";
+import { generationTimingFields } from "../shared/generation-timing.js";
 import {
-  awaitLayoutFitCheck,
-  formatOverflowForTool,
-} from "./_await-fit-check.js";
-import { withDeckLock } from "./patch-deck.js";
+  createLayoutFitRevision,
+  hashSlideContent,
+} from "../shared/slide-fit.js";
+import {
+  assertStyleOnlyEdit,
+  styleOnlyEditsSuggestion,
+} from "../shared/slide-style-only.js";
+import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
+import { getDeckUrl } from "./_app-url.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+  retryDeckWrite,
+} from "./_deck-write.js";
+import { assertNoRenderArtifacts } from "./_render-artifacts.js";
+import {
+  getCurrentRequestBrowserTabId,
+  readAppStateForCurrentTab,
+} from "./_tab-state.js";
+import { isAgentPatchCaller, withDeckLock } from "./patch-deck.js";
 
 function deckDeepLink(deckId: string): string {
   return buildDeepLink({
@@ -95,151 +127,371 @@ function storedCreativeContext(value: unknown): {
   };
 }
 
+const unresolvedPlaceholderPattern =
+  /__[A-Za-z][A-Za-z0-9]*(?:[_ -][A-Za-z0-9]+)*__/g;
+
+function assertNoNewUnresolvedPlaceholders(
+  previousContent: string,
+  nextContent: string,
+): void {
+  const previous = new Set(previousContent.match(unresolvedPlaceholderPattern));
+  const introduced = [
+    ...new Set(nextContent.match(unresolvedPlaceholderPattern)),
+  ].filter((marker) => !previous.has(marker));
+  if (introduced.length > 0) {
+    fail(
+      `Slide edit introduced unresolved placeholder content: ${introduced.join(", ")}. Re-read the slide and preserve the existing content instead of using markers as stand-ins.`,
+      { errorCode: "slide_unresolved_placeholder" },
+    );
+  }
+}
+
 export default defineAction({
+  title: "Edit one Slides slide",
   description:
-    "Atomically patch a slide's HTML like a code editor: send several exact edits against the current source, optionally format it with Prettier, and sync the result live to open editors. Prefer edits over fullContent so unrelated markup is not regenerated. Use baseContentHash from get-deck to reject stale patches. Content edits clear existing click-reveal metadata; use patch-deck with the complete animations list when the edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default.",
-  schema: z.object({
-    deckId: z.string().describe("Deck ID"),
-    slideId: z.string().describe("Slide ID"),
-    find: z
-      .string()
-      .optional()
-      .describe("Text to find (for surgical search-replace edit)"),
-    replace: z
-      .string()
-      .optional()
-      .describe("Replacement text (default: empty string)"),
-    fullContent: z
-      .string()
-      .optional()
-      .describe("Full HTML to replace entire slide content"),
-    edits: z
-      .array(
-        z.union([
-          z.object({
-            op: z.literal("replace").optional(),
-            find: z.string(),
-            replace: z.string(),
-            all: z.boolean().optional(),
-            occurrence: z.number().int().positive().optional(),
-            expectedMatches: z.number().int().nonnegative().optional(),
-            required: z.boolean().optional(),
-          }),
-          z.object({
-            op: z.enum(["insert-before", "insert-after"]),
-            marker: z.string(),
-            content: z.string(),
-            occurrence: z.number().int().positive().optional(),
-            expectedMatches: z.number().int().nonnegative().optional(),
-            required: z.boolean().optional(),
-          }),
-          z.object({
-            op: z.literal("replace-between"),
-            start: z.string(),
-            end: z.string(),
-            content: z.string(),
-            includeDelimiters: z.boolean().optional(),
-            expectedMatches: z.number().int().nonnegative().optional(),
-            required: z.boolean().optional(),
-          }),
-          z.object({
-            op: z.literal("regex-replace"),
-            pattern: z.string(),
-            replace: z.string(),
-            flags: z.string().optional(),
-            all: z.boolean().optional(),
-            expectedMatches: z.number().int().nonnegative().optional(),
-            required: z.boolean().optional(),
-          }),
-        ]),
-      )
-      .min(1)
-      .optional()
-      .describe(
-        "Ordered atomic edits against the current HTML. Each edit must match unless required=false. Use expectedMatches to make ambiguity explicit.",
-      ),
-    baseContentHash: z
-      .string()
-      .optional()
-      .describe(
-        "Hash returned by get-deck for the exact slide source being patched. The edit is rejected if the source changed since it was read.",
-      ),
-    format: z
-      .boolean()
-      .optional()
-      .default(false)
-      .describe(
-        "Format the resulting HTML with Prettier before persisting it.",
-      ),
-    preserveSource: z
-      .boolean()
-      .optional()
-      .default(true)
-      .describe(
-        "Keep source-imported images and factual copy (default true). Set false only when the user explicitly asks to rewrite the source slide.",
-      ),
-    contextPackId: z
-      .string()
-      .optional()
-      .describe(
-        "Exact pack used for this edit; omit to inherit the deck pack.",
-      ),
-    contextModeOverride: z
-      .literal("off")
-      .optional()
-      .describe(
-        "Disable Creative Context for this edit only without changing the saved preference or deck pack.",
-      ),
-    reuseLabels: z
-      .array(reuseLabelSchema)
-      .optional()
-      .default([])
-      .describe("Exact context item versions that influenced this slide edit."),
-  }),
-  http: false,
-  run: async (args) => {
+    'Edit exactly one Slides slide. For a focused edit or translation of current or selected text, use one literal replace item in edits with the exact text and expectedMatches=1; when view-screen supplies an objectId for a selected element, use that objectId instead of find to replace only that element\'s inner content. The top-level objectId and replace fields are also supported as a compact alternative to edits. When view-screen already supplies the target, do not fetch the full deck, use fullContent, or wait for layout-fit. The exception is a verified layout overflow: call get-deck with slideId to read the complete HTML and contentHash, then make one fullContent repair with that baseContentHash. For a style request, get-deck\'s designSystem and deckStyle (also printed by view-screen) are authoritative; for anything beyond colors (spacing, element order, sizes) first read the representativeSlideId with a targeted get-deck and mirror its structure. Introduce colors or fonts the deck does not already use only when the user asks for them. Use targeted get-deck with slideId only if the selection text is missing, truncated, ambiguous, the literal match fails, or the edit changes markup or layout; pass that slide\'s exact contentHash as baseContentHash for fullContent, objectId, and styleOnly writes. Use a supplied current slide hash for focused text edits when available. Use exactly one input mode: edits, legacy find/replace or objectId/replace, or fullContent. Mixed modes are rejected and write nothing. Prefer edits over fullContent so unrelated markup is not regenerated. For style-only requests, set styleOnly=true and use edits that change only the requested CSS declarations and preserve text and layout properties; in that mode the action rejects fullContent and the top-level legacy find/replace/objectId fields, so express even a single replacement as edits: [{"find":"...","replace":"...","occurrence":1}] — occurrence, not expectedMatches, because a CSS declaration often repeats on a slide and expectedMatches rejects that outright. To copy one slide\'s look onto others ("make every slide match slide 1"), read the reference slide and each target with get-deck (slideId, compact=false), change only the .fmd-slide wrapper\'s own background declaration, and leave interior card, image, and gradient fills alone unless the user asked for those too. A deck-wide restyle is one patch-deck call covering every slide, not one update-slide per slide; reserve styleOnly update-slide for one or a few targeted slides, passing that slide\'s contentHash as baseContentHash. Never use unresolved placeholder markers as stand-ins for preserved content. Content edits keep existing click-reveal steps. A content edit that newly leaves a step unresolved, or moves a kept step onto a different element, fails with a slide_animation_* error (400) and writes nothing; a step already unresolved before the edit does not block it. Style-only CSS edits always keep them. Use patch-deck with the complete animations list when a content edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously. Finish all slide edits before calling get-layout-overflows once; after a repair, check once more. If it returns unknown, do not call again this turn unless the editor has produced a new measurement.' +
+    HYGIENE_ACTION_DESCRIPTION,
+  schema: z
+    .object({
+      deckId: z.string().describe("Deck ID"),
+      slideId: z.string().describe("Slide ID"),
+      find: z
+        .string()
+        .optional()
+        .describe("Text to find (for surgical search-replace edit)"),
+      objectId: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Stable data-slide-object-id for replacing the selected element's inner content",
+        ),
+      replace: z
+        .string()
+        .optional()
+        .describe(
+          "Replacement text; pass an empty string explicitly to clear it",
+        ),
+      fullContent: z
+        .string()
+        .optional()
+        .describe("Full HTML to replace entire slide content"),
+      edits: z
+        .array(
+          z.union([
+            z
+              .object({
+                op: z.literal("replace").optional(),
+                find: z.string().optional(),
+                objectId: z.string().min(1).optional(),
+                replace: z.string(),
+                all: z.boolean().optional(),
+                occurrence: z.number().int().positive().optional(),
+                expectedMatches: z.number().int().nonnegative().optional(),
+                required: z.boolean().optional(),
+              })
+              .superRefine((edit, context) => {
+                if (edit.find !== undefined && edit.objectId !== undefined) {
+                  context.addIssue({
+                    code: "custom",
+                    message:
+                      "This replace edit sent both find and objectId. Resend it with ONLY objectId (omit find, all, occurrence) to replace a selected element's content, or with ONLY find to search and replace text.",
+                  });
+                } else if (
+                  edit.find === undefined &&
+                  edit.objectId === undefined
+                ) {
+                  context.addIssue({
+                    code: "custom",
+                    message:
+                      "A replace edit needs find (the text to search for) or objectId (the selected element's data-slide-object-id).",
+                  });
+                }
+                if (
+                  edit.find === undefined &&
+                  edit.objectId !== undefined &&
+                  (edit.all !== undefined || edit.occurrence !== undefined)
+                ) {
+                  context.addIssue({
+                    code: "custom",
+                    message:
+                      "objectId replacement does not support all or occurrence; resend the edit without them (they apply only to find).",
+                  });
+                }
+                if (
+                  edit.objectId !== undefined &&
+                  edit.expectedMatches !== undefined &&
+                  edit.expectedMatches !== 1
+                ) {
+                  context.addIssue({
+                    code: "custom",
+                    message: "objectId replacement expectedMatches must be 1",
+                  });
+                }
+              }),
+            z.object({
+              op: z.enum(["insert-before", "insert-after"]),
+              marker: z.string(),
+              content: z.string(),
+              occurrence: z.number().int().positive().optional(),
+              expectedMatches: z.number().int().nonnegative().optional(),
+              required: z.boolean().optional(),
+            }),
+            z.object({
+              op: z.literal("replace-between"),
+              start: z.string(),
+              end: z.string(),
+              content: z.string(),
+              includeDelimiters: z.boolean().optional(),
+              expectedMatches: z.number().int().nonnegative().optional(),
+              required: z.boolean().optional(),
+            }),
+            z.object({
+              op: z.literal("regex-replace"),
+              pattern: z.string(),
+              replace: z.string(),
+              flags: z.string().optional(),
+              all: z.boolean().optional(),
+              expectedMatches: z.number().int().nonnegative().optional(),
+              required: z.boolean().optional(),
+            }),
+          ]),
+        )
+        .min(1)
+        .optional()
+        .describe(
+          "Ordered atomic edits against the current HTML. For one exact text replacement, use find and expectedMatches=1; for a selected element without exact selectedText, use its objectId to replace only the element's inner content. Each edit must match unless required=false.",
+        ),
+      styleOnly: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          'Set true for a styling-only request, including propagating one slide\'s colors to other slides. Requires the structured "edits" array: fullContent and the top-level legacy find/replace/objectId fields are rejected, so send find/replace as edits: [{"find":"...","replace":"...","occurrence":1}] instead. Use occurrence rather than expectedMatches here: a CSS declaration often appears more than once on a slide, and expectedMatches rejects that outright. Rejects any change outside CSS declarations, including text, markup, or layout structure.',
+        ),
+      baseContentHash: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Hash returned by view-screen or get-deck for the exact slide source. Required for fullContent, objectId, and styleOnly writes; any supplied hash rejects a stale source.",
+        ),
+      format: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "Format the resulting HTML with Prettier before persisting it.",
+        ),
+      preserveSource: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe(
+          "Keep source-imported images and factual copy (default true). Set false only when the user explicitly asks to rewrite the source slide.",
+        ),
+      contextPackId: z
+        .string()
+        .optional()
+        .describe(
+          "Exact pack used for this edit; omit to inherit the deck pack.",
+        ),
+      contextModeOverride: z
+        .literal("off")
+        .optional()
+        .describe(
+          "Disable Creative Context for this edit only without changing the saved preference or deck pack.",
+        ),
+      reuseLabels: z
+        .array(reuseLabelSchema)
+        .optional()
+        .default([])
+        .describe(
+          "Exact context item versions that influenced this slide edit.",
+        ),
+    })
+    .superRefine((args, context) => {
+      const elementEdit = args.edits?.some(
+        (edit) => typeof (edit as { objectId?: unknown }).objectId === "string",
+      );
+      if (
+        (args.fullContent !== undefined ||
+          args.objectId !== undefined ||
+          args.styleOnly ||
+          elementEdit) &&
+        args.baseContentHash === undefined
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["baseContentHash"],
+          message:
+            "This slide replacement requires the exact source contentHash",
+        });
+      }
+    }),
+  http: { method: "POST" },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  run: async (args, ctx) => {
+    const startedAt = Date.now();
+    const isAgentCaller = isAgentPatchCaller(ctx?.caller);
     const {
       deckId,
       slideId,
       find,
+      objectId,
       replace,
       fullContent,
       edits,
       baseContentHash,
       format,
       preserveSource,
+      styleOnly,
       contextPackId,
       contextModeOverride,
       reuseLabels,
     } = args;
-    if (!edits && find === undefined && fullContent === undefined) {
-      throw new Error("One of --edits, --find, or --fullContent is required");
+    const hasLegacyMode =
+      find !== undefined || objectId !== undefined || replace !== undefined;
+    const inputModeCount =
+      Number(Boolean(edits)) +
+      Number(hasLegacyMode) +
+      Number(fullContent !== undefined);
+    if (inputModeCount === 0) {
+      fail(
+        "One of --edits, --find/--replace, --objectId/--replace, or --fullContent is required",
+        {
+          errorCode: "slide_edit_mode_required",
+        },
+      );
+    }
+    if (inputModeCount > 1) {
+      fail(
+        "Use exactly one input mode: --edits, --find/--replace, --objectId/--replace, or --fullContent; do not combine modes",
+        { errorCode: "slide_edit_modes_conflict" },
+      );
+    }
+    if (styleOnly && !edits) {
+      fail(
+        'Style-only slide edits must use the structured "edits" array. ' +
+          'styleOnly rejects "fullContent" and the top-level legacy "find"/"replace"/"objectId" fields. ' +
+          styleOnlyEditsSuggestion({ find, objectId, replace }),
+        { errorCode: "style_only_slide_edits_required" },
+      );
+    }
+    if (objectId !== undefined && find !== undefined) {
+      fail("Use either --find or --objectId for a legacy text edit, not both", {
+        errorCode: "slide_find_object_id_conflict",
+      });
+    }
+    if (objectId !== undefined && replace === undefined) {
+      fail(
+        "Legacy --objectId requires --replace; pass an empty string explicitly to clear the element",
+        { errorCode: "slide_object_id_replace_required" },
+      );
+    }
+    if (find !== undefined && replace === undefined) {
+      fail(
+        "Legacy --find requires --replace; pass an empty string explicitly to clear the match",
+        { errorCode: "slide_find_replace_required" },
+      );
+    }
+    if (replace !== undefined && find === undefined && objectId === undefined) {
+      fail("Legacy --replace requires --find", {
+        errorCode: "slide_replace_requires_find",
+      });
     }
     if (find !== undefined && find.length === 0) {
-      throw new Error("find must not be empty for legacy search/replace");
+      fail("find must not be empty for legacy search/replace", {
+        errorCode: "slide_find_empty",
+      });
     }
-    if (edits && (find !== undefined || fullContent !== undefined)) {
-      throw new Error(
-        "Use --edits instead of combining it with --find or --fullContent",
+    const elementEdit = edits?.some(
+      (edit) => typeof (edit as { objectId?: unknown }).objectId === "string",
+    );
+    if (
+      (fullContent !== undefined ||
+        objectId !== undefined ||
+        styleOnly ||
+        elementEdit) &&
+      baseContentHash === undefined
+    ) {
+      fail(
+        "This slide replacement requires the exact source contentHash. Read the slide with get-deck or use view-screen's matching hash, then retry.",
+        { errorCode: "slide_content_hash_required", statusCode: 400 },
       );
     }
     await assertAccess("deck", deckId, "editor");
 
-    // ─── Read-modify-write under the shared per-deck lock ───────────────────
-    //
-    // Previously this action read the deck, edited a slide in memory, and wrote
-    // the whole `decks.data` blob back with no locking — so a concurrent writer
-    // (another update-slide, add-slide, or the browser's patch-deck) touching a
-    // different slide of the same deck could be clobbered (last-write-wins on
-    // the whole blob). Holding the SAME lock used by patch-deck/add-slide
-    // serialises these writes so different-slide edits never overwrite each
-    // other. The editor round-trip (fit check) runs AFTER the lock is released
-    // so it never stalls concurrent writers for seconds.
-    const rmw = await withDeckLock(deckId, async () => {
+    const browserTabId = getCurrentRequestBrowserTabId();
+    if (browserTabId) {
+      const currentSelection = await readAppStateForCurrentTab(
+        "slides-selection",
+        { fallbackToGlobal: false },
+      );
+      const currentSlideId =
+        currentSelection?.deckId === deckId &&
+        typeof currentSelection.slideId === "string"
+          ? currentSelection.slideId
+          : null;
+      const selectionItems = Array.isArray(currentSelection?.items)
+        ? currentSelection.items.filter(
+            (item): item is Record<string, unknown> =>
+              typeof item === "object" && item !== null,
+          )
+        : [];
+      const selectedObjectIds = new Set(
+        selectionItems.flatMap((item) =>
+          typeof item.objectId === "string" ? [item.objectId] : [],
+        ),
+      );
+      const selectedTexts = new Set(
+        selectionItems.flatMap((item) =>
+          typeof item.selectedText === "string" ? [item.selectedText] : [],
+        ),
+      );
+      const usesCurrentSelection =
+        (typeof objectId === "string" && selectedObjectIds.has(objectId)) ||
+        (typeof find === "string" && selectedTexts.has(find)) ||
+        (Array.isArray(edits) &&
+          edits.some((edit) => {
+            if (!edit || typeof edit !== "object") return false;
+            const candidate = edit as {
+              find?: unknown;
+              objectId?: unknown;
+            };
+            return (
+              (typeof candidate.objectId === "string" &&
+                selectedObjectIds.has(candidate.objectId)) ||
+              (typeof candidate.find === "string" &&
+                selectedTexts.has(candidate.find))
+            );
+          }));
+
+      if (
+        currentSlideId &&
+        currentSlideId !== slideId &&
+        usesCurrentSelection &&
+        baseContentHash === undefined
+      ) {
+        fail(
+          `The selected Slides target is on slide ${currentSlideId}, but this edit targets ${slideId}. Re-read view-screen and use the selection slide ID; no write was made.`,
+          {
+            errorCode: "slide_target_not_current",
+            statusCode: 409,
+            details: { deckId, currentSlideId, requestedSlideId: slideId },
+          },
+        );
+      }
+    }
+
+    let firstAttemptContentHash: string | undefined;
+    const applyEdit = async () => {
       const db = getDb();
 
-      // Read SQL deck for the slide-existence check and to compute the new
-      // slide HTML that we persist back into decks.data.
       const [row] = await db
         .select({
           id: schema.decks.id,
@@ -247,12 +499,16 @@ export default defineAction({
           data: schema.decks.data,
           ownerEmail: schema.decks.ownerEmail,
           designSystemId: schema.decks.designSystemId,
+          updatedAt: schema.decks.updatedAt,
         })
         .from(schema.decks)
         .where(eq(schema.decks.id, deckId))
         .limit(1);
       if (!row) {
-        throw new Error(`Deck ${deckId} not found`);
+        fail(`Deck ${deckId} not found`, {
+          errorCode: "deck_not_found",
+          statusCode: 404,
+        });
       }
 
       const deck = JSON.parse(row.data);
@@ -262,8 +518,9 @@ export default defineAction({
         contextPackId !== undefined &&
         contextPackId !== existingContext.contextPackId
       ) {
-        throw new Error(
+        fail(
           "The slide edit must use the deck's existing creative-context pack",
+          { errorCode: "creative_context_pack_mismatch", statusCode: 409 },
         );
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -273,45 +530,53 @@ export default defineAction({
         : -1;
       const slide = slideIndex >= 0 ? deck.slides[slideIndex] : undefined;
       if (!slide) {
-        throw new Error(`Slide ${slideId} not found in deck ${deckId}`);
+        fail(`Slide ${slideId} not found in deck ${deckId}`, {
+          errorCode: "slide_not_found",
+          statusCode: 404,
+        });
       }
 
+      const currentContentHash = hashSlideContent(String(slide.content ?? ""));
       if (
-        baseContentHash !== undefined &&
-        hashSlideContent(String(slide.content ?? "")) !== baseContentHash
+        (baseContentHash !== undefined &&
+          currentContentHash !== baseContentHash) ||
+        (firstAttemptContentHash !== undefined &&
+          currentContentHash !== firstAttemptContentHash)
       ) {
-        throw new Error(
+        fail(
           "Slide content changed since it was read. Call get-deck with this slideId again and rebase the patch.",
+          { errorCode: "slide_content_stale", statusCode: 409 },
         );
       }
+      firstAttemptContentHash ??= currentContentHash;
 
-      // ─── Apply the edit to the slide content in decks.data ────────────────
-      //
-      // The agent edits the canonical slide HTML stored in `decks.data` (SQL is
-      // the source of truth). The change is delivered live to any open editor
-      // by the framework's normal change-sync: `notifyClients` invalidates the
-      // deck query, the editor refetches, and reconciles the newer slide HTML
-      // into the live view — gated on the deck's `updatedAt` so a lagging poll
-      // never reverts an in-progress human edit, and (for the Yjs-backed inline
-      // editor) applied through the editor's real content pipeline so new block
-      // structure renders and merges with concurrent typing via the Yjs CRDT.
       let applied = false;
       let notFound = false;
-      // Per-edit outcomes for the `edits` batch (e.g. "insert-after:0" means
-      // that edit's marker matched nothing and it silently no-opped). Stays
-      // undefined for the legacy fullContent/find paths, which have no
-      // per-edit breakdown to report.
       let editResults: string[] | undefined;
       const previousContent = String(slide.content ?? "");
-
-      if (fullContent !== undefined) {
-        const nextContent = normalizeSlidePadding(fullContent);
+      const validateNextContent = (
+        nextContent: string,
+        styleOnlyBaseline = previousContent,
+      ) => {
+        assertNoRenderArtifacts(previousContent, nextContent, slideId);
+        assertNoNewUnresolvedPlaceholders(previousContent, nextContent);
+        if (styleOnly) {
+          assertStyleOnlyEdit(styleOnlyBaseline, nextContent);
+        }
         assertSourceSlidePreserved({
           metadata: sourceImportForDeck(deck.sourceImport),
           slideId,
           nextContent,
           preserveSource,
         });
+      };
+
+      if (fullContent !== undefined) {
+        const nextContent = normalizeSlidePaddingForWrite(
+          previousContent,
+          fullContent,
+        );
+        validateNextContent(nextContent);
         slide.content = nextContent;
         applied = nextContent !== previousContent;
       } else if (edits) {
@@ -323,13 +588,31 @@ export default defineAction({
           edits as SlideContentEdit[],
           format,
         );
-        const nextContent = normalizeSlidePadding(patched.content);
-        assertSourceSlidePreserved({
-          metadata: sourceImportForDeck(deck.sourceImport),
-          slideId,
+        const nextContent = styleOnly
+          ? patched.content
+          : normalizeSlidePaddingForWrite(previousContent, patched.content);
+        validateNextContent(
           nextContent,
-          preserveSource,
-        });
+          styleOnly ? sourceContent : previousContent,
+        );
+        slide.content = nextContent;
+        applied = patched.changed;
+        editResults = patched.applied;
+        if (!applied) slide.content = previousContent;
+      } else if (objectId !== undefined) {
+        const sourceContent = format
+          ? await formatSlideHtml(previousContent)
+          : previousContent;
+        const patched = await applySlideContentEdits(
+          sourceContent,
+          [{ objectId, replace: replace! }],
+          format,
+        );
+        const nextContent = normalizeSlidePaddingForWrite(
+          previousContent,
+          patched.content,
+        );
+        validateNextContent(nextContent);
         slide.content = nextContent;
         applied = patched.changed;
         editResults = patched.applied;
@@ -343,126 +626,159 @@ export default defineAction({
             previousContent.slice(0, idx) +
             (replace ?? "") +
             previousContent.slice(idx + find.length);
-          assertSourceSlidePreserved({
-            metadata: sourceImportForDeck(deck.sourceImport),
-            slideId,
-            nextContent,
-            preserveSource,
-          });
+          validateNextContent(nextContent);
           slide.content = nextContent;
           applied = nextContent !== previousContent;
         }
       }
 
-      // Animation targets are paths into the persisted HTML. A content edit
-      // can keep every path valid while changing which visual element lives at
-      // that path, so preserving the old list would reveal the wrong content.
-      // patch-deck is the explicit escape hatch when content and animations
-      // are intentionally revised together.
-      if (applied && Array.isArray(slide.animations)) {
-        delete slide.animations;
+      if (applied) {
+        slide.layoutFitRevision = createLayoutFitRevision();
+        if (isAgentCaller) delete slide.layoutWarningDismissed;
       }
 
-      // ─── Persist to SQL ───────────────────────────────────────────────────
-      //
-      // The fresh `updatedAt` (on both the deck JSON and the row) is the signal
-      // an open editor uses to tell an intentional external edit apart from a
-      // stale poll echo — only a newer timestamp is reconciled into the view.
-      if (applied) {
-        const effectivePackId = contextPackId ?? existingContext?.contextPackId;
-        const requestedLabels: CreativeContextReuseLabel[] = reuseLabels.length
-          ? reuseLabels
-          : [
-              {
-                kind: "slide",
-                label: "Net-new slide edit",
-                dataRole: "untrusted-reference",
-                elementId: slideId,
-                influence: "generated",
-              },
-            ];
-        const validated = await validateGenerationCreativeContext({
-          contextPackId: effectivePackId,
-          contextPackSource:
-            contextPackId === undefined ? "inherited" : "explicit",
-          contextModeOverride,
-          reuseLabels: requestedLabels,
-          reuseLabelsSource: reuseLabels.length ? "explicit" : "inherited",
+      // A content edit keeps the reveals. One it newly strands fails the edit and
+      // is never dropped silently; a reveal already unresolved does not block it.
+      if (applied && Array.isArray(slide.animations) && !styleOnly) {
+        assertSlideAnimationsResolve({
+          slideId,
+          content: String(slide.content ?? ""),
+          animations: slide.animations,
+          baseline: { content: previousContent, animations: slide.animations },
         });
-        const contextMode =
-          validated.contextMode === "off"
-            ? "off"
-            : (existingContext?.contextMode ?? validated.contextMode);
-        const slideReuseLabels = validated.reuseLabels.map((label) => ({
-          ...label,
-          elementId: slideId,
-        }));
-        const mergedReuseLabels = mergeCreativeContextReuseLabels(
-          existingContext?.reuseLabels ?? [],
-          slideReuseLabels,
-        );
-        const previous =
-          contextMode === "off"
-            ? null
-            : await getGenerationCreativeContext({
+      }
+
+      if (applied) {
+        const shouldResolveCreativeContext =
+          Boolean(existingContext) ||
+          contextPackId !== undefined ||
+          contextModeOverride !== undefined ||
+          reuseLabels.length > 0;
+        let creativeContext:
+          | {
+              contextMode: "off" | "auto" | "pinned";
+              contextPackId: string | null;
+              reuseLabels: CreativeContextReuseLabel[];
+              mergedReuseLabels: CreativeContextReuseLabel[];
+              elementProvenance: CreativeContextElementProvenance[];
+            }
+          | undefined;
+
+        if (shouldResolveCreativeContext) {
+          const effectivePackId =
+            contextPackId ?? existingContext?.contextPackId;
+          const requestedLabels: CreativeContextReuseLabel[] =
+            reuseLabels.length
+              ? reuseLabels
+              : [
+                  {
+                    kind: "slide",
+                    label: "Net-new slide edit",
+                    dataRole: "untrusted-reference",
+                    elementId: slideId,
+                    influence: "generated",
+                  },
+                ];
+          const validated = await validateGenerationCreativeContext({
+            contextPackId: effectivePackId,
+            contextPackSource:
+              contextPackId === undefined ? "inherited" : "explicit",
+            contextModeOverride,
+            reuseLabels: requestedLabels,
+            reuseLabelsSource: reuseLabels.length ? "explicit" : "inherited",
+          });
+          const contextMode =
+            validated.contextMode === "off"
+              ? "off"
+              : (existingContext?.contextMode ?? validated.contextMode);
+          const slideReuseLabels = validated.reuseLabels.map((label) => ({
+            ...label,
+            elementId: slideId,
+          }));
+          const mergedReuseLabels = mergeCreativeContextReuseLabels(
+            existingContext?.reuseLabels ?? [],
+            slideReuseLabels,
+          );
+          const previous =
+            contextMode === "off"
+              ? null
+              : await getGenerationCreativeContext({
+                  appId: "slides",
+                  artifactType: "deck",
+                  artifactId: deckId,
+                });
+          const editedElementProvenance = slideReuseLabels.map((label) => ({
+            elementId: slideId,
+            influence: label.influence ?? ("reference-conditioned" as const),
+            ...(label.itemId ? { itemId: label.itemId } : {}),
+            ...(label.itemVersionId
+              ? { itemVersionId: label.itemVersionId }
+              : {}),
+            label: label.label,
+          }));
+          const elementProvenance =
+            contextMode === "off"
+              ? editedElementProvenance
+              : replaceCreativeContextElementProvenance(
+                  previous?.elementProvenance ?? [],
+                  editedElementProvenance,
+                );
+          creativeContext = {
+            contextMode,
+            contextPackId: validated.contextPackId,
+            reuseLabels: slideReuseLabels,
+            mergedReuseLabels,
+            elementProvenance,
+          };
+          slide.creativeContextReuseLabels = slideReuseLabels;
+          deck.creativeContext =
+            contextMode === "off" && existingContext
+              ? existingContext
+              : {
+                  contextMode,
+                  contextPackId: validated.contextPackId,
+                  reuseLabels: mergedReuseLabels,
+                };
+        }
+        const now = nextDeckRevision(row.updatedAt);
+        deck.updatedAt = now;
+        await db.transaction(async (tx: any) => {
+          await createDeckVersionSnapshot(
+            {
+              id: row.id,
+              title: row.title ?? "Untitled",
+              data: row.data ?? "",
+              ownerEmail: row.ownerEmail ?? "",
+            },
+            {
+              force: isAgentPatchCaller(ctx?.caller),
+              chatContext: deckVersionChatContextFromAction(ctx),
+              label: "Before slide edit",
+              db: tx,
+            },
+          );
+          const updateResult = await tx
+            .update(schema.decks)
+            .set({ data: JSON.stringify(deck), updatedAt: now })
+            .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
+          assertDeckWriteApplied(updateResult, deckId, "slide edit");
+          if (creativeContext) {
+            await recordGenerationCreativeContext(
+              {
                 appId: "slides",
                 artifactType: "deck",
                 artifactId: deckId,
-              });
-        const editedElementProvenance = slideReuseLabels.map((label) => ({
-          elementId: slideId,
-          influence: label.influence ?? ("reference-conditioned" as const),
-          ...(label.itemId ? { itemId: label.itemId } : {}),
-          ...(label.itemVersionId
-            ? { itemVersionId: label.itemVersionId }
-            : {}),
-          label: label.label,
-        }));
-        const elementProvenance =
-          contextMode === "off"
-            ? editedElementProvenance
-            : replaceCreativeContextElementProvenance(
-                previous?.elementProvenance ?? [],
-                editedElementProvenance,
-              );
-        slide.creativeContextReuseLabels = slideReuseLabels;
-        deck.creativeContext =
-          contextMode === "off" && existingContext
-            ? existingContext
-            : {
-                contextMode,
-                contextPackId: validated.contextPackId,
-                reuseLabels: mergedReuseLabels,
-              };
-        await createDeckVersionSnapshot(
-          {
-            id: row.id,
-            title: row.title ?? "Untitled",
-            data: row.data ?? "",
-            ownerEmail: row.ownerEmail ?? "",
-          },
-          { label: "Before slide edit" },
-        );
-        const now = new Date().toISOString();
-        deck.updatedAt = now;
-        await db.transaction(async (tx: any) => {
-          await tx
-            .update(schema.decks)
-            .set({ data: JSON.stringify(deck), updatedAt: now })
-            .where(eq(schema.decks.id, deckId));
-          await recordGenerationCreativeContext(
-            {
-              appId: "slides",
-              artifactType: "deck",
-              artifactId: deckId,
-              contextMode,
-              contextPackId: validated.contextPackId,
-              reuseLabels:
-                contextMode === "off" ? slideReuseLabels : mergedReuseLabels,
-              elementProvenance,
-            },
-            { db: tx },
-          );
+                contextMode: creativeContext.contextMode,
+                contextPackId: creativeContext.contextPackId,
+                reuseLabels:
+                  creativeContext.contextMode === "off"
+                    ? creativeContext.reuseLabels
+                    : creativeContext.mergedReuseLabels,
+                elementProvenance: creativeContext.elementProvenance,
+              },
+              { db: tx },
+            );
+          }
         });
         return {
           applied,
@@ -470,10 +786,18 @@ export default defineAction({
           editResults,
           slide,
           slideIndex,
+          previousContent,
           contentHash: hashSlideContent(String(slide.content ?? "")),
-          contextMode,
-          contextPackId: validated.contextPackId,
-          reuseLabels: slideReuseLabels,
+          layoutFitRevision: slide.layoutFitRevision,
+          slideCount: deck.slides.length as number,
+          generationAttemptId: generationAttemptIdOf(deck.generationContext),
+          ...(creativeContext
+            ? {
+                contextMode: creativeContext.contextMode,
+                contextPackId: creativeContext.contextPackId,
+                reuseLabels: creativeContext.reuseLabels,
+              }
+            : {}),
         };
       }
 
@@ -483,37 +807,35 @@ export default defineAction({
         editResults,
         slide,
         slideIndex,
+        previousContent,
         contentHash: hashSlideContent(String(slide.content ?? "")),
+        layoutFitRevision: slide.layoutFitRevision,
+        slideCount: deck.slides.length as number,
+        generationAttemptId: generationAttemptIdOf(deck.generationContext),
       };
-    });
+    };
+    const rmw = await withDeckLock(deckId, () => retryDeckWrite(applyEdit));
 
     if (rmw.notFound) {
-      return {
-        ok: false,
-        message: `Text not found in slide: "${find!.slice(0, 60)}". Use get-deck with this slideId to see the current slide HTML.`,
-      };
+      fail(
+        `Nothing was written: text not found in slide: "${find!.slice(0, 60)}". Current slide contentHash is ${rmw.contentHash}; call get-deck with this slideId and rebase the patch against the current HTML.`,
+        { errorCode: "slide_text_not_found" },
+      );
     }
 
     const { applied, editResults } = rmw;
+    const unmatched = (editResults ?? []).filter((entry) =>
+      entry.endsWith(":0"),
+    );
     if (!applied) {
-      return {
-        ok: true,
-        deckId,
-        slideId,
-        applied: false,
-        editResults,
-        contentHash: rmw.contentHash,
-        deepLink: deckDeepLink(deckId),
-      };
+      fail(
+        unmatched.length
+          ? `Nothing was written: ${unmatched.join(", ")} matched no text in the slide. Current slide contentHash is ${rmw.contentHash}; call get-deck with this slideId and rebase the patch against the current HTML.`
+          : `Nothing was written: the result is identical to the current slide content (contentHash ${rmw.contentHash}). The slide already says what this edit would have made it say.`,
+        { errorCode: "slide_edit_noop" },
+      );
     }
 
-    // Start the freshness window after the SQL write and before notifying the
-    // editor. This keeps a fast render from being rejected as stale.
-    const fitSince = Date.now();
-
-    // Best-effort presence: light the agent up on this slide in open editors
-    // and drop a lingering "AI edited" highlight. Never blocks or fails the
-    // write (touchAgentSlidePresence swallows its own errors).
     if (applied) {
       touchAgentSlidePresence({
         deckId,
@@ -522,23 +844,33 @@ export default defineAction({
       });
     }
 
-    // Extend the SSE payload with the changed slideId + agent actor so the
-    // client can attribute the edit. Backwards-compatible: consumers reading
-    // only { type, deckId } are unaffected.
-    notifyClients(deckId, { slideId, actor: "agent" });
+    const agentChangeId = deckVersionChangeGroupFromAction(ctx);
+    await notifyClients(deckId, {
+      slideId,
+      actor: "agent",
+      ...(agentChangeId ? { agentChangeId } : {}),
+    });
 
-    console.log(
-      `update-slide: deck=${deckId} slide=${slideId} ${edits ? `edits=${edits.length}` : find !== undefined ? `find="${find.slice(0, 40)}"` : "fullContent"} applied=${applied}`,
+    const endedAt = Date.now();
+    trackSlides(
+      "deck_edited",
+      {
+        output_id: deckId,
+        output_type: "deck",
+        slide_id: slideId,
+        slide_count: rmw.slideCount,
+        edit_mode: "update_slide",
+        edits_count: applied,
+        ...generationTimingFields(startedAt, endedAt),
+        ...(rmw.generationAttemptId
+          ? { generation_attempt_id: rmw.generationAttemptId }
+          : {}),
+      },
+      ctx,
     );
 
-    // Wait briefly for the editor to re-render and measure. If the patched
-    // slide still overflows, surface the new measurement so the agent can
-    // tighten further. Timeout = no editor open / nothing to measure.
-    const fit = await awaitLayoutFitCheck(
-      slideId,
-      fitSince,
-      4000,
-      hashSlideContent(rmw.slide?.content ?? ""),
+    console.log(
+      `update-slide: deck=${deckId} slide=${slideId} ${edits ? `edits=${edits.length}` : objectId !== undefined ? `objectId="${objectId}"` : find !== undefined ? `find="${find.slice(0, 40)}"` : "fullContent"} applied=${applied}`,
     );
 
     const base = {
@@ -547,7 +879,27 @@ export default defineAction({
       slideId,
       applied,
       editResults,
+      ...(unmatched.length
+        ? {
+            partial: true,
+            message: `Applied, but ${unmatched.join(", ")} matched no text and was skipped — do not report those parts as done.`,
+          }
+        : {}),
       contentHash: rmw.contentHash,
+      layoutFit: {
+        status: "pending" as const,
+        slideId,
+        contentHash: rmw.contentHash,
+        layoutFitRevision: rmw.layoutFitRevision,
+      },
+      ...slideHygieneResult([
+        {
+          slideId,
+          html: String(rmw.slide.content ?? ""),
+          previousHtml: rmw.previousContent,
+        },
+      ]),
+      appUrl: getDeckUrl(deckId),
       deepLink: deckDeepLink(deckId),
       ...(rmw.contextMode
         ? {
@@ -557,21 +909,6 @@ export default defineAction({
           }
         : {}),
     };
-
-    if (fit.status === "overflows") {
-      return {
-        ...base,
-        layoutOverflow: {
-          verticalOverflow: fit.measurement.verticalOverflow,
-          horizontalOverflow: fit.measurement.horizontalOverflow ?? 0,
-          contentWidth: fit.measurement.contentWidth,
-          contentHeight: fit.measurement.contentHeight,
-          viewportWidth: fit.measurement.viewportWidth,
-          viewportHeight: fit.measurement.viewportHeight,
-        },
-        message: formatOverflowForTool(deckId, fit.measurement),
-      };
-    }
 
     return base;
   },

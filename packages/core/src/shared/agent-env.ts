@@ -1,12 +1,3 @@
-/**
- * Isomorphic Agent Key Utility
- *
- * Works in both browser and Node.js contexts:
- * - Browser: sends via postMessage to the parent window
- * - Node.js (scripts): sends via BUILDER_PARENT_MESSAGE stdout format,
- *   which the Electron host translates to postMessage
- */
-
 export interface EnvVar {
   key: string;
   value: string;
@@ -17,10 +8,6 @@ const AGENT_ENV_MESSAGE_TYPE = "agentNative.setEnvVars";
 const isBrowser =
   typeof window !== "undefined" && typeof window.postMessage === "function";
 
-/**
- * Send key/value settings to the host for scoped secret persistence.
- * Automatically detects environment (browser vs Node.js) and uses the right transport.
- */
 function setVars(vars: EnvVar[]): void {
   const payload = { type: AGENT_ENV_MESSAGE_TYPE, data: { vars } };
 
@@ -32,7 +19,6 @@ function setVars(vars: EnvVar[]): void {
       console.error("[agentEnv] postMessage failed:", err);
     }
   } else {
-    // Node.js: use BUILDER_PARENT_MESSAGE stdout format for Electron integration
     console.log(
       "BUILDER_PARENT_MESSAGE:" +
         JSON.stringify({ message: payload, targetOrigin: "*" }),
@@ -41,6 +27,5 @@ function setVars(vars: EnvVar[]): void {
 }
 
 export const agentEnv = {
-  /** Send key/value settings to the host for scoped secret persistence. */
   setVars,
 };

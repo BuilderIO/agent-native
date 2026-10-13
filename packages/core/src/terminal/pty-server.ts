@@ -1,27 +1,20 @@
-/**
- * PTY WebSocket Server
- *
- * Creates an HTTP server with WebSocket support that spawns PTY processes
- * for AI CLI tools. Each WebSocket connection gets its own PTY.
- *
- * Used by both the embedded AgentTerminal component and the CLI frame.
- */
-
 import {
   createServer as createHttpServer,
   type IncomingMessage,
   type Server as HttpServer,
 } from "http";
+import * as fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "os";
 import path from "path";
 
 import {
   CLI_REGISTRY,
-  commandExists,
   isAllowedCommand,
+  resolveCommandPath,
+  terminalPath,
 } from "./cli-registry.js";
 
-// Lazy singletons for Node-only modules (only available in Node.js)
 let _cp: typeof import("child_process") | undefined;
 async function getChildProcess(): Promise<typeof import("child_process")> {
   if (!_cp) {
@@ -30,22 +23,64 @@ async function getChildProcess(): Promise<typeof import("child_process")> {
   return _cp;
 }
 
-/**
- * Kill a process and all its descendants.
- * node-pty's kill() only sends a signal to the shell, but child processes
- * (like `builder`) may be in their own process group and survive as orphans.
- */
-async function killProcessTree(pid: number, _logPrefix: string): Promise<void> {
+export function resolvePtySpawnHelper(ptyPackagePath: string): string {
+  const helper = path.join(
+    path.dirname(ptyPackagePath),
+    "prebuilds",
+    `${process.platform}-${process.arch}`,
+    "spawn-helper",
+  );
+  return helper
+    .replace("app.asar", "app.asar.unpacked")
+    .replace("node_modules.asar", "node_modules.asar.unpacked");
+}
+
+export function ensurePtySpawnHelperExecutable(helper: string): void {
+  if (!fs.existsSync(helper)) return;
+  if (!(fs.statSync(helper).mode & 0o100)) {
+    fs.chmodSync(helper, 0o755);
+    console.log(
+      `[terminal] Fixed non-executable node-pty spawn-helper at ${helper}`,
+    );
+  }
+}
+
+export function ensurePtySpawnHelperPermissions(): void {
+  if (os.platform() === "win32") return;
+  try {
+    const req = createRequire(import.meta.url);
+    const ptyPkg = req.resolve("node-pty/package.json");
+    const helper = resolvePtySpawnHelper(ptyPkg);
+    ensurePtySpawnHelperExecutable(helper);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND") return;
+    console.warn(
+      "[terminal] Could not verify node-pty spawn-helper permissions:",
+      (err as Error).message,
+    );
+  }
+}
+
+async function killProcessTree(
+  pid: number,
+  _logPrefix: string,
+  killParent?: () => void,
+  isParentExited: () => boolean = () => false,
+): Promise<void> {
   const cp = await getChildProcess();
 
   if (os.platform() === "win32") {
+    if (isParentExited()) {
+      killParent?.();
+      return;
+    }
     try {
       cp.execSync(`taskkill /pid ${pid} /T /F`, { stdio: "ignore" });
     } catch {}
     return;
   }
 
-  // Find all descendant PIDs (children, grandchildren, etc.)
   const descendants: number[] = [];
   function findDescendants(parentPid: number) {
     try {
@@ -70,7 +105,6 @@ async function killProcessTree(pid: number, _logPrefix: string): Promise<void> {
   }
   findDescendants(pid);
 
-  // Kill descendants first (deepest first), then the parent
   for (const childPid of descendants.reverse()) {
     try {
       process.kill(childPid, "SIGTERM");
@@ -78,41 +112,60 @@ async function killProcessTree(pid: number, _logPrefix: string): Promise<void> {
   }
 
   try {
-    process.kill(pid, "SIGTERM");
-  } catch {}
+    if (killParent) killParent();
+    else process.kill(pid, "SIGTERM");
+  } catch {
+    // coercion-ok: the process may exit between enumeration and termination.
+  }
 
-  // Force-kill any survivors after a short delay
   setTimeout(() => {
     for (const childPid of descendants) {
       try {
         process.kill(childPid, "SIGKILL");
       } catch {}
     }
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {}
+    if (!isParentExited()) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // coercion-ok: the process may exit before the delayed cleanup signal.
+      }
+    }
   }, 500);
 }
 
 export interface PtyServerOptions {
-  /** Working directory for PTY processes. Defaults to process.cwd() */
   appDir?: string;
-  /** Default CLI command. Defaults to 'claude' */
   command?: string;
-  /** Port to listen on. Defaults to 0 (random available port) */
   port?: number;
-  /** Auth check for WebSocket upgrade requests. Return false to reject. */
   authCheck?: (req: IncomingMessage) => boolean | Promise<boolean>;
-  /** Log prefix for console output. Defaults to '[terminal]' */
+  getCommandArgs?: (command: string) => string[] | Promise<string[]>;
+  getEnvironment?: (
+    command: string,
+  ) => NodeJS.ProcessEnv | Promise<NodeJS.ProcessEnv>;
+  getSessionSetup?: (
+    command: string,
+    context: PtySessionContext | null,
+  ) => PtySessionSetup | Promise<PtySessionSetup>;
   logPrefix?: string;
 }
 
+export interface PtySessionContext {
+  appId: string;
+  path?: string;
+  view?: string;
+}
+
+export interface PtySessionSetup {
+  cwd?: string;
+  commandArgs?: string[];
+  environment?: NodeJS.ProcessEnv;
+  onClose?: () => void | Promise<void>;
+}
+
 export interface PtyServerResult {
-  /** The underlying HTTP server */
   server: HttpServer;
-  /** The actual port the server is listening on */
   port: number;
-  /** Shut down the server and kill all PTY processes */
   close: () => void;
 }
 
@@ -124,19 +177,20 @@ export async function createPtyWebSocketServer(
     command: defaultCommand = "claude",
     port = 0,
     authCheck,
+    getCommandArgs,
+    getEnvironment,
+    getSessionSetup,
     logPrefix = "[terminal]",
   } = options;
 
-  // Dynamic imports for optional native dependencies
+  ensurePtySpawnHelperPermissions();
+
   const { WebSocketServer, WebSocket } = await import("ws");
   const pty = await import("node-pty");
 
   const resolvedAppDir = path.resolve(appDir);
-  const shell =
-    os.platform() === "win32" ? "cmd.exe" : process.env.SHELL || "/bin/zsh";
 
   const server = createHttpServer((req, res) => {
-    // CORS headers
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -152,9 +206,14 @@ export async function createPtyWebSocketServer(
   });
 
   const wss = new WebSocketServer({ noServer: true });
+  let closed = false;
 
-  // Handle WebSocket upgrades with optional auth
   server.on("upgrade", async (req, socket, head) => {
+    if (closed) {
+      socket.destroy();
+      return;
+    }
+
     const url = new URL(req.url || "/", `http://${req.headers.host}`);
     if (url.pathname !== "/ws") {
       socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
@@ -165,30 +224,52 @@ export async function createPtyWebSocketServer(
     if (authCheck) {
       try {
         const allowed = await authCheck(req);
+        if (closed || socket.destroyed) {
+          socket.destroy();
+          return;
+        }
         if (!allowed) {
           socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
           socket.destroy();
           return;
         }
       } catch {
+        if (closed || socket.destroyed) {
+          socket.destroy();
+          return;
+        }
         socket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
         socket.destroy();
         return;
       }
     }
 
+    if (closed) {
+      socket.destroy();
+      return;
+    }
+
     wss.handleUpgrade(req, socket, head, (ws) => {
+      if (closed) {
+        ws.close();
+        return;
+      }
       wss.emit("connection", ws, req);
     });
   });
 
-  // Track active PTY processes for cleanup
-  const activePtys = new Set<ReturnType<typeof pty.spawn>>();
+  const activeDisposers = new Set<() => void>();
 
   wss.on("connection", async (ws: InstanceType<typeof WebSocket>, req) => {
+    if (closed) {
+      ws.close();
+      return;
+    }
+
     const url = new URL(req.url || "", `http://${req.headers.host}`);
     const command = url.searchParams.get("command") || defaultCommand;
     const extraFlags = url.searchParams.get("flags") || "";
+    const context = readPtySessionContext(url);
     console.log(`${logPrefix} WebSocket connected for command: ${command}`);
 
     const sendStatus = (status: string, message: string) => {
@@ -197,7 +278,6 @@ export async function createPtyWebSocketServer(
       }
     };
 
-    // Validate command against allowlist to prevent injection
     if (!isAllowedCommand(command)) {
       sendStatus(
         "not-found",
@@ -207,21 +287,128 @@ export async function createPtyWebSocketServer(
       return;
     }
 
-    // Reject flags containing shell metacharacters
     if (extraFlags && /[;&|`$(){}\n\r<>]/.test(extraFlags)) {
       sendStatus("failed", "Invalid flags: shell metacharacters not allowed");
       if (ws.readyState === WebSocket.OPEN) ws.close();
       return;
     }
 
-    // Check if CLI is installed; if not, use npx to run it
-    let useNpx = false;
-    if (!(await commandExists(command))) {
-      const registry = CLI_REGISTRY[command];
-      if (registry?.installPackage) {
-        console.log(`${logPrefix} ${command} CLI not found, will use npx`);
-        useNpx = true;
-      } else {
+    let connectionClosed = false;
+    const markConnectionClosed = () => {
+      connectionClosed = true;
+    };
+    ws.once("close", markConnectionClosed);
+    let sessionSetup: PtySessionSetup | undefined;
+    let sessionSetupClosed = false;
+    const closeSessionSetup = () => {
+      if (!sessionSetup || sessionSetupClosed) return;
+      sessionSetupClosed = true;
+      void Promise.resolve(sessionSetup.onClose?.()).catch((error) => {
+        console.warn(`${logPrefix} Session cleanup failed:`, error);
+      });
+    };
+
+    let commandArgs: string[] = [];
+    let commandEnvironment: NodeJS.ProcessEnv = {};
+    try {
+      if (getSessionSetup) {
+        sessionSetup = await getSessionSetup(command, context);
+        commandArgs = sessionSetup.commandArgs ?? [];
+        commandEnvironment = sessionSetup.environment ?? {};
+      }
+      if (getCommandArgs) {
+        const additionalArgs = await getCommandArgs(command);
+        commandArgs = [...commandArgs, ...additionalArgs];
+      }
+      if (getEnvironment) {
+        commandEnvironment = {
+          ...commandEnvironment,
+          ...(await getEnvironment(command)),
+        };
+      }
+    } catch (error) {
+      closeSessionSetup();
+      if (closed) {
+        ws.close();
+        return;
+      }
+      sendStatus(
+        "failed",
+        error instanceof Error
+          ? error.message
+          : "The terminal command could not be configured.",
+      );
+      if (ws.readyState === WebSocket.OPEN) ws.close();
+      return;
+    }
+
+    if (connectionClosed || ws.readyState !== WebSocket.OPEN || closed) {
+      closeSessionSetup();
+      ws.close();
+      return;
+    }
+
+    let extraArgumentList: string[] = [];
+    try {
+      extraArgumentList = parseTerminalArguments(extraFlags);
+    } catch (error) {
+      closeSessionSetup();
+      sendStatus(
+        "failed",
+        error instanceof Error ? error.message : "Invalid terminal flags.",
+      );
+      if (ws.readyState === WebSocket.OPEN) ws.close();
+      return;
+    }
+
+    if (connectionClosed || ws.readyState !== WebSocket.OPEN || closed) {
+      closeSessionSetup();
+      ws.close();
+      return;
+    }
+
+    const registry = CLI_REGISTRY[command];
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+      ...commandEnvironment,
+      TERM: "xterm-256color",
+      COLORTERM: "truecolor",
+      FORCE_COLOR: "1",
+    };
+    delete env.NO_COLOR;
+    if (registry) {
+      for (const v of registry.stripEnv) delete env[v];
+    }
+
+    let commandPath: string | null;
+    try {
+      env.PATH = await terminalPath(env);
+      commandPath = await resolveCommandPath(command, env);
+    } catch (error) {
+      closeSessionSetup();
+      if (closed) {
+        ws.close();
+        return;
+      }
+      sendStatus(
+        "failed",
+        error instanceof Error
+          ? error.message
+          : "The terminal command could not be resolved.",
+      );
+      if (ws.readyState === WebSocket.OPEN) ws.close();
+      return;
+    }
+    if (connectionClosed || ws.readyState !== WebSocket.OPEN || closed) {
+      closeSessionSetup();
+      ws.close();
+      return;
+    }
+    let spawnCommand = commandPath;
+    let spawnArgs = [...commandArgs, ...extraArgumentList];
+    if (!spawnCommand) {
+      if (!registry?.installPackage) {
+        closeSessionSetup();
         sendStatus(
           "not-found",
           `"${command}" not found on PATH. Please install it manually.`,
@@ -229,48 +416,78 @@ export async function createPtyWebSocketServer(
         if (ws.readyState === WebSocket.OPEN) ws.close();
         return;
       }
+      const npxPath = await resolveCommandPath("npx", env);
+      if (connectionClosed || ws.readyState !== WebSocket.OPEN || closed) {
+        closeSessionSetup();
+        ws.close();
+        return;
+      }
+      if (!npxPath) {
+        closeSessionSetup();
+        sendStatus(
+          "not-found",
+          `"${command}" not found on PATH and npx is unavailable.`,
+        );
+        if (ws.readyState === WebSocket.OPEN) ws.close();
+        return;
+      }
+      console.log(`${logPrefix} ${command} CLI not found, will use npx`);
+      spawnCommand = npxPath;
+      spawnArgs = ["--yes", registry.installPackage, ...spawnArgs];
     }
+    console.log(`${logPrefix} Spawning PTY for ${command}`);
 
-    // Build the command — use npx if CLI not found locally
-    const baseCommand = useNpx
-      ? `npx --yes ${CLI_REGISTRY[command].installPackage}`
-      : command;
-    const fullCommand = extraFlags
-      ? `${baseCommand} ${extraFlags}`
-      : baseCommand;
-    console.log(`${logPrefix} Spawning PTY: ${fullCommand}`);
-
-    // Build env, stripping CLI-specific nesting vars
-    const registry = CLI_REGISTRY[command];
-    const env: Record<string, string | undefined> = {
-      ...process.env,
-      TERM: "xterm-256color",
-    };
-    if (registry) {
-      for (const v of registry.stripEnv) delete env[v];
-    }
-
+    const preparedSpawn = preparePtySpawn(spawnCommand, spawnArgs);
+    const sessionAppDir = sessionSetup?.cwd
+      ? path.resolve(sessionSetup.cwd)
+      : resolvedAppDir;
     let ptyProcess: ReturnType<typeof pty.spawn>;
     try {
-      ptyProcess = pty.spawn(shell, ["-l", "-c", fullCommand], {
+      ptyProcess = pty.spawn(preparedSpawn.command, preparedSpawn.args, {
         name: "xterm-256color",
         cols: 120,
         rows: 40,
-        cwd: resolvedAppDir,
+        cwd: sessionAppDir,
         env: env as Record<string, string>,
       });
     } catch (err) {
       console.error(`${logPrefix} Failed to spawn PTY:`, err);
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(
-          `\r\n\x1b[31m${logPrefix} Failed to spawn PTY: ${err}\x1b[0m\r\n`,
+        sendStatus(
+          "failed",
+          `Failed to spawn PTY: ${err instanceof Error ? err.message : String(err)}`,
         );
         ws.close();
       }
+      closeSessionSetup();
       return;
     }
 
-    activePtys.add(ptyProcess);
+    let disposed = false;
+    let parentExited = false;
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      activeDisposers.delete(dispose);
+      closeSessionSetup();
+      const killPty = () => {
+        try {
+          ptyProcess.kill();
+        } catch (err) {
+          console.warn(`${logPrefix} PTY cleanup failed:`, err);
+        }
+      };
+      void killProcessTree(
+        ptyProcess.pid,
+        logPrefix,
+        killPty,
+        () => parentExited,
+      ).catch((err) => {
+        console.warn(`${logPrefix} PTY tree cleanup failed:`, err);
+        killPty();
+      });
+    };
+    activeDisposers.add(dispose);
     console.log(`${logPrefix} PTY spawned (pid: ${ptyProcess.pid})`);
 
     ptyProcess.onData((data: string) => {
@@ -281,7 +498,8 @@ export async function createPtyWebSocketServer(
 
     ptyProcess.onExit(({ exitCode }) => {
       console.log(`${logPrefix} PTY exited with code ${exitCode}`);
-      activePtys.delete(ptyProcess);
+      parentExited = true;
+      dispose();
       if (exitCode === 127 && ws.readyState === WebSocket.OPEN) {
         ws.send(
           JSON.stringify({
@@ -308,8 +526,6 @@ export async function createPtyWebSocketServer(
         ) {
           const vars: Array<{ key: string; value: string }> = msg.data.vars;
 
-          // Legacy bridge message. Keep validating the keys, but do not persist
-          // them to .env or process.env; key storage is DB-scoped.
           const validKeyPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
           const sanitizedVars = vars.filter(({ key }) => {
             if (!validKeyPattern.test(key)) {
@@ -355,8 +571,7 @@ export async function createPtyWebSocketServer(
       console.log(
         `${logPrefix} WebSocket closed, killing PTY tree (pid: ${ptyProcess.pid})`,
       );
-      activePtys.delete(ptyProcess);
-      killProcessTree(ptyProcess.pid, logPrefix);
+      dispose();
     });
   });
 
@@ -376,14 +591,93 @@ export async function createPtyWebSocketServer(
         server,
         port: actualPort,
         close: () => {
-          for (const p of activePtys) {
-            killProcessTree(p.pid, logPrefix);
-          }
-          activePtys.clear();
+          if (closed) return;
+          closed = true;
+          for (const dispose of [...activeDisposers]) dispose();
           wss.close();
           server.close();
         },
       });
     });
   });
+}
+
+function readPtySessionContext(url: URL): PtySessionContext | null {
+  const appId = url.searchParams.get("appId")?.trim();
+  if (!appId) return null;
+  const pathValue = url.searchParams.get("path")?.trim();
+  const view = url.searchParams.get("view")?.trim();
+  return {
+    appId,
+    ...(pathValue ? { path: pathValue } : {}),
+    ...(view ? { view } : {}),
+  };
+}
+
+export function preparePtySpawn(
+  commandPath: string,
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+): { command: string; args: string[] } {
+  if (platform !== "win32") return { command: commandPath, args };
+  const extension = path.extname(commandPath).toLowerCase();
+  if (extension !== ".cmd" && extension !== ".bat") {
+    return { command: commandPath, args };
+  }
+  return {
+    command: "cmd.exe",
+    args: ["/d", "/s", "/c", `"${commandPath}"`, ...args],
+  };
+}
+
+export function parseTerminalArguments(
+  value: string,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  if (!value) return [];
+  const args: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+  const preserveBackslashes = platform === "win32";
+
+  const pushCurrent = () => {
+    if (current) args.push(current);
+    current = "";
+  };
+
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index];
+    if (escaped) {
+      current += character;
+      escaped = false;
+      continue;
+    }
+    if (character === "\\" && quote !== "'") {
+      if (!preserveBackslashes || value[index + 1] === '"') {
+        escaped = true;
+        continue;
+      }
+      current += character;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = null;
+      else current += character;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+    } else if (/\s/.test(character)) {
+      pushCurrent();
+    } else {
+      current += character;
+    }
+  }
+
+  if (escaped || quote) {
+    throw new Error("Invalid flags: unterminated terminal argument");
+  }
+  pushCurrent();
+  return args;
 }

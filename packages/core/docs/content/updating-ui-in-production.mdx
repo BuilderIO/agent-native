@@ -15,21 +15,21 @@ In a standard production deployment with [production code execution](/docs/actio
 
 ## Builder.io: Visual Editing in Production {#builderio}
 
-[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) is a separate managed code-capable workflow where an agent can modify your app's UI in production. Connect your repo to Builder.io (free tier available) and prompt for UI changes directly. No redeploy needed.
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) is a separate managed code-capable workflow where an agent can modify your app's UI in production. Use Builder.io with your repo (free tier available) and prompt for UI changes directly. No redeploy needed.
 
-**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+The **Use Builder.io** action in Settings starts Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
 
 **How it works:**
 
-1. Connect your agent-native repo to Builder.io (free tier available)
+1. Use Builder.io with your agent-native repo (free tier available)
 2. Builder.io provides a cloud frame with the agent, visual editing, and real-time collaboration
 3. Prompt the agent to make UI changes. It edits your components, routes, and styles live
 4. Changes are committed back to your repo
 
-See [Frames](/docs/frames) for more on the embedded agent panel vs. cloud frame options.
+See [Agent Surfaces](/docs/agent-surfaces) for more on embedded and hosted agent options.
 
 ## What's next
 
 - [**Deployment**](/docs/deployment) — pick a persistent database and a preset before your first production deploy
-- [**Frames**](/docs/frames) — the embedded agent panel vs. Builder.io's cloud frame for production UI edits
+- [**Agent Surfaces**](/docs/agent-surfaces) - the current embedded and hosted agent options
 - [**Production Agent Access**](/docs/actions-agent-tools) — what tools the deployed agent has by default

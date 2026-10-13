@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   _resetSyncTransportRegistryForTests,
+  REALTIME_CAP_POLL_LIVE,
   subscribeSyncEvents,
   type SyncEvent,
 } from "./use-db-sync";
@@ -48,11 +49,6 @@ class FakeBroadcastChannel {
   }
 }
 
-/**
- * Stands in for `navigator.locks`. `grant` controls whether this "tab" wins the
- * election immediately (leader) or waits behind another tab (follower), which
- * is the only difference the transport is allowed to observe.
- */
 class FakeLockManager {
   static grant = true;
   static promote: Array<() => void> = [];
@@ -128,8 +124,6 @@ describe("cross-tab SSE sharing", () => {
     unsub();
   });
 
-  // The whole point: a second tab must not spend one of the origin's ~6
-  // HTTP/1.1 connections on a duplicate stream.
   it("opens no stream while another tab holds the election", async () => {
     FakeLockManager.grant = false;
     const unsub = subscribeSyncEvents({ onEvents: () => {} });
@@ -191,7 +185,6 @@ describe("cross-tab SSE sharing", () => {
     await vi.advanceTimersByTimeAsync(50);
     expect(FakeEventSource.instances).toHaveLength(0);
 
-    // The previous leader closed its tab; Web Locks hands the lock over.
     FakeLockManager.promote.forEach((grant) => grant());
     await vi.advanceTimersByTimeAsync(50);
 
@@ -267,10 +260,6 @@ describe("cross-tab SSE sharing", () => {
     unsub();
   });
 
-  // The dev gateway serves every workspace app from one origin. Electing per
-  // origin would give a design tab the slides leader's events, and the follower
-  // would fold them into the `?since=` cursor for its OWN poll — silently
-  // skipping its own app's changes from then on.
   it("elects a separate leader per app on a shared origin", async () => {
     const unsub = subscribeSyncEvents({
       onEvents: () => {},
@@ -284,7 +273,6 @@ describe("cross-tab SSE sharing", () => {
     });
     await vi.advanceTimersByTimeAsync(50);
 
-    // Two apps, two locks, two streams — neither is a follower of the other.
     expect(new Set(FakeLockManager.names).size).toBe(2);
     expect(FakeEventSource.instances).toHaveLength(2);
     expect(
@@ -293,6 +281,56 @@ describe("cross-tab SSE sharing", () => {
 
     unsub();
     unsubOther();
+  });
+
+  it("broadcasts poll-live to followers when the leader's own stream is refused before opening", async () => {
+    const unsub = subscribeSyncEvents({ onEvents: () => {}, interval: 500 });
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(FakeEventSource.instances).toHaveLength(1);
+    const source = FakeEventSource.instances[0];
+    source.readyState = FakeEventSource.CLOSED;
+    source.onerror?.();
+
+    const channel = FakeBroadcastChannel.instances.at(-1)!;
+    expect(channel.posted).toContainEqual({
+      type: "sse-state",
+      connected: false,
+      capabilities: [REALTIME_CAP_POLL_LIVE],
+    });
+
+    unsub();
+  });
+
+  it("notifies a follower's own subscribers of a capability-only frame (connected unchanged)", async () => {
+    FakeLockManager.grant = false;
+    const states: Array<{
+      connected: boolean;
+      capabilities: readonly string[] | undefined;
+    }> = [];
+    const unsub = subscribeSyncEvents({
+      onEvents: () => {},
+      onSseStateChange: (connected, capabilities) =>
+        states.push({ connected, capabilities }),
+    });
+    await vi.advanceTimersByTimeAsync(50);
+    expect(states.at(-1)).toEqual({ connected: false, capabilities: [] });
+
+    const channel = FakeBroadcastChannel.instances.at(-1)!;
+    channel.onmessage?.({
+      data: {
+        type: "sse-state",
+        connected: false,
+        capabilities: [REALTIME_CAP_POLL_LIVE],
+      },
+    });
+
+    expect(states.at(-1)).toEqual({
+      connected: false,
+      capabilities: [REALTIME_CAP_POLL_LIVE],
+    });
+
+    unsub();
   });
 
   it("keeps one stream per tab when Web Locks is unavailable", async () => {

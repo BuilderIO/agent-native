@@ -1,13 +1,8 @@
 import { randomUUID } from "node:crypto";
 
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  isUniqueViolation,
-  safeJsonParse,
-} from "../db/client.js";
+import { getDbExec, isUniqueViolation, safeJsonParse } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { recordChange } from "../server/poll.js";
 import type {
   AgentRun,
@@ -41,26 +36,23 @@ function resolveProgressRunStaleMs(): number {
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `
         CREATE TABLE IF NOT EXISTS progress_runs (
           id TEXT PRIMARY KEY,
           owner TEXT NOT NULL,
           title TEXT NOT NULL,
           step TEXT,
-          percent ${intType()},
+          percent BIGINT,
           status TEXT NOT NULL DEFAULT 'running',
           metadata TEXT,
-          started_at ${intType()} NOT NULL,
-          updated_at ${intType()} NOT NULL,
-          completed_at ${intType()}
+          started_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL,
+          completed_at BIGINT
         )
       `;
 
-      if (isPostgres()) {
-        // PG-guard: probe information_schema / pg_indexes before issuing DDL to
-        // avoid ACCESS EXCLUSIVE lock contention in fresh background-worker processes.
+      {
         await ensureTableExists("progress_runs", createSql);
         await ensureIndexExists(
           "idx_progress_runs_owner_status",
@@ -68,28 +60,11 @@ export async function ensureTable(): Promise<void> {
         );
         return;
       }
-
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      // NOTE: table name is `progress_runs` (not `agent_runs`) to avoid
-      // colliding with core's existing agent/run-store.ts which uses
-      // `agent_runs` for agent-chat turn lifecycle tracking. These are
-      // separate concerns — progress = user-facing task status, agent_runs =
-      // internal chat turn bookkeeping.
-      await client.execute(createSql);
-      try {
-        await client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_progress_runs_owner_status ON progress_runs (owner, status, started_at)`,
-        );
-      } catch {
-        // Index already exists or the dialect rejected a duplicate.
-      }
     })().catch((err) => {
-      // Reset on failure so a transient DB outage doesn't poison the cached
-      // promise and reject every future insert/update call for the lifetime
-      // of the process.
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }
@@ -182,9 +157,6 @@ export async function updateRun(
 ): Promise<AgentRun | null> {
   await ensureTable();
   const client = getDbExec();
-  // Read current row first so we can return a consistent snapshot of this
-  // caller's update (avoids the UPDATE→SELECT race where a concurrent writer
-  // could have their change reflected in the returned value).
   const current = await getRun(id, owner);
   if (!current) return null;
 
@@ -273,21 +245,9 @@ export async function cancelStaleRunsForOwner(
   return 0;
 }
 
-// Throttle the stale-run sweep so the 3s RunsTray poll doesn't issue an
-// UPDATE (and, when it cancels something, a poll-bump that triggers another
-// listRuns) on every single read. A 30s cadence is plenty given "stale" means
-// a run has been alive for many minutes.
 const _lastStaleSweep = new Map<string, number>();
 const STALE_SWEEP_INTERVAL_MS = 30_000;
 
-/**
- * Optional hook run (throttled) before each owner's run list is read. Lets a
- * producer of progress rows reconcile its own backing state first — e.g. Agent
- * Teams re-fires dropped sub-agent dispatches and marks dead runs failed so the
- * tray shows precise status instead of waiting on the generic stale sweep.
- * Registered by the agent-chat plugin to avoid a layering cycle (this generic
- * store must not import feature modules).
- */
 export interface ProgressPreListContext {
   event?: unknown;
 }

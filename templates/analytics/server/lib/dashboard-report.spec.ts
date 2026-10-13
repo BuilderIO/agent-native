@@ -39,6 +39,7 @@ type EmailPayload = {
   text: string;
   timeoutMs: number;
   attachments?: RenderedReportEmail["attachments"];
+  useDeploymentCredentials?: boolean;
 };
 
 const mocks = vi.hoisted(() => ({
@@ -155,13 +156,8 @@ function dashboardWith(
   };
 }
 
-/** Per-panel statuses the fake `fetchReportPanelData` should report. */
 let panelStatuses: Record<string, ReportPanelData> = {};
 
-/**
- * Mirrors the real fetcher's panel classification: sections are never queried,
- * extension panels are reported as not-emailable rather than failed.
- */
 function fakePanelData(snapshot: ReportSnapshot): PanelDataMap {
   const data: PanelDataMap = new Map();
   for (const p of (snapshot.panels ?? []) as SqlPanel[]) {
@@ -275,6 +271,7 @@ describe("dashboard report email", () => {
     expect(email.to).toBe("steve@builder.io");
     expect(email.subject).toContain("Growth");
     expect(email.timeoutMs).toBe(EMAIL_TIMEOUT_MS);
+    expect(email.useDeploymentCredentials).toBe(true);
     expect(email.html).toContain("Growth");
     expect(email.attachments?.map((a) => a.contentId)).toEqual([
       "dashboard-report-panel-0-p1",
@@ -414,9 +411,6 @@ describe("dashboard report email", () => {
       onCaptureOutcome,
     });
 
-    // Nothing failed, so degradedPanelIds is empty — but no panel is backed by
-    // data, so the report is a page of "open the dashboard" links and must not
-    // claim to be complete.
     expect(result.reportMode).toBe("degraded");
     expect(result.reportError).toBeDefined();
     expect(onCaptureOutcome).toHaveBeenCalledWith(
@@ -460,8 +454,6 @@ describe("dashboard report email", () => {
         return fakePanelData(args.snapshot);
       });
 
-      // Whichever bounded step notices first, the invariant is that it rejects
-      // and nothing is delivered.
       await expect(
         sendDashboardReportSubscription(subscription(), { deadlineAt }),
       ).rejects.toThrow("exceeded the report delivery deadline");
@@ -546,6 +538,39 @@ describe("dashboard report email", () => {
     });
     expect(snapshot.title).toBe("Growth");
     expect(snapshot.panelIds).toEqual(["p1"]);
+  });
+
+  it("reads multi-select filters the way the page does, so a cleared selection stays cleared", async () => {
+    mocks.getReportDashboard.mockResolvedValue(
+      dashboardWith(
+        [panel("p1")],
+        [
+          {
+            id: "plan",
+            label: "Plan",
+            type: "multi-select",
+            default: "free",
+            options: [{ value: "free", label: "Free" }],
+          },
+          {
+            id: "tier",
+            label: "Tier",
+            type: "multi-select",
+            options: [{ value: "pro", label: "Pro" }],
+          },
+        ],
+      ),
+    );
+
+    const snapshot = await collectReportSnapshot({
+      ...subscription(),
+      filters: { f_plan: "__empty__", f_tier: "pro,," },
+    });
+
+    // A cleared selection stays an empty override, so a dashboard variable cannot fill it.
+    expect(snapshot.filters).toEqual({ f_plan: "", f_tier: "pro" });
+    // The link must reopen with the selection cleared, not with the default.
+    expect(snapshot.dashboardUrl).toContain("f_plan=__empty__");
   });
 
   it("reads the dashboard under the subscription owner's access scope", async () => {

@@ -7,7 +7,7 @@ import {
   listRemoteServers,
   removeRemoteServer,
 } from "@agent-native/core/mcp-client";
-import { refreshGlobalMcpManager } from "@agent-native/core/server";
+import { refreshMcpManagerForPrincipal } from "@agent-native/core/server";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -42,7 +42,7 @@ async function listAssetsServers(orgId: string) {
 
 async function assertCanManageOrgMcp(orgId: string, userEmail: string) {
   const result = await getDbExec().execute({
-    sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+    sql: `SELECT role FROM org_members WHERE org_id = $1 AND LOWER(email) = $2 LIMIT 1`,
     args: [orgId, userEmail.toLowerCase()],
   });
   const role = String(
@@ -83,7 +83,10 @@ export default defineAction({
         existing.url,
       );
       if (trust.ok && sameEndpoint(existing.url, currentUrl)) {
-        const managerRefreshed = await refreshGlobalMcpManager();
+        const managerRefreshed = await refreshMcpManagerForPrincipal({
+          userEmail,
+          orgId,
+        });
         return {
           ok: true,
           connected: true,
@@ -94,9 +97,6 @@ export default defineAction({
       }
     }
 
-    // Verify the target endpoint is trusted before removing any existing
-    // server, so a transient org-directory/auth failure cannot turn a reconnect
-    // into a full disconnect for the org.
     const targetTrust = await isFirstPartyRemoteEndpointTrusted(
       orgId,
       "assets",
@@ -119,7 +119,10 @@ export default defineAction({
     if (result.ok !== true) {
       throw new Error(result.error);
     }
-    const managerRefreshed = await refreshGlobalMcpManager();
+    const managerRefreshed = await refreshMcpManagerForPrincipal({
+      userEmail,
+      orgId,
+    });
     return {
       ok: true,
       connected: true,

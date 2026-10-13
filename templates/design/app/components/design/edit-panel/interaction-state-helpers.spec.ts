@@ -3,10 +3,16 @@ import { describe, expect, it } from "vitest";
 import type { ElementInfo } from "../types";
 import { cssElementSize } from "./element-classification";
 import {
+  clearAuthoredSizeStylesForCommit,
+  patchAuthoredInlineStyles,
   authoredStyleValue,
   elementWithInteractionStateStyles,
   resolveInteractionStateValue,
 } from "./interaction-state-helpers";
+import {
+  isVectorShapeSelection,
+  mixedElementFromSelection,
+} from "./selection-helpers";
 
 function makeElement(overrides: Partial<ElementInfo> = {}): ElementInfo {
   return {
@@ -29,6 +35,14 @@ describe("authoredStyleValue", () => {
     expect(authoredStyleValue(element, "color")).toBe("blue");
   });
 
+  it("keeps authored line-height units ahead of computed pixel values", () => {
+    const element = makeElement({
+      computedStyles: { lineHeight: "24px" },
+      inlineStyles: { lineHeight: "30%" },
+    });
+    expect(authoredStyleValue(element, "lineHeight")).toBe("30%");
+  });
+
   it("treats an authored 'auto' inline value as unset (empty string)", () => {
     const element = makeElement({ inlineStyles: { left: "auto" } });
     expect(authoredStyleValue(element, "left")).toBe("");
@@ -39,13 +53,6 @@ describe("authoredStyleValue", () => {
     expect(authoredStyleValue(element, "top")).toBe("12px");
   });
 });
-
-// ---------------------------------------------------------------------------
-// resolveInteractionStateValue — fallback-to-base, precedence, and property
-// name normalization (stored state declarations are always kebab-case per
-// shared/interaction-states.ts's normalizeCssPropertyName, so this must
-// resolve a camelCase caller property to its kebab-case stored key).
-// ---------------------------------------------------------------------------
 
 describe("resolveInteractionStateValue", () => {
   it("returns the base value when no state is active (stateStyles undefined)", () => {
@@ -92,20 +99,31 @@ describe("resolveInteractionStateValue", () => {
   it("does not leak a base-state edit into an existing override, or vice versa (independent objects)", () => {
     const base = { color: "black" };
     const hoverOverride = { ...base, color: "white" };
-    // Editing the base object after deriving the hover override must not
-    // change the already-resolved hover value (proves no shared reference).
     base.color = "green";
     expect(
       resolveInteractionStateValue(hoverOverride, "color", base.color),
     ).toBe("white");
-    // And the reverse: mutating the override object must not retroactively
-    // change what the base value was captured as.
     hoverOverride.color = "purple";
     expect(base.color).toBe("green");
   });
 });
 
 describe("elementWithInteractionStateStyles", () => {
+  it("preserves vector classification for projected mixed SVG selections", () => {
+    const base = mixedElementFromSelection([
+      makeElement({ tagName: "path", primitiveKind: "path" }),
+      makeElement({ tagName: "rect", primitiveKind: "rect" }),
+    ]);
+    expect(base && isVectorShapeSelection(base)).toBe(true);
+
+    const projected = elementWithInteractionStateStyles(base!, {
+      fill: "#f00",
+    });
+
+    expect(projected).not.toBe(base);
+    expect(isVectorShapeSelection(projected)).toBe(true);
+  });
+
   it("projects kebab-case state values into both authored and computed inspector reads", () => {
     const base = makeElement({
       computedStyles: { backgroundColor: "white", opacity: "1" },
@@ -155,8 +173,6 @@ describe("elementWithInteractionStateStyles", () => {
     expect(projected.computedStyles.borderColor).toBe("blue");
     expect(projected.computedStyles.boxShadow).toContain("0 4px 8px");
     expect(projected.computedStyles.fontSize).toBe("18px");
-    // The runtime bounds remain the base element's real current geometry;
-    // geometry-backed controls prefer the projected CSS dimensions above.
     expect(projected.boundingRect).toEqual(base.boundingRect);
   });
 
@@ -175,5 +191,90 @@ describe("elementWithInteractionStateStyles", () => {
     const base = makeElement({ computedStyles: { color: "blue" } });
     expect(elementWithInteractionStateStyles(base, undefined)).toBe(base);
     expect(elementWithInteractionStateStyles(base, {})).toBe(base);
+  });
+});
+
+describe("patchAuthoredInlineStyles", () => {
+  it("carries a committed authored size onto the snapshot", () => {
+    expect(
+      patchAuthoredInlineStyles(
+        { width: "180px" },
+        { width: "fit-content", flexGrow: "0" },
+      ),
+    ).toEqual({ width: "fit-content" });
+  });
+
+  it("leaves an absent snapshot absent — absence is meaningful downstream", () => {
+    expect(
+      patchAuthoredInlineStyles(undefined, { width: "fit-content" }),
+    ).toBeUndefined();
+  });
+
+  it("carries supported color while ignoring properties outside the snapshot", () => {
+    expect(
+      patchAuthoredInlineStyles({}, { color: "red", fontWeight: "700" }),
+    ).toEqual({ color: "red" });
+  });
+
+  it("keeps unrelated authored values", () => {
+    expect(
+      patchAuthoredInlineStyles(
+        { position: "absolute", left: "10px" },
+        { height: "fit-content" },
+      ),
+    ).toEqual({
+      position: "absolute",
+      left: "10px",
+      height: "fit-content",
+    });
+  });
+  it("carries committed alignment and shorthand authoring onto the snapshot", () => {
+    const committed = {
+      alignItems: "center",
+      alignContent: "space-between",
+      justifyItems: "start",
+      gap: "16px",
+      padding: "12px",
+    };
+    expect(
+      patchAuthoredInlineStyles({ alignItems: "flex-start" }, committed),
+    ).toEqual(committed);
+  });
+
+  it("carries committed flex, gap and padding authoring onto the snapshot", () => {
+    const committed = {
+      flexDirection: "column",
+      flexWrap: "wrap",
+      columnGap: "12px",
+      rowGap: "8px",
+      justifyContent: "space-between",
+      paddingTop: "4px",
+      paddingRight: "6px",
+      paddingBottom: "10px",
+      paddingLeft: "2px",
+    };
+    expect(
+      patchAuthoredInlineStyles(
+        { flexDirection: "row", paddingTop: "0px" },
+        committed,
+      ),
+    ).toEqual(committed);
+  });
+});
+
+describe("clearAuthoredSizeStylesForCommit", () => {
+  it("drops changed native hints while retaining unrelated axes", () => {
+    expect(
+      clearAuthoredSizeStylesForCommit(
+        { width: "240px", height: "auto" },
+        { width: "fit-content" },
+      ),
+    ).toEqual({ height: "auto" });
+  });
+
+  it("preserves absence when the snapshot has no native hints", () => {
+    expect(
+      clearAuthoredSizeStylesForCommit(undefined, { width: "120px" }),
+    ).toBe(undefined);
   });
 });

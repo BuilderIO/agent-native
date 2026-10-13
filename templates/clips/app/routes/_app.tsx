@@ -1,12 +1,17 @@
+import { useLab } from "@agent-native/core/client/labs";
+import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "@shared/labs";
 import { useEffect, useRef } from "react";
 import { Outlet, useNavigate } from "react-router";
 
 import { LibraryLayout } from "@/components/library/library-layout";
 import { useAutoTitleBridge } from "@/hooks/use-auto-title";
+import { useLocalRecordingRecovery } from "@/hooks/use-local-recording-recovery";
 import { useTransactionalEmailBridge } from "@/hooks/use-transactional-email-bridge";
 
 function useGlobalSequenceShortcuts() {
   const navigate = useNavigate();
+  const meetingsLabEnabled = useLab(CLIPS_MEETINGS);
+  const wisprFlowLabEnabled = useLab(CLIPS_WISPRFLOW);
   const bufferRef = useRef<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -14,8 +19,8 @@ function useGlobalSequenceShortcuts() {
     const sequences: { keys: string[]; path: string }[] = [
       { keys: ["g", "l"], path: "/library" },
       { keys: ["g", "s"], path: "/spaces" },
-      { keys: ["g", "m"], path: "/meetings" },
-      { keys: ["g", "d"], path: "/dictate" },
+      ...(meetingsLabEnabled ? [{ keys: ["g", "m"], path: "/meetings" }] : []),
+      ...(wisprFlowLabEnabled ? [{ keys: ["g", "d"], path: "/dictate" }] : []),
       { keys: ["g", "a"], path: "/archive" },
       { keys: ["g", "t"], path: "/trash" },
     ];
@@ -41,7 +46,7 @@ function useGlobalSequenceShortcuts() {
             .every((k, i) => k === seq.keys[i])
         ) {
           e.preventDefault();
-          navigate(seq.path);
+          void navigate(seq.path);
           bufferRef.current = [];
           return;
         }
@@ -57,20 +62,14 @@ function useGlobalSequenceShortcuts() {
       window.removeEventListener("keydown", handleKey);
       clearTimeout(timerRef.current);
     };
-  }, [navigate]);
+  }, [meetingsLabEnabled, navigate, wisprFlowLabEnabled]);
 }
 
-// Pathless layout route — keeps the left sidebar + agent chat mounted across
-// every library/space/archive/trash navigation. See client-side-routing skill.
 export default function AppLayoutRoute() {
-  // Watch for server-queued title delegations and dispatch them to the agent
-  // chat. `sendToAgentChat` is browser-only so the server can't call it
-  // directly; this bridge is how `request-transcript`'s "auto-title when the
-  // clip still has the default title" hand-off actually reaches the agent.
   useAutoTitleBridge();
   useTransactionalEmailBridge();
-  // G+L/S/A/T sequence shortcuts for library navigation
   useGlobalSequenceShortcuts();
+  useLocalRecordingRecovery();
 
   return (
     <LibraryLayout>

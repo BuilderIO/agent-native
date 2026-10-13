@@ -6,7 +6,6 @@
     "dev": "agent-native dev",
     "build": "pnpm -r build",
     "prebuild": "agent-native doctor --strict",
-    "doctor": "agent-native doctor",
     "agent-native:doctor": "agent-native doctor",
     "typecheck": "pnpm -r typecheck",
     "repair:workspace-org": "tsx scripts/repair-workspace-org.ts",
@@ -17,6 +16,7 @@
   },
   "dependencies": {
     "@agent-native/core": "latest",
+    "drizzle-orm": "^0.45.3",
     "postgres": "^3.4.9"
   },
   "devDependencies": {
@@ -25,7 +25,7 @@
     "tsx": "catalog:",
     "typescript-7": "catalog:"
   },
-  "packageManager": "pnpm@10.14.0",
+  "packageManager": "pnpm@10.29.1",
   "agent-native": {
     "workspaceCore": "@{{APP_NAME}}/shared"
   }

@@ -1,14 +1,14 @@
-import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   useHeaderTitle,
   useHeaderActions,
 } from "@agent-native/toolkit/app-shell";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import { useLocation } from "react-router";
 
 const pageTitleKeys: Record<string, string> = {
-  "/": "navigation.create",
+  "/home": "navigation.create",
   "/library": "navigation.library",
   "/brand-kits": "navigation.brandKits",
   "/agent": "settings.agentTitle",
@@ -26,8 +26,9 @@ function LibraryTitle({ id }: { id: string }) {
 
 function StaticTitle({ pathname }: { pathname: string }) {
   const t = useT();
-  const title = pageTitleKeys[pathname]
-    ? t(pageTitleKeys[pathname])
+  const titlePath = pathname.startsWith("/chat/") ? "/home" : pathname;
+  const title = pageTitleKeys[titlePath]
+    ? t(pageTitleKeys[titlePath])
     : t("navigation.brand");
   return (
     <h1 className="text-lg font-semibold tracking-tight truncate">{title}</h1>
@@ -49,7 +50,8 @@ export function Header() {
   const location = useLocation();
   const title = useHeaderTitle();
   const actions = useHeaderActions();
-  const showAgentToggle = location.pathname !== "/";
+  const showAgentToggle =
+    location.pathname !== "/home" && !location.pathname.startsWith("/chat/");
 
   return (
     <header className="hidden h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4 md:flex lg:px-6">

@@ -1,28 +1,59 @@
 import { getUserSetting } from "@agent-native/core/settings";
 
-import type { AvailabilityConfig, OverlayPerson } from "../../shared/api.js";
+import type {
+  AvailabilityConfig,
+  BookingLink,
+  OverlayPerson,
+} from "../../shared/api.js";
+import { displayNameFromIdentifier } from "./booking-og-image.js";
 import { safeBookingTimeZone } from "./booking-timezone.js";
+import { getGoogleAccountTimezone } from "./google-calendar.js";
 
 export interface EligibleHostAvailability {
   email: string;
   displayName?: string;
-  /** Present only when the host has saved a working-hours schedule. */
   weeklySchedule?: AvailabilityConfig["weeklySchedule"];
-  /**
-   * Resolved from calendar-availability.timezone, falling back to
-   * calendar-settings.timezone. Present only when one of those is a
-   * resolvable IANA time zone — never defaulted, since guessing a peer's
-   * zone would be misleading.
-   */
   timezone?: string;
 }
 
-/**
- * Cross-references booking-link hosts against the owner's calendar overlay
- * ("subscribed peer") list. Only hosts the owner has explicitly overlaid get
- * their real working-hours schedule and time zone used for hard-filtering —
- * everyone else keeps today's free/busy-only behavior.
- */
+async function resolvePeerScheduleAndTimezone(email: string): Promise<{
+  weeklySchedule?: AvailabilityConfig["weeklySchedule"];
+  timezone?: string;
+}> {
+  const [config, calendarSettings] = await Promise.all([
+    getUserSetting(
+      email,
+      "calendar-availability",
+    ) as Promise<AvailabilityConfig | null>,
+    getUserSetting(email, "calendar-settings") as Promise<{
+      timezone?: string;
+    } | null>,
+  ]);
+  const timezone =
+    safeBookingTimeZone(config?.timezone) ||
+    safeBookingTimeZone(calendarSettings?.timezone) ||
+    (await getGoogleAccountTimezone(email)) ||
+    undefined;
+
+  if (!config?.weeklySchedule || !timezone) {
+    return { timezone };
+  }
+  return { weeklySchedule: config.weeklySchedule, timezone };
+}
+
+async function overlaysBack(
+  candidateEmail: string,
+  ownerEmail: string,
+): Promise<boolean> {
+  const candidateOverlay = (await getUserSetting(
+    candidateEmail,
+    "calendar-overlay-people",
+  )) as { people: OverlayPerson[] } | null;
+  return (candidateOverlay?.people ?? []).some(
+    (person) => person.email.toLowerCase() === ownerEmail,
+  );
+}
+
 export async function getEligibleHostAvailability(
   ownerEmail: string | undefined,
   hostEmails: string[],
@@ -39,38 +70,161 @@ export async function getEligibleHostAvailability(
   if (overlayEmails.size === 0) return [];
 
   const owner = ownerEmail.toLowerCase();
-  const eligibleEmails = Array.from(
+  const candidateEmails = Array.from(
     new Set(
       hostEmails
         .map((email) => email.toLowerCase())
         .filter((email) => email !== owner && overlayEmails.has(email)),
     ),
   );
+  if (candidateEmails.length === 0) return [];
+
+  const reciprocity = await Promise.all(
+    candidateEmails.map((email) => overlaysBack(email, owner)),
+  );
+  const eligibleEmails = candidateEmails.filter(
+    (_email, index) => reciprocity[index],
+  );
   if (eligibleEmails.length === 0) return [];
 
   return Promise.all(
     eligibleEmails.map(async (email) => {
-      const [config, calendarSettings] = await Promise.all([
-        getUserSetting(
-          email,
-          "calendar-availability",
-        ) as Promise<AvailabilityConfig | null>,
-        getUserSetting(email, "calendar-settings") as Promise<{
-          timezone?: string;
-        } | null>,
-      ]);
-      const timezone =
-        safeBookingTimeZone(config?.timezone) ||
-        safeBookingTimeZone(calendarSettings?.timezone);
+      const { weeklySchedule, timezone } =
+        await resolvePeerScheduleAndTimezone(email);
+      return weeklySchedule
+        ? { email, weeklySchedule, timezone }
+        : { email, timezone };
+    }),
+  );
+}
+export interface HostOverlayStatus {
+  email: string;
+  isOverlaidByOwner: boolean;
+  reciprocal: boolean;
+  hasWorkingHours: boolean;
+  timezone?: string;
+  displayName?: string;
+}
 
-      if (!config?.weeklySchedule) {
-        return { email, timezone };
+export interface OverlayReciprocity {
+  email: string;
+  reciprocal: boolean;
+  displayName?: string;
+}
+
+async function resolveOverlayCandidates(
+  ownerEmail: string | undefined,
+  emails: string[],
+): Promise<{
+  candidates: string[];
+  overlayByEmail: Map<string, OverlayPerson>;
+}> {
+  const empty = { candidates: [], overlayByEmail: new Map() };
+  if (!ownerEmail || emails.length === 0) return empty;
+
+  const overlayData = (await getUserSetting(
+    ownerEmail,
+    "calendar-overlay-people",
+  )) as { people: OverlayPerson[] } | null;
+  const overlayByEmail = new Map(
+    (overlayData?.people ?? []).map((person) => [
+      person.email.toLowerCase(),
+      person,
+    ]),
+  );
+  if (overlayByEmail.size === 0) return empty;
+
+  const owner = ownerEmail.toLowerCase();
+  const candidates = Array.from(
+    new Set(
+      emails
+        .map((email) => email.toLowerCase())
+        .filter((email) => email !== owner && overlayByEmail.has(email)),
+    ),
+  );
+  return { candidates, overlayByEmail };
+}
+
+export async function getOverlayReciprocity(
+  ownerEmail: string | undefined,
+  emails: string[],
+): Promise<OverlayReciprocity[]> {
+  const { candidates, overlayByEmail } = await resolveOverlayCandidates(
+    ownerEmail,
+    emails,
+  );
+  if (candidates.length === 0) return [];
+
+  const owner = (ownerEmail as string).toLowerCase();
+  const reciprocity = await Promise.all(
+    candidates.map((email) => overlaysBack(email, owner)),
+  );
+  return candidates.map((email, index) => ({
+    email,
+    reciprocal: reciprocity[index],
+    displayName: overlayByEmail.get(email)?.name,
+  }));
+}
+
+export async function getHostOverlayStatuses(
+  ownerEmail: string | undefined,
+  hostEmails: string[],
+): Promise<HostOverlayStatus[]> {
+  const { candidates: candidateEmails, overlayByEmail } =
+    await resolveOverlayCandidates(ownerEmail, hostEmails);
+  if (candidateEmails.length === 0) return [];
+
+  const owner = (ownerEmail as string).toLowerCase();
+  const reciprocity = await Promise.all(
+    candidateEmails.map((email) => overlaysBack(email, owner)),
+  );
+
+  return Promise.all(
+    candidateEmails.map(async (email, index) => {
+      const displayName = overlayByEmail.get(email)?.name;
+      if (!reciprocity[index]) {
+        return {
+          email,
+          isOverlaidByOwner: true,
+          reciprocal: false,
+          hasWorkingHours: false,
+          displayName,
+        };
       }
+      const { weeklySchedule, timezone } =
+        await resolvePeerScheduleAndTimezone(email);
       return {
         email,
-        weeklySchedule: config.weeklySchedule,
+        isOverlaidByOwner: true,
+        reciprocal: true,
+        hasWorkingHours: Boolean(weeklySchedule && timezone),
         timezone,
+        displayName,
       };
     }),
   );
+}
+
+export function withHostTimezones(
+  bookingLink: BookingLink,
+  ownerTimezone: string,
+  eligibleHosts: EligibleHostAvailability[],
+): BookingLink {
+  const hostTimezoneByEmail = new Map(
+    eligibleHosts
+      .filter((host) => host.timezone)
+      .map((host) => [host.email.toLowerCase(), host.timezone as string]),
+  );
+
+  return {
+    ...bookingLink,
+    ownerTimezone,
+    hosts: undefined,
+    publicHosts: bookingLink.hosts?.map((host, index) => ({
+      id: `host-${index}`,
+      label:
+        host.displayName || displayNameFromIdentifier(undefined, host.email),
+      timezone: hostTimezoneByEmail.get(host.email.toLowerCase()),
+    })),
+  };
 }

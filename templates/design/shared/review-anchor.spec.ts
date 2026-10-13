@@ -109,4 +109,62 @@ describe("review anchors", () => {
       }),
     ).toBeNull();
   });
+
+  it("parses stable board-world point and region coordinates", () => {
+    expect(
+      parseReviewAnchor({
+        point,
+        worldPoint: { x: 240, y: 360 },
+        worldRegion: { x: 100, y: 120, width: 280, height: 160 },
+      }),
+    ).toMatchObject({
+      worldPoint: { x: 240, y: 360 },
+      worldRegion: { x: 100, y: 120, width: 280, height: 160 },
+    });
+  });
+
+  it("parses a source-relative point only with its stable screen identity", () => {
+    expect(
+      parseReviewAnchor({
+        point,
+        screenId: "screen-1",
+        screenPoint: { xPct: 61, yPct: 39 },
+      }),
+    ).toEqual({
+      point,
+      screenId: "screen-1",
+      screenPoint: { xPct: 61, yPct: 39 },
+    });
+    expect(
+      parseReviewAnchor({
+        point,
+        screenId: "screen-1",
+        screenPoint: { xPct: "bad", yPct: 39 },
+      }),
+    ).toEqual({ point });
+  });
+
+  it("resolves the source-relative fallback for the matching screen", () => {
+    const anchor = {
+      point,
+      screenId: "screen-1",
+      screenPoint: { xPct: 61, yPct: 39 },
+    };
+    expect(
+      resolveReviewAnchor(
+        anchor,
+        () => null,
+        () => null,
+        "screen-1",
+      ),
+    ).toMatchObject({ source: "point", point: anchor.screenPoint });
+    expect(
+      resolveReviewAnchor(
+        anchor,
+        () => null,
+        () => null,
+        "screen-2",
+      ),
+    ).toMatchObject({ source: "point", point });
+  });
 });

@@ -1,12 +1,3 @@
-/**
- * See what the user is currently looking at on screen.
- *
- * Reads navigation state and design context from application state.
- *
- * Usage:
- *   pnpm action view-screen
- */
-
 import { defineAction } from "@agent-native/core/action";
 import {
   listAppState,
@@ -23,6 +14,7 @@ import {
   type ReviewResourceContext,
 } from "@agent-native/core/review";
 import * as reviewRuntime from "@agent-native/core/review";
+import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -30,6 +22,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { readDesignTemplateSource } from "../server/lib/design-template-data.js";
 import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
+import { isOverviewScreenFile } from "../shared/design-files.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { designGenerationSessionKey } from "../shared/generation-session.js";
 import {
@@ -40,6 +33,7 @@ import {
   isNodeRewriteProposal,
   isPendingDesignReprompt,
 } from "../shared/node-rewrite.js";
+import getDesignSystem from "./get-design-system.js";
 
 interface ReviewThreadSummary {
   openCount: number;
@@ -83,6 +77,24 @@ function objectProp(value: unknown, key: string): Record<string, unknown> {
   return candidate && typeof candidate === "object" && !Array.isArray(candidate)
     ? (candidate as Record<string, unknown>)
     : {};
+}
+
+/**
+ * The inspector has no tabs. A selection record written by an editor tab that
+ * predates that still carries one, and reporting it would tell the agent the
+ * user is somewhere they cannot be.
+ */
+function withoutInspectorTab(designSelection: unknown): unknown {
+  if (
+    !designSelection ||
+    typeof designSelection !== "object" ||
+    !("inspectorTab" in designSelection)
+  ) {
+    return designSelection;
+  }
+  const { inspectorTab: _staleInspectorTab, ...selection } =
+    designSelection as Record<string, unknown>;
+  return selection;
 }
 
 function resolveActiveScreen(
@@ -218,7 +230,7 @@ function buildReviewSummary(
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design, comments, or tweaks), active left rail panel (file, agent, assets, import, tools, tokens, or code), active code file metadata, overview canvas state, review status and feedback queue summary, plus any pending question overlay. Always call this first before taking any action.",
+    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, the Interact preview's device and theme, light, dark or system (system, the default, shows the design as authored; designSelection.interact, null outside Interact), active left rail panel (file, agent, assets, import, tools, tokens, or code; file is the panel labeled Layers), active code file metadata, overview canvas state, live Motion timeline id, playhead/duration in milliseconds, playback mode, auto-keyframe and selected track/keyframe keys, live-collaboration opt-in, review status and feedback queue summary, plus any pending question overlay. Basic route context is included in <current-screen>; call this for a fresh or fuller snapshot when visible design details matter.",
   schema: z.object({}),
   http: false,
   readOnly: true,
@@ -243,7 +255,9 @@ export default defineAction({
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
-    if (designSelection) screen.designSelection = designSelection;
+    if (designSelection) {
+      screen.designSelection = withoutInspectorTab(designSelection);
+    }
     const templateId = stringProp(navigation, "templateId");
     if (templateId) {
       const preset = getDesignTemplatePreset(templateId);
@@ -304,6 +318,7 @@ export default defineAction({
           })
           .from(schema.designFiles)
           .where(eq(schema.designFiles.designId, designId));
+        const overviewScreens = files.filter(isOverviewScreenFile);
         let data: Record<string, unknown> = {};
         const rawData = (access.resource as { data?: unknown }).data;
         if (typeof rawData === "string") {
@@ -321,14 +336,30 @@ export default defineAction({
           }
         }
         const activeScreen = resolveActiveScreen(
-          files,
+          overviewScreens,
           navigation,
           designSelection,
+        );
+        const linkedDesignSystem = await loadAgentDesignSystemContext(
+          typeof (access.resource as { designSystemId?: unknown })
+            .designSystemId === "string"
+            ? (access.resource as { designSystemId: string }).designSystemId
+            : null,
+          getDesignSystem,
         );
         screen.design = {
           id: designId,
           title: (access.resource as { title?: unknown }).title ?? null,
-          screens: files,
+          liveCollaborationEnabled:
+            (access.resource as { liveCollaborationEnabled?: unknown })
+              .liveCollaborationEnabled === true,
+          designSystemId:
+            typeof (access.resource as { designSystemId?: unknown })
+              .designSystemId === "string"
+              ? (access.resource as { designSystemId: string }).designSystemId
+              : null,
+          designSystem: linkedDesignSystem,
+          screens: overviewScreens,
           activeScreen,
           activeCodeFile: resolveActiveCodeFile(files, designSelection),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),
@@ -496,7 +527,7 @@ export default defineAction({
         "Questions are visible to the user as a full-canvas overlay. Wait for their answers (they'll come back as a chat message) before generating.";
     }
     if (generationSession) {
-      const GENERATION_SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+      const GENERATION_SESSION_TTL_MS = 10 * 60 * 1000;
       const startedAt =
         typeof (generationSession as { startedAt?: unknown }).startedAt ===
         "string"

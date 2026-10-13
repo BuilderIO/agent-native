@@ -12,6 +12,7 @@ import {
   DOCS_LOCALE_METADATA,
   DOCS_LOCALES,
   browserDocsLocale,
+  docsLocaleFromSegment,
   docsLocaleOptionLabel,
   sitePathForLocale,
   type DocsLocale,
@@ -19,6 +20,7 @@ import {
 
 interface LanguagePickerProps {
   openUpward?: boolean;
+  dimBorder?: boolean;
 }
 
 function preferenceLabel(preference: string) {
@@ -28,12 +30,6 @@ function preferenceLabel(preference: string) {
   return preference;
 }
 
-// Same locale-switching logic as ../../DocsLanguagePicker, restyled against
-// the `--b-*` redesign tokens instead of the main site's shadcn Popover so it
-// matches the rest of this header rather than looking like a foreign control.
-// The menu is absolutely positioned with no portal and no collision detection,
-// so a footer instance has to be told to open upward or it lands below the
-// fold, unreachable.
 export function LanguagePicker(props: LanguagePickerProps) {
   const openUpward = props.openUpward === true;
   const { preference } = useLocale();
@@ -80,7 +76,9 @@ export function LanguagePicker(props: LanguagePickerProps) {
 
   function localeForPreference(value: string) {
     const nextPreference = normalizeLocalizationPreference(value).locale;
-    return nextPreference === "system" ? systemLocale : nextPreference;
+    return nextPreference === "system"
+      ? systemLocale
+      : (docsLocaleFromSegment(nextPreference) ?? systemLocale);
   }
 
   function hrefForPreference(value: string) {
@@ -122,7 +120,12 @@ export function LanguagePicker(props: LanguagePickerProps) {
         aria-expanded={open}
         aria-controls={listId}
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-[var(--b-radius)] border border-solid bg-transparent text-[var(--b-text-primary)] outline-none transition-[background,border-color] duration-150 ease-[ease] border-[var(--b-action-secondary-border)] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
+        className={[
+          "inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-[var(--b-radius)] border border-solid bg-transparent text-[var(--b-text-primary)] outline-none transition-[background,border-color] duration-150 ease-[ease] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]",
+          props.dimBorder
+            ? "border-[var(--b-action-secondary-border-dim)]"
+            : "border-[var(--b-border-default)]",
+        ].join(" ")}
       >
         <IconLanguage size={18} stroke={1.5} />
         <span className="sr-only">{label}</span>

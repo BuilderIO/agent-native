@@ -128,9 +128,6 @@ function drawCover(
   ctx.restore();
 }
 
-// Hard ceiling on the composite canvas regardless of source resolution — keeps
-// the per-frame drawImage + encode at 1080p-class cost even on a Retina/4K
-// display or if a browser ignores getDisplayMedia's `max` constraint.
 const MAX_CANVAS_DIMENSION_PX = 1920;
 
 export function clampToMaxDimension(
@@ -142,7 +139,6 @@ export function clampToMaxDimension(
     return { width, height };
   }
   const scale = MAX_CANVAS_DIMENSION_PX / longest;
-  // Round to even numbers — odd canvas dimensions can trip up video encoders.
   return {
     width: Math.round((width * scale) / 2) * 2,
     height: Math.round((height * scale) / 2) * 2,
@@ -173,10 +169,6 @@ interface BubbleShadowSprite {
   pad: number;
 }
 
-// The drop shadow is a per-frame gaussian blur, which is expensive to redraw
-// every frame. Cache the rendered shadow in an offscreen sprite keyed by
-// bubble size — margin only shifts where the sprite is later placed, not its
-// bitmap — and only re-render when the size actually changes.
 let bubbleShadowSprite: BubbleShadowSprite | null = null;
 
 function getBubbleShadowSprite(size: number): BubbleShadowSprite {
@@ -185,8 +177,6 @@ function getBubbleShadowSprite(size: number): BubbleShadowSprite {
   }
   const blur = Math.max(16, size * 0.12);
   const offsetY = Math.max(8, size * 0.05);
-  // Padding wide enough that the blurred, offset shadow never clips at the
-  // sprite's edge.
   const pad = Math.ceil(blur * 2 + offsetY);
   const spriteSize = size + pad * 2;
   const sprite = document.createElement("canvas");
@@ -318,18 +308,11 @@ export function createCameraCompositeStream(
     } catch {
       // The display video can be momentarily unavailable while metadata loads.
     }
-    // Hide the bubble once the camera ends (unplugged, or the blur pipeline
-    // stopped its captureStream) — the <video> freezes on its last frame rather
-    // than zeroing its dimensions, so check the track instead.
     if (cameraTrack.readyState !== "ended") {
       drawCameraBubble(ctx, camera.video, canvas, drawOptions);
     }
   };
 
-  // Use a Worker-based timer so the draw loop keeps running at the target
-  // frame rate even when the user switches to a different tab. rAF is
-  // throttled to ~1fps in background tabs, which causes glitchy recordings.
-  // Falls back to rAF if Worker creation fails (e.g. strict CSP blocking blob: workers).
   let worker: Worker | null = null;
   let raf: number | null = null;
 

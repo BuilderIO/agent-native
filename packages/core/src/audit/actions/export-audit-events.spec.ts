@@ -1,30 +1,29 @@
-import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createTestPglite } from "../../a2a/test-pglite.js";
 import type { AuditEvent } from "../types.js";
 
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(input.sql);
+    const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
     if (/^\s*select/i.test(input.sql)) {
-      return { rows: stmt.all(...args), rowsAffected: 0 };
+      return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
-    const info = stmt.run(...args);
+    const info = await stmt.run(...args);
     return { rows: [], rowsAffected: info.changes };
   }),
 };
 
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => rawClient,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => any) => fn(),
 }));
 
@@ -57,13 +56,13 @@ function makeEvent(over: Partial<AuditEvent> = {}): AuditEvent {
 }
 
 beforeEach(async () => {
-  sqlite = new Database(":memory:");
+  pglite = await createTestPglite();
   __resetAuditInitForTests();
   seq = 0;
 });
 
-afterEach(() => {
-  sqlite.close();
+afterEach(async () => {
+  await pglite.close();
   vi.clearAllMocks();
 });
 
@@ -87,10 +86,8 @@ describe("export-audit-events", () => {
     expect(result.truncated).toBe(false);
     const lines = result.content.split("\n");
     expect(lines[0]).toBe(
-      "id,created_at,action,caller,actor_kind,actor_email,org_id,thread_id,turn_id,target_type,target_id,status,summary,error_code,owner_email,visibility",
+      "id,created_at,action,caller,actor_kind,actor_email,org_id,thread_id,turn_id,target_type,target_id,status,summary,error_code,owner_email,visibility,app",
     );
-    // The escaped summary field embeds a real newline inside its quotes, so
-    // it spans two lines of the joined CSV string.
     expect(result.content).toContain(
       '"has ""quotes"", a comma, and\na newline"',
     );
@@ -111,7 +108,6 @@ describe("export-audit-events", () => {
     expect(lines).toHaveLength(2);
     const parsed = lines.map((line) => JSON.parse(line));
     expect(parsed.map((e) => e.id).sort()).toEqual(["n1", "n2"]);
-    // Newest first, same ordering as list-audit-events.
     expect(parsed[0].id).toBe("n2");
   });
 
@@ -173,7 +169,15 @@ describe("export-audit-events", () => {
       makeEvent({ id: "agent-evt", actorKind: "agent", createdAt: 100 }),
     );
     await insertAuditEvent(
-      makeEvent({ id: "human-evt", actorKind: "human", createdAt: 200 }),
+      makeEvent({
+        id: "human-evt",
+        caller: "frontend",
+        actorKind: "human",
+        createdAt: 200,
+      }),
+    );
+    await insertAuditEvent(
+      makeEvent({ id: "service-evt", actorKind: "service", createdAt: 300 }),
     );
 
     const result = await exportAuditEvents.run(
@@ -183,5 +187,13 @@ describe("export-audit-events", () => {
 
     expect(result.rowCount).toBe(1);
     expect(JSON.parse(result.content).id).toBe("human-evt");
+
+    const serviceResult = await exportAuditEvents.run(
+      { format: "ndjson", actorKind: "service" },
+      { userEmail: "alice@x.com" },
+    );
+
+    expect(serviceResult.rowCount).toBe(1);
+    expect(JSON.parse(serviceResult.content).id).toBe("service-evt");
   });
 });

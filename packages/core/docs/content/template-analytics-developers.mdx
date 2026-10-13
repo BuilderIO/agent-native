@@ -12,13 +12,16 @@ This page is for anyone customizing the Analytics template or building on it dir
 Create a new Analytics app from the CLI:
 
 ```bash
-npx @agent-native/core@latest create my-analytics --standalone --template analytics
+npx --yes @agent-native/core@latest create my-analytics --standalone --template analytics
 cd my-analytics
 pnpm install
 pnpm dev
 ```
 
-The Analytics template's dev script pins `DATABASE_URL` to the local SQLite file at `./data/app.db`, so a production `DATABASE_URL` in `.env` will not be used during local development. To intentionally point local dev at another database, run `ANALYTICS_DATABASE_URL=<your dev database url> pnpm dev`.
+The Analytics template's dev script pins `DATABASE_URL` to local PGlite at
+`pglite:./data/pglite`, so a production `DATABASE_URL` in `.env` will not be
+used during local development. To intentionally point local dev at another
+PostgreSQL database, run `ANALYTICS_DATABASE_URL=<your dev database url> pnpm dev`.
 
 The CLI prints the local dev URL. Sign in with Google, then open the **Data Sources** page to connect BigQuery, GA4, first-party tracking, HubSpot, and the rest — see [Connecting and Extending Data Sources](/docs/template-analytics-connectors) for the full catalog and required env vars.
 

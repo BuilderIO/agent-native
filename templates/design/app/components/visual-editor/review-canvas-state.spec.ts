@@ -62,6 +62,19 @@ describe("review canvas draft state", () => {
     });
   });
 
+  it("uses the viewport position when the canvas point is transformed", () => {
+    expect(
+      getReviewPopoverPlacement(
+        { xPct: 20, yPct: 30 },
+        { x: 100, y: 851 },
+        { width: 1440, height: 1000 },
+      ),
+    ).toEqual({
+      horizontal: "start",
+      vertical: "above",
+    });
+  });
+
   it("keeps the clicked position after associating a layer", () => {
     expect(
       getReviewPinPosition({
@@ -83,5 +96,20 @@ describe("review canvas draft state", () => {
       point: { xPct: 81, yPct: 24 },
       source: "selector",
     });
+  });
+
+  it("uses the source-relative point only for the matching screen", () => {
+    const anchor = {
+      point: { xPct: 18, yPct: 72 },
+      screenId: "screen-1",
+      screenPoint: { xPct: 61, yPct: 39 },
+    };
+    expect(getReviewPinPosition(anchor, "screen-1")?.point).toEqual(
+      anchor.screenPoint,
+    );
+    expect(getReviewPinPosition(anchor, "screen-2")?.point).toEqual(
+      anchor.point,
+    );
+    expect(getReviewPinPosition(anchor)?.point).toEqual(anchor.point);
   });
 });

@@ -28,7 +28,6 @@ export interface ShareTriggerProps extends Pick<
   label?: ReactNode;
 }
 
-/** The shared text-only trigger for resource sharing surfaces. */
 export const ShareTrigger = forwardRef<HTMLButtonElement, ShareTriggerProps>(
   function ShareTrigger(
     { label = "Share", "aria-label": ariaLabel, title, ...props },
@@ -62,7 +61,10 @@ export interface ShareCopyRowProps {
   onCopy: (value: string) => Promise<boolean | void> | boolean | void;
 }
 
-/** Compact copy-only row. The underlying URL is deliberately not rendered. */
+function accessibleLabel(value: ReactNode, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
+}
+
 export function ShareCopyRow({
   value,
   label,
@@ -105,7 +107,11 @@ export function ShareCopyRow({
         emphasis="outline"
         size="compact"
         disabled={disabled}
-        aria-label={copied ? String(copiedLabel) : String(copyLabel)}
+        aria-label={
+          copied
+            ? accessibleLabel(copiedLabel, "Copied")
+            : accessibleLabel(copyLabel, "Copy")
+        }
         onPress={() => void handleCopy()}
         className="h-9 shrink-0"
       >
@@ -126,7 +132,6 @@ export interface ShareDisclosureSectionProps {
   contentClassName?: string;
 }
 
-/** Shared expandable boundary for optional share-access details. */
 export function ShareDisclosureSection({
   children,
   label,
@@ -190,7 +195,6 @@ export type ShareAgentsSectionProps = Omit<
   "label" | "fallbackLabel"
 > & { label?: ReactNode };
 
-/** Shared expandable boundary for agent-readable sharing details. */
 export function ShareAgentsSection({
   label = "Share with agents",
   ...props
@@ -209,7 +213,6 @@ export type SharePeopleSectionProps = Omit<
   "label" | "fallbackLabel"
 > & { label?: ReactNode };
 
-/** Shared expandable boundary for individual people access. */
 export function SharePeopleSection({
   label = "People with access",
   ...props

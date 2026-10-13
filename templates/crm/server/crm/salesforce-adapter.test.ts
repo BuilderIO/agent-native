@@ -547,7 +547,12 @@ describe("SalesforceCrmAdapter", () => {
       connectionLabel: "Builder Sales Cloud",
     });
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
-      const url = String(input);
+      const url =
+        input instanceof Request
+          ? input.url
+          : input instanceof URL
+            ? input.href
+            : input;
       const body = url.endsWith("/sobjects/Opportunity/describe")
         ? opportunityDescription
         : url.includes("/query/01gexample-2000")
@@ -580,7 +585,13 @@ describe("SalesforceCrmAdapter", () => {
       vi.unstubAllGlobals();
     }
 
-    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    const urls = fetchMock.mock.calls.map(([input]) =>
+      input instanceof Request
+        ? input.url
+        : input instanceof URL
+          ? input.href
+          : input,
+    );
     expect(urls).toContain(
       "https://builder.my.salesforce.com/services/data/v60.0/query/01gexample-2000",
     );

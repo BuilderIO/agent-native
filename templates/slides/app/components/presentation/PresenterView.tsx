@@ -5,9 +5,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
+import { isMediaKeyboardEvent } from "@/lib/slide-video";
 
 import type { DesignSystemData } from "../../../shared/api";
+import type { SlideTransitionType } from "../../../shared/slide-transitions";
 import { openPresentChannel, type PresentMessage } from "./present-channel";
+import { annotateBuildSteps, getBuildSteps } from "./slide-build-steps";
+import {
+  canCommand,
+  createSlideNavigation,
+  reduceSlideNavigation,
+  type SlideNavigationLayout,
+  type SlideNavigationState,
+} from "./slide-navigation";
 
 interface PresenterViewProps {
   slides: Slide[];
@@ -23,6 +33,17 @@ function formatElapsed(seconds: number) {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
+// The presenter holds no flight, only the settled position it mirrors.
+function presenterNavState(position: {
+  index: number;
+  buildStep: number;
+}): SlideNavigationState {
+  return {
+    ...createSlideNavigation(position.index),
+    buildStep: position.buildStep,
+  };
+}
+
 export default function PresenterView({
   slides,
   deckId,
@@ -31,11 +52,6 @@ export default function PresenterView({
   designSystem,
 }: PresenterViewProps) {
   const t = useT();
-  // `startIndex` is a raw index into the full (unfiltered) deck.slides array.
-  // Skipped slides are absent from safeSlides below, so translate it to the
-  // nearest visible slide's position within safeSlides — matching
-  // PresentationView, whose filtered currentIndex this view's `index` state
-  // otherwise mirrors via the BroadcastChannel.
   const initialIndex = useMemo(() => {
     const rawSlides = (Array.isArray(slides) ? slides : []).filter(Boolean);
     if (rawSlides.length === 0) return 0;
@@ -52,23 +68,60 @@ export default function PresenterView({
     }
     return 0;
   }, [slides, startIndex]);
-  const [index, setIndex] = useState(initialIndex);
+  // The index and build step move together, so one update can take both.
+  const [position, setPosition] = useState({
+    index: initialIndex,
+    buildStep: 0,
+  });
+  const index = position.index;
   const [elapsed, setElapsed] = useState(0);
+  const safeSlides = useMemo(
+    () =>
+      Array.isArray(slides)
+        ? slides.filter(
+            (slide): slide is Slide => Boolean(slide) && !slide.skipped,
+          )
+        : [],
+    [slides],
+  );
+  const buildSteps = useMemo(
+    () => safeSlides.map((slide) => getBuildSteps(slide).steps),
+    [safeSlides],
+  );
+  // The presenter animates nothing, so each press commits at its boundary.
+  const presenterLayout = useMemo<SlideNavigationLayout>(
+    () => ({
+      stepCounts: buildSteps.map((steps) => steps.length),
+      transitions: buildSteps.map((): SlideTransitionType => "none"),
+    }),
+    [buildSteps],
+  );
   const channelRef = useRef<BroadcastChannel | null>(null);
+  const controllerConnectedRef = useRef(false);
   const indexRef = useRef(index);
   indexRef.current = index;
 
   useEffect(() => {
     const channel = openPresentChannel(deckId);
     channelRef.current = channel;
+    controllerConnectedRef.current = false;
     if (!channel) return;
     channel.onmessage = (event: MessageEvent<PresentMessage>) => {
-      if (event.data?.type === "state") setIndex(event.data.index);
+      if (event.data?.type === "state") {
+        controllerConnectedRef.current = true;
+        setPosition({
+          index: event.data.index,
+          buildStep: event.data.buildStep,
+        });
+      } else if (event.data?.type === "bye") {
+        controllerConnectedRef.current = false;
+      }
     };
     channel.postMessage({ type: "hello" } satisfies PresentMessage);
     return () => {
       channel.close();
       channelRef.current = null;
+      controllerConnectedRef.current = false;
     };
   }, [deckId]);
 
@@ -77,9 +130,35 @@ export default function PresenterView({
     return () => window.clearInterval(timer);
   }, []);
 
-  const send = useCallback((message: PresentMessage) => {
-    channelRef.current?.postMessage(message);
-  }, []);
+  const send = useCallback(
+    (message: PresentMessage) => {
+      const channel = channelRef.current;
+      if (message.type === "command" && !controllerConnectedRef.current) {
+        channel?.postMessage(message);
+        // With no audience to report back, the presenter moves itself by the
+        // audience's own rule: a press reveals the next build before it advances.
+        setPosition((current) => {
+          const next = reduceSlideNavigation(
+            presenterNavState(current),
+            { type: "command", command: message.command },
+            presenterLayout,
+          );
+          if (
+            next.displayedIndex === current.index &&
+            next.buildStep === current.buildStep
+          ) {
+            return current;
+          }
+          return { index: next.displayedIndex, buildStep: next.buildStep };
+        });
+        return;
+      }
+      // Connected: this is a relay only. The audience applies the command once
+      // and reports its new state back, so nothing here steps the presenter.
+      channel?.postMessage(message);
+    },
+    [presenterLayout],
+  );
 
   const goNext = useCallback(
     () => send({ type: "command", command: "next" }),
@@ -92,6 +171,9 @@ export default function PresenterView({
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      if (isMediaKeyboardEvent(e)) return;
+      // Same as the audience view: auto-repeat keydowns are not new presses.
+      if (e.repeat) return;
       switch (e.key) {
         case "ArrowRight":
         case "ArrowDown":
@@ -109,16 +191,6 @@ export default function PresenterView({
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [goNext, goPrev]);
-
-  const safeSlides = useMemo(
-    () =>
-      Array.isArray(slides)
-        ? slides.filter(
-            (slide): slide is Slide => Boolean(slide) && !slide.skipped,
-          )
-        : [],
-    [slides],
-  );
 
   // One atomic effect handles both cases so they can't race each other:
   // - A genuine deep link or deck switch (startIndex/deckId changed) reseeds
@@ -138,28 +210,34 @@ export default function PresenterView({
 
     if (isDeepLinkChange) {
       prevSafeSlideIdsRef.current = safeSlides.map((s) => s.id);
-      setIndex(initialIndex);
+      setPosition({ index: initialIndex, buildStep: 0 });
       return;
     }
 
-    // Read the prior ids before overwriting the ref below — the lookup
-    // needs the slide order from before this update, not the one it's
-    // producing.
     const activeId = prevSafeSlideIdsRef.current[indexRef.current];
     const newIds = safeSlides.map((s) => s.id);
     const followedIndex = activeId ? newIds.indexOf(activeId) : -1;
     prevSafeSlideIdsRef.current = newIds;
-    setIndex(
+    const nextIndex =
       followedIndex >= 0
         ? followedIndex
-        : Math.max(0, Math.min(indexRef.current, safeSlides.length - 1)),
-    );
+        : Math.max(0, Math.min(indexRef.current, safeSlides.length - 1));
+    setPosition((current) => ({ ...current, index: nextIndex }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [safeSlides, startIndex, deckId]);
 
   const current = safeSlides[index];
   const next = safeSlides[index + 1];
+  // A button is enabled exactly when its key press would move the presenter.
+  const navState = presenterNavState(position);
   const notes = current?.notes?.trim();
+  // The same annotation the audience renders, at the audience's build step.
+  const currentPreview = useMemo(
+    () =>
+      current &&
+      annotateBuildSteps(current, buildSteps[index], position.buildStep),
+    [buildSteps, current, index, position.buildStep],
+  );
 
   if (safeSlides.length === 0) {
     return (
@@ -189,7 +267,7 @@ export default function PresenterView({
         <div className="flex items-center gap-2">
           <button
             onClick={goPrev}
-            disabled={index === 0}
+            disabled={!canCommand(navState, presenterLayout, "prev")}
             className="cursor-pointer rounded-lg bg-white/10 p-2 hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-30"
             aria-label={t("presentation.previousSlide")}
           >
@@ -197,7 +275,7 @@ export default function PresenterView({
           </button>
           <button
             onClick={goNext}
-            disabled={index >= safeSlides.length - 1}
+            disabled={!canCommand(navState, presenterLayout, "next")}
             className="cursor-pointer rounded-lg bg-white/10 p-2 hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-30"
             aria-label={t("presentation.nextSlide")}
           >
@@ -216,9 +294,10 @@ export default function PresenterView({
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
         <div className="flex gap-4">
           <div className="w-2/3 overflow-hidden rounded-lg bg-black">
-            {current && (
+            {currentPreview && (
               <SlideRenderer
-                slide={current}
+                slide={currentPreview}
+                slidePosition={{ number: index + 1, count: safeSlides.length }}
                 thumbnail
                 aspectRatio={aspectRatio}
                 designSystem={designSystem}
@@ -233,6 +312,10 @@ export default function PresenterView({
               <div className="overflow-hidden rounded-lg bg-black">
                 <SlideRenderer
                   slide={next}
+                  slidePosition={{
+                    number: index + 2,
+                    count: safeSlides.length,
+                  }}
                   thumbnail
                   aspectRatio={aspectRatio}
                   designSystem={designSystem}

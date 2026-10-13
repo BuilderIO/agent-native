@@ -2,8 +2,6 @@ import { appPath } from "@agent-native/core/client/api-path";
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
-import { Spinner } from "../../components/ui/spinner";
-
 const SEO_TITLE =
   "Dispatch - Open Source workspace control plane for AI agents";
 const SEO_DESCRIPTION =
@@ -24,18 +22,6 @@ export function meta() {
   ];
 }
 
-/**
- * Run the redirect on both the server and the client. A client-only
- * `<Navigate>` can drop during hydration (before the route tree is fully
- * attached), leaving the user stranded on `/` with a blank main area while
- * the layout chrome around it still renders. A `loader` redirect runs as
- * part of the server response and the navigation completes before the app
- * hydrates; `clientLoader` covers SPA-style navigations to `/`.
- *
- * We preserve `?` and `#` so deep-links like `?thread=<id>` from a Slack
- * "Open thread" button survive the bounce — `useThreadDeepLink` in
- * `root.tsx` reads them after the redirect lands and opens `/chat`.
- */
 function buildTarget(url: URL): string {
   return appPath(`/overview${url.search}${url.hash}`);
 }
@@ -53,11 +39,7 @@ export function clientLoader({ url }: LoaderFunctionArgs) {
 }
 
 export function HydrateFallback() {
-  return (
-    <div className="flex items-center justify-center h-screen w-full">
-      <Spinner className="size-8" />
-    </div>
-  );
+  return null;
 }
 
 export default function IndexPage() {

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { BrowserControlLoopbackBridge } from "../browser-control/bridge";
 import type { BrowserHostBridgeRegistration } from "../browser-control/protocol";
+import type { CaptureActiveDesktopBrowserScreenshot } from "../desktop-browser-screenshot";
 import { ComputerControlBroker } from "./broker";
 import type { DesktopHelper } from "./helper-client";
 import {
@@ -19,6 +20,7 @@ import type { MutationOperation, SemanticSnapshot } from "./types";
 const snapshot: SemanticSnapshot = {
   snapshotId: "snapshot-1",
   bundleId: "com.example.Editor",
+  applicationName: "Editor",
   origin: "https://example.com/private/path",
   capturedAt: "2026-07-10T00:00:00.000Z",
   nodes: [{ id: "button-1", role: "AXButton", title: "Continue" }],
@@ -54,6 +56,7 @@ async function createHarness(
     name: string;
     kind: "temporary";
   },
+  captureActiveBrowserScreenshot?: CaptureActiveDesktopBrowserScreenshot,
 ): Promise<Harness> {
   const mutations: MutationOperation[] = [];
   const releaseAll = vi.fn(async () => undefined);
@@ -75,7 +78,7 @@ async function createHarness(
       getSources: vi.fn(async () => [
         {
           id: "screen:1:0",
-          name: "Private window title",
+          name: "Editor",
           thumbnail: {
             isEmpty: () => false,
             getSize: () => ({ width: 800, height: 600 }),
@@ -96,6 +99,7 @@ async function createHarness(
     screenObserver,
     browserBridge,
     openContentWorkingCopy,
+    captureActiveBrowserScreenshot,
   });
   const url = await bridge.start();
   const registration = bridge.registerRun("run-server-owned", permissionMode);
@@ -123,6 +127,63 @@ async function createHarness(
 }
 
 describe("DesktopComputerMcpBridge", () => {
+  it("returns active inline browser pixels without requiring computer control", async () => {
+    const screenshot = {
+      data: Buffer.from("inline-browser").toString("base64"),
+      mediaType: "image/jpeg" as const,
+      width: 1_200,
+      height: 800,
+    };
+    const harness = await createHarness(
+      "read-only",
+      false,
+      undefined,
+      async () => screenshot,
+    );
+    const result = await harness.client.callTool({
+      name: "browser_screenshot",
+      arguments: {},
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({
+          captured: true,
+          source: "active-inline-browser",
+          width: 1_200,
+          height: 800,
+        }),
+      },
+      { type: "image", data: screenshot.data, mimeType: "image/jpeg" },
+    ]);
+
+    const connectorRegistration = harness.bridge.registerConnector();
+    const connector = new Client(
+      { name: "remote-connector-test", version: "1.0.0" },
+      { versionNegotiation: { mode: "auto" } },
+    );
+    try {
+      await connector.connect(
+        new StreamableHTTPClientTransport(new URL(connectorRegistration.url), {
+          requestInit: {
+            headers: {
+              Authorization: `Bearer ${connectorRegistration.bearerToken}`,
+            },
+          },
+        }),
+      );
+      await expect(
+        connector.callTool({
+          name: "browser_screenshot",
+          arguments: {},
+        }),
+      ).rejects.toThrow("Unsupported connector computer tool.");
+    } finally {
+      await connector.close().catch(() => undefined);
+    }
+  });
+
   it("opens only named local Content working copies through the trusted bridge", async () => {
     const openContentWorkingCopy = vi.fn(({ folder, name }) => ({
       id: "folder-opaque",

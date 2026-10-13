@@ -10,8 +10,19 @@ export type RestartUploadMode = "streaming" | "buffered";
 
 export type OffscreenRecordingState = {
   activeSessionId?: string;
+  activeRecordingId?: string;
   preparedSessionId?: string;
 };
+
+const finalizingSessions = new Set<string>();
+
+export function claimRecordingFinalization(
+  sessionId: string,
+): (() => void) | null {
+  if (finalizingSessions.has(sessionId)) return null;
+  finalizingSessions.add(sessionId);
+  return () => finalizingSessions.delete(sessionId);
+}
 
 export function hasLiveOffscreenSession(
   sessionId: string,
@@ -27,10 +38,15 @@ export function shouldReconcilePersistedRecording(
   sessionId: string,
   state: OffscreenRecordingState,
 ): boolean {
-  // Preserve terminal errors so the popup can explain an upload failure and
-  // offer the existing discard/re-upload path.
   if (status === "error" || status === "complete") return false;
   return !hasLiveOffscreenSession(sessionId, state);
+}
+
+export function shouldClearTerminalSavingOverlay(
+  phase: string,
+  status: NativeRecordingStateStatus,
+): boolean {
+  return phase === "saving" && (status === "error" || status === "complete");
 }
 
 export function restartUploadResetBody(mimeType: string): {

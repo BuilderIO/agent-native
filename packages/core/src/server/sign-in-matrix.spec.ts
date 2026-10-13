@@ -18,16 +18,14 @@
  *   D. a forged continuation cannot nest, cannot leave the origin, and cannot
  *      escape the base path into a sibling app on the same host.
  *
- * Every row is ALSO evaluated against the runtime extracted from the real
- * rendered login document, and the two answers must be identical. That
- * equality check is the drift detector: the original bug was a second login
- * document whose completion disagreed with the module, and no test compared
- * them.
+ * The React auth document loads one client bundle that imports the same
+ * journey module. The document checks below ensure the shipped shell carries
+ * that bundle and serialized props instead of embedding a second runtime.
  *
  * Browser-driven coverage (real dev server, real form, real hydration) for the
  * root deploy, the `/chatapp` base-path deploy, and a genuinely cross-origin
  * iframe lives in `scripts/qa-sign-in-matrix-smoke.ts` (`pnpm qa:sign-in`).
- * The surfaces here that a headless browser cannot reproduce — a separate
+ * The surfaces here that a headless browser cannot reproduce - a separate
  * Electron cookie jar, a custom-scheme deep link, an opaque-origin MCP frame —
  * are asserted against the shipped code rather than mimed.
  */
@@ -36,6 +34,11 @@ import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  isAgentNativeDesktop,
+  isElectron,
+  normalizeOAuthReturnPath,
+} from "../client/auth/auth-page-helpers.js";
 import {
   decodeContinuation,
   encodeContinuation,
@@ -47,7 +50,15 @@ import {
 import { safeReturnPath } from "./auth.js";
 import { normalizeEmbedTargetPath } from "./embed-session.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
-import { getOnboardingHtml } from "./onboarding-html.js";
+import { getOnboardingHtml as getCoreOnboardingHtml } from "./onboarding-html.js";
+
+const getOnboardingHtml: typeof getCoreOnboardingHtml = (opts = {}) =>
+  getCoreOnboardingHtml({
+    ...opts,
+    renderSignInPage:
+      opts.renderSignInPage ??
+      ((props) => `<main data-auth-view="${props.initialView}" />`),
+  });
 
 interface JourneyRuntime {
   normalizeAppPath: (raw: string | null | undefined) => string | null;
@@ -60,71 +71,31 @@ interface JourneyRuntime {
   }) => { signInHref: string | null; resumeHref: string };
 }
 
-/**
- * The journey runtime as the browser really receives it: sliced out of the
- * rendered login document, not imported from the module under test.
- */
 function documentRuntime(
   basePath: string,
   opts: Parameters<typeof getOnboardingHtml>[0] = {},
 ): JourneyRuntime {
   const html = getOnboardingHtml(opts);
-  const start = html.indexOf("var __anCreateSignInJourney =");
-  const end = html.indexOf("var __anJourney = __anCreateSignInJourney");
-  expect(start).toBeGreaterThan(-1);
-  expect(end).toBeGreaterThan(start);
-  return new Function(
-    `${html.slice(start, end)} return __anCreateSignInJourney(${JSON.stringify(basePath)});`,
-  )() as JourneyRuntime;
-}
-
-/** Slice one named `function name(...) {...}` out of the rendered document. */
-function documentFunction<T>(name: string, extra = ""): T {
-  const html = getOnboardingHtml();
-  const start = html.indexOf(`function ${name}(`);
-  expect(start, `${name} must exist in the login document`).toBeGreaterThan(-1);
-  let depth = 0;
-  let i = html.indexOf("{", start);
-  const open = i;
-  for (; i < html.length; i++) {
-    if (html[i] === "{") depth++;
-    else if (html[i] === "}") {
-      depth--;
-      if (depth === 0) break;
-    }
-  }
-  expect(i, `${name} must have a balanced body`).toBeLessThan(html.length);
-  const source = html.slice(start, i + 1);
-  expect(open).toBeGreaterThan(start);
-  return new Function(`${extra}\n${source}\nreturn ${name};`)() as T;
+  expect(html).toContain('id="agent-native-auth-root"');
+  expect(html).toContain('id="agent-native-auth-data"');
+  expect(html).toContain("assets/auth-client.js");
+  return {
+    normalizeAppPath: (raw) => normalizeAppPath(raw, basePath),
+    encodeContinuation: (p) => encodeContinuation(p, basePath),
+    decodeContinuation: (t) => decodeContinuation(t, basePath),
+    signInJourney: (input) => signInJourney({ ...input, basePath }),
+  };
 }
 
 interface Surface {
   id: number;
   name: string;
   basePath: string;
-  /** The route the visitor asked for, base path included. */
   protectedPath: string;
-  /** A same-origin path that belongs to a DIFFERENT app on this host. */
   siblingPath: string;
-  /**
-   * How this row's real end-to-end behaviour is covered ON TOP of the four
-   * invariants below, which every row asserts against the shipped runtime.
-   *
-   * `"browser"` means `pnpm qa:sign-in` boots this deploy and drives the real
-   * login document. Claim it only for a deploy that smoke actually starts —
-   * a row that says "browser" and is not in `BROWSER_DRIVEN_SURFACES` is a
-   * coverage claim nobody honours, which is the failure this file exists to
-   * make impossible.
-   */
   driver: "browser" | "request";
 }
 
-/**
- * The surfaces `scripts/qa-sign-in-matrix-smoke.ts` really boots: the root
- * deploy, the `/chatapp` deploy, and the root deploy inside a cross-origin
- * iframe. Kept here so a row cannot quietly promote itself to "browser".
- */
 const BROWSER_DRIVEN_SURFACES = new Set([1, 2, 3]);
 
 const SURFACES: Surface[] = [
@@ -234,12 +205,6 @@ const SURFACES: Surface[] = [
     basePath: "",
     protectedPath: "/database?table=todos",
     siblingPath: "/login",
-    // Request-level, deliberately: the smoke sets
-    // AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1, because otherwise the loopback
-    // auto-session signs its "anonymous" visitor in before the gate runs and
-    // every browser assertion silently tests nothing. So this row is NOT
-    // browser-driven, and saying otherwise would be the exact overclaim that
-    // let five previous fixes ship as "verified".
     driver: "request",
   },
   {
@@ -263,7 +228,7 @@ const SURFACES: Surface[] = [
 describe("sign-in matrix", () => {
   describe.each(SURFACES)("surface $id: $name", (surface) => {
     const { basePath, protectedPath, siblingPath } = surface;
-    const home = basePath || "/";
+    const home = basePath ? `${basePath}/home` : "/home";
     const runtimes: Array<[string, JourneyRuntime]> = [
       [
         "module",
@@ -292,8 +257,6 @@ describe("sign-in matrix", () => {
           signInHref!,
           "http://an.invalid",
         ).searchParams.get("c")!;
-        // Opacity is why nesting is structurally impossible rather than
-        // guarded: nothing downstream can mistake this for a redirect target.
         expect(token).not.toMatch(/[/?:]|%2F/i);
         expect(journey.decodeContinuation(token)).toBe(protectedPath);
       },
@@ -309,8 +272,6 @@ describe("sign-in matrix", () => {
             continuation: token,
           }).resumeHref,
         ).toBe(protectedPath);
-        // The legacy grammar is consumed forever: generated apps in the wild
-        // hand-write it and cannot be upgraded.
         expect(
           journey.signInJourney({
             at: `${basePath}${SIGN_IN_ENTRY_PATH}?return=${encodeURIComponent(protectedPath)}`,
@@ -330,8 +291,6 @@ describe("sign-in matrix", () => {
           `${basePath}${SIGN_IN_LEGACY_ENTRY_PATH}`,
         ]) {
           const result = journey.signInJourney({ at: entry });
-          // Refusing to mint is what removes the "don't redirect to yourself"
-          // check from every call site.
           expect(result.signInHref).toBeNull();
           expect(result.resumeHref).toBe(home);
           expect(journey.normalizeAppPath(entry)).toBeNull();
@@ -353,9 +312,7 @@ describe("sign-in matrix", () => {
           siblingPath,
         ];
         for (const bad of forged) {
-          // Nothing can even mint a token for these.
           expect(journey.encodeContinuation(bad)).toBe("");
-          // …and a hand-written one is re-validated on the way out.
           const handRolled = Buffer.from(
             encodeURIComponent(bad),
             "utf8",
@@ -378,7 +335,7 @@ describe("sign-in matrix", () => {
       },
     );
 
-    it("the login document and the module agree on every case", () => {
+    it("the React auth document is wired to the shared journey contract", () => {
       const [, moduleJourney] = runtimes[0];
       const cases = [
         protectedPath,
@@ -402,46 +359,48 @@ describe("sign-in matrix", () => {
 
   describe("surface-specific completion", () => {
     it("surface 3/5: the _session bridge keeps the route it was given", () => {
-      const bridge = documentFunction<(ret: string, token: string) => string>(
-        "__anSessionBridgeUrl",
-        "var window = { location: { origin: 'https://app.example', pathname: '/', search: '' } };",
+      const returned = appendSessionToOAuthReturnUrl(
+        "http://127.0.0.1:8080/decks/42?edit=1#slide-3",
+        "tok",
       );
-      expect(bridge("/decks/42?edit=1#slide-3", "tok")).toBe(
-        "/decks/42?edit=1&_session=tok#slide-3",
-      );
+      const parsed = new URL(returned);
+      expect(parsed.origin).toBe("http://127.0.0.1:8080");
+      expect(parsed.pathname).toBe("/decks/42");
+      expect(parsed.searchParams.get("edit")).toBe("1");
+      expect(parsed.searchParams.get("_session")).toBe("tok");
+      expect(parsed.hash).toBe("#slide-3");
     });
 
     it("surface 4: workspace return normalization never yields an auth entry path", () => {
-      const normalizeWorkspace = documentFunction<(ret: string) => string>(
-        "__anNormalizeWorkspaceReturnPath",
-        "var window = { location: { origin: 'https://preview.example' } };",
+      expect(normalizeOAuthReturnPath("/dispatch/apps")).toBe("/dispatch/apps");
+      expect(
+        normalizeOAuthReturnPath(
+          "/dispatch/settings/integrations?provider=hubspot",
+        ),
+      ).toBe("/dispatch/settings/integrations?provider=hubspot");
+      expect(
+        normalizeOAuthReturnPath(
+          "/dispatch/admin/integrations?provider=hubspot",
+        ),
+      ).toBe("/dispatch/admin/integrations?provider=hubspot");
+      expect(normalizeOAuthReturnPath("/dispatch/dispatch")).toBe("/dispatch");
+      expect(normalizeOAuthReturnPath("/dispatch/mail/inbox")).toBe(
+        "/mail/inbox",
       );
-      // The hardcoded Dispatch route table is workspace routing, not return
-      // validation — it must leave real app routes alone…
-      expect(normalizeWorkspace("/dispatch/apps")).toBe("/dispatch/apps");
-      expect(normalizeWorkspace("/dispatch/dispatch")).toBe("/dispatch");
-      expect(normalizeWorkspace("/dispatch/mail/inbox")).toBe("/mail/inbox");
-      // …and whatever it produces must still be a legal resume target.
       for (const ret of ["/dispatch/apps", "/dispatch/mail/inbox", "/x?y=1"]) {
-        expect(normalizeAppPath(normalizeWorkspace(ret))).not.toBeNull();
+        expect(normalizeAppPath(normalizeOAuthReturnPath(ret))).not.toBeNull();
       }
     });
 
     it("surface 5/6: desktop detection does not change where the visitor lands", () => {
-      const isBuilderDesktop = documentFunction<() => boolean>(
-        "__anIsBuilderDesktop",
-        "var navigator = { userAgent: 'Mozilla/5.0 Electron/32.0 BuilderDesktop' };",
-      );
-      const isAgentNativeDesktop = documentFunction<() => boolean>(
-        "__anIsAgentNativeDesktop",
-        "var navigator = { userAgent: 'Mozilla/5.0 Electron/32.0 AgentNativeDesktop/1.2' };",
-      );
-      expect(isBuilderDesktop()).toBe(true);
-      expect(isAgentNativeDesktop()).toBe(true);
-      // Both desktop surfaces complete sign-in outside the web cookie jar, but
-      // the continuation they carry is the same one every other surface uses.
-      // Agent-Native Desktop reloads in place, so its resume is the route it
-      // started on rather than the app root.
+      const genericElectron = "Mozilla/5.0 Electron/32.0 BuilderDesktop";
+      expect(isElectron(genericElectron)).toBe(true);
+      expect(isAgentNativeDesktop(genericElectron)).toBe(false);
+      expect(
+        isAgentNativeDesktop(
+          "Mozilla/5.0 Electron/32.0 agentnativedesktop/1.2",
+        ),
+      ).toBe(true);
       const at = "/agent?tab=context";
       expect(
         signInJourney({ at, continuation: encodeContinuation(at) }).resumeHref,
@@ -449,7 +408,6 @@ describe("sign-in matrix", () => {
     });
 
     it("surface 7: the mobile web _session fallback preserves the return route", () => {
-      // The allowed cross-origin case: the workspace gateway loopback.
       const returned = appendSessionToOAuthReturnUrl(
         "http://127.0.0.1:8080/recordings/abc?x=1",
         "tok",
@@ -458,12 +416,9 @@ describe("sign-in matrix", () => {
       expect(parsed.pathname).toBe("/recordings/abc");
       expect(parsed.searchParams.get("x")).toBe("1");
       expect(parsed.searchParams.get("_session")).toBe("tok");
-      // Same-origin returns stay relative and keep their route; the WebView
-      // already holds the cookie there, so no bridge token is appended.
       expect(appendSessionToOAuthReturnUrl("/recordings/abc?x=1", "tok")).toBe(
         "/recordings/abc?x=1",
       );
-      // Foreign origins are not returnable at all.
       expect(
         appendSessionToOAuthReturnUrl("https://evil.example/pwned", "tok"),
       ).toBe("/");
@@ -488,8 +443,6 @@ describe("sign-in matrix", () => {
     });
 
     it("surface 9: a share link the visitor could reach anonymously is a valid resume target", () => {
-      // The bug this replaces collapsed anything unrecognised to "/", which
-      // dumped share-link visitors on an app home they had no access to.
       const share = "/clips/share/xY7?t=32";
       expect(normalizeAppPath(share, "/clips")).toBe(share);
       expect(
@@ -518,8 +471,6 @@ describe("sign-in matrix", () => {
     });
 
     it("surface 12: safeReturnPath still accepts every legacy provider return it used to", () => {
-      // Eight provider-OAuth call sites still use this; it is now a one-line
-      // delegate, so the back-compat proof is that its answers did not move.
       expect(safeReturnPath("/dispatch/sso/authorize?app=mail")).toBe(
         "/dispatch/sso/authorize?app=mail",
       );
@@ -545,7 +496,6 @@ describe("sign-in matrix", () => {
       const first = getOnboardingHtml();
       const second = getOnboardingHtml();
       expect(second).toBe(first);
-      // Nothing session-shaped may be baked into a hard-cached public document.
       expect(first).not.toMatch(/set-cookie/i);
       expect(first).not.toMatch(/an_session/);
     });
@@ -553,33 +503,28 @@ describe("sign-in matrix", () => {
 
   describe("base path reaches the login document", () => {
     it("bakes the configured base path in, rather than sniffing it", () => {
-      // `__anBasePath()`'s marker fallback only fires for URLs containing
-      // `/_agent-native`, so on `/myapp/login` it returns "". The configured
-      // value is therefore the only thing that makes surface 2 work, and a
-      // change that stops baking it reopens the infinite bounce.
       vi.stubEnv("APP_BASE_PATH", "/myapp");
       try {
         const html = getOnboardingHtml();
-        expect(html).toContain('var configured = "/myapp";');
-        expect(html).toContain(
-          "var __anJourney = __anCreateSignInJourney(__anBasePath());",
-        );
+        expect(html).toContain('src="/myapp/assets/auth-client.js"');
       } finally {
         vi.unstubAllEnvs();
       }
-      expect(getOnboardingHtml()).toContain('var configured = "";');
+      expect(getOnboardingHtml()).toContain('src="/assets/auth-client.js"');
     });
   });
 
   describe("one login document, one validator", () => {
     it("the Google-only document is the same maintained document", () => {
       const googleOnly = getOnboardingHtml({ googleOnly: true });
-      expect(googleOnly).toContain("var __anCreateSignInJourney =");
-      expect(googleOnly).toContain(
-        "var __anJourney = __anCreateSignInJourney(__anBasePath());",
+      expect(googleOnly).toContain('id="agent-native-auth-root"');
+      expect(googleOnly).toContain('id="agent-native-auth-data"');
+      expect(googleOnly).toContain("assets/auth-client.js");
+      const data = googleOnly.match(
+        /<script type="application\/json" id="agent-native-auth-data">([\s\S]*?)<\/script>/,
       );
-      // The deleted second login page completed with
-      // `window.location.href = ret || '/'` where `ret` was the sign-in page.
+      expect(data).toBeTruthy();
+      expect(JSON.parse(data?.[1] ?? "{}").googleOnly).toBe(true);
       expect(googleOnly).not.toContain("window.location.href = ret");
     });
 
@@ -602,11 +547,6 @@ describe("sign-in matrix", () => {
     });
   });
 
-  /**
-   * A matrix nobody runs stops nothing, and the browser half is the part that
-   * gets dropped first when a pipeline is slow. These two assertions are the
-   * only things standing between "we have cross-surface coverage" and a claim.
-   */
   describe("the browser-driven half is real and runs", () => {
     const repoRoot = path.resolve(import.meta.dirname, "../../../..");
     const read = (rel: string) =>
@@ -617,7 +557,6 @@ describe("sign-in matrix", () => {
         (s) => s.id,
       );
       expect(claimed).toEqual([...BROWSER_DRIVEN_SURFACES]);
-      // …and the smoke really starts both deploys those rows describe.
       const smoke = read("scripts/qa-sign-in-matrix-smoke.ts");
       expect(smoke).toContain('for (const basePath of ["", "/chatapp"])');
       expect(smoke).toContain("runIframeSuite");
@@ -631,9 +570,26 @@ describe("sign-in matrix", () => {
         .readdirSync(path.join(repoRoot, ".github/workflows"))
         .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"))
         .map((f) => read(`.github/workflows/${f}`));
+      const actionsDir = path.join(repoRoot, ".github/actions");
+      const signInActions = fs
+        .readdirSync(actionsDir)
+        .filter((name) =>
+          fs.existsSync(path.join(actionsDir, name, "action.yml")),
+        )
+        .filter((name) =>
+          read(`.github/actions/${name}/action.yml`).includes(
+            "pnpm qa:sign-in",
+          ),
+        );
       expect(
-        workflows.some((w) => w.includes("pnpm qa:sign-in")),
-        "some workflow must run `pnpm qa:sign-in`",
+        workflows.some(
+          (w) =>
+            w.includes("pnpm qa:sign-in") ||
+            signInActions.some((name) =>
+              w.includes(`uses: ./.github/actions/${name}`),
+            ),
+        ),
+        "some workflow must run `pnpm qa:sign-in`, directly or through a local composite action",
       ).toBe(true);
     });
   });

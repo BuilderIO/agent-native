@@ -1,0 +1,246 @@
+---
+title: "Clipes: Funcionalidades"
+description: "A Biblioteca, Compartilhado comigo e Espaços do Clipes: como visualizar, criar, compartilhar e organizar seus clipes, além de todas as outras funcionalidades essenciais."
+search: "Clipes funcionalidades biblioteca pastas arquivo lixeira compartilhado comigo comentários espaços compartilhamento organizações insights"
+---
+
+# Funcionalidades
+
+Todas as funcionalidades essenciais do Clipes: como funcionam e como configurá-las. Veja [Clipes](/docs/template-clips) para a visão geral e [Conversar com o Agent](/docs/template-clips-agent) para a lista completa de prompts.
+
+## Biblioteca
+
+### Visualizar clipes {#library-view-clips}
+
+Sua Biblioteca mostra primeiro as pastas, depois as gravações, como uma grade de miniaturas com duração, título, proprietário, contagem de visualizações e visibilidade à primeira vista. Ordene por mais recentes, mais antigos ou título, filtre por tag, ou pesquise em todas as transcrições que você já fez para encontrar o clipe em que você discutiu algo, não apenas a gravação cujo título você lembra.
+
+### Crie um clipe {#create-a-clip}
+
+Três formas de adicionar um clipe à sua biblioteca, todas a partir do botão **Gravar** e do menu **Importar** ao lado dele. Clicar com o botão direito em um espaço vazio na Biblioteca oferece as mesmas três opções, além de **Nova pasta**.
+
+- **Gravar.** O gravador de tela integrado do Clipes, com sobreposição de webcam, captura de áudio e controles de pausa/corte.
+- **Enviar um arquivo de vídeo.** Adicione um vídeo já existente diretamente do seu computador, ou solte-o na grade da Biblioteca ou dos Espaços. Não é necessário gravar.
+- **Importar Loom.** Traga um vídeo público do Loom sem regravá-lo. Ao lado de **Gravar**, abra **Importar**, escolha **Importar Loom** e depois cole uma URL de compartilhamento ou incorporação do Loom. O Clipes salva uma cópia na sua biblioteca e importa a transcrição pública quando o Loom a fornece.
+
+### Gerencie um clipe
+
+O menu de três pontos de cada clipe, na Biblioteca ou clicado com o botão direito diretamente em um cartão, tem as mesmas quatro ações: **Compartilhar**, **Mover para pasta**, **Arquivar** e **Mover para a lixeira**.
+
+#### Compartilhar {#share}
+
+Compartilhe um clipe com permissões por clipe: público, equipe/organização ou privado. O rastreamento de links e os comentários encadeados também funcionam. Adicione uma senha ou uma data de expiração a qualquer clipe a partir da caixa de diálogo Compartilhar. Ambos apenas restringem o acesso. Nenhum dos dois pode conceder acesso que as regras de compartilhamento acima deles negariam de outra forma.
+
+Os administradores da organização definem a visibilidade padrão que novas gravações recebem quando ninguém escolhe uma explicitamente, coberto em [Organizações e equipes](#organizations-and-teams) abaixo. As gravações são públicas por padrão, a menos que um administrador altere isso, e escolher uma visibilidade explicitamente sempre prevalece sobre o padrão.
+
+Crie uma URL de incorporação para um clipe para colocá-lo em uma página de wiki, uma ferramenta interna, ou qualquer outro lugar que aceite um `<iframe>`:
+
+| Parâmetro         | Significado                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------------------- |
+| `?t=80`           | Inicia a reprodução em 80 segundos                                                                |
+| `?autoplay=1`     | Reprodução automática (sem áudio, já que navegadores bloqueiam a reprodução automática com áudio) |
+| `?hideControls=1` | Oculta os controles do player                                                                     |
+| `?loop=1`         | Reproduz em loop                                                                                  |
+
+Links de compartilhamento públicos também são exibidos como uma prévia de vídeo reproduzível, no estilo Loom, depois que o seu workspace instala o aplicativo do Clipes para o Slack. Apenas clipes prontos, públicos, sem senha, sem expiração vencida e sem marcador de arquivo/lixeira geram uma prévia reproduzível no Slack. Qualquer outro caso volta aos metadados normais de título e miniatura em links.
+
+Quer que a transcrição e os quadros de um clipe compartilhado sejam legíveis por um agente externo como o ChatGPT ou o Claude Code, não apenas por pessoas? Veja [Clipes em um workspace com múltiplos apps](/docs/template-clips-integrations).
+
+Depois que um clipe é compartilhado, seu proprietário pode ver quem realmente está assistindo:
+
+| O que                       | Mostra a você                                                                                                                                                                                                              |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Insights da gravação**    | Visualizações, contadas separadamente para humanos e para agentes externos que leem as APIs de contexto de agente do clipe, além de espectadores únicos, taxa de conclusão, uma curva de abandono e taxa de cliques em CTA |
+| **Insights da organização** | Totais da organização para o período, principais clipes por visualizações, reações e comentários, principais criadores, e uma tendência de engajamento dia a dia, o Insights Hub                                           |
+| **Exportação em CSV**       | Toda gravação na organização com suas contagens de visualizações e engajamento, como um CSV para download, até as 5.000 gravações mais recentes                                                                            |
+
+As visualizações humanas e as visualizações de agentes são rastreadas em contadores separados de propósito, para que um agente consultando periodicamente a transcrição de um clipe compartilhado nunca infle a contagem de pessoas que realmente o assistiram.
+
+#### Mover para pasta
+
+As pastas mantêm sua biblioteca organizada, e elas podem ser aninhadas: uma pasta pode conter outras pastas, não apenas gravações.
+
+<Steps>
+
+### Crie uma pasta
+
+Escolha **Nova pasta** no submenu **Mover para pasta** de um clipe, ou no menu de botão direito da Biblioteca.
+
+### Mova um clipe
+
+Escolha a pasta de destino em **Mover para pasta** no menu de três pontos do clipe. Isso também funciona em vários clipes selecionados de uma vez.
+
+</Steps>
+
+Renomeie uma pasta a qualquer momento a partir do seu próprio menu de opções. Excluir uma pasta nunca exclui o que está dentro dela: toda gravação nela, e toda gravação em uma subpasta aninhada, sobe para a pasta pai, ou para a raiz da biblioteca se a pasta excluída já estava no topo.
+
+#### Arquivar e mover para a lixeira
+
+Arquivar e mover para a lixeira escondem um clipe da Biblioteca principal sem excluir nada.
+
+- **Arquivar** mantém intacto cada bit dos dados de um clipe enquanto o remove da sua visualização do dia a dia, útil para um projeto concluído que você não quer ver mas pode precisar novamente. Restaure-o a qualquer momento.
+- **Mover para a lixeira** é uma exclusão reversível. O clipe desaparece tanto da Biblioteca quanto do Arquivo, mas nada é realmente removido até que alguém o exclua permanentemente. Não há limpeza automática: um clipe na lixeira permanece lá até que você ou um administrador o remova de vez.
+- **Restaurar** traz um clipe de volta do Arquivo ou da Lixeira em uma única etapa.
+- **Excluir para sempre** é a única opção irreversível, removendo a gravação e tudo o que está anexado a ela: comentários, reações, histórico de visualizações, transcrições, compartilhamentos e a mídia subjacente.
+
+## Compartilhado comigo
+
+### Visualizar clipes {#shared-view-clips}
+
+Essa visualização lista toda gravação que alguém compartilhou diretamente com você ou com sua organização, por nome ou por uma configuração de visibilidade em toda a organização. Um link público que alguém por acaso tenha não conta para essa lista.
+
+Você pode assistir e navegar pelos clipes compartilhados, e recolher a barra lateral para dar mais espaço ao vídeo. Você pode comentar aqui, mas não há menu de três pontos: gerenciar um clipe (mover, arquivar, compartilhar mais adiante) ainda é decisão do proprietário.
+
+### Comente em clipes
+
+Adicione um comentário no ponto exato do vídeo que você está assistindo, não apenas na gravação como um todo. Os comentários se organizam em respostas encadeadas, suportam negrito, itálico, código inline e links (títulos são reduzidos a texto simples), e podem mencionar um colega de equipe com @ para notificá-lo. Os campos de comentário crescem conforme você digita, e o feed se expande para mostrar comentários mais longos.
+
+## Espaços
+
+Um espaço é um contêiner com escopo de tópico que pertence a uma organização, algo como "Lançamento do Q3" ou "Equipe de Suporte", no qual qualquer um de seus membros pode colocar gravações. Uma gravação pode pertencer a zero, um ou vários espaços ao mesmo tempo, então adicionar um clipe a um espaço é mais parecido com marcá-lo do que movê-lo: diferente de uma pasta, que mantém uma gravação em exatamente um lugar, um espaço apenas faz um link para ela. Os espaços também têm suas próprias pastas, mantidas separadas da sua biblioteca pessoal.
+
+Um administrador da organização cria um espaço e adiciona membros a ele individualmente. A participação em um espaço tem suas próprias funções:
+
+| Função            | Pode fazer                                          |
+| ----------------- | --------------------------------------------------- |
+| **Administrador** | Adicionar e remover membros, alterar a função deles |
+| **Colaborador**   | Adicionar e remover gravações do espaço             |
+| **Visualizador**  | Ver o que há no espaço                              |
+
+Excluir um espaço remove o espaço e sua lista de membros. As gravações que estavam nele permanecem intactas. Elas só deixam de aparecer lá.
+
+## Capture de qualquer lugar
+
+Toda superfície de captura chega à mesma biblioteca compartilhada, exceto o Rewind, que permanece no seu dispositivo a menos que você aprove compartilhar um momento dele.
+
+### Aplicativo de bandeja para desktop
+
+O aplicativo de desktop é feito para a captura mais tranquila do dia a dia: gravação de tela e webcam com uma bolha de câmera arrastável, transcrição em tempo real enquanto você grava, tudo sem precisar manter uma aba do navegador aberta. Baixe em [clips.agent-native.com/download](https://clips.agent-native.com/download), disponível para macOS, Windows e Linux.
+
+<Callout tone="info">
+
+Na primeira vez que você grava sua tela, o sistema operacional pede permissão de Gravação de Tela (no Mac: Configurações do Sistema → Privacidade e Segurança → Gravação de Tela). Essa é uma permissão do sistema operacional, não uma configuração do Clipes, e o Clipes não pode gravar sem ela.
+
+</Callout>
+
+### Rewind
+
+O Rewind é uma memória local opcional que mantém uma gravação contínua da sua tela, e do áudio se você ativar isso, armazenada localmente no seu dispositivo.
+
+<Callout tone="info">
+
+O Rewind vem desativado por padrão. Nada é capturado até que você o ative nas configurações da bandeja do desktop, e nada sai do seu dispositivo a menos que você aprove (a revisão por solicitação vem ativada por padrão e pode ser desativada nas configurações do Rewind). Você pode exportar, pesquisar ou limpar o buffer você mesmo em qualquer momento.
+
+</Callout>
+
+Ative o Rewind na aba Rewind em Configurações. Depois de ativado, você pode perguntar ao agente coisas como "o que eu estava vendo 20 minutos atrás?" e ele lê trechos de texto do buffer local de texto na tela, contexto de aplicativo e janela, e fragmentos de transcrição. O agente nunca recebe as próprias gravações, com uma exceção: uma solicitação que você revisa e aprova, que transforma um intervalo exato em um clipe privado.
+
+### Tempo de tela anterior {#earlier-screen-time}
+
+O tempo de tela anterior acrescenta até cinco minutos de histórico local da tela, de antes da gravação, como contexto próprio. Ele nunca faz parte do vídeo.
+
+<WireframeBlock id="clips-earlier-screen-time-popover">
+  <Screen
+    surface="popover"
+    frame="show"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:10px;padding:16px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:8px;padding:8px'><span>Incluir os últimos</span><div style='flex:1'></div><span>Desativado</span><span data-icon='chevronDown'></span></div><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><strong>Ativar o Rewind</strong><small class='wf-muted'>Desativado por padrão. O histórico da tela fica neste dispositivo até você incluí-lo em uma gravação ou aprovar uma solicitação para compartilhá-lo.</small><button class='primary'>Ativar o Rewind</button><button style='width:100%;display:flex;justify-content:center;background:transparent;border:0'>O que é isto?</button></div></div>"
+    }
+  />
+</WireframeBlock>
+
+**Incluir em uma gravação**
+
+- O tempo de tela anterior é um recurso opcional do Labs, ativado por padrão. Você pode desativá-lo em **Configurações > Labs**, tanto no app web quanto no app de desktop do Clips. Na bandeja do desktop, escolha **Desativado** (padrão), **30 s**, **5 min** ou **Personalizado…**, até cinco minutos. O Rewind precisa estar ativado e em execução; se estiver desligado, escolher uma duração abre uma explicação breve com o botão **Ativar o Rewind**.
+- Quando a gravação começa, o Clips solicita a janela escolhida deste dispositivo e a envia. Com **Desativado**, nada é solicitado.
+
+**Revisar antes de enviar**
+
+- Quando estiver pronta, escolha **Editar** no app de desktop do Clips para abrir uma prévia no dispositivo de até cinco minutos do histórico local. Ela nunca é enviada; começa na janela escolhida e termina no início da gravação. Arraste as alças para ajustar ou use **Reproduzir seleção** para tocar esse trecho.
+- **Salvar** envia apenas a seleção. Cancele ou feche o editor para descartar a prévia. Os indicadores mostram o deslocamento do início, a duração e o início da gravação; se o trecho começa junto com a gravação, o deslocamento mostra **Desde o início da gravação**.
+
+**Privacidade e remoção**
+
+- Enquanto estiver anexado, o tempo de tela anterior permanece privado. Solicitá-lo torna o clipe privado, e a solicitação é recusada se o clipe ainda estiver compartilhado diretamente com outras pessoas. O compartilhamento, a visibilidade pública ou da organização e novos acessos ficam bloqueados até a remoção.
+- A aba **Transcrição** do clipe mostra a janela anexada acima da transcrição, com um player integrado. Remova-a na visualização de edição do desktop ou no painel **Transcrição** do clipe e confirme. O vídeo é movido para a Lixeira e deixa de fazer parte do clipe. Descartar a gravação também a remove. O agente pode ler a janela e o status e removê-la.
+- Se outro dispositivo capturou a gravação, o tempo de tela anterior aguarda que esse dispositivo salve o vídeo. Somente ele pode exportá-lo; os outros dispositivos o ignoram. Se nenhum dispositivo de gravação estiver registrado, o app de desktop que capturou a gravação processa o conteúdo.
+- O limite é de cinco minutos; só fica disponível o histórico que o Rewind ainda mantém neste dispositivo.
+
+### Registros do navegador da extensão do Chrome
+
+Instale a extensão do Clipes para Chrome para obter uma gravação mais os registros do navegador e a atividade de rede da aba que você está depurando, útil para relatar bugs de produto e reproduções exclusivas do navegador.
+
+| Tópico        | Comportamento                                                                                                                                                                                                                                 |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Abas          | Até cinco: a aba em que você começou a gravação, depois as abas usadas nos últimos 10 minutos, da mais recente para a mais antiga.                                                                                                            |
+| Troca de aba  | Uma aba para a qual você muda durante a gravação também é capturada. Se mais de cinco abas estiverem anexadas, a aba menos usada recentemente, exceto a que está em foco, é desanexada, e os registros dela até então permanecem na gravação. |
+| Retrospectiva | Até 30 segundos antes do início da gravação, na medida em que a página ainda mantém o histórico do console e a lista de tempos de recursos. Essas entradas têm deslocamentos de tempo negativos.                                              |
+| Salvo         | Mensagens do console e informações básicas de solicitações fetch/XHR: método, uma URL redigida, status, duração e se a solicitação falhou. Cada entrada registra a aba de onde veio.                                                          |
+| Nunca salvo   | Corpos de solicitação ou resposta, cabeçalhos ou cookies.                                                                                                                                                                                     |
+
+Entradas de rede da retrospectiva não têm método HTTP, por isso o método delas é registrado como `UNKNOWN`. Solicitações feitas durante a gravação incluem o método. As abas só são acompanhadas enquanto a extensão está em execução, então nos primeiros 10 minutos após o início podem ser elegíveis menos de cinco abas.
+
+Use o aplicativo de desktop para a gravação do dia a dia, e recorra à extensão do Chrome especificamente quando precisar desses registros do navegador anexados.
+
+## Transcrição e metadados de IA {#transcription-and-ai-metadata}
+
+A transcrição tenta primeiro a opção mais rápida e gratuita, e só recorre a uma paga quando é necessário. O histórico de ditado mostra prévias de transcrição que se expandem para transcrições completas e ações alinhadas:
+
+| Ordem | Provedor                            | Observações                                                                                                                                                                                       |
+| ----- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Nativo (no dispositivo)             | Web Speech API do navegador ou Whisper local/fala do macOS no desktop. Instantâneo, sem chave de API.                                                                                             |
+| 2     | Gerenciado pela Builder.io (Gemini) | Alternativa na nuvem quando o texto nativo está faltando. Nenhuma chave extra é necessária depois que o Builder está conectado. O plano gratuito da Builder.io inclui créditos de IA gerenciados. |
+| 3     | Groq (`whisper-large-v3-turbo`)     | Alternativa opcional se você preferir usar sua própria chave.                                                                                                                                     |
+
+Depois que uma transcrição fica pronta, o agente preenche automaticamente um título, um resumo e marcadores de capítulo, e os mantém atualizados enquanto você edita. Durante a reprodução, a transcrição acompanha a posição atual. Você também pode pedir diretamente:
+
+- "Regenere o título e o resumo."
+- "Adicione capítulos. Esse é longo."
+- "Extraia três citações para uma postagem de blog."
+- "Corrija a palavra mal transcrita em 1:42."
+
+Para uma gravação de tela silenciosa em que o áudio isolado seria enganoso, ative **Incluir vídeo completo** no menu de ferramentas de IA para que o agente assista à própria gravação (isso precisa do Gemini) em vez de depender apenas da transcrição.
+
+A transcrição de backup, a limpeza de transcrição e os títulos e resumos de IA funcionam com créditos de IA gerenciados pela Builder.io por padrão, incluindo os créditos do plano gratuito. Se algum deles parar de funcionar, pergunte ao agente. Ele verifica o status atual dos créditos e explica se os créditos estão pausados, em vez de tratar isso como um bug. A correção é adicionar créditos da Builder.io, fazer upgrade, ou conectar uma chave pessoal do Groq como alternativa para a transcrição.
+
+## Edição não destrutiva {#non-destructive-editing}
+
+Use a linha do tempo para cortar e dividir clipes, remover silêncios ou palavras de preenchimento, e combinar clipes. Arraste os limites de corte para ajustá-los, e use desfazer ou refazer para revisar as edições. Essas mudanças permanecem em camadas sobre a gravação original, e nada é gravado permanentemente em um novo arquivo até que você exporte.
+
+As ocultações funcionam de outra forma. Desenhar uma caixa de ocultação apenas cobre aquela área no editor — os pixels originais continuam no arquivo. Nada é realmente ocultado até você clicar em **Aplicar** nas ocultações: isso recodifica o vídeo, destrói permanentemente os pixels cobertos e apaga o arquivo original. Não há como desfazer depois disso, então trate esse passo como o único de fato irreversível aqui.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fed43d85ea6084a18a555aae13c5ae4ff?alt=media&token=70e78642-d149-4070-8b58-4bf7167ddfbe&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Uma demonstração de edição não destrutiva, incluindo corte, divisão e combinação de clipes."
+  caption="Uma demonstração de edição não destrutiva, incluindo corte, divisão e combinação de clipes."
+  autoplay={true}
+  loop={true}
+/>
+
+Peça ao agente para fazer qualquer uma dessas edições por você:
+
+- "Remova os 'ahn' e 'é' e recosture."
+- "Corte os primeiros 10 segundos."
+- "Combine esses três clipes em um só, nessa ordem."
+
+No menu de opções de uma gravação, **Remover silêncios** e **Remover palavras de preenchimento** fazem a mesma coisa com um clique em vez de você digitar. O agente ainda faz o trabalho real por trás de qualquer um dos dois, lendo a transcrição, encontrando os intervalos e aplicando as instruções de corte.
+
+## Organizações e equipes {#organizations-and-teams}
+
+Qualquer pessoa pode criar uma organização para compartilhar um workspace do Clipes com uma equipe. Criar uma torna você seu primeiro administrador.
+
+- **Identidade visual.** Os administradores definem uma cor de marca e um logotipo, exibidos em todo o workspace compartilhado.
+- **Visibilidade padrão.** Os administradores escolhem o que as novas gravações recebem por padrão (público, organização ou privado) quando ninguém escolhe uma explicitamente.
+- **Convide membros** por e-mail. Um convite é aceito ou recusado, e os administradores podem alterar a função de um membro ou removê-lo depois.
+
+| Função            | Pode fazer                                                                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Administrador** | Convidar e remover membros, alterar funções, definir identidade visual e visibilidade padrão, além de tudo o que um membro pode fazer |
+| **Membro**        | Gravar, editar e compartilhar seus próprios clipes, e trabalhar em qualquer espaço ao qual tenha sido adicionado                      |
+
+## Próximos passos
+
+- [**Clipes**](/docs/template-clips) — a visão geral e o que ele substitui
+- [**Conversar com o Agent**](/docs/template-clips-agent) — todos os prompts por tarefa e como o agente vê sua tela
+- [**Clipes em um workspace com múltiplos apps**](/docs/template-clips-integrations) — clipes legíveis por agentes, exportação para o Brain e evidência de chamada para CRM
+- [**Guia do desenvolvedor**](/docs/template-clips-developers) — a referência de actions e modelo de dados por trás dessas funcionalidades
+- [**Compartilhamento**](/docs/sharing) — o modelo de concessão de compartilhamento sobre o qual os compartilhamentos de clipes são construídos

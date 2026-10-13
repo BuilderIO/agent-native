@@ -15,21 +15,21 @@ frame को जान-बूझकर workspace और write tooling दी ग
 
 ## Builder.io: Production में Visual Editing {#builderio}
 
-[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) एक अलग managed code-capable workflow है जहां एक agent production में आपके ऐप का UI modify कर सकता है। अपने repo को Builder.io से connect करें (free tier उपलब्ध) और सीधे UI changes के लिए prompt करें। किसी redeploy की ज़रूरत नहीं।
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) एक अलग managed code-capable workflow है जहां एक agent production में आपके ऐप का UI modify कर सकता है। अपने repo के साथ Builder.io का उपयोग करें (free tier उपलब्ध) और सीधे UI changes के लिए prompt करें। किसी redeploy की ज़रूरत नहीं।
 
-**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+सेटिंग में **Builder.io का उपयोग करें** कार्रवाई Builder OAuth (`builder:ai:invoke`) शुरू करती है और `/_agent-native/builder/callback` पर उसी origin का HTTPS callback इस्तेमाल करती है। इससे Railway जैसे hosted origins बिना domain allowlist के काम करते हैं। पुराने `BUILDER_*` private keys मौजूदा connections के लिए runtime fallback बने रहते हैं।
 
 **यह कैसे काम करता है:**
 
-1. अपने agent-native repo को Builder.io से connect करें (free tier उपलब्ध)
+1. अपने agent-native repo के साथ Builder.io का उपयोग करें (free tier उपलब्ध)
 2. Builder.io agent, visual editing, और real-time collaboration के साथ एक cloud frame provide करता है
 3. Agent को UI changes करने के लिए prompt करें। यह आपके components, routes, और styles को live edit करता है
 4. Changes आपके repo में वापस commit हो जाते हैं
 
-Embedded agent panel बनाम cloud frame विकल्पों पर अधिक जानकारी के लिए [फ़्रेम](/docs/frames) देखें।
+Embedded agent panel और hosted agent विकल्पों पर अधिक जानकारी के लिए [एजेंट Surfaces](/docs/agent-surfaces) देखें।
 
 ## आगे क्या है
 
 - [**तैनाती**](/docs/deployment) — पहले production deploy से पहले एक स्थायी डेटाबेस और एक preset चुनें
-- [**फ़्रेम**](/docs/frames) — production UI edits के लिए embedded agent panel बनाम Builder.io का cloud frame
+- [**एजेंट Surfaces**](/docs/agent-surfaces) - embedded और hosted agent विकल्प
 - [**प्रोडक्शन एजेंट एक्सेस**](/docs/actions-agent-tools) — डिफ़ॉल्ट रूप से तैनात agent के पास कौन से tools होते हैं

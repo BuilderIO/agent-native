@@ -1,13 +1,3 @@
-/**
- * hydrate-figma-paste-images.spec.ts
- *
- * Covers:
- *  - collectImageRefHashes: scan HTML for data-figma-image-ref hashes
- *  - hydrateImageRefsInHtml: replace url("about:blank") with real URLs in order
- *  - Action routing: no-refs early return, full resolution, partial resolution,
- *    no-figmaFileKey guard, Figma-returns-empty guard
- */
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -51,7 +41,6 @@ vi.mock("../server/lib/design-data-mutation.js", () => ({
   mutateDesignData: mocks.mutateDesignData,
 }));
 
-// db query chain builder that always resolves to whatever rows array is set
 let dbRows: unknown[] = [];
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
@@ -83,10 +72,6 @@ import {
   hydrateImageRefsInHtml,
 } from "./hydrate-figma-paste-images.js";
 import action from "./hydrate-figma-paste-images.js";
-
-// ---------------------------------------------------------------------------
-// Pure HTML helpers
-// ---------------------------------------------------------------------------
 
 describe("collectImageRefHashes", () => {
   it("returns empty array for HTML with no data-figma-image-ref attrs", () => {
@@ -205,10 +190,6 @@ describe("hydrateImageRefsInHtml", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Action integration (with mocks)
-// ---------------------------------------------------------------------------
-
 const FILE_KEY = "testFileKey123";
 
 const SCREEN_METADATA_ROW = {
@@ -308,6 +289,25 @@ describe("hydrate-figma-paste-images action", () => {
     expect(result).toMatchObject({ resolved: 0, missing: 1 });
     expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
     expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+  });
+
+  it("preserves the typed rate-limit failure for the action transport", async () => {
+    dbRows = [SCREEN_METADATA_ROW];
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content: SCREEN_METADATA_ROW.content,
+      versionHash: "v1",
+    });
+    const rateLimitError = Object.assign(
+      new Error("Figma image fills request failed: Rate limit exceeded"),
+      {
+        errorCode: "figma_rate_limited",
+        statusCode: 429,
+        details: { figmaStatus: 429, retryAfterSeconds: 60 },
+      },
+    );
+    mocks.resolveImageFillRefs.mockRejectedValue(rateLimitError);
+
+    await expect(action.run({ fileId: "file-1" })).rejects.toBe(rateLimitError);
   });
 
   it("throws when no figmaFileKey is in screenMetadata for the file", async () => {

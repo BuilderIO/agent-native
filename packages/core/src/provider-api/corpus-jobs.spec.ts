@@ -4,9 +4,7 @@ const jobs = new Map<string, Record<string, unknown>>();
 const hits = new Map<string, Record<string, unknown>[]>();
 
 vi.mock("../db/client.js", () => ({
-  getDialect: () => "sqlite",
-  isPostgres: () => false,
-  intType: () => "INTEGER",
+  isProductionServerlessFunctionRuntime: () => false,
   getDbExec: () => ({
     execute: async (sql: string | { sql: string; args: unknown[] }) => {
       const rawSql = typeof sql === "string" ? sql : sql.sql;
@@ -38,9 +36,6 @@ vi.mock("../db/client.js", () => ({
           createdAt,
           updatedAt,
         ] = args;
-        // Emulate `ON CONFLICT (id) DO UPDATE ... WHERE app_id/owner_email
-        // match`: a conflicting insert from a different owner is skipped rather
-        // than clobbering the existing tenant's row.
         const existing = jobs.get(String(id));
         if (
           existing &&
@@ -149,9 +144,6 @@ vi.mock("../db/client.js", () => ({
       }
 
       if (/INSERT INTO provider_corpus_job_hits/i.test(rawSql)) {
-        // Multi-row insert: args arrive in (job_id, hit_index, hit_data)
-        // triples. Emulate `ON CONFLICT (job_id, hit_index) DO NOTHING` so a
-        // resume that re-appends already-stored indices is idempotent.
         const ignoreConflicts = /DO NOTHING/i.test(rawSql);
         const jobId = String(args[0]);
         const rows = hits.get(jobId) ?? [];

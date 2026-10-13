@@ -1,10 +1,3 @@
-/**
- * Catalog entries for the transactional emails Plan sends.
- *
- * Registered from `server/plugins/transactional-emails.ts` so Dispatch can list
- * and preview them without the app having sent anything yet.
- */
-
 import { defineTransactionalEmail } from "@agent-native/core/email-catalog";
 
 import {

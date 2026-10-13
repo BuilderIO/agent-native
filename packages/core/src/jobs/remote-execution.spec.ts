@@ -26,7 +26,8 @@ vi.mock("./run-history.js", () => ({
   startAutomationRun: startAutomationRunMock,
 }));
 
-vi.mock("../resources/store.js", () => ({
+vi.mock("../resources/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../resources/store.js")>()),
   organizationResourceOwner: (orgId: string) => `__organization__:${orgId}`,
   resourceGetByPath: resourceGetByPathMock,
   resourcePutIfCurrent: resourcePutIfCurrentMock,
@@ -118,6 +119,57 @@ describe("remote automation execution", () => {
     enqueueRemoteCommandMock.mockResolvedValue(makeCommand());
   });
 
+  it.each([
+    { owner: "alice@example.com", scope: "personal", orgId: null },
+    { owner: "__organization__:acme", scope: "organization", orgId: "acme" },
+  ])(
+    "records remote scheduled runs under the $scope resource owner",
+    async ({ owner, scope, orgId }) => {
+      const meta: JobFrontmatter = {
+        schedule: "0 * * * *",
+        enabled: true,
+        orgId: "acme",
+        lastRun: "2026-08-15T12:00:00.000Z",
+        lastStatus: "running",
+        executionHostId: "remote-device-laptop",
+      };
+      let current = { ...makeResource(meta), owner };
+      resourceGetByPathMock.mockImplementation(async () => current);
+      resourcePutIfCurrentMock.mockImplementation(async (input) => {
+        current = {
+          ...current,
+          content: input.content,
+          updatedAt: current.updatedAt + 1,
+        };
+        return current;
+      });
+      await dispatchRemoteAutomation({
+        resource: current,
+        meta,
+        body: "Inspect the workspace.",
+        ownerEmail: "alice@example.com",
+        orgId: "acme",
+        appId: "calendar",
+        prompt: "Run it.",
+        title: "Nightly",
+      });
+      expect(startAutomationRunMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          owner,
+          scope,
+          orgId,
+          appId: "calendar",
+        }),
+      );
+      expect(enqueueRemoteCommandMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ownerEmail: "alice@example.com",
+          orgId: "acme",
+        }),
+      );
+    },
+  );
+
   it("rejects a selected host that does not advertise scheduled work", async () => {
     getRemoteExecutionCapabilitiesMock.mockReturnValue({
       backend: "desktop",
@@ -159,6 +211,13 @@ describe("remote automation execution", () => {
       lastStatus: "running",
       executionHostId: "remote-device-laptop",
     });
+    current = {
+      ...current,
+      content: current.content.replace(
+        "\n---\n",
+        "\nslackChannelId: C0BUK2293SA\ndisplayName: Nightly\n---\n",
+      ),
+    };
     resourceGetByPathMock.mockImplementation(async () => current);
     resourcePutIfCurrentMock.mockImplementation(async (input) => {
       current = {
@@ -199,6 +258,8 @@ describe("remote automation execution", () => {
       enqueueRemoteCommandMock.mock.calls[0]?.[0].idempotencyKey,
     );
     expect(current.content).toContain('remoteCommandId: "remote-command-1"');
+    expect(current.content).toContain("slackChannelId: C0BUK2293SA");
+    expect(current.content).toContain("displayName: Nightly");
   });
 
   it("keeps a running relay command active and recognizes a terminal run", async () => {

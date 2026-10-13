@@ -34,9 +34,12 @@ vi.mock("@tabler/icons-react", () => ({
 vi.mock("@/components/ui/button", () => ({
   Button: ({
     children,
+    size,
     ...props
-  }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button {...props}>{children}</button>
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & { size?: string }) => (
+    <button data-size={size} {...props}>
+      {children}
+    </button>
   ),
 }));
 
@@ -143,7 +146,7 @@ describe("RecordingOptionsMenu", () => {
     act(() => deleteButton?.click());
     expect(mocks.mutationOptions).not.toBeNull();
 
-    act(() => mocks.mutationOptions.onSuccess());
+    void act(() => mocks.mutationOptions.onSuccess());
     expect(onDeleted).not.toHaveBeenCalled();
 
     const closeEvent = { preventDefault: vi.fn() };
@@ -152,7 +155,7 @@ describe("RecordingOptionsMenu", () => {
     expect(onDeleted).toHaveBeenCalledOnce();
   });
 
-  it("uses a narrow vertical overflow trigger", () => {
+  it("uses the standard toolbar control size for overflow", () => {
     act(() => {
       root.render(
         <RecordingOptionsMenu
@@ -168,10 +171,23 @@ describe("RecordingOptionsMenu", () => {
       'button[aria-label="deleteRecordingMenu.clipOptions"]',
     );
 
-    expect(button?.className).toContain("px-0.5");
-    expect(button?.className).toContain("py-1.5");
+    expect(button?.getAttribute("data-size")).toBe("icon-sm");
+    expect(button?.className).toContain("order-last");
     expect(container.querySelector('[data-testid="vertical-dots"]')).not.toBe(
       null,
     );
+  });
+
+  it("renders advanced controls even when delete is unavailable", () => {
+    act(() => {
+      root.render(
+        <RecordingOptionsMenu recordingId="recording-1" canDelete={false}>
+          <span>Remove filler words</span>
+        </RecordingOptionsMenu>,
+      );
+    });
+
+    expect(container.textContent).toContain("Remove filler words");
+    expect(container.textContent).not.toContain("deleteRecordingMenu.delete");
   });
 });

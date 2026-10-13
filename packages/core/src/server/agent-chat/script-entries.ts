@@ -6,8 +6,10 @@ import {
   setThreadArchived,
   setThreadPinned,
 } from "../../chat-threads/store.js";
+import { assertCanManageSharedResource } from "../../resources/script-helpers.js";
 import type { DatabaseToolsMode } from "../../scripts/db/tool-mode.js";
 import { dbExecToolParameters } from "../../scripts/db/tool-schemas.js";
+import { serializeCliArgs } from "../../scripts/parse-args.js";
 import { captureCliOutput } from "../cli-capture.js";
 import {
   getAmbientUserEmail,
@@ -16,64 +18,36 @@ import {
   getRequestUserEmail,
 } from "../request-context.js";
 
-// ---------------------------------------------------------------------------
-// CLI-script-backed action entries: db-*, framework-search/docs-search/source-search,
-// resources/save-memory/delete-memory, chat-history, manage-agent-engine,
-// manage-agent-loop-settings, and call-agent. Each wraps a core CLI script
-// (that writes to console.log) as an ActionEntry via `wrapCliScript`.
-// ---------------------------------------------------------------------------
-
-/**
- * Wraps a core CLI script (that writes to console.log) as a ActionEntry
- * by capturing stdout. Uses an AsyncLocalStorage-backed capture so
- * concurrent tool calls do not corrupt the global console/stdout pointers
- * (see `cli-capture.ts`).
- */
 function wrapCliScript(
   tool: ActionTool,
   cliDefault: (args: string[]) => Promise<void>,
   opts?: {
     allowedArgs?: readonly string[];
     readOnly?: boolean;
+    needsApproval?: ActionEntry["needsApproval"];
+    allowPersistentApproval?: ActionEntry["allowPersistentApproval"];
   },
 ): ActionEntry {
   return {
     tool,
     ...(opts?.readOnly ? { readOnly: true as const } : {}),
+    ...(opts?.needsApproval !== undefined
+      ? { needsApproval: opts.needsApproval }
+      : {}),
+    ...(opts?.allowPersistentApproval !== undefined
+      ? { allowPersistentApproval: opts.allowPersistentApproval }
+      : {}),
     run: async (args: Record<string, string>): Promise<string> => {
-      const cliArgs: string[] = [];
-      for (const [k, v] of Object.entries(args)) {
-        // MCP input schemas are descriptive and some hosts can still send
-        // undeclared keys. The externally exposed DB readers must never accept
-        // the CLI-only `--db` escape hatch, which could point at another local
-        // SQLite file. Keep their runtime surface identical to the advertised
-        // schema instead of trusting the client to validate it.
+      for (const k of Object.keys(args)) {
         if (opts?.allowedArgs && !opts.allowedArgs.includes(k)) {
           throw new Error(`Unknown argument: ${k}`);
         }
-        const raw = v as unknown;
-        const value =
-          raw != null && typeof raw === "object"
-            ? JSON.stringify(raw)
-            : String(raw);
-        cliArgs.push(`--${k}`, value);
       }
-      return captureCliOutput(() => cliDefault(cliArgs));
+      return captureCliOutput(() => cliDefault(serializeCliArgs(args)));
     },
   };
 }
 
-/**
- * Creates db-* tools (db-query, db-exec, db-patch, db-schema) as native tools.
- * By default these let the agent inspect the app's own SQL database; raw SQL
- * writes are only exposed when the app explicitly opts into write mode.
- * Scoping to the current user/org is enforced automatically in production via
- * temp views.
- *
- * In dev mode template actions are invoked via bash and the agent can call
- * `pnpm action db-query ...` — but in production there is no bash, so these
- * must be registered as native tools for the agent to reach the app DB at all.
- */
 export async function createDbScriptEntries(
   mode: DatabaseToolsMode = "read",
   options: { extensionTools?: boolean } = {},
@@ -225,10 +199,6 @@ export async function createDbScriptEntries(
   }
 }
 
-/**
- * Creates read-only package lookup tools so agents can inspect version-matched
- * framework docs and source bundled in @agent-native/core at runtime.
- */
 export async function createDocsScriptEntries(): Promise<
   Record<string, ActionEntry>
 > {
@@ -293,19 +263,19 @@ export async function createDocsScriptEntries(): Promise<
     entries["docs-search"] = wrapCliScript(
       {
         description:
-          "Search and read agent-native framework documentation, bundled AGENTS.md, and codebase skills. Use --list to see all pages, --query to search, --slug to read a specific page. Codebase skill pages use slugs like skill-<name>.",
+          "Read bundled framework/app instructions, framework docs, and codebase skills. Use --slug for a known page; for a skill, use the exact skill-<name> slug shown in the prompt. Use --query only when the page or slug is unknown; --list lists pages. This is not tool discovery; use tool-search to find tools.",
         parameters: {
           type: "object",
           properties: {
             query: {
               type: "string",
               description:
-                "Search term to find relevant docs (e.g. 'actions', 'authentication', 'database')",
+                "Search docs only when you do not know the page or slug to read",
             },
             slug: {
               type: "string",
               description:
-                "Read a specific doc page by slug (e.g. 'actions', 'authentication', 'database')",
+                "Read a known page by slug; use the exact skill-<name> slug from the prompt for a codebase skill",
             },
             list: {
               type: "string",
@@ -324,13 +294,10 @@ export async function createDocsScriptEntries(): Promise<
 
   try {
     const mod = await import("../../scripts/docs/source-search.js");
-    if (!mod.hasSourceCorpus()) {
-      return entries;
-    }
     entries["source-search"] = wrapCliScript(
       {
         description:
-          "Search and read readable version-matched Core, Toolkit, and first-party template source. Use framework-search for one combined docs/source search with glob, SQL-like, or regex matching; use --list, --query, or --path for focused source lookup.",
+          "Search and read readable version-matched Core and Toolkit source, plus first-party template source when its opt-in corpus is installed. Use framework-search for one combined docs/source search with glob, SQL-like, or regex matching; use --list, --query, or --path for focused source lookup.",
         parameters: {
           type: "object",
           properties: {
@@ -362,9 +329,6 @@ export async function createDocsScriptEntries(): Promise<
   return entries;
 }
 
-/**
- * Creates resource ScriptEntries available in both prod and dev modes.
- */
 export function shouldDefaultResourceWriteToWorkspace(path: string): boolean {
   const normalized = path.replace(/^\/+/, "");
   return (
@@ -380,6 +344,19 @@ export function shouldDefaultResourceWriteToWorkspace(path: string): boolean {
 
 export function shouldDefaultResourceWriteToShared(path: string): boolean {
   return path.replace(/^\/+/, "") === "LEARNINGS.md";
+}
+
+function requiresSharedResourceApproval(
+  args: Record<string, unknown>,
+): boolean {
+  return (
+    ["write", "promote", "delete"].includes(String(args.action)) &&
+    (args.scope === "shared" ||
+      (args.action === "write" &&
+        args.scope == null &&
+        typeof args.path === "string" &&
+        shouldDefaultResourceWriteToShared(args.path)))
+  );
 }
 
 export async function createResourceScriptEntries(): Promise<
@@ -398,7 +375,6 @@ export async function createResourceScriptEntries(): Promise<
         import("../../resources/store.js"),
       ]);
 
-    // Wrap each CLI runner so it captures stdout and converts args properly
     const listEntry = wrapCliScript(
       {
         description: "",
@@ -442,7 +418,7 @@ export async function createResourceScriptEntries(): Promise<
       resources: {
         tool: {
           description:
-            'Manage workspace resources. Actions: "list" (browse visible files), "read" (get contents), "effective" (show workspace -> organization/app -> personal inheritance for a path), "write" (create/update personal or shared; workspace only for local file mode control files), "promote" (make agent scratch visible), "delete" (remove personal or shared; workspace only for local file mode control files). Agent scratch writes are hidden from the Workspace view by default; use visibility="workspace" only for files the user explicitly wants to keep/manage.',
+            'Manage workspace resources: list/read files; inspect workspace -> org/app -> personal inheritance; write personal/shared resources (workspace only for local file mode controls); promote scratch; delete personal/shared resources (workspace controls only). Agent scratch stays hidden in Workspace; use visibility="workspace" only for files the user wants to keep/manage. Shared writes, promotions, and deletions require per-action approval.',
           parameters: {
             type: "object",
             properties: {
@@ -514,6 +490,8 @@ export async function createResourceScriptEntries(): Promise<
           description:
             "Plan mode allows listing and reading workspace resources.",
         },
+        needsApproval: requiresSharedResourceApproval,
+        allowPersistentApproval: false,
         run: async (args: Record<string, string>) => {
           const { action: a, ...rest } = args;
           if (a === "list") return listEntry.run(rest);
@@ -553,6 +531,7 @@ export async function createResourceScriptEntries(): Promise<
             if (scope === "workspace" || scope === "all") {
               return "Error: promote supports personal or shared scope only";
             }
+            if (scope === "shared") await assertCanManageSharedResource();
             const owner =
               scope === "shared"
                 ? store.sharedResourceOwner(getRequestOrgId())
@@ -595,10 +574,16 @@ export async function createResourceScriptEntries(): Promise<
       "save-memory": wrapCliScript(
         {
           description:
-            "Save a memory for future conversations. Creates or updates a memory file and its index entry. Use proactively when you learn preferences, corrections, project context, or references.",
+            "Save a memory for future conversations. Creates or updates a memory file and its index entry. Use proactively when you learn preferences, corrections, project context, or references. Organization-wide saves require approval for each write; personal is the default.",
           parameters: {
             type: "object",
             properties: {
+              scope: {
+                type: "string",
+                description:
+                  'Where to save the memory: "personal" (default) or "current-org" (organization-wide; requires approval).',
+                enum: ["personal", "current-org"],
+              },
               name: {
                 type: "string",
                 description:
@@ -624,6 +609,11 @@ export async function createResourceScriptEntries(): Promise<
           },
         },
         saveMem.default,
+        {
+          needsApproval: (args: Record<string, unknown>) =>
+            args.scope === "current-org",
+          allowPersistentApproval: false,
+        },
       ),
       "delete-memory": wrapCliScript(
         {
@@ -649,10 +639,6 @@ export async function createResourceScriptEntries(): Promise<
   }
 }
 
-/**
- * Creates a unified chat-history ActionEntry that dispatches to search, open,
- * rename, or lightweight organization actions.
- */
 export async function createChatScriptEntries(): Promise<
   Record<string, ActionEntry>
 > {
@@ -811,10 +797,6 @@ export async function createChatScriptEntries(): Promise<
   }
 }
 
-/**
- * Creates the consolidated manage-agent-engine tool (list / set / test).
- * Let the agent inspect and configure the active LLM engine.
- */
 export async function createAgentEngineScriptEntries(
   appId?: string,
 ): Promise<Record<string, ActionEntry>> {
@@ -826,13 +808,6 @@ export async function createAgentEngineScriptEntries(
       "manage-agent-engine": {
         tool: mod.tool,
         planMode: {
-          // Reads, per the tool's own enum: only set/set-app-default/
-          // reset-app-default mutate. Misclassifying a read here makes every
-          // call announce a change and bump the global `action` change
-          // version, which is how the model-picker's catalog read ended up
-          // recorded as a write for 1,127 identities.
-          // `allowedValues` stays narrower on purpose — it governs what plan
-          // mode may run, and `test` spends a live model call.
           effect: (args) =>
             args.action === "list" ||
             args.action === "test" ||
@@ -842,14 +817,19 @@ export async function createAgentEngineScriptEntries(
           allowedValues: { action: ["list"] },
           description: "Plan mode allows listing available agent engines.",
         },
-        run: (args) =>
-          mod.run({
-            ...args,
-            appId:
-              typeof args.appId === "string" && args.appId.trim()
-                ? args.appId
-                : (appId ?? ""),
-          }),
+        // The context carries the caller the owner/admin check audits; the
+        // check itself lives in the action so HTTP and agent calls share it.
+        run: (args, context) =>
+          mod.run(
+            {
+              ...args,
+              appId:
+                typeof args.appId === "string" && args.appId.trim()
+                  ? args.appId
+                  : (appId ?? ""),
+            },
+            context,
+          ),
       },
     };
   } catch {
@@ -857,10 +837,6 @@ export async function createAgentEngineScriptEntries(
   }
 }
 
-/**
- * Creates the manage-agent-loop-settings tool. Lets the agent inspect and
- * configure the loop step limit it may hit on long-running work.
- */
 export async function createAgentLoopSettingsScriptEntries(): Promise<
   Record<string, ActionEntry>
 > {
@@ -875,10 +851,6 @@ export async function createAgentLoopSettingsScriptEntries(): Promise<
   }
 }
 
-/**
- * Creates the call-agent ActionEntry for cross-agent A2A communication.
- * Binds selfAppId so the agent cannot call itself via call-agent.
- */
 export async function createCallAgentScriptEntry(
   selfAppId?: string,
 ): Promise<Record<string, ActionEntry>> {

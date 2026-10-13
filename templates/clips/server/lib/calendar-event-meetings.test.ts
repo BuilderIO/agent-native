@@ -39,7 +39,11 @@ vi.mock("./google-calendar-client.js", () => ({
   getEvent: vi.fn(),
   isPermanentRefreshFailure: (error: unknown) => {
     const message =
-      error instanceof Error ? error.message : String(error || "");
+      error instanceof Error
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : "";
     const lower = message.toLowerCase();
     return (
       lower.includes("invalid_grant") ||

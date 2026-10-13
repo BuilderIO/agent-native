@@ -16,10 +16,19 @@ const globalCssSource = readFileSync(
 describe("EditorToolbar layout contract", () => {
   it("keeps the title input measuring its own width without flex-shrinking", () => {
     expect(editorToolbarSource).toContain(
-      'className="min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"',
+      '"min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"',
     );
     expect(editorToolbarSource).toContain(
       "style={{ width: `${titleInputWidth}px` }}",
+    );
+  });
+
+  it("hides the save status pill only inside a read-only directory widget", () => {
+    expect(editorToolbarSource).toContain(
+      "const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();",
+    );
+    expect(editorToolbarSource).toMatch(
+      /\{!readOnlyWidget && \(canEdit \|\| saveFailed\) && \(\s*<SaveStatusIndicator/,
     );
   });
 
@@ -32,14 +41,26 @@ describe("EditorToolbar layout contract", () => {
 
   it("pushes the top-right actions to the row edge when the style toolbar moves below", () => {
     expect(editorToolbarSource).toContain(
-      '<div className="ml-auto flex-shrink-0">',
+      '<div className="ml-auto flex shrink-0 items-center gap-1">',
     );
   });
 
-  it("keeps the AI presence indicator adjacent to the editor actions", () => {
-    expect(editorToolbarSource).toContain(
-      'className="flex-shrink-0 mr-0.5 pl-2"',
+  it("keeps the AI presence indicator beside the top-right editor actions", () => {
+    const presenceIndex = editorToolbarSource.indexOf("<PresenceBar");
+    const actionClusterIndex = editorToolbarSource.indexOf(
+      '<div className="ml-auto flex shrink-0 items-center gap-1">',
     );
+    const menuIndex = editorToolbarSource.indexOf("<DropdownMenu>");
+    const shareIndex = editorToolbarSource.indexOf("{/* Framework share");
+
+    expect(presenceIndex).toBeGreaterThan(actionClusterIndex);
+    expect(presenceIndex).toBeLessThan(menuIndex);
+    expect(menuIndex).toBeLessThan(shareIndex);
+    expect(actionClusterIndex).toBeGreaterThan(-1);
+    expect(presenceIndex).toBeGreaterThan(-1);
+    expect(menuIndex).toBeGreaterThan(-1);
+    expect(shareIndex).toBeGreaterThan(-1);
+    expect(editorToolbarSource).toContain('className="flex-shrink-0 pl-2"');
   });
 
   it("lets the overflow menu use most of the viewport height", () => {
@@ -48,15 +69,24 @@ describe("EditorToolbar layout contract", () => {
     );
   });
 
-  it("keeps media below slide tools and leaves comments as a single item", () => {
-    expect(
-      editorToolbarSource.indexOf('{t("editorToolbar.media")}'),
-    ).toBeGreaterThan(
-      editorToolbarSource.indexOf('{t("editorToolbar.slideTools")}'),
+  it("keeps the overflow menu focused on the remaining editor actions", () => {
+    expect(editorToolbarSource).not.toContain(
+      '{t("editorToolbar.transition")}',
+    );
+    expect(editorToolbarSource).not.toContain('{t("editorToolbar.media")}');
+    expect(editorToolbarSource).not.toContain(
+      '{t("editorToolbar.lightTheme")}',
     );
     expect(editorToolbarSource).not.toContain(
       '<DropdownMenuLabel>\n                  {t("editorToolbar.comments")}\n                </DropdownMenuLabel>',
     );
+  });
+
+  it("opens the deck in the app through the host bridge", () => {
+    expect(editorToolbarSource).toContain("openMcpAppHostLink(editorUrl)");
+    expect(
+      editorToolbarSource.match(/editorToolbar\.openInAgentNative/g),
+    ).toHaveLength(2);
   });
 
   it("lets the wide contextual toolbar scroll instead of clipping rare overflow", () => {

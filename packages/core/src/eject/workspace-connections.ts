@@ -24,10 +24,13 @@ export const WORKSPACE_CONNECTION_PROVIDERS: WorkspaceConnectionProvider[] = [
   "google_slides",
   "hubspot",
   "salesforce",
+  "sigma",
   "jira",
   "sentry",
   "granola",
   "clips",
+  "dbt",
+  "anthropic-managed-agents",
   "generic",
 ].map((id) => ({
   ...RUNTIME_WORKSPACE_CONNECTION_PROVIDERS.find(

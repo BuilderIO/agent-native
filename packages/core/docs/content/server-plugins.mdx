@@ -87,7 +87,6 @@ import { runDrizzleMigrations } from "@agent-native/core/db/drizzle-migrations";
 
 export default runDrizzleMigrations(new URL("./migrations", import.meta.url), {
   table: "my_app_migrations",
-  dialect: "postgresql",
 });
 ```
 
@@ -100,13 +99,11 @@ export { default } from "../db/migrations.js";
 ```
 
 This filesystem-backed helper is for Node.js and Node-based serverless
-deployments. Cloudflare Workers/Pages and D1 do not provide a deployable
-filesystem, so use `runMigrations()` with SQL entries embedded in the worker
-bundle instead.
+deployments. Use `runMigrations()` with SQL entries embedded in the deployment
+bundle when the deployment does not provide a filesystem.
 
-Use `runMigrations` from `@agent-native/core/db` for handwritten entries and
-cases that need dialect-specific SQL, D1-specific behavior, data backfills, or
-deferred JavaScript steps:
+Use `runMigrations` from `@agent-native/core/db` for handwritten entries, data
+backfills, or deferred JavaScript steps:
 
 ```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";

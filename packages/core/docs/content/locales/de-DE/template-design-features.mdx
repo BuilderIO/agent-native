@@ -1,0 +1,376 @@
+---
+title: "Design: Funktionen"
+description: "Jede zentrale Design-Funktion, gegliedert so, wie die App selbst aufgebaut ist: Designs, Design bearbeiten, Vorlagen und Designsysteme, mit dem, was jeder Bildschirm, jeder Tab und jedes Menü tatsächlich tut."
+---
+
+# Funktionen
+
+Jede zentrale Design-Funktion: wie sie funktioniert und wie Sie sie
+einrichten. Einen Überblick finden Sie unter [Design](/docs/template-design)
+und die vollständige Liste der Eingabeaufforderungen unter [Mit dem Agent
+sprechen](/docs/template-design-agent). Die Funktionen sind nach den echten
+Bildschirmen der App gruppiert: **Designs**, **Design bearbeiten**,
+**Vorlagen** und **Designsysteme**.
+
+## Designs {#designs}
+
+Die Listenseite `/home`. Jedes Design, auf das Sie Zugriff haben, befindet
+sich hier, und hier beginnen Sie auch ein neues.
+
+### Designs anzeigen {#view-designs}
+
+Designs werden als Kachelraster angezeigt: eine Live-Miniaturansicht, der
+Titel und das Datum der letzten Aktualisierung. Wenn Sie zum Filter **Alle**
+wechseln (statt **Meine**), wird zusätzlich angezeigt, wem jedes Design
+gehört.
+
+- **Suche** filtert das Raster beim Tippen nach Titel.
+- Das Raster paginiert mit 11 Designs pro Seite, wobei die Kachel „Neues
+  Design“ immer an erster Stelle steht.
+- Wählen Sie eine oder mehrere Karten aus (mit der Maus darüberfahren, um ein
+  Kontrollkästchen einzublenden), um eine Massenaktions-Leiste zu erhalten:
+  alle sichtbaren auswählen/leeren, zu einem Kreativkontext hinzufügen oder
+  die Auswahl löschen.
+- Bei einem leeren Konto werden vier Starter-Eingabeaufforderungen zum
+  Anklicken angezeigt statt eines leeren Rasters (eine SaaS-Seite, ein
+  Dashboard, eine mobile App, eine Preisseite).
+
+### Ein Design erstellen {#create-a-design}
+
+Beide Einstiegspunkte für „Neues Design“, die Kopfzeilen-Schaltfläche und die
+gestrichelte Kachel im Raster, öffnen dasselbe Popover. Sie können eine
+Eingabeaufforderung eingeben und eine Startvorlage, ein Designsystem und
+einen Kreativkontext auswählen, alles bevor der Editor überhaupt geöffnet
+wird. Klicken Sie stattdessen auf **Überspringen**, um ein leeres Design (oder
+eine unaufgeforderte Kopie der ausgewählten Vorlage) ganz ohne KI-Generierung
+zu erhalten.
+
+Das Absenden führt Sie direkt in den Editor des neuen Designs, mit einer
+Overlay-Meldung „Design wird geöffnet“, während eine laufende Generierung im
+Hintergrund abgeschlossen wird.
+
+### Ein Design verwalten {#manage-a-design}
+
+Das Menü „⋯“ auf einer Design-Karte hat vier Einträge:
+
+- **Umbenennen**: ein kleiner Dialog mit einem Textfeld.
+- **Duplizieren**: erstellt sofort eine Kopie und öffnet sie, ohne Bestätigung.
+- **Zu Kontext hinzufügen**: hängt das Design an einen Kreativkontext an.
+- **Löschen**: fragt zuerst um Bestätigung.
+
+## Design bearbeiten {#edit-a-design}
+
+Alles Folgende gilt, sobald Sie in ein Design hineingeklickt haben.
+
+### Dateieinstellungen {#file-settings}
+
+Bildschirme und Ebenen leben in einem gemeinsamen Baum, nicht in zwei
+getrennten Panels. Jeder Bildschirm im Design (jeder ist eine eigene
+HTML-Datei) ist ein Eintrag oberster Ebene, mit den Ebenen dieses Bildschirms
+darunter verschachtelt.
+
+- **Hinzufügen, Umbenennen, Duplizieren, Löschen und Neuordnen** funktionieren
+  auf die gleiche Weise für Bildschirme und für Ebenen.
+- **Sperren** Sie eine Ebene, um sie fixiert zu halten. Das ist dasselbe
+  Konzept „gesperrte Ebene“, das Vorlagen und Vorlagenkopien beibehalten.
+- **Ein- oder ausblenden** Sie jede Ebene, ohne sie zu löschen.
+
+### Agent {#agent-in-editor}
+
+Derselbe Agenten-Chat, den jede agentennative App hat, befindet sich auch im
+Editor, nicht eine Design-spezifische Chat-Oberfläche. Bitten Sie ihn, einen
+Bildschirm zu generieren, Varianten zu vergleichen, Details zu optimieren oder
+Qualität und Barrierefreiheit zu prüfen, genauso wie Sie um jede andere
+Änderung bitten würden. Er führt außerdem von sich aus eine automatische
+Qualitäts- und Barrierefreiheitsprüfung durch, bevor er ein Design für fertig
+erklärt, ohne dass Sie etwas dafür tun müssen. Prompts nach Aufgabe finden Sie
+unter [Mit dem Agent sprechen](/docs/template-design-agent).
+
+### Import {#import}
+
+Ein Panel, fünf Möglichkeiten, externe Inhalte einzubringen:
+
+<Table
+  id="doc-block-design-import-table"
+  columns={["Methode", "Wie es funktioniert"]}
+  rows={[
+    [
+      "Figma-Frame-URL",
+      "Fügen Sie einen Figma-Freigabelink ein. Verbinden Sie beim ersten Mal Ihr Figma-Konto. Wird als echter, bearbeitbarer Bildschirm importiert.",
+    ],
+    [
+      "Aus Figma einfügen",
+      "Kopieren Sie einen Frame in Figma und fügen Sie ihn dann (Cmd+V) direkt auf der Design-Arbeitsfläche ein. Dies ist ein Tastaturkürzel für die Arbeitsfläche, keine separate Schaltfläche im Import-Panel.",
+    ],
+    [
+      ".fig hochladen",
+      "Laden Sie eine .fig-Datei direkt hoch. Ein separater Import auf Designebene, zu unterscheiden vom Importieren einer .fig-Datei in ein Designsystem.",
+    ],
+    [
+      "HTML importieren",
+      "Fügen Sie rohes HTML in ein Textfeld ein oder laden Sie eine .html-Datei hoch, um es als Bildschirm einzubringen.",
+    ],
+    [
+      "Lokale App",
+      "Nicht selbstständig über dieses Panel nutzbar. Es zeigt Installations- und Verbindungsbefehle, die zum Einfügen in einen externen Coding-Agenten gedacht sind, der dann Ihre laufende App als eigene Bildschirme in Design öffnet. Siehe /visual-edit im Entwicklerhandbuch.",
+    ],
+  ]}
+/>
+
+<Callout tone="info">
+
+Jeder Figma-Import liefert einen Genauigkeitsbericht, kein Versprechen. Er
+gibt an, welche Eigenschaften exakt übereinstimmten, welche CSS nur annähernd
+nachbilden kann (Rotation, Strichstärken pro Seite, manche
+Verlaufsformen), und welche Teilbäume auf ein flaches Bild zurückfallen
+mussten, weil sich die Form überhaupt nicht in HTML/CSS darstellen lässt.
+
+</Callout>
+
+### Symbolleiste {#toolbar}
+
+Die untere Symbolleiste hat zwei getrennte Gruppen: Werkzeuge, mit denen Sie
+zeichnen oder auswählen, und einen Modus-Schalter, der bestimmt, was diese
+Werkzeuge tun.
+
+#### Werkzeuge
+
+<Table
+  id="doc-block-design-tools-table"
+  columns={["Werkzeug", "Tastenkürzel", "Was es tut"]}
+  rows={[
+    [
+      "Verschieben / Hand / Skalieren",
+      "V / H / K",
+      "Elemente auswählen und verschieben, die Arbeitsfläche schwenken oder eine Auswahl skalieren.",
+    ],
+    [
+      "Frame / Bildschirm",
+      "F für Frame",
+      "Einen neuen Frame innerhalb eines Bildschirms zeichnen oder einen ganz neuen Bildschirm beginnen.",
+    ],
+    [
+      "Formen",
+      "R, L, Shift+L, O für Rechteck, Linie, Pfeil, Ellipse",
+      "Rechteck, Linie, Pfeil, Ellipse, Vieleck oder Stern. Bild-/Video-Einfügen ist derzeit ein deaktivierter Platzhalter.",
+    ],
+    [
+      "Stift / Zeichnen",
+      "P, Shift+Y für Zeichnen",
+      "Der Stift zeichnet Vektorpfade. Zeichnen ist ein Freihandpinsel und wird nur im Annotieren-Modus als aktiv angezeigt.",
+    ],
+    ["Text", "T", "Eine Textebene hinzufügen."],
+    [
+      "Kommentar anheften",
+      "C",
+      "Einen Kommentar an einem bestimmten Punkt anheften, nur im Annotieren-Modus aktiv. Siehe Tab Kommentare.",
+    ],
+  ]}
+/>
+
+#### Modi
+
+Ein separater Dreifach-Schalter neben den Werkzeugen:
+
+- **Bearbeiten**: der normale Modus. Verschieben, Frame, Formen, Stift und
+  Text funktionieren alle in diesem Modus.
+- **Annotieren**: der Modus, in dem Zeichnen und Kommentar anheften aktiv
+  sein müssen.
+- **Interagieren**: ein eigener Modus für die Arbeitsfläche, getrennt von
+  Bearbeiten und Annotieren.
+
+### Tab Design {#design-tab}
+
+Das Haupteigenschaften-Panel für das jeweils Ausgewählte. Abschnitte
+erscheinen nur, wenn sie für die aktuelle Auswahl gelten:
+
+- **Füllung** und **Kontur**: Farbe, Verlauf oder Bildfüllung, mit einer
+  Dokumentfarbpalette zur Wiederverwendung vorhandener Farben.
+- **Effekte**: Schlagschatten, Ebenenunschärfe, Hintergrundunschärfe und ein
+  codegestützter Shader-Effekt mit benannten Reglern (Geschwindigkeit, Farbe,
+  Mittelpunkt) sowie einem Code-Panel für das rohe GLSL.
+- **Position & Layout**, **Typografie**, **Erscheinungsbild** (Eckenradius,
+  Mischmodus, Sichtbarkeit): die üblichen Eigenschaftsgruppen pro Element.
+- **Layout** und **Auto-Layout**: flex-artige Anordnung für die Kinder eines
+  Frames.
+- **Layoutraster**: eine Layout-Hilfslinien-Überlagerung für einen Frame.
+- **Komponente**: Sobald ein Element eine Komponenteninstanz ist, zeigt
+  dieser Abschnitt ihre Varianten und Props. Das Ändern eines Props zeigt
+  sofort eine Vorschau und wirkt sich nur auf diese eine Instanz aus. Es gibt
+  keine separat gespeicherte Komponentendefinition, jede Instanz ist ihre
+  eigene unabhängige Kopie des Markups, sodass „Zur Hauptkomponente springen“
+  zur frühesten Instanz als Referenzpunkt zurückspringt, nicht zu einer
+  kanonischen Vorlage.
+
+### Tab Kommentare {#comments-tab}
+
+Ein echter Tab neben Design, mit einem Badge für ungelesene Kommentare.
+Jeder mit Zugriff kann einen Kommentar an ein bestimmtes Element anheften,
+statt eine allgemeine Notiz zu hinterlassen. Ein Kommentar kann eine reine
+Notiz bleiben oder direkt an den Agenten gesendet werden. Wenn der Agent
+einen davon abarbeitet, bearbeitet er genau den Teil des Designs, auf den
+der Kommentar zeigt, prüft, ob die Änderung tatsächlich angekommen ist, und
+löst dann entweder den Thread mit einer kurzen Notiz auf, was sich geändert
+hat, oder antwortet mit der Bitte, dass die Person entscheidet, wenn es
+etwas ist, das der Agent nicht selbst entscheiden sollte.
+
+### Tab Code & Messungen {#code-tab}
+
+Zeigt für das jeweils Ausgewählte: exakte Position und Größe in Pixeln,
+berechnete Stile (Anzeige, Position, Schriftart, Farbe) sowie das zugrunde
+liegende HTML mit einer Ein-Klick-**Kopieren**-Schaltfläche. Dies ist ein
+schreibgeschützter Inspektor, kein Editor.
+
+### Design-Vorschau {#design-preview}
+
+Das Play-Button-Menü in der Kopfzeile. **Design-Vorschau** öffnet das echte
+gerenderte HTML des aktuellen Bildschirms in einem neuen Browser-Tab, genau
+so, wie es außerhalb des Editors aussehen wird. Es ist deaktiviert, bis der
+Bildschirm Inhalt hat.
+
+### Export {#export}
+
+Öffnen Sie das kleine Menü-Symbol in der linken Seitenleiste des Editors (es
+verwendet das Agent-Native-Symbol als Icon, neben Zurück zu den Designs,
+Als Vorlage speichern und Versionsverlauf). **Export** ist ein Untermenü
+nahe dem unteren Ende dieses Menüs.
+
+<Table
+  id="doc-block-design-export-table"
+  columns={["Format", "Wofür es gedacht ist"]}
+  rows={[
+    [
+      "HTML herunterladen",
+      "Eine eigenständige Datei mit eingebetteten Tailwind- und Alpine-CDN-Links. Öffnet sich direkt in jedem Browser.",
+    ],
+    ["PNG herunterladen", "Ein flaches Rasterbild des aktuellen Bildschirms."],
+    [
+      "SVG herunterladen",
+      "Ein SVG-Wrapper um das lebende HTML. Gut zum Einbetten, nicht in Figma bearbeitbar.",
+    ],
+    [
+      "Figma-SVG herunterladen",
+      "Echte Vektorformen, Text und Verläufe, die Figma als bearbeitbare Ebenen importieren kann. Kopieren und einfügen, oder als Datei hineinziehen.",
+    ],
+    [
+      "ZIP herunterladen",
+      "Alle Design-Dateien nach Typ organisiert (HTML/CSS/JSX/Assets) plus eine Metadaten-Datei",
+    ],
+    [
+      "PDF herunterladen (alle Bildschirme)",
+      "Wird nur in der Mehrbildschirm-Übersicht mit 2 oder mehr Bildschirmen angezeigt. Ein clientseitig gerendertes PDF, das jeden Bildschirm abdeckt.",
+    ],
+    [
+      "Coding-Handoff kopieren",
+      "Kopiert Design-Tokens, die Dateien des Designs und eine fertige, einfügbare Eingabeaufforderung für einen externen Coding-Agenten, um den Prototyp in produktionsreifen Code umzuwandeln.",
+    ],
+  ]}
+/>
+
+Egal, welches Ziel, der Export spiegelt immer den aktuellen Zustand des
+Designs wider, einschließlich aller angewendeten Anpassungen, nicht die
+zuerst generierte Version. Duplizieren Sie das Design zuerst, wenn Sie nach
+einer Übergabe an einer Kopie weiterarbeiten möchten.
+
+### Versionsverlauf {#version-history}
+
+Im selben Menü der linken Seitenleiste öffnet **Versionsverlauf** ein Panel
+mit gespeicherten Momentaufnahmen des Designs mit einem relativen Zeitstempel
+(„Gerade eben“, „vor 5 Min.“ und so weiter). Die Auswahl einer davon zeigt
+eine Vorschau ihrer Bildschirme, und **Diese Version wiederherstellen**
+bringt das Design genau in diesen Zustand zurück.
+
+## Vorlagen {#templates}
+
+Zwei Wege, schneller zu starten als mit einer leeren Arbeitsfläche.
+
+### Vorlagen anzeigen {#view-templates}
+
+Die Seite Vorlagen hat zwei Abschnitte, **Ihre Vorlagen** und
+**Integrierte Vorlagen**, plus ein Suchfeld, das nach Titel, Beschreibung und
+Kategorie filtert. Jede Vorlagenkarte zeigt eine Live-Vorschau, ihre
+Kategorie (Anzeige, Einseiter, Landingpage, Social, Präsentation oder
+Sonstiges), ihre Abmessungen und wie viele Ebenen darauf gesperrt sind. Ihre
+eigenen Vorlagen (nicht die integrierten) erhalten ein „⋯“-Menü mit
+**Freigeben** (Betrachter-, Bearbeiter- oder Admin-Zugriff) und **Löschen**.
+
+### Eine Vorlage verwenden {#use-a-template}
+
+Ein Klick auf **Vorlage verwenden** öffnet einen kleinen Dialog: eine
+optionale Eingabeaufforderung, ein anzuwendendes Designsystem (oder ein Link
+zum Erstellen eines solchen) und eine Schaltfläche **So verwenden**, um
+direkt zu einer Kopie ohne Eingabeaufforderung zu springen. So oder so wird
+ein neues Design erstellt, und Sie gelangen direkt in dessen Editor.
+
+### Als Vorlage speichern {#save-as-template}
+
+Dies ist nicht auf der Seite Vorlagen selbst. Öffnen Sie während der
+Bearbeitung eines Designs dasselbe Menü der linken Seitenleiste, das auch
+für Export und Versionsverlauf verwendet wird, und wählen Sie **Als Vorlage
+speichern**. Abmessungen, Dateien und gesperrte Ebenen werden auf dieselbe
+Weise übernommen wie bei einer integrierten Vorlage.
+
+<Callout tone="info">
+
+Vorlagen können derzeit nur aus inline erstellten Design-Projekten gespeichert
+werden. Ein Design, das auf `/visual-edit` oder Vollständige App-Erstellung
+basiert, kann nicht als Vorlage gespeichert werden.
+
+</Callout>
+
+### Ein Design öffnen {#open-a-design}
+
+Es gibt keinen separaten „Öffnen“-Schritt. Das Verwenden einer Vorlage endet,
+genau wie das Generieren eines neuen Designs aus einer Eingabeaufforderung,
+immer damit, dass der Editor dieses Designs automatisch geöffnet wird.
+
+## Designsysteme {#design-systems}
+
+Ein Designsystem ist die Markenidentität, ihre Farben, Schriften, Abstände
+und Logos, die Design auf jeden mit ihm verknüpften Prototyp anwendet.
+
+### Designsysteme anzeigen und freigeben {#view-and-share}
+
+Die Seite Designsysteme ist ein Raster: zuerst eine Karte „Neues
+Designsystem“, dann eine Karte pro System mit einer Farbfeld-Vorschau, einem
+**Standard**-Badge auf demjenigen, das Ihr Standard ist, und einem
+Sichtbarkeits-Badge (privat, Organisation oder öffentlich). Jede Karte hat
+eine echte **Freigeben**-Schaltfläche mit den Rollen Betrachter, Bearbeiter
+oder Admin, demselben Freigabemodell, das Vorlagen verwenden. Ein
+**Auswählen**-Schalter in der Kopfzeile aktiviert die Mehrfachauswahl mit
+Massenlöschung.
+
+### Neues Designsystem {#new-design-system}
+
+Das Erstellen beginnt mit einer Quellenauswahl:
+
+- **Figma**: eine `.fig`-Datei hochladen.
+- **Unternehmen/Marke**: eine Website-URL.
+- **Code**: ein verbundenes GitHub-Repository.
+- **Design.md**: ein schriftliches Dokument mit Designrichtlinien.
+- **Design-Dateien**: Dateien direkt hochladen.
+- **Vorhandenes importieren**: ein bereits vorhandenes Designsystem oder
+  Projekt wiederverwenden.
+- **Notizen**: Beschreiben Sie Ihre Marke von Grund auf, oder starten Sie von
+  einem echten, gepflegten öffentlichen System wie Material 3, Carbon oder
+  Primer, statt eines aus dem Gedächtnis nachzubauen.
+
+<Callout tone="info">
+
+Jedes öffentliche System liefert echte semantische Tokens, eine
+Typografieskala, Abstände und Namensnennung. Design lässt sich durch eine
+Eingabeaufforderung nicht dazu bringen, eines heimlich in eine ähnlich
+aussehende Version mit anderen Daten darunter zu verwandeln. Jedes
+Designsystem trägt außerdem einen optionalen Satz benutzerdefinierter
+Anweisungen und einen beschriebenen Bildstil, damit generierte Fotografie und
+Illustration in derselben visuellen Sprache wie der Rest der Marke bleiben.
+
+</Callout>
+
+## Wie geht es weiter?
+
+- [**Design**](/docs/template-design) — der Überblick und die ersten Schritte
+- [**Mit dem Agent sprechen**](/docs/template-design-agent) — jede Eingabeaufforderung nach Aufgabe und wie der Agent Ihren Bildschirm sieht
+- [**Design in einem Multi-App-Arbeitsbereich**](/docs/template-design-integrations) — die Verbindung zu Dispatch und der Aufruf von Design über MCP
+- [**Entwicklerhandbuch**](/docs/template-design-developers) — Schnellstart, Aktionen, Datenmodell und Routen
+- [**Freigabe**](/docs/sharing) — das Freigabemodell, auf dem Vorlagen und Designsysteme aufbauen

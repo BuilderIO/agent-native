@@ -40,6 +40,8 @@ export interface ResolveWorkspaceConnectionCredentialForAppOptions {
   connectionId?: string | null;
   userEmail?: string | null;
   orgId?: string | null;
+  credentialScope?: "org";
+  recordUsage?: boolean;
 }
 
 export interface ResolveWorkspaceConnectionCredentialsForAppOptions extends Omit<
@@ -177,7 +179,9 @@ function credentialCandidatesForRef(
 ): ScopedCredentialCandidate[] {
   const scope = refScope(ref);
   if (scope === "user") {
-    return [{ key: ref.key, scope: "user", scopeId: ctx.userEmail }];
+    return ctx.credentialScope === "org"
+      ? []
+      : [{ key: ref.key, scope: "user", scopeId: ctx.userEmail }];
   }
   if (scope === "org") {
     return ctx.orgId
@@ -185,17 +189,20 @@ function credentialCandidatesForRef(
       : [];
   }
   if (scope === "workspace") {
-    return [
-      { key: ref.key, scope: "workspace", scopeId: workspaceScopeId(ctx) },
-    ];
+    return ctx.orgId || ctx.credentialScope !== "org"
+      ? [{ key: ref.key, scope: "workspace", scopeId: workspaceScopeId(ctx) }]
+      : [];
   }
   if (ctx.orgId) {
     return [
       { key: ref.key, scope: "org", scopeId: ctx.orgId },
       { key: ref.key, scope: "workspace", scopeId: ctx.orgId },
-      { key: ref.key, scope: "user", scopeId: ctx.userEmail },
+      ...(ctx.credentialScope === "org"
+        ? []
+        : [{ key: ref.key, scope: "user" as const, scopeId: ctx.userEmail }]),
     ];
   }
+  if (ctx.credentialScope === "org") return [];
   return [
     { key: ref.key, scope: "user", scopeId: ctx.userEmail },
     { key: ref.key, scope: "workspace", scopeId: workspaceScopeId(ctx) },
@@ -263,7 +270,7 @@ async function readFirstCredentialForRef({
 function contextFromOptions(
   options: Pick<
     ResolveWorkspaceConnectionCredentialForAppOptions,
-    "userEmail" | "orgId"
+    "userEmail" | "orgId" | "credentialScope"
   >,
 ): CredentialContext | null {
   const requestCtx = getCredentialContext();
@@ -275,7 +282,14 @@ function contextFromOptions(
         ? null
         : (requestCtx?.orgId ?? null)
       : options.orgId?.trim() || null;
-  return { userEmail: userEmail.toLowerCase(), orgId };
+  const credentialScope =
+    options.credentialScope ?? requestCtx?.credentialScope;
+  if (credentialScope === "org" && !orgId) return null;
+  return {
+    userEmail: userEmail.toLowerCase(),
+    orgId,
+    ...(credentialScope === "org" ? { credentialScope } : {}),
+  };
 }
 
 function result(options: {
@@ -429,13 +443,15 @@ async function resolveInRequestContext(
           ctx,
         });
         if (hit) {
-          await markWorkspaceConnectionUsed({
-            connectionId: connection.id,
-            appId:
-              connection.appAccess.mode === "explicit-grant"
-                ? appId
-                : undefined,
-          });
+          if (options.recordUsage !== false) {
+            await markWorkspaceConnectionUsed({
+              connectionId: connection.id,
+              appId:
+                connection.appAccess.mode === "explicit-grant"
+                  ? appId
+                  : undefined,
+            });
+          }
           const provenance: WorkspaceConnectionCredentialProvenance = {
             source: "workspace_connection",
             provider,
@@ -520,6 +536,9 @@ export async function resolveWorkspaceConnectionCredentialForApp(
       ...existing,
       userEmail: ctx.userEmail,
       orgId: ctx.orgId ?? undefined,
+      ...(ctx.credentialScope === "org"
+        ? { credentialScope: "org" as const }
+        : {}),
     },
     () => resolveInRequestContext(options, ctx),
   );

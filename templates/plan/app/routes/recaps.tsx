@@ -1,4 +1,3 @@
-import { Spinner } from "@/components/ui/spinner";
 import { APP_TITLE } from "@/lib/app-config";
 import { PlansPage } from "@/pages/PlansPage";
 
@@ -14,11 +13,7 @@ export function meta() {
 }
 
 export function HydrateFallback() {
-  return (
-    <div className="flex h-screen w-full items-center justify-center">
-      <Spinner className="size-8 text-foreground" />
-    </div>
-  );
+  return <PlansPage />;
 }
 
 export default function RecapsRoute() {

@@ -1,19 +1,79 @@
+export type NewDeckGenerationPhase = "pending" | "started" | "abandoned";
+
+export const NEW_DECK_GENERATION_START_TIMEOUT_MS = 20_000;
+
+export function nextNewDeckGenerationPhase({
+  phase,
+  generating,
+  waitingOnQuestions,
+  waitExpired,
+}: {
+  phase: NewDeckGenerationPhase;
+  generating: boolean;
+  waitingOnQuestions: boolean;
+  waitExpired: boolean;
+}): NewDeckGenerationPhase {
+  if (generating) return "started";
+  if (phase !== "pending") return phase;
+  if (waitingOnQuestions) return "pending";
+  return waitExpired ? "abandoned" : "pending";
+}
+
 export function shouldShowNewDeckGeneratingOverlay({
   generating,
   isNewDeckCreation,
   slideCount,
-  generationStarted,
+  phase,
 }: {
   generating: boolean;
   isNewDeckCreation: boolean;
   slideCount?: number | null;
-  generationStarted: boolean;
+  phase: NewDeckGenerationPhase;
 }): boolean {
   return (
     isNewDeckCreation &&
     (slideCount ?? 0) === 0 &&
-    (generating || !generationStarted)
+    (generating || phase === "pending")
   );
+}
+
+/**
+ * Keep recovery controls visible when an empty prompted deck has a confirmed
+ * failure or a started run whose outcome could not be confirmed.
+ */
+export type NewDeckGenerationRecoveryState = "failed" | "outcome_unresolved";
+
+export function getNewDeckGenerationRecoveryState({
+  slideCount,
+  hasGenerationContext,
+  failureCode,
+  isNewDeckCreation,
+  phase,
+  generating,
+  waitingOnQuestions,
+}: {
+  slideCount: number;
+  hasGenerationContext: boolean;
+  failureCode: unknown;
+  isNewDeckCreation: boolean;
+  phase: NewDeckGenerationPhase;
+  generating: boolean;
+  waitingOnQuestions: boolean;
+}): NewDeckGenerationRecoveryState | null {
+  if (
+    slideCount !== 0 ||
+    !hasGenerationContext ||
+    generating ||
+    waitingOnQuestions
+  ) {
+    return null;
+  }
+  if (failureCode === "outcome_unresolved") return "outcome_unresolved";
+  if (typeof failureCode === "string") return "failed";
+  if (!isNewDeckCreation) return null;
+  if (phase === "abandoned") return "failed";
+  if (phase === "started") return "outcome_unresolved";
+  return null;
 }
 
 export function shouldShowNewDeckGeneratingProgress({
@@ -26,14 +86,6 @@ export function shouldShowNewDeckGeneratingProgress({
   return generating && isNewDeckCreation;
 }
 
-/** The blank placeholder "New slide" inserted and handed to the agent to fill.
- *  While one is live the rail marks that existing row as AI-active; appending
- *  the synthetic generating row too would read as a second, duplicate slide.
- *  Returns null once the placeholder leaves the deck, or once its content is
- *  no longer the blank stand-in: the fill is done, presence/recent-edit
- *  tracking picks up that slide's own marker from there, and if the same run
- *  goes on to `add-slide` more slides (a multi-slide request), those are
- *  genuinely new and should get the trailing generating row again. */
 export function slideBeingFilledInPlace({
   addSlideGenerating,
   addSlideTargetId,
@@ -53,10 +105,28 @@ export function slideBeingFilledInPlace({
 
 export function shouldClearNewDeckGeneratingState({
   generating,
-  generationStarted,
+  waitingOnQuestions,
+  phase,
 }: {
   generating: boolean;
-  generationStarted: boolean;
+  waitingOnQuestions: boolean;
+  phase: NewDeckGenerationPhase;
 }): boolean {
-  return generationStarted && !generating;
+  return (
+    !generating &&
+    !waitingOnQuestions &&
+    (phase === "started" || phase === "abandoned")
+  );
+}
+
+export function shouldClearNewDeckGenerationRun({
+  generating,
+  waitingOnQuestions,
+  phase,
+}: {
+  generating: boolean;
+  waitingOnQuestions: boolean;
+  phase: NewDeckGenerationPhase;
+}): boolean {
+  return !generating && !waitingOnQuestions && phase === "started";
 }

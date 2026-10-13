@@ -21,10 +21,10 @@ import { serializeDatabase } from "./_property-utils.js";
 
 export default defineAction({
   description:
-    "Refresh the local read-only source status envelope for a content database. Mock-local, Builder CMS, and Notion database sources resync field mappings and row identity without provider writes. For paginated Builder CMS or Notion sources, set fullRefresh to true to read a bounded multi-page snapshot in one action call.",
+    "Refresh the local read-only source status envelope for a content collection. Mock-local, Builder CMS, and Notion database sources resync field mappings and row identity without provider writes. For paginated Builder CMS or Notion sources, set fullRefresh to true to read a bounded multi-page snapshot in one action call.",
   schema: z.object({
-    databaseId: z.string().optional().describe("Database ID"),
-    documentId: z.string().optional().describe("Database document/page ID"),
+    databaseId: z.string().optional().describe("Collection ID"),
+    documentId: z.string().optional().describe("Collection document/page ID"),
     sourceId: z
       .string()
       .optional()

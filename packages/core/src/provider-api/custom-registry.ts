@@ -20,14 +20,11 @@
  * cannot be expressed in the simple header/key model.
  */
 
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { isBlockedExtensionUrlWithDns } from "../extensions/url-safety.js";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export type CustomProviderScope = "user" | "org";
 
@@ -55,7 +52,6 @@ export interface CustomProviderConfig {
 export interface UpsertCustomProviderArgs {
   scope: CustomProviderScope;
   scopeId: string;
-  /** Slug used as the provider id (e.g. "my-api"). Must be lowercase, letters/digits/hyphens. */
   id: string;
   label: string;
   baseUrl: string;
@@ -64,17 +60,8 @@ export interface UpsertCustomProviderArgs {
   allowedHostSuffixes?: string[];
   defaultHeaders?: Record<string, string>;
   notes?: string;
-  /**
-   * Caller's org role in the target org (`scopeId` when `scope === "org"`),
-   * resolved by the caller (e.g. `provider-api-register.ts`) before invoking
-   * this function. Required — see `assertCanMutateCustomProviderScope`.
-   */
   orgRole: string | null;
 }
-
-// ---------------------------------------------------------------------------
-// Table bootstrap
-// ---------------------------------------------------------------------------
 
 const CREATE_SQL = `CREATE TABLE IF NOT EXISTS custom_api_providers (
   id TEXT NOT NULL,
@@ -87,8 +74,8 @@ const CREATE_SQL = `CREATE TABLE IF NOT EXISTS custom_api_providers (
   allowed_host_suffixes_json TEXT NOT NULL,
   default_headers_json TEXT NOT NULL,
   notes TEXT NOT NULL DEFAULT '',
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL,
   PRIMARY KEY (scope, scope_id, id)
 )`;
 
@@ -96,25 +83,8 @@ let _initPromise: Promise<void> | undefined;
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-
-      if (isPostgres()) {
-        const pgSql = CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT");
-        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
-        await ensureTableExists("custom_api_providers", pgSql);
-        // Widen any pre-existing int4 timestamp columns to BIGINT (no-op once done)
-        await widenIntColumnsToBigInt("custom_api_providers", [
-          "created_at",
-          "updated_at",
-        ]);
-        return;
-      }
-      // SQLite (local dev): keep existing behavior
-      await client.execute(CREATE_SQL);
-      // Fresh Postgres tables get BIGINT via the replace above, but tables
-      // created before that compat existed kept int4 timestamp columns; widen
-      // them so `Date.now()` writes don't overflow. No-op once done.
+    const _initPromiseWithRequestDbPoolScope = (async () => {
+      await ensureTableExists("custom_api_providers", CREATE_SQL);
       await widenIntColumnsToBigInt("custom_api_providers", [
         "created_at",
         "updated_at",
@@ -123,21 +93,14 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }
 
-// ---------------------------------------------------------------------------
-// Validation
-// ---------------------------------------------------------------------------
-
 const PROVIDER_ID_RE = /^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$|^[a-z0-9]$/;
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 
-/**
- * Validate and normalise a custom provider base URL. Throws when the URL is
- * invalid, uses a non-http(s) scheme, or resolves to a private/internal host.
- */
 export async function validateCustomBaseUrl(rawUrl: string): Promise<URL> {
   let url: URL;
   try {
@@ -239,11 +202,6 @@ const FORBIDDEN_HOST_SUFFIXES = new Set([
 const HOST_SUFFIX_RE =
   /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
 
-/**
- * Validate user-supplied allowed host suffixes. Each suffix must look like a
- * real registrable domain (at least two labels) and must not be a bare TLD or
- * shared-hosting public suffix where unrelated parties control subdomains.
- */
 export function validateAllowedHostSuffixes(suffixes: string[]): string[] {
   const normalized: string[] = [];
   for (const raw of suffixes) {
@@ -264,14 +222,6 @@ export function validateAllowedHostSuffixes(suffixes: string[]): string[] {
   return normalized;
 }
 
-// ---------------------------------------------------------------------------
-// Authorization
-// ---------------------------------------------------------------------------
-
-/**
- * Thrown by `assertCanMutateCustomProviderScope` when the caller is not
- * authorized to mutate a scoped custom provider row.
- */
 export class CustomProviderAuthError extends Error {
   constructor(
     readonly statusCode: number,
@@ -311,14 +261,6 @@ export function assertCanMutateCustomProviderScope(
   );
 }
 
-// ---------------------------------------------------------------------------
-// CRUD
-// ---------------------------------------------------------------------------
-
-/**
- * Create or update a custom provider. Validates the base URL against SSRF
- * rules at write time. Returns the provider id.
- */
 export async function upsertCustomProvider(
   args: UpsertCustomProviderArgs,
 ): Promise<string> {
@@ -380,9 +322,6 @@ export async function upsertCustomProvider(
   return args.id;
 }
 
-/**
- * Delete a custom provider. Returns true if a row was deleted.
- */
 export async function deleteCustomProvider(
   scope: CustomProviderScope,
   scopeId: string,
@@ -399,9 +338,6 @@ export async function deleteCustomProvider(
   return rowsAffected > 0;
 }
 
-/**
- * List all custom providers visible to a given (scope, scopeId) pair.
- */
 export async function listCustomProviders(
   scope: CustomProviderScope,
   scopeId: string,
@@ -415,9 +351,6 @@ export async function listCustomProviders(
   return rows.map(rowToConfig);
 }
 
-/**
- * Look up one custom provider. Returns null when not found.
- */
 export async function getCustomProvider(
   scope: CustomProviderScope,
   scopeId: string,

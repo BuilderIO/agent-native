@@ -239,6 +239,22 @@ describe("useDashboardChatContext", () => {
     );
   });
 
+  it("tells the agent to read only the selected panel, never the whole config", async () => {
+    await act(async () => {
+      root.render(<PanelHarness />);
+    });
+    await act(async () => setSidebarOpen(true));
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[data-action="passive-select"]')
+        ?.click();
+    });
+
+    const { context } = clientMocks.setAgentChatContextItem.mock.calls[0][0];
+    expect(context).toContain('get-sql-dashboard (panelIds: ["panel-1"])');
+    expect(context).not.toContain("includeConfig");
+  });
+
   it("ignores passive chart selection while chat is closed", async () => {
     await act(async () => {
       root.render(<PanelHarness />);

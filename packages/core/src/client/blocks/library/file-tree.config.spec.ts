@@ -7,12 +7,6 @@ import {
   type FileTreeData,
 } from "./file-tree.config.js";
 
-/**
- * Minimal `BlockAttrReader` over a plain attribute bag, mirroring the runtime
- * `createAttrReader` value-domain narrowing (string-vs-number-vs-array-vs-object).
- * Lets the test assert the `toAttrs` → `fromAttrs` round-trip without spinning up
- * the full MDX serialize/parse pipeline.
- */
 function reader(attrs: Record<string, unknown>): BlockAttrReader {
   const read = (name: string) => attrs[name];
   return {
@@ -32,7 +26,6 @@ function reader(attrs: Record<string, unknown>): BlockAttrReader {
   };
 }
 
-/** Re-decode data from the attribute bag `toAttrs` produced. */
 function roundTrip(data: FileTreeData): FileTreeData {
   const attrs = fileTreeMdx.toAttrs(data) as Record<string, unknown>;
   return fileTreeMdx.fromAttrs(reader(attrs), "");
@@ -117,7 +110,6 @@ describe("file-tree block config", () => {
         { path: "src/routes/git.ts", change: "added" },
       ],
     };
-    // No `title` attribute is emitted, so the decode yields `title: undefined`.
     expect(roundTrip(data)).toEqual({
       title: undefined,
       entries: data.entries,

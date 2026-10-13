@@ -44,4 +44,15 @@ describe("per-app chat sidebar bridge", () => {
     expect(requestPerAppChatCommand("toggle")).toBe(true);
     expect(toggle).toHaveBeenCalledOnce();
   });
+
+  it("forwards focus intent to the Electron host bridge", () => {
+    const open = vi.fn();
+    Object.defineProperty(window, "agentNativeDesktop", {
+      configurable: true,
+      value: { chat: { open } },
+    });
+
+    expect(requestPerAppChatCommand("open", { focus: true })).toBe(true);
+    expect(open).toHaveBeenCalledWith({ focus: true });
+  });
 });

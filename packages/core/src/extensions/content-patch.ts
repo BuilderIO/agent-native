@@ -1,3 +1,17 @@
+import { analyzeRegexSource } from "../shared/bounded-regex.js";
+import { wrapDiagnosticSnippet } from "../shared/diagnostic-snippet.js";
+import {
+  loadOptionalPeer,
+  OptionalPeerDependencyError,
+} from "../shared/optional-peer.js";
+import {
+  applyTargetedReplace,
+  findTargetedMatches,
+  type TargetedAmbiguousMatch,
+  type TargetedCandidate,
+  type TargetedMatchesResult,
+} from "../shared/targeted-text-edit.js";
+
 export type ExtensionLegacyPatch = {
   find: string;
   replace: string;
@@ -93,7 +107,12 @@ export async function applyExtensionContentUpdate(
   try {
     return await applyExtensionContentUpdateUnchecked(currentContent, opts);
   } catch (error) {
-    if (error instanceof ExtensionContentEditError) throw error;
+    if (
+      error instanceof ExtensionContentEditError ||
+      error instanceof OptionalPeerDependencyError
+    ) {
+      throw error;
+    }
     const message = error instanceof Error ? error.message : String(error);
     throw new ExtensionContentEditError(message);
   }
@@ -136,37 +155,31 @@ async function applyExtensionContentUpdateUnchecked(
 }
 
 export async function formatExtensionHtml(content: string): Promise<string> {
-  try {
-    // prettier's main entry `import()`s all 13 parser plugins, so a bundler
-    // inlines ~3.5MB of flow/typescript/yaml/markdown parsers just to format
-    // HTML. Load the standalone core plus only the plugins the HTML printer
-    // reaches, which still formats embedded <style> (postcss) and <script>
-    // (babel + estree).
-    const [{ format }, ...plugins] = await Promise.all([
+  const [{ format }, ...plugins] = await loadOptionalPeer("prettier", () =>
+    Promise.all([
       import("prettier/standalone"),
       import("prettier/plugins/html"),
       import("prettier/plugins/postcss"),
       import("prettier/plugins/babel"),
       import("prettier/plugins/estree"),
-    ]);
+    ]),
+  );
+
+  try {
     const formatted = await format(content, {
       parser: "html",
       htmlWhitespaceSensitivity: "ignore",
       plugins,
     });
-    return typeof formatted === "string" ? formatted : content;
-  } catch (err: any) {
-    const message = String(err?.message ?? err);
-    if (
-      message.includes("Cannot find package 'prettier'") ||
-      message.includes('Cannot find package "prettier"') ||
-      message.includes("Cannot find module 'prettier'") ||
-      message.includes('Cannot find module "prettier"')
-    ) {
-      return content;
+    if (typeof formatted !== "string") {
+      throw new Error("Prettier returned a non-string result");
     }
+    return formatted;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     throw new Error(
       `Unable to format extension HTML with Prettier: ${message}`,
+      { cause: error },
     );
   }
 }
@@ -212,7 +225,7 @@ function applyEdit(
         edit as Extract<ExtensionContentEdit, { op: "regex-replace" }>,
       );
     default:
-      throw new Error(`Unsupported extension edit operation: ${op}`);
+      throw new Error(`Unsupported extension edit operation: ${String(op)}`);
   }
 }
 
@@ -220,50 +233,128 @@ function applyLiteralReplace(
   content: string,
   edit: Extract<ExtensionContentEdit, { op?: "replace" }>,
 ): { content: string; summary: string } {
-  const matches = countOccurrences(content, edit.find);
-  assertMatchCount("replace", matches, edit.expectedMatches, edit.required);
-  if (matches === 0) return { content, summary: "replace:0" };
+  if (!edit.find) throw new Error("Patch find/marker text cannot be empty");
 
-  if (edit.occurrence !== undefined) {
-    return {
-      content: replaceNth(content, edit.find, edit.replace, edit.occurrence),
-      summary: `replace:nth:${edit.occurrence}`,
-    };
+  const result = applyTargetedReplace(content, edit.find, edit.replace, {
+    occurrence: edit.occurrence,
+    all: edit.all,
+  });
+
+  if (!result.ok) {
+    if (result.reason === "not_found" && isCountedNoOp(edit)) {
+      return { content, summary: "replace:0" };
+    }
+    throwLiteralMatchFailure("replace", result, edit.expectedMatches);
   }
 
-  if (edit.all) {
-    return {
-      content: content.split(edit.find).join(edit.replace),
-      summary: `replace:all:${matches}`,
-    };
+  if (
+    edit.expectedMatches !== undefined &&
+    result.matchCount !== edit.expectedMatches
+  ) {
+    throw new Error(
+      `replace expected ${edit.expectedMatches} match(es), found ${result.matchCount}`,
+    );
   }
 
-  return {
-    content: content.replace(edit.find, edit.replace),
-    summary: "replace:first",
-  };
+  const summary =
+    edit.occurrence !== undefined
+      ? `replace:nth:${edit.occurrence}`
+      : edit.all
+        ? `replace:all:${result.matchCount}`
+        : "replace:first";
+  return { content: result.content, summary };
 }
 
 function applyInsert(
   content: string,
   edit: Extract<ExtensionContentEdit, { op: "insert-before" | "insert-after" }>,
 ): { content: string; summary: string } {
-  const matches = countOccurrences(content, edit.marker);
-  assertMatchCount(edit.op, matches, edit.expectedMatches, edit.required);
-  if (matches === 0) return { content, summary: `${edit.op}:0` };
+  if (!edit.marker) throw new Error("Patch find/marker text cannot be empty");
+
+  const result = findTargetedMatches(content, edit.marker, {
+    occurrence: edit.occurrence,
+  });
+
+  if (!result.ok) {
+    if (result.reason === "not_found" && isCountedNoOp(edit)) {
+      return { content, summary: `${edit.op}:0` };
+    }
+    throwLiteralMatchFailure(edit.op, result, edit.expectedMatches);
+  }
+
+  const { matches } = result;
+  if (
+    edit.expectedMatches !== undefined &&
+    matches.length !== edit.expectedMatches
+  ) {
+    throw new Error(
+      `${edit.op} expected ${edit.expectedMatches} match(es), found ${matches.length}`,
+    );
+  }
 
   const occurrence = edit.occurrence ?? 1;
-  const index = nthIndexOf(content, edit.marker, occurrence);
-  if (index < 0) {
-    throw new Error(`${edit.op} could not find occurrence ${occurrence}`);
-  }
-  const insertAt =
-    edit.op === "insert-before" ? index : index + edit.marker.length;
+  const match = matches[occurrence - 1]!;
+  const insertAt = edit.op === "insert-before" ? match.index : match.end;
   return {
     content:
       content.slice(0, insertAt) + edit.content + content.slice(insertAt),
     summary: `${edit.op}:${occurrence}`,
   };
+}
+
+function isCountedNoOp(edit: {
+  expectedMatches?: number;
+  required?: boolean;
+}): boolean {
+  return (
+    edit.expectedMatches === 0 ||
+    (edit.expectedMatches === undefined && edit.required === false)
+  );
+}
+
+function throwLiteralMatchFailure(
+  op: string,
+  result: Extract<TargetedMatchesResult, { ok: false }>,
+  expectedMatches: number | undefined,
+): never {
+  if (result.reason === "ambiguous") {
+    throw new Error(`${op} ${formatAmbiguousMatches(result.matches)}`);
+  }
+  if (result.reason === "invalid_occurrence") {
+    throw new Error(
+      `${op} occurrence must be a positive integer, got ${result.occurrence}`,
+    );
+  }
+  if (result.reason === "occurrence_out_of_range") {
+    if (
+      expectedMatches !== undefined &&
+      result.matchCount !== expectedMatches
+    ) {
+      throw new Error(
+        `${op} expected ${expectedMatches} match(es), found ${result.matchCount}`,
+      );
+    }
+    throw new Error(`${op} could not find occurrence ${result.occurrence}`);
+  }
+  const expected =
+    expectedMatches !== undefined
+      ? `${op} expected ${expectedMatches} match(es), found 0.`
+      : `${op} found no matches.`;
+  throw new Error(`${expected}${formatCandidates(result.candidates)}`);
+}
+
+function formatCandidates(candidates: TargetedCandidate[]): string {
+  if (candidates.length === 0) return "";
+  const lines = candidates.map((c) => `line ${c.line}: ${c.text}`).join("\n");
+  return `\nClosest matches in the current extension:\n${wrapDiagnosticSnippet(lines)}`;
+}
+
+function formatAmbiguousMatches(matches: TargetedAmbiguousMatch[]): string {
+  const lines = matches.map((m) => `line ${m.line}: ${m.snippet}`).join("\n");
+  return (
+    `matched ${matches.length} places; pass occurrence to pick one, or add ` +
+    `more surrounding context so it matches exactly one location:\n${wrapDiagnosticSnippet(lines)}`
+  );
 }
 
 function applyReplaceBetween(
@@ -333,6 +424,14 @@ function applyRegexReplace(
   edit: Extract<ExtensionContentEdit, { op: "regex-replace" }>,
 ): { content: string; summary: string } {
   const flags = normalizeRegexFlags(edit.flags, edit.all);
+  const verdict = analyzeRegexSource(edit.pattern, flags, {
+    inputBounded: false,
+  });
+  if (!verdict.safe) {
+    throw new ExtensionContentEditError(
+      `regex-replace pattern cannot be run safely: ${verdict.reason}. Rewrite it without overlapping repetition, or use a literal find edit instead.`,
+    );
+  }
   const regex = new RegExp(edit.pattern, flags);
   const countRegex = new RegExp(edit.pattern, ensureGlobal(flags));
   const matches = Array.from(content.matchAll(countRegex)).length;
@@ -361,49 +460,6 @@ function assertMatchCount(
   if (expected === undefined && required !== false && actual === 0) {
     throw new Error(`${op} found no matches`);
   }
-}
-
-function countOccurrences(content: string, needle: string): number {
-  if (!needle) throw new Error("Patch find/marker text cannot be empty");
-  let count = 0;
-  let index = 0;
-  while (true) {
-    index = content.indexOf(needle, index);
-    if (index < 0) return count;
-    count += 1;
-    index += needle.length;
-  }
-}
-
-function nthIndexOf(
-  content: string,
-  needle: string,
-  occurrence: number,
-): number {
-  if (!Number.isInteger(occurrence) || occurrence < 1) {
-    throw new Error("occurrence must be a positive integer");
-  }
-  let index = -1;
-  let from = 0;
-  for (let i = 0; i < occurrence; i += 1) {
-    index = content.indexOf(needle, from);
-    if (index < 0) return -1;
-    from = index + needle.length;
-  }
-  return index;
-}
-
-function replaceNth(
-  content: string,
-  find: string,
-  replace: string,
-  occurrence: number,
-): string {
-  const index = nthIndexOf(content, find, occurrence);
-  if (index < 0) {
-    throw new Error(`replace could not find occurrence ${occurrence}`);
-  }
-  return content.slice(0, index) + replace + content.slice(index + find.length);
 }
 
 function findBetweenRanges(

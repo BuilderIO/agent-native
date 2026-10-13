@@ -1,6 +1,7 @@
 import {
   AGENT_ACCESS_PARAM,
   getConfiguredAppBasePath,
+  getForwardedRequestOrigin,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 import { and, eq, isNull } from "drizzle-orm";
@@ -12,6 +13,7 @@ import {
 } from "h3";
 
 import {
+  buildContentDocumentMcpGuidance,
   buildContentPublicDocumentUrl,
   DOCUMENT_AGENT_RESOURCE_KIND,
 } from "../../../shared/agent-readable.js";
@@ -24,8 +26,29 @@ function queryString(value: unknown): string {
   return "";
 }
 
-function deny(statusCode: number, message: string) {
-  return { statusCode, body: { error: message } };
+function deny(
+  statusCode: number,
+  message: string,
+  documentId?: string,
+  basePath?: string,
+  origin?: string,
+) {
+  return {
+    statusCode,
+    body: {
+      error: message,
+      ...(documentId
+        ? {
+            resourceType: "document",
+            resourceId: documentId,
+            ...buildContentDocumentMcpGuidance(documentId, {
+              basePath,
+              origin,
+            }),
+          }
+        : {}),
+    },
+  };
 }
 
 export default defineEventHandler(async (event) => {
@@ -71,7 +94,15 @@ export default defineEventHandler(async (event) => {
       }).ok
     : false;
   if (document.visibility !== "public" && !tokenAccess) {
-    const denied = deny(403, "Invalid or expired agent access token");
+    const denied = deny(
+      403,
+      token
+        ? "The agent access token is invalid or expired"
+        : "This private document is not readable through anonymous HTTP",
+      id,
+      getConfiguredAppBasePath(),
+      getForwardedRequestOrigin(event),
+    );
     setResponseStatus(event, denied.statusCode);
     return denied.body;
   }

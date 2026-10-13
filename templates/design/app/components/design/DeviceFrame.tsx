@@ -8,7 +8,6 @@ interface DeviceFrameProps {
   title?: string;
 }
 
-/** macOS window chrome with traffic light dots */
 function DesktopFrame({
   children,
   title,
@@ -47,7 +46,6 @@ function DesktopFrame({
   );
 }
 
-/** iPad-like tablet frame */
 function TabletFrame({
   children,
   title,
@@ -78,7 +76,6 @@ function TabletFrame({
   );
 }
 
-/** iPhone-like mobile frame */
 function MobileFrame({
   children,
   title,

@@ -2,8 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
-  // One entry per `select` when a test needs the candidate query and the
-  // out-of-scope probe to answer differently; otherwise every call sees `rows`.
   rowsByCall: [] as Record<string, unknown>[][],
   legacySettings: {} as Record<string, Record<string, unknown>>,
   projection: null as Record<string, unknown> | null,
@@ -11,7 +9,6 @@ const state = vi.hoisted(() => ({
   limit: null as number | null,
 }));
 
-vi.mock("@agent-native/core/db", () => ({ isPostgres: () => false }));
 vi.mock("@agent-native/core/server", () => ({ recordChange: () => undefined }));
 vi.mock("@agent-native/core/settings", () => ({
   listSettingsByPrefix: vi.fn(async (prefix: string) =>
@@ -27,7 +24,14 @@ vi.mock("@agent-native/core/settings", () => ({
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: vi.fn(() => ({ kind: "access" })),
   assertAccess: vi.fn(),
-  resolveAccess: vi.fn(),
+  resolveAccess: vi.fn(async (_type, _id, context) => {
+    const row = state.rows.find(
+      (candidate) =>
+        candidate.ownerEmail === context?.userEmail &&
+        candidate.orgId === context?.orgId,
+    );
+    return row ? { resource: row, role: "owner" } : null;
+  }),
   roleSatisfies: vi.fn(() => false),
 }));
 vi.mock("drizzle-orm", () => ({
@@ -74,19 +78,48 @@ vi.mock("../db/index.js", () => {
     updatedAt: column("updatedAt"),
     hiddenAt: column("hiddenAt"),
     hiddenBy: column("hiddenBy"),
+    resultMarkdown: column("resultMarkdown"),
+    resultData: column("resultData"),
   };
   const query = {
     orderBy: () => query,
     limit: (value: number) => {
       state.limit = value;
+      const candidates = state.rowsByCall.length
+        ? (state.rowsByCall.shift() ?? [])
+        : state.rows;
+      const where = state.where as {
+        kind?: string;
+        target?: { name?: string };
+        value?: unknown;
+        conditions?: Array<{
+          kind?: string;
+          target?: { name?: string };
+          value?: unknown;
+        }>;
+      } | null;
+      const equals =
+        where?.kind === "eq"
+          ? [where]
+          : where?.kind === "and" &&
+              where.conditions?.every((condition) => condition.kind === "eq")
+            ? where.conditions
+            : undefined;
       return Promise.resolve(
-        state.rowsByCall.length ? (state.rowsByCall.shift() ?? []) : state.rows,
+        equals
+          ? candidates.filter((row) =>
+              equals.every(
+                (condition) =>
+                  row[condition.target?.name ?? ""] === condition.value,
+              ),
+            )
+          : candidates,
       );
     },
   };
   const db = {
-    select: (projection: Record<string, unknown>) => {
-      state.projection = projection;
+    select: (projection?: Record<string, unknown>) => {
+      state.projection = projection ?? null;
       return {
         from: () => ({
           where: (where: unknown) => {
@@ -112,7 +145,255 @@ vi.mock("../db/index.js", () => {
   };
 });
 
-const { searchDashboardReferences } = await import("./dashboards-store.js");
+const {
+  getAnalysisForReview,
+  getDashboardForReview,
+  getPublicDashboardMetadata,
+  searchDashboardReferences,
+  searchDashboardReferencesPage,
+} = await import("./dashboards-store.js");
+
+describe("getPublicDashboardMetadata", () => {
+  beforeEach(() => {
+    state.rows = [];
+    state.rowsByCall = [];
+    state.legacySettings = {};
+    state.projection = null;
+    state.where = null;
+    state.limit = null;
+  });
+
+  it("guards metadata extraction when dashboard config is malformed", async () => {
+    state.rows = [
+      {
+        title: "Public dashboard",
+        description: null,
+        panelTitlesJson: "[]",
+      },
+    ];
+
+    await expect(getPublicDashboardMetadata("dashboard-1")).resolves.toEqual({
+      title: "Public dashboard",
+      description: null,
+      panelTitles: [],
+    });
+    expect(state.where).toEqual(
+      expect.objectContaining({
+        kind: "and",
+        conditions: expect.arrayContaining([
+          { kind: "isNull", target: { name: "archivedAt" } },
+        ]),
+      }),
+    );
+
+    const projection = JSON.stringify(state.projection);
+    expect(projection.match(/is json/g)).toHaveLength(2);
+    expect(projection).toContain("else '{}'::jsonb");
+  });
+});
+
+describe("Human Review artifact read scopes", () => {
+  beforeEach(() => {
+    state.rows = [];
+    state.rowsByCall = [];
+    state.legacySettings = {};
+    state.projection = null;
+    state.where = null;
+    state.limit = null;
+  });
+
+  it("limits ordinary dashboard and analysis reads to their organization", async () => {
+    state.rows = [
+      {
+        id: "dashboard-1",
+        kind: "sql",
+        title: "Customer dashboard",
+        config: "{}",
+        ownerEmail: "customer@example.com",
+        orgId: "org-customer",
+        visibility: "private",
+        updatedAt: "2026-09-01T00:00:00.000Z",
+        createdAt: "2026-09-01T00:00:00.000Z",
+      },
+    ];
+    const dashboard = await getDashboardForReview("dashboard-1", {
+      kind: "organization",
+      orgId: "org-customer",
+    });
+    expect(dashboard?.orgId).toBe("org-customer");
+    expect(state.where).toEqual({
+      kind: "and",
+      conditions: [
+        { kind: "eq", target: { name: "id" }, value: "dashboard-1" },
+        {
+          kind: "eq",
+          target: { name: "orgId" },
+          value: "org-customer",
+        },
+      ],
+    });
+    state.rows = [
+      {
+        id: "dashboard-1",
+        kind: "sql",
+        title: "Other customer dashboard",
+        config: "{}",
+        ownerEmail: "other@example.com",
+        orgId: "org-other",
+        visibility: "private",
+        updatedAt: "2026-09-01T00:00:00.000Z",
+        createdAt: "2026-09-01T00:00:00.000Z",
+      },
+    ];
+    await expect(
+      getDashboardForReview("dashboard-1", {
+        kind: "organization",
+        orgId: "org-customer",
+      }),
+    ).resolves.toBeNull();
+
+    state.rows = [
+      {
+        id: "analysis-1",
+        name: "Customer analysis",
+        description: "",
+        question: "",
+        instructions: "",
+        dataSources: "[]",
+        resultMarkdown: "Result",
+        resultData: null,
+        ownerEmail: "customer@example.com",
+        orgId: "org-customer",
+        visibility: "private",
+        createdAt: "2026-09-01T00:00:00.000Z",
+        updatedAt: "2026-09-01T00:00:00.000Z",
+      },
+    ];
+    const analysis = await getAnalysisForReview("analysis-1", {
+      kind: "organization",
+      orgId: "org-customer",
+    });
+    expect(analysis?.orgId).toBe("org-customer");
+    expect(state.where).toEqual({
+      kind: "and",
+      conditions: [
+        { kind: "eq", target: { name: "id" }, value: "analysis-1" },
+        {
+          kind: "eq",
+          target: { name: "orgId" },
+          value: "org-customer",
+        },
+      ],
+    });
+    state.rows = [
+      {
+        id: "analysis-1",
+        name: "Other customer analysis",
+        description: "",
+        question: "",
+        instructions: "",
+        dataSources: "[]",
+        resultMarkdown: "Private result",
+        resultData: null,
+        ownerEmail: "other@example.com",
+        orgId: "org-other",
+        visibility: "private",
+        createdAt: "2026-09-01T00:00:00.000Z",
+        updatedAt: "2026-09-01T00:00:00.000Z",
+      },
+    ];
+    await expect(
+      getAnalysisForReview("analysis-1", {
+        kind: "organization",
+        orgId: "org-customer",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("scopes super-organization artifact reads to the selected customer", async () => {
+    state.rows = [
+      {
+        id: "dashboard-1",
+        kind: "sql",
+        title: "Customer dashboard",
+        config: "{}",
+        ownerEmail: "customer@example.com",
+        orgId: "org-customer",
+        visibility: "private",
+        updatedAt: "2026-09-01T00:00:00.000Z",
+        createdAt: "2026-09-01T00:00:00.000Z",
+      },
+    ];
+    const dashboard = await getDashboardForReview("dashboard-1", {
+      kind: "super-organization",
+      orgId: "org-customer",
+    });
+    expect(state.where).toEqual({
+      kind: "and",
+      conditions: [
+        { kind: "eq", target: { name: "id" }, value: "dashboard-1" },
+        {
+          kind: "eq",
+          target: { name: "orgId" },
+          value: "org-customer",
+        },
+      ],
+    });
+    expect(dashboard?.orgId).toBe("org-customer");
+
+    state.rows[0] = { ...state.rows[0], orgId: "org-other" };
+    await expect(
+      getDashboardForReview("dashboard-1", {
+        kind: "super-organization",
+        orgId: "org-customer",
+      }),
+    ).resolves.toBeNull();
+
+    state.rows = [
+      {
+        id: "analysis-1",
+        name: "Customer analysis",
+        description: "",
+        question: "",
+        instructions: "",
+        dataSources: "[]",
+        resultMarkdown: "Result",
+        resultData: null,
+        ownerEmail: "customer@example.com",
+        orgId: "org-customer",
+        visibility: "private",
+        createdAt: "2026-09-01T00:00:00.000Z",
+        updatedAt: "2026-09-01T00:00:00.000Z",
+      },
+    ];
+
+    const result = await getAnalysisForReview("analysis-1", {
+      kind: "super-organization",
+      orgId: "org-customer",
+    });
+
+    expect(state.where).toEqual({
+      kind: "and",
+      conditions: [
+        { kind: "eq", target: { name: "id" }, value: "analysis-1" },
+        {
+          kind: "eq",
+          target: { name: "orgId" },
+          value: "org-customer",
+        },
+      ],
+    });
+    expect(result?.orgId).toBe("org-customer");
+
+    state.rows[0] = { ...state.rows[0], orgId: "org-other" };
+    await expect(
+      getAnalysisForReview("analysis-1", {
+        kind: "super-organization",
+        orgId: "org-customer",
+      }),
+    ).resolves.toBeNull();
+  });
+});
 
 describe("searchDashboardReferences", () => {
   beforeEach(() => {
@@ -148,7 +429,7 @@ describe("searchDashboardReferences", () => {
       99,
     );
 
-    expect(state.limit).toBe(200);
+    expect(state.limit).toBe(201);
     expect(state.projection).toHaveProperty("config");
     expect(JSON.stringify(state.where)).toContain("ESCAPE");
     expect(JSON.stringify(state.where)).toContain("%revenue\\\\_\\\\%%");
@@ -162,7 +443,7 @@ describe("searchDashboardReferences", () => {
         orgId: "org-1",
         visibility: "org",
         updatedAt: "2026-08-13T00:00:00.000Z",
-        matchedFields: ["id", "config"],
+        matchedFields: ["id", "name", "description", "config"],
       },
     ]);
   });
@@ -205,6 +486,101 @@ describe("searchDashboardReferences", () => {
     ]);
     expect(result.map((row) => row.kind)).toEqual(["explorer", "sql"]);
     expect(result[0]?.matchedFields).toContain("name");
+  });
+
+  it("uses shared synonyms and returns searched/of/truncated/page metadata", async () => {
+    state.rows = [
+      {
+        id: "org-role-dashboard",
+        kind: "sql",
+        name: "Organization user role",
+        description: "Membership dimensions",
+        config: JSON.stringify({ panels: [] }),
+        ownerEmail: "alice@example.com",
+        orgId: "org-1",
+        visibility: "org",
+        updatedAt: "2026-08-13T00:00:00.000Z",
+      },
+    ];
+
+    const result = await searchDashboardReferencesPage(
+      { email: "alice@example.com", orgId: "org-1" },
+      "workspace members",
+    );
+
+    expect(result).toMatchObject({
+      searched: 1,
+      of: 1,
+      truncated: false,
+      nextPage: null,
+    });
+    expect(result.results[0]).toMatchObject({
+      id: "org-role-dashboard",
+      matchedFields: expect.arrayContaining(["name"]),
+    });
+  });
+
+  it("pages matching references and flags a capped candidate scan", async () => {
+    state.rows = Array.from({ length: 201 }, (_, index) => ({
+      id: `revenue-dashboard-${index}`,
+      kind: "sql",
+      name: `Revenue dashboard ${index}`,
+      description: "Revenue summary",
+      config: JSON.stringify({ panels: [] }),
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      visibility: "org",
+      updatedAt: `2026-08-${String(30 - (index % 20)).padStart(2, "0")}T00:00:00.000Z`,
+    }));
+
+    const firstPage = await searchDashboardReferencesPage(
+      { email: "alice@example.com", orgId: "org-1" },
+      "revenue",
+      1,
+    );
+    expect(firstPage).toMatchObject({
+      searched: 200,
+      of: 200,
+      truncated: true,
+    });
+    expect(firstPage.nextPage).toBeTruthy();
+
+    const secondPage = await searchDashboardReferencesPage(
+      { email: "alice@example.com", orgId: "org-1" },
+      "revenue",
+      1,
+      firstPage.nextPage ?? undefined,
+    );
+    expect(secondPage.results[0]?.id).not.toBe(firstPage.results[0]?.id);
+  });
+
+  it("keeps malformed configs from aborting reference search", async () => {
+    state.rows = [
+      {
+        id: "revenue-dashboard",
+        kind: "sql",
+        name: "Revenue",
+        config: "{not-json",
+        ownerEmail: "alice@example.com",
+        orgId: "org-1",
+        visibility: "org",
+        updatedAt: "2026-08-13T01:00:00.000Z",
+      },
+    ];
+
+    const result = await searchDashboardReferences(
+      { email: "alice@example.com", orgId: "org-1" },
+      "revenue",
+      8,
+    );
+
+    expect(result).toMatchObject([
+      {
+        id: "revenue-dashboard",
+        name: "Revenue",
+        description: null,
+      },
+    ]);
   });
 
   it("searches scoped legacy dashboard settings without returning duplicates", async () => {

@@ -5,12 +5,15 @@ import {
   normalizeGuestNotificationMessage,
   sendEventGuestNotificationNote,
 } from "../server/lib/event-guest-notifications.js";
-import { isGoogleNotFoundError } from "../server/lib/google-api.js";
+import { isGoogleEventAbsentError } from "../server/lib/google-api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import {
   cliBoolean,
-  normalizeGoogleEventId,
+  googleEventResultId,
+  normalizeWritableGoogleEventId,
+  rawCliBoolean,
   requireActionUserEmail,
+  resolveGoogleEventAccountEmail,
   resolveOwnedAccountEmail,
 } from "./event-action-helpers.js";
 
@@ -49,6 +52,9 @@ export default defineAction({
       ),
   }),
   toolCallable: false,
+  needsApproval: ({ sendUpdates, notificationMessage, removeOnly }) =>
+    !rawCliBoolean(removeOnly) &&
+    (sendUpdates === "all" || !!notificationMessage?.trim()),
   run: async (args) => {
     const ownerEmail = requireActionUserEmail();
     if (!(await googleCalendar.isConnected(ownerEmail))) {
@@ -57,11 +63,11 @@ export default defineAction({
       );
     }
 
-    const googleEventId = normalizeGoogleEventId(args.id);
     const accountEmail = await resolveOwnedAccountEmail(
-      args.accountEmail,
+      resolveGoogleEventAccountEmail(args.id, args.accountEmail),
       ownerEmail,
     );
+    const googleEventId = normalizeWritableGoogleEventId(args.id);
     const guestNotificationMessage = normalizeGuestNotificationMessage(
       args.notificationMessage,
     );
@@ -95,12 +101,12 @@ export default defineAction({
         );
       }
     } catch (error) {
-      if (!isGoogleNotFoundError(error)) throw error;
+      if (!isGoogleEventAbsentError(error)) throw error;
 
       return {
         success: true,
         alreadyAbsent: true,
-        id: `google-${googleEventId}`,
+        id: googleEventResultId(args.id, googleEventId, accountEmail),
         accountEmail,
         scope: args.scope,
         removedOnly: args.removeOnly ?? false,
@@ -121,7 +127,7 @@ export default defineAction({
     return {
       success: true,
       alreadyAbsent: false,
-      id: `google-${googleEventId}`,
+      id: googleEventResultId(args.id, googleEventId, accountEmail),
       accountEmail,
       scope: args.scope,
       removedOnly: args.removeOnly ?? false,

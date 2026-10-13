@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
+  FigmaFileUrlUsedAsTokenError,
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
   type FigmaConnectionStatus,
@@ -162,9 +163,11 @@ export function FigmaLinkComposerBubble({
       // Do not retain a rejected credential in component state or the DOM.
       setToken("");
       setError(
-        reason instanceof Error
-          ? reason.message
-          : t("chat.figmaLink.connectFailed"),
+        reason instanceof FigmaFileUrlUsedAsTokenError
+          ? t("designEditor.import.errors.figmaTokenMustBeToken")
+          : reason instanceof Error
+            ? reason.message
+            : t("chat.figmaLink.connectFailed"),
       );
     } finally {
       setSaving(false);
@@ -173,14 +176,30 @@ export function FigmaLinkComposerBubble({
 
   const handleAgentAction = useCallback(
     (action: FigmaLinkChatAction) => {
-      const prompt = buildFigmaLinkChatPrompt(action, link, designId);
+      const destination = designId
+        ? t("chat.figmaLink.currentDesign")
+        : t("chat.figmaLink.chooseDesign");
+      const prompt = buildFigmaLinkChatPrompt(action, link, {
+        importFrame: t("chat.figmaLink.importFramePrompt", {
+          destination,
+          url: link.url,
+        }),
+        importFile: t("chat.figmaLink.importFilePrompt", { url: link.url }),
+        inspectFrame: t("chat.figmaLink.inspectFramePrompt", {
+          url: link.url,
+        }),
+        inspectFile: t("chat.figmaLink.inspectFilePrompt", {
+          url: link.url,
+        }),
+        exportSvg: t("chat.figmaLink.exportSvgPrompt"),
+      });
       sendToDesignAgentChat({
         ...prompt,
         submit: false,
         openSidebar: false,
       });
     },
-    [designId, link],
+    [designId, link, t],
   );
 
   return (

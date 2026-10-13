@@ -15,8 +15,6 @@ vi.mock("./recordings.js", () => ({
   nanoid: () => "view-1",
 }));
 
-// A real table, not a stub: the conflict-update assertion below checks the SQL
-// actually rendered for the label, which needs real column metadata.
 vi.mock("../db/index.js", async () => {
   const { pgTable, text, integer } = await import("drizzle-orm/pg-core");
   return {

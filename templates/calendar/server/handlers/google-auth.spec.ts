@@ -5,12 +5,14 @@ const mocks = vi.hoisted(() => ({
   decodeOAuthState: vi.fn(),
   disconnect: vi.fn(),
   encodeOAuthState: vi.fn(),
+  ensureGoogleAuthIdentity: vi.fn(),
   exchangeCode: vi.fn(),
   getAppUrl: vi.fn(),
   getAuthStatus: vi.fn(),
   getAuthUrl: vi.fn(),
   getSession: vi.fn(),
   isElectron: vi.fn(),
+  logOAuthStateDecodeFailure: vi.fn(),
   oauthCallbackResponse: vi.fn(),
   oauthDesktopExchangePage: vi.fn(),
   oauthErrorPage: vi.fn(),
@@ -26,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   setDesktopExchange: vi.fn(),
   setDesktopExchangeError: vi.fn(),
   setResponseStatus: vi.fn(),
+  wrapNetlifyPreviewGoogleOAuthState: vi.fn(),
 }));
 
 vi.mock("h3", () => ({
@@ -44,9 +47,11 @@ vi.mock("@agent-native/core/server", () => ({
   createOAuthSession: mocks.createOAuthSession,
   decodeOAuthState: mocks.decodeOAuthState,
   encodeOAuthState: mocks.encodeOAuthState,
+  ensureGoogleAuthIdentity: mocks.ensureGoogleAuthIdentity,
   getAppUrl: mocks.getAppUrl,
   getSession: mocks.getSession,
   isElectron: mocks.isElectron,
+  logOAuthStateDecodeFailure: mocks.logOAuthStateDecodeFailure,
   oauthCallbackResponse: mocks.oauthCallbackResponse,
   oauthDesktopExchangePage: mocks.oauthDesktopExchangePage,
   oauthErrorPage: mocks.oauthErrorPage,
@@ -90,6 +95,7 @@ vi.mock("@agent-native/core/server", () => ({
   safeReturnPath: mocks.safeReturnPath,
   setDesktopExchange: mocks.setDesktopExchange,
   setDesktopExchangeError: mocks.setDesktopExchangeError,
+  wrapNetlifyPreviewGoogleOAuthState: mocks.wrapNetlifyPreviewGoogleOAuthState,
 }));
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
@@ -109,6 +115,7 @@ vi.mock("../lib/google-calendar.js", () => ({
 
 const {
   getGoogleAuthUrl,
+  getGoogleAddAccountUrl,
   handleGoogleAddAccountCallback,
   handleGoogleCallback,
 } = await import("./google-auth.js");
@@ -144,6 +151,9 @@ describe("Calendar Google auth-url handler", () => {
       (_context: unknown, callback: () => unknown) => callback(),
     );
     mocks.encodeOAuthState.mockReturnValue("encoded-state");
+    mocks.wrapNetlifyPreviewGoogleOAuthState.mockImplementation(
+      (_event: unknown, state: string) => state,
+    );
     mocks.registerDesktopExchange.mockResolvedValue("v".repeat(43));
     mocks.prepareDesktopOAuthBrowserBinding.mockReturnValue("b".repeat(43));
     mocks.matchesDesktopOAuthBrowserBinding.mockReturnValue(true);
@@ -242,9 +252,35 @@ describe("Calendar Google auth-url handler", () => {
       "owner@example.com",
       "org-123",
     );
+    expect(mocks.resolveOAuthRedirectUri).toHaveBeenCalledWith(
+      expect.anything(),
+      "/_agent-native/google/callback",
+      {
+        allowRootCallback: true,
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
+    );
     expect(result).toEqual({
       url: "https://accounts.google.com/o/oauth2/v2/auth?scope=calendar&state=encoded-state",
     });
+  });
+
+  it("uses the root callback for add-account OAuth on mounted apps", async () => {
+    mocks.getSession.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-123",
+    });
+
+    await getGoogleAddAccountUrl(createEvent() as any);
+
+    expect(mocks.resolveOAuthRedirectUri).toHaveBeenCalledWith(
+      expect.anything(),
+      "/_agent-native/google/callback",
+      {
+        allowRootCallback: true,
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
+    );
   });
 
   it("publishes a desktop exchange for Calendar connect without switching away from the owner", async () => {
@@ -253,6 +289,7 @@ describe("Calendar Google auth-url handler", () => {
       state: "encoded-state",
     });
     mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
       redirectUri:
         "https://calendar.agent-native.com/_agent-native/google/callback",
       owner: "owner@example.com",
@@ -313,6 +350,7 @@ describe("Calendar Google auth-url handler", () => {
     });
     mocks.getSession.mockResolvedValue(null);
     mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
       redirectUri:
         "https://calendar.agent-native.com/_agent-native/google/add-account/callback",
       owner: "owner@example.com",
@@ -365,6 +403,7 @@ describe("Calendar Google auth-url handler", () => {
     const event = createEvent({ code: "google-code", state: "encoded-state" });
     mocks.getSession.mockResolvedValue(null);
     mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
       redirectUri:
         "https://calendar.agent-native.com/_agent-native/google/add-account/callback",
       owner: "second-login@example.com",
@@ -394,6 +433,7 @@ describe("Calendar Google auth-url handler", () => {
     });
     mocks.getSession.mockResolvedValue(null);
     mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
       redirectUri:
         "https://calendar.agent-native.com/_agent-native/google/callback",
       owner: "owner@example.com",
@@ -421,6 +461,46 @@ describe("Calendar Google auth-url handler", () => {
       expect.objectContaining({
         mobile: true,
         sessionToken: "owner-session-token",
+      }),
+    );
+  });
+
+  it("passes the canonical new-user result into Google signup tracking", async () => {
+    const event = createEvent({ code: "google-code", state: "encoded-state" });
+    mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
+      redirectUri:
+        "https://calendar.agent-native.com/_agent-native/google/callback",
+    });
+    mocks.resolveOAuthOwner.mockResolvedValue({
+      owner: undefined,
+      hasProductionSession: false,
+    });
+    mocks.ensureGoogleAuthIdentity.mockResolvedValue(true);
+    mocks.oauthCallbackResponse.mockReturnValue("ok");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(Response.json({ access_token: "token" }))
+        .mockResolvedValueOnce(
+          Response.json({
+            email: "new-user@example.com",
+            id: "google-user-1",
+            name: "New User",
+            picture: "https://lh3.googleusercontent.com/a/avatar.jpg",
+            verified_email: true,
+          }),
+        ),
+    );
+
+    await expect(handleGoogleCallback(event as any)).resolves.toBe("ok");
+
+    expect(mocks.createOAuthSession).toHaveBeenCalledWith(
+      event,
+      "new-user@example.com",
+      expect.objectContaining({
+        trackSignup: expect.objectContaining({ isNewUser: true }),
       }),
     );
   });

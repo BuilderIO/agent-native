@@ -1,14 +1,4 @@
-/**
- * Bidirectional JSON <-> Yjs conversion and diffing.
- *
- * Converts plain JSON objects/arrays into Y.Map/Y.Array structures and back,
- * with minimal-diff application for collaborative editing of structured data
- * (timelines, dashboards, design objects, etc.).
- */
-
 import * as Y from "yjs";
-
-// ─── Types ──────────────────────────────────────────────────────────
 
 export type PatchOp =
   | { op: "set"; path: string; value: any }
@@ -16,12 +6,6 @@ export type PatchOp =
   | { op: "delete"; path: string }
   | { op: "move"; path: string; from: number; to: number };
 
-// ─── JSON → Yjs Seeding ────────────────────────────────────────────
-
-/**
- * Recursively convert a plain JS value into a Yjs shared type.
- * Objects become Y.Map, arrays become Y.Array, primitives stay as-is.
- */
 function jsonToYType(value: any): any {
   if (value === null || value === undefined) return value;
   if (Array.isArray(value)) {
@@ -37,15 +21,9 @@ function jsonToYType(value: any): any {
     }
     return ymap;
   }
-  // Primitive (string, number, boolean)
   return value;
 }
 
-/**
- * Populate a Y.Map or Y.Array from plain JSON on a Y.Doc.
- * Recursive: objects become nested Y.Map, arrays become nested Y.Array.
- * Primitives (string, number, boolean, null) stay as-is.
- */
 export function seedYDocFromJson(
   doc: Y.Doc,
   fieldName: string,
@@ -70,12 +48,6 @@ export function seedYDocFromJson(
   });
 }
 
-// ─── Yjs → JSON Serialization ──────────────────────────────────────
-
-/**
- * Serialize a Y.Map to a plain JS object.
- * Recurses into nested Y.Map/Y.Array.
- */
 export function yMapToJson(ymap: Y.Map<any>): Record<string, any> {
   const result: Record<string, any> = {};
   ymap.forEach((value, key) => {
@@ -84,10 +56,6 @@ export function yMapToJson(ymap: Y.Map<any>): Record<string, any> {
   return result;
 }
 
-/**
- * Serialize a Y.Array to a plain JS array.
- * Recurses into nested Y.Map/Y.Array.
- */
 export function yArrayToJson(yarray: Y.Array<any>): any[] {
   const result: any[] = [];
   for (let i = 0; i < yarray.length; i++) {
@@ -96,17 +64,12 @@ export function yArrayToJson(yarray: Y.Array<any>): any[] {
   return result;
 }
 
-/** Convert any Yjs type to its plain JS equivalent. */
 function yTypeToJson(value: any): any {
   if (value instanceof Y.Map) return yMapToJson(value);
   if (value instanceof Y.Array) return yArrayToJson(value);
   return value;
 }
 
-/**
- * Get the shared type by name from a Y.Doc and serialize it to JSON.
- * Returns the plain JS object or array.
- */
 export function yDocToJson(doc: Y.Doc, fieldName: string): any {
   const existing = doc.share.get(fieldName);
   if (existing instanceof Y.Array) return yArrayToJson(existing);
@@ -114,16 +77,6 @@ export function yDocToJson(doc: Y.Doc, fieldName: string): any {
   return {};
 }
 
-// ─── JSON Diff → Yjs Operations ────────────────────────────────────
-
-/**
- * Diff new JSON against current Y.Map/Y.Array state, apply minimal
- * Yjs operations in a transaction. Returns the binary update captured
- * from the transaction.
- *
- * For arrays, matches items by `id` field if present (stable identity),
- * falls back to index matching.
- */
 export function applyJsonDiff(
   doc: Y.Doc,
   fieldName: string,
@@ -150,9 +103,7 @@ export function applyJsonDiff(
   return update;
 }
 
-/** Recursively diff a Y.Map against a plain object, applying minimal ops. */
 function diffMap(ymap: Y.Map<any>, newObj: Record<string, any>): void {
-  // Remove keys that no longer exist
   const keysToDelete: string[] = [];
   ymap.forEach((_value, key) => {
     if (!(key in newObj)) {
@@ -163,26 +114,20 @@ function diffMap(ymap: Y.Map<any>, newObj: Record<string, any>): void {
     ymap.delete(key);
   }
 
-  // Set new/changed keys
   for (const [key, newValue] of Object.entries(newObj)) {
     const existing = ymap.get(key);
 
     if (existing instanceof Y.Map && isPlainObject(newValue)) {
-      // Recurse into nested map
       diffMap(existing, newValue);
     } else if (existing instanceof Y.Array && Array.isArray(newValue)) {
-      // Recurse into nested array
       diffArray(existing, newValue);
     } else if (!deepEqual(yTypeToJson(existing), newValue)) {
-      // Value changed or type changed — set the new value
       ymap.set(key, jsonToYType(newValue));
     }
   }
 }
 
-/** Recursively diff a Y.Array against a plain array, applying minimal ops. */
 function diffArray(yarray: Y.Array<any>, newArr: any[]): void {
-  // Check if items have `id` fields for stable identity matching
   const hasIds =
     newArr.length > 0 &&
     newArr.every((item) => item && typeof item === "object" && "id" in item);
@@ -194,9 +139,7 @@ function diffArray(yarray: Y.Array<any>, newArr: any[]): void {
   }
 }
 
-/** Diff array items using `id` field for stable matching. */
 function diffArrayById(yarray: Y.Array<any>, newArr: any[]): void {
-  // Build map of existing items by id
   const existingMap = new Map<string, { index: number; yitem: any }>();
   for (let i = 0; i < yarray.length; i++) {
     const item = yarray.get(i);
@@ -208,10 +151,8 @@ function diffArrayById(yarray: Y.Array<any>, newArr: any[]): void {
     }
   }
 
-  // Build new id set
   const newIds = new Set(newArr.map((item) => String(item.id)));
 
-  // Remove items no longer present (iterate in reverse to preserve indices)
   const toRemove: number[] = [];
   for (let i = 0; i < yarray.length; i++) {
     const item = yarray.get(i);
@@ -226,8 +167,6 @@ function diffArrayById(yarray: Y.Array<any>, newArr: any[]): void {
     yarray.delete(toRemove[i], 1);
   }
 
-  // Now rebuild the array to match the new order, diffing matched items
-  // and inserting new ones
   for (let i = 0; i < newArr.length; i++) {
     const newItem = newArr[i];
     const newId = String(newItem.id);
@@ -236,15 +175,12 @@ function diffArrayById(yarray: Y.Array<any>, newArr: any[]): void {
       currentItem instanceof Y.Map ? currentItem.get("id") : undefined;
 
     if (currentId !== undefined && String(currentId) === newId) {
-      // Same item at same index — diff in place
       if (currentItem instanceof Y.Map && isPlainObject(newItem)) {
         diffMap(currentItem, newItem);
       }
     } else {
-      // Check if the item exists elsewhere in the array
       const existingEntry = existingMap.get(newId);
       if (existingEntry && existingEntry.yitem instanceof Y.Map) {
-        // Item exists but at wrong position — find its current index and move
         let currentIdx = -1;
         for (let j = 0; j < yarray.length; j++) {
           const candidate = yarray.get(j);
@@ -257,38 +193,31 @@ function diffArrayById(yarray: Y.Array<any>, newArr: any[]): void {
           }
         }
         if (currentIdx !== -1 && currentIdx !== i) {
-          // Move by delete + insert
           const itemJson = yTypeToJson(yarray.get(currentIdx));
           yarray.delete(currentIdx, 1);
           const insertIdx = Math.min(i, yarray.length);
           yarray.insert(insertIdx, [jsonToYType(itemJson)]);
-          // Diff the moved item
           const movedItem = yarray.get(insertIdx);
           if (movedItem instanceof Y.Map && isPlainObject(newItem)) {
             diffMap(movedItem, newItem);
           }
         } else if (currentIdx === -1) {
-          // Not found — insert new
           const insertIdx = Math.min(i, yarray.length);
           yarray.insert(insertIdx, [jsonToYType(newItem)]);
         }
       } else {
-        // New item — insert at position
         const insertIdx = Math.min(i, yarray.length);
         yarray.insert(insertIdx, [jsonToYType(newItem)]);
       }
     }
   }
 
-  // Trim excess items at the end
   while (yarray.length > newArr.length) {
     yarray.delete(yarray.length - 1, 1);
   }
 }
 
-/** Diff array items by index (no stable identity). */
 function diffArrayByIndex(yarray: Y.Array<any>, newArr: any[]): void {
-  // Update existing items in place
   const minLen = Math.min(yarray.length, newArr.length);
   for (let i = 0; i < minLen; i++) {
     const existing = yarray.get(i);
@@ -304,26 +233,16 @@ function diffArrayByIndex(yarray: Y.Array<any>, newArr: any[]): void {
     }
   }
 
-  // Remove trailing items
   if (yarray.length > newArr.length) {
     yarray.delete(newArr.length, yarray.length - newArr.length);
   }
 
-  // Append new items
   if (newArr.length > yarray.length) {
     const toAdd = newArr.slice(yarray.length).map((item) => jsonToYType(item));
     yarray.push(toAdd);
   }
 }
 
-// ─── JSON Patch Operations ─────────────────────────────────────────
-
-/**
- * Apply surgical patch operations to a Y.Doc's shared data.
- * Path strings use "/" as separator (e.g. "tracks/0/endFrame").
- *
- * Returns the binary update captured from the transaction.
- */
 export function applyJsonPatch(
   doc: Y.Doc,
   fieldName: string,
@@ -404,10 +323,6 @@ function applyOnePatch(doc: Y.Doc, fieldName: string, patchOp: PatchOp): void {
   }
 }
 
-/**
- * Navigate the Y.Map/Y.Array tree to the parent of the final segment.
- * Returns the parent and the last key/index segment.
- */
 function navigateToParent(
   doc: Y.Doc,
   fieldName: string,
@@ -425,15 +340,11 @@ function navigateToParent(
   return { parent: null, key };
 }
 
-/**
- * Navigate the Y.Map/Y.Array tree to the target at the given path segments.
- */
 function navigateToTarget(
   doc: Y.Doc,
   fieldName: string,
   segments: string[],
 ): any {
-  // Start with the root shared type — try map first, then array
   let current: any = doc.getMap(fieldName);
   if (current.size === 0) {
     const arr = doc.getArray(fieldName);
@@ -456,12 +367,6 @@ function navigateToTarget(
   return current;
 }
 
-// ─── Init Helper ────────────────────────────────────────────────────
-
-/**
- * Create a new Y.Doc pre-populated with JSON data.
- * Returns the doc and its full state as a Uint8Array.
- */
 export function initYDocWithJson(
   fieldName: string,
   json: any,
@@ -472,8 +377,6 @@ export function initYDocWithJson(
   const state = Y.encodeStateAsUpdate(doc);
   return { doc, state };
 }
-
-// ─── Utility ────────────────────────────────────────────────────────
 
 function isPlainObject(value: any): value is Record<string, any> {
   return value !== null && typeof value === "object" && !Array.isArray(value);

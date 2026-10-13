@@ -2,6 +2,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -106,7 +107,7 @@ export default function SetupRoute() {
       toast.success(
         `Recent ${providerLabel(selected.provider)} records are ready.`,
       );
-      navigate("/", { replace: true });
+      void navigate("/home", { replace: true });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "CRM sync failed.");
     }
@@ -116,7 +117,7 @@ export default function SetupRoute() {
     try {
       await configureNative.mutateAsync({});
       toast.success("Your native CRM is ready.");
-      navigate("/", { replace: true });
+      void navigate("/home", { replace: true });
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Could not start native CRM.",
@@ -138,7 +139,7 @@ export default function SetupRoute() {
             <p className="text-sm leading-6 text-muted-foreground">
               Run accounts, people, opportunities, saved views, tasks, and
               cadence without connecting another CRM. Your CRM is
-              local-authoritative and portable across SQLite, Postgres, and D1.
+              local-authoritative and uses PostgreSQL.
             </p>
           </div>
           <Button
@@ -250,7 +251,9 @@ export default function SetupRoute() {
               grant it to CRM from shared settings.
             </p>
             <Button asChild variant="outline" className="mt-4">
-              <Link to="/settings/connections">Open shared connections</Link>
+              <Link to={buildSettingsRoute("integrations")}>
+                Open shared connections
+              </Link>
             </Button>
             <p className="mt-3 text-xs text-muted-foreground">
               Using a Salesforce sandbox?{" "}

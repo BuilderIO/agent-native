@@ -23,7 +23,7 @@ export function prewarmFormsRoutePath(path: string) {
   const pathname = parsePath(path);
   const jobs: Promise<unknown>[] = [];
 
-  if (pathname === "/" || pathname === "/ask") {
+  if (pathname === "/home" || pathname === "/ask") {
     jobs.push(
       prewarm("layout", () => import("@/routes/_app")),
       prewarm("ask", () => import("@/routes/_app.ask")),

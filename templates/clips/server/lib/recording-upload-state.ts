@@ -1,4 +1,105 @@
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
+
+export interface RecordingUploadAttempt {
+  recordingId: string;
+  uploadAttemptId: string | null;
+  uploadGenerationId: string | null;
+}
+
+function recordingUploadStateRecord(
+  state: unknown,
+): Record<string, unknown> | null {
+  return state && typeof state === "object"
+    ? (state as Record<string, unknown>)
+    : null;
+}
+
+function validBrowserSessionId(value: unknown): string | undefined {
+  return typeof value === "string" && /^[!-~]{1,127}$/.test(value)
+    ? value
+    : undefined;
+}
+
+export function recordingUploadStateMatchesAttempt(
+  state: unknown,
+  attempt: RecordingUploadAttempt,
+): boolean {
+  const record = recordingUploadStateRecord(state);
+  return (
+    record?.recordingId === attempt.recordingId &&
+    (record.uploadAttemptId ?? null) === attempt.uploadAttemptId &&
+    (record.uploadGenerationId ?? null) === attempt.uploadGenerationId
+  );
+}
+
+export function recordingUploadBrowserSessionId(
+  state: unknown,
+  attempt: RecordingUploadAttempt,
+): string | undefined {
+  if (!recordingUploadStateMatchesAttempt(state, attempt)) return undefined;
+  return validBrowserSessionId(
+    recordingUploadStateRecord(state)?.browserSessionId,
+  );
+}
+
+export function recordingUploadStateForAttempt(params: {
+  state: unknown;
+  attempt: RecordingUploadAttempt;
+  browserSessionId?: string;
+}): Record<string, unknown> {
+  const { state, attempt, browserSessionId } = params;
+  const record = recordingUploadStateRecord(state);
+  const matchesAttempt = recordingUploadStateMatchesAttempt(state, attempt);
+  const isInitialUploadState =
+    record?.recordingId === attempt.recordingId &&
+    record.status === "uploading" &&
+    record.uploadAttemptId == null &&
+    record.uploadGenerationId == null;
+  const storedBrowserSessionId = recordingUploadBrowserSessionId(
+    state,
+    attempt,
+  );
+  const baseState: Record<string, unknown> =
+    matchesAttempt && record
+      ? record
+      : isInitialUploadState && record
+        ? { ...record }
+        : {};
+  if (!matchesAttempt) delete baseState.browserSessionId;
+  const nextState: Record<string, unknown> = {
+    ...baseState,
+    recordingId: attempt.recordingId,
+    uploadAttemptId: attempt.uploadAttemptId,
+    uploadGenerationId: attempt.uploadGenerationId,
+  };
+  const sessionId =
+    storedBrowserSessionId ?? validBrowserSessionId(browserSessionId);
+  if (sessionId) nextState.browserSessionId = sessionId;
+  return nextState;
+}
+
+export function recordingUploadStateForAttemptIfCurrent(params: {
+  state: unknown;
+  attempt: RecordingUploadAttempt;
+  browserSessionId: string;
+}): Record<string, unknown> | null {
+  const { state, attempt } = params;
+  const record = recordingUploadStateRecord(state);
+  const matchesAttempt = recordingUploadStateMatchesAttempt(state, attempt);
+  const isInitialUploadState =
+    record?.recordingId === attempt.recordingId &&
+    record.status === "uploading" &&
+    record.uploadAttemptId == null &&
+    record.uploadGenerationId == null;
+  if (
+    state !== null &&
+    state !== undefined &&
+    (!record || (!matchesAttempt && !isInitialUploadState))
+  ) {
+    return null;
+  }
+  return recordingUploadStateForAttempt(params);
+}
 
 function escapeLike(value: string): string {
   return value.replace(/[!%_]/g, (match) => `!${match}`);
@@ -32,7 +133,7 @@ function exactChunkKeyArgs(
   ];
 }
 
-const exactChunkKeyWhere = `session_id = ? AND key LIKE ? ESCAPE '!' AND length(key) = ? AND key >= ? AND key <= ?`;
+const exactChunkKeyWhere = `session_id = $1 AND key LIKE $2 ESCAPE '!' AND length(key) = $3 AND key >= $4 AND key <= $5`;
 
 function isChunkKeyForGeneration(
   key: string,
@@ -141,9 +242,7 @@ export async function sumRecordingChunkBytes(
   recordingId: string,
   generationId?: string | null,
 ): Promise<number> {
-  const bytesExpression = isPostgres()
-    ? `COALESCE(SUM((value::jsonb ->> 'bytes')::bigint), 0)`
-    : `COALESCE(SUM(json_extract(value, '$.bytes')), 0)`;
+  const bytesExpression = `COALESCE(SUM((value::jsonb ->> 'bytes')::bigint), 0)`;
   const { rows } = await getDbExec().execute({
     sql: `SELECT ${bytesExpression} AS bytes FROM application_state WHERE ${exactChunkKeyWhere}`,
     args: exactChunkKeyArgs(ownerEmail, recordingId, generationId),

@@ -3,7 +3,11 @@ import { getRequestUserEmail, buildDeepLink } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
-import { gmailGetThread } from "../server/lib/google-api.js";
+import { assertGmailNotCoolingDown } from "../server/lib/gmail-quota.js";
+import {
+  gmailGetThread,
+  GmailQuotaCooldownError,
+} from "../server/lib/google-api.js";
 import {
   getClientsWithErrors,
   gmailToEmailMessage,
@@ -95,6 +99,7 @@ export default defineAction({
         : result;
     }
 
+    await assertGmailNotCoolingDown([requestedAccount]);
     const { clients, errors } = await getClientsWithErrors(ownerEmail, [
       requestedAccount,
     ]);
@@ -150,6 +155,7 @@ export default defineAction({
           }
         : result;
     } catch (err: any) {
+      if (err instanceof GmailQuotaCooldownError) throw err;
       if (err?.message?.includes("404")) throw new Error("Thread not found.");
       throw new Error(err?.message ?? "Gmail API error");
     }

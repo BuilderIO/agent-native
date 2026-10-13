@@ -1,51 +1,41 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment happy-dom
 
-import { compareRasterImages, cropImageRegion } from "./media.js";
+import { describe, expect, it, vi } from "vitest";
 
-describe("cropImageRegion", () => {
-  it("returns only the requested bounded PNG region", async () => {
-    const source = new TextEncoder().encode(
-      '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="10" height="10" fill="#f00"/><rect x="10" width="10" height="10" fill="#00f"/></svg>',
-    );
-    const crop = await cropImageRegion({
-      data: source,
-      left: 10,
-      top: 0,
-      width: 10,
-      height: 10,
-    });
+import { fingerprintMedia, readBoundedResponseBytes } from "./media.js";
 
-    expect(crop).toMatchObject({
+vi.mock("node:crypto", () => {
+  throw new Error("Media fingerprinting must not import node:crypto.");
+});
+
+describe("fingerprintMedia", () => {
+  it("returns the SHA-256 digest, byte length, and optional MIME type", () => {
+    expect(window).toBeDefined();
+    expect(
+      fingerprintMedia(new TextEncoder().encode("abc"), "image/png"),
+    ).toEqual({
+      sha256:
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+      byteLength: 3,
       mimeType: "image/png",
-      width: 10,
-      height: 10,
     });
-    expect(crop.data.byteLength).toBeGreaterThan(0);
   });
+});
 
-  it("rejects oversized and out-of-bounds regions", async () => {
-    await expect(
-      cropImageRegion({
-        data: new Uint8Array(2),
-        left: 0,
-        top: 0,
-        width: 2,
-        height: 2,
-        maxInputBytes: 1,
-      }),
-    ).rejects.toThrow("exceeds");
-  });
+describe("readBoundedResponseBytes", () => {
+  it("enforces the limit when the response has no readable body", async () => {
+    const arrayBuffer = vi
+      .fn()
+      .mockResolvedValue(new Uint8Array([1, 2, 3, 4, 5]).buffer);
+    const response = {
+      headers: new Headers(),
+      body: null,
+      arrayBuffer,
+    } as unknown as Response;
 
-  it("reports a zero pixel difference for identical bounded images", async () => {
-    const source = new TextEncoder().encode(
-      '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4" fill="#123456"/></svg>',
+    await expect(readBoundedResponseBytes(response, 4)).rejects.toThrow(
+      "Remote artifact exceeds 4 bytes.",
     );
-    await expect(
-      compareRasterImages({ source, rendered: source }),
-    ).resolves.toMatchObject({
-      meanAbsoluteDifference: 0,
-      width: 4,
-      height: 4,
-    });
+    expect(arrayBuffer).toHaveBeenCalledOnce();
   });
 });

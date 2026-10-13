@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { hashSlideContent } from "../shared/slide-fit";
 
 let mockRows: unknown[] = [];
+let mockCommentRows: unknown[] = [];
 let navigationState: Record<string, unknown> | null = null;
 let slidesSelectionState: Record<string, unknown> | null = null;
 let slideFitState: Record<string, unknown> | null = null;
@@ -11,7 +12,18 @@ let deckFitState: Record<string, unknown> | null = null;
 const limitFn = vi.fn(async () => mockRows);
 const orderByFn = vi.fn(async () => mockRows);
 const whereFn = vi.fn(() => ({ limit: limitFn, orderBy: orderByFn }));
-const fromFn = vi.fn(() => ({ where: whereFn }));
+const fromFn = vi.fn((table: unknown) => ({
+  where: (condition: unknown) =>
+    typeof table === "object" &&
+    table !== null &&
+    Object.values(table).includes("comment_id_col")
+      ? {
+          orderBy: () => ({
+            limit: async () => mockCommentRows,
+          }),
+        }
+      : whereFn(condition),
+}));
 const selectFn = vi.fn((..._args: unknown[]) => ({ from: fromFn }));
 const mockDb = { select: selectFn };
 
@@ -23,6 +35,20 @@ vi.mock("../server/db/index.js", () => ({
       title: "title_col",
       ownerEmail: "owner_email_col",
       updatedAt: "updated_at_col",
+    },
+    slideComments: {
+      id: "comment_id_col",
+      slideId: "comment_slide_id_col",
+      deckId: "comment_deck_id_col",
+      threadId: "comment_thread_id_col",
+      parentId: "comment_parent_id_col",
+      content: "comment_content_col",
+      quotedText: "comment_quoted_text_col",
+      anchor: "comment_anchor_col",
+      emojiReactionsJson: "comment_reactions_col",
+      authorEmail: "comment_author_email_col",
+      resolved: "comment_resolved_col",
+      createdAt: "comment_created_at_col",
     },
     deckShares: {},
   },
@@ -49,16 +75,50 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: (...values: unknown[]) => ({ and: values }),
+  asc: (value: unknown) => ({ asc: value }),
   desc: (value: unknown) => ({ desc: value }),
   eq: (column: unknown, value: unknown) => ({ column, value }),
   sql: vi.fn((strings: unknown, ...values: unknown[]) => ({ strings, values })),
 }));
 
+vi.mock("./get-design-system.js", () => ({
+  default: {
+    run: vi.fn(async ({ id }: { id: string }) => ({
+      id,
+      title: "Acme",
+      agentContext: "Use --brand-accent: #123456.",
+    })),
+  },
+}));
+
 import action from "./view-screen";
+
+describe("template library screen context", () => {
+  it.each(["templates", "list"])(
+    "reports selected templates from %s without reading deck bodies",
+    async (view) => {
+      navigationState = { view, templateId: "starter-update" };
+      const result = await action.run({});
+      expect(result).toContain(`view: ${view}`);
+      expect(result).toContain("templateId: starter-update");
+      expect(result).toContain("create-deck-from-template");
+      expect(selectFn).not.toHaveBeenCalled();
+      expect(result).not.toContain("<div");
+    },
+  );
+  it("reports template search results rather than the deck list", async () => {
+    navigationState = { view: "templates", search: "no-template-matches" };
+    const result = await action.run({});
+    expect(result).toContain("templateSearch: no-template-matches");
+    expect(result).not.toContain("### All decks");
+    expect(selectFn).not.toHaveBeenCalled();
+  });
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockRows = [];
+  mockCommentRows = [];
   navigationState = null;
   slidesSelectionState = null;
   slideFitState = null;
@@ -78,8 +138,6 @@ describe("view-screen", () => {
 
     const result = await action.run({});
 
-    // The `data` column (each deck's full slide JSON) must never be
-    // requested for the plain list — this mirrors list-decks.ts light mode.
     expect(selectFn).toHaveBeenCalledWith({
       id: "id_col",
       title: "title_col",
@@ -107,13 +165,34 @@ describe("view-screen", () => {
 
     const result = await action.run({});
 
-    // The single-deck fetch is a targeted, limit(1) lookup and genuinely
-    // needs the full row (slide content is rendered below).
     expect(limitFn).toHaveBeenCalled();
     expect(orderByFn).not.toHaveBeenCalled();
     expect(result).toContain("deckId: deck-1");
     expect(result).toContain("slideCount: 1");
+    expect(result).toContain(
+      `currentSlideContentHash: ${hashSlideContent("<h1>Opening</h1>")}`,
+    );
     expect(result).toContain("<h1>Opening</h1>");
+  });
+
+  it("includes the linked design-system context in the current deck read", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        designSystemId: "ds-1",
+        data: JSON.stringify({
+          title: "Quarterly Review",
+          slides: [{ id: "slide-a", content: "<h1>Opening</h1>" }],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+
+    const result = await action.run({});
+
+    expect(result).toContain("### Linked design system (authoritative)");
+    expect(result).toContain("Use --brand-accent: #123456.");
   });
 
   it("surfaces stable freeform object identity alongside the runtime selector", async () => {
@@ -146,6 +225,17 @@ describe("view-screen", () => {
           objectId: "object-1",
           kind: "element",
           tagName: "div",
+          text: "Text",
+          selectedText: "Text",
+          textTruncated: false,
+        },
+        {
+          selector: '[data-slide-object-id="object-2"]',
+          objectId: "object-2",
+          kind: "element",
+          tagName: "div",
+          text: "Other text",
+          textTruncated: false,
         },
       ],
     };
@@ -157,6 +247,53 @@ describe("view-screen", () => {
     expect(result).toContain('selector=[data-slide-object-id="object-1"]');
     expect(result).toContain("objectId: object-1");
     expect(result).toContain('runtimeSelector: [data-builder-id="b-7"]');
+    expect(result).toContain("selectedText: Text");
+    expect(result).toContain(
+      "selectedTextStatus: exact browser range; use verbatim as edits.find with expectedMatches: 1",
+    );
+    expect(result).toContain(
+      "textStatus: element preview; use selectedText for a literal replacement",
+    );
+    expect(result).toContain(
+      "objectIdStatus: stable selected-element target; use it with one update-slide replace edit when selectedText is unavailable",
+    );
+    expect(result).toContain(
+      "textStatus: element preview is not an exact browser-range selection; use objectId with update-slide for an element-only replacement",
+    );
+  });
+
+  it("names a representative sibling even when the deck tallies no styles", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Class styled",
+        data: JSON.stringify({
+          title: "Class styled",
+          slides: [
+            {
+              id: "slide-a",
+              layout: "content",
+              content:
+                '<div class="fmd-slide bg-black text-white"><h2>A</h2></div>',
+            },
+            {
+              id: "slide-b",
+              layout: "content",
+              content:
+                '<div class="fmd-slide bg-black text-white"><h2>B</h2></div>',
+            },
+          ],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+
+    const result = await action.run({});
+
+    expect(result).toContain(
+      "representativeSlide: id=slide-b (slide 2, layout=content)",
+    );
+    expect(result).not.toContain("backgrounds:");
   });
 
   it("does not surface a selection from a different slide", async () => {
@@ -180,6 +317,169 @@ describe("view-screen", () => {
     const result = await action.run({});
 
     expect(result).not.toContain("### Current visual selection");
+  });
+
+  it("surfaces a selection made on a different slide than the stale/cross-tab currentSlide", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        data: JSON.stringify({
+          slides: [
+            { id: "slide-a", content: "<h1>Opening</h1>" },
+            { id: "slide-b", content: "<h1>The 4-Step Journey</h1>" },
+          ],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    slidesSelectionState = {
+      deckId: "deck-1",
+      slideId: "slide-b",
+      mode: "editing",
+      items: [{ selector: '[data-builder-id="b-2"]', selectedText: "4-Step" }],
+    };
+
+    const result = await action.run({});
+
+    expect(result).toContain("### Current visual selection");
+    expect(result).toContain("selectionSlideId: slide-b");
+    expect(result).toContain("differs from currentSlideId slide-a");
+    expect(result).toContain(
+      `selectionSlideContentHash: ${hashSlideContent("<h1>The 4-Step Journey</h1>")}`,
+    );
+    expect(result).toContain("selectedText: 4-Step");
+  });
+
+  it("routes image selections away from text replacement", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Image deck",
+        data: JSON.stringify({
+          slides: [
+            {
+              id: "slide-a",
+              content: '<img data-slide-object-id="image-1" />',
+            },
+          ],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    slidesSelectionState = {
+      deckId: "deck-1",
+      slideId: "slide-a",
+      mode: "box-selected",
+      items: [
+        {
+          selector: '[data-slide-object-id="image-1"]',
+          objectId: "image-1",
+          kind: "image",
+          tagName: "img",
+        },
+      ],
+    };
+
+    const result = await action.run({});
+
+    expect(result).not.toContain("objectId: image-1");
+    expect(result).toContain(
+      "imageStatus: image selection has no editable text content; use the targeted image/markup workflow",
+    );
+  });
+
+  it("surfaces a selected video's source and media editing workflow", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Video deck",
+        data: JSON.stringify({
+          slides: [
+            {
+              id: "slide-a",
+              content:
+                '<video data-slide-object-id="video-1" src="https://media.example.com/clip.mp4" controls></video>',
+            },
+          ],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    slidesSelectionState = {
+      deckId: "deck-1",
+      slideId: "slide-a",
+      mode: "box-selected",
+      items: [
+        {
+          selector: '[data-slide-object-id="video-1"]',
+          objectId: "video-1",
+          kind: "video",
+          tagName: "video",
+          videoSrc: "https://media.example.com/clip.mp4",
+        },
+      ],
+    };
+
+    const result = await action.run({});
+
+    expect(result).toContain("objectId: video-1");
+    expect(result).toContain(
+      "videoStatus: video selection has no editable text content; use update-slide to change its source or playback attributes",
+    );
+    expect(result).toContain("videoSrc: https://media.example.com/clip.mp4");
+  });
+
+  it("does not surface a selection left over from a different deck", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        data: JSON.stringify({
+          slides: [{ id: "slide-a", content: "<p>A</p>" }],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    slidesSelectionState = {
+      deckId: "deck-other",
+      slideId: "slide-a",
+      mode: "single",
+      items: [{ selector: '[data-builder-id="b-1"]' }],
+    };
+
+    const result = await action.run({});
+
+    expect(result).not.toContain("### Current visual selection");
+  });
+
+  it("marks long selection text as a preview before editing", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        data: JSON.stringify({
+          slides: [{ id: "slide-a", content: "<p>Long text</p>" }],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    slidesSelectionState = {
+      slideId: "slide-a",
+      items: [
+        { text: "x".repeat(100), textTruncated: false },
+        { text: "y".repeat(80), textTruncated: true },
+      ],
+    };
+
+    const result = await action.run({});
+
+    expect(result).toContain(
+      "textStatus: element preview may be truncated; use get-deck with slideId=slide-a before editing",
+    );
+    expect(result).toContain(
+      "textStatus: element text is complete but is not an exact browser-range selection; use get-deck with slideId=slide-a before editing",
+    );
   });
 
   it("filters the list to decks created by the current user without reading deck bodies", async () => {
@@ -247,5 +547,42 @@ describe("view-screen", () => {
     expect(result).not.toContain(
       "All 2 slides fit their measured content area.",
     );
+  });
+
+  it("marks current-slide comments as truncated when more are available", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Comment-heavy deck",
+        data: JSON.stringify({
+          slides: [{ id: "slide-a", content: "<p>Slide</p>" }],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    mockCommentRows = Array.from({ length: 101 }, (_, index) => ({
+      id: `comment-${index}`,
+      slideId: "slide-a",
+      threadId: `thread-${index}`,
+      parentId: null,
+      content: `Comment ${index}`,
+      quotedText: null,
+      anchor: null,
+      emojiReactionsJson: "{}",
+      authorEmail: "alice@example.com",
+      resolved: false,
+      createdAt: `2026-01-01T00:${String(index).padStart(2, "0")}:00.000Z`,
+    }));
+
+    const result = await action.run({});
+
+    expect(result).toContain(
+      "### Comments on current slide (100; more available)",
+    );
+    expect(result).toContain(
+      'commentsStatus: truncated; showing the first 100. Use list-slide-comments with { deckId: "deck-1", slideId: "slide-a", limit: 100, offset: 100 } to continue.',
+    );
+    expect(result).toContain("commentId: comment-0");
+    expect(result).not.toContain("commentId: comment-100");
   });
 });

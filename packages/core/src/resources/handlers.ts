@@ -7,18 +7,32 @@ import {
 } from "h3";
 import { createError } from "h3";
 
+import { fail, isActionContractError } from "../action.js";
+import { canUpdateAutomationResource } from "../automations/service.js";
 import { uploadFile } from "../file-upload/index.js";
+import { parseJobResource } from "../jobs/frontmatter.js";
 import { getOrgContext } from "../org/context.js";
 import { getSession } from "../server/auth.js";
 import {
   readBody,
+  readBodyWithSizeLimit,
   DEFAULT_UPLOAD_MAX_FILE_BYTES,
   isAllowedUploadMimeType,
 } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
+  exportResourcePackSchema,
+  default as exportResourcePack,
+} from "./actions/export-resource-pack.js";
+import {
+  importResourcePackSchema,
+  default as importResourcePack,
+} from "./actions/import-resource-pack.js";
+import {
+  getFrontmatterValue,
   getResourceKind,
   isRemoteAgentPath,
+  parseFrontmatter,
   parseCustomAgentProfile,
   parseRemoteAgentManifest,
   parseSkillMetadata,
@@ -26,28 +40,57 @@ import {
   type RemoteAgentManifest,
   type SkillMetadata,
 } from "./metadata.js";
+import { RESOURCE_PACK_MAX_BODY_BYTES } from "./pack.js";
 import {
   resourceGet,
   resourceGetByPath,
   resourcePut,
+  resourcePutIfAbsent,
+  resourcePutIfCurrent,
   resourceDelete,
+  resourceDeleteIfCurrent,
   resourceList,
   resourceListAccessible,
+  resourceListOrganization,
   resourceMove,
   resourceEffectiveContext,
   ensurePersonalDefaults,
   canWriteLocalWorkspaceResourcePath,
   isLocalWorkspaceResourceId,
+  isLegacyOrganizationWorkspaceFile,
+  isLegacySharedResourceVisibleToOrganization,
+  isWorkspaceResourceOwner,
   organizationIdFromResourceOwner,
+  organizationIdFromWorkspaceResourceOwner,
   sharedResourceOwner,
   SHARED_OWNER,
   WORKSPACE_OWNER,
   type ResourceMeta,
 } from "./store.js";
 
-// ---------------------------------------------------------------------------
-// Owner resolution
-// ---------------------------------------------------------------------------
+function isSameSkillUpload(
+  incomingContent: string,
+  existingContent: string,
+  path: string,
+): boolean {
+  const incomingSkill = parseSkillMetadata(incomingContent, path);
+  const existingSkill = parseSkillMetadata(existingContent, path);
+  if (!incomingSkill || !existingSkill) return false;
+
+  const incomingName = incomingSkill.name.trim();
+  if (incomingName !== existingSkill.name.trim()) return false;
+
+  const incomingDeclaredName = getFrontmatterValue(
+    parseFrontmatter(incomingContent),
+    "name",
+  )?.trim();
+  const existingDeclaredName = getFrontmatterValue(
+    parseFrontmatter(existingContent),
+    "name",
+  )?.trim();
+
+  return Boolean(incomingDeclaredName) === Boolean(existingDeclaredName);
+}
 
 async function resolveOwner(event: any, shared?: boolean): Promise<string> {
   if (shared) return sharedResourceOwner(await resolveOrgId(event));
@@ -63,7 +106,9 @@ function canReadOwner(
   email: string,
   orgId?: string | null,
 ): boolean {
-  const ownerOrgId = organizationIdFromResourceOwner(owner);
+  const ownerOrgId =
+    organizationIdFromResourceOwner(owner) ??
+    organizationIdFromWorkspaceResourceOwner(owner);
   return (
     owner === email ||
     owner === SHARED_OWNER ||
@@ -94,39 +139,6 @@ function resourceDownloadDisposition(path: string): string {
   return `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`;
 }
 
-function mergeScopedResources(
-  primary: ResourceMeta[],
-  inherited: ResourceMeta[],
-): ResourceMeta[] {
-  const seen = new Set(primary.map((resource) => resource.path));
-  return [
-    ...primary,
-    ...inherited.filter((resource) => !seen.has(resource.path)),
-  ];
-}
-
-async function listSharedResources(
-  orgId: string | null,
-  prefix?: string,
-  options?: Parameters<typeof resourceList>[2],
-): Promise<ResourceMeta[]> {
-  const organizationOwner = sharedResourceOwner(orgId);
-  if (organizationOwner === SHARED_OWNER) {
-    return options
-      ? resourceList(SHARED_OWNER, prefix, options)
-      : resourceList(SHARED_OWNER, prefix);
-  }
-  const [organization, legacyAppDefaults] = await Promise.all([
-    options
-      ? resourceList(organizationOwner, prefix, options)
-      : resourceList(organizationOwner, prefix),
-    options
-      ? resourceList(SHARED_OWNER, prefix, options)
-      : resourceList(SHARED_OWNER, prefix),
-  ]);
-  return mergeScopedResources(organization, legacyAppDefaults);
-}
-
 async function resolveEmail(event: any): Promise<string> {
   const session = await getSession(event);
   if (!session?.email) {
@@ -140,18 +152,13 @@ async function resolveOrgId(event: any): Promise<string | null> {
   return ctx.orgId ?? null;
 }
 
-/**
- * Reject writes to organization-wide resources unless the user is the
- * organization owner/admin (or the deployment is solo — no org membership).
- * Read access remains open to every org member.
- */
 async function assertCanEditShared(event: any): Promise<void> {
   const session = await getSession(event);
   if (!session?.email) {
     throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
   const ctx = await getOrgContext(event);
-  if (!ctx.orgId) return; // solo / dev mode — no org, treat as owner
+  if (!ctx.orgId) return;
   if (ctx.role === "owner" || ctx.role === "admin") return;
   throw createError({
     statusCode: 403,
@@ -167,10 +174,6 @@ function shouldIncludeAgentScratch(query: Record<string, unknown>): boolean {
     query.includeScratch === true
   );
 }
-
-// ---------------------------------------------------------------------------
-// Tree building
-// ---------------------------------------------------------------------------
 
 interface JobMetadata {
   schedule?: string;
@@ -236,7 +239,6 @@ function buildTree(resources: ResourceMeta[]): TreeNode[] {
   return root;
 }
 
-/** Sort tree nodes: folders first, then files, alphabetically within each group */
 function sortTree(nodes: TreeNode[]): void {
   nodes.sort((a, b) => {
     if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
@@ -247,11 +249,6 @@ function sortTree(nodes: TreeNode[]): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Handlers
-// ---------------------------------------------------------------------------
-
-/** GET /_agent-native/resources — list resources */
 export async function handleListResources(event: any) {
   const query = getQuery(event);
   const prefix = (query.prefix as string) || undefined;
@@ -266,7 +263,6 @@ export async function handleListResources(event: any) {
     ? { includeAgentScratch: true, userEmail: email, orgId }
     : { userEmail: email, orgId };
 
-  // Seed personal AGENTS.md + LEARNINGS.md on first access
   await ensurePersonalDefaults(email);
 
   let resources: ResourceMeta[];
@@ -278,16 +274,14 @@ export async function handleListResources(event: any) {
   } else if (scope === "workspace") {
     resources = await resourceList(WORKSPACE_OWNER, prefix, scopedListOptions);
   } else if (scope === "shared") {
-    resources = await listSharedResources(orgId, prefix, localListOptions);
+    resources = await resourceListOrganization(orgId, prefix, localListOptions);
   } else {
-    // "all" — personal + organization/shared + inherited workspace
     resources = await resourceListAccessible(email, prefix, scopedListOptions);
   }
 
   return { resources };
 }
 
-/** GET /_agent-native/resources/tree — build nested tree */
 export async function handleGetResourceTree(event: any) {
   const query = getQuery(event);
   const scope = (query.scope as string) || "all";
@@ -301,7 +295,6 @@ export async function handleGetResourceTree(event: any) {
     ? { includeAgentScratch: true, userEmail: email, orgId }
     : { userEmail: email, orgId };
 
-  // Seed personal AGENTS.md + LEARNINGS.md on first access
   await ensurePersonalDefaults(email);
 
   let resources: ResourceMeta[];
@@ -317,7 +310,11 @@ export async function handleGetResourceTree(event: any) {
       scopedListOptions,
     );
   } else if (scope === "shared") {
-    resources = await listSharedResources(orgId, undefined, localListOptions);
+    resources = await resourceListOrganization(
+      orgId,
+      undefined,
+      localListOptions,
+    );
   } else {
     resources = await resourceListAccessible(
       email,
@@ -328,13 +325,11 @@ export async function handleGetResourceTree(event: any) {
 
   const tree = buildTree(resources);
 
-  // Enrich typed resources with parsed metadata for richer UI
-  await enrichTreeNodes(tree);
+  await enrichTreeNodes(tree, orgId);
 
   return { tree };
 }
 
-/** GET /_agent-native/resources/effective?path=... — show inheritance stack */
 export async function handleGetEffectiveResourceContext(event: any) {
   const query = getQuery(event);
   const path = query.path;
@@ -349,10 +344,10 @@ export async function handleGetEffectiveResourceContext(event: any) {
   return resourceEffectiveContext(email, path, { userEmail: email, orgId });
 }
 
-/**
- * Walk the tree and add typed metadata for jobs, skills, and agents.
- */
-async function enrichTreeNodes(nodes: TreeNode[]): Promise<void> {
+async function enrichTreeNodes(
+  nodes: TreeNode[],
+  orgId: string | null,
+): Promise<void> {
   let parseFn: typeof import("../jobs/scheduler.js").parseJobFrontmatter;
   let describeFn: typeof import("../jobs/cron.js").describeCron;
   try {
@@ -361,16 +356,16 @@ async function enrichTreeNodes(nodes: TreeNode[]): Promise<void> {
     parseFn = scheduler.parseJobFrontmatter;
     describeFn = cron.describeCron;
   } catch {
-    return; // Jobs module not available
+    return;
   }
 
   for (const node of nodes) {
     if (node.type === "folder" && node.children) {
-      await enrichTreeNodes(node.children);
+      await enrichTreeNodes(node.children, orgId);
     }
     if (node.type === "file" && node.resource) {
       try {
-        const full = await resourceGet(node.resource.id);
+        const full = await resourceGet(node.resource.id, { orgId });
         if (!full?.content) continue;
 
         if (
@@ -419,9 +414,6 @@ async function enrichTreeNodes(nodes: TreeNode[]): Promise<void> {
   }
 }
 
-/** GET /_agent-native/resources/:id — get single resource with content.
- *  `?raw` returns the bytes inline; `?download=1` returns the same bytes as a
- *  safe attachment. */
 export async function handleGetResource(event: any) {
   const id = getRouterParam(event, "id") || event.context.params?.id;
   if (!id) {
@@ -437,9 +429,36 @@ export async function handleGetResource(event: any) {
     return { error: "Resource not found" };
   }
 
-  if (!canReadOwner(resource.owner, email, orgId)) {
+  if (
+    !canReadOwner(resource.owner, email, orgId) ||
+    !isLegacySharedResourceVisibleToOrganization(resource, orgId)
+  ) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
+  }
+
+  if (
+    resource.path.startsWith("jobs/") &&
+    resource.path.endsWith(".md") &&
+    /^webhookToken\s*:/m.test(resource.content)
+  ) {
+    let legacyWebhookMeta: ReturnType<typeof parseJobResource>["meta"];
+    try {
+      legacyWebhookMeta = parseJobResource(resource.content).meta;
+    } catch {
+      setResponseStatus(event, 404);
+      return { error: "Resource not found" };
+    }
+    if (
+      legacyWebhookMeta.webhookToken &&
+      !(await canUpdateAutomationResource(
+        { userEmail: email, orgId, appId: legacyWebhookMeta.appId },
+        resource,
+      ))
+    ) {
+      setResponseStatus(event, 404);
+      return { error: "Resource not found" };
+    }
   }
 
   const query = getQuery(event);
@@ -468,9 +487,6 @@ export async function handleGetResource(event: any) {
     return new Response(buf);
   }
 
-  // For binary resources (images, audio, video), omit the content field from
-  // the JSON response — it can be megabytes of base64. The client fetches
-  // the actual bytes via ?raw when it needs to display them.
   const isBinary =
     resource.mimeType.startsWith("image/") ||
     resource.mimeType.startsWith("audio/") ||
@@ -485,7 +501,6 @@ export async function handleGetResource(event: any) {
   return resource;
 }
 
-/** POST /_agent-native/resources — create a resource */
 export async function handleCreateResource(event: any) {
   const body = await readBody(event);
 
@@ -500,7 +515,104 @@ export async function handleCreateResource(event: any) {
 
   const owner = await resolveOwner(event, body.shared);
 
-  // If ifNotExists is set, skip if the resource already exists
+  if (body.uniqueSkillPath) {
+    const match = /^skills\/([a-z0-9]+(?:-[a-z0-9]+)*)\/SKILL\.md$/.exec(
+      body.path,
+    );
+    if (!match) {
+      setResponseStatus(event, 400);
+      return { error: "uniqueSkillPath requires skills/<name>/SKILL.md" };
+    }
+
+    const writeOptions =
+      body.metadata !== undefined ? { metadata: body.metadata } : undefined;
+    const organizationId = organizationIdFromResourceOwner(owner);
+    const uploaderEmail = organizationId
+      ? (await getOrgContext(event)).email
+      : undefined;
+    const content = body.content ?? "";
+    for (let suffix = 1; suffix <= 1000; suffix += 1) {
+      const path =
+        suffix === 1 ? body.path : `skills/${match[1]}-${suffix}/SKILL.md`;
+      const legacySharedResource = organizationId
+        ? await resourceGetByPath(SHARED_OWNER, path, { orgId: organizationId })
+        : null;
+      const personalResource = uploaderEmail
+        ? await resourceGetByPath(uploaderEmail, path, {
+            orgId: organizationId,
+          })
+        : null;
+      if (
+        personalResource &&
+        !isSameSkillUpload(content, personalResource.content, path)
+      ) {
+        continue;
+      }
+      if (
+        legacySharedResource &&
+        !(await resourceGetByPath(owner, path, { orgId: organizationId }))
+      ) {
+        continue;
+      }
+      let nextPath = false;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        if (!legacySharedResource) {
+          const resource = await resourcePutIfAbsent(
+            owner,
+            path,
+            content,
+            body.mimeType,
+            writeOptions,
+          );
+          if (resource) {
+            setResponseStatus(event, 201);
+            return resource;
+          }
+        }
+
+        const existing = await resourceGetByPath(owner, path, {
+          orgId: organizationId,
+        });
+        if (!existing) {
+          if (legacySharedResource) {
+            nextPath = true;
+            break;
+          }
+          continue;
+        }
+
+        if (!isSameSkillUpload(content, existing.content, path)) {
+          nextPath = true;
+          break;
+        }
+
+        const updated = await resourcePutIfCurrent({
+          owner,
+          path,
+          content,
+          expectedId: existing.id,
+          expectedUpdatedAt: existing.updatedAt,
+          expectedContent: existing.content,
+          mimeType: body.mimeType,
+          ...(body.metadata !== undefined ? { metadata: body.metadata } : {}),
+        });
+        if (updated) {
+          setResponseStatus(event, 200);
+          return updated;
+        }
+      }
+      if (!nextPath) {
+        setResponseStatus(event, 409);
+        return {
+          error: "Could not update or find an available path for this skill",
+        };
+      }
+    }
+
+    setResponseStatus(event, 409);
+    return { error: "Could not find an available path for this skill" };
+  }
+
   if (body.ifNotExists) {
     const existing = await resourceGetByPath(owner, body.path);
     if (existing) {
@@ -524,7 +636,6 @@ export async function handleCreateResource(event: any) {
   return resource;
 }
 
-/** PUT /_agent-native/resources/:id — update an existing resource */
 export async function handleUpdateResource(event: any) {
   const id = getRouterParam(event, "id") || event.context.params?.id;
   if (!id) {
@@ -532,22 +643,24 @@ export async function handleUpdateResource(event: any) {
     return { error: "Resource ID is required" };
   }
 
-  const existing = await resourceGet(id);
+  const email = await resolveEmail(event);
+  const orgId = await resolveOrgId(event);
+  const existing = await resourceGet(id, { userEmail: email, orgId });
   if (!existing) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
 
-  // Ownership check: only the owner (or shared resource editors) can update
-  const email = await resolveEmail(event);
-  const orgId = await resolveOrgId(event);
-  if (!canReadOwner(existing.owner, email, orgId)) {
+  if (
+    !canReadOwner(existing.owner, email, orgId) ||
+    !isLegacySharedResourceVisibleToOrganization(existing, orgId)
+  ) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
   const isLocalWorkspaceResource =
-    existing.owner === WORKSPACE_OWNER && isLocalWorkspaceResourceId(id);
-  if (existing.owner === WORKSPACE_OWNER && !isLocalWorkspaceResource) {
+    isWorkspaceResourceOwner(existing.owner) && isLocalWorkspaceResourceId(id);
+  if (isWorkspaceResourceOwner(existing.owner) && !isLocalWorkspaceResource) {
     setResponseStatus(event, 403);
     return { error: "Workspace resources are managed from Dispatch" };
   }
@@ -561,18 +674,43 @@ export async function handleUpdateResource(event: any) {
   const body = await readBody(event);
   const nextPath = body.path ?? existing.path;
   const activeSharedOwner = sharedResourceOwner(orgId);
+  const isLegacyOrganizationWorkspaceResource =
+    existing.owner === SHARED_OWNER &&
+    isLegacyOrganizationWorkspaceFile(existing, orgId);
 
-  // Existing `__shared__` rows are legacy app defaults. In an organization,
-  // editing one creates an organization override instead of mutating the
-  // fallback seen by every tenant in the deployment.
   if (existing.owner === SHARED_OWNER && activeSharedOwner !== SHARED_OWNER) {
-    return resourcePut(
+    const metadata =
+      body.metadata !== undefined ? body.metadata : existing.metadata;
+    const writeOptions = isLegacyOrganizationWorkspaceResource
+      ? {
+          createdBy: existing.createdBy,
+          visibility: existing.visibility,
+          threadId: existing.threadId,
+          runId: existing.runId,
+          expiresAt: existing.expiresAt,
+          metadata,
+        }
+      : body.metadata !== undefined || typeof existing.metadata === "string"
+        ? { metadata }
+        : undefined;
+    const resource = await resourcePutIfAbsent(
       activeSharedOwner,
       nextPath,
       body.content ?? existing.content,
       body.mimeType ?? existing.mimeType,
-      body.metadata !== undefined ? { metadata: body.metadata } : undefined,
+      writeOptions,
     );
+    if (!resource) {
+      setResponseStatus(event, 409);
+      return { error: `A resource already exists at path "${nextPath}"` };
+    }
+    if (
+      isLegacyOrganizationWorkspaceResource &&
+      typeof existing.metadata === "string"
+    ) {
+      await resourceDeleteIfCurrent(existing);
+    }
+    return resource;
   }
 
   if (
@@ -587,12 +725,10 @@ export async function handleUpdateResource(event: any) {
     };
   }
 
-  // If path changed, move it
   if (!isLocalWorkspaceResource && body.path && body.path !== existing.path) {
     await resourceMove(id, body.path);
   }
 
-  // Update content/mimeType by re-putting
   const writeOptions =
     body.metadata !== undefined ? { metadata: body.metadata } : undefined;
   const resource = writeOptions
@@ -616,7 +752,6 @@ export async function handleUpdateResource(event: any) {
   return resource;
 }
 
-/** DELETE /_agent-native/resources/:id — delete a resource */
 export async function handleDeleteResource(event: any) {
   const id = getRouterParam(event, "id") || event.context.params?.id;
   if (!id) {
@@ -624,26 +759,31 @@ export async function handleDeleteResource(event: any) {
     return { error: "Resource ID is required" };
   }
 
-  const existing = await resourceGet(id);
+  const email = await resolveEmail(event);
+  const orgId = await resolveOrgId(event);
+  const existing = await resourceGet(id, { userEmail: email, orgId });
   if (!existing) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
 
-  // Ownership check: only the owner (or shared resource editors) can delete
-  const email = await resolveEmail(event);
-  const orgId = await resolveOrgId(event);
-  if (!canReadOwner(existing.owner, email, orgId)) {
+  if (
+    !canReadOwner(existing.owner, email, orgId) ||
+    !isLegacySharedResourceVisibleToOrganization(existing, orgId)
+  ) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
   if (
-    existing.owner === WORKSPACE_OWNER &&
+    isWorkspaceResourceOwner(existing.owner) &&
     !isLocalWorkspaceResourceId(existing.id)
   ) {
     setResponseStatus(event, 403);
     return { error: "Workspace resources are managed from Dispatch" };
   }
+  const isLocalWorkspaceResource =
+    isWorkspaceResourceOwner(existing.owner) &&
+    isLocalWorkspaceResourceId(existing.id);
   const existingOrganizationId = organizationIdFromResourceOwner(
     existing.owner,
   );
@@ -653,7 +793,8 @@ export async function handleDeleteResource(event: any) {
 
   if (
     existing.owner === SHARED_OWNER &&
-    sharedResourceOwner(orgId) !== SHARED_OWNER
+    sharedResourceOwner(orgId) !== SHARED_OWNER &&
+    !isLegacyOrganizationWorkspaceFile(existing, orgId)
   ) {
     setResponseStatus(event, 403);
     return {
@@ -662,11 +803,34 @@ export async function handleDeleteResource(event: any) {
     };
   }
 
-  await resourceDelete(id);
+  const deleted =
+    existing.owner === SHARED_OWNER &&
+    sharedResourceOwner(orgId) !== SHARED_OWNER &&
+    isLegacyOrganizationWorkspaceFile(existing, orgId) &&
+    typeof existing.metadata === "string"
+      ? await resourceDeleteIfCurrent(existing)
+      : isLocalWorkspaceResource
+        ? await resourceDelete(id)
+        : await resourceDeleteIfCurrent(existing);
+  if (deleted && existingOrganizationId === orgId) {
+    const legacy = await resourceGetByPath(SHARED_OWNER, existing.path, {
+      orgId,
+    });
+    if (
+      legacy &&
+      isLegacyOrganizationWorkspaceFile(legacy, orgId) &&
+      typeof legacy.metadata === "string"
+    ) {
+      await resourceDeleteIfCurrent(legacy);
+    }
+  }
+  if (!deleted) {
+    setResponseStatus(event, 409);
+    return { error: "Resource changed before it could be deleted" };
+  }
   return { ok: true };
 }
 
-/** POST /_agent-native/resources/upload — upload a file as a resource */
 export async function handleUploadResource(event: any) {
   const parts = await readMultipartFormData(event);
 
@@ -684,7 +848,6 @@ export async function handleUploadResource(event: any) {
     return { error: "No file data found" };
   }
 
-  // Reject oversized uploads before touching any storage.
   if (filePart.data.length > DEFAULT_UPLOAD_MAX_FILE_BYTES) {
     setResponseStatus(event, 413);
     return {
@@ -697,7 +860,6 @@ export async function handleUploadResource(event: any) {
   const shared = sharedPart?.data?.toString() === "true";
   const mimeType = filePart.type || "application/octet-stream";
 
-  // Reject executable / script MIME types.
   if (filePart.type && !isAllowedUploadMimeType(filePart.type)) {
     setResponseStatus(event, 415);
     return { error: `Unsupported file type: ${filePart.type}` };
@@ -707,17 +869,10 @@ export async function handleUploadResource(event: any) {
   }
   const owner = await resolveOwner(event, shared);
 
-  // Binary assets must live in file storage so resource rows do not become
-  // base64 blobs in SQL. Text resources still live in SQL because they are
-  // edited inline and benefit from the resource store's metadata/search.
   const isText =
     mimeType.startsWith("text/") || mimeType === "application/json";
 
   if (!isText) {
-    // Use the actual session user email for credential resolution — not `owner`,
-    // which is "__shared__" for org-wide resources and would break the per-user
-    // DB credential lookup (resolveBuilderCredential refuses env fallback for any
-    // non-null non-local email, including the sentinel value).
     const credentialEmail =
       owner !== SHARED_OWNER
         ? owner
@@ -740,7 +895,7 @@ export async function handleUploadResource(event: any) {
     setResponseStatus(event, 503);
     return {
       error:
-        "File storage is not configured. Connect Builder.io (free tier available) or register an S3/R2/GCS file upload provider before uploading binary resources.",
+        "File storage is not configured. Use Builder.io (free tier available) or register an S3/R2/GCS file upload provider before uploading binary resources.",
       storageSetupRequired: true,
     };
   }
@@ -751,4 +906,71 @@ export async function handleUploadResource(event: any) {
 
   setResponseStatus(event, 201);
   return resource;
+}
+
+function packHandlerError(event: any, err: unknown) {
+  if (isActionContractError(err)) {
+    setResponseStatus(event, err.statusCode);
+    return {
+      error: err.message,
+      errorCode: err.errorCode,
+      ...(err.details ? { details: err.details } : {}),
+    };
+  }
+  throw err;
+}
+
+/** GET /_agent-native/resources/export-pack — same pack as export-resource-pack. */
+export async function handleExportResourcePack(event: any) {
+  const email = await resolveEmail(event);
+  const orgId = await resolveOrgId(event);
+  try {
+    const parsed = exportResourcePackSchema.safeParse(getQuery(event));
+    if (!parsed.success) {
+      fail("Invalid resource pack export request.", {
+        errorCode: "invalid_action_request_body",
+        statusCode: 400,
+      });
+    }
+    return await exportResourcePack.run(parsed.data, {
+      userEmail: email,
+      orgId,
+      caller: "http",
+    });
+  } catch (err) {
+    return packHandlerError(event, err);
+  }
+}
+
+/** POST /_agent-native/resources/import-pack — same pack as import-resource-pack. */
+export async function handleImportResourcePack(event: any) {
+  const email = await resolveEmail(event);
+  const orgId = await resolveOrgId(event);
+  try {
+    const body = await readBodyWithSizeLimit(
+      event,
+      RESOURCE_PACK_MAX_BODY_BYTES,
+    );
+    const parsed = importResourcePackSchema.safeParse(body);
+    if (!parsed.success) {
+      fail("Invalid resource pack import request.", {
+        errorCode: "invalid_action_request_body",
+        statusCode: 400,
+      });
+    }
+    return await importResourcePack.run(parsed.data, {
+      userEmail: email,
+      orgId,
+      caller: "http",
+    });
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      setResponseStatus(event, 400);
+      return {
+        error: "Invalid resource pack import request.",
+        errorCode: "invalid_action_request_body",
+      };
+    }
+    return packHandlerError(event, err);
+  }
 }

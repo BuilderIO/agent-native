@@ -30,17 +30,6 @@ const loadCodeWorkbench: CodeWorkbenchModuleLoader = () =>
     default: module.CodeWorkbench,
   }));
 
-export function preloadCodeWorkbench() {
-  void loadCodeWorkbench().catch(() => {
-    // The mounted boundary reports import failures. Hover/focus preloading is
-    // speculative and must not produce an unhandled rejection.
-  });
-}
-
-if (typeof window !== "undefined" && import.meta.env.MODE !== "test") {
-  preloadCodeWorkbench();
-}
-
 export function CodeWorkbenchLoader(props: CodeWorkbenchProps) {
   return (
     <RetryableCodeWorkbenchLoader
@@ -60,6 +49,8 @@ export function RetryableCodeWorkbenchLoader({
   const [attempt, setAttempt] = useState(0);
   const LazyCodeWorkbench = useMemo(
     () => lazy(loadWorkbench),
+    // A retry must recreate the lazy component after a rejected import.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [attempt, loadWorkbench],
   );
   const retry = useCallback(() => setAttempt((current) => current + 1), []);

@@ -26,7 +26,8 @@ function sharesTable(name: string): string {
   principal_id TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'viewer',
   created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  notified_at TEXT
 )`;
 }
 
@@ -46,8 +47,8 @@ const initialSchema = [
   access_scope_json TEXT NOT NULL DEFAULT '{}',
   last_synced_at TEXT,
   last_error TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
   ),
   sharesTable("crm_connection_shares"),
   ownableTable(
@@ -66,8 +67,8 @@ const initialSchema = [
   updateable INTEGER NOT NULL DEFAULT 0,
   deleteable INTEGER NOT NULL DEFAULT 0,
   capabilities_json TEXT NOT NULL DEFAULT '{}',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
   ),
   sharesTable("crm_object_shares"),
   ownableTable(
@@ -85,8 +86,8 @@ const initialSchema = [
   updateable INTEGER NOT NULL DEFAULT 0,
   required INTEGER NOT NULL DEFAULT 0,
   metadata_json TEXT NOT NULL DEFAULT '{}',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
   ),
   sharesTable("crm_field_policy_shares"),
   ownableTable(
@@ -117,8 +118,8 @@ const initialSchema = [
   access_scope_key TEXT NOT NULL,
   access_scope_json TEXT NOT NULL DEFAULT '{}',
   tombstone INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
   ),
   sharesTable("crm_record_shares"),
   ownableTable(
@@ -137,8 +138,8 @@ const initialSchema = [
   access_scope_key TEXT NOT NULL DEFAULT 'unverified',
   access_scope_json TEXT NOT NULL DEFAULT '{}',
   remote_revision TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
   ),
   sharesTable("crm_record_field_shares"),
   ownableTable(
@@ -155,8 +156,8 @@ const initialSchema = [
   remote_revision TEXT,
   tombstone INTEGER NOT NULL DEFAULT 0,
   last_synced_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
   ),
   sharesTable("crm_relationship_shares"),
   ownableTable(
@@ -175,8 +176,8 @@ const initialSchema = [
   source_app TEXT,
   source_url TEXT,
   participants_json TEXT NOT NULL DEFAULT '[]',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
   ),
   sharesTable("crm_interaction_shares"),
   ownableTable(
@@ -194,8 +195,8 @@ const initialSchema = [
   end_seconds REAL,
   summary TEXT NOT NULL DEFAULT '',
   captured_at TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
   ),
   sharesTable("crm_call_evidence_shares"),
   ownableTable(
@@ -213,8 +214,8 @@ const initialSchema = [
   provider_remote_id TEXT,
   remote_revision TEXT,
   completed_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
   ),
   sharesTable("crm_task_shares"),
   ownableTable(
@@ -228,8 +229,8 @@ const initialSchema = [
   sort_json TEXT NOT NULL DEFAULT '[]',
   data_program_id TEXT,
   pinned INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
   ),
   sharesTable("crm_saved_view_shares"),
   ownableTable(
@@ -253,8 +254,8 @@ const initialSchema = [
   approved_at TEXT,
   applied_at TEXT,
   error TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
   ),
   sharesTable("crm_mutation_shares"),
   ownableTable(
@@ -270,8 +271,8 @@ const initialSchema = [
   error TEXT,
   started_at TEXT NOT NULL,
   completed_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
   ),
   sharesTable("crm_sync_run_shares"),
   `CREATE UNIQUE INDEX IF NOT EXISTS crm_connections_workspace_idx ON crm_connections (workspace_connection_id)`,
@@ -324,8 +325,8 @@ const signalsSchema = [
   classifier_prompt TEXT NOT NULL DEFAULT '',
   enabled INTEGER NOT NULL DEFAULT 1,
   is_default INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
   ),
   sharesTable("crm_signal_tracker_shares"),
   ownableTable(
@@ -340,8 +341,8 @@ const signalsSchema = [
   model_version TEXT,
   idempotency_key TEXT NOT NULL,
   error TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
   completed_at TEXT`,
   ),
   sharesTable("crm_signal_run_shares"),
@@ -365,8 +366,8 @@ const signalsSchema = [
   model_version TEXT,
   review_status TEXT NOT NULL DEFAULT 'unreviewed',
   idempotency_key TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
   ),
   sharesTable("crm_signal_shares"),
   `CREATE INDEX IF NOT EXISTS crm_signal_trackers_scope_idx ON crm_signal_trackers (owner_email, org_id, enabled)`,
@@ -393,8 +394,8 @@ const dashboardsSchema = [
   kind TEXT NOT NULL,
   title TEXT NOT NULL DEFAULT 'Untitled',
   config TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
   updated_by TEXT,
   archived_at TEXT`,
   ),
@@ -405,8 +406,9 @@ const dashboardsSchema = [
   kind TEXT NOT NULL,
   title TEXT NOT NULL,
   config TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  created_by TEXT`,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  created_by TEXT,
+  chat_context TEXT`,
   ),
   sharesTable("crm_dashboard_shares"),
   `CREATE INDEX IF NOT EXISTS crm_dashboards_owner_updated_idx ON crm_dashboards (owner_email, org_id, updated_at)`,
@@ -414,18 +416,10 @@ const dashboardsSchema = [
   `CREATE INDEX IF NOT EXISTS crm_dashboard_shares_principal_idx ON crm_dashboard_shares (resource_id, principal_type, principal_id)`,
 ].join(";\n");
 
-/** `ALTER TABLE … ADD COLUMN IF NOT EXISTS`; SQLite gets the clause stripped and
- * its duplicate-column error swallowed by the migration runner. */
 function addColumn(table: string, definition: string): string {
   return `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${definition}`;
 }
 
-// Typed, bitemporal attribute model. Every statement is additive except the drop
-// of crm_record_fields_record_name_idx: that unique index spans ALL rows for a
-// (record_id, field_name) pair, so a second history row for the same field
-// cannot exist while it stands. Its guarantee — one CURRENT value per record and
-// field — is preserved exactly by the partial unique index that replaces it.
-// Dropping an index removes no column, row, or value.
 const typedAttributesSchema = [
   addColumn(
     "crm_field_policies",
@@ -479,17 +473,12 @@ const typedAttributesSchema = [
   archived INTEGER NOT NULL DEFAULT 0,
   target_days INTEGER,
   celebrate INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
   ),
   sharesTable("crm_attribute_option_shares"),
   addColumn("crm_record_fields", `entry_id TEXT`),
   addColumn("crm_record_fields", `attribute_id TEXT`),
-  // Nullable with no DEFAULT on purpose: SQLite refuses ADD COLUMN with a
-  // non-constant default on a table that already has rows, so `DEFAULT
-  // (datetime('now'))` here would pass on a fresh database and fail on every
-  // real upgrade. The backfill below populates every existing row, and the
-  // Drizzle declaration supplies the default for new inserts.
   addColumn("crm_record_fields", `active_from TEXT`),
   addColumn("crm_record_fields", `active_until TEXT`),
   addColumn("crm_record_fields", `actor_type TEXT NOT NULL DEFAULT 'system'`),
@@ -502,8 +491,6 @@ const typedAttributesSchema = [
   addColumn("crm_record_fields", `domain_root TEXT`),
   addColumn("crm_record_fields", `name_first TEXT`),
   addColumn("crm_record_fields", `name_last TEXT`),
-  // Existing rows are the current value of their field as of when they were
-  // created; none of them has ever been superseded, so active_until stays null.
   `UPDATE crm_record_fields SET active_from = created_at WHERE active_from IS NULL`,
   `UPDATE crm_record_fields SET attribute_id = field_policy_id WHERE attribute_id IS NULL`,
   `DROP INDEX IF EXISTS crm_record_fields_record_name_idx`,
@@ -525,8 +512,8 @@ const typedAttributesSchema = [
   source TEXT NOT NULL DEFAULT 'local',
   source_remote_id TEXT,
   last_synced_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
   ),
   sharesTable("crm_list_shares"),
   ownableTable(
@@ -537,8 +524,8 @@ const typedAttributesSchema = [
   position INTEGER NOT NULL DEFAULT 0,
   created_by_actor_type TEXT NOT NULL DEFAULT 'system',
   created_by_actor_id TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
   ),
   sharesTable("crm_list_entry_shares"),
   addColumn("crm_saved_views", `view_kind TEXT NOT NULL DEFAULT 'table'`),
@@ -562,7 +549,6 @@ const typedAttributesSchema = [
   ),
 ].join(";\n");
 
-// Gated enrichment runs. Purely additive: one new table plus its shares table.
 const enrichmentSchema = [
   ownableTable(
     "crm_enrichment_runs",
@@ -582,33 +568,22 @@ const enrichmentSchema = [
   error TEXT,
   started_at TEXT NOT NULL,
   completed_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)`,
   ),
   sharesTable("crm_enrichment_run_shares"),
-  // The duplicate-run guard's query: one in-flight run per scope and phase.
   `CREATE INDEX IF NOT EXISTS crm_enrichment_runs_scope_status_idx ON crm_enrichment_runs (scope_kind, scope_id, phase, status)`,
-  // Period-to-date spend is summed per actor over a month window.
   `CREATE INDEX IF NOT EXISTS crm_enrichment_runs_owner_started_idx ON crm_enrichment_runs (owner_email, org_id, started_at)`,
   `CREATE INDEX IF NOT EXISTS crm_enrichment_runs_source_idx ON crm_enrichment_runs (source_run_id)`,
   `CREATE INDEX IF NOT EXISTS crm_enrichment_run_shares_principal_idx ON crm_enrichment_run_shares (resource_id, principal_type, principal_id)`,
 ].join(";\n");
 
-// Backfill for a boundary bug: `ensureNativeObject` (native-adapter.ts) and
-// `persistSchema` (crm-mirror.ts) never set `attribute_type`/`authority` on
-// insert OR update, so every native field kept the column defaults
-// (`text`/`provider`) forever, no matter its real type. Scoped to NATIVE
-// connections only — a HubSpot/Salesforce field legitimately still defaults
-// to `text`/`provider` until it has its own discovered typing, and this
-// backfill has no way to know a mirrored field's true type retroactively.
 const nativeAttributeTypeBackfill = [
   `UPDATE crm_field_policies SET authority = 'local-authoritative' WHERE connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
   `UPDATE crm_field_policies SET attribute_type = 'domain' WHERE object_type = 'accounts' AND field_name = 'domain' AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
   `UPDATE crm_field_policies SET attribute_type = 'email-address' WHERE object_type = 'people' AND field_name = 'email' AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
   `UPDATE crm_field_policies SET attribute_type = 'record-reference' WHERE field_name = 'accountId' AND object_type IN ('people', 'opportunities') AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
   `UPDATE crm_field_policies SET attribute_type = 'currency', config_json = '{"currency":{"code":"USD"}}' WHERE object_type = 'opportunities' AND field_name = 'amount' AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
-  // `stage` is the one field whose legacy `value_type` was also wrong ('string'
-  // instead of 'enum') — every other field's legacy column was already correct.
   `UPDATE crm_field_policies SET attribute_type = 'status', value_type = 'enum' WHERE object_type = 'opportunities' AND field_name = 'stage' AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
   `UPDATE crm_field_policies SET attribute_type = 'date' WHERE object_type = 'opportunities' AND field_name = 'closeDate' AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
   `UPDATE crm_field_policies SET attribute_type = 'number' WHERE field_name = 'desiredCadenceDays' AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
@@ -639,13 +614,39 @@ export const runCrmMigrations = runMigrations(
     {
       version: 7,
       name: "backfill-native-stage-options",
-      // Run-only: a Drizzle join plus per-policy writes that SQL alone cannot
-      // express. It used to sit in the plugin body, so every cold start paid
-      // the lookup before the app could serve even though it is a one-time
-      // backfill of historical policies. A throw leaves it unrecorded and it
-      // retries on the next boot.
       sql: {},
       run: backfillNativeStageOptions,
+    },
+    {
+      version: 8,
+      name: "crm-dashboard-revision-chat-context",
+      sql: addColumn("crm_dashboard_revisions", "chat_context TEXT"),
+    },
+    {
+      version: 9,
+      name: "share-tables-notified-at",
+      sql: `
+        ALTER TABLE IF EXISTS crm_attribute_option_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS crm_call_evidence_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS crm_connection_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS crm_dashboard_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS crm_enrichment_run_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS crm_field_policy_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS crm_interaction_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS crm_list_entry_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS crm_list_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS crm_mutation_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS crm_object_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS crm_record_field_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS crm_record_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS crm_relationship_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS crm_saved_view_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS crm_signal_run_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS crm_signal_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS crm_signal_tracker_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS crm_sync_run_shares ADD COLUMN IF NOT EXISTS notified_at TEXT;
+        ALTER TABLE IF EXISTS crm_task_shares ADD COLUMN IF NOT EXISTS notified_at TEXT
+      `,
     },
   ],
   { table: "crm_migrations" },
@@ -668,7 +669,7 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
  * `stage` policy to `status`, but a status attribute with zero managed
  * options 422s on the very next write (`assertKnownOptions` in
  * `server/lib/record-fields.ts`). A raw-SQL migration can't mint the option
- * rows' ids portably across dialects, so this runs as a plain query instead —
+ * rows' ids directly, so this runs as a plain query instead -
  * idempotent the same way: only ever inserts when an attribute has none.
  */
 async function backfillNativeStageOptions(): Promise<void> {

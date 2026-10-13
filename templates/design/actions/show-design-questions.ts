@@ -7,7 +7,7 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
 function designDeepLink(designId: string): string {
   return buildDeepLink({
@@ -57,8 +57,6 @@ function normalizeDesignQuestions(
 ): z.infer<typeof questionSchema>[] {
   return questions.map((question) => ({
     ...question,
-    // The agent supplies Explore/Decide choices explicitly when needed.
-    // Default injection duplicates cards on every question in the form.
     includeExplore: question.includeExplore ?? false,
     includeDecide: question.includeDecide ?? false,
   }));
@@ -66,11 +64,11 @@ function normalizeDesignQuestions(
 
 export default defineAction({
   description:
-    "Show a Claude Design-style question form in the Design editor before " +
-    "generating a new design. Use this as the first step for non-trivial new " +
-    "design prompts: create/open the design shell, call show-design-questions " +
-    "with tailored questions, then stop and wait for the user's answers before " +
-    "calling generate-design or present-design-variants.",
+    "Show a Claude Design-style question form in the Design editor. This is " +
+    "the in-app Design agent's intake step for non-trivial new prompts — the " +
+    "user's answers return through the in-app chat, not this call's result.",
+  endsTurn: true,
+  mcpTool: false,
   schema: z.object({
     designId: z.string().describe("Design project ID to show questions for"),
     title: z
@@ -138,7 +136,7 @@ export default defineAction({
       view: "editor",
       designId,
       editorView: "overview",
-      path: `/design/${encodeURIComponent(designId)}?view=overview`,
+      path: `/design/${encodeURIComponent(designId)}?editorView=overview`,
     });
 
     return {

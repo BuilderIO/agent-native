@@ -10,7 +10,13 @@ import { fileURLToPath } from "node:url";
 
 import type { Browser, BrowserContext } from "@playwright/test";
 
+import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
+import type { SetupStep } from "./deadline";
 import { type BetaSite, originFor } from "./fleet";
+import {
+  BETA_E2E_TEST_TRAFFIC_HEADERS,
+  installBetaE2ETrafficMarker,
+} from "./test-traffic";
 
 /**
  * Authenticated-session bootstrap for the beta fleet.
@@ -75,15 +81,6 @@ export function authStatePath(appId: string): string {
   return path.join(AUTH_DIR, `${appId}.json`);
 }
 
-/**
- * Marker written by global setup once the authenticated lane is fully ready.
- *
- * A file rather than an env var: Playwright runs specs in separate worker
- * processes, and `process.env` mutation is banned repo-wide because it is
- * process-scoped state that leaks across concurrent work. A file is the same
- * handoff without the footgun, and it is already gitignored alongside the
- * session state it accompanies.
- */
 export function laneMarkerPath(): string {
   return path.join(AUTH_DIR, "lane-ready");
 }
@@ -101,12 +98,16 @@ export function authedLaneReady(): boolean {
   return existsSync(laneMarkerPath());
 }
 
-/** The identity every authenticated spec asserts it is running as. */
 export function expectedEmail(): string {
   const email = process.env.BETA_E2E_EMAIL?.trim();
   if (!email) {
     throw new Error(
       "BETA_E2E_EMAIL is not set. Authenticated beta specs must assert which identity they are running as; without it a bootstrap that silently lands as the wrong user would pass.",
+    );
+  }
+  if (!isAutozQaEmail(email)) {
+    throw new Error(
+      "BETA_E2E_EMAIL must be a dedicated QA account whose email contains +autoz.",
     );
   }
   return email;
@@ -155,17 +156,12 @@ function hasPerAppSessionToken(): boolean {
   );
 }
 
-/** True when this run has been given something to authenticate with. */
 export function hasSessionCredentials(): boolean {
   return Boolean(
     sessionTokens() || storageStateBlob() || hasPerAppSessionToken(),
   );
 }
 
-/**
- * Explain, in the terms someone fixing it needs, why no authenticated run is
- * possible. Called at the one point where the run decides to stop.
- */
 export function missingCredentialsMessage(): string {
   return [
     "No beta session credential was supplied, so no authenticated spec can run.",
@@ -176,7 +172,35 @@ export function missingCredentialsMessage(): string {
   ].join("\n");
 }
 
-/** Read the live session the way the app itself would, from inside the page. */
+export function sessionFailureReason(options: {
+  status: number;
+  body: string;
+  tokenProvided: boolean;
+}): string {
+  const credential = options.tokenProvided
+    ? "supplied session token"
+    : "stored session cookie";
+  if (options.status >= 500) {
+    return `The beta host's session endpoint was unavailable (HTTP ${options.status}); retry the host.`;
+  }
+  if (options.status === 401 || options.status === 403) {
+    return `The ${credential} was rejected by this host (HTTP ${options.status}).`;
+  }
+
+  try {
+    const parsed = JSON.parse(options.body) as { error?: unknown } | null;
+    if (
+      typeof parsed?.error === "string" &&
+      /not authenticated/i.test(parsed.error)
+    ) {
+      return "The host answered successfully but did not honor the supplied session credential.";
+    }
+  } catch {
+    return `The beta host returned an unreadable session response (HTTP ${options.status}).`;
+  }
+  return `The beta host returned no authenticated identity (HTTP ${options.status}).`;
+}
+
 async function readSessionIdentity(
   context: BrowserContext,
   origin: string,
@@ -206,14 +230,10 @@ async function readSessionIdentity(
   return { identity, status: response.status(), body: body.slice(0, 400) };
 }
 
-/**
- * Produce a signed-in context for one beta app and persist its storage state.
- *
- * Throws unless the resulting session resolves to `BETA_E2E_EMAIL`.
- */
 export async function bootstrapAppSession(
   browser: Browser,
   site: BetaSite,
+  onStep: SetupStep = () => {},
 ): Promise<SessionIdentity> {
   const origin = originFor(site);
   const email = expectedEmail();
@@ -223,16 +243,18 @@ export async function bootstrapAppSession(
   if (!blob && !token) throw new Error(missingCredentialsMessage());
 
   const context = await browser.newContext(
-    blob ? { storageState: JSON.parse(blob) } : {},
+    blob
+      ? {
+          storageState: JSON.parse(blob),
+          extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS,
+        }
+      : { extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS },
   );
+  await installBetaE2ETrafficMarker(context);
 
   try {
     if (token) {
-      // `promoteQuerySession` (packages/core/src/server/auth.ts) exchanges the
-      // token for this host's own session cookie on any request carrying it.
-      //
-      // Navigate a real browser page so Set-Cookie is persisted by the same
-      // cookie jar that is saved and reused by the authenticated specs.
+      onStep("exchanging the session token");
       const page = await context.newPage();
       const exchangeSession = async () => {
         const response = await page.goto(
@@ -257,10 +279,11 @@ export async function bootstrapAppSession(
           await sleep(1_000 * attempt);
           promoted = await exchangeSession();
         }
-      } catch {
-        // Keep the live query token out of Playwright's error and report text.
+      } catch (error) {
         await page.close();
-        throw new Error(`${origin} failed while exchanging the session token.`);
+        throw new Error(
+          `${origin} failed while exchanging the session token: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
       await page.close();
       if (promoted.status() >= 500) {
@@ -270,6 +293,7 @@ export async function bootstrapAppSession(
       }
     }
 
+    onStep("reading the session identity");
     let session = await readSessionIdentity(context, origin);
     for (
       let attempt = 1;
@@ -286,9 +310,11 @@ export async function bootstrapAppSession(
         [
           `Beta session bootstrap failed for ${site.id} (${origin}).`,
           `GET /_agent-native/auth/session returned HTTP ${status}: ${body}`,
-          token
-            ? "The supplied session token was rejected. Framework sessions expire after 30 days — re-run `pnpm e2e:beta:capture`."
-            : "The supplied storage state carried no session cookie this host accepts.",
+          sessionFailureReason({
+            status,
+            body,
+            tokenProvided: Boolean(token),
+          }),
         ].join("\n"),
       );
     }
@@ -307,7 +333,6 @@ export async function bootstrapAppSession(
   }
 }
 
-/** Persist a capture-time storage state for reuse as a secret. */
 export function writeCapturedState(appId: string, state: string): string {
   mkdirSync(AUTH_DIR, { recursive: true });
   const file = authStatePath(appId);

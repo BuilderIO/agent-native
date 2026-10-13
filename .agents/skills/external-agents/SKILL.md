@@ -17,9 +17,12 @@ metadata:
 
 ## Rule
 
-An agent-native app is reachable by any MCP-compatible host (Claude, Claude
-Desktop, Claude Code, ChatGPT custom MCP apps, Codex, Cursor, Cowork, VS Code
-GitHub Copilot, Goose, Postman, MCPJam, and future standard clients). Keep
+- **The connected model is the author.** Write content yourself with create/update tools; never delegate via `ask_app` or wait on an unreachable in-app form — see `DEFAULT_AGENT_NATIVE_MCP_INSTRUCTIONS`.
+- **Result shape and key tools are in `actions`** (Return Values, Key Actions).
+- **Artifacts fit in one call.** Up to 500,000 characters; return a `storing-data` handle.
+- **One tab, one id.** WebMCP sends `X-Agent-Native-Browser-Tab`; state resolves to the driving tab (`context-awareness`).
+
+An agent-native app is reachable by any MCP-compatible host. Keep
 setup simple: for workspace or cross-app access, add one remote MCP connector:
 `https://dispatch.agent-native.com/mcp`. Dispatch's Agents page
 controls whether that single connector reaches all apps or only selected apps,
@@ -28,21 +31,15 @@ For a deliberately isolated app, add that app directly at
 `https://<app>.agent-native.com/mcp` or
 `https://<your-host>/mcp`.
 
-In-app, the Agent page's **Access** tab (`/agent#access`, see the
-`agent-page` skill) is the discoverable home for all of this: it shows the
-app's copyable MCP URL and A2A agent-card URL, per-client setup steps
-(Claude, ChatGPT, Cursor, Claude Code, Codex, Other), and links to the full
-`/mcp/connect` page including the static-token fallback. Point users there
-instead of dictating URLs in chat.
+In-app, the Agent page's **Access** tab (`/agent#access`) is the home for this:
+it shows MCP/A2A URLs, client setup steps, and the full `/mcp/connect` page.
+Point users there instead of dictating URLs in chat.
 
-OAuth-capable hosts should use the standard remote MCP OAuth flow. Claude
-connectors and Claude Code `/mcp` authentication discover the protected
-resource, open the Agent-Native authorization page, and store their own tokens.
-ChatGPT custom MCP connectors use the same URL: choose OAuth, scan/discover
-tools, sign in, and approve the scopes. Local stdio proxying and older clients
-can still use `npx @agent-native/core connect <url>`, which mints a per-user,
-scoped, revocable token from a logged-in browser session; no shared secret is
-copied.
+OAuth-capable hosts use the standard remote MCP OAuth flow — Claude, Claude
+Code, and ChatGPT discover the protected resource and store their own tokens;
+per-host steps are below. Local stdio proxying and older clients can still use
+`npx @agent-native/core connect <url>`, which mints a per-user, scoped,
+revocable token from a logged-in browser session; no shared secret is copied.
 
 The framework serves MCP `2026-07-28` natively over stateless, per-request HTTP
 and keeps the established stateless path for 2025-era clients. New MCP client
@@ -152,9 +149,9 @@ https://dispatch.agent-native.com/mcp
 ```
 
 Then open Dispatch → Agents to choose whether the gateway exposes every app or
-only selected app IDs. External agents call `list_apps` to see the granted set,
-`ask_app` to route a natural-language task over A2A to a granted app, and
-`open_app` to return a deep link or inline app preview.
+only selected IDs. Use `list_apps` for grants, `open_app` for links/embeds, and
+named actions when cataloged. Use `ask_app` only when direct action is
+unavailable or app-agent reasoning helps.
 
 Use a direct app URL only when you intentionally want one isolated app:
 
@@ -243,9 +240,9 @@ precedence). Disable the set with `MCPConfig.builtinCrossAppTools: false`.
 
 The advertised `tools/list` and `resources/list` catalogs are intentionally
 tiny by default for ChatGPT/Claude-style app hosts, including OAuth MCP Apps
-callers and generic authenticated remote HTTP/static-token callers. The model
-sees the generic app-facing verbs (`list_apps`, `open_app`, `ask_app`, and
-app-only `create_embed_session`) and routes UI through
+callers. The unified gateway exposes only generic verbs (`list_apps`, `open_app`,
+`ask_app`, `create_embed_session`); named actions come from a direct app MCP
+connection or page WebMCP. Route UI through
 `open_app({ embed: true })`. Stdio/code clients use the same compact surface
 unless they explicitly opt into the full catalog, and
 `publicAgent.expose` remains the action-level opt-in for safe read/ingest tools
@@ -506,6 +503,10 @@ before telling the user they are unauthenticated.
   and read live (Yjs) state, not the stale DB column.
 - Do let the open route resolve the browser session; pass record ids as deep-
   link params and let the UI focus them via the polled `navigate` command.
+- Do return `designSystem` on reads in visual apps (see the actions skill) and
+  put `get-design-system` and `list-design-systems` in both `connectorCatalog`
+  and `initialToolNames`; a description that points at a tool the connector
+  cannot see is a dead end.
 
 ## Don't
 
@@ -518,7 +519,8 @@ before telling the user they are unauthenticated.
 - Don't hand-write product UI in `mcpApp.resource.html`; use a real React
   route/component and embed it with `embedApp()`.
 - Don't test Claude full-app embeds against raw Vite dev modules and conclude
-  production is broken; use `pnpm exec agent-native start`, a preview deploy, or prod.
+  production is broken; use `pnpm exec agent-native start` with `DATABASE_URL`
+  set to Postgres and `BETTER_AUTH_SECRET` set, a preview deploy, or prod.
 - Don't scope the `navigate` write to the agent token, or pass privileged
   state through the deep link — it's a pure pointer.
 - Don't invent a new navigation mechanism; bridge to the existing

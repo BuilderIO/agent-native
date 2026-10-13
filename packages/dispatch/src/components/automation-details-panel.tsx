@@ -1,11 +1,17 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   IconAlertTriangle,
+  IconCheck,
+  IconCopy,
   IconClock,
   IconExternalLink,
   IconPlayerPause,
   IconPlayerPlay,
 } from "@tabler/icons-react";
+import { useState } from "react";
 import { Link } from "react-router";
 
 import {
@@ -26,7 +32,7 @@ interface AutomationRun {
   id: string;
   runId: string | null;
   threadId: string | null;
-  status: "running" | "success" | "error" | "interrupted";
+  status: "running" | "success" | "error" | "interrupted" | "skipped";
   startedAt: number;
   finishedAt: number | null;
   error: string | null;
@@ -107,6 +113,7 @@ export function AutomationDetailsPanel({
   isToggling = false,
   onToggle,
 }: AutomationDetailsPanelProps) {
+  const t = useT();
   const runsQuery = useActionQuery<AutomationRun[]>(
     "list-automation-runs",
     {
@@ -118,7 +125,18 @@ export function AutomationDetailsPanel({
   );
   const runs = runsQuery.data ?? [];
   const status = automationStatus(automation);
-  const isScheduled = automation.triggerType !== "event";
+  const isScheduled = automation.triggerType === "schedule";
+  const [copied, setCopied] = useState(false);
+  const webhookUrl =
+    automation.webhookPath && typeof window !== "undefined"
+      ? window.location.origin + appPath(automation.webhookPath)
+      : null;
+  const triggerLabel =
+    automation.triggerType === "webhook"
+      ? t("jobs.webhook", { defaultValue: "Webhook" })
+      : isScheduled
+        ? "Schedule"
+        : "Event";
   const prompt = automation.body?.trim();
   const hasExecutionTarget = Boolean(
     automation.executionHostId ||
@@ -156,8 +174,7 @@ export function AutomationDetailsPanel({
             {automation.name}
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            {isScheduled ? "Schedule" : "Event"} ·{" "}
-            {automationScopeLabel(automation)}
+            {triggerLabel} · {automationScopeLabel(automation)}
           </p>
         </div>
       </header>
@@ -183,7 +200,15 @@ export function AutomationDetailsPanel({
           <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-4">
             <DetailField
               label="Trigger"
-              value={isScheduled ? "Scheduled" : "Event-triggered"}
+              value={
+                automation.triggerType === "webhook"
+                  ? t("jobs.webhookTrigger", {
+                      defaultValue: "Webhook-triggered",
+                    })
+                  : isScheduled
+                    ? "Scheduled"
+                    : "Event-triggered"
+              }
             />
             <DetailField
               label={isScheduled ? "Schedule" : "Event"}
@@ -204,6 +229,47 @@ export function AutomationDetailsPanel({
                 />
               </>
             ) : null}
+            {webhookUrl ? (
+              <div className="col-span-2 rounded-md border border-primary/20 bg-primary/5 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-medium text-foreground">
+                    {t("jobs.webhookUrl", { defaultValue: "Webhook URL" })}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 shrink-0 gap-1.5 text-xs"
+                    onClick={() => {
+                      void writeClipboardText(webhookUrl).then((didCopy) => {
+                        setCopied(didCopy);
+                        if (didCopy) {
+                          window.setTimeout(() => setCopied(false), 1800);
+                        }
+                      });
+                    }}
+                  >
+                    {copied ? (
+                      <IconCheck className="size-3.5" />
+                    ) : (
+                      <IconCopy className="size-3.5" />
+                    )}
+                    {copied
+                      ? t("common.copied", { defaultValue: "Copied" })
+                      : t("common.copy", { defaultValue: "Copy URL" })}
+                  </Button>
+                </div>
+                <code className="mt-2 block break-all text-[11px] leading-5 text-muted-foreground">
+                  {webhookUrl}
+                </code>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {t("jobs.webhookUrlHint", {
+                    defaultValue:
+                      "Paste this URL into a service that sends HTTP POST webhooks.",
+                  })}
+                </p>
+              </div>
+            ) : null}
             <DetailField
               label="Condition"
               value={automation.condition || "Always"}
@@ -218,14 +284,16 @@ export function AutomationDetailsPanel({
             />
             <DetailField label="Mode" value={automation.mode || "Agentic"} />
             <DetailField label="Runs as" value={runAsLabel(automation.runAs)} />
-            <DetailField
-              label="Next run"
-              value={
-                automation.enabled
-                  ? formatTimestamp(automation.nextRun)
-                  : "Paused"
-              }
-            />
+            {isScheduled ? (
+              <DetailField
+                label="Next run"
+                value={
+                  automation.enabled
+                    ? formatTimestamp(automation.nextRun)
+                    : "Paused"
+                }
+              />
+            ) : null}
             <DetailField
               label="Last run"
               value={formatTimestamp(automation.lastRun)}
@@ -317,10 +385,24 @@ export function AutomationDetailsPanel({
         ) : null}
 
         {automation.lastError ? (
-          <section className="flex items-start gap-2 border-t border-destructive/30 pt-5">
-            <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+          <section
+            className={
+              automation.lastStatus === "skipped"
+                ? "flex items-start gap-2 border-t pt-5"
+                : "flex items-start gap-2 border-t border-destructive/30 pt-5"
+            }
+          >
+            {automation.lastStatus !== "skipped" ? (
+              <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+            ) : null}
             <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-destructive">
+              <h3
+                className={
+                  automation.lastStatus === "skipped"
+                    ? "text-sm font-semibold text-muted-foreground"
+                    : "text-sm font-semibold text-destructive"
+                }
+              >
                 Latest scheduler result
               </h3>
               <p className="mt-1 break-words text-sm text-muted-foreground">
@@ -387,7 +469,13 @@ export function AutomationDetailsPanel({
                         ) : null}
                       </div>
                       {run.error ? (
-                        <p className="break-words text-sm text-destructive">
+                        <p
+                          className={
+                            run.status === "skipped"
+                              ? "break-words text-sm text-muted-foreground"
+                              : "break-words text-sm text-destructive"
+                          }
+                        >
                           {run.error}
                         </p>
                       ) : null}

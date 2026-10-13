@@ -14,7 +14,7 @@ import {
   readAgentPromptAttachment,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
-} from "@agent-native/core/client/composer";
+} from "@agent-native/toolkit/app/chat/composer/index";
 import {
   Select,
   SelectContent,
@@ -22,6 +22,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@agent-native/toolkit/ui/select";
+import { isCodeAgentModelConfigured } from "@shared/code-agent-readiness";
 import { IconFolder, IconFolderPlus } from "@tabler/icons-react";
 import {
   useCallback,
@@ -32,18 +33,35 @@ import {
   type MouseEvent,
 } from "react";
 
+import DesktopAiSetupCard from "./DesktopAiSetupCard.js";
+
 import "./QuickPromptOverlay.css";
 
 type QuickPromptOverlayProps = {
-  onSubmit(
+  onSubmit: (
     prompt: string,
     attachments: CodeAgentPromptAttachment[],
     cwd?: string,
     modelSelection?: CodeAgentModelSelectionType,
-  ): Promise<void>;
-  onDismiss(): void;
+  ) => Promise<void>;
+  onDismiss: () => void;
   submitting?: boolean;
 };
+
+function preferConfiguredModelSelection(
+  current: CodeAgentModelSelectionType,
+  models: CodeAgentModelOption[],
+  fallback?: { engine?: string; model?: string },
+): CodeAgentModelSelectionType {
+  if (isCodeAgentModelConfigured(models, current)) return current;
+  if (!fallback || !isCodeAgentModelConfigured(models, fallback))
+    return current;
+  return {
+    engine: fallback.engine,
+    model: fallback.model,
+    effort: current.effort,
+  };
+}
 
 function resolveProjectSelection(result: CodeAgentProjectListResult): string {
   const candidates = [result.selectedPath, result.defaultPath];
@@ -71,7 +89,10 @@ function QuickPromptProjectPicker({
   onSelect: (path: string) => void;
   onChoose: () => void;
 }) {
-  const canChoose = Boolean(window.electronAPI?.codeAgents?.chooseProject);
+  const canChoose = Boolean(
+    window.electronAPI?.codeAgents &&
+    "chooseProject" in window.electronAPI.codeAgents,
+  );
   const effectiveSelectedPath = selectedPath || projects[0]?.path || "";
   const activeProject = projects.find(
     (project) => project.path === effectiveSelectedPath,
@@ -154,6 +175,7 @@ export default function QuickPromptOverlay({
   const [projectLoading, setProjectLoading] = useState(true);
   const [modelOptions, setModelOptions] = useState<CodeAgentModelOption[]>([]);
   const [modelListLoading, setModelListLoading] = useState(true);
+  const [modelListUnavailable, setModelListUnavailable] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelSelection, setModelSelection] =
     useState<CodeAgentModelSelectionType>(() => readCodeAgentModelSelection());
@@ -197,9 +219,41 @@ export default function QuickPromptOverlay({
   }, []);
 
   useEffect(() => {
+    const api = window.electronAPI?.codeAgents;
+    if (!api) return;
+    let mounted = true;
+    const refreshModelsOnFocus = () => {
+      void api
+        .listModels()
+        .then((result) => {
+          if (!mounted) return;
+          setModelListUnavailable(result.status !== "ok");
+          const models = result.status === "ok" ? result.models : [];
+          setModelOptions(models);
+          if (result.status === "ok") {
+            setModelSelection((current) =>
+              preferConfiguredModelSelection(current, models, result.selected),
+            );
+          }
+        })
+        .catch(() => {
+          if (!mounted) return;
+          setModelListUnavailable(true);
+          setModelOptions([]);
+        });
+    };
+    window.addEventListener("focus", refreshModelsOnFocus);
+    return () => {
+      mounted = false;
+      window.removeEventListener("focus", refreshModelsOnFocus);
+    };
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
     const api = window.electronAPI?.codeAgents;
     if (!api) {
+      setModelListUnavailable(true);
       setModelListLoading(false);
       return;
     }
@@ -210,25 +264,31 @@ export default function QuickPromptOverlay({
         if (!mounted) return;
         if (result.status === "ok") {
           setModelOptions(result.models);
+          setModelListUnavailable(false);
           setModelSelection((current) => {
-            if (current.engine && current.model) return current;
-            if (!result.selected) return current;
-            return {
-              engine: result.selected.engine,
-              model: result.selected.model,
-              effort: result.selected.effort as
-                | CodeAgentModelSelectionType["effort"]
-                | undefined,
-            };
+            if (current.engine && current.model) {
+              return preferConfiguredModelSelection(
+                current,
+                result.models,
+                result.selected,
+              );
+            }
+            return preferConfiguredModelSelection(
+              current,
+              result.models,
+              result.selected,
+            );
           });
         } else {
           setModelOptions([]);
+          setModelListUnavailable(true);
         }
         setModelListLoading(false);
       })
       .catch(() => {
         if (!mounted) return;
         setModelOptions([]);
+        setModelListUnavailable(true);
         setModelListLoading(false);
       });
 
@@ -236,6 +296,43 @@ export default function QuickPromptOverlay({
       mounted = false;
     };
   }, []);
+
+  const setupRequired =
+    !modelListLoading &&
+    (modelListUnavailable ||
+      !isCodeAgentModelConfigured(modelOptions, normalizedModelSelection));
+
+  useEffect(() => {
+    window.electronAPI?.quickPrompt.setSetupRequired(setupRequired);
+  }, [setupRequired]);
+
+  const verifySelectedProvider = useCallback(async () => {
+    const api = window.electronAPI?.codeAgents;
+    if (!api) {
+      setModelListUnavailable(true);
+      return false;
+    }
+
+    try {
+      const result = await api.listModels({ refresh: true });
+      if (result.status !== "ok") {
+        setModelListUnavailable(true);
+        return false;
+      }
+      setModelOptions(result.models);
+      setModelListUnavailable(false);
+      const selectedModel = preferConfiguredModelSelection(
+        normalizedModelSelection,
+        result.models,
+        result.selected,
+      );
+      setModelSelection(selectedModel);
+      return isCodeAgentModelConfigured(result.models, selectedModel);
+    } catch {
+      setModelListUnavailable(true);
+      return false;
+    }
+  }, [normalizedModelSelection.engine, normalizedModelSelection.model]);
 
   useEffect(() => {
     if (modelListLoading || modelOptions.length === 0) return;
@@ -336,6 +433,7 @@ export default function QuickPromptOverlay({
         });
       } catch (error) {
         setSubmitError(error instanceof Error ? error.message : String(error));
+        throw error;
       } finally {
         setLocalSubmitting(false);
       }
@@ -380,19 +478,27 @@ export default function QuickPromptOverlay({
       ref={overlayRef}
       className={`quick-prompt-overlay${
         modelPickerOpen ? " quick-prompt-overlay--picker-open" : ""
-      }`}
+      }${setupRequired ? " quick-prompt-overlay--setup-required" : ""}`}
       role="dialog"
       aria-modal="true"
       aria-label="Prompt"
       onMouseDown={handleBackdropMouseDown}
     >
+      {setupRequired ? (
+        <DesktopAiSetupCard
+          onOpenSettings={() =>
+            window.electronAPI?.quickPrompt.openProviderSettings()
+          }
+          statusUnavailable={modelListUnavailable}
+        />
+      ) : null}
       <PromptComposer
         autoFocus
         attachmentsEnabled
         className="quick-prompt-overlay__composer"
         composerRef={composerRef}
-        disabled={submitting || localSubmitting}
-        initialText=""
+        disabled={submitting || localSubmitting || setupRequired}
+        draftScope="desktop:quick-prompt"
         layoutVariant="hero"
         placeholder="Ask anything…"
         showModelSelector
@@ -401,7 +507,6 @@ export default function QuickPromptOverlay({
         availableModels={availableModels}
         modelListLoading={modelListLoading}
         modelSelectorOpen={modelPickerOpen}
-        modelStatusChecksEnabled={false}
         selectedAgent={getCodeAgentIdForEngine(normalizedModelSelection.engine)}
         selectedEngine={normalizedModelSelection.engine}
         selectedEffort={normalizedModelSelection.effort}
@@ -411,6 +516,7 @@ export default function QuickPromptOverlay({
         onEffortChange={handleEffortChange}
         onModelChange={handleModelChange}
         onModelSelectorOpenChange={handleModelPickerOpenChange}
+        onBeforeSubmit={verifySelectedProvider}
         toolbarSlot={
           <QuickPromptProjectPicker
             loading={projectLoading}

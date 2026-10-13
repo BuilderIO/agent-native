@@ -90,10 +90,10 @@ describe("setActiveOrgId", () => {
     );
   });
 
-  // An unreadable previous org must not read as "had none" — that is exactly
-  // how a silent repoint would look like a harmless first-time assignment.
   it("distinguishes an unreadable previous org from an absent one", async () => {
-    getUserSetting.mockRejectedValue(new Error("no such table: settings"));
+    getUserSetting.mockRejectedValue(
+      new Error('relation "settings" does not exist'),
+    );
 
     await setActiveOrgId("owner@example.com", "org-2", "switch");
 
@@ -103,8 +103,6 @@ describe("setActiveOrgId", () => {
     expect(putUserSetting).toHaveBeenCalled();
   });
 
-  // Inside an agent run the repoint has to reach the conversation, not a server
-  // log the user will never open.
   it("routes the repoint warning to the agent channel during a run", async () => {
     getUserSetting.mockResolvedValue({ orgId: "builder-io" });
 

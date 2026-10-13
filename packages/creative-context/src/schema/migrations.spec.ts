@@ -38,4 +38,17 @@ describe("creative context migrations", () => {
       "(dedupe_scope, scoped_dedupe_key)",
     );
   });
+
+  it("keeps additive columns safe to retry after partial migration failure", () => {
+    const alterStatements = creativeContextMigrations.flatMap(
+      (migration) => String(migration.sql).match(/ALTER TABLE\b[^;]*;/gi) ?? [],
+    );
+
+    expect(alterStatements.length).toBeGreaterThan(0);
+    expect(
+      alterStatements.every((statement) =>
+        /ADD COLUMN IF NOT EXISTS/i.test(statement),
+      ),
+    ).toBe(true);
+  });
 });

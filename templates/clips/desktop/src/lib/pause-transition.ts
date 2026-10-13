@@ -15,11 +15,6 @@ interface PauseTransitionOptions {
   onError?(error: unknown, attemptedPaused: boolean): void;
 }
 
-/**
- * Serializes slow pause/resume work while preserving the user's latest intent.
- * If Resume arrives while Pause is still in flight, Pause finishes once and the
- * queue immediately applies Resume instead of silently dropping that click.
- */
 export function createPauseTransitionQueue(
   options: PauseTransitionOptions,
 ): PauseTransitionQueue {
@@ -39,7 +34,6 @@ export function createPauseTransitionQueue(
       applied = true;
     } catch (error) {
       if (!disposed) {
-        // Reflect reality after a failed transition. A fresh request can retry.
         desiredPaused = appliedPaused;
         options.onError?.(error, targetPaused);
       }
@@ -53,7 +47,6 @@ export function createPauseTransitionQueue(
       options.onApplied?.(targetPaused);
     }
 
-    // The desired state may have changed while the operation was awaiting.
     void applyDesiredState();
   };
 

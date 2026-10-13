@@ -176,7 +176,9 @@ describe("createTeamsProvider", () => {
       "https://graph.microsoft.com/v1.0/me/onlineMeetings",
     );
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
-    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body as string)),
+    ).toEqual({
       subject: booking.title,
       startDateTime: booking.startTime,
       endDateTime: booking.endTime,
@@ -228,6 +230,13 @@ describe("createTeamsProvider", () => {
         meetingId: "missing-meeting-example",
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it("requires a credential before deleting a meeting", async () => {
+    await expect(
+      provider().deleteMeeting!({ meetingId: "meeting-example" }),
+    ).rejects.toThrow("Microsoft Teams requires credentialId");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it.each([401, 403])(

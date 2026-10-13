@@ -1,12 +1,8 @@
 import { sql } from "@agent-native/core/db/schema";
 
 import { getDb, schema } from "../db/index.js";
+import { indexedRowId } from "./indexed-text.js";
 
-/**
- * The normalized subset emitted by first-party analytics ingest. Keeping this
- * contract smaller than the raw event row makes it clear that rollups never
- * need to parse properties or context JSON.
- */
 export interface NormalizedFirstPartyAnalyticsEventRow {
   eventName: string;
   eventDate: string;
@@ -68,14 +64,6 @@ function compositeKey(parts: readonly string[]): string {
   return JSON.stringify(parts);
 }
 
-function stableId(prefix: string, parts: readonly string[]): string {
-  return `${prefix}_${parts.map((part) => encodeURIComponent(part)).join("|")}`;
-}
-
-/**
- * Upsert compact rollups for a normalized batch. When ingestion passes its
- * transaction through, raw events and rollups share one commit boundary.
- */
 export async function upsertFirstPartyAnalyticsRollups(
   rows: readonly NormalizedFirstPartyAnalyticsEventRow[],
   transaction?: any,
@@ -105,7 +93,13 @@ export async function upsertFirstPartyAnalyticsRollups(
       existingDaily.eventCount += 1;
     } else {
       dailyRollups.set(dailyKey, {
-        id: stableId("aedr", [scopeKey, eventDate, eventName, app, template]),
+        id: indexedRowId("aedr", [
+          scopeKey,
+          eventDate,
+          eventName,
+          app,
+          template,
+        ]),
         tenantKey: scopeKey,
         ownerEmail,
         orgId,
@@ -121,7 +115,7 @@ export async function upsertFirstPartyAnalyticsRollups(
       const userDayKey = compositeKey([scopeKey, eventDate, userKey]);
       if (!userDays.has(userDayKey)) {
         userDays.set(userDayKey, {
-          id: stableId("aud", [scopeKey, eventDate, userKey]),
+          id: indexedRowId("aud", [scopeKey, eventDate, userKey]),
           tenantKey: scopeKey,
           ownerEmail,
           orgId,
@@ -141,10 +135,6 @@ export async function upsertFirstPartyAnalyticsRollups(
   }
 
   const writeRollups = async (tx: any) => {
-    // Do not take the historical backfill advisory lock here. Foreground
-    // ingest must not wait behind a long-running rebuild; the incremental
-    // conflict update and the backfill's GREATEST upsert are both monotonic,
-    // and Postgres serializes the conflicting row updates itself.
     const dailyRows = [...dailyRollups.values()];
     await tx
       .insert(schema.analyticsEventDailyRollups)

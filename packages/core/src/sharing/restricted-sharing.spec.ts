@@ -1,22 +1,7 @@
-/**
- * Tests for the per-resource sharing restrictions used by extensions:
- *
- *   - `allowPublic: false` — `set-resource-visibility` rejects `'public'`,
- *     and `accessFilter` / `resolveAccess` treat a stored `'public'` row as
- *     private (defense in depth against bad data).
- *   - `requireOrgMemberForUserShares: true` — `share-resource` rejects
- *     `principalType: "user"` shares whose principalId isn't an active member
- *     of the resource's org and isn't holding a pending invitation either.
- *
- * Extensions opt into both flags so a code-executing extension can never be
- * reached by an arbitrary authenticated user, and a malicious shared
- * extension can't re-share itself to an outsider email.
- */
-
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
 import { table, text, ownableColumns } from "../db/schema.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { accessFilter, ForbiddenError, resolveAccess } from "./access.js";
@@ -29,8 +14,8 @@ import { createSharesTable, type ShareRole } from "./schema.js";
 vi.mock("../db/client.js", () => {
   return {
     getDbExec: () => sharedClient,
-    isPostgres: () => false,
-    getDialect: () => "sqlite",
+    getScopedDbExec: () => undefined,
+    isProductionServerlessFunctionRuntime: () => false,
     retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
   };
 });
@@ -63,12 +48,12 @@ const docs = table("restricted_docs", {
 
 const docShares = createSharesTable("restricted_doc_shares");
 
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let db: ReturnType<typeof drizzle>;
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
-  sqlite.exec(`
+beforeEach(async () => {
+  pglite = await createTestPglite();
+  await pglite.exec(`
     CREATE TABLE restricted_docs (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -83,21 +68,23 @@ beforeEach(() => {
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      notified_at TEXT
     );
     CREATE TABLE org_members (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'member',
-      joined_at INTEGER NOT NULL
+      joined_at BIGINT NOT NULL,
+      federation_removal_pending_at INTEGER
     );
     CREATE TABLE org_invitations (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       invited_by TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
+      created_at BIGINT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
       role TEXT NOT NULL DEFAULT 'member'
     );
@@ -107,21 +94,18 @@ beforeEach(() => {
     INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role)
       VALUES ('i1', '${orgId}', '${invitedEmail}', '${ownerEmail}', 0, 'pending', 'member');
   `);
-  db = drizzle(sqlite);
+  db = drizzle(pglite.db);
 
-  // Point the framework `getDbExec()` mock at the same sqlite instance so
-  // the share-resource org-membership lookup hits the seeded org_members /
-  // org_invitations rows above.
   sharedClient = {
     async execute(arg) {
       const sql = typeof arg === "string" ? arg : arg.sql;
       const args = typeof arg === "string" ? [] : (arg.args ?? []);
-      const stmt = sqlite.prepare(sql);
+      const stmt = await pglite.prepare(sql);
       if (/^\s*select/i.test(sql)) {
-        const rows = stmt.all(...args) as any[];
+        const rows = (await stmt.all(...args)) as any[];
         return { rows, rowsAffected: 0 };
       }
-      const result = stmt.run(...args);
+      const result = await stmt.run(...args);
       return { rows: [], rowsAffected: Number(result.changes ?? 0) };
     },
   };
@@ -138,8 +122,8 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
-  sqlite.close();
+afterEach(async () => {
+  await pglite.close();
 });
 
 async function insertDoc(values: {
@@ -168,10 +152,9 @@ describe("allowPublic: false", () => {
       ).rejects.toBeInstanceOf(ForbiddenError);
     });
 
-    // The DB column should still be private — the action must not have run.
-    const rows = sqlite
+    const rows = (await pglite
       .prepare("SELECT visibility FROM restricted_docs WHERE id = ?")
-      .all("doc-1") as Array<{ visibility: string }>;
+      .all("doc-1")) as Array<{ visibility: string }>;
     expect(rows[0]?.visibility).toBe("private");
   });
 
@@ -184,14 +167,14 @@ describe("allowPublic: false", () => {
           resourceId: "doc-2",
           visibility: "org",
         }),
-      ).resolves.toEqual({ ok: true, visibility: "org" });
+      ).resolves.toMatchObject({ ok: true, visibility: "org" });
       await expect(
         setResourceVisibility.run({
           resourceType,
           resourceId: "doc-2",
           visibility: "private",
         }),
-      ).resolves.toEqual({ ok: true, visibility: "private" });
+      ).resolves.toMatchObject({ ok: true, visibility: "private" });
     });
   });
 
@@ -216,7 +199,6 @@ describe("allowPublic: false", () => {
       },
     );
 
-    // The owner still sees their own row even though it's flagged public.
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
       const rows = await db
         .select()
@@ -257,7 +239,7 @@ describe("requireOrgMemberForUserShares: true", () => {
       ).rejects.toBeInstanceOf(ForbiddenError);
     });
 
-    const shares = sqlite
+    const shares = await pglite
       .prepare("SELECT * FROM restricted_doc_shares WHERE resource_id = ?")
       .all("doc-3");
     expect(shares).toEqual([]);
@@ -296,9 +278,6 @@ describe("requireOrgMemberForUserShares: true", () => {
   });
 
   it("refuses cross-org org-principal shares", async () => {
-    // An extension shared to a different org would let that org's members
-    // run code with the viewer's credentials — same threat model as a
-    // public extension. Pin org-principal shares to the resource's own org.
     await insertDoc({ id: "doc-6" });
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
       await expect(
@@ -429,5 +408,247 @@ describe("requireOrgMemberForUserShares: true", () => {
   });
 });
 
-// Satisfy `noUnusedLocals` — used by drizzle's overload-resolution type narrowing.
+describe("assertSharingChange", () => {
+  const refusal = "This doc is held for review.";
+  const raceRefusal = "A context item landed while this doc was being shared.";
+  let seen: Array<{ id: string; change: unknown }>;
+
+  beforeEach(async () => {
+    seen = [];
+    registerShareableResource({
+      type: resourceType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "Restricted Doc",
+      titleColumn: "title",
+      getDb: () => db,
+      allowPublic: true,
+      requireOrgMemberForUserShares: true,
+      assertSharingChange: ({ resource, change }) => {
+        seen.push({ id: resource.id, change });
+        if (resource.id === "doc-guarded") throw new ForbiddenError(refusal);
+        // A "doc-raced" change passes its first call, the check before the
+        // write. The second call, after the write, stands in for a context
+        // item that committed in between, so it refuses.
+        if (
+          resource.id.startsWith("doc-raced") &&
+          seen.filter((s) => s.id === resource.id).length > 1
+        ) {
+          throw new ForbiddenError(raceRefusal);
+        }
+      },
+    });
+    await insertDoc({ id: "doc-guarded" });
+    await insertDoc({ id: "doc-open" });
+  });
+
+  it("refuses an org or public visibility change the hook rejects", async () => {
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-guarded",
+          visibility: "org",
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-guarded",
+          visibility: "public",
+        }),
+      ).rejects.toThrow(refusal);
+    });
+
+    const rows = (await pglite
+      .prepare("SELECT visibility FROM restricted_docs WHERE id = ?")
+      .all("doc-guarded")) as Array<{ visibility: string }>;
+    expect(rows[0]?.visibility).toBe("private");
+  });
+
+  it("passes the row and change kind, and skips the hook when visibility is unchanged", async () => {
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await setResourceVisibility.run({
+        resourceType,
+        resourceId: "doc-open",
+        visibility: "org",
+      });
+      await setResourceVisibility.run({
+        resourceType,
+        resourceId: "doc-open",
+        visibility: "org",
+      });
+      await setResourceVisibility.run({
+        resourceType,
+        resourceId: "doc-guarded",
+        visibility: "private",
+      });
+    });
+
+    // Each change is checked before and after its write.
+    expect(seen).toEqual([
+      { id: "doc-open", change: { kind: "visibility", visibility: "org" } },
+      { id: "doc-open", change: { kind: "visibility", visibility: "org" } },
+    ]);
+  });
+
+  it("refuses a share grant the hook rejects before writing a share row", async () => {
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        shareResource.run({
+          resourceType,
+          resourceId: "doc-guarded",
+          principalType: "user",
+          principalId: orgMemberEmail,
+          role: "viewer",
+          notify: false,
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    const shares = await pglite
+      .prepare("SELECT * FROM restricted_doc_shares WHERE resource_id = ?")
+      .all("doc-guarded");
+    expect(shares).toEqual([]);
+    expect(seen).toEqual([{ id: "doc-guarded", change: { kind: "grant" } }]);
+  });
+
+  it("allows a share grant and visibility change the hook accepts", async () => {
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        shareResource.run({
+          resourceType,
+          resourceId: "doc-open",
+          principalType: "user",
+          principalId: orgMemberEmail,
+          role: "viewer",
+          notify: false,
+        }),
+      ).resolves.toMatchObject({ updated: false });
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-open",
+          visibility: "org",
+        }),
+      ).resolves.toMatchObject({ ok: true, visibility: "org" });
+    });
+    expect(seen.map((s) => s.change)).toEqual([
+      { kind: "grant" },
+      { kind: "grant" },
+      { kind: "visibility", visibility: "org" },
+      { kind: "visibility", visibility: "org" },
+    ]);
+    const shares = await pglite
+      .prepare("SELECT role FROM restricted_doc_shares WHERE resource_id = ?")
+      .all("doc-open");
+    expect(shares).toEqual([{ role: "viewer" }]);
+    const rows = (await pglite
+      .prepare("SELECT visibility FROM restricted_docs WHERE id = ?")
+      .all("doc-open")) as Array<{ visibility: string }>;
+    expect(rows[0]?.visibility).toBe("org");
+  });
+
+  it("removes a new share that the post-write check refuses, then rethrows", async () => {
+    await insertDoc({ id: "doc-raced" });
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        shareResource.run({
+          resourceType,
+          resourceId: "doc-raced",
+          principalType: "user",
+          principalId: orgMemberEmail,
+          role: "viewer",
+          notify: false,
+        }),
+      ).rejects.toThrow(raceRefusal);
+    });
+
+    const shares = await pglite
+      .prepare("SELECT * FROM restricted_doc_shares WHERE resource_id = ?")
+      .all("doc-raced");
+    expect(shares).toEqual([]);
+    expect(
+      seen.filter((s) => s.id === "doc-raced").map((s) => s.change),
+    ).toEqual([{ kind: "grant" }, { kind: "grant" }]);
+  });
+
+  it("restores an updated share to its previous role when the post-write check refuses", async () => {
+    await insertDoc({ id: "doc-raced-update" });
+    await db.insert(docShares).values({
+      id: "existing-share",
+      resourceId: "doc-raced-update",
+      principalType: "user",
+      principalId: orgMemberEmail,
+      role: "viewer",
+      createdBy: ownerEmail,
+      createdAt: new Date().toISOString(),
+    });
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        shareResource.run({
+          resourceType,
+          resourceId: "doc-raced-update",
+          principalType: "user",
+          principalId: orgMemberEmail,
+          role: "editor",
+          notify: false,
+        }),
+      ).rejects.toThrow(raceRefusal);
+    });
+
+    const shares = await pglite
+      .prepare(
+        "SELECT id, role FROM restricted_doc_shares WHERE resource_id = ?",
+      )
+      .all("doc-raced-update");
+    expect(shares).toEqual([{ id: "existing-share", role: "viewer" }]);
+  });
+
+  it("restores the visibility when the post-write check refuses the change", async () => {
+    await insertDoc({ id: "doc-raced-visibility" });
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-raced-visibility",
+          visibility: "org",
+        }),
+      ).rejects.toThrow(raceRefusal);
+    });
+
+    const rows = (await pglite
+      .prepare("SELECT visibility FROM restricted_docs WHERE id = ?")
+      .all("doc-raced-visibility")) as Array<{ visibility: string }>;
+    expect(rows[0]?.visibility).toBe("private");
+  });
+
+  it("detaches the organization that a refused visibility change attached", async () => {
+    await db.insert(docs).values({
+      id: "doc-raced-unscoped",
+      title: "doc-raced-unscoped",
+      ownerEmail,
+      orgId: null,
+      visibility: "private",
+    });
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-raced-unscoped",
+          visibility: "org",
+        }),
+      ).rejects.toThrow(raceRefusal);
+    });
+
+    const rows = (await pglite
+      .prepare("SELECT visibility, org_id FROM restricted_docs WHERE id = ?")
+      .all("doc-raced-unscoped")) as Array<{
+      visibility: string;
+      org_id: string | null;
+    }>;
+    expect(rows).toEqual([{ visibility: "private", org_id: null }]);
+  });
+});
+
 export type _RoleType = ShareRole;

@@ -1,5 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { isDefaultTitle } from "@shared/title-source";
 import { IconEdit } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -7,7 +8,7 @@ import { toast } from "sonner";
 
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { isDefaultTitle } from "@/hooks/use-auto-title";
+import { patchRecordingTitleInListData } from "@/hooks/use-library";
 import { cn } from "@/lib/utils";
 
 interface EditableRecordingTitleProps {
@@ -47,17 +48,8 @@ function patchRecordingTitle(
 
   queryClient.setQueriesData(
     { queryKey: ["action", "list-recordings"] },
-    (old: any) => {
-      if (!Array.isArray(old?.recordings)) return old;
-      return {
-        ...old,
-        recordings: old.recordings.map((recording: any) =>
-          recording?.id === recordingId
-            ? { ...recording, title, updatedAt }
-            : recording,
-        ),
-      };
-    },
+    (old: any) =>
+      patchRecordingTitleInListData(old, recordingId, title, updatedAt),
   );
 }
 
@@ -181,6 +173,7 @@ export function EditableRecordingTitle({
   if (editing) {
     return (
       <Input
+        size="sm"
         ref={inputRef}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
@@ -204,7 +197,7 @@ export function EditableRecordingTitle({
           commitTitle();
         }}
         placeholder={t("editableTitle.placeholder")}
-        className={cn("h-8 w-full min-w-0", inputClassName)}
+        className={cn("w-full min-w-0", inputClassName)}
         disabled={updateTitle.isPending}
       />
     );
@@ -222,7 +215,7 @@ export function EditableRecordingTitle({
         startEditing();
       }}
       className={cn(
-        "group/title -mx-1 flex min-w-0 max-w-full items-center gap-1 rounded px-1 text-start",
+        "group/title -mx-1 flex min-w-0 max-w-full cursor-text items-center gap-1 rounded px-1 text-start",
         "hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         className,
       )}

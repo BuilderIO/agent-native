@@ -1,12 +1,16 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { registerShareableResource } from "@agent-native/core/sharing";
-import { createClient, type Client } from "@libsql/client";
+
+const { PGlite } = createRequire(
+  new URL("../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
 import { eq } from "drizzle-orm";
-import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
+import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import {
   afterAll,
   beforeAll,
@@ -18,9 +22,30 @@ import {
 } from "vitest";
 
 import * as planSchema from "../server/db/schema.js";
+import { PLANS_TABLE_DDL } from "../server/test-support/plans-test-schema.js";
 
-let client: Client;
-let db: LibSQLDatabase<typeof planSchema>;
+type SqlStatement = string | { sql: string; args?: unknown[] };
+
+function postgresSql(sql: string): string {
+  let index = 0;
+  return sql.replace(/\?/g, () => "$" + ++index);
+}
+
+async function execute(statement: SqlStatement) {
+  if (typeof statement === "string") {
+    const results = [];
+    for (const sql of statement
+      .split(";")
+      .map((value) => value.trim())
+      .filter(Boolean))
+      results.push(await client.query(postgresSql(sql)));
+    return results.at(-1);
+  }
+  return client.query(postgresSql(statement.sql), statement.args ?? []);
+}
+
+let client: PGlite;
+let db: PgliteDatabase<typeof planSchema>;
 let dbDir: string;
 
 vi.mock("../server/db/index.js", () => ({
@@ -83,32 +108,10 @@ beforeAll(async () => {
   process.env.PLAN_LOCAL_MODE = "0";
 
   dbDir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-report-action-"));
-  client = createClient({ url: `file:${path.join(dbDir, "test.db")}` });
+  client = await PGlite.create(dbDir);
   db = drizzle(client, { schema: planSchema });
-  await client.executeMultiple(`
-    CREATE TABLE plans (
-      id TEXT PRIMARY KEY, title TEXT NOT NULL, brief TEXT NOT NULL,
-      kind TEXT NOT NULL DEFAULT 'plan',
-      status TEXT NOT NULL DEFAULT 'draft', source TEXT NOT NULL DEFAULT 'manual',
-      repo_path TEXT, current_focus TEXT, html TEXT, markdown TEXT, content TEXT,
-      hosted_plan_id TEXT, hosted_plan_url TEXT, source_url TEXT,
-      source_type TEXT,
-      source_repo TEXT,
-      source_pr_number INTEGER,
-      source_pr_state TEXT,
-      source_pr_merged_at TEXT,
-      source_author_email TEXT,
-      source_author_name TEXT,
-      source_author_login TEXT,
-      recap_idempotency_key TEXT,
-      deleted_at TEXT, deleted_by TEXT,
-      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, approved_at TEXT,
-      usage_agent TEXT, usage_model TEXT,
-      usage_input_tokens INTEGER, usage_output_tokens INTEGER,
-      usage_cache_read_tokens INTEGER, usage_cache_write_tokens INTEGER,
-      usage_cost_cents_x100 INTEGER, usage_cost_source TEXT, usage_recorded_at TEXT,
-      owner_email TEXT NOT NULL, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private'
-    );
+  await execute(`
+    ${PLANS_TABLE_DDL};
     CREATE TABLE plan_shares (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
@@ -116,7 +119,8 @@ beforeAll(async () => {
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      notified_at TEXT
     );
     CREATE TABLE plan_reports (
       id TEXT PRIMARY KEY,
@@ -147,14 +151,14 @@ beforeAll(async () => {
     .default as AnyAction;
 }, 30_000);
 
-afterAll(() => {
-  client?.close();
+afterAll(async () => {
+  await client?.close();
   if (dbDir) fs.rmSync(dbDir, { recursive: true, force: true });
 });
 
 beforeEach(async () => {
   // guard:allow-unscoped -- test-only fixture cleanup resets isolated temp DB.
-  await client.executeMultiple(`
+  await execute(`
     DELETE FROM plan_reports;
     DELETE FROM plan_shares;
     DELETE FROM plans;

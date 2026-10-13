@@ -1,7 +1,28 @@
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// --- h3 + helper mocks (mirror sibling specs) ---
+const trackMock = vi.hoisted(() => vi.fn());
+const connectionClaims = new Map<string, Record<string, unknown>>();
+vi.mock("../tracking/registry.js", () => ({
+  isTrackingSuppressed: () => false,
+  track: trackMock,
+  listTrackingProviders: () => ["test"],
+}));
+vi.mock("../settings/store.js", () => ({
+  mutateSetting: async (
+    key: string,
+    updater: (value: Record<string, unknown> | null) => Record<string, unknown>,
+  ) => {
+    const next = updater(connectionClaims.get(key) ?? null);
+    connectionClaims.set(key, next);
+    return next;
+  },
+}));
+beforeEach(() => {
+  trackMock.mockClear();
+  connectionClaims.clear();
+});
+
 vi.mock("h3", () => ({
   getMethod: (event: any) => event.method ?? "GET",
   getHeader: (event: any, name: string) =>
@@ -13,11 +34,9 @@ vi.mock("../server/h3-helpers.js", () => ({
 }));
 
 const getSessionMock = vi.fn();
-const getConfiguredLoginHtmlMock = vi.fn(() => null);
-// Mirror the real socket-based isLoopbackRequest: dev-open is gated on the
-// actual peer, not the (spoofable) Host header. The test events carry no
-// socket, so derive loopback from the host they simulate connecting as —
-// localhost/127.x ⇒ a loopback peer, anything else ⇒ remote.
+const getConfiguredLoginHtmlMock = vi.fn(
+  (): { html: string; status: number } | null => null,
+);
 const isLoopbackRequestMock = vi.fn((event: any) =>
   /^(localhost|127\.|\[?::1\]?)(:|$)/i.test(String(event?.headers?.host ?? "")),
 );
@@ -27,20 +46,90 @@ vi.mock("../server/auth.js", () => ({
   isLoopbackRequest: (...a: any[]) => isLoopbackRequestMock(...a),
 }));
 
+const listOrgMembershipsForEventMock = vi.fn(
+  async (): Promise<unknown[] | null> => null,
+);
+const getOrgContextMock = vi.fn(
+  async (): Promise<{ orgId: string | null }> => ({ orgId: null }),
+);
 vi.mock("../org/context.js", () => ({
   getOrgDomain: vi.fn(async () => "builder.io"),
+  getActiveOrgSettingForEvent: vi.fn(async () => null),
+  getOrgContext: (...a: any[]) => getOrgContextMock(...a),
+  listOrgMembershipsForEvent: (...a: any[]) =>
+    listOrgMembershipsForEventMock(...a),
 }));
 
-// In-memory store mock — exercises mint/revoke + device lifecycle via the
-// route, while letting us reach into raw state for assertions.
+function membership(orgId: string, orgName: string) {
+  return {
+    orgId,
+    orgName,
+    allowedDomain: null,
+    role: "member",
+    identityAuthority: null,
+    identityId: null,
+  };
+}
+
 const tokenRows: any[] = [];
 const deviceRows: any[] = [];
+let issuanceFailure: "not-member" | "unavailable" | null = null;
+let issuanceRole = "member";
+const issuanceTransaction = {
+  execute: vi.fn(async ({ sql }: { sql: string }) => {
+    if (issuanceFailure === "unavailable")
+      throw new Error("test membership query unavailable");
+    // No email change has retired an address in these tests.
+    if (sql.includes("to_regclass"))
+      return { rows: [{ present: false }], rowsAffected: 0 };
+    return {
+      rows:
+        issuanceFailure === "not-member" && sql.includes("org_members")
+          ? []
+          : [{ id: "member-1", role: issuanceRole }],
+      rowsAffected: 0,
+    };
+  }),
+};
+vi.mock("../db/client.js", () => ({
+  getDbExec: () => ({
+    transaction: async (
+      run: (tx: typeof issuanceTransaction) => Promise<unknown>,
+    ) => {
+      const previousTokens = structuredClone(tokenRows);
+      const previousDevices = structuredClone(deviceRows);
+      try {
+        return await run(issuanceTransaction);
+      } catch (err) {
+        tokenRows.splice(0, tokenRows.length, ...previousTokens);
+        deviceRows.splice(0, deviceRows.length, ...previousDevices);
+        throw err;
+      }
+    },
+  }),
+}));
+vi.mock("./credential-membership.js", () => ({
+  checkCredentialOrgMembership: vi.fn(async () => "member"),
+}));
+vi.mock("./credential-issuance.js", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("./credential-issuance.js")>();
+  return {
+    ...original,
+    withMcpCredentialIssuance: vi.fn(original.withMcpCredentialIssuance),
+  };
+});
 vi.mock("./connect-store.js", () => ({
+  ensureConnectTables: vi.fn(async () => {}),
   MCP_CONNECT_SCOPE: "mcp-connect",
   MCP_CONNECT_OAUTH_CLIENT_ID: "agent-native-connect",
   DEFAULT_TOKEN_TTL_DAYS: 365,
   MIN_TOKEN_TTL_DAYS: 1,
   MAX_TOKEN_TTL_DAYS: 365,
+  MAX_SERVICE_TOKEN_TTL_DAYS: 3650,
+  normalizeServiceName: (name: string) => name.trim().toLowerCase(),
+  serviceIdentityEmail: (name: string, orgId: string) =>
+    `svc-${name}@service.${orgId}`,
   DEVICE_CODE_TTL_MS: 600_000,
   recordMintedToken: vi.fn(async (p: any) => {
     const id = "id-" + tokenRows.length;
@@ -69,23 +158,35 @@ vi.mock("./connect-store.js", () => ({
     t.revokedAt = Date.now();
     return true;
   }),
-  createDeviceCode: vi.fn(async () => {
-    const row = {
-      deviceCode: "dev-" + deviceRows.length,
-      userCode: "ABCD-2345",
-      ownerEmail: null,
-      orgId: null,
-      status: "pending",
-      tokenJti: null,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 600_000,
-      consumedAt: null,
-    };
-    deviceRows.push(row);
-    return { ...row };
-  }),
+  createDeviceCode: vi.fn(
+    async (
+      catalogScope: "full" | null = null,
+      connection: { client?: string; purpose?: string } = {},
+    ) => {
+      const row = {
+        deviceCode: "dev-" + deviceRows.length,
+        userCode: "ABCD-2345",
+        ownerEmail: null,
+        orgId: null,
+        status: "pending",
+        tokenJti: null,
+        catalogScope,
+        client: connection.client ?? null,
+        purpose: connection.purpose ?? null,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 600_000,
+        consumedAt: null,
+      };
+      deviceRows.push(row);
+      return { ...row };
+    },
+  ),
   getDeviceCode: vi.fn(async (dc: string) => {
     const r = deviceRows.find((d) => d.deviceCode === dc);
+    return r ? { ...r } : null;
+  }),
+  getDeviceCodeByUserCode: vi.fn(async (uc: string) => {
+    const r = deviceRows.find((d) => d.userCode === uc);
     return r ? { ...r } : null;
   }),
   approveDeviceCode: vi.fn(
@@ -128,7 +229,10 @@ vi.mock("./connect-store.js", () => ({
   expireDeviceCode: vi.fn(async () => {}),
 }));
 
-const { handleMcpConnect } = await import("./connect-route.js");
+const { withMcpCredentialIssuance } = await import("./credential-issuance.js");
+const withMcpCredentialIssuanceMock = vi.mocked(withMcpCredentialIssuance);
+const { handleMcpConnect, mintOrgServiceToken } =
+  await import("./connect-route.js");
 const { defineAppConfig, resetAppConfigForTests } =
   await import("../app-config/index.js");
 
@@ -137,11 +241,17 @@ function ev(opts: {
   path?: string;
   body?: any;
   host?: string;
+  acceptLanguage?: string;
 }): any {
   return {
     method: opts.method ?? "GET",
     body: opts.body,
-    headers: { host: opts.host ?? "mail.agent-native.com" },
+    headers: {
+      host: opts.host ?? "mail.agent-native.com",
+      ...(opts.acceptLanguage
+        ? { "accept-language": opts.acceptLanguage }
+        : {}),
+    },
     node: { req: { url: opts.path ?? "/" } },
     path: opts.path ?? "/",
     url: { pathname: (opts.path ?? "/").split("?")[0] },
@@ -150,11 +260,28 @@ function ev(opts: {
 
 const SECRET = "test-a2a-secret";
 
+// Vitest runs with NODE_ENV=test, which resolves to the local environment and
+// its suffixed server name; most cases here describe production.
+beforeEach(() => {
+  vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "production");
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("handleMcpConnect", () => {
   beforeEach(() => {
+    issuanceTransaction.execute.mockClear();
+    issuanceFailure = null;
+    issuanceRole = "member";
+    withMcpCredentialIssuanceMock.mockClear();
     tokenRows.length = 0;
     deviceRows.length = 0;
     getSessionMock.mockReset();
+    listOrgMembershipsForEventMock.mockReset();
+    listOrgMembershipsForEventMock.mockResolvedValue(null);
+    getOrgContextMock.mockReset();
+    getOrgContextMock.mockResolvedValue({ orgId: null });
     getConfiguredLoginHtmlMock.mockReturnValue(null);
     process.env.A2A_SECRET = SECRET;
   });
@@ -163,13 +290,267 @@ describe("handleMcpConnect", () => {
     delete process.env.BETTER_AUTH_SECRET;
   });
 
+  it("records one attributed MCP connection across token reconnects and page refreshes", async () => {
+    getSessionMock.mockResolvedValue({ email: "Person@Example.com" });
+    const connect = () =>
+      handleMcpConnect(
+        ev({ method: "POST", body: { client: "Claude" } }),
+        "/token",
+        { appId: "agent-native-plan" },
+      );
+    expect((await connect()).status).toBe(200);
+    expect((await connect()).status).toBe(200);
+    expect((await handleMcpConnect(ev({}), "/")).status).toBe(200);
+    expect(trackMock.mock.calls).toEqual([
+      [
+        "agent_connected",
+        {
+          email: "person@example.com",
+          app: "plan",
+          client: "claude",
+          connection_method: "mcp",
+        },
+        { userId: "person@example.com" },
+      ],
+    ]);
+  });
+
+  it("does not record unsuccessful or rolled-back token issuance", async () => {
+    getSessionMock.mockResolvedValue(null);
+    expect(
+      (await handleMcpConnect(ev({ method: "POST" }), "/token")).status,
+    ).toBe(401);
+    getSessionMock.mockResolvedValue({ email: "person@example.com" });
+    withMcpCredentialIssuanceMock.mockRejectedValueOnce(
+      new Error("commit failed"),
+    );
+    expect(
+      (
+        await handleMcpConnect(
+          ev({ method: "POST", body: { client: "Claude" } }),
+          "/token",
+        )
+      ).status,
+    ).toBe(500);
+    expect(trackMock).not.toHaveBeenCalled();
+  });
+
+  it("records device connect once after consumption, including reconnects", async () => {
+    getSessionMock.mockResolvedValue({ email: "person@example.com" });
+    const connect = async (purpose?: string) => {
+      const start = await handleMcpConnect(
+        ev({
+          method: "POST",
+          body: { client: "claude", ...(purpose ? { purpose } : {}) },
+        }),
+        "/device/start",
+      );
+      const { device_code, user_code } = await start.json();
+      const pending = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code } }),
+        "/device/poll",
+      );
+      expect((await pending.json()).status).toBe("pending");
+      const approved = await handleMcpConnect(
+        ev({ method: "POST", body: { user_code } }),
+        "/device/authorize",
+      );
+      expect(approved.status).toBe(200);
+      const poll = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code } }),
+        "/device/poll",
+        { appId: "plan" },
+      );
+      expect((await poll.json()).status).toBe("approved");
+      const replay = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code } }),
+        "/device/poll",
+      );
+      expect((await replay.json()).status).toBe("consumed");
+    };
+    await connect("credential");
+    expect(trackMock).not.toHaveBeenCalled();
+    // The store mock uses the same user code; remove consumed rows before the next flow.
+    deviceRows.length = 0;
+    await connect();
+    deviceRows.length = 0;
+    await connect();
+    expect(trackMock.mock.calls).toEqual([
+      [
+        "agent_connected",
+        {
+          email: "person@example.com",
+          app: "plan",
+          client: "claude",
+          connection_method: "mcp",
+        },
+        { userId: "person@example.com" },
+      ],
+    ]);
+  });
+
+  it.each([
+    ["codex,cursor", ["codex", "cursor"]],
+    ["example,inc", ["example,inc"]],
+  ])("records device client %s as %j", async (client, expected) => {
+    getSessionMock.mockResolvedValue({ email: "person@example.com" });
+    const start = await handleMcpConnect(
+      ev({ method: "POST", body: { client } }),
+      "/device/start",
+    );
+    const { device_code, user_code } = await start.json();
+    await handleMcpConnect(
+      ev({ method: "POST", body: { user_code } }),
+      "/device/authorize",
+    );
+    const poll = await handleMcpConnect(
+      ev({ method: "POST", body: { device_code } }),
+      "/device/poll",
+      { appId: "plan" },
+    );
+    expect((await poll.json()).status).toBe("approved");
+    expect(trackMock.mock.calls.map((call) => call[1].client)).toEqual(
+      expected,
+    );
+  });
+
+  it.each([200, 403])(
+    "does not count service-token authentication when creation returns %s",
+    async (status) => {
+      getSessionMock.mockResolvedValue({ email: "person@example.com" });
+      const { runServiceTokenMint, parseConnectArgs } =
+        await import("../cli/connect.js");
+      const out = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation(() => true);
+      const err = vi
+        .spyOn(process.stderr, "write")
+        .mockImplementation(() => true);
+      try {
+        const result = await runServiceTokenMint(
+          parseConnectArgs([
+            "https://plan.example.com",
+            "--service-token",
+            "ci",
+          ]),
+          {
+            fetchImpl: async (input, init) => {
+              const path = new URL(String(input)).pathname;
+              if (path.endsWith("/create-org-service-token")) {
+                return new Response(
+                  JSON.stringify(
+                    status === 200
+                      ? { token: "synthetic-service-token" }
+                      : { error: "Forbidden" },
+                  ),
+                  { status },
+                );
+              }
+              const body = JSON.parse(String(init?.body ?? "{}"));
+              return handleMcpConnect(
+                ev({ method: "POST", body }),
+                path.replace("/mcp/connect", ""),
+                { appId: "plan" },
+              );
+            },
+            openBrowser: async (url) => {
+              const user_code = new URL(url).searchParams.get("user_code");
+              await handleMcpConnect(
+                ev({ method: "POST", body: { user_code } }),
+                "/device/authorize",
+              );
+            },
+            sleep: async () => {},
+          },
+        );
+        expect(result).toBe(status === 200);
+        expect(trackMock).not.toHaveBeenCalled();
+        expect(
+          (
+            await handleMcpConnect(
+              ev({ method: "POST", body: { client: "codex" } }),
+              "/token",
+              { appId: "plan" },
+            )
+          ).status,
+        ).toBe(200);
+        expect(trackMock).toHaveBeenCalledTimes(1);
+        expect(trackMock.mock.calls[0][1].client).toBe("codex");
+      } finally {
+        out.mockRestore();
+        err.mockRestore();
+      }
+    },
+  );
+
+  it.each(["mint", "approve", "poll"] as const)(
+    "returns retryable unavailable when Connect table preflight fails for %s",
+    async (operation) => {
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      if (operation !== "mint") {
+        await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      }
+      if (operation === "poll") {
+        await handleMcpConnect(
+          ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+          "/device/authorize",
+        );
+      }
+      const previousDevices = structuredClone(deviceRows);
+      const { ensureConnectTables } = await import("./connect-store.js");
+      vi.mocked(ensureConnectTables).mockRejectedValueOnce(
+        new Error("test preflight database unavailable"),
+      );
+      withMcpCredentialIssuanceMock.mockClear();
+      const response = await handleMcpConnect(
+        ev({
+          method: "POST",
+          body:
+            operation === "poll"
+              ? { device_code: deviceRows[0].deviceCode }
+              : { user_code: "ABCD-2345" },
+        }),
+        operation === "mint"
+          ? "/token"
+          : operation === "approve"
+            ? "/device/authorize"
+            : "/device/poll",
+      );
+      expect(response.status).toBe(503);
+      expect(response.headers.get("Retry-After")).toBe("5");
+      expect(await response.json()).toEqual({
+        error: "Organization membership could not be verified. Retry shortly.",
+      });
+      expect(withMcpCredentialIssuanceMock).not.toHaveBeenCalled();
+      expect(tokenRows).toHaveLength(0);
+      expect(deviceRows).toEqual(previousDevices);
+    },
+  );
+
   describe("connect page", () => {
     it("serves the configured login HTML when unauthenticated", async () => {
       getSessionMock.mockResolvedValue(null);
-      getConfiguredLoginHtmlMock.mockReturnValue("<html>login</html>");
+      getConfiguredLoginHtmlMock.mockReturnValue({
+        html: "<html>login</html>",
+        status: 200,
+      });
       const res = await handleMcpConnect(ev({}), "/");
       expect(res.status).toBe(200);
       expect(await res.text()).toBe("<html>login</html>");
+    });
+
+    it("passes through the setup page's 503 while sign-in cannot work", async () => {
+      getSessionMock.mockResolvedValue(null);
+      getConfiguredLoginHtmlMock.mockReturnValue({
+        html: "<html>setup</html>",
+        status: 503,
+      });
+      const res = await handleMcpConnect(ev({}), "/");
+      expect(res.status).toBe(503);
+      expect(await res.text()).toBe("<html>setup</html>");
     });
 
     it("renders the connect page for a logged-in user", async () => {
@@ -187,13 +568,14 @@ describe("handleMcpConnect", () => {
       expect(body).toContain("u@example.com");
       expect(body).not.toContain("Allow Claude Code, Codex, or Cowork");
       expect(body).toContain('<details id="connections" class="connections">');
+      expect(body).toContain(
+        '<details id="staticTokenMint" class="connections static-token-mint">',
+      );
+      expect(body).toContain('class="flow-terminal"');
+      expect(body).not.toContain("&lt;/&gt;");
       expect(body).not.toContain("connectionsEl.open = true");
       // The page never embeds a token.
       expect(body).not.toContain("Bearer ey");
-      // The new non-dev flow surfaces the remote MCP URL + a per-host picker
-      // (Claude / ChatGPT / Cursor / Claude Code / Codex / Other) so users can
-      // connect without copying a token. Display the live host MCP URL rather
-      // than a hardcoded one.
       expect(body).toContain("https://mail.agent-native.com/mcp");
       expect(body).toContain('data-tab="claude"');
       expect(body).toContain('data-tab="chatgpt"');
@@ -212,6 +594,103 @@ describe("handleMcpConnect", () => {
       );
     });
 
+    it("emits inline scripts that parse", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({}), "/");
+      const body = await res.text();
+      const scripts = [...body.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+      expect(scripts.length).toBeGreaterThan(0);
+      for (const [, code] of scripts) {
+        expect(() => new Function(code)).not.toThrow();
+      }
+    });
+
+    it("renders the service-principal governance view, hidden until the org has principals", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({}), "/");
+      const body = await res.text();
+      expect(body).toContain(
+        '<details id="principals" class="connections hidden">',
+      );
+      expect(body).toContain("Service principals");
+      expect(body).toContain('"/_agent-native/actions"');
+      expect(body).toContain('ACTIONS + "/list-org-service-tokens"');
+      expect(body).toContain('"set-service-principal-lifecycle"');
+      expect(body).toContain("data.canManage");
+      expect(body).toContain("No owner or action grant is set.");
+      // Only missing-org/auth responses hide the view; a route 404 is shown.
+      expect(body).toContain(
+        "res.status === 400 || res.status === 401 || res.status === 403",
+      );
+      expect(body).not.toContain("res.status === 404");
+      expect(body).toContain("if (!USER_CODE) loadPrincipals();");
+
+      const localized = await (
+        await handleMcpConnect(ev({ acceptLanguage: "es-ES" }), "/")
+      ).text();
+      expect(localized).toContain("Principales de servicio");
+    });
+
+    it("uses the configured public framework prefix for service-principal actions", async () => {
+      const previousPrefix =
+        process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+      process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+        "/_platform";
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      try {
+        const res = await handleMcpConnect(ev({}), "/");
+        const body = await res.text();
+        expect(body).toContain('var ACTIONS = "/_platform/actions";');
+        expect(body).not.toContain('var ACTIONS = "/_agent-native/actions";');
+      } finally {
+        if (previousPrefix === undefined) {
+          delete process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+        } else {
+          process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+            previousPrefix;
+        }
+      }
+    });
+
+    it("localizes the shared guide copy from the request language", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({ acceptLanguage: "es-ES" }), "/");
+      const body = await res.text();
+      expect(body).toContain("Abre Customize → Connectors en Claude.");
+      expect(body).not.toContain("Open Customize → Connectors in Claude.");
+      expect(body).toContain("Tu URL de MCP");
+      expect(body).toContain("Conexiones existentes");
+      expect(body).not.toContain("Existing connections");
+      expect(body).not.toContain("Signed in as");
+      expect(body).toContain('id="mcp-guide-tab-claude"');
+      expect(body).toContain('aria-labelledby="mcp-guide-tab-claude"');
+    });
+
+    it("uses a validated locale from the Settings connect link", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(
+        ev({ path: "/?locale=es-ES", acceptLanguage: "en-US" }),
+        "/",
+      );
+      const body = await res.text();
+      expect(body).toContain("Abre Customize → Connectors en Claude.");
+      expect(body).not.toContain("Open Customize → Connectors in Claude.");
+      expect(body).toContain('<html lang="es-ES" dir="ltr">');
+    });
+
+    it("selects the guide requested by the integrations handoff", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({ path: "/?guide=xAI" }), "/");
+      const body = await res.text();
+
+      expect(body).toContain(
+        'id="mcp-guide-tab-grok" data-tab="grok" aria-controls="mcp-guide-panel-grok" aria-selected="true"',
+      );
+      expect(body).toContain(
+        'class="tab-panel is-active" role="tabpanel" id="mcp-guide-panel-grok"',
+      );
+    });
+
     it("shows the device user_code when present and well-formed", async () => {
       getSessionMock.mockResolvedValue({ email: "u@example.com" });
       const res = await handleMcpConnect(
@@ -220,23 +699,34 @@ describe("handleMcpConnect", () => {
       );
       const body = await res.text();
       expect(body).toContain("ABCD-2345");
-      expect(body).toContain("Authorize this device");
+      expect(body).toContain("Authorize device");
       expect(body).not.toContain("From your terminal");
       expect(body).not.toContain("Connect an external agent");
       expect(body).not.toContain(">None<");
       expect(body).toContain("Authorizing device...");
       expect(body).toContain(
-        'showMsg("Finishing connection… you can return to your terminal.", "ok", "Device authorized")',
+        'showMsg(COPY.finishingConnection, "ok", COPY.deviceAuthorized)',
       );
       expect(body).toContain(
-        'showMsg("This device can now act as you — manage or revoke it below.", "ok", "Connected")',
+        'showMsg(COPY.connectedDescription, "ok", COPY.connected)',
+      );
+      expect(body).toContain(
+        "if (response.status === 404) return COPY.unknownDeviceCode;",
+      );
+      expect(body).toContain(
+        "if (response.status === 410) return COPY.expiredDeviceCode;",
+      );
+      expect(body).toContain(
+        "if (response.status === 409) return COPY.alreadyUsedDeviceCode;",
       );
       expect(body).toContain(".msg-title");
       expect(body).toContain(".msg-copy");
       expect(body).toContain('btn.setAttribute("aria-busy", "true")');
       expect(body).not.toContain("Pick your AI assistant");
-      expect(body).not.toContain("Your MCP URL");
-      expect(body).not.toContain("Advanced options");
+      expect(body).not.toContain('<details id="staticTokenMint"');
+      expect(body).not.toContain('class="connections-title">Authorize device');
+      expect(body).toContain('class="flow-terminal"');
+      expect(body).not.toContain("&lt;/&gt;");
     });
   });
 
@@ -247,7 +737,7 @@ describe("handleMcpConnect", () => {
       expect(res.status).toBe(401);
     });
 
-    it("mints a connect-scoped JWT with jti and records it", async () => {
+    it("mints an audience-bound MCP OAuth token while A2A_SECRET is set and records its jti", async () => {
       getSessionMock.mockResolvedValue({
         email: "u@example.com",
         orgId: "org-1",
@@ -271,22 +761,102 @@ describe("handleMcpConnect", () => {
         "npx @agent-native/core@latest connect https://mail.agent-native.com",
       );
 
-      const { payload } = await jose.jwtVerify(
-        data.token,
-        new TextEncoder().encode(SECRET),
-      );
-      expect(payload.sub).toBe("u@example.com");
-      expect(payload.scope).toBe("mcp-connect");
-      expect(typeof payload.jti).toBe("string");
-      expect(payload.org_domain).toBe("builder.io");
+      const { verifyMcpOAuthAccessToken } = await import("./oauth-token.js");
+      const verified = await verifyMcpOAuthAccessToken(data.token, data.mcpUrl);
+      expect(verified).toMatchObject({
+        userEmail: "u@example.com",
+        orgId: "org-1",
+        orgDomain: "builder.io",
+        clientId: "agent-native-connect",
+        jti: expect.any(String),
+      });
+      expect(
+        await verifyMcpOAuthAccessToken(
+          data.token,
+          "https://calendar.agent-native.com/mcp",
+        ),
+      ).toBeNull();
 
       expect(tokenRows).toHaveLength(1);
       expect(tokenRows[0]).toMatchObject({
         ownerEmail: "u@example.com",
         orgId: "org-1",
         label: "laptop",
-        jti: payload.jti,
+        jti: verified?.jti,
       });
+    });
+
+    it.each(["not-member", "unavailable"] as const)(
+      "refuses a stale personal mint when the issuance boundary returns %s",
+      async (reason) => {
+        getSessionMock.mockResolvedValue({
+          email: "u@example.com",
+          orgId: "org-1",
+        });
+        issuanceFailure = reason;
+        const response = await handleMcpConnect(
+          ev({ method: "POST" }),
+          "/token",
+        );
+        expect(response.status).toBe(reason === "not-member" ? 403 : 503);
+        expect(tokenRows).toHaveLength(0);
+        expect(withMcpCredentialIssuanceMock).toHaveBeenCalledWith(
+          {
+            email: "u@example.com",
+            orgId: "org-1",
+            requestOrigin: "https://mail.agent-native.com",
+          },
+          expect.any(Function),
+        );
+      },
+    );
+
+    it("returns retryable unavailable without exposing a token when recording a personal mint fails", async () => {
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      const { recordMintedToken } = await import("./connect-store.js");
+      vi.mocked(recordMintedToken).mockRejectedValueOnce(
+        new Error(
+          "Unexpected affected row count for MCP connect token insert.",
+        ),
+      );
+      const response = await handleMcpConnect(ev({ method: "POST" }), "/token");
+      expect(response.status).toBe(503);
+      expect(response.headers.get("Retry-After")).toBe("5");
+      expect(await response.json()).not.toHaveProperty("token");
+      expect(tokenRows).toHaveLength(0);
+    });
+
+    it("records a personal mint through the issuance transaction", async () => {
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      const response = await handleMcpConnect(ev({ method: "POST" }), "/token");
+      expect(response.status).toBe(200);
+      const { recordMintedToken } = await import("./connect-store.js");
+      expect(recordMintedToken).toHaveBeenLastCalledWith(
+        expect.objectContaining({ orgId: "org-1" }),
+        issuanceTransaction,
+      );
+    });
+
+    it("binds a new token to the default org of an account without one", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      getOrgContextMock.mockResolvedValueOnce({ orgId: "org-new" });
+      listOrgMembershipsForEventMock
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([membership("org-new", "U's workspace")]);
+
+      const res = await handleMcpConnect(
+        ev({ method: "POST", body: {} }),
+        "/token",
+      );
+
+      expect(res.status).toBe(200);
+      expect(tokenRows[0].orgId).toBe("org-new");
     });
 
     it("defaults token lifetime to 365 days", async () => {
@@ -316,6 +886,32 @@ describe("handleMcpConnect", () => {
       const lifetimeDays =
         ((payload.exp as number) - (payload.iat as number)) / 86400;
       expect(Math.round(lifetimeDays)).toBe(365);
+    });
+
+    it("mints revocable org service tokens with a 10-year lifetime", async () => {
+      issuanceRole = "admin";
+      const minted = await mintOrgServiceToken({
+        serviceName: "pr-recap",
+        orgId: "org-1",
+        createdBy: "admin@example.com",
+        ttlDays: 3650,
+        appUrl: "https://plan.example.com",
+      });
+      const { payload } = await jose.jwtVerify(
+        minted.token,
+        new TextEncoder().encode(SECRET),
+      );
+
+      expect(minted.ttlDays).toBe(3650);
+      expect(payload.jti).toBe(minted.jti);
+      expect((payload.exp as number) - (payload.iat as number)).toBe(
+        3650 * 86_400,
+      );
+      expect(tokenRows[0]).toMatchObject({
+        jti: minted.jti,
+        kind: "service",
+        ownerEmail: "svc-pr-recap@service.org-1",
+      });
     });
 
     it("mints a standard MCP OAuth token when no A2A_SECRET is configured", async () => {
@@ -445,6 +1041,44 @@ describe("handleMcpConnect", () => {
       expect(data.expires_in).toBe(600);
     });
 
+    it.each(["APP_URL", "WORKSPACE_OAUTH_ORIGIN"])(
+      "device/start uses %s behind an internal proxy host",
+      async (originSetting) => {
+        vi.stubEnv("APP_URL", undefined);
+        vi.stubEnv("WORKSPACE_OAUTH_ORIGIN", undefined);
+        vi.stubEnv(originSetting, "https://mail.example.com");
+        vi.stubEnv("APP_BASE_PATH", "/mail");
+        const res = await handleMcpConnect(
+          ev({ method: "POST", host: "mail-internal:3000" }),
+          "/device/start",
+        );
+        expect(res.status).toBe(200);
+        const data = await res.json();
+        expect(data.verification_uri).toBe(
+          "https://mail.example.com/mail/mcp/connect",
+        );
+        expect(data.verification_uri_complete).toBe(
+          `https://mail.example.com/mail/mcp/connect?user_code=${data.user_code}`,
+        );
+      },
+    );
+
+    it("persists requested full catalog scope and rejects non-boolean values", async () => {
+      const res = await handleMcpConnect(
+        ev({ method: "POST", body: { fullCatalog: true } }),
+        "/device/start",
+      );
+      expect(res.status).toBe(200);
+      expect(deviceRows[0].catalogScope).toBe("full");
+
+      const invalid = await handleMcpConnect(
+        ev({ method: "POST", body: { fullCatalog: "true" } }),
+        "/device/start",
+      );
+      expect(invalid.status).toBe(400);
+      expect(deviceRows).toHaveLength(1);
+    });
+
     it("device/start and returned MCP config include APP_BASE_PATH", async () => {
       process.env.APP_BASE_PATH = "/mail";
       try {
@@ -471,10 +1105,8 @@ describe("handleMcpConnect", () => {
     });
 
     it("device/authorize requires a session and binds the user", async () => {
-      // start
       await handleMcpConnect(ev({ method: "POST" }), "/device/start");
 
-      // unauth authorize → 401
       getSessionMock.mockResolvedValue(null);
       const unauth = await handleMcpConnect(
         ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
@@ -482,7 +1114,6 @@ describe("handleMcpConnect", () => {
       );
       expect(unauth.status).toBe(401);
 
-      // authed authorize → 200 + bound
       getSessionMock.mockResolvedValue({
         email: "u@example.com",
         orgId: "org-7",
@@ -496,6 +1127,113 @@ describe("handleMcpConnect", () => {
       expect(deviceRows[0].status).toBe("approved");
     });
 
+    it("lets a member of several orgs choose the org bound to the device", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      listOrgMembershipsForEventMock.mockResolvedValue([
+        membership("org-1", "Acme"),
+        membership("org-2", "Globex"),
+      ]);
+
+      const page = await (
+        await handleMcpConnect(ev({ path: "/?user_code=ABCD-2345" }), "/")
+      ).text();
+      expect(page).toContain('<select id="organizationId">');
+      expect(page).toContain('<option value="org-1" selected>Acme');
+
+      const ok = await handleMcpConnect(
+        ev({
+          method: "POST",
+          body: { user_code: "ABCD-2345", org_id: "org-2" },
+        }),
+        "/device/authorize",
+      );
+      expect(ok.status).toBe(200);
+      expect(deviceRows[0].orgId).toBe("org-2");
+    });
+
+    it("omits the org picker for a member of exactly one org", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      listOrgMembershipsForEventMock.mockResolvedValue([
+        membership("org-1", "Acme"),
+      ]);
+
+      const page = await (
+        await handleMcpConnect(ev({ path: "/?user_code=ABCD-2345" }), "/")
+      ).text();
+      expect(page).not.toContain('id="organizationId"');
+    });
+
+    it("ignores a non-string or empty org_id and falls back to the default", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      listOrgMembershipsForEventMock.mockResolvedValue([
+        membership("org-1", "Acme"),
+      ]);
+
+      const res = await handleMcpConnect(
+        ev({
+          method: "POST",
+          body: { user_code: "ABCD-2345", org_id: "" },
+        }),
+        "/device/authorize",
+      );
+      expect(res.status).toBe(200);
+      expect(deviceRows[0].orgId).toBe("org-1");
+    });
+
+    it("refuses to bind a device to an org the user does not belong to", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      listOrgMembershipsForEventMock.mockResolvedValue([
+        membership("org-1", "Acme"),
+      ]);
+
+      const res = await handleMcpConnect(
+        ev({
+          method: "POST",
+          body: { user_code: "ABCD-2345", org_id: "org-9" },
+        }),
+        "/device/authorize",
+      );
+      expect(res.status).toBe(403);
+      expect(deviceRows[0].status).toBe("pending");
+    });
+
+    it("refuses a client-supplied org_id when the account has no orgs to check it against", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      listOrgMembershipsForEventMock.mockResolvedValue([]);
+      getOrgContextMock.mockResolvedValueOnce({ orgId: null });
+
+      const res = await handleMcpConnect(
+        ev({
+          method: "POST",
+          body: { user_code: "ABCD-2345", org_id: "someone-elses-org" },
+        }),
+        "/device/authorize",
+      );
+      expect(res.status).toBe(403);
+      expect(deviceRows[0].status).toBe("pending");
+      expect(deviceRows[0].orgId).not.toBe("someone-elses-org");
+    });
+
+    it("gives an account without an org its default one before binding", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      getOrgContextMock.mockResolvedValueOnce({ orgId: "org-new" });
+      listOrgMembershipsForEventMock
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([membership("org-new", "U's workspace")]);
+
+      const ok = await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      expect(ok.status).toBe(200);
+      expect(deviceRows[0].orgId).toBe("org-new");
+    });
+
     it("rejects a malformed user_code", async () => {
       getSessionMock.mockResolvedValue({ email: "u@example.com" });
       const res = await handleMcpConnect(
@@ -505,11 +1243,183 @@ describe("handleMcpConnect", () => {
       expect(res.status).toBe(400);
     });
 
+    it.each(["not-member", "unavailable"] as const)(
+      "refuses stale device approval when issuance returns %s",
+      async (reason) => {
+        await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+        getSessionMock.mockResolvedValue({
+          email: "u@example.com",
+          orgId: "org-1",
+        });
+        issuanceFailure = reason;
+        const response = await handleMcpConnect(
+          ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+          "/device/authorize",
+        );
+        expect(response.status).toBe(reason === "not-member" ? 403 : 503);
+        expect(deviceRows[0].status).toBe("pending");
+        expect(deviceRows[0].ownerEmail).toBeNull();
+      },
+    );
+
+    it.each(["not-member", "unavailable"] as const)(
+      "refuses polling a previously approved device when issuance returns %s",
+      async (reason) => {
+        await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+        getSessionMock.mockResolvedValue({
+          email: "u@example.com",
+          orgId: "org-1",
+        });
+        await handleMcpConnect(
+          ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+          "/device/authorize",
+        );
+        issuanceFailure = reason;
+        const response = await handleMcpConnect(
+          ev({
+            method: "POST",
+            body: { device_code: deviceRows[0].deviceCode },
+          }),
+          "/device/poll",
+        );
+        expect(response.status).toBe(reason === "not-member" ? 403 : 503);
+        expect(tokenRows).toHaveLength(0);
+        expect(deviceRows[0].status).toBe("approved");
+      },
+    );
+
+    it("rechecks device status after the membership lock even when the poll preloaded an approved row", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      issuanceTransaction.execute.mockImplementationOnce(async () => {
+        deviceRows[0].status = "expired";
+        return { rows: [{ id: "member-1" }], rowsAffected: 0 };
+      });
+      const response = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: deviceRows[0].deviceCode } }),
+        "/device/poll",
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ status: "expired" });
+      expect(tokenRows).toHaveLength(0);
+    });
+
+    it("uses one issuance transaction for device approval and claim, record, finish", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      const dc = deviceRows[0].deviceCode;
+      const response = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: dc } }),
+        "/device/poll",
+      );
+      expect(response.status).toBe(200);
+      const {
+        approveDeviceCode,
+        claimDeviceCodeForMint,
+        recordMintedToken,
+        finishDeviceCodeMint,
+      } = await import("./connect-store.js");
+      expect(approveDeviceCode).toHaveBeenLastCalledWith(
+        "ABCD-2345",
+        "u@example.com",
+        "org-1",
+        issuanceTransaction,
+      );
+      expect(claimDeviceCodeForMint).toHaveBeenLastCalledWith(
+        dc,
+        expect.any(String),
+        issuanceTransaction,
+      );
+      expect(recordMintedToken).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          ownerEmail: "u@example.com",
+          orgId: "org-1",
+        }),
+        issuanceTransaction,
+      );
+      expect(finishDeviceCodeMint).toHaveBeenLastCalledWith(
+        dc,
+        tokenRows[0].jti,
+        issuanceTransaction,
+      );
+    });
+
+    it("rolls back the device claim when recording fails and allows a retry", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      const dc = deviceRows[0].deviceCode;
+      const { recordMintedToken } = await import("./connect-store.js");
+      vi.mocked(recordMintedToken).mockRejectedValueOnce(
+        new Error("test write failure"),
+      );
+      const response = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: dc } }),
+        "/device/poll",
+      );
+      expect(response.status).toBe(503);
+      expect(deviceRows[0]).toMatchObject({
+        status: "approved",
+        tokenJti: null,
+      });
+      expect(tokenRows).toHaveLength(0);
+      const retried = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: dc } }),
+        "/device/poll",
+      );
+      expect(retried.status).toBe(200);
+      expect((await retried.json()).status).toBe("approved");
+      expect(tokenRows).toHaveLength(1);
+    });
+
+    it("rolls back the token record when finishing the device fails", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      const { finishDeviceCodeMint } = await import("./connect-store.js");
+      vi.mocked(finishDeviceCodeMint).mockResolvedValueOnce(false);
+      const response = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: deviceRows[0].deviceCode } }),
+        "/device/poll",
+      );
+      expect(response.status).toBe(503);
+      expect(tokenRows).toHaveLength(0);
+      expect(deviceRows[0]).toMatchObject({
+        status: "approved",
+        tokenJti: null,
+      });
+    });
+
     it("poll: pending → approved (mints once) → consumed", async () => {
       await handleMcpConnect(ev({ method: "POST" }), "/device/start");
       const dc = deviceRows[0].deviceCode;
 
-      // pending
       getSessionMock.mockResolvedValue(null);
       let res = await handleMcpConnect(
         ev({ method: "POST", body: { device_code: dc } }),
@@ -517,14 +1427,12 @@ describe("handleMcpConnect", () => {
       );
       expect((await res.json()).status).toBe("pending");
 
-      // approve via the browser
       getSessionMock.mockResolvedValue({ email: "u@example.com" });
       await handleMcpConnect(
         ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
         "/device/authorize",
       );
 
-      // poll → approved + token (unauth)
       getSessionMock.mockResolvedValue(null);
       res = await handleMcpConnect(
         ev({ method: "POST", body: { device_code: dc } }),
@@ -532,17 +1440,18 @@ describe("handleMcpConnect", () => {
       );
       const data = await res.json();
       expect(data.status).toBe("approved");
-      const { payload } = await jose.jwtVerify(
-        data.token,
-        new TextEncoder().encode(SECRET),
-      );
-      expect(payload.sub).toBe("u@example.com");
-      expect(payload.scope).toBe("mcp-connect");
+      const { verifyMcpOAuthAccessToken } = await import("./oauth-token.js");
+      expect(
+        await verifyMcpOAuthAccessToken(data.token, data.mcpUrl),
+      ).toMatchObject({
+        userEmail: "u@example.com",
+        clientId: "agent-native-connect",
+      });
+      const payload = jose.decodeJwt(data.token);
       const lifetimeDays =
         ((payload.exp as number) - (payload.iat as number)) / 86400;
       expect(Math.round(lifetimeDays)).toBe(365);
 
-      // poll again → consumed (single-use, no second token)
       res = await handleMcpConnect(
         ev({ method: "POST", body: { device_code: dc } }),
         "/device/poll",
@@ -552,12 +1461,49 @@ describe("handleMcpConnect", () => {
       expect(again.token).toBeUndefined();
     });
 
-    it("poll returns a dev-open localhost entry without A2A_SECRET", async () => {
+    it("shows full catalog scope before approval and signs it into the token", async () => {
+      await handleMcpConnect(
+        ev({ method: "POST", body: { fullCatalog: true } }),
+        "/device/start",
+      );
+      const dc = deviceRows[0].deviceCode;
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+
+      const page = await handleMcpConnect(
+        ev({ path: "/?user_code=ABCD-2345" }),
+        "/",
+      );
+      expect(await page.text()).toContain(
+        "This device is requesting access to the full action catalog.",
+      );
+
+      await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      getSessionMock.mockResolvedValue(null);
+      const response = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: dc } }),
+        "/device/poll",
+      );
+      const data = await response.json();
+      const { payload } = await jose.jwtVerify(
+        data.token,
+        new TextEncoder().encode(SECRET),
+      );
+      expect(payload.catalog_scope).toBe("full");
+    });
+
+    it("preserves full catalog scope in a dev-open localhost entry", async () => {
       delete process.env.A2A_SECRET;
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
       await handleMcpConnect(
-        ev({ method: "POST", host: "localhost:4321" }),
+        ev({
+          method: "POST",
+          host: "localhost:4321",
+          body: { fullCatalog: true },
+        }),
         "/device/start",
       );
       const dc = deviceRows[0].deviceCode;
@@ -587,13 +1533,17 @@ describe("handleMcpConnect", () => {
       expect(data.token).toBe("");
       expect(data.mcpServerEntry.headers).toEqual({
         "X-Agent-Native-Owner-Email": "u@example.com",
+        "X-Agent-Native-MCP-Full-Catalog": "1",
       });
     });
 
     it("poll mints a standard MCP OAuth token for hosted deploys without A2A_SECRET", async () => {
       delete process.env.A2A_SECRET;
       process.env.BETTER_AUTH_SECRET = SECRET;
-      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      await handleMcpConnect(
+        ev({ method: "POST", body: { fullCatalog: true } }),
+        "/device/start",
+      );
       const dc = deviceRows[0].deviceCode;
 
       getSessionMock.mockResolvedValue({
@@ -625,6 +1575,7 @@ describe("handleMcpConnect", () => {
         orgDomain: "builder.io",
         clientId: "agent-native-connect",
         scopes: ["mcp:read", "mcp:write", "mcp:apps", "offline_access"],
+        catalogScope: "full",
       });
       expect(data.mcpServerEntry.headers).toMatchObject({
         Authorization: `Bearer ${data.token}`,
@@ -656,10 +1607,6 @@ describe("handleMcpConnect", () => {
   });
 });
 
-// Every beta deployment is `beta.<app>.agent-native.com`, so the leading
-// hostname label is `beta` for all of them. Deriving the server name from it
-// gave all 18 apps the same id, and a client keys its MCP config by that id —
-// so connecting a second beta app silently replaced the first.
 describe("server name on a multi-label host", () => {
   beforeEach(() => {
     getSessionMock.mockResolvedValue({
@@ -670,10 +1617,7 @@ describe("server name on a multi-label host", () => {
   afterEach(() => resetAppConfigForTests());
 
   async function serverNameFor(host: string): Promise<string> {
-    const res = await handleMcpConnect(
-      ev({ method: "POST", host, body: { label: "laptop", ttlDays: 30 } }),
-      "/token",
-    );
+    const res = await handleMcpConnect(ev({ host }), "/identity");
     expect(res.status).toBe(200);
     return (await res.json()).serverName;
   }
@@ -699,6 +1643,20 @@ describe("server name on a multi-label host", () => {
       "agent-native-mail",
     );
   });
+
+  it("names a beta lane after its app when nothing declares an identity", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
+    expect(await serverNameFor("beta.mail.agent-native.com")).toBe(
+      "beta-agent-native-mail",
+    );
+    expect(await serverNameFor("beta.content.agent-native.com")).toBe(
+      "beta-agent-native-content",
+    );
+  });
+
+  it("keeps a production app on a beta. host named as before", async () => {
+    expect(await serverNameFor("beta.example.com")).toBe("agent-native-beta");
+  });
 });
 
 describe("explicit server name", () => {
@@ -710,23 +1668,218 @@ describe("explicit server name", () => {
   });
   afterEach(() => resetAppConfigForTests());
 
-  // Plan ships `plan` as its server id in
-  // `.agents/plugins/agent-native-visual-plans/.mcp.json`, and the CLI config
-  // writers key existing client entries by it. Falling back to the derived
-  // `agent-native-plan` would write a duplicate on the next connect rather than
-  // updating the entry a user already has.
   it("wins over the derived name, prefix included", async () => {
     defineAppConfig({ app: { id: "plan" } });
     const res = await handleMcpConnect(
-      ev({
-        method: "POST",
-        host: "plan.agent-native.com",
-        body: { label: "laptop", ttlDays: 30 },
-      }),
-      "/token",
+      ev({ host: "plan.agent-native.com" }),
+      "/identity",
       { serverName: "plan" },
     );
     expect(res.status).toBe(200);
     expect((await res.json()).serverName).toBe("plan");
+  });
+
+  it("is refused rather than published when it is not a plain name", async () => {
+    await expect(
+      handleMcpConnect(ev({ host: "plan.agent-native.com" }), "/identity", {
+        serverName: "plan; echo hi",
+      }),
+    ).rejects.toThrow(/not a plain name/);
+  });
+
+  it("is refused before a token is minted that no response would return", async () => {
+    const { recordMintedToken } = await import("./connect-store.js");
+    vi.mocked(recordMintedToken).mockClear();
+    await expect(
+      handleMcpConnect(
+        ev({ method: "POST", host: "plan.agent-native.com" }),
+        "/token",
+        { serverName: "plan; echo hi" },
+      ),
+    ).rejects.toThrow(/not a plain name/);
+    expect(recordMintedToken).not.toHaveBeenCalled();
+  });
+
+  it("still lets users list and revoke their tokens when it is refused", async () => {
+    const options = { serverName: "plan; echo hi" };
+    const list = await handleMcpConnect(
+      ev({ host: "plan.agent-native.com" }),
+      "/tokens",
+      options,
+    );
+    expect(list.status).toBe(200);
+    const revoke = await handleMcpConnect(
+      ev({ method: "POST", host: "plan.agent-native.com", body: { id: "x" } }),
+      "/tokens/revoke",
+      options,
+    );
+    expect(revoke.status).toBe(200);
+  });
+});
+
+describe("connect identity", () => {
+  beforeEach(() => {
+    getSessionMock.mockResolvedValue(null);
+    getConfiguredLoginHtmlMock.mockReturnValue(null);
+  });
+  afterEach(() => resetAppConfigForTests());
+
+  async function identityFor(
+    host: string,
+    options: Parameters<typeof handleMcpConnect>[2] = {},
+  ) {
+    const res = await handleMcpConnect(ev({ host }), "/identity", options);
+    expect(res.status).toBe(200);
+    return res.json();
+  }
+
+  it("answers without a session and keeps production names unsuffixed", async () => {
+    defineAppConfig({ app: { id: "content" } });
+    expect(await identityFor("content.agent-native.com")).toEqual({
+      serverName: "agent-native-content",
+      appName: "content",
+      appUrl: "https://content.agent-native.com",
+      mcpUrl: "https://content.agent-native.com/mcp",
+      environment: "production",
+      connect: true,
+    });
+  });
+
+  it("fits a long hostname-derived name instead of failing", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "preview");
+    const label = `deploy-preview-6800--${"x".repeat(42)}`;
+    const { serverName } = await identityFor(`${label}.netlify.app`);
+    expect(serverName).toMatch(
+      /^preview-agent-native-deploy-preview-6800--x+__[0-9a-z]{11}$/,
+    );
+    expect(serverName.length).toBeLessThanOrEqual(64);
+  });
+
+  it.each([
+    ["beta", "beta.content.agent-native.com", "beta-agent-native-content"],
+    [
+      "preview",
+      "preview.content.agent-native.com",
+      "preview-agent-native-content",
+    ],
+    ["local", "localhost:8080", "local-agent-native-content"],
+  ])(
+    "gives the %s environment its own name",
+    async (environment, host, serverName) => {
+      vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", environment);
+      defineAppConfig({ app: { id: "content" } });
+      const identity = await identityFor(host);
+      expect(identity.serverName).toBe(serverName);
+      expect(identity.environment).toBe(environment);
+    },
+  );
+
+  it("prefixes a declared server name outside production", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
+    expect(
+      (await identityFor("beta.plan.agent-native.com", { serverName: "plan" }))
+        .serverName,
+    ).toBe("beta-plan");
+  });
+
+  it("keeps beta mail apart from a production app named mail-beta", async () => {
+    defineAppConfig({ app: { id: "mail-beta" } });
+    const production = await identityFor("mail-beta.example.com");
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
+    defineAppConfig({ app: { id: "mail" } });
+    const beta = await identityFor("beta.mail.agent-native.com");
+    expect(production.serverName).toBe("agent-native-mail-beta");
+    expect(beta.serverName).toBe("beta-agent-native-mail");
+  });
+
+  it("targets the workspace base path", async () => {
+    vi.stubEnv("APP_BASE_PATH", "/content");
+    defineAppConfig({ app: { id: "content" } });
+    const identity = await identityFor("workspace.example.com");
+    expect(identity.appUrl).toBe("https://workspace.example.com/content");
+    expect(identity.mcpUrl).toBe("https://workspace.example.com/content/mcp");
+    expect(identity.serverName).toBe("agent-native-content");
+  });
+
+  it("advertises the base path the MCP server is mounted on when both variables are set", async () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/content");
+    vi.stubEnv("APP_BASE_PATH", "/legacy");
+    const identity = await identityFor("workspace.example.com");
+    expect(identity.appUrl).toBe("https://workspace.example.com/content");
+    expect(identity.mcpUrl).toBe("https://workspace.example.com/content/mcp");
+  });
+
+  it("matches the name the token payload writes", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
+    process.env.A2A_SECRET = SECRET;
+    try {
+      defineAppConfig({ app: { id: "mail" } });
+      const identity = await identityFor("beta.mail.agent-native.com");
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(
+        ev({
+          method: "POST",
+          host: "beta.mail.agent-native.com",
+          body: { label: "laptop", ttlDays: 30 },
+        }),
+        "/token",
+      );
+      const payload = await res.json();
+      expect(payload.serverName).toBe(identity.serverName);
+      expect(payload.mcpUrl).toBe(identity.mcpUrl);
+    } finally {
+      delete process.env.A2A_SECRET;
+    }
+  });
+
+  it("advertises the public URL OAuth discovery uses, not the request host", async () => {
+    vi.stubEnv("APP_URL", "https://mail.agent-native.com");
+    defineAppConfig({ app: { id: "mail" } });
+    const identity = await identityFor("mail-internal:3000");
+    expect(identity.appUrl).toBe("https://mail.agent-native.com");
+    expect(identity.mcpUrl).toBe("https://mail.agent-native.com/mcp");
+    expect(identity.serverName).toBe("agent-native-mail");
+  });
+
+  it("rejects writes", async () => {
+    const res = await handleMcpConnect(ev({ method: "POST" }), "/identity");
+    expect(res.status).toBe(405);
+  });
+
+  it("renders install links that carry only the name and URL", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
+    defineAppConfig({ app: { id: "mail" } });
+    getSessionMock.mockResolvedValue({ email: "u@example.com" });
+    const res = await handleMcpConnect(
+      ev({ host: "beta.mail.agent-native.com" }),
+      "/",
+    );
+    const body = await res.text();
+    const hrefs = [...body.matchAll(/href="([^"]+)"/g)]
+      .map(([, href]) => href.replace(/&amp;/g, "&"))
+      .filter(
+        (href) =>
+          href.startsWith("https://cursor.com/install-mcp") ||
+          href.startsWith("vscode:") ||
+          href.startsWith("vscode-insiders:"),
+      );
+    expect(hrefs).toHaveLength(3);
+    for (const href of hrefs) {
+      const payload = href.startsWith("https://cursor.com/")
+        ? {
+            name: new URL(href).searchParams.get("name"),
+            ...JSON.parse(atob(new URL(href).searchParams.get("config")!)),
+          }
+        : JSON.parse(decodeURIComponent(href.slice(href.indexOf("?") + 1)));
+      const { type, ...rest } = payload;
+      expect(rest).toEqual({
+        name: "beta-agent-native-mail",
+        url: "https://beta.mail.agent-native.com/mcp",
+      });
+      expect(type === undefined || type === "http").toBe(true);
+    }
+    expect(body).toContain(
+      'href="https://cursor.com/install-mcp?name=beta-agent-native-mail',
+    );
   });
 });

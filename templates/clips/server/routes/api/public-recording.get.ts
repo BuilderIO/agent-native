@@ -1,20 +1,7 @@
-/**
- * GET /api/public-recording?id=<recordingId>[&password=<pw>]
- *
- * Public read endpoint for share/:id and embed/:id pages — lets unauthenticated
- * viewers fetch a recording's player data without going through the
- * authenticated `/_agent-native/actions/get-recording-player-data` route.
- *
- * Only returns data when:
- *   - recording.visibility === 'public', or the signed-in viewer has org/share access, AND
- *   - either no password is set, the viewer is owner, or the provided password matches
- *
- * For `org` or `private` visibility, signed-in org members and explicit shares
- * may load the same player payload as the authenticated route.
- */
-
 import {
   getSession,
+  getForwardedRequestOrigin,
+  getForwardedRequestURL,
   signScopedAgentAccessToken,
   signShortLivedToken,
   verifyScopedAgentAccessToken,
@@ -25,7 +12,6 @@ import {
   defineEventHandler,
   getHeader,
   getQuery,
-  getRequestURL,
   setResponseHeader,
   setResponseStatus,
   setCookie,
@@ -36,6 +22,11 @@ import {
   buildAgentApiUrls,
   CLIP_AGENT_ACCESS_TOKEN_PREFIX,
 } from "../../../shared/agent-context.js";
+import { displayCommentMentions } from "../../../shared/comment-mentions.js";
+import {
+  isImageRecording,
+  resolveRecordingKind,
+} from "../../../shared/recording-kind.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -44,11 +35,15 @@ import { resolveTranscriptPresentation } from "../../../shared/transcript-status
 import { getDb, schema } from "../../db/index.js";
 import { countRecordingAgentViews } from "../../lib/agent-views.js";
 import { isMediaVerificationPending } from "../../lib/media-verification-state.js";
+import {
+  isHeldForRedaction,
+  REDACTION_HOLD_MESSAGE,
+} from "../../lib/pending-redactions.js";
 import { resolvePlayerThumbnailUrl } from "../../lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
-  isRecordingExpired,
+  isRecordingExpiredForViewer,
   type RecordingPageAccessRole,
 } from "../../lib/recording-page-access.js";
 import { hasExplicitRecordingShare } from "../../lib/recording-share-grant.js";
@@ -58,8 +53,13 @@ import {
   parseSpaceIds,
   type RecordingVisibility,
 } from "../../lib/recordings.js";
+import { viewerScreenshotEditsJson } from "../../lib/screenshot-edits.js";
 import { isSeekableRepairPending } from "../../lib/seekable-media-state.js";
-import { verifySharePassword } from "../../lib/share-password.js";
+import {
+  getRecordingAccessTokenResourceId,
+  verifySharePassword,
+} from "../../lib/share-password.js";
+import { hydrateCommentAuthorNames } from "../../lib/user-identities.js";
 
 function appPath(path: string): string {
   if (!path.startsWith("/")) return path;
@@ -91,7 +91,7 @@ function isHttpsRequest(event: H3Event): boolean {
     if (xfProto && String(xfProto).split(",")[0].trim() === "https") {
       return true;
     }
-    const requestUrl = getRequestURL(event);
+    const requestUrl = getForwardedRequestURL(event);
     if (requestUrl.protocol === "https:") return true;
     const appUrl = process.env.APP_URL || process.env.BETTER_AUTH_URL || "";
     if (appUrl.startsWith("https://")) return true;
@@ -104,9 +104,15 @@ function isHttpsRequest(event: H3Event): boolean {
 function setProtectedMediaAccessCookie(
   event: H3Event,
   recordingId: string,
+  password: string | null | undefined,
+  sharePasswordVersion: string | null | undefined,
 ): string {
   const token = signShortLivedToken({
-    resourceId: recordingId,
+    resourceId: getRecordingAccessTokenResourceId(
+      recordingId,
+      password,
+      sharePasswordVersion,
+    ),
     ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
   });
   const secure = isHttpsRequest(event);
@@ -127,10 +133,6 @@ function setProtectedMediaAccessCookie(
 // against a single server instance. Mirrors the limiter in view-event.post.ts.
 const PASSWORD_ATTEMPT_WINDOW_MS = 60_000;
 const PASSWORD_ATTEMPT_MAX = 10;
-// Cap on the number of tracked IP+recording buckets. This is a process-local,
-// best-effort limiter (not distributed), so we only need to keep it from
-// growing unbounded over the life of an instance — not enforce the cap
-// precisely. When we cross it, sweep once and drop every expired bucket.
 const PASSWORD_ATTEMPT_MAX_BUCKETS = 5000;
 const passwordAttemptBuckets = new Map<
   string,
@@ -226,14 +228,14 @@ export default defineEventHandler(async (event) => {
   const tokenAllowsAgentAccess = suppliedAgentAccessToken
     ? verifyScopedAgentAccessToken(suppliedAgentAccessToken, {
         resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-        resourceId: rec.id,
+        resourceId: getRecordingAccessTokenResourceId(
+          rec.id,
+          rec.password,
+          rec.sharePasswordVersion,
+        ),
       }).ok
     : false;
 
-  // Share links are public-shell routes, so this endpoint cannot rely on the
-  // authenticated player action to authorize private recordings. Resolve the
-  // same registered access policy here so explicit user/org grants work before
-  // the client redirects to the direct player route.
   const viewerAccess = session?.email
     ? await resolveAccess("recording", rec.id, {
         userEmail: session.email,
@@ -251,8 +253,6 @@ export default defineEventHandler(async (event) => {
       );
       viewerIsOrgMember = Boolean(role);
     } catch {
-      // Never fail the request for anonymous/unauthenticated viewers or if
-      // org lookup is unavailable — just fall through to the existing gate.
       viewerIsOrgMember = false;
     }
   }
@@ -268,23 +268,28 @@ export default defineEventHandler(async (event) => {
     return { error: "Not found" };
   }
 
-  // Any signed-in viewer with access to the recording may comment or react —
-  // this covers an explicit share at any role (not just "commenter"), org
-  // membership, and a public link, which grants a viewer role that
-  // `resolveAccess` may not surface without an explicit share row.
   const viewerCanComment = Boolean(
     session?.email &&
     (rec.visibility === "public" || viewerAccess || viewerIsOrgMember),
   );
 
-  // Expiry check
-  const recordingExpired = isRecordingExpired(rec.expiresAt);
+  const recordingExpired = isRecordingExpiredForViewer({
+    expiresAt: rec.expiresAt,
+    viewerIsOwner,
+  });
   if (recordingExpired) {
     setResponseStatus(event, 410);
     return { error: "Recording has expired", expired: true };
   }
 
-  // Password check
+  if (isHeldForRedaction(rec.editsJson, viewerAccess?.role ?? null)) {
+    setResponseStatus(event, 409);
+    return {
+      error: REDACTION_HOLD_MESSAGE,
+      redactionPending: true,
+    };
+  }
+
   let protectedMediaToken: string | null = null;
   if (rec.password && !viewerIsOwner) {
     if (!tokenAllowsAgentAccess) {
@@ -308,9 +313,19 @@ export default defineEventHandler(async (event) => {
         return { error: "Password required", passwordRequired: true };
       }
     }
-    protectedMediaToken = setProtectedMediaAccessCookie(event, recordingId);
+    protectedMediaToken = setProtectedMediaAccessCookie(
+      event,
+      recordingId,
+      rec.password,
+      rec.sharePasswordVersion,
+    );
   } else if (tokenAllowsAgentAccess && !viewerIsOwner) {
-    protectedMediaToken = setProtectedMediaAccessCookie(event, recordingId);
+    protectedMediaToken = setProtectedMediaAccessCookie(
+      event,
+      recordingId,
+      rec.password,
+      rec.sharePasswordVersion,
+    );
   }
 
   const [transcript] = await db
@@ -329,6 +344,16 @@ export default defineEventHandler(async (event) => {
           asc(schema.recordingComments.createdAt),
         )
     : [];
+  const hydratedComments = await hydrateCommentAuthorNames(comments);
+  const commentMentions = new Map(
+    hydratedComments.map((comment) => [
+      comment.id,
+      displayCommentMentions(comment.mentionsJson),
+    ]),
+  );
+  for (const comment of hydratedComments) {
+    Reflect.deleteProperty(comment, "mentionsJson");
+  }
 
   const reactions = rec.enableReactions
     ? await db
@@ -391,6 +416,13 @@ export default defineEventHandler(async (event) => {
     accessToken: protectedMediaToken,
     appPath,
   });
+  const playbackAnimatedThumbnailUrl = rec.animatedThumbnailUrl
+    ? resolvePlayerThumbnailUrl(rec, {
+        accessToken: protectedMediaToken,
+        animated: true,
+        appPath,
+      })
+    : null;
 
   const canExposeAgentContext =
     (rec.visibility === "public" || tokenAllowsAgentAccess || viewerIsOwner) &&
@@ -402,19 +434,21 @@ export default defineEventHandler(async (event) => {
       : canExposeAgentContext && rec.password
         ? signScopedAgentAccessToken({
             resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-            resourceId: recordingId,
+            resourceId: getRecordingAccessTokenResourceId(
+              recordingId,
+              rec.password,
+              rec.sharePasswordVersion,
+            ),
           })
         : undefined;
   const agentContextUrl = canExposeAgentContext
     ? buildAgentApiUrls(recordingId, {
-        origin: getRequestURL(event).origin,
+        origin: getForwardedRequestOrigin(event),
         basePath: appBasePath(),
         token: agentToken,
       }).contextUrl
     : null;
 
-  // Don't leak the URL (which now carries a short-lived token) into the
-  // Referer of any outbound link the share page renders.
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
   const transcriptPresentation = resolveTranscriptPresentation(transcript);
   const [verificationPending, seekableRepairPending] = await Promise.all([
@@ -438,13 +472,8 @@ export default defineEventHandler(async (event) => {
 
   const viewerRole =
     viewerAccess?.role ?? (viewerIsOrgMember ? "viewer" : null);
-  // Mirrors the gate in `get-recording-player-data` exactly: the share page
-  // auto-redirects on this flag, so a false positive bounces the viewer
-  // between /share/:id and /r/:id forever. Only a resolved access role can
-  // open the direct page — the org-member fallback above is a display role,
-  // not access the player action would grant.
   const canOpenDashboard =
-    Boolean(session?.email) && viewerAccess && !recordingExpired
+    Boolean(session?.email) && viewerAccess
       ? canOpenDirectRecordingPage({
           role: viewerAccess.role as RecordingPageAccessRole,
           visibility: rec.visibility as RecordingVisibility,
@@ -465,11 +494,18 @@ export default defineEventHandler(async (event) => {
       id: rec.id,
       title: rec.title,
       description: rec.description,
+      kind: resolveRecordingKind(rec.kind),
+      // A screenshot's picture is served by the thumbnail route, which is the
+      // full stored image and carries the same short-lived token as the video
+      // URL — so the share password gates the image bytes too.
+      imageUrl: isImageRecording(rec) ? playbackThumbnailUrl : null,
       thumbnailUrl: playbackThumbnailUrl,
-      animatedThumbnailUrl: rec.animatedThumbnailUrl,
+      animatedThumbnailUrl: playbackAnimatedThumbnailUrl,
       sourceAppName: rec.sourceAppName,
       durationMs: rec.durationMs,
-      editsJson: rec.editsJson,
+      editsJson: isImageRecording(rec)
+        ? viewerScreenshotEditsJson(rec.editsJson)
+        : rec.editsJson,
       videoUrl: playbackVideoUrl,
       videoFormat: rec.videoFormat,
       videoSizeBytes: rec.videoSizeBytes ?? null,
@@ -483,7 +519,6 @@ export default defineEventHandler(async (event) => {
       seekableRepairPending,
       uploadProgress: rec.uploadProgress,
       failureReason: rec.failureReason,
-      // Don't leak the password to clients; just indicate whether one was set.
       hasPassword: !!rec.password,
       expiresAt: rec.expiresAt,
       enableComments: Boolean(rec.enableComments),
@@ -497,7 +532,6 @@ export default defineEventHandler(async (event) => {
       updatedAt: rec.updatedAt,
     },
     agentContextUrl,
-    // Aggregate counts only — never viewer identities on this public payload.
     viewCount,
     agentViewCount,
     transcript: transcript
@@ -509,7 +543,7 @@ export default defineEventHandler(async (event) => {
           segments: transcriptSegments,
         }
       : null,
-    comments: comments.map((c) => ({
+    comments: hydratedComments.map((c) => ({
       id: c.id,
       recordingId: c.recordingId,
       threadId: c.threadId,
@@ -517,6 +551,7 @@ export default defineEventHandler(async (event) => {
       authorEmail: c.authorEmail,
       authorName: c.authorName,
       content: c.content,
+      mentions: commentMentions.get(c.id) ?? [],
       videoTimestampMs: c.videoTimestampMs,
       emojiReactionsJson: c.emojiReactionsJson,
       resolved: Boolean(c.resolved),

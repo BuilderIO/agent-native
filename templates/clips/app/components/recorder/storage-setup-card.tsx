@@ -1,14 +1,19 @@
-import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
-import { openBuilderConnectPopup } from "@agent-native/core/client/settings";
 import {
-  IconCheck,
-  IconCloud,
-  IconLoader2,
-  IconServer,
-} from "@tabler/icons-react";
+  BuilderConnectPopover,
+  hasBuilderOAuthCredential,
+  useBuilderConnectFlow,
+  type BuilderConnectionScope,
+} from "@agent-native/toolkit/app/settings";
+import { readFileUploadStatus } from "@shared/file-upload-status";
+import { IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { StorageStatusRetry } from "@/components/recorder/storage-status-retry";
+import { useStorageSetupHref } from "@/components/settings/settings-links";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
   TooltipContent,
@@ -16,52 +21,62 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-function BuilderBMark({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 116 130"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      aria-hidden
-    >
-      <path
-        d="M115.14 39C115.14 17.36 97.58 0 76.14 0H10.27C4.58002 0 0 4.62002 0 10.27C0 20.79 22.2899 28.78 22.2899 65C22.2899 101.22 0 109.21 0 119.73C0 125.38 4.58002 130 10.27 130H76.14C97.58 130 115.14 112.64 115.14 91C115.14 75.1 105.59 65.41 105.21 65C105.58 64.59 115.14 54.9 115.14 39ZM13.58 11.1504H76.14C83.58 11.1504 90.58 14.0501 95.84 19.3101C101.1 24.5701 104 31.5703 104 39.0103C104 46.4503 101.26 53.0102 96.38 58.1602L13.59 11.1504H13.58ZM95.83 110.7C90.57 115.96 83.57 118.86 76.13 118.86H13.5699L96.36 71.8501C101.24 77.0001 103.98 83.8 103.98 91C103.98 98.2 101.08 105.44 95.8199 110.7H95.83ZM25.7 99.1602C26.36 97.7802 33.4199 84.08 33.4199 65C33.4199 45.92 26.36 32.2203 25.7 30.8403L85.86 65L25.7 99.1602Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
+// A cancelled account creation can still finish on the server, and its late
+// success should finish this card's setup; a connection made long after the
+// cancel belongs to something else.
+const CANCELLED_SETUP_RECOVERY_MS = 60_000;
 
 export interface StorageSetupCardProps {
   onConfigured: () => void | Promise<void>;
+  onSkip?: () => void;
   title?: string;
   description?: string;
-  connectDescription?: string;
   connectedDescription?: string;
-  /** Analytics source for the Builder connect popup. */
   connectSource?: string;
-  /** Analytics flow for the Builder connect popup. */
   connectFlow?: string;
+  /**
+   * Open the S3 settings form in a new tab so the page holding an unsaved
+   * recording never navigates away.
+   */
+  openSettingsInNewTab?: boolean;
 }
 
 export function StorageSetupCard({
   onConfigured,
+  onSkip,
   title = "Connect storage",
-  description = "Store recorded videos with Builder.io or S3-compatible storage.",
-  connectDescription = "Builder.io's free tier includes video storage and AI credits.",
+  description,
   connectedDescription = "You're all set. Starting recorder...",
   connectSource = "clips_file_upload_storage_setup_card",
   connectFlow = "file_upload",
+  openSettingsInNewTab = false,
 }: StorageSetupCardProps) {
   const t = useT();
+  const storageSetupHref = useStorageSetupHref();
   const [connecting, setConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [statusIssue, setStatusIssue] = useState<
+    "unavailable" | "upload-grant-missing" | "connect-not-allowed" | null
+  >(null);
+  const [retryingBuilderStatus, setRetryingBuilderStatus] = useState(false);
+  const retryingBuilderStatusAtCountRef = useRef<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const configuredTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const mountedRef = useRef(true);
   const inFlightRef = useRef(false);
   const visibilityHandlerRef = useRef<(() => void) | null>(null);
+  const connectRequestedRef = useRef(false);
+  const connectIntentExpiresAtRef = useRef<number | null>(null);
+
+  const clearConfiguredTimeout = useCallback(() => {
+    if (configuredTimeoutRef.current !== null) {
+      clearTimeout(configuredTimeoutRef.current);
+      configuredTimeoutRef.current = null;
+    }
+  }, []);
 
   const stopVisibilityHandler = useCallback(() => {
     if (visibilityHandlerRef.current) {
@@ -73,19 +88,8 @@ export function StorageSetupCard({
     }
   }, []);
 
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-      stopVisibilityHandler();
-    };
-  }, [stopVisibilityHandler]);
-
-  const handleConnect = useCallback(() => {
+  const startFileUploadPoll = useCallback(() => {
+    clearConfiguredTimeout();
     if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
@@ -94,11 +98,7 @@ export function StorageSetupCard({
     inFlightRef.current = false;
     setConnecting(true);
     setErr(null);
-
-    openBuilderConnectPopup({
-      source: connectSource,
-      flow: connectFlow,
-    });
+    setStatusIssue(null);
 
     const start = Date.now();
     const timeoutMs = 5 * 60 * 1000;
@@ -108,6 +108,12 @@ export function StorageSetupCard({
         pollRef.current = null;
       }
       stopVisibilityHandler();
+    };
+    const showTimeout = (): void => {
+      if (!mountedRef.current || Date.now() - start <= timeoutMs) return;
+      stop();
+      setConnecting(false);
+      setErr(t("storageSetup.builderTimeout"));
     };
     const tick = async () => {
       if (document.hidden || inFlightRef.current) return;
@@ -120,30 +126,47 @@ export function StorageSetupCard({
       try {
         const r = await fetch(
           new URL(
-            agentNativePath("/_agent-native/builder/status"),
+            agentNativePath("/_agent-native/file-upload/status"),
             window.location.origin,
           ).toString(),
           { signal: controller.signal },
         );
-        if (!r.ok) return;
-        const s = (await r.json()) as { configured: boolean };
+        if (!r.ok) {
+          stop();
+          setConnecting(false);
+          setStatusIssue("unavailable");
+          return;
+        }
+        const status = await readFileUploadStatus(r);
         if (!mountedRef.current) {
           stop();
           return;
         }
-        if (s.configured) {
+        if (status.state === "configured") {
           stop();
           setConnecting(false);
           setConnected(true);
-          setTimeout(() => void onConfigured(), 800);
-        } else if (Date.now() - start > timeoutMs) {
+          clearConfiguredTimeout();
+          configuredTimeoutRef.current = setTimeout(() => {
+            configuredTimeoutRef.current = null;
+            if (mountedRef.current) void onConfigured();
+          }, 800);
+        } else if (status.state === "unavailable") {
           stop();
           setConnecting(false);
-          setErr(t("storageSetup.builderTimeout"));
+          setStatusIssue("unavailable");
+        } else if (status.builderReauthorizationRequired) {
+          stop();
+          setConnecting(false);
+          setStatusIssue("upload-grant-missing");
+        } else {
+          showTimeout();
         }
       } catch {
-        // coercion-ok: a transient poll error keeps the loop running; the
-        // timeoutMs bound above surfaces builderTimeout if it never succeeds.
+        if (!mountedRef.current) return;
+        stop();
+        setConnecting(false);
+        setStatusIssue("unavailable");
       } finally {
         clearTimeout(abortTimer);
         inFlightRef.current = false;
@@ -154,111 +177,254 @@ export function StorageSetupCard({
       if (!document.hidden) void tick();
     };
     document.addEventListener("visibilitychange", visibilityHandlerRef.current);
-  }, [onConfigured, connectSource, connectFlow, stopVisibilityHandler, t]);
+  }, [clearConfiguredTimeout, onConfigured, stopVisibilityHandler, t]);
+
+  const handleBuilderConnected = useCallback(() => {
+    if (!connectRequestedRef.current) return;
+    const expiresAt = connectIntentExpiresAtRef.current;
+    connectRequestedRef.current = false;
+    connectIntentExpiresAtRef.current = null;
+    if (expiresAt !== null && Date.now() > expiresAt) return;
+    startFileUploadPoll();
+  }, [startFileUploadPoll]);
+
+  const builderConnect = useBuilderConnectFlow({
+    provisionAccount: true,
+    trackingSource: connectSource,
+    trackingFlow: connectFlow,
+    onConnected: handleBuilderConnected,
+  });
+  const hasBuilderAccount =
+    builderConnect.accountExists || hasBuilderOAuthCredential(builderConnect);
+  const builderConnectionScope: BuilderConnectionScope | null =
+    builderConnect.effective === "org" && builderConnect.canConnect.org
+      ? "org"
+      : builderConnect.effective === "personal" &&
+          builderConnect.canConnect.personal
+        ? "personal"
+        : builderConnect.canConnect.org
+          ? "org"
+          : builderConnect.canConnect.personal
+            ? "personal"
+            : null;
+  useEffect(() => {
+    const startedAt = retryingBuilderStatusAtCountRef.current;
+    if (
+      startedAt !== null &&
+      builderConnect.statusReadSettledCount > startedAt
+    ) {
+      retryingBuilderStatusAtCountRef.current = null;
+      setRetryingBuilderStatus(false);
+    }
+  }, [builderConnect.statusReadSettledCount]);
+  const retryBuilderStatus = useCallback(() => {
+    retryingBuilderStatusAtCountRef.current =
+      builderConnect.statusReadSettledCount;
+    setRetryingBuilderStatus(true);
+    if (!builderConnect.retry()) {
+      retryingBuilderStatusAtCountRef.current = null;
+      setRetryingBuilderStatus(false);
+    }
+  }, [builderConnect.retry, builderConnect.statusReadSettledCount]);
+  const handleBuilderConnect = useCallback(
+    (provisionAccount: boolean) => {
+      if (!builderConnectionScope) {
+        setStatusIssue("connect-not-allowed");
+        return;
+      }
+      connectRequestedRef.current = true;
+      connectIntentExpiresAtRef.current = null;
+      setStatusIssue(null);
+      builderConnect.start({
+        provisionAccount,
+        scope: builderConnectionScope,
+      });
+    },
+    [builderConnectionScope, builderConnect.start],
+  );
+  const handleBuilderCancel = useCallback(() => {
+    connectIntentExpiresAtRef.current =
+      Date.now() + CANCELLED_SETUP_RECOVERY_MS;
+    builderConnect.cancel();
+  }, [builderConnect.cancel]);
+  const handleSkip = useCallback(() => {
+    clearConfiguredTimeout();
+    onSkip?.();
+  }, [clearConfiguredTimeout, onSkip]);
+  const builderConnectErrorMessage = builderConnect.error
+    ? builderConnect.errorKind === "launch"
+      ? t("storageSetup.builderConnectPopupError")
+      : builderConnect.errorKind === "status-read"
+        ? t("storageSetup.builderStatusReadError")
+        : t(
+            storageSetupHref
+              ? "storageSetup.builderConnectError"
+              : "storageSetup.builderConnectErrorAskAdmin",
+          )
+    : null;
+  const builderConnecting = builderConnect.connecting;
+  const actionConnecting = connecting || builderConnecting;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      clearConfiguredTimeout();
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      stopVisibilityHandler();
+    };
+  }, [clearConfiguredTimeout, stopVisibilityHandler]);
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-5 rounded-2xl border border-border bg-card p-6 shadow-lg">
       <div>
-        <div className="mb-1 flex items-center gap-2">
-          <IconCloud className="h-5 w-5 text-muted-foreground" />
-          <h2 className="text-lg font-semibold">{title}</h2>
-        </div>
-        <p className="text-sm text-muted-foreground">{description}</p>
+        <h2 className="text-lg font-semibold">{title}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {connected
+            ? connectedDescription
+            : (description ?? t("storageSetup.description"))}
+        </p>
       </div>
 
-      {/* Builder.io — primary option, one-click Connect flow. */}
-      <button
-        type="button"
-        onClick={handleConnect}
-        disabled={connecting || connected}
-        className={
-          "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-start transition-colors " +
-          (connected
-            ? "border-primary/50 bg-primary/5"
-            : "border-primary bg-primary text-primary-foreground hover:bg-primary/90")
-        }
-      >
-        <div
-          className={
-            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg " +
-            (connected
-              ? "bg-foreground text-background"
-              : "bg-primary-foreground/15 text-primary-foreground")
-          }
+      <div className="flex flex-col gap-2">
+        {/* The consent popover is this card's only path to a new account.
+            Its Cancel is left out because the card's own Cancel must also
+            drop the pending connect before storage polling starts. */}
+        <BuilderConnectPopover
+          flow={{
+            ...builderConnect,
+            accountExists: hasBuilderAccount,
+            cancel: undefined,
+          }}
+          onConnect={handleBuilderConnect}
         >
-          {connected ? (
-            <IconCheck className="h-5 w-5" />
-          ) : connecting ? (
-            <IconLoader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            <BuilderBMark className="h-5 w-5" />
-          )}
-        </div>
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">
-              {connected
-                ? t("storageSetup.builderConnected")
-                : connecting
-                  ? t("storageSetup.waitingForBuilder")
-                  : t("storageSetup.connectBuilder")}
-            </span>
-          </div>
-          <span
-            className={
-              "mt-0.5 block text-xs " +
-              (connected
-                ? "text-muted-foreground"
-                : "text-primary-foreground/80")
-            }
+          <Button
+            type="button"
+            className="w-full"
+            disabled={actionConnecting || connected || !builderConnectionScope}
+            data-testid="storage-setup-builder-primary"
           >
-            {connected ? connectedDescription : connectDescription}
-          </span>
-        </div>
-      </button>
+            {actionConnecting ? <Spinner aria-hidden /> : null}
+            {connected
+              ? t("storageSetup.builderConnected")
+              : actionConnecting
+                ? t("storageSetup.waitingForBuilder")
+                : t("agentChat.setup.connectBuilder")}
+          </Button>
+        </BuilderConnectPopover>
+        {!connected && storageSetupHref ? (
+          <>
+            <Button asChild variant="secondary" className="w-full">
+              <a
+                href={storageSetupHref}
+                {...(openSettingsInNewTab
+                  ? { target: "_blank", rel: "noopener noreferrer" }
+                  : {})}
+              >
+                {t("settings.s3Title")}
+              </a>
+            </Button>
+          </>
+        ) : null}
+        {!connected && !storageSetupHref ? (
+          <p className="text-center text-xs text-muted-foreground">
+            {t("clipsSettings.storageAskAdmin")}
+          </p>
+        ) : null}
+      </div>
+      {builderConnect.error && (
+        <p className="text-xs text-destructive" role="alert">
+          {builderConnectErrorMessage}
+        </p>
+      )}
+      {builderConnect.statusResolved &&
+      !builderConnectionScope &&
+      !builderConnect.error ? (
+        <p className="text-xs text-muted-foreground" role="alert">
+          {t("storageSetup.builderGrantAskAdmin")}
+        </p>
+      ) : null}
+      {builderConnect.errorKind === "status-read" && builderConnect.error && (
+        <button
+          type="button"
+          aria-busy={retryingBuilderStatus}
+          disabled={retryingBuilderStatus}
+          className="text-xs text-foreground underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={retryBuilderStatus}
+        >
+          {retryingBuilderStatus ? (
+            <span className="inline-flex items-center gap-1.5">
+              <IconLoader2 className="h-3 w-3 animate-spin" aria-hidden />
+              {t("storageSetup.checkingBuilderConnection")}
+            </span>
+          ) : (
+            t("meetingDetail.retry")
+          )}
+        </button>
+      )}
+      {builderConnecting && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          data-testid="storage-setup-builder-cancel"
+          className="self-end text-xs font-normal text-muted-foreground"
+          onClick={handleBuilderCancel}
+        >
+          {t("common.cancel")}
+        </Button>
+      )}
 
       {err && <p className="text-xs text-muted-foreground">{err}</p>}
+      {statusIssue === "unavailable" ? (
+        <StorageStatusRetry onRetry={startFileUploadPoll} />
+      ) : null}
+      {statusIssue === "upload-grant-missing" ? (
+        <p className="text-xs text-destructive" role="alert">
+          {t("storageSetup.builderUploadGrantMissing")}
+        </p>
+      ) : null}
+      {statusIssue === "connect-not-allowed" ? (
+        <p className="text-xs text-destructive" role="alert">
+          {t("storageSetup.builderGrantAskAdmin")}
+        </p>
+      ) : null}
 
-      {/* S3 — secondary option */}
+      {onSkip ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="self-center text-muted-foreground"
+          onClick={handleSkip}
+        >
+          {t("agentChat.onboarding.skipForNow")}
+        </Button>
+      ) : null}
+
       {!connected && (
-        <>
-          <div className="flex items-center gap-3 border-t border-border pt-4">
-            <IconServer className="h-4 w-4 text-muted-foreground" />
-            <div className="flex-1">
-              <span className="text-sm text-muted-foreground">
-                Or{" "}
-                <a
-                  href={appPath("/settings/general#video-storage")}
-                  className="font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
-                >
-                  {t("storageSetup.configureS3")}
-                </a>
-              </span>
-              <span className="mt-0.5 block text-[11px] text-muted-foreground">
-                AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO
-              </span>
-            </div>
-          </div>
-          <TooltipProvider delayDuration={150}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="self-start text-xs text-muted-foreground underline decoration-muted-foreground/50 decoration-dotted underline-offset-4 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                >
-                  {t("storageSetup.whyPrompt")}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent
-                side="bottom"
-                align="start"
-                className="max-w-80 whitespace-normal text-xs leading-relaxed"
+        <TooltipProvider delayDuration={150}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="self-start text-xs text-muted-foreground underline decoration-muted-foreground/50 decoration-dotted underline-offset-4 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
-                {t("storageSetup.whyDescription")}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </>
+                {t("storageSetup.whyPrompt")}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="bottom"
+              align="start"
+              className="max-w-80 whitespace-normal text-xs leading-relaxed"
+            >
+              {t("storageSetup.whyDescription")}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       )}
     </div>
   );

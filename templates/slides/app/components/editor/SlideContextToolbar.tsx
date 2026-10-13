@@ -1,9 +1,14 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  FONT_FAMILY_OPTIONS,
+  VisualFontFamilyPicker,
   VisualColorPicker,
   VisualControlRow,
   VisualScrubInput,
   VisualSegmentedControl,
+  displayFontFamilyName,
+  resolveFontFamilySelectValue,
+  sortFontFamilyOptions,
 } from "@agent-native/toolkit/design-tweaks";
 import type { DesignSystemData } from "@shared/api";
 import {
@@ -16,11 +21,14 @@ import {
   IconArrowsUpDown,
   IconArrowAutofitHeight,
   IconArrowAutofitWidth,
+  IconBoxMultiple,
   IconBorderRadius,
   IconBorderStyle,
   IconDots,
   IconGridDots,
   IconItalic,
+  IconMessageCircle,
+  IconVideo,
   IconLayoutAlignBottom,
   IconLayoutAlignCenter,
   IconLayoutAlignLeft,
@@ -34,11 +42,13 @@ import {
   IconSpacingVertical,
   IconStackBack,
   IconStackFront,
+  IconUnlink,
+  IconBolt,
   IconUnderline,
   IconZoomIn,
   IconZoomOut,
 } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -47,22 +57,26 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { VideoPlaybackSettings } from "@/lib/slide-video";
 import { cn, shortcutLabel } from "@/lib/utils";
 
 import type { SlideListKind } from "./list-editing";
 import type {
   SlideObjectAlignment,
   SlideObjectDistribution,
+  SlideObjectZOrderTarget,
 } from "./slide-object-interactions";
 import {
   backgroundCssValue,
@@ -70,7 +84,6 @@ import {
   horizontalAlignPatch,
   resolveHorizontalAlignment,
   resolveVerticalAlignment,
-  rotationTransform,
   tokenPalette,
   verticalAlignPatch,
   type SlideStylePatch,
@@ -132,40 +145,58 @@ function alignIcon(textAlign: string) {
   return IconAlignLeft;
 }
 
-/**
- * Horizontal counterpart to the style dock: the same snapshot and patch
- * callback, presented as a row above the canvas so the slide keeps full width.
- * Controls past the first few live in grouped popovers — a flat row overflows
- * once the agent sidebar and slide rail take their share of the width.
- */
 export function SlideContextToolbar({
   snapshot,
   background,
   designSystem,
   className,
   leading,
+  animationsOpen = false,
+  hasSelectedElement = Boolean(snapshot),
+  onOpenAnimations,
+  canComment = false,
+  onComment,
   onChange,
+  onEnablePositioning,
   onBackgroundChange,
   onArrange,
+  onGroup,
+  onUngroup,
   onToggleList,
   objectSelectionCount = 0,
+  canGroup = false,
+  canUngroup = false,
   onAlignObjects,
   onDistributeObjects,
+  videoPlayback,
+  onVideoPlaybackChange,
   zoomControls,
 }: {
   snapshot: SlideStyleSnapshot | null;
   background: string | undefined;
   designSystem?: DesignSystemData;
   className?: string;
-  /** Selection-independent actions pinned to the head of the row. */
   leading?: ReactNode;
-  onChange: (patch: SlideStylePatch) => void;
+  hasSelectedElement?: boolean;
+  animationsOpen?: boolean;
+  onOpenAnimations?: () => void;
+  canComment?: boolean;
+  onComment?: () => void;
+  /** False when the patch was refused: the object paints what it did before. */
+  onChange: (patch: SlideStylePatch) => boolean | void;
+  onEnablePositioning?: () => void;
   onBackgroundChange: (background: string) => void;
-  onArrange?: (target: "front" | "back") => void;
+  onArrange?: (target: SlideObjectZOrderTarget) => void;
+  onGroup?: () => void;
+  onUngroup?: () => void;
   onToggleList?: (kind: SlideListKind) => void;
   objectSelectionCount?: number;
+  canGroup?: boolean;
+  canUngroup?: boolean;
   onAlignObjects?: (alignment: SlideObjectAlignment) => void;
   onDistributeObjects?: (distribution: SlideObjectDistribution) => void;
+  videoPlayback?: VideoPlaybackSettings | null;
+  onVideoPlaybackChange?: (settings: VideoPlaybackSettings) => void;
   zoomControls?: {
     value: number;
     onZoomOut: () => void;
@@ -175,22 +206,46 @@ export function SlideContextToolbar({
   };
 }) {
   const t = useT();
+  // The field holds what was typed until the object paints it; a refused
+  // rotation never will, so the field starts over from what the object paints.
+  const [refusedRotations, setRefusedRotations] = useState(0);
   const documentColors = tokenPalette(designSystem, t).map(
     (option) => option.value,
+  );
+  const baseFontFamilyOptions = sortFontFamilyOptions(
+    FONT_FAMILY_OPTIONS.map((option) => ({
+      value: option.value,
+      label:
+        option.label ??
+        (option.key
+          ? t(`styleInspector.fontFamilies.${option.key}`)
+          : displayFontFamilyName(option.value)),
+    })),
   );
   const inlineEditSurfaceProps = {
     "data-slide-inline-edit-surface": "true",
   };
   const mixedTextStyles = snapshot?.mixedTextStyles ?? [];
-  // A mixed selection has no single state to reflect, so the toggle reads as
-  // off and one click makes the whole selection consistent.
+  const fontFamilyIsMixed = mixedTextStyles.includes("fontFamily");
+  const fontFamily = snapshot
+    ? resolveFontFamilySelectValue(snapshot.fontFamily)
+    : "sans-serif";
+  const fontFamilyOptions = sortFontFamilyOptions(
+    !snapshot ||
+      fontFamilyIsMixed ||
+      baseFontFamilyOptions.some((option) => option.value === fontFamily)
+      ? baseFontFamilyOptions
+      : [
+          {
+            value: fontFamily,
+            label: displayFontFamilyName(snapshot.fontFamily || fontFamily),
+          },
+          ...baseFontFamilyOptions,
+        ],
+  );
   const isItalic =
     !mixedTextStyles.includes("fontStyle") &&
     (snapshot?.fontStyle ?? "").startsWith("italic");
-  // A mixed selection has no single size, so the scrub input reports a step as
-  // a relative delta rather than a value. Writing that delta as an absolute
-  // size would set the whole selection to a few pixels; step from the block's
-  // own size instead, which also makes the selection consistent in one click.
   const sizeFor = (value: number, meta?: { relativeDelta?: number }) => {
     const delta = meta?.relativeDelta;
     if (typeof delta !== "number") return value;
@@ -199,9 +254,6 @@ export function SlideContextToolbar({
   const decorationMixed = mixedTextStyles.includes("textDecoration");
   const isUnderline =
     !decorationMixed && (snapshot?.textDecoration ?? "").includes("underline");
-  // Text can carry more than one decoration, and the agent writes
-  // line-through even though no control exposes it. Editing the underline
-  // token in place keeps the rest; writing a bare "none" would erase them.
   const underlinePatch = () => {
     if (decorationMixed) return "underline";
     const tokens = (snapshot?.textDecoration ?? "")
@@ -212,11 +264,10 @@ export function SlideContextToolbar({
       : [...tokens, "underline"];
     return next.length > 0 ? next.join(" ") : "none";
   };
-  // Null means the slide uses a background this picker cannot represent (named
-  // utility, gradient); surface that as Mixed rather than guessing a hex.
   const slideBackground = backgroundCssValue(background);
   const hasMultiObjectSelection = objectSelectionCount >= 2;
   const canDistributeObjects = objectSelectionCount >= 3;
+  const isVideoSelection = snapshot?.tagName?.toLowerCase() === "video";
 
   return (
     <div
@@ -231,6 +282,136 @@ export function SlideContextToolbar({
       {leading && (
         <>
           {leading}
+          <div className={TOOLBAR_DIVIDER} />
+        </>
+      )}
+      {hasSelectedElement && onOpenAnimations && (
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  MENU_BUTTON_CLASS,
+                  animationsOpen && TOGGLE_ACTIVE_CLASS,
+                )}
+                aria-label={t("animations.title")}
+                aria-pressed={animationsOpen}
+                onClick={onOpenAnimations}
+              >
+                <IconBolt className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("animations.title")}</TooltipContent>
+          </Tooltip>
+          <div className={TOOLBAR_DIVIDER} />
+        </>
+      )}
+      {hasSelectedElement && canComment && onComment && (
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={MENU_BUTTON_CLASS}
+                aria-label={t("comments.addComment")}
+                onClick={onComment}
+              >
+                <IconMessageCircle className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("comments.addComment")}</TooltipContent>
+          </Tooltip>
+          <div className={TOOLBAR_DIVIDER} />
+        </>
+      )}
+      {isVideoSelection && videoPlayback && onVideoPlaybackChange && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={MENU_BUTTON_CLASS}
+              aria-label={t("editorToolbar.videoPlayback")}
+            >
+              <IconVideo className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            className="w-56"
+            {...inlineEditSurfaceProps}
+          >
+            <div className="grid gap-3">
+              <p className="text-xs font-medium">
+                {t("editorToolbar.videoPlayback")}
+              </p>
+              <Label className="flex items-center justify-between gap-4">
+                <span>{t("editorToolbar.autoplayVideo")}</span>
+                <Switch
+                  checked={videoPlayback.mode === "autoplay"}
+                  onCheckedChange={(checked) =>
+                    onVideoPlaybackChange({
+                      ...videoPlayback,
+                      mode: checked ? "autoplay" : "click",
+                    })
+                  }
+                />
+              </Label>
+              <Label className="flex items-center justify-between gap-4">
+                <span>{t("editorToolbar.loopVideo")}</span>
+                <Switch
+                  checked={videoPlayback.loop}
+                  onCheckedChange={(loop) =>
+                    onVideoPlaybackChange({ ...videoPlayback, loop })
+                  }
+                />
+              </Label>
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
+      {(canGroup || canUngroup) && (
+        <>
+          {canGroup && onGroup && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={MENU_BUTTON_CLASS}
+                  aria-label={t("styleInspector.group")}
+                  onClick={onGroup}
+                >
+                  <IconBoxMultiple className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("styleInspector.group")}</TooltipContent>
+            </Tooltip>
+          )}
+          {canUngroup && onUngroup && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={MENU_BUTTON_CLASS}
+                  aria-label={t("styleInspector.ungroup")}
+                  onClick={onUngroup}
+                >
+                  <IconUnlink className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("styleInspector.ungroup")}</TooltipContent>
+            </Tooltip>
+          )}
           <div className={TOOLBAR_DIVIDER} />
         </>
       )}
@@ -345,6 +526,20 @@ export function SlideContextToolbar({
         <>
           {snapshot.isText ? (
             <>
+              <VisualFontFamilyPicker
+                label={t("styleInspector.fontFamily")}
+                value={fontFamily}
+                options={fontFamilyOptions}
+                mixed={fontFamilyIsMixed}
+                mixedLabel={t("styleInspector.mixed")}
+                className={cn(
+                  VALUE_MENU_CLASS,
+                  "w-32 border-0 bg-transparent px-1.5 shadow-none focus:ring-0 focus:ring-offset-0",
+                )}
+                contentProps={inlineEditSurfaceProps}
+                onChange={(value) => onChange({ fontFamily: value })}
+              />
+              <div className={TOOLBAR_DIVIDER} />
               <VisualScrubInput
                 label={t("styleInspector.size")}
                 icon={IconLetterCase}
@@ -621,8 +816,13 @@ export function SlideContextToolbar({
 
           <div className={TOOLBAR_DIVIDER} />
 
-          {snapshot.isAbsolute && (
-            <Popover>
+          {(snapshot.isAbsolute ||
+            (objectSelectionCount < 2 && onEnablePositioning)) && (
+            <Popover
+              onOpenChange={(open) => {
+                if (open && !snapshot.isAbsolute) onEnablePositioning?.();
+              }}
+            >
               <Tooltip>
                 <TooltipTrigger asChild>
                   <PopoverTrigger asChild>
@@ -689,7 +889,7 @@ export function SlideContextToolbar({
             </Popover>
           )}
 
-          {snapshot.isAbsolute && onArrange && (
+          {(snapshot.isAbsolute || objectSelectionCount >= 2) && onArrange && (
             <>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -715,6 +915,23 @@ export function SlideContextToolbar({
                     variant="ghost"
                     size="icon"
                     className={MENU_BUTTON_CLASS}
+                    onClick={() => onArrange("backward")}
+                    aria-label={t("styleInspector.sendBackward")}
+                  >
+                    <IconStackBack className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("styleInspector.sendBackward")}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={MENU_BUTTON_CLASS}
                     onClick={() => onArrange("front")}
                     aria-label={t("styleInspector.bringToFront")}
                   >
@@ -723,6 +940,23 @@ export function SlideContextToolbar({
                 </TooltipTrigger>
                 <TooltipContent>
                   {t("styleInspector.bringToFront")}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={MENU_BUTTON_CLASS}
+                    onClick={() => onArrange("forward")}
+                    aria-label={t("styleInspector.bringForward")}
+                  >
+                    <IconStackFront className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("styleInspector.bringForward")}
                 </TooltipContent>
               </Tooltip>
             </>
@@ -797,17 +1031,25 @@ export function SlideContextToolbar({
                       onChange={(y) => onChange({ top: `${formatValue(y)}px` })}
                     />
                   </div>
+                  {/* An unreadable rotation shows as mixed and cannot be edited; its value is never shown or written. */}
                   <VisualScrubInput
+                    key={refusedRotations}
                     label={t("styleInspector.rotation")}
                     icon={IconAngle}
                     prefix="icon"
-                    value={snapshot.rotation}
-                    min={-360}
-                    max={360}
+                    value={snapshot.rotation ?? 0}
                     unit="°"
-                    onChange={(rotation) =>
-                      onChange({ transform: rotationTransform(rotation) })
-                    }
+                    mixed={snapshot.rotation === null}
+                    mixedLabel={t("styleInspector.mixed")}
+                    disabled={snapshot.rotation === null}
+                    onChange={(rotation, meta) => {
+                      if (
+                        onChange({ rotation }) === false &&
+                        meta.phase === "commit"
+                      ) {
+                        setRefusedRotations((count) => count + 1);
+                      }
+                    }}
                   />
                 </>
               )}
@@ -931,6 +1173,29 @@ export function SlideContextToolbar({
           </Popover>
         </>
       )}
+      {!snapshot &&
+        hasSelectedElement &&
+        objectSelectionCount === 0 &&
+        onEnablePositioning && (
+          <>
+            <div className={TOOLBAR_DIVIDER} />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={MENU_BUTTON_CLASS}
+                  onClick={onEnablePositioning}
+                  aria-label={t("styleInspector.position")}
+                >
+                  <IconLayoutAlignLeft className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("styleInspector.position")}</TooltipContent>
+            </Tooltip>
+          </>
+        )}
       {zoomControls && (
         <>
           <div className={cn(TOOLBAR_DIVIDER, "ml-auto")} />

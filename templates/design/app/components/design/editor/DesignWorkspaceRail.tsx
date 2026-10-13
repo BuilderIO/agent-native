@@ -1,231 +1,243 @@
+import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { AgentMark } from "@agent-native/toolkit/app/shared";
 import {
   IconAssembly,
-  IconChevronDown,
-  IconChevronUp,
-  IconCode,
-  IconFile,
-  IconFileImport,
-  IconMessage,
-  IconPhoto,
-  IconPuzzle,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
+  IconMessages,
+  IconStack2,
+  IconTimelineEvent,
 } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
+import { Link } from "react-router";
 
-import { preloadCodeWorkbench } from "@/components/design/code-workbench/CodeWorkbenchLoader";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import {
-  SHOW_DESIGN_CODE_LEFT_PANEL,
-  SHOW_DESIGN_SECONDARY_LEFT_PANELS,
-  type DesignLeftPanel,
-} from "@/pages/design-editor/types";
+import type { DesignLeftPanel } from "@/pages/design-editor/types";
 
 export const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>(
-  ["file", "assets", "tools", "tokens", "import", "code"],
+  ["file", "tokens"],
 );
 
+export interface DesignWorkspaceRailAccount {
+  email: string;
+  name?: string;
+  image?: string;
+}
+
+function AccountAvatar({ account }: { account: DesignWorkspaceRailAccount }) {
+  const storedAvatarUrl = useAvatarUrl(account.email);
+  const avatarUrl = storedAvatarUrl ?? account.image;
+  const label = account.name?.trim() || account.email;
+  return (
+    <Avatar className="size-6 border border-border">
+      {avatarUrl ? <AvatarImage src={avatarUrl} alt="" /> : null}
+      <AvatarFallback className="bg-muted text-[11px] font-semibold text-muted-foreground">
+        {label.charAt(0).toUpperCase()}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
+
 export function DesignWorkspaceRail({
+  account,
   activePanel,
   disabledPanels,
-  hiddenPanels,
   motionOpen,
-  motionDisabled,
-  projectMenu,
   onMotionToggle,
+  projectMenu,
   onPanelChange,
 }: {
+  account?: DesignWorkspaceRailAccount | null;
   activePanel: DesignLeftPanel | null;
   disabledPanels?: ReadonlySet<DesignLeftPanel>;
-  hiddenPanels?: ReadonlySet<DesignLeftPanel>;
   motionOpen?: boolean;
-  motionDisabled?: boolean;
-  projectMenu: ReactNode;
   onMotionToggle?: () => void;
+  projectMenu: ReactNode;
   onPanelChange: (panel: DesignLeftPanel | null) => void;
 }) {
   const t = useT();
+  const toggleLabel = t(
+    activePanel
+      ? "designEditor.leftRail.collapse"
+      : "designEditor.leftRail.expand",
+  );
+  const lastPanelRef = useRef<DesignLeftPanel | null>(null);
+  if (activePanel) lastPanelRef.current = activePanel;
   const items: Array<{
     panel: DesignLeftPanel;
     label: string;
     icon: ReactNode;
-    separatorBefore?: boolean;
   }> = [
     {
       panel: "file",
-      label: t("designEditor.leftRail.file"),
-      icon: <IconFile className="size-[15px]" />,
+      label: t("designEditor.leftRail.layers"),
+      icon: <IconStack2 className="size-5" stroke={1.5} />,
     },
     {
       panel: "agent",
       label: t("designEditor.leftRail.agent"),
-      icon: <IconMessage className="size-[15px]" />,
+      icon: <AgentMark className="size-5" />,
     },
-    ...(SHOW_DESIGN_SECONDARY_LEFT_PANELS
-      ? [
-          {
-            panel: "assets" as const,
-            label: t("designEditor.leftRail.assets"),
-            icon: <IconPhoto className="size-[15px]" />,
-          },
-        ]
-      : []),
     {
-      panel: "import",
-      label: t("designEditor.leftRail.import"),
-      icon: <IconFileImport className="size-[15px]" />,
+      panel: "tokens",
+      label: t("designEditor.leftRail.tokens"),
+      icon: <IconAssembly className="size-5" stroke={1.5} />,
     },
-    ...(SHOW_DESIGN_SECONDARY_LEFT_PANELS
-      ? [
-          {
-            panel: "tools" as const,
-            label: t("designEditor.leftRail.tools"),
-            icon: <IconPuzzle className="size-[15px]" />,
-          },
-          {
-            panel: "tokens" as const,
-            label: t("designEditor.leftRail.tokens"),
-            icon: <IconAssembly className="size-[15px]" />,
-          },
-        ]
-      : []),
-    ...(SHOW_DESIGN_CODE_LEFT_PANEL
-      ? [
-          {
-            panel: "code" as const,
-            label: "Code" /* i18n-ignore */,
-            icon: <IconCode className="size-[15px]" />,
-            separatorBefore: true,
-          },
-        ]
-      : []),
+    {
+      panel: "threads",
+      label: t("designEditor.leftRail.threads"),
+      icon: <IconMessages className="size-5" stroke={1.5} />,
+    },
   ];
 
   return (
     <nav
       aria-label={t("designEditor.leftRail.label")}
-      className="flex min-h-0 w-[57px] shrink-0 flex-col items-center overflow-y-auto overscroll-contain border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] py-3"
+      data-design-chrome-region="workspace-rail"
+      className="flex min-h-0 w-[var(--design-chrome-rail-width)] shrink-0 flex-col items-center border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)]"
     >
-      <div className="mb-3 flex h-8 items-center justify-center">
-        {projectMenu}
-      </div>
-      <div className="mb-5 h-px w-8 bg-border/70" />
-      <div className="flex min-h-0 flex-1 flex-col items-center gap-4">
+      {projectMenu ? (
+        <div className="flex h-12 w-full shrink-0 items-center justify-center border-b border-[var(--design-editor-panel-divider-color)]">
+          {projectMenu}
+        </div>
+      ) : null}
+      <div className="flex min-h-0 w-full flex-col items-center overflow-y-auto overscroll-contain py-[calc(var(--design-baseline-unit)*1.5)]">
         {items.map((item) => {
-          if (hiddenPanels?.has(item.panel)) return null;
           const active = item.panel === activePanel;
           const disabled = disabledPanels?.has(item.panel) ?? false;
           return (
-            <div key={item.panel} className="flex w-full flex-col items-center">
-              {item.separatorBefore ? (
-                <div className="-mt-1 mb-3 h-px w-8 bg-border/70" />
-              ) : null}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={item.label}
-                    aria-disabled={disabled || undefined}
-                    aria-current={active ? "page" : undefined}
-                    tabIndex={disabled ? -1 : undefined}
-                    onClick={(event) => {
-                      if (disabled) {
-                        event.preventDefault();
-                        return;
-                      }
-                      onPanelChange(active ? null : item.panel);
-                    }}
-                    onPointerEnter={() => {
-                      if (item.panel === "code") preloadCodeWorkbench();
-                    }}
-                    onFocus={() => {
-                      if (item.panel === "code") preloadCodeWorkbench();
-                    }}
+            <Tooltip key={item.panel}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={item.label}
+                  aria-disabled={disabled || undefined}
+                  aria-current={active ? "page" : undefined}
+                  tabIndex={disabled ? -1 : undefined}
+                  onClick={(event) => {
+                    if (disabled) {
+                      event.preventDefault();
+                      return;
+                    }
+                    onPanelChange(active ? null : item.panel);
+                  }}
+                  className={cn(
+                    "design-workspace-rail-item group flex w-full cursor-pointer flex-col items-center gap-0.5 p-1 text-[11px] leading-4 text-foreground outline-none",
+                    disabled && "cursor-default opacity-35",
+                  )}
+                >
+                  <span
                     className={cn(
-                      "group flex w-12 cursor-pointer flex-col items-center justify-start gap-1 rounded-none text-[10px] font-[450] leading-none text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                      disabled &&
-                        "cursor-default opacity-35 hover:text-muted-foreground",
-                      active && "text-foreground",
+                      "flex size-8 items-center justify-center rounded-md transition-colors group-focus-visible:ring-1 group-focus-visible:ring-[var(--design-editor-accent-color)]",
+                      active
+                        ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]"
+                        : !disabled &&
+                            "group-hover:bg-[var(--design-editor-layer-hover-color)]",
                     )}
                   >
-                    <span
-                      className={cn(
-                        "flex size-8 items-center justify-center rounded-lg transition-colors",
-                        active
-                          ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]"
-                          : "text-muted-foreground group-hover:bg-[var(--design-editor-layer-hover-color)] group-hover:text-foreground",
-                        disabled &&
-                          "group-hover:bg-transparent group-hover:text-muted-foreground",
-                      )}
-                    >
-                      {item.icon}
-                    </span>
-                    <span className="max-w-full truncate leading-none">
-                      {item.label}
-                    </span>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="right">{item.label}</TooltipContent>
-              </Tooltip>
-            </div>
+                    {item.icon}
+                  </span>
+                  <span className="w-full truncate px-0.5 text-center">
+                    {item.label}
+                  </span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{item.label}</TooltipContent>
+            </Tooltip>
           );
         })}
-      </div>
-      {onMotionToggle && SHOW_DESIGN_SECONDARY_LEFT_PANELS ? (
-        <div className="mt-4 flex w-full flex-col items-center border-t border-border/70 pt-3">
+        {onMotionToggle ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
-                aria-label={"Motion" /* i18n-ignore */}
-                aria-disabled={motionDisabled || undefined}
-                aria-pressed={motionOpen || undefined}
-                tabIndex={motionDisabled ? -1 : undefined}
-                onClick={(event) => {
-                  if (motionDisabled) {
-                    event.preventDefault();
-                    return;
-                  }
-                  onMotionToggle();
-                }}
-                className={cn(
-                  "group flex w-12 cursor-pointer flex-col items-center justify-start gap-1 rounded-none !text-[10px] font-[450] leading-none text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                  motionDisabled &&
-                    "cursor-default opacity-35 hover:text-muted-foreground",
-                  motionOpen && "text-foreground",
-                )}
+                aria-label={t("designEditor.motion.dockLabel")}
+                aria-current={motionOpen ? "page" : undefined}
+                onClick={onMotionToggle}
+                className="design-workspace-rail-item group flex w-full cursor-pointer flex-col items-center gap-0.5 p-1 text-[11px] leading-4 text-foreground outline-none"
               >
                 <span
                   className={cn(
-                    "flex size-8 items-center justify-center rounded-lg transition-colors",
+                    "flex size-8 items-center justify-center rounded-md transition-colors group-focus-visible:ring-1 group-focus-visible:ring-[var(--design-editor-accent-color)]",
                     motionOpen
                       ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]"
-                      : "text-muted-foreground group-hover:bg-[var(--design-editor-layer-hover-color)] group-hover:text-foreground",
-                    motionDisabled &&
-                      "group-hover:bg-transparent group-hover:text-muted-foreground",
+                      : "group-hover:bg-[var(--design-editor-layer-hover-color)]",
                   )}
                 >
-                  {motionOpen ? (
-                    <IconChevronDown className="size-[15px]" />
-                  ) : (
-                    <IconChevronUp className="size-[15px]" />
-                  )}
+                  <IconTimelineEvent className="size-5" stroke={1.5} />
                 </span>
-                <span className="max-w-full truncate leading-none">
-                  {"Motion" /* i18n-ignore */}
+                <span className="w-full truncate px-0.5 text-center">
+                  {t("designEditor.motion.dockLabel")}
                 </span>
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              {"Motion" /* i18n-ignore */}
+              {t("designEditor.motion.dockLabel")}
             </TooltipContent>
           </Tooltip>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
+      <div className="flex-1" />
+      <div className="flex w-full shrink-0 flex-col items-center gap-1 p-2">
+        {account ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                asChild
+                variant="ghost"
+                size="icon"
+                className="size-8 rounded-md"
+              >
+                <Link
+                  to="/settings"
+                  aria-label={t("designEditor.leftRail.account")}
+                >
+                  <AccountAvatar account={account} />
+                </Link>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {account.name?.trim() || account.email}
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-9 rounded-lg"
+              aria-label={toggleLabel}
+              onClick={() => {
+                if (activePanel) {
+                  onPanelChange(null);
+                  return;
+                }
+                const last = lastPanelRef.current;
+                onPanelChange(
+                  last && !disabledPanels?.has(last) ? last : "agent",
+                );
+              }}
+            >
+              {activePanel ? (
+                <IconLayoutSidebarLeftCollapse className="size-4" />
+              ) : (
+                <IconLayoutSidebarLeftExpand className="size-4" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">{toggleLabel}</TooltipContent>
+        </Tooltip>
+      </div>
     </nav>
   );
 }

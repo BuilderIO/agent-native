@@ -23,14 +23,15 @@ Node.js tooling.
 ### Create the app
 
 ```bash
-npx @agent-native/core@latest create my-chat-app --standalone --template chat
+npx --yes @agent-native/core@latest create my-chat-app --standalone --template chat
 cd my-chat-app
+corepack enable
 pnpm install
 ```
 
-This needs [Node.js](https://nodejs.org) 22 or later and
-[pnpm](https://pnpm.io) installed first. See [Getting
-started](/docs/getting-started) if you haven't installed either yet.
+This needs [Node.js](https://nodejs.org) 22.22 or later. If `pnpm` is not on
+your `PATH`, run `corepack enable` in the generated app. See [Getting
+started](/docs/getting-started) if you haven't installed Node.js yet.
 
 ### Start the dev server
 
@@ -38,14 +39,15 @@ started](/docs/getting-started) if you haven't installed either yet.
 pnpm dev
 ```
 
-The app opens at `http://localhost:8080`. If it doesn't open automatically,
-visit that URL in your browser.
+The app opens at the local URL printed by `pnpm dev`. If it doesn't open
+automatically, visit that URL in your browser; the port may change when 8080 is
+already in use.
 
 ### Sign in and connect an LLM
 
 On the Welcome screen, select **Continue as local dev** — no email or
 password needed for local development. Then connect an LLM: select
-**Connect Builder.io** for free credits, or **Custom keys** to add an
+**Use Builder.io** for free credits, or **Custom keys** to add an
 Anthropic/OpenAI key or a local Ollama model. Chat ships with no domain data
 to seed, so once an LLM is connected there's nothing else to set up before
 you can start chatting.
@@ -103,7 +105,7 @@ Three routes are mounted whether or not your app ever links to them:
     [
       "/agent",
       "AgentTabsPage (falls back to a plain chat surface on older core versions)",
-      "The full Agent page — Context, Files, Connections, Jobs, Access tabs",
+      "The full Agent page — Context, Files, Connections, Jobs, MCP tabs",
     ],
     ["/database", "DbAdminPage", "Browse and edit every SQL table directly"],
     [
@@ -124,7 +126,7 @@ Three routes are mounted whether or not your app ever links to them:
     [
       "/settings",
       "SettingsTabsPage",
-      "Account, language, agent, team, and what's-new tabs",
+      "Account, Connections, Agent, Organization, and Chat pages, plus Labs and What's new",
     ],
     [
       "/team",
@@ -149,8 +151,8 @@ Every part of the app is editable source. Start here:
 - `app/routes/` — the UI. The app uses file-system routing (`flatRoutes()`
   in `app/routes.ts`), so adding a route file is enough to mount it.
 - `server/db/schema.ts` — add your own tables with Drizzle once you outgrow
-  the core tables above. Keep the code dialect-agnostic so the app runs on
-  SQLite, Postgres, Turso, D1, and Neon.
+  the core tables above. Keep the code PostgreSQL-specific so local PGlite and
+  hosted Postgres use the same semantics.
 - `AGENTS.md` — agent instructions. Update this when you teach the agent new
   capabilities or conventions.
 - `.agents/skills/` — detailed patterns the agent follows.
@@ -166,8 +168,8 @@ is what keeps the agent and the UI in parity.
   starter chat route, annotated, plus a full feature walkthrough
 - [**Actions**](/docs/actions-overview) — the action system this template is
   built on
-- [**Database**](/docs/server-database) — connecting a real database and the
-  portable-SQL model
+- [**Database**](/docs/server-database) — connecting PostgreSQL and the
+  framework data model
 - [**Agent Observability**](/docs/observability) — what the dashboard tracks
   and how
 - [**Extensions**](/docs/extensions) — building mini-apps inside a template

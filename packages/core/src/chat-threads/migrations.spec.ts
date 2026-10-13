@@ -4,10 +4,7 @@ vi.mock("../db/client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../db/client.js")>();
   return {
     ...actual,
-    isPostgres: vi.fn(() => false),
-    getDialect: vi.fn(() => "sqlite" as const),
     getMigrationDatabaseUrl: vi.fn(() => ""),
-    retrySqliteBusy: vi.fn(async (fn: () => Promise<unknown>) => fn()),
     getDbExec: vi.fn(),
     createDbExec: vi.fn(),
     isServerlessRuntime: vi.fn(() => false),
@@ -31,7 +28,6 @@ import {
 } from "./migrations.js";
 import { repairLegacyChatThreadMessageCounts } from "./store.js";
 
-/** Exec double that reports which migration names are already recorded. */
 function makeExec(appliedNames: string[]) {
   const insertedNames: string[] = [];
   return {

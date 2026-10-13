@@ -6,6 +6,7 @@ import {
   resourceGetByPath,
   resourceList,
 } from "../../resources/store.js";
+import { hasStalePause, isPausedByFramework } from "../automation-outcome.js";
 import {
   describeCron,
   effectiveTimezone,
@@ -22,11 +23,6 @@ function jobName(path: string): string {
   return path.replace(/^jobs\//, "").replace(/\.md$/, "");
 }
 
-/**
- * A stored `nextRun` in the past means the scheduler kept declining to run the
- * job, not that it is due two days ago. Report the real next occurrence and
- * let `lastError` carry the reason it keeps being passed over.
- */
 function nextRun(
   meta: ReturnType<typeof parseJobFrontmatter>["meta"],
 ): string | null {
@@ -57,6 +53,10 @@ export interface RecurringJobActionItem {
   lastCheck: string | null;
   lastStatus: string | null;
   lastError: string | null;
+  lastErrorCode: string | null;
+  /** Set when the framework paused the job after repeated failures. */
+  pausedReason: string | null;
+  pausedAt: string | null;
   nextRun: string | null;
   createdBy: string | null;
   executionHostId: string | null;
@@ -117,8 +117,19 @@ export default defineAction({
         enabled: meta.enabled,
         lastRun: meta.lastRun ?? null,
         lastCheck: meta.lastCheck ?? null,
-        lastStatus: meta.lastStatus ?? null,
+        // A pause the owner already lifted by enabling the job is stale until
+        // the next scheduler tick clears it.
+        lastStatus: isPausedByFramework(meta)
+          ? "paused"
+          : hasStalePause(meta) && meta.lastStatus === "paused"
+            ? null
+            : (meta.lastStatus ?? null),
         lastError: meta.lastError ?? null,
+        lastErrorCode: meta.lastErrorCode ?? null,
+        pausedReason: isPausedByFramework(meta)
+          ? (meta.pausedReason ?? null)
+          : null,
+        pausedAt: isPausedByFramework(meta) ? (meta.pausedAt ?? null) : null,
         nextRun: nextRun(meta),
         createdBy: meta.createdBy ?? null,
         executionHostId: meta.executionHostId ?? null,

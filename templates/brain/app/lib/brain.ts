@@ -5,7 +5,6 @@ import {
   IconDatabase,
   IconFileText,
   IconMessageQuestion,
-  IconSettings,
 } from "@tabler/icons-react";
 
 export type BrainView =
@@ -64,7 +63,6 @@ export interface KnowledgeRow {
   topic?: string;
   status: KnowledgeStatus | "published" | "redacted" | "archived";
   confidence?: number;
-  citations?: number;
   evidence?: Array<{
     captureId?: string | null;
     captureTitle?: string | null;
@@ -75,7 +73,7 @@ export interface KnowledgeRow {
     timestampMs?: number | null;
   }>;
   publishedResourcePath?: string | null;
-  publishTier?: "private" | "team" | "company" | string;
+  publishTier?: "private" | "team" | "company" | (string & {});
   updatedAt?: string | null;
   owner?: string | null;
 }
@@ -134,7 +132,6 @@ export interface BrainSource {
   lastSyncAt?: string | null;
   lastSyncedAt?: string | null;
   nextSyncAt?: string | null;
-  reviewRequired?: boolean;
   visibility?: "private" | "org" | "public";
   config?: Record<string, unknown>;
   cursor?: Record<string, unknown>;
@@ -192,7 +189,11 @@ export interface KnowledgeResponse {
   };
 }
 
-export type SearchResultType = "knowledge" | "capture" | "source" | string;
+export type SearchResultType =
+  | "knowledge"
+  | "capture"
+  | "source"
+  | (string & {});
 
 export interface SearchEverythingResult {
   id: string;
@@ -221,7 +222,7 @@ export interface SearchEverythingResult {
   confidence?: number | null;
   updatedAt?: string | null;
   score?: number | null;
-  matchLane?: "semantic" | "keyword" | "hybrid" | string | null;
+  matchLane?: "semantic" | "keyword" | "hybrid" | (string & {}) | null;
   retrievalReason?: string | null;
 }
 
@@ -302,14 +303,13 @@ export interface BrainHealthResponse {
       health: BrainSourceHealthState;
       demo?: boolean;
       autoSync?: boolean;
-      reviewRequired?: boolean;
       hasChannelAllowList?: boolean | null;
       lastSyncedAt?: string | null;
       nextSyncAt?: string | null;
       lastError?: string | null;
       latestRun?: {
         id: string;
-        status: "running" | "success" | "error" | string;
+        status: "running" | "success" | "error" | (string & {});
         startedAt?: string | null;
         completedAt?: string | null;
         error?: string | null;
@@ -340,8 +340,10 @@ export interface BrainHealthResponse {
   privacy: {
     classifier: {
       configured: boolean;
+      classifier: "jev" | "model" | "deterministic";
       model: string | null;
       engine: string | null;
+      jevCredential: "stored-key" | "builder-gateway" | "none" | "unavailable";
       warning: string | null;
     };
     events: {
@@ -395,6 +397,24 @@ export interface BrainHealthResponse {
       counts?: Record<string, number>;
     };
     embeddings: {
+      readiness: {
+        status: "ready" | "not-configured" | "ambiguous" | "unavailable";
+        ready: boolean;
+        configuredProviders: string[];
+        unavailableProviders: string[];
+        configuredFamilies: number;
+        provider: string | null;
+        model: string | null;
+        embeddingSetId: string | null;
+        dimensions: number | null;
+        warning: string | null;
+      };
+      coverage: {
+        eligibleArtifacts: number;
+        embeddedArtifacts: number;
+        missingArtifacts: number;
+        percent: number;
+      };
       total: number;
       active: number;
       stale: number;
@@ -411,7 +431,7 @@ export interface BrainHealthResponse {
   };
   retrieval: {
     lastEval?: {
-      mode: "product-demo" | "retrieval" | string;
+      mode: "product-demo" | "retrieval" | (string & {});
       seedId?: string;
       dataset?: string;
       dataMode?: string;
@@ -596,6 +616,7 @@ export interface BrainConnectionProvider {
 export interface ConnectionProvidersResponse {
   count?: number;
   appId?: "brain";
+  canManageZoom?: boolean;
   workspaceConnections?: {
     appId: "brain";
     available: boolean;
@@ -701,7 +722,7 @@ export interface EnqueueCapturesDistillationResult {
     | "already-distilled"
     | "already-ignored"
     | "queue-failed"
-    | string;
+    | (string & {});
   error?: string;
 }
 
@@ -868,7 +889,7 @@ export interface BrainPilotReport {
   latestSyncRun: {
     id: string;
     provider: string;
-    status: "running" | "success" | "error" | string;
+    status: "running" | "success" | "error" | (string & {});
     stats?: Record<string, unknown>;
     error?: string | null;
     startedAt?: string | null;
@@ -929,7 +950,7 @@ export interface BrainPilotReport {
       captureId?: string | null;
       title: string;
       proposedAction?: string | null;
-      status: "pending" | "approved" | "rejected" | string;
+      status: "pending" | "approved" | "rejected" | (string & {});
       rationale?: string | null;
       sourceUrl?: string | null;
       reviewerNotes?: string | null;
@@ -982,6 +1003,7 @@ export interface BrainSettings {
   requireCitations?: boolean;
   autoArchiveResolved?: boolean;
   notifyOnSourceErrors?: boolean;
+  privacyClassifier?: "jev" | "model" | "deterministic";
   privacyClassifierModel?: string;
   privacyClassifierEngine?: string;
   sensitivityCustomInstructions?: string;
@@ -1030,7 +1052,7 @@ export const navItems: Array<{
   href: string;
   icon: Icon;
 }> = [
-  { view: "ask", label: "Ask", href: "/", icon: IconMessageQuestion },
+  { view: "ask", label: "Ask", href: "/home", icon: IconMessageQuestion },
   { view: "sources", label: "Sources", href: "/sources", icon: IconDatabase },
   { view: "review", label: "Review", href: "/review", icon: IconChecks },
   {
@@ -1038,12 +1060,6 @@ export const navItems: Array<{
     label: "Knowledge",
     href: "/knowledge",
     icon: IconBook2,
-  },
-  {
-    view: "settings",
-    label: "Settings",
-    href: "/settings",
-    icon: IconSettings,
   },
 ];
 
@@ -1071,6 +1087,32 @@ export const defaultSettings: BrainSettings = {
   publicChannelExclusionPatterns: [],
   quarantineRetentionHours: 72,
 };
+
+/** `/home` is the blank Ask page; `/home/<threadId>` is one saved thread. */
+export function isBrainAskPath(pathname: string): boolean {
+  return pathname === "/home" || pathname.startsWith("/home/");
+}
+
+export function brainAskThreadPath(threadId: string | null): string {
+  return threadId ? `/home/${encodeURIComponent(threadId)}` : "/home";
+}
+
+// Decodes the segment the way React Router's useParams does, so the sidebar's
+// active id matches the route's id for ids that need percent-encoding.
+export function brainAskThreadIdFromPath(pathname: string): string | null {
+  const segment = /^\/home\/([^/]+)\/?$/.exec(pathname)?.[1];
+  return segment === undefined ? null : decodeThreadSegment(segment);
+}
+
+// A hand-typed malformed escape such as /home/% stays literal, as it does in
+// React Router, instead of throwing during render.
+function decodeThreadSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
 
 export function viewFromPath(pathname: string): BrainView {
   if (pathname.startsWith("/extensions")) return "extensions";
@@ -1106,7 +1148,7 @@ export function pathFromView(view?: string): string {
       return "/settings";
     case "ask":
     default:
-      return "/";
+      return "/home";
   }
 }
 
@@ -1137,6 +1179,8 @@ export function sourceDescription(source: BrainSource) {
       return "Granola Team-space notes and transcripts imported through the Enterprise API.";
     case "github":
       return "GitHub repository issues and pull requests imported as company context.";
+    case "zoom":
+      return "Zoom cloud-recording transcripts imported through a Server-to-Server OAuth app.";
     case "clips":
       return "Meeting recordings and transcripts exported from Clips into Brain.";
     case "generic":
@@ -1167,19 +1211,14 @@ export function sourceEnabled(source: BrainSource) {
   return source.status !== "paused" && source.status !== "archived";
 }
 
-export function sourceReviewRequired(source: BrainSource) {
-  if (typeof source.reviewRequired === "boolean") return source.reviewRequired;
-  const value = source.config?.reviewRequired;
-  return typeof value === "boolean" ? value : true;
-}
-
 export function sourceAutoSync(source: BrainSource) {
   const value = source.config?.autoSync;
   if (typeof value === "boolean") return value;
   return (
     source.provider === "slack" ||
     source.provider === "granola" ||
-    source.provider === "github"
+    source.provider === "github" ||
+    source.provider === "zoom"
   );
 }
 

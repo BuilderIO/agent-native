@@ -4,8 +4,18 @@ const registerFeatureFlags = vi.fn();
 const getSetting = vi.fn();
 const mutateFeatureFlagRules = vi.fn();
 
-vi.mock("./registry.js", () => ({ registerFeatureFlags }));
-vi.mock("../settings/store.js", () => ({ getSetting }));
+vi.mock("./registry.js", () => ({
+  CONNECT_APPS_FLAG: {
+    key: "labs.connectApps",
+    displayName: "Connect apps",
+    description: "Show the experimental app connection surface.",
+  },
+  registerFeatureFlags,
+}));
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
+  getSetting,
+}));
 vi.mock("./store.js", () => ({ mutateFeatureFlagRules }));
 
 const { createFeatureFlagsPlugin } = await import("./plugin.js");
@@ -18,7 +28,12 @@ describe("createFeatureFlagsPlugin", () => {
 
     await createFeatureFlagsPlugin({ flags })({} as never);
 
-    expect(registerFeatureFlags).toHaveBeenCalledWith(flags);
+    expect(registerFeatureFlags).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "labs.connectApps" }),
+        ...flags,
+      ]),
+    );
     expect(getSetting).not.toHaveBeenCalled();
   });
 

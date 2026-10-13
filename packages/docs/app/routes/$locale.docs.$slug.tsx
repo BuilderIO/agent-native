@@ -1,1 +1,1 @@
-export { default, loader, meta } from "./docs.$locale.$slug";
+export { clientLoader, default, loader, meta } from "./docs.$locale.$slug";

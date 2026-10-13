@@ -55,11 +55,6 @@
     "host": "beta.forms.agent-native.com"
   },
   {
-    "id": "macros",
-    "siteId": "9625fdd3-f169-4456-8caa-6d00a57a597f",
-    "host": "beta.macros.agent-native.com"
-  },
-  {
     "id": "mail",
     "siteId": "c9088636-2c0e-419c-a5ff-e8c1aa8fde41",
     "host": "beta.mail.agent-native.com"
@@ -78,5 +73,11 @@
     "id": "chat",
     "siteId": "ec18e125-c197-449d-8779-96dfb004e23c",
     "host": "beta.chat.agent-native.com"
+  },
+  {
+    "id": "fw",
+    "siteId": "f5cdb30b-4be2-46b8-839f-294f4c3ac89f",
+    "host": "beta.agent-native.com",
+    "e2e": false
   }
 ]

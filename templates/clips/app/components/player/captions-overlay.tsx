@@ -3,14 +3,9 @@ import { useEffect, useRef, useState } from "react";
 
 export interface CaptionsOverlayProps {
   text: string;
-  /** Optional storage key — defaults to a shared one so position persists across clips. */
   storageKey?: string;
 }
 
-/**
- * Draggable captions box at the bottom of the video.
- * Position persists to application_state so the agent can see it.
- */
 export function CaptionsOverlay({
   text,
   storageKey = "caption-position",
@@ -28,7 +23,6 @@ export function CaptionsOverlay({
     yPct: number;
   } | null>(null);
 
-  // Load persisted position from application_state (best-effort).
   useEffect(() => {
     fetch(
       agentNativePath(
@@ -76,7 +70,6 @@ export function CaptionsOverlay({
       setDragging(false);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
-      // Persist
       fetch(
         agentNativePath(
           `/_agent-native/application-state/${encodeURIComponent(storageKey)}`,

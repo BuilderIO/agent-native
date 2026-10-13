@@ -1,12 +1,3 @@
-/**
- * Pure script utilities — no Node.js dependencies.
- * Safe to import from browser bundles and Vite SSR.
- */
-
-/**
- * Parse CLI args in --key value format.
- * Supports: --key value, --key=value, --flag (boolean true)
- */
 export function parseArgs(args: string[]): Record<string, string> {
   const result: Record<string, string> = {};
   for (let i = 0; i < args.length; i++) {
@@ -31,9 +22,98 @@ export function parseArgs(args: string[]): Record<string, string> {
   return result;
 }
 
-/**
- * Convert kebab-case keys to camelCase.
- */
+export function serializeCliArgs(args: Record<string, unknown>): string[] {
+  return Object.entries(args).flatMap(([key, raw]) => {
+    const value =
+      raw != null && typeof raw === "object"
+        ? JSON.stringify(raw)
+        : String(raw);
+    return value.startsWith("--") ? [`--${key}=${value}`] : [`--${key}`, value];
+  });
+}
+
+type ShellArgToken = { value: string; quoted: boolean };
+
+type NormalizeShellArgsOptions = {
+  backslashEscapes?: boolean;
+  splitAllWhitespace?: boolean;
+};
+
+export function normalizeShellArgs(
+  input: string,
+  options: NormalizeShellArgsOptions = {},
+): string[] {
+  const tokens: ShellArgToken[] = [];
+  let current = "";
+  let inDouble = false;
+  let inSingle = false;
+  let wasQuoted = false;
+  let escape = false;
+
+  const pushToken = () => {
+    tokens.push({ value: current, quoted: wasQuoted });
+    current = "";
+    wasQuoted = false;
+  };
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (escape) {
+      current += ch;
+      escape = false;
+      continue;
+    }
+    if (options.backslashEscapes && ch === "\\") {
+      if (inSingle) {
+        current += ch;
+      } else {
+        escape = true;
+      }
+      continue;
+    }
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      wasQuoted = true;
+      continue;
+    }
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      wasQuoted = true;
+      continue;
+    }
+    if (
+      (options.splitAllWhitespace
+        ? /\s/.test(ch)
+        : ch === " " || ch === "\t") &&
+      !inSingle &&
+      !inDouble
+    ) {
+      if (current.length > 0 || wasQuoted) pushToken();
+      continue;
+    }
+    current += ch;
+  }
+  if (current.length > 0 || wasQuoted) pushToken();
+
+  const normalized: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    const next = tokens[i + 1];
+    if (
+      token.value.startsWith("--") &&
+      !token.value.includes("=") &&
+      next?.quoted &&
+      next.value.startsWith("--")
+    ) {
+      normalized.push(`${token.value}=${next.value}`);
+      i++;
+    } else {
+      normalized.push(token.value);
+    }
+  }
+  return normalized;
+}
+
 export function camelCaseArgs(
   args: Record<string, string>,
 ): Record<string, string> {

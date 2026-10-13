@@ -6,6 +6,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { e2eBaseURL } from "./base-url";
 import {
   designFrame,
   enterDirectMode,
@@ -35,7 +36,7 @@ async function postAction(
   name: string,
   input: Record<string, unknown>,
 ) {
-  const baseUrl = process.env.E2E_BASE_URL ?? "http://127.0.0.1:9333";
+  const baseUrl = e2eBaseURL();
   const response = await request.post(
     `${baseUrl.replace(/\/$/, "")}/_agent-native/actions/${name}`,
     { data: input },
@@ -53,7 +54,7 @@ async function getAction(
   name: string,
   input: Record<string, unknown>,
 ) {
-  const baseUrl = process.env.E2E_BASE_URL ?? "http://127.0.0.1:9333";
+  const baseUrl = e2eBaseURL();
   const params = new URLSearchParams(
     Object.entries(input).map(([key, value]) => [key, String(value)]),
   );
@@ -71,6 +72,7 @@ async function getAction(
 async function openLayerStack(
   page: Page,
   frame: FrameLocator = designFrame(page),
+  openSelectLayer = true,
 ) {
   await installBridge(page);
   await page.evaluate(() => ((window as any).__bridge = []));
@@ -81,11 +83,6 @@ async function openLayerStack(
     const rect = element.getBoundingClientRect();
     return { x: rect.left + 165, y: rect.top + 165 };
   });
-  // Dispatch on the real bridge shield inside Chromium. A top-level
-  // page.mouse right-click is consumed by Chromium's iframe context-menu
-  // boundary in headless mode before the srcdoc listener sees it; this still
-  // exercises the actual contextmenu event, elementsFromPoint stack, iframe
-  // postMessage bridge, host menu, and selection path end-to-end.
   await stage.evaluate((_element, point) => {
     document.dispatchEvent(
       new MouseEvent("contextmenu", {
@@ -101,6 +98,7 @@ async function openLayerStack(
   await waitForBridge(page, "element-contextmenu");
   const trigger = page.getByText("Select layer", { exact: true });
   await expect(trigger).toBeVisible();
+  if (!openSelectLayer) return page.getByRole("menu").last();
   await trigger.hover();
   const submenu = page.getByRole("menu").last();
   await expect(
@@ -172,8 +170,6 @@ test("Select layer lists the exact visible unlocked hit stack and dismisses with
     );
     expect(orderedHits).toEqual(visibleLabels);
 
-    // Escape dismisses the submenu/menu and leaves the right-click top hit
-    // selected; it must not accidentally pick a different candidate.
     await page.keyboard.press("Escape");
     await expect(page.getByText("Select layer", { exact: true })).toBeHidden();
     await expect.poll(() => selectedTreeLabel(page)).toContain("Front sibling");
@@ -257,11 +253,109 @@ test("Select layer on a non-active overview screen routes selection to that exac
       .poll(() => new URL(page.url()).searchParams.get("screen"))
       .toBe(aboutId);
     await expect.poll(() => selectedTreeLabel(page)).toContain("Nested child");
+
+    await openLayerStack(page, aboutFrame, false);
+    const editWithAi = page.getByRole("menuitem", {
+      name: "Edit with AI…",
+      exact: true,
+    });
+    await editWithAi.hover();
+    await expect(editWithAi).toHaveAttribute("data-state", "open");
+    const editMenu = page.getByRole("menu").last();
+    await editMenu.getByText("Nested child", { exact: true }).click();
+
+    await expect(
+      page.getByText("Ask or change selection", { exact: true }),
+    ).toBeVisible();
+    const editPrompt = page.getByRole("textbox", { name: "Leave feedback…" });
+    await expect(editPrompt).toBeVisible();
+    await expect(editPrompt).toBeFocused();
+    await expect(
+      page.getByRole("button", { name: "Comment", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Edit with AI", exact: true }),
+    ).toBeVisible();
+    const editPopover = page
+      .locator("[data-review-popover]")
+      .filter({ has: editPrompt })
+      .last();
+    await expect
+      .poll(async () => (await editPopover.boundingBox())?.width ?? 0)
+      .toBeGreaterThanOrEqual(300);
+    await page.waitForTimeout(500);
+    const editPromptBox = await editPrompt.boundingBox();
+    expect(editPromptBox).not.toBeNull();
+    await page.mouse.move(
+      editPromptBox!.x + editPromptBox!.width / 2,
+      editPromptBox!.y + editPromptBox!.height / 2,
+      { steps: 12 },
+    );
+    await page.mouse.down();
+    await page.mouse.up();
+    await editPrompt.pressSequentially("Make this heading more concise");
+    await expect(editPrompt).toHaveValue("Make this heading more concise");
+    await expect(
+      page.getByText("Ask or change selection", { exact: true }),
+    ).toBeVisible();
+
     const after = await getAction(request, "get-design", { id: designId });
     expect(
       after.files?.find((file: { id?: string }) => file.id === aboutId)
         ?.content,
     ).toBe(aboutBaseline);
+  } finally {
+    await postAction(request, "delete-design", { id: designId }).catch(
+      () => {},
+    );
+  }
+});
+
+test("Edit with AI opened from direct mode accepts textarea input", async ({
+  page,
+  request,
+}) => {
+  const created = await postAction(request, "create-design", {
+    title: `Direct mode edit prompt ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId = created.id ?? created.data?.id ?? created.design?.id;
+  if (!designId) throw new Error("create-design returned no id");
+
+  try {
+    await postAction(request, "create-file", {
+      designId,
+      filename: "index.html",
+      content: STACK_HTML,
+      fileType: "html",
+    });
+    await gotoEditor(page, designId);
+    await enterDirectMode(page);
+
+    await openLayerStack(page, designFrame(page), false);
+    const editWithAi = page.getByRole("menuitem", {
+      name: "Edit with AI…",
+      exact: true,
+    });
+    await editWithAi.hover();
+    await expect(editWithAi).toHaveAttribute("data-state", "open");
+    await page
+      .getByRole("menu")
+      .last()
+      .getByText("Nested child", { exact: true })
+      .click();
+
+    const editPrompt = page.getByRole("textbox", { name: "Leave feedback…" });
+    await expect(editPrompt).toBeVisible();
+    await expect(editPrompt).toBeFocused();
+    const editPromptBox = await editPrompt.boundingBox();
+    expect(editPromptBox).not.toBeNull();
+    await page.mouse.click(
+      editPromptBox!.x + editPromptBox!.width / 2,
+      editPromptBox!.y + editPromptBox!.height / 2,
+    );
+    await editPrompt.pressSequentially("Make this heading more concise");
+    await expect(editPrompt).toHaveValue("Make this heading more concise");
   } finally {
     await postAction(request, "delete-design", { id: designId }).catch(
       () => {},

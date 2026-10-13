@@ -1,27 +1,21 @@
 import { defineAction } from "@agent-native/core/action";
+import { sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import { getDb } from "../server/db/index.js";
 
 export default defineAction({
   description: "Check database connection status",
   schema: z.object({}),
   http: false,
   run: async () => {
-    const url = process.env.DATABASE_URL || "file:./data/app.db";
-    const isLocal = url.startsWith("file:");
-
     try {
       const db = getDb();
-      await db
-        .select({ id: schema.bookingLinks.id })
-        .from(schema.bookingLinks)
-        .limit(1);
+      await db.select({ one: sql<number>`1` });
 
       return {
         status: "connected",
-        mode: isLocal ? "local" : "remote",
-        url: isLocal ? url : url.replace(/\/\/.*@/, "//***@"),
+        mode: "postgres",
         tables: [
           "bookings",
           "booking_links",
@@ -34,7 +28,7 @@ export default defineAction({
     } catch (err: any) {
       return {
         status: "disconnected",
-        mode: isLocal ? "local" : "remote",
+        mode: "postgres",
         error: err.message,
       };
     }

@@ -8,6 +8,12 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import {
+  syncPrivateCalloutReferences,
+  syncPrivateIconReference,
+  verifyPrivateIconAssignment,
+} from "../server/lib/private-icon-references.js";
 import type { ContentDatabaseSourceTruthPolicy } from "../shared/api.js";
 import {
   isBuilderMdxSourcePath,
@@ -255,7 +261,10 @@ export default defineAction({
         )) as SourceRow[];
       const rowByPath = new Map(
         storedRows.map((row) => [
-          String(parseJson(row.sourceValuesJson).relativePath ?? ""),
+          typeof parseJson(row.sourceValuesJson).relativePath === "string"
+            ? parseJson(row.sourceValuesJson).relativePath
+            : (JSON.stringify(parseJson(row.sourceValuesJson).relativePath) ??
+              ""),
           row,
         ]),
       );
@@ -423,7 +432,12 @@ export default defineAction({
       outbound.length = 0;
       for (const row of policy === "source_primary" ? [] : missingRows) {
         const values = parseJson(row.sourceValuesJson);
-        const path = String(values.relativePath ?? row.sourceDisplayKey ?? "");
+        const path =
+          typeof values.relativePath === "string"
+            ? values.relativePath
+            : typeof row.sourceDisplayKey === "string"
+              ? row.sourceDisplayKey
+              : "";
         const document = snapshot.documentById.get(row.documentId);
         conflicts.push({
           id: row.documentId,
@@ -576,6 +590,11 @@ export default defineAction({
           }
 
           if (!plan.existing) {
+            await verifyPrivateIconAssignment({
+              icon: plan.file.icon === undefined ? null : plan.file.icon,
+              userEmail,
+              orgId: target.database.orgId,
+            });
             await tx.insert(schema.documents).values({
               id: plan.id,
               spaceId: target.database.spaceId,
@@ -598,23 +617,47 @@ export default defineAction({
               createdAt: now,
               updatedAt: now,
             });
+            await syncPrivateIconReference(tx as ReturnType<typeof getDb>, {
+              elementType: "document",
+              elementId: plan.id,
+              documentId: plan.id,
+              icon: plan.file.icon === undefined ? null : plan.file.icon,
+              ownerEmail: userEmail,
+              orgId: target.database.orgId,
+            });
+            await syncPrivateCalloutReferences(tx as ReturnType<typeof getDb>, {
+              documentId: plan.id,
+              before: "",
+              after: plan.file.content,
+              userEmail,
+              ownerEmail: userEmail,
+              orgId: target.database.orgId,
+            });
           } else if (
             plan.applyIncoming ||
             plan.existing.sourcePath !== plan.file.path ||
             plan.existing.sourceRootPath !== target.source.sourceTable
           ) {
+            const versionId = opaqueId(
+              "content_document_version",
+              `${plan.id}:${plan.existing.updatedAt}:${plan.incomingHash}`,
+            );
             await tx
               .insert(schema.documentVersions)
               .values({
-                id: opaqueId(
-                  "content_document_version",
-                  `${plan.id}:${plan.existing.updatedAt}:${plan.incomingHash}`,
-                ),
+                id: versionId,
                 ownerEmail: plan.existing.ownerEmail,
                 documentId: plan.id,
                 title: plan.existing.title,
                 content: plan.existing.content,
+                groupId: versionId,
+                groupKind: "operation",
+                actorKind: "source",
+                origin: "local-folder",
+                operation: "sync-local-folder-source",
+                checkpointKind: "before",
                 createdAt: now,
+                updatedAt: now,
               })
               .onConflictDoNothing();
             const reboundDocuments = await tx
@@ -624,6 +667,7 @@ export default defineAction({
                   ? {
                       title: plan.file.title,
                       content: plan.file.content,
+                      bodyRevision: bodyRevisionForContent(plan.file.content),
                       description:
                         plan.file.description ?? plan.existing.description,
                       icon: plan.file.icon ?? plan.existing.icon,
@@ -646,6 +690,38 @@ export default defineAction({
             if (reboundDocuments.length !== 1) {
               throw new Error(
                 `Document "${plan.id}" left this Content space during local-folder sync`,
+              );
+            }
+            if (plan.applyIncoming) {
+              const nextIcon =
+                plan.file.icon === undefined || plan.file.icon === null
+                  ? plan.existing.icon
+                  : plan.file.icon;
+              if (nextIcon !== plan.existing.icon) {
+                await verifyPrivateIconAssignment({
+                  icon: nextIcon,
+                  userEmail,
+                  orgId: target.database.orgId,
+                });
+                await syncPrivateIconReference(tx as ReturnType<typeof getDb>, {
+                  elementType: "document",
+                  elementId: plan.id,
+                  documentId: plan.id,
+                  icon: nextIcon,
+                  ownerEmail: plan.existing.ownerEmail,
+                  orgId: target.database.orgId,
+                });
+              }
+              await syncPrivateCalloutReferences(
+                tx as ReturnType<typeof getDb>,
+                {
+                  documentId: plan.id,
+                  before: plan.existing.content,
+                  after: plan.file.content,
+                  userEmail,
+                  ownerEmail: plan.existing.ownerEmail,
+                  orgId: target.database.orgId,
+                },
               );
             }
           }
@@ -789,9 +865,12 @@ export default defineAction({
             continue;
           }
           const values = parseJson(row.sourceValuesJson);
-          const path = String(
-            values.relativePath ?? row.sourceDisplayKey ?? row.sourceRowId,
-          );
+          const path =
+            typeof values.relativePath === "string"
+              ? values.relativePath
+              : typeof row.sourceDisplayKey === "string"
+                ? row.sourceDisplayKey
+                : row.sourceRowId;
           const changeSetId = opaqueId(
             "content_source_change",
             `${sourceId}:${row.documentId}:source-delete:${path}`,

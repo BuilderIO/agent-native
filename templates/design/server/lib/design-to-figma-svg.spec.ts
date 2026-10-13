@@ -1,17 +1,3 @@
-/**
- * design-to-figma-svg.spec.ts
- *
- * Covers the pure, browser-free scene -> SVG serializer with hand-built
- * `FigmaSvgNode` fixtures, plus the raw-scene hydration layer
- * (`buildFillLayersFromComputedStyle` / `hydrateRawFigmaSvgNode`), which is
- * also pure — it only consumes plain computed-style strings, no DOM. The
- * Playwright-based DOM WALK (`collectRawFigmaSvgScene`, wired into
- * `renderDesignToFigmaSvg` and the `export-design-as-figma-svg` action) needs
- * a real headless Chromium and is exercised in practice, not here — same
- * split as `take-design-screenshot.spec.ts`'s `collectPageDiagnostics` (see
- * that file's docblock).
- */
-
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -19,11 +5,11 @@ import {
   buildFillLayersFromComputedStyle,
   buildLinearGradientDef,
   buildRadialGradientDef,
-  buildShadowFilterDef,
   embedRemoteImages,
   escapeXmlAttr,
   escapeXmlText,
   fetchImageAsDataUri,
+  figmaSvgSceneExtent,
   type FigmaSvgNode,
   gradientAngleToRotation,
   hydrateRawFigmaSvgNode,
@@ -34,6 +20,7 @@ import {
   isZeroRadii,
   objectFitToPreserveAspectRatio,
   parseComputedBoxShadow,
+  parseComputedDropShadowFilter,
   parseComputedLinearGradient,
   parseComputedRadialGradient,
   type RawFigmaSvgNode,
@@ -58,7 +45,7 @@ describe("secure image embedding", () => {
         "https://images.example.com/a.png",
         safeFetch as never,
       ),
-    ).resolves.toBe("data:image/png;base64,iVBORw==");
+    ).resolves.toEqual({ ok: true, dataUri: "data:image/png;base64,iVBORw==" });
     expect(safeFetch).toHaveBeenCalledWith(
       "https://images.example.com/a.png",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
@@ -66,7 +53,7 @@ describe("secure image embedding", () => {
     );
   });
 
-  it("rejects non-image MIME types and advertised oversized bodies", async () => {
+  it("says WHY an image was not embedded, so a size cap does not read as a block", async () => {
     const htmlFetch = vi.fn(async () =>
       Promise.resolve(
         new Response("<html></html>", {
@@ -76,21 +63,27 @@ describe("secure image embedding", () => {
     );
     await expect(
       fetchImageAsDataUri("https://example.com/not-image", htmlFetch as never),
-    ).resolves.toBeNull();
+    ).resolves.toEqual({
+      ok: false,
+      reason: expect.stringContaining("not an image"),
+    });
 
     const hugeFetch = vi.fn(async () =>
       Promise.resolve(
         new Response(new Uint8Array([1]), {
           headers: {
             "content-type": "image/png",
-            "content-length": String(MAX_EMBEDDED_IMAGE_BYTES + 1),
+            "content-length": String(MAX_EMBEDDED_IMAGE_BYTES * 64),
           },
         }),
       ),
     );
     await expect(
       fetchImageAsDataUri("https://example.com/huge.png", hugeFetch as never),
-    ).resolves.toBeNull();
+    ).resolves.toEqual({
+      ok: false,
+      reason: expect.stringContaining("read limit"),
+    });
   });
 
   it("never leaves expiring remote URLs in a self-contained export", async () => {
@@ -114,11 +107,37 @@ describe("secure image embedding", () => {
         },
       ],
     };
-    const omitted = await embedRemoteImages(root, async () => null);
+    const omitted = await embedRemoteImages(root, async () => ({
+      ok: false,
+      reason: "the fetch failed",
+    }));
 
     expect(root.fills?.[0]).toMatchObject({ href: "" });
     expect(root.children?.[0].image?.href).toBe("");
     expect(omitted).toHaveLength(2);
+  });
+});
+
+describe("objectFitToPreserveAspectRatio", () => {
+  it("anchors top-left when the element does", async () => {
+    const { objectFitToPreserveAspectRatio } =
+      await import("../../shared/figma-svg-scene.js");
+    expect(objectFitToPreserveAspectRatio("contain", "0px 0px")).toBe(
+      "xMinYMin meet",
+    );
+    expect(objectFitToPreserveAspectRatio("cover", "0% 0%")).toBe(
+      "xMinYMin slice",
+    );
+  });
+
+  it("keeps the centred default otherwise", async () => {
+    const { objectFitToPreserveAspectRatio } =
+      await import("../../shared/figma-svg-scene.js");
+    expect(objectFitToPreserveAspectRatio("contain")).toBe("xMidYMid meet");
+    expect(objectFitToPreserveAspectRatio("contain", "50% 50%")).toBe(
+      "xMidYMid meet",
+    );
+    expect(objectFitToPreserveAspectRatio("stretch", "0px 0px")).toBe("none");
   });
 });
 
@@ -147,10 +166,6 @@ describe("isAllowedFigmaSvgRenderRequest", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Formatting / escaping
-// ---------------------------------------------------------------------------
-
 describe("escapeXmlAttr / escapeXmlText", () => {
   it("escapes attribute-unsafe characters", () => {
     expect(escapeXmlAttr('a "quoted" <tag>&')).toBe(
@@ -175,17 +190,12 @@ describe("isUniformRadius / isZeroRadii", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Rounded-rect path (per-corner radii)
-// ---------------------------------------------------------------------------
-
 describe("roundedRectPath", () => {
   it("emits line + arc segments for differing per-corner radii", () => {
     const path = roundedRectPath(
       { x: 0, y: 0, width: 100, height: 50 },
       { tl: 10, tr: 0, br: 20, bl: 5 },
     );
-    // tl=10 arc, tr=0 (no arc, sharp corner), br=20 arc, bl=5 arc.
     expect(path).toBe(
       "M 10 0 L 100 0 L 100 30 A 20 20 0 0 1 80 50 L 5 50 A 5 5 0 0 1 0 45 L 0 10 A 10 10 0 0 1 10 0 Z",
     );
@@ -196,7 +206,6 @@ describe("roundedRectPath", () => {
       { x: 0, y: 0, width: 20, height: 10 },
       { tl: 100, tr: 100, br: 100, bl: 100 },
     );
-    // maxR = min(20,10)/2 = 5, so every corner clamps to 5.
     expect(path).toContain("A 5 5 0 0 1");
     expect(path).not.toContain("A 100 100");
   });
@@ -210,10 +219,6 @@ describe("roundedRectPath", () => {
     expect(path).not.toContain("A ");
   });
 });
-
-// ---------------------------------------------------------------------------
-// Border stroke inset geometry
-// ---------------------------------------------------------------------------
 
 describe("insetRectForStroke / insetRadiiForStroke", () => {
   it("insets the rect by half the stroke width on every side", () => {
@@ -235,10 +240,6 @@ describe("insetRectForStroke / insetRadiiForStroke", () => {
     expect(radii).toEqual({ tl: 8, tr: 0, br: 0, bl: 18 });
   });
 });
-
-// ---------------------------------------------------------------------------
-// Gradient angle mapping
-// ---------------------------------------------------------------------------
 
 describe("gradientAngleToRotation", () => {
   it("maps CSS 90deg (to right) to SVG's unrotated default vector", () => {
@@ -283,16 +284,20 @@ describe("buildRadialGradientDef", () => {
     ]);
     expect(def).toBe(
       '<radialGradient id="rg-1" cx="0.5" cy="0.5" r="0.5">' +
-        '<stop offset="0%" stop-color="#fff"/>' +
-        '<stop offset="100%" stop-color="#000"/>' +
+        '<stop offset="0%" stop-color="rgb(255, 255, 255)"/>' +
+        '<stop offset="100%" stop-color="rgb(0, 0, 0)"/>' +
         "</radialGradient>",
     );
   });
-});
 
-// ---------------------------------------------------------------------------
-// Computed-style parsers
-// ---------------------------------------------------------------------------
+  it("carries stop alpha in stop-opacity, which Figma reads and rgba() stop-color does not", () => {
+    const def = buildRadialGradientDef("rg-2", [
+      { offset: 0, color: "rgba(255, 0, 0, 0.25)" },
+      { offset: 1, color: "rgb(0, 0, 0)" },
+    ]);
+    expect(def).toContain('stop-color="rgb(255, 0, 0)" stop-opacity="0.25"');
+  });
+});
 
 describe("splitTopLevelCommas", () => {
   it("does not split commas nested inside rgba()/rgb()", () => {
@@ -400,10 +405,6 @@ describe("parseComputedRadialGradient", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// object-fit
-// ---------------------------------------------------------------------------
-
 describe("objectFitToPreserveAspectRatio", () => {
   it("maps cover to xMidYMid slice", () => {
     expect(objectFitToPreserveAspectRatio("cover")).toBe("xMidYMid slice");
@@ -416,58 +417,6 @@ describe("objectFitToPreserveAspectRatio", () => {
     expect(objectFitToPreserveAspectRatio("none")).toBe("none");
   });
 });
-
-// ---------------------------------------------------------------------------
-// Shadow filters
-// ---------------------------------------------------------------------------
-
-describe("buildShadowFilterDef", () => {
-  it("emits a feDropShadow chain when every shadow has zero spread", () => {
-    const def = buildShadowFilterDef("shadow-1", [
-      {
-        offsetX: 0,
-        offsetY: 4,
-        blur: 12,
-        spread: 0,
-        color: "rgba(0, 0, 0, 0.25)",
-      },
-    ]);
-    expect(def).toContain("<feDropShadow");
-    expect(def).toContain('dx="0" dy="4" stdDeviation="6"');
-    expect(def).toContain('flood-color="rgb(0, 0, 0)"');
-    expect(def).toContain('flood-opacity="0.25"');
-    expect(def).not.toContain("feMorphology");
-  });
-
-  it("emits a decomposed feMorphology chain when spread is non-zero", () => {
-    const def = buildShadowFilterDef("shadow-2", [
-      { offsetX: 2, offsetY: 2, blur: 4, spread: 3, color: "rgb(0, 0, 0)" },
-    ]);
-    expect(def).toContain(
-      '<feMorphology in="SourceAlpha" operator="dilate" radius="3"',
-    );
-    expect(def).toContain("<feGaussianBlur");
-    expect(def).toContain("<feMerge>");
-  });
-
-  it("returns an empty string when every shadow is inset (caller's responsibility to report)", () => {
-    const def = buildShadowFilterDef("shadow-3", [
-      {
-        offsetX: 0,
-        offsetY: 2,
-        blur: 2,
-        spread: 0,
-        color: "#000",
-        inset: true,
-      },
-    ]);
-    expect(def).toBe("");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Full node -> SVG document rendering
-// ---------------------------------------------------------------------------
 
 describe("buildFigmaSvgDocument", () => {
   it("renders a box with a solid fill and a uniform border as a plain <rect> pair with inset stroke geometry", () => {
@@ -486,10 +435,10 @@ describe("buildFigmaSvgDocument", () => {
     });
 
     expect(svg).toContain(
-      '<rect x="0" y="0" width="200" height="100" fill="#ffffff"/>',
+      '<rect x="0" y="0" width="200" height="100" fill="rgb(255, 255, 255)"/>',
     );
     expect(svg).toContain(
-      '<rect x="2" y="2" width="196" height="96" fill="none" stroke="#111111" stroke-width="4"/>',
+      '<rect x="2" y="2" width="196" height="96" fill="none" stroke="rgb(17, 17, 17)" stroke-width="4"/>',
     );
     expect(report.vectorized).toContain("Card");
     expect(report.rasterized).toHaveLength(0);
@@ -505,10 +454,8 @@ describe("buildFigmaSvgDocument", () => {
       border: { widthPx: 2, color: "black" },
     };
     const { svg } = buildFigmaSvgDocument({ width: 100, height: 100, root });
-    // Two paths: one for the full-rect fill, one for the inset stroke.
     const pathCount = (svg.match(/<path /g) || []).length;
     expect(pathCount).toBe(2);
-    // tl/br are rounded (arcs), tr/bl are sharp (0 radius, straight lines).
     expect(svg).toContain(
       'd="M 20 0 L 100 0 L 100 80 A 20 20 0 0 1 80 100 L 0 100 L 0 20 A 20 20 0 0 1 20 0 Z"',
     );
@@ -539,12 +486,12 @@ describe("buildFigmaSvgDocument", () => {
     expect(svg).toContain("<linearGradient");
     expect(svg).toContain('<stop offset="0%" stop-color="rgb(255, 0, 0)"/>');
     expect(svg).toContain('<stop offset="100%" stop-color="rgb(0, 0, 255)"/>');
-    expect(svg).toContain('gradientTransform="rotate(45 0.5 0.5)"');
-    // Square box: no aspect-ratio approximation note for this fill.
+    expect(svg).toContain('gradientUnits="userSpaceOnUse"');
+    expect(svg).toContain('x1="0" y1="0" x2="300" y2="300"');
     expect(report.approximated).toHaveLength(0);
   });
 
-  it("flags a non-square element's gradient angle as approximated", () => {
+  it("maps a non-square element's gradient exactly instead of approximating it", () => {
     const root: FigmaSvgNode = {
       id: "root",
       name: "Banner",
@@ -561,8 +508,13 @@ describe("buildFigmaSvgDocument", () => {
         },
       ],
     };
-    const { report } = buildFigmaSvgDocument({ width: 400, height: 100, root });
-    expect(report.approximated.some((a) => a.node === "Banner")).toBe(true);
+    const { svg, report } = buildFigmaSvgDocument({
+      width: 400,
+      height: 100,
+      root,
+    });
+    expect(svg).toContain('x1="0" y1="50" x2="400" y2="50"');
+    expect(report.approximated.some((a) => a.node === "Banner")).toBe(false);
   });
 
   it("stacks multiple background layers in reverse so the first CSS layer paints on top", () => {
@@ -576,10 +528,10 @@ describe("buildFigmaSvgDocument", () => {
       ],
     };
     const { svg } = buildFigmaSvgDocument({ width: 100, height: 100, root });
-    const blueIndex = svg.indexOf('fill="blue"');
-    const redIndex = svg.indexOf('fill="rgba(255,0,0,0.5)"');
+    const blueIndex = svg.indexOf('fill="rgb(0, 0, 255)"');
+    const redIndex = svg.indexOf('fill="rgb(255, 0, 0)" fill-opacity="0.5"');
     expect(blueIndex).toBeGreaterThan(-1);
-    expect(redIndex).toBeGreaterThan(blueIndex); // painted later == on top
+    expect(redIndex).toBeGreaterThan(blueIndex);
   });
 
   it("renders multi-line text as tspans at the exact supplied x/y positions", () => {
@@ -611,8 +563,9 @@ describe("buildFigmaSvgDocument", () => {
     expect(svg).toContain('<tspan x="10" y="48">World</tspan>');
     expect(svg).toContain('font-family="Inter"');
     expect(svg).toContain('font-weight="700"');
-    expect(svg).toContain('dominant-baseline="central"');
-    expect(report.vectorizedTextCaveat).toContain("outlined vector paths");
+    expect(svg).not.toContain("dominant-baseline");
+    expect(report.vectorizedTextCaveat).toContain("live, editable type");
+    expect(report.vectorizedTextCaveat).not.toContain("outlined vector paths");
   });
 
   it("clips a cover-fit image to its rounded rect and reports it as vectorized geometry", () => {
@@ -747,9 +700,6 @@ describe("buildFigmaSvgDocument", () => {
       id: "root",
       name: "Wrapper",
       kind: "box",
-      // Deliberately oversized vs. its single child, mirroring <body>
-      // stretching to the full render viewport while real content is
-      // narrower — this must never surface as a visible/invisible shape.
       rect: { x: 0, y: 0, width: 1440, height: 300 },
       children: [
         {
@@ -768,15 +718,13 @@ describe("buildFigmaSvgDocument", () => {
     });
     expect(svg).not.toContain('fill="none"');
     expect(svg).toContain(
-      '<rect x="0" y="0" width="400" height="300" fill="#ffffff"/>',
+      '<rect x="0" y="0" width="400" height="300" fill="rgb(255, 255, 255)"/>',
     );
-    // Exactly one <rect> — the child's — no phantom shape for the wrapper.
     expect((svg.match(/<rect /g) || []).length).toBe(1);
-    // Still recorded as a (paint-less) vectorized layer, just no shape emitted.
     expect(report.vectorized).toContain("Wrapper");
   });
 
-  it("still emits a carrier shape for a box that has a shadow filter but no fill", () => {
+  it("paints a shadow-only box as its own geometry, not a fill-less carrier", () => {
     const root: FigmaSvgNode = {
       id: "root",
       name: "ShadowOnly",
@@ -793,8 +741,10 @@ describe("buildFigmaSvgDocument", () => {
       ],
     };
     const { svg } = buildFigmaSvgDocument({ width: 100, height: 50, root });
-    expect(svg).toContain('fill="none"');
+    expect(svg).toContain('y="4"');
+    expect(svg).toContain('fill="rgb(0, 0, 0)" fill-opacity="0.3"');
     expect(svg).toContain("filter=");
+    expect(svg).not.toContain('fill="none"');
   });
 });
 
@@ -808,10 +758,6 @@ describe("safeFigmaSvgFilename", () => {
     expect(safeFigmaSvgFilename(undefined)).toMatch(/^design-figma-\d+\.svg$/);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Raw scene hydration (pure — takes computed-style strings, no DOM/browser)
-// ---------------------------------------------------------------------------
 
 describe("buildFillLayersFromComputedStyle", () => {
   it("returns just the solid background-color when there is no background-image", () => {
@@ -865,6 +811,9 @@ function rawBoxFixture(
     rotationDeg: 0,
     opacity: 1,
     cornerRadiiRaw: { tl: 0, tr: 0, br: 0, bl: 0 },
+    filter: "none",
+    mixBlendMode: "normal",
+    imageRendering: "auto",
     backgroundColor: "rgba(0, 0, 0, 0)",
     backgroundImage: "none",
     boxShadow: "none",
@@ -980,5 +929,590 @@ describe("hydrateRawFigmaSvgNode", () => {
     );
     expect(node.children).toHaveLength(1);
     expect(node.children?.[0].name).toBe("Child");
+  });
+});
+
+describe("paints the box model cannot carry", () => {
+  it("hydrates a conic-gradient leaf as a raster", () => {
+    const node = hydrateRawFigmaSvgNode(
+      rawBoxFixture({
+        rasterReason:
+          "conic-gradient has no SVG equivalent — rasterized this element's region via screenshot.",
+        rasterHref: "data:image/png;base64,AAA",
+      }),
+    );
+    expect(node.kind).toBe("raster");
+    expect(node.raster?.reason).toContain("conic-gradient");
+  });
+
+  it("hydrates a clip-path / mask element as a raster", () => {
+    const node = hydrateRawFigmaSvgNode(
+      rawBoxFixture({
+        rasterReason:
+          "clip-path / mask has no SVG equivalent here — rasterized this element's region via screenshot.",
+        rasterHref: "data:image/png;base64,AAA",
+      }),
+    );
+    expect(node.kind).toBe("raster");
+    expect(node.raster?.reason).toContain("clip-path");
+  });
+
+  it("keeps a raster node a raster even when the screenshot failed", () => {
+    const node = hydrateRawFigmaSvgNode(
+      rawBoxFixture({
+        rasterReason: "clip-path / mask has no SVG equivalent here.",
+      }),
+    );
+    expect(node.kind).toBe("raster");
+    expect(node.raster?.href).toBe("");
+  });
+});
+
+describe("image fills with no resolvable source", () => {
+  const imageFillNode = (href: string) =>
+    hydrateRawFigmaSvgNode(
+      rawBoxFixture({ backgroundImage: `url("${href}")` }),
+    );
+
+  it("keeps a resolvable http/data/blob source", () => {
+    for (const href of [
+      "https://example.com/a.png",
+      "data:image/png;base64,AAA",
+      "blob:https://example.com/x",
+    ]) {
+      const node = imageFillNode(href);
+      expect(node.fills?.some((f) => f.kind === "image")).toBe(true);
+    }
+  });
+
+  it("still records an unresolvable source as an image fill for the paint builder to reject", () => {
+    const node = imageFillNode("about:blank");
+    expect(node.fills?.some((f) => f.kind === "image")).toBe(true);
+  });
+});
+
+describe("figmaSvgSceneExtent", () => {
+  const child = (rect: FigmaSvgNode["rect"]): FigmaSvgNode => ({
+    id: "c",
+    name: "child",
+    kind: "box",
+    rect,
+    fills: [{ kind: "solid", color: "#000000" }],
+  });
+
+  it("reports how far content reaches past the frame's right and bottom", () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Screen",
+      kind: "box",
+      rect: { x: 0, y: 0, width: 1440, height: 960 },
+      children: [child({ x: 0, y: 900, width: 1440, height: 166 })],
+    };
+    expect(figmaSvgSceneExtent(root)).toEqual({ right: 1440, bottom: 1066 });
+  });
+
+  it("never reports past the top or left edge", () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Screen",
+      kind: "box",
+      rect: { x: 0, y: 0, width: 400, height: 300 },
+      children: [child({ x: -40, y: -30, width: 100, height: 100 })],
+    };
+    expect(figmaSvgSceneExtent(root)).toEqual({ right: 400, bottom: 300 });
+  });
+});
+
+describe("parseComputedDropShadowFilter", () => {
+  it("prefers the importer's exact values, spread included", () => {
+    expect(
+      parseComputedDropShadowFilter(
+        "drop-shadow(0px 24px 12px rgba(17, 24, 39, 0.25))",
+        "rgba(17, 24, 39, 0.25) 0px 24px 48px -12px",
+      ),
+    ).toEqual([
+      {
+        offsetX: 0,
+        offsetY: 24,
+        blur: 48,
+        spread: -12,
+        color: "rgba(17, 24, 39, 0.25)",
+        inset: false,
+        castFromContent: true,
+      },
+    ]);
+  });
+
+  it("falls back to the filter alone, doubling the standard deviation", () => {
+    expect(
+      parseComputedDropShadowFilter(
+        "drop-shadow(0px 24px 12px rgba(0, 0, 0, 0.5))",
+      ),
+    ).toEqual([
+      {
+        offsetX: 0,
+        offsetY: 24,
+        blur: 24,
+        spread: 0,
+        color: "rgba(0, 0, 0, 0.5)",
+        castFromContent: true,
+      },
+    ]);
+  });
+
+  it("ignores a custom property that describes a different shadow", () => {
+    expect(
+      parseComputedDropShadowFilter(
+        "drop-shadow(0px 24px 12px rgba(0, 0, 0, 0.5))",
+        "rgba(9, 9, 9, 0.4) 0px 90px 10px -3px",
+      ),
+    ).toEqual([
+      {
+        offsetX: 0,
+        offsetY: 24,
+        blur: 24,
+        spread: 0,
+        color: "rgba(0, 0, 0, 0.5)",
+        castFromContent: true,
+      },
+    ]);
+  });
+
+  it("ignores anything that is not a lone drop-shadow", () => {
+    expect(parseComputedDropShadowFilter("none")).toEqual([]);
+    expect(parseComputedDropShadowFilter("blur(4px)")).toEqual([]);
+  });
+});
+
+describe("background-image sizing on export", () => {
+  const url = 'url("https://img.example/a.png")';
+
+  it("keeps FIT as contain rather than cropping it", () => {
+    expect(
+      buildFillLayersFromComputedStyle("rgba(0, 0, 0, 0)", url, "contain"),
+    ).toEqual([
+      { kind: "image", href: "https://img.example/a.png", fit: "contain" },
+    ]);
+  });
+
+  it("keeps STRETCH from being cropped like cover", () => {
+    expect(
+      buildFillLayersFromComputedStyle("rgba(0, 0, 0, 0)", url, "100% 100%"),
+    ).toEqual([
+      { kind: "image", href: "https://img.example/a.png", fit: "stretch" },
+    ]);
+  });
+
+  it("carries a CROP's own size and offset", () => {
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "1193.32px 706px",
+        "-40px -12px",
+      ),
+    ).toEqual([
+      {
+        kind: "image",
+        href: "https://img.example/a.png",
+        fit: "stretch",
+        sizePx: { width: 1193.32, height: 706 },
+        offsetPx: { x: -40, y: -12 },
+      },
+    ]);
+  });
+
+  it("repeats a shorter size list across the layers, as CSS does", () => {
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      `${url}, ${url}`,
+      "contain",
+    );
+    expect(layers.map((l) => (l as { fit: string }).fit)).toEqual([
+      "contain",
+      "contain",
+    ]);
+  });
+
+  it("carries a TILE's repeat and its tile size", () => {
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "16px 16px",
+        "0% 0%",
+        "repeat",
+      ),
+    ).toEqual([
+      {
+        kind: "image",
+        href: "https://img.example/a.png",
+        fit: "stretch",
+        sizePx: { width: 16, height: 16 },
+        repeat: true,
+      },
+    ]);
+  });
+
+  it("marks a TILE whose size stayed `auto` as repeating with no known tile", () => {
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "auto",
+        "0% 0%",
+        "repeat",
+      ),
+    ).toEqual([
+      {
+        kind: "image",
+        href: "https://img.example/a.png",
+        fit: "cover",
+        repeat: true,
+      },
+    ]);
+  });
+
+  it("does not read CSS's default `repeat` as tiling intent", () => {
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "cover",
+        "50% 50%",
+        "repeat",
+      ),
+    ).toEqual([
+      { kind: "image", href: "https://img.example/a.png", fit: "cover" },
+    ]);
+
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "100% 100%",
+        "50% 50%",
+        "repeat",
+      ),
+    ).toEqual([
+      { kind: "image", href: "https://img.example/a.png", fit: "stretch" },
+    ]);
+  });
+
+  it("keeps a tiled background's phase from background-position", () => {
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "16px 16px",
+        "8px 4px",
+        "repeat",
+      ),
+    ).toEqual([
+      {
+        kind: "image",
+        href: "https://img.example/a.png",
+        fit: "stretch",
+        sizePx: { width: 16, height: 16 },
+        offsetPx: { x: 8, y: 4 },
+        repeat: true,
+      },
+    ]);
+  });
+
+  it("reports `round` and `space` repeats instead of dropping them", () => {
+    for (const repeat of ["round", "space", "repeat space"]) {
+      const [layer] = buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        url,
+        "16px 16px",
+        "0% 0%",
+        repeat,
+      );
+      expect(layer).toMatchObject({ fit: "cover", repeatAxis: repeat });
+    }
+  });
+
+  it("reports `round` even when the size already fills the box", () => {
+    const [layer] = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      url,
+      "cover",
+      "50% 50%",
+      "round",
+    );
+    expect(layer).toMatchObject({ repeatAxis: "round" });
+  });
+
+  it("carries a non-pixel tile position for the emitter to resolve", () => {
+    const [layer] = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      url,
+      "16px 16px",
+      "50% 50%",
+      "repeat",
+    );
+    expect(layer).toMatchObject({
+      sizePx: { width: 16, height: 16 },
+      positionRaw: "50% 50%",
+      repeat: true,
+    });
+  });
+
+  it("does not carry the default `0% 0%` tile position as a phase", () => {
+    const [layer] = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      url,
+      "16px 16px",
+      "0% 0%",
+      "repeat",
+    );
+    expect((layer as { positionRaw?: string }).positionRaw).toBeUndefined();
+  });
+
+  it("reports a background-size that computed to one length", () => {
+    const [layer] = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      url,
+      "16px",
+      "0% 0%",
+      "no-repeat",
+    );
+    expect(layer).toMatchObject({ fit: "cover", singleAxisSize: "16px" });
+  });
+
+  it("catches a calc() stop position, which survives into computed styles", () => {
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        "linear-gradient(90deg, rgb(255, 0, 0) calc(50% - 10px), rgb(0, 0, 255) 100%)",
+      ).map((l) => l.kind),
+    ).toEqual(["unsupported"]);
+  });
+
+  it("reads modern CSS colour functions as colours, not as hints", () => {
+    for (const color of [
+      "oklch(0.7 0.1 200)",
+      "color(display-p3 1 0 0)",
+      "lab(50 20 -30)",
+    ]) {
+      expect(
+        buildFillLayersFromComputedStyle(
+          "rgba(0, 0, 0, 0)",
+          `linear-gradient(90deg, ${color}, rgb(0, 0, 255))`,
+        ).map((l) => l.kind),
+      ).toEqual(["linear-gradient"]);
+    }
+  });
+
+  it("still catches an unreadable position on a modern colour function", () => {
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        "linear-gradient(90deg, oklch(0.7 0.1 200) calc(50% - 4px), rgb(0, 0, 255))",
+      ).map((l) => l.kind),
+    ).toEqual(["unsupported"]);
+  });
+
+  it("keeps an ordinary transparent-to-colour fade readable", () => {
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        "linear-gradient(90deg, rgba(0, 0, 0, 0) 0%, rgb(0, 0, 0) 100%)",
+      ).map((l) => l.kind),
+    ).toEqual(["linear-gradient"]);
+  });
+
+  it("does not treat a one-axis repeat as a two-axis tile", () => {
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      url,
+      "16px 16px",
+      "0% 0%",
+      "repeat-x",
+    );
+    expect(layers).toEqual([
+      {
+        kind: "image",
+        href: "https://img.example/a.png",
+        fit: "cover",
+        repeatAxis: "repeat-x",
+      },
+    ]);
+  });
+
+  it("reports a two-position gradient stop instead of painting it black", () => {
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      "linear-gradient(90deg, rgb(238, 238, 238) 0 50%, rgb(255, 255, 255) 50% 100%)",
+    );
+    expect(layers.map((l) => l.kind)).toEqual(["unsupported"]);
+  });
+
+  it("catches a two-position stop whose residue is also a percentage", () => {
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      "linear-gradient(90deg, rgb(255, 0, 0) 20% 30%, rgb(0, 0, 255) 100%)",
+    );
+    expect(layers.map((l) => l.kind)).toEqual(["unsupported"]);
+  });
+
+  it("does not mistake radial geometry for an unreadable stop", () => {
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        "radial-gradient(90% 40% at 50% 0%, rgba(129, 140, 248, 0.28), rgba(0, 0, 0, 0) 65%)",
+      ).map((l) => l.kind),
+    ).toEqual(["radial-gradient"]);
+
+    expect(
+      buildFillLayersFromComputedStyle(
+        "rgba(0, 0, 0, 0)",
+        "radial-gradient(ellipse 70% 55% at 78% 12%, rgba(99, 102, 241, 0.3), transparent 62%)",
+      ).map((l) => l.kind),
+    ).toEqual(["radial-gradient"]);
+  });
+
+  it("does not over-catch ordinary single-percentage stops", () => {
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      "linear-gradient(90deg, rgb(255, 0, 0) 20%, rgb(0, 0, 255) 80%)",
+    );
+    expect(layers.map((l) => l.kind)).toEqual(["linear-gradient"]);
+  });
+
+  it("still reads ordinary percentage-positioned gradient stops", () => {
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      "linear-gradient(90deg, rgb(238, 238, 238) 0%, rgb(255, 255, 255) 100%)",
+    );
+    expect(layers.map((l) => l.kind)).toEqual(["linear-gradient"]);
+  });
+
+  it("does not treat the other scale modes' `no-repeat` as a tile", () => {
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      url,
+      "cover",
+      "center",
+      "no-repeat",
+    );
+    expect(layers).toEqual([
+      { kind: "image", href: "https://img.example/a.png", fit: "cover" },
+    ]);
+  });
+
+  it("repeats a shorter repeat list across the layers, as CSS does", () => {
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      `${url}, ${url}`,
+      "8px 8px",
+      "0% 0%",
+      "repeat",
+    );
+    expect(
+      layers.map((l) => (l as { repeat?: boolean }).repeat ?? false),
+    ).toEqual([true, true]);
+  });
+
+  it("still defaults to cover, which is FILL and the common case", () => {
+    expect(
+      buildFillLayersFromComputedStyle("rgba(0, 0, 0, 0)", url, "cover"),
+    ).toEqual([
+      { kind: "image", href: "https://img.example/a.png", fit: "cover" },
+    ]);
+  });
+
+  it("matches each layer to its own size in a multi-layer background", () => {
+    const layers = buildFillLayersFromComputedStyle(
+      "rgba(0, 0, 0, 0)",
+      `${url}, ${url}`,
+      "contain, cover",
+    );
+    expect(layers.map((l) => (l as { fit: string }).fit)).toEqual([
+      "contain",
+      "cover",
+    ]);
+  });
+});
+
+describe("a CROP background at a non-zero origin", () => {
+  it("puts the tile at the layer origin and the image at the offset", () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Cropped",
+      kind: "box",
+      rect: { x: 240, y: 180, width: 320, height: 200 },
+      fills: [
+        {
+          kind: "image",
+          href: "https://img.example/a.png",
+          fit: "stretch",
+          sizePx: { width: 640, height: 400 },
+          offsetPx: { x: -80, y: -30 },
+        },
+      ],
+    };
+    const { svg } = buildFigmaSvgDocument({ width: 900, height: 600, root });
+
+    expect(svg).toContain(
+      '<pattern id="img-fill-1" patternUnits="userSpaceOnUse" x="240" y="180" width="320" height="200">',
+    );
+    expect(svg).toContain(
+      '<image href="https://img.example/a.png" x="-80" y="-30" width="640" height="400" preserveAspectRatio="none"/>',
+    );
+    expect(svg).not.toContain(
+      '<image href="https://img.example/a.png" x="160"',
+    );
+  });
+});
+
+describe("a skewed layer on export", () => {
+  it("emits the skew alongside the rotation", () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Skewed",
+      kind: "box",
+      rect: { x: 0, y: 0, width: 200, height: 100 },
+      reflection: [1, 0, -0.2126, 1],
+      fills: [{ kind: "solid", color: "#ffffff" }],
+    };
+    const { svg } = buildFigmaSvgDocument({ width: 400, height: 300, root });
+    expect(svg).toContain(
+      'transform="translate(100 50) matrix(1 0 -0.213 1 0 0) translate(-100 -50)"',
+    );
+  });
+});
+
+describe("a mirrored layer on export", () => {
+  it("emits the reflection alongside the rotation", () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Mirrored",
+      kind: "box",
+      rect: { x: 100, y: 50, width: 200, height: 100 },
+      rotationDeg: 180,
+      reflection: [1, 0, 0, -1],
+      fills: [{ kind: "solid", color: "#ffffff" }],
+    };
+    const { svg } = buildFigmaSvgDocument({ width: 400, height: 300, root });
+
+    expect(svg).toContain(
+      'transform="rotate(180 200 100) translate(200 100) matrix(1 0 0 -1 0 0) translate(-200 -100)"',
+    );
+  });
+
+  it("leaves an unmirrored layer on a plain rotation", () => {
+    const root: FigmaSvgNode = {
+      id: "root",
+      name: "Rotated",
+      kind: "box",
+      rect: { x: 100, y: 50, width: 200, height: 100 },
+      rotationDeg: 180,
+      fills: [{ kind: "solid", color: "#ffffff" }],
+    };
+    const { svg } = buildFigmaSvgDocument({ width: 400, height: 300, root });
+    expect(svg).toContain('transform="rotate(180 200 100)"');
+    expect(svg).not.toContain("matrix(");
   });
 });

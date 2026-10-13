@@ -20,11 +20,8 @@ export type AgentSidebarStateSource = "app" | "frame";
 export type AgentSidebarStateMode = "app" | "code";
 
 export interface AgentSidebarStateChangeDetail {
-  /** Whether the user-visible agent panel is open. */
   open: boolean;
-  /** Which surface owns the visible agent panel. */
   source: AgentSidebarStateSource;
-  /** Frame protocol mode: "code" is parent-owned, "app" is app-owned. */
   mode: AgentSidebarStateMode;
 }
 
@@ -149,8 +146,8 @@ function installSidebarUrlChangeEvents(): void {
   };
   if (historyWithFlag[HISTORY_PATCHED_KEY]) return;
 
-  const pushState = window.history.pushState;
-  const replaceState = window.history.replaceState;
+  const pushState = window.history.pushState.bind(window.history);
+  const replaceState = window.history.replaceState.bind(window.history);
 
   window.history.pushState = function pushStateWithSidebarEvent(...args) {
     const result = pushState.apply(this, args);
@@ -185,13 +182,14 @@ export function subscribeAgentSidebarUrlChanges(
 export function getInitialAgentSidebarOpen(
   defaultOpen: boolean,
   storageKey?: string | null,
+  { ignoreUrlOverride = false }: { ignoreUrlOverride?: boolean } = {},
 ): boolean {
-  const urlOverride = getAgentSidebarUrlOpenOverride();
-  if (urlOverride !== null) return urlOverride;
+  if (!ignoreUrlOverride) {
+    const urlOverride = getAgentSidebarUrlOpenOverride();
+    if (urlOverride !== null) return urlOverride;
+  }
   if (hasChatThreadDeepLink()) return true;
 
-  // On mobile viewports the sidebar would cover most of the screen, so
-  // always start closed regardless of any persisted desktop preference.
   if (
     typeof window !== "undefined" &&
     window.matchMedia("(max-width: 767px)").matches
@@ -204,8 +202,6 @@ export function getInitialAgentSidebarOpen(
       getAgentSidebarOpenPreferenceKey(storageKey),
     );
     if (saved === "false") return false;
-    // Never let durable storage turn on a sidebar that is default-closed.
-    // Programmatic chat handoffs open the current sidebar transiently instead.
     if (defaultOpen && saved === "true") return true;
   } catch {}
   return defaultOpen;

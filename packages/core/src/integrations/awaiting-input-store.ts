@@ -1,27 +1,27 @@
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 
 let initPromise: Promise<void> | undefined;
 
-/** Channel-thread clarification windows are deliberately short-lived. */
 export const INTEGRATION_AWAITING_INPUT_TTL_MS = 24 * 60 * 60 * 1000;
 
 export async function ensureTable(): Promise<void> {
   if (!initPromise) {
-    initPromise = (async () => {
+    const initPromiseWithRequestDbPoolScope = (async () => {
       const client = getDbExec();
       const createSql = `
         CREATE TABLE IF NOT EXISTS integration_awaiting_inputs (
           platform TEXT NOT NULL,
           external_thread_id TEXT NOT NULL,
           requester_id TEXT NOT NULL,
-          expires_at ${intType()} NOT NULL,
-          created_at ${intType()} NOT NULL,
-          updated_at ${intType()} NOT NULL,
+          expires_at BIGINT NOT NULL,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL,
           PRIMARY KEY (platform, external_thread_id)
         )
       `;
-      if (isPostgres()) {
+      {
         await ensureTableExists("integration_awaiting_inputs", createSql);
         return;
       }
@@ -30,15 +30,11 @@ export async function ensureTable(): Promise<void> {
       initPromise = undefined;
       throw error;
     });
+    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
   }
   return initPromise;
 }
 
-/**
- * Open (or refresh) the bounded reply window after an integration explicitly
- * asks the originating Slack user a question. The workspace-qualified external
- * thread id and requester id prevent unrelated channel messages from opting in.
- */
 export async function setIntegrationAwaitingInput(input: {
   platform: string;
   externalThreadId: string;
@@ -52,15 +48,12 @@ export async function setIntegrationAwaitingInput(input: {
   const expiresAt = input.expiresAt ?? now + INTEGRATION_AWAITING_INPUT_TTL_MS;
   const client = getDbExec();
   await client.execute({
-    sql: isPostgres()
-      ? `INSERT INTO integration_awaiting_inputs (platform, external_thread_id, requester_id, expires_at, created_at, updated_at)
+    sql: `INSERT INTO integration_awaiting_inputs (platform, external_thread_id, requester_id, expires_at, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?)
            ON CONFLICT (platform, external_thread_id) DO UPDATE SET
              requester_id = EXCLUDED.requester_id,
              expires_at = EXCLUDED.expires_at,
-             updated_at = EXCLUDED.updated_at`
-      : `INSERT OR REPLACE INTO integration_awaiting_inputs (platform, external_thread_id, requester_id, expires_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?)`,
+             updated_at = EXCLUDED.updated_at`,
     args: [
       input.platform,
       input.externalThreadId,
@@ -72,11 +65,6 @@ export async function setIntegrationAwaitingInput(input: {
   });
 }
 
-/**
- * Atomically consume the one reply window for this exact requester. Competing
- * Slack deliveries cannot both claim it, and expired rows never authorize a
- * later unmentioned reply.
- */
 export async function consumeIntegrationAwaitingInput(input: {
   platform: string;
   externalThreadId: string;
@@ -85,18 +73,12 @@ export async function consumeIntegrationAwaitingInput(input: {
   await ensureTable();
   const client = getDbExec();
   const result = await client.execute({
-    sql: isPostgres()
-      ? `DELETE FROM integration_awaiting_inputs
+    sql: `DELETE FROM integration_awaiting_inputs
            WHERE platform = ?
              AND external_thread_id = ?
              AND requester_id = ?
              AND expires_at > ?
-           RETURNING platform`
-      : `DELETE FROM integration_awaiting_inputs
-           WHERE platform = ?
-             AND external_thread_id = ?
-             AND requester_id = ?
-             AND expires_at > ?`,
+           RETURNING platform`,
     args: [
       input.platform,
       input.externalThreadId,
@@ -105,7 +87,7 @@ export async function consumeIntegrationAwaitingInput(input: {
     ],
   });
 
-  if (isPostgres()) return (result.rows ?? []).length > 0;
+  return (result.rows ?? []).length > 0;
   const affected =
     (result as { rowsAffected?: number; rowCount?: number }).rowsAffected ??
     (result as { rowsAffected?: number; rowCount?: number }).rowCount ??
@@ -113,7 +95,6 @@ export async function consumeIntegrationAwaitingInput(input: {
   return affected > 0;
 }
 
-/** Clear any outstanding clarification window once the thread resolves. */
 export async function clearIntegrationAwaitingInput(
   platform: string,
   externalThreadId: string,

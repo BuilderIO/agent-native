@@ -1,15 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import { createCoreCommands } from "./code-workbench/commands";
+import { buildShortcutSections } from "./keyboard-shortcut-sections";
 import {
   DESIGN_SHORTCUT_CATEGORIES,
   DESIGN_SHORTCUTS,
   formatShortcutKeycaps,
   formatShortcutLabel,
+  getUnavailableShortcutIds,
 } from "./keyboard-shortcuts";
 
 describe("keyboard shortcuts catalog", () => {
-  it("keeps the Figma category order and gives every category real commands", () => {
+  it("keeps the Design category order and gives every category real commands", () => {
     expect(DESIGN_SHORTCUT_CATEGORIES).toEqual([
       "essential",
       "tools",
@@ -88,5 +90,118 @@ describe("keyboard shortcuts catalog", () => {
     expect(formatShortcutLabel("alt+a", true)).toBe("⌥A");
     expect(formatShortcutLabel("alt+a", false)).toBe("Alt+A");
     expect(formatShortcutLabel("", true)).toBe("");
+  });
+
+  it("advertises Cmd/Ctrl+\\ for toggling the Design chrome", () => {
+    expect(
+      DESIGN_SHORTCUTS.find((shortcut) => shortcut.id === "toggle-ui")
+        ?.bindings,
+    ).toEqual(["$mod+\\"]);
+  });
+
+  it("advertises Cmd/Ctrl+Shift+\\ for minimal Design chrome", () => {
+    expect(
+      DESIGN_SHORTCUTS.find((shortcut) => shortcut.id === "toggle-minimal-ui")
+        ?.bindings,
+    ).toEqual(["$mod+shift+\\"]);
+  });
+});
+
+describe("shortcut sections", () => {
+  const build = (query: string, codeCommands = createCoreCommands()) =>
+    buildShortcutSections({
+      query,
+      applePlatform: false,
+      categoryLabel: (category) => category,
+      rowLabel: (labelKey) => labelKey.split(".").pop() ?? labelKey,
+      codeCommands,
+    });
+
+  it("returns every category once, in catalog order, with no query", () => {
+    expect(build("").map((section) => section.category)).toEqual([
+      ...DESIGN_SHORTCUT_CATEGORIES,
+    ]);
+  });
+
+  it("lists each Design shortcut exactly once across sections", () => {
+    const ids = build("")
+      .flatMap((section) => section.rows)
+      .filter((row) => row.source === "design")
+      .map((row) => row.id);
+    expect(ids.sort()).toEqual(DESIGN_SHORTCUTS.map((item) => item.id).sort());
+  });
+
+  it("places workbench commands under their mapped categories", () => {
+    const edit = build("").find((section) => section.category === "edit");
+    expect(edit?.rows.find((row) => row.id === "workbench.save")?.badge).toBe(
+      "code",
+    );
+  });
+
+  it("drops categories with no matching row", () => {
+    const sections = build("undo");
+    expect(sections.map((section) => section.category)).toEqual(["essential"]);
+    expect(sections[0]?.rows.map((row) => row.id)).toEqual(["undo"]);
+  });
+
+  it("matches on the key as well as the label", () => {
+    const rows = build("alt+1".replace("+", " ")).flatMap(
+      (section) => section.rows,
+    );
+    expect(rows.map((row) => row.id)).toContain("show-layers");
+  });
+
+  it("returns nothing for a query that matches no row", () => {
+    expect(build("qqqqq")).toEqual([]);
+  });
+
+  const rowIds = (annotateEnabled: boolean, query = "") =>
+    buildShortcutSections({
+      query,
+      applePlatform: false,
+      categoryLabel: (category) => category,
+      rowLabel: (labelKey) => labelKey.split(".").pop() ?? labelKey,
+      codeCommands: [],
+      unavailableIds: getUnavailableShortcutIds({ annotateEnabled }),
+    })
+      .flatMap((section) => section.rows)
+      .map((row) => row.id);
+
+  it("leaves out the Draw row only when the Annotate lab is off", () => {
+    expect(rowIds(true)).toContain("draw-tool");
+    const withoutDraw = rowIds(false);
+    expect(withoutDraw).not.toContain("draw-tool");
+    expect(withoutDraw).toContain("pen-tool");
+    expect(withoutDraw).toHaveLength(rowIds(true).length - 1);
+  });
+
+  it("lists the Text, shape and comment rows whatever the Annotate lab says", () => {
+    for (const annotateEnabled of [true, false]) {
+      expect(rowIds(annotateEnabled)).toEqual(
+        expect.arrayContaining([
+          "text-tool",
+          "rectangle",
+          "line",
+          "arrow",
+          "ellipse",
+          "comment-tool",
+          "toggle-comments",
+        ]),
+      );
+    }
+  });
+
+  it("does not match a hidden row by its key", () => {
+    expect(rowIds(false, "shift y")).not.toContain("draw-tool");
+  });
+
+  it("hands equal flags the same array, so the dialog does not rebuild its rows", () => {
+    expect(getUnavailableShortcutIds({ annotateEnabled: true })).toBe(
+      getUnavailableShortcutIds({ annotateEnabled: true }),
+    );
+    expect(getUnavailableShortcutIds({ annotateEnabled: false })).toEqual([
+      "draw-tool",
+    ]);
+    expect(getUnavailableShortcutIds({ annotateEnabled: true })).toEqual([]);
   });
 });

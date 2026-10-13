@@ -1,5 +1,6 @@
 import { getAppProductionUrl, sendEmail } from "@agent-native/core/server";
 
+import { normalizeMultiSelectValue } from "../../app/pages/adhoc/sql-dashboard/filter-vars";
 import { listReportablePanelIds } from "../../app/pages/adhoc/sql-dashboard/report-panel-window";
 import type {
   DashboardFilter,
@@ -74,6 +75,22 @@ function defaultFilterValues(
   );
 }
 
+// The page reads multi-select values through normalizeMultiSelectValue, so a
+// report must too. A cleared selection stays an empty override, as on the page,
+// so a dashboard variable with the same name cannot fill it.
+function normalizeReportFilters(
+  filters: DashboardFilter[] | undefined,
+  values: Record<string, string>,
+): Record<string, string> {
+  const out = { ...values };
+  for (const f of filters ?? []) {
+    if (f.type !== "multi-select") continue;
+    const key = `f_${f.id}`;
+    out[key] = normalizeMultiSelectValue(out[key] ?? "");
+  }
+  return out;
+}
+
 function dashboardConfigFromRecord(raw: Record<string, unknown>) {
   return {
     name:
@@ -135,18 +152,20 @@ export async function collectReportSnapshot(
   }
 
   const config = dashboardConfigFromRecord(dashboard.config);
-  const filters = {
+  const linkFilters = {
     ...defaultFilterValues(config),
     ...sub.filters,
   };
+  // Links keep a cleared multi-select's marker, because a link without it reopens with the default selected. The query and filter line read the normalized map.
+  const filters = normalizeReportFilters(config.filters, linkFilters);
 
   return {
     dashboardId: sub.dashboardId,
     title: config.name || dashboard.title,
     description: config.description,
     filters,
-    dashboardUrl: buildDashboardUrl(sub.dashboardId, filters),
-    reportSettingsUrl: buildDashboardUrl(sub.dashboardId, filters, {
+    dashboardUrl: buildDashboardUrl(sub.dashboardId, linkFilters),
+    reportSettingsUrl: buildDashboardUrl(sub.dashboardId, linkFilters, {
       reportSettings: true,
     }),
     generatedAt: new Date().toISOString(),
@@ -198,18 +217,6 @@ function reportDate(snapshot: ReportSnapshot): string {
   });
 }
 
-/**
- * Renders and emails one dashboard report entirely on the server: each panel's
- * query runs through the same source dispatcher the UI uses, charts are drawn
- * as SVG and rasterized, and everything else becomes real email HTML.
- *
- * There is deliberately no headless browser here. The previous implementation
- * screenshotted the live React dashboard in 4-panel chunks inside one
- * serverless invocation, so a single slow panel abandoned every later chunk and
- * shipped an email full of "image part N was unavailable" placeholders. Do not
- * reintroduce a browser, a chunk loop, or a mode that emails a report the
- * caller cannot tell apart from a complete one.
- */
 export async function sendDashboardReportSubscription(
   sub: DashboardReportSubscription,
   options: {
@@ -237,9 +244,6 @@ export async function sendDashboardReportSubscription(
       : {}),
   });
 
-  // Only panels that were actually queried can vote on total failure. Counting
-  // never-queryable panels (extensions) as survivors would let a dashboard of
-  // pure placeholders pass this guard and ship as "complete".
   const attemptedPanelIds = [...panelData.keys()].filter(
     (panelId) => panelData.get(panelId)?.status !== "not-emailable",
   );
@@ -273,10 +277,6 @@ export async function sendDashboardReportSubscription(
     () => renderReportEmail({ snapshot, panelData }),
     options.deadlineAt ? options.deadlineAt - emailReserveMs : undefined,
   );
-  // A dashboard whose only reportable panels are extensions renders nothing but
-  // "open the dashboard" links. Nothing failed, so degradedPanelIds is empty —
-  // but the report is not backed by data and must not claim to be complete. A
-  // section-only dashboard (panelData empty) has nothing to render and is fine.
   const noPanelBackedByData =
     panelData.size > 0 && attemptedPanelIds.length === 0;
   const reportMode: DashboardReportMode =
@@ -328,6 +328,7 @@ export async function sendDashboardReportSubscription(
         : {}),
       timeoutMs: emailTimeoutMs,
       templateId: ANALYTICS_DASHBOARD_REPORT_EMAIL_ID,
+      useDeploymentCredentials: true,
     });
   }
 

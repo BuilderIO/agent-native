@@ -8,14 +8,23 @@ import type {
   BrainSourceProvider,
 } from "../../shared/types.js";
 import {
+  classifyWithJev,
+  isTransientJevFailure,
+  jevFailureHttpStatus,
+  resolveClassifierPreference,
+  type JevClassificationOutcome,
+} from "./jev-classifier.js";
+import {
   BRAIN_SENSITIVITY_POLICY_VERSION,
   type BrainSensitivityDecision,
 } from "./search-index-contracts.js";
 import {
   classifierDecisionSchema,
+  type DeterministicScreenScope,
   deterministicQuarantineDecision,
   fallbackSensitivityDecision,
   MAX_CLASSIFIER_OUTPUT_CHARS,
+  sanitizeSensitiveText,
   screenSensitivityDeterministically,
 } from "./sensitivity-policy.js";
 
@@ -81,7 +90,48 @@ export interface CaptureSanitizationResult {
   title: string;
   content: string;
   metadata: Record<string, unknown>;
+  classifierFailureReason?: string;
   decision?: BrainSensitivityDecision;
+}
+
+export const CLASSIFIER_TRANSIENT_RETRY_MS = 10 * 60 * 1000;
+
+function classifierFailureMessage(reason: string): string {
+  const nothingLost =
+    "Items Jev could not screen were not stored and nothing was skipped";
+  if (reason === "jev-credential-unavailable") {
+    return `Jev can't screen this source: its owner has no Builder connection and no JEV_API_KEY is set. Connect Builder or add a workspace JEV_API_KEY. ${nothingLost}; the next scheduled sync picks them up.`;
+  }
+  if (reason === "jev-credential-lookup-failed") {
+    return `Brain could not look up the Jev credential for the source owner because the vault or connection lookup failed. ${nothingLost}; Brain retries this source in about 10 minutes.`;
+  }
+  const status = jevFailureHttpStatus(reason);
+  if (status === 401 || status === 403) {
+    return `Jev rejected the source owner's credential (HTTP ${status}). Reconnect Builder or replace JEV_API_KEY. ${nothingLost}; Brain retries at the next scheduled sync.`;
+  }
+  const cause =
+    reason === "jev-timeout"
+      ? "timed out"
+      : reason === "jev-invalid-response"
+        ? "returned an unreadable response"
+        : status
+          ? `returned HTTP ${status}`
+          : "could not be reached";
+  return isTransientJevFailure(reason)
+    ? `Jev sensitivity check ${cause} after 3 attempts. ${nothingLost}; Brain retries this source in about 10 minutes.`
+    : `Jev sensitivity check ${cause}. ${nothingLost}; Brain retries at the next scheduled sync.`;
+}
+
+export class BrainClassifierUnavailableError extends Error {
+  readonly retryAfterMs: number | null;
+
+  constructor(readonly reason: string) {
+    super(classifierFailureMessage(reason));
+    this.name = "BrainClassifierUnavailableError";
+    this.retryAfterMs = isTransientJevFailure(reason)
+      ? CLASSIFIER_TRANSIENT_RETRY_MS
+      : null;
+  }
 }
 
 function booleanSetting(value: unknown): boolean | undefined {
@@ -112,7 +162,6 @@ function numberSetting(value: unknown): number | undefined {
 export function shouldSanitizeCaptureBeforeStorage(
   input: CaptureSanitizationInput,
 ): boolean {
-  if (input.source.provider === "slack") return true;
   if (input.settings.captureSanitizationEnabled === false) return false;
 
   const metadataOverride = booleanSetting(
@@ -125,28 +174,7 @@ export function shouldSanitizeCaptureBeforeStorage(
   );
   if (configOverride !== undefined) return configOverride;
 
-  return input.kind === "transcript";
-}
-
-function sanitizeSensitiveText(value: string): string {
-  return value
-    .replace(/<mailto:[^>|]+(?:\|[^>]+)?>/gi, "[redacted]")
-    .replace(/<@[UW][A-Z0-9]+(?:\|[^>]+)?>/g, "[redacted]")
-    .replace(/\bU[A-Z0-9]{8,}\b/g, "[redacted]")
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted]")
-    .replace(/(?:\+?\d|\(\d{2,4}\))[\d\s().-]{6,}\d/g, (candidate) =>
-      /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : "[redacted]",
-    )
-    .replace(
-      /\b(?:sk|pk|rk|ghp|gho|ghu|github_pat)_[A-Za-z0-9_=-]{16,}\b/g,
-      "[redacted]",
-    )
-    .replace(/\b(?:sk|pk|rk)-[A-Za-z0-9_=-]{16,}\b/g, "[redacted]")
-    .replace(
-      /\b(password|passcode|secret|token|api key)\s*[:=]\s*\S+/gi,
-      "$1: [redacted]",
-    )
-    .replace(/https?:\/\/\S+/gi, "[link]");
+  return false;
 }
 
 function neutralizeSpeakerLabel(line: string): string {
@@ -422,14 +450,21 @@ function parseClassifierOutput(value: string) {
   }
 }
 
+function approvedModelSettings(settings: BrainSettings) {
+  if (resolveClassifierPreference(settings) === "deterministic") return null;
+  const model = stringSetting(settings.privacyClassifierModel);
+  const engineName = stringSetting(settings.privacyClassifierEngine);
+  return model && engineName ? { model, engineName } : null;
+}
+
 async function classifyWithApprovedModel(
   input: CaptureSanitizationInput,
 ): Promise<BrainSensitivityDecision | null> {
   if (process.env.NODE_ENV === "test" || process.env.VITEST) return null;
 
-  const model = stringSetting(input.settings.privacyClassifierModel);
-  const engineName = stringSetting(input.settings.privacyClassifierEngine);
-  if (!model || !engineName) return null;
+  const approved = approvedModelSettings(input.settings);
+  if (!approved) return null;
+  const { model, engineName } = approved;
 
   const core = await import("@agent-native/core/server");
   const userApiKey = await core.resolveOwnerEngineApiKey({
@@ -525,6 +560,18 @@ async function classifyWithApprovedModel(
   };
 }
 
+const unlessAllowed = (decision: BrainSensitivityDecision) =>
+  decision.disposition === "allowed" ? null : decision;
+
+const deterministicPreScreen = (
+  input: CaptureSanitizationInput,
+  capturedAt: string,
+  scope: DeterministicScreenScope,
+): BrainSensitivityDecision | null =>
+  deterministicQuarantineDecision(input.title, capturedAt, scope) ??
+  unlessAllowed(fallbackSensitivityDecision(input.title, capturedAt, scope)) ??
+  deterministicQuarantineDecision(input.content, capturedAt, scope);
+
 export async function sanitizeCaptureForStorage(
   input: CaptureSanitizationInput,
 ): Promise<CaptureSanitizationResult> {
@@ -532,18 +579,33 @@ export async function sanitizeCaptureForStorage(
   const { metadata: sanitizedMetadata, strippedKeys } =
     sanitizeMetadata(metadata);
   const capturedAt = input.capturedAt ?? new Date(0).toISOString();
-  const titleDecision = fallbackSensitivityDecision(input.title, capturedAt);
-  let decision =
-    deterministicQuarantineDecision(input.title, capturedAt) ??
-    (titleDecision.disposition === "allowed" ? null : titleDecision) ??
-    deterministicQuarantineDecision(input.content, capturedAt);
+  const preJevScope: DeterministicScreenScope =
+    resolveClassifierPreference(input.settings) === "jev"
+      ? "credentials"
+      : "all";
+  let decision = deterministicPreScreen(input, capturedAt, preJevScope);
   const sanitizationRequested = shouldSanitizeCaptureBeforeStorage(input);
   let fallbackReason: string | undefined;
   let classifierOutageFallback = false;
-  const classifierConfigured = Boolean(
-    stringSetting(input.settings.privacyClassifierModel) &&
-    stringSetting(input.settings.privacyClassifierEngine),
-  );
+  const jev: JevClassificationOutcome = decision
+    ? { configured: false }
+    : await classifyWithJev({
+        title: input.title,
+        content: input.content,
+        capturedAt: input.capturedAt,
+        settings: input.settings,
+        ownerEmail: input.source.ownerEmail,
+        orgId: input.source.orgId,
+      });
+  if (jev.failureReason) {
+    throw new BrainClassifierUnavailableError(jev.failureReason);
+  }
+  decision ??= jev.decision ?? null;
+  if (preJevScope === "credentials") {
+    decision ??= deterministicPreScreen(input, capturedAt, "all");
+  }
+  const classifierConfigured =
+    jev.configured || Boolean(approvedModelSettings(input.settings));
   let classifierFailed = false;
   try {
     decision ??= await classifyWithApprovedModel(input);
@@ -629,6 +691,7 @@ export async function sanitizeCaptureForStorage(
           decision.classifier === "approved-model"
             ? input.settings.privacyClassifierModel
             : undefined,
+        jevAuthSource: jev.authSource,
         fallbackReason,
         classifierOutageFallback: classifierOutageFallback || undefined,
         disposition: decision.disposition,

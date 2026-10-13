@@ -1,7 +1,7 @@
 ---
-title: "外部代理：Claude、ChatGPT、Codex、光标、Cowork"
-description: "将 Claude、ChatGPT、Codex、Cursor、Claude Cowork 或任何 MCP 兼容主机连接到托管代理本机应用程序，然后使用 MCP 应用程序和深层链接将往返工件返回到正在运行的 UI。"
-search: "Claude ChatGPT Claude 代码 Codex 光标 Claude Cowork MCP 应用程序代理-本地连接本地代理工具外部代理"
+title: "外部代理：Claude、ChatGPT、Codex、光标、Cowork、Grok"
+description: "将 Claude、ChatGPT、Codex、Cursor、Claude Cowork、Grok 或任何 MCP 兼容主机连接到托管代理本机应用程序，然后使用 MCP 应用程序和深层链接将往返工件返回到正在运行的 UI。"
+search: "Claude Anthropic ChatGPT OpenAI Claude 代码 Codex 光标 Claude Cowork Grok xAI MCP 应用程序代理-本地连接本地代理工具外部代理"
 ---
 
 # 外部代理
@@ -93,7 +93,17 @@ search: "Claude ChatGPT Claude 代码 Codex 光标 Claude Cowork MCP 应用程�
 
 ## 轻松设置 {#easy-setup}
 
-将一个远程 MCP 连接器添加到要使用 Agent-Native 的主机。
+每个 Agent-Native 应用都提供一个规范的 MCP URL：
+
+```text
+https://<your-app>.agent-native.com/mcp
+```
+
+在应用中打开 **Settings → Connections → Integrations**，然后搜索您熟悉的主机名称：
+Claude、Claude Cowork、Claude Code、Anthropic、ChatGPT、OpenAI、Codex、Grok
+或 xAI。唯一的外部主机结果会打开 **Settings → MCP server**，并选中最匹配的指南。
+复制 **MCP server URL** 并粘贴到 AI 主机中。URL 是已部署应用的基础 URL 加上
+`/mcp`。
 
 对于工作区或跨应用程序工作，请使用 Dispatch：
 
@@ -115,15 +125,25 @@ https://<your-app>.agent-native.com/mcp
 
 每个托管应用程序还有一个帮助页面
 `https://&lt;app&gt;/mcp/connect` 与可复制的 URL 和
-Claude、ChatGPT、光标、Claude 代码、Codex 和其他的主机特定选项卡。
+适用于 Claude、ChatGPT、Cursor、VS Code、Claude Code、Codex、Grok 和“其他”的主机专属选项卡。
 
-### 应用内的 Access 选项卡 {#access-tab}
+## 私有 Content 链接 {#private-content-links}
 
-挂载 `AgentTabsPage` 的应用也会在 **Access** 选项卡中提供相同的连接流程。
-它显示 MCP URL、可用时的 A2A 代理卡片，以及 Claude、ChatGPT、Cursor、Claude
-Code、Codex 和其他客户端的共享设置指南。可将它作为应用内的起点，并打开
-`/mcp/connect` 查看完整流程和令牌回退。这是连接设置界面，不是通用访问控制
-台；该选项卡目前还不管理 grants、范围编辑或撤销。
+私有 Content 分享链接可以标识文档而不暴露其内容。请将同一 Content 实例的 `/mcp` URL 添加为代理的远程 MCP 服务器，使用 Agent-Native 账户完成身份验证，启用连接或工具，然后重试原始文档请求。`/mcp/connect` 页面提供配置选项，但仅打开该页面不会在代理中安装连接。
+
+此流程适用于 Claude、ChatGPT、Claude Code、Codex、Cursor、Antigravity、OpenCode、GitHub Copilot / VS Code 等支持 MCP 的主机。配置界面和身份验证提示因主机而异。Antigravity 通过 **Settings → Customizations → Installed MCP Servers** 或 MCP 配置文件管理远程服务器；Agent-Native 的 `connect` 命令目前不会配置 Antigravity。
+
+身份验证只识别已连接的账户，不会扩大文档权限。公开文档仍可通过分享页面读取。私有文档只有在该账户本来就有权限时才能通过 MCP 读取。如果连接后 `get-document` 返回“未找到”，该响应无法区分权限不足与过期、已删除或无效的文档 ID。更改权限前，请验证链接和已连接账户的访问权限。
+
+重新安装连接器或更改公开共享链接无法解决已确认的已连接账户权限拒绝问题。
+
+<a id="access-tab"></a>
+
+### 应用内的 MCP 设置 {#mcp-settings}
+
+Settings 在应用分组中提供 **MCP server** 页面。它显示应用的规范
+MCP URL、可用时的 A2A 代理卡片，以及与完整连接页面相同的设置指南。使用
+**Settings → MCP server** 作为应用内起点，或直接打开 `/mcp/connect` 查看完整流程和令牌回退。
 
 ### Claude 和 ChatGPT OAuth {#oauth}
 
@@ -132,10 +152,12 @@ Claude / Claude 桌面：添加自定义连接器，粘贴 MCP URL，点击
 并在聊天中启用连接器。 Claude 代码使用相同的 URL：将其添加为
 远程HTTP MCP服务器，运行`/mcp`，然后选择**验证**。
 
-ChatGPT：使用自定义 MCP 连接器或开发人员模式应用所在的工作区
-启用，创建自定义连接器/应用程序，粘贴相同的 MCP URL，选择 OAuth，
-扫描/发现工具，使用 Agent-Native 登录，批准范围并启用
-聊天中的连接器。
+ChatGPT：自定义 MCP 应用需要受支持的 ChatGPT web 工作区。如果你有访问权限，请打开
+**Settings → Apps → Advanced settings**，在需要时启用开发者模式，选择 **Create app**，
+粘贴相同的 MCP URL，选择 OAuth，扫描工具，使用 Agent-Native 登录，批准请求的范围，
+然后在聊天中启用该应用。Business、Enterprise 和 Edu 工作区支持完整 MCP，包括写入
+操作；Pro 在开发者模式下支持读取和获取。如果没有 **Apps** 或 **Create app**，则你的
+套餐或工作区策略不允许此设置。
 
 OAuth 授权针对每个主机和每个用户。主机存储令牌并
 调解工具/资源调用，因此内联 MCP 应用预览永远不会收到原始数据
@@ -147,9 +169,26 @@ Dispatch 不会重写 ChatGPT 或 Claude 的缓存日历/邮件/等。
 快照。`mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` 范围与下文
 [标准远程 MCP OAuth](#standard-oauth) 中介绍的相同。
 
-Cursor、Goose、Postman、MCPJam 和 VS Code GitHub Copilot 使用相同的遥控器
-当其构建支持远程 OAuth 时，MCP URL 通过自己的 MCP 服务器 UI
-MCP 服务器。
+### Cursor、VS Code 和 Codex {#install-links}
+
+**Settings → MCP server** 和 `/mcp/connect` 中的 **Cursor** 与 **VS Code**
+选项卡提供安装按钮。**添加到 Cursor** 会打开 Cursor 的 **Install MCP server?**
+提示。**添加到 VS Code** 和 **添加到 VS Code Insiders** 会打开带有 **Install**
+按钮的服务器页面。链接只包含服务器名称、传输方式和 MCP URL，从不包含令牌、请求头或账户信息。
+客户端首次连接时会自行完成 OAuth 登录。在 VS Code 中，这些工具随后会出现在 Agent 模式下的 Chat 视图中。
+
+对于 Codex，运行 `codex mcp add <server-name> --url <mcp-url>`，然后运行
+`codex mcp login <server-name>`，通过 OAuth 登录。**Codex** 选项卡会填好这两个值。
+
+当 Goose、Postman、MCPJam 和其他客户端的版本支持带 OAuth 的远程 MCP 服务器时，
+它们会在各自的 MCP 服务器界面中使用同一个远程 MCP URL。
+
+### 服务器名称 {#server-names}
+
+应用会为自己的 MCP 服务器命名，所有入口都使用这个名称：安装链接、可复制的命令，以及
+`npx @agent-native/core@latest connect`。
+生产环境使用不带前缀的名称，例如 `agent-native-mail`。Beta、预览和本地部署会把环境名放在最前面，例如 `beta-agent-native-mail`，这样同一个客户端可以同时保留生产和 Beta 两个条目。这些前缀是保留的：`mcp.serverName` 不能以 `beta-`、`preview-` 或 `local-` 开头，因此 Beta 名称永远不会与另一个应用的生产名称相同。
+脚本可以通过 `GET /mcp/connect/identity` 读取名称；该接口无需登录，返回服务器名称、应用名称、应用 URL、MCP URL、环境，以及在 `mcp.connect` 关闭时为 `false` 的 `connect` 标志。
 
 ### 快速测试提示 {#quick-test}
 
@@ -239,7 +278,9 @@ npx @agent-native/core@latest connect https://mail.agent-native.com
 
 ### 401 后重新进行身份验证 {#reconnect}
 
-连接后，身份验证应长期持续 - 访问令牌默认持续 30 天（在服务器上使用 `MCP_OAUTH_ACCESS_TOKEN_TTL` 覆盖，例如 `7d` 或 `12h`），并具有 365 天滑动刷新窗口，因此随机 401 应该很少见。当发生这种情况时，请使用轻量级重新连接命令而不是重新安装：
+OAuth 所有者绑定更新要求每个现有的 OAuth 连接[重新连接一次](/docs/external-agents#reconnect)。更新上线后，旧 OAuth 访问令牌会被拒绝。未绑定所有者的旧刷新令牌会返回 `invalid_grant`，尚未使用的旧授权码必须重新开始同意流程。新签发的访问令牌使用配置的有效期，并在每次请求时检查成员资格。此次切换不会更改旧 A2A 格式的 `mcp-connect` 凭据或跨应用 A2A 令牌。使用旧 OAuth 格式 Connect 令牌的连接也必须重新连接。
+
+连接后，身份验证应长期持续 - 访问令牌默认持续 30 天（在服务器上使用 `MCP_OAUTH_ACCESS_TOKEN_TTL` 覆盖，例如 `7d` 或 `12h`），且刷新授权没有固定有效期，因此随机 401 应该很少见。当发生这种情况时，请使用轻量级重新连接命令而不是重新安装：
 
 ```bash
 npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
@@ -287,7 +328,7 @@ claude mcp add --transport http agent-native \
 https://dispatch.agent-native.com/mcp
 ```
 
-OAuth 流程是授权代码 + PKCE 和刷新令牌轮换。访问令牌是受众绑定到确切的 MCP 资源 URL 并携带签名的用户/组织身份，因此工具调用、`resources/read` 和 MCP 应用程序 iframe 启动的 `tools/call` 都通过与现有连接铸造的 JWT 路径相同的 `runWithRequestContext` 租户范围运行。 iframe 从不接收原始 OAuth 令牌；主机通过经过身份验证的 MCP 连接来调解呼叫。
+OAuth 流程是授权代码 + PKCE 和刷新令牌，刷新令牌不会轮换。访问令牌是受众绑定到确切的 MCP 资源 URL 并携带签名的用户/组织身份，因此工具调用、`resources/read` 和 MCP 应用程序 iframe 启动的 `tools/call` 都通过与现有连接铸造的 JWT 路径相同的 `runWithRequestContext` 租户范围运行。 iframe 从不接收原始 OAuth 令牌；主机通过经过身份验证的 MCP 连接来调解呼叫。
 
 当前范围是：
 
@@ -496,6 +537,8 @@ CSP 和沙箱权限等安全元数据存在于资源中
 这使得相同的应用程序界面可用于每个兼容的主机，而不是构建每个客户端的垫片。哪些主机内联渲染 MCP 应用程序（以及元数据更改后的连接器缓存问题）位于 [MCP Apps → Client support and caching](/docs/mcp-apps#client-support) 中 — 该页面是客户端矩阵的唯一主页。
 
 实际上，每个代理本机应用程序都应使用以下两种方式编写：用于在有能力的主机中进行内联审查/编辑的 MCP 应用程序，以及用于通用往返返回完整应用程序的 `link` 应用程序。不渲染 iframe 的 CLI/代码编辑器客户端会回退到深层链接。人工选择工具可以向回退添加粘贴步骤：例如，资产选择器从回退链接打开，让用户在浏览器中选择媒体，然后复制用户粘贴回聊天中的交接摘要。
+
+外部代理可以使用应用真正的创建/更新工具——与应用内代理调用的是同一批命名操作——因此当用户要求新内容(设计、幻灯片、表单、文档)时,应直接撰写并用这些工具保存,而不是把工作委托给 `ask_app`。标记为 `endsTurn: true` 的操作(例如在该应用自身聊天中等待用户回答的应用内提问表单),除非设置 `mcpTool: true`,否则会对 MCP、WebMCP 和 A2A 隐藏——见[定义 Actions 中的 endsTurn](/docs/actions-defining)。工具的输入和结果在 WebMCP 上最多可携带 500,000 个字符,因此整个界面、幻灯片或文档可以一次写入——见[WebMCP](/docs/webmcp)。页面本地的 WebMCP 调用还会携带浏览器标签页 ID(与 UI 使用的是同一个 `getBrowserTabId()` 值——见[情境意识](/docs/context-awareness)),因此按标签页划分的导航与选择会解析到代理正在操作的那个标签页,即便它被隐藏。
 
 ### 一流的MCP应用桥 {#mcp-app-bridge}
 
@@ -803,6 +846,7 @@ npx @agent-native/core@latest connect prod --apps mail,calendar,analytics --clie
 ## 相关 {#related}
 
 - [MCP Apps](/docs/mcp-apps) — 编写 MCP 应用程序 UI、嵌入桥和主桥 API。
+- [WebMCP](/docs/webmcp) — 页面本地工具、500,000 字符的输入/结果上限,以及浏览器标签页 ID 请求头。
 - [MCP Protocol](/docs/mcp-protocol) — 自动安装的 MCP 服务器和 `ask-agent` 元工具。
 - [MCP Clients](/docs/mcp-clients) — 对称方向：您的应用使用本地/远程 MCP 服务器。
 - [A2A Protocol](/docs/a2a-protocol) — `ask-agent` 元工具和 JSON-RPC 对等调用。

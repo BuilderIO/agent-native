@@ -29,6 +29,8 @@ describe("plan detail route meta", () => {
           brief: "Keep the hosted and local plan surfaces aligned.",
           kind: "plan",
         },
+        origin: "https://workspace.example.test",
+        basePath: "/",
       },
     } as Parameters<typeof planMeta>[0]) as MetaEntry[];
 
@@ -46,6 +48,8 @@ describe("plan detail route meta", () => {
           brief: "Summarize the provider API cursor changes.",
           kind: "recap",
         },
+        origin: "https://workspace.example.test",
+        basePath: "/",
       },
     } as Parameters<typeof recapMeta>[0]) as MetaEntry[];
 
@@ -63,6 +67,8 @@ describe("plan detail route meta", () => {
           brief: "Keep the tab title human-readable.",
           kind: "plan",
         },
+        origin: "https://workspace.example.test",
+        basePath: "/",
       },
     } as Parameters<typeof planMeta>[0]) as MetaEntry[];
 

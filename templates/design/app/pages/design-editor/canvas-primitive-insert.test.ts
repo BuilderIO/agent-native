@@ -1,5 +1,19 @@
 // @vitest-environment happy-dom
 
+import { applyVisualEdit } from "@shared/code-layer";
+import {
+  closePenPath,
+  createCornerNode,
+  parsePenNodes,
+  serializePenPath,
+  type PenPath,
+} from "@shared/pen-path";
+import {
+  VECTOR_END_ENDPOINT_PROPERTY,
+  VECTOR_START_ENDPOINT_PROPERTY,
+  isVectorEndpointPrimitiveKind,
+  vectorEndpointMarkerId,
+} from "@shared/vector-endpoints";
 import { describe, expect, it } from "vitest";
 
 import type { CanvasPrimitiveInsert } from "@/components/design/multi-screen/types";
@@ -8,19 +22,34 @@ import {
   appendCanvasPrimitiveToHtml,
   blankScreenHtml,
   extractCanvasPrimitiveHtml,
+  updateCanvasPolygonSvgGeometry,
 } from "./canvas-primitive-insert";
+import { writeBackVectorEditedPenPath } from "./clone-and-pen-edit";
+import { cssStyleAliases, parseInlineStyleAttribute } from "./code-layer-state";
 
 describe("blankScreenHtml", () => {
   const html = blankScreenHtml("Screen 1");
 
   it("is a free canvas: no centering grid and no <main> wrapper", () => {
-    // The centering grid + <main> wrapper trapped drawn shapes at center and,
-    // once dragged, flow-inserted them (converting the wrapper to auto layout
-    // and stripping their absolute position). A blank screen must be a plain
-    // free canvas so absolute children keep their x,y.
     expect(html).not.toMatch(/display:\s*grid/);
     expect(html).not.toMatch(/place-items:\s*center/);
     expect(html).not.toContain("<main");
+  });
+
+  it("clips the screen by default so content past its edge stays out of frame", () => {
+    expect(html).toMatch(/body\s*\{[^}]*overflow:\s*hidden/);
+  });
+
+  it("marks its viewport floor so explicit Hug can clear only the generated rule", () => {
+    expect(html).toContain(
+      "<style data-agent-native-screen-default-height>body { min-height: 100vh; }</style>",
+    );
+    expect(
+      html.replace(
+        /<style data-agent-native-screen-default-height>[\s\S]*?<\/style>/,
+        "",
+      ),
+    ).not.toContain("min-height: 100vh");
   });
 
   it("names the screen root and escapes the title", () => {
@@ -29,12 +58,14 @@ describe("blankScreenHtml", () => {
     );
     expect(blankScreenHtml("A & B")).toContain("<title>A &amp; B</title>");
   });
+
+  it("loads the Inter family used by new screens", () => {
+    expect(blankScreenHtml("Screen 1")).toMatch(
+      /fonts\.googleapis\.com[^\"]*family=Inter/,
+    );
+  });
 });
 
-// BUG F4: a live/localhost screen stores its route URL in `design_files.content`.
-// DOMParser turns that URL into body text, so appending a primitive returned a
-// full HTML document that the caller persisted OVER the URL — the screen stopped
-// being live and the route was destroyed.
 describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
   const rect: CanvasPrimitiveInsert = {
     kind: "rectangle",
@@ -76,6 +107,39 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
 
   it("leaves drawn text inheriting currentColor on a light screen", () => {
     expect(textAt("background:#ffffff")).toContain("color: currentcolor");
+  });
+
+  it("makes click-created text intrinsic instead of shrinking to the screen remainder", () => {
+    const html = appendCanvasPrimitiveToHtml(
+      "<!doctype html><html><head></head><body></body></html>",
+      {
+        kind: "text",
+        nodeId: "auto-width",
+        geometry: { x: 500, y: 120, width: 1, height: 24 },
+        text: "A long responsive card title",
+        autoSize: true,
+      },
+    );
+    const element = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector<HTMLElement>('[data-agent-native-node-id="auto-width"]');
+
+    expect(element?.style.width).toBe("max-content");
+    expect(element?.style.height).toBe("auto");
+  });
+
+  it("loads Inter when new text is added to an existing screen", () => {
+    const html = appendCanvasPrimitiveToHtml(
+      "<!doctype html><html><head></head><body></body></html>",
+      {
+        kind: "text",
+        nodeId: "inter-text",
+        geometry: { x: 0, y: 0, width: 80, height: 24 },
+        text: "Hello",
+      },
+    );
+
+    expect(html).toMatch(/fonts\.googleapis\.com[^\"]*family=Inter/);
   });
 
   const withContainer = (kind: "frame" | "rectangle") =>
@@ -135,8 +199,6 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
         nodeId: "outer",
         geometry: { x: 100, y: 100, width: 400, height: 400 },
       }) ?? "";
-    // Nested frame's inline left/top are relative to `outer`, so a primitive
-    // at document 180,180 lands inside it only if offsets accumulate.
     const nested =
       appendCanvasPrimitiveToHtml(outer, {
         kind: "frame",
@@ -173,8 +235,6 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
       }) ?? "";
     const vectorAt = html.indexOf('data-agent-native-node-id="vector"');
     const style = html.slice(vectorAt, html.indexOf(">", vectorAt));
-    // Screen-absolute values here render the vector offset by the frame's own
-    // origin — 60,120 is 100,240 expressed inside a frame at 40,120.
     expect(style).toContain("left:60px");
     expect(style).toContain("top:120px");
   });
@@ -277,14 +337,12 @@ describe("a freshly drawn frame is visible", () => {
     "";
 
   it("carries a background on a light destination", () => {
-    // Deselecting a bare frame leaves nothing on screen, and a second one
-    // drawn next to it is invisible too.
     expect(frameStyle(drawFrame(false))).toMatch(
       /background(-color)?:\s*#fff/i,
     );
   });
 
-  it("is white on the dark board too, as in Figma", () => {
+  it("keeps its default white fill on a dark board", () => {
     expect(frameStyle(drawFrame(true))).toMatch(/background(-color)?:\s*#fff/i);
   });
 
@@ -330,8 +388,6 @@ describe("a primitive nested into a frame is positioned frame-relative", () => {
         geometry: { x: 150, y: 150, width: 50, height: 50 },
       }) ?? "";
     const style = styleOf(withRect, "r");
-    // 150 - 100 frame origin - 5 border: an absolute child starts inside the
-    // border, so ignoring it shifts everything dropped into the frame.
     expect(px(style, "left")).toBe(45);
     expect(px(style, "top")).toBe(45);
   });
@@ -357,7 +413,6 @@ describe("a primitive nested into a frame is positioned frame-relative", () => {
 
     const rect = styleOf(withRect, "r");
     const line = styleOf(withLine, "l");
-    // Both land inside the same host, so both must be in the host's space.
     expect(px(rect, "left")).toBe(60);
     expect(px(rect, "top")).toBe(80);
     expect(px(line, "left")).toBe(px(rect, "left"));
@@ -411,10 +466,26 @@ describe("every primitive kind shares one coordinate space", () => {
       const top = Number(
         /(?:^|;)\s*top\s*:\s*(-?[\d.]+)px/i.exec(style)?.[1] ?? NaN,
       );
-      // Absolute canvas coords (160/180) would put it outside the host, which
-      // clips its content — the shape then exists in Layers and nowhere else.
       expect(left, `${kind} left`).toBe(60);
       expect(top, `${kind} top`).toBe(80);
+    },
+  );
+
+  it.each(["polygon", "star"] as const)(
+    "%s opts out of SVG aspect-ratio letterboxing when resized",
+    (kind) => {
+      const html = appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+        kind,
+        nodeId: `${kind}-resize-proof`,
+        geometry: { x: 10, y: 20, width: 160, height: 60 },
+      });
+      const svg = new DOMParser()
+        .parseFromString(html ?? "", "text/html")
+        .querySelector<SVGSVGElement>(
+          `[data-agent-native-node-id="${kind}-resize-proof"]`,
+        );
+      expect(svg?.getAttribute("preserveAspectRatio")).toBe("none");
+      expect(svg?.getAttribute("viewBox")).toBe("0 0 160 60");
     },
   );
 });
@@ -427,7 +498,6 @@ describe("text takes its colour from what it lands on", () => {
     ).exec(html)?.[1] ?? "";
 
   it("is not white when dropped into a white frame on the board", () => {
-    // isBoardTarget describes the surface BEHIND the frame, not the frame.
     const withFrame =
       appendCanvasPrimitiveToHtml(
         blankScreenHtml("S"),
@@ -452,23 +522,22 @@ describe("text takes its colour from what it lands on", () => {
     expect(styleOf(html, "t")).not.toMatch(/color:\s*#fff/i);
   });
 
-  it("is not white on a board whose surface has been set to white", () => {
-    // isBoardTarget assumes the board is always dark; the body can say otherwise.
-    const white =
+  it("ignores a background on the board body, which is never painted", () => {
+    const whiteBody =
       "<!doctype html><html><head><title>S</title></head>" +
       '<body style="background-color: #ffffff"></body></html>';
     const html =
       appendCanvasPrimitiveToHtml(
-        white,
+        whiteBody,
         {
           kind: "text",
           nodeId: "t",
           geometry: { x: 10, y: 10, width: 120, height: 24 },
           text: "sfasfsadfsa",
         },
-        { isBoardTarget: true },
+        { isBoardTarget: true, boardBackground: "hsl(0 0% 10%)" },
       ) ?? "";
-    expect(styleOf(html, "t")).not.toMatch(/color:\s*#fff/i);
+    expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
   });
 
   it("is still white when dropped straight onto the dark board", () => {
@@ -481,9 +550,25 @@ describe("text takes its colour from what it lands on", () => {
           geometry: { x: 10, y: 10, width: 120, height: 24 },
           text: "on the board",
         },
-        { isBoardTarget: true },
+        { isBoardTarget: true, boardBackground: "hsl(0 0% 10%)" },
       ) ?? "";
     expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
+  });
+
+  it("inherits instead of going white on a light canvas", () => {
+    const html =
+      appendCanvasPrimitiveToHtml(
+        blankScreenHtml("S"),
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 10, y: 10, width: 120, height: 24 },
+          text: "on a light canvas",
+        },
+        { isBoardTarget: true, boardBackground: "rgb(235, 235, 235)" },
+      ) ?? "";
+    expect(styleOf(html, "t")).not.toMatch(/color:\s*#fff/i);
+    expect(styleOf(html, "t")).toMatch(/color:\s*currentColor/i);
   });
 });
 
@@ -495,7 +580,6 @@ describe("nesting follows where you started, not whether the box fits", () => {
         nodeId: "host",
         geometry: { x: 100, y: 100, width: 115, height: 71 },
       }) ?? "";
-    // Origin inside the frame, right edge past it — a click-created text.
     const html =
       appendCanvasPrimitiveToHtml(base, {
         kind: "text",
@@ -526,5 +610,711 @@ describe("nesting follows where you started, not whether the box fits", () => {
     expect(html.indexOf('data-agent-native-node-id="r"')).toBeGreaterThan(
       html.indexOf("</div>", hostAt),
     );
+  });
+});
+
+describe("pen path paint defaults", () => {
+  const penPath = (pathData: string): CanvasPrimitiveInsert => ({
+    kind: "path",
+    nodeId: "pen-1",
+    geometry: { x: 10, y: 10, width: 80, height: 60 },
+    pathData,
+  });
+
+  const committedPath = (primitive: CanvasPrimitiveInsert) => {
+    const html = appendCanvasPrimitiveToHtml(
+      blankScreenHtml("Screen 1"),
+      primitive,
+    );
+    const path = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector("path");
+    if (!path) throw new Error("no <path> committed");
+    return path;
+  };
+
+  it("commits a closed pen path as stroke-only", () => {
+    const path = committedPath(penPath("M 10 10 L 90 10 L 50 70 Z"));
+    expect(path.getAttribute("fill")).toBe("none");
+    expect(path.getAttribute("stroke")).toBe("#000000");
+  });
+
+  it("keeps a pen path's box on its bounds when it starts past the screen edge", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "path",
+      nodeId: "pen-1",
+      geometry: { x: -40.5, y: -20, width: 140.25, height: 90 },
+      pathData: "M -40.5 -20 L 99.75 70",
+    });
+    const svg = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector<SVGSVGElement>("svg");
+    expect(svg?.getAttribute("viewBox")).toBe("-40.5 -20 140.25 90");
+    expect(svg?.style.left).toBe("-40.5px");
+    expect(svg?.style.top).toBe("-20px");
+    expect(svg?.style.width).toBe("140.25px");
+    expect(svg?.style.height).toBe("90px");
+  });
+
+  it("keeps the stroke on an open pen path, which is only its stroke", () => {
+    const path = committedPath(penPath("M 10 10 L 90 10 L 50 70"));
+    expect(path.getAttribute("fill")).toBe("none");
+    expect(path.getAttribute("stroke")).toBe("#000000");
+    expect(path.getAttribute("fill-opacity")).toBeNull();
+    expect(path.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(path.style.getPropertyPriority("fill-opacity")).toBe("important");
+    expect(
+      committedPath(penPath("M 10 10 L 90 10 L 50 70 Z")).getAttribute(
+        "fill-opacity",
+      ),
+    ).toBeNull();
+  });
+
+  it("restores fresh open-path opacity on its first close", () => {
+    const openPath: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 10, y: 10 }),
+        createCornerNode({ x: 90, y: 10 }),
+        createCornerNode({ x: 50, y: 70 }),
+      ],
+    };
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      ...penPath(serializePenPath(openPath)),
+    });
+    if (!html) throw new Error("open pen path did not commit");
+    const openElement = new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector("path")!;
+    expect(openElement.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(openElement.hasAttribute("data-an-open-fill-opacity")).toBe(true);
+
+    const closed = writeBackVectorEditedPenPath(
+      html,
+      "pen-1",
+      closePenPath(openPath),
+    );
+    if (!closed) throw new Error("first close did not commit");
+    const closedElement = new DOMParser()
+      .parseFromString(closed, "text/html")
+      .querySelector("path")!;
+    expect(closedElement.getAttribute("fill-opacity")).toBeNull();
+    expect(closedElement.style.getPropertyValue("fill-opacity")).toBe("");
+    expect(closedElement.hasAttribute("data-an-open-fill-opacity")).toBe(false);
+  });
+
+  it("still honours an explicitly chosen fill and stroke", () => {
+    const path = committedPath({
+      ...penPath("M 10 10 L 90 10 L 50 70 Z"),
+      fill: "#ff0000",
+      stroke: "#00ff00",
+      strokeWidth: 4,
+    });
+    expect(path.getAttribute("fill")).toBe("#ff0000");
+    expect(path.getAttribute("stroke")).toBe("#00ff00");
+    expect(path.getAttribute("stroke-width")).toBe("4");
+  });
+
+  it("gives a polygon the same unstroked shape paint", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "polygon",
+      nodeId: "poly-1",
+      geometry: { x: 0, y: 0, width: 40, height: 40 },
+    });
+    const svg = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector<SVGSVGElement>("svg[data-an-primitive='polygon']");
+    const path = svg?.querySelector<SVGPathElement>(":scope > path");
+    expect(path?.getAttribute("fill")).toBe("rgb(217 217 217)");
+    expect(path?.getAttribute("stroke")).toBe("none");
+    const penPath = parsePenNodes(svg?.getAttribute("data-an-pen-nodes") ?? "");
+    expect(penPath?.closed).toBe(true);
+    expect(penPath?.nodes).toHaveLength(3);
+    expect(penPath?.nodes[0]?.point).toEqual({ x: 20, y: 0 });
+  });
+
+  it.each(["polygon", "star"] as const)(
+    "%s stores editable closed-path geometry that corner radius can round and restore",
+    (kind) => {
+      const inserted = appendCanvasPrimitiveToHtml(
+        blankScreenHtml("Screen 1"),
+        {
+          kind,
+          nodeId: `${kind}-radius`,
+          geometry: { x: 0, y: 0, width: 100, height: 100 },
+        },
+      )!;
+      const originalSvg = new DOMParser()
+        .parseFromString(inserted, "text/html")
+        .querySelector<SVGSVGElement>(`svg[data-an-primitive='${kind}']`);
+      const originalPath =
+        originalSvg?.querySelector<SVGPathElement>(":scope > path");
+      expect(originalPath).not.toBeNull();
+      const originalD = originalPath!.getAttribute("d");
+      expect(
+        parsePenNodes(originalSvg!.getAttribute("data-an-pen-nodes")!),
+      ).toMatchObject({ closed: true });
+
+      const rounded = applyVisualEdit(inserted, {
+        kind: "style",
+        target: { nodeId: `${kind}-radius` },
+        property: "border-radius",
+        value: "8px",
+      });
+      expect(rounded.result.status).toBe("applied");
+      expect(rounded.content).toContain('data-an-corner-radius="8"');
+      expect(rounded.content).toContain(" A 8 8 ");
+
+      const restored = applyVisualEdit(rounded.content, {
+        kind: "style",
+        target: { nodeId: `${kind}-radius` },
+        property: "border-radius",
+        value: "0px",
+      });
+      expect(restored.result.status).toBe("applied");
+      expect(restored.content).toContain(`d="${originalD}"`);
+    },
+  );
+
+  it.each(["polygon", "star"] as const)(
+    "updates %s draft polygon points when the preview is resized",
+    (kind) => {
+      const svg = new DOMParser()
+        .parseFromString(
+          '<svg xmlns="http://www.w3.org/2000/svg"><polygon points="0,0" /></svg>',
+          "image/svg+xml",
+        )
+        .querySelector<SVGSVGElement>("svg")!;
+
+      updateCanvasPolygonSvgGeometry(svg, kind, 100, 100);
+      const initialPoints = svg
+        .querySelector(":scope > polygon")!
+        .getAttribute("points");
+      updateCanvasPolygonSvgGeometry(svg, kind, 160, 60);
+
+      expect(svg.getAttribute("viewBox")).toBe("0 0 160 60");
+      const resizedPoints = svg
+        .querySelector(":scope > polygon")!
+        .getAttribute("points");
+      expect(resizedPoints).not.toBe(initialPoints);
+      expect(resizedPoints?.split(" ")[0]).toBe("80,0");
+    },
+  );
+
+  it.each(["polygon", "star"] as const)(
+    "updates %s path data and editable points when an inserted path is resized",
+    (kind) => {
+      const svg = new DOMParser()
+        .parseFromString(
+          '<svg xmlns="http://www.w3.org/2000/svg"><path /></svg>',
+          "image/svg+xml",
+        )
+        .querySelector<SVGSVGElement>("svg")!;
+
+      updateCanvasPolygonSvgGeometry(svg, kind, 100, 100);
+      const initialPath = svg.querySelector(":scope > path")!.getAttribute("d");
+      updateCanvasPolygonSvgGeometry(svg, kind, 160, 60);
+
+      expect(svg.getAttribute("viewBox")).toBe("0 0 160 60");
+      expect(svg.querySelector(":scope > path")!.getAttribute("d")).not.toBe(
+        initialPath,
+      );
+      const resized = parsePenNodes(svg.getAttribute("data-an-pen-nodes")!);
+      expect(resized?.closed).toBe(true);
+      expect(resized?.nodes).toHaveLength(kind === "polygon" ? 3 : 10);
+      expect(resized?.nodes[0]?.point).toEqual({ x: 80, y: 0 });
+    },
+  );
+});
+
+describe("reopening and reclosing a pen path", () => {
+  const svgHtml = (fill: string, stroke: string, extra = "") =>
+    `<!doctype html><html><body><svg data-agent-native-node-id="pen-1" ` +
+    `data-an-primitive="path" viewBox="0 0 10 10" ` +
+    `style="position:absolute;left:0px;top:0px;width:10px;height:10px" ${extra}>` +
+    `<path d="M 0 0 L 10 0 L 5 10 Z" fill="${fill}" stroke="${stroke}"/></svg></body></html>`;
+
+  const openPath: PenPath = {
+    closed: false,
+    nodes: [
+      createCornerNode({ x: 0, y: 0 }),
+      createCornerNode({ x: 10, y: 0 }),
+      createCornerNode({ x: 5, y: 10 }),
+    ],
+  };
+  const closedPath: PenPath = { ...openPath, closed: true };
+  const extendedClosedPath: PenPath = {
+    closed: true,
+    nodes: [
+      createCornerNode({ x: -20, y: -15 }),
+      createCornerNode({ x: 40, y: -15 }),
+      createCornerNode({ x: 10, y: 35 }),
+    ],
+  };
+
+  const alignOutside = (content: string) => {
+    const result = applyVisualEdit(content, {
+      kind: "style",
+      target: { nodeId: "pen-1" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+    });
+    expect(result.result.status).toBe("applied");
+    return result.content;
+  };
+
+  const pathAttributes = (html: string) => {
+    const path = new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector("path");
+    if (!path) throw new Error("no <path>");
+    return {
+      fill: path.getAttribute("fill"),
+      stroke: path.getAttribute("stroke"),
+    };
+  };
+
+  it("drops the stroke it added for visibility when the path closes again", () => {
+    const reopened = writeBackVectorEditedPenPath(
+      svgHtml("rgb(218 218 218)", "none"),
+      "pen-1",
+      openPath,
+    );
+    if (!reopened) throw new Error("pen path reopen did not commit");
+    expect(pathAttributes(reopened)).toEqual({
+      fill: "rgb(218 218 218)",
+      stroke: "#000000",
+    });
+    const reopenedPath = new DOMParser()
+      .parseFromString(reopened, "text/html")
+      .querySelector("path")!;
+    expect(reopenedPath.getAttribute("fill-opacity")).toBeNull();
+    expect(reopenedPath.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(reopenedPath.style.getPropertyPriority("fill-opacity")).toBe(
+      "important",
+    );
+
+    const reclosed = writeBackVectorEditedPenPath(
+      reopened,
+      "pen-1",
+      closedPath,
+    );
+    if (!reclosed) throw new Error("pen path reclose did not commit");
+    expect(pathAttributes(reclosed)).toEqual({
+      fill: "rgb(218 218 218)",
+      stroke: "none",
+    });
+  });
+
+  it("paints a kept fill only while the path is closed", () => {
+    const reopened = writeBackVectorEditedPenPath(
+      svgHtml("none", "#000000").replace(
+        "<path ",
+        '<path style="fill: #ff0000" ',
+      ),
+      "pen-1",
+      openPath,
+    );
+    if (!reopened) throw new Error("reopen did not commit");
+    const openEl = new DOMParser()
+      .parseFromString(reopened, "text/html")
+      .querySelector("path")!;
+    expect(openEl.getAttribute("fill-opacity")).toBeNull();
+    expect(openEl.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(openEl.style.getPropertyPriority("fill-opacity")).toBe("important");
+    expect(openEl.style.fill).toBe("#ff0000");
+    const reclosed = writeBackVectorEditedPenPath(
+      reopened,
+      "pen-1",
+      closedPath,
+    );
+    if (!reclosed) throw new Error("reclose did not commit");
+    const closedEl = new DOMParser()
+      .parseFromString(reclosed, "text/html")
+      .querySelector("path")!;
+    expect(closedEl.getAttribute("fill-opacity")).toBeNull();
+  });
+
+  it("keeps a stroke-only pen path unfilled when it closes", () => {
+    const content = svgHtml("none", "#000000").replace(
+      'd="M 0 0 L 10 0 L 5 10 Z"',
+      'd="M 0 0 L 10 0 L 5 10"',
+    );
+    const closed = writeBackVectorEditedPenPath(content, "pen-1", closedPath);
+    if (!closed) throw new Error("pen path close did not commit");
+    expect(pathAttributes(closed)).toEqual({ fill: "none", stroke: "#000000" });
+  });
+
+  it("keeps a stroke the user chose when the path closes", () => {
+    const reclosed = writeBackVectorEditedPenPath(
+      svgHtml("none", "#ff0000"),
+      "pen-1",
+      closedPath,
+    );
+    if (!reclosed) throw new Error("pen path reclose did not commit");
+    expect(pathAttributes(reclosed).stroke).toBe("#ff0000");
+  });
+
+  it("restores SVG overflow when reopening an outside-aligned path", () => {
+    const content = svgHtml(
+      "rgb(218 218 218)",
+      "none",
+      'data-an-vector-stroke-position="outside" data-an-vector-stroke-original-overflow="hidden" data-an-vector-stroke-original-overflow-priority="important"',
+    ).replace(
+      "</svg>",
+      '<defs data-an-vector-stroke-defs></defs><use data-an-vector-stroke-overlay data-an-vector-logical-width="4" style="stroke:#ff0000;stroke-width:8px"></use></svg>',
+    );
+
+    const reopened = writeBackVectorEditedPenPath(content, "pen-1", openPath);
+    if (!reopened)
+      throw new Error("outside-aligned path reopen did not commit");
+    const svg = new DOMParser()
+      .parseFromString(reopened, "text/html")
+      .querySelector("svg");
+
+    expect(svg?.style.getPropertyValue("overflow")).toBe("hidden");
+    expect(svg?.style.getPropertyPriority("overflow")).toBe("important");
+    expect(svg?.hasAttribute("data-an-vector-stroke-original-overflow")).toBe(
+      false,
+    );
+    expect(
+      svg?.hasAttribute("data-an-vector-stroke-original-overflow-priority"),
+    ).toBe(false);
+    expect(
+      svg?.querySelector(
+        ":scope > defs[data-an-vector-stroke-defs], :scope > use[data-an-vector-stroke-overlay]",
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps hidden overflow visible while a closed outside stroke is mounted", () => {
+    const source = new DOMParser().parseFromString(
+      svgHtml("rgb(218 218 218)", "#ff0000"),
+      "text/html",
+    );
+    const sourceSvg = source.querySelector("svg");
+    if (!sourceSvg) throw new Error("pen SVG fixture did not parse");
+    sourceSvg.style.setProperty("overflow", "hidden", "important");
+    expect(sourceSvg.style.getPropertyValue("overflow")).toBe("hidden");
+    expect(sourceSvg.style.getPropertyPriority("overflow")).toBe("important");
+
+    const content = alignOutside(
+      `<!DOCTYPE html>\n${source.documentElement.outerHTML}`,
+    );
+
+    const edited = writeBackVectorEditedPenPath(content, "pen-1", closedPath);
+    if (!edited) throw new Error("outside-aligned path edit did not commit");
+    const svg = new DOMParser()
+      .parseFromString(edited, "text/html")
+      .querySelector("svg");
+
+    expect(svg?.style.getPropertyValue("overflow")).toBe("visible");
+    expect(svg?.getAttribute("data-an-vector-stroke-original-overflow")).toBe(
+      "hidden",
+    );
+    expect(
+      svg?.getAttribute("data-an-vector-stroke-original-overflow-priority"),
+    ).toBe("important");
+    expect(
+      svg?.querySelectorAll(":scope > use[data-an-vector-stroke-overlay]"),
+    ).toHaveLength(1);
+  });
+
+  it("rebuilds outside mask bounds after a closed edit extends the path", () => {
+    const content = alignOutside(svgHtml("rgb(218 218 218)", "#ff0000"));
+
+    const edited = writeBackVectorEditedPenPath(
+      content,
+      "pen-1",
+      extendedClosedPath,
+    );
+    if (!edited) throw new Error("extended outside path edit did not commit");
+    const doc = new DOMParser().parseFromString(edited, "text/html");
+    const svg = doc.querySelector("svg");
+    const mask = svg?.querySelector("mask");
+    const viewBox = svg?.getAttribute("viewBox")?.split(/[ ,]+/).map(Number);
+    if (!mask || !viewBox || viewBox.length !== 4) {
+      throw new Error("outside stroke mask or updated viewBox missing");
+    }
+    const [viewX, viewY, viewWidth, viewHeight] = viewBox;
+    const maskX = Number(mask.getAttribute("x"));
+    const maskY = Number(mask.getAttribute("y"));
+    const maskWidth = Number(mask.getAttribute("width"));
+    const maskHeight = Number(mask.getAttribute("height"));
+
+    expect(maskX + (maskWidth - viewWidth!) / 2).toBeCloseTo(viewX!);
+    expect(maskY + (maskHeight - viewHeight!) / 2).toBeCloseTo(viewY!);
+    expect(
+      svg?.querySelectorAll(":scope > defs[data-an-vector-stroke-defs]"),
+    ).toHaveLength(1);
+    expect(
+      svg?.querySelectorAll(":scope > use[data-an-vector-stroke-overlay]"),
+    ).toHaveLength(1);
+  });
+
+  it("removes every direct generated pair when reopening and keeps overlay paint", () => {
+    const content = svgHtml(
+      "rgb(218 218 218)",
+      "#ff0000",
+      'data-an-vector-stroke-position="outside"',
+    ).replace(
+      "</svg>",
+      '<defs data-an-vector-stroke-defs></defs><use data-an-vector-stroke-overlay data-an-vector-logical-width="4" style="stroke:#00ff00;stroke-width:8px;stroke-dashoffset:3px;stroke-miterlimit:7"></use><defs data-an-vector-stroke-defs></defs><use data-an-vector-stroke-overlay data-an-vector-logical-width="4" style="stroke:#0000ff;stroke-width:8px;stroke-dashoffset:5px;stroke-miterlimit:9"></use></svg>',
+    );
+
+    const reopened = writeBackVectorEditedPenPath(content, "pen-1", openPath);
+    if (!reopened) throw new Error("duplicate overlay cleanup did not commit");
+    const doc = new DOMParser().parseFromString(reopened, "text/html");
+    const svg = doc.querySelector("svg");
+    const path = svg?.querySelector("path");
+
+    expect(path?.style.getPropertyValue("stroke")).toBe("#00ff00");
+    expect(path?.style.getPropertyValue("stroke-dashoffset")).toBe("3px");
+    expect(path?.style.getPropertyValue("stroke-miterlimit")).toBe("7");
+    expect(
+      svg?.querySelectorAll(
+        ":scope > defs[data-an-vector-stroke-defs], :scope > use[data-an-vector-stroke-overlay]",
+      ),
+    ).toHaveLength(0);
+  });
+});
+
+describe("arrow paint target", () => {
+  it("is the shaft, not the arrowhead buried in <defs>", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "arrow",
+      nodeId: "arrow-1",
+      geometry: { x: 0, y: 0, width: 100, height: 40 },
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 40 },
+      ],
+    });
+    const svg = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector("svg[data-an-primitive='arrow']");
+    if (!svg) throw new Error("no arrow svg");
+
+    const shaft = svg.querySelector(
+      ":scope > path, :scope > polygon, :scope > ellipse, :scope > rect, :scope > line, :scope > polyline",
+    );
+    expect(shaft?.getAttribute("marker-end")).toBe(
+      "url(#arrow-1-vector-marker-end)",
+    );
+    expect(svg.querySelector("defs path")).not.toBe(shaft);
+  });
+
+  it("renders independent endpoint markers and keeps their style values on the wrapper", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "line",
+      nodeId: "line-1",
+      geometry: { x: 0, y: 0, width: 100, height: 40 },
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 40 },
+      ],
+      startPoint: "diamond",
+      endPoint: "circle",
+      stroke: "#12ab34",
+      strokeWidth: 3,
+    });
+    const doc = new DOMParser().parseFromString(html ?? "", "text/html");
+    const svg = doc.querySelector("svg[data-agent-native-node-id='line-1']");
+    const path = svg?.querySelector(":scope > path");
+    expect(svg?.getAttribute("style")).toContain(
+      `${VECTOR_START_ENDPOINT_PROPERTY}:diamond`,
+    );
+    expect(svg?.getAttribute("style")).toContain(
+      `${VECTOR_END_ENDPOINT_PROPERTY}:circle`,
+    );
+    expect(path?.getAttribute("marker-start")).toBe(
+      "url(#line-1-vector-marker-start)",
+    );
+    expect(path?.getAttribute("marker-end")).toBe(
+      "url(#line-1-vector-marker-end)",
+    );
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='start'] path")
+        ?.getAttribute("stroke"),
+    ).toBe("context-stroke");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='end'] circle")
+        ?.getAttribute("stroke"),
+    ).toBe("context-stroke");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='start']")
+        ?.getAttribute("orient"),
+    ).toBe("auto-start-reverse");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='start']")
+        ?.getAttribute("refX"),
+    ).toBe("8");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='end']")
+        ?.getAttribute("orient"),
+    ).toBe("auto");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='end']")
+        ?.getAttribute("refX"),
+    ).toBe("8");
+  });
+
+  it("anchors reversed triangles at their tip in source markup", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "line",
+      nodeId: "line-reversed",
+      geometry: { x: 0, y: 0, width: 100, height: 40 },
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 40 },
+      ],
+      startPoint: "reversed-triangle",
+      endPoint: "reversed-triangle",
+    });
+    const svg = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector("svg");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='start']")
+        ?.getAttribute("refX"),
+    ).toBe("0");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='end']")
+        ?.getAttribute("refX"),
+    ).toBe("0");
+  });
+
+  it.each([
+    "none",
+    "round",
+    "square",
+    "line",
+    "triangle",
+    "reversed-triangle",
+    "circle",
+    "diamond",
+  ] as const)("renders the %s endpoint style", (endpoint) => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "line",
+      nodeId: `line-${endpoint}`,
+      geometry: { x: 0, y: 0, width: 100, height: 40 },
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 40 },
+      ],
+      startPoint: endpoint,
+      endPoint: endpoint,
+    });
+    const svg = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector("svg");
+    const path = svg?.querySelector(":scope > path");
+    if (endpoint === "none") {
+      expect(path?.hasAttribute("marker-start")).toBe(false);
+      expect(path?.hasAttribute("marker-end")).toBe(false);
+      return;
+    }
+    expect(svg?.querySelectorAll("marker")).toHaveLength(2);
+    expect(path?.getAttribute("marker-start")).toContain("vector-marker-start");
+    expect(path?.getAttribute("marker-end")).toContain("vector-marker-end");
+  });
+
+  it("reassigns node IDs and marker URL references together on duplication", async () => {
+    const { reassignDuplicatedNodeIds } =
+      await import("./canvas-primitive-insert");
+    const copied = reassignDuplicatedNodeIds(
+      '<svg data-agent-native-node-id="line-1"><defs><marker id="line-1-vector-marker-end"/></defs><path marker-end="url(#line-1-vector-marker-end)"/></svg>',
+    );
+    const nextId = /data-agent-native-node-id="([^"]+)"/.exec(copied)?.[1];
+    expect(nextId).toBeTruthy();
+    expect(copied).toContain(`id="${nextId}-vector-marker-end"`);
+    expect(copied).toContain(`url(#${nextId}-vector-marker-end)`);
+  });
+
+  it("rekeys sanitized marker IDs when duplicating a punctuated node ID", async () => {
+    const { reassignDuplicatedNodeIds } =
+      await import("./canvas-primitive-insert");
+    const copied = reassignDuplicatedNodeIds(
+      '<svg data-agent-native-node-id="line.1"><defs><marker id="line-1-vector-marker-end"/></defs><path marker-end="url(#line-1-vector-marker-end)"/></svg>',
+    );
+    const nextId = /data-agent-native-node-id="([^"]+)"/.exec(copied)?.[1];
+    expect(nextId).toBeTruthy();
+    expect(copied).not.toContain('id="line-1-vector-marker-end"');
+    expect(copied).toContain(`id="${nextId}-vector-marker-end"`);
+    expect(copied).toContain(`url(#${nextId}-vector-marker-end)`);
+  });
+
+  it("keeps marker IDs distinct when node IDs sanitize to the same value", () => {
+    expect(vectorEndpointMarkerId("a.b", "end")).not.toBe(
+      vectorEndpointMarkerId("a-b", "end"),
+    );
+  });
+
+  it.each(["path", "line", "arrow"] as const)(
+    "recognizes %s as a live endpoint primitive",
+    (kind) => {
+      expect(isVectorEndpointPrimitiveKind(kind)).toBe(true);
+    },
+  );
+
+  it.each(["polygon", "star", "rect", "ellipse", "circle", "boolean"])(
+    "keeps %s out of live endpoint primitives",
+    (kind) => {
+      expect(isVectorEndpointPrimitiveKind(kind)).toBe(false);
+    },
+  );
+});
+
+describe("appendCanvasPrimitiveToHtml fill survives a source-based computedStyles refresh", () => {
+  it("an ellipse's background survives cssStyleAliases as backgroundColor", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+      kind: "ellipse",
+      nodeId: "lens",
+      geometry: { x: 0, y: 0, width: 16, height: 16 },
+    });
+    const el = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector('[data-an-primitive="ellipse"]');
+    if (!el) throw new Error("no ellipse element");
+    const rawStyles = parseInlineStyleAttribute(el.getAttribute("style"));
+    const aliased = cssStyleAliases(rawStyles);
+    expect(aliased.backgroundColor).toBeTruthy();
+  });
+
+  it("a rectangle's background survives cssStyleAliases as backgroundColor", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+      kind: "rectangle",
+      nodeId: "box",
+      geometry: { x: 0, y: 0, width: 100, height: 100 },
+    });
+    const el = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector('[data-an-primitive="rectangle"]');
+    if (!el) throw new Error("no rectangle element");
+    const rawStyles = parseInlineStyleAttribute(el.getAttribute("style"));
+    const aliased = cssStyleAliases(rawStyles);
+    expect(aliased.backgroundColor).toBeTruthy();
+  });
+});
+
+describe("cssStyleAliases border and outline shorthands", () => {
+  it("expands an authored border into the longhands the Stroke section reads", () => {
+    const aliased = cssStyleAliases({ border: "1px solid #f08989" });
+    expect(aliased.borderWidth).toBe("1px");
+    expect(aliased.borderStyle).toBe("solid");
+    expect(aliased.borderColor).toBeTruthy();
+  });
+
+  it("keeps an outline with style none unpainted", () => {
+    const aliased = cssStyleAliases({ outline: "#ff6666 none 9px" });
+    expect(aliased.outlineStyle).toBe("none");
   });
 });

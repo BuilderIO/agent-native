@@ -1,7 +1,6 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
-  AppProviders,
   createAgentNativeQueryClient,
   useDbSync,
 } from "@agent-native/core/client/hooks";
@@ -9,15 +8,14 @@ import {
   enterStyleEditing as coreEnterStyleEditing,
   enterTextEditing as coreEnterTextEditing,
   exitSelectionMode as coreExitSelectionMode,
+  getEmbedAuthToken,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { getLocaleInitScript } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
-import { registerFirstRunOnboardingExtension } from "@agent-native/core/client/onboarding";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -38,65 +36,62 @@ import {
   type EditorCommandGroup,
 } from "@/components/editor/editor-command-model";
 import { Layout as AppLayout } from "@/components/layout/Layout";
-import { FirstDeckOnboardingFlow } from "@/components/onboarding/FirstDeckOnboardingFlow";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
-import { DeckProvider } from "@/context/DeckContext";
+import { DeckProvider, deckIdFromPathname } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
+import "@/lib/register-chat-renderers";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
 
-registerFirstRunOnboardingExtension({
-  id: "slides-first-deck",
-  component: FirstDeckOnboardingFlow,
-});
-
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "agent-native-slides",
+    app_name: "slides",
+    template_name: "slides",
   }),
 });
 
-/** Routes that render without the app shell (sidebar + AgentSidebar) */
 const BARE_ROUTES = new Set(["/slide"]);
-/** Route prefixes that render without the app shell */
 const BARE_PREFIXES = ["/share/", "/p/"];
 
-/**
- * Routes that serve deck content to any visitor — owner, teammate, or an
- * anonymous recipient of a shared link — rather than an app-management
- * surface. `/deck/:id` renders the full editor shell (so it's not "bare"
- * above: viewers still get chrome, just read-only), but it must never force
- * sign-in or gate on first-run onboarding, or a shared link flashes the deck
- * and then buries it under "create your first deck" (the onboarding gate has
- * no route awareness of its own — see `sessionBypass` below). `/present` is
- * the full-screen presentation view and `/slide` is the agent-embed preview;
- * both are shown to viewers the same way.
- */
-export function isShareableContentPath(pathname: string): boolean {
+export function isBareContentPath(pathname: string): boolean {
+  const normalizedPath = pathname.replace(/\/+$/, "");
   return (
-    BARE_ROUTES.has(pathname) ||
+    BARE_ROUTES.has(normalizedPath) ||
     BARE_PREFIXES.some((p) => pathname.startsWith(p)) ||
-    pathname.startsWith("/deck/") ||
-    pathname.endsWith("/present")
+    normalizedPath.endsWith("/present")
   );
+}
+
+export function isDeckEditorPath(pathname: string): boolean {
+  const normalizedPath = pathname.replace(/\/+$/, "");
+  return pathname.startsWith("/deck/") && !normalizedPath.endsWith("/present");
+}
+
+export function computeSessionBypass(pathname: string): boolean {
+  return (
+    isBareContentPath(pathname) ||
+    (isDeckEditorPath(pathname) && Boolean(getEmbedAuthToken()))
+  );
+}
+
+function isPrivateDeckEditorPath(pathname: string): boolean {
+  return isDeckEditorPath(pathname) && !isBareContentPath(pathname);
 }
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
 
-// Key forces DeckProvider remount when code changes (HMR)
 const DECK_KEY = 3;
 
-/** Track whether we (the app) put the user into selection mode via a slide click */
 let weEnteredSelectionMode = false;
 
-/** Helper to send selection mode messages and track state */
 export function enterSelectionMode(
   type: "agentNative.enterStyleEditing" | "agentNative.enterTextEditing",
   data: { selector: string },
@@ -206,6 +201,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 function AppContent() {
   useExitSelectionOnOutsideClick();
   useNavigationState();
+  const location = useLocation();
   const qc = useQueryClient();
   useDbSync({
     queryClient: qc,
@@ -217,14 +213,33 @@ function AppContent() {
       "env-status",
     ],
     ignoreSource: TAB_ID,
+    realtime: isPrivateDeckEditorPath(location.pathname)
+      ? { reason: "other collaborators can edit this deck while it is open" }
+      : undefined,
+    pauseWhenHidden: true,
   });
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
   const navigate = useNavigate();
-  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
-  const location = useLocation();
+  const handleCommandMenuShortcut = useCallback(() => {
+    setCmdkOpen(true);
+  }, []);
+  const shouldHandleContentEditableCommandMenuShortcut = useCallback(
+    (event: KeyboardEvent) =>
+      location.pathname !== "/home" &&
+      !(
+        event.target instanceof Element &&
+        event.target.closest('[data-editing-block="true"]')
+      ),
+    [location.pathname],
+  );
+  useCommandMenuShortcut(handleCommandMenuShortcut, {
+    allowContentEditable: true,
+    shouldHandleContentEditable: shouldHandleContentEditableCommandMenuShortcut,
+  });
+  const isDeckEditor = isDeckEditorPath(location.pathname);
   const editorCommands = getEditorCommands();
   const editorCommandGroups: Array<{
     id: EditorCommandGroup;
@@ -237,31 +252,46 @@ function AppContent() {
     { id: "other", heading: t("editorToolbar.more") },
   ];
 
-  const isBare =
-    BARE_ROUTES.has(location.pathname) ||
-    BARE_PREFIXES.some((p) => location.pathname.startsWith(p)) ||
-    location.pathname.endsWith("/present");
+  const isBare = isBareContentPath(location.pathname);
 
-  if (isBare) {
-    return (
-      <DeckProvider key={DECK_KEY}>
-        <Outlet />
-      </DeckProvider>
-    );
-  }
-
-  return (
+  const content = isBare ? (
+    <DeckProvider key={DECK_KEY} realtimeEnabled={false}>
+      <Outlet />
+    </DeckProvider>
+  ) : (
     <>
       <CommandMenu
         open={cmdkOpen}
         onOpenChange={setCmdkOpen}
         changelog={changelog}
         changelogKey="slides"
+        chatStorageKey="slides"
       >
         <CommandMenu.Group heading={t("root.commandPresentations")}>
-          <CommandMenu.Item onSelect={() => {}}>
-            {t("root.searchDecks")}
-          </CommandMenu.Item>
+          {location.pathname !== "/templates" ? (
+            <CommandMenu.Item onSelect={() => navigate("/templates")}>
+              {t("templatesPage.title")}
+            </CommandMenu.Item>
+          ) : (
+            <CommandMenu.Item onSelect={() => navigate("/home")}>
+              {t("navigation.decks")}
+            </CommandMenu.Item>
+          )}
+          {isDeckEditor ? (
+            <CommandMenu.Item onSelect={() => navigate("/home")}>
+              {t("navigation.decks")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname === "/home" ? (
+            <CommandMenu.Item onSelect={() => navigate("/design-systems")}>
+              {t("navigation.designSystems")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname.startsWith("/design-systems") ? (
+            <CommandMenu.Item onSelect={() => navigate("/home")}>
+              {t("navigation.decks")}
+            </CommandMenu.Item>
+          ) : null}
           <CommandMenu.Item
             onSelect={() => navigate("/settings/agent")}
             keywords={["agent", "context", "connections", "jobs", "access"]}
@@ -308,13 +338,19 @@ function AppContent() {
           </CommandMenu.Item>
         </CommandMenu.Group>
       </CommandMenu>
-      <DeckProvider key={DECK_KEY}>
+      <DeckProvider
+        key={DECK_KEY}
+        realtimeEnabled={isDeckEditor}
+        openDeckId={deckIdFromPathname(location.pathname)}
+      >
         <AppLayout>
           <Outlet />
         </AppLayout>
       </DeckProvider>
     </>
   );
+
+  return content;
 }
 
 export default function Root() {
@@ -329,9 +365,11 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="prompt-library"
         defaultTheme="dark"
         i18n={{ catalog: i18nCatalog }}
-        sessionBypass={isShareableContentPath(location.pathname)}
+        sessionBypass={computeSessionBypass(location.pathname)}
+        skipFirstRunOnboarding={isDeckEditorPath(location.pathname)}
       >
         <AppContent />
       </AppProviders>
@@ -339,4 +377,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

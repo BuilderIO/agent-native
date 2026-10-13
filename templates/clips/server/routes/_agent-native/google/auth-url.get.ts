@@ -4,6 +4,7 @@ import {
   isElectron,
   resolveGoogleSignInCredentials,
   resolveOAuthRedirectUri,
+  wrapNetlifyPreviewGoogleOAuthState,
   registerDesktopExchange,
   prepareDesktopOAuthBrowserBinding,
   safeReturnPath,
@@ -31,9 +32,6 @@ const GOOGLE_IDENTITY_SCOPES = [
 ];
 
 function oauthRedirectResponse(url: string) {
-  // h3 v2 sendRedirect returns an object the framework shim can stringify as
-  // "[object Object]" in production auth-url popups. Native Response stays a
-  // real 302 across the stack.
   return new Response(null, {
     status: 302,
     headers: { Location: url },
@@ -43,7 +41,13 @@ function oauthRedirectResponse(url: string) {
 export default defineEventHandler(async (event: H3Event) => {
   try {
     const q = getQuery(event);
-    const redirectUri = resolveOAuthRedirectUri(event);
+    const redirectUri = resolveOAuthRedirectUri(
+      event,
+      "/_agent-native/google/callback",
+      {
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
+    );
     if (!redirectUri) {
       setResponseStatus(event, 400);
       return {
@@ -56,14 +60,30 @@ export default defineEventHandler(async (event: H3Event) => {
     const owner = session?.email;
     const desktop =
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
+    const calendarConnect =
+      q.calendar === "1" || q.calendar === "true" || q.product === "calendar";
     const flowId =
-      desktop && typeof q.flow_id === "string" ? q.flow_id : undefined;
+      typeof q.flow_id === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(q.flow_id)
+        ? q.flow_id
+        : undefined;
+    const rawOauthTargetId = q.oauth_target_id;
+    if (
+      calendarConnect &&
+      rawOauthTargetId !== undefined &&
+      (typeof rawOauthTargetId !== "string" ||
+        !/^[a-zA-Z0-9_-]{1,128}$/.test(rawOauthTargetId))
+    ) {
+      setResponseStatus(event, 400);
+      return { error: "Invalid calendar account target." };
+    }
+    const oauthTargetId =
+      calendarConnect && typeof rawOauthTargetId === "string"
+        ? rawOauthTargetId
+        : undefined;
     if (getMethod(event) === "POST" && (!desktop || !flowId)) {
       setResponseStatus(event, 400);
       return { error: "Invalid desktop exchange challenge." };
     }
-    const calendarConnect =
-      q.calendar === "1" || q.calendar === "true" || q.product === "calendar";
     const desktopWebview = desktop && q.webview === "1" && !calendarConnect;
     let desktopVerifierHash: string | undefined;
     let desktopBrowserBindingHash: string | undefined;
@@ -78,10 +98,6 @@ export default defineEventHandler(async (event: H3Event) => {
         return { error: "Invalid desktop exchange challenge." };
       }
       try {
-        // The system-browser flow deliberately uses the user's existing
-        // Google cookies. The client-held verifier still gates the exchange
-        // token returned to the initiating Tauri app. Only an in-app WebView
-        // needs the additional browser-partition binding.
         if (desktopWebview) {
           desktopBrowserBindingHash = prepareDesktopOAuthBrowserBinding(event);
           desktopVerifierHash = await registerDesktopExchange(
@@ -129,16 +145,18 @@ export default defineEventHandler(async (event: H3Event) => {
       addAccount: calendarConnect,
       app: CLIPS_GOOGLE_OAUTH_APP_ID,
       returnUrl: desktopWebview ? "/?desktop_auth=complete" : returnUrl,
-      flowId: calendarConnect ? undefined : flowId,
+      flowId,
+      oauthTargetId,
       desktopVerifierHash,
       desktopBrowserBindingHash,
     });
+    const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
 
     const params = new URLSearchParams({
       client_id: credentials.clientId,
       redirect_uri: redirectUri,
       response_type: "code",
-      state,
+      state: oauthState,
     });
 
     if (calendarConnect) {

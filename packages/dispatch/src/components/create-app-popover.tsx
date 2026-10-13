@@ -4,15 +4,16 @@ import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
-import { PromptComposer } from "@agent-native/core/client/composer";
 import { isInBuilderFrame } from "@agent-native/core/client/host";
-import { useBuilderConnectFlow } from "@agent-native/core/client/settings/useBuilderStatus";
 import {
   buildChatFirstAppCreationPrompt,
   docsUrl,
   getWorkspaceAppIdValidationError,
   titleFromChatFirstAppPrompt,
 } from "@agent-native/core/shared";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
+import { BuilderConnectPopover } from "@agent-native/toolkit/app/settings";
+import { useBuilderConnectFlow } from "@agent-native/toolkit/app/settings/useBuilderStatus";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -51,18 +52,8 @@ interface WorkspaceResourceOption {
 type VaultAccessMode = "all-apps" | "manual";
 
 interface CreateAppPopoverProps {
-  /**
-   * Custom trigger element. Defaults to a dashed-border tile that matches the
-   * apps grid empty state.
-   */
   trigger?: ReactNode;
-  /**
-   * Override the popover alignment. Defaults to "center" with a 10px offset.
-   */
   align?: "start" | "center" | "end";
-  /**
-   * Called after the server accepts a Builder app creation request.
-   */
   onCreated?: () => void;
 }
 
@@ -104,11 +95,6 @@ function isErrorFailureReason(reason: string | null): boolean {
   return !!reason && ERROR_FAILURE_REASONS.has(reason);
 }
 
-/**
- * Inline two-step app-creation flow: prompt → optional access picker → submit.
- * Used both in the popover form and in the dedicated `/new-app` page so the
- * same UX shows up everywhere a teammate kicks off a new workspace app.
- */
 export function CreateAppFlow({
   onClose,
   onCreated,
@@ -136,11 +122,9 @@ export function CreateAppFlow({
 
   const basePath = useMemo(() => defaultDispatchBasePath(), []);
 
-  // Enabled only while the connect CTA is on screen. Left always-on, the hook
-  // would poll Builder status on every popover mount and fire onConnected on
-  // its first status read for anyone already connected.
   const connectFlow = useBuilderConnectFlow({
     enabled: failureReason === "builder-not-connected",
+    provisionAccount: true,
     trackingSource: "dispatch_create_app",
     trackingFlow: "create_app",
     onConnected: () => {
@@ -149,7 +133,6 @@ export function CreateAppFlow({
     },
   });
 
-  // Fetch access options eagerly so step 2 has them ready immediately.
   useEffect(() => {
     let cancelled = false;
     fetchJson(actionUrl(basePath, "list-vault-secret-options"))
@@ -380,13 +363,14 @@ export function CreateAppFlow({
           </div>
           <PromptComposer
             autoFocus
+            requireAgentEngine
             disabled={isSubmitting}
             placeholder="Describe the app your teammate should be able to use..."
             draftScope="dispatch:create-app"
             preserveDraftOnSubmit
             onSubmit={(text) => {
               setPrompt(text);
-              submit(text);
+              void submit(text);
             }}
           />
         </>
@@ -604,16 +588,19 @@ export function CreateAppFlow({
           </div>
           {failureReason === "builder-not-connected" ? (
             <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => connectFlow.start()}
-                disabled={connectFlow.connecting}
-                className="w-fit"
-              >
-                {connectFlow.connecting ? "Connecting..." : "Connect Builder"}
-              </Button>
+              <BuilderConnectPopover flow={connectFlow}>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={connectFlow.connecting}
+                  className="w-fit"
+                >
+                  {connectFlow.connecting
+                    ? "Setting up Builder.io…"
+                    : "Use Builder.io"}
+                </Button>
+              </BuilderConnectPopover>
               <a
                 href={LOCAL_APP_DOCS_URL}
                 target="_blank"
@@ -668,7 +655,7 @@ export function CreateAppPopover({
       <PopoverContent
         align={align}
         sideOffset={10}
-        className="w-[calc(100vw-2rem)] rounded-xl p-3 shadow-xl sm:w-[460px]"
+        className="relative w-[calc(100vw-2rem)] rounded-xl p-3 shadow-xl sm:w-[460px]"
       >
         <CreateAppFlow onClose={() => setOpen(false)} onCreated={onCreated} />
       </PopoverContent>

@@ -23,12 +23,10 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-// ─── First-party extension catalog ───────────────────────────────────────────
-
 export type DesignExtensionAvailability =
-  | "available" // ships now; can be used immediately
-  | "preview-only" // read / preview possible; write/apply is gated
-  | "planned"; // exists in the plan; not yet implemented
+  | "available"
+  | "preview-only"
+  | "planned";
 
 export interface DesignExtensionCapabilityEntry {
   id: string;
@@ -38,32 +36,18 @@ export interface DesignExtensionCapabilityEntry {
 }
 
 export interface FirstPartyDesignExtension {
-  /** Stable machine identifier — used by run-design-extension-action. */
   id: string;
   name: string;
   description: string;
-  /** Tabler icon name (without the `Icon` prefix). */
   icon: string;
-  /**
-   * Overall availability of this extension.
-   * Individual capabilities may be more restrictive.
-   */
   availability: DesignExtensionAvailability;
-  /** Human-readable availability note shown in the UI. */
   availabilityNote: string;
-  /** Fine-grained capability breakdown. */
   capabilities: DesignExtensionCapabilityEntry[];
-  /** Design Studio actions that power this extension. */
   actions: string[];
-  /**
-   * Whether this extension is registered in the `design.editor.inspector`
-   * extension slot as an installable first-party item.
-   */
   slotId: "design.editor.inspector";
 }
 
 const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
-  // ── 1. Asset Library ─────────────────────────────────────────────────────
   {
     id: "design.asset-library",
     name: "Asset Library",
@@ -120,7 +104,6 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
     slotId: "design.editor.inspector",
   },
 
-  // ── 2. Shader Fills ──────────────────────────────────────────────────────
   {
     id: "design.shader-fills",
     name: "Shader Fills",
@@ -175,7 +158,6 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
     slotId: "design.editor.inspector",
   },
 
-  // ── 3. Token Auditor ─────────────────────────────────────────────────────
   {
     id: "design.token-auditor",
     name: "Token Auditor",
@@ -227,20 +209,21 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
     slotId: "design.editor.inspector",
   },
 
-  // ── 4. Motion Presets ────────────────────────────────────────────────────
   {
     id: "design.motion-presets",
     name: "Motion Presets",
     description:
       "One-click animation presets (fade-in, slide-up, pulse, bounce, spin) that " +
       "apply to the selected node via the motion timeline.  Preview is live; " +
-      "track edits persist to managed CSS atomically.",
+      "inline edits save as managed CSS, and supported localhost React/JSX " +
+      "targets can be written back through the consented source bridge.",
     icon: "PlayerPlay",
     availability: "available",
     availabilityNote:
-      "Motion preview is available for all source types.  Managed CSS persistence " +
-      "(apply-motion-edit) is atomic and available for inline + localhost. Source write-back to real CSS " +
-      "modules remains planned for the fusion tier.",
+      "Motion preview is available for all source types. apply-motion-edit " +
+      "writes inline HTML and can write version-checked, supported localhost " +
+      "React/JSX targets after explicit write consent. Other localhost formats " +
+      "and Fusion source writes are unavailable.",
     capabilities: [
       {
         id: "preview",
@@ -254,15 +237,14 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
         label: "Persist keyframes to managed CSS (apply-motion-edit)",
         status: "available",
         reason:
-          "apply-motion-edit is atomic: persists timeline row + compiled CSS + " +
-          "Yjs/collab update + diff proof in one call.",
+          "Saves inline timelines to managed HTML or writes supported localhost React/JSX targets after a target proof, bridge version check, and explicit user write consent.",
       },
       {
         id: "write-source",
-        label: "Write to real CSS module / motion-react",
+        label: "Generic source-file writeback",
         status: "preview-only",
         reason:
-          "Real-source CSS module write-back is planned for fusion tier after bridge hardening.",
+          "Generic extension source writes remain gated. The dedicated apply-motion-edit path supports only proven, version-checked localhost React/JSX targets after explicit write consent; other localhost formats and Fusion source writes are unavailable.",
       },
     ],
     actions: [
@@ -274,8 +256,6 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
   },
 ];
 
-// ─── Action ──────────────────────────────────────────────────────────────────
-
 export default defineAction({
   description: `
 List the first-party Design Studio extensions with their capability and availability status.
@@ -284,7 +264,7 @@ Returns the four built-in extensions:
   1. Asset Library     — native components, media, and Figma imports (available now).
   2. Shader Fills      — GPU shader fill previews (preview-only; apply is gated).
   3. Token Auditor     — token usage reads + edits (available; source write-back planned).
-  4. Motion Presets    — one-click animation presets (available; source write-back planned).
+  4. Motion Presets    — one-click animation presets (available; version-checked, consented writes to supported localhost React/JSX targets).
 
 Each entry includes the actions that power it so the agent can call them directly.
 Use run-design-extension-action to dispatch an action through the extension surface.

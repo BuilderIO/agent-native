@@ -66,7 +66,9 @@ export function clampCutoutAspectRatio(input: {
   )[0];
 }
 
-export function aspectRatioValue(aspectRatio: AspectRatio | string): number {
+export function aspectRatioValue(
+  aspectRatio: AspectRatio | (string & {}),
+): number {
   const [w, h] = String(aspectRatio)
     .split(":")
     .map((part) => Number(part));

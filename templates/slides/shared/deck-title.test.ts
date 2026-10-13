@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   assertHumanReadableDeckTitle,
+  DEFAULT_IMPORTED_DECK_TITLE,
   deriveDeckTitleFromSlideContent,
+  isGeneratedDeckTitle,
   isOpaqueDeckTitle,
   repairGeneratedDeckTitle,
   resolveImportedDeckTitle,
+  summarizeSlideContent,
 } from "./deck-title";
 
 describe("deck title safeguards", () => {
@@ -13,6 +16,13 @@ describe("deck title safeguards", () => {
     expect(isOpaqueDeckTitle("H3sVsnns-TEVUOpz9w")).toBe(true);
     expect(isOpaqueDeckTitle("Agent-Native Strategy")).toBe(false);
     expect(isOpaqueDeckTitle("Q4 Pipeline Review")).toBe(false);
+    expect(isOpaqueDeckTitle("CPC_2425_A1_reference")).toBe(false);
+  });
+
+  it("recognizes imported placeholders as generated titles", () => {
+    expect(isGeneratedDeckTitle("Imported File")).toBe(true);
+    expect(isGeneratedDeckTitle("Imported Document")).toBe(true);
+    expect(isGeneratedDeckTitle("Imported Presentation")).toBe(true);
   });
 
   it("derives the title from the largest styled text on the title slide", () => {
@@ -33,6 +43,12 @@ describe("deck title safeguards", () => {
 
     expect(deriveDeckTitleFromSlideContent(content)).toBe(
       "Agent-Native Strategy",
+    );
+  });
+
+  it("derives a title from plain source text", () => {
+    expect(deriveDeckTitleFromSlideContent("Q3 FY27 Board Update")).toBe(
+      "Q3 FY27 Board Update",
     );
   });
 
@@ -59,9 +75,15 @@ describe("deck title safeguards", () => {
         '<div style="font-size: 54px;">Agent-Native Strategy</div>',
       ),
     ).toBe("Agent-Native Strategy");
-    expect(resolveImportedDeckTitle("Untitled scene", "<div></div>")).toBe(
-      "Imported File",
+    expect(resolveImportedDeckTitle("Imported File", "<div></div>")).toBe(
+      DEFAULT_IMPORTED_DECK_TITLE,
     );
+    expect(
+      resolveImportedDeckTitle("Imported Document", "Q3 FY27 Board Update"),
+    ).toBe("Q3 FY27 Board Update");
+    expect(
+      resolveImportedDeckTitle("Imported File", "<div></div>", "Board update"),
+    ).toBe("Board update");
     expect(
       resolveImportedDeckTitle(
         "Quarterly Business Review",
@@ -74,5 +96,23 @@ describe("deck title safeguards", () => {
     expect(() => assertHumanReadableDeckTitle("H3sVsnns-TEVUOpz9w")).toThrow(
       /human-readable title/,
     );
+  });
+});
+
+describe("slide content summaries", () => {
+  it("strips slide markup and decodes text for social descriptions", () => {
+    expect(summarizeSlideContent("<h1>Launch</h1><p>A &amp; B</p>")).toBe(
+      "Launch A & B",
+    );
+  });
+
+  it("truncates a long summary at a word boundary", () => {
+    const summary = summarizeSlideContent(
+      `<p>${"Launch plan details ".repeat(12)}</p>`,
+    );
+
+    expect(summary.length).toBeLessThanOrEqual(160);
+    expect(summary.endsWith("…")).toBe(true);
+    expect(summary).not.toContain("details …");
   });
 });

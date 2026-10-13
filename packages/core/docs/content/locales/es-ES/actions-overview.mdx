@@ -166,6 +166,7 @@ reemplaza `actions/hello.ts` o añade un archivo nuevo junto a él:
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Say hello from the local agent.",
   schema: z.object({

@@ -1,12 +1,3 @@
-/**
- * add-deck — insert a deck the browser editor has already created optimistically.
- *
- * The editor mints the deck id client-side (so the optimistic row and its URL
- * are stable before the round trip), which is why this is separate from
- * `create-deck`: that action generates its own id and owns the agent's
- * generation flow. Hidden from the agent — deck creation for the model goes
- * through `create-deck`.
- */
 import { defineAction } from "@agent-native/core/action";
 import {
   getRequestOrgId,
@@ -22,6 +13,10 @@ import {
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
 import {
+  trackDeckCreated,
+  trackDeckCreationStarted,
+} from "./_deck-tracking.js";
+import {
   assertDesignSystemReadable,
   assertValidAspectRatio,
   deckDesignSystemId,
@@ -29,6 +24,7 @@ import {
   deckTitle,
   type DeckPayload,
 } from "./_deck-write.js";
+import { assertNoDeckRenderArtifacts } from "./_render-artifacts.js";
 
 export default defineAction({
   description:
@@ -37,9 +33,17 @@ export default defineAction({
     deck: z
       .record(z.string(), z.unknown())
       .describe("Full deck JSON payload, including its client-generated id"),
+    creationMethod: z
+      .enum(["generated", "import_pdf", "import_docx", "blank", "template"])
+      .optional()
+      .describe("How the deck came to exist; used only for analytics"),
+    purpose: z
+      .enum(["direct", "reference"])
+      .optional()
+      .describe("Whether the user made this deck or it is a reference input"),
   }),
   agentTool: false,
-  run: async (args) => {
+  run: async (args, ctx) => {
     const deck = args.deck as DeckPayload;
     if (Array.isArray(deck.slides)) {
       const normalized = ensureUniqueSlideIds(
@@ -62,6 +66,7 @@ export default defineAction({
       throw deckHttpError(400, "Deck must have an id");
     }
     assertValidAspectRatio(deck);
+    assertNoDeckRenderArtifacts(null, deck);
 
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) {
@@ -89,7 +94,20 @@ export default defineAction({
         updatedAt: now,
       });
 
-    notifyClients(id);
+    const slideCount = Array.isArray(deck.slides) ? deck.slides.length : 0;
+    trackDeckCreated(
+      id,
+      {
+        creationMethod: args.creationMethod ?? "unknown",
+        purpose: args.purpose ?? (args.creationMethod ? "direct" : "unknown"),
+        slideCount,
+        generationContext: deck.generationContext,
+      },
+      ctx,
+    );
+    trackDeckCreationStarted(id, undefined, deck.generationContext, ctx);
+
+    await notifyClients(id);
     return deck;
   },
 });

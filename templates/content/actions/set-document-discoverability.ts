@@ -14,7 +14,7 @@ const booleanArg = z.preprocess((value) => {
   return value;
 }, z.boolean());
 
-async function collectDocumentSubtreeIds({
+export async function collectDocumentSubtreeIds({
   db,
   rootId,
   ownerEmail,

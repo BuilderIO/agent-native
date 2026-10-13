@@ -9,6 +9,7 @@ import {
   reasoningEffortLabel,
   resolveReasoningEffortSelection,
   stepDownReasoningEffort,
+  supportsClaudeAdaptiveThinking,
 } from "./reasoning-effort.js";
 
 describe("supportsClaudeXHigh (via getReasoningEffortOptionsForModel)", () => {
@@ -23,6 +24,27 @@ describe("supportsClaudeXHigh (via getReasoningEffortOptionsForModel)", () => {
   it("includes xhigh for claude-opus-4-7", () => {
     const opts = getReasoningEffortOptionsForModel("claude-opus-4-7");
     expect(opts).toContain("xhigh");
+  });
+
+  it("supports direct GPT-6 and Opus 5.5 reasoning", () => {
+    expect(getReasoningEffortOptionsForModel("gpt-6-sol")).toContain("xhigh");
+    expect(getReasoningEffortOptionsForModel("openai/gpt-6-luna")).toContain(
+      "xhigh",
+    );
+    expect(
+      getReasoningEffortOptionsForModel("anthropic/claude-opus-5.5"),
+    ).toContain("xhigh");
+    expect(supportsClaudeAdaptiveThinking("claude-opus-5-5")).toBe(true);
+  });
+
+  it("supports adaptive xhigh reasoning for Claude Haiku 5.5", () => {
+    expect(getReasoningEffortOptionsForModel("claude-haiku-5-5")).toContain(
+      "xhigh",
+    );
+    expect(supportsClaudeAdaptiveThinking("claude-haiku-5-5")).toBe(true);
+    expect(
+      getReasoningEffortOptionsForModel("anthropic/claude-haiku-5.5"),
+    ).toContain("xhigh");
   });
 
   it("includes xhigh for claude-opus-4-8", () => {
@@ -98,7 +120,6 @@ describe("normalizeReasoningEffortForModel", () => {
   });
 
   it("returns undefined for models that do not support reasoning", () => {
-    // Groq models have no reasoning effort options
     expect(
       normalizeReasoningEffortForModel("llama-3.3-70b-versatile", "high"),
     ).toBeUndefined();
@@ -178,9 +199,11 @@ describe("allowsSamplingParams", () => {
   it("blocks sampling on the Claude families that removed it", () => {
     for (const model of [
       "claude-sonnet-5",
+      "claude-haiku-5-5",
       "claude-opus-4-7",
       "claude-opus-4-8",
       "claude-opus-5",
+      "claude-opus-5-5",
       "claude-fable-5",
       "anthropic/claude-sonnet-5",
     ]) {
@@ -196,6 +219,7 @@ describe("allowsSamplingParams", () => {
       "claude-opus-4-6",
       "claude-sonnet-4-6",
       "gpt-5.6-sol",
+      "gpt-6-sol",
       "gemini-3-1-pro",
     ]) {
       expect(allowsSamplingParams({ model, thinkingEnabled: false })).toBe(

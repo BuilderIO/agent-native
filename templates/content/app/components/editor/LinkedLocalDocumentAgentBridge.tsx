@@ -43,9 +43,16 @@ export function LinkedLocalDocumentAgentBridge({
   onPersisted,
 }: {
   document: Document;
-  getEditorSnapshot(): { title: string; content: string };
-  onPersisted(document: Document, revision?: DesktopContentFileRevision): void;
+  getEditorSnapshot: () => { title: string; content: string };
+  onPersisted: (
+    document: Document,
+    revision?: DesktopContentFileRevision,
+  ) => void;
 }) {
+  const getEditorSnapshotRef = useRef(getEditorSnapshot);
+  getEditorSnapshotRef.current = getEditorSnapshot;
+  const onPersistedRef = useRef(onPersisted);
+  onPersistedRef.current = onPersisted;
   const documentRef = useRef(document);
   documentRef.current = document;
 
@@ -79,7 +86,7 @@ export function LinkedLocalDocumentAgentBridge({
           return { status: "conflict", error: "The open document changed." };
         }
         const editorMatchesExpected = () => {
-          const editor = getEditorSnapshot();
+          const editor = getEditorSnapshotRef.current();
           return (
             editor.content === args.expectedContent &&
             editor.title === args.expectedTitle
@@ -210,7 +217,7 @@ export function LinkedLocalDocumentAgentBridge({
             revision: readBack.revision,
           };
         }
-        onPersisted(readBack.document, readBack.revision);
+        onPersistedRef.current(readBack.document, readBack.revision);
         return {
           status: "persisted",
           content: readBack.document.content,
@@ -239,7 +246,7 @@ export function LinkedLocalDocumentAgentBridge({
       active = false;
       bridge.stop();
     };
-  }, [document.id, getEditorSnapshot, onPersisted]);
+  }, [document.id]);
 
   return null;
 }

@@ -12,6 +12,7 @@ import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveDefaultDesignSystemId } from "../server/workspace-defaults.js";
 
 type EffectiveRole = "owner" | ShareRole;
 
@@ -19,10 +20,6 @@ function canManageRole(role: EffectiveRole) {
   return role === "owner" || role === "admin";
 }
 
-// Mirrors the core access model (assertAccess/resolveAccess), which compares
-// emails with `lower(column) = lowercased-input` so a share or ownership
-// grant survives casing differences between the stored principal and the
-// caller's session email.
 function normalizeEmail(email: string | undefined): string | null {
   const normalized = email?.trim().toLowerCase();
   return normalized || null;
@@ -33,10 +30,28 @@ function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
   return current;
 }
 
+function cachedBuilderDocCount(data: string | null): number | undefined {
+  if (!data) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(data);
+  } catch {
+    // coercion-ok: unparseable row data leaves the count unknown, and
+    // undefined stays distinguishable from a measured zero.
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object") return undefined;
+  const docCount = (parsed as Record<string, unknown>).docCount;
+  return typeof docCount === "number" ? docCount : undefined;
+}
+
 export default defineAction({
   description:
-    "List all design systems accessible to the current user. " +
-    "Returns title, id, and whether each is the default.",
+    "List all design systems accessible to the current user. Returns title, " +
+    "id, and isDefault (true only for the caller's effective default). For a " +
+    "named system, match the exact title and pass its id as designSystemId " +
+    "— or pass the title as `designSystem` on create-deck — then call " +
+    "get-design-system once before authoring.",
   schema: z.object({
     compact: z
       .enum(["true", "false"])
@@ -45,13 +60,16 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
+  mcpApp: { compactCatalog: true },
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args) => {
     const db = getDb();
     const userEmail = normalizeEmail(getRequestUserEmail());
     const orgId = getRequestOrgId();
-    // Project only the columns this list returns. The default path returns
-    // `data`, but neither path returns the heavy `assets` blob — a bare
-    // `.select()` would load it off every row for nothing.
     const rows = await db
       .select({
         id: schema.designSystems.id,
@@ -73,9 +91,10 @@ export default defineAction({
       return { count: 0, designSystems: [] };
     }
 
-    // Resolve every row's role from a single batched shares query instead of
-    // calling resolveAccess() per row, which would re-load each resource and
-    // its shares (N+1) and fan out an unbounded Promise.all as the list grows.
+    const effectiveDefaultId = userEmail
+      ? await resolveDefaultDesignSystemId(userEmail)
+      : null;
+
     const principalClauses: NonNullable<ReturnType<typeof and>>[] = [];
     if (userEmail) {
       principalClauses.push(
@@ -130,13 +149,15 @@ export default defineAction({
       }
       const canManage = canManageRole(role);
 
+      const docCount = cachedBuilderDocCount(row.data);
       if (args.compact === "true") {
         return {
           id: row.id,
           title: row.title,
-          isDefault: row.isDefault,
+          isDefault: row.id === effectiveDefaultId,
           accessRole: role,
           canManage,
+          docCount,
         };
       }
       return {
@@ -144,7 +165,8 @@ export default defineAction({
         title: row.title,
         description: row.description,
         data: row.data,
-        isDefault: row.isDefault,
+        docCount,
+        isDefault: row.id === effectiveDefaultId,
         visibility: row.visibility,
         accessRole: role,
         canManage,

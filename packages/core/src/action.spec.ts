@@ -5,11 +5,18 @@ import {
   defineAction,
   ActionContractError,
   isActionContractError,
+  runActionWithExecutionOutcome,
+  type ActionRunContext,
   AgentActionStopError,
+  AgentConnectionRequiredError,
   isAgentActionStopError,
+  isAgentConnectionRequiredError,
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
+  validateActionArgs,
 } from "./action.js";
+import { loadActionsFromStaticRegistry } from "./server/action-discovery.js";
+import { createUrlTools } from "./server/agent-chat/context-tools.js";
 
 describe("ActionContractError", () => {
   it("carries only explicitly safe structured contract details", () => {
@@ -26,8 +33,6 @@ describe("ActionContractError", () => {
   });
 });
 
-// Uses the legacy `parameters` mode so we don't need to pull in zod as a test
-// dep — the readOnly inference logic is independent of the schema path.
 describe("defineAction", () => {
   it("infers readOnly=true for GET actions", () => {
     const action = defineAction({
@@ -108,8 +113,6 @@ describe("defineAction", () => {
       readOnly: false,
       run: async () => "ok",
     });
-    // Stored as explicit false so the HTTP router / agent dispatcher emit a
-    // refresh event even though the method is GET.
     expect(action.readOnly).toBe(false);
   });
 
@@ -121,6 +124,16 @@ describe("defineAction", () => {
       run: async () => "ok",
     });
     expect(action.parallelSafe).toBe(true);
+  });
+
+  it("preserves explicit endsTurn metadata", () => {
+    const action = defineAction({
+      description: "puts a question form on screen",
+      parameters: { x: { type: "string" } },
+      endsTurn: true,
+      run: async () => "ok",
+    });
+    expect(action.endsTurn).toBe(true);
   });
 
   it("preserves explicit duplicate-read opt-out metadata", () => {
@@ -219,8 +232,6 @@ describe("defineAction", () => {
     expect(inAppOnly.mcpTool).toBe(false);
     expect(inAppOnly.deferLoading).toBe(true);
 
-    // Undefined is a third state both surfaces read — it must not collapse to
-    // the default value here, or the declaration becomes unreadable.
     const plain = defineAction({
       description: "normal action",
       parameters: { id: { type: "string" } },
@@ -231,8 +242,6 @@ describe("defineAction", () => {
   });
 
   it("resolves external exposure from mcpTool, falling back to agentTool", () => {
-    // Inheritance, not a flat default: one flag stays one decision until an
-    // action says otherwise.
     expect(isActionExposedToExternalAgents({})).toBe(true);
     expect(isActionExposedToExternalAgents({ agentTool: false })).toBe(false);
     expect(isActionExposedToExternalAgents({ mcpTool: false })).toBe(false);
@@ -243,8 +252,17 @@ describe("defineAction", () => {
       isActionExposedToExternalAgents({ agentTool: true, mcpTool: false }),
     ).toBe(false);
 
-    // The runtime backstop refuses only what no surface may run, so an
-    // MCP-only action stays callable through the external registries.
+    expect(isActionExposedToExternalAgents({ endsTurn: true })).toBe(false);
+    expect(
+      isActionExposedToExternalAgents({ uiOnly: true, mcpTool: true }),
+    ).toBe(false);
+    expect(
+      isActionExposedToExternalAgents({ endsTurn: true, agentTool: true }),
+    ).toBe(false);
+    expect(
+      isActionExposedToExternalAgents({ endsTurn: true, mcpTool: true }),
+    ).toBe(true);
+
     expect(isActionHiddenFromEveryAgentSurface({ agentTool: false })).toBe(
       true,
     );
@@ -252,6 +270,24 @@ describe("defineAction", () => {
       isActionHiddenFromEveryAgentSurface({ agentTool: false, mcpTool: true }),
     ).toBe(false);
     expect(isActionHiddenFromEveryAgentSurface({ mcpTool: false })).toBe(false);
+    expect(isActionHiddenFromEveryAgentSurface({ uiOnly: true })).toBe(true);
+  });
+
+  it("requires the frontend caller for UI-only actions", async () => {
+    const run = vi.fn(async () => "ok");
+    const action = defineAction({
+      description: "delete data",
+      parameters: {},
+      uiOnly: true,
+      run,
+    });
+
+    await expect(action.run({}, { caller: "tool" })).rejects.toMatchObject({
+      errorCode: "ui_only_action",
+      statusCode: 403,
+    });
+    await expect(action.run({}, { caller: "frontend" })).resolves.toBe("ok");
+    expect(run).toHaveBeenCalledOnce();
   });
 
   it("preserves valid MCP Apps resource metadata", () => {
@@ -274,6 +310,17 @@ describe("defineAction", () => {
     });
   });
 
+  it("preserves an action title for WebMCP and MCP hosts", () => {
+    const action = defineAction({
+      title: "Review draft",
+      description: "review draft",
+      parameters: {},
+      run: async () => "ok",
+    });
+
+    expect(action.tool.title).toBe("Review draft");
+  });
+
   it("drops malformed MCP Apps config", () => {
     const action = defineAction({
       description: "bad ui",
@@ -288,7 +335,6 @@ describe("defineAction", () => {
     const action = defineAction({
       description: "wrong-typed metadata",
       parameters: {},
-      // arrays and non-functions must be rejected, not threaded through
       publicAgent: ["expose"] as any,
       link: "not-a-function" as any,
       mcpApp: { resource: [] } as any,
@@ -393,9 +439,6 @@ describe("defineAction", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Schema mode — JSON Schema conversion for the Claude API tool definition.
-// ---------------------------------------------------------------------------
 describe("defineAction schema mode — tool parameter JSON Schema", () => {
   it("converts a zod object into a JSON Schema with required vs optional fields", () => {
     const action = defineAction({
@@ -411,15 +454,12 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     const params = action.tool.parameters;
     expect(params.type).toBe("object");
     expect(params.properties.title).toMatchObject({ type: "string" });
-    // status has a default → must NOT be required; optional field also not required.
     expect(params.required).toEqual(["title"]);
-    // enum values surface as a string enum.
     expect(params.properties.status.enum).toEqual([
       "draft",
       "published",
       "closed",
     ]);
-    // description from .describe() is carried through.
     expect(params.properties.title.description).toBe("Form title");
   });
 
@@ -453,17 +493,10 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       run: async () => "ok",
     });
     const params = action.tool.parameters as any;
-    // The structural `propertyNames` keyword on the record is stripped…
     expect("propertyNames" in params.properties.cfg).toBe(false);
-    // …but the identically-named key inside the default *data* survives.
     expect(params.properties.cfg.default).toEqual({ propertyNames: "x" });
   });
 
-  // OpenAI answers a `oneOf` anywhere in a function schema with
-  // "Invalid schema for function 'x': ... 'oneOf' is not permitted" and 400s
-  // the whole request before a token streams. Zod emits `oneOf` for every
-  // discriminated union, so this was 178k errors across 786 users over seven
-  // weeks from one action.
   it("rewrites oneOf to anyOf so OpenAI does not reject the function schema", () => {
     const action = defineAction({
       description: "with a discriminated union",
@@ -505,9 +538,6 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     expect(inner.anyOf).toHaveLength(3);
   });
 
-  // OpenAI rejects a schema position with no `type` — "schema must have a
-  // 'type' key" — and 400s the whole request, exactly like `oneOf` did. This
-  // surfaced only after the oneOf fix let the validator reach the next layer.
   it("gives z.unknown() a typed value union so OpenAI accepts it", () => {
     const action = defineAction({
       description: "typeless field",
@@ -534,7 +564,6 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     }
   });
 
-  // An enum carries its own shape; adding a value union would widen it.
   it("leaves an enum-only schema alone", () => {
     const action = defineAction({
       description: "enum field",
@@ -557,18 +586,12 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// agentInputSchema — advertised-only schema override. Lets an action swap in
-// a compact JSON Schema for the tool definition shown to the model/MCP/A2A
-// listings while runtime validation keeps enforcing the full `schema`.
-// ---------------------------------------------------------------------------
 describe("defineAction schema mode — agentInputSchema (advertised-only override)", () => {
   it("advertises the compact schema instead of the full schema", () => {
     const action = defineAction({
       description: "create widget",
       schema: z.object({
         title: z.string(),
-        // Pretend this is a deep block-type union like the plan actions.
         blocks: z.array(
           z.discriminatedUnion("type", [
             z.object({
@@ -600,10 +623,7 @@ describe("defineAction schema mode — agentInputSchema (advertised-only overrid
     });
 
     const params = action.tool.parameters as any;
-    // Top-level shape survives (both fields still present, title required).
     expect(params.required).toEqual(["title", "blocks"]);
-    // The advertised `blocks` items only carry `type`, not the full union's
-    // nested `data` fields — this is what keeps the request small.
     const blockItemProps = params.properties.blocks.items.properties;
     expect(Object.keys(blockItemProps)).toEqual(["type"]);
     expect(blockItemProps.type.enum).toEqual(["a", "b"]);
@@ -624,13 +644,11 @@ describe("defineAction schema mode — agentInputSchema (advertised-only overrid
       run,
     });
 
-    // …but a call missing `count` still fails full-schema validation.
     await expect(action.run({ title: "x" } as any)).rejects.toThrow(
       /Missing required parameter.*count/s,
     );
     expect(run).not.toHaveBeenCalled();
 
-    // A call satisfying the full schema still succeeds and reaches run().
     await expect(action.run({ title: "x", count: 2 } as any)).resolves.toEqual({
       title: "x",
       count: 2,
@@ -646,12 +664,26 @@ describe("defineAction schema mode — agentInputSchema (advertised-only overrid
     const params = action.tool.parameters as any;
     expect(Object.keys(params.properties)).toEqual(["title", "count"]);
   });
+
+  it("never converts the full schema to JSON Schema when agentInputSchema is set", () => {
+    const fullSchema = z.object({ title: z.string(), count: z.number() });
+    const jsonSchema = (fullSchema as any)["~standard"].jsonSchema;
+    const convert = vi.spyOn(jsonSchema, "input");
+
+    const action = defineAction({
+      description: "create widget",
+      schema: fullSchema,
+      agentInputSchema: z.object({ title: z.string() }),
+      run: async () => "ok",
+    });
+
+    expect(convert).not.toHaveBeenCalled();
+    expect(Object.keys((action.tool.parameters as any).properties)).toEqual([
+      "title",
+    ]);
+  });
 });
 
-// ---------------------------------------------------------------------------
-// Runtime validation wrapper — the most important behavior: invalid agent
-// input is rejected with a self-correcting error and never reaches run().
-// ---------------------------------------------------------------------------
 describe("defineAction schema mode — runtime validation wrapper", () => {
   it("passes validated + coerced args to run() on success", async () => {
     let received: unknown;
@@ -669,7 +701,6 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
 
     const out = await action.run({ title: "Hi" });
     expect(out).toBe("done");
-    // Default applied by the schema before reaching run().
     expect(received).toEqual({ title: "Hi", status: "a" });
   });
 
@@ -716,9 +747,7 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
     } catch (err) {
       message = (err as Error).message;
     }
-    // Echoes what was actually passed…
     expect(message).toContain('Received: {"slideId":"s1"}');
-    // …and the expected signature with required (*) / optional (?) markers.
     expect(message).toContain("deckId*: string");
     expect(message).toContain("slideId?: string");
     expect(message).toContain("* = required, ? = optional");
@@ -737,7 +766,6 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
     } catch (err) {
       message = (err as Error).message;
     }
-    // A wrong-type error is NOT classified as "missing".
     expect(message).not.toMatch(/Missing required parameter/);
     expect(message).toContain("count");
   });
@@ -756,17 +784,110 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
     } catch (err) {
       message = (err as Error).message;
     }
-    // The truncation ellipsis is appended; the full 2000-char blob is not echoed.
     expect(message).toContain("…");
     expect(message.length).toBeLessThan(1000);
   });
+
+  it("validateActionArgs lets a matching schema's run() skip re-validation when passed the same ctx", async () => {
+    let received: unknown;
+    const schema = z.object({ tag: z.preprocess((v) => `${v}!`, z.string()) });
+    const action = defineAction({
+      description: "tag",
+      schema,
+      run: async (args) => {
+        received = args;
+        return "ok";
+      },
+    });
+
+    const ctx = { caller: "http" as const };
+    const validated = await validateActionArgs(
+      schema,
+      { tag: "a" },
+      undefined,
+      ctx,
+    );
+    await action.run(validated, ctx);
+    expect(received).toEqual({ tag: "a!" });
+  });
+
+  it("re-validates normally when run() is called without the marking ctx", async () => {
+    let received: unknown;
+    const schema = z.object({ tag: z.preprocess((v) => `${v}!`, z.string()) });
+    const action = defineAction({
+      description: "tag",
+      schema,
+      run: async (args) => {
+        received = args;
+        return "ok";
+      },
+    });
+
+    const validated = await validateActionArgs(schema, { tag: "a" });
+    await action.run(validated);
+    expect(received).toEqual({ tag: "a!!" });
+  });
+
+  it("does not let a value validated for one action's schema skip a different action's validation", async () => {
+    const schemaA = z.object({ tag: z.string() });
+    const schemaB = z.object({ name: z.string() });
+    let ranB = false;
+    const actionB = defineAction({
+      description: "needs name",
+      schema: schemaB,
+      run: async () => {
+        ranB = true;
+        return "ok";
+      },
+    });
+
+    const validatedForA = await validateActionArgs(schemaA, { tag: "x" });
+    await expect(actionB.run(validatedForA)).rejects.toThrow(
+      /Invalid action parameters/,
+    );
+    expect(ranB).toBe(false);
+  });
+
+  it("skips re-validation for a schema that validates down to a primitive", async () => {
+    let received: unknown;
+    const schema = z.preprocess((v) => `${v}!`, z.string());
+    const action = defineAction({
+      description: "primitive schema",
+      schema,
+      run: async (args) => {
+        received = args;
+        return "ok";
+      },
+    });
+
+    const ctx = { caller: "http" as const };
+    const validated = await validateActionArgs(schema, "a", undefined, ctx);
+    expect(validated).toBe("a!");
+    await action.run(validated, ctx);
+    expect(received).toBe("a!");
+  });
+
+  it("recognizes a cached NaN result via Object.is instead of ===", async () => {
+    let transformCalls = 0;
+    const schema = z.preprocess(() => {
+      transformCalls += 1;
+      return NaN;
+    }, z.any());
+    const action = defineAction({
+      description: "nan schema",
+      schema,
+      run: async () => "ok",
+    });
+
+    const ctx = { caller: "http" as const };
+    const validated = await validateActionArgs(schema, {}, undefined, ctx);
+    expect(Number.isNaN(validated)).toBe(true);
+    expect(transformCalls).toBe(1);
+    await action.run(validated, ctx);
+    expect(transformCalls).toBe(1);
+  });
 });
 
-// ---------------------------------------------------------------------------
-// outputSchema — validate the action's RETURN value (Mastra/Flue-style
-// structured output). Default "warn" never alters behavior; "strict" throws;
-// "fallback" substitutes a safe value.
-// ---------------------------------------------------------------------------
 describe("defineAction — outputSchema (return-value validation)", () => {
   it("passes the result through untouched when no outputSchema is provided", async () => {
     const original = { id: "abc", extra: 123 };
@@ -776,7 +897,6 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       run: async () => original,
     });
     const out = await action.run({ x: "hi" });
-    // Same reference: zero wrapping when outputSchema is absent.
     expect(out).toBe(original);
     expect("outputSchema" in action).toBe(false);
     expect(action.outputErrorStrategy).toBeUndefined();
@@ -791,7 +911,6 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     });
     const out = await action.run({ x: "hi" });
     expect(out).toEqual({ id: "abc", count: 2 });
-    // Defaults to the non-breaking "warn" strategy.
     expect(action.outputErrorStrategy).toBe("warn");
     expect(action.outputSchema).toBeDefined();
   });
@@ -811,7 +930,6 @@ describe("defineAction — outputSchema (return-value validation)", () => {
         run: async () => bad,
       });
       const out = await action.run({ x: "hi" });
-      // Unchanged result — behavior is never altered under "warn".
       expect(out).toBe(bad);
     } finally {
       console.warn = original;
@@ -864,13 +982,11 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       },
     });
 
-    // Bad input is rejected before run() ever executes (input path unchanged).
     await expect(action.run({} as any)).rejects.toThrow(
       /Invalid action parameters/,
     );
     expect(ran).toBe(false);
 
-    // Valid input → run() executes → valid output passes through.
     const out = await action.run({ title: "Hi" });
     expect(ran).toBe(true);
     expect(out).toEqual({ ok: true });
@@ -889,10 +1005,342 @@ describe("defineAction — outputSchema (return-value validation)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// authorize — pre-run gate wrapped around `run`, so it covers every caller.
-// ---------------------------------------------------------------------------
 describe("defineAction — authorize", () => {
+  it.each(["plain", "defined"])(
+    "keeps a direct typed failure unknown after a %s write handler enters",
+    async (kind) => {
+      const failure = new AgentConnectionRequiredError("Connect provider", {
+        provider: "test-provider",
+      });
+      const effects: string[] = [];
+      const run = async () => {
+        effects.push("sent");
+        throw failure;
+      };
+      const publicRun =
+        kind === "defined"
+          ? defineAction({ description: "Write", run }).run
+          : run;
+      const outcome = { refused: false };
+      await expect(
+        runActionWithExecutionOutcome(publicRun, {}, undefined, outcome),
+      ).rejects.toBe(failure);
+      expect(effects).toEqual(["sent"]);
+      expect(outcome.refused).toBe(false);
+    },
+  );
+
+  it("preserves definite refusals through the production action registry loader", async () => {
+    const handler = vi.fn(async () => "sent");
+    const action = defineAction({
+      description: "Write",
+      schema: z.object({ valid: z.boolean() }),
+      authorize: () => false,
+      run: handler,
+    });
+    const loaded = loadActionsFromStaticRegistry({
+      write: { default: action },
+    }).write!;
+    expect(loaded.run).toBe(action.run);
+    const outcome = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(
+        loaded.run,
+        { valid: true },
+        { caller: "tool" },
+        outcome,
+      ),
+    ).rejects.toThrow();
+    expect(handler).not.toHaveBeenCalled();
+    expect(outcome.refused).toBe(true);
+  });
+
+  it.each(["plain", "defined"])(
+    "keeps a %s parent write unknown after a shared question refusal",
+    async (kind) => {
+      const question = createUrlTools()["ask-question"]!;
+      const effects: string[] = [];
+      const run = async (_args: unknown, ctx?: ActionRunContext) => {
+        effects.push("sent");
+        return question.run({ question: "Which range?", options: "[]" }, ctx);
+      };
+      const parent =
+        kind === "defined"
+          ? defineAction({ description: "Parent write", run }).run
+          : run;
+      const outcome = { refused: false };
+      await expect(
+        runActionWithExecutionOutcome(parent, {}, { caller: "tool" }, outcome),
+      ).rejects.toThrow("non-empty JSON array");
+      expect(effects).toEqual(["sent"]);
+      expect(outcome.refused).toBe(false);
+    },
+  );
+
+  it("does not classify a typed output-processing failure as pre-execution", async () => {
+    const failure = new AgentConnectionRequiredError("Connect provider", {
+      provider: "test-child",
+    });
+    const effects: string[] = [];
+    const action = defineAction({
+      description: "Write with output validation",
+      schema: z.object({}),
+      outputSchema: z.object({ ok: z.boolean() }).transform(() => {
+        throw failure;
+      }),
+      run: async () => {
+        effects.push("sent");
+        return { ok: true };
+      },
+    });
+    const outcome = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(action.run, {}, undefined, outcome),
+    ).rejects.toBe(failure);
+    expect(effects).toEqual(["sent"]);
+    expect(outcome.refused).toBe(false);
+  });
+
+  it("keeps concurrent failures separate when context and error objects are reused", async () => {
+    const failure = new Error("Not authorized");
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const handlerEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const action = defineAction({
+      description: "Concurrent write",
+      schema: z.object({ allowed: z.boolean() }),
+      authorize: (args) => {
+        if (!args.allowed) throw failure;
+      },
+      run: async () => {
+        entered();
+        await waiting;
+        throw failure;
+      },
+    });
+    const ctx: ActionRunContext = { caller: "tool" };
+    const executed = { refused: false };
+    const denied = { refused: false };
+    const pending = runActionWithExecutionOutcome(
+      action.run,
+      { allowed: true },
+      ctx,
+      executed,
+    );
+    const rejection = expect(pending).rejects.toBe(failure);
+    await handlerEntered;
+    await expect(
+      runActionWithExecutionOutcome(
+        action.run,
+        { allowed: false },
+        ctx,
+        denied,
+      ),
+    ).rejects.toBe(failure);
+    release();
+    await rejection;
+    expect(denied.refused).toBe(true);
+    expect(executed.refused).toBe(false);
+  });
+
+  it("does not erase a successful child write with a later typed refusal", async () => {
+    const failure = new AgentConnectionRequiredError("Connect provider", {
+      provider: "test-child",
+    });
+    const child = defineAction({
+      description: "Child write",
+      schema: z.object({}),
+      run: async () => "sent",
+    });
+    const parent = defineAction({
+      description: "Parent",
+      schema: z.object({ child: z.boolean() }),
+      authorize: (args) => {
+        if (!args.child) throw failure;
+      },
+      run: async (args, ctx) => {
+        if (args.child) await child.run({}, ctx);
+        throw failure;
+      },
+    });
+    const ctx: ActionRunContext = { caller: "tool" };
+    const executed = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(parent.run, { child: true }, ctx, executed),
+    ).rejects.toBe(failure);
+    expect(executed.refused).toBe(false);
+    const denied = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(parent.run, { child: false }, ctx, denied),
+    ).rejects.toBe(failure);
+    expect(denied.refused).toBe(true);
+    expect(executed.refused).toBe(false);
+  });
+
+  it("tracks child writes for plain action entries too", async () => {
+    const failure = new AgentConnectionRequiredError("Connect provider", {
+      provider: "test-child",
+    });
+    const child = defineAction({
+      description: "Child write",
+      run: async () => "sent",
+    });
+    const parent = async () => {
+      await child.run({});
+      throw failure;
+    };
+    const outcome = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(parent, {}, undefined, outcome),
+    ).rejects.toBe(failure);
+    expect(outcome.refused).toBe(false);
+  });
+
+  it.each(["cloned", "omitted"])(
+    "does not inherit a nested refusal with a %s child context",
+    async (contextKind) => {
+      const failure = new AgentConnectionRequiredError(
+        "Connect child provider",
+        {
+          provider: "test-child",
+        },
+      );
+      const child = defineAction({
+        description: "Child",
+        schema: z.object({}),
+        run: async () => {
+          throw failure;
+        },
+      });
+      const effects: string[] = [];
+      const parent = defineAction({
+        description: "Parent write",
+        schema: z.object({}),
+        run: async (_args, ctx) => {
+          effects.push("sent");
+          return child.run(
+            {},
+            contextKind === "cloned" ? { ...ctx! } : undefined,
+          );
+        },
+      });
+      const ctx: ActionRunContext = { caller: "tool" };
+      const outcome = { refused: false };
+      await expect(
+        runActionWithExecutionOutcome(parent.run, {}, ctx, outcome),
+      ).rejects.toBe(failure);
+      expect(effects).toEqual(["sent"]);
+      expect(outcome.refused).toBe(false);
+    },
+  );
+
+  it("does not inherit a recursive invocation's refusal after a parent write", async () => {
+    const failure = new AgentConnectionRequiredError("Connect child provider", {
+      provider: "test-child",
+    });
+    const effects: string[] = [];
+    const recursive = defineAction({
+      description: "Recursive write",
+      schema: z.object({ child: z.boolean() }),
+      run: async (args, ctx): Promise<unknown> => {
+        if (args.child) throw failure;
+        effects.push("sent");
+        return recursive.run({ child: true }, ctx);
+      },
+    });
+    const ctx: ActionRunContext = { caller: "tool" };
+    const outcome = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(
+        recursive.run,
+        { child: false },
+        ctx,
+        outcome,
+      ),
+    ).rejects.toBe(failure);
+    expect(effects).toEqual(["sent"]);
+    expect(outcome.refused).toBe(false);
+  });
+
+  it("does not inherit a nested failure's refusal guarantee after the parent handler entered", async () => {
+    const failure = new AgentConnectionRequiredError("Connect child provider", {
+      provider: "test-child",
+    });
+    const child = defineAction({
+      description: "Child",
+      schema: z.object({}),
+      run: async () => {
+        throw failure;
+      },
+    });
+    const read = defineAction({
+      description: "Read",
+      schema: z.object({}),
+      readOnly: true,
+      run: async () => "read",
+    });
+    const parent = defineAction({
+      description: "Parent write",
+      schema: z.object({}),
+      run: async (_args, ctx) => {
+        try {
+          await child.run({}, ctx);
+        } catch (error) {
+          expect(error).toBe(failure);
+        }
+        await read.run({}, ctx);
+        throw failure;
+      },
+    });
+    const ctx: ActionRunContext = { caller: "tool" };
+    const outcome = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(parent.run, {}, ctx, outcome),
+    ).rejects.toBe(failure);
+    expect(outcome.refused).toBe(false);
+  });
+  it("preserves a denial without treating the same error from a later handler as pre-execution", async () => {
+    const denial = Object.assign(new Error("Not authorized"), {
+      statusCode: 403,
+    });
+    let allowed = false;
+    const run = vi.fn(async () => {
+      throw denial;
+    });
+    const action = defineAction({
+      description: "Write with authorization",
+      schema: z.object({}),
+      authorize: () => {
+        if (!allowed) throw denial;
+      },
+      run,
+    });
+    const first: ActionRunContext = { caller: "tool" };
+    const second: ActionRunContext = { caller: "tool" };
+    const firstOutcome = { refused: false };
+    const secondOutcome = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(action.run, {}, first, firstOutcome),
+    ).rejects.toBe(denial);
+    expect(run).not.toHaveBeenCalled();
+    expect(firstOutcome.refused).toBe(true);
+    expect(secondOutcome.refused).toBe(false);
+    allowed = true;
+    await expect(
+      runActionWithExecutionOutcome(action.run, {}, second, secondOutcome),
+    ).rejects.toBe(denial);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(secondOutcome.refused).toBe(false);
+    await expect(
+      runActionWithExecutionOutcome(action.run, {}, first, firstOutcome),
+    ).rejects.toBe(denial);
+    expect(firstOutcome.refused).toBe(false);
+  });
   it("runs the gate before the body and passes args + ctx through", async () => {
     const authorize = vi.fn();
     const run = vi.fn(async () => ({ ok: true }));
@@ -975,9 +1423,6 @@ describe("defineAction — authorize", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// AgentActionStopError — the stop-the-turn signal used by actions.
-// ---------------------------------------------------------------------------
 describe("AgentActionStopError", () => {
   it("carries the stop marker, safe details, errorCode, and toolResult", () => {
     const err = new AgentActionStopError("nothing more to do", {
@@ -995,7 +1440,6 @@ describe("AgentActionStopError", () => {
 
   it("isAgentActionStopError recognizes real instances and duck-typed objects", () => {
     expect(isAgentActionStopError(new AgentActionStopError("x"))).toBe(true);
-    // Duck-typed (e.g. structured-cloned across a worker boundary).
     expect(isAgentActionStopError({ agentNativeStop: true })).toBe(true);
   });
 
@@ -1007,11 +1451,29 @@ describe("AgentActionStopError", () => {
   });
 });
 
+describe("AgentConnectionRequiredError", () => {
+  it("carries only a trusted provider reference and resumable reason", () => {
+    const error = new AgentConnectionRequiredError("Slack must be connected.", {
+      provider: "slack",
+      reason: "grant",
+      appId: "dispatch",
+    });
+
+    expect(isAgentConnectionRequiredError(error)).toBe(true);
+    expect(error).toMatchObject({
+      agentNativeStop: true,
+      agentConnectionRequired: true,
+      errorCode: "connection_required",
+      provider: "slack",
+      reason: "grant",
+      appId: "dispatch",
+    });
+    expect(error).not.toHaveProperty("url");
+    expect(error).not.toHaveProperty("scopes");
+  });
+});
+
 describe("gateway-stringified tool-arg coercion", () => {
-  // Some model gateways (Builder's Gemini-backed one) hand back structured
-  // tool-call args as JSON strings — arrays as "[...]", booleans as "true".
-  // Zod validate doesn't coerce, so the agent thrashed. We coerce against the
-  // schema's declared types before validation.
   function makeAction() {
     let received: any = null;
     const action = defineAction({

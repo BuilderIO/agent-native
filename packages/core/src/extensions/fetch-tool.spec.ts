@@ -1,8 +1,138 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../server/request-context.js";
 import { createFetchToolEntry } from "./fetch-tool.js";
 
+const mockWriteWorkspaceFile = vi.hoisted(() => vi.fn());
+
+vi.mock("../workspace-files/store.js", () => ({
+  SAVE_TO_FILE_MAX_BYTES: 20 * 1024 * 1024,
+  isScratchWorkspacePath: (path: string) =>
+    path === "scratch" || path.startsWith("scratch/"),
+  toWorkspaceFileCard: (meta: unknown) => ({ meta }),
+  writeWorkspaceFile: mockWriteWorkspaceFile,
+}));
+
 describe("createFetchToolEntry", () => {
+  it.each([undefined, "exports/digest.json", "scratch/digest.json"])(
+    "rejects a provider failure inside HTTP 200 before saving (%s)",
+    async (saveToFile) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({ ok: false, error: "invalid_auth" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      await expect(
+        createFetchToolEntry()["web-request"].run({
+          url: "https://slack.com/api/chat.postMessage",
+          method: "POST",
+          saveToFile,
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "web_request_provider_failed",
+        message: expect.stringContaining("invalid_auth"),
+      });
+      expect(mockWriteWorkspaceFile).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { url: "https://slack.com/api/chat.postMessage", ok: true },
+    { url: "https://93.184.216.34/api/chat.postMessage", ok: false },
+    { url: "https://slack.com/api-example", ok: false },
+    { url: "https://slack.com/help", ok: false },
+  ])(
+    "uses only the matching provider envelope: $url, ok=$ok",
+    async ({ url, ok }) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({ ok }), { status: 200 }),
+      );
+      await expect(
+        createFetchToolEntry()["web-request"].run({ url, method: "POST" }),
+      ).resolves.toContain("HTTP 200");
+    },
+  );
+
+  it.each([200, 429, 503])(
+    "preserves an HTTP failure when its body is unreadable (%s)",
+    async (status) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(new Error("Response stream failed"));
+            },
+          }),
+          { status },
+        ),
+      );
+      await expect(
+        createFetchToolEntry()["web-request"].run({
+          url: "https://93.184.216.34/digest",
+          method: "POST",
+        }),
+      ).rejects.toMatchObject({
+        errorCode:
+          status === 200 ? "web_request_body_unreadable" : `http_${status}`,
+      });
+    },
+  );
+
+  it.each([400, 403, 429, 503])(
+    "rejects an unsuccessful HTTP mutation (%s)",
+    async (status) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("Send rejected", { status }),
+      );
+      await expect(
+        createFetchToolEntry()["web-request"].run({
+          url: "https://93.184.216.34/digest",
+          method: "POST",
+        }),
+      ).rejects.toMatchObject({
+        errorCode: `http_${status}`,
+        message: expect.stringContaining("Send rejected"),
+      });
+    },
+  );
+
+  it("rejects absent key references before any request is sent", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const tool = createFetchToolEntry({
+      resolveKeys: async () => {
+        throw new Error("Key SLACK_WEBHOOK is unavailable");
+      },
+    })["web-request"];
+    await expect(
+      tool.run({ url: "https://${keys.SLACK_WEBHOOK}", method: "POST" }),
+    ).rejects.toMatchObject({ errorCode: "web_request_key_resolution_failed" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects a network failure without exposing substituted secrets", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new Error("Unavailable: synthetic-secret"),
+    );
+    const tool = createFetchToolEntry({
+      resolveKeys: async (text) => ({
+        resolved: text,
+        usedKeys: ["SLACK_WEBHOOK"],
+        secretValues: ["synthetic-secret"],
+      }),
+    })["web-request"];
+    await expect(
+      tool.run({ url: "https://93.184.216.34/digest", method: "POST" }),
+    ).rejects.toMatchObject({
+      errorCode: "web_request_failed",
+      message: "Request failed: Unavailable: [redacted]",
+    });
+  });
+  beforeEach(() => {
+    mockWriteWorkspaceFile.mockReset();
+    mockWriteWorkspaceFile.mockResolvedValue({ id: "workspace-file-1" });
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -54,7 +184,7 @@ describe("createFetchToolEntry", () => {
   ])("blocks private/internal target %s before fetching", async (url) => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 
-    await expect(runWebRequest(url)).resolves.toContain(
+    await expect(runWebRequest(url)).rejects.toThrow(
       "Requests to private/internal addresses are not allowed",
     );
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -159,9 +289,9 @@ describe("createFetchToolEntry", () => {
       }),
     );
 
-    await expect(runWebRequest("https://93.184.216.34/redirect")).resolves.toBe(
-      "Redirect to private/internal address blocked.",
-    );
+    await expect(
+      runWebRequest("https://93.184.216.34/redirect"),
+    ).rejects.toThrow("Redirect to private/internal address blocked.");
     expect(fetchSpy).toHaveBeenCalledWith(
       "https://93.184.216.34/redirect",
       expect.objectContaining({ redirect: "manual" }),
@@ -191,6 +321,61 @@ describe("createFetchToolEntry", () => {
 
     expect(result).toContain("[redacted]");
     expect(result).not.toContain("sk-secret");
+  });
+
+  it("does not persist failed responses to durable files", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("error_code,permission_denied\n", {
+        status: 403,
+        statusText: "Forbidden",
+        headers: { "content-type": "text/csv" },
+      }),
+    );
+
+    const result = runWithRequestContext(
+      { userEmail: "ada@example.com", orgId: "org-1" },
+      () =>
+        createFetchToolEntry()["web-request"].run({
+          url: "https://93.184.216.34/api",
+          responseMode: "raw",
+          saveToFile: "exports/report.csv",
+        }),
+    );
+
+    await expect(result).rejects.toMatchObject({
+      errorCode: "http_403",
+      message: expect.stringContaining("Refusing to save a failed response"),
+    });
+    expect(mockWriteWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  it("fails oversized response bodies before processing or saving them", async () => {
+    const responseBytes = 20 * 1024 * 1024 + 1;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("partial body", {
+        status: 200,
+        statusText: "OK",
+        headers: {
+          "content-type": "text/html",
+          "content-length": String(responseBytes),
+        },
+      }),
+    );
+
+    const result = runWithRequestContext(
+      { userEmail: "ada@example.com", orgId: "org-1" },
+      () =>
+        createFetchToolEntry()["web-request"].run({
+          url: "https://93.184.216.34/page",
+          saveToFile: "exports/page.html",
+        }),
+    );
+
+    await expect(result).rejects.toMatchObject({
+      errorCode: "web_request_response_too_large",
+      message: expect.stringContaining("response too large"),
+    });
+    expect(mockWriteWorkspaceFile).not.toHaveBeenCalled();
   });
 
   it("accumulates resolvedKeys across url/headers/body and passes them to validateUrl", async () => {
@@ -273,7 +458,7 @@ describe("createFetchToolEntry", () => {
 
     await expect(
       entry.run({ url: "https://93.184.216.34/api", method: "TRACE" }),
-    ).resolves.toContain("Unsupported HTTP method");
+    ).rejects.toThrow("Unsupported HTTP method");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -313,7 +498,6 @@ describe("createFetchToolEntry", () => {
     expect(sentHeaders["User-Agent"]).toBe("my-bot/1.0");
     expect(sentHeaders["Authorization"]).toBe("Bearer xyz");
     expect(sentHeaders["Accept"]).toBe("application/json");
-    // Other browser defaults still fill in for headers the caller didn't set.
     expect(sentHeaders["Sec-Fetch-Mode"]).toBe("navigate");
   });
 
@@ -351,6 +535,20 @@ describe("createFetchToolEntry", () => {
       "[Widget reference](https://93.184.216.34/reference/widgets)",
     );
     expect(result).not.toContain("<html>");
+  });
+
+  it("returns the status and text for a plain-text response labeled as HTML", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("Access denied", {
+        status: 403,
+        statusText: "Forbidden",
+        headers: { "content-type": "text/html" },
+      }),
+    );
+
+    await expect(
+      runWebRequest("https://93.184.216.34/blocked"),
+    ).rejects.toThrow("HTTP 403 Forbidden\n\nAccess denied");
   });
 
   it("preserves alternate discovery links outside the readable article", async () => {
@@ -463,12 +661,12 @@ describe("createFetchToolEntry", () => {
     );
 
     const entry = createFetchToolEntry()["web-request"];
-    const result = await entry.run({
+    const result = entry.run({
       url: "https://93.184.216.34/logs",
       responseMode: "matches",
       search: { regex: "(a+)+$" },
     });
 
-    expect(result).toContain("Unsafe regex rejected");
+    await expect(result).rejects.toThrow("Unsafe regex rejected");
   });
 });

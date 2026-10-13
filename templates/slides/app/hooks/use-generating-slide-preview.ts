@@ -21,9 +21,6 @@ export function useGeneratingSlidePreview({
   const [content, setContent] = useState<string | null>(null);
   const activeCallIdRef = useRef<string | null>(null);
   const previousSlideCountRef = useRef(slideCount);
-  // Latest parsed value awaiting a flush; setContent fires at most once per frame
-  // and always reads this ref, so a burst of deltas within one frame collapses
-  // to a single render carrying the newest value instead of the stale one.
   const pendingContentRef = useRef<string | null>(null);
   const rafIdRef = useRef<number | null>(null);
 

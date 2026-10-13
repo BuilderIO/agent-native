@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 
-import { getDialect, type Dialect } from "@agent-native/core/db";
-import { and, asc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import type {
   ContentDatabase,
+  ContentDatabaseBodyHydration,
   ContentDatabaseBodyHydrationSummary,
   ContentDatabaseItem,
   ContentDatabaseSource,
@@ -29,7 +30,6 @@ import type {
   ContentDatabaseSourceRow,
   ContentDatabaseSourceSyncState,
   ContentDatabaseSourceType,
-  ContentDatabaseSourceWriteOwner,
   BuilderCmsModelFieldSummary,
   DocumentProperty,
   DocumentPropertyOptions,
@@ -54,6 +54,10 @@ import {
 } from "../shared/properties.js";
 import { sanitizeNormalizationFormula } from "../shared/properties.js";
 import {
+  parseContentDatabaseSourceFieldReadOnly,
+  parseContentDatabaseSourceWriteOwner,
+} from "../shared/source-field-policy.js";
+import {
   bulkChunkSizeForColumnCount,
   chunks,
   processWithConcurrency,
@@ -64,7 +68,8 @@ import {
 } from "./_local-folder-source.js";
 export { bulkChunkSizeForColumnCount } from "./_batch-utils.js";
 import {
-  readBuilderCmsContentEntry,
+  BuilderCmsContentEntryReadError,
+  readBuilderCmsContentEntryResult,
   readBuilderCmsContentEntries,
   readBuilderCmsModelFields,
   type BuilderCmsReadProgress,
@@ -97,8 +102,10 @@ import {
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { ensureFilesSystemPropertyDefinitions } from "./_files-system-properties.js";
 import {
+  createAppendPositionAllocator,
   databaseItemsPositionScope,
   documentsPositionScope,
+  nextAppendPosition,
   propertyDefinitionsPositionScope,
   withPositionLock,
 } from "./_position-utils.js";
@@ -191,7 +198,7 @@ type SourceMetadataRecord = {
   lastReadNextOffset?: number;
   lastReadSuspiciousEmpty?: boolean;
   activeReadSourceRowIds?: string[];
-  sourceFetchState?: "idle" | "fetching" | "error" | string;
+  sourceFetchState?: "idle" | "fetching" | "error";
   builderContinuationClaimId?: string;
   builderContinuationClaimOffset?: number;
   builderContinuationClaimedAt?: string;
@@ -241,12 +248,6 @@ type ContentDatabaseSourceMetadataMutationPatch = Pick<
     >
   >;
 
-/**
- * Merge source metadata against the latest persisted row and compare-and-swap
- * both JSON envelopes. Refresh ownership lives in metadataJson, so every
- * unrelated writer must retry from the winning value instead of restoring a
- * stale claim snapshot.
- */
 export async function mutateContentDatabaseSourceMetadata(args: {
   sourceId: string;
   now: string;
@@ -316,8 +317,6 @@ export function builderCmsSourceContinuationIsCurrent(
   );
 }
 
-// Content's hosted request wall is 75 seconds. Keep the orphan-recovery lease
-// well beyond that so an expired owner cannot still be executing mutations.
 export const BUILDER_CMS_REFRESH_CLAIM_LEASE_MS = 30 * 60 * 1000;
 
 export async function claimBuilderCmsSourceRefresh(args: {
@@ -466,12 +465,6 @@ export function normalizeSourceSyncState(
     : "linked";
 }
 
-function normalizeWriteOwner(
-  value: string | null | undefined,
-): ContentDatabaseSourceWriteOwner {
-  return value === "source" || value === "derived" ? value : "local";
-}
-
 function normalizeSourceType(
   value: string | null | undefined,
 ): ContentDatabaseSourceType {
@@ -592,8 +585,8 @@ export function serializeSourceField(
       row.mappingType === "title" || row.mappingType === "system"
         ? row.mappingType
         : "property",
-    writeOwner: normalizeWriteOwner(row.writeOwner),
-    readOnly: row.readOnly === 1,
+    writeOwner: parseContentDatabaseSourceWriteOwner(row.writeOwner),
+    readOnly: parseContentDatabaseSourceFieldReadOnly(row.readOnly),
     provenance: row.provenance,
     freshness: normalizeSourceFreshness(row.freshness),
     lastSyncedAt: row.lastSyncedAt,
@@ -635,15 +628,11 @@ const HEAVY_BUILDER_BODY_SOURCE_VALUE_KEYS = new Set([
 const SOURCE_VALUES_JSON_COLUMN =
   '"content_database_source_rows"."source_values_json"';
 
-export function sourceSnapshotValuesJsonProjectionSql(dialect: Dialect) {
+export function sourceSnapshotValuesJsonProjectionSql() {
   const keys = Array.from(HEAVY_BUILDER_BODY_SOURCE_VALUE_KEYS);
-  if (dialect === "postgres") {
-    return `COALESCE((${SOURCE_VALUES_JSON_COLUMN}::jsonb${keys
-      .map((key) => ` - '${key}'`)
-      .join("")})::text, '{}')`;
-  }
-  const paths = keys.map((key) => `'$."${key}"'`);
-  return `COALESCE(json_remove(${SOURCE_VALUES_JSON_COLUMN}, ${paths.join(", ")}), '{}')`;
+  return `COALESCE((${SOURCE_VALUES_JSON_COLUMN}::jsonb${keys
+    .map((key) => ` - '${key}'`)
+    .join("")})::text, '{}')`;
 }
 
 function sourceSnapshotRowSelection(args: {
@@ -660,9 +649,7 @@ function sourceSnapshotRowSelection(args: {
     sourceQualifiedId: row.sourceQualifiedId,
     sourceDisplayKey: row.sourceDisplayKey,
     sourceValuesJson: args.stripHeavyBuilderBodyValues
-      ? sql<string>`${sql.raw(
-          sourceSnapshotValuesJsonProjectionSql(getDialect()),
-        )}`
+      ? sql<string>`${sql.raw(sourceSnapshotValuesJsonProjectionSql())}`
       : row.sourceValuesJson,
     provenance: row.provenance,
     syncState: row.syncState,
@@ -674,9 +661,6 @@ function sourceSnapshotRowSelection(args: {
   };
 }
 
-// Snapshot reads need document titles for change-set summaries. Body text is
-// required only by write/review paths that explicitly request heavy Builder
-// body values; routine list and source reads must not transfer it.
 export function sourceSnapshotDocumentSelection(
   includeHeavyBuilderBodyValues: true,
 ): {
@@ -780,12 +764,6 @@ function serializeExecution(
   };
 }
 
-/**
- * A blocked execution with neither an attempt token nor a response proves it
- * stopped before the Builder dispatch claim. This includes a blocked dry run
- * and a validated plan stopped by the final live preflight. Any other state or
- * remote evidence stays frozen until normal reconciliation resolves it.
- */
 export function builderExecutionIsProvablyLocallyBlockedUnsent(execution: {
   state: string;
   payloadJson: string;
@@ -885,8 +863,6 @@ function reviewedChangeSet(args: {
   };
 }
 
-// Stable, key-order-insensitive serialization so two same-shape property values
-// (source baseline vs local) don't false-diff purely on key order.
 function stableValueString(value: unknown): string {
   if (value === null || value === undefined) return "null";
   if (Array.isArray(value)) {
@@ -922,8 +898,6 @@ export function reviewedBuilderChangeSetRevisionId(
   return `${changeSet.id}-revision-${revision}`;
 }
 
-// Equal when both normalize the same. null/undefined/"" are all "empty"; strings
-// are trimmed; objects compared by stable serialization.
 function sameSourceFieldValue(a: unknown, b: unknown): boolean {
   const normalize = (value: unknown) => {
     if (value === null || value === undefined) return "";
@@ -950,11 +924,9 @@ function sameMappedSourceFieldValue(
     Array.isArray(normalizedLocalValue) &&
     Array.isArray(normalizedSourceValue)
   ) {
-    // Builder option order is not meaningful. Compare the canonical option IDs
-    // as sets so a reordered response does not become an outbound edit.
     return sameSourceFieldValue(
-      [...normalizedLocalValue].sort(),
-      [...normalizedSourceValue].sort(),
+      [...normalizedLocalValue].sort((a, b) => a.localeCompare(b)),
+      [...normalizedSourceValue].sort((a, b) => a.localeCompare(b)),
     );
   }
   return sameSourceFieldValue(normalizedLocalValue, normalizedSourceValue);
@@ -1000,6 +972,38 @@ const BUILDER_BODY_HYDRATION_CODEC_VERSION =
 const BUILDER_CMS_REFRESH_INITIAL_PAGES = 1;
 const BUILDER_BODY_NOT_AVAILABLE_ERROR = "body not yet available from Builder";
 
+class BuilderBodyHydrationError extends Error {
+  constructor(
+    message: string,
+    readonly reason: "not_found" | "unsupported_content" | "conversion_failed",
+    readonly providerStatus: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+    this.name = "BuilderBodyHydrationError";
+  }
+}
+
+function builderBodyHydrationFailureEvidence(error: unknown) {
+  if (
+    error instanceof BuilderCmsContentEntryReadError ||
+    error instanceof BuilderBodyHydrationError
+  ) {
+    return {
+      reason: error.reason,
+      providerStatus: error.providerStatus,
+      retryable: error.retryable,
+      message: error.message,
+    } as const;
+  }
+  return {
+    reason: "conversion_failed" as const,
+    providerStatus: "local_conversion",
+    retryable: false,
+    message: error instanceof Error ? error.message : String(error),
+  };
+}
+
 function idChunkSize() {
   return bulkChunkSizeForColumnCount(1);
 }
@@ -1038,6 +1042,15 @@ export function sortBuilderBodyHydrationQueueForProcessing<
 
 export function builderBodyHydrationAttemptIsTerminal(attempts: number) {
   return attempts >= BUILDER_BODY_HYDRATION_MAX_ATTEMPTS;
+}
+
+export function builderBodyHydrationNextAttemptAt(
+  attempts: number,
+  attemptedAt: string,
+) {
+  const base = Date.parse(attemptedAt);
+  const delayMs = Math.min(30_000 * 2 ** Math.max(0, attempts - 1), 5 * 60_000);
+  return new Date(base + delayMs).toISOString();
 }
 
 async function builderBodySnapshotForEntry(entry: BuilderCmsSourceEntry) {
@@ -1273,9 +1286,6 @@ export async function refreshBuilderBodySourceValuesFromStoredLossless(
   entry: BuilderCmsSourceEntry,
 ) {
   if (entry.rawEntry && builderEntryBlocks(entry.rawEntry).length > 0) {
-    // A fresh single-entry Builder read is the authoritative preflight
-    // representation. Never replace its raw block hash with a hash rebuilt
-    // from generated lossless MDX.
     return entry;
   }
   const losslessContent = stringSourceValue(
@@ -1364,6 +1374,26 @@ function builderEntryFromSourceRow(args: {
   };
 }
 
+type BuilderLiveBodyReadResult =
+  | {
+      state: "body";
+      entry: BuilderCmsSourceEntry;
+      providerStatus: "http_200";
+    }
+  | {
+      state: "empty_body";
+      entry: BuilderCmsSourceEntry;
+      providerStatus: "http_200";
+    }
+  | {
+      state: "not_found";
+      entry: null;
+      providerStatus:
+        | "http_404"
+        | "http_200_unexpected_entry"
+        | "mcp_not_found";
+    };
+
 async function readBuilderEntryWithLiveBodyFromSourceRow(args: {
   row: Pick<
     ContentDatabaseSourceRecordRowDb,
@@ -1371,16 +1401,18 @@ async function readBuilderEntryWithLiveBodyFromSourceRow(args: {
   >;
   sourceTable: string;
   fallbackTitle: string;
-}): Promise<BuilderCmsSourceEntry | null> {
+}): Promise<BuilderLiveBodyReadResult> {
   const sourceValues =
     parseObject<Record<string, DocumentPropertyValue>>(
       args.row.sourceValuesJson,
     ) ?? {};
-  const liveEntry = await readBuilderCmsContentEntry({
+  const liveRead = await readBuilderCmsContentEntryResult({
     model: args.sourceTable,
     entryId: args.row.sourceRowId,
+    strictEntryIdentity: true,
   });
-  if (!liveEntry || liveEntry.id !== args.row.sourceRowId) return null;
+  if (liveRead.state === "not_found") return liveRead;
+  const liveEntry = liveRead.entry;
   const entryWithStoredValues = {
     ...liveEntry,
     title: liveEntry.title || args.fallbackTitle,
@@ -1389,14 +1421,64 @@ async function readBuilderEntryWithLiveBodyFromSourceRow(args: {
       ...liveEntry.sourceValues,
     },
   };
-  // This entry came from a fresh Builder response. Preserve the block hash
-  // computed from those authoritative raw blocks; rebuilding the generated
-  // lossless MDX can normalize block details and produce a different hash than
-  // the execute-time live preflight sees for the same response.
   const refreshedEntry = await withBuilderBodySourceValues(
     entryWithStoredValues,
   );
-  return builderEntryHasBodyContent(refreshedEntry) ? refreshedEntry : null;
+  if (builderEntryHasBodyContent(refreshedEntry)) {
+    return { state: "body", entry: refreshedEntry, providerStatus: "http_200" };
+  }
+  const rawData = liveEntry.rawEntry?.data;
+  const rawBlocks = rawData?.blocks;
+  const rawBlocksString = rawData?.blocksString;
+  if (rawBlocks !== undefined && !Array.isArray(rawBlocks)) {
+    throw new BuilderCmsContentEntryReadError(
+      "Builder CMS entry read returned a malformed blocks field.",
+      "malformed_body",
+      "http_200_invalid_blocks",
+      false,
+    );
+  }
+  if (rawBlocksString !== undefined && typeof rawBlocksString !== "string") {
+    throw new BuilderCmsContentEntryReadError(
+      "Builder CMS entry read returned a malformed blocksString field.",
+      "malformed_body",
+      "http_200_invalid_blocks_string",
+      false,
+    );
+  }
+  if (typeof rawBlocksString === "string" && rawBlocksString.trim()) {
+    try {
+      if (!Array.isArray(JSON.parse(rawBlocksString))) throw new Error();
+    } catch {
+      throw new BuilderCmsContentEntryReadError(
+        "Builder CMS entry read returned a malformed blocksString field.",
+        "malformed_body",
+        "http_200_invalid_blocks_string",
+        false,
+      );
+    }
+  }
+  if (rawBlocks === undefined && rawBlocksString === undefined) {
+    throw new BuilderCmsContentEntryReadError(
+      "Builder CMS entry read did not include an authoritative body field.",
+      "malformed_body",
+      "http_200_missing_body",
+      false,
+    );
+  }
+  if (liveEntry.rawEntry && builderEntryBlocks(liveEntry.rawEntry).length > 0) {
+    throw new BuilderBodyHydrationError(
+      "Builder returned body blocks that the Content converter could not hydrate.",
+      "unsupported_content",
+      "http_200_unsupported_blocks",
+      false,
+    );
+  }
+  return {
+    state: "empty_body",
+    entry: refreshedEntry,
+    providerStatus: "http_200",
+  };
 }
 
 export async function enqueueBuilderBodyHydration(args: {
@@ -1423,6 +1505,8 @@ type BuilderBodyHydrationEnqueueRequest = {
   entry: BuilderCmsSourceEntry;
   now: string;
   priority?: number;
+  preserveItemEvidence?: boolean;
+  resetAttempts?: boolean;
 };
 
 async function enqueueBuilderBodyHydrations(
@@ -1482,6 +1566,11 @@ async function enqueueBuilderBodyHydrations(
       const shouldPreserveExistingEntry =
         builderEntryHasBodyContent(existingEntry) &&
         !builderEntryHasBodyContent(request.entry);
+      const requestEntryJson = JSON.stringify(request.entry);
+      const sourceEntryChanged =
+        !!existing &&
+        !shouldPreserveExistingEntry &&
+        existing.sourceEntryJson !== requestEntryJson;
       const priority =
         request.priority ??
         builderBodyHydrationPriorityForRequest({ documentId: null });
@@ -1496,17 +1585,27 @@ async function enqueueBuilderBodyHydrations(
         sourceTable: request.sourceTable,
         sourceEntryJson: shouldPreserveExistingEntry
           ? existing!.sourceEntryJson
-          : JSON.stringify(request.entry),
+          : requestEntryJson,
         priority: Math.min(existing?.priority ?? priority, priority),
-        attempts: existing?.attempts ?? 0,
-        lastAttemptedAt: existing?.lastAttemptedAt ?? null,
+        attempts:
+          request.resetAttempts || sourceEntryChanged
+            ? 0
+            : (existing?.attempts ?? 0),
+        lastAttemptedAt:
+          request.resetAttempts || sourceEntryChanged
+            ? null
+            : (existing?.lastAttemptedAt ?? null),
         lastError: null,
+        nextAttemptAt:
+          request.resetAttempts || sourceEntryChanged
+            ? null
+            : (existing?.nextAttemptAt ?? null),
         createdAt: existing?.createdAt ?? request.now,
         updatedAt: request.now,
       });
     }
     const upsertedRows: ContentDatabaseBodyHydrationQueueRowDb[] = [];
-    for (const chunk of chunks(queueRows, bulkChunkSizeForColumnCount(15))) {
+    for (const chunk of chunks(queueRows, bulkChunkSizeForColumnCount(16))) {
       upsertedRows.push(
         ...(await tx
           .insert(schema.contentDatabaseBodyHydrationQueue)
@@ -1522,14 +1621,20 @@ async function enqueueBuilderBodyHydrations(
               sourceTable: sql`excluded.source_table`,
               sourceEntryJson: sql`excluded.source_entry_json`,
               priority: sql`excluded.priority`,
+              attempts: sql`excluded.attempts`,
+              lastAttemptedAt: sql`excluded.last_attempted_at`,
               lastError: null,
+              nextAttemptAt: sql`excluded.next_attempt_at`,
               updatedAt: sql`excluded.updated_at`,
             },
           })
           .returning()),
       );
     }
-    for (const idChunk of chunks(databaseItemIds, idChunkSize())) {
+    const pendingItemIds = uniqueRequests
+      .filter((request) => !request.preserveItemEvidence)
+      .map((request) => request.databaseItemId);
+    for (const idChunk of chunks(pendingItemIds, idChunkSize())) {
       await tx
         .update(schema.contentDatabaseItems)
         .set({
@@ -1541,6 +1646,85 @@ async function enqueueBuilderBodyHydrations(
     }
     return upsertedRows;
   });
+}
+
+async function reenqueueRetryableBuilderBodyHydration(args: {
+  sourceId: string;
+  documentId?: string | null;
+  now: string;
+}) {
+  const rows = await getDb()
+    .select({
+      source: schema.contentDatabaseSources,
+      item: schema.contentDatabaseItems,
+      sourceRow: schema.contentDatabaseSourceRows,
+      document: schema.documents,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .innerJoin(
+      schema.contentDatabaseSources,
+      eq(
+        schema.contentDatabaseSources.id,
+        schema.contentDatabaseSourceRows.sourceId,
+      ),
+    )
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(
+        schema.contentDatabaseItems.id,
+        schema.contentDatabaseSourceRows.databaseItemId,
+      ),
+    )
+    .innerJoin(
+      schema.documents,
+      eq(schema.documents.id, schema.contentDatabaseSourceRows.documentId),
+    )
+    .leftJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
+        eq(schema.contentDatabaseSources.sourceType, "builder-cms"),
+        args.documentId
+          ? eq(schema.contentDatabaseSourceRows.documentId, args.documentId)
+          : undefined,
+        eq(schema.contentDatabaseItems.bodyHydrationStatus, "error"),
+        eq(schema.contentDatabaseItems.bodyHydrationRetryable, 1),
+        isNull(schema.contentDatabaseBodyHydrationQueue.id),
+      ),
+    );
+  await enqueueBuilderBodyHydrations(
+    rows.flatMap((row) => {
+      const entry = builderEntryFromSourceRow({
+        row: row.sourceRow,
+        sourceTable: row.source.sourceTable,
+        fallbackTitle: row.document.title,
+      });
+      if (!entry) return [];
+      return [
+        {
+          sourceId: args.sourceId,
+          ownerEmail: row.item.ownerEmail,
+          orgId: row.item.orgId,
+          databaseItemId: row.item.id,
+          documentId: row.item.documentId,
+          sourceTable: row.source.sourceTable,
+          entry,
+          now: args.now,
+          priority: args.documentId
+            ? BUILDER_BODY_HYDRATION_OPEN_PRIORITY
+            : BUILDER_BODY_HYDRATION_BACKGROUND_PRIORITY,
+          preserveItemEvidence: true,
+          resetAttempts: true,
+        },
+      ];
+    }),
+  );
 }
 
 export async function enqueueBuilderBodyHydrationForItems(args: {
@@ -1560,6 +1744,8 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
       entry: BuilderCmsSourceEntry;
       bodyHydrationStatus: string | null;
       bodyHydrationVersion: string | null;
+      bodyHydrationReason: string | null;
+      bodyHydrationRetryable: number | null;
       documentContent: string | null;
     }
   >();
@@ -1574,6 +1760,9 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
           schema.contentDatabaseSourceRows.lastSourceUpdatedAt,
         bodyHydrationStatus: schema.contentDatabaseItems.bodyHydrationStatus,
         bodyHydrationVersion: schema.contentDatabaseItems.bodyHydrationVersion,
+        bodyHydrationReason: schema.contentDatabaseItems.bodyHydrationReason,
+        bodyHydrationRetryable:
+          schema.contentDatabaseItems.bodyHydrationRetryable,
         documentContent: schema.documents.content,
       })
       .from(schema.contentDatabaseSourceRows)
@@ -1605,6 +1794,8 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
           entry,
           bodyHydrationStatus: row.bodyHydrationStatus,
           bodyHydrationVersion: row.bodyHydrationVersion,
+          bodyHydrationReason: row.bodyHydrationReason,
+          bodyHydrationRetryable: row.bodyHydrationRetryable,
           documentContent: row.documentContent,
         });
       }
@@ -1620,17 +1811,25 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
       persistedState?.bodyHydrationStatus ?? item.bodyHydration?.status;
     const bodyHydrationVersion =
       persistedState?.bodyHydrationVersion ?? item.bodyHydration?.version;
+    const bodyHydrationRetryable =
+      persistedState?.bodyHydrationRetryable ??
+      (item.bodyHydration?.retryable === false ? 0 : null);
+    const bodyHydrationReason =
+      persistedState?.bodyHydrationReason ?? item.bodyHydration?.reason;
     const documentContent =
       persistedState?.documentContent ?? item.document.content;
     const expectedVersion =
-      bodyHydrationStatus === "unavailable"
+      bodyHydrationStatus === "unavailable" ||
+      (bodyHydrationStatus === "error" && bodyHydrationRetryable === 0)
         ? builderBodyUnavailableVersion(persistedEntry)
         : builderBodyHydrationVersion(persistedEntry);
     if (
       (bodyHydrationStatus === "unavailable" ||
+        (bodyHydrationStatus === "error" && bodyHydrationRetryable === 0) ||
         (bodyHydrationStatus === "hydrated" &&
-          !isEffectivelyEmptyDocumentContent(documentContent) &&
-          !builderBodyIsRawPlaceholderOnly(documentContent))) &&
+          (bodyHydrationReason === "empty_body" ||
+            (!isEffectivelyEmptyDocumentContent(documentContent) &&
+              !builderBodyIsRawPlaceholderOnly(documentContent))))) &&
       bodyHydrationVersion === expectedVersion
     ) {
       continue;
@@ -1705,11 +1904,13 @@ async function enqueueEmptyHydratedBuilderBodiesFromStoredRows(args: {
         or(
           isNull(schema.documents.content),
           inArray(schema.documents.content, ["", "<empty-block/>"]),
+          sql`${schema.documents.content} LIKE ${"%<empty-block%"}`,
           eq(sql<string>`TRIM(${schema.documents.content})`, ""),
         ),
       ),
     );
   for (const row of rows) {
+    if (!isEffectivelyEmptyDocumentContent(row.document.content)) continue;
     const entry = builderEntryFromSourceRow({
       row: row.sourceRow,
       sourceTable: args.source.sourceTable,
@@ -1822,17 +2023,20 @@ async function processBuilderBodyHydrationJob(
         "Builder body baseline migration requires a linked source row.",
       );
     }
-    const liveEntry = await readBuilderEntryWithLiveBodyFromSourceRow({
+    const liveRead = await readBuilderEntryWithLiveBodyFromSourceRow({
       row: sourceRow,
       sourceTable: row.sourceTable,
       fallbackTitle: entry.title,
     });
-    if (!liveEntry) {
-      throw new Error(
-        "Builder body baseline migration could not read a fresh remote body; retry the refresh before reviewing or publishing.",
+    if (liveRead.state === "not_found") {
+      throw new BuilderBodyHydrationError(
+        "Builder no longer returns the source entry needed for body migration.",
+        "not_found",
+        liveRead.providerStatus,
+        true,
       );
     }
-    entryWithBody = liveEntry;
+    entryWithBody = liveRead.entry;
   }
   const incomingBlocksHash = stringSourceValue(
     entryWithBody.sourceValues,
@@ -1873,6 +2077,10 @@ async function processBuilderBodyHydrationJob(
   };
   let nextContent =
     stringSourceValue(nextValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
+  let emptyBodyRead: Extract<
+    BuilderLiveBodyReadResult,
+    { state: "empty_body" | "not_found" }
+  > | null = null;
   if (!nextContent.trim()) {
     const rebuiltBaseEntry = sourceRow
       ? builderEntryFromSourceRow({
@@ -1922,12 +2130,13 @@ async function processBuilderBodyHydrationJob(
       }
     }
     if (!nextContent.trim() && sourceRow) {
-      const liveEntry = await readBuilderEntryWithLiveBodyFromSourceRow({
+      const liveRead = await readBuilderEntryWithLiveBodyFromSourceRow({
         row: sourceRow,
         sourceTable: row.sourceTable,
         fallbackTitle: entry.title,
       });
-      if (liveEntry) {
+      if (liveRead.state === "body") {
+        const liveEntry = liveRead.entry;
         const liveValues = {
           ...sourceValues,
           ...liveEntry.sourceValues,
@@ -1963,6 +2172,8 @@ async function processBuilderBodyHydrationJob(
           nextValues = liveValues;
           nextContent = liveContent;
         }
+      } else {
+        emptyBodyRead = liveRead;
       }
     }
     if (!nextContent.trim()) {
@@ -1988,7 +2199,7 @@ async function processBuilderBodyHydrationJob(
             })
             .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
         };
-        if (builderBodyHydrationAttemptIsTerminal(attempts)) {
+        if (emptyBodyRead?.state === "empty_body") {
           const [deleted] = await tx
             .delete(schema.contentDatabaseBodyHydrationQueue)
             .where(queueRowCas)
@@ -1998,13 +2209,75 @@ async function processBuilderBodyHydrationJob(
             return;
           }
           await tx
+            .update(schema.contentDatabaseSourceRows)
+            .set({
+              sourceValuesJson: JSON.stringify({
+                ...sourceValues,
+                ...emptyBodyRead.entry.sourceValues,
+              }),
+              lastSyncedAt: now,
+              lastSourceUpdatedAt: emptyBodyRead.entry.updatedAt ?? now,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
+                eq(
+                  schema.contentDatabaseSourceRows.databaseItemId,
+                  row.databaseItemId,
+                ),
+              ),
+            );
+          await tx
             .update(schema.contentDatabaseItems)
             .set({
-              bodyHydrationStatus: "unavailable",
+              bodyHydrationStatus: "hydrated",
               bodyHydrationAttemptedAt: now,
               bodyHydrationError: null,
+              bodyHydrationVersion: builderBodyHydrationVersion(
+                emptyBodyRead.entry,
+              ),
+              bodyHydrationReason: "empty_body",
+              bodyHydrationProviderStatus: emptyBodyRead.providerStatus,
+              bodyHydrationAttemptCount: attempts,
+              bodyHydrationRetryable: 0,
+              updatedAt: now,
+            })
+            .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+          return;
+        }
+        if (builderBodyHydrationAttemptIsTerminal(attempts)) {
+          const [deleted] = await tx
+            .delete(schema.contentDatabaseBodyHydrationQueue)
+            .where(queueRowCas)
+            .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+          if (!deleted) {
+            await markPendingIfReplaced();
+            return;
+          }
+          const reason =
+            emptyBodyRead?.state === "not_found"
+              ? "not_found"
+              : "conversion_failed";
+          await tx
+            .update(schema.contentDatabaseItems)
+            .set({
+              bodyHydrationStatus: "error",
+              bodyHydrationAttemptedAt: now,
+              bodyHydrationError:
+                reason === "not_found"
+                  ? "Builder no longer returns this source entry. Refresh the source or retry after restoring access."
+                  : reason === "conversion_failed"
+                    ? "Content could not construct a Builder body from the retained source record. Refresh the source to recover the authoritative body."
+                    : null,
               bodyHydrationVersion:
                 builderBodyUnavailableVersion(entryWithBody),
+              bodyHydrationReason: reason,
+              bodyHydrationProviderStatus: emptyBodyRead
+                ? emptyBodyRead.providerStatus
+                : "local_source_record",
+              bodyHydrationAttemptCount: attempts,
+              bodyHydrationRetryable: reason === "not_found" ? 1 : 0,
               updatedAt: now,
             })
             .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
@@ -2015,6 +2288,7 @@ async function processBuilderBodyHydrationJob(
           .set({
             lastAttemptedAt: null,
             lastError: BUILDER_BODY_NOT_AVAILABLE_ERROR,
+            nextAttemptAt: builderBodyHydrationNextAttemptAt(attempts, now),
             updatedAt: now,
           })
           .where(queueRowCas)
@@ -2028,7 +2302,14 @@ async function processBuilderBodyHydrationJob(
           .set({
             bodyHydrationStatus: "pending",
             bodyHydrationAttemptedAt: now,
-            bodyHydrationError: null,
+            bodyHydrationError: BUILDER_BODY_NOT_AVAILABLE_ERROR,
+            bodyHydrationReason:
+              emptyBodyRead?.state === "not_found" ? "not_found" : null,
+            bodyHydrationProviderStatus: emptyBodyRead
+              ? emptyBodyRead.providerStatus
+              : null,
+            bodyHydrationAttemptCount: attempts,
+            bodyHydrationRetryable: 1,
             updatedAt: now,
           })
           .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
@@ -2096,20 +2377,22 @@ async function processBuilderBodyHydrationJob(
       const contentCas =
         isEffectivelyEmptyDocumentContent(currentContent) &&
         isEffectivelyEmptyDocumentContent(previousContent)
-          ? inArray(schema.documents.content, ["", "<empty-block/>"])
+          ? documentContent === null || documentContent === undefined
+            ? isNull(schema.documents.content)
+            : eq(schema.documents.content, documentContent)
           : eq(schema.documents.content, currentContent);
       const [updatedDocument] = await tx
         .update(schema.documents)
-        .set({ content: nextContent, updatedAt: now })
+        .set({
+          content: nextContent,
+          bodyRevision: bodyRevisionForContent(nextContent),
+          updatedAt: now,
+        })
         .where(and(eq(schema.documents.id, row.documentId), contentCas))
         .returning({ id: schema.documents.id });
       wroteBody = Boolean(updatedDocument);
     }
     if (shouldWriteBody && !wroteBody) {
-      // Only mark the item pending if our queue row still exists. If a
-      // concurrent processor already completed (and deleted) this job, it
-      // owns the final `hydrated` status — resetting to pending here would
-      // strand the item as a zombie (pending with no queue row).
       const [stillQueued] = await tx
         .update(schema.contentDatabaseBodyHydrationQueue)
         .set({
@@ -2182,11 +2465,6 @@ async function processBuilderBodyHydrationJob(
       .where(queueRowCas)
       .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
     if (!deleted) {
-      // Our delete matched nothing: either a NEWER job version replaced this
-      // row (same id, different sourceEntryJson — mark pending so the newer
-      // job's processor owns it), or a concurrent processor completed and
-      // deleted the job — in which case it already set `hydrated`, and
-      // resetting to pending would strand the item with no queue row.
       const [replacedByNewerJob] = await tx
         .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
         .from(schema.contentDatabaseBodyHydrationQueue)
@@ -2211,6 +2489,10 @@ async function processBuilderBodyHydrationJob(
         bodyHydrationAttemptedAt: now,
         bodyHydrationError: null,
         bodyHydrationVersion: builderBodyHydrationVersion(entryWithBody),
+        bodyHydrationReason: null,
+        bodyHydrationProviderStatus: "http_200",
+        bodyHydrationAttemptCount: row.attempts,
+        bodyHydrationRetryable: 0,
         updatedAt: now,
       })
       .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
@@ -2343,17 +2625,19 @@ async function persistPristineBuilderBodyHydrationsInBulk(
           builderBodyHydrationQueueOwnershipFilter(job),
         );
 
+        const hydratedContent = hydrationCaseSql(
+          schema.documents.id,
+          schema.documents.content,
+          batch.map((row) => ({
+            id: row.job.documentId,
+            value: row.content,
+          })),
+        );
         const updatedDocuments = await tx
           .update(schema.documents)
           .set({
-            content: hydrationCaseSql(
-              schema.documents.id,
-              schema.documents.content,
-              batch.map((row) => ({
-                id: row.job.documentId,
-                value: row.content,
-              })),
-            ),
+            content: hydratedContent,
+            bodyRevision: bodyRevisionForContent(hydratedContent),
             updatedAt: now,
           })
           .where(
@@ -2430,8 +2714,6 @@ async function persistPristineBuilderBodyHydrationsInBulk(
             id: schema.contentDatabaseBodyHydrationQueue.id,
           });
         if (deletedQueueRows.length !== batch.length) {
-          // This guarded delete is the queue-ownership CAS for the whole
-          // transaction; a miss rolls back the preceding document/source writes.
           throw new PristineBuilderBodyHydrationCasMiss(
             "Builder body hydration queue changed.",
           );
@@ -2451,6 +2733,17 @@ async function persistPristineBuilderBodyHydrationsInBulk(
                 value: row.bodyHydrationVersion,
               })),
             ),
+            bodyHydrationReason: null,
+            bodyHydrationProviderStatus: "http_200",
+            bodyHydrationAttemptCount: hydrationCaseSql(
+              schema.contentDatabaseItems.id,
+              schema.contentDatabaseItems.bodyHydrationAttemptCount,
+              batch.map((row) => ({
+                id: row.job.databaseItemId,
+                value: row.job.attempts,
+              })),
+            ),
+            bodyHydrationRetryable: 0,
             updatedAt: now,
           })
           .where(
@@ -2480,16 +2773,13 @@ async function persistPristineBuilderBodyHydrationsInBulk(
   return persistedJobIds;
 }
 
-export function builderBodyHydrationBulkChunkLimit(
-  dialect: Dialect = getDialect(),
-) {
-  const portableLimit = bulkChunkSizeForColumnCount(
-    BUILDER_BODY_HYDRATION_MAX_BOUND_PARAMS_PER_ROW,
-    dialect,
+export function builderBodyHydrationBulkChunkLimit() {
+  return Math.max(
+    bulkChunkSizeForColumnCount(
+      BUILDER_BODY_HYDRATION_MAX_BOUND_PARAMS_PER_ROW,
+    ),
+    BUILDER_BODY_HYDRATION_POSTGRES_BULK_LIMIT,
   );
-  return dialect === "postgres"
-    ? Math.max(portableLimit, BUILDER_BODY_HYDRATION_POSTGRES_BULK_LIMIT)
-    : portableLimit;
 }
 
 async function enqueueStaleBuilderBodyHydrationForOpenDocument(args: {
@@ -2571,11 +2861,19 @@ export async function processBuilderBodyHydrationQueue(args: {
   limit?: number | null;
   preloadedJobs?: ContentDatabaseBodyHydrationQueueRowDb[];
   preloadBodies?: boolean;
+  retryFailed?: boolean;
 }) {
   const db = getDb();
   const limit = normalizeHydrationLimit(args.limit);
   const now = new Date().toISOString();
-  if (args.documentId) {
+  if (args.retryFailed) {
+    await reenqueueRetryableBuilderBodyHydration({
+      sourceId: args.sourceId,
+      documentId: args.documentId,
+      now,
+    });
+  }
+  if (args.documentId && !args.retryFailed) {
     await enqueueStaleBuilderBodyHydrationForOpenDocument({
       sourceId: args.sourceId,
       documentId: args.documentId,
@@ -2602,21 +2900,27 @@ export async function processBuilderBodyHydrationQueue(args: {
       .select()
       .from(schema.contentDatabaseBodyHydrationQueue)
       .where(
-        args.documentId
-          ? and(
-              eq(
+        and(
+          or(
+            isNull(schema.contentDatabaseBodyHydrationQueue.nextAttemptAt),
+            lte(schema.contentDatabaseBodyHydrationQueue.nextAttemptAt, now),
+          ),
+          args.documentId
+            ? and(
+                eq(
+                  schema.contentDatabaseBodyHydrationQueue.sourceId,
+                  args.sourceId,
+                ),
+                eq(
+                  schema.contentDatabaseBodyHydrationQueue.documentId,
+                  args.documentId,
+                ),
+              )
+            : eq(
                 schema.contentDatabaseBodyHydrationQueue.sourceId,
                 args.sourceId,
               ),
-              eq(
-                schema.contentDatabaseBodyHydrationQueue.documentId,
-                args.documentId,
-              ),
-            )
-          : eq(
-              schema.contentDatabaseBodyHydrationQueue.sourceId,
-              args.sourceId,
-            ),
+        ),
       )
       .orderBy(
         asc(schema.contentDatabaseBodyHydrationQueue.priority),
@@ -2626,7 +2930,11 @@ export async function processBuilderBodyHydrationQueue(args: {
   const jobs = await (args.preloadedJobs?.length && !args.documentId
     ? (() => {
         const preloadedJobs = sortBuilderBodyHydrationQueueForProcessing(
-          args.preloadedJobs!.filter((job) => job.sourceId === args.sourceId),
+          args.preloadedJobs!.filter(
+            (job) =>
+              job.sourceId === args.sourceId &&
+              (!job.nextAttemptAt || job.nextAttemptAt <= now),
+          ),
         ).slice(0, limit);
         return persistedJobs(limit + preloadedJobs.length).then((rows) => {
           const preloadedIds = new Set(preloadedJobs.map((job) => job.id));
@@ -2859,6 +3167,7 @@ export async function processBuilderBodyHydrationQueue(args: {
       } catch (error) {
         failed += 1;
         const message = error instanceof Error ? error.message : String(error);
+        const evidence = builderBodyHydrationFailureEvidence(error);
         const attempts = job.attempts;
         const queueRowCas = builderBodyHydrationQueueOwnershipFilter(job);
         const markPendingIfReplaced = async () => {
@@ -2877,7 +3186,10 @@ export async function processBuilderBodyHydrationQueue(args: {
             })
             .where(eq(schema.contentDatabaseItems.id, job.databaseItemId));
         };
-        if (builderBodyHydrationAttemptIsTerminal(attempts)) {
+        if (
+          builderBodyHydrationAttemptIsTerminal(attempts) ||
+          !evidence.retryable
+        ) {
           const [deleted] = await db
             .delete(schema.contentDatabaseBodyHydrationQueue)
             .where(queueRowCas)
@@ -2892,6 +3204,13 @@ export async function processBuilderBodyHydrationQueue(args: {
               bodyHydrationStatus: "error",
               bodyHydrationAttemptedAt: attemptNow,
               bodyHydrationError: message,
+              bodyHydrationVersion: parseHydrationEntry(job)
+                ? builderBodyUnavailableVersion(parseHydrationEntry(job)!)
+                : null,
+              bodyHydrationReason: evidence.reason,
+              bodyHydrationProviderStatus: evidence.providerStatus,
+              bodyHydrationAttemptCount: attempts,
+              bodyHydrationRetryable: evidence.retryable ? 1 : 0,
               updatedAt: attemptNow,
             })
             .where(eq(schema.contentDatabaseItems.id, job.databaseItemId));
@@ -2904,6 +3223,10 @@ export async function processBuilderBodyHydrationQueue(args: {
             lastAttemptedAt: null,
             lastError: message,
             priority: job.priority + 10,
+            nextAttemptAt: builderBodyHydrationNextAttemptAt(
+              attempts,
+              attemptNow,
+            ),
             updatedAt: attemptNow,
           })
           .where(queueRowCas)
@@ -2915,9 +3238,13 @@ export async function processBuilderBodyHydrationQueue(args: {
         await db
           .update(schema.contentDatabaseItems)
           .set({
-            bodyHydrationStatus: "error",
+            bodyHydrationStatus: "pending",
             bodyHydrationAttemptedAt: attemptNow,
             bodyHydrationError: message,
+            bodyHydrationReason: evidence.reason,
+            bodyHydrationProviderStatus: evidence.providerStatus,
+            bodyHydrationAttemptCount: attempts,
+            bodyHydrationRetryable: evidence.retryable ? 1 : 0,
             updatedAt: attemptNow,
           })
           .where(eq(schema.contentDatabaseItems.id, job.databaseItemId));
@@ -2925,7 +3252,13 @@ export async function processBuilderBodyHydrationQueue(args: {
     },
   );
   const [remaining] = await db
-    .select({ count: sql<number>`COUNT(*)` })
+    .select({
+      count: sql<number>`COUNT(*)`,
+      ready: sql<number>`SUM(CASE WHEN ${schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt} IS NULL AND (${schema.contentDatabaseBodyHydrationQueue.nextAttemptAt} IS NULL OR ${schema.contentDatabaseBodyHydrationQueue.nextAttemptAt} <= ${now}) THEN 1 ELSE 0 END)`,
+      nextAttemptAt: sql<
+        string | null
+      >`MIN(CASE WHEN ${schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt} IS NULL THEN ${schema.contentDatabaseBodyHydrationQueue.nextAttemptAt} END)`,
+    })
     .from(schema.contentDatabaseBodyHydrationQueue)
     .where(
       eq(schema.contentDatabaseBodyHydrationQueue.sourceId, args.sourceId),
@@ -2936,6 +3269,8 @@ export async function processBuilderBodyHydrationQueue(args: {
     succeeded,
     failed,
     remaining: Number(remaining?.count ?? 0),
+    ready: Number(remaining?.ready ?? 0),
+    nextAttemptAt: remaining?.nextAttemptAt ?? null,
   };
 }
 
@@ -2993,10 +3328,6 @@ export async function builderBodyChangeForLocalContent(args: {
   const localContent = args.localContent ?? "";
   if (!currentHash && !currentContent && !localContent.trim()) return null;
   if (!currentContent?.trim() && !losslessContent?.trim()) return null;
-  // Native media is converter-owned output. Re-run it even when the editable
-  // Markdown text is byte-for-byte unchanged: a converter upgrade can turn a
-  // legacy Text block containing a Markdown image into a real Builder Image
-  // (or emit a native Video) without changing the document text at all.
   const usesCurrentMediaConverter =
     builderBodyUsesCurrentMediaConverter(localContent);
   const normalizedLocalContent =
@@ -3183,9 +3514,6 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
   if (args.row) {
     const identity = builderCmsSourceRowIdentityState({ row: args.row });
     if (identity.isSyntheticFixture) {
-      // Fixture rows are local placeholders, not imported Builder baselines.
-      // Execution resolves their synthetic identity to create_draft, so their
-      // local body must follow the same create path even before hydration.
       return builderBodyChangeForUnsourcedLocalCreate({
         localContent: args.localContent,
       });
@@ -3210,8 +3538,6 @@ export function buildBuilderLocalOutboundChangeSets(args: {
   rowRows: ContentDatabaseSourceRecordRowDb[];
   documentTitleById: Map<string, string>;
   storedChangeSets: ContentDatabaseSourceChangeSet[];
-  // Optional inputs that enable new-row creates. When omitted (e.g. legacy
-  // callers/tests) the function behaves exactly as before (title diffs only).
   databaseItems?: Array<{ databaseItemId: string; documentId: string }>;
   localValuesByDocument?: Map<string, Map<string, unknown>>;
   writableFields?: Array<{
@@ -3224,25 +3550,11 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     sourceFieldType?: string;
     sourceFieldModel?: string;
   }>;
-  // Row-union scoping (multi-source). Documents owned by ANOTHER source must
-  // never be create candidates for this one — each row belongs to exactly one
-  // collection. And a truly unsourced ("Local") row creates only against the
-  // primary, not every attached collection. Both default to the single-source
-  // behavior when omitted (no other owners; creates allowed).
   otherSourceDocumentIds?: Set<string>;
   allowUnsourcedCreates?: boolean;
-  // Per-document ownership from the visible "Source" select tag (documentId →
-  // owning sourceId). A new, still-unlinked row tagged for a specific
-  // collection is adopted as a create_draft by THAT collection only; an
-  // untagged / "Local" row falls back to the primary (allowUnsourcedCreates).
   taggedSourceByDocumentId?: Map<string, string>;
   bodyChangeByDocumentId?: Map<string, ContentDatabaseSourceBodyChange>;
   sourceImportedDocumentIds?: Set<string>;
-  /**
-   * Rejected change-sets that are provably cancellations of a prepared,
-   * pre-dispatch Builder gate. Their exact snapshot remains durable audit
-   * history and suppresses only the byte-equivalent local-vs-source diff.
-   */
   cancelledRejectedChangeSetIds?: Set<string>;
 }): ContentDatabaseSourceChangeSet[] {
   if (normalizeSourceType(args.source.sourceType) !== "builder-cms") return [];
@@ -3393,9 +3705,6 @@ export function buildBuilderLocalOutboundChangeSets(args: {
         proposedValue: localTitle,
       });
     }
-    // Diff every mapped property field: local value vs the synced source
-    // baseline (same-shape DocumentPropertyValue, stable compare). An absent
-    // local value means "not loaded", not "cleared" — skip it.
     const rowLocalValues = args.localValuesByDocument?.get(row.documentId);
     if (rowLocalValues) {
       for (const field of args.writableFields ?? []) {
@@ -3436,8 +3745,6 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     }
     const bodyChange = args.bodyChangeByDocumentId?.get(row.documentId) ?? null;
     if (fieldChanges.length === 0 && !bodyChange) continue;
-    // Skip if this row already has a live (non-rejected/applied) stored outbound
-    // autosave change-set — the stored one is what's being reviewed/pushed.
     const matchesStoredChange = args.storedChangeSets.some((changeSet) => {
       if (
         changeSet.direction !== "outbound" ||
@@ -3478,10 +3785,6 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     const now = new Date().toISOString();
     const displayTitle = localTitle || sourceTitle;
     const candidate: ContentDatabaseSourceChangeSet = {
-      // Keep the synthetic identity stable while body hydration catches up.
-      // The lightweight UI snapshot may initially see only field changes while
-      // the authoritative write snapshot also sees a body diff. The payload
-      // fingerprint, not an ID suffix, distinguishes material revisions.
       id: `local-pending-${row.id}-change`,
       databaseItemId: row.databaseItemId,
       documentId: row.documentId,
@@ -3515,10 +3818,6 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     }
   }
 
-  // New-row creates: a local database item NOT linked to a Builder entry (no
-  // source row) and with a non-empty title becomes a create_draft change-set.
-  // No baseline comparison here — we send the local values; the create_draft
-  // effect (derived from a null target entryId) writes the entry as a draft.
   if (args.databaseItems && args.databaseItems.length > 0) {
     const linkedDocumentIds = new Set(
       args.rowRows.map((row) => row.documentId),
@@ -3537,18 +3836,13 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     for (const item of args.databaseItems) {
       if (linkedDocumentIds.has(item.documentId)) continue;
       if (args.sourceImportedDocumentIds?.has(item.documentId)) continue;
-      // Owned by another collection's row identity — not this source's to create.
       if (args.otherSourceDocumentIds?.has(item.documentId)) continue;
       const taggedSourceId = args.taggedSourceByDocumentId?.get(
         item.documentId,
       );
       if (taggedSourceId) {
-        // Explicitly tagged for a collection via the "Source" property: only
-        // that collection adopts it (regardless of primary/non-primary).
         if (taggedSourceId !== args.source.id) continue;
       } else if (!allowUnsourcedCreates) {
-        // Untagged / "Local": only the primary adopts it as a create; other
-        // collections leave it alone until it's explicitly assigned to them.
         continue;
       }
       if (documentIdsWithStoredChange.has(item.documentId)) continue;
@@ -3666,11 +3960,6 @@ export async function getContentDatabaseSourceSnapshot(
   });
 }
 
-/**
- * Load one specific attached source by id (scoped to the database). Multi-source
- * write paths use this so an action can target a non-primary source; single-source
- * callers keep using {@link getContentDatabaseSourceSnapshot} (the primary).
- */
 export async function getContentDatabaseSourceSnapshotById(
   database: ContentDatabaseRow | ContentDatabase,
   sourceId: string,
@@ -3691,12 +3980,6 @@ export async function getContentDatabaseSourceSnapshotById(
   });
 }
 
-/**
- * Resolve the source an action should operate on: the explicit `sourceId` when
- * given (multi-source), otherwise the primary (back-compat single-source). The
- * default path is byte-for-byte the old behavior, so existing callers that omit
- * `sourceId` are unaffected.
- */
 export async function getContentDatabaseSourceSnapshotForWrite(
   database: ContentDatabaseRow | ContentDatabase,
   sourceId?: string | null,
@@ -3757,9 +4040,7 @@ export function builderReviewSourceValueTextProjection(
   key: BuilderReviewSourceValueTextKey,
 ) {
   const sourceValuesJson = schema.contentDatabaseSourceRows.sourceValuesJson;
-  return getDialect() === "postgres"
-    ? sql<string>`COALESCE(${sourceValuesJson}::jsonb ->> ${key}, '')`
-    : sql<string>`COALESCE(json_extract(${sourceValuesJson}, ${`$."${key}"`}), '')`;
+  return sql<string>`COALESCE(${sourceValuesJson}::jsonb ->> ${key}, '')`;
 }
 
 async function findBuilderReviewBodyCandidateDocumentIds(args: {
@@ -3822,12 +4103,6 @@ async function findBuilderReviewBodyCandidateDocumentIds(args: {
   return rows.map((row) => row.documentId);
 }
 
-/**
- * Load a complete Builder review snapshot without transferring every heavy
- * Builder body baseline. A light pass identifies field/stored changes, while a
- * narrow body index compares the editable document with the readable baseline.
- * Only candidate documents then load lossless body data and sidecars.
- */
 export async function getContentDatabaseSourceSnapshotForReview(
   database: ContentDatabaseRow | ContentDatabase,
   sourceId?: string | null,
@@ -3872,12 +4147,6 @@ export async function getContentDatabaseSourceSnapshotForReview(
         changeSet.state === "staged_revision" ||
         changeSet.state === "approved"),
   );
-  // The interactive review surface is capped at 100 rows. When a complete
-  // pending batch is already known, load heavy body/sidecar data only for those
-  // documents instead of first discovering body-only candidates. When no
-  // pending batch exists, the fallback compares bodies inside SQL and returns
-  // only candidate document IDs; article bodies never cross into application
-  // memory merely to prove that they are unchanged.
   const knownReviewDocumentIds = knownBuilderReviewDocumentIds(
     reviewableChanges,
     100,
@@ -3911,11 +4180,6 @@ export async function getContentDatabaseSourceSnapshotForReview(
   });
 }
 
-/**
- * Load every source attached to a database (oldest first → `[0]` is the
- * primary). Federation joins read this; single-source callers keep using
- * `getContentDatabaseSourceSnapshot`, which returns the primary.
- */
 export async function getAllContentDatabaseSourceSnapshots(
   database: ContentDatabaseRow | ContentDatabase,
   options: { documentIds?: string[] } = {},
@@ -3987,8 +4251,6 @@ async function readSourceSnapshotRowsOnce(args: {
         : eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
     )
     .orderBy(asc(schema.contentDatabaseSourceRows.createdAt));
-  // For Builder sources, load ALL database items (not just synced source rows)
-  // so brand-new local rows (no source link) can become create_draft change-sets.
   const databaseItemRows = args.isBuilderSource
     ? await db
         .select({
@@ -4344,11 +4606,6 @@ async function loadSourceSnapshot(
       sourceFieldModel: builderModelFieldBySourceKey.get(row.sourceFieldKey)
         ?.model,
     }));
-  // Row-union ownership scoping (Builder only). Determine which documents belong
-  // to OTHER sources and whether this source is the primary (oldest), so the
-  // create-candidate logic never claims another collection's rows and unsourced
-  // "Local" rows only create against the primary. Single-source: no other
-  // sources ⇒ empty set, isPrimary ⇒ identical to the old behavior.
   let otherSourceDocumentIds = new Set<string>();
   let isPrimarySource = true;
   let taggedSourceByDocumentId = new Map<string, string>();
@@ -4381,11 +4638,6 @@ async function loadSourceSnapshot(
         );
       otherSourceDocumentIds = new Set(ownedRows.map((row) => row.documentId));
     }
-    // Multi-source: a row's visible "Source" tag value IS its owning source id
-    // (the Source option id equals the source id), so adoption is pure id
-    // matching — no source-name hop, immune to duplicate names or a "Local"
-    // collision. The "Local" sentinel isn't a real source id, so untagged rows
-    // fall through to the primary-only path.
     if (dbSources.length > 1) {
       const [sourceProp] = await db
         .select({ id: schema.documentPropertyDefinitions.id })
@@ -4431,9 +4683,6 @@ async function loadSourceSnapshot(
       allDocumentIds.map(async (documentId) => {
         const row = sourceRowByDocumentId.get(documentId);
         let bodyChange: ContentDatabaseSourceBodyChange | null = null;
-        // Only the primary source may adopt a genuinely local row with no source
-        // identity. Synthetic fixture rows already belong to this source, but
-        // still represent create_draft targets rather than imported baselines.
         const allowUnsourcedCreate =
           isPrimarySource &&
           !otherSourceDocumentIds.has(documentId) &&
@@ -4451,11 +4700,6 @@ async function loadSourceSnapshot(
     );
   }
 
-  // A locally blocked dry run never crossed the Builder dispatch boundary, so
-  // its approved body payload may be refreshed from the current document. This
-  // is deliberately narrower than ordinary "retryable" state: running,
-  // response-bearing, failed, reconciliatory, and otherwise ambiguous gates
-  // retain the exact body that was originally approved.
   if (isBuilderSource && bodyChangeByDocumentId.size > 0) {
     const executionRowsByChangeSetId = new Map<
       string,
@@ -4467,9 +4711,6 @@ async function loadSourceSnapshot(
       executionRowsByChangeSetId.set(execution.changeSetId, rows);
     }
     storedChangeSets = storedChangeSets.map((changeSet) => {
-      // Rejected snapshots are durable review/audit evidence. In particular,
-      // a cancelled gate must retain the exact diff the user cancelled so a
-      // later local or remote body change can be distinguished from it.
       if (changeSet.state !== "approved") return changeSet;
       const currentBody = changeSet.documentId
         ? bodyChangeByDocumentId.get(changeSet.documentId)
@@ -4560,9 +4801,6 @@ async function loadSourceSnapshot(
         changeSet,
         source,
         rowByDocumentId,
-        // Synthetic current diffs deliberately reuse a stable identity. A
-        // closed stored revision with that ID is historical evidence, not the
-        // execution state of this new payload.
         reviewEvents: [],
         executions: [],
       }),
@@ -4585,8 +4823,6 @@ async function loadSourceSnapshot(
     capabilities.liveWritesEnabled = normalizedWriteMode !== "read_only";
   }
 
-  // A local-table source shows the target database's *live* title, so renaming
-  // the underlying table is reflected here instead of the name frozen at attach.
   let displaySourceName = source.sourceName;
   if (sourceType === "local-table") {
     const [target] = await db
@@ -4713,6 +4949,7 @@ async function sourceBodyHydrationSummary(args: {
   const rows = await getDb()
     .select({
       status: schema.contentDatabaseItems.bodyHydrationStatus,
+      retryable: schema.contentDatabaseItems.bodyHydrationRetryable,
       queueId: schema.contentDatabaseBodyHydrationQueue.id,
     })
     .from(schema.contentDatabaseItems)
@@ -4745,6 +4982,7 @@ async function sourceBodyHydrationSummary(args: {
     hydrated: 0,
     unavailable: 0,
     error: 0,
+    retryableErrors: 0,
     total: rows.length,
   };
   for (const row of rows) {
@@ -4752,15 +4990,14 @@ async function sourceBodyHydrationSummary(args: {
       summary.pending += 1;
     } else if (row.status === "hydrating") summary.hydrating += 1;
     else if (row.status === "unavailable") summary.unavailable! += 1;
-    else if (row.status === "error") summary.error += 1;
-    else summary.hydrated += 1;
+    else if (row.status === "error") {
+      summary.error += 1;
+      if (row.retryable !== 0) summary.retryableErrors! += 1;
+    } else summary.hydrated += 1;
   }
   return summary;
 }
 
-// Pass a stored federation block through only when it has the shape the join
-// engine relies on; anything malformed degrades to undefined (no federation),
-// keeping a single-source database working.
 export function normalizeSourceFederation(
   value: ContentDatabaseSourceFederation | null | undefined,
 ): ContentDatabaseSourceFederation | undefined {
@@ -4987,12 +5224,6 @@ function isBuilderReferenceModelField(field: BuilderCmsModelFieldSummary) {
     .some((value) => /\b(reference|relation)\b/i.test(value));
 }
 
-/**
- * A raw Builder entry can teach required-field setup the reference model even
- * when Builder's model endpoint omits it. Refreshes must not throw that
- * provider-native enrichment away: the canonical local value is only an entry
- * id, and dispatch needs the learned model to reconstruct a Builder reference.
- */
 export function mergeBuilderCmsModelFieldsPreservingReferenceModels(args: {
   existing?: BuilderCmsModelFieldSummary[];
   refreshed?: BuilderCmsModelFieldSummary[];
@@ -5168,15 +5399,6 @@ export async function seedMockSourceFields(args: {
       createdAt: args.now,
       updatedAt: args.now,
     },
-    // The auto-created "Source" property is internal row-tagging (which
-    // collection a row belongs to). It must NEVER become a writable Builder
-    // source field — otherwise its local option-id value diffs against an
-    // absent baseline and every row shows a phantom pending change, and a push
-    // would try to write the internal tag to Builder. Match the SAME shape
-    // ensureDatabaseSourceProperty uses to identify it (a `select` named
-    // "Source") and only for Builder sources, so a user's own field happening
-    // to be named "Source" — or any non-Builder/local-table source — is left
-    // untouched.
     ...(isBuilder
       ? builderSourcePropertyAssignments({
           properties: args.properties,
@@ -5627,10 +5849,6 @@ function builderSourceValuesWithPreservedBodyBaseline(args: {
         args.existingLastSourceUpdatedAt;
     }
   }
-  // Required-reference materialization stores the canonical Builder entry id
-  // beside the readable projection. Refresh receives only that projection, so
-  // retain the id while the projected value is unchanged. If the remote label
-  // changes, discard the old id instead of pairing stale identity with it.
   const referenceIdPrefix = "__agent_native_builder_reference_id:";
   for (const [key, value] of Object.entries(existing)) {
     if (!key.startsWith(referenceIdPrefix)) continue;
@@ -5828,7 +6046,7 @@ function openChangeSetKey(row: ContentDatabaseSourceChangeSetRowDb) {
     row.fieldChangesJson,
   )
     .map((field) => field.propertyId)
-    .sort()
+    .sort((a, b) => (a ?? "").localeCompare(b ?? ""))
     .join(",");
   const hasBodyChange = parseObject<ContentDatabaseSourceBodyChange>(
     row.bodyChangeJson,
@@ -5874,7 +6092,7 @@ export function sourceChangeSetKey(args: {
 }) {
   const fields = args.fieldChanges
     .map((field) => field.propertyId)
-    .sort()
+    .sort((a, b) => (a ?? "").localeCompare(b ?? ""))
     .join(",");
   return [
     args.documentId ?? args.databaseItemId ?? "database",
@@ -6176,10 +6394,6 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
   now: string;
   sourceTable: string;
   existingSourceRows?: ContentDatabaseSourceRecordRowDb[];
-  // When importing an ADDITIONAL source (row-union), two collections may share
-  // a title legitimately, so the cross-database title dedup must be skipped —
-  // per-source re-import idempotency is still handled by
-  // builderCmsEntryAlreadyRepresented (existingSourceRows).
   skipTitleDedup?: boolean;
 }): Promise<{
   imported: number;
@@ -6269,9 +6483,6 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
       .map((row) => row.documentId)
       .filter((documentId): documentId is string => Boolean(documentId)),
   );
-  // Builder entry IDs, not titles, are the remote identity. Preserve every
-  // same-title entry in a collection while retaining the legacy guard against
-  // adopting an already-present local row during source replacement.
   const existingUnlinkedTitles = new Set(
     currentItems
       .filter((row) => !representedDocumentIds.has(row.document.id))
@@ -6293,7 +6504,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
         databaseItemsPositionScope(args.database.id),
         async () => {
           const [maxDocPos] = await db
-            .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+            .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
             .from(schema.documents)
             .where(
               and(
@@ -6302,14 +6513,18 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
               ),
             );
           const [maxItemPos] = await db
-            .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+            .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
             .from(schema.contentDatabaseItems)
             .where(
               eq(schema.contentDatabaseItems.databaseId, args.database.id),
             );
 
-          let nextDocPosition = (maxDocPos?.max ?? -1) + 1;
-          let nextItemPosition = (maxItemPos?.max ?? -1) + 1;
+          const allocateDocumentPosition = createAppendPositionAllocator(
+            maxDocPos?.max,
+          );
+          const allocateItemPosition = createAppendPositionAllocator(
+            maxItemPos?.max,
+          );
           const documentRows: (typeof schema.documents.$inferInsert)[] = [];
           const itemRows: (typeof schema.contentDatabaseItems.$inferInsert)[] =
             [];
@@ -6333,10 +6548,6 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
             const existingDeterministicRow =
               currentRowByDocumentId.get(documentId);
             if (existingDeterministicRow?.item.id === itemId) {
-              // A prior attach can commit the deterministic document/item and
-              // fail before linking its source row. Treat that pair as the
-              // same Builder identity so refresh repairs the missing link
-              // without synthesizing a duplicate response item.
               importedEntriesByDocumentId.set(documentId, entry);
               continue;
             }
@@ -6347,7 +6558,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
               continue;
             }
 
-            const documentPosition = nextDocPosition++;
+            const documentPosition = allocateDocumentPosition();
             const documentRow = {
               id: documentId,
               spaceId: databaseSpaceId,
@@ -6364,7 +6575,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
               createdAt: args.now,
               updatedAt: args.now,
             };
-            const itemPosition = nextItemPosition++;
+            const itemPosition = allocateItemPosition();
             documentRows.push(documentRow);
             itemRows.push({
               id: itemId,
@@ -6413,6 +6624,10 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
                   attemptedAt: null,
                   error: null,
                   version: null,
+                  reason: null,
+                  providerStatus: null,
+                  attemptCount: 0,
+                  retryable: null,
                 },
               };
             }),
@@ -6456,6 +6671,17 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
                       attemptedAt: row.item.bodyHydrationAttemptedAt,
                       error: row.item.bodyHydrationError,
                       version: row.item.bodyHydrationVersion,
+                      reason:
+                        (row.item
+                          .bodyHydrationReason as ContentDatabaseBodyHydration["reason"]) ??
+                        null,
+                      providerStatus:
+                        row.item.bodyHydrationProviderStatus ?? null,
+                      attemptCount: row.item.bodyHydrationAttemptCount ?? 0,
+                      retryable:
+                        row.item.bodyHydrationRetryable === null
+                          ? null
+                          : row.item.bodyHydrationRetryable === 1,
                     },
                   },
                 ];
@@ -6541,6 +6767,10 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
                   attemptedAt: null,
                   error: null,
                   version: null,
+                  reason: null,
+                  providerStatus: null,
+                  attemptCount: 0,
+                  retryable: null,
                 },
               };
             });
@@ -6871,14 +7101,6 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       now: args.now,
     });
   }
-  // Row-union: a resync must only (re)link items that BELONG to this source —
-  // never claim every database item. With a single source, all items belong to
-  // it (back-compat). With multiple sources, link only this source's
-  // remote-backed rows when the read is live (this self-heals any prior
-  // over-claim, since rows are deleted then reseeded); when offline, preserve
-  // just the rows already owned so nothing is orphaned. New / "Local" /
-  // other-collection rows stay unlinked, so the Source-tag create path can
-  // adopt them into the right collection.
   const databaseSourceCount = (
     await db
       .select({ id: schema.contentDatabaseSources.id })
@@ -7108,10 +7330,6 @@ export async function replaceSourceMetadata(args: {
   return sourceId;
 }
 
-/**
- * Insert an ADDITIONAL source without touching existing sources — the primary
- * keeps its fields and rows. Used to federate a read-only second source.
- */
 export async function insertSecondarySource(args: {
   database: ContentDatabaseRow;
   expectedPrimarySourceId: string;
@@ -7174,12 +7392,6 @@ export async function insertSecondarySource(args: {
   return sourceId;
 }
 
-/**
- * Store a read-only secondary source's entries as join-by-key rows. They have no
- * local document (`documentId`/`databaseItemId` are empty sentinels) — the read
- * engine matches them purely by normalized canonical key. Replaces any prior
- * rows for the source so a re-store is idempotent.
- */
 export async function storeSecondarySourceRows(args: {
   sourceId: string;
   ownerEmail: string;
@@ -7221,11 +7433,6 @@ export async function storeSecondarySourceRows(args: {
   );
 }
 
-/**
- * Seed read-only field mappings for a secondary source from its model fields
- * (and any keys seen in a sample entry). Every field is read-only — write
- * fan-out is a LATER, live-write feature. Replaces any prior fields.
- */
 export async function seedSecondarySourceFields(args: {
   sourceId: string;
   ownerEmail: string;
@@ -7308,7 +7515,6 @@ export async function seedSecondarySourceFields(args: {
   );
 }
 
-/** Merge a federation block into a source's stored metadata (primary or secondary). */
 export async function writeSourceFederation(args: {
   sourceId: string;
   federation: ContentDatabaseSourceFederation;
@@ -7474,7 +7680,6 @@ export async function getExistingSource(databaseId: string) {
   return source ?? null;
 }
 
-/** The source DB row for one attached source by id (scoped to the database). */
 export async function getExistingSourceById(
   databaseId: string,
   sourceId: string,
@@ -7492,7 +7697,6 @@ export async function getExistingSourceById(
   return source ?? null;
 }
 
-/** The source DB row for an action: explicit `sourceId` when given, else primary. */
 export async function getExistingSourceForWrite(
   databaseId: string,
   sourceId?: string | null,
@@ -7502,7 +7706,6 @@ export async function getExistingSourceForWrite(
     : getExistingSource(databaseId);
 }
 
-/** Whether a source for this model (sourceTable) is already attached. */
 export async function databaseSourceExistsForTable(
   databaseId: string,
   sourceTable: string,
@@ -7521,8 +7724,6 @@ export async function databaseSourceExistsForTable(
 }
 
 export const SOURCE_PROPERTY_NAME = "Source";
-// The "Local" (no collection) option id. A fixed non-UUID sentinel so it never
-// collides with a source id (which is what every collection option's id is).
 export const SOURCE_LOCAL_OPTION_ID = "local";
 
 const SOURCE_OPTION_PALETTE: DocumentPropertyOptionColor[] = [
@@ -7564,13 +7765,6 @@ export function sourcePropertyOptionsForSources(
   ];
 }
 
-/**
- * Ensure a "Source" select property exists tagging each row with the collection
- * it belongs to, and (re)set every item's value. Rows with no source binding are
- * "Local" — the same first-class state a brand-new local row has. Only runs once
- * a database has 2+ sources (row-union); a single-source database doesn't need
- * the tag. Option ids are preserved across re-runs so colors/filters stay stable.
- */
 export async function ensureDatabaseSourceProperty(args: {
   database: ContentDatabaseRow;
   now: string;
@@ -7607,10 +7801,6 @@ export async function ensureDatabaseSourceProperty(args: {
   const priorOptions = existing
     ? (parsePropertyOptions(existing.optionsJson).options ?? [])
     : [];
-  // Each source option's id IS the sourceId (and "Local" uses a fixed sentinel
-  // that can't collide with a UUID source id). Resolving a row's tag back to a
-  // source is then pure id matching — no source-name hop — so duplicate display
-  // names or a collection literally named "Local" can never misroute a row.
   const options = sourcePropertyOptionsForSources(sources, priorOptions);
   const optionsJson = serializePropertyOptions({ options });
 
@@ -7627,7 +7817,7 @@ export async function ensureDatabaseSourceProperty(args: {
       propertyDefinitionsPositionScope(args.database.id),
       async () => {
         const [maxPos] = await db
-          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
           .from(schema.documentPropertyDefinitions)
           .where(
             eq(schema.documentPropertyDefinitions.databaseId, args.database.id),
@@ -7641,7 +7831,7 @@ export async function ensureDatabaseSourceProperty(args: {
           type: "select",
           visibility: "always_show",
           optionsJson,
-          position: (maxPos?.max ?? -1) + 1,
+          position: nextAppendPosition(maxPos?.max),
           createdAt: args.now,
           updatedAt: args.now,
         });
@@ -7649,8 +7839,6 @@ export async function ensureDatabaseSourceProperty(args: {
     );
   }
 
-  // A row's Source value IS its owning source id (= the option id); unsourced
-  // rows get the "Local" sentinel. Pure id mapping, no source-name hop.
   const rows = await db
     .select({
       documentId: schema.contentDatabaseSourceRows.documentId,

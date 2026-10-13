@@ -33,11 +33,11 @@ last_reviewed: "2026-07-29"
 
 ## Why this exists
 
-Same-named columns are not shared meaning. Organizations need a way to reuse a field deliberately, understand where it came from, and evolve it without silently rewriting a local database.
+Same-named columns are not shared meaning. Organizations need a way to reuse a field deliberately, understand where it came from, and evolve it without silently rewriting a local collection.
 
 ## Example workflow
 
-Marta publishes Customer tier, a database adopts it, previews an enum update, and another database detaches locally while keeping values.
+Marta publishes Customer tier, a collection adopts it, previews an enum update, and another collection detaches locally while keeping values.
 
 ## Product contract
 
@@ -67,7 +67,7 @@ Given a breaking type/option update, when its owner proposes publication, then C
 ## Proof plan
 
 1. Build scoped Add column discovery with IDs/provenance.
-2. Adopt across databases and test semantics/access.
+2. Adopt across collections and test semantics/access.
 3. Publish compatible/breaking versions with impact/migration/receipts.
 4. Detach without losing values.
 

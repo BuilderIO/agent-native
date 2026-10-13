@@ -15,5 +15,5 @@ export default defineAction({
     arguments: z.record(z.string(), z.unknown()).default({}),
   }),
   run: ({ serverId, toolName, arguments: args }, context) =>
-    callMcpTool(serverId, toolName, args, context),
+    callMcpTool(serverId, toolName, args, { context }),
 });

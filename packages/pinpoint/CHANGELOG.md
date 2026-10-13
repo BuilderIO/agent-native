@@ -1,5 +1,319 @@
 # @agent-native/pinpoint
 
+## 0.1.82
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.81
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.80
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.79
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.78
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.77
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.76
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.75
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.74
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.73
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.72
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.71
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.70
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.69
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.68
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.67
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.66
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.65
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.64
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.63
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.62
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.61
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.60
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.59
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.58
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ed3801e: Remove nonessential source comments.
+
+## 0.1.57
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.56
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.55
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.54
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.53
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.52
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.51
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.50
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.49
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.48
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.47
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.46
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.45
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.44
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.43
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.42
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.41
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.40
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.39
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.38
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.37
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.36
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.35
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.34
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.33
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.32
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.31
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 4776e61: Reduce CI lint warnings with safer type narrowing, callback binding, and explicit async intent.
+
 ## 0.1.30
 
 ### Patch Changes
@@ -101,7 +415,7 @@
 - 52cce19: Shrink the dispatch and pinpoint install footprint by removing code and
   dependencies nothing could reach. Dispatch drops the unused pre-auth routing
   helper — `rootDispatchRedirect` had no callers and was not re-exported from
-  `./server` or any other published subpath — along with the `@libsql/client` and
+  `./server` or any other published subpath — along with the database client and
   `h3` dependencies, which had no imports in the package but were still installed
   for every consumer. Pinpoint drops the `HistoryDropdown` and `SettingsPanel`
   overlay components, which were never rendered by the overlay and were not

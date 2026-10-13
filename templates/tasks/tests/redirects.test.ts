@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { loader } from "../app/routes/_index";
+import { loader } from "../app/routes/home";
 
-describe("Tasks root route", () => {
+describe("Tasks private home route", () => {
   it("marks the redirect as cacheable HTML", () => {
     const response = loader();
 

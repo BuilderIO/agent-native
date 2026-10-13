@@ -1,12 +1,12 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { DbAdminPage } from "@agent-native/core/client/db-admin";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 import { useOrgRole } from "@agent-native/core/client/org";
+import { DbAdminPage } from "@agent-native/toolkit/app/db-admin";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 import {
   IconActivity,
   IconAlertTriangle,
@@ -79,8 +79,6 @@ interface DbAdminConnection {
   appId: string | null;
   appUrl: string | null;
   databaseUrlLast4: string | null;
-  hasDatabaseAuthToken: boolean;
-  databaseAuthTokenLast4: string | null;
 }
 
 interface SaveDbAdminConnectionInput {
@@ -88,7 +86,6 @@ interface SaveDbAdminConnectionInput {
   appId?: string;
   appUrl?: string;
   databaseUrl: string;
-  databaseAuthToken?: string;
 }
 
 interface DashboardUsageStats {
@@ -134,7 +131,8 @@ function toCount(value: unknown): number {
 
 function DashboardUsageAdminPanel() {
   const t = useT();
-  const { formatDate } = useFormatters();
+  const formatters = useFormatters();
+  const formatDate = formatters.formatDate.bind(formatters);
   const numberFormat = useMemo(() => new Intl.NumberFormat(), []);
   const [sortBy, setSortBy] = useState<"views" | "edits">("views");
   const {
@@ -626,7 +624,6 @@ function AnalyticsDbAdminPanel({
     appId: "",
     appUrl: "",
     databaseUrl: "",
-    databaseAuthToken: "",
   });
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -687,7 +684,6 @@ function AnalyticsDbAdminPanel({
         appId: "",
         appUrl: "",
         databaseUrl: "",
-        databaseAuthToken: "",
       });
       onSelectConnection(saved.id);
     } catch (err) {
@@ -722,7 +718,7 @@ function AnalyticsDbAdminPanel({
               value={selectedConnection?.id ?? ""}
               onValueChange={onSelectConnection}
             >
-              <SelectTrigger className="h-9 w-[260px] max-w-full">
+              <SelectTrigger className="w-[260px] max-w-full">
                 <SelectValue placeholder={t("agents.selectConnection")} />
               </SelectTrigger>
               <SelectContent>
@@ -873,23 +869,6 @@ function AnalyticsDbAdminPanel({
                 type="password"
                 autoComplete="off"
                 required
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="db-connection-auth-token">
-                {t("agents.connectionAuthToken")}
-              </Label>
-              <Input
-                id="db-connection-auth-token"
-                value={form.databaseAuthToken}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    databaseAuthToken: event.target.value,
-                  }))
-                }
-                type="password"
-                autoComplete="off"
               />
             </div>
             {formError ? (

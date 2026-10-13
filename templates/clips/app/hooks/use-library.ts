@@ -1,17 +1,29 @@
 import {
+  callAction,
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
+import { useOrg } from "@agent-native/core/client/org";
+import type { RecordingKind } from "@shared/recording-kind";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useEffect, useMemo } from "react";
 
 import { isLiveRecordingUpload } from "@/lib/recording-status";
 
 export interface RecordingSummary {
   id: string;
+  pendingRedactions?: number;
   title: string;
   titleSource?: "default" | "context" | "upload" | "ai" | "manual";
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
   description: string;
+  /** "image" rows are screenshots: no duration, no transcript, no player. */
+  kind: RecordingKind;
   thumbnailUrl: string | null;
   animatedThumbnailUrl: string | null;
   durationMs: number;
@@ -20,7 +32,10 @@ export interface RecordingSummary {
   uploadProgress?: number;
   failureReason?: string | null;
   visibility: "private" | "org" | "public";
+  hasPassword: boolean;
+  expiresAt: string | null;
   ownerEmail: string;
+  ownerName?: string | null;
   folderId: string | null;
   spaceIds: string[];
   tags: string[];
@@ -40,6 +55,8 @@ export interface RecordingSummary {
 
 export interface ListRecordingsArgs {
   view?: "library" | "shared" | "space" | "archive" | "trash" | "all";
+  /** "image" is the Screenshots view; omitted means clips and screenshots. */
+  kind?: "video" | "image" | "all";
   folderId?: string | null;
   spaceId?: string | null;
   tag?: string | null;
@@ -47,6 +64,74 @@ export interface ListRecordingsArgs {
   sort?: "recent" | "views" | "oldest";
   limit?: number;
   offset?: number;
+  recordingIds?: string[];
+}
+
+interface RecordingPage {
+  recordings: RecordingSummary[];
+}
+
+interface InfiniteRecordingsData {
+  pages: RecordingPage[];
+  pageParams: unknown[];
+}
+
+const MAX_LIVE_RECORDING_STATUS_IDS = 100;
+
+export function dedupeRecordingsById<T extends { id: string }>(
+  recordings: readonly T[],
+): T[] {
+  const seen = new Set<string>();
+  return recordings.filter((recording) => {
+    if (seen.has(recording.id)) return false;
+    seen.add(recording.id);
+    return true;
+  });
+}
+
+export function getLiveRecordingBatch(
+  data: InfiniteRecordingsData | undefined,
+): { recordingIds: string[]; recordings: RecordingSummary[] } {
+  const recordings = dedupeRecordingsById(
+    (data?.pages.flatMap((page) => page.recordings) ?? []).filter((recording) =>
+      isLiveRecordingUpload(recording),
+    ),
+  ).slice(0, MAX_LIVE_RECORDING_STATUS_IDS);
+  return {
+    recordingIds: recordings.map((recording) => recording.id),
+    recordings,
+  };
+}
+
+export function patchRecordingTitleInListData(
+  data: any,
+  recordingId: string,
+  title: string,
+  updatedAt: string,
+) {
+  const patchRecordings = (recordings: any[]) =>
+    recordings.map((recording) =>
+      recording?.id === recordingId
+        ? { ...recording, title, updatedAt }
+        : recording,
+    );
+
+  if (Array.isArray(data?.recordings)) {
+    return { ...data, recordings: patchRecordings(data.recordings) };
+  }
+
+  if (Array.isArray(data?.pages)) {
+    return {
+      ...data,
+      pages: data.pages.map((page: any) =>
+        Array.isArray(page?.recordings)
+          ? { ...page, recordings: patchRecordings(page.recordings) }
+          : page,
+      ),
+    };
+  }
+
+  return data;
 }
 
 export function recordingsRefetchInterval(
@@ -68,10 +153,6 @@ export function useRecordings(args: ListRecordingsArgs = {}) {
           recordings: Array.isArray(data?.recordings) ? data.recordings : [],
         };
       },
-      // Keep a short poll only while uploads/processors are active so the
-      // library card does not get stuck if the global refresh signal is
-      // missed. Generated titles arrive through the shared DB sync transport;
-      // polling completed recordings forever is both redundant and expensive.
       refetchInterval: (q) => {
         const recs = (q.state.data as any)?.recordings as
           | RecordingSummary[]
@@ -82,20 +163,107 @@ export function useRecordings(args: ListRecordingsArgs = {}) {
   );
 }
 
-/**
- * Count-only variant for surfaces like the sidebar badge that need a total but
- * not the rows. Hits `list-recordings` with `countOnly`, so it skips the row
- * payload server-side and doesn't share (or pay for) the full-list query or its
- * title polling.
- */
+export function useInfiniteRecordings(
+  args: ListRecordingsArgs,
+  totalCount?: number,
+) {
+  const limit = args.limit ?? 20;
+  const queryClient = useQueryClient();
+  const queryKey = useMemo(
+    () => ["action", "list-recordings", args, "infinite"] as const,
+    [args],
+  );
+  const query = useInfiniteQuery<RecordingPage>({
+    queryKey,
+    initialPageParam: 0,
+    queryFn: ({ pageParam, signal }) =>
+      callAction<{ recordings: RecordingSummary[] }>(
+        "list-recordings",
+        { ...args, offset: pageParam },
+        { method: "GET", signal },
+      ),
+    getNextPageParam: (lastPage, pages) => {
+      const nextOffset = pages.length * limit;
+      if (typeof totalCount === "number") {
+        return nextOffset < totalCount ? nextOffset : undefined;
+      }
+      return lastPage.recordings.length >= limit ? nextOffset : undefined;
+    },
+  });
+
+  const liveRecordingBatch = useMemo(
+    () => getLiveRecordingBatch(query.data),
+    [query.data],
+  );
+  const liveRecordingQuery = useQuery({
+    queryKey: [
+      "action",
+      "list-recordings",
+      args,
+      "live-recordings",
+      liveRecordingBatch.recordingIds,
+    ],
+    enabled: liveRecordingBatch.recordingIds.length > 0,
+    queryFn: ({ signal }) =>
+      callAction<{ recordings: RecordingSummary[] }>(
+        "list-recordings",
+        {
+          ...args,
+          offset: 0,
+          limit: liveRecordingBatch.recordingIds.length,
+          recordingIds: liveRecordingBatch.recordingIds,
+        },
+        { method: "GET", signal },
+      ),
+    initialData: liveRecordingBatch.recordingIds.length
+      ? { recordings: liveRecordingBatch.recordings }
+      : undefined,
+    refetchInterval: (current) =>
+      recordingsRefetchInterval(current.state.data?.recordings),
+  });
+
+  useEffect(() => {
+    if (!liveRecordingQuery.isFetchedAfterMount) return;
+    const recordingsById = new Map(
+      (liveRecordingQuery.data?.recordings ?? []).map(
+        (recording) => [recording.id, recording] as const,
+      ),
+    );
+    if (recordingsById.size === 0) return;
+    queryClient.setQueryData<InfiniteRecordingsData>(queryKey, (current) => {
+      if (!current) return current;
+      let changed = false;
+      const pages = current.pages.map((page) => {
+        let pageChanged = false;
+        const recordings = page.recordings.map((recording) => {
+          const updated = recordingsById.get(recording.id);
+          if (!updated || updated === recording) return recording;
+          pageChanged = true;
+          return updated;
+        });
+        if (!pageChanged) return page;
+        changed = true;
+        return { ...page, recordings };
+      });
+      return changed ? { ...current, pages } : current;
+    });
+  }, [liveRecordingQuery, queryClient, queryKey]);
+
+  return query;
+}
+
 export function useRecordingsCount(
   args: Omit<ListRecordingsArgs, "limit" | "offset"> = {},
 ) {
+  const normalizedArgs = Object.fromEntries(
+    Object.entries(args).filter(([, value]) => value != null),
+  );
   return useActionQuery<number>(
     "list-recordings",
-    { ...args, countOnly: true } as any,
+    { ...normalizedArgs, countOnly: true } as any,
     {
-      select: (data: any) => (typeof data?.total === "number" ? data.total : 0),
+      select: (data: any) =>
+        typeof data?.total === "number" ? data.total : undefined,
       retry: false,
       throwOnError: false,
     },
@@ -107,6 +275,7 @@ export interface SearchHit {
   title: string;
   description: string;
   thumbnailUrl: string | null;
+  trashedAt: string | null;
   durationMs: number;
   matchType:
     | "title-description"
@@ -153,6 +322,22 @@ export function useCreateSpace() {
       iconEmoji?: string | null;
     }
   >("create-space");
+}
+
+export function useCreateScreenshot() {
+  return useActionMutation<
+    { id: string; kind: "image"; imageUrl: string | null },
+    {
+      dataUrl: string;
+      width: number;
+      height: number;
+      title?: string;
+      sourceAppName?: string | null;
+      sourceWindowTitle?: string | null;
+      folderId?: string | null;
+      spaceIds?: string[];
+    }
+  >("create-screenshot");
 }
 
 export function useRenameFolder() {
@@ -202,20 +387,22 @@ export function useTagRecording() {
   >("tag-recording");
 }
 
-// ── Folders / spaces / organizations ──────────────────────────────────────────
-// Derived from `list-organization-state` which ships with the template. All
-// three hooks hit the same endpoint and slice — React Query dedupes identical
-// keys.
-
-export function useOrganizationState(
+/**
+ * Keyed by the org id, defaulting to the caller's active org, so every caller
+ * shares one request per org. An unscoped key would keep serving the previous
+ * org's cached state across an org switch or after the last org is left.
+ */
+export function useOrganizationState<T = any>(
   organizationId?: string,
   options: { enabled?: boolean } = {},
 ) {
-  return useActionQuery<any>(
+  const { data: org } = useOrg();
+  const scopedOrganizationId = organizationId ?? org?.orgId ?? undefined;
+  return useActionQuery<T>(
     "list-organization-state",
-    organizationId ? { organizationId } : undefined,
+    { organizationId: scopedOrganizationId },
     {
-      enabled: options.enabled ?? true,
+      enabled: (options.enabled ?? true) && Boolean(scopedOrganizationId),
     },
   );
 }
@@ -237,6 +424,28 @@ export function useFolders(
   return { data: { folders }, isLoading };
 }
 
+export interface FolderPathEntry {
+  id: string;
+  name: string;
+}
+
+export function getFolderAncestorPath(
+  folders: readonly { id: string; name: string; parentId?: string | null }[],
+  folderId: string | undefined,
+): FolderPathEntry[] {
+  if (!folderId) return [];
+  const byId = new Map(folders.map((f) => [f.id, f]));
+  const path: FolderPathEntry[] = [];
+  const seen = new Set<string>();
+  let current = byId.get(folderId);
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    path.unshift({ id: current.id, name: current.name });
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  return path;
+}
+
 export function useSpaces(
   organizationId?: string,
   options: { enabled?: boolean } = {},
@@ -249,9 +458,6 @@ export function useSpaces(
 }
 
 export function useOrganizations(options: { enabled?: boolean } = {}) {
-  // list-organization-state only returns the current organization. We surface
-  // it as a single-item list so the switcher has something to render; the
-  // framework team will replace this with a proper `list-organizations` later.
   const { data, isLoading } = useOrganizationState(undefined, options);
   const organizations = data?.organization ? [data.organization] : [];
   return {

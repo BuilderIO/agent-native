@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
-import { appBasePath } from "./api-path.js";
+import { appBasePath, isWorkspaceAppPath } from "./api-path.js";
 import {
   consumeAgentChatHomeHandoff,
   isAgentChatHomeHandoffActive,
@@ -10,32 +10,18 @@ import {
 } from "./chat-view-transition.js";
 
 export interface UseAgentChatHomeHandoffOptions {
-  /** Namespace shared by the full-page chat and AgentSidebar surfaces. */
   storageKey?: string | null;
-  /** The current destination path that receives the sidebar handoff. */
   activePath: string;
-  /** How long the handoff marker remains valid. Defaults to 6 hours. */
   ttlMs?: number;
-  /** Disable consumption without changing hook call order. */
   enabled?: boolean;
 }
 
 export interface UseAgentChatHomeHandoffLinksOptions {
-  /** Namespace shared by the full-page chat and AgentSidebar surfaces. */
   storageKey?: string | null;
-  /** Router-local path for the full-page chat route. Defaults to "/". */
   chatPath?: string;
-  /**
-   * Matches every router-local pathname owned by the full-page chat surface.
-   * Defaults to an exact match against `chatPath`. Pass this to cover deep
-   * links such as `/chat/:threadId`.
-   */
   isChatPath?: (pathname: string) => boolean;
-  /** Disable link interception without changing hook call order. */
   enabled?: boolean;
-  /** How long the handoff marker remains valid. Defaults to 6 hours. */
   ttlMs?: number;
-  /** Only intercept links if a recent handoff marker already exists. Defaults to true. */
   requireActiveHandoff?: boolean;
 }
 
@@ -88,6 +74,7 @@ function localPathFromAnchor(anchor: HTMLAnchorElement): string | null {
   try {
     const url = new URL(anchor.href);
     if (url.origin !== window.location.origin) return null;
+    if (isWorkspaceAppPath(url.pathname)) return null;
     return stripBasePath(`${url.pathname}${url.search}${url.hash}`);
   } catch {
     return null;
@@ -111,10 +98,6 @@ function handoffTtlOptions(ttlMs: number | undefined) {
   return ttlMs === undefined ? undefined : { ttlMs };
 }
 
-/**
- * Returns true for the route that has just received a full-page-chat handoff.
- * Pass the result to `AgentSidebar openOnChatRunning`.
- */
 export function useAgentChatHomeHandoff({
   storageKey,
   activePath,
@@ -136,12 +119,6 @@ export function useAgentChatHomeHandoff({
   return enabled && handoffPath === activePath;
 }
 
-/**
- * Intercepts ordinary in-app links clicked from a full-page chat route so the
- * page chat can morph into the destination AgentSidebar and keep its thread.
- * Settings is intentionally excluded: a user opening it keeps chat full-page.
- * Agent-driven navigation can still opt into the handoff by marking it first.
- */
 export function useAgentChatHomeHandoffLinks({
   storageKey,
   chatPath = "/",

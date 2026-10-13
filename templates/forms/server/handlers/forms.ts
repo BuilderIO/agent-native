@@ -1,4 +1,3 @@
-import { eq } from "drizzle-orm";
 import {
   defineEventHandler,
   getRequestURL,
@@ -7,14 +6,10 @@ import {
 } from "h3";
 
 import { toPublicFormSettings, type FormSettings } from "../../shared/types.js";
-import { getDb, schema } from "../db/index.js";
-
-// ---------------------------------------------------------------------------
-// Public form handler (unauthenticated — stays as API route)
-// ---------------------------------------------------------------------------
+import { getDb } from "../db/index.js";
+import { findFormBySlugOrId } from "../lib/form-lookup.js";
 
 export const getPublicForm = defineEventHandler(async (event: H3Event) => {
-  // URL: /api/forms/public/{slug} — extract full slug (may contain slashes)
   const url = getRequestURL(event).pathname;
   const afterPublic = url.split("/api/forms/public/")[1] || "";
   const slug = decodeURIComponent(afterPublic);
@@ -24,32 +19,13 @@ export const getPublicForm = defineEventHandler(async (event: H3Event) => {
     return { error: "Form not found" };
   }
 
-  const db = getDb();
-  // Try matching by slug first, then fall back to matching by ID
-  let row = await db
-    .select()
-    .from(schema.forms)
-    .where(eq(schema.forms.slug, slug))
-    .then((rows) => rows[0]);
-
-  if (!row) {
-    // Fall back to ID-based lookup (for legacy URLs or direct ID access)
-    row = await db
-      .select()
-      .from(schema.forms)
-      .where(eq(schema.forms.id, slug))
-      .then((rows) => rows[0]);
-  }
+  const row = await findFormBySlugOrId(getDb(), slug);
 
   if (!row || row.status !== "published" || row.deletedAt) {
     setResponseStatus(event, 404);
     return { error: "Form not found" };
   }
 
-  // Return only what public, anonymous respondents need. Crucially, project
-  // settings through `toPublicFormSettings` so owner-private integration
-  // webhook URLs (Slack/Discord/generic) and allowed-origins never leak to
-  // the unauthenticated client.
   const settings = JSON.parse(row.settings) as FormSettings;
   const result = {
     id: row.id,

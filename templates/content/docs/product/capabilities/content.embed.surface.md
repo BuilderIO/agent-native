@@ -36,7 +36,7 @@ Work often happens beside Content; moving the window should not create another t
 
 ## Example workflow
 
-A planning app mounts a project Database View. A person filters it and opens a Page; the same object, access checks, and history are visible when they later return to Content.
+A planning app mounts a project Collection View. A person filters it and opens a Page; the same object, access checks, and history are visible when they later return to Content.
 
 ## Product contract
 

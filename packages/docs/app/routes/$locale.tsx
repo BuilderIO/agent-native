@@ -3,13 +3,13 @@ import { Outlet, redirect, type LoaderFunctionArgs } from "react-router";
 
 import {
   DEFAULT_DOCS_LOCALE,
-  isDocsLocale,
+  docsLocaleFromSegment,
   sitePathForLocale,
 } from "../components/docs-locale";
 
 export function loader({ params, url }: LoaderFunctionArgs) {
-  const locale = params.locale;
-  if (!isDocsLocale(locale)) {
+  const locale = docsLocaleFromSegment(params.locale);
+  if (!locale) {
     throw new Response("Not Found", { status: 404 });
   }
   if (locale === DEFAULT_DOCS_LOCALE) {

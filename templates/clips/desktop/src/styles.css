@@ -1,14 +1,10 @@
-/* Clips tray popover — Loom-style layout, Clips brand, dark/light modes. */
-
 :root {
   color-scheme: light dark;
 
-  /* Clips brand */
   --brand: #1a1a1a;
   --brand-hover: #2e2e2e;
   --brand-ring: rgba(26, 26, 26, 0.28);
 
-  /* Light palette */
   --bg: #ffffff;
   --surface: #f7f7f7;
   --surface-hover: #f0f0f0;
@@ -25,10 +21,6 @@
   --radius: 12px;
   --radius-sm: 8px;
   --radius-pill: 999px;
-  /* Transparent apron reserved for CSS-painted shadows on the overlays that
-     still use them (bubble, countdown). The popover and other converted
-     windows are sized to their content exactly and use the native NSWindow
-     shadow instead. */
   --overlay-shadow-gutter: 18px;
 
   --shadow-sm: 0 1px 2px rgba(23, 23, 23, 0.06);
@@ -54,7 +46,6 @@
     --border-strong: #4d4d4d;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
-    /* Invert brand on dark bg: zinc-900 would disappear, use zinc-100. */
     --brand: #f5f5f5;
     --brand-hover: #e5e5e5;
     --brand-ring: rgba(245, 245, 245, 0.28);
@@ -65,10 +56,6 @@
   box-sizing: border-box;
 }
 
-/* Tauri window is `transparent: true` + `decorations: false`, so the HTML
-   paints the visible shape. The popover window is sized to the rounded panel
-   exactly; macOS derives a native shadow from the panel's alpha, giving us
-   the round-cornered chromeless popover with no transparent apron. */
 html,
 body {
   margin: 0;
@@ -115,10 +102,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   overflow: hidden;
 }
 
-/* ------------------------------------------------------------------------- */
-/* App shell                                                                  */
-/* ------------------------------------------------------------------------- */
-
 .app {
   margin: 0;
   padding: 14px;
@@ -127,11 +110,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   gap: 14px;
   background: var(--bg);
   border: 1px solid var(--border);
-  /* The rounded corners shape the native NSWindow shadow — the window is
-     sized to this panel exactly, so a CSS box-shadow would just clip. */
   border-radius: 14px;
-  /* No fixed height — the Tauri window is resized to match the rendered
-     content via resize_popover, so the shell just flows naturally. */
   max-height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
@@ -141,16 +120,16 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .app-settings {
   gap: 0;
   padding: 0;
-  overflow-y: auto;
+  max-height: none;
+  overflow: hidden;
 }
 
-/* Recorder Home keeps its navigation present even when active-recording
-   content exceeds the restored popover height. Only the content region may
-   scroll; the window shell and bottom destinations stay put. */
 .app-recorder {
   position: relative;
   gap: 0;
   padding: 0;
+  width: 320px;
+  max-width: 320px;
   overflow: hidden;
 }
 
@@ -160,7 +139,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
@@ -173,8 +152,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: var(--bg);
 }
 
-/* Header — logo + mode toggle + close */
-
 .header {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -183,41 +160,16 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 0 2px;
 }
 
-/* Mode toggle lives in the first column — center it horizontally so the
-   close button on the right doesn't make the layout look lopsided. */
 .header .mode-toggle {
   justify-self: center;
 }
 
-/* Variant: truly-centered mode-toggle with an absolutely positioned close X.
-   Using a grid column for the close button nudges the mode tabs left by the
-   close button's width, which read as "off center" in Steve's screenshot.
-   Absolute positioning keeps the X in the top-right corner while the tabs
-   occupy the visual center of the popover. */
 .header.header-centered {
   position: relative;
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 28px;
-}
-
-.header.header-centered .header-close {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.header.header-centered .header-feedback {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: auto;
-  padding: 0 9px;
-  font-size: 12px;
-  font-weight: 500;
+  min-height: 36px;
 }
 
 .logo {
@@ -238,7 +190,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .mode-toggle {
   display: inline-flex;
   background: var(--surface);
-  border-radius: var(--radius-pill);
+  border-radius: var(--recorder-mode-toggle-radius);
   padding: 3px;
   justify-self: center;
   border: 1px solid var(--border);
@@ -249,18 +201,17 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  min-width: 34px;
+  width: 64px;
+  min-width: 64px;
   height: 28px;
   border: none;
   background: transparent;
   color: var(--fg-muted);
-  border-radius: var(--radius-pill);
+  border-radius: var(--recorder-mode-option-radius);
   cursor: pointer;
-  transition:
-    background 120ms,
-    color 120ms,
-    box-shadow 120ms;
+  transition-property: background-color, color, box-shadow, transform;
+  transition-duration: 120ms;
+  transition-timing-function: ease-out;
 }
 
 .mode-toggle button:hover {
@@ -268,9 +219,18 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .mode-toggle button.active {
-  background: var(--bg);
-  color: var(--brand);
+  background: var(--brand);
+  color: var(--bg);
   box-shadow: var(--shadow-sm);
+}
+
+.mode-toggle button:focus-visible {
+  outline: 2px solid hsl(var(--ui-ring));
+  outline-offset: 1px;
+}
+
+.mode-toggle button:active {
+  transform: scale(0.96);
 }
 
 .mode-tooltip {
@@ -330,10 +290,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   outline: none;
   box-shadow: 0 0 0 2px var(--brand-ring);
 }
-
-/* ------------------------------------------------------------------------- */
-/* Feedback popover                                                           */
-/* ------------------------------------------------------------------------- */
 
 .feedback-popover-content {
   width: min(320px, calc(100vw - 36px));
@@ -502,14 +458,10 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* ------------------------------------------------------------------------- */
-/* Source / device rows                                                       */
-/* ------------------------------------------------------------------------- */
-
 .panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
 }
 
 .row {
@@ -517,18 +469,25 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  min-height: 30px;
+  padding: 5px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
   cursor: default;
-  transition:
-    background 120ms,
-    border-color 120ms;
+  transition: background 120ms;
+}
+
+.row:hover {
+  background: hsl(var(--ui-muted) / 0.55);
+}
+
+.row-on {
+  color: var(--fg);
 }
 
 .row-off {
-  opacity: 0.6;
+  color: var(--fg-subtle);
 }
 
 .row-icon {
@@ -537,47 +496,73 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--fg-muted);
+  color: inherit;
   flex-shrink: 0;
 }
 
-.row-on .row-icon {
-  color: var(--fg);
+.media-device-row .row,
+.system-audio-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 44px;
+  column-gap: 10px;
 }
 
-/* Custom device picker — button + popover menu (replaces native <select>). */
+.row-main {
+  min-width: 0;
+}
+
+.row-trailing-control {
+  display: flex;
+  width: 44px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.system-audio-row {
+  align-items: center;
+  min-height: 30px;
+  padding: 5px 10px;
+}
+
+.system-audio-icon {
+  transform: translateX(2px);
+}
+
+.system-audio-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
 .row-button {
-  flex: 1;
+  width: 100%;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
   border: none;
   background: transparent;
-  color: var(--fg);
+  color: inherit;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   padding: 0;
   margin: 0;
   cursor: pointer;
-  outline: none;
   text-align: left;
-}
-
-.row-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
+  transition-property: color, background-color;
+  transition-duration: 120ms;
+  transition-timing-function: ease-out;
 }
 
 .row-button:focus-visible {
-  box-shadow: 0 0 0 2px var(--brand-ring);
   border-radius: 4px;
+  outline: 2px solid hsl(var(--ui-ring));
+  outline-offset: 2px;
 }
 
 .row-label {
-  /* Never shrink the label — the wave line gives up space first so the device
-     name always stays fully visible. Cap + ellipsis only for pathological
-     long names. */
   flex: 0 0 auto;
   max-width: 60%;
   overflow: hidden;
@@ -585,216 +570,58 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   white-space: nowrap;
 }
 
-/* Flexible filler between the label and the chevron when there's no meter
-   (camera rows / mic off) — keeps the chevron pinned to the right. */
+.row-button-placeholder {
+  display: flex;
+  align-items: center;
+  cursor: default;
+}
+
+.rewind-off-popover-reveal {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+
+.rewind-off-popover-reveal[data-state="open"] {
+  animation: rewind-off-popover-expand 180ms ease-out both;
+}
+
+.rewind-off-popover-reveal__content {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@keyframes rewind-off-popover-expand {
+  from {
+    grid-template-rows: 0fr;
+  }
+
+  to {
+    grid-template-rows: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rewind-off-popover-reveal[data-state="open"] {
+    animation: none;
+  }
+}
+
 .row-flex {
   flex: 1 1 auto;
 }
 
 .row-chev {
   display: inline-flex;
-  color: var(--fg-muted);
+  color: var(--fg-subtle);
   flex-shrink: 0;
 }
 
-/* Popover menu rendered below a device row. */
-.media-device-picker {
-  position: relative;
-}
-
-.row-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  background: var(--bg);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-md);
-  padding: 4px;
-  z-index: 10;
-  max-height: 240px;
-  overflow-y: auto;
-}
-
-.row-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  background: transparent;
-  border: none;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  color: var(--fg);
-  font-size: 13px;
-  cursor: pointer;
-  text-align: left;
-}
-
-.row-menu-item:hover {
-  background: var(--surface-hover);
-}
-
-.row-menu-item.selected {
-  color: var(--fg);
-  font-weight: 600;
-  background: var(--surface-hover);
-}
-
-.row-menu-trigger {
-  display: inline-flex;
-  align-items: center;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--fg-muted);
-  cursor: pointer;
-}
-
-.row-menu-trigger:focus-visible {
-  box-shadow: 0 0 0 2px var(--brand-ring);
-  border-radius: 4px;
-}
-
-.row-menu-divider {
-  height: 1px;
-  margin: 4px 6px;
-  background: var(--border);
-}
-
-.row-menu-setting {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  color: var(--fg);
-  font-size: 13px;
-}
-
-.row-menu-setting-label {
-  flex: 1;
-  min-width: 0;
-  font-weight: 500;
-}
-
-.row-menu-check {
-  width: 16px;
-  display: inline-flex;
-  justify-content: center;
-  color: var(--fg);
-  flex-shrink: 0;
-}
-
-.row-menu-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.row-menu-empty {
-  padding: 10px 12px;
-  color: var(--fg-muted);
-  font-size: 13px;
-}
-
-/* Toggle chip — mirrors Loom's On/Off pill. Green when on, subtle when off. */
-.toggle {
-  border: none;
-  border-radius: var(--radius-pill);
-  padding: 4px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  line-height: 1;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  transition:
-    background 120ms,
-    color 120ms;
-}
-
-.toggle-on {
-  background: #16a34a;
-  color: white;
-}
-
-.toggle-on:hover {
-  background: #15803d;
-}
-
-.toggle-off {
-  background: var(--surface-strong);
-  color: var(--fg-muted);
-}
-
-.toggle-off:hover {
-  color: var(--fg);
-}
-
-/* Shadcn-style switch — slim track + sliding thumb. Used in Settings for the
-   Voice dictation enable/disable toggle. */
-.switch {
-  position: relative;
-  display: inline-flex;
-  width: 32px;
-  height: 18px;
-  padding: 0;
-  border: none;
-  border-radius: 9999px;
-  cursor: pointer;
-  transition: background 120ms;
-  flex-shrink: 0;
-}
-
-.switch:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--brand-ring);
-}
-
-.switch:disabled {
-  opacity: 0.42;
-  filter: grayscale(0.55);
-  cursor: not-allowed;
-}
-
-.switch-on {
-  background: #16a34a;
-}
-
-.switch-off {
-  background: var(--surface-strong);
-}
-
-.switch-thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: white;
-  transition: transform 120ms;
-  pointer-events: none;
-}
-
-.switch-on .switch-thumb {
-  transform: translateX(14px);
-}
-
-/* Live mic level meter — a single wave line driven by real audio, sitting
-   inline between the device label and the chevron. The ends are masked so the
-   line fades in/out instead of butting against the label or chevron. */
 .mic-wave {
   flex: 1 1 auto;
   min-width: 0;
   align-self: stretch;
   margin: 0 4px;
   pointer-events: none;
-  /* Soft fade at both ends so the line reads as ambient, not boxed-in. */
   -webkit-mask-image: linear-gradient(
     to right,
     transparent 0,
@@ -820,18 +647,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .mic-wave-path {
   fill: none;
-  /* Matches the recording pill's mic waveform accent. */
   stroke: rgba(74, 222, 128, 0.95);
   stroke-width: 1.25;
   stroke-linecap: round;
   stroke-linejoin: round;
-  /* Keep the line crisp regardless of the non-uniform x-stretch. */
   vector-effect: non-scaling-stroke;
 }
-
-/* ------------------------------------------------------------------------- */
-/* Primary CTA                                                                */
-/* ------------------------------------------------------------------------- */
 
 .primary {
   width: 100%;
@@ -901,9 +722,25 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   margin-top: 2px;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Readiness disclosure                                                       */
-/* ------------------------------------------------------------------------- */
+.primary.start.start-loading {
+  position: relative;
+  overflow: hidden;
+  cursor: progress;
+}
+
+.primary.start.start-loading .start-label {
+  position: relative;
+  z-index: 1;
+}
+
+.start-loading-shimmer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  filter: invert(1);
+}
 
 .recorder-disclosures {
   display: flex;
@@ -1140,8 +977,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #ef4444;
-  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3);
+  flex: 0 0 auto;
+  transform: translateY(1px);
+  background: hsl(var(--ui-destructive));
 }
 
 .active-recording-card {
@@ -1244,11 +1082,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* Active-recording state on the primary button: softened orange-red
-   (Tailwind orange-700) — semantic "recording is live" without the harsh
-   pure-red assault. White square icon + live pulsing dot still read as
-   "stop". Hover stays the same shade (no brighten-on-hover) to keep the
-   affordance calm. */
 .primary.start.rec-active {
   background: #c2410c;
   color: #fff;
@@ -1295,30 +1128,27 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* ------------------------------------------------------------------------- */
-/* Bottom quick-actions row                                                   */
-/* ------------------------------------------------------------------------- */
-
 .bottom-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 .bottom-btn {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 8px 4px;
+  gap: 10px;
+  min-height: 30px;
+  padding: 5px 10px;
   border: none;
   background: transparent;
   border-radius: var(--radius-sm);
-  color: var(--fg-muted);
+  color: var(--fg);
   cursor: pointer;
-  transition:
-    background 120ms,
-    color 120ms;
+  text-align: left;
+  transition-property: background-color, color, transform;
+  transition-duration: 120ms;
+  transition-timing-function: ease-out;
 }
 
 .bottom-btn:hover {
@@ -1327,25 +1157,98 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .bottom-icon {
-  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: var(--fg-muted);
+  width: 20px;
+  flex-shrink: 0;
 }
 
 .bottom-btn:hover .bottom-icon {
   color: var(--fg);
 }
 
-.bottom-label {
-  font-size: 11px;
-  font-weight: 500;
+.bottom-btn:active {
+  transform: scale(0.96);
 }
 
-/* ------------------------------------------------------------------------- */
-/* Popover drill-in views                                                     */
-/* ------------------------------------------------------------------------- */
+.bottom-btn-hint {
+  cursor: default;
+}
+
+.bottom-btn-hint:hover {
+  background: transparent;
+}
+
+.bottom-btn-hint:hover .bottom-icon {
+  color: var(--fg-muted);
+}
+
+.bottom-btn-hint:active {
+  transform: none;
+}
+
+.bottom-label {
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.bottom-shortcut {
+  margin-inline-start: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--fg-subtle);
+  font-size: 11px;
+}
+
+.bottom-shortcut-separator {
+  margin-inline: 2px;
+  color: var(--fg-subtle);
+}
+
+.bottom-external {
+  margin-inline-start: auto;
+  color: var(--fg-subtle);
+}
+
+.imminent-meeting {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid hsl(var(--ui-success) / 0.2);
+  border-radius: 8px;
+  background: hsl(var(--ui-success) / 0.08);
+  color: hsl(var(--ui-success));
+}
+
+.imminent-meeting-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.imminent-meeting-copy strong,
+.imminent-meeting-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.imminent-meeting-copy strong {
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.imminent-meeting-copy span {
+  color: hsl(var(--ui-success) / 0.85);
+  font-size: 11px;
+}
 
 .app-popover-view {
   gap: 0;
@@ -1609,7 +1512,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .popover-list::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
+  background: var(--border);
   border-radius: 999px;
 }
 
@@ -1743,21 +1646,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   box-shadow: 0 0 0 2px var(--bg);
 }
 
-.bottom-dot {
-  position: absolute;
-  top: -2px;
-  right: -3px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: hsl(var(--ui-info));
-  box-shadow: 0 0 0 2px var(--bg);
-}
-
-/* ------------------------------------------------------------------------- */
-/* Recent list (collapsible)                                                  */
-/* ------------------------------------------------------------------------- */
-
 .recent-list {
   display: flex;
   flex-direction: column;
@@ -1821,10 +1709,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   margin-top: 1px;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Footer                                                                     */
-/* ------------------------------------------------------------------------- */
-
 .footer {
   display: flex;
   align-items: center;
@@ -1856,10 +1740,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   text-decoration: underline;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Setup overlay (server URL change)                                          */
-/* ------------------------------------------------------------------------- */
-
 .setup {
   width: 100%;
   background: var(--bg);
@@ -1873,9 +1753,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   overscroll-behavior: contain;
 }
 
-/* Meetings / dictation drill-ins: a touch more room under the last row so
-   content isn't flush with the panel edge. Must follow `.setup` so it wins
-   over the shorthand padding above. */
 .setup.popover-view {
   padding-bottom: 32px;
 }
@@ -1979,17 +1856,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   box-shadow: 0 0 0 2px var(--brand-ring);
 }
 
-/* ------------------------------------------------------------------------- */
-/* Tooltip (shadcn-style, Radix-backed)                                       */
-/* ------------------------------------------------------------------------- */
-
 .tooltip-content {
   z-index: 60;
-  max-width: 260px;
-  /* No border: shadcn's tooltip is borderless (solid bg + shadow). A border
-     would also detach visually from the Radix arrow, whose flush base can't
-     carry a matching CSS border. Shadow alone gives separation in both
-     themes. */
+  max-width: min(260px, calc(100vw - 16px));
   border-radius: var(--radius-sm);
   background: var(--bg);
   color: var(--fg);
@@ -1998,6 +1867,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   font-size: 12px;
   line-height: 1.45;
   text-align: left;
+  overflow-wrap: anywhere;
   user-select: none;
   transform-origin: var(--radix-tooltip-content-transform-origin);
 }
@@ -2046,103 +1916,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* ------------------------------------------------------------------------- */
-/* Microphone-off confirmation                                                */
-/* ------------------------------------------------------------------------- */
-
-.mic-off-confirmation {
-  min-height: 430px;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg);
-}
-
-.mic-off-confirmation-header {
-  display: flex;
-  align-items: center;
-  padding: 16px 18px 8px;
-}
-
-.mic-off-confirmation-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 30px;
-  padding: 4px 6px 4px 2px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--fg);
-  cursor: pointer;
-  font-size: 15px;
-  font-weight: 650;
-  transition:
-    background 120ms,
-    color 120ms;
-}
-
-.mic-off-confirmation-back:hover {
-  background: var(--surface-hover);
-}
-
-.mic-off-confirmation-back:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--brand-ring);
-}
-
-.mic-off-confirmation-body {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 24px 28px 30px;
-  text-align: center;
-}
-
-.mic-off-confirmation-visual {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 88px;
-  height: 88px;
-  border-radius: 50%;
-  background: var(--surface-strong);
-  color: var(--status-warn);
-}
-
-.mic-off-confirmation-slash {
-  position: absolute;
-  width: 58px;
-  height: 3px;
-  border-radius: var(--radius-pill);
-  background: var(--status-warn);
-  transform: rotate(45deg);
-}
-
-.mic-off-confirmation-body h2 {
-  margin: 24px 0 0;
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.mic-off-confirmation-body p {
-  max-width: 300px;
-  margin: 8px 0 0;
-  color: var(--fg-muted);
-  font-size: 14px;
-  line-height: 1.55;
-}
-
-/* ------------------------------------------------------------------------- */
-/* Alert dialog                                                              */
-/* ------------------------------------------------------------------------- */
-
-/* `position: absolute`, not `fixed` — see AlertDialog.tsx: this must stay
-   inside `.app-recorder`'s clipped, rounded bounds rather than the raw
-   (square-cornered) Tauri window. */
 .alert-dialog-overlay {
   position: absolute;
   inset: 0;
@@ -2192,12 +1965,14 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .alert-dialog-title {
+  margin: 0;
   font-size: 14px;
   font-weight: 600;
   color: var(--fg);
 }
 
 .alert-dialog-description {
+  margin: 0;
   font-size: 12px;
   line-height: 1.5;
   color: var(--fg-muted);
@@ -2205,7 +1980,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .alert-dialog-footer {
   display: flex;
-  flex-direction: row-reverse;
+  flex-direction: row;
   gap: 8px;
 }
 
@@ -2617,10 +2392,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-color: #93c5fd;
 }
 
-.pending-upload-retry-spinning svg {
-  animation: readiness-spin 0.8s linear infinite;
-}
-
 .pending-upload-connect:hover {
   background: #dbeafe;
   border-color: #93c5fd;
@@ -2641,12 +2412,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .pending-upload-dismiss:disabled {
   cursor: default;
   opacity: 0.6;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pending-upload-retry-spinning svg {
-    animation: none;
-  }
 }
 
 .local-recording-banner,
@@ -2740,60 +2505,56 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   overflow-wrap: anywhere;
 }
 
-.permission-banner {
+.recovery-alert {
   display: flex;
-  flex-direction: column;
+  align-items: start;
   gap: 8px;
-}
-
-.permission-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  line-height: 1.35;
-  min-width: 0;
-}
-
-.permission-title {
-  color: #991b1b;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
-  font-weight: 700;
+  line-height: 1.35;
+}
+
+.recovery-alert-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.recovery-alert-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recovery-alert-copy > h5 {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.recovery-alert-description {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .permission-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
 }
 
-.permission-actions button {
-  border: 1px solid #fecaca;
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.65);
-  color: #991b1b;
-  cursor: pointer;
+.permission-actions .permission-action {
+  min-height: 28px;
+  height: 28px;
+  padding-inline: 8px;
+  border-radius: 6px;
   font-size: 12px;
-  font-weight: 600;
-  padding: 5px 8px;
-  transition:
-    background 120ms,
-    border-color 120ms;
-}
-
-.permission-actions button:hover {
-  background: white;
-  border-color: #fca5a5;
-}
-
-.permission-actions .permission-retry {
-  background: #991b1b;
-  border-color: #991b1b;
-  color: white;
-}
-
-.permission-actions .permission-retry:hover {
-  background: #7f1d1d;
-  border-color: #7f1d1d;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -2870,37 +2631,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
     border-color: rgba(239, 68, 68, 0.5);
     color: #fca5a5;
   }
-
-  .permission-title {
-    color: #fecaca;
-  }
-
-  .permission-actions button {
-    background: rgba(239, 68, 68, 0.1);
-    border-color: rgba(239, 68, 68, 0.4);
-    color: #fecaca;
-  }
-
-  .permission-actions button:hover {
-    background: rgba(239, 68, 68, 0.18);
-    border-color: rgba(248, 113, 113, 0.6);
-  }
-
-  .permission-actions .permission-retry {
-    background: #fecaca;
-    border-color: #fecaca;
-    color: #7f1d1d;
-  }
-
-  .permission-actions .permission-retry:hover {
-    background: white;
-    border-color: white;
-  }
 }
-
-/* ------------------------------------------------------------------------- */
-/* Overlay: countdown                                                         */
-/* ------------------------------------------------------------------------- */
 
 .countdown-root {
   position: fixed;
@@ -2912,13 +2643,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   pointer-events: none;
 }
 
-/*
- * Horizontal row of [cancel] [number] [skip]. The two circular buttons are
- * absolutely centered at exactly ±200px (logical) from the row center so the
- * native cursor-poll hit-rects in clips/mod.rs (CONTROL_OFFSET_X = 200.0,
- * CONTROL_DIAMETER = 64.0) line up with the rendered controls. Keep these
- * numbers in sync with that Rust code.
- */
 .countdown-controls {
   position: relative;
   display: flex;
@@ -2951,12 +2675,10 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .countdown-control-cancel {
-  /* center at -200px from row center: -200 - (64 / 2) = -232px */
   left: -232px;
 }
 
 .countdown-control-skip {
-  /* center at +200px from row center: 200 - (64 / 2) = 168px */
   left: 168px;
 }
 
@@ -2975,12 +2697,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   outline-offset: 2px;
 }
 
-/*
- * Absolutely centers the number without contributing width to .countdown-controls.
- * This keeps the controls div at zero width so the cancel/skip button positions
- * (left: -232px, left: 168px) line up exactly with the Rust cursor-poll hit-rects
- * (CONTROL_OFFSET_X = 200.0) measured from the window center.
- */
 .countdown-number-wrap {
   position: absolute;
   top: 50%;
@@ -2998,46 +2714,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   line-height: 1;
 }
 
-.countdown-hint {
-  position: fixed;
-  left: 50%;
-  bottom: 34px;
-  display: inline-flex;
-  align-items: center;
-  gap: 14px;
-  padding: 7px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-pill);
-  background: rgba(10, 12, 16, 0.28);
-  color: rgba(255, 255, 255, 0.58);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1;
-  transform: translateX(-50%);
-  backdrop-filter: blur(8px);
-}
-
-.countdown-hint span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
-}
-
-.countdown-hint kbd {
-  min-width: 24px;
-  padding: 3px 5px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.74);
-  font-family: inherit;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-  text-align: center;
-}
-
 @keyframes cd-pop {
   0% {
     transform: scale(0.6);
@@ -3052,14 +2728,10 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
     opacity: 1;
   }
   100% {
-    transform: scale(0.8);
-    opacity: 0;
+    transform: scale(1);
+    opacity: 1;
   }
 }
-
-/* ------------------------------------------------------------------------- */
-/* Overlay: recording preparation                                              */
-/* ------------------------------------------------------------------------- */
 
 .preparing-root {
   position: fixed;
@@ -3095,11 +2767,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   animation: finalizing-spin 0.9s linear infinite;
 }
 
-/*
- * Compact transparent window shown after the user clicks Stop. Keeping the OS
- * window close to the card's bounds lets its open/dismiss controls stay
- * interactive without blocking the rest of the screen.
- */
 .finalizing-root {
   position: fixed;
   inset: 0;
@@ -3125,11 +2792,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   color: white;
 }
 
-/*
- * CSS-only spinner — no dependency on @tabler/icons-react (the desktop
- * bundle doesn't pull that in). A ring with one highlighted quadrant is
- * rotated continuously.
- */
 .finalizing-spinner {
   width: 18px;
   height: 18px;
@@ -3237,10 +2899,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
     transform: translateX(250%);
   }
 }
-
-/* ------------------------------------------------------------------------- */
-/* Overlay: toolbar                                                           */
-/* ------------------------------------------------------------------------- */
 
 .toolbar-root {
   position: fixed;
@@ -3377,56 +3035,25 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-color: rgba(245, 158, 11, 0.35);
 }
 
-/* ------------------------------------------------------------------------- */
-/* Overlay: camera bubble                                                     */
-/* ------------------------------------------------------------------------- */
-
-/*
- * The Tauri bubble window is sized (in Rust) to exactly the circle diameter
- * PLUS a `--bubble-controls-budget` strip at the top, so the hover pill
- * has real window real-estate to render into. Everything outside window
- * bounds is invisible no matter the CSS `overflow` — you can't paint where
- * the OS hasn't given you pixels — so we build in the budget up front.
- *
- *   ┌──────────────┐
- *   │  ·  ●        │  ← .bubble-controls pill (hover-faded)
- *   └──────────────┘
- *   ┌──────────────┐
- *   │ .bubble-root │  ← circle (drag region, data-tauri-drag-region)
- *   │     ◯        │    Canvas lives here with pointer-events: none so
- *   │              │    drags reach the drag-region parent.
- *   └──────────────┘
- */
 .bubble-wrapper {
   position: fixed;
   inset: var(--overlay-shadow-gutter);
   display: flex;
-  /* Reverse the stack so the circle stays at the bottom of the window and
-     the hover pill occupies the reserved space above it. */
   flex-direction: column-reverse;
   align-items: center;
-  /* Transparent background — the Tauri window is `transparent: true`,
-     so the circular camera surface below paints through. */
   background: transparent;
   user-select: none;
   -webkit-user-select: none;
 }
 
 .bubble-root {
-  /* Circle fills the bottom of the wrapper. We use `flex: 0 0 auto` + a
-     1:1 aspect-ratio so the circle is always square regardless of the
-     actual window height (which includes the controls budget above it). */
   flex: 0 0 auto;
   aspect-ratio: 1 / 1;
-  /* Width = 100% of wrapper → the wrapper is exactly bubble-diameter
-     wide (Rust sizes the window that way). */
   width: 100%;
   border-radius: 50%;
   overflow: hidden;
   background: #000;
-  /* Position context for absolute children (close X, canvas). */
   position: relative;
-  /* Cursor hint — the drag region is here. */
   cursor: grab;
 }
 
@@ -3446,10 +3073,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   /* compositing-ok: live <video> is composited regardless. */
   will-change: transform, opacity;
   backface-visibility: hidden;
-  /* CRITICAL: clicks MUST pass through the canvas to the
-     `data-tauri-drag-region` parent. Without this, the canvas swallows
-     mousedown and the bubble can't be dragged — cursor shows the grab
-     affordance but the window never moves. */
   pointer-events: none;
 }
 
@@ -3478,11 +3101,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 12px;
 }
 
-/* Hover controls — close X + size-toggle pill. */
-
 .bubble-close,
 .bubble-controls {
-  /* Snappy fade — per Steve's 150ms-max rule for decorative transitions. */
   opacity: 0;
   pointer-events: none;
   transition: opacity 150ms ease-out;
@@ -3491,14 +3111,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .bubble-close.is-visible,
 .bubble-controls.is-visible {
   opacity: 1;
-  /* Close button and pill MUST receive clicks — they sit over the
-     drag region / inside the hover wrapper but must not be treated as
-     drag surfaces. */
   pointer-events: auto;
 }
 
-/* Top-right X close button. Small circle with a subtle dark backdrop so it
-   reads against any camera feed (light or dark subjects). */
 .bubble-close {
   position: absolute;
   top: 6px;
@@ -3524,13 +3139,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   color: white;
 }
 
-/* Size-control pill — lives in the top strip of the wrapper (above
-   the circle). Centered horizontally, fades in on hover, matches Loom's
-   visual weight. Because it's a sibling of `.bubble-root` (not a child),
-   the border-radius clipping on the circle can't eat it. */
 .bubble-controls {
-  /* `flex: 0 0 auto` + margin-bottom creates the small gap between the
-     pill and the circle. */
   flex: 0 0 auto;
   margin-bottom: 8px;
   display: inline-flex;
@@ -3543,16 +3152,11 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   -webkit-backdrop-filter: blur(14px);
   border: 1px solid rgba(255, 255, 255, 0.08);
   z-index: 3;
-  /* Cursor over the pill should not be a grab cursor (we're not dragging
-     the bubble when clicking its controls). */
   cursor: default;
   user-select: none;
   -webkit-user-select: none;
 }
 
-/* Dot buttons — filled circles sized to convey Small vs Medium at a glance,
-   matching Loom's tiny / slightly-larger dots. Active dot gets a white ring
-   so the current size is always legible. */
 .bubble-dot {
   border: none;
   background: rgba(255, 255, 255, 0.55);
@@ -3607,10 +3211,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   height: 16px;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Inline sign-in form                                                        */
-/* ------------------------------------------------------------------------- */
-
 .signin {
   display: flex;
   flex-direction: column;
@@ -3618,7 +3218,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 4px 2px 0;
 }
 
-/* Agent-Native's mark, so the first screen says whose app this is. */
 .signin-mark {
   display: block;
   width: 26px;
@@ -3744,104 +3343,76 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-color: var(--border-strong, var(--border));
 }
 
-/* --- Update banner -------------------------------------------------------
- * Slots into the top of the popover when an update is in flight or ready.
- * Two visual states:
- *  - pending: subtle inline row, just keeps the user informed.
- *  - ready:   accent color + actions (dismiss / Restart) since clicking
- *             Restart is the thing we actually want them to do.
- */
 .update-banner {
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 0;
-  padding: 8px 10px;
+  min-height: 42px;
+  padding: 8px;
   border-radius: 8px;
   font-size: 12px;
   line-height: 1.3;
 }
 
+.update-banner-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+}
+
+.update-banner-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.update-banner-copy > h5 {
+  margin: 0;
+  line-height: 1.2;
+}
+
+.update-banner-description {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
 .update-banner--pending {
-  background: var(--surface);
-  color: var(--fg-muted);
-  border: 1px solid var(--border);
+  border-color: hsl(var(--ui-info) / 0.3);
+  background: hsl(var(--ui-info) / 0.07);
+  color: hsl(var(--ui-info));
 }
 
 .update-banner--ready {
-  background: var(--surface-strong);
+  border-color: var(--border);
+  background: var(--surface);
   color: var(--fg);
-  border: 1px solid var(--border-strong, var(--border));
-  flex-wrap: nowrap;
 }
 
 .update-banner--error {
-  background: color-mix(in srgb, var(--error, #dc2626) 10%, transparent);
-  color: var(--error, #dc2626);
-  border: 1px solid color-mix(in srgb, var(--error, #dc2626) 40%, transparent);
-  flex-wrap: wrap;
-}
-
-.update-banner-text {
-  flex: 1;
-  min-width: 0;
+  border-color: hsl(var(--ui-destructive) / 0.35);
+  background: hsl(var(--ui-destructive) / 0.07);
 }
 
 .update-banner-actions {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin-left: auto;
+  gap: 4px;
+  flex: 0 0 auto;
+  margin-inline-start: 2px;
 }
 
-.update-banner-btn {
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
+.update-banner--error {
+  align-items: flex-start;
 }
 
-.update-banner-btn--ghost {
-  background: transparent;
-  color: var(--fg-muted);
-  border-color: var(--border);
-}
-
-.update-banner-btn--ghost:hover {
-  background: var(--surface-hover, var(--surface));
-  color: var(--fg);
-}
-
-.update-banner-btn--dismiss {
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  background: transparent;
-  color: var(--fg-muted);
-}
-
-.update-banner-btn--dismiss:hover {
-  background: var(--surface-hover, var(--surface));
-  color: var(--fg);
-}
-
-.update-banner-btn--dismiss:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--brand-ring);
-}
-
-.update-banner-btn--primary {
-  background: var(--brand);
-  color: var(--bg);
-}
-
-.update-banner-btn--primary:hover {
-  background: var(--brand-hover, var(--brand));
+.update-banner--error .update-banner-actions {
+  align-self: center;
 }
 
 .update-spinner {
@@ -3857,9 +3428,21 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* ------------------------------------------------------------------------- */
-/* Overlay: meeting notification                                              */
-/* ------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .mode-toggle button,
+  .bottom-btn {
+    transition: none;
+  }
+
+  .mode-toggle button:active,
+  .bottom-btn:active {
+    transform: none;
+  }
+
+  .update-banner .animate-spin {
+    animation: none;
+  }
+}
 
 .meeting-notification-root {
   position: fixed;
@@ -3867,7 +3450,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: flex;
   align-items: flex-start;
   justify-content: flex-end;
-  /* Keep the card and its edge controls inside the transparent window. */
   padding: 12px 32px;
   background: transparent;
   pointer-events: none;
@@ -4081,10 +3663,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   color: white;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Overlay: meeting nub                                                       */
-/* ------------------------------------------------------------------------- */
-
 .meeting-nub-root {
   position: fixed;
   inset: 0;
@@ -4166,15 +3744,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   cursor: grabbing;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Overlay: flow bar (voice dictation)                                        */
-/* ------------------------------------------------------------------------- */
-
-/* Wispr Flow-style dictation pill: small capsule anchored to the bottom
-   of its (transparent) overlay window. The window itself is positioned
-   bottom-center on the primary display by show_flow_bar in Rust, sized to
-   the content exactly — elevation is the native NSWindow shadow, so there
-   is no transparent shadow-gutter apron here. */
 .flow-bar-root {
   position: fixed;
   inset: 0;
@@ -4188,46 +3757,35 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   pointer-events: none;
 }
 
-.flow-bar-transcript-preview {
-  max-width: 560px;
-  max-height: 90px;
-  padding: 5px 10px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 10px;
-  background: rgba(18, 18, 20, 0.92);
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 18px;
-  text-align: center;
-  word-break: break-word;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-}
-
 .flow-bar {
   display: flex;
   align-items: center;
   justify-content: center;
   height: 32px;
   border-radius: 16px;
-  background: rgba(18, 18, 20, 0.92);
+  background: var(--pill-chrome);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  color: white;
+  border: 1px solid color-mix(in srgb, var(--pill-on-chrome) 6%, transparent);
+  color: var(--pill-on-chrome);
   pointer-events: auto;
-  /* Subtle fade-in so the pill doesn't hard-pop on appear. */
   animation: flow-bar-in 140ms ease-out;
-  /* Fade out to opacity 0 when state goes idle (after Fn release).
-     Keeping the pill in the DOM lets the waveform fade instead of pop. */
   transition: opacity 220ms ease-out;
 }
 
-/* When the dictation engine reports idle, fade the pill out without
-   unmounting it. Pointer-events go off so the invisible pill cannot
-   catch clicks. */
+.flow-bar-listening {
+  position: relative;
+  width: 112px;
+  overflow: hidden;
+  transition:
+    width 160ms ease-out,
+    opacity 220ms ease-out;
+}
+
+.flow-bar-listening:hover {
+  width: 148px;
+}
+
 .flow-bar-idle {
   opacity: 0;
   pointer-events: none;
@@ -4238,6 +3796,130 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition:
+    opacity 120ms ease-out,
+    transform 120ms ease-out,
+    padding 120ms ease-out;
+}
+
+.flow-bar-listening:hover .flow-bar-recording {
+  padding-inline: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.82);
+}
+
+.flow-bar-controls {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.92);
+  transition:
+    opacity 120ms ease-out,
+    transform 120ms ease-out;
+}
+
+.flow-bar-listening:hover .flow-bar-controls {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
+}
+
+.flow-bar-time {
+  min-width: 38px;
+  color: var(--pill-q-ink);
+  font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+  font-size: 14px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: center;
+}
+
+.flow-bar-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--pill-on-chrome) 12%, transparent);
+  border-radius: 50%;
+  background: var(--pill-soft);
+  color: var(--pill-q-ink);
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    background 100ms ease-out,
+    color 100ms ease-out;
+}
+
+.flow-bar-control:hover {
+  background: color-mix(in srgb, var(--pill-on-chrome) 28%, transparent);
+  color: var(--pill-on-chrome);
+}
+
+.flow-bar-control:active {
+  background: color-mix(in srgb, var(--pill-on-chrome) 36%, transparent);
+}
+
+.flow-bar-accept {
+  border-color: var(--status-ok);
+  background: var(--status-ok);
+  color: var(--pill-on-chrome);
+}
+
+.flow-bar-accept:hover {
+  background: var(--status-ok);
+  filter: brightness(1.08);
+}
+
+.flow-bar-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  padding: 0 2px;
+}
+
+.flow-bar-notice-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--status-warn);
+}
+
+.flow-bar-notice-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.flow-bar-notice-copy strong,
+.flow-bar-notice-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-bar-notice-copy strong {
+  color: var(--pill-q-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.flow-bar-notice-copy span {
+  color: var(--pill-ghost-ink);
+  font-size: 11px;
 }
 
 .flow-bar-meter {
@@ -4251,10 +3933,29 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   justify-content: center;
 }
 
+.flow-bar-complete {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  color: var(--pill-q-ink);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.flow-bar-copied {
+  width: 260px;
+  min-height: 48px;
+  height: auto;
+  padding: 8px 12px;
+  border-radius: 14px;
+  justify-content: flex-start;
+}
+
 .flow-bar-shimmer {
   font-size: 12px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--pill-q-ink);
   letter-spacing: 0.1px;
   animation: flow-shimmer 1.2s ease-in-out infinite;
 }
@@ -4262,51 +3963,46 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .flow-bar-error {
   font-size: 12px;
   font-weight: 500;
-  color: #fecaca;
+  color: var(--status-warn);
 }
 
-/* Right-edge cancel — subtle monochrome chip, only there if the user
-   needs it. Reads as a quiet utility affordance, not an alarm. Hover
-   ramps up so the button still registers as clickable. */
 .flow-bar-cancel {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 18px;
   height: 18px;
-  /* Tight against the right edge — the chip should feel like it lives
-     at the pill's perimeter, not inset. Vertical centering is automatic
-     via flex (pill 32px ÷ chip 18px → 7px above/below). */
   margin: 0 4px 0 6px;
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.6);
+  background: var(--pill-soft);
+  color: var(--pill-ghost-ink);
   cursor: pointer;
-  /* Override the root's `pointer-events: none` so the click registers. */
   pointer-events: auto;
   transition:
     background 100ms ease-out,
     color 100ms ease-out;
 }
 
+.flow-bar-controls .flow-bar-cancel {
+  width: 30px;
+  height: 30px;
+  margin: 0;
+}
+
 .flow-bar-cancel:hover {
-  background: rgba(255, 255, 255, 0.22);
-  color: rgba(255, 255, 255, 0.95);
+  background: color-mix(in srgb, var(--pill-on-chrome) 22%, transparent);
+  color: var(--pill-on-chrome);
 }
 
 .flow-bar-cancel:active {
-  background: rgba(255, 255, 255, 0.3);
+  background: color-mix(in srgb, var(--pill-on-chrome) 30%, transparent);
 }
 
 .flow-bar-cancel svg {
   display: block;
 }
-
-/* ------------------------------------------------------------------------- */
-/* Overlay: private screen region guides                                      */
-/* ------------------------------------------------------------------------- */
 
 .region-guides-layer,
 .region-guides-editor {
@@ -4325,11 +4021,29 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   cursor: crosshair;
   user-select: none;
   background: rgba(0, 0, 0, 0.015);
+  isolation: isolate;
   touch-action: none;
+}
+
+.region-guide-selection-mask {
+  position: absolute;
+  z-index: 0;
+  box-sizing: border-box;
+  /* guard:allow-raw-color — selection bounds need fixed contrast over arbitrary captured pixels. */
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  /* guard:allow-raw-color — selection fill is a capture-surface affordance, not app chrome. */
+  background: rgba(255, 255, 255, 0.035);
+  /* The spread creates one cheap, click-through cutout for the selected area. */
+  /* guard:allow-raw-color — dimming must remain legible over light and dark desktop content. */
+  box-shadow: 0 0 0 100vmax rgba(5, 8, 14, 0.64);
+  pointer-events: none;
 }
 
 .region-guide-rect {
   position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
   border: 1.5px solid rgba(255, 255, 255, 0.62);
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.018);
@@ -4343,18 +4057,43 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .region-guide-rect-editable:hover,
 .region-guide-rect-editable.selected {
-  border-color: rgba(255, 255, 255, 0.92);
+  border-width: 2px;
+  /* guard:allow-raw-color — selected bounds need fixed contrast over arbitrary captured pixels. */
+  border-color: rgba(255, 255, 255, 0.98);
+}
+
+.region-guide-rect-editable.selected {
+  box-shadow:
+    /* guard:allow-raw-color — selected bounds need fixed contrast over arbitrary captured pixels. */
+    0 0 0 1px rgba(8, 11, 18, 0.92),
+    /* guard:allow-raw-color — selected bounds need fixed contrast over arbitrary captured pixels. */
+    0 0 0 4px rgba(255, 255, 255, 0.72);
 }
 
 .region-guide-rect-editable:focus-visible {
   outline: none;
+  /* guard:allow-raw-color — focused bounds need fixed contrast over arbitrary captured pixels. */
   border-color: rgba(255, 255, 255, 0.98);
+  box-shadow:
+    /* guard:allow-raw-color — focused bounds need fixed contrast over arbitrary captured pixels. */
+    0 0 0 1px rgba(8, 11, 18, 0.92),
+    /* guard:allow-raw-color — focused bounds need fixed contrast over arbitrary captured pixels. */
+    0 0 0 4px rgba(255, 255, 255, 0.72);
 }
 
 .region-guide-rect-draft {
+  z-index: 2;
   border-style: dashed;
-  border-color: rgba(255, 255, 255, 0.86);
+  border-width: 2px;
+  /* guard:allow-raw-color — draft bounds need fixed contrast over arbitrary captured pixels. */
+  border-color: rgba(255, 255, 255, 0.98);
+  /* guard:allow-raw-color — draft fill is a capture-surface affordance, not app chrome. */
   background: rgba(255, 255, 255, 0.035);
+  box-shadow:
+    /* guard:allow-raw-color — draft bounds need fixed contrast over arbitrary captured pixels. */
+    0 0 0 1px rgba(8, 11, 18, 0.92),
+    /* guard:allow-raw-color — draft bounds need fixed contrast over arbitrary captured pixels. */
+    0 0 0 4px rgba(255, 255, 255, 0.58);
 }
 
 .region-guide-handle {
@@ -4403,7 +4142,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: flex;
   align-items: center;
   gap: 12px;
-  max-width: min(760px, calc(100vw - 36px));
+  width: min(760px, calc(100vw - 36px));
+  min-height: 48px;
+  box-sizing: border-box;
   padding: 9px 10px 9px 12px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 12px;
@@ -4411,12 +4152,14 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   color: #f8fafc;
   transform: translateX(-50%);
   backdrop-filter: blur(18px);
+  pointer-events: auto;
 }
 
 .region-guide-editor-title {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  flex: 1 1 auto;
   min-width: 0;
   font-size: 12px;
   font-weight: 700;
@@ -4433,6 +4176,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex: 0 0 auto;
 }
 
 .region-guide-editor-button,
@@ -4490,12 +4234,26 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .region-guide-editor-message {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 12px;
+  max-width: min(260px, calc(100vw - 60px));
   min-width: 78px;
+  overflow: hidden;
   color: rgba(248, 250, 252, 0.68);
   font-size: 11px;
   font-weight: 600;
   text-align: right;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.region-guide-editor-message.is-visible {
+  opacity: 1;
+  visibility: visible;
 }
 
 .region-guide-editor-hint {
@@ -4503,21 +4261,38 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   left: 50%;
   bottom: 18px;
   z-index: 10;
-  max-width: min(420px, calc(100vw - 36px));
+  width: min(520px, calc(100vw - 36px));
+  box-sizing: border-box;
   padding: 7px 10px;
   border-radius: 999px;
   background: rgba(15, 17, 21, 0.6);
   color: rgba(248, 250, 252, 0.76);
   font-size: 12px;
   font-weight: 600;
+  line-height: 1.3;
   text-align: center;
   transform: translateX(-50%);
   backdrop-filter: blur(14px);
+  pointer-events: none;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Overlay: live recording-region border                                      */
-/* ------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  .region-guide-editor-bar {
+    gap: 8px;
+    padding-right: 8px;
+    padding-left: 10px;
+  }
+
+  .region-guide-editor-count {
+    display: none;
+  }
+
+  .region-guide-editor-button {
+    min-width: auto;
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+}
 
 .region-record-border-layer {
   position: fixed;
@@ -4530,53 +4305,15 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .region-record-border-frame {
   position: absolute;
+  box-sizing: border-box;
   border-radius: 5px;
-  /* No fill, and the stroke is painted OUTWARD with an outset box-shadow so it
-     lands just outside the captured rect — never inside the recorded video. */
   box-shadow:
     /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
     0 0 0 1px rgba(255, 255, 255, 0.96),
     /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
     0 0 0 3px rgba(220, 38, 38, 0.98),
     /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-    0 0 0 6px rgba(17, 24, 39, 0.78),
-    /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-    0 0 30px 8px rgba(220, 38, 38, 0.28);
-  animation: region-record-border-pulse 1.8s ease-in-out infinite;
-}
-
-/* Gentle pulse that mirrors the live recording dot, signalling "recording
-   now". Honour reduced-motion by holding the frame steady. */
-@keyframes region-record-border-pulse {
-  0%,
-  100% {
-    box-shadow:
-      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-      0 0 0 1px rgba(255, 255, 255, 0.98),
-      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-        0 0 0 3px rgba(220, 38, 38, 1),
-      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-        0 0 0 6px rgba(17, 24, 39, 0.76),
-      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-        0 0 24px 7px rgba(220, 38, 38, 0.22);
-  }
-  50% {
-    box-shadow:
-      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-      0 0 0 1px rgba(255, 255, 255, 1),
-      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-        0 0 0 3px rgba(220, 38, 38, 1),
-      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-        0 0 0 6px rgba(17, 24, 39, 0.88),
-      /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */
-        0 0 34px 10px rgba(220, 38, 38, 0.36);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .region-record-border-frame {
-    animation: none;
-  }
+    0 0 0 6px rgba(17, 24, 39, 0.84);
 }
 
 @keyframes flow-bar-in {
@@ -4602,16 +4339,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* ------------------------------------------------------------------------- */
-/* Overlay: recording pill                                                    */
-/* ------------------------------------------------------------------------- */
-
-/* Fills the window, which Rust sizes to the visible capsule exactly —
-   elevation is the native NSWindow shadow (see recording_indicator.rs), so
-   there is no transparent shadow-gutter apron here. The collapsed capsule
-   centers rather than hugging a corner: hover is polled against the window
-   frame, so slack between frame and capsule would light the pill up while
-   the cursor is nowhere near it. */
 .pill-outer {
   display: flex;
   height: 100%;
@@ -4653,25 +4380,15 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* Collapsed (not expanded). Shrinks to logo + waveform; the whole capsule is
-   the click-to-expand target and the whole capsule is what highlights. */
 .pill-inner-compact {
   width: fit-content;
   height: fit-content;
-  /* Pinned to the top of its window. The window is pre-grown before the
-     capsule opens, and a centred capsule would jump upward the instant that
-     happens — the growth has to come out of the bottom edge only. */
   align-self: flex-start;
-  /* Stadium, not a squircle — the collapsed capsule reads as a pill at any
-     height. A fixed radius on the ~44x64 vertical form looks like a rounded
-     rectangle. */
   border-radius: 999px;
   cursor: pointer;
   transition: background 120ms ease;
 }
 
-/* CSS :hover covers the focused case; .pill-hovered is the Rust-polled
-   fallback for when another app is focused (see clips:pill-hover). */
 .pill-inner-compact:hover,
 .pill-inner-compact.pill-hovered {
   background: rgba(42, 42, 42, 0.97);
@@ -4691,8 +4408,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
     opacity 120ms ease;
 }
 
-/* Revealed on hover in the compact/detached bar, always visible when expanded.
-   The vertical capsule hides them outright — it expands on click instead. */
 .pill-inner-compact:hover .pill-controls,
 .pill-inner-compact.pill-hovered .pill-controls,
 .pill-inner:not(.pill-inner-compact) .pill-controls {
@@ -4731,12 +4446,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   height: 12px;
 }
 
-/* Collapsed = vertical capsule: logo on top, waveform below. */
 .pill-inner-compact .pill-header.pill-vertical {
   flex-direction: column;
-  /* No gap here: the transport segment owns the space above itself, so at
-     rest it contributes nothing and the capsule closes flush under the
-     meter. Spacing lives inside each group instead, all on one 8px step. */
   gap: 0;
   height: auto;
   width: auto;
@@ -4749,27 +4460,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   height: auto;
 }
 
-/* The collapsed capsule grows along its long axis to reveal its transport,
-   the same way the recorder pill grows to reveal its extras: the segment
-   animates its own measured size while the window is resized around it. The
-   height here is set in px by the overlay after measuring — `auto` cannot be
-   animated, and a guessed constant drifts from the real control stack. */
-/* Height and opacity are set inline by the overlay, not by a hover rule: this
-   window is never the key window, and the browser can stop advancing its
-   animations — so anything whose END state depends on a transition running is
-   invisible exactly when it matters. The transition is the polish; the inline
-   values are the truth. */
 .pill-vertical .pill-controls {
   display: flex;
   flex-direction: column;
   align-self: center;
-  /* The horizontal pill pushes its controls to the right with an auto margin;
-     in this column that is a 3px offset off the capsule's centre line. */
   margin-left: 0;
   gap: 8px;
-  /* The space above the transport is a margin, animated with the height. As
-     padding it could not collapse below its own 8px, so the capsule kept a
-     dead band under the meter while closed. */
   margin-top: 0;
   height: 0;
   min-height: 0;
@@ -4787,9 +4483,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   pointer-events: auto;
 }
 
-/* The buttons settle in a beat after the capsule starts opening, so the growth
-   reads as the capsule making room rather than a jump cut. Transform only —
-   a stalled transition leaves them 4px off instead of invisible. */
 .pill-vertical .pill-controls > * {
   transform: translateY(-4px);
   transition: transform 200ms var(--ease-out-strong);
@@ -4800,22 +4493,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   transform: translateY(0);
 }
 
-/* The note-taker shows no elapsed time anywhere, and 38px of capsule has room
-   for the two transport controls and nothing besides. */
 .pill-vertical .pill-timer,
 .pill-vertical .pill-expand-btn,
 .pill-vertical .pill-copy-btn {
   display: none;
 }
 
-/* Bare glyphs, matching the recorder pill: a red square for stop and a ghost
-   pause, with no filled circle behind either. The base styles here are the
-   compact pill's filled buttons, which is the wrong language for a capsule
-   this small — two solid discs stacked read as a traffic light. */
-/* Sized to the glyph, not to the hit target. A 22px box around a 14px icon
-   puts 4px of dead space on the rhythm, which is why evenly-spaced boxes
-   still looked uneven — the eye measures ink, not boxes. The target is an
-   overlay instead, so it costs nothing in layout. */
 .pill-vertical .pill-pause-btn,
 .pill-vertical .pill-stop-btn {
   position: relative;
@@ -4869,7 +4552,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   height: 14px;
 }
 
-/* Wrapper around logo + waveform. */
 .pill-media {
   display: contents;
 }
@@ -4887,15 +4569,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   font-variant-numeric: tabular-nums;
 }
 
-/* The collapsed capsule is its own dark chrome with white content, and the
-   expanded panel is themed — inheriting is the only value that reads on both. */
 .pill-media-spinner {
   flex: none;
   color: currentColor;
   opacity: 0.7;
 }
 
-/* Layout only; the bars size and color themselves. */
 .pill-wave-meter {
   height: 14px;
 }
@@ -4948,8 +4627,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: rgba(255, 255, 255, 0.1);
 }
 
-/* ---- */
-
 .pill-error {
   margin: 0 10px 6px;
   padding: 6px 10px;
@@ -4963,8 +4640,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .pill-divider {
-  /* 14px matches the header's title and the transcript's own padding. A rule
-     that overhangs the text it separates is the misalignment you see first. */
   margin: 0 14px;
   height: 1px;
   flex-shrink: 0;
@@ -5065,6 +4740,41 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   align-items: center;
   gap: 4px;
   padding: 6px 10px 10px;
+}
+
+.pill-ask-provider-status {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 12px 0;
+  color: hsl(var(--ui-muted-foreground));
+  font-size: 11px;
+}
+
+.pill-ask-provider-status > button,
+.pill-ask-provider-actions > button {
+  border: 0;
+  background: transparent;
+  color: hsl(var(--ui-foreground));
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.pill-ask-provider-status > button:focus-visible,
+.pill-ask-provider-actions > button:focus-visible {
+  outline: 2px solid hsl(var(--ui-ring));
+  outline-offset: 2px;
+}
+
+.pill-ask-provider-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .pill-ask-input {
@@ -5209,13 +4919,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-bottom-left-radius: 4px;
 }
 
-/* ---- Expanded meeting panel: a themed reading surface --------------------
-   The collapsed capsule stays dark capture chrome (it floats over arbitrary
-   content), but the EXPANDED panel is for reading, so it follows the system
-   theme and borrows the record pill's control grammar: a red stop square as
-   the live indicator + save action, bare ghost glyphs for everything else.
-   All rules are scoped to the expanded state and override the dark base. */
-
 .pill-inner:not(.pill-inner-compact) {
   background: hsl(var(--ui-popover) / 0.98);
   color: hsl(var(--ui-foreground));
@@ -5227,9 +4930,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 0 8px 0 14px;
 }
 
-/* Everything in the header that is not text rides the measured shift, so the
-   glyphs sit on the title's optical centre rather than on its box centre.
-   Zero until measured, so a missing measurement changes nothing. */
 .pill-inner:not(.pill-inner-compact) .pill-controls {
   transform: translateY(var(--header-ink-shift, 0px));
 }
@@ -5247,8 +4947,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .pill-title {
-  /* Same box height as the control buttons beside it: centring two boxes of
-     equal height puts their ink on one line whatever the font metrics do. */
   line-height: 30px;
   min-width: 0;
   overflow: hidden;
@@ -5346,8 +5044,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: hsl(var(--ui-primary));
 }
 
-/* Transcript: uniform left alignment for reading — the speaker label, not
-   the side, carries who is talking. */
 .pill-inner:not(.pill-inner-compact) .lt-chat {
   gap: 10px;
   padding: 10px 14px;
@@ -5391,8 +5087,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-bottom-left-radius: 10px;
 }
 
-/* Ask composer: Stop leads the line (Wispr's pattern), then the quiet
-   rounded field on the muted fill with ghost actions. */
 .pill-stop-inline-square {
   display: block;
   width: 10px;
@@ -5407,12 +5101,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   padding: 8px 14px 12px;
 }
 
-/* Inline ask conversation: a sheet rises from the composer and holds the
-   running exchange — user questions as chat bubbles, streamed answers, and
-   contextual suggestion chips. The grip resizes it; pulling it low dismisses. */
 .pill-ask-sheet {
-  /* In the column, not over it: an overlay would cover the newest transcript
-     lines, which is the only part of a live session anyone is reading. */
   flex: none;
   min-height: 0;
   display: flex;
@@ -5421,8 +5110,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   border-radius: 14px 14px 0 0;
   background: hsl(var(--ui-popover));
   box-shadow: var(--elevation-sheet);
-  /* Travels rather than fades: the panel arrives from the edge it belongs to,
-     on the same curve the framework's drawers use. */
   animation: pill-ask-sheet-in 320ms var(--ease-drawer);
 }
 
@@ -5431,8 +5118,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   pointer-events: none;
 }
 
-/* The panel leads; its contents follow a beat later, so the drawer reads as
-   one object arriving instead of a card and its text appearing together. */
 .pill-ask-sheet > * {
   animation: pill-ask-sheet-content 260ms var(--ease-out-strong) both;
   animation-delay: 90ms;
@@ -5478,8 +5163,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* Motion is the affordance here, not decoration — reduced motion keeps the
-   state change, drops the travel. */
 @media (prefers-reduced-motion: reduce) {
   .pill-ask-sheet,
   .pill-ask-sheet[data-state="closing"],
@@ -5500,8 +5183,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  /* 18px of grabbable height around a 4px handle: the affordance is the
-     target, not the glyph. */
   padding: 8px 0 6px;
   cursor: grab;
   touch-action: none;
@@ -5544,8 +5225,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .pill-ask-msg-user {
   align-self: flex-end;
   max-width: 88%;
-  /* A full-radius capsule curves in on every line but the middle, so the
-     horizontal padding has to clear the corner, not just the glyph. */
   padding: 9px 17px;
   border-radius: 999px;
   background: hsl(var(--ui-primary));
@@ -5582,7 +5261,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: none;
 }
 
-/* Waiting for capture to attach: never the live red, never a running clock. */
 .pill-timer-starting {
   display: inline-flex;
   align-items: center;
@@ -5603,8 +5281,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   min-width: 0;
 }
 
-/* The trail scrolls rather than wrapping: a run of ten steps must not push the
-   answer down the sheet. Edges fade so a clipped chip reads as "more". */
 .pill-ask-chips {
   display: flex;
   align-items: center;
@@ -5612,10 +5288,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
-  /* No horizontal padding: it reads as extra space between the chip and its
-     label, on top of the row's own gap. Vertical padding has to clear the
-     active chip's scale AND its 2px ring, or `overflow-x` clips the ring —
-     one axis set to auto makes the other axis clip too. */
   padding: 4px 0;
 }
 
@@ -5632,12 +5304,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   display: none;
 }
 
-/* Overlapped like a stack of avatars rather than spaced out as a row: the
-   ring in the surface color is what cuts each chip out of the one behind it,
-   so the trail reads as one object with a head instead of N buttons. */
-/* A Tabler glyph inks 75% of its box, so a 12px icon put 9px of ink inside a
-   21px ring — 43%, which reads as a glyph lost in a circle rather than one
-   set in it. 15px of icon in a 20px ring is ~56%. */
 .pill-ask-chip-icon {
   position: relative;
   display: grid;
@@ -5716,7 +5382,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   background: hsl(var(--ui-muted) / 0.6);
 }
 
-/* Quoted like the reasoning it is, so it never reads as the answer. */
 .pill-ask-work-now,
 .pill-ask-work-list {
   margin: 5px 0 0;
@@ -5807,9 +5472,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/* The field owns the fill, radius, and focus ring; the input is transparent
-   inside it and the send button sits embedded at the trailing edge (shadcn's
-   InputGroup pattern), so composing and sending read as one control. */
 .pill-inner:not(.pill-inner-compact) .pill-ask-field {
   display: flex;
   min-width: 0;
@@ -5842,8 +5504,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .pill-inner:not(.pill-inner-compact) .pill-ask-send {
-  /* Concentric with the capsule field: 34px/2 outer radius minus the 4px
-     inset = 13px inner radius, i.e. an exact 26px circle. */
   height: 26px;
   width: 26px;
   border-radius: 999px;
@@ -5893,12 +5553,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   }
 }
 
-/*
- * One of these windows opens centered on every connected monitor when a
- * full-screen native recording is about to start with more than one monitor
- * attached (see `show_monitor_picker`). The window itself is already sized
- * and positioned by Rust, so the card just fills it.
- */
 .monitor-picker-root {
   position: fixed;
   inset: 0;

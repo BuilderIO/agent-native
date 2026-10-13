@@ -3,14 +3,30 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockResourcePut = vi.hoisted(() => vi.fn());
 const mockResourceGetByPath = vi.hoisted(() => vi.fn());
 const mockResourceList = vi.hoisted(() => vi.fn());
+const mockResourceDeleteIfCurrent = vi.hoisted(() => vi.fn());
 const mockResourceDeleteByPath = vi.hoisted(() => vi.fn());
+const mockIsLegacyOrganizationWorkspaceFile = vi.hoisted(() => vi.fn());
+const mockGetOrgRoleForEmail = vi.hoisted(() => vi.fn());
+const mockGetRequestUserEmail = vi.hoisted(() => vi.fn());
 
 vi.mock("../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
+  sharedResourceOwner: (orgId: string) =>
+    `__organization__:${encodeURIComponent(orgId)}`,
+  isLegacyOrganizationWorkspaceFile: mockIsLegacyOrganizationWorkspaceFile,
   resourcePut: mockResourcePut,
   resourceGetByPath: mockResourceGetByPath,
+  resourceDeleteIfCurrent: mockResourceDeleteIfCurrent,
   resourceList: mockResourceList,
   resourceDeleteByPath: mockResourceDeleteByPath,
+}));
+
+vi.mock("../mcp/actions/service-token-access.js", () => ({
+  getOrgRoleForEmail: mockGetOrgRoleForEmail,
+}));
+
+vi.mock("../server/request-context.js", () => ({
+  getRequestUserEmail: mockGetRequestUserEmail,
 }));
 
 import {
@@ -43,6 +59,10 @@ function resource(path: string, content = "hello") {
 describe("workspace-files Resources adapter", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(false);
+    mockGetOrgRoleForEmail.mockResolvedValue("admin");
+    mockGetRequestUserEmail.mockReturnValue("alice@example.com");
+    mockResourceDeleteIfCurrent.mockResolvedValue(true);
   });
 
   it("writes scratch paths as hidden agent scratch resources", async () => {
@@ -83,7 +103,7 @@ describe("workspace-files Resources adapter", () => {
     );
 
     expect(mockResourcePut).toHaveBeenCalledWith(
-      "__shared__",
+      "__organization__:org_123",
       "analysis/summary.md",
       "summary",
       "text/markdown",
@@ -96,6 +116,86 @@ describe("workspace-files Resources adapter", () => {
         },
       }),
     );
+  });
+
+  it("rejects organization writes from non-admin members", async () => {
+    mockGetOrgRoleForEmail.mockResolvedValue("member");
+
+    await expect(
+      writeWorkspaceFile(
+        { scope: "org", scopeId: "org_123" },
+        "analysis/summary.md",
+        "summary",
+        "text/markdown",
+      ),
+    ).rejects.toThrow(
+      "Only organization owners and admins can edit organization files",
+    );
+    expect(mockResourcePut).not.toHaveBeenCalled();
+  });
+
+  it("allows organization members to write scratch paths", async () => {
+    mockGetOrgRoleForEmail.mockResolvedValue("member");
+    mockResourcePut.mockResolvedValue(resource("scratch/tmp.md"));
+
+    await expect(
+      writeWorkspaceFile(
+        { scope: "org", scopeId: "org_123" },
+        "scratch/tmp.md",
+        "temporary",
+      ),
+    ).resolves.toMatchObject({ path: "scratch/tmp.md" });
+    expect(mockResourcePut).toHaveBeenCalledWith(
+      "__organization__:org_123",
+      "scratch/tmp.md",
+      "temporary",
+      "text/plain",
+      expect.objectContaining({ visibility: "agent_scratch" }),
+    );
+  });
+
+  it("removes the legacy organization row after writing its override", async () => {
+    const legacy = {
+      ...resource("analysis/summary.md", "old"),
+      owner: "__shared__",
+      metadata: JSON.stringify({
+        source: "workspace-files",
+        scope: "org",
+        scopeId: "org_123",
+      }),
+      createdBy: "system",
+      visibility: "agent_scratch",
+      threadId: "thread-1",
+      runId: "run-1",
+      expiresAt: 123,
+    };
+    mockResourceGetByPath.mockResolvedValue(legacy);
+    mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+    mockResourcePut.mockResolvedValue(
+      resource("analysis/summary.md", "summary"),
+    );
+
+    await writeWorkspaceFile(
+      { scope: "org", scopeId: "org_123" },
+      "analysis/summary.md",
+      "summary",
+      "text/markdown",
+    );
+
+    expect(mockResourcePut).toHaveBeenCalledWith(
+      "__organization__:org_123",
+      "analysis/summary.md",
+      "summary",
+      "text/markdown",
+      expect.objectContaining({
+        createdBy: "system",
+        visibility: "agent_scratch",
+        threadId: "thread-1",
+        runId: "run-1",
+        expiresAt: 123,
+      }),
+    );
+    expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith(legacy);
   });
 
   it("reads resources with offset and maxChars", async () => {
@@ -112,6 +212,74 @@ describe("workspace-files Resources adapter", () => {
     expect(file?.content).toBe("cde");
     expect(file?.contentType).toBe("text/plain");
     expect(file?.sizeBytes).toBe(6);
+  });
+
+  it("reads organization files from the active organization owner", async () => {
+    mockResourceGetByPath.mockResolvedValue(resource("analysis/data.json"));
+
+    await readWorkspaceFile(
+      { scope: "org", scopeId: "org_123" },
+      "analysis/data.json",
+    );
+
+    expect(mockResourceGetByPath).toHaveBeenCalledWith(
+      "__organization__:org_123",
+      "analysis/data.json",
+      { orgId: "org_123" },
+    );
+  });
+
+  it("reads legacy organization files from the shared owner", async () => {
+    const legacy = {
+      ...resource("analysis/legacy.json"),
+      owner: "__shared__",
+      metadata: JSON.stringify({
+        source: "workspace-files",
+        scope: "org",
+        scopeId: "org_123",
+      }),
+    };
+    mockResourceGetByPath
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(legacy);
+    mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+
+    const file = await readWorkspaceFile(
+      { scope: "org", scopeId: "org_123" },
+      "analysis/legacy.json",
+    );
+
+    expect(file?.content).toBe("hello");
+    expect(mockResourceGetByPath).toHaveBeenNthCalledWith(
+      2,
+      "__shared__",
+      "analysis/legacy.json",
+      { orgId: "org_123" },
+    );
+  });
+
+  it("lists legacy organization files without overriding current files", async () => {
+    const current = resource("analysis/current.md");
+    const legacy = {
+      ...resource("analysis/legacy.md"),
+      owner: "__shared__",
+    };
+    mockResourceList
+      .mockResolvedValueOnce([current])
+      .mockResolvedValueOnce([current, legacy]);
+    mockIsLegacyOrganizationWorkspaceFile.mockImplementation(
+      (resource: { owner: string }) => resource.owner === "__shared__",
+    );
+
+    const files = await listWorkspaceFiles(
+      { scope: "org", scopeId: "org_123" },
+      "analysis/",
+    );
+
+    expect(files.map((file) => file.path)).toEqual([
+      "analysis/current.md",
+      "analysis/legacy.md",
+    ]);
   });
 
   it("lists exact prefix folders without prefix lookalikes", async () => {
@@ -138,7 +306,11 @@ describe("workspace-files Resources adapter", () => {
   });
 
   it("deletes by path in the resolved resource owner", async () => {
-    mockResourceDeleteByPath.mockResolvedValue(true);
+    const current = {
+      ...resource("scratch/tmp.md"),
+      owner: "__organization__:org_123",
+    };
+    mockResourceGetByPath.mockResolvedValue(current);
 
     await expect(
       deleteWorkspaceFile(
@@ -146,10 +318,77 @@ describe("workspace-files Resources adapter", () => {
         "scratch/tmp.md",
       ),
     ).resolves.toBe(true);
-    expect(mockResourceDeleteByPath).toHaveBeenCalledWith(
-      "__shared__",
-      "scratch/tmp.md",
+    expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith(current);
+  });
+
+  it("deletes a resolved legacy organization file conditionally", async () => {
+    const legacy = {
+      ...resource("analysis/legacy.md"),
+      owner: "__shared__",
+      metadata: JSON.stringify({
+        source: "workspace-files",
+        scope: "org",
+        scopeId: "org_123",
+      }),
+    };
+    mockResourceGetByPath
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(legacy);
+    mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+
+    await expect(
+      deleteWorkspaceFile(
+        { scope: "org", scopeId: "org_123" },
+        "analysis/legacy.md",
+      ),
+    ).resolves.toBe(true);
+
+    expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith(legacy);
+    expect(mockResourceDeleteByPath).not.toHaveBeenCalled();
+  });
+
+  it("removes a legacy row when deleting an organization override", async () => {
+    const current = {
+      ...resource("scratch/tmp.md"),
+      owner: "__organization__:org_123",
+    };
+    const legacy = {
+      ...resource("scratch/tmp.md"),
+      owner: "__shared__",
+      metadata: JSON.stringify({
+        source: "workspace-files",
+        scope: "org",
+        scopeId: "org_123",
+      }),
+    };
+    mockResourceGetByPath
+      .mockResolvedValueOnce(current)
+      .mockResolvedValueOnce(legacy);
+    mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(true);
+
+    await expect(
+      deleteWorkspaceFile(
+        { scope: "org", scopeId: "org_123" },
+        "scratch/tmp.md",
+      ),
+    ).resolves.toBe(true);
+
+    expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(1, current);
+    expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(2, legacy);
+  });
+
+  it("rejects organization deletes from non-admin members", async () => {
+    mockGetOrgRoleForEmail.mockResolvedValue("member");
+
+    await expect(
+      deleteWorkspaceFile(
+        { scope: "org", scopeId: "org_123" },
+        "analysis/summary.md",
+      ),
+    ).rejects.toThrow(
+      "Only organization owners and admins can edit organization files",
     );
+    expect(mockResourceDeleteByPath).not.toHaveBeenCalled();
   });
 
   it("rejects traversal paths", () => {

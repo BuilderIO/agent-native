@@ -443,7 +443,6 @@ describe("runMonitorCheck response body reads", () => {
 });
 
 describe("runMonitorCheck timeout budget", () => {
-  // MIN_TIMEOUT_MS is 1000 — keep tests at/above that floor.
   const base = {
     url: "https://example.com/health",
     method: "GET" as const,
@@ -544,9 +543,6 @@ describe("runMonitorCheck timeout budget", () => {
       kind: "timeout",
       message: "Timed out after 1000ms",
     });
-    // Real timers: the abort timer and this Date.now() delta are anchored at
-    // slightly different instants, so the measured request time can land a few
-    // ms shy of the nominal 1000ms budget on loaded CI runners.
     expect(outcome.diagnostics.timings.requestMs).toBeGreaterThanOrEqual(950);
   });
 });
@@ -594,19 +590,18 @@ describe("shouldOpenMonitorIncident", () => {
     expect(shouldOpenMonitorIncident(degradedOutcome, 1, 2)).toBe(true);
   });
 
-  it("opens immediately for HTTP failures that returned a response", () => {
+  it("requires confirmation for transient server errors but not client errors", () => {
+    const serverError: CheckOutcome = {
+      ...timeoutOutcome,
+      statusCode: 503,
+      latencyMs: 120,
+      error: "Unexpected status 503",
+      failedAssertions: ["Unexpected status 503"],
+    };
+    expect(shouldOpenMonitorIncident(serverError, 0, 2)).toBe(false);
+    expect(shouldOpenMonitorIncident(serverError, 1, 2)).toBe(true);
     expect(
-      shouldOpenMonitorIncident(
-        {
-          ...timeoutOutcome,
-          statusCode: 503,
-          latencyMs: 120,
-          error: "Unexpected status 503",
-          failedAssertions: ["Unexpected status 503"],
-        },
-        0,
-        2,
-      ),
+      shouldOpenMonitorIncident({ ...serverError, statusCode: 404 }, 0, 2),
     ).toBe(true);
   });
 

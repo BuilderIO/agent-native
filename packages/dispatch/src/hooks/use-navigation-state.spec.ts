@@ -1,8 +1,55 @@
 import { describe, expect, it } from "vitest";
 
-import { buildDispatchNavigationState } from "./use-navigation-state.js";
+import {
+  buildDispatchNavigationState,
+  dispatchApplicationStatePath,
+  dispatchNavigationQueryKey,
+} from "./use-navigation-state.js";
+
+describe("dispatchNavigationQueryKey", () => {
+  it("keeps command cache entries isolated by browser tab", () => {
+    expect(dispatchNavigationQueryKey("tab-a")).toEqual([
+      "navigate-command",
+      "tab-a",
+    ]);
+    expect(dispatchNavigationQueryKey("tab-b")).not.toEqual(
+      dispatchNavigationQueryKey("tab-a"),
+    );
+  });
+});
+
+describe("dispatchApplicationStatePath", () => {
+  it("uses the same tab-scoped key for navigation reads and commands", () => {
+    expect(dispatchApplicationStatePath("navigation", "tab-a")).toBe(
+      "/_agent-native/application-state/navigation:tab-a",
+    );
+    expect(dispatchApplicationStatePath("navigate", "tab-a")).toBe(
+      "/_agent-native/application-state/navigate:tab-a",
+    );
+    expect(dispatchApplicationStatePath("navigate", "tab-b")).not.toBe(
+      dispatchApplicationStatePath("navigate", "tab-a"),
+    );
+  });
+});
 
 describe("buildDispatchNavigationState", () => {
+  it("keeps Admin integrations as the integrations view", () => {
+    expect(buildDispatchNavigationState("/admin/integrations")).toEqual({
+      view: "integrations",
+      path: "/admin/integrations",
+    });
+    expect(
+      buildDispatchNavigationState("/admin/integrations/provider-settings"),
+    ).toEqual({
+      view: "integrations",
+      path: "/admin/integrations/provider-settings",
+    });
+    expect(buildDispatchNavigationState("/integrations")).toEqual({
+      view: "overview",
+      path: "/integrations",
+    });
+  });
+
   it("recognizes the full-page chat route", () => {
     expect(buildDispatchNavigationState("/chat")).toEqual({
       view: "chat",
@@ -97,6 +144,19 @@ describe("buildDispatchNavigationState", () => {
     });
   });
 
+  it("keeps the selected automation in application state", () => {
+    expect(
+      buildDispatchNavigationState(
+        "/automations",
+        "?automationId=personal%3Amorning-digest",
+      ),
+    ).toEqual({
+      view: "automations",
+      path: "/automations",
+      automationId: "personal:morning-digest",
+    });
+  });
+
   it("recognizes Admin routes without losing the underlying view", () => {
     expect(buildDispatchNavigationState("/admin/metrics")).toEqual({
       view: "metrics",
@@ -105,6 +165,20 @@ describe("buildDispatchNavigationState", () => {
     expect(buildDispatchNavigationState("/admin")).toEqual({
       view: "admin",
       path: "/admin",
+    });
+  });
+
+  it("preserves the selected app on the metrics navigation state", () => {
+    expect(
+      buildDispatchNavigationState(
+        "/admin/metrics",
+        "?app=orders&scope=workspace",
+      ),
+    ).toEqual({
+      view: "metrics",
+      path: "/admin/metrics",
+      usageScope: "app",
+      usageAppId: "orders",
     });
   });
 

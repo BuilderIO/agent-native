@@ -130,11 +130,24 @@ export async function reconcileInlineDatabasesForDocument(
   documentId: string,
   content: string,
 ): Promise<string[]> {
-  const parsed = await collectInlineDatabaseOwnerBlockIds(content);
+  return reconcileInlineDatabasesForDocumentWithDb({
+    db: getDb(),
+    documentId,
+    content,
+  });
+}
+
+export async function reconcileInlineDatabasesForDocumentWithDb(args: {
+  db: ReturnType<typeof getDb>;
+  documentId: string;
+  content: string;
+  ownerEmail?: string;
+  now?: string;
+}): Promise<string[]> {
+  const parsed = await collectInlineDatabaseOwnerBlockIds(args.content);
   if (!parsed.ok) return [];
 
-  const db = getDb();
-  const candidates = await db
+  const candidates = await args.db
     .select({ database: schema.contentDatabases })
     .from(schema.contentDatabases)
     .innerJoin(
@@ -143,9 +156,15 @@ export async function reconcileInlineDatabasesForDocument(
     )
     .where(
       and(
-        eq(schema.contentDatabases.ownerDocumentId, documentId),
-        eq(schema.documents.parentId, documentId),
+        eq(schema.contentDatabases.ownerDocumentId, args.documentId),
+        eq(schema.documents.parentId, args.documentId),
         isNull(schema.contentDatabases.deletedAt),
+        ...(args.ownerEmail
+          ? [
+              eq(schema.contentDatabases.ownerEmail, args.ownerEmail),
+              eq(schema.documents.ownerEmail, args.ownerEmail),
+            ]
+          : []),
       ),
     );
 
@@ -159,9 +178,9 @@ export async function reconcileInlineDatabasesForDocument(
 
   if (missing.length === 0) return [];
 
-  const now = new Date().toISOString();
+  const now = args.now ?? new Date().toISOString();
   const ids = missing.map((database) => database.id);
-  await db
+  await args.db
     .update(schema.contentDatabases)
     .set({ deletedAt: now, updatedAt: now })
     .where(inArray(schema.contentDatabases.id, ids));

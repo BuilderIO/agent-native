@@ -1,11 +1,3 @@
-/**
- * Save redacted browser diagnostics captured during a recording session.
- *
- * Called by the recorder UI after stop/finalize. Diagnostics are intentionally
- * bounded and body/header-free: console text plus method/path/status/duration
- * for fetch/XHR requests.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -15,38 +7,54 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { nanoid } from "../server/lib/recordings.js";
 import {
+  BROWSER_DIAGNOSTIC_LOOKBACK_MS,
   MAX_BROWSER_DIAGNOSTIC_CONSOLE_LOGS,
+  MAX_BROWSER_DIAGNOSTIC_INTERACTION_EVENTS,
   MAX_BROWSER_DIAGNOSTIC_MESSAGE_LENGTH,
   MAX_BROWSER_DIAGNOSTIC_NETWORK_REQUESTS,
+  MAX_BROWSER_DIAGNOSTIC_TARGET_LENGTH,
   MAX_BROWSER_DIAGNOSTIC_URL_LENGTH,
   redactBrowserDiagnosticString,
+  sanitizeBrowserDiagnosticNavigationUrl,
   summarizeBrowserDiagnostics,
   type BrowserDiagnosticConsoleLevel,
 } from "../shared/browser-diagnostics.js";
 
-const REDACTION_VERSION = 2;
+const REDACTION_VERSION = 3;
 
 const consoleLevelSchema = z.enum(["debug", "log", "info", "warn", "error"]);
 
+// Console and network entries from before the recording started carry a
+// negative elapsedMs, down to the lookback window.
 const consoleLogSchema = z.object({
   timestampMs: z.number().finite().nonnegative(),
-  elapsedMs: z.number().finite().nonnegative(),
+  elapsedMs: z.number().finite().min(-BROWSER_DIAGNOSTIC_LOOKBACK_MS),
   level: consoleLevelSchema.default("log"),
   message: z.string().max(20_000),
   stack: z.string().max(20_000).optional(),
+  tabId: z.number().int().nonnegative().optional(),
 });
 
 const networkRequestSchema = z.object({
   timestampMs: z.number().finite().nonnegative(),
-  elapsedMs: z.number().finite().nonnegative(),
+  elapsedMs: z.number().finite().min(-BROWSER_DIAGNOSTIC_LOOKBACK_MS),
   type: z.enum(["fetch", "xhr"]).default("fetch"),
   method: z.string().max(24).default("GET"),
   url: z.string().max(8_000),
-  status: z.number().int().min(100).max(599).optional(),
+  status: z.number().int().min(0).max(599).optional(),
   statusText: z.string().max(500).optional(),
   ok: z.boolean().optional(),
   durationMs: z.number().finite().nonnegative(),
   error: z.string().max(20_000).optional(),
+  tabId: z.number().int().nonnegative().optional(),
+});
+
+const interactionEventSchema = z.object({
+  timestampMs: z.number().finite().nonnegative(),
+  elapsedMs: z.number().finite().nonnegative(),
+  kind: z.enum(["navigation", "click", "input", "scroll"]),
+  target: z.string().max(MAX_BROWSER_DIAGNOSTIC_TARGET_LENGTH).optional(),
+  url: z.string().max(8_000).optional(),
 });
 
 function truncate(value: string, maxLength: number): string {
@@ -98,6 +106,7 @@ function sanitizeConsoleLog(entry: z.infer<typeof consoleLogSchema>): {
   level: BrowserDiagnosticConsoleLevel;
   message: string;
   stack?: string;
+  tabId?: number;
 } {
   const stack = entry.stack
     ? truncate(
@@ -114,6 +123,7 @@ function sanitizeConsoleLog(entry: z.infer<typeof consoleLogSchema>): {
       MAX_BROWSER_DIAGNOSTIC_MESSAGE_LENGTH,
     ),
     ...(stack ? { stack } : {}),
+    ...(entry.tabId !== undefined ? { tabId: entry.tabId } : {}),
   };
 }
 
@@ -133,17 +143,40 @@ function sanitizeNetworkRequest(entry: z.infer<typeof networkRequestSchema>) {
     type: entry.type,
     method: truncate(entry.method.toUpperCase(), 24),
     url: sanitizeUrl(entry.url),
-    ...(typeof entry.status === "number" ? { status: entry.status } : {}),
+    ...(typeof entry.status === "number" && entry.status >= 100
+      ? { status: entry.status }
+      : {}),
     ...(statusText ? { statusText } : {}),
     ...(typeof entry.ok === "boolean" ? { ok: entry.ok } : {}),
     durationMs: Math.round(entry.durationMs),
     ...(error ? { error } : {}),
+    ...(entry.tabId !== undefined ? { tabId: entry.tabId } : {}),
+  };
+}
+
+function sanitizeInteractionEvent(
+  entry: z.infer<typeof interactionEventSchema>,
+) {
+  const target = entry.target
+    ? truncate(
+        redactString(entry.target, { redactQueryValues: true }),
+        MAX_BROWSER_DIAGNOSTIC_TARGET_LENGTH,
+      )
+    : "";
+  return {
+    timestampMs: Math.round(entry.timestampMs),
+    elapsedMs: Math.round(entry.elapsedMs),
+    kind: entry.kind,
+    ...(target ? { target } : {}),
+    ...(entry.url
+      ? { url: sanitizeBrowserDiagnosticNavigationUrl(entry.url) }
+      : {}),
   };
 }
 
 export default defineAction({
   description:
-    "Save redacted console and network diagnostics captured during a Clips recording session. UI/internal use only.",
+    "Save redacted browser timeline, console, and network diagnostics captured during a Clips recording session. UI/internal use only.",
   agentTool: false,
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
@@ -164,6 +197,10 @@ export default defineAction({
       .array(networkRequestSchema)
       .max(MAX_BROWSER_DIAGNOSTIC_NETWORK_REQUESTS)
       .default([]),
+    interactionEvents: z
+      .array(interactionEventSchema)
+      .max(MAX_BROWSER_DIAGNOSTIC_INTERACTION_EVENTS)
+      .default([]),
   }),
   run: async (args) => {
     const access = await assertAccess("recording", args.recordingId, "editor");
@@ -178,6 +215,9 @@ export default defineAction({
     const networkRequests = args.networkRequests
       .slice(-MAX_BROWSER_DIAGNOSTIC_NETWORK_REQUESTS)
       .map(sanitizeNetworkRequest);
+    const interactionEvents = args.interactionEvents
+      .slice(-MAX_BROWSER_DIAGNOSTIC_INTERACTION_EVENTS)
+      .map(sanitizeInteractionEvent);
     const summary = summarizeBrowserDiagnostics({
       consoleLogs,
       networkRequests,
@@ -199,6 +239,7 @@ export default defineAction({
       endedAt,
       consoleLogsJson: JSON.stringify(consoleLogs),
       networkRequestsJson: JSON.stringify(networkRequests),
+      interactionEventsJson: JSON.stringify(interactionEvents),
       redactionVersion: REDACTION_VERSION,
       updatedAt: now,
     };

@@ -25,13 +25,15 @@ export interface WorkspaceConnectionProviderSummary {
   hasWorkspaceConnection: boolean;
   hasGrantedWorkspaceConnection: boolean;
   hasActiveWorkspaceConnection: boolean;
+  statuses?: Array<
+    "connected" | "checking" | "needs_reauth" | "error" | "disabled"
+  >;
 }
 
 export interface DataSourceProviderStatus {
   provider: string;
   label: string;
   setupLink?: string;
-  // null when the workspace-connection lookup failed: unreadable, not absent.
   configured: boolean | null;
   configuredKeys: string[];
   missingRequiredKeys: string[];
@@ -57,7 +59,9 @@ export type SharedConnectionStatusKind =
   | "ready"
   | "needs_grant"
   | "needs_credentials"
-  | "local_credentials";
+  | "local_credentials"
+  | "needs_reauth"
+  | "error";
 
 export interface SharedConnectionStatus {
   kind: SharedConnectionStatusKind;
@@ -94,7 +98,10 @@ export function shouldShowWorkspaceOAuthSetup(
 ): boolean {
   return (
     canManageOrg &&
-    (status?.kind === "needs_credentials" || status?.kind === "needs_grant") &&
+    (status?.kind === "needs_credentials" ||
+      status?.kind === "needs_grant" ||
+      status?.kind === "needs_reauth" ||
+      status?.kind === "error") &&
     isWorkspaceOAuthSource(source)
   );
 }
@@ -140,8 +147,6 @@ export function focusedDataSourceFromSearchParams(
   const requestedSourceId = searchParams.get("source")?.trim().toLowerCase();
   if (!requestedSourceId) return { status: "none" };
 
-  // Keep links emitted before PostgreSQL's provider id was aligned with the
-  // UI source id working instead of silently dropping their focus.
   const sourceId =
     requestedSourceId === "postgres" ? "postgresql" : requestedSourceId;
   const source = dataSources.find((candidate) => candidate.id === sourceId);
@@ -161,12 +166,12 @@ export function dataSourceOAuthReturnPath(
   return query ? `/data-sources?${query}` : "/data-sources";
 }
 
-export function getGoogleDriveConnection(
+export function getGoogleSheetsConnection(
   data: DataSourceStatusResponse | undefined,
 ): WorkspaceConnectionProviderSummary | undefined {
   return data?.workspaceConnections?.providers.find(
     (provider) =>
-      provider.provider === "google_drive" || provider.id === "google_drive",
+      provider.provider === "google_sheets" || provider.id === "google_sheets",
   );
 }
 
@@ -175,6 +180,8 @@ const sharedConnectionLabels: Record<SharedConnectionStatusKind, string> = {
   needs_grant: "Available in workspace",
   needs_credentials: "Not connected",
   local_credentials: "Configured in this app",
+  needs_reauth: "Reconnect needed",
+  error: "Connection error",
 };
 
 function normalizeCredentialKey(key: string): string {
@@ -276,6 +283,10 @@ export function getSharedConnectionStatus(
   let kind: SharedConnectionStatusKind;
   if (connection?.grantState === "connected") {
     kind = "ready";
+  } else if (connection?.statuses?.includes("needs_reauth")) {
+    kind = "needs_reauth";
+  } else if (connection?.statuses?.includes("error")) {
+    kind = "error";
   } else if (connection?.grantState === "needs_grant") {
     kind = "needs_grant";
   } else if (localConfigured) {

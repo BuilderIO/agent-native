@@ -1,10 +1,18 @@
+import { ActionContractError } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { iconValueSchema, serializeIconValue } from "@agent-native/core/icons";
+import { buildDeepLink } from "@agent-native/core/server";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  syncPrivateIconReference,
+  verifyPrivateIconAssignment,
+} from "../server/lib/private-icon-references.js";
 import {
   CREATABLE_DOCUMENT_PROPERTY_TYPES,
   DOCUMENT_PROPERTY_VISIBILITIES,
@@ -20,6 +28,15 @@ import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
+  configureDocumentPropertyAgentSchema,
+  runConfigureDocumentProperty,
+} from "./_database-property-setup.js";
+import {
+  refreshAfterSetup,
+  setupAuditSummary,
+} from "./_database-setup-mutation.js";
+import {
+  nextAppendPosition,
   propertyDefinitionsPositionScope,
   withPositionLock,
 } from "./_position-utils.js";
@@ -29,11 +46,10 @@ import {
   optionsForNewProperty,
   resolvePropertyDatabaseForDocument,
 } from "./_property-utils.js";
+import { assertRelationTargetDatabase } from "./_relation-values.js";
 
-export default defineAction({
-  description:
-    "Create or update a Notion-style property definition for content documents.",
-  schema: z.object({
+const legacyConfigureDocumentPropertySchema = z
+  .object({
     id: z.string().optional().describe("Existing property definition ID"),
     documentId: z
       .string()
@@ -42,7 +58,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Database ID that owns the property; omit only for context-free entry points",
+        "Collection ID that owns the property; omit only for context-free entry points",
       ),
     name: z.string().min(1).describe("Property name"),
     description: z
@@ -51,12 +67,13 @@ export default defineAction({
       .describe(
         "Stable guidance describing what this property means and which value belongs here",
       ),
+    icon: iconValueSchema.nullable().optional(),
     type: z.enum(CREATABLE_DOCUMENT_PROPERTY_TYPES).describe("Property type"),
     naturalKey: z
       .boolean()
       .optional()
       .describe(
-        "Declare or clear this ordinary text property as the database's single natural key",
+        "Declare or clear this ordinary text property as the collection's single natural key",
       ),
     visibility: z
       .enum(DOCUMENT_PROPERTY_VISIBILITIES)
@@ -66,19 +83,20 @@ export default defineAction({
       .object({
         options: z
           .array(
-            z.object({
-              id: z.string(),
-              name: z.string(),
-              color: z.string(),
-              description: z.string().optional(),
-            }),
+            z
+              .object({
+                id: z.string(),
+                name: z.string(),
+                color: z.string(),
+                description: z.string().optional(),
+              })
+              .strict(),
           )
           .optional(),
         formula: z.string().optional(),
         relation: z
-          .object({
-            databaseId: z.string().nullable().optional(),
-          })
+          .object({ databaseId: z.string().nullable().optional() })
+          .strict()
           .optional(),
         rollup: z
           .object({
@@ -96,14 +114,49 @@ export default defineAction({
               ])
               .optional(),
           })
+          .strict()
           .optional(),
       })
+      .strict()
       .optional()
       .describe(
         "Select/status/multi-select options, formula expression, relation target, or rollup config",
       ),
-  }),
-  run: async (args) => {
+  })
+  .strict();
+
+export default defineAction({
+  description:
+    "Create an ordinary Content collection property or safely update its metadata, select options, and natural-key role using an exact target, fresh schema revision, and idempotency key.",
+  mcpTool: true,
+  mcpApp: { structuredContent: true },
+  agentInputSchema: configureDocumentPropertyAgentSchema,
+  schema: z.union([
+    configureDocumentPropertyAgentSchema,
+    legacyConfigureDocumentPropertySchema,
+  ]),
+  audit: {
+    recordInputs: false,
+    target: (args) => ({
+      type: "content-database",
+      id:
+        "operation" in args
+          ? args.target.databaseId
+          : (args.databaseId ?? args.documentId),
+      visibility: "private",
+    }),
+    summary: (_args, result) =>
+      setupAuditSummary(result, "Configured a Content database property"),
+  },
+  run: async (args, context) => {
+    if (context?.caller === "mcp") {
+      configureDocumentPropertyAgentSchema.parse(args);
+    }
+    if ("operation" in args) {
+      const result = await runConfigureDocumentProperty(args);
+      await refreshAfterSetup(result.receipt);
+      return result;
+    }
     const access = await assertAccess("document", args.documentId, "editor");
     const document = access.resource;
     const db = getDb();
@@ -111,7 +164,7 @@ export default defineAction({
     const name = args.name.trim();
     const type = args.type as DocumentPropertyType;
     const propertyId = args.id ?? nanoid();
-    const optionsJson = optionsForNewProperty(type, args.options as any);
+    let optionsJson = optionsForNewProperty(type, args.options as any);
     const database = await resolvePropertyDatabaseForDocument(
       document,
       args.databaseId,
@@ -121,6 +174,51 @@ export default defineAction({
       throw new Error(
         "Properties belong to databases. Create or open a database before adding properties.",
       );
+    }
+    if (args.icon !== undefined) {
+      const userEmail = getRequestUserEmail();
+      if (!userEmail) throw new Error("Authentication is required.");
+      await verifyPrivateIconAssignment({
+        icon: args.icon,
+        userEmail,
+        orgId: database.orgId,
+      });
+    }
+    let requestedRelationTarget = args.options?.relation?.databaseId;
+    if (type === "relation" && !requestedRelationTarget && args.id) {
+      // Metadata-only updates (rename, visibility) keep the existing target.
+      const [current] = await db
+        .select({
+          type: schema.documentPropertyDefinitions.type,
+          optionsJson: schema.documentPropertyDefinitions.optionsJson,
+        })
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          and(
+            eq(schema.documentPropertyDefinitions.id, args.id),
+            eq(
+              schema.documentPropertyDefinitions.ownerEmail,
+              document.ownerEmail,
+            ),
+            eq(schema.documentPropertyDefinitions.databaseId, database.id),
+          ),
+        );
+      if (current?.type === "relation") {
+        requestedRelationTarget = parsePropertyOptions(current.optionsJson)
+          .relation?.databaseId;
+      }
+    }
+    const relationTarget =
+      type === "relation"
+        ? await assertRelationTargetDatabase(db, {
+            sourceDatabase: database,
+            targetDatabaseId: requestedRelationTarget,
+          })
+        : null;
+    if (relationTarget) {
+      optionsJson = serializePropertyOptions({
+        relation: { databaseId: relationTarget.id },
+      });
     }
     if (args.naturalKey === true && type !== "text") {
       throw new Error(
@@ -194,6 +292,20 @@ export default defineAction({
         const lockedOptions = parsePropertyOptions(
           lockedDefinition.optionsJson,
         );
+        const lockedRelationTarget =
+          lockedDefinition.type === "relation"
+            ? (lockedOptions.relation?.databaseId ?? null)
+            : null;
+        if (
+          relationTarget &&
+          lockedRelationTarget &&
+          lockedRelationTarget !== relationTarget.id
+        ) {
+          throw new ActionContractError(
+            "Create a new relation property to link a different database.",
+            { errorCode: "RELATION_TARGET_IMMUTABLE", statusCode: 400 },
+          );
+        }
         const lockedIsPrimaryBlocks =
           isBlocksPropertyType(lockedDefinition.type as DocumentPropertyType) &&
           isPrimaryBlocksField(lockedOptions);
@@ -281,6 +393,12 @@ export default defineAction({
             ...(args.description === undefined
               ? {}
               : { description: args.description.trim() }),
+            ...(args.icon === undefined
+              ? {}
+              : {
+                  icon:
+                    args.icon === null ? null : serializeIconValue(args.icon),
+                }),
             type,
             visibility:
               args.visibility === undefined
@@ -293,6 +411,19 @@ export default defineAction({
             updatedAt: now,
           })
           .where(eq(schema.documentPropertyDefinitions.id, args.id!));
+        if (args.icon !== undefined) {
+          await syncPrivateIconReference(
+            tx as unknown as ReturnType<typeof getDb>,
+            {
+              elementType: "property",
+              elementId: args.id!,
+              documentId: database.documentId,
+              icon: args.icon,
+              ownerEmail: document.ownerEmail,
+              orgId: database.orgId,
+            },
+          );
+        }
         await configureNaturalKey(tx, {
           database: lockedDatabase,
           propertyId,
@@ -317,7 +448,7 @@ export default defineAction({
             if (!lockedDatabase) throw new Error("Database not found.");
             const [maxPos] = await tx
               .select({
-                max: sql<number>`COALESCE(MAX(position), -1)`,
+                max: sql<unknown>`COALESCE(MAX(position), -1)`,
               })
               .from(schema.documentPropertyDefinitions)
               .where(
@@ -340,13 +471,28 @@ export default defineAction({
               databaseId: database.id,
               name,
               description: args.description?.trim() ?? "",
+              icon:
+                args.icon === undefined || args.icon === null
+                  ? null
+                  : serializeIconValue(args.icon),
               type,
               visibility: normalizePropertyVisibility(args.visibility),
               optionsJson,
-              position: (maxPos?.max ?? -1) + 1,
+              position: nextAppendPosition(maxPos?.max),
               createdAt: now,
               updatedAt: now,
             });
+            await syncPrivateIconReference(
+              tx as unknown as ReturnType<typeof getDb>,
+              {
+                elementType: "property",
+                elementId: propertyId,
+                documentId: database.documentId,
+                icon: args.icon ?? null,
+                ownerEmail: document.ownerEmail,
+                orgId: database.orgId,
+              },
+            );
             await configureNaturalKey(tx, {
               database: lockedDatabase,
               propertyId,
@@ -365,6 +511,25 @@ export default defineAction({
       documentId: args.documentId,
       databaseId: database.id,
       properties: await listPropertiesForDocument(document, database.id),
+    };
+  },
+  link: ({ result }) => {
+    const receipt = (
+      result as {
+        receipt?: { target?: { databaseDocumentId?: string } };
+      } | null
+    )?.receipt;
+    const documentId = receipt?.target?.databaseDocumentId;
+    if (!documentId) return null;
+    return {
+      url: buildDeepLink({
+        app: "content",
+        view: "editor",
+        to: `/page/${encodeURIComponent(documentId)}`,
+        params: { documentId },
+      }),
+      label: "Open in Content",
+      view: "editor",
     };
   },
 });

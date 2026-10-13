@@ -37,6 +37,7 @@ import {
   type CodeAgentProjectListResult,
   type CodeAgentProjectSelectResult,
   type CodeAgentWorktreeListResult,
+  type DesktopTerminalContext,
   type CodeAgentRetryRunRequest,
   type CodeAgentRetryRunResult,
   type CodeAgentRerunRequest,
@@ -60,11 +61,17 @@ import {
   type CodeAgentProviderSettings,
   type CodeAgentProviderSettingsUpdate,
   type CodeAgentProviderSettingsUpdateResult,
+  type CodeAgentBuilderConnectionResult,
+  type CodeAgentBuilderActivationRequest,
+  type CodeAgentBuilderActivationResult,
+  type CodeAgentBuilderConnectOpenRequest,
+  type CodeAgentBuilderConnectOpenResult,
   type DesktopOpenRequest,
   type DesktopAppContextAction,
   type DesktopAppCreationSettings,
   type DesktopAppCreationSettingsUpdateResult,
   type DesktopAppRuntimeStatus,
+  type DesktopChatOpenAppRequest,
   type DesktopIdentityAuthRequest,
   type DesktopIdentityAuthResult,
   type DesktopIdentityMagicLinkRequest,
@@ -128,22 +135,16 @@ type CodeAgentTranscriptSubscriptionBatch = CodeAgentTranscriptResult & {
   reason?: string;
 };
 
-/** The API surface exposed to the renderer via window.electronAPI */
 const electronAPI = {
-  /** Current OS platform — used by renderer to adapt UI (e.g. traffic lights vs custom controls) */
   platform: process.platform as string,
 
-  /** Desktop shell Sentry is configured in the main process. */
   sentry: {
     enabled: isDesktopSentryConfigured(process.env),
   },
 
-  /** Dedicated preload for hosted app webviews. Exposes only app-safe bridges. */
   webviewPreloadPath: WEBVIEW_PRELOAD_PATH,
-  /** Chat-only preload for every hosted app webview. */
   webviewChatPreloadPath: WEBVIEW_CHAT_PRELOAD_PATH,
 
-  /** Window chrome controls */
   windowControls: {
     minimize: () => ipcRenderer.send(IPC.WINDOW_MINIMIZE),
     toggleWindowMode: () => ipcRenderer.send(IPC.WINDOW_TOGGLE_WINDOW_MODE),
@@ -152,7 +153,6 @@ const electronAPI = {
       ipcRenderer.send(IPC.WINDOW_NATIVE_BUTTONS_VISIBILITY, visible),
   },
 
-  /** Shortcuts forwarded from the main process */
   shortcuts: {
     onCloseTab: (cb: () => void): (() => void) => {
       const handler = () => cb();
@@ -160,7 +160,6 @@ const electronAPI = {
       return () => ipcRenderer.removeListener("shortcut:close-tab", handler);
     },
 
-    /** Generic shortcut forwarding from webview guests */
     onKeydown: (
       cb: (info: {
         key: string;
@@ -208,7 +207,6 @@ const electronAPI = {
     },
   },
 
-  /** App config management */
   appConfig: {
     load: (): Promise<AppConfig[]> => ipcRenderer.invoke(IPC.APPS_LOAD),
     loadWorkspace: (): Promise<
@@ -253,15 +251,26 @@ const electronAPI = {
     },
   },
 
-  /** Loopback URL for shell-owned chat requests in a selected app session. */
   desktopChat: {
     getApiUrl: (appId: string): Promise<string | null> =>
       ipcRenderer.invoke(IPC.DESKTOP_CHAT_GET_API_URL, appId),
-    getTerminalInfoUrl: (appId: string): Promise<string | null> =>
-      ipcRenderer.invoke(IPC.DESKTOP_CHAT_GET_TERMINAL_INFO_URL, appId),
+    getTerminalInfoUrl: (
+      context?: DesktopTerminalContext | null,
+    ): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.DESKTOP_CHAT_GET_TERMINAL_INFO_URL, context),
+    onOpenApp: (
+      cb: (request: DesktopChatOpenAppRequest) => void,
+    ): (() => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        request: DesktopChatOpenAppRequest,
+      ) => cb(request);
+      ipcRenderer.on(IPC.DESKTOP_CHAT_OPEN_APP, handler);
+      return () =>
+        ipcRenderer.removeListener(IPC.DESKTOP_CHAT_OPEN_APP, handler);
+    },
   },
 
-  /** Workspace identity commands expose intent and status, never credentials. */
   identity: {
     getStatus: (): Promise<DesktopIdentityStatus> =>
       ipcRenderer.invoke(IPC.IDENTITY_STATUS_GET),
@@ -307,7 +316,6 @@ const electronAPI = {
     },
   },
 
-  /** Shared MCP connection management used by the desktop settings surface. */
   mcpServers: {
     list: (): Promise<McpServersList> =>
       ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.LIST),
@@ -336,24 +344,20 @@ const electronAPI = {
       ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.IMPORT_PLUGIN),
   },
 
-  /** Tell main process which app webview is currently active (for DevTools targeting) */
   setActiveApp: (appId: string) => ipcRenderer.send(IPC.SET_ACTIVE_APP, appId),
   setActiveWebview: (target: ActiveWebviewTarget) =>
     ipcRenderer.send(IPC.SET_ACTIVE_WEBVIEW, target),
 
-  /** Clipboard helpers */
   clipboard: {
     writeText: (text: string): Promise<boolean> =>
       ipcRenderer.invoke(IPC.CLIPBOARD_WRITE_TEXT, text),
   },
 
-  /** Open a validated URL in the user's system browser. */
   shell: {
     openExternal: (url: string): Promise<void> =>
       ipcRenderer.invoke(IPC.SHELL_OPEN_EXTERNAL, url),
   },
 
-  /** Global Quick Prompt overlay controls */
   quickPrompt: {
     load: (): Promise<QuickPromptSettings> =>
       ipcRenderer.invoke(IPC.QUICK_PROMPT_LOAD),
@@ -367,6 +371,12 @@ const electronAPI = {
     setPickerOpen: (open: boolean): void => {
       ipcRenderer.send(IPC.QUICK_PROMPT_SET_PICKER_OPEN, open);
     },
+    setSetupRequired: (required: boolean): void => {
+      ipcRenderer.send(IPC.QUICK_PROMPT_SET_SETUP_REQUIRED, required);
+    },
+    openProviderSettings: (): void => {
+      ipcRenderer.send(IPC.QUICK_PROMPT_OPEN_PROVIDER_SETTINGS);
+    },
     onHidden: (cb: () => void): (() => void) => {
       const handler = () => cb();
       ipcRenderer.on(IPC.QUICK_PROMPT_HIDDEN, handler);
@@ -378,18 +388,16 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.QUICK_PROMPT_SUBMIT, request),
   },
 
-  /** Auto-update controls + status */
   updater: {
     check: (): Promise<UpdateStatus> => ipcRenderer.invoke(IPC.UPDATE_CHECK),
     download: (): Promise<UpdateStatus> =>
       ipcRenderer.invoke(IPC.UPDATE_DOWNLOAD),
     install: (): void => {
-      ipcRenderer.invoke(IPC.UPDATE_INSTALL);
+      void ipcRenderer.invoke(IPC.UPDATE_INSTALL);
     },
     getStatus: (): Promise<UpdateStatus> =>
       ipcRenderer.invoke(IPC.UPDATE_GET_STATUS),
 
-    /** Subscribe to update status changes. Returns an unsubscribe fn. */
     onStatusChange: (cb: (status: UpdateStatus) => void): (() => void) => {
       const handler = (_: Electron.IpcRendererEvent, status: UpdateStatus) =>
         cb(status);
@@ -399,7 +407,6 @@ const electronAPI = {
     },
   },
 
-  /** Native Agent-Native Code hub helpers */
   codeAgents: {
     listRuns: (goalId?: string): Promise<CodeAgentRunListResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_RUNS, goalId),
@@ -541,9 +548,18 @@ const electronAPI = {
       request: CodeAgentProviderSettingsUpdate,
     ): Promise<CodeAgentProviderSettingsUpdateResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_PROVIDER_SETTINGS_UPDATE, request),
-    connectBuilderProvider:
-      (): Promise<CodeAgentProviderSettingsUpdateResult> =>
-        ipcRenderer.invoke(IPC.CODE_AGENTS_PROVIDER_BUILDER_CONNECT),
+    getBuilderConnectionStatus: (
+      connectAttemptId?: string,
+    ): Promise<CodeAgentBuilderConnectionResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_BUILDER_STATUS_GET, connectAttemptId),
+    activateBuilderAccount: (
+      request: CodeAgentBuilderActivationRequest,
+    ): Promise<CodeAgentBuilderActivationResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_BUILDER_ACTIVATE, request),
+    openBuilderConnectUrl: (
+      request: CodeAgentBuilderConnectOpenRequest,
+    ): Promise<CodeAgentBuilderConnectOpenResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_BUILDER_CONNECT_OPEN, request),
     onOpenRequest: (
       cb: (request: DesktopOpenRequest) => void,
     ): (() => void) => {
@@ -669,9 +685,7 @@ const electronAPI = {
     },
   } satisfies MultiFrontierRendererApi,
 
-  /** Inter-app communication — relay messages between loaded apps */
   interApp: {
-    /** Send a message to a specific app (or broadcast with targetAppId = "*") */
     send: (targetAppId: string, event: string, data: unknown) => {
       const msg: InterAppMessage = {
         from: "shell",
@@ -682,7 +696,6 @@ const electronAPI = {
       ipcRenderer.send(IPC.INTER_APP_SEND, msg);
     },
 
-    /** Subscribe to inter-app messages. Returns an unsubscribe fn. */
     on: (
       cb: (from: string, event: string, data: unknown) => void,
     ): (() => void) => {

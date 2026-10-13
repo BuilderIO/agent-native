@@ -12,19 +12,18 @@ import type {
   RemoteDevice,
 } from "../integrations/remote-types.js";
 import {
-  organizationResourceOwner,
   resourceGetByPath,
   resourcePutIfCurrent,
   type Resource,
 } from "../resources/store.js";
 import {
-  buildJobResourceContent,
   parseJobResource,
+  patchJobFrontmatterFields,
   type JobFrontmatter,
 } from "./frontmatter.js";
+import { automationRunOwnership } from "./run-history-ownership.js";
 import { finishAutomationRun, startAutomationRun } from "./run-history.js";
 
-/** A remote run is allowed to be long-lived, but never indefinitely invisible. */
 export const REMOTE_AUTOMATION_MAX_ACTIVE_MS = 24 * 60 * 60_000;
 
 export type RemoteAutomationState =
@@ -49,7 +48,6 @@ export interface RemoteAutomationDispatchInput {
   prompt: string;
   title: string;
   historyId?: string;
-  /** Whether completing this remote dispatch should advance its cron schedule. */
   advanceSchedule?: boolean;
   now?: Date;
 }
@@ -139,11 +137,6 @@ function remoteRunIdFromCommand(command: RemoteCommand): string | undefined {
   return readString(run?.id, run?.runId);
 }
 
-/**
- * Queue one host-targeted automation. The request key is derived from the
- * persisted start timestamp, so a worker crash between the queue write and
- * resource bookkeeping cannot create a second remote run.
- */
 export async function dispatchRemoteAutomation(
   input: RemoteAutomationDispatchInput,
 ): Promise<{
@@ -184,7 +177,9 @@ export async function dispatchRemoteAutomation(
     const claimed = await resourcePutIfCurrent({
       owner: latest.owner,
       path: latest.path,
-      content: buildJobResourceContent(withRequest, parsed.body),
+      content: patchJobFrontmatterFields(latest.content, {
+        remoteRequestId: requestId,
+      }),
       expectedId: latest.id,
       expectedUpdatedAt: latest.updatedAt,
       expectedContent: latest.content,
@@ -199,18 +194,16 @@ export async function dispatchRemoteAutomation(
   let createdHistory = false;
   if (!automationRunId) {
     try {
-      const historyOwner = input.orgId
-        ? organizationResourceOwner(input.orgId)
-        : input.resource.owner === "__shared__"
-          ? input.ownerEmail
-          : input.resource.owner;
       automationRunId = await startAutomationRun({
-        owner: historyOwner,
+        ...automationRunOwnership(
+          input.resource.owner,
+          input.ownerEmail,
+          input.orgId,
+        ),
         automation: automationName(input.resource.path),
         path: input.resource.path,
-        scope: input.orgId ? "organization" : "personal",
-        orgId: input.orgId ?? null,
         appId: input.appId,
+        notificationEmail: input.ownerEmail,
       });
       createdHistory = true;
     } catch (error) {
@@ -263,7 +256,13 @@ export async function dispatchRemoteAutomation(
     const persisted = await resourcePutIfCurrent({
       owner: currentResource.owner,
       path: currentResource.path,
-      content: buildJobResourceContent(nextMeta, parsed.body),
+      content: patchJobFrontmatterFields(currentResource.content, {
+        remoteRequestId: requestId,
+        remoteCommandId: command.id,
+        remoteRunId: nextMeta.remoteRunId,
+        remoteAutomationRunId: automationRunId,
+        remoteAdvanceSchedule: nextMeta.remoteAdvanceSchedule,
+      }),
       expectedId: currentResource.id,
       expectedUpdatedAt: currentResource.updatedAt,
       expectedContent: currentResource.content,
@@ -280,6 +279,7 @@ export async function dispatchRemoteAutomation(
         automationRunId,
         "error",
         error instanceof Error ? error.message : "Remote dispatch failed.",
+        "remote_dispatch_failed",
       ).catch(() => undefined);
     }
     throw error;
@@ -386,8 +386,6 @@ export async function getRemoteAutomationStatus(input: {
     };
   }
   if (runStatus === "needs-approval") return { state: "active", command };
-  // A future container/Kubernetes adapter may complete a command without
-  // exposing the desktop run shape. Its terminal command is still authoritative.
   return { state: "completed", command };
 }
 
@@ -401,5 +399,6 @@ export async function finishRemoteAutomationHistory(
     meta.remoteAutomationRunId,
     state === "completed" ? "success" : "error",
     error,
+    state === "completed" ? undefined : "remote_execution_failed",
   );
 }

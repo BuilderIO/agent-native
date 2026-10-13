@@ -10,6 +10,7 @@ import { extractLoomVideoId, normalizeLoomShareUrl } from "@shared/loom.js";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { parseEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { queueBuilderMediaCompression } from "../server/lib/builder-media-compression.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
@@ -22,6 +23,11 @@ import {
   requireOrganizationAccess,
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
+import {
+  uploadLeaseExpiry,
+  WAITING_STORAGE_EXPIRED_REASON,
+  waitingStorageLeaseExpiry,
+} from "../server/lib/upload-lease.js";
 import { hasRequestVideoStorage } from "../server/lib/video-storage.js";
 import {
   downloadDirectVideo,
@@ -31,6 +37,7 @@ import {
   enqueueFirstImportEmailIfEligible,
   failLoomImport,
 } from "./lib/loom-import-job.js";
+import { validateRecordingScope } from "./lib/recording-scope.js";
 
 export { enqueueFirstImportEmailIfEligible };
 
@@ -92,9 +99,9 @@ const ImportLoomRecordingSchema = z.object({
 });
 
 const LOOM_STORAGE_SETUP_REQUIRED_REASON =
-  "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage, then retry this Loom import.";
+  "Video storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage, then retry this Loom import.";
 const DIRECT_VIDEO_STORAGE_SETUP_REQUIRED_REASON =
-  "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage, then retry this import.";
+  "Video storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage, then retry this import.";
 
 function recordingDeepLink(recordingId: string): string {
   return buildDeepLink({
@@ -190,11 +197,16 @@ export default defineAction({
           "Only a matching waiting import can be retried this way.",
         );
       }
+      // Still parked, or failed by the reaper once its waiting lease ran out:
+      // the source URL is kept, so either retries in place.
       const isWaitingStorageRetry =
-        existingRecording.status === "uploading" &&
         !existingRecording.videoUrl &&
-        existingRecording.failureReason === storageSetupReason &&
-        existingRecording.sourceWindowTitle === sourceUrl;
+        existingRecording.sourceWindowTitle === sourceUrl &&
+        ((existingRecording.status === "uploading" &&
+          existingRecording.failureReason === storageSetupReason) ||
+          (existingRecording.status === "failed" &&
+            existingRecording.failureReason ===
+              WAITING_STORAGE_EXPIRED_REASON));
       const isRetryableLoomImport =
         isLoom &&
         !existingRecording.videoUrl &&
@@ -217,19 +229,16 @@ export default defineAction({
     const { organizationId } = await requireOrganizationAccess(
       existingRecording?.organizationId ?? args.organizationId,
     );
-    const defaultVisibility = await getDefaultRecordingVisibility(
-      organizationId,
-      actionContext?.userEmail ?? ownerEmail,
-    );
-
     const now = new Date().toISOString();
     const id = existingRecording?.id ?? nanoid();
     const createdAt = existingRecording?.createdAt ?? now;
+    const spaceIds = await validateRecordingScope(db, {
+      organizationId,
+      ownerEmail,
+      spaceIds: args.spaceIds ?? parseSpaceIds(existingRecording?.spaceIds),
+      folderId: args.folderId ?? existingRecording?.folderId,
+    });
     const oembed = isLoom ? await fetchLoomOembed(loomShareUrl!) : null;
-
-    const spaceIds = (
-      args.spaceIds ?? parseSpaceIds(existingRecording?.spaceIds)
-    ).filter((value, index, arr) => value && arr.indexOf(value) === index);
     const title =
       args.title?.trim() ||
       (existingRecording?.title &&
@@ -245,10 +254,18 @@ export default defineAction({
     const height = boundedDimension(oembed?.height ?? oembed?.thumbnail_height);
     const folderId = args.folderId ?? existingRecording?.folderId ?? null;
     const visibility =
-      args.visibility ?? existingRecording?.visibility ?? defaultVisibility;
+      args.visibility ??
+      existingRecording?.visibility ??
+      (await getDefaultRecordingVisibility(
+        organizationId,
+        actionContext?.userEmail ?? ownerEmail,
+      ));
     const titleSource = args.title
       ? "manual"
       : (existingRecording?.titleSource ?? "upload");
+    const existingEditorThumbnail = Boolean(
+      parseEdits(existingRecording?.editsJson).thumbnail,
+    );
 
     const buildRecordingValues = (
       videoSizeBytes: number,
@@ -260,11 +277,15 @@ export default defineAction({
       spaceIds: stringifySpaceIds(spaceIds),
       title,
       titleSource,
+      recordingPlatform: "import" as const,
+      failureCode: null,
       sourceAppName,
       sourceWindowTitle: sourceUrl,
       description: existingRecording?.description ?? "",
       thumbnailUrl:
-        oembed?.thumbnail_url ?? existingRecording?.thumbnailUrl ?? null,
+        oembed?.thumbnail_url ??
+        (existingEditorThumbnail ? existingRecording?.thumbnailUrl : null) ??
+        null,
       durationMs,
       videoFormat,
       videoSizeBytes,
@@ -287,6 +308,7 @@ export default defineAction({
             status: "uploading",
             videoUrl: null,
             failureReason: storageSetupReason,
+            uploadLeaseExpiresAt: waitingStorageLeaseExpiry(),
             loomImportClaimId: null,
             loomImportClaimedAt: null,
           })
@@ -298,6 +320,7 @@ export default defineAction({
           videoUrl: null,
           status: "uploading",
           failureReason: storageSetupReason,
+          uploadLeaseExpiresAt: waitingStorageLeaseExpiry(),
           ownerEmail,
           createdAt,
         });
@@ -345,15 +368,10 @@ export default defineAction({
     }
 
     if (isLoom) {
-      // Storage is connected: create/refresh the row now and hand the slow
-      // Loom download + reupload + transcript off to a durable background
-      // job (post-finalize-worker.post.ts's "loom-import" kind /
-      // runLoomImportJob). Loom's CDN plus a reupload can outlast a single
-      // request; the worker claims the row (loomImportClaimId) and moves it
-      // to "ready" or "failed" once done.
-      const recordingValues = buildRecordingValues(
-        existingRecording?.videoSizeBytes ?? 0,
-      );
+      const recordingValues = {
+        ...buildRecordingValues(existingRecording?.videoSizeBytes ?? 0),
+        uploadLeaseExpiresAt: uploadLeaseExpiry(),
+      };
       if (existingRecording) {
         await db
           .update(schema.recordings)
@@ -431,9 +449,6 @@ export default defineAction({
       };
     }
 
-    // Direct video links stay synchronous: they typically download and
-    // reupload well within a single request, and this keeps
-    // request-transcript as the deliberate next step for a transcript.
     const media = await downloadDirectVideo(sourceUrl);
     const videoFormat = media.mimeType === "video/webm" ? "webm" : "mp4";
     const upload = await uploadFile({
@@ -479,6 +494,12 @@ export default defineAction({
         createdAt,
       });
     }
+
+    await dispatchPostFinalizeJob({
+      recordingId: id,
+      kind: "thumbnail",
+      requireAccepted: true,
+    });
 
     void queueBuilderMediaCompression({
       recordingId: id,
@@ -562,7 +583,7 @@ export default defineAction({
       sourceUrl,
       videoUrl,
       embedUrl: videoUrl,
-      thumbnailUrl: oembed?.thumbnail_url ?? null,
+      thumbnailUrl: recordingValues.thumbnailUrl,
       durationMs,
       importMode: "reuploaded" as const,
       storageProvider: upload.provider,

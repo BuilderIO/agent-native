@@ -1,7 +1,7 @@
 ---
-title: "외부 에이전트: Claude, ChatGPT, Codex, 커서, Cowork"
-description: "Claude, ChatGPT, Codex, Cursor, Claude Cowork 또는 MCP 호환 호스트를 호스팅된 에이전트 기본 앱에 연결한 다음 MCP 앱 및 딥 링크를 사용하여 아티팩트를 실행 중인 UI로 다시 왕복합니다."
-search: "Claude ChatGPT Claude 코드 Codex 커서 Claude Cowork MCP 앱 에이전트 기본 연결 로컬 에이전트 도구 외부 에이전트"
+title: "외부 에이전트: Claude, ChatGPT, Codex, 커서, Cowork, Grok"
+description: "Claude, ChatGPT, Codex, Cursor, Claude Cowork, Grok 또는 MCP 호환 호스트를 호스팅된 에이전트 기본 앱에 연결한 다음 MCP 앱 및 딥 링크를 사용하여 아티팩트를 실행 중인 UI로 다시 왕복합니다."
+search: "Claude Anthropic ChatGPT OpenAI Claude 코드 Codex 커서 Claude Cowork Grok xAI MCP 앱 에이전트 기본 연결 로컬 에이전트 도구 외부 에이전트"
 ---
 
 # 외부 에이전트
@@ -93,7 +93,17 @@ search: "Claude ChatGPT Claude 코드 Codex 커서 Claude Cowork MCP 앱 에이�
 
 ## 간편한 설정 {#easy-setup}
 
-Agent-Native를 사용하려는 호스트에 하나의 원격 MCP 커넥터를 추가하세요.
+모든 Agent-Native 앱은 표준 MCP URL을 제공합니다.
+
+```text
+https://<your-app>.agent-native.com/mcp
+```
+
+앱에서 **Settings → Connections → Integrations**를 열고 알고 있는 호스트 이름을 검색하세요.
+Claude, Claude Cowork, Claude Code, Anthropic, ChatGPT, OpenAI, Codex, Grok,
+xAI 중 어떤 이름으로도 검색할 수 있습니다. 외부 호스트 결과 하나를 선택하면 가장 알맞은
+가이드가 선택된 **Settings → MCP server**가 열립니다. **MCP server URL**을 복사해 AI
+호스트에 붙여넣으세요. URL은 배포된 앱의 기본 URL 뒤에 `/mcp`를 붙인 형식입니다.
 
 작업공간 또는 교차 앱 작업의 경우 Dispatch를 사용하세요.
 
@@ -115,16 +125,26 @@ https://<your-app>.agent-native.com/mcp
 
 호스팅된 모든 앱에는 다음 위치에 도우미 페이지도 있습니다.
 복사 가능한 URL가 있는 `https://&lt;app&gt;/mcp/connect` 및
-Claude, ChatGPT, 커서, Claude 코드, Codex 및 기타에 대한 호스트별 탭.
+Claude, ChatGPT, Cursor, VS Code, Claude Code, Codex, Grok, 기타용 호스트별 탭이 있습니다.
 
-### 앱 내 Access 탭 {#access-tab}
+## 비공개 Content 링크 {#private-content-links}
 
-`AgentTabsPage`를 마운트하는 앱은 **Access** 탭에서 동일한 연결 흐름을
-제공합니다. MCP URL, 가능한 경우 A2A 에이전트 카드, Claude, ChatGPT, Cursor,
-Claude Code, Codex 및 기타 클라이언트를 위한 공통 설정 가이드를 보여줍니다.
-앱 안에서 시작점으로 사용하고 전체 흐름과 토큰 대체 경로는 `/mcp/connect`에서
-여세요. 이 탭은 연결 설정 UI이지 일반 접근 제어 콘솔이 아니며, grants, 범위
-편집, 취소는 아직 관리하지 않습니다.
+비공개 Content 공유 링크는 내용을 노출하지 않고 문서를 식별할 수 있습니다. 같은 Content 인스턴스의 `/mcp` URL을 에이전트의 원격 MCP 서버로 추가하고 Agent-Native 계정으로 인증한 다음 연결 또는 도구를 활성화하고 원래 문서 요청을 다시 시도하세요. `/mcp/connect` 페이지는 설정 옵션을 제공하지만, 페이지를 여는 것만으로 연결이 설치되지는 않습니다.
+
+이 흐름은 Claude, ChatGPT, Claude Code, Codex, Cursor, Antigravity, OpenCode, GitHub Copilot / VS Code 등 MCP 호스트에서 공통으로 사용할 수 있습니다. 설정 화면과 인증 방식은 호스트마다 다릅니다. Antigravity는 **Settings → Customizations → Installed MCP Servers** 또는 MCP 구성 파일에서 원격 서버를 관리하며, Agent-Native의 `connect` 명령은 현재 Antigravity를 구성하지 않습니다.
+
+인증은 연결된 계정을 식별할 뿐 문서 권한을 넓히지 않습니다. 공개 문서는 공유 페이지에서 계속 읽을 수 있습니다. 비공개 문서는 해당 계정에 기존 접근 권한이 있을 때만 MCP로 읽을 수 있습니다. 연결 후 `get-document`가 “찾을 수 없음”을 반환해도 권한 부족과 오래되었거나 삭제되었거나 잘못된 문서 ID를 구분할 수 없습니다. 권한을 변경하기 전에 링크와 연결된 계정의 접근 권한을 확인하세요.
+
+커넥터를 다시 설치하거나 공개 공유 링크를 변경해도 확인된 연결 계정의 권한 거부는 해결되지 않습니다.
+
+<a id="access-tab"></a>
+
+### 앱 내 MCP 설정 {#mcp-settings}
+
+Settings에는 앱 그룹에 **MCP server** 페이지가 있습니다. 앱의 표준 MCP
+URL, 가능한 경우 A2A 에이전트 카드, 전체 연결 페이지와 같은 설정 가이드를 보여줍니다.
+앱에서 시작하려면 **Settings → MCP server**를 사용하거나, 전체 흐름과 토큰 대체 경로를
+보려면 `/mcp/connect`를 직접 여세요.
 
 ### Claude 및 ChatGPT OAuth {#oauth}
 
@@ -133,10 +153,14 @@ Claude / Claude 데스크탑: 사용자 정의 커넥터를 추가하고 MCP URL
 채팅에서 커넥터를 활성화합니다. Claude 코드는 동일한 URL를 사용합니다.
 원격 HTTP MCP 서버에서 `/mcp`를 실행한 다음 **인증**을 선택하세요.
 
-ChatGPT: 맞춤 MCP 커넥터 또는 개발자 모드 앱이 있는 작업 공간을 사용하세요.
-활성화, 사용자 정의 커넥터/앱 생성, 동일한 MCP URL 붙여넣기, OAuth 선택,
-도구 검색/발견, Agent-Native로 로그인, 범위 승인 및 활성화
-채팅의 커넥터
+ChatGPT: 맞춤 MCP 앱에는 지원되는 ChatGPT web 작업 공간이 필요합니다. 액세스할 수
+있다면 **Settings → Apps → Advanced settings**를 열고, 필요한 경우 developer mode를
+활성화한 뒤 **Create app**을 선택하세요. 같은 MCP URL을 붙여넣고 OAuth를 선택하여
+도구를 스캔한 다음 Agent-Native에 로그인하고 요청된 범위를 승인한 뒤 채팅에서 앱을
+활성화하세요. Business, Enterprise, Edu 작업 공간은 쓰기 작업을 포함한 전체 MCP를
+지원하며, Pro는 developer mode에서 읽기와 가져오기를 지원합니다. **Apps** 또는
+**Create app**이 보이지 않으면 요금제나 작업 공간 정책에서 이 설정을 허용하지 않는
+것입니다.
 
 OAuth 부여는 호스트별 및 사용자별입니다. 호스트는 토큰을 저장하고
 도구/리소스 호출을 중재하므로 인라인 MCP 앱 미리보기는 원시 수신을 받지 않습니다.
@@ -148,9 +172,34 @@ OAuth 토큰. ChatGPT는 검토 또는 게시된 커넥터 도구를 유지할 �
 스냅샷. `mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` 범위는 아래의
 [표준 원격 MCP OAuth](#standard-oauth)에서 설명하는 범위와 같습니다.
 
-Cursor, Goose, Postman, MCPJam 및 VS Code GitHub Copilot은 동일한 리모컨을 사용합니다.
-빌드가 원격 OAuth를 지원하는 경우 자체 MCP 서버 UI를 통해 MCP URL
-MCP 서버.
+### Cursor, VS Code, Codex {#install-links}
+
+**Settings → MCP server**와 `/mcp/connect`의 **Cursor** 및 **VS Code** 탭에는
+설치 버튼이 있습니다. **Cursor에 추가**는 Cursor의 **Install MCP server?** 확인
+창을 엽니다. **VS Code에 추가**와 **VS Code Insiders에 추가**는 **Install** 버튼이
+있는 서버 페이지를 엽니다. 링크에는 서버 이름, 전송 방식, MCP URL만 들어 있으며
+토큰, 헤더, 계정 정보는 절대 들어 있지 않습니다. 클라이언트는 처음 연결할 때 자체
+OAuth 로그인을 진행합니다. VS Code에서는 이후 도구가 Agent 모드의 Chat 보기에 표시됩니다.
+
+Codex에서는 `codex mcp add <server-name> --url <mcp-url>`을 실행한 다음
+`codex mcp login <server-name>`을 실행해 OAuth로 로그인합니다. **Codex** 탭에
+두 값이 모두 채워져 있습니다.
+
+Goose, Postman, MCPJam 및 기타 클라이언트는 빌드가 OAuth를 사용하는 원격 MCP 서버를
+지원하면 자체 MCP 서버 화면에서 같은 원격 MCP URL을 사용합니다.
+
+### 서버 이름 {#server-names}
+
+앱이 자신의 MCP 서버 이름을 정하고, 모든 화면이 그 이름을 사용합니다. 설치 링크,
+복사용 명령, `npx @agent-native/core@latest connect`도 마찬가지입니다.
+프로덕션은 `agent-native-mail`처럼 접두사 없는 이름을 사용합니다. 베타, 미리
+보기, 로컬 배포에는 `beta-agent-native-mail`처럼 환경이 앞에 붙으므로 한
+클라이언트에 프로덕션 항목과 베타 항목을 나란히 둘 수 있습니다. 이 접두사는
+예약되어 있습니다. `mcp.serverName`은 `beta-`, `preview-`, `local-`로 시작할 수
+없으므로 베타 이름이 다른 앱의 프로덕션 이름과 같아지는 일은 없습니다. 스크립트는
+`GET /mcp/connect/identity`에서 이름을 읽을 수 있습니다. 이 엔드포인트는 로그인이
+필요 없으며 서버 이름, 앱 이름, 앱 URL, MCP URL, 환경과 함께 `mcp.connect`가
+꺼져 있으면 `false`가 되는 `connect` 플래그를 반환합니다.
 
 ### 빠른 테스트 프롬프트 {#quick-test}
 
@@ -240,7 +289,9 @@ npx @agent-native/core@latest connect https://mail.agent-native.com
 
 ### 401 이후 재인증 {#reconnect}
 
-한 번 연결되면 인증은 장기간 지속되어야 합니다. 액세스 토큰은 기본적으로 30일 동안 지속되며(서버에서 `MCP_OAUTH_ACCESS_TOKEN_TTL`로 재정의, 예: `7d` 또는 `12h`) 365일 새로 고침 기간이 있으므로 임의의 401이 거의 발생하지 않습니다. 이런 일이 발생하면 다시 설치하는 대신 간단한 reconnect 명령을 사용하세요.
+OAuth 소유자 바인딩 업데이트 후 기존 OAuth 연결은 모두 [한 번 다시 연결해야 합니다](/docs/external-agents#reconnect). 업데이트가 적용되면 이전 OAuth 액세스 토큰은 거부됩니다. 소유자 바인딩이 없는 이전 갱신 토큰은 `invalid_grant`를 반환하며 아직 사용하지 않은 이전 인증 코드는 동의 절차를 다시 시작해야 합니다. 새로 발급된 액세스 토큰에는 설정된 유효 기간과 요청마다 수행되는 멤버십 확인이 적용됩니다. 이 전환은 기존 A2A 형식의 `mcp-connect` 자격 증명과 앱 간 A2A 토큰을 변경하지 않습니다. 이전 OAuth 형식의 Connect 토큰을 사용하는 연결도 다시 연결해야 합니다.
+
+한 번 연결되면 인증은 장기간 지속되어야 합니다. 액세스 토큰은 기본적으로 30일 동안 지속되며(서버에서 `MCP_OAUTH_ACCESS_TOKEN_TTL`로 재정의, 예: `7d` 또는 `12h`) 새로 고침 권한에는 고정 만료일이 없으므로 임의의 401이 거의 발생하지 않습니다. 이런 일이 발생하면 다시 설치하는 대신 간단한 reconnect 명령을 사용하세요.
 
 ```bash
 npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
@@ -288,7 +339,7 @@ claude mcp add --transport http agent-native \
 https://dispatch.agent-native.com/mcp
 ```
 
-OAuth 흐름은 새로 고침 토큰 순환이 포함된 인증 코드 + PKCE입니다. 액세스 토큰은 정확한 MCP 리소스 URL에 대상 그룹으로 묶여 있으며 서명된 사용자/조직 ID를 전달하므로 도구 호출, `resources/read` 및 MCP 앱 iframe 시작 `tools/call`는 모두 기존 연결 생성 JWT 경로와 동일한 `runWithRequestContext` 테넌트 범위를 통해 실행됩니다. iframe은 원시 OAuth 토큰을 수신하지 않습니다. 호스트는 인증된 MCP 연결을 통해 통화를 중재합니다.
+OAuth 흐름은 새로 고침 토큰이 포함된 인증 코드 + PKCE이며, 새로 고침 토큰은 교체되지 않습니다. 액세스 토큰은 정확한 MCP 리소스 URL에 대상 그룹으로 묶여 있으며 서명된 사용자/조직 ID를 전달하므로 도구 호출, `resources/read` 및 MCP 앱 iframe 시작 `tools/call`는 모두 기존 연결 생성 JWT 경로와 동일한 `runWithRequestContext` 테넌트 범위를 통해 실행됩니다. iframe은 원시 OAuth 토큰을 수신하지 않습니다. 호스트는 인증된 MCP 연결을 통해 통화를 중재합니다.
 
 현재 범위는 다음과 같습니다:
 
@@ -500,6 +551,8 @@ ChatGPT/Claude 스타일 OAuth 앱 호스트의 경우 검색 표면은 기본�
 이를 통해 클라이언트별 shim을 구축하는 대신 모든 호환 호스트에서 동일한 앱 표면을 사용할 수 있습니다. MCP 앱을 인라인으로 렌더링하는 호스트(및 메타데이터 변경 후 커넥터 캐시 정보)는 [MCP Apps → Client support and caching](/docs/mcp-apps#client-support)에 있습니다. 해당 페이지는 클라이언트 매트릭스의 단일 홈입니다.
 
 실제로 모든 에이전트 기반 앱은 지원 호스트에서 인라인 검토/편집을 위한 MCP 앱과 전체 앱으로의 범용 왕복을 위한 `link`를 모두 사용하여 작성되어야 합니다. iframe을 렌더링하지 않는 CLI/code-editor 클라이언트는 딥 링크로 대체됩니다. 인간 선택 도구는 해당 대체에 붙여넣기 단계를 추가할 수 있습니다. 예를 들어 자산 선택기가 대체 링크에서 열리고 사용자가 브라우저에서 미디어를 선택할 수 있도록 한 다음 사용자가 채팅에 다시 붙여넣는 핸드오프 요약을 복사합니다.
+
+외부 에이전트는 앱 내 에이전트가 호출하는 것과 동일한 이름의 실제 생성/수정 도구에 접근할 수 있습니다. 따라서 사용자가 새로운 콘텐츠(디자인, 덱, 폼, 문서 등)를 요청하면, 작업을 `ask_app`으로 위임하지 말고 직접 작성한 뒤 해당 도구로 저장하세요. `endsTurn: true`로 표시된 액션 ― 예를 들어 사용자의 답변을 해당 앱 자체의 채팅에서 기다리는 앱 내 질문 폼 ― 은 `mcpTool: true`가 아닌 한 MCP, WebMCP, A2A에서 숨겨집니다 ― [Actions 정의하기의 endsTurn](/docs/actions-defining)을 참고하세요. 도구 입력과 결과는 WebMCP에서 최대 500,000자까지 지원하므로, 화면, 덱, 문서 전체가 한 번의 쓰기에 담깁니다 ― [WebMCP](/docs/webmcp)를 참고하세요. 페이지 로컬 WebMCP 호출은 브라우저 탭 ID(UI가 사용하는 것과 동일한 `getBrowserTabId()` 값 ― [상황 인식](/docs/context-awareness) 참고)도 함께 전달하므로, 탭별 내비게이션과 선택 항목은 숨겨져 있더라도 에이전트가 조작 중인 탭으로 해석됩니다.
 
 ### 최고 수준의 MCP 앱 브리지 {#mcp-app-bridge}
 
@@ -817,6 +870,7 @@ npx @agent-native/core@latest connect prod --apps mail,calendar,analytics --clie
 ## 관련 {#related}
 
 - [MCP Apps](/docs/mcp-apps) — MCP 앱 UI, 포함 브리지 및 호스트 브리지 API를 작성합니다.
+- [WebMCP](/docs/webmcp) — 페이지 로컬 도구, 입력/결과 500,000자 제한, 브라우저 탭 ID 헤더.
 - [MCP Protocol](/docs/mcp-protocol) — 자동 마운트된 MCP 서버 및 `ask-agent` 메타 도구.
 - [MCP Clients](/docs/mcp-clients) — 대칭 방향: 앱이 로컬/원격 MCP 서버를 사용합니다.
 - [A2A Protocol](/docs/a2a-protocol) — `ask-agent` 메타 도구 및 JSON-RPC 피어 호출.

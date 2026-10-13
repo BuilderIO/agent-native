@@ -18,11 +18,9 @@ import {
   replayPendingVisualStyleRuntimePatch,
   shouldRedoPendingLiveNonStyleBeforeStyle,
 } from "./pending-edits";
+import { readDesignEditorSource } from "./read-design-editor-source";
 
-const editorSource = readFileSync(
-  new URL("../DesignEditor.tsx", import.meta.url),
-  "utf8",
-);
+const editorSource = readDesignEditorSource();
 
 function layerStateEdit(
   state: "hidden" | "locked",
@@ -92,7 +90,7 @@ describe("live style runtime history", () => {
         "if (isRunningAppSourceType(activeCanvasSourceType))",
       ),
       commitVisualStylesSource.indexOf(
-        "// Base every patch off the freshest known content",
+        "// Read through the editor's source boundary",
       ),
     );
     const undoReplaySection = editorSource.slice(
@@ -113,10 +111,6 @@ describe("live style runtime history", () => {
   });
 
   it("reverts a localhost style edit through the runtime node-id namespace, not the source projection", () => {
-    // A localhost screen's selection is canonicalized onto the host's own
-    // source projection, so selector/sourceId name nodes the live document has
-    // never carried. Reverting against them resolves nothing and the bridge
-    // returns silently — the reported undo-does-not-revert bug.
     const canonicalized: PendingVisualStyleEdit = {
       screenId: "screen-home",
       filename: "http://localhost:8210/",
@@ -169,6 +163,34 @@ describe("live style runtime history", () => {
       ),
     ).toBe(false);
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it("preserves interaction-state scope during runtime replay", () => {
+    const send = vi.fn(() => true);
+
+    expect(
+      replayPendingVisualStyleRuntimePatch(
+        {
+          screenId: "screen-home",
+          selector: "#card",
+          sourceId: "card",
+          styles: { backgroundColor: "red" },
+          interactionState: "hover",
+        },
+        send,
+      ),
+    ).toBe(true);
+    expect(send).toHaveBeenCalledWith(
+      "screen-home",
+      "#card",
+      "backgroundColor",
+      "red",
+      {
+        selectorCandidates: ["#card", '[data-agent-native-node-id="card"]'],
+        nodeId: "card",
+        interactionState: "hover",
+      },
+    );
   });
 });
 

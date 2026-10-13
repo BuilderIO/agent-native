@@ -1,6 +1,9 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
-import { PromptComposer } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  PromptComposer,
+  useEagerFileUploads,
+} from "@agent-native/toolkit/app/chat/composer/index";
+import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import { IconCopy, IconSquarePlus, IconX } from "@tabler/icons-react";
 import {
   useCallback,
@@ -13,11 +16,24 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
-import {
-  isInsidePortaledLayer,
-  type UploadedFile,
-} from "@/components/editor/PromptDialog";
+import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import { addSlideAgentMessage } from "@/lib/agent-visible-message";
+import {
+  NO_UPLOADED_FILES_CONTEXT,
+  WEBSITE_STYLE_REFERENCE_DIRECTIVE,
+} from "@/lib/create-deck-generation";
+import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
+import { isInsidePortaledLayer } from "@/lib/portaled-layer";
+import {
+  deleteUploadedPromptFile,
+  formatPromptUploadFailure,
+  isPromptUploadAuthRequiredError,
+  isPromptUploadLimitError,
+  isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError,
+  uploadPromptFiles,
+  type UploadedFile,
+} from "@/lib/prompt-file-uploads";
 
 import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
 
@@ -40,7 +56,9 @@ function describeUploadedFilesForAgent(
   files: UploadedFile[],
   deckId: string,
 ): string {
-  if (files.length === 0) return "";
+  if (files.length === 0) {
+    return ["", NO_UPLOADED_FILES_CONTEXT].join("\n");
+  }
   const fileList = files
     .map(
       (f) =>
@@ -83,33 +101,56 @@ export function AddSlidePopover({
   activeSlideId: string;
   slideCount: number;
   activeSlideIndex: number;
-  agentSubmit: (message: string, context: string) => void;
+  agentSubmit: (message: string, context: string) => Promise<boolean>;
   onDuplicateCurrent?: () => void;
   onAddEmpty?: () => void;
-  /** "below" anchors under the trigger button; "right" sits beside a slide thumbnail. */
   placement?: "below" | "right";
-  /** Id of a blank slide already inserted — the agent fills it in instead of
-   *  inserting another one. Used when this popover follows a "New slide"
-   *  click that already created the placeholder. */
   targetSlideId?: string;
 }) {
   const t = useT();
+  const storageQuery = useSlideFileStorageStatus(open);
+  const fileStorageConfigured =
+    storageQuery.data?.configured === true && !storageQuery.isError;
   const panelRef = useRef<HTMLDivElement>(null);
   const [promptText, setPromptText] = useState("");
   const [googleDocContext, setGoogleDocContext] = useState("");
-  // Estimate before the panel has painted so the first frame doesn't hang
-  // off the bottom of the viewport; corrected once the real height is known.
+  const [storagePromptOpen, setStoragePromptOpen] = useState(false);
   const [panelHeight, setPanelHeight] = useState(320);
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const handleRetainedFilesAbandoned = useCallback(
+    (_files: readonly File[], discard: () => void) => {
+      if (!submittingRef.current) discard();
+    },
+    [],
+  );
+  const uploadPromptFilesWithStorageMessage = useCallback(
+    (files: File[]) =>
+      uploadPromptFiles(files, t("home.referenceFileStorageUnavailable")),
+    [t],
+  );
+  const {
+    commitFiles,
+    discardFiles,
+    retainFiles,
+    syncFiles,
+    uploadFiles,
+    uploading,
+    reset: resetEagerUploads,
+  } = useEagerFileUploads(uploadPromptFilesWithStorageMessage, {
+    onDiscard: deleteUploadedPromptFile,
+    onRetainedFilesAbandoned: handleRetainedFilesAbandoned,
+  });
+
+  useEffect(() => {
+    if (fileStorageConfigured) setStoragePromptOpen(false);
+  }, [fileStorageConfigured]);
 
   useLayoutEffect(() => {
     if (!open || !panelRef.current) return;
     setPanelHeight(panelRef.current.getBoundingClientRect().height);
-  });
+  }, [open]);
 
-  // Content can grow after the first paint (Google Doc hint, file chips,
-  // an auto-growing textarea) without necessarily triggering a React
-  // re-render. Watch the panel directly so it keeps clamping to the
-  // viewport as it resizes, not just on the frame it first opens.
   useEffect(() => {
     if (!open || !panelRef.current) return;
     const observer = new ResizeObserver(([entry]) => {
@@ -124,6 +165,7 @@ export function AddSlidePopover({
   useEffect(() => {
     if (!open) return;
     const handleClick = (e: MouseEvent) => {
+      if (submitting) return;
       if (isInsidePortaledLayer(e.target)) return;
       if (
         panelRef.current &&
@@ -135,7 +177,7 @@ export function AddSlidePopover({
       }
     };
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onOpenChange(false);
+      if (e.key === "Escape" && !submitting) onOpenChange(false);
     };
     document.addEventListener("mousedown", handleClick);
     document.addEventListener("keydown", handleKey);
@@ -143,97 +185,162 @@ export function AddSlidePopover({
       document.removeEventListener("mousedown", handleClick);
       document.removeEventListener("keydown", handleKey);
     };
-  }, [open, onOpenChange, anchorRef]);
+  }, [anchorRef, onOpenChange, open, submitting]);
 
   const handleSubmit = useCallback(
     async (text: string, files: File[]) => {
-      let uploaded: UploadedFile[] = [];
-      if (files.length > 0) {
-        try {
-          const formData = new FormData();
-          files.forEach((f) => formData.append("files", f));
-          const res = await fetch(`${appBasePath()}/api/uploads`, {
-            method: "POST",
-            body: formData,
-          });
-          if (!res.ok) {
-            // coercion-ok: the request already failed; an unparseable error
-            // body just falls back to the generic upload-failed message.
-            const data = await res.json().catch(() => null);
-            throw new Error(data?.error || t("editorSidebar.uploadFailed"));
+      if (files.length > 0 && !fileStorageConfigured) return;
+      if (submittingRef.current) return;
+      submittingRef.current = true;
+      setSubmitting(true);
+      try {
+        let uploaded: UploadedFile[] = [];
+        if (files.length > 0) {
+          try {
+            uploaded = await uploadFiles(files);
+          } catch (error) {
+            const storageSetupRequired = isStorageSetupRequiredError(error);
+            if (storageSetupRequired) void storageQuery.refetch();
+            toast.error(t("editorSidebar.uploadFailed"), {
+              description: formatPromptUploadFailure(
+                error,
+                storageSetupRequired
+                  ? t("home.fileStorageSetupRequired")
+                  : isPromptUploadNetworkError(error)
+                    ? t("home.importMenu.networkFailed")
+                    : isPromptUploadAuthRequiredError(error)
+                      ? t("home.importMenu.notStarted")
+                      : isPromptUploadLimitError(error)
+                        ? t("home.importMenu.uploadLimitExceeded")
+                        : isPromptUploadStorageStatusError(error)
+                          ? t("editorToolbar.importFailedDescription")
+                          : error instanceof Error
+                            ? error.message
+                            : t("editorSidebar.uploadAttachedFileFailed"),
+              ),
+            });
+            return;
           }
-          uploaded = (await res.json()) as UploadedFile[];
-        } catch (error) {
-          toast.error(t("editorSidebar.uploadFailed"), {
-            description:
-              error instanceof Error
-                ? error.message
-                : t("editorSidebar.uploadAttachedFileFailed"),
-          });
-          return;
         }
+
+        const googleDocSourceForContext =
+          truncateSourceForContext(googleDocContext);
+        const fileContext = describeUploadedFilesForAgent(uploaded, deckId);
+        const context = targetSlideId
+          ? [
+              `Fill in slide ${activeSlideIndex + 1} of ${slideCount} (id: ${targetSlideId}) in deck "${deckTitle}" (id: ${deckId}).`,
+              "This slide already exists as a blank placeholder that the user just inserted — update it with `update-slide`, do not call `add-slide` for it.",
+              "The visible user message above contains the user's request and/or pasted source material for this slide. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+              `Before authoring this slide, call \`get-deck\` with id="${deckId}" and compact=true. Reuse its linked designSystem.agentContext and deckStyle; if it returns a designSystemId, call \`get-design-system\` with that id before generating. Do not fall back to generic styling.`,
+              WEBSITE_STYLE_REFERENCE_DIRECTIVE,
+              googleDocSourceForContext.text,
+              googleDocSourceForContext.truncated
+                ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
+                : "",
+              fileContext,
+              "",
+              "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep the slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
+              "If the user asked for more than one slide's worth of content, update this slide with the first one, then call `add-slide` for the rest, positioned starting right after this slide.",
+            ].join("\n")
+          : [
+              `Add a new slide to deck "${deckTitle}" (id: ${deckId}).`,
+              `Insert after slide ${activeSlideIndex + 1} of ${slideCount} (active slide id: ${activeSlideId}).`,
+              "The visible user message above contains the user's request and/or pasted source material for the new slide(s). Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+              `Before authoring these slides, call \`get-deck\` with id="${deckId}" and compact=true. Reuse its linked designSystem.agentContext and deckStyle; if it returns a designSystemId, call \`get-design-system\` with that id before generating. Do not fall back to generic styling.`,
+              WEBSITE_STYLE_REFERENCE_DIRECTIVE,
+              googleDocSourceForContext.text,
+              googleDocSourceForContext.truncated
+                ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
+                : "",
+              fileContext,
+              "",
+              "Create the slide content and insert it at the correct position using `add-slide` with --deckId=" +
+                deckId +
+                ".",
+              "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep each slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
+              "If the user asked for multiple slides, call `add-slide` once per slide. Use positions starting at " +
+                (activeSlideIndex + 1) +
+                " so the new slides land after the active slide in order.",
+              "For larger requests, keep adding slides sequentially: wait for each add-slide result, then call add-slide for the next slide. Start slide 1 immediately; do not wait to design the entire sequence before adding it.",
+            ].join("\n");
+
+        retainFiles(files);
+        try {
+          const started = await agentSubmit(
+            addSlideAgentMessage(text),
+            context,
+          );
+          if (!started) {
+            discardFiles(files);
+            return;
+          }
+          commitFiles(files);
+          onOpenChange(false);
+        } catch (error) {
+          discardFiles(files);
+          throw error;
+        }
+      } finally {
+        submittingRef.current = false;
+        setSubmitting(false);
       }
-
-      const trimmedText = text.trim();
-      const googleDocSourceForContext =
-        truncateSourceForContext(googleDocContext);
-      const fileContext = describeUploadedFilesForAgent(uploaded, deckId);
-      const context = targetSlideId
-        ? [
-            `Fill in slide ${activeSlideIndex + 1} of ${slideCount} (id: ${targetSlideId}) in deck "${deckTitle}" (id: ${deckId}).`,
-            "This slide already exists as a blank placeholder that the user just inserted — update it with `update-slide`, do not call `add-slide` for it.",
-            "The visible user message above contains the user's request and/or pasted source material for this slide. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
-            googleDocSourceForContext.text,
-            googleDocSourceForContext.truncated
-              ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
-              : "",
-            fileContext,
-            "",
-            "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep the slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
-            "If the user asked for more than one slide's worth of content, update this slide with the first one, then call `add-slide` for the rest, positioned starting right after this slide.",
-          ].join("\n")
-        : [
-            `Add a new slide to deck "${deckTitle}" (id: ${deckId}).`,
-            `Insert after slide ${activeSlideIndex + 1} of ${slideCount} (active slide id: ${activeSlideId}).`,
-            "The visible user message above contains the user's request and/or pasted source material for the new slide(s). Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
-            googleDocSourceForContext.text,
-            googleDocSourceForContext.truncated
-              ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
-              : "",
-            fileContext,
-            "",
-            "Create the slide content and insert it at the correct position using `add-slide` with --deckId=" +
-              deckId +
-              ".",
-            "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep each slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
-            "If the user asked for multiple slides, call `add-slide` once per slide. Use positions starting at " +
-              (activeSlideIndex + 1) +
-              " so the new slides land after the active slide in order.",
-            "For larger requests, keep adding slides sequentially: wait for each add-slide result, then call add-slide for the next slide. Start slide 1 immediately; do not wait to design the entire sequence before adding it.",
-          ].join("\n");
-
-      agentSubmit(addSlideAgentMessage(trimmedText), context);
-      onOpenChange(false);
     },
     [
       activeSlideId,
       activeSlideIndex,
       agentSubmit,
+      commitFiles,
+      discardFiles,
       deckId,
       deckTitle,
+      fileStorageConfigured,
       googleDocContext,
       onOpenChange,
       slideCount,
+      retainFiles,
+      storageQuery.refetch,
+      t,
       targetSlideId,
+      uploadFiles,
     ],
+  );
+  const handleAttachmentsChange = useCallback(
+    (files: File[]) => {
+      if (!fileStorageConfigured) return;
+      syncFiles(files);
+      void uploadFiles(files).catch((error) => {
+        const storageSetupRequired = isStorageSetupRequiredError(error);
+        if (storageSetupRequired) void storageQuery.refetch();
+        toast.error(t("editorSidebar.uploadFailed"), {
+          description: formatPromptUploadFailure(
+            error,
+            storageSetupRequired
+              ? t("home.fileStorageSetupRequired")
+              : isPromptUploadNetworkError(error)
+                ? t("home.importMenu.networkFailed")
+                : isPromptUploadAuthRequiredError(error)
+                  ? t("home.importMenu.notStarted")
+                  : isPromptUploadLimitError(error)
+                    ? t("home.importMenu.uploadLimitExceeded")
+                    : isPromptUploadStorageStatusError(error)
+                      ? t("editorToolbar.importFailedDescription")
+                      : error instanceof Error
+                        ? error.message
+                        : t("editorSidebar.uploadAttachedFileFailed"),
+          ),
+        });
+      });
+    },
+    [fileStorageConfigured, storageQuery.refetch, syncFiles, t, uploadFiles],
   );
 
   useEffect(() => {
-    if (!open) {
+    if (!open && !submitting) {
       setPromptText("");
       setGoogleDocContext("");
+      resetEagerUploads();
     }
-  }, [open]);
+  }, [open, resetEagerUploads, submitting]);
 
   if (!open || !anchorRef.current) return null;
 
@@ -268,6 +375,7 @@ export function AddSlidePopover({
           type="button"
           onClick={() => onOpenChange(false)}
           aria-label={t("editorSidebar.closeAddSlides")}
+          disabled={submitting}
           className="inline-flex size-5 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground/70"
         >
           <IconX className="size-3.5" />
@@ -282,6 +390,7 @@ export function AddSlidePopover({
                 onAddEmpty();
                 onOpenChange(false);
               }}
+              disabled={submitting}
               className="w-full mb-1 px-2.5 py-2 text-left text-sm rounded-md hover:bg-accent transition-colors flex items-center gap-2 text-foreground/90 cursor-pointer"
             >
               <IconSquarePlus className="w-4 h-4 text-muted-foreground" />
@@ -298,6 +407,7 @@ export function AddSlidePopover({
                 onDuplicateCurrent();
                 onOpenChange(false);
               }}
+              disabled={submitting}
               className="w-full mb-2 px-2.5 py-2 text-left text-sm rounded-md hover:bg-accent transition-colors flex items-center gap-2 text-foreground/90 cursor-pointer"
             >
               <IconCopy className="w-4 h-4 text-muted-foreground" />
@@ -312,12 +422,31 @@ export function AddSlidePopover({
       )}
       <PromptComposer
         autoFocus
+        requireAgentEngine
+        attachmentsEnabled={fileStorageConfigured}
         maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
         documentAttachmentLimitLabel="Slides reference files"
         placeholder={t("editorSidebar.promptPlaceholder")}
         draftScope={`slides:add-slide:${deckId}`}
+        disabled={uploading || submitting}
         onSubmit={handleSubmit}
+        onAttachmentsChange={handleAttachmentsChange}
+        onAttachmentRequest={
+          fileStorageConfigured ? undefined : () => setStoragePromptOpen(true)
+        }
         onTextChange={setPromptText}
+      />
+      <FileStorageSetupPopover
+        open={storagePromptOpen && !fileStorageConfigured}
+        onOpenChange={setStoragePromptOpen}
+        onConnected={() => void storageQuery.refetch()}
+        anchorRef={panelRef}
+        {...(!storageQuery.isSuccess || storageQuery.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void storageQuery.refetch(),
+            }
+          : { status: "missing" as const })}
       />
       <div className="-mx-1 mt-2">
         <GoogleDocImportHint

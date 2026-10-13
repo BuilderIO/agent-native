@@ -33,9 +33,9 @@ export function SortMenu({ value, onChange }: SortMenuProps) {
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
             <Button
-              variant="outline"
-              size="icon"
-              className="h-9 w-9"
+              variant="ghost-inset"
+              size="icon-sm"
+              className="shrink-0"
               aria-label={LABELS[value]}
             >
               <IconArrowsSort className="h-3.5 w-3.5" />

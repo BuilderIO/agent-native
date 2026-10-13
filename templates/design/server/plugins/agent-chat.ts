@@ -3,13 +3,85 @@ import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { CHATGPT_DIRECTORY_PROFILE } from "../lib/chatgpt-directory-tools.js";
+import { designFinalResponseGuard } from "../lib/design-response-guard.js";
 import { guardRepromptActionRegistry } from "../lib/reprompt-action-guard.js";
 import "../register-secrets.js";
 
 const DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 const DESIGN_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS = 12 * 60_000;
+
+const EXTERNAL_CONNECTOR_TOOL_NAMES = [
+  "open-visual-edit",
+  "get-visual-edit-pending",
+  "acknowledge-visual-edit-pending",
+  "connect-localhost",
+  "add-localhost-screens",
+  "list-localhost-connections",
+  "update-screen-source",
+  "add-breakpoint",
+  "remove-breakpoint",
+  "view-screen",
+  "navigate",
+  "list-designs",
+  "list-design-systems",
+  "list-design-templates",
+  "get-design",
+  "get-design-system",
+  "index-design-tokens",
+  "get-design-snapshot",
+  "get-design-template",
+  "create-design",
+  "create-design-from-template",
+  "edit-design",
+  "generate-design",
+  "present-design-variants",
+  "insert-asset",
+  "apply-tweaks",
+  "update-design",
+  "list-files",
+  "create-file",
+  "update-file",
+  "rename-screen",
+  "export-png",
+];
+
+function projectChatGptDirectoryResult(
+  toolName: string,
+  result: unknown,
+): unknown {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return result;
+  }
+  const projected = { ...(result as Record<string, unknown>) };
+  if (toolName === "create-design" && projected.nextRequiredAction) {
+    projected.nextRequiredAction =
+      "Use generate-design to create and save the screen HTML before reporting the design as renderable.";
+  }
+  if (toolName === "get-design-snapshot") {
+    const template = projected.createdFromTemplate;
+    if (template && typeof template === "object" && !Array.isArray(template)) {
+      projected.createdFromTemplate = {
+        ...(template as Record<string, unknown>),
+        note: "These files are edited copies of the template. Preserve the canvas dimensions, typography, and locked layers shown in this snapshot.",
+      };
+    }
+    if (projected.nextRequiredAction) {
+      projected.nextRequiredAction =
+        "Use edit-design once on the returned editTarget. Re-read only if the edit fails with a concrete missing-context error.";
+    }
+  }
+  if (toolName === "present-design-variants") {
+    projected.fallbackInstructions =
+      "The generated directions are saved as screens on the Design overview board. Ask the user to choose a screen. Then read that screen once and use edit-design on the same file to refine it. Keep the other screens saved unless the user asks to remove them.";
+    projected.nextRequiredAction =
+      "Wait for the user to choose a screen. Then call get-design-snapshot once for that file and edit-design on the same file in one bounded pass. Keep the other variant screens saved.";
+  }
+  return projected;
+}
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
@@ -22,16 +94,22 @@ const INITIAL_TOOL_NAMES = [
   "consume-review-feedback",
   "set-review-status",
   "list-designs",
+  "list-design-systems",
   "list-design-templates",
   "get-design",
+  "get-design-system",
+  "index-design-tokens",
   "get-design-snapshot",
   "create-design",
   "create-design-from-template",
   "get-design-template",
-  "save-design-as-template",
   "open-visual-edit",
+  "get-visual-edit-pending",
   "add-localhost-screens",
   "list-localhost-connections",
+  "update-screen-source",
+  "add-breakpoint",
+  "remove-breakpoint",
   "edit-design",
   "generate-design",
   "present-design-variants",
@@ -43,21 +121,195 @@ const INITIAL_TOOL_NAMES = [
   "list-files",
   "create-file",
   "update-file",
+  "rename-screen",
+  "export-png",
   "navigate",
-  "provider-api-catalog",
-  "provider-api-docs",
-  "provider-api-request",
 ];
+
+const DESIGN_EDIT_TOOLS = new Set([
+  "add-breakpoint",
+  "add-localhost-screens",
+  "apply-a11y-fix",
+  "apply-component-prop-edit",
+  "apply-design-token-edit",
+  "apply-motion-edit",
+  "apply-shader-fill",
+  "apply-tweaks",
+  "apply-visual-edit",
+  "create-file",
+  "detach-component-instance",
+  "delete-file",
+  "edit-design",
+  "fill-figma-paste-image",
+  "generate-design",
+  "hydrate-figma-paste-images",
+  "insert-asset",
+  "insert-design-native-asset",
+  "remove-breakpoint",
+  "remove-motion-timeline",
+  "rename-screen",
+  "swap-component-instance",
+  "update-design",
+  "update-breakpoint",
+  "update-file",
+  "update-screen-source",
+]);
+
+const DESIGN_FILE_TARGET_TOOLS = new Set([
+  "apply-a11y-fix",
+  "apply-component-prop-edit",
+  "apply-motion-edit",
+  "apply-shader-fill",
+  "apply-visual-edit",
+  "delete-file",
+  "detach-component-instance",
+  "edit-design",
+  "fill-figma-paste-image",
+  "hydrate-figma-paste-images",
+  "insert-asset",
+  "insert-design-native-asset",
+  "remove-motion-timeline",
+  "rename-screen",
+  "swap-component-instance",
+  "update-file",
+]);
+
+function eventRecord(entry: unknown): Record<string, unknown> | undefined {
+  if (!entry || typeof entry !== "object") return undefined;
+  const event = (entry as { event?: unknown }).event;
+  return event && typeof event === "object"
+    ? (event as Record<string, unknown>)
+    : undefined;
+}
+
+function inputForCompletedTool(
+  events: readonly unknown[],
+  index: number,
+  completed: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (completed.input && typeof completed.input === "object") {
+    return completed.input as Record<string, unknown>;
+  }
+  const id = typeof completed.id === "string" ? completed.id : undefined;
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const candidate = eventRecord(events[cursor]);
+    if (
+      candidate?.type !== "tool_start" ||
+      candidate.tool !== completed.tool ||
+      (id && candidate.id !== id)
+    ) {
+      continue;
+    }
+    return candidate.input && typeof candidate.input === "object"
+      ? (candidate.input as Record<string, unknown>)
+      : undefined;
+  }
+  return undefined;
+}
+
+async function fileDesignId(fileId: string): Promise<string | undefined> {
+  const { getDb, schema } = await import("../db/index.js");
+  const [file] = await getDb()
+    .select({ designId: schema.designFiles.designId })
+    .from(schema.designFiles)
+    .where(eq(schema.designFiles.id, fileId))
+    .limit(1);
+  return file?.designId;
+}
+
+async function designIdForTool(
+  tool: string,
+  input: Record<string, unknown> | undefined,
+): Promise<string | undefined> {
+  if (typeof input?.designId === "string") return input.designId;
+  if (!DESIGN_FILE_TARGET_TOOLS.has(tool)) return undefined;
+  const fileId =
+    tool === "delete-file" || tool === "rename-screen" || tool === "update-file"
+      ? input?.id
+      : input?.fileId;
+  return typeof fileId === "string" ? fileDesignId(fileId) : undefined;
+}
+
+async function hasDesignEdit(
+  run: { events: readonly unknown[] },
+  designId: string,
+): Promise<boolean> {
+  for (const [index, entry] of run.events.entries()) {
+    const record = eventRecord(entry);
+    if (
+      record?.type !== "tool_done" ||
+      record.completedSideEffect !== true ||
+      record.isError === true ||
+      typeof record.tool !== "string" ||
+      !DESIGN_EDIT_TOOLS.has(record.tool)
+    ) {
+      continue;
+    }
+    const input = inputForCompletedTool(run.events, index, record);
+    if ((await designIdForTool(record.tool, input)) === designId) return true;
+  }
+  return false;
+}
+
+async function autosaveDesignAfterAgentTurn(
+  scope: { type: string; id: string },
+  run: {
+    events: readonly unknown[];
+    threadId?: string;
+    runId?: string;
+    turnId?: string;
+  },
+): Promise<void> {
+  if (scope.type !== "design" || !(await hasDesignEdit(run, scope.id))) return;
+  if (!run.threadId || !run.runId) return;
+
+  const { createDesignVersionSnapshot } =
+    await import("../lib/design-versions.js");
+  await createDesignVersionSnapshot(scope.id, {
+    label: "Chat autosave",
+    chatContext: {
+      threadId: run.threadId,
+      runId: run.runId,
+      ...(run.turnId ? { turnId: run.turnId } : {}),
+      phase: "end",
+    },
+  });
+}
+
+async function autosaveDesignBeforeAgentTurn(
+  scope: { type: string; id: string },
+  run: { threadId?: string; runId?: string },
+): Promise<void> {
+  if (scope.type !== "design" || !run.threadId || !run.runId) return;
+  const { createDesignChatBeginningSnapshot } =
+    await import("../lib/design-versions.js");
+  await createDesignChatBeginningSnapshot(scope.id, {
+    threadId: run.threadId,
+    runId: run.runId,
+  });
+}
 
 export default createAgentChatPlugin({
   appId: "design",
+  onAgentTurnStart: autosaveDesignBeforeAgentTurn,
+  onAgentTurnComplete: autosaveDesignAfterAgentTurn,
   actions: guardRepromptActionRegistry(
     loadActionsFromStaticRegistry(actionsRegistry),
   ),
   initialToolNames: INITIAL_TOOL_NAMES,
-  // Enable sandboxed JavaScript execution so Design agents can fetch,
-  // paginate, and reduce provider data through providerFetch() without us
-  // hardcoding one action per GitHub endpoint.
+  mcp: {
+    connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
+    keyToolNames: ["get-visual-edit-pending"],
+    instructions:
+      "Resolve a named template or prior design first with list-design-templates / list-designs; copy with create-design-from-template, then adapt with edit-design — never regenerate a copied screen with generate-design. For new-design exploration use create-design then present-design-variants (2-5 variants) and surface the returned open link; do not navigate. Hand-off goes through export-png for one screen, or export-html / export-zip / export-coding-handoff / export-design-as-figma-svg for other formats. Persist early: create or update the design and its files as soon as a coherent candidate exists. " +
+      'Design system: get-design, get-design-snapshot, and view-screen return `designSystem` (a bounded summary with scope "summary" and a `next` line); call get-design-system { id } once before the first screen you author for the full context (create-design returns it in full), then reuse it. Apply designSystem.agentContext, plus index-design-tokens for an existing design, before authoring or restyling; never invent a generic palette. For a new design, pass the exact title as `designSystem` or a designSystemId; omit both to link the caller\'s default. Preserve existing screen composition as well as linked system tokens, fonts, assets, and custom instructions. Read back the saved file after every visual mutation. For a running localhost app, use open-visual-edit and keep each route/state/viewport as its own URL-backed screen. Update a selected screen with update-screen-source, and use add-localhost-screens or add-breakpoint for additional canvas frames. KEY VISUAL HANDOFF: after the user edits a live screen, call get-visual-edit-pending with the visual-edit designId before asking for copy/paste. It returns the latest source prompt and revision even when the Design tab is closed; apply that prompt to the connected app, then call acknowledge-visual-edit-pending with the same designId and revision only after the source change is verified, and call get-visual-edit-pending again to confirm it cleared. Never acknowledge a handoff you did not apply. The page-local get-visual-edit-prompt tool is an equivalent fallback only for browser-capable hosts.',
+    directoryProfile: {
+      ...CHATGPT_DIRECTORY_PROFILE,
+      projectResult: projectChatGptDirectoryResult,
+    },
+  },
+  externalAgents: { writes: "allowlisted" },
+  finalResponseGuard: designFinalResponseGuard,
   codeExecution: { production: "sandboxed" },
   durableBackgroundRuns: true,
   runSoftTimeoutMs: DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
@@ -67,13 +319,19 @@ export default createAgentChatPlugin({
 
 Final responses should be concise and operational. Lead with what changed or what is needed. For ordinary design actions, use 1-3 short sentences or at most 3 flat bullets. Do not narrate your process, repeat the user's request, paste HTML or tool results, or write an essay. Mention screenshots and audits only as brief completion evidence. Expand only when the user explicitly asks for an explanation or detailed critique.
 
+Completion is evidence-based: any request to create, generate, build, edit, refine, add, or insert design content must finish with a successful mutating action result. Do not report a design, screen, variant, or asset as created, updated, or ready from prose alone. "create-design" creates only an empty shell (renderable: false), so continue to "generate-design", "present-design-variants", or the required "insert-asset" placement action and wait for its persisted proof.
+
 When a user message begins with [Reprompt selection], the design must remain unchanged until the user accepts a preview. Call propose-node-rewrite with the exact repromptId, target, and baseVersionHash from the message. Never call edit-design, update-design, update-file, generate-design, apply-visual-edit, or any other content-writing action for that turn. The proposal action stores preview state only; the frontend-only resolve-node-rewrite action persists a chosen variant after the user presses Accept.
 
 When a user message begins with [Selection question], answer about the captured element and selected subtree without changing the design. You may use read-only actions when more context is needed, but do not call any content-writing action. If the user actually intended an edit, explain that they can choose Preview change from the composer mode menu and resend.
 
 When the user asks for a new design and the current navigation view is list, settings, design-systems, or otherwise has no designId, create a new design first. Do not reuse, delete screens from, or edit a previous design unless the user explicitly names that design or the current navigation state is an editor/present view with that designId.
 
-Every web design must be responsive. Use mobile-first CSS, a viewport meta tag, and responsive layout changes for narrow widths; never ship a fixed-width desktop shell. Desktop is the default primary artboard: use a 1440×1024 canvas frame (or primaryViewport "desktop") unless the user explicitly asks for a mobile- or tablet-primary design. After generation, inspect desktop and mobile screenshots and correct overflow or broken reflow before reporting completion.
+App and website UI is responsive by default when the user does not specify exact pixel dimensions. Use mobile-first CSS, a viewport meta tag, and responsive layout changes for narrow widths; never ship a fixed-width desktop shell. Static artwork such as ads, banners, social posts, thumbnails, email headers, flyers, and posters uses one fixed canvas with no mobile or tablet frames, including on follow-up edits and resizes; each additional size or version is its own exact-size call. Honor exact pixel dimensions and platform presets in the original request. Desktop is the default primary artboard for responsive UI; use a 1440×1024 canvas frame (or primaryViewport "desktop") unless the user explicitly asks for a mobile- or tablet-primary design. Keep each generation action prompt to one distinct exact size; make separate calls scoped to each screen when a request includes different sizes. For responsive UI, inspect desktop and mobile screenshots and correct overflow or broken reflow. For fixed artwork, inspect one screenshot at the requested canvas size.
+
+Treat explicit visual direction, requested content, named pages, and page counts as acceptance criteria. When the user asks for multiple distinct pages or states, call generate-screens with every requested page before generating their files; do not substitute responsive breakpoint frames for requested pages. Verify the saved design contains each requested page before reporting completion.
+
+Generated controls that look interactive must work in the prototype. Give links valid destinations and wire buttons to the requested navigation or state change; if no behavior is intended, render the element as non-interactive content instead of a dead control. Exercise the primary links and buttons before reporting completion.
 
 When the user asks to start from a template or references a prior design/past work as the starting point, call both list-design-templates and list-designs before generating so you resolve the existing resource instead of recreating it. For a template, call create-design-from-template. The copied files and canvas dimensions are already the starting point. If the user also supplied a prompt or selected a different linked design system, call get-design-snapshot once and refine unlocked content with edit-design; do not call generate-design or replace the template with a fresh screen. Layers marked data-agent-native-locked="true" and their descendants must remain byte-for-byte unchanged. Ask the user to unlock one explicitly if they want it changed.
 
@@ -85,13 +343,13 @@ When open review feedback exists, call get-review-feedback and work one anchored
 
 When the user picks one direction from a set of presented variants, delete each unchosen variant screen at most once, then call get-design-snapshot exactly once for the kept screen's fileId and call edit-design on that same fileId. Use edit-design replace-file when expanding the placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not call generate-design after a variant pick unless the user explicitly asks to create a separate new screen.
 
-When the user asks to visually inspect or edit a running local app, use open-visual-edit. It registers the localhost bridge, creates or reuses the Design project, places URL-backed iframe screens, stores the active visual-edit context, and navigates to overview mode in one authenticated step. For follow-ups like adding a mobile viewport or another route state, reuse the current designId and connectionId and call open-visual-edit or add-localhost-screens with explicit routes/paths and viewport sizes.
+When the user asks to visually inspect or edit a running local app, use open-visual-edit. It registers the localhost bridge, creates or resumes the saved Design project for that connection, places URL-backed iframe screens, stores the active visual-edit context, and navigates to overview mode in one authenticated step. For follow-ups like adding a mobile viewport or another route state, reuse the current designId and connectionId when available and call open-visual-edit or add-localhost-screens with explicit routes/paths and viewport sizes. The action resumes the saved project for the same connection when designId is absent; set newDesign: true only when the user explicitly wants a separate project.
 
 Provider-specific Design actions are shortcuts, not limits. If a first-class action cannot express the exact GitHub endpoint, repository tree query, code search, issue or pull request query, request body, pagination mode, payload shape, metadata field, or API version needed, call provider-api-catalog and provider-api-docs as needed, then call provider-api-request against the real GitHub API. Use the raw provider API escape hatch instead of weakening the answer or claiming Design cannot do something the underlying GitHub API can do.
 
 Design's GitHub provider API uses the saved GITHUB_TOKEN secret when present. Never ask the user to paste tokens into chat. For large GitHub search results or repository scans, pass stageAs and pagination options to provider-api-request, then use query-staged-dataset to count, filter, group, or project the staged rows.
 
-Design's Figma integration uses the saved, user-scoped FIGMA_ACCESS_TOKEN secret; never ask for the token in chat or pass it as an action argument. Use import-figma-frame for a frame/layer link and import-figma-clipboard for Figma Cmd+C metadata. Current clipboard metadata includes exact selected node ids and supports multi-selection; if Figma changes that private field, fall back conservatively and recommend "Copy link to selection." Use provider-api-catalog/docs/request for open-ended reads of files, nodes, components, styles, images, comments, versions, and Enterprise variables. Figma REST cannot create arbitrary canvas frames/layers. For Design-to-Figma handoff use export-design-as-figma-svg / Copy as SVG, or Figma's official OAuth MCP write tools when they are actually connected. Never claim SVG preserves live text, auto-layout, components, variables, or prototype behavior; report the export/import fidelity caveats.
+Design's Figma integration uses the saved, user-scoped FIGMA_ACCESS_TOKEN secret; never ask for the token in chat or pass it as an action argument. Use import-figma-frame for a frame/layer link and import-figma-clipboard for Figma Cmd+C metadata. Current clipboard metadata includes exact selected node ids and supports multi-selection; if Figma changes that private field, fall back conservatively and recommend "Copy link to selection." Use provider-api-catalog/docs/request for open-ended reads of files, nodes, components, styles, images, comments, versions, and Enterprise variables. Figma REST cannot create arbitrary canvas frames/layers. For Design-to-Figma handoff use export-design-as-figma-svg / Copy as SVG, or Figma's official OAuth MCP write tools when they are actually connected. Never claim SVG preserves live text, auto-layout, components, variables, or prototype behavior; report the export/import conversion caveats.
 
 For raster image generation, use available first-party Assets MCP tools such as generate-asset instead of placeholders or generic stock-image descriptions. When the Assets picker returns selectedAsset/chooseAsset/chooseImage context while a design is open, call insert-asset with the chosen asset URL/id, then refine placement with normal Design edit tools if needed. Preserve Assets assetId, runId, and URLs verbatim.`,
 });

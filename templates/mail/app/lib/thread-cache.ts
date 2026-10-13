@@ -1,55 +1,141 @@
-// Plain in-memory cache for thread messages. Inspect in devtools as
-// `window.__threadCache`. Exists because React Query's cache layering
-// (staleTime, gcTime, placeholderData, isFetching) made it hard to answer
-// "did this prefetch actually populate the cache?" at a glance; this gives
-// us a direct read/write store with transparent state.
-
 import { appApiPath } from "@agent-native/core/client/api-path";
 import type { EmailMessage } from "@shared/types";
 import { useEffect, useState } from "react";
 
+import { beginProviderSnapshot } from "@/lib/provider-snapshot";
 import { TAB_ID } from "@/lib/tab-id";
 
 type CacheEntry = {
   messages: EmailMessage[];
   fetchedAt: number;
+  providerSnapshotId?: number;
+};
+
+type ThreadFetchResult = {
+  messages: EmailMessage[];
+  providerSnapshotId: number;
 };
 
 type WarmTarget = string | { id: string; accountEmail?: string };
 
-const STORAGE_KEY = "mail.threadCache.v1";
-const STORAGE_TTL = 60 * 60 * 1000; // 1 hour
-const STORAGE_MAX_ENTRIES = 50;
-const STORAGE_MAX_BYTES = 3 * 1024 * 1024; // ~3MB, well under the 5MB cap
 const BACKGROUND_RATE_LIMIT_COOLDOWN_MS = 90 * 1000;
 const BACKGROUND_AUTH_FAILURE_COOLDOWN_MS = 5 * 60 * 1000;
 const WARM_BATCH_LIMIT = 4;
 
-// Park state on globalThis so Vite HMR module reloads don't wipe the cache.
 type Globals = {
+  __mailThreadCacheFormat?: number;
+  __mailThreadOwner?: string | null;
   __mailThreadCache?: Map<string, CacheEntry>;
-  __mailThreadInflight?: Map<string, Promise<EmailMessage[]>>;
+  __mailThreadInflight?: Map<string, Promise<ThreadFetchResult>>;
   __mailThreadSubscribers?: Map<string, Set<() => void>>;
   __mailThreadVersions?: Map<string, number>;
+  __mailThreadCacheGeneration?: number;
 };
 const g = globalThis as Globals;
 const cache = (g.__mailThreadCache ??= new Map());
-const inflight = (g.__mailThreadInflight ??= new Map());
-// Scoped by threadId so writing one thread's cache doesn't re-render
-// components viewing a different thread.
+const inflight: Map<
+  string,
+  Promise<ThreadFetchResult>
+> = (g.__mailThreadInflight ??= new Map());
 const subscribers = (g.__mailThreadSubscribers ??= new Map());
-// Version counter per threadId — bumped by invalidateCachedThread so an
-// in-flight fetch started before the invalidate discards its result
-// instead of repopulating stale data.
 const versions = (g.__mailThreadVersions ??= new Map());
 let backgroundCooldownUntil = 0;
+let sessionScope: string | undefined;
+let accountScope: string | undefined;
 
-function getVersion(threadId: string): number {
-  return versions.get(threadId) ?? 0;
+if (g.__mailThreadCacheFormat !== 2) {
+  cache.clear();
+  inflight.clear();
+  subscribers.clear();
+  versions.clear();
+  g.__mailThreadCacheGeneration = (g.__mailThreadCacheGeneration ?? 0) + 1;
+  g.__mailThreadCacheFormat = 2;
+  g.__mailThreadOwner = null;
 }
 
-function notify(threadId: string) {
-  const set = subscribers.get(threadId);
+function normalizeAccountEmail(accountEmail?: string): string | null {
+  return accountEmail?.trim().toLowerCase() || null;
+}
+
+function cacheKey(threadId: string, accountEmail?: string): string {
+  return JSON.stringify([
+    g.__mailThreadOwner ?? null,
+    normalizeAccountEmail(accountEmail),
+    threadId,
+  ]);
+}
+
+function threadIdFromCacheKey(key: string): string | undefined {
+  const parsed: unknown = JSON.parse(key);
+  return Array.isArray(parsed) &&
+    parsed.length === 3 &&
+    typeof parsed[2] === "string"
+    ? parsed[2]
+    : undefined;
+}
+
+function keysForThread(threadId: string): string[] {
+  return Array.from(
+    new Set([
+      ...cache.keys(),
+      ...inflight.keys(),
+      ...subscribers.keys(),
+      ...versions.keys(),
+    ]),
+  ).filter((key) => threadIdFromCacheKey(key) === threadId);
+}
+
+export function getThreadCacheOwner(): string | null {
+  return g.__mailThreadOwner ?? null;
+}
+
+export function setThreadCacheOwner(owner: string | null): void {
+  const nextOwner = owner?.trim() || null;
+  if (getThreadCacheOwner() === nextOwner) return;
+  g.__mailThreadOwner = nextOwner;
+  clearThreadCache();
+}
+
+function getVersion(key: string): number {
+  return versions.get(key) ?? 0;
+}
+
+function getFetchVersion(key: string): string {
+  return `${g.__mailThreadCacheGeneration ?? 0}:${getVersion(key)}`;
+}
+
+export function clearThreadCache(): void {
+  const keys = new Set([
+    ...cache.keys(),
+    ...inflight.keys(),
+    ...subscribers.keys(),
+  ]);
+  g.__mailThreadCacheGeneration = (g.__mailThreadCacheGeneration ?? 0) + 1;
+  cache.clear();
+  inflight.clear();
+  versions.clear();
+  backgroundCooldownUntil = 0;
+  queueMicrotask(() => keys.forEach(notify));
+}
+
+export function setThreadCacheSessionScope(scope: string): void {
+  if (sessionScope === scope) return;
+  sessionScope = scope;
+  clearThreadCache();
+}
+
+export function setThreadCacheAccountScope(scope: string): void {
+  if (accountScope === scope) return;
+  accountScope = scope;
+  clearThreadCache();
+}
+
+function clearOwnedInflight(key: string, request: Promise<ThreadFetchResult>) {
+  if (inflight.get(key) === request) inflight.delete(key);
+}
+
+function notify(key: string) {
+  const set = subscribers.get(key);
   if (!set) return;
   for (const fn of set) fn();
 }
@@ -79,7 +165,11 @@ function retryDelayFromMessage(message: string): number {
   return Math.min(Math.max(seconds * 1000, 15_000), 5 * 60_000);
 }
 
-function noteFetchError(message: string, status?: number) {
+function noteFetchError(
+  message: string,
+  status?: number,
+  retryAfterMs?: number,
+) {
   if (status !== undefined && isAuthFailureStatus(status)) {
     backgroundCooldownUntil = Math.max(
       backgroundCooldownUntil,
@@ -87,10 +177,16 @@ function noteFetchError(message: string, status?: number) {
     );
     return;
   }
-  if (isRateLimitMessage(message)) {
+  if (status === 429 || isRateLimitMessage(message)) {
+    const delay =
+      typeof retryAfterMs === "number" &&
+      Number.isFinite(retryAfterMs) &&
+      retryAfterMs > 0
+        ? Math.min(Math.max(retryAfterMs, 15_000), 5 * 60_000)
+        : retryDelayFromMessage(message);
     backgroundCooldownUntil = Math.max(
       backgroundCooldownUntil,
-      Date.now() + retryDelayFromMessage(message),
+      Date.now() + delay,
     );
   }
 }
@@ -102,7 +198,8 @@ function canRunBackgroundFetch() {
 async function fetchThread(
   threadId: string,
   accountEmail?: string,
-): Promise<EmailMessage[]> {
+): Promise<ThreadFetchResult> {
+  const providerSnapshotId = beginProviderSnapshot();
   const params = new URLSearchParams();
   if (accountEmail) params.set("accountEmail", accountEmail);
   const suffix = params.toString() ? `?${params}` : "";
@@ -113,180 +210,187 @@ async function fetchThread(
         "Content-Type": "application/json",
         "X-Request-Source": TAB_ID,
       },
+      cache: "no-store",
     },
   );
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     const message = body?.error || `Request failed (${res.status})`;
-    noteFetchError(message, res.status);
+    const retryAfter = Number(res.headers.get("Retry-After"));
+    const retryAfterMs =
+      Number.isFinite(retryAfter) &&
+      Number.isInteger(retryAfter) &&
+      retryAfter > 0
+        ? retryAfter * 1000
+        : undefined;
+    noteFetchError(message, res.status, retryAfterMs);
     const error = new Error(message);
-    (error as Error & { status?: number }).status = res.status;
+    (error as Error & { status?: number; retryAfterMs?: number }).status =
+      res.status;
+    (error as Error & { status?: number; retryAfterMs?: number }).retryAfterMs =
+      retryAfterMs;
     throw error;
   }
-  return res.json();
+  return { messages: await res.json(), providerSnapshotId };
 }
 
-// ── localStorage persistence ─────────────────────────────────────────────────
-// Hydrate on module load; flush (debounced) on writes. Survives page reloads
-// and server restarts so repeat opens within an hour stay instant.
-
-let flushTimer: ReturnType<typeof setTimeout> | null = null;
-
-function loadFromStorage() {
+function clearLegacyThreadStorage() {
   if (typeof window === "undefined") return;
-  // If globalThis already has entries (HMR reload with warm in-memory cache),
-  // skip — don't overwrite fresher in-memory state with disk.
-  if (cache.size > 0) return;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw) as Record<string, CacheEntry>;
-    const now = Date.now();
-    for (const [id, entry] of Object.entries(parsed)) {
-      if (!entry || now - entry.fetchedAt > STORAGE_TTL) continue;
-      cache.set(id, entry);
-    }
-  } catch {
-    // Corrupted entry — nuke it
-    try {
-      window.localStorage.removeItem(STORAGE_KEY);
-    } catch {}
+    window.localStorage.removeItem("mail.threadCache.v1");
+  } catch (error) {
+    console.warn("Could not clear the legacy Mail thread cache:", error);
   }
 }
 
-function scheduleFlush() {
-  if (typeof window === "undefined") return;
-  if (flushTimer) return;
-  flushTimer = setTimeout(() => {
-    flushTimer = null;
-    flushToStorage();
-  }, 250);
+export function getCachedThread(
+  threadId: string,
+  accountEmail?: string,
+): EmailMessage[] | undefined {
+  return cache.get(cacheKey(threadId, accountEmail))?.messages;
 }
 
-function flushToStorage() {
-  if (typeof window === "undefined") return;
-  try {
-    // Keep the N most recently fetched entries, then trim by total size.
-    const entries = [...cache.entries()].sort(
-      (a, b) => b[1].fetchedAt - a[1].fetchedAt,
-    );
-    const out: Record<string, CacheEntry> = {};
-    let bytes = 0;
-    let count = 0;
-    for (const [id, entry] of entries) {
-      if (count >= STORAGE_MAX_ENTRIES) break;
-      const serialized = JSON.stringify(entry);
-      if (bytes + serialized.length > STORAGE_MAX_BYTES) break;
-      out[id] = entry;
-      bytes += serialized.length;
-      count++;
-    }
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(out));
-  } catch {
-    // Quota exceeded or private mode — silently give up, in-memory cache still works
+export function setCachedThread(
+  threadId: string,
+  messages: EmailMessage[],
+  accountEmail?: string,
+) {
+  const resolvedAccountEmail =
+    accountEmail ??
+    messages.find((message) => message.accountEmail)?.accountEmail;
+  const key = cacheKey(threadId, resolvedAccountEmail);
+  cache.set(key, {
+    messages,
+    fetchedAt: Date.now(),
+    providerSnapshotId: cache.get(key)?.providerSnapshotId,
+  });
+  notify(key);
+}
+
+export function supersedeCachedThreadFetch(
+  threadId: string,
+  accountEmail?: string,
+) {
+  const keys = accountEmail
+    ? [cacheKey(threadId, accountEmail)]
+    : keysForThread(threadId);
+  if (keys.length === 0) keys.push(cacheKey(threadId));
+  let superseded = false;
+  for (const key of keys) {
+    superseded = inflight.delete(key) || superseded;
+    versions.set(key, getVersion(key) + 1);
   }
-}
-
-export function getCachedThread(threadId: string): EmailMessage[] | undefined {
-  return cache.get(threadId)?.messages;
-}
-
-export function setCachedThread(threadId: string, messages: EmailMessage[]) {
-  cache.set(threadId, { messages, fetchedAt: Date.now() });
-  notify(threadId);
-  scheduleFlush();
+  return superseded;
 }
 
 export function invalidateCachedThread(threadId: string) {
-  cache.delete(threadId);
-  inflight.delete(threadId);
-  versions.set(threadId, getVersion(threadId) + 1);
-  notify(threadId);
-  scheduleFlush();
+  const keys = keysForThread(threadId);
+  if (keys.length === 0) keys.push(cacheKey(threadId));
+  for (const key of keys) {
+    cache.delete(key);
+    inflight.delete(key);
+    versions.set(key, getVersion(key) + 1);
+    notify(key);
+  }
 }
 
-// If a cached entry is older than this, we still return it instantly but
-// kick off a background refresh so updates land without the user waiting.
-const STALE_AFTER = 60 * 1000; // 1 minute
+const STALE_AFTER = 60 * 1000;
 
-// Fetch if not already cached or in flight. Safe to call many times for the
-// same id — dedupes via the inflight map.
 export function ensureThread(
   threadId: string,
   accountEmail?: string,
 ): Promise<EmailMessage[]> {
-  const cached = cache.get(threadId);
+  const key = cacheKey(threadId, accountEmail);
+  const cached = cache.get(key);
   if (cached) {
-    // Stale-while-revalidate: return cached instantly, refresh in background.
     if (
       Date.now() - cached.fetchedAt > STALE_AFTER &&
-      !inflight.get(threadId) &&
+      !inflight.get(key) &&
       canRunBackgroundFetch()
     ) {
       void backgroundRefresh(threadId, accountEmail);
     }
     return Promise.resolve(cached.messages);
   }
-  const existing = inflight.get(threadId);
-  if (existing) return existing;
-  const startedVersion = getVersion(threadId);
+  const existing = inflight.get(key);
+  if (existing) return existing.then(({ messages }) => messages);
+  const startedVersion = getFetchVersion(key);
   const p = fetchThread(threadId, accountEmail)
-    .then((messages) => {
-      // If invalidateCachedThread ran while we were in flight, the version
-      // bumped — discard the stale response rather than repopulating.
-      if (getVersion(threadId) !== startedVersion) {
-        inflight.delete(threadId);
-        return messages;
+    .then((result) => {
+      if (getFetchVersion(key) !== startedVersion) {
+        clearOwnedInflight(key, p);
+        return result;
       }
-      cache.set(threadId, { messages, fetchedAt: Date.now() });
-      inflight.delete(threadId);
-      notify(threadId);
-      scheduleFlush();
-      return messages;
+      cache.set(key, {
+        messages: result.messages,
+        fetchedAt: Date.now(),
+        providerSnapshotId: result.providerSnapshotId,
+      });
+      clearOwnedInflight(key, p);
+      notify(key);
+      return result;
     })
     .catch((err) => {
-      inflight.delete(threadId);
+      clearOwnedInflight(key, p);
       throw err;
     });
-  inflight.set(threadId, p);
-  return p;
+  inflight.set(key, p);
+  return p.then(({ messages }) => messages);
 }
 
-// Silently refresh a cached thread. Only notifies subscribers if the content
-// actually changed, avoiding re-render churn when nothing's new.
-function backgroundRefresh(threadId: string, accountEmail?: string) {
-  if (!canRunBackgroundFetch()) return Promise.resolve([]);
-  const startedVersion = getVersion(threadId);
+function backgroundRefresh(
+  threadId: string,
+  accountEmail?: string,
+): Promise<ThreadFetchResult> {
+  if (!canRunBackgroundFetch())
+    return Promise.resolve({
+      messages: cache.get(cacheKey(threadId, accountEmail))?.messages ?? [],
+      providerSnapshotId: 0,
+    });
+  const key = cacheKey(threadId, accountEmail);
+  const startedVersion = getFetchVersion(key);
   const p = fetchThread(threadId, accountEmail)
-    .then((messages) => {
-      if (getVersion(threadId) !== startedVersion) {
-        inflight.delete(threadId);
-        return messages;
+    .then((result) => {
+      if (getFetchVersion(key) !== startedVersion) {
+        clearOwnedInflight(key, p);
+        return result;
       }
-      const prev = cache.get(threadId);
-      cache.set(threadId, { messages, fetchedAt: Date.now() });
-      inflight.delete(threadId);
-      scheduleFlush();
+      const prev = cache.get(key);
+      cache.set(key, {
+        messages: result.messages,
+        fetchedAt: Date.now(),
+        providerSnapshotId: result.providerSnapshotId,
+      });
+      clearOwnedInflight(key, p);
       const prevJson = prev ? JSON.stringify(prev.messages) : "";
-      const nextJson = JSON.stringify(messages);
-      if (prevJson !== nextJson) notify(threadId);
-      return messages;
+      const nextJson = JSON.stringify(result.messages);
+      if (
+        prevJson !== nextJson ||
+        prev?.providerSnapshotId !== result.providerSnapshotId
+      )
+        notify(key);
+      return result;
     })
     .catch(() => {
-      inflight.delete(threadId);
-      return [];
+      clearOwnedInflight(key, p);
+      return { messages: [], providerSnapshotId: 0 };
     });
-  inflight.set(threadId, p);
+  inflight.set(key, p);
   return p;
 }
 
-// Bulk warm a tiny window of likely-next threads. Direct clicks still fetch
-// immediately; this background path backs off completely after a quota error.
+export function refreshCachedThread(threadId: string, accountEmail?: string) {
+  return backgroundRefresh(threadId, accountEmail);
+}
+
 export function warmThreads(targets: WarmTarget[], concurrency = 2) {
   if (!canRunBackgroundFetch()) return;
   const queue = targets
     .map(normalizeTarget)
-    .filter((target) => !cache.has(target.id) && !inflight.has(target.id))
+    .filter((target) => {
+      const key = cacheKey(target.id, target.accountEmail);
+      return !cache.has(key) && !inflight.has(key);
+    })
     .slice(0, WARM_BATCH_LIMIT);
   if (queue.length === 0) return;
   let active = 0;
@@ -309,53 +413,61 @@ export function warmThreads(targets: WarmTarget[], concurrency = 2) {
   pump();
 }
 
-// React hook: returns cached messages (or undefined), kicks off a fetch if
-// missing, re-renders when this threadId's entry changes.
 export function useThreadCache(
   threadId: string | undefined,
   placeholder?: EmailMessage[],
   accountEmail?: string,
 ): {
   messages: EmailMessage[] | undefined;
+  providerSnapshotId: number;
   isFromCache: boolean;
   isLoading: boolean;
 } {
   const [, force] = useState(0);
+  const key = threadId ? cacheKey(threadId, accountEmail) : undefined;
   useEffect(() => {
-    if (!threadId) return;
+    if (!key) return;
     const fn = () => force((n) => n + 1);
-    let set = subscribers.get(threadId);
+    let set = subscribers.get(key);
     if (!set) {
       set = new Set();
-      subscribers.set(threadId, set);
+      subscribers.set(key, set);
     }
     set.add(fn);
     return () => {
       set!.delete(fn);
-      if (set!.size === 0) subscribers.delete(threadId);
+      if (set!.size === 0) subscribers.delete(key);
     };
-  }, [threadId]);
+  }, [key]);
 
   if (!threadId) {
-    return { messages: undefined, isFromCache: false, isLoading: false };
+    return {
+      messages: undefined,
+      providerSnapshotId: 0,
+      isFromCache: false,
+      isLoading: false,
+    };
   }
-  const hit = cache.get(threadId);
+  const hit = cache.get(key!);
   if (hit) {
-    return { messages: hit.messages, isFromCache: true, isLoading: false };
+    return {
+      messages: hit.messages,
+      providerSnapshotId: hit.providerSnapshotId ?? 0,
+      isFromCache: true,
+      isLoading: false,
+    };
   }
-  // Kick off the fetch synchronously during render for cold opens so the
-  // hook returns isLoading=true on the first paint. ensureThread dedupes.
-  if (!inflight.has(threadId)) {
+  if (!inflight.has(key!)) {
     void ensureThread(threadId, accountEmail).catch(() => {});
   }
   return {
     messages: placeholder,
+    providerSnapshotId: 0,
     isFromCache: false,
-    isLoading: inflight.has(threadId),
+    isLoading: inflight.has(key!),
   };
 }
 
-// Devtools: inspect via `window.__threadCache` in the console.
 if (typeof window !== "undefined") {
   (window as any).__threadCache = {
     cache,
@@ -365,13 +477,6 @@ if (typeof window !== "undefined") {
     invalidate: invalidateCachedThread,
     size: () => cache.size,
     keys: () => [...cache.keys()],
-    flush: () => flushToStorage(),
-    clearStorage: () => {
-      try {
-        window.localStorage.removeItem(STORAGE_KEY);
-        console.log("[thread-cache] localStorage cleared");
-      } catch {}
-    },
   };
 
   (window as any).__showSkeleton = () => {
@@ -388,9 +493,6 @@ if (typeof window !== "undefined") {
       return origFetch.call(window, url, opts);
     } as typeof fetch;
     cache.clear();
-    try {
-      window.localStorage.removeItem(STORAGE_KEY);
-    } catch {}
     console.log(
       "[skeleton] Thread API blocked, cache cleared. Click an email to see the skeleton.",
     );
@@ -408,5 +510,5 @@ if (typeof window !== "undefined") {
   };
 }
 
-// Hydrate after everything above is defined.
-loadFromStorage();
+// Thread bodies are private account data and must not survive a sign-out.
+clearLegacyThreadStorage();

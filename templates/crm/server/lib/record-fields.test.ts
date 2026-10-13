@@ -1,11 +1,3 @@
-// Integration tests for the bitemporal attribute writer. Boots a real libsql
-// (SQLite) database on disk, seeds the PRE-bitemporal shape of
-// `crm_record_fields` with rows, then runs the actual versioned migrations over
-// it — so every test here runs against an upgraded database, not a fresh one.
-// That distinction is load-bearing: SQLite accepts `ADD COLUMN … NOT NULL
-// DEFAULT (datetime('now'))` on an empty table and rejects it on a populated
-// one, so a fresh-database-only test passes while every real upgrade fails.
-
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,7 +10,7 @@ import type { CrmWritableAttribute } from "./record-fields.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `crm-record-fields-test-${process.pid}-${Date.now()}.sqlite`,
+  `crm-record-fields-test-${process.pid}-${Date.now()}.pglite`,
 );
 
 const OWNER = "owner@example.test";
@@ -29,7 +21,6 @@ let schema: Schema;
 let writeCrmRecordField: typeof import("./record-fields.js").writeCrmRecordField;
 let CrmUnknownOptionError: typeof import("./record-fields.js").CrmUnknownOptionError;
 
-/** `crm_record_fields` and its unique index exactly as migration v1 left them. */
 const LEGACY_RECORD_FIELDS_DDL = `CREATE TABLE IF NOT EXISTS crm_record_fields (
   id TEXT PRIMARY KEY,
   record_id TEXT NOT NULL,
@@ -45,15 +36,15 @@ const LEGACY_RECORD_FIELDS_DDL = `CREATE TABLE IF NOT EXISTS crm_record_fields (
   access_scope_key TEXT NOT NULL DEFAULT 'unverified',
   access_scope_json TEXT NOT NULL DEFAULT '{}',
   remote_revision TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+  updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
   owner_email TEXT NOT NULL DEFAULT 'local@localhost',
   org_id TEXT,
   visibility TEXT NOT NULL DEFAULT 'private'
 )`;
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
@@ -77,9 +68,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"]) {
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  }
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
 let counter = 0;
@@ -184,8 +173,6 @@ describe("bitemporal upgrade of an existing database", () => {
       }),
     );
 
-    // The v1 unique index spanned every row for (record_id, field_name); a
-    // second history row is only possible once it has been replaced.
     const rows = await rowsFor("legacy_record", "stage");
     expect(rows.map((row: any) => [row.stringValue, row.activeUntil])).toEqual([
       ["Discovery", "2026-04-01T00:00:00.000Z"],
@@ -402,7 +389,6 @@ describe("bitemporal CRM attribute writer", () => {
         actor: { type: "provider" },
         ownership,
       });
-      // Same value, different key order — must not open a history row.
       const reordered = await writeCrmRecordField({
         target: { recordId },
         attribute: attr,
@@ -456,7 +442,6 @@ describe("bitemporal CRM attribute writer", () => {
     expect(rows[0].jsonValue).toBe(
       '["ada@example.com","ada@work.example.com"]',
     );
-    // Sub-fields come from the primary (first) entry of the set.
     expect(rows[0].emailLocal).toBe("ada");
     expect(rows[0].emailRootDomain).toBe("example.com");
   });

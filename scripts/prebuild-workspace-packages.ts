@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
-type PrebuildMode = "dev" | "postinstall";
+type PrebuildMode = "agentkit-acceptance" | "dev" | "postinstall";
 
 interface PackageTarget {
   id: string;
@@ -95,6 +95,13 @@ function exportedDistOutputs(packageDir: string): string[] {
 
 const targets: PackageTarget[] = [
   {
+    id: "agentkit",
+    name: "@agent-native/agentkit",
+    dir: "packages/agentkit",
+    expectedOutputs: exportedDistOutputs("packages/agentkit"),
+    tsBuildInfoFiles: ["node_modules/.cache/tsbuildinfo/agentkit.tsbuildinfo"],
+  },
+  {
     id: "recap-cli",
     name: "@agent-native/recap-cli",
     dir: "packages/recap-cli",
@@ -181,6 +188,13 @@ const targets: PackageTarget[] = [
     tsBuildInfoFiles: ["node_modules/.cache/tsbuildinfo/embedding.tsbuildinfo"],
   },
   {
+    id: "otel",
+    name: "@agent-native/otel",
+    dir: "packages/otel",
+    expectedOutputs: exportedDistOutputs("packages/otel"),
+    tsBuildInfoFiles: ["node_modules/.cache/tsbuildinfo/otel.tsbuildinfo"],
+  },
+  {
     id: "dispatch",
     name: "@agent-native/dispatch",
     dir: "packages/dispatch",
@@ -190,7 +204,9 @@ const targets: PackageTarget[] = [
 ];
 
 const modeTargets: Record<PrebuildMode, string[]> = {
+  "agentkit-acceptance": ["agentkit", "toolkit", "core"],
   dev: [
+    "agentkit",
     "recap-cli",
     "shared-app-config",
     "toolkit",
@@ -200,8 +216,10 @@ const modeTargets: Record<PrebuildMode, string[]> = {
     "scheduling",
     "dispatch",
     "pinpoint",
+    "otel",
   ],
   postinstall: [
+    "agentkit",
     "recap-cli",
     "shared-app-config",
     "toolkit",
@@ -213,14 +231,17 @@ const modeTargets: Record<PrebuildMode, string[]> = {
     "scheduling",
     "embedding",
     "dispatch",
+    "otel",
   ],
 };
 
 function readMode(): PrebuildMode {
   const raw = process.argv[2] ?? "dev";
-  if (raw === "dev" || raw === "postinstall") return raw;
+  if (raw === "agentkit-acceptance" || raw === "dev" || raw === "postinstall") {
+    return raw;
+  }
   console.error(
-    `[prebuild-workspace-packages] Unknown mode "${raw}". Use dev or postinstall.`,
+    `[prebuild-workspace-packages] Unknown mode "${raw}". Use agentkit-acceptance, dev, or postinstall.`,
   );
   process.exit(1);
 }
@@ -236,9 +257,12 @@ function firstMissingOutput(target: PackageTarget): string | null {
   return null;
 }
 
-function clearStaleBuildInfo(target: PackageTarget): void {
+function clearStaleBuildInfo(
+  target: PackageTarget,
+  options: { force: boolean },
+): void {
   const missingOutput = firstMissingOutput(target);
-  if (!missingOutput) return;
+  if (!missingOutput && !options.force) return;
 
   const removed: string[] = [];
   for (const buildInfo of target.tsBuildInfoFiles ?? []) {
@@ -250,10 +274,12 @@ function clearStaleBuildInfo(target: PackageTarget): void {
 
   if (removed.length > 0) {
     console.log(
-      `[prebuild-workspace-packages] ${target.name}: ${path.join(
-        target.dir,
-        missingOutput,
-      )} is missing; removed stale ${removed.join(", ")}`,
+      options.force
+        ? `[prebuild-workspace-packages] ${target.name}: removed incremental state for a deterministic acceptance build: ${removed.join(", ")}`
+        : `[prebuild-workspace-packages] ${target.name}: ${path.join(
+            target.dir,
+            missingOutput!,
+          )} is missing; removed stale ${removed.join(", ")}`,
     );
   }
 }
@@ -266,23 +292,10 @@ const selectedTargets = modeTargets[mode].map((id) => {
 });
 
 for (const target of selectedTargets) {
-  clearStaleBuildInfo(target);
+  clearStaleBuildInfo(target, { force: mode === "agentkit-acceptance" });
 }
 
 const filters = selectedTargets.flatMap((target) => ["--filter", target.name]);
-const nativeRepairSource = path.resolve(
-  "packages/core/src/cli/native-dependencies.ts",
-);
-if (!existsSync(nativeRepairSource)) {
-  throw new Error(
-    `[prebuild-workspace-packages] Missing native dependency repair source at ${nativeRepairSource}`,
-  );
-}
-execFileSync(process.execPath, [nativeRepairSource, "--repair"], {
-  cwd: process.cwd(),
-  stdio: "inherit",
-});
-
 console.log(
   `[prebuild-workspace-packages] Building ${selectedTargets
     .map((target) => target.name)
@@ -291,19 +304,5 @@ console.log(
 execFileSync(pnpmExecutable(), [...filters, "run", "build"], {
   cwd: process.cwd(),
   stdio: "inherit",
-  // .cmd files on Windows require shell:true to be found by execFileSync.
   shell: process.platform === "win32",
-});
-
-const nativeRepairScript = path.resolve(
-  "packages/core/dist/cli/native-dependencies.js",
-);
-if (!existsSync(nativeRepairScript)) {
-  throw new Error(
-    `[prebuild-workspace-packages] Missing native dependency repair script at ${nativeRepairScript}`,
-  );
-}
-execFileSync(process.execPath, [nativeRepairScript, "--repair"], {
-  cwd: process.cwd(),
-  stdio: "inherit",
 });

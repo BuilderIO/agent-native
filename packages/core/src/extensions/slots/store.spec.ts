@@ -2,10 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createTestPglite } from "../../a2a/test-pglite.js";
 import { runWithRequestContext } from "../../server/request-context.js";
 import { ForbiddenError } from "../../sharing/access.js";
 import { registerShareableResource } from "../../sharing/registry.js";
@@ -20,34 +20,29 @@ import {
   EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL,
 } from "./schema.js";
 
-// One real in-memory sqlite DB shared between the slot store's drizzle handle
-// (createGetDb is mocked to return it) and the raw getDbExec client used by
-// ensureSlotTables for DDL, plus the registered "extension" shareable resource
-// so access scoping is exercised for real (not mocked away).
-let sqlite: Database.Database;
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let db: ReturnType<typeof drizzle>;
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(input.sql);
+    const stmt = await pglite.prepare(input.sql);
     if (/^\s*select/i.test(input.sql)) {
-      const rows = stmt.all(...((input.args ?? []) as unknown[]));
+      const rows = await stmt.all(...((input.args ?? []) as unknown[]));
       return { rows, rowsAffected: 0 };
     }
-    const info = stmt.run(...((input.args ?? []) as unknown[]));
+    const info = await stmt.run(...((input.args ?? []) as unknown[]));
     return { rows: [], rowsAffected: info.changes };
   }),
 };
 
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => rawClient,
-  isPostgres: () => false,
-  getDialect: () => "sqlite",
-  intType: () => "INTEGER",
+  getScopedDbExec: () => undefined,
+  isProductionServerlessFunctionRuntime: () => false,
 }));
 
 vi.mock("../../db/create-get-db.js", () => ({
@@ -102,28 +97,26 @@ function shareToUser(resourceId: string, email: string, role = "viewer") {
 }
 
 let memberSeq = 0;
-function addOrgMember(orgId: string, email: string) {
-  sqlite
-    .prepare(
+async function addOrgMember(orgId: string, email: string) {
+  await (
+    await pglite.prepare(
       `INSERT INTO org_members (id, org_id, email, role, joined_at)
        VALUES (?, ?, ?, ?, ?)`,
     )
-    .run(`member-${++memberSeq}`, orgId, email, "member", Date.now());
+  ).run(`member-${++memberSeq}`, orgId, email, "member", Date.now());
 }
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
-  // Mirror the real extensions/extension_shares tables so accessFilter and
-  // resolveAccess run against genuine rows.
-  sqlite.exec(`
+beforeEach(async () => {
+  pglite = await createTestPglite();
+  await pglite.exec(`
     CREATE TABLE tools (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
       content TEXT NOT NULL DEFAULT '',
       icon TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT now(),
+      updated_at TEXT NOT NULL DEFAULT now(),
       archived_at TEXT,
       hidden_at TEXT,
       hidden_by TEXT,
@@ -138,24 +131,34 @@ beforeEach(() => {
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT now(),
+      notified_at TEXT
     );
     CREATE TABLE org_members (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL,
       email TEXT NOT NULL,
       role TEXT NOT NULL,
-      joined_at INTEGER NOT NULL
+      joined_at BIGINT NOT NULL,
+      federation_removal_pending_at INTEGER
+    );
+    CREATE TABLE organizations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at BIGINT NOT NULL,
+      identity_authority TEXT,
+      identity_id TEXT
     );
   `);
-  sqlite.exec(EXTENSION_SLOTS_CREATE_SQL);
-  sqlite.exec(EXTENSION_SLOTS_BY_SLOT_INDEX_SQL);
-  sqlite.exec(EXTENSION_SLOTS_BY_EXTENSION_INDEX_SQL);
-  sqlite.exec(EXTENSION_SLOTS_UNIQUE_INDEX_SQL);
-  sqlite.exec(EXTENSION_SLOT_INSTALLS_CREATE_SQL);
-  sqlite.exec(EXTENSION_SLOT_INSTALLS_BY_USER_SLOT_INDEX_SQL);
-  sqlite.exec(EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL);
-  db = drizzle(sqlite);
+  await pglite.exec(EXTENSION_SLOTS_CREATE_SQL);
+  await pglite.exec(EXTENSION_SLOTS_BY_SLOT_INDEX_SQL);
+  await pglite.exec(EXTENSION_SLOTS_BY_EXTENSION_INDEX_SQL);
+  await pglite.exec(EXTENSION_SLOTS_UNIQUE_INDEX_SQL);
+  await pglite.exec(EXTENSION_SLOT_INSTALLS_CREATE_SQL);
+  await pglite.exec(EXTENSION_SLOT_INSTALLS_BY_USER_SLOT_INDEX_SQL);
+  await pglite.exec(EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL);
+  db = drizzle(pglite.db);
 
   registerShareableResource({
     type: "extension",
@@ -169,8 +172,8 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
-  sqlite.close();
+afterEach(async () => {
+  await pglite.close();
   vi.clearAllMocks();
 });
 
@@ -182,7 +185,6 @@ function writeJson(filePath: string, value: unknown) {
 describe("extension slots: slot-target declarations", () => {
   it("requires editor access on the extension to declare a slot target", async () => {
     await insertExtension({ id: "ext-1" });
-    // Viewer-only share — not enough to declare a slot target.
     await shareToUser("ext-1", VIEWER, "viewer");
 
     await runWithRequestContext({ userEmail: VIEWER, orgId: ORG }, async () => {
@@ -191,7 +193,6 @@ describe("extension slots: slot-target declarations", () => {
       ).rejects.toBeInstanceOf(ForbiddenError);
     });
 
-    // No declaration row should have been written.
     await runWithRequestContext({ userEmail: OWNER, orgId: ORG }, async () => {
       await expect(listSlotsForExtension("ext-1")).resolves.toEqual([]);
     });
@@ -212,8 +213,6 @@ describe("extension slots: slot-target declarations", () => {
         config: '{"variant":"compact"}',
       });
 
-      // Re-declaring the same (extension, slot) pair returns the existing row
-      // instead of throwing on the unique index.
       const again = await addExtensionSlotTarget("ext-1", "mail.sidebar");
       expect(again.id).toBe(first.id);
 
@@ -343,10 +342,8 @@ describe("extension slots: listExtensionsForSlot scoping", () => {
     });
     await shareToUser("shared", OWNER, "viewer");
 
-    // Declare all three in the same slot (declaration auth is checked when
-    // adding; insert directly to bypass and focus on the read-side scoping).
     for (const id of ["mine", "theirs", "shared"]) {
-      sqlite
+      await pglite
         .prepare(
           `INSERT INTO tool_slots (id, tool_id, slot_id, config, created_at)
            VALUES (?, ?, 'calendar.panel', NULL, '2026-04-30T00:00:00.000Z')`,
@@ -360,14 +357,13 @@ describe("extension slots: listExtensionsForSlot scoping", () => {
         "mine",
         "shared",
       ]);
-      // "theirs" (private, not shared) must never leak.
       expect(visible.some((e) => e.extensionId === "theirs")).toBe(false);
     });
   });
 
   it("returns an empty list when the caller can see no extensions", async () => {
     await insertExtension({ id: "theirs", ownerEmail: OUTSIDER });
-    sqlite
+    await pglite
       .prepare(
         `INSERT INTO tool_slots (id, tool_id, slot_id, config, created_at)
          VALUES ('d1', 'theirs', 'calendar.panel', NULL, '2026-04-30T00:00:00.000Z')`,
@@ -408,7 +404,6 @@ describe("extension slots: install / uninstall", () => {
       expect(a.ownerEmail).toBe(OWNER);
       expect(a.orgId).toBe(ORG);
 
-      // A different slot starts its own position sequence at 0.
       const otherSlot = await installExtensionSlot("ext-a", "calendar.panel");
       expect(otherSlot.position).toBe(0);
     });
@@ -424,8 +419,6 @@ describe("extension slots: install / uninstall", () => {
       });
       expect(first.position).toBe(7);
 
-      // Re-installing returns the existing row (does not create a duplicate or
-      // bump position).
       const again = await installExtensionSlot("ext-a", "mail.sidebar", {
         position: 99,
       });
@@ -443,25 +436,22 @@ describe("extension slots: install / uninstall", () => {
       ownerEmail: OWNER,
       visibility: "org",
     });
-    addOrgMember(ORG, VIEWER);
+    await addOrgMember(ORG, VIEWER);
 
     await runWithRequestContext({ userEmail: OWNER, orgId: ORG }, () =>
       installExtensionSlot("ext-a", "mail.sidebar"),
     );
 
-    // VIEWER can see ext-a (org visibility) but has installed nothing.
     await runWithRequestContext({ userEmail: VIEWER, orgId: ORG }, async () => {
       await expect(listSlotInstallsForUser("mail.sidebar")).resolves.toEqual(
         [],
       );
-      // VIEWER installs for themselves.
       await installExtensionSlot("ext-a", "mail.sidebar");
       const mine = await listSlotInstallsForUser("mail.sidebar");
       expect(mine).toHaveLength(1);
       expect(mine[0].extensionId).toBe("ext-a");
     });
 
-    // OWNER still sees only their own single install.
     await runWithRequestContext({ userEmail: OWNER, orgId: ORG }, async () => {
       await expect(
         listSlotInstallsForUser("mail.sidebar"),
@@ -475,7 +465,7 @@ describe("extension slots: install / uninstall", () => {
       ownerEmail: OWNER,
       visibility: "org",
     });
-    addOrgMember(ORG, VIEWER);
+    await addOrgMember(ORG, VIEWER);
 
     await runWithRequestContext({ userEmail: OWNER, orgId: ORG }, () =>
       installExtensionSlot("ext-a", "mail.sidebar"),
@@ -484,7 +474,6 @@ describe("extension slots: install / uninstall", () => {
       installExtensionSlot("ext-a", "mail.sidebar"),
     );
 
-    // VIEWER uninstalls — OWNER's install must remain.
     await runWithRequestContext({ userEmail: VIEWER, orgId: ORG }, async () => {
       await expect(
         uninstallExtensionSlot("ext-a", "mail.sidebar"),
@@ -504,11 +493,9 @@ describe("extension slots: install / uninstall", () => {
     await insertExtension({ id: "ext-a", ownerEmail: OWNER });
 
     await runWithRequestContext({ userEmail: undefined }, async () => {
-      // install runs the access check first; with no user it has no access.
       await expect(
         installExtensionSlot("ext-a", "mail.sidebar"),
       ).rejects.toBeInstanceOf(ForbiddenError);
-      // uninstall has no access check — it falls straight to requireUserEmail().
       await expect(
         uninstallExtensionSlot("ext-a", "mail.sidebar"),
       ).rejects.toThrow(/authenticated user/i);
@@ -520,8 +507,6 @@ describe("extension slots: listSlotInstallsForUser", () => {
   it("sorts by position and lazily skips installs the user lost access to", async () => {
     await insertExtension({ id: "ext-a", ownerEmail: OWNER });
     await insertExtension({ id: "ext-b", ownerEmail: OWNER });
-    // ext-gone: owned by an outsider, never shared — represents an extension
-    // the user installed earlier but has since lost access to.
     await insertExtension({ id: "ext-gone", ownerEmail: OUTSIDER });
 
     await runWithRequestContext({ userEmail: OWNER, orgId: ORG }, async () => {
@@ -529,10 +514,7 @@ describe("extension slots: listSlotInstallsForUser", () => {
       await installExtensionSlot("ext-a", "mail.sidebar", { position: 1 });
     });
 
-    // Directly insert an install row for ext-gone owned by OWNER (simulating a
-    // stale install), so listSlotInstallsForUser must filter it out because
-    // accessFilter no longer admits ext-gone.
-    sqlite
+    await pglite
       .prepare(
         `INSERT INTO tool_slot_installs
           (id, tool_id, slot_id, owner_email, org_id, position, config, created_at, updated_at)
@@ -542,10 +524,8 @@ describe("extension slots: listSlotInstallsForUser", () => {
 
     await runWithRequestContext({ userEmail: OWNER, orgId: ORG }, async () => {
       const installs = await listSlotInstallsForUser("mail.sidebar");
-      // ext-gone is silently dropped; the rest are sorted by position asc.
       expect(installs.map((i) => i.extensionId)).toEqual(["ext-a", "ext-b"]);
       expect(installs[0]).toMatchObject({ name: "ext-a", position: 1 });
-      // Joined extension metadata is present.
       expect(installs[0].description).toBe("ext-a description");
     });
   });
@@ -563,14 +543,16 @@ describe("extension slots: cascadeDeleteExtensionSlots", () => {
 
     await cascadeDeleteExtensionSlots("ext-a");
 
-    const slotRows = sqlite
-      .prepare(`SELECT COUNT(*) AS c FROM tool_slots WHERE tool_id = 'ext-a'`)
-      .get() as { c: number };
-    const installRows = sqlite
-      .prepare(
+    const slotRows = (await (
+      await pglite.prepare(
+        `SELECT COUNT(*) AS c FROM tool_slots WHERE tool_id = 'ext-a'`,
+      )
+    ).get()) as { c: number };
+    const installRows = (await (
+      await pglite.prepare(
         `SELECT COUNT(*) AS c FROM tool_slot_installs WHERE tool_id = 'ext-a'`,
       )
-      .get() as { c: number };
+    ).get()) as { c: number };
     expect(slotRows.c).toBe(0);
     expect(installRows.c).toBe(0);
   });

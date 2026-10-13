@@ -1,0 +1,909 @@
+import { createRequire } from "node:module";
+
+import { afterEach, describe, expect, it } from "vitest";
+
+import { interpolateDashboardPanelSql } from "../../app/pages/adhoc/sql-dashboard/interpolate";
+import { FIRST_PARTY_BIGQUERY_RETENTION_SQL } from "./canonical-first-party-dashboard-repair";
+import { buildPanel } from "./first-party-metric-catalog";
+
+const { PGlite } = createRequire(
+  new URL("../../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
+type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
+
+function interpolate(sql: string, values: Record<string, string>): string {
+  return sql.replace(
+    /{{\s*([A-Za-z0-9_]+)\s*}}/g,
+    (_match, key: string) => values[key] ?? "",
+  );
+}
+
+async function createAnalyticsEventsTable(client: PGliteClient) {
+  await client.query(`
+    CREATE TABLE analytics_events (
+      id text PRIMARY KEY,
+      event_name text NOT NULL,
+      user_id text,
+      user_key text,
+      timestamp text NOT NULL,
+      event_date text,
+      app text,
+      template text,
+      signed_in text,
+      properties text NOT NULL DEFAULT '{}'
+    )
+  `);
+}
+
+let nextRowId = 0;
+async function seedFirstSeenEvent(
+  client: PGliteClient,
+  userKey: string,
+  date: string,
+  template = "chat",
+  authUserId: string | null = userKey,
+  userEmail = `${userKey}@example.com`,
+) {
+  const rowId = `row-${nextRowId++}`;
+  await client.query(
+    `INSERT INTO analytics_events (id, event_name, user_id, user_key, timestamp, event_date, template, properties)
+     VALUES ($1, 'run_started', $2, $3, $4, $4, $5, $6)`,
+    [
+      rowId,
+      userEmail,
+      userKey,
+      date,
+      template,
+      JSON.stringify({
+        thread_id: `thread-${rowId}`,
+        attempt_id: `attempt-${rowId}`,
+        ...(authUserId ? { auth_user_id: authUserId } : {}),
+      }),
+    ],
+  );
+}
+
+function offsetDate(isoDate: string, n: number): string {
+  const [year, month, day] = isoDate.split("-").map(Number);
+  const ms = Date.UTC(year, month - 1, day) - n * 86_400_000;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+describe("retention-over-time panel SQL", () => {
+  let client: PGliteClient;
+
+  afterEach(async () => {
+    await client?.close();
+  });
+
+  it("filters retention by email on canonical identity in both query backends", () => {
+    const postgresSql = buildPanel("retention-over-time")!.sql;
+
+    for (const sql of [postgresSql, FIRST_PARTY_BIGQUERY_RETENTION_SQL]) {
+      expect(sql).toContain("identity_emails AS");
+      expect(sql).toContain("identity_emails.email");
+    }
+    expect(postgresSql).toContain(
+      "NULLIF(properties::jsonb ->> 'auth_user_id', '')",
+    );
+    expect(FIRST_PARTY_BIGQUERY_RETENTION_SQL).toContain(
+      "NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '')",
+    );
+    expect(postgresSql).toContain(
+      "ROW_NUMBER() OVER (PARTITION BY NULLIF(properties::jsonb ->> 'auth_user_id', '') ORDER BY timestamp DESC, user_id DESC)",
+    );
+    expect(FIRST_PARTY_BIGQUERY_RETENTION_SQL).toContain("ARRAY_AGG(");
+  });
+
+  it("splits BigQuery retention by first-touch signup channel", () => {
+    for (const field of ["gclid", "msclkid", "vector_source"]) {
+      expect(FIRST_PARTY_BIGQUERY_RETENTION_SQL).toContain(
+        `JSON_VALUE(properties, '$.${field}')`,
+      );
+    }
+    expect(FIRST_PARTY_BIGQUERY_RETENTION_SQL).toContain(
+      "CONCAT('1-7d return (', channels.channel, ')') AS period",
+    );
+    expect(FIRST_PARTY_BIGQUERY_RETENTION_SQL).toContain(
+      "channel_cohort_sizes AS",
+    );
+    expect(FIRST_PARTY_BIGQUERY_RETENTION_SQL).toContain(
+      "coverage.observed_days = coverage.expected_days",
+    );
+  });
+
+  it("uses canonical identity email filtering for all retention panels", () => {
+    const postgresQueries = [
+      "retention-over-time",
+      "one-day-retention-by-template",
+      "seven-day-retention-by-template",
+    ].map((key) => buildPanel(key)!.sql);
+
+    for (const sql of [
+      ...postgresQueries,
+      FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+    ]) {
+      expect(sql).toContain("identity_emails AS");
+      expect(sql).toContain("identity_emails.email");
+      expect(sql).toContain("'exclude_builder'");
+      expect(sql).toContain("'only_builder'");
+    }
+    for (const sql of postgresQueries) {
+      expect(sql).not.toContain("lower(coalesce(user_id, '')");
+      expect(sql).toContain(
+        "ROW_NUMBER() OVER (PARTITION BY NULLIF(properties::jsonb ->> 'auth_user_id', '') ORDER BY timestamp DESC, user_id DESC)",
+      );
+    }
+    for (const panelId of [
+      "one-day-retention-by-template",
+      "seven-day-retention-by-template",
+    ]) {
+      const sql = buildPanel(panelId)!.sql;
+      const identityStart = sql.indexOf("identity_emails AS");
+      const baseStart = sql.indexOf("), base AS", identityStart);
+      const baseEnds = [
+        sql.indexOf("), observed AS", baseStart),
+        sql.indexOf("), ranked_first_seen AS", baseStart),
+      ].filter((index) => index >= 0);
+      const baseEnd = Math.min(...baseEnds);
+
+      expect(identityStart).toBeGreaterThanOrEqual(0);
+      expect(baseStart).toBeGreaterThan(identityStart);
+      expect(sql.slice(identityStart, baseStart)).not.toContain(
+        "{{appFilter}}",
+      );
+      expect(baseEnd).toBeGreaterThan(baseStart);
+      expect(sql.slice(baseStart, baseEnd)).toContain("{{appFilter}}");
+    }
+  });
+
+  it("emits a full date spine with independently maturing 1-7d/7-14d rates instead of zero-filling immature days", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    const yesterday = offsetDate(today, 1);
+    const cohortADate = offsetDate(today, 20);
+    const cohortAReturnDay3 = offsetDate(cohortADate, -3);
+    const cohortAReturnDay10 = offsetDate(cohortADate, -10);
+    const cohortBDate = offsetDate(today, 10);
+
+    for (const userKey of ["a1", "a2", "a3", "a4", "a5"]) {
+      await seedFirstSeenEvent(client, userKey, cohortADate);
+    }
+    for (const userKey of ["a1", "a2", "a3"]) {
+      await seedFirstSeenEvent(client, userKey, cohortAReturnDay3);
+    }
+    for (const userKey of ["a4", "a5"]) {
+      await seedFirstSeenEvent(client, userKey, cohortAReturnDay10);
+    }
+
+    for (const userKey of ["b1", "b2", "b3", "b4", "b5"]) {
+      await seedFirstSeenEvent(client, userKey, cohortBDate);
+    }
+
+    const panel = buildPanel("retention-over-time")!;
+    const sql = interpolate(panel.sql, {
+      timeRange: "",
+      emailFilter: "",
+      appFilter: "",
+    });
+    type RetentionRow = {
+      date: string;
+      period: string;
+      retained_users: number | null;
+      cohort_users: number;
+      rate: number | null;
+    };
+    const rows = ((await client.query(sql)) as { rows: RetentionRow[] }).rows;
+
+    function row(date: string, period: string) {
+      const match = rows.find(
+        (r: RetentionRow) => r.date === date && r.period === period,
+      );
+      expect(match, `expected a row for ${date} / ${period}`).toBeDefined();
+      return match!;
+    }
+
+    for (const date of [today, yesterday]) {
+      expect(row(date, "1-7d return").rate).toBeNull();
+      expect(row(date, "7-14d return").rate).toBeNull();
+    }
+
+    expect(row(cohortADate, "1-7d return").rate).not.toBeNull();
+    expect(row(cohortADate, "1-7d return").cohort_users).toBe(5);
+    expect(row(cohortADate, "7-14d return").rate).not.toBeNull();
+    expect(row(cohortADate, "7-14d return").cohort_users).toBe(5);
+
+    expect(row(cohortBDate, "1-7d return").rate).not.toBeNull();
+    expect(row(cohortBDate, "7-14d return").rate).toBeNull();
+  });
+
+  it("splits 1-7d content/chat return into paid and untagged signups", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    const cohortDate = offsetDate(today, 20);
+    const returnDate = offsetDate(cohortDate, -2);
+    async function seedSignup(userKey: string, properties: object) {
+      await client.query(
+        `INSERT INTO analytics_events (id, event_name, user_id, user_key, timestamp, event_date, template, properties)
+         VALUES ($1, 'signup', $2, $3, $4, $4, 'slides', $5)`,
+        [
+          `signup-${userKey}`,
+          `${userKey}@example.com`,
+          userKey,
+          cohortDate,
+          JSON.stringify({ auth_user_id: userKey, ...properties }),
+        ],
+      );
+    }
+
+    for (let index = 0; index < 5; index++) {
+      const paid = `paid-${index}`;
+      const untagged = `untagged-${index}`;
+      const shared = `shared-${index}`;
+      await seedSignup(
+        paid,
+        index % 2
+          ? { utm_source: "google", utm_medium: "cpc", gclid: "g" }
+          : { utm_source: "bing", msclkid: "m", vector_source: "GOOGLE" },
+      );
+      await seedSignup(untagged, { referral_source: "direct" });
+      await seedSignup(shared, { referral_source: "clip_share", ref: "x" });
+      for (const userKey of [paid, untagged, shared]) {
+        await seedFirstSeenEvent(client, userKey, cohortDate, "slides");
+      }
+      if (index < 1) {
+        await seedFirstSeenEvent(client, paid, returnDate, "slides");
+      }
+      if (index < 4) {
+        await seedFirstSeenEvent(client, untagged, returnDate, "slides");
+      }
+    }
+
+    const sql = interpolate(buildPanel("retention-over-time")!.sql, {
+      timeRange: "",
+      emailFilter: "",
+      appFilter: "",
+    });
+    const rows = (
+      (await client.query(sql)) as {
+        rows: Array<{
+          date: string;
+          period: string;
+          cohort_users: number;
+          retained_users: number | null;
+          rate: number | null;
+        }>;
+      }
+    ).rows;
+    const at = (period: string) =>
+      rows.find((row) => row.date === cohortDate && row.period === period);
+    expect(at("1-7d return")).toMatchObject({
+      cohort_users: 15,
+      retained_users: 5,
+    });
+    expect(at("1-7d return (paid)")).toMatchObject({
+      cohort_users: 5,
+      retained_users: 1,
+      rate: 0.2,
+    });
+    expect(at("1-7d return (untagged)")).toMatchObject({
+      cohort_users: 5,
+      retained_users: 4,
+      rate: 0.8,
+    });
+  });
+
+  it("keeps an account that signed up long before the activity window in its signup channel", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    const cohortDate = offsetDate(today, 20);
+    const returnDate = offsetDate(cohortDate, -2);
+    const signedUpDate = offsetDate(today, 500);
+    for (let index = 0; index < 5; index++) {
+      const userKey = `returning-${index}`;
+      // Signed up 500 days ago, first seen again inside the window.
+      await client.query(
+        `INSERT INTO analytics_events (id, event_name, user_id, user_key, timestamp, event_date, template, properties)
+         VALUES ($1, 'signup', $2, $3, $4, $4, 'slides', $5)`,
+        [
+          `signup-${userKey}`,
+          `${userKey}@example.com`,
+          userKey,
+          signedUpDate,
+          JSON.stringify({ auth_user_id: userKey, gclid: "g" }),
+        ],
+      );
+      await seedFirstSeenEvent(client, userKey, cohortDate, "slides");
+      await seedFirstSeenEvent(client, userKey, returnDate, "slides");
+    }
+
+    const sql = interpolate(buildPanel("retention-over-time")!.sql, {
+      timeRange: "",
+      emailFilter: "",
+      appFilter: "",
+    });
+    const rows = (
+      (await client.query(sql)) as {
+        rows: Array<{
+          date: string;
+          period: string;
+          cohort_users: number;
+          retained_users: number | null;
+        }>;
+      }
+    ).rows;
+    const at = (period: string) =>
+      rows.find((row) => row.date === cohortDate && row.period === period);
+
+    expect(at("1-7d return")).toMatchObject({ cohort_users: 5 });
+    expect(at("1-7d return (paid)")).toMatchObject({
+      cohort_users: 5,
+      retained_users: 5,
+    });
+  });
+
+  it("reads chat readiness at prompt and unanswered turns per app", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    let row = 0;
+    async function seed(event: string, user: string, properties: object) {
+      await client.query(
+        `INSERT INTO analytics_events (id, event_name, user_id, user_key, timestamp, event_date, template, properties)
+         VALUES ($1, $2, $3, $4, $5, $5, 'slides', $6)`,
+        [
+          `readiness-${row++}`,
+          event,
+          `${user}@example.com`,
+          user,
+          today,
+          JSON.stringify({ auth_user_id: user, ...properties }),
+        ],
+      );
+    }
+    await seed("core_action_started", "ready", {
+      action_name: "chat_submit",
+      llm_chat_eligible: true,
+    });
+    await seed("run_started", "ready", {});
+    await seed("app.first_action", "blocked", {
+      action: "chat_submit",
+      llm_chat_eligible: false,
+    });
+    await seed("run_no_reply", "blocked", { stage: "not_started" });
+
+    const sql = interpolate(buildPanel("chat-readiness-by-app")!.sql, {
+      timeRange: "30d",
+      emailFilter: "all",
+      appFilter: "all",
+    });
+    const rows = ((await client.query(sql)) as { rows: unknown[] }).rows;
+    expect(rows).toEqual([
+      {
+        app: "slides",
+        prompt_users: 2,
+        chat_eligible_users: 1,
+        not_eligible_users: 1,
+        run_started_users: 1,
+        unanswered_users: 1,
+        unanswered_rate: 0.5,
+      },
+    ]);
+  });
+
+  it("scopes both current activity and prior cohort history to the selected App", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    const cohortDate = offsetDate(today, 20);
+    const returnDate = offsetDate(today, 17);
+    const priorDate = offsetDate(today, 40);
+
+    for (let index = 0; index < 5; index++) {
+      await seedFirstSeenEvent(client, `chat-${index}`, cohortDate);
+      await seedFirstSeenEvent(client, `chat-${index}`, priorDate, "mail");
+      await seedFirstSeenEvent(client, `mail-${index}`, cohortDate, "mail");
+      await seedFirstSeenEvent(client, `mail-${index}`, returnDate, "mail");
+      if (index < 3) {
+        await seedFirstSeenEvent(client, `chat-${index}`, returnDate);
+      }
+    }
+
+    const sql = interpolate(buildPanel("retention-over-time")!.sql, {
+      timeRange: "custom",
+      timeRangeStart: cohortDate,
+      timeRangeEnd: returnDate,
+      emailFilter: "all",
+      appFilter: "chat",
+    });
+    const rows = (
+      (await client.query(sql)) as {
+        rows: Array<{
+          date: string;
+          period: string;
+          cohort_users: number;
+          retained_users: number;
+          rate: number;
+        }>;
+      }
+    ).rows;
+    expect(
+      rows.find(
+        (row) => row.date === cohortDate && row.period === "1-7d return",
+      ),
+    ).toMatchObject({ cohort_users: 5, retained_users: 3, rate: 0.6 });
+  });
+
+  it("counts server-started chats, ignores passive sessions, and joins changed emails by auth identity", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    const cohortDate = offsetDate(today, 20);
+    const returnDate = offsetDate(cohortDate, -3);
+
+    for (let index = 0; index < 5; index++) {
+      await seedFirstSeenEvent(
+        client,
+        `user-${index}`,
+        cohortDate,
+        "chat",
+        `auth-${index}`,
+      );
+    }
+    await seedFirstSeenEvent(
+      client,
+      "changed-email",
+      returnDate,
+      "chat",
+      "auth-0",
+    );
+    await client.query(
+      `INSERT INTO analytics_events (id, event_name, user_id, user_key, timestamp, event_date, template, signed_in)
+       VALUES ('passive-session', 'session status', 'passive@example.com', 'passive', $1, $1, 'chat', 'true')`,
+      [cohortDate],
+    );
+
+    const sql = interpolate(buildPanel("retention-over-time")!.sql, {
+      timeRange: "",
+      emailFilter: "",
+      appFilter: "",
+    });
+    const rows = (
+      (await client.query(sql)) as {
+        rows: Array<{
+          date: string;
+          period: string;
+          cohort_users: number;
+          retained_users: number | null;
+          rate: number | null;
+        }>;
+      }
+    ).rows;
+    expect(
+      rows.find(
+        (row) => row.date === cohortDate && row.period === "1-7d return",
+      ),
+    ).toMatchObject({ cohort_users: 5, retained_users: 1, rate: 0.2 });
+  });
+
+  it("applies the email filter to the latest email for each authenticated identity", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    const cohortDate = offsetDate(today, 20);
+    const returnDate = offsetDate(cohortDate, -3);
+
+    for (let index = 0; index < 5; index++) {
+      await seedFirstSeenEvent(
+        client,
+        `user-${index}`,
+        cohortDate,
+        "chat",
+        `auth-${index}`,
+        index === 0 ? "person@builder.io" : `user-${index}@example.com`,
+      );
+    }
+    await seedFirstSeenEvent(
+      client,
+      "changed-email",
+      returnDate,
+      "chat",
+      "auth-0",
+      "person@example.com",
+    );
+
+    const sql = interpolate(buildPanel("retention-over-time")!.sql, {
+      timeRange: "",
+      emailFilter: "exclude_builder",
+      appFilter: "",
+    });
+    const rows = (
+      (await client.query(sql)) as {
+        rows: Array<{
+          date: string;
+          period: string;
+          cohort_users: number;
+          retained_users: number | null;
+        }>;
+      }
+    ).rows;
+
+    expect(
+      rows.find(
+        (row) => row.date === cohortDate && row.period === "1-7d return",
+      ),
+    ).toMatchObject({ cohort_users: 5, retained_users: 1 });
+  });
+
+  it.each([
+    { panelId: "one-day-retention-by-template", returnDays: 3 },
+    { panelId: "seven-day-retention-by-template", returnDays: 10 },
+  ])(
+    "filters $panelId by the latest email on its canonical identity",
+    async ({ panelId, returnDays }) => {
+      client = await PGlite.create("memory://");
+      await createAnalyticsEventsTable(client);
+      const today = (
+        (await client.query(
+          "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+        )) as { rows: Array<{ today: string }> }
+      ).rows[0]!.today;
+      const cohortDate = offsetDate(today, 20);
+      const returnDate = offsetDate(cohortDate, -returnDays);
+
+      for (let index = 0; index < 21; index++) {
+        await seedFirstSeenEvent(
+          client,
+          `user-${index}`,
+          cohortDate,
+          "chat",
+          `auth-${index}`,
+        );
+      }
+      await seedFirstSeenEvent(
+        client,
+        "changed-email",
+        returnDate,
+        "slides",
+        "auth-0",
+        "person@builder.io",
+      );
+
+      const sql = interpolate(buildPanel(panelId)!.sql, {
+        timeRange: "",
+        emailFilter: "exclude_builder",
+        appFilter: "chat",
+      });
+      const rows = (
+        (await client.query(sql)) as {
+          rows: Array<{
+            template: string;
+            cohort_users: number;
+            retained_users: number;
+          }>;
+        }
+      ).rows;
+
+      expect(rows).toEqual([
+        {
+          template: "chat",
+          cohort_users: 20,
+          retained_users: 0,
+          rate: 0,
+        },
+      ]);
+    },
+  );
+
+  it("requires auth_user_id and uses it as the cohort key", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    const cohortDate = offsetDate(today, 20);
+    const returnDate = offsetDate(cohortDate, -3);
+
+    for (let index = 0; index < 5; index++) {
+      await seedFirstSeenEvent(
+        client,
+        `session-${index}`,
+        cohortDate,
+        "chat",
+        `auth-${index}`,
+      );
+      await seedFirstSeenEvent(
+        client,
+        `changed-session-${index}`,
+        returnDate,
+        "chat",
+        `auth-${index}`,
+      );
+      await seedFirstSeenEvent(
+        client,
+        `anonymous-${index}`,
+        cohortDate,
+        "chat",
+        null,
+      );
+    }
+
+    const sql = interpolate(buildPanel("retention-over-time")!.sql, {
+      timeRange: "",
+      emailFilter: "",
+      appFilter: "",
+    });
+    const rows = (
+      (await client.query(sql)) as {
+        rows: Array<{
+          date: string;
+          period: string;
+          cohort_users: number;
+          retained_users: number | null;
+          rate: number | null;
+        }>;
+      }
+    ).rows;
+
+    expect(
+      rows.find(
+        (row) => row.date === cohortDate && row.period === "1-7d return",
+      ),
+    ).toMatchObject({ cohort_users: 5, retained_users: 5, rate: 1 });
+  });
+
+  it("sizes a bounded spine to the same calendar days as the shared time-range filter", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+
+    const panel = buildPanel("retention-over-time")!;
+    const sql = interpolate(panel.sql, {
+      timeRange: "7d",
+      emailFilter: "",
+      appFilter: "",
+    });
+    const rows = (
+      (await client.query(sql)) as { rows: Array<{ date: string }> }
+    ).rows;
+    const dates = [...new Set(rows.map((r) => r.date))].sort();
+
+    expect(dates).toEqual(
+      Array.from({ length: 8 }, (_, n) => offsetDate(today, 7 - n)),
+    );
+  });
+
+  it("keeps preset cohorts' first-seen history beyond the selected spine", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    const firstSeen = offsetDate(today, 50);
+    const returnDate = offsetDate(today, 20);
+    for (const userKey of ["p1", "p2", "p3", "p4", "p5"]) {
+      await seedFirstSeenEvent(client, userKey, firstSeen);
+      await seedFirstSeenEvent(client, userKey, returnDate);
+    }
+
+    const panel = buildPanel("retention-over-time")!;
+    const sql = interpolate(panel.sql, {
+      timeRange: "30d",
+      emailFilter: "",
+      appFilter: "",
+    });
+    const rows = (
+      (await client.query(sql)) as {
+        rows: Array<{ date: string; period: string; cohort_users: number }>;
+      }
+    ).rows;
+    const row = rows.find(
+      (candidate) =>
+        candidate.date === returnDate && candidate.period === "1-7d return",
+    );
+
+    expect(row?.cohort_users).toBe(0);
+  });
+
+  it("keeps the oldest 365d anchor's trailing cohort inside the base lookback", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    const oldestAnchor = offsetDate(today, 365);
+    const cohortDate = offsetDate(today, 368);
+    for (const userKey of ["o1", "o2", "o3", "o4", "o5"]) {
+      await seedFirstSeenEvent(client, userKey, cohortDate);
+      await seedFirstSeenEvent(client, userKey, oldestAnchor);
+    }
+
+    const panel = buildPanel("retention-over-time")!;
+    const sql = interpolate(panel.sql, {
+      timeRange: "365d",
+      emailFilter: "",
+      appFilter: "",
+    });
+    const rows = (
+      (await client.query(sql)) as {
+        rows: Array<{
+          date: string;
+          period: string;
+          cohort_users: number;
+          rate: number | null;
+        }>;
+      }
+    ).rows;
+    const row = rows.find(
+      (r) => r.date === oldestAnchor && r.period === "1-7d return",
+    );
+    expect(row?.cohort_users).toBe(5);
+    expect(row?.rate).toBe(1);
+  });
+
+  it("runs custom historical dates across the full range and return windows", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    const start = offsetDate(today, 1_000);
+    const end = offsetDate(today, 995);
+    const returnDay3 = offsetDate(start, -3);
+    const returnDay10 = offsetDate(start, -10);
+
+    for (const userKey of ["c1", "c2", "c3", "c4", "c5"]) {
+      await seedFirstSeenEvent(client, userKey, start);
+    }
+    for (const userKey of ["c1", "c2", "c3"]) {
+      await seedFirstSeenEvent(client, userKey, returnDay3);
+    }
+    for (const userKey of ["c4", "c5"]) {
+      await seedFirstSeenEvent(client, userKey, returnDay10);
+    }
+    for (const userKey of ["r1", "r2", "r3", "r4", "r5"]) {
+      await seedFirstSeenEvent(client, userKey, offsetDate(start, 100));
+      await seedFirstSeenEvent(client, userKey, start);
+    }
+
+    const panel = buildPanel("retention-over-time")!;
+    const sql = interpolateDashboardPanelSql(
+      panel.sql,
+      {
+        timeRange: "custom",
+        timeRangeStart: start,
+        timeRangeEnd: end,
+        emailFilter: "",
+        appFilter: "",
+      },
+      panel,
+    );
+    expect(sql).not.toContain("__unsupported_custom_date_range__");
+
+    type RetentionRow = {
+      date: string;
+      period: string;
+      retained_users: number | null;
+      cohort_users: number;
+      rate: number | null;
+    };
+    const rows = ((await client.query(sql)) as { rows: RetentionRow[] }).rows;
+    expect([...new Set(rows.map((row) => row.date))].sort()).toEqual(
+      Array.from({ length: 6 }, (_, n) => offsetDate(start, -n)),
+    );
+
+    const startWeek = rows.find(
+      (row) => row.date === start && row.period === "1-7d return",
+    );
+    const startFortnight = rows.find(
+      (row) => row.date === start && row.period === "7-14d return",
+    );
+    expect(startWeek?.cohort_users).toBe(5);
+    expect(startWeek?.rate).toBe(0.6);
+    expect(startFortnight?.cohort_users).toBe(5);
+    expect(startFortnight?.rate).toBe(0.4);
+  });
+
+  it("bounds wide custom source scans to the capped spine and its lookbacks", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    const start = offsetDate(today, 5_000);
+    const spineStart = offsetDate(today, 3_659);
+    const outsideHistory = offsetDate(spineStart, 500);
+    const returnDay3 = offsetDate(spineStart, -3);
+    const returnDay10 = offsetDate(spineStart, -10);
+
+    for (const userKey of ["w1", "w2", "w3", "w4", "w5"]) {
+      await seedFirstSeenEvent(client, userKey, outsideHistory);
+      await seedFirstSeenEvent(client, userKey, spineStart);
+    }
+    for (const userKey of ["w1", "w2", "w3"]) {
+      await seedFirstSeenEvent(client, userKey, returnDay3);
+    }
+    for (const userKey of ["w4", "w5"]) {
+      await seedFirstSeenEvent(client, userKey, returnDay10);
+    }
+
+    const panel = buildPanel("retention-over-time")!;
+    const sql = interpolate(panel.sql, {
+      timeRange: "custom",
+      timeRangeStart: start,
+      timeRangeEnd: today,
+      emailFilter: "",
+      appFilter: "",
+    });
+
+    type RetentionRow = {
+      date: string;
+      period: string;
+      cohort_users: number;
+      rate: number | null;
+    };
+    const rows = ((await client.query(sql)) as { rows: RetentionRow[] }).rows;
+    const dates = [...new Set(rows.map((row) => row.date))].sort();
+    expect(dates).toHaveLength(3_660);
+    expect(dates[0]).toBe(spineStart);
+    expect(dates[dates.length - 1]).toBe(today);
+    const firstDay = (period: string) =>
+      rows.find((row) => row.date === spineStart && row.period === period);
+
+    expect(firstDay("1-7d return")?.cohort_users).toBe(5);
+    expect(firstDay("1-7d return")?.rate).toBe(0.6);
+    expect(firstDay("7-14d return")?.cohort_users).toBe(5);
+    expect(firstDay("7-14d return")?.rate).toBe(0.4);
+  });
+});

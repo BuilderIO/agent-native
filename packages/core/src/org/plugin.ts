@@ -7,6 +7,7 @@ import {
 } from "h3";
 
 import { runMigrations } from "../db/migrations.js";
+import { registerFeatureFlags } from "../feature-flags/registry.js";
 import {
   awaitBootstrap,
   getH3App,
@@ -16,7 +17,20 @@ import {
 import {
   listAppRolesHandler,
   setAppRoleHandler,
+  getAppPermissionsHandler,
+  setAppPermissionsHandler,
+  resetAppPermissionHandler,
 } from "./app-roles-handlers.js";
+import {
+  listSSOProvidersHandler,
+  createSSOProviderHandler,
+  verifySSOProviderHandler,
+  deleteSSOProviderHandler,
+  getSCIMHandler,
+  createSCIMHandler,
+  deleteSCIMHandler,
+} from "./enterprise-auth-handlers.js";
+import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 import {
   getMyOrgHandler,
   createOrgHandler,
@@ -25,6 +39,7 @@ import {
   switchOrgHandler,
   listMembersHandler,
   removeMemberHandler,
+  retryPendingFederatedRemovalHandler,
   changeMemberRoleHandler,
   listInvitationsHandler,
   createInvitationHandler,
@@ -38,12 +53,42 @@ import {
   syncA2ASecretHandler,
   receiveA2ASecretHandler,
   setWorkspaceAppDefaultVisibilityHandler,
+  setOrgVisualIdentityHandler,
 } from "./handlers.js";
 import { ORG_MIGRATIONS } from "./migrations.js";
+import {
+  readWorkspacePrivateIconHandler,
+  uploadWorkspacePrivateIconHandler,
+} from "./private-icon-handlers.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 const ORG_PREFIX = `${FRAMEWORK_PREFIX}/org`;
+
+async function workspaceIconUploadResponse(event: H3Event) {
+  try {
+    return await uploadWorkspacePrivateIconHandler(event);
+  } catch (error) {
+    const statusCode =
+      error &&
+      typeof error === "object" &&
+      "statusCode" in error &&
+      typeof error.statusCode === "number"
+        ? error.statusCode
+        : 500;
+    setResponseStatus(event, statusCode);
+    return {
+      message:
+        statusCode < 500 &&
+        error &&
+        typeof error === "object" &&
+        "message" in error &&
+        typeof error.message === "string"
+          ? error.message
+          : "Workspace icon upload failed.",
+    };
+  }
+}
 
 /**
  * Mounts the org REST routes under `/_agent-native/org/*` and runs the org
@@ -57,8 +102,12 @@ const ORG_PREFIX = `${FRAMEWORK_PREFIX}/org`;
  *   PUT    /_agent-native/org/switch                      — switch active org
  *   GET    /_agent-native/org/members                     — list members of active org
  *   DELETE /_agent-native/org/members/:email              — remove member (owner/admin only)
+ *   POST   /_agent-native/org/federation-removal/retry  — retry the caller's pending self-cleanup
  *   GET    /_agent-native/org/app-roles?appId=X           — app role vocabulary + assignments
  *   PUT    /_agent-native/org/app-roles/:email            — assign/clear app role (owner/admin)
+ *   GET    /_agent-native/org/app-permissions/:appId      — effective permission grants
+ *   PUT    /_agent-native/org/app-permissions/:appId      — override permission grants
+ *   DELETE /_agent-native/org/app-permissions/:appId      — reset permission grants
  *   GET    /_agent-native/org/invitations                 — list pending invites
  *   POST   /_agent-native/org/invitations                 — invite by email
  *   POST   /_agent-native/org/invitations/:id/accept      — accept an invitation
@@ -66,6 +115,7 @@ const ORG_PREFIX = `${FRAMEWORK_PREFIX}/org`;
  *   PUT    /_agent-native/org/domain                      — set/clear allowed email domain (owner/admin)
  *   PUT    /_agent-native/org/workspace-url               — set/clear the org's workspace origin (owner/admin)
  *   PUT    /_agent-native/org/auth-provider               — require/clear Google sign-in (owner/admin)
+ *   PUT    /_agent-native/org/visual-identity              — set/clear workspace icon (owner/admin)
  *   GET    /_agent-native/org/a2a-secret                  — reveal A2A secret on demand (owner/admin)
  *   PUT    /_agent-native/org/a2a-secret                  — regenerate or set A2A secret (owner/admin)
  *   POST   /_agent-native/org/a2a-secret/sync             — push secret to all connected apps (owner/admin)
@@ -75,11 +125,33 @@ export function createOrgPlugin(): NitroPluginDef {
   const migrate = runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" });
 
   return async (nitroApp: any) => {
+    registerFeatureFlags([CROSS_APP_ORG_FEDERATION_FLAG]);
     markDefaultPluginProvided(nitroApp, "org");
     await awaitBootstrap(nitroApp);
     await migrate(nitroApp);
 
     const app = getH3App(nitroApp);
+
+    app.use(
+      `${ORG_PREFIX}/private-icons`,
+      defineEventHandler(async (event: H3Event) => {
+        const tail = getRequestURL(event).pathname || "/";
+        const method = getMethod(event);
+        if (
+          tail === "/" ||
+          tail === "" ||
+          tail === `${ORG_PREFIX}/private-icons` ||
+          tail === `${ORG_PREFIX}/private-icons/`
+        ) {
+          if (method === "POST") return workspaceIconUploadResponse(event);
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        if (method === "GET") return readWorkspacePrivateIconHandler(event);
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }),
+    );
 
     // GET /me
     app.use(
@@ -93,7 +165,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // /app-roles and /app-roles/:email — per-app role overlay on the roster.
     app.use(
       `${ORG_PREFIX}/app-roles`,
       defineEventHandler(async (event: H3Event) => {
@@ -114,15 +185,76 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // /members, /members/:email, /members/:email/role — dispatch by path-
-    // tail + method in a single handler so H3's prefix-based `app.use`
-    // doesn't route a DELETE for /members/alice@example.com to the
-    // GET-only /members handler.
-    //
-    // NOTE: the framework request handler (packages/core/src/server/
-    // framework-request-handler.ts) strips the mount prefix from
-    // event.url.pathname before calling the handler, so inside here
-    // `url.pathname` is ALREADY the tail relative to this mount point.
+    app.use(
+      `${ORG_PREFIX}/app-permissions`,
+      defineEventHandler(async (event: H3Event) => {
+        const tail = getRequestURL(event).pathname || "/";
+        const method = getMethod(event);
+        if (!/^\/[^/]+\/?$/.test(tail)) {
+          setResponseStatus(event, 404);
+          return { error: "Not found" };
+        }
+        if (method === "GET") return getAppPermissionsHandler(event);
+        if (method === "PUT") return setAppPermissionsHandler(event);
+        if (method === "DELETE") return resetAppPermissionHandler(event);
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }),
+    );
+
+    app.use(
+      `${ORG_PREFIX}/sso/providers`,
+      defineEventHandler(async (event: H3Event) => {
+        const tail = getRequestURL(event).pathname || "/";
+        const method = getMethod(event);
+        if (tail === "" || tail === "/") {
+          if (method === "GET") return listSSOProvidersHandler(event);
+          if (method === "POST") return createSSOProviderHandler(event);
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        if (/^\/[^/]+\/verify\/?$/.test(tail)) {
+          if (method !== "POST") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          return verifySSOProviderHandler(event);
+        }
+        if (/^\/[^/]+\/?$/.test(tail)) {
+          if (method !== "DELETE") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          return deleteSSOProviderHandler(event);
+        }
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
+      }),
+    );
+
+    app.use(
+      `${ORG_PREFIX}/scim`,
+      defineEventHandler(async (event: H3Event) => {
+        const tail = getRequestURL(event).pathname || "/";
+        const method = getMethod(event);
+        if (tail === "" || tail === "/") {
+          if (method === "GET") return getSCIMHandler(event);
+          if (method === "POST") return createSCIMHandler(event);
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        if (/^\/[^/]+\/?$/.test(tail)) {
+          if (method !== "DELETE") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          return deleteSCIMHandler(event);
+        }
+        setResponseStatus(event, 404);
+        return { error: "Not found" };
+      }),
+    );
+
     app.use(
       `${ORG_PREFIX}/members`,
       defineEventHandler(async (event: H3Event) => {
@@ -135,7 +267,6 @@ export function createOrgPlugin(): NitroPluginDef {
           }
           return listMembersHandler(event);
         }
-        // Tail is /:email/role
         if (/^\/[^/]+\/role\/?$/.test(tail)) {
           if (method !== "PUT") {
             setResponseStatus(event, 405);
@@ -143,7 +274,6 @@ export function createOrgPlugin(): NitroPluginDef {
           }
           return changeMemberRoleHandler(event);
         }
-        // Tail is /:email
         if (method !== "DELETE") {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
@@ -152,8 +282,17 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // PUT /workspace-app-default-visibility — org admins choose the default
-    // for newly created workspace apps. Existing apps retain their setting.
+    app.use(
+      `${ORG_PREFIX}/federation-removal/retry`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return retryPendingFederatedRemovalHandler(event);
+      }),
+    );
+
     app.use(
       `${ORG_PREFIX}/workspace-app-default-visibility`,
       defineEventHandler(async (event: H3Event) => {
@@ -165,7 +304,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // /invitations and /invitations/:id/accept — same pattern.
     app.use(
       `${ORG_PREFIX}/invitations`,
       defineEventHandler(async (event: H3Event) => {
@@ -177,7 +315,6 @@ export function createOrgPlugin(): NitroPluginDef {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        // Tail is /:id/accept
         if (/^\/[^/]+\/accept\/?$/.test(tail)) {
           if (method !== "POST") {
             setResponseStatus(event, 405);
@@ -190,7 +327,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // POST /join-by-domain
     app.use(
       `${ORG_PREFIX}/join-by-domain`,
       defineEventHandler(async (event: H3Event) => {
@@ -236,9 +372,6 @@ export function createOrgPlugin(): NitroPluginDef {
       `${ORG_PREFIX}/a2a-secret`,
       defineEventHandler(async (event: H3Event) => {
         const tail = getRequestURL(event).pathname || "/";
-        // The sub-route handlers above intercept these tails first; if we
-        // see them here it means the method didn't match (e.g. GET) and
-        // we should 405 rather than fall into the PUT handler.
         if (
           tail === "/sync" ||
           tail === "/sync/" ||
@@ -257,7 +390,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // PUT /domain
     app.use(
       `${ORG_PREFIX}/domain`,
       defineEventHandler(async (event: H3Event) => {
@@ -269,7 +401,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // PUT /workspace-url
     app.use(
       `${ORG_PREFIX}/workspace-url`,
       defineEventHandler(async (event: H3Event) => {
@@ -281,7 +412,17 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // PUT /auth-provider
+    app.use(
+      `${ORG_PREFIX}/visual-identity`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "PUT") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return setOrgVisualIdentityHandler(event);
+      }),
+    );
+
     app.use(
       `${ORG_PREFIX}/auth-provider`,
       defineEventHandler(async (event: H3Event) => {
@@ -293,7 +434,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // PUT /switch
     app.use(
       `${ORG_PREFIX}/switch`,
       defineEventHandler(async (event: H3Event) => {
@@ -305,8 +445,6 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // POST / (create) + PATCH / (rename) + DELETE / (delete) — mounted last
-    // so the more specific routes match first
     app.use(
       ORG_PREFIX,
       defineEventHandler(async (event: H3Event) => {
@@ -321,11 +459,4 @@ export function createOrgPlugin(): NitroPluginDef {
   };
 }
 
-/**
- * Default org plugin — mount with no configuration needed.
- *
- * Auto-mounted by the framework when a template doesn't ship `server/plugins/org.ts`.
- * To override, create your own plugin file using `createOrgPlugin()` or a
- * completely custom implementation.
- */
 export const defaultOrgPlugin: NitroPluginDef = createOrgPlugin();

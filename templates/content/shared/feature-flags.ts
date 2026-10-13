@@ -1,15 +1,17 @@
 import {
   defineFeatureFlag,
   defineFeatureFlags,
-} from "@agent-native/core/feature-flags";
+} from "@agent-native/core/feature-flags/registry";
 
-export const A2A_RECEIVER_OWNERSHIP_FLAG = defineFeatureFlag({
-  key: "content.a2a-receiver-ownership",
-  displayName: "A2A receiver ownership",
-  description:
-    "Prefer Content's declared local capabilities when another app delegates an objective to Content.",
+/**
+ * Compare what the editor saves with the page body built from the live copy,
+ * without changing what is saved. The flags panel shows the key: a display
+ * name or description here would be untranslated operator copy.
+ */
+export const LIVE_BODY_SHADOW_FLAG = defineFeatureFlag({
+  key: "content.live-body-shadow",
 });
 
 export const CONTENT_FEATURE_FLAGS = defineFeatureFlags([
-  A2A_RECEIVER_OWNERSHIP_FLAG,
+  LIVE_BODY_SHADOW_FLAG,
 ]);

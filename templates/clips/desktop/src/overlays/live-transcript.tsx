@@ -16,7 +16,6 @@ export interface FinalLine {
   startMs?: number;
 }
 
-/** Preloaded history arrives without its verbatim segments. */
 function historyLine(line: FinalLine): TranscriptLine {
   return {
     text: line.text,
@@ -27,7 +26,6 @@ function historyLine(line: FinalLine): TranscriptLine {
   };
 }
 
-/** Format ms since meeting start as m:ss. */
 function formatTimestamp(ms: number): string {
   const total = Math.floor(ms / 1000);
   const m = Math.floor(total / 60);
@@ -35,20 +33,6 @@ function formatTimestamp(ms: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-/**
- * Auto-scrolling live-transcript view. Subscribes to the Tauri events that
- * the local Whisper meeting engine (`whisper_speech.rs`) emits for both the
- * mic and system-audio streams:
- *
- *   - `voice:partial-transcript` `{ text, source: "mic" | "system" }`
- *   - `voice:final-transcript`   `{ text, source: "mic" | "system" }`
- *
- * Locked-in segments are tagged with a small "You" (mic) / "Them" (system)
- * pill so the user can see who said what during a meeting. The in-flight
- * partial for each source is rendered separately so the two streams don't
- * clobber each other.
- */
-/** How far off the bottom still counts as following the live edge. */
 const PIN_SLACK_PX = 28;
 
 export function LiveTranscript({
@@ -64,11 +48,7 @@ export function LiveTranscript({
   const [micPartial, setMicPartial] = useState("");
   const [sysPartial, setSysPartial] = useState("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  /** Whether the reader is at the live edge, so growth should follow it. */
   const pinnedRef = useRef(true);
-  // Whether the current session's preloaded history has been merged in. Guards
-  // against the preload event firing more than once (the host emits it on both
-  // the get-meeting fetch and clips:pill-ready), which would duplicate lines.
   const preloadAppliedRef = useRef((initialLines?.length ?? 0) > 0);
 
   useEffect(() => {
@@ -77,7 +57,6 @@ export function LiveTranscript({
 
   useEffect(() => {
     const lines = initialLines ?? [];
-    // Empty = pill context reset for a new meeting: clear everything.
     if (lines.length === 0) {
       preloadAppliedRef.current = false;
       setFinals([]);
@@ -85,9 +64,6 @@ export function LiveTranscript({
       setSysPartial("");
       return;
     }
-    // Preloaded history arrived. Apply once, and PREPEND so any live lines that
-    // were captured before the async preload resolved are kept (after the
-    // older history), instead of being overwritten.
     if (preloadAppliedRef.current) return;
     preloadAppliedRef.current = true;
     setFinals((prev) => [...lines.map(historyLine), ...prev]);
@@ -141,17 +117,12 @@ export function LiveTranscript({
     };
   }, []);
 
-  // Auto-scroll the container to the bottom whenever new text lands.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     if (pinnedRef.current) el.scrollTop = el.scrollHeight;
   }, [finals, micPartial, sysPartial]);
 
-  // Losing height — the answer sheet opening, a window resize — scrolls the
-  // newest line out of view, and nothing brings it back until the next line
-  // arrives. Re-pin on resize instead, but only while the reader is at the
-  // live edge: someone who scrolled up to re-read must not be yanked down.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
@@ -162,10 +133,6 @@ export function LiveTranscript({
     return () => observer.disconnect();
   }, []);
 
-  // Partials never reach `appendFinalTranscript`, so speaker bleed shows up
-  // here as a live "You" bubble mirroring what the remote side is still
-  // saying. Judge the in-flight mic text against the in-flight system text too,
-  // since neither has been committed to a line yet.
   const spokenMicPartial = useMemo(() => {
     if (!micPartial) return "";
     const inFlight: TranscriptLine[] = sysPartial
@@ -205,12 +172,6 @@ export function LiveTranscript({
   );
 }
 
-/**
- * A single chat-style transcript bubble. The mic stream ("You") is aligned to
- * the right; the system-audio stream ("Them") sits on the left. Both use
- * neutral greys — side, not hue, is what distinguishes the speakers. In-flight
- * partials render dimmed.
- */
 function ChatBubble({
   source,
   text,

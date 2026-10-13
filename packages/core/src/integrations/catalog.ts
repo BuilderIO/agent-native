@@ -1,11 +1,3 @@
-/**
- * Framework-owned integration taxonomy and metadata.
- *
- * This module deliberately describes integrations without implementing them.
- * Runtime behavior stays in adapters and plugins; consumers must use
- * availability and support maturity before offering a connection flow.
- */
-
 import { docsUrl } from "../shared/docs-url.js";
 
 export const INTEGRATION_CATEGORIES = [
@@ -36,6 +28,7 @@ export type IntegrationIconKey =
   | "microsoft-teams"
   | "discord"
   | "email"
+  | "google-docs"
   | "n8n"
   | "zapier";
 
@@ -61,15 +54,15 @@ export interface ChannelCapabilities {
   readonly nativeThreads?: boolean;
   readonly contextualReplies?: boolean;
   readonly interactionOnly?: boolean;
+  /**
+   * `manual`: the owner pastes the webhook URL into the provider. `automatic`:
+   * the integration's setup route registers it. Absent: there is no webhook
+   * URL to hand to anyone (Google Docs finds comments itself).
+   */
   readonly webhookSetup?: "automatic" | "manual";
 }
 
 export interface AutomationCapabilities {
-  /**
-   * `configured-webhook` uses the generic automation runtime after an app
-   * owner supplies a workflow URL and credentials. `blueprint-only` has no
-   * generic execution path in Agent-Native.
-   */
   readonly runtime: "configured-webhook" | "blueprint-only";
   readonly invokeWorkflow: boolean;
   readonly receiveCallback: boolean;
@@ -83,7 +76,6 @@ export interface IntegrationCatalogEntry {
   readonly categories: readonly IntegrationCategory[];
   readonly availability: IntegrationAvailability;
   readonly supportMaturity: IntegrationSupportMaturity;
-  /** A semantic key for consumers to map to their own icon library or asset. */
   readonly iconKey: IntegrationIconKey;
   readonly description: string;
   readonly caveats: readonly string[];
@@ -106,7 +98,8 @@ export type BuiltInChannelId =
   | "discord"
   | "telegram"
   | "whatsapp"
-  | "email";
+  | "email"
+  | "google-docs";
 
 const BUILT_IN_CHANNEL_CATALOG = [
   {
@@ -449,6 +442,49 @@ const BUILT_IN_CHANNEL_CATALOG = [
       proactiveMessages: true,
       nativeThreads: true,
       webhookSetup: "manual",
+    },
+  },
+  {
+    id: "google-docs",
+    name: "Google Docs",
+    categories: ["channel"],
+    availability: "available",
+    supportMaturity: "built-in",
+    iconKey: "google-docs",
+    description:
+      "Reply to Google Docs comments that mention the agent, through a Google Cloud service account.",
+    caveats: [
+      "The service account only sees documents that are shared with it, and replies post as the service account.",
+      "Comments arrive by polling Drive changes, or by Drive push notifications when the app has a public URL.",
+    ],
+    documentation: {
+      href: docsUrl("messaging"),
+      externalHref:
+        "https://console.cloud.google.com/iam-admin/serviceaccounts",
+      externalLabel: "Open Google Cloud service accounts",
+    },
+    setup: {
+      steps: [
+        "Create a Google Cloud service account and download its JSON key.",
+        "Configure the JSON key as the service account key.",
+        "Share each document with the service account email.",
+        "Mention the agent in a document comment to test.",
+      ],
+    },
+    credentialRequirements: [
+      {
+        key: "GOOGLE_SERVICE_ACCOUNT_KEY",
+        label: "Google Service Account Key (JSON)",
+        required: true,
+        helpText: "The service account's JSON key, or a path to the key file.",
+      },
+    ],
+    channelCapabilities: {
+      inboundText: true,
+      replyText: true,
+      proactiveMessages: false,
+      nativeThreads: true,
+      contextualReplies: true,
     },
   },
 ] as const satisfies readonly IntegrationCatalogEntry[];

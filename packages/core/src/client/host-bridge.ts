@@ -52,11 +52,10 @@ export interface AgentNativeActionManifestEntry {
   name: string;
   description: string;
   schema?: AgentNativeJsonSchema;
-  /** Alias for schema for function-calling/tooling runtimes. */
   parameters?: AgentNativeJsonSchema;
   title?: string;
-  source?: "client" | "backend" | string;
-  availability?: AgentNativeActionAvailability | string;
+  source?: "client" | "backend" | (string & {});
+  availability?: AgentNativeActionAvailability | (string & {});
   destructive?: boolean;
   requiresApproval?: boolean | AgentNativeClientActionApprovalConfig;
   approval?: AgentNativeClientActionApprovalConfig;
@@ -67,7 +66,7 @@ export interface AgentNativeClientActionApprovalConfig {
   title?: string;
   description?: string;
   confirmLabel?: string;
-  risk?: "low" | "medium" | "high" | string;
+  risk?: "low" | "medium" | "high" | (string & {});
   [key: string]: unknown;
 }
 
@@ -81,6 +80,7 @@ export interface AgentNativeHostSession {
 
 export interface AgentNativeClientActionRuntime {
   requestId?: string;
+  signal?: AbortSignal;
   origin: string;
   context: AgentNativeHostContext;
   session: AgentNativeHostSession;
@@ -240,36 +240,13 @@ export type AgentNativeHostBridgeEvent =
   | { type: "error"; requestId?: string; error: Error; origin?: string };
 
 export interface AgentNativeHostBridgeOptions {
-  /**
-   * The iframe/content window that runs the agent sidecar. Can be set later
-   * with `bridge.setTargetWindow(iframe.contentWindow)`.
-   */
   targetWindow?: Window | null;
-  /**
-   * Exact origin allowed to talk to the host, or a full URL whose origin should
-   * be trusted. Pass "*" only for local prototypes.
-   */
   agentOrigin?: string;
-  /** Stable browser-session identity. Used by the sidecar to distinguish tabs. */
   session?: string | Partial<AgentNativeHostSession>;
-  /** Return current route, selected resource, user/org, and host-specific data. */
   getContext?: AgentNativeHostContextGetter;
-  /**
-   * Commands the sidecar may ask the host app to perform. If omitted, the
-   * bridge still supports safe event-dispatch defaults for navigation/refresh.
-   */
   commands?: AgentNativeHostCommandHandlers;
-  /**
-   * Optional bearer token or headers for the iframe sidecar. Only sent via
-   * postMessage to the trusted `agentOrigin`.
-   */
   auth?: AgentNativeHostAuth;
-  /**
-   * Live browser-session actions. These can change per render/page context and
-   * are only callable while this host page is connected.
-   */
   actions?: AgentNativeClientActions;
-  /** Opt-in access to WebMCP tools available in this host document. */
   webmcp?: AgentNativeWebMcpClient;
   onEvent?: (event: AgentNativeHostBridgeEvent) => void;
 }
@@ -421,17 +398,10 @@ export interface AgentNativeScreenSnapshot {
 }
 
 export interface AgentNativeScreenSnapshotOptions {
-  /**
-   * Root element to read from. Defaults to document.body, then documentElement.
-   */
   root?: Element | null | (() => Element | null | undefined);
-  /** Include textContent from the root element. Defaults to true. */
   includeVisibleText?: boolean;
-  /** Include outerHTML from the root element. Defaults to false. */
   includeDomHtml?: boolean;
-  /** Max characters of visible text to include. Defaults to 6000. */
   maxTextLength?: number;
-  /** Max characters of DOM html to include. Defaults to 20000. */
   maxHtmlLength?: number;
 }
 
@@ -578,7 +548,8 @@ function toActionManifest(
   action: AgentNativeClientAction,
 ): AgentNativeActionManifestEntry | null {
   if (!action?.name || !action.description) return null;
-  const { run: _run, ...manifest } = action;
+  const manifest = { ...action };
+  delete (manifest as Partial<AgentNativeClientAction>).run;
   return serializeForMessage(
     {
       source: "client",
@@ -652,14 +623,6 @@ function dispatchHostEvent(
   return { dispatched: true };
 }
 
-/**
- * Cooldown for host-issued `hardReload` / `hard-reload` commands. A reload is
- * already in flight after the first command, so repeats inside this window are
- * acknowledged (`{ reloading: true }` — the page IS reloading) but do not call
- * `window.location.reload()` again. Without this, an embedding host that sends
- * the command on a loop (health checks, per-edit refresh logic) can keep the
- * page permanently mid-reload.
- */
 const HARD_RELOAD_COOLDOWN_MS = 2_000;
 let lastHardReloadAt = 0;
 
@@ -1176,9 +1139,7 @@ export function createAgentNativeHostBridge(
 }
 
 export interface AgentNativeHostRequestOptions {
-  /** Origin to send messages to. Defaults to "*" so prototypes can start. */
   targetOrigin?: string;
-  /** Optional exact origin expected in replies from the host app. */
   hostOrigin?: string;
   timeoutMs?: number;
   targetWindow?: Window;
@@ -1240,7 +1201,6 @@ function requestFromHost<TValue>(
     }, timeoutMs);
 
     function onMessage(event: MessageEvent) {
-      // targetWindow is non-null: the null branch returned early above
       if (!isTrustedHostResponse(event, targetWindow!, options.hostOrigin)) {
         return;
       }
@@ -1433,7 +1393,7 @@ export function sendAgentNativeHostCommand<
   TPayload = unknown,
   TResult = unknown,
 >(
-  command: BuiltInAgentNativeHostCommand | string,
+  command: BuiltInAgentNativeHostCommand | (string & {}),
   payload?: TPayload,
   options: AgentNativeHostRequestOptions = {},
 ): Promise<TResult> {
@@ -1486,7 +1446,6 @@ export function onAgentNativeHostInit(
   if (!targetWindow) return () => {};
 
   function onMessage(event: MessageEvent) {
-    // targetWindow is non-null: the null branch returned early above
     if (!isTrustedHostResponse(event, targetWindow!, options.hostOrigin)) {
       return;
     }

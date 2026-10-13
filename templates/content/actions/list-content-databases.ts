@@ -34,7 +34,8 @@ export class ContentDatabaseResolutionError extends Error {}
 
 export default defineAction({
   description:
-    "Discover one bounded page of ordinary Content databases the user can access from their live title and user-authored description. Returns stable database, document, and space IDs with explicit pagination; follow nextOffset until hasMore is false. Use exact filters before reading a selected database's schema. Set includeSystemCollections to classify Files, Favorites, Workspaces, and other system chrome separately from ordinary databases.",
+    "Discover one bounded page of ordinary Content collections the user can access from their live title and user-authored description. Returns stable collection, document, and space IDs with explicit pagination; follow nextOffset until hasMore is false. Use exact filters before reading a selected collection's schema. Set includeSystemCollections to classify Files, Favorites, Workspaces, and other system chrome separately from ordinary collections.",
+  mcpTool: true,
   schema: z.object({
     spaceId: z
       .string()
@@ -45,32 +46,32 @@ export default defineAction({
       .string()
       .min(1)
       .optional()
-      .describe("Exact Content database ID to resolve."),
+      .describe("Exact Content collection ID to resolve."),
     includeSystemCollections: z
       .boolean()
       .optional()
       .describe(
-        "Return system-role databases in systemCollections instead of treating them as ordinary databases.",
+        "Return system-role collections in systemCollections instead of treating them as ordinary collections.",
       ),
     documentId: z
       .string()
       .min(1)
       .optional()
-      .describe("Exact Content database document/page ID to resolve."),
+      .describe("Exact Content collection document/page ID to resolve."),
     title: z
       .string()
       .trim()
       .min(1)
       .optional()
-      .describe("Exact live database title to resolve, case-insensitively."),
+      .describe("Exact live collection title to resolve, case-insensitively."),
     excludeDatabaseId: z
       .string()
       .optional()
-      .describe("Database id to omit from the results."),
+      .describe("Collection id to omit from the results."),
     excludeDatabaseIds: z
       .array(z.string())
       .optional()
-      .describe("Database ids to omit from the results."),
+      .describe("Collection ids to omit from the results."),
     query: z
       .string()
       .optional()
@@ -81,7 +82,7 @@ export default defineAction({
       .min(1)
       .max(50)
       .default(DEFAULT_CONTENT_DATABASE_DISCOVERY_LIMIT)
-      .describe("Maximum number of databases to return. Defaults to 50."),
+      .describe("Maximum number of collections to return. Defaults to 50."),
     offset: z.coerce
       .number()
       .int()
@@ -92,6 +93,11 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args): Promise<ListContentDatabasesResponse> => {
     if (args.includeSystemCollections && !args.spaceId) {
       throw new ContentDatabaseResolutionError(
@@ -175,9 +181,6 @@ export default defineAction({
       }
     }
 
-    // The same access + discovery filter the sidebar uses, so the picker shows
-    // owned AND shared/org databases and never a trashed/hidden one. Resolve
-    // source-chain exclusions before limiting so every page is truthfully full.
     const where = and(
       accessFilter(schema.documents, schema.documentShares),
       isNull(schema.documents.trashedAt),
@@ -256,8 +259,6 @@ export default defineAction({
           asc(schema.contentDatabases.id),
         );
 
-    // Two visible matches are sufficient to reject an exact selector without
-    // materializing every duplicate-title row.
     const rows = resolvesExactly
       ? await baseQuery().limit(2)
       : await baseQuery().limit(args.limit).offset(args.offset);
@@ -279,9 +280,7 @@ export default defineAction({
       databaseId: row.id,
       documentId: row.documentId,
       spaceId: row.spaceId,
-      // The document's live title (matches the sidebar) rather than the
-      // possibly-stale content_databases.title.
-      title: row.title ?? "Untitled database",
+      title: row.title ?? "Untitled collection",
       description: row.description,
     }));
 
@@ -353,7 +352,7 @@ export default defineAction({
         ? {
             systemCollections: systemCollections.map((collection) => ({
               ...collection,
-              title: collection.title ?? "Untitled database",
+              title: collection.title ?? "Untitled collection",
               systemRole: collection.systemRole!,
             })),
           }

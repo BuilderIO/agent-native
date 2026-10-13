@@ -2,6 +2,7 @@ import {
   emailStrong,
   getAppProductionUrl,
   isEmailConfigured,
+  isTestIdentity,
   renderEmail,
   sendEmail,
 } from "@agent-native/core/server";
@@ -33,18 +34,9 @@ function normalizeEmail(email: string | null | undefined): string | null {
 }
 
 function isSyntheticQaEmail(email: string): boolean {
-  const trimmed = email.trim().toLowerCase();
-  if (trimmed === SOURCE_AUTHOR_COMMENT_MENTION_EMAIL) return true;
-  const at = trimmed.lastIndexOf("@");
-  if (at <= 0) return false;
-  const local = trimmed.slice(0, at);
-  const domain = trimmed.slice(at + 1);
   return (
-    local.includes("+qa") &&
-    (domain === "example.test" ||
-      domain.endsWith(".test") ||
-      domain === "example.invalid" ||
-      domain.endsWith(".invalid"))
+    email.trim().toLowerCase() === SOURCE_AUTHOR_COMMENT_MENTION_EMAIL ||
+    isTestIdentity(email)
   );
 }
 

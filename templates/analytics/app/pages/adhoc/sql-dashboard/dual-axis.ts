@@ -3,15 +3,10 @@ import type { SqlPanelConfig } from "./types";
 export type ChartValueFormatter = NonNullable<SqlPanelConfig["yFormatter"]>;
 export type ChartAxisSide = "left" | "right";
 
-/**
- * Past this many series an auto-derived axis label is more noise than help, so
- * the axis renders with ticks only.
- */
 const MAX_LABELLED_SERIES_PER_AXIS = 2;
 const MAX_AXIS_LABEL_LENGTH = 28;
 
 export interface DualAxisPlan {
-  /** True only when both axes end up with at least one plotted series. */
   enabled: boolean;
   leftKeys: string[];
   rightKeys: string[];
@@ -36,13 +31,6 @@ function axisLabel(
     : label;
 }
 
-/**
- * Splits plotted series across a left and right y-axis. A configuration that
- * would leave one axis empty — every series on the right, or `rightYKeys`
- * naming columns the query never returned — collapses back to a single axis so
- * the chart keeps one honest scale instead of silently dropping series.
- * `SqlChart` surfaces the unmatched names through its config warning.
- */
 export function resolveDualAxis(
   yKeys: string[],
   config?: SqlPanelConfig,

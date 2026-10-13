@@ -3,13 +3,14 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareButton } from "@agent-native/core/client/sharing";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconAlertTriangle,
   IconArchive,
   IconBrandGithub,
   IconBrandSlack,
+  IconBrandZoom,
   IconChecks,
   IconChevronDown,
   IconCircleCheck,
@@ -114,7 +115,6 @@ import {
   sourceLastSync,
   sourceName,
   sourceRetryAfter,
-  sourceReviewRequired,
   sourceType,
 } from "@/lib/brain";
 import {
@@ -127,7 +127,25 @@ import {
 } from "@/lib/ingest-handoff";
 import { cn } from "@/lib/utils";
 
-type Provider = "manual" | "generic" | "clips" | "slack" | "granola" | "github";
+import {
+  sourceListValues,
+  validateGitHubRepoInput,
+  validateSlackChannelInput,
+  type SourceConfigIssue,
+} from "../../shared/source-config-validation";
+import {
+  invalidZoomMeetingIds,
+  zoomFilterLines,
+} from "../../shared/zoom-meeting-filter";
+
+type Provider =
+  | "manual"
+  | "generic"
+  | "clips"
+  | "slack"
+  | "granola"
+  | "github"
+  | "zoom";
 type CaptureStatusFilter = BrainCaptureReviewStatus | "all";
 type BrainT = ReturnType<typeof useT>;
 
@@ -138,6 +156,10 @@ interface SourceFormState {
   historyLimit: string;
   granolaPageSize: string;
   granolaUpdatedAfter: string;
+  zoomMeetingIds: string;
+  zoomLookbackDays: string;
+  zoomIncludeSummaries: boolean;
+  zoomConfigExtras: Record<string, unknown>;
   githubRepos: string;
   githubLimit: string;
   githubState: "open" | "closed" | "all";
@@ -147,7 +169,6 @@ interface SourceFormState {
   pollMinutes: string;
   sourceKey: string;
   autoSync: boolean;
-  reviewRequired: boolean;
   includePublicChannels: boolean;
 }
 
@@ -168,6 +189,12 @@ const providers: Array<{
     label: "Granola",
     detail: "Enterprise API Team-space notes",
     icon: IconNotes,
+  },
+  {
+    value: "zoom",
+    label: "Zoom",
+    detail: "Cloud-recording transcripts from chosen meetings",
+    icon: IconBrandZoom,
   },
   {
     value: "github",
@@ -201,6 +228,8 @@ function defaultTitle(provider: Provider, t?: ReturnType<typeof useT>) {
       return t?.("sources.defaultTitle.slack") ?? "Slack knowledge channels";
     case "granola":
       return t?.("sources.defaultTitle.granola") ?? "Granola team notes";
+    case "zoom":
+      return t?.("sources.defaultTitle.zoom") ?? "Zoom meeting transcripts";
     case "github":
       return t?.("sources.defaultTitle.github") ?? "GitHub product repos";
     case "clips":
@@ -226,6 +255,10 @@ function defaultForm(
     historyLimit: "15",
     granolaPageSize: "10",
     granolaUpdatedAfter: "",
+    zoomMeetingIds: "",
+    zoomLookbackDays: "7",
+    zoomIncludeSummaries: false,
+    zoomConfigExtras: {},
     githubRepos: "",
     githubLimit: "25",
     githubState: "all",
@@ -235,9 +268,32 @@ function defaultForm(
     pollMinutes: "60",
     sourceKey: provider === "generic" || provider === "clips" ? provider : "",
     autoSync:
-      provider === "slack" || provider === "granola" || provider === "github",
-    reviewRequired: true,
+      provider === "slack" ||
+      provider === "granola" ||
+      provider === "github" ||
+      provider === "zoom",
     includePublicChannels: false,
+  };
+}
+
+function zoomConfigFromSource(config: Record<string, unknown>) {
+  const zoom =
+    config.zoom &&
+    typeof config.zoom === "object" &&
+    !Array.isArray(config.zoom)
+      ? (config.zoom as Record<string, unknown>)
+      : {};
+  const { meetingIds, lookbackDays, includeSummaries, ...extras } = zoom;
+  // Title matching was removed; saving drops any stored titles.
+  delete extras.meetingTopics;
+  return {
+    zoomMeetingIds: listValue(meetingIds),
+    zoomLookbackDays:
+      typeof lookbackDays === "number" || typeof lookbackDays === "string"
+        ? String(lookbackDays)
+        : "7",
+    zoomIncludeSummaries: includeSummaries === true,
+    zoomConfigExtras: extras,
   };
 }
 
@@ -266,6 +322,7 @@ function formFromSource(source: BrainSource): SourceFormState {
         : "10",
     granolaUpdatedAfter:
       typeof config.updatedAfter === "string" ? config.updatedAfter : "",
+    ...zoomConfigFromSource(config),
     githubRepos: listValue(config.repositories ?? config.repos),
     githubLimit:
       typeof config.limit === "number" || typeof config.limit === "string"
@@ -288,16 +345,16 @@ function formFromSource(source: BrainSource): SourceFormState {
         : "60",
     sourceKey: "",
     autoSync: sourceAutoSync(source),
-    reviewRequired: sourceReviewRequired(source),
     includePublicChannels: config.includePublicChannels === true,
   };
 }
 
 function splitLines(value: string) {
-  return value
-    .split(/[\n,]/g)
-    .map((item) => item.trim().replace(/^#/, ""))
-    .filter(Boolean);
+  return sourceListValues(value);
+}
+
+function issueEntryList(issues: readonly SourceConfigIssue[]) {
+  return issues.map((issue) => `"${issue.value}"`).join(", ");
 }
 
 function numberValue(
@@ -313,13 +370,12 @@ function numberValue(
 
 function buildConfig(form: SourceFormState) {
   const config: Record<string, unknown> = {
-    reviewRequired: form.reviewRequired,
     autoSync: form.autoSync,
     pollMinutes: numberValue(form.pollMinutes, 60, 5, 1440),
   };
   if (form.provider === "slack") {
     config.channelIds = splitLines(form.channelRefs);
-    config.historyLimit = numberValue(form.historyLimit, 15, 1, 15);
+    config.historyLimit = numberValue(form.historyLimit, 15, 1, 30);
     config.includePublicChannels = form.includePublicChannels;
   }
   if (form.provider === "granola") {
@@ -327,6 +383,14 @@ function buildConfig(form: SourceFormState) {
     if (form.granolaUpdatedAfter.trim()) {
       config.updatedAfter = form.granolaUpdatedAfter.trim();
     }
+  }
+  if (form.provider === "zoom") {
+    config.zoom = {
+      ...form.zoomConfigExtras,
+      meetingIds: zoomFilterLines(form.zoomMeetingIds),
+      lookbackDays: numberValue(form.zoomLookbackDays, 7, 1, 30),
+      includeSummaries: form.zoomIncludeSummaries,
+    };
   }
   if (form.provider === "github") {
     config.repositories = splitLines(form.githubRepos);
@@ -1855,9 +1919,8 @@ function SourceListItem({
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                size="icon"
+                size="icon-sm"
                 variant="ghost"
-                className="size-8"
                 onClick={onReview}
                 aria-label={`${t("sources.captures")}: ${sourceName(source)}`}
               >
@@ -1878,9 +1941,8 @@ function SourceListItem({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
-                size="icon"
+                size="icon-sm"
                 variant="ghost"
-                className="size-8"
                 aria-label={t("sources.moreActionsFor", {
                   source: sourceName(source),
                 })}
@@ -1924,9 +1986,8 @@ function SourceListItem({
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                size="icon"
+                size="icon-sm"
                 variant="ghost"
-                className="size-8"
                 onClick={() => setExpanded((value) => !value)}
                 aria-expanded={expanded}
                 aria-label={
@@ -2131,6 +2192,42 @@ export default function SourcesRoute() {
   const selectedWorkspaceConnection = formWorkspaceConnections.find(
     (connection) => connection.id === form.workspaceConnectionId,
   );
+  const slackChannelIssues =
+    form.provider === "slack"
+      ? validateSlackChannelInput(form.channelRefs)
+      : [];
+  const slackDirectMessageIssues = slackChannelIssues.filter(
+    (issue) => issue.code === "slack_direct_message",
+  );
+  const slackFormatIssues = slackChannelIssues.filter(
+    (issue) => issue.code !== "slack_direct_message",
+  );
+  const githubRepoIssues =
+    form.provider === "github" ? validateGitHubRepoInput(form.githubRepos) : [];
+  const zoomMeetingIdIssues =
+    form.provider === "zoom" ? invalidZoomMeetingIds(form.zoomMeetingIds) : [];
+  const zoomMeetingIdsMissing =
+    form.provider === "zoom" &&
+    zoomFilterLines(form.zoomMeetingIds).length === 0;
+  // Undefined until the provider list loads; only a confirmed non-admin locks.
+  const canManageZoom = connectionProvidersQuery.data?.canManageZoom;
+  const zoomSettingsLocked =
+    form.provider === "zoom" && canManageZoom === false;
+  const selectableProviders = providers.filter(
+    (provider) =>
+      provider.value !== "zoom" ||
+      canManageZoom === true ||
+      (!!editingSource && form.provider === "zoom"),
+  );
+  const formConfigInvalid =
+    slackChannelIssues.length > 0 ||
+    githubRepoIssues.length > 0 ||
+    zoomMeetingIdIssues.length > 0 ||
+    zoomMeetingIdsMissing;
+  const formMissingCredentialKeys =
+    formProviderMetadata?.credentialHealth?.status === "missing"
+      ? formProviderMetadata.credentialHealth.missingCredentialKeys
+      : [];
   const captures = capturesQuery.data?.captures ?? [];
   const queueableCaptures = captures.filter(captureCanQueue);
   const queueableCaptureIds = new Set(
@@ -2180,6 +2277,7 @@ export default function SourcesRoute() {
       provider ??
       (type === "slack" ||
       type === "granola" ||
+      type === "zoom" ||
       type === "github" ||
       type === "clips" ||
       type === "manual" ||
@@ -2231,14 +2329,18 @@ export default function SourcesRoute() {
   }
 
   async function submitSource() {
+    if (formConfigInvalid) return;
     const config = buildConfig(form);
     if (editingSource) {
       await updateSource.mutateAsync({
         id: editingSource.id,
         title: form.title.trim() || defaultTitle(form.provider, t),
-        status:
-          form.autoSync || sourceEnabled(editingSource) ? "active" : "paused",
-        config,
+        status: zoomSettingsLocked
+          ? undefined
+          : form.autoSync || sourceEnabled(editingSource)
+            ? "active"
+            : "paused",
+        config: zoomSettingsLocked ? undefined : config,
       });
     } else {
       const result = await createSource.mutateAsync({
@@ -2725,7 +2827,9 @@ export default function SourcesRoute() {
                             })
                           }
                         >
-                          {enqueueDistillation.isPending ? (
+                          {enqueueDistillation.isPending &&
+                          enqueueDistillation.variables?.captureId ===
+                            capture.id ? (
                             <IconLoader2 className="size-4 animate-spin" />
                           ) : (
                             <IconSend className="size-4 rtl:-scale-x-100" />
@@ -2926,7 +3030,7 @@ export default function SourcesRoute() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {providers.map((provider) => (
+                  {selectableProviders.map((provider) => (
                     <SelectItem key={provider.value} value={provider.value}>
                       {provider.label}
                     </SelectItem>
@@ -2934,6 +3038,17 @@ export default function SourcesRoute() {
                 </SelectContent>
               </Select>
             </div>
+
+            {formMissingCredentialKeys.length > 0 ? (
+              <p className="flex items-start gap-2 rounded-md border border-destructive/25 bg-destructive/10 p-3 text-xs leading-5 text-destructive">
+                <IconAlertTriangle className="mt-0.5 size-4 shrink-0" />
+                <span>
+                  {t("sources.missingProviderCredential", {
+                    keys: formMissingCredentialKeys.join(", "),
+                  })}
+                </span>
+              </p>
+            ) : null}
 
             {supportsWorkspaceConnectionBinding(form.provider) && (
               <div className="grid gap-2">
@@ -3013,8 +3128,35 @@ export default function SourcesRoute() {
                     onChange={(event) =>
                       updateForm({ channelRefs: event.target.value })
                     }
+                    aria-invalid={slackChannelIssues.length > 0}
+                    aria-describedby={
+                      slackChannelIssues.length > 0
+                        ? "slack-channels-error"
+                        : undefined
+                    }
                     placeholder={"C0123456789\n#product\n#launches"}
                   />
+                  {slackChannelIssues.length > 0 ? (
+                    <div
+                      id="slack-channels-error"
+                      className="grid gap-1 text-xs leading-5 text-destructive"
+                    >
+                      {slackDirectMessageIssues.length > 0 ? (
+                        <p>
+                          {t("sources.invalidSlackDirectMessages", {
+                            entries: issueEntryList(slackDirectMessageIssues),
+                          })}
+                        </p>
+                      ) : null}
+                      {slackFormatIssues.length > 0 ? (
+                        <p>
+                          {t("sources.invalidAllowedChannels", {
+                            entries: issueEntryList(slackFormatIssues),
+                          })}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <p className="text-xs leading-5 text-muted-foreground">
                     {t("sources.allowedChannelsDescription")}
                   </p>
@@ -3044,7 +3186,7 @@ export default function SourcesRoute() {
                       id="history-limit"
                       type="number"
                       min={1}
-                      max={15}
+                      max={30}
                       value={form.historyLimit}
                       onChange={(event) =>
                         updateForm({ historyLimit: event.target.value })
@@ -3123,6 +3265,100 @@ export default function SourcesRoute() {
               </div>
             )}
 
+            {form.provider === "zoom" && (
+              <div className="grid gap-4 rounded-md border border-border p-4">
+                {zoomSettingsLocked ? (
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {t("sources.zoomAdminOnly")}
+                  </p>
+                ) : null}
+                <div className="grid gap-2">
+                  <Label htmlFor="zoom-meeting-ids">
+                    {t("sources.zoomMeetingIds")}
+                  </Label>
+                  <Textarea
+                    id="zoom-meeting-ids"
+                    disabled={zoomSettingsLocked}
+                    value={form.zoomMeetingIds}
+                    onChange={(event) =>
+                      updateForm({ zoomMeetingIds: event.target.value })
+                    }
+                    aria-invalid={zoomMeetingIdIssues.length > 0}
+                    aria-describedby={
+                      zoomMeetingIdIssues.length > 0
+                        ? "zoom-meeting-ids-error"
+                        : undefined
+                    }
+                    placeholder={"123 4567 8901\n98765432101"}
+                  />
+                  {zoomMeetingIdIssues.length > 0 ? (
+                    <p
+                      id="zoom-meeting-ids-error"
+                      className="text-xs leading-5 text-destructive"
+                    >
+                      {t("sources.invalidZoomMeetingIds", {
+                        entries: zoomMeetingIdIssues
+                          .map((entry) => `"${entry}"`)
+                          .join(", "),
+                      })}
+                    </p>
+                  ) : null}
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {t("sources.zoomMeetingIdsDescription")}
+                  </p>
+                </div>
+                <label className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/20 p-3">
+                  <span className="text-sm font-medium">
+                    {t("sources.zoomIncludeSummaries")}
+                  </span>
+                  <Switch
+                    disabled={zoomSettingsLocked}
+                    checked={form.zoomIncludeSummaries}
+                    onCheckedChange={(zoomIncludeSummaries) =>
+                      updateForm({ zoomIncludeSummaries })
+                    }
+                  />
+                </label>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="grid gap-2">
+                    <Label htmlFor="zoom-lookback-days">
+                      {t("sources.zoomLookbackDays")}
+                    </Label>
+                    <Input
+                      id="zoom-lookback-days"
+                      disabled={zoomSettingsLocked}
+                      type="number"
+                      min={1}
+                      max={30}
+                      value={form.zoomLookbackDays}
+                      onChange={(event) =>
+                        updateForm({ zoomLookbackDays: event.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="zoom-poll-minutes">
+                      {t("sources.pollMinutes")}
+                    </Label>
+                    <Input
+                      id="zoom-poll-minutes"
+                      disabled={zoomSettingsLocked}
+                      type="number"
+                      min={5}
+                      max={1440}
+                      value={form.pollMinutes}
+                      onChange={(event) =>
+                        updateForm({ pollMinutes: event.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {t("sources.zoomDescription")}
+                </p>
+              </div>
+            )}
+
             {form.provider === "github" && (
               <div className="grid gap-4 rounded-md border border-border p-4">
                 <div className="grid gap-2">
@@ -3135,8 +3371,24 @@ export default function SourcesRoute() {
                     onChange={(event) =>
                       updateForm({ githubRepos: event.target.value })
                     }
+                    aria-invalid={githubRepoIssues.length > 0}
+                    aria-describedby={
+                      githubRepoIssues.length > 0
+                        ? "github-repos-error"
+                        : undefined
+                    }
                     placeholder={"owner/repo\nhttps://github.com/owner/repo"}
                   />
+                  {githubRepoIssues.length > 0 ? (
+                    <p
+                      id="github-repos-error"
+                      className="text-xs leading-5 text-destructive"
+                    >
+                      {t("sources.invalidGithubRepositories", {
+                        entries: issueEntryList(githubRepoIssues),
+                      })}
+                    </p>
+                  ) : null}
                   <p className="text-xs leading-5 text-muted-foreground">
                     {t("sources.githubRepositoriesDescription")}
                   </p>
@@ -3251,22 +3503,9 @@ export default function SourcesRoute() {
                   </span>
                 </span>
                 <Switch
+                  disabled={zoomSettingsLocked}
                   checked={form.autoSync}
                   onCheckedChange={(autoSync) => updateForm({ autoSync })}
-                />
-              </label>
-              <label className="flex items-center justify-between gap-3 text-sm">
-                <span>
-                  {t("sources.reviewRequired")}
-                  <span className="block text-xs text-muted-foreground">
-                    {t("sources.reviewRequiredDescription")}
-                  </span>
-                </span>
-                <Switch
-                  checked={form.reviewRequired}
-                  onCheckedChange={(reviewRequired) =>
-                    updateForm({ reviewRequired })
-                  }
                 />
               </label>
             </div>
@@ -3286,6 +3525,7 @@ export default function SourcesRoute() {
               disabled={
                 createSource.isPending ||
                 updateSource.isPending ||
+                formConfigInvalid ||
                 !form.title.trim()
               }
             >

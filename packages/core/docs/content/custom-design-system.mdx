@@ -23,8 +23,6 @@ any particular styling runtime. A component may use a theme provider,
 CSS-in-JS, CSS Modules, React Aria, or ordinary CSS. `className` and `style` are
 optional interoperability hooks, not styling requirements.
 
-See the runnable [Material UI Chat example](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) and [Ant Design Chat example](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) for complete adapters, theme-provider wiring, dark mode, and documented v1 gaps.
-
 ## Choose the smallest customization tier
 
 | Tier                    | Use it for                                                                                  | What remains shared                                           |
@@ -106,14 +104,6 @@ Partial adapters are supported. Any component you omit uses Agent-Native’s
 default adapter. If one custom component throws while rendering, a
 per-component error boundary logs the failure and renders the default component
 for that control; the rest of the custom system stays active.
-
-Two complete Chat applications keep this contract honest against real design
-systems: [the Material UI example](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui)
-uses Emotion, `ThemeProvider`, and MUI’s overlay stack, while [the Ant Design
-example](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd)
-uses `ConfigProvider` and Ant Design’s form and overlay primitives. Their
-`app/design-system.tsx` files are the primary integration references; the Acme
-fixture above remains intentionally small and is used for unit tests.
 
 The older `components={{ Button }}` provider API remains compatible and is
 treated as the lowest-precedence `ActionButton` adapter. If both are supplied,
@@ -198,35 +188,12 @@ visual vocabulary.
 `Picker` covers select and combobox behavior only. Date picking is not part of
 the version 1 semantic contract.
 
-### What the Chat examples actually render
-
-The runnable MUI and Ant Design Chat examples register all 17 components and
-render 16/17 through those adapters in the normalized shared surfaces:
-
-| Adapter component                                               | Reachable proving surface                                                                                                                          |
-| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ActionButton`, `IconButton`                                    | Chat-history rail, settings actions, sharing actions                                                                                               |
-| `TextField`, `TextArea`, `Picker`, `Checkbox`, `Switch`, `Tabs` | Settings and sharing controls                                                                                                                      |
-| `Dialog`, `Avatar`, `Status`                                    | Core Share dialog on each example's shipped `/design-system-proof` route                                                                           |
-| `Tooltip`, `Popover`, `Spinner`, `Skeleton`                     | Agent-panel, runs-tray, and sidebar chrome                                                                                                         |
-| `Surface`                                                       | Builder connection card                                                                                                                            |
-| `Menu`                                                          | Explicit gap: the agent-panel header menu embeds the live `RunsTrayMenuItem` compound submenu, which the v1 data-only menu contract cannot express |
-
-The `Menu` row is intentionally called out rather than counted as bridged.
-The everyday Chat share button remains the legacy popover; the proof route makes
-the complete Core `ShareDialog` reachable without misrepresenting that popover.
-The assistant-ui composer/message renderer, cmdk command-menu internals, and
-Tiptap editor remain v1 non-goals. Their surrounding chrome is tokenized or
-bridged where the semantic contract fits. If a product needs arbitrary nested
-menu content, use a product slot or propose a contract extension instead of
-silently mixing the default menu into a custom adapter.
-
 The framework-owned sign-in shell is outside both the semantic bridge and the
 build-time token tier in v1; the authenticated settings, sharing, history rail,
-and agent-panel surfaces are the design-system proving surfaces. The main Chat
-canvas remains tokens-only because the assistant-ui renderer is a documented
-v1 non-goal. In the runnable examples, dark mode is exercised from the
-`Cmd/Ctrl+K` Appearance command rather than a second settings section.
+and agent-panel surfaces are useful design-system proving surfaces. The main
+Chat canvas remains tokens-only because the assistant-ui renderer is a
+documented v1 non-goal. Dark mode can be exercised from the `Cmd/Ctrl+K`
+Appearance command rather than a second settings section.
 
 ## Overlays, portals, and focus
 
@@ -326,13 +293,8 @@ Contract evolution follows semantic versioning:
 
 ### MUI-style theme-provider systems
 
-The [Chat + Material UI example](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) is the primary worked reference. Its single
-`app/design-system.tsx` module exports the semantic adapter, the MUI light and
-dark `createTheme` values, and the `defineTheme` token source. The app's
-`AppToolkitProvider` keeps the MUI `ThemeProvider` above shared Toolkit
-surfaces, while `vite.config.ts` imports that same `theme` value for build-time
-CSS generation. This keeps Emotion styles, MUI portals, and Agent-Native
-tokens on one source of truth.
+Keep the build-time theme in a dependency-light module so Vite can load its
+configuration without evaluating the customer React package.
 
 Keep the company theme provider above `AppToolkitProvider`, and adapt semantic
 props at the package boundary. Map `intent`, `emphasis`, and `size` to your
@@ -364,12 +326,6 @@ export const ActionButton: DesignSystemComponents["ActionButton"] = ({
 
 Do not copy a feature’s theme provider into each adapter component. Install it
 once at the app boundary so portals and overlays inherit the same context.
-
-The [Chat MUI adapter](https://github.com/BuilderIO/agent-native/blob/main/examples/chat-mui/app/design-system.tsx)
-is the worked example: it exports one `defineTheme` value, imports that value
-into `defineDesignSystem`, and imports the same module from `vite.config.ts`.
-That single source of truth keeps the MUI light/dark provider tokens and the
-build-time semantic CSS tokens aligned without runtime theme generation.
 
 ### React Aria-based systems
 

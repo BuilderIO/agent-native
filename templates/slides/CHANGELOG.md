@@ -3,6 +3,656 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-11
+
+### Improved
+
+- Slide transitions match the Google Slides catalog (None, Dissolve, Fade, Slide from right and left, Flip, Cube, Gallery), with a speed control, Apply to all slides, and a Play preview, and they play the same way going backward.
+
+### Fixed
+
+- Generated deck prompts wait for the first-run status check to resolve.
+- Per-element reveals and "By paragraph" builds stay on the right element after edits, undo and deletes, and public decks with reveals load again.
+- Going back from a new Slides generation returns Home without refilling the submitted prompt.
+
+## 2026-10-10
+
+### Improved
+
+- In a narrow pane, such as the ChatGPT side panel, the editor scrolls through every slide in one column instead of needing the slide rail.
+- The Slides editor in ChatGPT and Codex now uses the same top bar, toolbar, slide rail and canvas as the app
+
+### Fixed
+
+- Deck links stay open while your workspace loads.
+- Home suggestions keep their slot stable through profile errors and generation.
+- Home suggestions stay stable and reflect your role
+- Presentation suggestions stay in place while loading and match your selected role.
+- Slides no longer treat a stray 'Pod 2 slide' or 'at least 10 slides' in a long prompt as a hard slide cap, and placeholder blank slides no longer count toward the requested count.
+
+## 2026-10-09
+
+### Improved
+
+- Previous steps back through each revealed paragraph before changing slides.
+- The Slides widget in ChatGPT and Codex now has the editor's deck title, Share button and slide style toolbar, and they fit narrow panels.
+- Slide text editing keeps formatting controls responsive while you type.
+- The Slides chat stays responsive while you type on a slide.
+
+### Fixed
+
+- By-paragraph animations now work with native paragraphs and bullet lists.
+- By-paragraph animations reveal multiple paragraphs in a list item one at a time.
+- By-paragraph animations step through nested list items in order, preserving explicit paragraph effects and consistently prioritizing the first configured effect when targets overlap.
+- Fixed paragraph reveal order for nested lists and mixed list content
+- Slides keep generating when image search is unavailable.
+- Wrapped paragraphs in list items reveal one at a time
+- Crop animations respect active container-query styles
+- Crop edits preserve in-progress transitions and keep transforms aligned with animated font sizes.
+- Deck style tweaks save when edited from a ChatGPT widget.
+- Slides widget edits remain available after reopening a chat.
+
+## 2026-10-08
+
+### Improved
+
+- PowerPoint imports show a clear pending state while they finish.
+- Signup and login sessions are available in Analytics with all form inputs masked.
+- Alt-dragging several selected objects now duplicates them instead of moving the originals.
+- Clicking just outside a text box inside a group now selects the group, and filled shapes, images and tables no longer have an invisible click margin.
+- Snap guides span the objects they align and show equal spacing
+- The AI now gets a warning when a slide has typed page numbers, fixed-height text or content the editor strips
+- The Slides editor fits ChatGPT's panel sizes and supports direct edits in the widget.
+- Undo and redo select the objects they changed
+
+### Fixed
+
+- Custom-key setup opens model settings after onboarding.
+- Slide slash menus keep opening when the browser updates the caret late.
+- Slides keeps prompts ready, shows one provider retry hint, and blocks generation until a provider is connected.
+- Typing / in a slide text box reliably opens the slash-command menu.
+- CSS animations written in a slide's style block now play in the editor
+- Objects styled with the CSS rotate, scale and translate properties or a stylesheet rule now rotate, crop and drag without jumping, and the rotation field shows every angle from 0 to 360 degrees
+- PowerPoint and Google Slides export now keeps radial-gradient backgrounds, gradient headline text, and slide-number footers, and no longer turns inset or stacked shadows into stray glows.
+- Image uploads work reliably in Slides.
+- Right-click menus on slides open instantly without the browser menu or image dragging
+
+## 2026-10-07
+
+### Added
+
+- Footers can use slide-number tokens so page numbers like 04 / 08 stay correct when slides are reordered, added, or deleted
+- Videos can be added to slides and played on click or automatically.
+
+### Improved
+
+- Clicking, dragging and selecting in the slide editor now works like Google Slides, including nested content in AI-generated slides
+- The AI can now plan slide height before writing and apply comments end to end
+- Decks opened in a chat side pane now fill the whole pane with a compact slide strip and the current slide scaled to the pane width from the top, with no toolbar rows or speaker-notes strip.
+- Decks in a chat side pane keep going below a short slide with the following slides, so the pane has no empty space
+- Google Drive setup now explains that pasted document links still work when the file picker is unavailable.
+- Long decks stay responsive as you move through slides.
+- Slides opened in a read-only chat widget now show view-only controls instead of allowing unsaved edits.
+- Long slide text-editing sessions can be undone without losing their earlier steps.
+
+### Fixed
+
+- Text boxes grow with their text and the selection outline follows
+- A deck deleted while someone else has it open now shows as unavailable within seconds
+- A new deck that could not be saved now says so, instead of reporting that you lost access
+- A teammate's edit to a different text box now appears on your slide while you are still typing in another one
+- Failed slide generation now explains where to find details and how to retry.
+- Large video uploads now recover when a connection drops during finalization.
+- New presentation prompts no longer attach a recent deck automatically. Choose a deck when you want to use it as a reference.
+- Previously uploaded images stay available after workspace scoping.
+- Recover completed video uploads after ambiguous final responses and show format-specific upload errors
+- Slides keeps an explicitly selected reference deck when restoring a saved draft.
+- Video uploads recover after delayed finalization and clean up failed storage writes
+- Video uploads recover safely when storage or database responses are delayed.
+- Video uploads stay editable while uploading and work with larger videos
+- A deck whose access is revoked while it is open now says access was lost, keeps your edits on screen, and recovers when access returns.
+- Forward Delete preserves styled bullet rows when joining paragraphs.
+- Markdown divider shortcuts and autocorrect replacements remain undoable while preserving slide text styling.
+- Pasted images stay inside their crop frame while uploads finish.
+- Right-click slide images to open the custom menu with arrange actions.
+- Slide image actions preserve argument text that starts with dashes
+- SVGs exported with a standard SVG 1.1 declaration now upload successfully
+- Two people typing in different text boxes on the same slide no longer lose one person's edits when saves collide repeatedly.
+- Underline styling stays consistent when formatting nested slide text.
+
+## 2026-10-06
+
+### Fixed
+
+- Deleting between slide paragraphs now preserves inline formatting
+- Reopening a ChatGPT Slides widget restores the saved deck editor without a second sign-in.
+- Fixed attached images missing from visual analysis.
+- Fixed returning to shared decks after completing an account prompt
+- Generated decks from ChatGPT open in the full Slides editor.
+- Google Slides exports open the created copy directly.
+- Keep one close control in Slides export error dialogs
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+- Slides applies linked design systems to deck style references
+- Slides stop cleanly when generation reaches the requested slide count.
+- Slides uses a reference deck's linked system only when available and won't guess when the reference cannot be read.
+- The Recent tab restores immediately from the last known library state and stays visible while decks load.
+- Fixed home prompts silently doing nothing instead of starting a new deck.
+
+## 2026-10-05
+
+### Improved
+
+- The home page shows both library tabs and starter prompts immediately while content loads.
+
+### Fixed
+
+- Keyboard navigation and drag edits keep styled bullet rows in place.
+- Agent links copied from a deck are shorter, so Claude can fetch them without hitting its URL length limit.
+- AI setup checks use a fresh status before sending, even when an older check is already running.
+- Image generation reaches Assets when Slides and Assets use different local organization IDs.
+- Sign-in and signup pages now share the animated Agent-Native wave.
+- Slides keeps generation progress visible, restores pending questions when you return, and checks AI setup before sending prompts.
+- File uploads explain the free Builder.io option and how to connect S3-compatible storage.
+- Slides keeps a pending generation question and its chat available when you leave and reopen a deck.
+- Prompt-generated Slides decks remain when Cmd+Z reaches deck creation.
+- The Recent tab shows loading placeholders until your decks are ready.
+
+## 2026-10-03
+
+### Fixed
+
+- List edits keep slide layouts anchored, and long editing sessions retain undo history within a fixed memory budget.
+- Slide text edits preserve layout with inline-size containment.
+
+## 2026-10-02
+
+### Improved
+
+- Builder.io setup now routes account activation through the one-click flow.
+- Recent appears when you have accessible decks, and shared decks are shown when you have none of your own.
+- In-place slide editing now supports slash commands, Markdown shortcuts, and reliable list authoring while preserving text styling.
+- Slides refreshes faster when a collaborator changes the deck open in your tab.
+
+### Fixed
+
+- Opening a deck you no longer have access to no longer floods the app with repeated requests.
+- Markdown list shortcuts work when text inherits link formatting
+- Only one queued message action menu stays open at a time
+- Google Slides imports keep skipped slides and their images in the right place.
+- Heading text stays intact when Backspace joins it into a styled block.
+- Slide text editing now preserves formatting and caret placement across browsers.
+
+## 2026-10-01
+
+### Improved
+
+- Filter decks by owner with an option to view items shared with me.
+- Recover failed deck saves with explicit retry or reload
+- The observability settings tab is now labeled Observability.
+
+### Fixed
+
+- Collaborators editing different text boxes on the same slide now keep both edits instead of hitting a text conflict, and comments, replies and resolves reach other open editors within about a second.
+- A prompt you send before connecting AI is sent automatically once you connect, and a deck generation that ends without slides shows Try again instead of an empty canvas.
+- Blank speaker notes can be edited and saved without a conflict.
+- New deck prompts no longer add a default design system unless you choose one, and empty failed generations explain what happened.
+- Home prompt suggestions no longer fail when the model's answer runs long.
+- Images can be removed from chat without opening their preview
+- Markdown bullet shortcuts work after you press Enter.
+- Preserve concurrent slide metadata edits while saving
+- Selected slide text can be linked with the keyboard shortcut
+- New slide decks are persisted only after generation setup is ready.
+- Slide edits preserve unrelated changes when another editor updates the same field
+- Slides warns before refreshing a tab with unsaved edits
+- Undoing a conflicting slide edit preserves the latest update from another editor
+- When an attached file can't be read, Slides now says so instead of showing an internal error code.
+- Importing a PDF or other file from chat no longer fails with an invalid uploaded file error, and a failed import now offers a retry instead of showing page text
+- Shift-clicking images selects them together on a slide
+- Slides keeps sidebar navigation beside the single home toolbar and shows credit usage only near the limit.
+
+## 2026-09-30
+
+### Added
+
+- Connect ChatGPT to create and revise presentations in Slides.
+
+### Improved
+
+- Anchored comments stay visible on the slide, filters stay tucked away, and edits on separate slides recover from simultaneous saves.
+- Asking the agent to make a deck beautiful now applies a designer's eye for type, layout, and color while keeping your design system and reference deck in charge, and slides using the Fraunces font now display it instead of falling back to Georgia.
+- Comments stay attached to highlighted text, and collaborators can edit the same deck without losing changes.
+- Typing stays responsive while slides fit longer text.
+- Add references through compact dropdown menus and find decks with the centered home search.
+- Rich text editing preserves imported slide layouts.
+- Slide text editing supports slash commands, Markdown shortcuts, formatting, links, and predictable lists while preserving slide styling
+- Slides remembers your home library tab, so returning users can open straight to Recent.
+
+### Fixed
+
+- Fixed list editing and slash commands on imported slide layouts.
+- New decks can be created in empty workspaces without a design system
+- The agent no longer adds decorative circles, dots, or rings to slides unless they carry meaning.
+- Empty Slides libraries show one clear next step without search and filter controls.
+- Slides retries honor deck links in edited prompts
+- Start presentation generation immediately after submitting a prompt.
+- Slides keeps your selected references when you retry generation or sign in
+
+## 2026-09-29
+
+### Improved
+
+- Crop images freely and see the selected slide at a glance
+- Pasting a link to an accessible deck preselects it as the visual reference for a new presentation.
+- Undo and redo are available in the editor menu
+- Settings pages now share the account layout, with dated updates that load in batches.
+
+### Fixed
+
+- Chat prompts clear immediately while the assistant thinks.
+- Chat stays ready for your next draft while a message is being sent.
+- Slides reports when saved history cannot load and lets you retry
+- Choosing the latest slide version preserves other pending slide edits.
+- Generation retries keep the original files and references.
+- List commands now change only the selected text rows, leaving other rows untouched.
+- Large PDF and PowerPoint imports have more time to finish
+- The Position control stays available while a selected object's style details initialize.
+- Conflicting edits to one slide no longer block unrelated slide changes.
+- The home composer stays put as the app opens.
+- Slide conflict resolution keeps drafts available until saves succeed and retries independent edits against the current deck version.
+- Turning bullets on or off keeps neighboring text rows unchanged.
+- Dragging an object out of a layout preserves its original space.
+- Fixed deck edits failing to save during simultaneous collaboration
+- Pasted text no longer blocks deck creation
+- Position controls are available before you manually move an object
+- Pressing Escape after editing text closes the selection outline.
+- Slides opens reference selection after sign-in when no design or reference context is selected.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+- Slide undo preserves concurrent edits from other people
+- Editing a bullet no longer changes neighboring lines, and Markdown bullets work after a line break.
+- Slides no longer overwrites a newer edit to the same slide, and Undo and Redo stay with the deck you are editing.
+- Undo keeps newer collaborator edits, and independent slide changes keep saving after a conflict
+
+## 2026-09-28
+
+### Improved
+
+- Connected tools appear in the AgentKit Add menu only when they’re ready to use.
+- Slides context sources are available from the same Add menu using either + or @.
+- The + and @ context launcher is searchable, grouped, and aligned above the prompt, with shared file and agent discovery.
+- The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
+- Center the home search field and keep prompt submission responsive while AI readiness is checked.
+- Rotation controls are smaller and easier to see.
+- Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
+- Slides now batch short deck creation and explain when layout measurements are not available.
+- Starter prompts now sit below the chat composer
+- The deck list search and import controls stay legible on narrow screens.
+
+### Fixed
+
+- Switching between sidebar and full-page chat keeps the active conversation and drafts for follow-ups without changing initial home suggestions.
+- Find existing presentations in a searchable thumbnail gallery and add them as prompt references from the + and @ menus.
+- Chat suggestions stay hidden and prompt controls remain disabled until AI is connected and ready to use.
+- Sidebar and full-page chats share reference and integration choices, preserving each conversation's selections when switching views.
+- The context menu lists available integrations in a submenu with a clear connection setup link
+- Canceling reference selection restores the prompt and its attachments.
+- Deck editor waits for sign-in before loading its workspace shell.
+- Existing decks open to Recent, and the home prompt stays interactive while AI readiness is checked.
+- Preserve home prompt state across imports and clarify upload, website, and template search results.
+- Slides preserves backward text selections when editing starts
+- Slides text editing keeps the caret steady through focus changes and input-method composition
+- The home import control no longer clips its label
+- Typing in Slides agent chat keeps every character in order
+- The model picker shows available models when AI is configured.
+- Reference attachments stay available when a new deck prompt starts a chat.
+- Template menus stay available when you hover over a card.
+
+## 2026-09-27
+
+### Improved
+
+- Created decks appear in chat as compact cards with a direct link to Slides.
+- Deck results no longer show a nested card frame.
+- Generated decks show slide previews in chat
+- The Connect AI setup card now has even spacing above and below the composer.
+
+### Fixed
+
+- Deck creation returns to the prompt when chat delivery fails and offers a retry when generation does not start.
+- Personalized presentation suggestions work when responses include extra text
+- Fixed deck edits that could be overwritten during unload
+- Pagehide saves include queued edits and stay within the keepalive budget
+- Text edits are preserved when leaving or reloading a deck, and link drops no longer navigate away.
+- Text selection and bullet edits stay in their intended line and row
+- The deck list stays available when a deck preview cannot be generated.
+
+## 2026-09-26
+
+### Added
+
+- Requesters now get an email when a deck owner approves their access request.
+- Twelve new hand-designed deck templates — from a Swiss-grid pitch and data-dense quarterly review to a launch keynote, research report, lesson, roadmap, and portfolio — with the original starters still available below them.
+
+### Improved
+
+- Builder.io super-organization admins can preview customer slide decks in Human Review.
+- Connect storage only when you choose to upload a file
+- Slides accepts HTML references, identifies files in upload errors, and clarifies Figma access issues.
+- Keep Slides deck setup drafts across template navigation and retry failed storage checks before importing references.
+- Loading screens now reflect the app's home layout.
+- Saved slide decks can be previewed directly in Human Review.
+- Slides chat labels the selected slide by number so the agent knows which slide to edit.
+- Home headers keep search and controls aligned at intermediate widths
+- Browse every presentation template from the home page, with a responsive header and sticky Templates and Recent tabs.
+- The Slides home header aligns with Design, and starter suggestions reflect the role selected during onboarding.
+- Create decks from the prompt without a separate New Deck button.
+
+### Fixed
+
+- Clicking or double-clicking slide text near a box's edge now puts the caret or selection where you clicked, and pressing Enter in a styled bullet keeps its color and weight on the new bullet
+- Reverted text edits no longer change slide spacing
+- Slides keep their fit while text is edited and avoid saving changes that are erased.
+- Exports and Present are disabled when a deck has no slides
+- File uploads ask for storage only when requested, and chat stays disabled until an AI provider is connected.
+- Home suggestions and file imports handle provider failures more clearly.
+- Mobile chat now waits for slide edits to save before restoring an earlier deck version.
+- Search remains available before you create a presentation
+- Slides stops retrying imports when a file path is outside your uploads.
+- The presentation prompt appears immediately without a loading placeholder
+- Slides home suggestions start new presentations when personalized suggestions are unavailable, and template thumbnails load their declared fonts.
+- The home search shortcut leaves commands for open menus and dialogs.
+- Double-clicking slide text selects the word under the pointer.
+- Empty decks no longer start exports or presentations or expose presentation links.
+- Invalid or expired upload references stop instead of retrying
+- Slides ask for a file when a prompt refers to an unattached document
+- Reference file imports now check storage availability before opening the file picker.
+
+### Changed
+
+- The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
+### Removed
+
+- Create decks directly from the prompt without a separate New Deck button.
+
+## 2026-09-25
+
+### Added
+
+- Ask the agent to turn comment and reply emails on or off
+- Open an editable presentation from a template in one click, or inspect every slide in a large modal preview without AI generation.
+- Slides home quick actions now adapt to your onboarding role and appear only when an AI provider is ready.
+- Org admins can review agent runs from Settings
+- Chat messages can be reverted to their autosaved version, including a shortcut to restore the start of a chat.
+
+### Improved
+
+- Image generation without Assets tries the provider your organization picks for it first
+- Settings now opens from your name at the bottom of the sidebar, or with ⌘,.
+- Attach Figma frames and websites from focused dialogs while keeping prompt drafts and uploaded design.md files intact.
+- Recent decks now use the same consistent library card layout as templates.
+- Import PDF and PowerPoint files directly from the toolbar, paste Google Slides links in a compact popover, and find design and presentation references together under Design.
+- Start presentations from a prompt or guided source, attach existing Design, Slides, and Figma references, and import decks independently from the home toolbar.
+- Browse design systems and references from the shared context menu and open design-system setup without losing your presentation draft.
+- Shared presentation links show the deck title and slide text in previews
+- Use templates directly from full preview
+- Use text-first menus for import and template actions
+- Keep empty deck lists clear of search and filter controls
+- Selected design-system source forms open directly beneath their row and Figma indexing shows upload and decode progress.
+- Improve Slides design system setup feedback
+
+### Fixed
+
+- Choosing references now keeps Continue disabled until a Figma or website link is a valid URL, or a Google Slides link is a valid URL or picker file ID
+- Opening a deck you can't access now shows an access denied page where you can request access with a note for the owner or switch accounts, instead of an endless loading screen.
+- Pressing Enter in a flex-anchored text box no longer adds extra blank lines when you leave editing, and Arabic text stays joined while you type
+- Slides generation recovers from long pauses and lets you continue from the saved deck
+- Slides guides users to connect AI before continuing deck questions.
+- Slides checks object storage before uploads and offers Builder.io or your own S3-compatible keys when storage is missing.
+- Human Review previews show same-organization slides for organization admins without changing deck data.
+- Searching presentations keeps the results panel visible even when your workspace has no owned decks.
+- Shared-only presentations now open in Recent by default, copied templates wait for deck hydration, and retries remain idempotent.
+- Successful template copies now open even when deck-list refresh is temporarily unavailable.
+- Template copies no longer report success as a failure when deck-list hydration is superseded.
+- The agent recognizes blank slides and its slide prompts avoid duplicate wording.
+- Compact deck reads handle imported slides with invalid selectors.
+- Empty decks show a structured slide preview, and choices before generation are easier to read.
+- Google Slides reference imports explain missing connections clearly, website URLs are validated, DOCX files load reliably, and PDF imports keep readable titles when text extraction is corrupted.
+- Slides stay centered on screen during presentations.
+- Selected presentation options keep their highlight during setup
+- Empty decks keep their retry option when a retry cannot be sent.
+- Prevent setup generation while Figma indexing is in progress
+- Text on a slide is now edited in place: clicking into it changes nothing on the slide, Enter adds the new line immediately, and what you see while typing is what gets saved. The slash menu is no longer available inside slide text.
+- Word document imports now complete successfully.
+
+## 2026-09-24
+
+### Added
+
+- The Slides agent can check every slide's text color contrast against accessibility guidelines and fix what fails.
+
+### Improved
+
+- Slides completes multi-slide edits with fewer rounds of work
+
+### Fixed
+
+- Answering or skipping setup questions keeps deck generation in its original chat.
+- Deck generation progress follows its own run instead of unrelated chats.
+- Editing text on a slide no longer rewrites or restyles the rest of the slide, and clicking into text without typing no longer saves anything. Clicking text on a Markdown-layout slide no longer converts the slide to HTML; ask the agent to edit that text for now.
+- Guided questions stay available when a deck continuation cannot be delivered.
+- Restyling slides preserves their text and layout
+
+### Security
+
+- Slides image generation uses credentials saved for your account or workspace, not a shared deployment key.
+
+## 2026-09-23
+
+### Improved
+
+- Slides loads AI prompt tools and extra slide controls only when you open them.
+
+### Fixed
+
+- Decks opened from a link or reload no longer get stuck on the generating screen when no generation is running
+- Decks with no design system now follow a theme chosen for their subject instead of a fixed default palette
+- Deck access errors leave the loading state and explain that the deck is unavailable.
+- Slide chat follows the current selection, and loaded slides remain visible when a background refresh fails
+- Slides home retries failed deck-list reads sooner.
+- Slides no longer shows an error page while the deck list is recovering.
+
+## 2026-09-22
+
+### Improved
+
+- Apps start with an app-shaped skeleton while session data loads immediately.
+- Design system indexing checks now back off instead of polling every few seconds indefinitely.
+- Moving and resizing slide content now works like Google Slides: boxes drag from anywhere on them, a second click edits their text, containers outline on hover, and resizing AI-generated text works even while editing.
+- An open deck no longer reloads every deck your teammates change.
+
+### Fixed
+
+- AI-generated bullets keep their markers when you add, indent, or undo bullet rows.
+
+## 2026-09-21
+
+### Fixed
+
+- PDF exports preserve slide fonts and text wrapping
+- Keep slide additions aligned with the deck's existing design system
+
+## 2026-09-20
+
+### Fixed
+
+- Continue is available only after selecting a reference or design system.
+
+## 2026-09-19
+
+### Fixed
+
+- HTML exports have clickable slide and fullscreen controls
+- Creating another presentation in chat keeps the existing deck intact.
+
+## 2026-09-18
+
+### Improved
+
+- New decks now keep the selected design system as the default
+- Share Presentation now keeps its heading inset and shows the relevant link clearly
+
+### Fixed
+
+- Inline slide editing now preserves text changes through teardown and reload
+- Slides keeps chat controls, queued prompts, sharing, and design-system status in sync.
+- Slides now hydrates configured design system defaults when references load after opening.
+
+### Removed
+
+- Slides opens directly into the deck workspace without the extra first-run setup flow
+
+## 2026-09-17
+
+### Fixed
+
+- Text editing keeps its focus, toolbar controls, and selection outline consistent
+
+## 2026-09-16
+
+### Fixed
+
+- Allow keyboard nudges to move multiple selected slide layers together
+- Dragging slide elements keeps selection handles aligned and snap guides on the visual edges
+- Duplicating slides saves successfully when speaker notes are missing
+- Editing slide text preserves its formatting, layout, line breaks, and rich clipboard styles
+- Keep layout wrappers selectable around text blocks in Slides
+- Moving a multi-selection keeps bordered slide cards together
+- Slide content edits reject regex patterns that could freeze the editor
+- Slides keeps chat turns in order and restores the current slide context when you navigate or select.
+- Content-only agent edits now preserve the slide's existing backgrounds and styling.
+
+### Changed
+
+- Imported decks now support adding, deleting, and reordering slides
+
+## 2026-09-15
+
+### Improved
+
+- Design previews can inspect every onboarding step and apply visual edits more reliably across screens.
+- Generated slide decks keep a cohesive visual theme while layouts vary with the story
+- Account menus are now shorter, with workspace apps and agent management available in Settings.
+
+### Fixed
+
+- Google Slides exports keep every line of text where it sits in Slides instead of re-wrapping into overlapping, stacked text.
+- Imported decks now export to PowerPoint and Google Slides in their original layer order, so background panels no longer cover slide content
+- PowerPoint and Google Slides exports keep full-size text on every slide, not just the one open in the editor.
+- Table rules and dividers now export to PowerPoint and Google Slides as editable lines instead of images
+
+## 2026-09-14
+
+### Improved
+
+- Deck filter button now shows when the list is limited to your own decks.
+- Slides comments can now target slide objects and positions with full thread actions, reactions, and Google-style shortcut behavior.
+
+### Fixed
+
+- Asking the agent to restyle a whole deck no longer reports slides as beautified when their content was left exactly as it was, and a restyle that changes nothing now fails instead of claiming success.
+- An attached PDF, PowerPoint, or Word reference is now read before a new deck is generated, and its typography, palette, and page proportions steer the design instead of being silently dropped
+- Creating a design system no longer fails silently when Builder indexing is unavailable.
+- Design system creation from onboarding now opens inline instead of a new tab, so onboarding progress is no longer lost
+- Every icon in the collapsed left sidebar now shows its name on hover
+- Sending a selection, drawing, or pending update to the agent now opens the agent panel instead of appearing to do nothing.
+- Style requests like matching one slide's background across the deck now succeed instead of failing after repeated rejected edits.
+- Switching organizations now shows only decks from the current organization
+
+### Changed
+
+- Creative Context is now in Labs and off by default
+
+## 2026-09-13
+
+### Improved
+
+- Control+M adds a slide with the current slide's layout.
+
+### Fixed
+
+- Slides support keyboard navigation, selection, and reordering in the slide rail.
+- Slides route navigation, selection, clipboard, and reorder shortcuts through the focused editor surface.
+
+## 2026-09-12
+
+### Fixed
+
+- Multi-object rotation keeps translated objects aligned
+- Objects keep their position when ungrouping a rotated group.
+- Preserve scaled child transforms and fractional matrix angles when ungrouping rotated groups
+
+## 2026-09-10
+
+### Fixed
+
+- When Google Slides export falls back to downloading a .pptx, it now says so instead of offering a button that opens an empty Google Slides tab.
+
+## 2026-09-09
+
+### Improved
+
+- Comment and editor avatars use a slimmer border.
+- Slides use a polished light visual style by default when no brand system is selected.
+
+### Fixed
+
+- Google Slides export is now marked unavailable instead of sending you to a broken Google sign-in page when the Google connection cannot be used.
+- When an agent's slide edit does not match the slide, it now says so instead of reporting an internal server error, so the agent can correct the edit rather than retrying the same one.
+
+## 2026-09-03
+
+### Fixed
+
+- Send to front and send to back now restack a slide layer above or below the
+  layers it overlaps, instead of quietly doing nothing or nudging the layer down
+  the slide.
+- Dragging a text box's left or right handle now changes only its width, so the box grows and shrinks as the text rewraps. Corner handles still set the height manually.
+
+## 2026-08-29
+
+### Improved
+
+- Slides chat can import attached PDF and PPTX files when requested, while ordinary attachments remain reference material.
+- Slides loading states now use an even more subtle whole-surface shine.
+
+## 2026-08-28
+
+### Improved
+
+- Slides loading placeholders and AI editing previews now use a softer whole-surface shine.
+
+### Fixed
+
+- Image position and size edits persist while dropped images finish uploading.
+- A slide containing a `<style>` block no longer renders empty on shared and presented links — the block and everything after it now survive.
+- Keep the standard app layout visible when a Slides workspace has no decks.
+
+## 2026-08-27
+
+### Added
+
+- Slides let you place persistent comments on the canvas with C, hover previews, and click-to-open threads.
+
+### Improved
+
+- AI editing presence now sits with the editor's right-side sharing controls.
+
+### Fixed
+
+- Image fit controls now apply cover crops and let you choose their position.
+- Copying a slide in Slides now makes it available to paste into another deck.
+- PowerPoint exports now embed the deck's own fonts and pin every text box, so a deck opened in PowerPoint or moved into Google Slides keeps the type and layout it had in the editor.
+
 ## 2026-08-26
 
 ### Fixed
@@ -479,7 +1129,7 @@ time from the command menu (Cmd+K → "What's new").
 ### Improved
 
 - Design system setup now indexes Figma, code, and design.md sources through Builder DSI.
-- Slide editing is cleaner and more Figma-like, with direct style controls for selected elements.
+- Slide editing has direct style controls for selected elements.
 - Slide editing now keeps thumbnails, speaker notes, styling, and the canvas in stable resizable panes with cleaner top controls.
 - Undo/redo is now precise and safe with collaborators: it only reverts your own changes, never a teammate's or the AI's, and unsaved edits flush when you close the tab
 

@@ -9,7 +9,17 @@ import {
   assertContentDatabaseLifecycleAccess,
   collectInlineDatabaseOwnerBlockIds,
 } from "./_content-database-lifecycle.js";
-import { restoreDocumentSubtree } from "./delete-document.js";
+import {
+  runDatabaseSetupMutation,
+  setupLifecycleSchema,
+  setupError,
+  refreshAfterSetup,
+  setupAuditSummary,
+} from "./_database-setup-mutation.js";
+import {
+  lockDatabasesForRestore,
+  restoreDocumentSubtree,
+} from "./delete-document.js";
 import pullDocumentAction from "./pull-document.js";
 
 async function shouldClearStaleInlineOwnership(args: {
@@ -35,11 +45,98 @@ async function shouldClearStaleInlineOwnership(args: {
 }
 
 export default defineAction({
-  description: "Restore a soft-deleted content database.",
-  schema: z.object({
-    databaseId: z.string().describe("Content database ID"),
-  }),
-  run: async ({ databaseId }) => {
+  description:
+    "Restore one exact ordinary collection from recoverable Trash using its configuration revision and idempotency key; preserve Page, property and view identities and return a receipt.",
+  mcpTool: true,
+  mcpApp: { structuredContent: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+  agentInputSchema: setupLifecycleSchema,
+  schema: z.union([
+    setupLifecycleSchema,
+    z
+      .object({
+        databaseId: z.string().describe("Content collection ID"),
+      })
+      .strict(),
+  ]),
+  audit: {
+    recordInputs: false,
+    target: (args) => ({
+      type: "content-database",
+      id: args.target?.databaseId ?? args.databaseId,
+      visibility: "private",
+    }),
+    summary: (_args, result) =>
+      setupAuditSummary(result, "Restored Content database from Trash"),
+  },
+  run: async (args, context) => {
+    if (context?.caller === "mcp") setupLifecycleSchema.parse(args);
+    if ("target" in args) {
+      const input = setupLifecycleSchema.parse(args);
+      const { database } = await assertContentDatabaseLifecycleAccess(
+        input.target.databaseId,
+      );
+      let lockedDatabaseIds: ReadonlySet<string> | undefined;
+      const result = await runDatabaseSetupMutation({
+        operation: "restore-content-database",
+        input,
+        payload: input,
+        role: "admin",
+        includeDeleted: true,
+        lock: async (tx) => {
+          lockedDatabaseIds = await lockDatabasesForRestore(
+            tx,
+            database.documentId,
+            database.ownerEmail,
+            [database.id],
+          );
+        },
+        apply: async (tx, context) => {
+          if (context.database.ownerDocumentId)
+            setupError(
+              "UNSUPPORTED_DATABASE",
+              "Use the owning page to restore an inline database.",
+              400,
+            );
+          if (
+            context.databaseDocument.trashedAt &&
+            context.databaseDocument.trashRootId !== context.database.documentId
+          )
+            setupError(
+              "PARENT_IN_TRASH",
+              "Restore the parent Trash item instead.",
+              400,
+            );
+          const ids = await restoreDocumentSubtree(
+            tx,
+            context.database.documentId,
+            context.database.ownerEmail,
+            lockedDatabaseIds,
+          );
+          return {
+            outcome: context.database.deletedAt
+              ? ("restored" as const)
+              : ("unchanged" as const),
+            value: {
+              databaseId: context.database.id,
+              documentId: context.database.documentId,
+              deletedAt: null,
+              affectedDocumentIds: ids.slice(0, 100),
+              affectedDocumentCount: ids.length,
+              affectedDocumentIdsComplete: ids.length <= 100,
+            },
+          };
+        },
+      });
+      await refreshAfterSetup(result.receipt);
+      return { success: true, ...result.value, receipt: result.receipt };
+    }
+    const { databaseId } = args;
     const ownership = await assertContentDatabaseLifecycleAccess(databaseId);
     const db = getDb();
     const now = new Date().toISOString();

@@ -2,17 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { builderFileUploadProvider } from "./builder.js";
 
-const resolveBuilderCredentialsMock = vi.hoisted(() => vi.fn());
-const resolveBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
+const resolveBuilderCredentialsDetailedMock = vi.hoisted(() => vi.fn());
 const resolveBuilderApiAuthorizationMock = vi.hoisted(() => vi.fn());
+const resolveBuilderRequestAuthorizationMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/builder-api-auth.js", () => ({
   resolveBuilderApiAuthorization: resolveBuilderApiAuthorizationMock,
+  resolveBuilderRequestAuthorization: resolveBuilderRequestAuthorizationMock,
 }));
 
 vi.mock("../server/credential-provider.js", () => ({
-  resolveBuilderCredentials: resolveBuilderCredentialsMock,
-  resolveBuilderPrivateKey: resolveBuilderPrivateKeyMock,
+  resolveBuilderCredentialsDetailed: resolveBuilderCredentialsDetailedMock,
 }));
 
 function jsonResponse(body: unknown, init?: { status?: number }): Response {
@@ -46,12 +46,17 @@ describe("builderFileUploadProvider", () => {
     delete process.env.BUILDER_PUBLIC_APP_HOST;
     vi.clearAllMocks();
     vi.useFakeTimers();
-    resolveBuilderCredentialsMock.mockResolvedValue({
+    resolveBuilderCredentialsDetailedMock.mockResolvedValue({
       privateKey: "bpk-secret",
       publicKey: "public-key",
     });
-    resolveBuilderPrivateKeyMock.mockResolvedValue("bpk-secret");
     resolveBuilderApiAuthorizationMock.mockResolvedValue("Bearer bpk-secret");
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "bpk-secret",
+      authorization: "Bearer bpk-secret",
+      source: "legacy",
+      legacyPublicKey: "public-key",
+    });
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
   });
@@ -89,6 +94,43 @@ describe("builderFileUploadProvider", () => {
     expect(init).toMatchObject({
       method: "DELETE",
       headers: { Authorization: "Bearer bpk-secret" },
+    });
+  });
+
+  it("treats a missing Builder asset as already deleted", async () => {
+    fetchMock.mockResolvedValue(errorResponse(404));
+
+    await expect(
+      builderFileUploadProvider.delete!({
+        url: "https://cdn.builder.io/api/v1/file/assets%2Fmissing.bin",
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it("deletes Builder assets with OAuth without legacy API key fields", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+      oauthScope: "user",
+    });
+    fetchMock.mockResolvedValue(jsonResponse({}));
+
+    await expect(
+      builderFileUploadProvider.delete!({
+        url: "https://cdn.builder.io/api/v1/file/assets%2Fprivate.bin?token=x",
+      }),
+    ).resolves.toBe(true);
+
+    expect(resolveBuilderRequestAuthorizationMock).toHaveBeenCalledWith({
+      requiredScope: "builder:assets:write",
+    });
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(url.toString());
+    expect(parsed.searchParams.has("apiKey")).toBe(false);
+    expect(init).toMatchObject({
+      method: "DELETE",
+      headers: { Authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>" },
     });
   });
 
@@ -226,6 +268,230 @@ describe("builderFileUploadProvider", () => {
     ).toBe(false);
   });
 
+  it("refreshes the access token and retries once when the signed-URL request gets 401", async () => {
+    resolveBuilderApiAuthorizationMock
+      .mockResolvedValueOnce("Bearer revoked-token")
+      .mockResolvedValueOnce("Bearer fresh-token");
+    fetchMock
+      .mockResolvedValueOnce(errorResponse(401, "Unauthorized"))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          uploadUrl: "https://storage.example.com/session",
+          assetId: "asset-2",
+          requiredHeaders: {},
+        }),
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        headers: new Headers({ location: "https://storage.example.com/s/1" }),
+        text: async () => "",
+      } as unknown as Response);
+
+    const session = await builderFileUploadProvider.resumable!.startSession(
+      "rec.webm",
+      "video/webm",
+      1024,
+    );
+
+    expect(session.sessionId).toBe("https://storage.example.com/s/1");
+    expect(resolveBuilderApiAuthorizationMock).toHaveBeenNthCalledWith(
+      2,
+      expect.any(String),
+      { forceRefresh: true },
+    );
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
+      "Bearer revoked-token",
+    );
+    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe(
+      "Bearer fresh-token",
+    );
+  });
+
+  it("marks a 401 after a real refresh as rejected Builder credentials", async () => {
+    resolveBuilderApiAuthorizationMock
+      .mockResolvedValueOnce("Bearer revoked-token")
+      .mockResolvedValueOnce("Bearer also-refused");
+    fetchMock.mockResolvedValue(errorResponse(401, "Unauthorized"));
+
+    await expect(
+      builderFileUploadProvider.resumable!.startSession(
+        "rec.webm",
+        "video/webm",
+        1024,
+      ),
+    ).rejects.toMatchObject({
+      status: 401,
+      errorCode: "builder_credentials_rejected",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not resend the same token when the refresh could not change it", async () => {
+    fetchMock.mockResolvedValue(errorResponse(401, "Unauthorized"));
+
+    await expect(
+      builderFileUploadProvider.resumable!.startSession(
+        "rec.webm",
+        "video/webm",
+        1024,
+      ),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(resolveBuilderApiAuthorizationMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks a rejected Builder key as a persistent authorization failure", async () => {
+    resolveBuilderCredentialsDetailedMock.mockResolvedValue({
+      privateKey: "btk-rejected-key",
+      publicKey: "public-key",
+    });
+    resolveBuilderApiAuthorizationMock.mockResolvedValue(
+      "Bearer btk-rejected-key",
+    );
+    fetchMock.mockResolvedValue(errorResponse(401, "Unauthorized"));
+
+    await expect(
+      builderFileUploadProvider.resumable!.startSession(
+        "rec.webm",
+        "video/webm",
+        1024,
+      ),
+    ).rejects.toMatchObject({
+      status: 401,
+      errorCode: "builder_credentials_rejected",
+    });
+    expect(resolveBuilderApiAuthorizationMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes and retries the small-file upload path on 401", async () => {
+    resolveBuilderApiAuthorizationMock
+      .mockResolvedValueOnce("Bearer revoked-token")
+      .mockResolvedValueOnce("Bearer fresh-token");
+    fetchMock
+      .mockResolvedValueOnce(errorResponse(401, "Unauthorized"))
+      .mockResolvedValueOnce(
+        jsonResponse({ url: "https://cdn.builder.io/abc", id: "abc" }),
+      );
+
+    const result = await builderFileUploadProvider.upload({
+      data: new Uint8Array([1, 2, 3]),
+      filename: "photo.png",
+      mimeType: "image/png",
+    });
+
+    expect(result.url).toBe("https://cdn.builder.io/abc");
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
+      "Bearer revoked-token",
+    );
+    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe(
+      "Bearer fresh-token",
+    );
+  });
+
+  it("includes the target space when uploading with a personal access token", async () => {
+    resolveBuilderApiAuthorizationMock.mockResolvedValue(
+      "Bearer btk-agent-native",
+    );
+    resolveBuilderCredentialsDetailedMock.mockResolvedValue({
+      privateKey: "btk-agent-native",
+      publicKey: "space-agent-native",
+    });
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          uploadUrl: "https://storage.example.com/upload",
+          assetId: "asset-1",
+          requiredHeaders: {},
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockResolvedValueOnce(
+        jsonResponse({ url: "https://cdn.builder.io/video", id: "asset-1" }),
+      );
+
+    await builderFileUploadProvider.upload({
+      data: new Uint8Array([1, 2, 3]),
+      filename: "clip.webm",
+      mimeType: "video/webm",
+    });
+
+    expect(
+      new URL(fetchMock.mock.calls[0][0].toString()).searchParams.get("apiKey"),
+    ).toBe("space-agent-native");
+    expect(
+      new URL(fetchMock.mock.calls[2][0].toString()).searchParams.get("apiKey"),
+    ).toBe("space-agent-native");
+  });
+
+  it("rejects a credential scope mismatch instead of substituting another PAT", async () => {
+    resolveBuilderApiAuthorizationMock.mockResolvedValue("Bearer btk-user");
+    resolveBuilderCredentialsDetailedMock.mockResolvedValue({
+      privateKey: "btk-org",
+      publicKey: "space-org",
+    });
+
+    await expect(
+      builderFileUploadProvider.upload({
+        data: new Uint8Array([1]),
+        filename: "clip.webm",
+        mimeType: "video/webm",
+      }),
+    ).rejects.toThrow(
+      "Builder credential scope mismatch: the connection holding the upload space is not the one authorized for this request.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("propagates credential lookup failures instead of reporting a missing space", async () => {
+    const lookupError = new Error("secrets store unavailable");
+    resolveBuilderApiAuthorizationMock.mockResolvedValue(
+      "Bearer btk-agent-native",
+    );
+    resolveBuilderCredentialsDetailedMock.mockResolvedValue({
+      privateKey: "btk-agent-native",
+      publicKey: "space-agent-native",
+      lookupFailed: true,
+      cause: lookupError,
+    });
+
+    await expect(
+      builderFileUploadProvider.upload({
+        data: new Uint8Array([1]),
+        filename: "clip.webm",
+        mimeType: "video/webm",
+      }),
+    ).rejects.toBe(lookupError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("cancels a resumable session so a hosted retry can restart it", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 499,
+      statusText: "Client Closed Request",
+      headers: new Headers(),
+      text: async () => "",
+    } as unknown as Response);
+
+    await expect(
+      builderFileUploadProvider.resumable!.abortSession!({
+        sessionId: "https://storage.googleapis.com/session",
+        meta: { assetId: "asset-1" },
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://storage.googleapis.com/session",
+      expect.objectContaining({
+        method: "DELETE",
+        headers: { "Content-Length": "0" },
+        body: expect.any(Uint8Array),
+      }),
+    );
+  });
+
   it("passes only stableUrl through signed URL completion when requested", async () => {
     fetchMock
       .mockResolvedValueOnce(
@@ -297,7 +563,6 @@ describe("builderFileUploadProvider", () => {
     await builderFileUploadProvider.upload({ data: new Uint8Array([1]) });
 
     const [url, init] = fetchMock.mock.calls[0];
-    // No filename -> no name search param.
     expect(new URL(url.toString()).searchParams.has("name")).toBe(false);
     expect(init.headers["Content-Type"]).toBe("application/octet-stream");
   });
@@ -322,7 +587,6 @@ describe("builderFileUploadProvider", () => {
     const promise = builderFileUploadProvider.upload({
       data: new Uint8Array([1]),
     });
-    // Advance past the first backoff delay (600ms) so the retry fires.
     await vi.advanceTimersByTimeAsync(600);
     const result = await promise;
 
@@ -355,11 +619,9 @@ describe("builderFileUploadProvider", () => {
       data: new Uint8Array([1]),
     });
     const expectation = expect(promise).rejects.toThrow(/\(503\): Unavailable/);
-    // Two backoff windows: 600ms then 1800ms.
     await vi.advanceTimersByTimeAsync(600);
     await vi.advanceTimersByTimeAsync(1800);
     await expectation;
-    // 1 initial + 2 retries = 3 attempts.
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 

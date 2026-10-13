@@ -17,9 +17,6 @@ import { z } from "zod";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { CALENDAR_CONNECTOR_CATALOG } from "../lib/calendar-connector-catalog.js";
 
-// ---------------------------------------------------------------------------
-// Register calendar event-bus events
-// ---------------------------------------------------------------------------
 registerEvent({
   name: "calendar.event.created",
   description: "A new calendar event was created.",
@@ -62,6 +59,7 @@ registerEvent({
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
+  "list-google-calendars",
   "list-events",
   "search-events",
   "get-event",
@@ -85,17 +83,14 @@ const INITIAL_TOOL_NAMES = [
 
 export default createAgentChatPlugin({
   appId: "calendar",
-  // A delegated (A2A) turn served from the foreground gets the 40s
-  // serverless wall, and "I ran out of time before finishing this step"
-  // was 39% of this fleet's failed inbound A2A tasks — clustered at
-  // 35-46s, the wall to the second. Opting in routes the task to the
-  // background worker, as content, slides and analytics already do.
   durableBackgroundRuns: true,
   initialToolNames: INITIAL_TOOL_NAMES,
-  mcp: { connectorCatalog: [...CALENDAR_CONNECTOR_CATALOG] },
-  // Enable sandboxed JavaScript execution so Calendar agents can fetch,
-  // paginate, and reduce provider data through providerFetch() without us
-  // hardcoding one action per Google Calendar / CRM endpoint.
+  mcp: {
+    connectorCatalog: [...CALENDAR_CONNECTOR_CATALOG],
+    externalAgents: { writes: "allowlisted" },
+    instructions:
+      "Read schedules with list-events. Create events with create-event and edit them with update-event. RSVP with respond-to-event; scope=single (default) answers only the supplied recurring occurrence id. Preserve the event id and accountEmail returned by list-events or create-event on subsequent writes. These actions run directly as the authenticated user; use ask_app for work requiring the Calendar agent's reasoning.",
+  },
   codeExecution: { production: "sandboxed" },
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);
@@ -108,11 +103,12 @@ Some less-common tool schemas are loaded on demand. Use tool-search with a speci
 
 ## Critical: Use Actions And Provider APIs, Not Raw SQL
 
-Google Calendar events are NOT stored in the local database. They are fetched live from Google Calendar API via actions. Never use db-query or db-exec for calendar operations.
+Google Calendar events are NOT stored in the app's PostgreSQL database. They are fetched live from Google Calendar API via actions. Never use db-query or db-exec for calendar operations.
 
 Provider-specific Calendar actions are shortcuts, not limits. If a first-class action cannot express the exact Google Calendar/CRM endpoint, calendar id, filter, request body, pagination mode, attendee search, recurrence field, or API version needed, call \`provider-api-catalog\` and \`provider-api-docs\` as needed, then call \`provider-api-request\` against the provider's real HTTP API. Use this raw provider API escape hatch instead of weakening the answer, broadening filters, or claiming Calendar cannot do something the underlying API can do.
 
 - \`pnpm action view-screen\` — See the visible UI state (current view, date, selected event). Use it for questions about what the user is looking at, not as a prerequisite for deterministic schedule reads.
+- \`pnpm action list-google-calendars\` — Discover the primary and shared calendars available through every connected Google account. Pass returned opaque \`sourceKey\` values to \`list-events --calendarSourceKeys '[...]'\`; shared calendars are view-only and excluded from booking availability.
 - \`pnpm action list-events --from YYYY-MM-DD --to YYYY-MM-DD\` — List events from Google Calendar. The --to date is exclusive, so use tomorrow for today's events.
 - \`pnpm action search-events --query "term" --from YYYY-MM-DD --to YYYY-MM-DD\` — Convenience bounded search by title, attendees, organizer, location, or description. For relationship history, all-calendar discovery, exact attendee/domain search, or custom pagination, prefer provider-api-request with provider=google_calendar.
 - \`pnpm action provider-api-catalog\` / \`provider-api-docs\` / \`provider-api-request\` — Inspect and call the real Google Calendar, Apollo, Gong, HubSpot, and Pylon APIs directly. For Google Calendar events.list pagination use provider=google_calendar, path=/calendars/primary/events, query={...}, fetchAllPages={cursorPath:"nextPageToken",cursorParam:"pageToken",itemsPath:"items"}. For large relationship-history scans, pass stageAs and pagination={nextCursorPath:"nextPageToken",cursorParam:"pageToken",maxPages:N} with itemsPath="items", then use query-staged-dataset.
@@ -158,7 +154,6 @@ When the user says "show me", "go to", "open", or "switch to" a view or date, AL
         icon: "email",
         search: async (query: string) => {
           const db = getDb();
-          // bookings has no ownerEmail — scope via booking-links the caller can access
           const ownedLinks = await db
             .select({ slug: bookingLinks.slug })
             .from(bookingLinks)

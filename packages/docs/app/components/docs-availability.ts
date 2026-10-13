@@ -1,11 +1,9 @@
 import { docSourceFilenamesForSlug } from "../../lib/docs-source";
 import {
   DEFAULT_DOCS_LOCALE,
-  isDocsLocale,
+  docsLocaleFromSegment,
   type DocsLocale,
 } from "./docs-locale";
-// SEO only needs to know whether a source file exists, so this reads only the
-// KEYS of the shared map — the loaders are never called here.
 import {
   docSourceLoaders as defaultDocLoaders,
   localizedDocLoaders,
@@ -22,9 +20,8 @@ function sourceExists(
 }
 
 export function hasAvailableDoc(locale: unknown, slug: string): boolean {
-  const docsLocale: DocsLocale = isDocsLocale(locale)
-    ? locale
-    : DEFAULT_DOCS_LOCALE;
+  const docsLocale: DocsLocale =
+    docsLocaleFromSegment(locale) ?? DEFAULT_DOCS_LOCALE;
   if (docsLocale === DEFAULT_DOCS_LOCALE) {
     return sourceExists(defaultDocLoaders, "../../../core/docs/content/", slug);
   }

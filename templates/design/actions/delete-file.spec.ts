@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
+
 const mocks = vi.hoisted(() => {
   const fileSelectChain = {
     from: vi.fn(),
@@ -14,19 +16,61 @@ const mocks = vi.hoisted(() => {
   const txSelectChain = {
     from: vi.fn(),
     where: vi.fn(),
+    for: vi.fn(),
     limit: vi.fn(),
   };
   txSelectChain.from.mockReturnValue(txSelectChain);
   txSelectChain.where.mockReturnValue(txSelectChain);
+  txSelectChain.for.mockReturnValue(txSelectChain);
+  const txDesignSelectChain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    limit: vi.fn(),
+    for: vi.fn(),
+  };
+  txDesignSelectChain.from.mockReturnValue(txDesignSelectChain);
+  txDesignSelectChain.where.mockReturnValue(txDesignSelectChain);
+  const txShareSelectChain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    for: vi.fn(),
+  };
+  txShareSelectChain.from.mockReturnValue(txShareSelectChain);
+  txShareSelectChain.where.mockReturnValue(txShareSelectChain);
+  const txMemberSelectChain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    for: vi.fn(),
+  };
+  txMemberSelectChain.from.mockReturnValue(txMemberSelectChain);
+  txMemberSelectChain.where.mockReturnValue(txMemberSelectChain);
+  const txSnapshotSelectChain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    for: vi.fn(),
+  };
+  txSnapshotSelectChain.from.mockReturnValue(txSnapshotSelectChain);
+  txSnapshotSelectChain.where.mockReturnValue(txSnapshotSelectChain);
 
   const txDeleteChain = { where: vi.fn() };
+  const txInsertChain = { values: vi.fn() };
   const txUpdateChain = { set: vi.fn(), where: vi.fn() };
   txUpdateChain.set.mockReturnValue(txUpdateChain);
 
   const tx = {
-    select: vi.fn(() => txSelectChain),
+    select: vi.fn((selection) => {
+      if (selection?.blobHandle === "visualEditSnapshots.blobHandle") {
+        return txSnapshotSelectChain;
+      }
+      if (selection?.data === "designs.data") return txDesignSelectChain;
+      if (selection?.id === "designShares.id") return txShareSelectChain;
+      if (selection?.id === "orgMembers.id") return txMemberSelectChain;
+      return txSelectChain;
+    }),
     delete: vi.fn(() => txDeleteChain),
+    insert: vi.fn(() => txInsertChain),
     update: vi.fn(() => txUpdateChain),
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
   };
 
   const db = {
@@ -40,25 +84,58 @@ const mocks = vi.hoisted(() => {
     tx,
     fileSelectChain,
     txSelectChain,
+    txDesignSelectChain,
+    txShareSelectChain,
+    txMemberSelectChain,
+    txSnapshotSelectChain,
+    orgMembers: {
+      id: "orgMembers.id",
+      orgId: "orgMembers.orgId",
+      email: "orgMembers.email",
+    },
     txDeleteChain,
+    txInsertChain,
     txUpdateChain,
     accessFilter: vi.fn(() => ({ access: true })),
     assertAccess: vi.fn(),
+    currentAccess: vi.fn(() => ({})),
     and: vi.fn((...args) => ({ and: args })),
     eq: vi.fn((left, right) => ({ left, right })),
+    inArray: vi.fn((left, right) => ({ left, right })),
     designData: {} as Record<string, unknown>,
-    mutateDesignData: vi.fn(),
+    designUpdatedAt: null as string | null,
+    prepareDesignVersionBeforeAgentEditInVersionLock: vi.fn(),
+    persistPreparedDesignVersionCheckpoint: vi.fn(),
+    cleanupPreparedDesignVersionCheckpoint: vi.fn(),
+    withPreparedDesignVersionSourceFiles: vi.fn(),
+    withDesignSourceMutationTransaction: vi.fn(),
+    withSourceFileWriteLock: vi.fn(),
+    withDesignVersionLock: vi.fn(),
+    affectedRowCount: vi.fn(
+      (result: { rowCount?: unknown } | undefined) => result?.rowCount,
+    ),
+    lockDesignFilesTable: vi.fn(),
+    deleteVisualEditSnapshotBlobs: vi.fn(),
+    queueVisualEditSnapshotBlobCleanupInTransaction: vi.fn(),
   };
 });
 
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: mocks.accessFilter,
   assertAccess: mocks.assertAccess,
+  currentAccess: mocks.currentAccess,
+}));
+
+vi.mock("@agent-native/core/org", () => ({
+  orgMembers: mocks.orgMembers,
+  isMissingOrganizationTableError: (error: unknown) =>
+    String((error as Error)?.message ?? "").includes("org_members"),
 }));
 
 vi.mock("drizzle-orm", () => ({
   and: mocks.and,
   eq: mocks.eq,
+  inArray: mocks.inArray,
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
@@ -69,17 +146,75 @@ vi.mock("../server/db/index.js", () => ({
       id: "designs.id",
       data: "designs.data",
       updatedAt: "designs.updatedAt",
+      ownerEmail: "designs.ownerEmail",
+      orgId: "designs.orgId",
+      visibility: "designs.visibility",
     },
-    designShares: "designShares",
+    orgMembers: {
+      id: "orgMembers.id",
+      orgId: "orgMembers.orgId",
+      email: "orgMembers.email",
+    },
+    designShares: {
+      id: "designShares.id",
+      resourceId: "designShares.resourceId",
+    },
     designFiles: {
       id: "designFiles.id",
       designId: "designFiles.designId",
+      filename: "designFiles.filename",
+      content: "designFiles.content",
+      fileType: "designFiles.fileType",
+      createdAt: "designFiles.createdAt",
+      updatedAt: "designFiles.updatedAt",
+    },
+    designVersions: {
+      id: "designVersions.id",
+      designId: "designVersions.designId",
+    },
+    designVisualEditSnapshots: {
+      designId: "visualEditSnapshots.designId",
+      fileId: "visualEditSnapshots.fileId",
+      blobHandle: "visualEditSnapshots.blobHandle",
+    },
+    designScreenRestoreClaims: {
+      id: "designScreenRestoreClaims.id",
+      designId: "designScreenRestoreClaims.designId",
+      sourceFileId: "designScreenRestoreClaims.sourceFileId",
+      snapshot: "designScreenRestoreClaims.snapshot",
+      consumedAt: "designScreenRestoreClaims.consumedAt",
+      restoredFileId: "designScreenRestoreClaims.restoredFileId",
+      createdAt: "designScreenRestoreClaims.createdAt",
     },
   },
 }));
 
-vi.mock("../server/lib/design-data-mutation.js", () => ({
-  mutateDesignData: mocks.mutateDesignData,
+vi.mock("../server/lib/design-versions.js", () => ({
+  cleanupPreparedDesignVersionCheckpoint:
+    mocks.cleanupPreparedDesignVersionCheckpoint,
+  persistPreparedDesignVersionCheckpoint:
+    mocks.persistPreparedDesignVersionCheckpoint,
+  prepareDesignVersionBeforeAgentEditInVersionLock:
+    mocks.prepareDesignVersionBeforeAgentEditInVersionLock,
+  withDesignVersionLock: mocks.withDesignVersionLock,
+  withPreparedDesignVersionSourceFiles:
+    mocks.withPreparedDesignVersionSourceFiles,
+}));
+
+vi.mock("../server/source-workspace.js", () => ({
+  affectedRowCount: mocks.affectedRowCount,
+  designSourceMutationLockKey: (designId: string) =>
+    `agent-native:design-source:${designId}`,
+  lockDesignFilesTable: mocks.lockDesignFilesTable,
+  lockDesignSourceMutation: vi.fn(),
+  withDesignSourceMutationTransaction:
+    mocks.withDesignSourceMutationTransaction,
+  withSourceFileWriteLock: mocks.withSourceFileWriteLock,
+}));
+vi.mock("../server/lib/visual-edit-snapshot-blobs.js", () => ({
+  deleteVisualEditSnapshotBlobs: mocks.deleteVisualEditSnapshotBlobs,
+  queueVisualEditSnapshotBlobCleanupInTransaction:
+    mocks.queueVisualEditSnapshotBlobCleanupInTransaction,
 }));
 
 import action from "./delete-file.js";
@@ -87,9 +222,20 @@ import action from "./delete-file.js";
 describe("delete-file", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.assertAccess.mockReset();
+    mocks.currentAccess.mockReset();
+    mocks.currentAccess.mockReturnValue({});
+    mocks.fileSelectChain.where.mockReturnValue(mocks.fileSelectChain);
     mocks.fileSelectChain.limit.mockResolvedValue([
-      { id: "file-b", designId: "design_123" },
+      {
+        id: "file-b",
+        designId: "design_123",
+        filename: "b.html",
+        fileType: "html",
+        content: "<main>Delete</main>",
+      },
     ]);
+    mocks.txSelectChain.limit.mockResolvedValue([{ content: undefined }]);
     mocks.designData = {
       canvasFrames: {
         "file-a": { x: 0 },
@@ -121,20 +267,100 @@ describe("delete-file", () => {
       },
       keepMe: true,
     };
-    mocks.mutateDesignData.mockImplementation(
-      async (options: {
-        mutate: (
-          current: Record<string, unknown>,
-          context: { updatedAt: string },
-        ) => Record<string, unknown>;
-        isApplied: (current: Record<string, unknown>) => boolean;
-      }) => {
-        const updatedAt = "2026-07-09T00:00:00.000Z";
-        mocks.designData = options.mutate(mocks.designData, { updatedAt });
-        expect(options.isApplied(mocks.designData)).toBe(true);
-        return { data: mocks.designData, updatedAt };
+    mocks.designUpdatedAt = "2026-07-08T00:00:00.000Z";
+    mocks.prepareDesignVersionBeforeAgentEditInVersionLock.mockResolvedValue(
+      null,
+    );
+    mocks.persistPreparedDesignVersionCheckpoint.mockResolvedValue({
+      id: "checkpoint-1",
+      createdAt: "now",
+      label: "Before",
+    });
+    mocks.cleanupPreparedDesignVersionCheckpoint.mockResolvedValue(undefined);
+    mocks.withPreparedDesignVersionSourceFiles.mockImplementation(
+      async (
+        _designId: string,
+        work: (prepared: {
+          fileIds: string[];
+          leases: Map<string, unknown>;
+        }) => Promise<unknown>,
+      ) => work({ fileIds: [], leases: new Map() }),
+    );
+    mocks.withDesignSourceMutationTransaction.mockImplementation(
+      async (_designId, work, outcome) => {
+        let callbackError: unknown;
+        let callbackThrew = false;
+        try {
+          return await mocks.db.transaction(async (tx) => {
+            try {
+              const result = await work(tx);
+              if (outcome) outcome.callbackCompleted = true;
+              return result;
+            } catch (error) {
+              callbackThrew = true;
+              callbackError = error;
+              throw error;
+            }
+          });
+        } catch (error) {
+          if (outcome && callbackThrew && callbackError === error) {
+            outcome.rollbackConfirmed = true;
+          }
+          throw error;
+        }
       },
     );
+    mocks.withSourceFileWriteLock.mockImplementation(async (_fileId, work) =>
+      work(),
+    );
+    mocks.withDesignVersionLock.mockImplementation(
+      async (_designId: string, work: () => Promise<unknown>) => work(),
+    );
+    mocks.txSelectChain.from.mockReturnValue(mocks.txSelectChain);
+    mocks.txSelectChain.where.mockReturnValue(mocks.txSelectChain);
+    mocks.txSelectChain.for.mockResolvedValue([
+      {
+        id: "file-a",
+        filename: "a.html",
+        fileType: "html",
+        content: "<main>Keep</main>",
+      },
+      {
+        id: "file-b",
+        filename: "b.html",
+        fileType: "html",
+        content: "<main>Delete</main>",
+      },
+    ]);
+    mocks.txShareSelectChain.for.mockResolvedValue([]);
+    mocks.txMemberSelectChain.for.mockResolvedValue([]);
+    mocks.txSnapshotSelectChain.for.mockResolvedValue([]);
+    mocks.txInsertChain.values.mockResolvedValue([]);
+    mocks.deleteVisualEditSnapshotBlobs.mockReset();
+    mocks.txSelectChain.limit.mockResolvedValue([]);
+    mocks.txDesignSelectChain.from.mockReturnValue(mocks.txDesignSelectChain);
+    mocks.txDesignSelectChain.where.mockReturnValue(mocks.txDesignSelectChain);
+    mocks.txDesignSelectChain.for.mockImplementation(async () => [
+      {
+        data: JSON.stringify(mocks.designData),
+        updatedAt: mocks.designUpdatedAt,
+      },
+    ]);
+    mocks.txDeleteChain.where.mockResolvedValue({ rowCount: 1 });
+    let pendingDesignUpdate: Record<string, unknown> | undefined;
+    mocks.txUpdateChain.set.mockImplementation((values) => {
+      pendingDesignUpdate = values;
+      return mocks.txUpdateChain;
+    });
+    mocks.txUpdateChain.where.mockImplementation(async () => {
+      if (typeof pendingDesignUpdate?.data === "string") {
+        mocks.designData = JSON.parse(pendingDesignUpdate.data);
+      }
+      if (typeof pendingDesignUpdate?.updatedAt === "string") {
+        mocks.designUpdatedAt = pendingDesignUpdate.updatedAt;
+      }
+      return { rowCount: 1 };
+    });
   });
 
   it("returns a non-error result when the file is already missing", async () => {
@@ -149,18 +375,504 @@ describe("delete-file", () => {
     expect(mocks.db.transaction).not.toHaveBeenCalled();
   });
 
+  it("refuses a locked screen by default so the agent cannot drop template branding", async () => {
+    mocks.fileSelectChain.limit.mockResolvedValue([
+      {
+        id: "file-b",
+        designId: "design_123",
+        filename: "b.html",
+        fileType: "html",
+        content: '<div data-agent-native-locked="true">Brand</div>',
+      },
+    ]);
+
+    await expect(action.run({ id: "file-b" })).rejects.toThrow(/locked/i);
+    expect(mocks.db.delete).not.toHaveBeenCalled();
+  });
+
+  it("rechecks locked layers from the locked file reread", async () => {
+    mocks.fileSelectChain.limit.mockResolvedValue([
+      {
+        id: "file-b",
+        designId: "design_123",
+        filename: "b.html",
+        fileType: "html",
+        content: "<main>Unlocked preflight</main>",
+      },
+    ]);
+    mocks.txSelectChain.for.mockResolvedValue([
+      {
+        id: "file-a",
+        filename: "a.html",
+        fileType: "html",
+        content: "<main>Keep</main>",
+      },
+      {
+        id: "file-b",
+        filename: "b.html",
+        fileType: "html",
+        content:
+          '<div data-agent-native-locked="true">Added concurrently</div>',
+      },
+    ]);
+
+    await expect(action.run({ id: "file-b" })).rejects.toMatchObject({
+      errorCode: "design_file_locked_layers",
+      statusCode: 409,
+    });
+    expect(
+      mocks.prepareDesignVersionBeforeAgentEditInVersionLock,
+    ).toHaveBeenCalledTimes(1);
+    expect(mocks.persistPreparedDesignVersionCheckpoint).not.toHaveBeenCalled();
+    expect(mocks.tx.delete).not.toHaveBeenCalled();
+  });
+
+  it("rechecks editor access inside the destructive transaction", async () => {
+    mocks.assertAccess.mockImplementation(async () => {
+      if (mocks.assertAccess.mock.calls.length > 1) {
+        throw new Error("editor access revoked");
+      }
+    });
+
+    await expect(
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ).rejects.toThrow(/editor access revoked/i);
+    expect(mocks.assertAccess).toHaveBeenNthCalledWith(
+      2,
+      "design",
+      "design_123",
+      "editor",
+      expect.objectContaining({
+        transaction: expect.objectContaining({
+          execute: expect.any(Function),
+        }),
+      }),
+    );
+    expect(
+      mocks.prepareDesignVersionBeforeAgentEditInVersionLock,
+    ).toHaveBeenCalledTimes(1);
+    expect(mocks.persistPreparedDesignVersionCheckpoint).not.toHaveBeenCalled();
+    expect(mocks.tx.delete).not.toHaveBeenCalled();
+  });
+
+  it("normalizes array-shaped Drizzle results for transactional access", async () => {
+    const rows = [{ id: "design_123" }] as Array<{ id: string }> & {
+      count: number;
+    };
+    rows.count = 1;
+    mocks.tx.execute.mockResolvedValue(rows);
+    mocks.assertAccess.mockImplementation(async (...args: unknown[]) => {
+      const transaction = (
+        args[3] as { transaction?: { execute: Function } } | undefined
+      )?.transaction;
+      if (!transaction) return;
+      await expect(
+        transaction.execute({ sql: "SELECT 1", args: [] }),
+      ).resolves.toEqual({ rows, rowsAffected: 1 });
+    });
+
+    await expect(
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ).resolves.toMatchObject({ id: "file-b", deleted: true });
+  });
+
+  it("does not lock org_members for an owner on an embedded org-visible design", async () => {
+    mocks.currentAccess.mockReturnValue({ userEmail: "owner@example.com" });
+    mocks.txDesignSelectChain.for.mockResolvedValue([
+      {
+        id: "design_123",
+        data: JSON.stringify(mocks.designData),
+        updatedAt: mocks.designUpdatedAt,
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        visibility: "org",
+      },
+    ]);
+
+    await expect(
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ).resolves.toMatchObject({ id: "file-b", deleted: true });
+    expect(mocks.txMemberSelectChain.for).not.toHaveBeenCalled();
+  });
+
+  it("does not make org_members a hard dependency for non-owner access", async () => {
+    mocks.currentAccess.mockReturnValue({
+      userEmail: "shared@example.com",
+      orgId: "org-1",
+    });
+    mocks.txDesignSelectChain.for.mockResolvedValue([
+      {
+        id: "design_123",
+        data: JSON.stringify(mocks.designData),
+        updatedAt: mocks.designUpdatedAt,
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        visibility: "org",
+      },
+    ]);
+    mocks.txMemberSelectChain.for.mockRejectedValue(
+      new Error('relation "org_members" does not exist'),
+    );
+
+    await expect(
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ).resolves.toMatchObject({ id: "file-b", deleted: true });
+    expect(mocks.txMemberSelectChain.for).toHaveBeenCalledTimes(1);
+    expect(mocks.tx.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds authorization rows before the delete so a revoke waits", async () => {
+    let releaseAuthorizationLock!: () => void;
+    let markAuthorizationLockReached!: () => void;
+    const authorizationLock = new Promise<void>((resolve) => {
+      releaseAuthorizationLock = resolve;
+    });
+    const authorizationLockReached = new Promise<void>((resolve) => {
+      markAuthorizationLockReached = resolve;
+    });
+    mocks.txShareSelectChain.for.mockImplementation(async () => {
+      markAuthorizationLockReached();
+      await authorizationLock;
+      return [];
+    });
+
+    const deletion = action.run({
+      id: "file-b",
+      allowLockedLayers: true,
+    });
+    await authorizationLockReached;
+    expect(mocks.tx.delete).not.toHaveBeenCalled();
+
+    releaseAuthorizationLock();
+    await expect(deletion).resolves.toMatchObject({
+      id: "file-b",
+      deleted: true,
+    });
+    expect(mocks.tx.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it("locks the caller membership row for an org-visible design", async () => {
+    mocks.currentAccess.mockReturnValue({
+      userEmail: "editor@example.com",
+      orgId: "org-1",
+    });
+    mocks.txDesignSelectChain.for.mockResolvedValue([
+      {
+        id: "design_123",
+        data: JSON.stringify(mocks.designData),
+        updatedAt: mocks.designUpdatedAt,
+        orgId: "org-1",
+        visibility: "org",
+      },
+    ]);
+
+    await expect(
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ).resolves.toMatchObject({ id: "file-b", deleted: true });
+    expect(mocks.txMemberSelectChain.for).toHaveBeenCalledTimes(1);
+  });
+
+  it("deletes a locked screen when the caller says the user asked for it", async () => {
+    mocks.fileSelectChain.limit.mockResolvedValue([
+      {
+        id: "file-b",
+        designId: "design_123",
+        filename: "b.html",
+        fileType: "html",
+        content: '<div data-agent-native-locked="true">Brand</div>',
+      },
+    ]);
+
+    const result = await action.run({
+      id: "file-b",
+      allowLockedLayers: true,
+    });
+
+    expect(result).toMatchObject({ id: "file-b", deleted: true });
+    expect(mocks.tx.delete).toHaveBeenCalled();
+  });
+
+  it("removes the committed snapshot blobs after deleting the screens", async () => {
+    const blobHandle = JSON.stringify({
+      id: "snapshot-blob",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: true,
+    });
+    mocks.txSnapshotSelectChain.for.mockResolvedValue([{ blobHandle }]);
+
+    await expect(
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ).resolves.toMatchObject({ id: "file-b", deleted: true });
+
+    expect(mocks.deleteVisualEditSnapshotBlobs).toHaveBeenCalledWith([
+      blobHandle,
+    ]);
+    expect(
+      mocks.queueVisualEditSnapshotBlobCleanupInTransaction,
+    ).toHaveBeenCalledWith(mocks.tx, [blobHandle]);
+  });
+
+  it("reports an already-missing row without pruning its metadata", async () => {
+    mocks.txDeleteChain.where.mockResolvedValue({ rowCount: 0 });
+
+    await expect(
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ).resolves.toEqual({
+      id: "file-b",
+      deleted: false,
+      alreadyMissing: true,
+    });
+    expect(mocks.tx.update).not.toHaveBeenCalled();
+  });
+
+  it("does not report success when the delete result cannot be verified", async () => {
+    mocks.txDeleteChain.where.mockResolvedValue({});
+
+    await expect(
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ).rejects.toMatchObject({
+      errorCode: "action_failed",
+      statusCode: 500,
+    });
+    expect(mocks.tx.update).not.toHaveBeenCalled();
+  });
+
+  it("reports a missing design with a typed not-found failure", async () => {
+    mocks.txDesignSelectChain.for.mockResolvedValue([]);
+
+    await expect(
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ).rejects.toMatchObject({
+      errorCode: "not_found",
+      statusCode: 404,
+    });
+    expect(mocks.tx.delete).not.toHaveBeenCalled();
+  });
+
+  it("reports a selected-file conflict when no requested file was deleted", async () => {
+    mocks.fileSelectChain.limit.mockResolvedValue([
+      {
+        id: "file-b",
+        designId: "design_123",
+        filename: "b.html",
+        fileType: "html",
+        content: "<main>Delete B</main>",
+      },
+      {
+        id: "file-c",
+        designId: "design_123",
+        filename: "c.html",
+        fileType: "html",
+        content: "<main>Delete C</main>",
+      },
+    ]);
+    mocks.txSelectChain.for.mockResolvedValue([
+      { id: "file-a", filename: "a.html", fileType: "html" },
+      { id: "file-b", filename: "b.html", fileType: "html" },
+      { id: "file-c", filename: "c.html", fileType: "html" },
+    ]);
+    mocks.txDeleteChain.where.mockResolvedValue({ rowCount: 0 });
+
+    await expect(
+      action.run({
+        id: "file-b",
+        fileIds: ["file-c"],
+        allowLockedLayers: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "design_file_changed",
+      statusCode: 409,
+    });
+    expect(mocks.tx.update).not.toHaveBeenCalled();
+  });
+
+  it("fails with a typed internal error for an unexpected delete count", async () => {
+    mocks.txDeleteChain.where.mockResolvedValue({ rowCount: 2 });
+
+    await expect(
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ).rejects.toMatchObject({
+      errorCode: "action_failed",
+      statusCode: 500,
+    });
+    expect(mocks.tx.update).not.toHaveBeenCalled();
+  });
+
+  it("fails with a typed internal error for an unexpected metadata update count", async () => {
+    mocks.txUpdateChain.where.mockResolvedValue({ rowCount: 0 });
+
+    await expect(
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ).rejects.toMatchObject({
+      errorCode: "action_failed",
+      statusCode: 500,
+    });
+  });
+
+  it("prepares YDocs before the source transaction and persists the checkpoint inside it", async () => {
+    const events: string[] = [];
+    const preparedCheckpoint = { id: "checkpoint-1" };
+    let insideSourceTransaction = false;
+
+    mocks.withDesignVersionLock.mockImplementation(async (_designId, work) => {
+      events.push("version");
+      return work();
+    });
+    mocks.prepareDesignVersionBeforeAgentEditInVersionLock.mockImplementation(
+      async () => {
+        events.push("prepare");
+        return preparedCheckpoint;
+      },
+    );
+    mocks.withPreparedDesignVersionSourceFiles.mockImplementation(
+      async (_designId, work) => {
+        events.push("doc-leases");
+        return work({ fileIds: ["file-a", "file-b"], leases: new Map() });
+      },
+    );
+    mocks.withDesignSourceMutationTransaction.mockImplementation(
+      async (_designId, work) => {
+        events.push("source-transaction");
+        return mocks.db.transaction(async (tx) => {
+          insideSourceTransaction = true;
+          try {
+            return await work(tx);
+          } finally {
+            insideSourceTransaction = false;
+          }
+        });
+      },
+    );
+    mocks.persistPreparedDesignVersionCheckpoint.mockImplementation(
+      async (_checkpoint, _preparedFiles, transaction) => {
+        events.push("checkpoint");
+        expect(transaction).toBe(mocks.tx);
+        expect(insideSourceTransaction).toBe(true);
+        return { id: "checkpoint-1", createdAt: "now", label: "Before" };
+      },
+    );
+    mocks.cleanupPreparedDesignVersionCheckpoint.mockImplementation(
+      async (_checkpoint, committed) => {
+        events.push(committed ? "cleanup-commit" : "cleanup-rollback");
+      },
+    );
+    mocks.txSnapshotSelectChain.for.mockImplementation(async () => {
+      events.push("snapshot-blobs");
+      return [];
+    });
+    mocks.lockDesignFilesTable.mockImplementation(async () => {
+      events.push("table");
+    });
+    mocks.txSelectChain.for.mockImplementation(async () => {
+      events.push("files");
+      return [
+        { id: "file-a", filename: "a.html", fileType: "html", content: "" },
+        { id: "file-b", filename: "b.html", fileType: "html", content: "" },
+      ];
+    });
+    mocks.txDeleteChain.where.mockImplementation(async () => {
+      events.push("delete");
+      return { rowCount: 1 };
+    });
+    mocks.txDesignSelectChain.for.mockImplementation(async () => {
+      events.push("design");
+      return [
+        {
+          data: JSON.stringify(mocks.designData),
+          updatedAt: mocks.designUpdatedAt,
+        },
+      ];
+    });
+
+    await action.run(
+      { id: "file-b" },
+      { caller: "frontend", actionName: "delete-file" },
+    );
+
+    expect(events).toEqual([
+      "version",
+      "prepare",
+      "doc-leases",
+      "source-transaction",
+      "table",
+      "files",
+      "design",
+      "checkpoint",
+      "snapshot-blobs",
+      "delete",
+      "cleanup-commit",
+    ]);
+    expect(
+      mocks.prepareDesignVersionBeforeAgentEditInVersionLock,
+    ).toHaveBeenCalledWith("design_123", {
+      caller: "frontend",
+      actionName: "delete-file",
+    });
+  });
+
+  it("captures an edit that lands after a standalone browser checkpoint", async () => {
+    const standaloneCheckpointState = JSON.stringify(mocks.designData);
+    mocks.designData = {
+      ...mocks.designData,
+      keepMe: "edited after checkpoint",
+    };
+    expect(JSON.stringify(mocks.designData)).not.toBe(
+      standaloneCheckpointState,
+    );
+
+    mocks.fileSelectChain.limit
+      .mockResolvedValueOnce([
+        {
+          id: "file-b",
+          designId: "design_123",
+          filename: "b.html",
+          fileType: "html",
+          content: "<main>Delete</main>",
+        },
+      ])
+      .mockResolvedValueOnce([{ id: "checkpoint-1", designId: "design_123" }]);
+
+    const events: string[] = [];
+    let capturedState: Record<string, unknown> | undefined;
+    mocks.lockDesignFilesTable.mockImplementation(async () => {
+      events.push("table");
+    });
+    mocks.prepareDesignVersionBeforeAgentEditInVersionLock.mockImplementation(
+      async () => {
+        events.push("snapshot");
+        capturedState = JSON.parse(JSON.stringify(mocks.designData));
+        return null;
+      },
+    );
+    mocks.txDeleteChain.where.mockImplementation(async () => {
+      events.push("delete");
+      return { rowCount: 1 };
+    });
+
+    await action.run(
+      {
+        id: "file-b",
+        allowLockedLayers: true,
+        historyCheckpointId: "checkpoint-1",
+      },
+      { caller: "frontend", actionName: "delete-file" },
+    );
+
+    expect(events).toEqual(["snapshot", "table", "delete"]);
+    expect(capturedState?.keepMe).toBe("edited after checkpoint");
+  });
+
   it("deletes the file and prunes stale board metadata", async () => {
     const result = await action.run({ id: "file-b" });
 
-    expect(result).toEqual({ id: "file-b", deleted: true });
+    expect(result).toMatchObject({ id: "file-b", deleted: true });
     expect(mocks.assertAccess).toHaveBeenCalledWith(
       "design",
       "design_123",
       "editor",
     );
-    expect(mocks.db.delete).toHaveBeenCalled();
-    expect(mocks.mutateDesignData).toHaveBeenCalledTimes(2);
-
+    expect(mocks.tx.delete).toHaveBeenCalled();
     const data = mocks.designData;
     expect(data.keepMe).toBe(true);
     expect(data.canvasFrames).toEqual({ "file-a": { x: 0 } });
@@ -175,6 +887,448 @@ describe("delete-file", () => {
         ],
       },
     });
-    expect(data.updatedAt).toBe("2026-07-09T00:00:00.000Z");
+    expect(data.updatedAt).toBe(mocks.designUpdatedAt);
+    expect(mocks.tx.insert).not.toHaveBeenCalled();
+  });
+
+  it("returns the authoritative locked file snapshot for session undo", async () => {
+    mocks.fileSelectChain.limit.mockResolvedValue([
+      {
+        id: "file-b",
+        designId: "design_123",
+        filename: "b.html",
+        fileType: "html",
+        content: "<main>Client preflight bytes</main>",
+      },
+    ]);
+    mocks.txSelectChain.for.mockResolvedValue([
+      {
+        id: "file-a",
+        filename: "a.html",
+        fileType: "html",
+        content: "<main>Keep</main>",
+        createdAt: "2026-07-08T00:00:00.000Z",
+        updatedAt: "2026-07-08T00:00:00.000Z",
+      },
+      {
+        id: "file-b",
+        filename: "b.html",
+        fileType: "html",
+        content: "<main>Newer server bytes</main>",
+        createdAt: "2026-07-08T00:00:00.000Z",
+        updatedAt: "2026-07-09T00:00:00.000Z",
+      },
+    ]);
+
+    const result = await action.run({
+      id: "file-b",
+      allowLockedLayers: true,
+    });
+
+    expect(result).toMatchObject({
+      id: "file-b",
+      deleted: true,
+      deletedFiles: [
+        {
+          id: "file-b",
+          content: "<main>Newer server bytes</main>",
+          createdAt: "2026-07-08T00:00:00.000Z",
+          updatedAt: "2026-07-09T00:00:00.000Z",
+          geometry: { x: 500 },
+          screenMetadata: { title: "Delete" },
+        },
+      ],
+    });
+  });
+
+  it("stores a content fingerprint for deleted connection metadata", async () => {
+    mocks.designData.screenMetadata["file-b"] = {
+      title: "Delete",
+      connectionId: "screen-connection",
+    };
+    mocks.designData.localhostScreens["file-b"] = {
+      sourceType: "localhost",
+      connectionId: "localhost-connection",
+    };
+
+    const result = await action.run({ id: "file-b" });
+    const deletedFile = result.deletedFiles[0];
+    const [claim] = mocks.txInsertChain.values.mock.calls[0] as [
+      {
+        id: string;
+        designId: string;
+        sourceFileId: string;
+        snapshot: string;
+      },
+    ];
+
+    expect(deletedFile).toMatchObject({
+      restoreClaimId: claim.id,
+      restoreSourceFileId: "file-b",
+    });
+    expect(claim).toMatchObject({
+      designId: "design_123",
+      sourceFileId: "file-b",
+    });
+    const storedSnapshot = JSON.parse(claim.snapshot);
+    expect(storedSnapshot).toEqual({
+      filename: "b.html",
+      fileType: "html",
+      contentHashes: screenRestoreContentHashes("<main>Delete</main>", "html"),
+      screenMetadata: {
+        title: "Delete",
+        connectionId: "screen-connection",
+      },
+      localhostScreen: {
+        sourceType: "localhost",
+        connectionId: "localhost-connection",
+      },
+    });
+    expect(storedSnapshot.content).toBeUndefined();
+    expect(claim.snapshot).not.toContain("<main>Delete</main>");
+  });
+
+  it("deletes a multi-screen selection with one durable checkpoint", async () => {
+    mocks.fileSelectChain.limit.mockResolvedValue([
+      {
+        id: "file-b",
+        designId: "design_123",
+        filename: "b.html",
+        fileType: "html",
+        content: "<main>Delete B</main>",
+      },
+      {
+        id: "file-c",
+        designId: "design_123",
+        filename: "c.html",
+        fileType: "html",
+        content: "<main>Delete C</main>",
+      },
+    ]);
+    mocks.txSelectChain.for.mockResolvedValue([
+      { id: "file-a", filename: "a.html", fileType: "html" },
+      { id: "file-b", filename: "b.html", fileType: "html" },
+      { id: "file-c", filename: "c.html", fileType: "html" },
+    ]);
+    mocks.txDeleteChain.where.mockResolvedValue({ rowCount: 2 });
+
+    await expect(
+      action.run(
+        {
+          id: "file-b",
+          fileIds: ["file-c"],
+          allowLockedLayers: true,
+        },
+        { caller: "frontend", actionName: "delete-file" },
+      ),
+    ).resolves.toMatchObject({
+      id: "file-b",
+      deleted: true,
+      deletedIds: ["file-b", "file-c"],
+    });
+    expect(mocks.db.transaction).toHaveBeenCalledTimes(1);
+    expect(
+      mocks.prepareDesignVersionBeforeAgentEditInVersionLock,
+    ).toHaveBeenCalledTimes(1);
+    expect(mocks.tx.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when a multi-screen selection includes a missing file", async () => {
+    mocks.fileSelectChain.limit.mockResolvedValue([
+      {
+        id: "file-a",
+        designId: "design_123",
+        filename: "a.html",
+        fileType: "html",
+        content: "<main>Keep</main>",
+      },
+    ]);
+
+    await expect(
+      action.run({
+        id: "file-a",
+        fileIds: ["missing-file"],
+        allowLockedLayers: true,
+      }),
+    ).rejects.toThrow(/no longer available/i);
+    expect(
+      mocks.prepareDesignVersionBeforeAgentEditInVersionLock,
+    ).not.toHaveBeenCalled();
+    expect(mocks.tx.delete).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a selected file disappears after the locked reread", async () => {
+    mocks.fileSelectChain.limit.mockResolvedValue([
+      {
+        id: "file-b",
+        designId: "design_123",
+        filename: "b.html",
+        fileType: "html",
+        content: "<main>Delete B</main>",
+      },
+      {
+        id: "file-c",
+        designId: "design_123",
+        filename: "c.html",
+        fileType: "html",
+        content: "<main>Delete C</main>",
+      },
+    ]);
+    mocks.txSelectChain.for.mockResolvedValue([
+      { id: "file-a", filename: "a.html", fileType: "html" },
+      { id: "file-b", filename: "b.html", fileType: "html" },
+    ]);
+
+    await expect(
+      action.run({
+        id: "file-b",
+        fileIds: ["file-c"],
+        allowLockedLayers: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "design_file_changed",
+      statusCode: 409,
+    });
+    expect(
+      mocks.prepareDesignVersionBeforeAgentEditInVersionLock,
+    ).toHaveBeenCalledTimes(1);
+    expect(mocks.persistPreparedDesignVersionCheckpoint).not.toHaveBeenCalled();
+    expect(mocks.tx.delete).not.toHaveBeenCalled();
+  });
+
+  it("deletes the final user screen while preserving the board file", async () => {
+    mocks.fileSelectChain.limit.mockResolvedValue([
+      {
+        id: "file-b",
+        designId: "design_123",
+        filename: "b.html",
+        fileType: "html",
+        content: "<main>Only screen</main>",
+      },
+    ]);
+    mocks.txSelectChain.for.mockResolvedValue([
+      { id: "file-b", filename: "b.html", fileType: "html" },
+      { id: "board", filename: "__board__.html", fileType: "html" },
+    ]);
+
+    await expect(
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ).resolves.toMatchObject({ id: "file-b", deleted: true });
+    expect(mocks.tx.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it("serializes concurrent deletes of the last user screens", async () => {
+    let currentFiles = [
+      { id: "file-a", filename: "a.html", fileType: "html" },
+      { id: "file-b", filename: "b.html", fileType: "html" },
+      { id: "board", filename: "__board__.html", fileType: "html" },
+    ];
+    let requestedFileId = "";
+    mocks.fileSelectChain.where.mockImplementation((condition) => {
+      const idClause = condition.and?.find(
+        (clause: { left?: string }) => clause.left === "designFiles.id",
+      ) as { right?: string } | undefined;
+      requestedFileId = idClause?.right ?? "";
+      return mocks.fileSelectChain;
+    });
+    mocks.fileSelectChain.limit.mockImplementation(async () => {
+      const file = currentFiles.find(({ id }) => id === requestedFileId);
+      return file
+        ? [{ ...file, designId: "design_123", content: "<main />" }]
+        : [];
+    });
+    mocks.txSelectChain.for.mockImplementation(async () => [...currentFiles]);
+    mocks.txDesignSelectChain.for.mockImplementation(async () => [
+      {
+        data: JSON.stringify(mocks.designData),
+        updatedAt: mocks.designUpdatedAt,
+      },
+    ]);
+    mocks.txDeleteChain.where.mockImplementation(async (condition) => {
+      const idClause = condition.and?.find(
+        (clause: { left?: string }) => clause.left === "designFiles.id",
+      ) as { right?: string } | undefined;
+      const before = currentFiles.length;
+      currentFiles = currentFiles.filter(({ id }) => id !== idClause?.right);
+      return { rowCount: before === currentFiles.length ? 0 : 1 };
+    });
+
+    let transactionQueue = Promise.resolve();
+    mocks.db.transaction.mockImplementation((callback) => {
+      const transaction = transactionQueue.then(() => callback(mocks.tx));
+      transactionQueue = transaction.then(
+        () => undefined,
+        () => undefined,
+      );
+      return transaction;
+    });
+
+    const results = await Promise.allSettled([
+      action.run({ id: "file-a", allowLockedLayers: true }),
+      action.run({ id: "file-b", allowLockedLayers: true }),
+    ]);
+
+    expect(results.filter(({ status }) => status === "fulfilled")).toHaveLength(
+      2,
+    );
+    expect(results.filter(({ status }) => status === "rejected")).toHaveLength(
+      0,
+    );
+    expect(currentFiles).toEqual([
+      { id: "board", filename: "__board__.html", fileType: "html" },
+    ]);
+  });
+
+  it("cleans the staged checkpoint when editor access is revoked before persistence", async () => {
+    const preparedCheckpoint = { id: "checkpoint-1" };
+    mocks.prepareDesignVersionBeforeAgentEditInVersionLock.mockResolvedValue(
+      preparedCheckpoint,
+    );
+    mocks.assertAccess.mockImplementation(async (...args: unknown[]) => {
+      if ((args[3] as { transaction?: unknown } | undefined)?.transaction) {
+        throw new Error("editor access revoked");
+      }
+    });
+
+    await expect(
+      action.run(
+        { id: "file-b", allowLockedLayers: true },
+        { caller: "frontend", actionName: "delete-file" },
+      ),
+    ).rejects.toThrow(/editor access revoked/i);
+
+    expect(mocks.persistPreparedDesignVersionCheckpoint).not.toHaveBeenCalled();
+    expect(mocks.cleanupPreparedDesignVersionCheckpoint).toHaveBeenCalledWith(
+      preparedCheckpoint,
+      false,
+      true,
+    );
+    expect(mocks.tx.delete).not.toHaveBeenCalled();
+  });
+
+  it("does not retain a checkpoint when the delete transaction rolls back", async () => {
+    const checkpoints: string[] = [];
+    const preparedCheckpoint = { id: "checkpoint-1" };
+    mocks.prepareDesignVersionBeforeAgentEditInVersionLock.mockResolvedValue(
+      preparedCheckpoint,
+    );
+    mocks.persistPreparedDesignVersionCheckpoint.mockImplementation(
+      async (checkpoint) => {
+        checkpoints.push(checkpoint.id);
+        return { id: checkpoint.id, createdAt: "now", label: "Before" };
+      },
+    );
+    mocks.txUpdateChain.where.mockResolvedValue({});
+    mocks.db.transaction.mockImplementation(async (callback) => {
+      const before = checkpoints.length;
+      try {
+        return await callback(mocks.tx);
+      } catch (error) {
+        checkpoints.length = before;
+        throw error;
+      }
+    });
+
+    await expect(
+      action.run(
+        { id: "file-b", allowLockedLayers: true },
+        { caller: "frontend", actionName: "delete-file" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "action_failed",
+      statusCode: 500,
+    });
+
+    expect(checkpoints).toEqual([]);
+    expect(mocks.persistPreparedDesignVersionCheckpoint).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(mocks.cleanupPreparedDesignVersionCheckpoint).toHaveBeenCalledWith(
+      preparedCheckpoint,
+      false,
+      true,
+    );
+  });
+
+  it("re-prepares the checkpoint once when collaboration changes during delete", async () => {
+    const firstCheckpoint = { id: "checkpoint-1" };
+    const retryCheckpoint = { id: "checkpoint-2" };
+    let preparationCount = 0;
+    mocks.prepareDesignVersionBeforeAgentEditInVersionLock.mockImplementation(
+      async () =>
+        preparationCount++ === 0 ? firstCheckpoint : retryCheckpoint,
+    );
+    mocks.persistPreparedDesignVersionCheckpoint
+      .mockRejectedValueOnce(
+        Object.assign(
+          new Error(
+            "Design or its history changed while the checkpoint was being prepared. Retry the operation.",
+          ),
+          {
+            errorCode: "design-version-checkpoint-changed",
+            retryable: true,
+            statusCode: 409,
+          },
+        ),
+      )
+      .mockImplementation(async (checkpoint) => ({
+        id: checkpoint.id,
+        createdAt: "now",
+        label: "Before",
+      }));
+
+    await expect(
+      action.run(
+        { id: "file-b", allowLockedLayers: true },
+        { caller: "frontend", actionName: "delete-file" },
+      ),
+    ).resolves.toMatchObject({ id: "file-b", deleted: true });
+
+    expect(
+      mocks.prepareDesignVersionBeforeAgentEditInVersionLock,
+    ).toHaveBeenCalledTimes(2);
+    expect(mocks.persistPreparedDesignVersionCheckpoint).toHaveBeenCalledTimes(
+      2,
+    );
+    expect(
+      mocks.cleanupPreparedDesignVersionCheckpoint,
+    ).toHaveBeenNthCalledWith(1, firstCheckpoint, false, true);
+    expect(
+      mocks.cleanupPreparedDesignVersionCheckpoint,
+    ).toHaveBeenNthCalledWith(2, retryCheckpoint, true);
+    expect(mocks.tx.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves the staged checkpoint when transaction commit outcome is unknown", async () => {
+    const checkpoints: string[] = [];
+    const preparedCheckpoint = { id: "checkpoint-1" };
+    mocks.prepareDesignVersionBeforeAgentEditInVersionLock.mockResolvedValue(
+      preparedCheckpoint,
+    );
+    mocks.persistPreparedDesignVersionCheckpoint.mockImplementation(
+      async (checkpoint) => {
+        checkpoints.push(checkpoint.id);
+        return { id: checkpoint.id, createdAt: "now", label: "Before" };
+      },
+    );
+    mocks.db.transaction.mockImplementation(async (callback) => {
+      await callback(mocks.tx);
+      throw new Error("transaction commit outcome unknown");
+    });
+
+    await expect(
+      action.run(
+        { id: "file-b", allowLockedLayers: true },
+        { caller: "frontend", actionName: "delete-file" },
+      ),
+    ).rejects.toThrow(/transaction commit outcome unknown/i);
+
+    expect(checkpoints).toEqual(["checkpoint-1"]);
+    expect(mocks.cleanupPreparedDesignVersionCheckpoint).toHaveBeenCalledWith(
+      preparedCheckpoint,
+      false,
+      false,
+    );
+    expect(mocks.deleteVisualEditSnapshotBlobs).not.toHaveBeenCalled();
   });
 });

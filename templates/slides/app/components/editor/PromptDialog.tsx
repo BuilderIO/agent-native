@@ -1,7 +1,11 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
-import { PromptComposer } from "@agent-native/core/client/composer";
-import { ensureEmbedAuthFetchInterceptor } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  PromptComposer,
+  type ComposerDraftSnapshot,
+  type PromptComposerSubmitOptions,
+  type TiptapComposerHandle,
+  useEagerFileUploads,
+} from "@agent-native/toolkit/app/chat/composer/index";
 import {
   IconArrowLeft,
   IconBrandGoogle,
@@ -10,219 +14,192 @@ import {
   IconPresentation,
   IconUpload,
 } from "@tabler/icons-react";
-import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useImperativeHandle,
+} from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
+import type { SlidesPromptSubmitOptions } from "@/lib/composer-context";
+import { isStorageSetupRequiredError } from "@/lib/image-drop-to-agent";
+import { isInsidePortaledLayer } from "@/lib/portaled-layer";
+import { createSlidesPromptAttachmentAdapter } from "@/lib/prompt-attachment-adapter";
 import {
-  MAX_REFERENCE_FILE_BYTES,
-  MAX_REFERENCE_FILES,
-} from "../../../shared/upload-types";
+  deleteUploadedPromptFile,
+  formatPromptUploadFailure,
+  isPromptUploadAuthRequiredError,
+  isPromptUploadLimitError,
+  isPromptUploadNetworkError,
+  isPromptUploadStorageStatusError,
+  isPromptUploadUnsupportedFileTypeError,
+  uploadPromptFiles,
+  type UploadedFile,
+} from "@/lib/prompt-file-uploads";
+
+import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { GoogleDocImportHint } from "./GoogleDocImportHint";
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
+import type { useSlidesComposerContext } from "./SlidesComposerContext";
+import { UploadStorageGate } from "./UploadStorageGate";
+import {
+  usePromptImport,
+  type PromptImportSelection,
+  type PromptImportSource,
+} from "./use-prompt-import";
 
-export interface UploadedFile {
-  path: string;
-  url?: string;
-  originalName: string;
-  filename: string;
-  type: string;
-  size: number;
+const slidesPromptAttachmentAdapter = createSlidesPromptAttachmentAdapter();
+
+export type {
+  PromptImportSelection,
+  PromptImportSource,
+} from "./use-prompt-import";
+
+export type { UploadedFile } from "@/lib/prompt-file-uploads";
+
+export interface PromptChatAttachment {
+  type: "file";
+  name: string;
+  contentType?: string;
+  displayOnly: true;
+  text?: string;
 }
+export async function createPromptChatAttachments(
+  attachments: ReadonlyArray<unknown> | undefined,
+  uploaded: UploadedFile[],
+): Promise<PromptChatAttachment[]> {
+  const result: PromptChatAttachment[] = [];
+  let uploadedIndex = 0;
 
-// Netlify functions cap request bodies well under what a real PPTX/PDF
-// needs, so any file above this size streams through the chunked upload
-// endpoints (sub-4 MB slices, reassembled server-side) instead of one
-// multipart POST.
-const CHUNK_UPLOAD_THRESHOLD_BYTES = 4 * 1024 * 1024;
-const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
+  for (const raw of attachments ?? []) {
+    const attachment = raw as {
+      name?: unknown;
+      contentType?: unknown;
+      file?: File;
+    };
+    const name =
+      typeof attachment.name === "string"
+        ? attachment.name
+        : attachment.file?.name;
+    if (!name) continue;
 
-async function readUploadJson(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch (error) {
-    throw new Error(`Upload returned invalid JSON (${response.status})`, {
-      cause: error,
+    if (name.startsWith("pasted-text-")) {
+      let text: string | undefined;
+      try {
+        text = await attachment.file?.text();
+      } catch {
+        text = undefined;
+      }
+      result.push({
+        type: "file",
+        name,
+        contentType:
+          typeof attachment.contentType === "string"
+            ? attachment.contentType
+            : "text/plain",
+        displayOnly: true,
+        ...(text !== undefined ? { text } : {}),
+      });
+      continue;
+    }
+
+    const uploadedFile = uploaded[uploadedIndex++];
+    const isImage =
+      uploadedFile?.type.startsWith("image/") ||
+      Boolean(attachment.file?.type.startsWith("image/"));
+    if (uploadedFile && isImage && (uploadedFile.url || uploadedFile.dataUrl)) {
+      continue;
+    }
+    result.push({
+      type: "file",
+      name: uploadedFile?.originalName ?? name,
+      contentType:
+        uploadedFile?.type ??
+        (typeof attachment.contentType === "string"
+          ? attachment.contentType
+          : undefined),
+      displayOnly: true,
     });
   }
+
+  return result;
 }
 
-function extractErrorMessage(data: unknown): string | null {
-  if (
-    data &&
-    typeof data === "object" &&
-    "error" in data &&
-    typeof (data as { error: unknown }).error === "string" &&
-    (data as { error: string }).error.trim()
-  ) {
-    return (data as { error: string }).error;
-  }
-  return null;
+export interface PromptAttachmentActions {
+  commit: () => void;
+  discard: () => void;
+  attachments: ReadonlyArray<PromptChatAttachment>;
+  context?: string;
 }
 
-async function uploadFilesMultipart(files: File[]): Promise<UploadedFile[]> {
-  const formData = new FormData();
-  files.forEach((file) => formData.append("files", file));
-  const response = await fetch(`${appBasePath()}/api/uploads`, {
-    method: "POST",
-    body: formData,
-    credentials: "include",
-  });
-  const data = await readUploadJson(response);
-  if (!response.ok) {
-    throw new Error(
-      extractErrorMessage(data) || `Upload failed (${response.status})`,
-    );
-  }
-  if (!Array.isArray(data)) {
-    throw new Error("Upload failed: invalid response");
-  }
-  return data as UploadedFile[];
+export type PromptSubmitResult = "commit" | "retain" | "discard";
+
+type PromptModelSelection = Pick<
+  PromptComposerSubmitOptions,
+  "model" | "engine" | "effort"
+>;
+
+export interface PromptPopoverHandle {
+  submitSource(
+    prompt: string,
+    files: File[],
+    sourceContext?: string,
+  ): Promise<boolean>;
+  /** Send the current draft, with its attachments, as if send were pressed. */
+  submitDraft(): Promise<boolean>;
+  /** The draft a send would take right now, to compare with one that was held back. */
+  getDraftSnapshot(): ComposerDraftSnapshot | null;
 }
-
-async function uploadFileChunked(file: File): Promise<UploadedFile> {
-  const startResponse = await fetch(
-    `${appBasePath()}/api/uploads-chunked/start`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({
-        filename: file.name,
-        mimetype: file.type || "application/octet-stream",
-        declaredSize: file.size,
-      }),
-    },
-  );
-  const startData = await readUploadJson(startResponse);
-  if (!startResponse.ok) {
-    throw new Error(
-      extractErrorMessage(startData) ||
-        `Upload failed (${startResponse.status})`,
-    );
-  }
-  if (
-    startData &&
-    typeof startData === "object" &&
-    (startData as { uploadMode?: unknown }).uploadMode === "multipart"
-  ) {
-    const [uploaded] = await uploadFilesMultipart([file]);
-    if (!uploaded) throw new Error("Upload failed: no file returned");
-    return uploaded;
-  }
-  const sessionId =
-    startData && typeof startData === "object"
-      ? (startData as { sessionId?: unknown }).sessionId
-      : undefined;
-  if (typeof sessionId !== "string" || !sessionId) {
-    throw new Error("Upload failed: session ID missing");
-  }
-
-  const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE_BYTES));
-  for (let index = 0; index < totalChunks; index++) {
-    const start = index * CHUNK_SIZE_BYTES;
-    const end = Math.min(start + CHUNK_SIZE_BYTES, file.size);
-    const isFinal = index === totalChunks - 1;
-    const chunkResponse = await fetch(
-      `${appBasePath()}/api/uploads-chunked/${sessionId}/chunk?index=${index}&isFinal=${
-        isFinal ? "1" : "0"
-      }`,
-      {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/octet-stream" },
-        body: file.slice(start, end),
-      },
-    );
-    const chunkData = await readUploadJson(chunkResponse);
-    if (!chunkResponse.ok) {
-      throw new Error(
-        extractErrorMessage(chunkData) ||
-          `Upload failed (${chunkResponse.status})`,
-      );
-    }
-    if (isFinal) {
-      const result = Array.isArray(chunkData)
-        ? (chunkData[0] as UploadedFile)
-        : undefined;
-      if (!result) throw new Error("Upload failed: no file returned");
-      return result;
-    }
-  }
-  throw new Error("Upload failed: no final chunk response");
-}
-
-export async function uploadPromptFiles(
-  files: File[],
-): Promise<UploadedFile[]> {
-  if (files.length === 0) return [];
-  if (files.length > MAX_REFERENCE_FILES) {
-    throw new Error(`Too many files (max ${MAX_REFERENCE_FILES})`);
-  }
-  ensureEmbedAuthFetchInterceptor();
-  const smallIndices = files.flatMap((file, index) =>
-    file.size <= CHUNK_UPLOAD_THRESHOLD_BYTES ? [index] : [],
-  );
-  const largeIndices = files.flatMap((file, index) =>
-    file.size > CHUNK_UPLOAD_THRESHOLD_BYTES ? [index] : [],
-  );
-  const [smallUploads, largeUploads] = await Promise.all([
-    smallIndices.length > 0
-      ? uploadFilesMultipart(smallIndices.map((index) => files[index]))
-      : [],
-    Promise.all(largeIndices.map((index) => uploadFileChunked(files[index]))),
-  ]);
-  if (smallUploads.length !== smallIndices.length) {
-    throw new Error("Upload failed: response file count did not match request");
-  }
-  const uploads = new Array<UploadedFile>(files.length);
-  smallIndices.forEach((fileIndex, resultIndex) => {
-    uploads[fileIndex] = smallUploads[resultIndex];
-  });
-  largeIndices.forEach((fileIndex, resultIndex) => {
-    uploads[fileIndex] = largeUploads[resultIndex];
-  });
-  return uploads;
-}
-
-/**
- * Radix popovers portal to `document.body`, so a mousedown inside the model
- * picker or attachment menu reads as "outside" any panel that hosts a composer.
- * Closing on it unmounts the popover before its own click fires, which looks
- * exactly like a dead button.
- */
-export function isInsidePortaledLayer(target: EventTarget | null): boolean {
-  return Boolean(
-    (target as Element | null)?.closest?.(
-      "[data-radix-popper-content-wrapper]",
-    ),
-  );
-}
-
-export type PromptImportSource = "pdf" | "pptx" | "google-slides";
-
-export type PromptImportSelection =
-  | { kind: "pdf" | "pptx"; files: File[] }
-  | { kind: "google-slides"; url: string };
 
 interface PromptPopoverProps {
   open: boolean;
+  active?: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   placeholder?: string;
   onSkip?: () => void;
   skipLabel?: string;
-  onSubmit: (prompt: string, files: UploadedFile[]) => void | Promise<void>;
+  onSubmit: (
+    prompt: string,
+    files: UploadedFile[],
+    attachments: PromptAttachmentActions,
+    options?: SlidesPromptSubmitOptions,
+  ) => void | PromptSubmitResult | Promise<PromptSubmitResult | void>;
+  onBeforeSubmit?: (
+    draft?: ComposerDraftSnapshot,
+  ) => boolean | Promise<boolean>;
   loading?: boolean;
+  disabled?: boolean;
+  submissionDisabled?: boolean;
+  showModelSelector?: boolean;
+  modelStatusChecksEnabled?: boolean;
+  requireAgentEngine?: boolean;
+  showMissingApiKeySetup?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
+  presentation?: "popover" | "inline";
+  context?: ReturnType<typeof useSlidesComposerContext>;
+  controllerRef?: React.Ref<PromptPopoverHandle>;
   /** Forwarded to PromptComposer/TipTap for draft persistence in localStorage. */
   draftScope?: string;
   initialText?: string;
   initialTextKey?: string | number;
-  onBeforeUpload?: (prompt: string, files: File[]) => boolean | void;
+  /** Restore a model choice when a prompt is replayed after auth or setup recovery. */
+  initialModelSelection?: PromptModelSelection;
+  onBeforeUpload?: (
+    prompt: string,
+    files: File[],
+    context?: string,
+    attachments?: ReadonlyArray<PromptChatAttachment>,
+    options?: SlidesPromptSubmitOptions,
+  ) => boolean | void;
+  onRetainedAttachmentsAbandoned?: () => void;
   onImport?: (
     selection: PromptImportSelection,
   ) => Promise<boolean | void> | boolean | void;
@@ -233,43 +210,87 @@ interface PromptPopoverProps {
 
 export default function PromptPopover({
   open,
+  active = true,
   onOpenChange,
   title,
   placeholder = "Describe what you want...",
-  onSkip,
-  skipLabel = "Skip prompt",
   onSubmit,
+  onBeforeSubmit,
   loading = false,
+  disabled = false,
+  submissionDisabled = false,
+  showModelSelector,
+  modelStatusChecksEnabled,
+  requireAgentEngine,
+  showMissingApiKeySetup,
   anchorRef,
   centered = false,
+  presentation = "popover",
+  context,
+  controllerRef,
   draftScope,
   initialText,
   initialTextKey,
+  initialModelSelection,
   onBeforeUpload,
+  onRetainedAttachmentsAbandoned,
   onImport,
   importFromLabel,
   importingLabel = "Importing...",
   children,
 }: PromptPopoverProps) {
   const t = useT();
-  const [uploading, setUploading] = useState(false);
+  const storageQuery = useSlideFileStorageStatus(open && active);
+  const fileStorageConfigured =
+    storageQuery.data?.configured === true && !storageQuery.isError;
+  const inline = presentation === "inline";
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const [retainingAttachments, setRetainingAttachments] = useState(false);
+  const retainingAttachmentsRef = useRef(false);
   const [promptText, setPromptText] = useState("");
   const [googleDocContext, setGoogleDocContext] = useState("");
   const [googleSlidesUrl, setGoogleSlidesUrl] = useState("");
   const [importMode, setImportMode] = useState<PromptImportSource | null>(null);
+  const [storagePromptOpen, setStoragePromptOpen] = useState(false);
   const [selectedImportFile, setSelectedImportFile] = useState<File | null>(
     null,
   );
-  const [importingSource, setImportingSource] =
-    useState<PromptImportSource | null>(null);
+  const activeAttachmentFilesRef = useRef<File[]>([]);
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const pptxInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<TiptapComposerHandle>(null);
+  const sourceFilesRef = useRef<File[]>([]);
+  const sourceContextRef = useRef<string | undefined>(undefined);
+  const [modelSelection, setModelSelection] = useState<
+    PromptModelSelection | undefined
+  >(initialModelSelection);
+
+  useEffect(() => {
+    if (initialModelSelection) setModelSelection(initialModelSelection);
+  }, [initialModelSelection]);
+
+  useEffect(() => {
+    if (inline && open && initialTextKey !== undefined) {
+      composerRef.current?.focus();
+    }
+  }, [inline, open, initialTextKey]);
+
+  const handleModelChange = useCallback((model: string, engine: string) => {
+    setModelSelection((current) => ({ ...current, model, engine }));
+  }, []);
+
+  const handleEffortChange = useCallback(
+    (effort: NonNullable<PromptModelSelection["effort"]>) => {
+      setModelSelection((current) => ({ ...current, effort }));
+    },
+    [],
+  );
 
   // Position the popover after render so we can measure its actual size
   useEffect(() => {
-    if (!open || !panelRef.current) return;
+    if (inline || !open || !panelRef.current) return;
     const panel = panelRef.current;
     const MARGIN = 12;
 
@@ -305,7 +326,7 @@ export default function PromptPopover({
 
   // Close on outside click / escape
   useEffect(() => {
-    if (!open) return;
+    if (inline || !open) return;
     const handleClick = (e: MouseEvent) => {
       if (isInsidePortaledLayer(e.target)) return;
       if (
@@ -325,83 +346,338 @@ export default function PromptPopover({
       document.removeEventListener("mousedown", handleClick);
       document.removeEventListener("keydown", handleKey);
     };
-  }, [open, onOpenChange, anchorRef]);
+  }, [inline, open, onOpenChange, anchorRef]);
 
-  const uploadFiles = useCallback(
-    async (files: File[]): Promise<UploadedFile[]> => {
-      if (files.length === 0) return [];
-      setUploading(true);
-      try {
-        return await uploadPromptFiles(files);
-      } finally {
-        setUploading(false);
+  const deleteUploadedFile = useCallback(deleteUploadedPromptFile, []);
+  const uploadPromptFilesWithStorageMessage = useCallback(
+    (files: File[]) =>
+      uploadPromptFiles(files, t("home.referenceFileStorageUnavailable")),
+    [t],
+  );
+
+  const handleRetainedFilesAbandoned = useCallback(
+    (_files: readonly File[], discard: () => void) => {
+      if (retainingAttachmentsRef.current) {
+        if (onRetainedAttachmentsAbandoned) {
+          onRetainedAttachmentsAbandoned();
+        } else {
+          discard();
+        }
+        return;
       }
+      if (!submittingRef.current) discard();
     },
-    [],
+    [onRetainedAttachmentsAbandoned],
+  );
+
+  const {
+    commitFiles,
+    discardFiles,
+    retainFiles,
+    uploadFiles,
+    uploading,
+    reset: resetEagerUploads,
+    syncFiles,
+  } = useEagerFileUploads(uploadPromptFilesWithStorageMessage, {
+    onDiscard: deleteUploadedFile,
+    onRetainedFilesAbandoned: handleRetainedFilesAbandoned,
+  });
+
+  const handleAttachmentsChange = useCallback(
+    (files: File[]) => {
+      if (!fileStorageConfigured) {
+        if (files.length > 0) setStoragePromptOpen(true);
+        return;
+      }
+      if (files.length === 0 && retainingAttachmentsRef.current) return;
+      activeAttachmentFilesRef.current = files;
+      syncFiles(files);
+      if (files.length === 0) return;
+      if (
+        onBeforeUpload?.(
+          promptText,
+          files,
+          googleDocContext || undefined,
+          undefined,
+          modelSelection,
+        ) === false
+      )
+        return;
+      const uploadBatch = files;
+      void uploadFiles(uploadBatch).catch((error) => {
+        if (
+          !uploadBatch.some((file) =>
+            activeAttachmentFilesRef.current.includes(file),
+          )
+        )
+          return;
+        const storageSetupRequired = isStorageSetupRequiredError(error);
+        if (storageSetupRequired) void storageQuery.refetch();
+        toast.error(t("raw.uploadFailed"), {
+          description: formatPromptUploadFailure(
+            error,
+            storageSetupRequired
+              ? t("home.fileStorageSetupRequired")
+              : isPromptUploadNetworkError(error)
+                ? t("home.importMenu.networkFailed")
+                : isPromptUploadAuthRequiredError(error)
+                  ? t("home.importMenu.notStarted")
+                  : isPromptUploadLimitError(error)
+                    ? t("home.importMenu.uploadLimitExceeded")
+                    : isPromptUploadUnsupportedFileTypeError(error)
+                      ? t("home.importMenu.unsupportedFileType")
+                      : isPromptUploadStorageStatusError(error)
+                        ? t("editorToolbar.importFailedDescription")
+                        : error instanceof Error
+                          ? error.message
+                          : t("raw.uploadAttachedFailed"),
+          ),
+        });
+      });
+    },
+    [
+      googleDocContext,
+      modelSelection,
+      onBeforeUpload,
+      promptText,
+      syncFiles,
+      t,
+      uploadFiles,
+      fileStorageConfigured,
+      storageQuery.refetch,
+    ],
   );
 
   const handleSubmit = useCallback(
-    async (text: string, files: File[]) => {
-      const enrichedText = [text.trim(), googleDocContext]
-        .filter(Boolean)
-        .join("\n\n");
-      if (files.length > 0 && onBeforeUpload?.(enrichedText, files) === false) {
+    async (
+      text: string,
+      files: File[],
+      _references: unknown[],
+      options?: SlidesPromptSubmitOptions,
+    ) => {
+      files = [...new Set([...files, ...sourceFilesRef.current])];
+      if (files.length > 0 && !fileStorageConfigured) {
+        setStoragePromptOpen(true);
         return;
       }
+      if (sourceFilesRef.current.length) {
+        options = {
+          ...options,
+          attachments: [
+            ...(options?.attachments ?? []),
+            ...sourceFilesRef.current.map((file) => ({
+              name: file.name,
+              contentType: file.type,
+              file,
+            })),
+          ],
+        };
+      }
+      const submittedContext =
+        [googleDocContext, sourceContextRef.current]
+          .filter(Boolean)
+          .join("\n\n") || undefined;
+      const preUploadChatAttachments = options?.attachments?.length
+        ? await createPromptChatAttachments(options.attachments, [])
+        : [];
+      if (
+        onBeforeUpload?.(
+          text,
+          files,
+          submittedContext,
+          preUploadChatAttachments,
+          options,
+        ) === false
+      ) {
+        return;
+      }
+      const resolved = context
+        ? await context.beforeSend(options?.contextItems)
+        : undefined;
+      if (resolved)
+        options = {
+          ...options,
+          contextItems: resolved.items,
+          slidesContext: resolved.selection,
+        };
+      submittingRef.current = true;
       setSubmitting(true);
       try {
         const uploaded = await uploadFiles(files);
-        await onSubmit(enrichedText, uploaded);
+        const chatAttachments = await createPromptChatAttachments(
+          options?.attachments,
+          uploaded,
+        );
+        retainFiles(files);
+        const result = await onSubmit(
+          text,
+          uploaded,
+          {
+            commit: () => {
+              commitFiles(files);
+              retainingAttachmentsRef.current = false;
+              setRetainingAttachments(false);
+            },
+            discard: () => {
+              discardFiles(files);
+              retainingAttachmentsRef.current = false;
+              setRetainingAttachments(false);
+            },
+            attachments: chatAttachments,
+            context: submittedContext,
+          },
+          options,
+        );
+        if (result === "retain") {
+          retainingAttachmentsRef.current = true;
+          setRetainingAttachments(true);
+        } else if (result === "discard") {
+          discardFiles(files);
+          retainingAttachmentsRef.current = false;
+        } else {
+          commitFiles(files);
+          retainingAttachmentsRef.current = false;
+        }
         setSubmitting(false);
+        submittingRef.current = false;
       } catch (error) {
+        discardFiles(files);
         setSubmitting(false);
+        submittingRef.current = false;
+        const storageSetupRequired = isStorageSetupRequiredError(error);
+        if (storageSetupRequired) void storageQuery.refetch();
         toast.error(t("raw.uploadFailed"), {
-          description:
-            error instanceof Error
-              ? error.message
-              : t("raw.uploadAttachedFailed"),
+          description: formatPromptUploadFailure(
+            error,
+            storageSetupRequired
+              ? t("home.fileStorageSetupRequired")
+              : isPromptUploadNetworkError(error)
+                ? t("home.importMenu.networkFailed")
+                : isPromptUploadAuthRequiredError(error)
+                  ? t("home.importMenu.notStarted")
+                  : isPromptUploadLimitError(error)
+                    ? t("home.importMenu.uploadLimitExceeded")
+                    : isPromptUploadUnsupportedFileTypeError(error)
+                      ? t("home.importMenu.unsupportedFileType")
+                      : isPromptUploadStorageStatusError(error)
+                        ? t("editorToolbar.importFailedDescription")
+                        : error instanceof Error
+                          ? error.message
+                          : t("raw.uploadAttachedFailed"),
+          ),
         });
         throw error;
       }
     },
-    [googleDocContext, onBeforeUpload, onSubmit, uploadFiles, t],
+    [
+      commitFiles,
+      discardFiles,
+      googleDocContext,
+      context,
+      onBeforeUpload,
+      onSubmit,
+      retainFiles,
+      uploadFiles,
+      t,
+      fileStorageConfigured,
+      storageQuery.refetch,
+    ],
   );
 
-  const runImport = useCallback(
-    async (selection: PromptImportSelection) => {
-      if (!onImport) return;
-      setImportingSource(selection.kind);
-      try {
-        const shouldClose = await onImport(selection);
-        if (shouldClose !== false) onOpenChange(false);
-      } catch (error) {
-        toast.error(t("raw.uploadFailed"), {
-          description:
-            error instanceof Error
-              ? error.message
-              : t("raw.uploadAttachedFailed"),
-        });
-      } finally {
-        setImportingSource(null);
-      }
+  useImperativeHandle(
+    controllerRef,
+    () => ({
+      async submitSource(prompt, files, sourceContext) {
+        if (
+          !open ||
+          disabled ||
+          submissionDisabled ||
+          loading ||
+          uploading ||
+          submittingRef.current ||
+          !composerRef.current
+        )
+          return false;
+        sourceFilesRef.current = files;
+        sourceContextRef.current = sourceContext;
+        try {
+          return await composerRef.current.submitWithText(
+            [promptText.trim(), prompt].filter(Boolean).join("\n\n"),
+          );
+        } finally {
+          sourceFilesRef.current = [];
+          sourceContextRef.current = undefined;
+        }
+      },
+      async submitDraft() {
+        if (
+          !open ||
+          disabled ||
+          submissionDisabled ||
+          loading ||
+          uploading ||
+          submittingRef.current ||
+          !composerRef.current?.submit
+        )
+          return false;
+        return composerRef.current.submit();
+      },
+      getDraftSnapshot() {
+        return composerRef.current?.getDraftSnapshot?.() ?? null;
+      },
+    }),
+    [open, disabled, submissionDisabled, loading, uploading, promptText],
+  );
+
+  const { importingSource, runImport: runPromptImport } = usePromptImport({
+    onImport,
+    onSuccess: () => onOpenChange(false),
+    onError: (description, cause) => {
+      const storageSetupRequired = isStorageSetupRequiredError(cause);
+      if (storageSetupRequired) void storageQuery.refetch();
+      toast.error(t("raw.uploadFailed"), {
+        description: storageSetupRequired
+          ? t("home.fileStorageSetupRequired")
+          : description,
+      });
     },
-    [onImport, onOpenChange, t],
+  });
+  const runImport = useCallback(
+    (selection: PromptImportSelection) => {
+      if (selection.kind !== "google-slides" && !fileStorageConfigured) {
+        setStoragePromptOpen(true);
+        return Promise.resolve(false);
+      }
+      return runPromptImport(selection);
+    },
+    [fileStorageConfigured, runPromptImport],
   );
 
   const handleFileImport = useCallback(
     (kind: "pdf" | "pptx", file: File | undefined) => {
       if (!file) return;
+      if (!fileStorageConfigured) {
+        setStoragePromptOpen(true);
+        return;
+      }
       setSelectedImportFile(file);
       void runImport({ kind, files: [file] });
     },
     [runImport],
   );
 
-  const chooseImportMode = useCallback((kind: PromptImportSource) => {
-    setImportMode(kind);
-    setSelectedImportFile(null);
-    setGoogleSlidesUrl("");
-  }, []);
+  const chooseImportMode = useCallback(
+    (kind: PromptImportSource) => {
+      if (kind !== "google-slides" && !fileStorageConfigured) {
+        setStoragePromptOpen(true);
+        return;
+      }
+      setImportMode(kind);
+      setSelectedImportFile(null);
+      setGoogleSlidesUrl("");
+    },
+    [fileStorageConfigured],
+  );
 
   const returnToPrompt = useCallback(() => {
     if (importingSource) return;
@@ -423,10 +699,13 @@ export default function PromptPopover({
       setGoogleSlidesUrl("");
       setImportMode(null);
       setSelectedImportFile(null);
-      setImportingSource(null);
-      setSubmitting(false);
+      if (!submitting && !retainingAttachmentsRef.current) {
+        activeAttachmentFilesRef.current = [];
+        setSubmitting(false);
+        resetEagerUploads();
+      }
     }
-  }, [open]);
+  }, [open, retainingAttachments, resetEagerUploads, submitting]);
 
   if (!open) return null;
 
@@ -448,7 +727,7 @@ export default function PromptPopover({
 
   const popover = (
     <>
-      {centered && (
+      {!inline && centered && (
         <div
           className="fixed inset-0 bg-black/40 z-[199]"
           onClick={() => onOpenChange(false)}
@@ -456,27 +735,21 @@ export default function PromptPopover({
       )}
       <div
         ref={panelRef}
-        className="fixed z-[200] w-[min(500px,calc(100vw-24px))] rounded-xl border border-border/80 bg-popover shadow-xl shadow-black/15"
-        role="dialog"
-        aria-modal="true"
+        className={
+          inline
+            ? "w-full"
+            : "fixed z-[200] w-[min(500px,calc(100vw-24px))] rounded-xl border border-border/80 bg-popover shadow-xl shadow-black/15"
+        }
+        role={inline ? "group" : "dialog"}
+        aria-modal={inline ? undefined : true}
         aria-label={title}
-        style={{ top: 0, left: 0, visibility: "visible" }}
+        style={inline ? undefined : { top: 0, left: 0, visibility: "visible" }}
       >
-        <div className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-3.5">
-          <span className="text-sm font-medium text-foreground">{title}</span>
-          {onSkip && !importMode && !submitting && (
-            <button
-              type="button"
-              onClick={() => {
-                onSkip();
-                onOpenChange(false);
-              }}
-              className="shrink-0 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {skipLabel}
-            </button>
-          )}
-        </div>
+        {!inline && (
+          <div className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-3.5">
+            <span className="text-sm font-medium text-foreground">{title}</span>
+          </div>
+        )}
 
         {importEnabled && (
           <input
@@ -485,6 +758,7 @@ export default function PromptPopover({
             accept=".pdf,application/pdf"
             className="sr-only"
             aria-label={t("editorToolbar.importFile")}
+            disabled={!fileStorageConfigured}
             onChange={(event) => {
               handleFileImport("pdf", event.target.files?.[0]);
               event.target.value = "";
@@ -498,6 +772,7 @@ export default function PromptPopover({
             accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
             className="sr-only"
             aria-label={t("editorToolbar.importFile")}
+            disabled={!fileStorageConfigured}
             onChange={(event) => {
               handleFileImport("pptx", event.target.files?.[0]);
               event.target.value = "";
@@ -515,25 +790,75 @@ export default function PromptPopover({
               .join(" ")}
             aria-hidden={importMode ? true : undefined}
           >
-            <div className="px-2.5 pb-2.5">
+            <div className={inline ? undefined : "px-2.5 pb-2.5"}>
               <PromptComposer
-                autoFocus
-                attachmentsEnabled
+                {...context?.props}
+                contextMenuItems={context?.props.contextMenuItems ?? []}
+                composerRef={composerRef}
+                autoFocus={!inline}
+                layoutVariant={inline ? "hero" : undefined}
+                className={
+                  inline ? "slides-home-prompt-composer-area" : undefined
+                }
+                attachmentsEnabled={active && fileStorageConfigured}
+                attachmentAdapter={slidesPromptAttachmentAdapter}
+                showModelSelector={showModelSelector}
+                modelStatusChecksEnabled={modelStatusChecksEnabled}
+                requireAgentEngine={requireAgentEngine}
+                showMissingApiKeySetup={showMissingApiKeySetup}
+                submissionDisabled={submissionDisabled}
                 maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
                 documentAttachmentLimitLabel="Slides reference files"
                 disabled={
-                  loading || uploading || submitting || Boolean(importMode)
+                  disabled ||
+                  loading ||
+                  uploading ||
+                  submitting ||
+                  Boolean(importMode)
                 }
+                submitting={submitting}
                 placeholder={placeholder}
                 onSubmit={handleSubmit}
+                onBeforeSubmit={onBeforeSubmit}
+                onAttachmentsChange={handleAttachmentsChange}
                 onTextChange={setPromptText}
                 draftScope={draftScope}
                 initialText={initialText}
                 initialTextKey={initialTextKey}
+                selectedModel={
+                  initialModelSelection ? modelSelection?.model : undefined
+                }
+                selectedEngine={
+                  initialModelSelection ? modelSelection?.engine : undefined
+                }
+                selectedEffort={
+                  initialModelSelection ? modelSelection?.effort : undefined
+                }
+                onModelChange={
+                  initialModelSelection ? handleModelChange : undefined
+                }
+                onEffortChange={
+                  initialModelSelection ? handleEffortChange : undefined
+                }
+                onModelSelectionChange={setModelSelection}
+                onAttachmentRequest={
+                  fileStorageConfigured
+                    ? undefined
+                    : () => setStoragePromptOpen(true)
+                }
               />
             </div>
 
-            {submitting && (
+            <UploadStorageGate
+              configured={fileStorageConfigured}
+              unavailable={!storageQuery.isSuccess}
+              open={storagePromptOpen}
+              onOpenChange={setStoragePromptOpen}
+              onRetry={() => void storageQuery.refetch()}
+              anchorRef={panelRef}
+            />
+
+            {uploading && (
               <div
                 className="flex items-center gap-2 border-t border-border/60 px-4 py-2.5 text-xs text-muted-foreground"
                 role="status"
@@ -545,7 +870,13 @@ export default function PromptPopover({
             )}
 
             {importEnabled && (
-              <div className="border-t border-border/60 px-4 pb-3 pt-2.5">
+              <div
+                className={
+                  inline
+                    ? "px-1 pb-1 pt-2"
+                    : "border-t border-border/60 px-4 pb-3 pt-2.5"
+                }
+              >
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="mr-1 text-xs text-muted-foreground">
                     {importFromCopy}
@@ -554,7 +885,11 @@ export default function PromptPopover({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    className={
+                      inline
+                        ? undefined
+                        : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    }
                     disabled={loading || uploading || submitting}
                     onClick={() => chooseImportMode("pdf")}
                   >
@@ -565,7 +900,11 @@ export default function PromptPopover({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    className={
+                      inline
+                        ? undefined
+                        : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    }
                     disabled={loading || uploading || submitting}
                     onClick={() => chooseImportMode("google-slides")}
                   >
@@ -576,7 +915,11 @@ export default function PromptPopover({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    className={
+                      inline
+                        ? undefined
+                        : "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    }
                     disabled={loading || uploading || submitting}
                     onClick={() => chooseImportMode("pptx")}
                   >
@@ -588,6 +931,7 @@ export default function PromptPopover({
             )}
 
             {children}
+            {context?.dialogs}
 
             <GoogleDocImportHint
               promptText={promptText}
@@ -620,12 +964,13 @@ export default function PromptPopover({
                     <GoogleDriveConnectionCta />
                     <div className="flex gap-2">
                       <Input
+                        size="sm"
                         autoFocus
                         type="url"
                         value={googleSlidesUrl}
                         placeholder={t("home.googleSlidesReferenceUrl")}
                         aria-label={t("home.googleSlidesReferenceUrl")}
-                        className="h-8 text-xs"
+                        className="text-xs"
                         disabled={importingSource !== null || loading}
                         onChange={(event) =>
                           setGoogleSlidesUrl(event.target.value)
@@ -637,7 +982,7 @@ export default function PromptPopover({
                       <Button
                         type="button"
                         size="sm"
-                        className="h-8 shrink-0 px-3 text-xs"
+                        className="shrink-0 text-xs"
                         disabled={
                           !googleSlidesUrl.trim() ||
                           importingSource !== null ||
@@ -659,7 +1004,11 @@ export default function PromptPopover({
                       variant="outline"
                       className="w-full justify-center gap-2"
                       disabled={importingSource !== null || loading}
-                      onClick={() => importInputRef.current?.click()}
+                      onClick={() => {
+                        if (fileStorageConfigured)
+                          importInputRef.current?.click();
+                        else setStoragePromptOpen(true);
+                      }}
                     >
                       <IconUpload className="size-4" />
                       Upload {importModeLabel}
@@ -690,5 +1039,5 @@ export default function PromptPopover({
     </>
   );
 
-  return createPortal(popover, document.body);
+  return inline ? popover : createPortal(popover, document.body);
 }

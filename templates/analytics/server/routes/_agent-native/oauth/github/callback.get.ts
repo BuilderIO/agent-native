@@ -3,6 +3,7 @@ import {
   decodeOAuthState,
   getOrigin,
   getSession,
+  logOAuthStateDecodeFailure,
   oauthErrorPage,
   resolveOAuthOwner,
 } from "@agent-native/core/server";
@@ -70,6 +71,12 @@ export default defineEventHandler(async (event: H3Event) => {
       query.state as string | undefined,
       `${getOrigin(event)}/_agent-native/oauth/github/callback`,
     );
+    if (!state.ok) {
+      logOAuthStateDecodeFailure(event, state.reason, "github");
+      throw new Error(
+        "Your sign-in link expired or is invalid. Please try again.",
+      );
+    }
     const { owner } = await resolveOAuthOwner(event, state.owner);
     const session = await getSession(event);
     const ownerEmail = owner ?? session?.email;

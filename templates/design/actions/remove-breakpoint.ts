@@ -2,11 +2,13 @@ import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
+import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
   mutateDesignData,
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import type { BreakpointSet } from "../shared/design-state.js";
 
 function readBreakpointSet(designData: DesignDataRecord): BreakpointSet | null {
@@ -30,8 +32,10 @@ export default defineAction({
       .string()
       .describe("Id of the BreakpointDefinition to remove."),
   }),
-  run: async ({ designId, breakpointId }) => {
+  capabilityScopes: ["visual-edit"],
+  run: async ({ designId, breakpointId }, context) => {
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
 
     let sawSet = false;
     let removedBreakpoint: BreakpointSet["breakpoints"][number] | undefined;
@@ -79,4 +83,5 @@ export default defineAction({
       breakpointSet: updatedSet!,
     };
   },
+  changeResource: (p, result) => designChangeResource(p.designId, result),
 });

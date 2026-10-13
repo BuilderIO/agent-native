@@ -16,8 +16,7 @@ import {
   IconBrandGoogle,
   IconArrowUpRight,
 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
@@ -31,6 +30,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -43,7 +43,12 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -55,17 +60,17 @@ import type { SelectDashboardPanelOptions } from "@/hooks/use-dashboard-chat-con
 import { buildCustomBlockPromotionRequest } from "@/lib/custom-block-promotion";
 import { cn } from "@/lib/utils";
 
-import { serializePanelSql } from "./panel-sql";
-import type { SqlPanel } from "./types";
+import { timeRangeDays } from "./pivot";
+import type { DashboardFilter, SqlPanel } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
+
+const INHERIT_TIME_RANGE = "__inherit__";
 
 interface SqlChartCardProps {
   panel: SqlPanel;
   resolvedSql?: string;
   onRemove: () => void;
   onEdit?: () => void;
-  /** Persist a SQL-only edit from the inline View SQL popover. Should throw on
-   *  validation failure so the popover can stay open and surface the error. */
   onSaveSql?: (sql: string) => Promise<void>;
   editable?: boolean;
   eagerLoad?: boolean;
@@ -76,6 +81,9 @@ interface SqlChartCardProps {
   extensionContext?: Record<string, unknown> | null;
   dashboardId?: string;
   filters?: Record<string, string>;
+  timeRangeFilter?: DashboardFilter;
+  timeRangeOverride?: string | null;
+  onTimeRangeOverrideChange?: (value: string | null) => void;
 }
 
 const PanelDragHandle = memo(function PanelDragHandle({
@@ -135,9 +143,15 @@ export function SqlChartCard({
   extensionContext,
   dashboardId,
   filters,
+  timeRangeFilter,
+  timeRangeOverride,
+  onTimeRangeOverrideChange,
 }: SqlChartCardProps) {
   const t = useT();
-  const queryClient = useQueryClient();
+  const timeRange = timeRangeDays(filters?.timeRange);
+  const timeRangeOverrideLabel = timeRangeFilter?.options?.find(
+    (option) => option.value === timeRangeOverride,
+  )?.label;
   const exportToGoogleSheets = useActionMutation(
     "export-dashboard-panel-to-google-sheet",
   );
@@ -157,17 +171,8 @@ export function SqlChartCard({
       panel.chartType === "section" ||
       panel.chartType === "extension",
   );
+  const [refreshToken, setRefreshToken] = useState(0);
   const cardRef = useRef<HTMLDivElement | null>(null);
-  const chartQueryKey = useMemo(
-    () =>
-      [
-        "sql-chart",
-        panel.id,
-        serializePanelSql(resolvedSql ?? panel.sql),
-        panel.source,
-      ] as const,
-    [panel.id, panel.source, panel.sql, resolvedSql],
-  );
   const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
     cardRef.current = node;
   }, []);
@@ -195,10 +200,8 @@ export function SqlChartCard({
 
   const handleRefresh = useCallback(() => {
     setShouldLoadData(true);
-    void queryClient.invalidateQueries({
-      queryKey: chartQueryKey,
-    });
-  }, [chartQueryKey, queryClient]);
+    setRefreshToken((token) => token + 1);
+  }, []);
 
   const handleExportToGoogleSheets = useCallback(async () => {
     if (!dashboardId || panel.chartType !== "table") return;
@@ -262,7 +265,7 @@ export function SqlChartCard({
       if (
         target instanceof Element &&
         target.closest(
-          "button, a, input, textarea, select, [role='menuitem'], [data-no-panel-chat-select]",
+          "button, a, input, textarea, select, [role='menuitem'], [role='menuitemradio'], [data-no-panel-chat-select]",
         )
       ) {
         return;
@@ -277,8 +280,6 @@ export function SqlChartCard({
       setShouldLoadData(true);
       return;
     }
-    // Sections are layout-only and extensions render their own iframe — neither
-    // waits on the intersection observer that gates SQL panels.
     if (panel.chartType === "section" || panel.chartType === "extension") {
       setShouldLoadData(true);
       return;
@@ -299,7 +300,7 @@ export function SqlChartCard({
         }
       },
       {
-        rootMargin: "320px 0px",
+        rootMargin: "64px 0px",
         threshold: 0.01,
       },
     );
@@ -326,9 +327,6 @@ export function SqlChartCard({
     setMenuOpen(false);
   }, []);
 
-  // Section panels render as a flush header row (no card chrome, full width)
-  // so they read as dividers between groups of panels rather than as another
-  // tile in the grid.
   if (panel.chartType === "section") {
     return (
       <div
@@ -421,10 +419,6 @@ export function SqlChartCard({
     );
   }
 
-  // Extension panels render their sandboxed iframe full-bleed with no card chrome
-  // or title — the extension owns its own UI. All viewers get the read-only
-  // actions (full screen and refresh); editable
-  // dashboards also get delete and drag.
   if (panel.chartType === "extension") {
     return (
       <div
@@ -446,7 +440,9 @@ export function SqlChartCard({
             panel={panel}
             resolvedSql={resolvedSql}
             loadData
+            timeRange={timeRange}
             reportScreenshot={reportScreenshot}
+            dashboardId={dashboardId}
             extensionContext={extensionContext}
           />
         )}
@@ -549,7 +545,9 @@ export function SqlChartCard({
                   panel={panel}
                   resolvedSql={resolvedSql}
                   loadData
+                  timeRange={timeRange}
                   reportScreenshot={reportScreenshot}
+                  dashboardId={dashboardId}
                   extensionContext={extensionContext}
                 />
               </ChartFillHeight>
@@ -587,8 +585,6 @@ export function SqlChartCard({
     );
   }
 
-  // Every non-section panel exposes at least the Full screen view action, so the
-  // options menu always renders — including on read-only / shared dashboards.
   const showPanelMenu = true;
 
   return (
@@ -612,6 +608,18 @@ export function SqlChartCard({
           <CardTitle className="text-sm font-medium flex-1 truncate">
             {panel.title}
           </CardTitle>
+          {timeRangeOverrideLabel ? (
+            <Badge
+              variant="secondary"
+              className="max-w-32 shrink-0 truncate px-1.5 py-0 text-[10px] font-normal"
+              title={timeRangeOverrideLabel}
+            >
+              <span className="sr-only">
+                {t("sqlDashboard.chartTimeRangeOverride")}{" "}
+              </span>
+              {timeRangeOverrideLabel}
+            </Badge>
+          ) : null}
           <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
             {!editable || onSaveSql ? (
               <ViewSqlPopover
@@ -656,6 +664,35 @@ export function SqlChartCard({
                     {t("sqlDashboard.chatWithPanel")}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
+                  {timeRangeFilter?.options?.length ? (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        {timeRangeFilter.label}
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-52">
+                        <DropdownMenuRadioGroup
+                          value={timeRangeOverride ?? INHERIT_TIME_RANGE}
+                          onValueChange={(value) =>
+                            onTimeRangeOverrideChange?.(
+                              value === INHERIT_TIME_RANGE ? null : value,
+                            )
+                          }
+                        >
+                          <DropdownMenuRadioItem value={INHERIT_TIME_RANGE}>
+                            {t("sqlDashboard.chartTimeRangeInherit")}
+                          </DropdownMenuRadioItem>
+                          {timeRangeFilter.options.map((opt) => (
+                            <DropdownMenuRadioItem
+                              key={opt.value}
+                              value={opt.value}
+                            >
+                              {opt.label}
+                            </DropdownMenuRadioItem>
+                          ))}
+                        </DropdownMenuRadioGroup>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  ) : null}
                   <DropdownMenuItem onSelect={() => setExpanded(true)}>
                     <IconMaximize className="h-4 w-4 mr-2" />
                     {t("sqlDashboard.fullScreen")}
@@ -735,7 +772,11 @@ export function SqlChartCard({
             panel={panel}
             resolvedSql={resolvedSql}
             loadData={shouldLoadData}
+            timeRange={timeRange}
             reportScreenshot={reportScreenshot}
+            refreshToken={refreshToken}
+            onRefreshRequested={handleRefresh}
+            dashboardId={dashboardId}
             onExportCsvChange={handleExportCsvChange}
             onCopyTableChange={handleCopyTableChange}
             extensionContext={extensionContext}
@@ -754,7 +795,11 @@ export function SqlChartCard({
                 panel={panel}
                 resolvedSql={resolvedSql}
                 loadData
+                timeRange={timeRange}
                 reportScreenshot={reportScreenshot}
+                refreshToken={refreshToken}
+                onRefreshRequested={handleRefresh}
+                dashboardId={dashboardId}
                 extensionContext={extensionContext}
               />
             </ChartFillHeight>

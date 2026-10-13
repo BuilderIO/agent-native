@@ -10,7 +10,9 @@ import { recordChange } from "@agent-native/core/server";
 import { listOrgSettings } from "@agent-native/core/settings";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 
+import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
+import { remapDashboardViews } from "./dashboard-view-remap.js";
 
 const migrationExtensions = table("tools", {
   id: text("id").primaryKey(),
@@ -281,19 +283,22 @@ async function readMigrationState(
     analysisRows.map((row: { id: string }) => row.id),
   );
 
-  const dashboards: DashboardSource[] = dashboardRows.map((row: any) => ({
-    id: row.id,
-    kind: row.kind,
-    title: row.title,
-    config: parseJson(row.config),
-    ownerEmail: row.ownerEmail,
-    orgId: row.orgId,
-    visibility: row.visibility,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-    archivedAt: row.archivedAt ?? null,
-    hiddenAt: row.hiddenAt ?? null,
-  }));
+  const dashboards: DashboardSource[] = dashboardRows.map((row: any) => {
+    const config = parseJson(row.config);
+    return {
+      id: row.id,
+      kind: row.kind,
+      title: row.title,
+      config: row.kind === "sql" ? normalizeDashboardConfig(config) : config,
+      ownerEmail: row.ownerEmail,
+      orgId: row.orgId,
+      visibility: row.visibility,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      archivedAt: row.archivedAt ?? null,
+      hiddenAt: row.hiddenAt ?? null,
+    };
+  });
 
   for (const row of legacyDashboards.rows) {
     if (materializedDashboardIds.has(row.id)) continue;
@@ -301,7 +306,8 @@ async function readMigrationState(
       id: row.id,
       kind: row.kind,
       title: dashboardTitle(row.data),
-      config: row.data,
+      config:
+        row.kind === "sql" ? normalizeDashboardConfig(row.data) : row.data,
       ownerEmail: ctx.userEmail,
       orgId: ctx.orgId,
       visibility: "org",
@@ -679,9 +685,14 @@ export async function migrateAnalyticsArtifacts(
 
   for (const group of dashboardDuplicates) {
     const canonical = oldest(group);
-    for (const row of group) {
-      if (row.id !== canonical.id)
-        duplicateDashboardMap.set(row.id, canonical.id);
+    const duplicates = group
+      .filter((row) => row.id !== canonical.id)
+      .sort(
+        (a, b) =>
+          a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+      );
+    for (const row of duplicates) {
+      duplicateDashboardMap.set(row.id, canonical.id);
     }
   }
   for (const group of analysisDuplicates) {
@@ -815,10 +826,14 @@ export async function migrateAnalyticsArtifacts(
         [{ sourceId: duplicateId, targetId: canonicalId }],
         runId,
       );
-      await tx
-        .update(schema.dashboardViews)
-        .set({ dashboardId: canonicalId })
-        .where(eq(schema.dashboardViews.dashboardId, duplicateId));
+      await remapDashboardViews(
+        tx,
+        schema.dashboards,
+        schema.dashboardViews,
+        ctx.orgId,
+        duplicateId,
+        canonicalId,
+      );
       await tx
         .update(schema.dashboardReportSubscriptions)
         .set({ dashboardId: canonicalId, updatedAt: now })
@@ -828,7 +843,12 @@ export async function migrateAnalyticsArtifacts(
       await tx
         .update(schema.dashboards)
         .set({ archivedAt: now, updatedAt: now, updatedBy: ctx.userEmail })
-        .where(eq(schema.dashboards.id, duplicateId));
+        .where(
+          and(
+            eq(schema.dashboards.id, duplicateId),
+            eq(schema.dashboards.orgId, ctx.orgId),
+          ),
+        );
       summary.duplicateDashboardsArchived += 1;
     }
 

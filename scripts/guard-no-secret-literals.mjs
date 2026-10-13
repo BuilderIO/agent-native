@@ -34,10 +34,11 @@
  * so a hit must never reprint the secret it found.
  */
 
-import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { execGuardCommand } from "./lib/changed-lines.mjs";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -98,21 +99,15 @@ const BINARY_EXTENSIONS = new Set([
   ".wasm",
   ".class",
   ".jar",
-  ".sqlite",
-  ".sqlite3",
   ".pyc",
   ".node",
 ]);
 
-// Above this size a "text" file is almost certainly a data dump, not source
-// a human typed a secret into by hand; skip it rather than pay to scan it.
 const MAX_SCAN_BYTES = 2 * 1024 * 1024;
 
-/** Line contains an obvious stand-in value rather than a real secret. */
 const PLACEHOLDER_RE =
   /\bexample\b|\bplaceholder\b|\byour-|xxx|<|\bREPLACE\b|\bfake\b|\bdummy\b/i;
 
-/** e.g. "xxxxxxxxxxxxxxxxxxxx" or "0000000000000000" used as a stand-in. */
 const ALL_SAME_CHAR_RE = /(.)\1{7,}/;
 
 const PRAGMA_RE = /(?:\/\/|#|<!--)\s*guard:allow-secret-literal\b/;
@@ -166,7 +161,7 @@ const PATTERNS = [
     // Captures scheme/user/password separately so the password never
     // reaches the redaction preview, not even partially.
     name: "database connection string with password",
-    re: /\b(postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/([^\s:@/]+):([^\s@/]+)@/g,
+    re: /\b(postgres(?:ql)?):\/\/([^\s:@/]+):([^\s@/]+)@/g,
     redact: (_m, scheme, user) => `${scheme}://${user}:***@`,
     isPlaceholder: (m) =>
       DB_PLACEHOLDER_PASSWORDS.has((m[3] ?? "").toLowerCase()),
@@ -185,9 +180,6 @@ const PATTERNS = [
     name: "Slack token",
     re: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g,
     redact: (m) => redactEdges(m, 5, 4),
-    // A real Slack token always carries numeric team/bot/install IDs in its
-    // body; letters-and-hyphens-only strings here are test fixtures named
-    // things like "xoxb-should-not-leak", not credential shapes.
     isPlaceholder: (m) => !/\d/.test(m[0]),
   },
   {
@@ -202,18 +194,11 @@ const PATTERNS = [
   },
   {
     name: "PEM private key",
-    // Header only — the header line isn't the secret material, the body
-    // that follows is, so there is nothing here that needs redacting.
     re: /-----BEGIN (?:[A-Z ]*)PRIVATE KEY-----/g,
     redact: (m) => m,
-    // A real key body is many lines of base64, at minimum tens of chars
-    // even for the smallest key types. A one-line "-----BEGIN...\nx\n
-    // -----END..." fixture (used to test parsing, not the key itself) has
-    // no such body — that shape difference is the only reliable signal,
-    // since the header text itself is identical for real and fake keys.
     isPlaceholder: (m, index, contents) => {
       const endIdx = contents.indexOf("-----END", index + m[0].length);
-      if (endIdx === -1) return false; // no paired END nearby — don't guess, flag it
+      if (endIdx === -1) return false;
       const body = contents
         .slice(index + m[0].length, endIdx)
         .replace(/\s/g, "");
@@ -238,7 +223,7 @@ function isSkippedPath(rel) {
 }
 
 function listTrackedFiles() {
-  const out = execFileSync("git", ["ls-files"], {
+  const out = execGuardCommand("git", ["ls-files"], {
     cwd: REPO_ROOT,
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,

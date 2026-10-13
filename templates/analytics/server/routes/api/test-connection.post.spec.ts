@@ -4,7 +4,10 @@ const mocks = vi.hoisted(() => ({
   body: { source: "clay" } as { source?: string },
   ctx: { userEmail: "user@example.test", orgId: "org-example" },
   executeProviderApiRequest: vi.fn(),
+  assertCredentialCanReachEndpoint: vi.fn(),
   resolveCredential: vi.fn(),
+  resolveCredentialDetailed: vi.fn(),
+  resolveAnalyticsGongCredentials: vi.fn(),
   resolveAnalyticsProviderCredential: vi.fn(),
 }));
 
@@ -13,7 +16,9 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("../../lib/credentials", () => ({
+  assertCredentialCanReachEndpoint: mocks.assertCredentialCanReachEndpoint,
   resolveCredential: mocks.resolveCredential,
+  resolveCredentialDetailed: mocks.resolveCredentialDetailed,
   withRequestContextFromEvent: vi.fn(
     async (_event: unknown, run: (ctx: typeof mocks.ctx) => Promise<unknown>) =>
       run(mocks.ctx),
@@ -30,7 +35,7 @@ vi.mock("../../lib/provider-credentials", () => ({
     "HUBSPOT_PRIVATE_APP_TOKEN",
     "HUBSPOT_ACCESS_TOKEN",
   ],
-  resolveAnalyticsGongCredentials: vi.fn(),
+  resolveAnalyticsGongCredentials: mocks.resolveAnalyticsGongCredentials,
   resolveAnalyticsProviderCredential: mocks.resolveAnalyticsProviderCredential,
 }));
 
@@ -40,7 +45,10 @@ describe("test-connection", () => {
   beforeEach(() => {
     mocks.body = { source: "clay" };
     mocks.executeProviderApiRequest.mockReset();
+    mocks.assertCredentialCanReachEndpoint.mockReset();
     mocks.resolveCredential.mockReset();
+    mocks.resolveCredentialDetailed.mockReset();
+    mocks.resolveAnalyticsGongCredentials.mockReset();
     mocks.resolveAnalyticsProviderCredential.mockReset();
     vi.stubGlobal("fetch", vi.fn());
   });
@@ -105,6 +113,96 @@ describe("test-connection", () => {
       ok: false,
       error: "Missing HubSpot token",
     });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("checks Grafana credential provenance before testing the configured endpoint", async () => {
+    mocks.body = { source: "grafana" };
+    const endpoint = {
+      value: "https://grafana-member.example.test",
+      scope: "user",
+      scopeId: "user@example.test",
+    };
+    const token = {
+      value: "org-grafana-token",
+      scope: "org",
+      scopeId: "org-example",
+    };
+    mocks.resolveCredentialDetailed.mockImplementation(async (key: string) =>
+      key === "GRAFANA_URL" ? endpoint : token,
+    );
+    mocks.assertCredentialCanReachEndpoint.mockImplementation(() => {
+      throw new Error(
+        "Refusing to send GRAFANA_API_TOKEN to a user-scoped endpoint unless it is saved by the same user.",
+      );
+    });
+
+    await expect(handler({} as never)).resolves.toEqual({
+      ok: false,
+      error:
+        "Refusing to send GRAFANA_API_TOKEN to a user-scoped endpoint unless it is saved by the same user.",
+    });
+
+    expect(mocks.assertCredentialCanReachEndpoint).toHaveBeenCalledWith(
+      endpoint,
+      token,
+      "GRAFANA_API_TOKEN",
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects shared Gong credentials before testing a user-owned API endpoint", async () => {
+    mocks.body = { source: "gong" };
+    const endpoint = {
+      value: "https://member-gong.example.test/v2",
+      scope: "user",
+      scopeId: "user@example.test",
+    };
+    const credentials = {
+      accessKey: "gong-access-key-example",
+      accessSecret: "gong-access-secret-example",
+      sources: [
+        {
+          key: "GONG_ACCESS_KEY",
+          provider: "gong",
+          value: "gong-access-key-example",
+          source: "analytics_local",
+          scope: "org",
+          scopeId: "org-example",
+        },
+        {
+          key: "GONG_ACCESS_SECRET",
+          provider: "gong",
+          value: "gong-access-secret-example",
+          source: "analytics_local",
+          scope: "org",
+          scopeId: "org-example",
+        },
+      ],
+    };
+    mocks.resolveCredentialDetailed.mockResolvedValue(endpoint);
+    mocks.resolveAnalyticsGongCredentials.mockResolvedValue(credentials);
+    mocks.assertCredentialCanReachEndpoint.mockImplementation(() => {
+      throw new Error(
+        "Refusing to send GONG_ACCESS_KEY to a user-scoped endpoint unless it is saved by the same user.",
+      );
+    });
+
+    await expect(handler({} as never)).resolves.toEqual({
+      ok: false,
+      error:
+        "Refusing to send GONG_ACCESS_KEY to a user-scoped endpoint unless it is saved by the same user.",
+    });
+
+    expect(mocks.resolveCredentialDetailed).toHaveBeenCalledWith(
+      "GONG_API_BASE",
+      mocks.ctx,
+    );
+    expect(mocks.assertCredentialCanReachEndpoint).toHaveBeenCalledWith(
+      endpoint,
+      credentials.sources[0],
+      "GONG_ACCESS_KEY",
+    );
     expect(fetch).not.toHaveBeenCalled();
   });
 

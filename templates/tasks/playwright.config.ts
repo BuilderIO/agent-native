@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 const PORT = Number(process.env.PLAYWRIGHT_PORT ?? 5174);
 const HOST = process.env.PLAYWRIGHT_HOST ?? "127.0.0.1";
 const BASE_URL = `http://${HOST}:${PORT}`;
-const E2E_DB_PATH = "./data/e2e-playwright.db";
+const E2E_DB_PATH = "./data/pglite/e2e-playwright";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -20,7 +20,7 @@ export default defineConfig({
   },
   globalSetup: "./e2e/global-setup.ts",
   webServer: {
-    command: `AUTH_DISABLED=true DATABASE_URL=file:${E2E_DB_PATH} pnpm exec agent-native dev -- --port ${PORT} --host ${HOST} --strictPort`,
+    command: `AUTH_DISABLED=true DATABASE_URL=pglite:${E2E_DB_PATH} pnpm exec agent-native dev -- --port ${PORT} --host ${HOST} --strictPort`,
     url: `${BASE_URL}/tasks`,
     reuseExistingServer: false,
     timeout: 120_000,

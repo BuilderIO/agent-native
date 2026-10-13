@@ -1,9 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { NavLink } from "react-router";
 
 import { LibraryGrid } from "@/components/library/library-grid";
-import { usePageHeaderLayout } from "@/components/library/page-header";
-import { Button } from "@/components/ui/button";
+import { LibraryPrimaryActions } from "@/components/library/library-primary-actions";
 
 const SEO_TITLE = "Clips - Open Source screen recorder";
 const SEO_DESCRIPTION =
@@ -23,27 +21,16 @@ export function meta() {
 
 export default function LibraryIndexRoute() {
   const t = useT();
-  const { sidebarHasNewRecordingAction } = usePageHeaderLayout();
+
   return (
     <LibraryGrid
       view="library"
+      // Clips only: screenshots have their own section in the sidebar, so a
+      // still never turns up mixed into a list of videos.
+      kind="video"
       folderId={null}
-      title="Library"
-      extraActions={
-        !sidebarHasNewRecordingAction && (
-          <Button
-            className="gap-1.5 bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
-            size="sm"
-            asChild
-          >
-            <NavLink to="/record" aria-label={t("navigation.newRecording")}>
-              <span className="hidden sm:inline">
-                {t("navigation.newRecording")}
-              </span>
-            </NavLink>
-          </Button>
-        )
-      }
+      title={t("navigation.library")}
+      extraActions={<LibraryPrimaryActions />}
     />
   );
 }

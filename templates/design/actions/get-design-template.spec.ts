@@ -88,7 +88,6 @@ describe("get-design-template", () => {
       async (type: string, id: string) => {
         if (type === "design" && id === "design-1") {
           return designResource({
-            // The design's own frame has drifted away from the template.
             canvasFrames: { "copied-file": { width: 800, height: 600 } },
             templateSource: {
               templateId: "saved-template",

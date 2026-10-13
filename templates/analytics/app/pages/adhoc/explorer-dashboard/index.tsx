@@ -236,6 +236,7 @@ export default function ExplorerDashboardPage() {
   );
   const canEdit = resourceCanEdit(resourceAccess);
   const canManage = resourceCanManage(resourceAccess);
+  const canArchive = canEdit || canManage;
   useEffect(() => {
     if (dashboardActionsOpen || !openDeleteAfterMenuClose) return;
     const frame = requestAnimationFrame(() => {
@@ -260,11 +261,10 @@ export default function ExplorerDashboardPage() {
   const { mutateAsync: hideDashboardAction, isPending: unhidePending } =
     useActionMutation("hide-dashboard");
 
-  // ── Collaborative editing ──────────────────────────────────────────
   const { session } = useSession();
   const currentUser: CollabUser | undefined = session?.email
     ? {
-        name: emailToName(session.email),
+        name: session.name?.trim() || emailToName(session.email),
         email: session.email,
         color: emailToColor(session.email),
       }
@@ -283,12 +283,11 @@ export default function ExplorerDashboardPage() {
     user: currentUser,
   });
 
-  // Listen for remote collab changes
   useEffect(() => {
     if (!ydoc || !collabSynced) return;
     const ytext = ydoc.getText("content");
     const handler = () => {
-      const raw = ytext.toString();
+      const raw = ytext.toJSON();
       if (!raw) return;
       try {
         const parsed = JSON.parse(raw) as ExplorerDashboardData;
@@ -305,10 +304,6 @@ export default function ExplorerDashboardPage() {
     };
   }, [ydoc, collabSynced]);
 
-  /**
-   * Push a config update through the collab layer so other tabs/users
-   * receive the change in real time.
-   */
   const pushToCollab = useCallback(
     (updated: ExplorerDashboardData) => {
       if (!collabDocId) return;
@@ -329,25 +324,8 @@ export default function ExplorerDashboardPage() {
   });
   const savedConfigs = savedConfigsQuery.data ?? [];
 
-  // Refetch the dashboard whenever the `dashboards` source bumps OR any agent
-  // action runs — the same "agent writes show up without a manual refresh"
-  // pattern the SQL dashboard page uses. We depend on both because:
-  // - `dashboards` covers same-process writes from upsertDashboard
-  // - `action` covers every successful agent action and is emitted by the
-  //   agent runner unconditionally, which makes the refresh resilient even if
-  //   the dashboards-store emit is missed (different process, etc.).
-  // Without this, an agent edit to an explorer dashboard only reached the open
-  // page through the collab Y.Text channel, which is silent on the first edit
-  // (seedFromText doesn't emit) — so the title/charts could go stale.
   const sync = useChangeVersions(["dashboards", "action"]);
   const dashboardQuery = useQuery({
-    // dashboardId is part of the key, so React Query keeps a separate cache
-    // entry per dashboard — no `placeholderData` (it would carry the previous
-    // dashboard's data across an id switch and flash the wrong dashboard).
-    // The skeleton shows until fresh data for the current id arrives, exactly
-    // like the original one-shot load. Same-key refetches (agent writes) keep
-    // the rendered `dashboard` state until the new data lands, so there's no
-    // flicker on those.
     queryKey: ["data", "explorer-dashboard", dashboardId, sync],
     enabled: !!dashboardId,
     queryFn: async () => {
@@ -406,17 +384,17 @@ export default function ExplorerDashboardPage() {
   }, [dashboardId, dashboardQuery.data, dashboardQuery.isSuccess]);
 
   const handleArchive = useCallback(async () => {
-    if (!dashboardId || !canEdit) return;
+    if (!dashboardId || !canArchive) return;
     if (archivedAt) return;
     try {
       await callAction("archive-dashboard", {
         id: dashboardId,
         archived: true,
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["explorer-dashboards-sidebar"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["explorer-dashboards-palette"],
       });
       toast.success(
@@ -424,7 +402,7 @@ export default function ExplorerDashboardPage() {
           name: dashboard?.name ?? t("explorerDashboard.dashboardFallback"),
         }),
       );
-      navigate("/dashboards/explorer");
+      void navigate("/dashboards/explorer");
     } catch (err) {
       toast.error(
         err instanceof Error
@@ -434,11 +412,12 @@ export default function ExplorerDashboardPage() {
     }
   }, [
     dashboardId,
-    canEdit,
+    canArchive,
     archivedAt,
     queryClient,
     navigate,
     dashboard?.name,
+    t,
   ]);
 
   const handleUnhide = useCallback(async () => {
@@ -447,13 +426,13 @@ export default function ExplorerDashboardPage() {
       await hideDashboardAction({ id: dashboardId, hidden: false });
       setHiddenAt(null);
       setHiddenBy(null);
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["explorer-dashboards-sidebar"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["explorer-dashboards-palette"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["data", "explorer-dashboard", dashboardId],
       });
       toast.success(
@@ -479,18 +458,15 @@ export default function ExplorerDashboardPage() {
       }
       setDashboard(updated);
       pushToCollab(updated);
-      // Keep the cached dashboard query in sync with the optimistic write so a
-      // `sync` bump from our own save doesn't briefly flash stale data before
-      // the refetch lands.
       queryClient.setQueriesData<FetchedExplorerDashboard | null>(
         { queryKey: ["data", "explorer-dashboard", dashboardId] },
         (prev) => (prev ? { ...prev, data: updated } : prev),
       );
-      saveDashboard(dashboardId, updated).then(() => {
-        queryClient.invalidateQueries({
+      void saveDashboard(dashboardId, updated).then(() => {
+        void queryClient.invalidateQueries({
           queryKey: ["explorer-dashboards-palette"],
         });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["explorer-dashboards-sidebar"],
         });
       });
@@ -613,7 +589,6 @@ export default function ExplorerDashboardPage() {
 
   if (!dashboard) return null;
 
-  // Config name lookup
   const configNameMap = new Map(savedConfigs.map((c) => [c.id, c.name]));
   const activeDragChart = activeDragChartId
     ? (dashboard.charts.find((chart) => chart.id === activeDragChartId) ?? null)
@@ -653,12 +628,13 @@ export default function ExplorerDashboardPage() {
           ) : null}
           {editingName && canEdit ? (
             <Input
+              size="sm"
               ref={nameInputRef}
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
               onBlur={handleSaveName}
               onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
-              className="h-8 w-full sm:w-64 text-lg font-semibold"
+              className="w-full sm:w-64 text-lg font-semibold"
               autoFocus
             />
           ) : canEdit ? (
@@ -735,10 +711,10 @@ export default function ExplorerDashboardPage() {
                     </DropdownMenuItem>
                   </>
                 ) : null}
-                {dashboardId && canEdit && !archivedAt ? (
+                {dashboardId && canArchive && !archivedAt ? (
                   <DropdownMenuSeparator />
                 ) : null}
-                {canEdit && !archivedAt ? (
+                {canArchive && !archivedAt ? (
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
@@ -747,10 +723,10 @@ export default function ExplorerDashboardPage() {
                     }}
                   >
                     <IconArchive className="mr-2 h-3.5 w-3.5" />
-                    Archive
+                    {t("sidebar.archive")}
                   </DropdownMenuItem>
                 ) : null}
-                {canEdit && !archivedAt && canManage ? (
+                {canArchive && !archivedAt && canManage ? (
                   <DropdownMenuSeparator />
                 ) : null}
                 {canManage ? (
@@ -801,14 +777,14 @@ export default function ExplorerDashboardPage() {
                         await callAction("delete-explorer-dashboard", {
                           id: dashboardId,
                         });
-                        queryClient.invalidateQueries({
+                        void queryClient.invalidateQueries({
                           queryKey: ["explorer-dashboards-sidebar"],
                         });
-                        queryClient.invalidateQueries({
+                        void queryClient.invalidateQueries({
                           queryKey: ["explorer-dashboards-palette"],
                         });
                         setConfirmDeleteOpen(false);
-                        navigate("/dashboards/explorer");
+                        void navigate("/dashboards/explorer");
                       } catch (err) {
                         toast.error(
                           err instanceof Error

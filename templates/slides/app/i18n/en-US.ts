@@ -1,7 +1,28 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "Integrations" } },
+  templatesPage: {
+    actions: "Template actions for {{title}}",
+    previewAction: "Preview",
+    title: "Templates",
+    browseAll: "Browse all",
+    searchPlaceholder: "Search templates…",
+    loading: "Loading templates",
+    empty: "No templates match your search.",
+    loadFailed: "Could not load templates.",
+    preview: "Template preview",
+    useTemplate: "Use template",
+    opening: "Opening template…",
+    createFailed: "Could not create a presentation from this template.",
+    previous: "Previous",
+    next: "Next",
+    slidePosition: "Slide {{current}} of {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["en-US"],
+  common: {
+    loading: "Loading...",
+  },
   root: {
     commandPresentations: "Presentations",
     searchDecks: "Search decks",
@@ -23,19 +44,23 @@ const messages = {
     brand: "Slides",
     decks: "Decks",
     designSystems: "Design Systems",
-    team: "Team",
   },
   settings: {
+    agentObservability: "Observability",
     title: "Settings",
-    description: "Language and workspace preferences for this app.",
-    emailNotifications: "Email notifications",
-    emailNotificationsDescription:
-      "Get an email when someone comments on or replies in your deck.",
+    labs: "Labs",
+    labsIntro: "Preview experimental features before they ship.",
+    labLayoutOverflowWarningDescription:
+      "Show the layout overflow warning in the editor.",
     saveFailed: "Failed to save",
-    languageTitle: "Language",
-    languageDescription:
-      "Choose the interface language. This preference is saved for your account.",
-    languageLabel: "Interface language",
+    notificationsEmail: "Email",
+    commentsAndReplies: "Comments and replies",
+    commentsAndRepliesDescription:
+      "When someone comments on or replies in your deck.",
+    retry: "Retry",
+    reload: "Reload",
+    mcpAbout:
+      "Connect Slides to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Slides for you: create decks, add slides, and export to PowerPoint. It sees only what you can see.",
     workspaceTitle: "Workspace",
     workspaceDescription:
       "Manage team members, organization access, and shared workspace preferences.",
@@ -50,6 +75,7 @@ const messages = {
     emptyState: "Ask me anything about your presentations",
     thisSlide: "This Slide",
     currentSelection: "Current Selection",
+    slideNumber: "Slide {{number}}",
     suggestionPitch: "Build a 10-slide pitch from this doc",
     suggestionBrand: "Apply our brand to this deck",
     suggestionHero: "Generate a hero image for this slide",
@@ -86,10 +112,8 @@ const messages = {
     cloudConnectedReloading: "Connected successfully. Reloading...",
     cloudConnectionFailed: "Connection failed",
     cloudTestConnect: "Test & Connect",
-    cloudSqliteEdge: "SQLite at the edge",
     cloudServerlessPostgres: "Serverless Postgres",
     cloudOpenSourceFirebaseAlternative: "Open source Firebase alternative",
-    cloudCloudflareSqliteEdge: "SQLite on Cloudflare's edge",
     designSlidePreview: "Slide Preview",
     designSlideTitle: "Slide Title",
     designSupportingText:
@@ -102,10 +126,10 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth is not configured for this deployment.",
     googlePickerNeedsKeys:
-      "Google Picker needs GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID.",
+      "Google Drive file browsing isn't configured. You can still import a document by pasting its link.",
     imageUploadFailed: "Image upload failed",
     imageUploadNeedsBuilder:
-      "Connect Builder.io (free tier available) from the agent composer model menu to upload images onto slides. Dropping an image onto empty canvas can still send it to the agent without a provider.",
+      "Set up object storage to upload images: use Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     sentToAgent: "Sent to agent",
     imageUploadGenericError: "Something went wrong uploading this image.",
     uploading: "Uploading…",
@@ -146,6 +170,17 @@ const messages = {
     clearSelection: "Clear selection",
     sendToAgent: "Send to agent",
     saveReconnect: "Changes will save when reconnected",
+    saveFailedDescription:
+      "Your latest edits are only on this device. Download a backup before leaving.",
+    slideConflictReview: "Review",
+    slideConflictTitle: "This slide changed elsewhere",
+    slideConflictDescription:
+      "Another editor saved a newer version. Keeping your draft will replace that slide's saved content, or use the latest version.",
+    slideConflictUseLatest: "Use latest",
+    slideConflictKeepDraft: "Keep my draft",
+    slideConflictKeepEditing: "Keep editing",
+    slideConflictResolutionFailed:
+      "Could not resolve the conflict. Your draft is still here.",
     offline: "Offline",
     selected: "selected",
     chooseDesignSystem: "Choose a design system",
@@ -162,8 +197,6 @@ const messages = {
     slideUnavailable: "Slide unavailable",
     couldNotLoadSlide: "Could not load slide.",
     openInApp: "Open in app",
-    teamDescription:
-      "Set up a team to share presentations with your colleagues.",
   },
 
   designSystems: {
@@ -179,6 +212,12 @@ const messages = {
     emptyTitle: "Set up your brand identity",
     emptyDescription:
       "Create a design system with your brand colors, typography, and logos. Every new deck will follow your visual identity.",
+    tierLimitTitle: "Design system limit reached",
+    tierLimitDescription:
+      "You've reached the design system limit for your Builder plan. Upgrade your Builder plan to create another.",
+    tierLimitDescriptionWithCount:
+      "You're using {{current}} of {{max}} design systems on your Builder {{plan}} plan. Upgrade to create another.",
+    tierLimitUpgrade: "Upgrade Builder plan",
   },
   editorToolbar: {
     layoutTitle: "Title",
@@ -201,6 +240,7 @@ const messages = {
     importCompleteFile: "File imported from {{fileName}}.",
     backToDecks: "Back to decks",
     toggleSlideList: "Toggle slide list",
+    openInAgentNative: "Open in Agent-Native",
     designSystem: "Design system",
     usingDesignSystem: "Using {{title}}",
     usingLinkedDesignSystem: "Using a linked design system",
@@ -214,6 +254,19 @@ const messages = {
     media: "Media",
     generateImage: "Generate Image",
     assetLibrary: "Asset Library",
+    imageOptions: "Image options",
+    videoPlayback: "Video playback",
+    autoplayVideo: "Autoplay",
+    loopVideo: "Loop video",
+    videoUploading: "Uploading video…",
+    videoAdded: "Video added",
+    videoUploadFailed: "Video upload failed",
+    videoUploadError: "Could not upload this video.",
+    videoFormatUnsupported: "Only MP4 and WebM videos are supported.",
+    videoTooLarge: "Videos must be 50 MB or smaller.",
+    videoUploadNeedsBuilder: "Video storage is not configured.",
+    cropImage: "Crop image",
+    cropHandle: "Crop image {{position}}",
     diagrams: "Diagrams",
     insertMermaidDiagram: "Insert Mermaid Diagram",
     insertMermaidFailed: "Failed to insert diagram",
@@ -222,17 +275,38 @@ const messages = {
     convertMermaidFailed: "Failed to convert diagram",
     removeExcalidrawCanvas: "Remove Excalidraw Canvas",
     transition: "Transition",
-    transition_instant: "Instant",
+    transition_none: "None",
+    transition_dissolve: "Dissolve",
     transition_fade: "Fade",
-    transition_slide: "Slide",
-    transition_zoom: "Zoom",
+    transition_slide_from_right: "Slide from right",
+    transition_slide_from_left: "Slide from left",
+    transition_flip: "Flip",
+    transition_cube: "Cube",
+    transition_gallery: "Gallery",
+    transition_panel: "Slide transition",
+    transition_speed: "Speed",
+    transition_slow: "Slow",
+    transition_fast: "Fast",
+    transition_seconds: "{{seconds}} s",
+    transition_apply_all: "Apply to all slides",
+    transition_play: "Play transition",
     aspectRatio: "Aspect Ratio",
     setAspectRatio: "Set deck to {{ratio}}",
     slideTools: "Slide tools",
     elementAnimations: "Element animations",
+    layers: "Layers",
+    closeLayers: "Close layers panel",
+    expandLayer: "Expand layer",
+    collapseLayer: "Collapse layer",
     tweaks: "Tweaks",
     drawOnSlide: "Annotate slide",
     addTextBox: "Add text box",
+    shapes: "Shapes",
+    shapeRectangle: "Rectangle",
+    shapeCircle: "Circle",
+    shapeArrow: "Arrow",
+    shapeTriangle: "Triangle",
+    shapeLine: "Line",
     pinComments: "Pin comments",
     undo: "Undo",
     undoWithShortcut: "Undo ({{shortcut}})",
@@ -250,6 +324,29 @@ const messages = {
     more: "More",
     importing: "Importing...",
     importFile: "Import file",
+    downloadBackup: "Download backup",
+    conflictStatus: "Text conflict",
+    conflictStatusDescription:
+      "Review the conflicting text before saving more changes.",
+    accessLost: "Access lost",
+    accessLostDescription:
+      "Your access to this deck changed. Your edits stay on screen; retry once access is restored, or download a backup.",
+    reviewConflict: "Review conflict",
+    conflictTitle: "Slide {{number}} has a text conflict",
+    conflictDescription:
+      "Another version changed this slide while your text was being edited.",
+    conflictChoicesDescription:
+      "Keeping your text saves it over the latest version. Using saved text replaces only this slide's local draft.",
+    conflictBackupDescription:
+      "This full-deck draft can't be resolved one slide at a time. Download a backup to keep it safe.",
+    conflictResolveFailed:
+      "Couldn't resolve the conflict. Your draft is still available on this device.",
+    conflictKeepMine: "Keep my text",
+    conflictUseLatest: "Use saved text",
+    importBackup: "Import backup",
+    backupDownloaded: "Backup downloaded",
+    backupDownloadFailed: "Could not download backup",
+    invalidBackup: "Choose a valid Slides backup JSON file.",
     savedVersions: "History",
     lightTheme: "Light theme",
     darkTheme: "Dark theme",
@@ -257,6 +354,7 @@ const messages = {
   editorExport: {
     pptxFailed: "Could not generate PPTX file.",
     exportFailed: "Export failed",
+    exporting: "Exporting...",
     exportPptxError: "Something went wrong exporting as PPTX.",
     googleSlidesDownloaded: "Downloaded for Google Slides",
     googleSlidesImportHint:
@@ -273,9 +371,14 @@ const messages = {
     exportPptx: "Export as PPTX",
     connectGoogle: "Connect Google",
     openInGoogleSlides: "Export to Google Slides",
+    googleSlidesUnavailable: "Unavailable",
+    googleSlidesOpenImporter: "Open Google Slides import",
+    googleSlidesUnavailableHint:
+      "Google Slides export is unavailable right now because the Google connection is not set up. Export as PPTX and import it into Google Slides instead.",
     googleSlidesCreated: "Exported to Google Slides",
     googleSlidesCreatedHint:
       "A copy of this deck was created in your Google Drive.",
+    googleSlidesGoTo: "Go to Google Slides",
     duplicateDeck: "Duplicate deck",
   },
   share: {
@@ -338,11 +441,21 @@ const messages = {
     orderedList: "Ordered list",
     quote: "Quote",
     blockquote: "Blockquote",
+    divider: "Divider",
+    horizontalRule: "Horizontal rule",
   },
   comments: {
     deleteComment: "Delete comment",
+    editComment: "Edit comment",
+    save: "Save",
     saveCommentFailed: "Could not save this comment.",
+    updateFailed: "Could not update this comment.",
+    deleteFailed: "Could not delete this comment.",
+    reactionFailed: "Could not update this reaction.",
     addCommentPlaceholder: "Add a comment...",
+    addReaction: "Add reaction",
+    toggleReaction: "Toggle {{emoji}} reaction",
+    reactWith: "React with {{emoji}}",
     cancel: "Cancel",
     saving: "Saving...",
     comment: "Comment",
@@ -350,8 +463,10 @@ const messages = {
     replyPlaceholder: "Reply...",
     reply: "Reply",
     resolveThread: "Resolve thread",
+    reopenThread: "Reopen thread",
     hideReplies: "Hide replies",
-    replyCount: "{{count}} replies",
+    replyCount_one: "{{count}} reply",
+    replyCount_other: "{{count}} replies",
     title: "Comments",
     addComment: "Add comment",
     close: "Close",
@@ -362,6 +477,16 @@ const messages = {
     retry: "Retry",
     clickToAddComment: "Click to add a comment",
     selectSlideToAdd: "Select a slide to add one",
+    filters: "Comment filters",
+    scope: "Comment scope",
+    thisSlide: "This slide",
+    allComments: "All slides",
+    audience: "Comment audience",
+    all: "All",
+    forYou: "For you",
+    goToSlide: "Go to slide",
+    search: "Search comments",
+    searchPlaceholder: "Search all comments...",
   },
   styleInspector: {
     title: "Style",
@@ -411,6 +536,17 @@ const messages = {
     cornerRadius: "Corner radius",
     strokeWeight: "Weight",
     typography: "Typography",
+    fontFamily: "Font family",
+    fontFamilies: {
+      inherit: "Inherit",
+      sansSerif: "Sans Serif",
+      serif: "Serif",
+      monospace: "Monospace",
+      inter: "Inter",
+      poppins: "Poppins",
+      playfairDisplay: "Playfair Display",
+      jetBrainsMono: "JetBrains Mono",
+    },
     weight: "Weight",
     italic: "Italic",
     underline: "Underline",
@@ -438,6 +574,10 @@ const messages = {
     rose: "Rose",
     arrange: "Arrange",
     order: "Order",
+    group: "Group",
+    ungroup: "Ungroup",
+    bringForward: "Bring forward",
+    sendBackward: "Send backward",
     bringToFront: "Bring to front",
     sendToBack: "Send to back",
     copyStyle: "Copy style",
@@ -457,13 +597,28 @@ const messages = {
     slideUp: "Slide Up",
     zoom: "Zoom",
     elementFallback: "Element {{index}}",
-    title: "Animations",
-    close: "Close animations panel",
+    title: "Transitions",
+    close: "Close transitions panel",
     emptyTitle: "No animations yet.",
-    emptyDescription: "Add elements below to reveal them on click.",
+    emptyDescription: "Select an object on the slide to add a transition.",
+    selectObject: "Select an object to animate",
+    addTransition: "Add transition",
+    effect: "Effect",
+    onClick: "On click",
+    byParagraph: "By paragraph",
+    expand: "Expand transition",
+    collapse: "Collapse transition",
+    reorder: "Reorder transition",
+    remove: "Remove transition",
+    play: "Play",
     clearAll: "Clear all",
     elements: "Elements",
     autoFill: "Auto-fill",
+    issueStalePath: "This object is no longer on the slide.",
+    issueMissingElement: "This object could not be found on the slide.",
+    issueDuplicate: "This reveal overlaps another reveal on the slide.",
+    blocked: "Remove or fix the unresolved reveal to save or play.",
+    changeNotApplied: "This change was not applied.",
     noAnimatableElements: "No animatable elements detected on this slide.",
   },
   generateSlides: {
@@ -487,6 +642,7 @@ const messages = {
     generating: "Generating slides...",
     generate: "Generate Slides",
   },
+  deckResult: { saved: "Saved" },
   history: {
     unknownTime: "Unknown time",
     justNow: "Just now",
@@ -508,15 +664,19 @@ const messages = {
     slideNumber: "Slide {{number}}",
     noSlidesInSnapshot: "No slides in this snapshot.",
     restoreThisVersion: "Restore this version",
+    retry: "Retry",
     noSavedVersions: "No history yet",
     noSavedVersionsDescription:
       "History is saved automatically before future deck edits.",
+    loadFailed: "Could not load saved versions.",
+    snapshotLoadFailed: "Could not load this saved version.",
   },
   editorSidebar: {
     selectSlide: "Select slide {{number}}",
     duplicateSlide: "Duplicate slide",
     duplicate: "Duplicate",
     deleteSlide: "Delete slide",
+    slideDeleted: "Slide deleted",
     delete: "Delete",
     generatingSlide: "Generating slide",
     uploadFailed: "Upload failed",
@@ -552,10 +712,31 @@ const messages = {
     enterFullscreen: "Enter fullscreen",
     clickToEnterFullscreen: "Click to enter fullscreen",
   },
+  deckAccessPage: {
+    errorCode: "Error 403",
+    noAccessTitle: "You don't have access",
+    noAccessDescription:
+      "Ask the deck owner for access, or switch to the right account.",
+    noteLabel: "Add a note for the owner (optional)",
+    notePlaceholder: "I'm reviewing this deck",
+    requesting: "Requesting",
+    requestFailed: "Your request wasn't sent. Please try again.",
+    requestSentDescription:
+      "We’ll email you as soon as the owner approves your request.",
+    goHome: "Go home",
+    signedInAs: "Signed in as",
+    switchAccount: "Switch account",
+  },
   deckEditor: {
     lookingForDeck: "Looking for this deck",
     joinTeamToOpen: "Join your team to open this deck",
     deckUnavailable: "Deck unavailable",
+    generationStalled: "Generation paused after 5 minutes without progress",
+    generationStalledDescription:
+      "Your saved slides are still here. Continue from this deck in chat.",
+    continueInChat: "Continue in chat",
+    continueGenerationPrompt:
+      "Continue generating slides for this deck. Check its current slides and saved generation context first. Keep completed slides and add only the missing slides.",
     checkingSharedAccess:
       "Checking whether this presentation is shared with your account.",
     joinTeamDescription:
@@ -591,6 +772,9 @@ const messages = {
     accessApprovalTitle: "Access granted",
     accessApprovalAlreadyTitle: "Access already granted",
     accessApprovalMessage: "{{email}} can now open this deck.",
+    accessApprovalRequesterEmailed: "We emailed them to let them know.",
+    accessApprovalRequesterEmailFailed:
+      "We couldn't email {{email}}. Let them know they can open the deck now.",
     accessApprovalAlreadyMessage: "{{email}} already has access to this deck.",
     accessApprovalErrorTitle: "Couldn't grant access",
     accessApprovalInvalid: "This access request is invalid or expired.",
@@ -604,10 +788,17 @@ const messages = {
     tryAgain: "Try again",
     imageUploadFailed: "Image upload failed",
     imageUploadNeedsBuilder:
-      "Connect Builder.io (free tier available) from the agent composer model menu to upload images onto slides. Dropping an image onto empty canvas can still send it to the agent without a provider.",
+      "Set up object storage to upload images: use Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     imageAdded: "Image added",
     imageUploadError: "Something went wrong uploading this image.",
     exportFailed: "Export failed",
+    agentRunFailed:
+      "The agent run failed before creating any slides. Check the chat for details, then try again.",
+    generationFailed:
+      "Slides weren't created. Check the chat for details, then try again.",
+    generationOutcomeUnresolved:
+      "We couldn't confirm whether slides were created. Check the deck before trying again.",
+    checkedDeckTryAgain: "I checked the deck. Try again",
     deckHasNoSlides: "Deck has no slides.",
     pdfRenderFailed: "Could not render PDF.",
     buildingDeck: "Building deck",
@@ -623,6 +814,10 @@ const messages = {
       "If you leave or reload now, you may lose changes that have not been saved yet. Are you sure you want to exit?",
     keepEditing: "Keep editing",
     leaveWithoutSaving: "Exit without saving",
+    editorMarkupNotSaved:
+      "This edit wasn't saved because it would have added editor markup to the slide.",
+    textEditConflictNotSaved:
+      "Your text edit wasn't saved because the same text was changed elsewhere at the same time.",
   },
   designSystemSetup: {
     importedBrand: "Imported brand",
@@ -660,6 +855,8 @@ const messages = {
     websitePlaceholder: "example.com or Nike",
     add: "Add",
     githubRepository: "Connect Code: GitHub repository",
+    codeIndexingEnterpriseOnly:
+      "Code and repository indexing requires the Builder Enterprise plan",
     githubRef: "Branch, tag, or commit (optional)",
     githubPaths: "Files or folders, comma-separated (optional)",
     codeFiles: "Connect Code Files",
@@ -684,11 +881,8 @@ const messages = {
     sourceGitHub: "GitHub repository",
     sourceMixed: "Multiple sources",
     sourceBuilder: "Builder Design System Intelligence",
-    sourceIndexing: "Indexing in progress",
-    sourceIndexed: "Indexed",
-    sourceUnavailable: "Results unavailable",
     sourceIndexingDescription:
-      "Builder is still processing this source. Results will appear here as they are ready.",
+      "Your brand style is still being prepared. Wait until it's ready, then try again.",
     sourceIndexedDescription: "{{docs}} docs · {{tokens}} tokens indexed",
     sourceIndexedDocsOnly: "{{docs}} docs indexed",
     sourceIndexedTokensOnly: "{{tokens}} tokens indexed",
@@ -709,12 +903,133 @@ const messages = {
     chooseAnotherFile: "Choose another file",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "Create a product pitch deck",
+      roadmap: "Create a product roadmap",
+      explainer: "Explain a topic in a presentation",
+    },
+    suggestedPrompts: "Suggested prompts",
+    importMenu: {
+      import: "Import",
+      options: "Import options",
+      invalidPdf: "Choose a PDF file.",
+      invalidPptx: "Choose a PPTX file.",
+      invalidFile: "Choose a PDF or PPTX file.",
+      networkFailed:
+        "The import request timed out or lost its network connection. Check your connection and retry.",
+      notStarted: "Complete any required sign-in, then retry the import.",
+      unsupportedFileType:
+        "This file type isn't supported. Choose a supported file.",
+      uploadLimitExceeded:
+        "The upload exceeds a supported limit. Reduce the file size or choose fewer files, then retry.",
+    },
+    importDeck: "Import Deck",
+    context: {
+      websiteReference: "Add website",
+      websiteUrlLabel: "Website URL",
+      websiteUrl: "Paste a website URL",
+      figmaUrlLabel: "Figma link",
+      invalidFigmaUrl: "Enter a valid figma.com frame or file URL.",
+      createSystem: "Create a design system",
+      noSystems:
+        "You don’t have a design system yet. Create one from website, files, or Figma.",
+      searchSystems: "Search design systems…",
+      searchFrames: "Search Figma frames…",
+      searchDesigns: "Search designs…",
+      searchPresentations: "Search presentations…",
+      menu: {
+        system: "Use a design system",
+        figma: "Add Figma",
+        design: "Reference a design",
+        deck: "Reference a presentation",
+        searchDesign: "Search design…",
+      },
+      loadFailed: "Couldn't load this reference. Try again.",
+      saveFailed: "Couldn't save your context selection.",
+      system: "Design systems",
+      figmaUrl: "Paste a Figma link",
+      browse: "Browse frames",
+      empty: "No references found.",
+      previous: "Previous",
+      next: "Next",
+      title: "Context",
+      remove: "Remove reference",
+      deck: "Presentations",
+      design: "Design references",
+      figma: "Figma frames",
+      notReady:
+        "Context is still loading or unavailable. Retry or remove it before sending.",
+      emptySource: "This source returned no usable context.",
+      websiteReadFailed:
+        "This website couldn't be read automatically. Copy and paste the relevant text instead.",
+      figmaReadFailed:
+        "Design couldn't read this Figma reference. Check the saved Figma access token in Design and make sure its account can open the file, then try again.",
+      tooMany: "Choose up to 20 references.",
+      search: "Search references",
+      designCategory: "Design",
+    },
+    quickStart: {
+      invalidUrl: "Enter a valid HTTP or HTTPS URL.",
+      starting: "Starting…",
+      generate: "Generate",
+      connectionRequired:
+        "Connect an AI provider above the home prompt or add your own AI key, then try again.",
+      invalidPdf: "Choose a PDF file.",
+      notReady:
+        "Review the prompt's loading or failed context and connection status, then try again.",
+      tooLong: "Keep source text under 20,000 characters.",
+      trends: {
+        label: "Create a presentation on latest industry trends",
+        field: "Industry or topic",
+        prompt:
+          "Research the latest trends for the supplied topic and create a presentation with current sources. Verify the information before generating.",
+      },
+      notes: {
+        label: "Turn meeting notes into a presentation",
+        field: "Meeting notes",
+        prompt:
+          "Turn the supplied meeting notes into a presentation covering key points, decisions, and next steps. Use the notes as source material.",
+      },
+      pdf: {
+        label: "Summarize a PDF into key takeaways",
+        field: "PDF file",
+        prompt:
+          "Read the attached PDF and create a presentation summarizing its key takeaways. Report unreadable content instead of guessing.",
+      },
+      website: {
+        label: "Generate a deck from my company website",
+        field: "Company website URL",
+        prompt:
+          "Read the supplied company website and create a presentation about the company. Report access failures instead of inventing facts.",
+      },
+    },
+    connectBuilderIo: "Use Builder.io",
+    connectingBuilder: "Setting up Builder.io…",
+    recent: "Recent",
+    starters: {
+      pitch: {
+        label: "Pitch deck",
+        prompt: "Create a pitch deck about ",
+      },
+      update: {
+        label: "Project update",
+        prompt:
+          "Create a project update covering progress, results, and next steps for ",
+      },
+      lesson: {
+        label: "Teach a topic",
+        prompt: "Create a presentation that explains ",
+      },
+    },
     loadFailed: "Couldn't load your content",
     loadFailedDescription:
       "Your saved content is still available. Check the connection and try again.",
     retry: "Retry",
+    fileStorageStatusUnavailable:
+      "Couldn't check object storage. Retry before uploading files.",
+    fileStorageSetupRequired:
+      "No object storage is connected. Use Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     decksTitle: "Decks",
-    newDeck: "New Deck",
     deckLengthQuestion: "How long should this deck be?",
     deckLengthHeader: "Deck length",
     deckLengthShort: "Short (3–5 slides)",
@@ -724,13 +1039,19 @@ const messages = {
     generationStartFailed: "Couldn't start deck generation",
     generationStartFailedDescription:
       "The new deck did not finish saving, so the agent was not started against a missing deck. Your prompt was saved so you can try again.",
+    generationContextUnavailableDescription:
+      "We couldn't load the brand style or reference presentation you chose. Make sure you can open it and that your internet connection is working, then try again.",
     showAllDecks: "Show all decks",
     all: "All",
     showMineDecks: "Show decks created by me",
     mine: "Mine",
+    ownedByAnyone: "Owned by anyone",
+    ownedByMe: "Owned by me",
+    sharedWithMe: "Shared with me",
     createDeckOrVisual: "Create a presentation",
     noMineDecks: "No decks created by you yet.",
     noDecksMatchSearch: "No decks match your search.",
+    noDecksMatchFilter: "No decks match the current filter.",
     deleteDeckTitle: "Delete Deck?",
     deleteDeckDescription:
       "This will permanently delete this deck and all its slides. This action cannot be undone.",
@@ -739,11 +1060,13 @@ const messages = {
     newDeckPromptTitle: "New presentation",
     newDeckPlaceholder: "Describe the presentation you want to generate...",
     skipPrompt: "Skip prompt",
-    firstDeckPromptTitle: "What kind of presentation should we generate?",
+    firstDeckPromptTitle: "Let's create your first presentation",
     firstDeckSkip: "Skip",
     chooseReferences: "Choose references",
     addDesignSystem: "+ Design system",
     importFrom: "Import from",
+    referenceFileStorageUnavailable:
+      "File storage is not configured. Use Builder.io or another file provider to import reference files.",
     attachedFiles: "Attached",
     imported: "Imported",
     importedReferenceDeck: "Imported reference deck",
@@ -801,6 +1124,11 @@ const messages = {
     createFirstDeck: "Create your first deck",
     emptyDescription:
       "Build beautiful presentations with AI-powered generation.",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "Couldn't confirm AI is ready.",
+    },
   },
 };
 

@@ -7,16 +7,31 @@ import {
   getRequestHeader,
 } from "h3";
 
+import { getAppConfig } from "../app-config/store.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import { isLoopbackRequest } from "../server/auth.js";
+import {
+  describeBearerCredentialRefusal,
+  type BearerCredentialRefusal,
+} from "../server/bearer-credential-refusal.js";
+import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
 import { getH3App } from "../server/framework-request-handler.js";
+import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import { trackMcpInitialize } from "./analytics.js";
 import {
   createMCPServerForRequest,
   verifyAuth,
+  McpIdentityVerificationUnavailableError,
   getAccessTokens,
   resolveOrgIdFromDomain,
   buildLinkArtifacts,
+  McpDirectoryProfileValidationError,
+  validateMcpDirectoryProfile,
+  validateMcpDirectoryWidgetDomain,
+  selectMcpActionSurface,
+  selectMcpDirectoryWidgetReadActions,
+  selectMcpDirectoryWidgetWriteActions,
   type MCPConfig,
   type MCPCallerIdentity,
   type MCPRequestMeta,
@@ -29,29 +44,23 @@ import {
   getMcpOAuthResource,
 } from "./oauth-route.js";
 import {
+  MCP_DIRECTORY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
   MCP_ROUTE_PREFIXES,
   joinMcpRoute,
 } from "./route-paths.js";
 
-// Re-export the shared MCP server builder + types so the stdio transport and
-// any (future) external importer of `@agent-native/core/mcp` keep resolving
-// against `./server.js` exactly as before this refactor.
 export {
   createMCPServerForRequest,
   verifyAuth,
   getAccessTokens,
   resolveOrgIdFromDomain,
   buildLinkArtifacts,
+  selectMcpDirectoryWidgetReadActions,
+  selectMcpDirectoryWidgetWriteActions,
 };
 export type { MCPConfig, MCPCallerIdentity, MCPRequestMeta };
 
-/**
- * Derive the request origin + the markdown deep-link target from the inbound
- * headers. Identical logic for both the Node and web paths so the absolute
- * deep-link URLs in tool results are computed the same way regardless of
- * runtime.
- */
 function deriveRequestMeta(event: H3Event): MCPRequestMeta {
   const forwardedProto = getRequestHeader(event, "x-forwarded-proto");
   const host =
@@ -74,6 +83,9 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
   const clientName = getRequestHeader(event, "user-agent")?.trim() || undefined;
   const clientHint =
     getRequestHeader(event, "x-agent-native-mcp-client")?.trim() || undefined;
+  const mcpRetryToken =
+    getRequestHeader(event, "x-agent-native-mcp-retry-token")?.trim() ||
+    undefined;
   const fullCatalogHeader = getRequestHeader(
     event,
     "x-agent-native-mcp-full-catalog",
@@ -95,8 +107,10 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     origin,
     ...(basePath ? { basePath } : {}),
     target,
+    transport: "http",
     clientName,
     clientHint,
+    ...(mcpRetryToken ? { mcpRetryToken } : {}),
     ...(fullCatalog ? { fullCatalog } : {}),
     ...(inlineAppsRequested ? { inlineMcpApps: true } : {}),
   };
@@ -118,20 +132,11 @@ function isLoopbackOrigin(origin: string | undefined): boolean {
   }
 }
 
-/**
- * Reconstruct a Web Standard `Request` for the web-standard MCP transport.
- *
- * On the web runtime h3 v2 exposes the real web `Request` as `event.req`; we
- * prefer it (its `method` / `headers` are exactly what the client sent). But
- * the framework middleware rewrites `event.req.url` when it strips a mount
- * prefix, and the transport reads `req.method` + `req.headers` (never the
- * body — we pass that via `parsedBody`), so we always synthesize a clean
- * `Request` with the verified method + a fresh `Headers` copy. The URL is
- * cosmetic for the SDK (it only does `new URL(req.url)` for `requestInfo`),
- * so a best-effort absolute URL derived from the inbound host is sufficient
- * and never throws.
- */
-function buildWebRequest(event: H3Event, method: string): Request {
+function buildWebRequest(
+  event: H3Event,
+  method: string,
+  routePath = MCP_PUBLIC_ROUTE_PREFIX,
+): Request {
   const src = (event as any).req as Request | undefined;
 
   const headers = new Headers();
@@ -149,11 +154,6 @@ function buildWebRequest(event: H3Event, method: string): Request {
     }
   }
 
-  // The SDK requires Accept + Content-Type to advertise both JSON and SSE on
-  // a POST. Real MCP clients (Claude Code, `agent-native connect`) always
-  // send these; we never inject/alter them — if they're absent the SDK
-  // returns its spec-mandated 406/415, identical to the Node path.
-
   const host =
     headers.get("x-forwarded-host") || headers.get("host") || "localhost";
   const forwardedProto = headers.get("x-forwarded-proto");
@@ -161,27 +161,18 @@ function buildWebRequest(event: H3Event, method: string): Request {
     forwardedProto?.split(",")[0]?.trim() ||
     (/^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "http" : "https");
   const basePath = getConfiguredAppBasePath();
-  const url = `${proto}://${host}${basePath}${MCP_PUBLIC_ROUTE_PREFIX}`;
+  const url = `${proto}://${host}${basePath}${routePath}`;
 
-  // No body here on purpose: the JSON-RPC payload is forwarded via the
-  // transport's `parsedBody` option (the same mechanism the Node transport
-  // uses), so the request stream is never read twice.
   return new Request(url, { method, headers });
 }
 
-/**
- * Build an actionable JSON body for the 401 response. OAuth-capable clients
- * follow the `WWW-Authenticate` header automatically, but the JSON body is what
- * a human or a coding agent reads when a tool call comes back unauthorized — so
- * spell out the exact remediation: the `agent-native connect <url>` command and
- * the authorize/metadata URL. Keeping the legacy `error: "Unauthorized"` field
- * means existing clients that only check that field still work.
- */
 function buildUnauthorizedBody(
   event: H3Event,
   routePath = MCP_PUBLIC_ROUTE_PREFIX,
+  refusal?: BearerCredentialRefusal,
 ): {
   error: string;
+  reason?: BearerCredentialRefusal;
   message: string;
   authenticate: {
     command?: string;
@@ -206,7 +197,7 @@ function buildUnauthorizedBody(
   const authorizeUrl = issuer
     ? `${issuer}${MCP_PUBLIC_ROUTE_PREFIX}/oauth/authorize`
     : undefined;
-  const message = command
+  const instructions = command
     ? `Authentication required. Run \`${command}\` to re-authenticate this ` +
       `MCP connector without reinstalling it (or, in a Claude Code host, ` +
       `run /mcp and choose Authenticate), then retry. For first-time ` +
@@ -215,7 +206,10 @@ function buildUnauthorizedBody(
       "then retry.";
   return {
     error: "Unauthorized",
-    message,
+    ...(refusal ? { reason: refusal } : {}),
+    message: refusal
+      ? `${describeBearerCredentialRefusal(refusal)} ${instructions}`
+      : instructions,
     authenticate: {
       ...(command ? { command } : {}),
       ...(firstTimeCommand ? { firstTimeCommand } : {}),
@@ -223,6 +217,76 @@ function buildUnauthorizedBody(
       ...(resourceMetadataUrl ? { resourceMetadataUrl } : {}),
       ...(mcpUrl ? { mcpUrl } : {}),
     },
+  };
+}
+
+const loggedDirectoryProfileFailures = new Set<string>();
+const directoryLogMethods = new Set([
+  "initialize",
+  "notifications/initialized",
+  "server/discover",
+  "tools/list",
+  "tools/call",
+  "resources/list",
+  "resources/templates/list",
+  "resources/read",
+  "prompts/list",
+  "prompts/get",
+  "ping",
+]);
+
+function directoryLogMethod(body: unknown): string | undefined {
+  if (!body || typeof body !== "object") return undefined;
+  if (Array.isArray(body)) return "batch";
+  const method = (body as { method?: unknown }).method;
+  if (typeof method !== "string") return "other";
+  return directoryLogMethods.has(method) ? method : "other";
+}
+
+function responseStatusFromEvent(event: H3Event): number {
+  const status =
+    event.res?.status ??
+    (event as any).node?.res?.statusCode ??
+    (event as any)._status;
+  return typeof status === "number" && Number.isInteger(status) && status > 0
+    ? status
+    : 200;
+}
+
+function responseStatusFromError(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const status = error as { status?: unknown; statusCode?: unknown };
+  for (const candidate of [status.status, status.statusCode]) {
+    if (
+      typeof candidate === "number" &&
+      Number.isInteger(candidate) &&
+      candidate >= 100 &&
+      candidate <= 599
+    ) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+function directoryProfileUnavailable(
+  event: H3Event,
+  validationError: McpDirectoryProfileValidationError,
+): { error: string; message: string } {
+  const failureKey = `${validationError.code}\0${validationError.message}`;
+  if (!loggedDirectoryProfileFailures.has(failureKey)) {
+    loggedDirectoryProfileFailures.add(failureKey);
+    console.error(
+      "[mcp] MCP directory profile validation failed:",
+      validationError,
+    );
+  }
+  setResponseStatus(event, 503);
+  setResponseHeader(event, "Cache-Control", "no-store");
+  return {
+    error: "MCP_DIRECTORY_PROFILE_INVALID",
+    message:
+      "The MCP directory is unavailable because its profile or widget origin is invalid.",
   };
 }
 
@@ -248,6 +312,191 @@ function buildUnauthorizedBody(
  *     h3 mount falls through to the next handler.
  *   - a Web `Response` or an auth-error object otherwise.
  */
+async function handleMcpRequestInternal(
+  event: H3Event,
+  config: MCPConfig,
+  routePath = MCP_PUBLIC_ROUTE_PREFIX,
+  onMcpMethod?: (method: string) => void,
+): Promise<
+  Response | string | { error: string } | Record<string, unknown> | undefined
+> {
+  const pathname = event.url?.pathname || "/";
+  const subpath = pathname.replace(/^\/+/, "").replace(/\/+$/, "");
+  if (subpath) {
+    return undefined;
+  }
+
+  const method = getMethod(event);
+
+  const authHeader = getRequestHeader(event, "authorization");
+  const ownerEmailHeader = getRequestHeader(
+    event,
+    "x-agent-native-owner-email",
+  );
+  const requestMeta = deriveRequestMeta(event);
+  const hasLocalOwnerHint = Boolean(ownerEmailHeader?.trim());
+  const directoryProfile =
+    routePath === MCP_DIRECTORY_ROUTE_PREFIX
+      ? config.directoryProfile
+      : undefined;
+  if (routePath === MCP_DIRECTORY_ROUTE_PREFIX && !directoryProfile) {
+    setResponseStatus(event, 404);
+    return { error: "Not found" };
+  }
+  const requestConfig = directoryProfile
+    ? {
+        ...config,
+        catalogMode: "directory" as const,
+        connectorCatalog: directoryProfile.connectorCatalog,
+        instructions: directoryProfile.instructions,
+        keyToolNames: directoryProfile.keyToolNames,
+        widgetDomain:
+          directoryProfile.widgetDomain ??
+          config.widgetDomain ??
+          requestMeta.origin,
+      }
+    : config;
+  let authResult: Awaited<ReturnType<typeof verifyAuth>>;
+  try {
+    authResult = await verifyAuth(authHeader, ownerEmailHeader, {
+      allowDevOpen:
+        isLoopbackRequest(event) &&
+        isLoopbackOrigin(requestMeta.origin) &&
+        (hasLocalOwnerHint || getAppConfig().mcp.allowDevOpen),
+      resourceUrl: getMcpOAuthAudiences(event, routePath),
+      requestOrigin: getOrigin(event),
+    });
+  } catch (error) {
+    if (!(error instanceof McpIdentityVerificationUnavailableError))
+      throw error;
+    setResponseStatus(event, 503);
+    setResponseHeader(event, "Retry-After", "5");
+    return {
+      error: "Service Unavailable",
+      message: CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
+    };
+  }
+  if (!authResult.authed && authResult.unavailable) {
+    // The token is valid but its org membership could not be checked. No auth
+    // challenge: re-authenticating would not help, and the client must keep
+    // its tokens and retry.
+    setResponseStatus(event, 503);
+    setResponseHeader(event, "Retry-After", "5");
+    return {
+      error: "Service Unavailable",
+      message: CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
+    };
+  }
+  if (!authResult.authed) {
+    setResponseStatus(event, 401);
+    setResponseHeader(
+      event,
+      "WWW-Authenticate",
+      buildMcpOAuthChallenge(event, routePath, authResult.refusal),
+    );
+    return buildUnauthorizedBody(event, routePath, authResult.refusal);
+  }
+
+  const body = method === "POST" ? await readBody(event) : undefined;
+  onMcpMethod?.(directoryLogMethod(body) ?? method);
+
+  const initializeRequest = body
+    ? (Array.isArray(body) ? body : [body]).find(
+        (
+          m,
+        ): m is {
+          params?: {
+            capabilities?: unknown;
+            clientInfo?: { name?: unknown; version?: unknown };
+            protocolVersion?: unknown;
+          };
+        } =>
+          typeof m === "object" &&
+          m !== null &&
+          (m as { method?: unknown }).method === "initialize",
+      )
+    : undefined;
+
+  if (getAppConfig().observability.mcpDebugInitialize && initializeRequest) {
+    console.error(
+      "[MCP_DEBUG_INIT] clientInfo=",
+      JSON.stringify(initializeRequest.params?.clientInfo),
+      "capabilities=",
+      JSON.stringify(initializeRequest.params?.capabilities),
+    );
+  }
+
+  const serverRequestMeta: MCPRequestMeta = {
+    ...requestMeta,
+    ...(requestConfig.createLocalAgentTaskClient
+      ? {
+          localAgentTaskClient: requestConfig.createLocalAgentTaskClient(event),
+        }
+      : {}),
+    fullSurface: authResult.fullSurface === true,
+    inlineMcpApps:
+      requestMeta.inlineMcpApps === true &&
+      authResult.identity?.firstPartyMcp === true
+        ? true
+        : undefined,
+    ...(authResult.fullCatalog === true ? { fullCatalog: true } : {}),
+  };
+  if (directoryProfile) {
+    try {
+      validateMcpDirectoryProfile(
+        requestConfig,
+        selectMcpActionSurface(requestConfig, serverRequestMeta),
+      );
+      validateMcpDirectoryWidgetDomain(requestConfig.widgetDomain);
+    } catch (error) {
+      if (!(error instanceof McpDirectoryProfileValidationError)) throw error;
+      return directoryProfileUnavailable(event, error);
+    }
+  }
+  if (initializeRequest) {
+    const clientInfo = initializeRequest.params?.clientInfo;
+    const protocolVersion = initializeRequest.params?.protocolVersion;
+    trackMcpInitialize({
+      source: "http",
+      serverName: requestConfig.name,
+      serverVersion: requestConfig.version ?? "1.0.0",
+      ...(requestConfig.appId ? { appId: requestConfig.appId } : {}),
+      ...(typeof clientInfo?.name === "string"
+        ? { clientName: clientInfo.name }
+        : {}),
+      ...(typeof clientInfo?.version === "string"
+        ? { clientVersion: clientInfo.version }
+        : {}),
+      ...(requestMeta.clientName
+        ? { clientUserAgent: requestMeta.clientName }
+        : {}),
+      ...(typeof protocolVersion === "string" ? { protocolVersion } : {}),
+      ...(authResult.identity?.userEmail
+        ? { userId: authResult.identity.userEmail }
+        : {}),
+    });
+  }
+
+  const { createMcpHandler } = await import("@modelcontextprotocol/server");
+  const handler = createMcpHandler(
+    () =>
+      createMCPServerForRequest(
+        requestConfig,
+        authResult.identity,
+        serverRequestMeta,
+      ),
+    {
+      legacy: "stateless",
+      responseMode: "auto",
+    },
+  );
+  const webRequest = buildWebRequest(event, method, routePath);
+  return handler.fetch(
+    webRequest,
+    method === "POST" ? { parsedBody: body } : undefined,
+  );
+}
+
 export async function handleMcpRequest(
   event: H3Event,
   config: MCPConfig,
@@ -257,127 +506,40 @@ export async function handleMcpRequest(
 > {
   const pathname = event.url?.pathname || "/";
   const subpath = pathname.replace(/^\/+/, "").replace(/\/+$/, "");
-  if (subpath) {
-    // Let management/status routes mounted under /_agent-native/mcp/* handle
-    // their own requests instead of treating them as MCP protocol traffic.
-    return undefined;
-  }
+  const isDirectoryRequest =
+    routePath === MCP_DIRECTORY_ROUTE_PREFIX && !subpath;
+  const startedAt = performance.now();
+  let method = getMethod(event);
+  let status = 500;
 
-  const method = getMethod(event);
-
-  // Auth check — extracts the caller's identity from the JWT (`sub`), or, on
-  // the static-token / dev-open path, from the forwarded
-  // `X-Agent-Native-Owner-Email` hint the stdio proxy sends (the
-  // `agent-native mcp install` flow). Without this the install flow would run
-  // every tool unscoped (userEmail === undefined).
-  const authHeader = getRequestHeader(event, "authorization");
-  const ownerEmailHeader = getRequestHeader(
-    event,
-    "x-agent-native-owner-email",
-  );
-  // Gate header-only dev-open on the REAL socket peer, never a parsed
-  // `Host` header (client-controlled — an attacker could send
-  // `Host: localhost`). A deployed app missing A2A_SECRET / ACCESS_TOKEN
-  // must fail closed rather than trust a spoofable owner-email header that
-  // `fullSurface` would otherwise escalate to the full mutating surface.
-  const requestMeta = deriveRequestMeta(event);
-  const hasLocalOwnerHint = Boolean(ownerEmailHeader?.trim());
-  const authResult = await verifyAuth(authHeader, ownerEmailHeader, {
-    // A bare localhost URL is still a protected MCP resource. This lets
-    // OAuth-native hosts (Kiro, Claude Code, etc.) receive the standard 401
-    // challenge and open browser approval instead of silently getting the
-    // sparse anonymous dev surface. The stdio proxy remains zero-config for
-    // local installs because it forwards an owner hint; an explicit opt-in is
-    // available for local diagnostics.
-    allowDevOpen:
-      isLoopbackRequest(event) &&
-      isLoopbackOrigin(requestMeta.origin) &&
-      (hasLocalOwnerHint || process.env.AGENT_NATIVE_MCP_DEV_OPEN === "1"),
-    resourceUrl: getMcpOAuthAudiences(event),
-  });
-  if (!authResult.authed) {
-    setResponseStatus(event, 401);
-    setResponseHeader(
+  try {
+    const result = await handleMcpRequestInternal(
       event,
-      "WWW-Authenticate",
-      buildMcpOAuthChallenge(event, routePath),
+      config,
+      routePath,
+      (requestMethod) => {
+        method = requestMethod;
+      },
     );
-    return buildUnauthorizedBody(event, routePath);
-  }
-
-  // Read POST bodies through h3 exactly once. `createMcpHandler` accepts the
-  // parsed value, so neither its modern classifier nor its legacy fallback
-  // consumes the request stream a second time.
-  const body = method === "POST" ? await readBody(event) : undefined;
-
-  // Optional diagnostics for host capability negotiation. Keep disabled by
-  // default because initialize payloads can include client-specific metadata.
-  if (process.env.MCP_DEBUG_INIT && body) {
-    const msgs = Array.isArray(body) ? body : [body];
-    const init = msgs.find(
-      (m): m is { params?: { capabilities?: unknown; clientInfo?: unknown } } =>
-        typeof m === "object" &&
-        m !== null &&
-        (m as { method?: unknown }).method === "initialize",
-    );
-    if (init) {
-      console.error(
-        "[MCP_DEBUG_INIT] clientInfo=",
-        JSON.stringify(init.params?.clientInfo),
-        "capabilities=",
-        JSON.stringify(init.params?.capabilities),
-      );
+    status =
+      result instanceof Response
+        ? result.status
+        : responseStatusFromEvent(event);
+    return result;
+  } catch (error) {
+    status = responseStatusFromError(error) ?? 500;
+    throw error;
+  } finally {
+    if (isDirectoryRequest) {
+      console.info("[mcp:directory] request", {
+        method,
+        status,
+        durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+      });
     }
   }
-
-  const serverRequestMeta: MCPRequestMeta = {
-    ...requestMeta,
-    fullSurface: authResult.fullSurface === true,
-    inlineMcpApps:
-      requestMeta.inlineMcpApps === true &&
-      authResult.identity?.firstPartyMcp === true
-        ? true
-        : undefined,
-    // When the caller minted their token with --full-catalog (catalog_scope:
-    // "full" JWT claim), bypass the connector-catalog tier filter.
-    ...(authResult.fullCatalog === true ? { fullCatalog: true } : {}),
-  };
-  const { createMcpHandler } = await import("@modelcontextprotocol/server");
-  const handler = createMcpHandler(
-    () =>
-      createMCPServerForRequest(config, authResult.identity, serverRequestMeta),
-    {
-      legacy: "stateless",
-      // Ordinary calls stay single-body JSON unless a handler emits a related
-      // message before its result. Subscription/listen remains SSE.
-      responseMode: "auto",
-    },
-  );
-  const webRequest = buildWebRequest(event, method);
-  return handler.fetch(
-    webRequest,
-    method === "POST" ? { parsedBody: body } : undefined,
-  );
 }
 
-// ---------------------------------------------------------------------------
-// mountMCP — register MCP Streamable HTTP endpoint on H3/Nitro
-// ---------------------------------------------------------------------------
-
-/**
- * Mount an MCP remote server on an H3/Nitro app.
- *
- * Endpoints: `/mcp` (public) and `/_agent-native/mcp` (compatibility).
- * A custom route prefix only mounts that custom endpoint.
- *
- * Uses the v2 Web Standard per-request handler with native 2026-07-28 serving
- * and stateless 2025-era fallback. It carries no in-memory protocol session
- * across invocations and works unchanged on Node, Nitro/Netlify web runtimes,
- * Cloudflare, Deno, and Bun.
- *
- * Auth: Bearer token matching ACCESS_TOKEN/ACCESS_TOKENS or JWT via A2A_SECRET.
- * No auth required when neither is configured (dev mode).
- */
 export function mountMCP(
   nitroApp: any,
   config: MCPConfig,
@@ -387,6 +549,7 @@ export function mountMCP(
     routePrefix === "/_agent-native"
       ? [...MCP_ROUTE_PREFIXES]
       : [joinMcpRoute(routePrefix, "/mcp")];
+  if (config.directoryProfile) routePaths.unshift(MCP_DIRECTORY_ROUTE_PREFIX);
 
   for (const routePath of routePaths) {
     getH3App(nitroApp).use(

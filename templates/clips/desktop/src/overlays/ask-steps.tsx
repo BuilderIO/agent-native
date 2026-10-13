@@ -1,13 +1,3 @@
-/**
- * The agent's work as a strip of icon chips.
- *
- * One chip per step, typed by what kind of work it was — read, think, write,
- * call, wait — with the current one lit and the trail behind it dimmed. A run
- * reads as a short sequence of shapes rather than a stack of sentences: the
- * tool names are the agent's vocabulary, not the user's. The body underneath
- * shows only the step in flight, and the whole list is one chevron away.
- */
-
 import {
   IconAlertTriangle,
   IconBrain,
@@ -32,7 +22,6 @@ const KIND_ICON: Record<AgentStepKind, typeof IconBrain> = {
   wait: IconHourglass,
 };
 
-/** What to call the bucket, in flight and once it is over. */
 const KIND_LABEL: Record<AgentStepKind, { running: string; done: string }> = {
   think: { running: "Thinking", done: "Thought" },
   read: { running: "Reading", done: "Read" },
@@ -54,9 +43,6 @@ export function AskSteps({
   const stripRef = useRef<HTMLDivElement | null>(null);
   const count = steps?.length ?? 0;
 
-  // Keep the newest chip in view as the strip grows past the pill's width.
-  // The left edge only fades once something is actually hidden behind it —
-  // fading the first chip of three that all fit reads as a dimmed step.
   useEffect(() => {
     const strip = stripRef.current;
     if (!strip) return;
@@ -69,9 +55,6 @@ export function AskSteps({
   const activeIndex = lastRunningIndex(steps);
   const active = steps[activeIndex] ?? steps[steps.length - 1];
   const failed = steps.some((s) => s.status === "error");
-  // Past tense is a claim that the work is over. Between two tools the agent is
-  // writing the reply, which is neither the last step continuing nor the run
-  // being done — saying "Searched" there is what read as a glitch.
   const label = failed
     ? "Hit an error"
     : active.status === "running" || active.status === "blocked"
@@ -145,7 +128,6 @@ function StepIcon({ step }: { step: AgentStep }) {
   return <Icon size={15} stroke={1.75} aria-hidden />;
 }
 
-/** The step in flight, or the last one when the run is over. */
 function lastRunningIndex(steps: AgentStep[]): number {
   for (let i = steps.length - 1; i >= 0; i -= 1) {
     if (steps[i].status === "running" || steps[i].status === "blocked")

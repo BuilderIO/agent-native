@@ -1,7 +1,7 @@
-import { type AgentPageScope } from "@agent-native/core/client/agent-chat";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { useOrg } from "@agent-native/core/client/org";
 import { useUploadResource } from "@agent-native/core/client/uploads";
+import type { AgentPageScope } from "@agent-native/toolkit/app/agent-page";
+import { useOrg } from "@agent-native/toolkit/app/org";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,7 +55,6 @@ import {
   IconRefresh,
   IconSearch,
   IconSlideshow,
-  IconSparkles,
   IconUpload,
   IconWorld,
 } from "@tabler/icons-react";
@@ -109,6 +108,7 @@ import {
   type CreativeContextRootRecommendation,
   type CreativeContextRecommendationProvider,
 } from "./actions.js";
+import { AgentMark } from "./AgentMark";
 import {
   useCreativeContextState,
   type CreativeContextMode,
@@ -182,6 +182,11 @@ export interface CreativeContextPanelProps {
   canManageOrg?: boolean;
   scopeControl?: ReactNode;
   connectionsHref?: string;
+  /**
+   * `"settings"` drops the page title, description, and page padding for a
+   * host that already renders them, such as the redesigned Settings page.
+   */
+  variant?: "page" | "settings";
 }
 
 function isVisibleInScope(
@@ -418,7 +423,9 @@ function SourceRow({
   onDelete: (source: ContextSourceSummary) => void;
 }) {
   const t = useT();
-  const { formatDate, formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatDate = formatters.formatDate.bind(formatters);
+  const formatNumber = formatters.formatNumber.bind(formatters);
   return (
     <div className="flex items-start gap-3 border-t border-border/60 py-3 first:border-t-0">
       <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
@@ -554,7 +561,8 @@ function PackRow({
   onDetails: (packId: string) => void;
 }) {
   const t = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
   return (
     <div className="flex items-center gap-3 border-t border-border/60 py-3 first:border-t-0">
       <div className="min-w-0 flex-1">
@@ -1198,9 +1206,11 @@ export function CreativeContextPanel({
   canManageOrg = false,
   scopeControl,
   connectionsHref = "/settings/integrations",
+  variant = "page",
 }: CreativeContextPanelProps) {
   const t = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const { data: org } = useOrg();
   const [libraryScope, setLibraryScope] = useState<AgentPageScope>(scope);
   const sourcesQuery = useCreativeContextSources({ limit: 100 });
@@ -1412,7 +1422,9 @@ export function CreativeContextPanel({
     brandProposal?.voiceDescriptors?.join(" · ") ?? brandProposal?.voiceLine;
   const canManageScope = libraryScope === "user" || canManageOrg;
   const canCreateContext =
-    canManageScope && contexts.some((context) => context.access.canAdmin);
+    contextsQuery.data?.canCreateContext === true &&
+    canManageScope &&
+    contexts.some((context) => context.access.canAdmin);
   const activeAppId = contextsQuery.data?.appId;
   const appDefaultContextId = contextsQuery.data?.appDefaultContextId ?? null;
   const canSetAppDefault = Boolean(
@@ -2042,29 +2054,43 @@ export function CreativeContextPanel({
   const unavailable =
     sourcesQuery.error || packsQuery.error || contextsQuery.error;
 
+  const headerControls = (
+    <div className="flex flex-wrap items-center gap-2">
+      {scopeControl ??
+        (org?.orgId ? (
+          <ScopeControl scope={libraryScope} onChange={setLibraryScope} />
+        ) : null)}
+      <CreativeContextChip
+        state={contextState.state}
+        packs={packs}
+        contexts={contexts}
+      />
+    </div>
+  );
+
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-7 p-6 lg:p-10">
-      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border/70 pb-5">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {t("creativeContext.title")}
-          </h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            {t("creativeContext.description")}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {scopeControl ??
-            (org?.orgId ? (
-              <ScopeControl scope={libraryScope} onChange={setLibraryScope} />
-            ) : null)}
-          <CreativeContextChip
-            state={contextState.state}
-            packs={packs}
-            contexts={contexts}
-          />
-        </div>
-      </header>
+    <div
+      className={
+        variant === "settings"
+          ? "flex w-full flex-col gap-7"
+          : "mx-auto flex w-full max-w-5xl flex-col gap-7 p-6 lg:p-10"
+      }
+    >
+      {variant === "settings" ? (
+        <div className="flex justify-end">{headerControls}</div>
+      ) : (
+        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border/70 pb-5">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              {t("creativeContext.title")}
+            </h1>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+              {t("creativeContext.description")}
+            </p>
+          </div>
+          {headerControls}
+        </header>
+      )}
 
       {loading ? (
         <div className="space-y-3" aria-label={t("creativeContext.loading")}>
@@ -2516,7 +2542,7 @@ export function CreativeContextPanel({
           (logoCandidates.length || proposedLayouts.length) ? (
             <section className="border-t border-border/70 pt-6">
               <div className="flex items-center gap-2">
-                <IconSparkles className="size-5 text-muted-foreground" />
+                <AgentMark className="size-5 text-muted-foreground" />
                 <h2 className="text-lg font-semibold">
                   {t("creativeContext.suggestions")}
                 </h2>
@@ -3109,7 +3135,7 @@ export function CreativeContextPanel({
                     {importJob.status === "completed" && brandProposal ? (
                       <div className="mt-4 rounded-md bg-muted/50 p-4">
                         <div className="flex items-start gap-3">
-                          <IconSparkles className="mt-0.5 size-5 text-muted-foreground" />
+                          <AgentMark className="mt-0.5 size-5 text-muted-foreground" />
                           <div className="min-w-0 flex-1">
                             <h4 className="text-sm font-semibold">
                               {t("creativeContext.brandDnaTitle")}
@@ -3185,7 +3211,7 @@ export function CreativeContextPanel({
                                 disabled={publishBrandDna.isPending}
                                 onClick={() => void publishProposal()}
                               >
-                                <IconSparkles />
+                                <AgentMark />
                                 {publishBrandDna.isPending
                                   ? t("creativeContext.applyingBrandContext")
                                   : t("creativeContext.applyBrandContext")}

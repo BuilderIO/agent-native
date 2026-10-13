@@ -1,12 +1,14 @@
-/**
- * Shared types between client and server
- */
+import type { RevealUnresolvedReason } from "../app/lib/slide-animation-elements";
+import {
+  normalizeSlideTransition,
+  SLIDE_TRANSITION_INPUTS,
+  SLIDE_TRANSITION_SPEED,
+  type SlideTransitionType,
+} from "./slide-transitions";
 
 export interface DemoResponse {
   message: string;
 }
-
-// --- Default Style References ---
 
 export const DEFAULT_STYLE_REFERENCE_URLS: string[] = [];
 
@@ -23,16 +25,14 @@ export function normalizeReferenceUrls(
   return normalized;
 }
 
-// --- Image Generation ---
-
 export type ImageGenModel = "gemini" | "openai" | "auto";
 
 export interface ImageGenRequest {
   prompt: string;
   model: ImageGenModel;
   size?: string;
-  referenceImageUrls?: string[]; // URLs of reference images
-  uploadedReferenceImages?: string[]; // base64 data URLs
+  referenceImageUrls?: string[];
+  uploadedReferenceImages?: string[];
 }
 
 export interface ImageGenStatusResponse {
@@ -40,8 +40,6 @@ export interface ImageGenStatusResponse {
   openai: boolean;
   preferredProvider: string | null;
 }
-
-// --- AI Slide Generation ---
 
 export interface SlideGenerateRequest {
   topic: string;
@@ -57,14 +55,12 @@ export interface GeneratedSlide {
   layout: "title" | "content" | "two-column" | "image" | "blank";
   notes: string;
   background?: string;
-  imagePrompt?: string; // prompt to generate an image for this slide
+  imagePrompt?: string;
 }
 
 export interface SlideGenerateResponse {
   slides: GeneratedSlide[];
 }
-
-// --- Share Links ---
 
 export interface ShareDeckRequest {
   deck: {
@@ -82,16 +78,8 @@ export interface SharedDeckResponse {
   title: string;
   slides: SharedDeckSlide[];
   aspectRatio?: import("./aspect-ratios").AspectRatio;
-  /** Resolved at share creation so public links keep the deck's styling. */
   designSystem?: DesignSystemData;
 }
-
-export type SharedSlideTransition =
-  | "instant"
-  | "none"
-  | "fade"
-  | "slide"
-  | "zoom";
 
 export type SharedAnimationType = "appear" | "fade" | "slide-up" | "zoom";
 
@@ -99,7 +87,8 @@ export type SharedAnimationIssueCode =
   | "invalid-shape"
   | "invalid-element-path"
   | "missing-target"
-  | "unsupported-type";
+  | "unsupported-type"
+  | RevealUnresolvedReason;
 
 export interface SharedSlideAnimationIssue {
   index: number;
@@ -111,6 +100,7 @@ export interface SharedSlideAnimation {
   id: string;
   elementIndex: number;
   elementPath?: number[];
+  byParagraph?: boolean;
   type: SharedAnimationType;
 }
 
@@ -120,24 +110,22 @@ export interface SharedDeckSlide {
   notes: string;
   layout: string;
   background?: string;
-  transition?: SharedSlideTransition;
+  transition?: SlideTransitionType;
+  transitionSpeed?: number;
   animations?: SharedSlideAnimation[];
   animationIssues?: SharedSlideAnimationIssue[];
   splitByParagraph?: boolean;
 }
 
 export interface SharedDeckSlideOptions {
-  /** Include presenter-only notes for an authenticated internal read. */
   includeNotes?: boolean;
+  /**
+   * Reveal resolution issues for this slide, computed on the server by
+   * slideRevealIssues. Resolving needs the parsed .fmd-slide, which this
+   * module does not parse, so the caller passes the result in.
+   */
+  revealIssues?: SharedSlideAnimationIssue[];
 }
-
-const SHARED_SLIDE_TRANSITIONS = new Set<SharedSlideTransition>([
-  "instant",
-  "none",
-  "fade",
-  "slide",
-  "zoom",
-]);
 
 const SHARED_ANIMATION_TYPES = new Set<SharedAnimationType>([
   "appear",
@@ -195,15 +183,9 @@ function normalizeSlideAnimation(
     return issue("unsupported-type");
   }
   const type = rawType as SharedAnimationType;
+  const byParagraph =
+    typeof value.byParagraph === "boolean" ? value.byParagraph : undefined;
 
-  // When an explicit `elementIndex` is present, trust it. Otherwise derive
-  // from the last segment of `elementPath` - keeps the index correlated
-  // with the path's actual leaf so consumers that fall back to
-  // `elementIndex` target the right element instead of silently defaulting
-  // to slide-element 0 (which created an ambiguity between 'animation
-  // explicitly targets element 0' and 'animation only had elementPath').
-  // At least one of the two must be present (guarded above by the
-  // `!hasElementIndex && !elementPath` early return).
   const resolvedElementIndex = hasElementIndex
     ? rawElementIndex
     : (elementPath![elementPath!.length - 1] ?? 0);
@@ -213,9 +195,36 @@ function normalizeSlideAnimation(
       id: normalizeString(value.id, `animation-${index + 1}`),
       elementIndex: resolvedElementIndex,
       ...(elementPath ? { elementPath } : {}),
+      ...(byParagraph !== undefined ? { byParagraph } : {}),
       type,
     },
   };
+}
+
+export interface NormalizedSharedSlideAnimations {
+  animations: SharedSlideAnimation[];
+  /** The stored position of each kept animation, parallel to `animations`. */
+  storedIndices: number[];
+  /** Structural rejects only; reveal resolution is a separate pass. */
+  issues: SharedSlideAnimationIssue[];
+}
+
+export function normalizeSharedSlideAnimations(
+  values: readonly unknown[],
+): NormalizedSharedSlideAnimations {
+  const animations: SharedSlideAnimation[] = [];
+  const storedIndices: number[] = [];
+  const issues: SharedSlideAnimationIssue[] = [];
+  values.forEach((value, storedIndex) => {
+    const result = normalizeSlideAnimation(value, storedIndex);
+    if ("animation" in result) {
+      animations.push(result.animation);
+      storedIndices.push(storedIndex);
+    } else {
+      issues.push(result.issue);
+    }
+  });
+  return { animations, storedIndices, issues };
 }
 
 export function toSharedDeckSlide(
@@ -235,8 +244,22 @@ export function toSharedDeckSlide(
     shared.background = slide.background;
   }
 
-  if (SHARED_SLIDE_TRANSITIONS.has(slide.transition as SharedSlideTransition)) {
-    shared.transition = slide.transition as SharedSlideTransition;
+  // Membership gates the value before normalizing. A key lookup in the legacy
+  // map alone would also accept inherited names such as "toString".
+  if (
+    (SLIDE_TRANSITION_INPUTS as readonly unknown[]).includes(slide.transition)
+  ) {
+    shared.transition = normalizeSlideTransition(slide.transition);
+  }
+
+  const transitionSpeed = slide.transitionSpeed;
+  if (
+    typeof transitionSpeed === "number" &&
+    Number.isInteger(transitionSpeed) &&
+    transitionSpeed >= SLIDE_TRANSITION_SPEED.min &&
+    transitionSpeed <= SLIDE_TRANSITION_SPEED.max
+  ) {
+    shared.transitionSpeed = transitionSpeed;
   }
 
   if (typeof slide.splitByParagraph === "boolean") {
@@ -244,28 +267,22 @@ export function toSharedDeckSlide(
   }
 
   if (Array.isArray(slide.animations)) {
-    const normalizedAnimations = slide.animations.map(
-      (animation, animationIndex) =>
-        normalizeSlideAnimation(animation, animationIndex),
+    const { animations, issues } = normalizeSharedSlideAnimations(
+      slide.animations,
     );
-    const animations = normalizedAnimations.flatMap((result) =>
-      "animation" in result ? [result.animation] : [],
-    );
-    const animationIssues = normalizedAnimations.flatMap((result) =>
-      "issue" in result ? [result.issue] : [],
-    );
-    if (animations.length > 0) {
-      shared.animations = animations;
-    }
+    if (animations.length > 0) shared.animations = animations;
+    // Unresolved reveals stay in `animations`; their reasons arrive as
+    // options.revealIssues, keyed by stored position.
+    const animationIssues = [...issues, ...(options.revealIssues ?? [])];
     if (animationIssues.length > 0) {
-      shared.animationIssues = animationIssues;
+      shared.animationIssues = animationIssues.sort(
+        (a, b) => a.index - b.index,
+      );
     }
   }
 
   return shared;
 }
-
-// --- Deck Version History ---
 
 export interface DeckVersionSlidePreview {
   slideNumber: number;
@@ -302,8 +319,6 @@ export interface DeckVersion extends DeckVersionSummary {
     background?: string;
   }>;
 }
-
-// --- Design Systems ---
 
 export interface DesignSystemData {
   colors: {
@@ -344,8 +359,6 @@ export interface DesignSystemAsset {
   url: string;
   mimeType: string;
 }
-
-// --- Question Flow ---
 
 export interface QuestionFlowQuestion {
   id: string;

@@ -9,9 +9,13 @@ import {
 import { cn } from "@/lib/utils";
 
 export type RsvpStatus = "accepted" | "declined" | "tentative" | "needsAction";
+export type TimeProposal = {
+  attendee: NonNullable<CalendarEvent["attendees"]>[number];
+  comment: string;
+};
 
 const TIME_PROPOSAL_COMMENT_RE =
-  /\b(propos(?:e|ed|ing)|new time|different time|another time|reschedul|move (?:it|this)|can we (?:do|move)|could we (?:do|move))\b/i;
+  /\b(proposal|propos(?:e|ed|ing)|new time|different time|another time|reschedul|move (?:it|this)|can we (?:do|move)|could we (?:do|move))\b/i;
 
 export function getRsvpStatusLabel(status?: string) {
   switch (status) {
@@ -72,28 +76,24 @@ export function RsvpStatusIcon({
   );
 }
 
-export function hasTimeProposal(event: CalendarEvent): boolean {
+export function getTimeProposals(
+  event: Pick<CalendarEvent, "attendees">,
+): TimeProposal[] {
   const attendees = event.attendees ?? [];
-  const otherAttendees = attendees.filter((attendee) => !attendee.self);
-
-  if (
-    otherAttendees.some((attendee) => {
+  return attendees
+    .filter((attendee) => !attendee.self)
+    .flatMap((attendee) => {
       const comment = attendee.comment?.trim();
-      return !!comment && TIME_PROPOSAL_COMMENT_RE.test(comment);
-    })
-  ) {
-    return true;
-  }
+      return comment && TIME_PROPOSAL_COMMENT_RE.test(comment)
+        ? [{ attendee, comment }]
+        : [];
+    });
+}
 
-  const userIsOrganizer = Boolean(
-    event.organizer?.self ||
-    attendees.some((attendee) => attendee.self && attendee.organizer),
-  );
-
-  return (
-    userIsOrganizer &&
-    otherAttendees.some((attendee) => attendee.responseStatus === "tentative")
-  );
+export function hasTimeProposal(
+  event: Pick<CalendarEvent, "attendees">,
+): boolean {
+  return getTimeProposals(event).length > 0;
 }
 
 export function EventStatusIcon({

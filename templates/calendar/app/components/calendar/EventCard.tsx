@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent } from "@shared/api";
+import { isCalendarEventOrganizer } from "@shared/event-permissions";
 import { timezoneFormatter } from "@shared/timezone";
 import { IconAlertTriangleFilled, IconCalendarOff } from "@tabler/icons-react";
 
@@ -23,7 +24,7 @@ interface EventCardProps {
   onClick?: () => void;
   compact?: boolean;
   draggable?: boolean;
-  onDragStart?: (id: string) => void;
+  onDragStart?: (event: CalendarEvent) => void;
   onDragEnd?: () => void;
   dimmed?: boolean;
   colorPreferences?: CalendarColorPreferences;
@@ -53,10 +54,11 @@ export function EventCard({
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("text/plain", event.id);
     e.dataTransfer.effectAllowed = "move";
-    onDragStart?.(event.id);
+    onDragStart?.(event);
   };
 
-  const canDrag = draggable && !event.overlayEmail;
+  const canDrag =
+    draggable && !event.overlayEmail && isCalendarEventOrganizer(event);
 
   if (compact) {
     return (

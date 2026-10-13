@@ -39,5 +39,7 @@ export function registerWorkspaceConnectionLifecycleListener(
 export async function notifyWorkspaceConnectionLifecycle(
   event: WorkspaceConnectionLifecycleEvent,
 ): Promise<void> {
-  await Promise.all([...listeners()].map((listener) => listener(event)));
+  await Promise.all(
+    [...listeners()].map((listener) => Promise.resolve(listener(event))),
+  );
 }

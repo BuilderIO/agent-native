@@ -14,8 +14,10 @@ import { readAppSecret } from "../secrets/storage.js";
 import { getSession } from "./auth.js";
 import {
   gatewayLaneUnavailableMessage,
-  resolveBuilderGatewayCredentials,
+  readDeployCredentialEnv,
+  resolveBuilderGatewayAuth,
 } from "./credential-provider.js";
+import { orderCredentialScopes } from "./credential-read-order.js";
 import { runWithRequestContext } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
 
@@ -48,7 +50,10 @@ export async function resolveGoogleRealtimeCredentials(opts: {
     }
   }
 
-  for (const ref of secretRefs) {
+  const ordered = opts.userEmail
+    ? await orderCredentialScopes(secretRefs, opts.orgId, opts.userEmail)
+    : secretRefs;
+  for (const ref of ordered) {
     const secret = await readAppSecret({
       key: "GOOGLE_APPLICATION_CREDENTIALS",
       scope: ref.scope,
@@ -67,7 +72,9 @@ export async function resolveGoogleRealtimeCredentials(opts: {
   const fromSettings = stored?.trim();
   if (fromSettings) return fromSettings;
 
-  const envValue = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
+  const envValue = readDeployCredentialEnv(
+    "GOOGLE_APPLICATION_CREDENTIALS",
+  )?.trim();
   if (!envValue) return null;
   if (envValue.startsWith("{")) return envValue;
 
@@ -119,8 +126,8 @@ export function createGoogleRealtimeSessionHandler() {
         };
       }
 
-      const builderCreds = await resolveBuilderGatewayCredentials();
-      if (!builderCreds.privateKey || !builderCreds.publicKey) {
+      const builderAuth = await resolveBuilderGatewayAuth();
+      if (!builderAuth) {
         setResponseStatus(event, 400);
         return {
           error: gatewayLaneUnavailableMessage(
@@ -139,10 +146,12 @@ export function createGoogleRealtimeSessionHandler() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${builderCreds.privateKey}`,
-            "x-builder-api-key": builderCreds.publicKey,
-            ...(builderCreds.userId
-              ? { "x-builder-user-id": builderCreds.userId }
+            Authorization: builderAuth.authorization,
+            ...(builderAuth.spaceId
+              ? { "x-builder-api-key": builderAuth.spaceId }
+              : {}),
+            ...(builderAuth.userId
+              ? { "x-builder-user-id": builderAuth.userId }
               : {}),
           },
           body: JSON.stringify({

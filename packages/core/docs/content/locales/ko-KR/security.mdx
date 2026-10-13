@@ -78,6 +78,8 @@ description: "에이전트 네이티브 앱의 보안 모델: 입력 유효성 �
 | 비밀 노출   | `.env`가 무시되었습니다. 유휴 상태에서 암호화된 자격 증명 및 저장소(AES-256-GCM) |
 | SSRF        | `ssrfSafeFetch`는 내부/메타데이터 대상을 차단하고 리디렉션 리바인딩              |
 
+프레임워크는 세션에서 요청 컨텍스트를 만들고 앱 읽기 및 쓰기에 `accessFilter()`와 `assertAccess()`로 소유권을 적용합니다. 에이전트 SQL에는 활성 ID와 조직으로 필터링된 임시 뷰가 제공됩니다. RLS는 아직 활성화되지 않았으므로 앱의 직접 쿼리에서도 이 도우미를 계속 사용해야 합니다.
+
 ## 입력 검증 {#input-validation}
 
 모든 작업에 `defineAction`와 Zod `schema:`를 사용하세요. 프레임워크는 코드가 실행되기 전에 자동으로 입력의 유효성을 검사합니다.
@@ -234,13 +236,13 @@ export const notes = table("notes", {
 
 ```sql
 CREATE TEMPORARY VIEW "notes" AS
-  SELECT * FROM main."notes"
+  SELECT * FROM public."notes"
   WHERE "owner_email" = 'alice@example.com';
 ```
 
 INSERT 문은 열이 아직 없을 때 `owner_email`를 자동으로 삽입합니다.
 
-`db-query` / `db-exec` 도구는 스키마 한정 테이블 참조(`public.<table>`, `main.<table>`)를 거부합니다. 정규화된 이름은 기본 테이블로 확인되고 위의 임시 뷰를 우회합니다. 에이전트는 기본 테이블 이름을 사용합니다. 범위 지정은 자동으로 적용됩니다.
+`db-query`, `db-exec`, `db-patch` 도구는 SQL 토큰 경계를 검사하고, 트랜잭션 안에서 각 릴레이션 이름이 위의 임시 뷰 중 하나로 확인되는지 검증합니다. 스키마 또는 데이터베이스로 한정된 이름(`public.<table>`), 뷰가 다루지 않는 릴레이션, `pg_catalog` 밖의 함수나 연산자와 일치하는 이름(확장 기능 포함), SQL 텍스트를 실행하거나 서버, 세션, 시퀀스 상태에 접근하는 일부 내장 함수는 거부합니다. PostgreSQL 이스케이프 문자열의 이어쓰기 구문은 지원하지 않으며 거부합니다. `db-query`는 읽기 전용으로 실행됩니다. 에이전트는 한정자 없는 테이블 이름을 사용합니다. 범위 지정은 자동으로 적용됩니다. 이 검사는 직접적인 SQL 읽기와 쓰기의 범위를 제한하고 승인되지 않은 명시적 루틴 호출과 타입 변환을 거부합니다. 검토된 스키마 기본값, 제약 조건, 트리거, 캐스트, 타입 입출력은 여전히 신뢰할 수 있는 데이터베이스 동작으로 취급됩니다. 앱은 `@agent-native/core/agent-sql`을 통해 이러한 검사를 재사용할 수 있습니다. `readAgentSqlQuery()`는 지원되는 `SELECT`/`WITH` 쿼리에서 테이블 소스와 정확한 텍스트 범위를 식별하고, `rewriteAgentSqlQuerySources()`는 해당 범위를 교체합니다. 호출 측에서 허용된 소스를 제한하고 읽기 전용 실행을 보장해야 합니다.
 
 ### 조직별 범위 지정(`org_id`)
 
@@ -350,9 +352,11 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 
 ## 인바운드 Webhooks {#webhooks}
 
-인바운드 웹훅 핸들러(Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom, Google Docs Pub/Sub)는 프로덕션에서 기본적으로 위조된 요청을 거부합니다. 해당 서명 비밀 env var가 누락되면 핸들러는 수락 및 전달 대신 401을 반환합니다.
+인바운드 웹훅 핸들러(Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom)는 프로덕션에서 기본적으로 위조된 요청을 거부합니다. 해당 서명 비밀 env var가 누락되면 핸들러는 수락 및 전달 대신 401을 반환합니다.
 
 이것은 이전에는 "경고 및 수락" 입장이었습니다. 그렇지 않으면 놓칠 수 있는 비밀을 설정하거나 로컬 개발자 전용 `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1`를 사용하여 이전 동작을 다시 선택하세요. 통합별 서명 비밀 변수는 [Messaging](/docs/messaging#env-vars)를 참조하세요.
+
+Google Drive `changes.watch` 알림은 이 일반 어댑터 게이트를 통과하지 않습니다. 본문이 없는 불투명한 요청이므로 프레임워크는 채널별로 임의 토큰을 등록하고 변경사항을 가져오기 전에 `X-Goog-Channel-ID`, `X-Goog-Channel-Token`, `X-Goog-Resource-ID` 헤더를 확인합니다. 이는 Pub/Sub 메시지가 아닌 Drive의 직접 알림이며 Pub/Sub OIDC bearer 토큰을 포함하지 않습니다.
 
 ## 제작 체크리스트 {#production-checklist}
 
@@ -386,7 +390,7 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 - [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK`는 조직이 실제로 작업 공간 키를 공유하지 않는 한 **설정되지 않습니다** — [Cross-User Tooling Secrets](#tooling-secrets) 참조
 - [ ] 다중 테넌트 배포에서 **사용자는 자신의 `ANTHROPIC_API_KEY`를 가져옵니다** — 프레임워크는 배포 수준 env var로 폴백하는 것을 거부합니다.
 
-`agent-native doctor`(스캐폴딩된 앱에서는 `pnpm doctor`)를 실행하면 이 체크리스트의 스키마, 자격 증명, 환경 변수 항목을 자동으로 확인할 수 있습니다 — 각 결과는 guard, 파일, 줄을 알려줍니다. 자세한 내용은 [Doctor](/docs/doctor) 문서를 참조하세요.
+`agent-native doctor`(스캐폴딩된 앱에서는 `pnpm agent-native:doctor`)를 실행하면 이 체크리스트의 스키마, 자격 증명, 환경 변수 항목을 자동으로 확인할 수 있습니다 — 각 결과는 guard, 파일, 줄을 알려줍니다. 자세한 내용은 [Doctor](/docs/doctor) 문서를 참조하세요.
 
 ---
 

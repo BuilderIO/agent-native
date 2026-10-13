@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -7,7 +8,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { designDataForAccessRole } from "../server/lib/design-data-access.js";
 import { injectHiddenLayerExportStyle } from "../server/lib/design-export.js";
 import { isBoardFile } from "../shared/board-file.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -18,19 +19,31 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
-  run: async ({ id }) => {
+  run: async ({ id }, ctx) => {
     const access = await resolveAccess("design", id);
     if (!access) throw new Error(`Design not found: ${id}`);
 
     const row = access.resource;
     const db = getDb();
 
-    // Fetch all design files
     const files = await db
       .select()
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id));
     const exportFiles = files.filter((file) => !isBoardFile(file.filename));
+
+    track(
+      "design_exported",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: id,
+        output_type: "design",
+        export_format: "pdf",
+        file_count: exportFiles.length,
+      },
+      ctx,
+    );
 
     return {
       id: row.id,
@@ -42,9 +55,6 @@ export default defineAction({
         id: f.id,
         filename: f.filename,
         fileType: f.fileType,
-        // Layers toggled hidden in the editor are only suppressed by the live
-        // editor bridge; inject the same display:none rule so the client-side
-        // PDF render (html2canvas over this HTML) doesn't reveal them.
         content:
           f.fileType === "html" && f.content
             ? injectHiddenLayerExportStyle(f.content)

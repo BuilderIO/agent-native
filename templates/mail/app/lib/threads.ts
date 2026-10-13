@@ -1,21 +1,28 @@
 import type { EmailMessage } from "@shared/types";
 
-export interface ThreadSummary {
-  /** The latest message in the thread (used for display and navigation) */
-  latestMessage: EmailMessage;
-  /** All unique participant names (senders), excluding the user */
-  participants: string[];
-  /** Total number of messages in the thread */
+type PreAggregatedThread = EmailMessage & {
   messageCount: number;
-  /** Whether any message in the thread is unread */
+  unreadCount: number;
+};
+
+function isPreAggregatedThread(
+  email: EmailMessage,
+): email is PreAggregatedThread {
+  return (
+    typeof (email as Partial<PreAggregatedThread>).messageCount === "number" &&
+    typeof (email as Partial<PreAggregatedThread>).unreadCount === "number"
+  );
+}
+
+export interface ThreadSummary {
+  latestMessage: EmailMessage;
+  participants: string[];
+  messageCount: number;
   hasUnread: boolean;
-  /** Whether any message in the thread is starred */
   hasStarred: boolean;
-  /** Union of all label IDs across thread messages */
   labelIds: string[];
 }
 
-/** Group flat email list into threads by threadId, sorted by latest message date */
 export function groupIntoThreads(emails: EmailMessage[]): ThreadSummary[] {
   const threadMap = new Map<string, EmailMessage[]>();
 
@@ -32,14 +39,12 @@ export function groupIntoThreads(emails: EmailMessage[]): ThreadSummary[] {
   const threads: ThreadSummary[] = [];
 
   for (const messages of threadMap.values()) {
-    // Sort messages by date ascending (oldest first) for participant ordering
     messages.sort(
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
     );
 
     const latestMessage = messages[messages.length - 1];
 
-    // Collect unique participant names in order of appearance
     const seen = new Set<string>();
     const participants: string[] = [];
     for (const msg of messages) {
@@ -50,27 +55,33 @@ export function groupIntoThreads(emails: EmailMessage[]): ThreadSummary[] {
       }
     }
 
-    // Merge labels across all messages
     const labelSet = new Set<string>();
     for (const msg of messages) {
       for (const l of msg.labelIds) labelSet.add(l);
     }
 
+    const aggregate =
+      messages.length === 1 && isPreAggregatedThread(messages[0])
+        ? messages[0]
+        : undefined;
+
     threads.push({
       latestMessage,
       participants,
-      messageCount: messages.length,
-      hasUnread: messages.some((m) => !m.isRead),
+      messageCount: aggregate?.messageCount ?? messages.length,
+      hasUnread: aggregate
+        ? aggregate.unreadCount > 0
+        : messages.some((m) => !m.isRead),
       hasStarred: messages.some((m) => m.isStarred),
       labelIds: Array.from(labelSet),
     });
   }
 
-  // Sort threads by latest message date descending
   threads.sort(
     (a, b) =>
       new Date(b.latestMessage.date).getTime() -
-      new Date(a.latestMessage.date).getTime(),
+        new Date(a.latestMessage.date).getTime() ||
+      b.latestMessage.id.localeCompare(a.latestMessage.id),
   );
 
   return threads;

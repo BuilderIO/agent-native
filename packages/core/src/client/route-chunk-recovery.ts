@@ -1,10 +1,33 @@
+import {
+  CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
+  CHUNK_RECOVERY_ORIGINAL_HASH_PARAM,
+  CHUNK_RECOVERY_PATH_SUFFIX,
+  CHUNK_RECOVERY_QUERY_PARAM,
+  CHUNK_RECOVERY_QUERY_VALUE,
+  ROUTE_WARMUP_PRELOAD_ATTRIBUTE,
+  STALE_CHUNK_RELOAD_AT_KEY,
+  STALE_CHUNK_RELOAD_COOLDOWN_MS,
+} from "../shared/route-chunk-recovery-bootstrap.js";
+
 const INSTALL_KEY = "__agentNativeRouteChunkRecoveryInstalled";
 const INTENDED_NAV_MAX_AGE_MS = 15_000;
-// Last-resort reload bookkeeping. Persisted in sessionStorage so the cooldown
-// survives the reload it triggers (the in-memory closure is destroyed), with a
-// window-scoped fallback for environments where sessionStorage throws.
-const STALE_CHUNK_RELOAD_AT_KEY = "__agentNativeStaleChunkReloadAt";
-const STALE_CHUNK_RELOAD_COOLDOWN_MS = 10_000;
+const STALE_CHUNK_EXHAUSTED_KEY = "__agentNativeStaleChunkRecoveryExhausted";
+const recoveryStates = new WeakMap<Window, RouteChunkRecoveryState>();
+
+/**
+ * Fired on `window` the first time a stale chunk could not be recovered by a
+ * reload. The shared noise rules drop the raw dynamic-import failure because
+ * recovery handles it; this is the one signal that it did not, so a deploy whose
+ * chunks are gone for everyone stays visible.
+ */
+export const STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT =
+  "agent-native:stale-chunk-recovery-exhausted";
+
+export type StaleChunkRecoveryExhaustedReason = "cooldown" | "desktop";
+
+export interface StaleChunkRecoveryExhausted {
+  reason: StaleChunkRecoveryExhaustedReason;
+}
 
 export interface RouteChunkRecoveryState {
   intendedHref: string | null;
@@ -49,6 +72,17 @@ export function rememberIntendedNavigation(
 ): void {
   state.intendedHref = href;
   state.intendedAt = now;
+}
+
+/** Preserve router-driven targets whose route module fails before history commits. */
+export function rememberRouteChunkRecoveryNavigation(
+  href: string,
+  win: Window | undefined = typeof window === "undefined" ? undefined : window,
+): void {
+  if (!win) return;
+  const state = recoveryStates.get(win);
+  const sameOrigin = sameOriginHref(win, href);
+  if (state && sameOrigin) rememberIntendedNavigation(state, sameOrigin);
 }
 
 export function getFreshIntendedNavigation(
@@ -113,69 +147,242 @@ function hardNavigate(win: Window, href: string): void {
   }
 }
 
+function withChunkRecoveryCacheBuster(
+  win: Window,
+  href: string,
+  now = Date.now(),
+): string {
+  const url = new URL(href, win.location.href);
+  if (
+    !url.pathname.endsWith(CHUNK_RECOVERY_PATH_SUFFIX) &&
+    !url.pathname.endsWith(`${CHUNK_RECOVERY_PATH_SUFFIX}/`)
+  ) {
+    const trailingSlash = url.pathname.endsWith("/") ? "/" : "";
+    const routePath = trailingSlash
+      ? url.pathname.slice(0, -trailingSlash.length)
+      : url.pathname;
+    url.pathname =
+      (routePath === "/" ? "" : routePath) +
+      CHUNK_RECOVERY_PATH_SUFFIX +
+      trailingSlash;
+  }
+  const originalHash = url.hash;
+  const recoveryHash = new URLSearchParams();
+  recoveryHash.set(CHUNK_RECOVERY_CACHE_BUSTER_PARAM, now.toString(36));
+  recoveryHash.set(CHUNK_RECOVERY_ORIGINAL_HASH_PARAM, originalHash);
+  url.searchParams.delete(CHUNK_RECOVERY_QUERY_PARAM);
+  url.searchParams.delete(CHUNK_RECOVERY_CACHE_BUSTER_PARAM);
+  url.hash = recoveryHash.toString();
+  return url.href;
+}
+
+function readRecoveryAttemptAt(win: Window): number {
+  const url = new URL(win.location.href);
+  const recoveryHash = new URLSearchParams(url.hash.slice(1));
+  const hashTimestamp = recoveryHash.get(CHUNK_RECOVERY_CACHE_BUSTER_PARAM);
+  const isLegacyRecovery =
+    url.searchParams.get(CHUNK_RECOVERY_QUERY_PARAM) ===
+    CHUNK_RECOVERY_QUERY_VALUE;
+  if (
+    !url.pathname.endsWith(CHUNK_RECOVERY_PATH_SUFFIX) &&
+    !url.pathname.endsWith(`${CHUNK_RECOVERY_PATH_SUFFIX}/`) &&
+    hashTimestamp === null &&
+    !isLegacyRecovery
+  ) {
+    return 0;
+  }
+  const timestamp =
+    hashTimestamp ??
+    url.searchParams.get(CHUNK_RECOVERY_CACHE_BUSTER_PARAM)?.split("-", 1)[0] ??
+    "";
+  if (!/^[0-9a-z]+$/i.test(timestamp)) return 0;
+  const parsed = Number.parseInt(timestamp, 36);
+  return Number.isSafeInteger(parsed) && parsed <= Date.now() ? parsed : 0;
+}
+
+function clearChunkRecoveryCacheBuster(win: Window): void {
+  const url = new URL(win.location.href);
+  const isRecoveryPath =
+    url.pathname.endsWith(CHUNK_RECOVERY_PATH_SUFFIX) ||
+    url.pathname.endsWith(`${CHUNK_RECOVERY_PATH_SUFFIX}/`);
+  const isLegacyRecovery =
+    url.searchParams.get(CHUNK_RECOVERY_QUERY_PARAM) ===
+    CHUNK_RECOVERY_QUERY_VALUE;
+  const recoveryHash = new URLSearchParams(url.hash.slice(1));
+  const hasRecoveryHash = recoveryHash.has(CHUNK_RECOVERY_CACHE_BUSTER_PARAM);
+  if (!isRecoveryPath && !isLegacyRecovery && !hasRecoveryHash) {
+    return;
+  }
+  const recoveryStartedAt = readRecoveryAttemptAt(win);
+  markStaleChunkReload(win, recoveryStartedAt || Date.now());
+  if (isRecoveryPath) {
+    const suffixWithTrailingSlash = `${CHUNK_RECOVERY_PATH_SUFFIX}/`;
+    if (url.pathname.endsWith(suffixWithTrailingSlash)) {
+      const path = url.pathname.slice(0, -suffixWithTrailingSlash.length);
+      url.pathname = path ? `${path}/` : "/";
+    } else {
+      const path = url.pathname.slice(0, -CHUNK_RECOVERY_PATH_SUFFIX.length);
+      url.pathname = path || "/";
+    }
+  }
+  url.searchParams.delete(CHUNK_RECOVERY_QUERY_PARAM);
+  url.searchParams.delete(CHUNK_RECOVERY_CACHE_BUSTER_PARAM);
+  const originalHash = recoveryHash.get(CHUNK_RECOVERY_ORIGINAL_HASH_PARAM);
+  if (hasRecoveryHash && originalHash !== null) url.hash = originalHash;
+  win.history.replaceState(
+    win.history.state,
+    "",
+    `${url.pathname}${url.search}${url.hash}`,
+  );
+}
+
+function isModuleAssetLoadFailure(event: Event): boolean {
+  const target = event.target as
+    | (EventTarget & {
+        hasAttribute?: (name: string) => boolean;
+        getAttribute?: (name: string) => string | null;
+        rel?: string;
+        tagName?: string;
+        type?: string;
+      })
+    | null;
+  const tagName = target?.tagName?.toUpperCase();
+  if (tagName === "LINK" && target) {
+    if (target.hasAttribute?.(ROUTE_WARMUP_PRELOAD_ATTRIBUTE)) return false;
+    return /(?:^|\s)modulepreload(?:\s|$)/i.test(
+      target.getAttribute?.("rel") ?? target.rel ?? "",
+    );
+  }
+  return tagName === "SCRIPT" && target?.type?.toLowerCase() === "module";
+}
+
 function isAgentNativeDesktop(win: Window): boolean {
   return /AgentNativeDesktop/i.test(win.navigator?.userAgent || "");
 }
 
+function hasViteDevRecovery(win: Window): boolean | undefined {
+  if (
+    (win as unknown as Record<string, unknown>)[
+      "__agentNativeViteDevRecoveryInstalled"
+    ] === true
+  ) {
+    return true;
+  }
+
+  try {
+    const hostname = win.location.hostname;
+    const isLocalDevOrigin =
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "[::1]" ||
+      hostname === "::1";
+    if (!isLocalDevOrigin) return false;
+
+    return true;
+  } catch (error) {
+    void error;
+    return undefined;
+  }
+}
+
+function isViteOptimizerFailureMessage(message: string): boolean {
+  return (
+    message.includes("Outdated Optimize Dep") ||
+    message.includes("Optimize Deps Processing Error") ||
+    message.includes("/node_modules/.vite/deps/") ||
+    message.includes("/@id/") ||
+    message.includes("/@fs/")
+  );
+}
+
 function readStaleChunkReloadAt(win: Window): number {
+  const mem = (win as unknown as Record<string, unknown>)[
+    STALE_CHUNK_RELOAD_AT_KEY
+  ];
+  const fallback = Math.max(
+    typeof mem === "number" && Number.isFinite(mem) ? mem : 0,
+    readRecoveryAttemptAt(win),
+  );
   try {
     const raw = (
       win as unknown as { sessionStorage?: Storage }
     ).sessionStorage?.getItem(STALE_CHUNK_RELOAD_AT_KEY);
     const parsed = raw == null ? NaN : Number(raw);
-    if (Number.isFinite(parsed)) return parsed;
-  } catch {}
-  const mem = (win as unknown as Record<string, unknown>)[
-    STALE_CHUNK_RELOAD_AT_KEY
-  ];
-  return typeof mem === "number" ? mem : 0;
+    if (Number.isFinite(parsed)) return Math.max(fallback, parsed);
+  } catch {
+    return fallback;
+  }
+  return fallback;
 }
 
-function markStaleChunkReload(win: Window, now: number): void {
-  (win as unknown as Record<string, unknown>)[STALE_CHUNK_RELOAD_AT_KEY] = now;
+function markStaleChunkReload(win: Window, now: number): true | "unavailable" {
+  const winState = win as unknown as Record<string, unknown>;
+  winState[STALE_CHUNK_RELOAD_AT_KEY] = now;
   try {
-    (win as unknown as { sessionStorage?: Storage }).sessionStorage?.setItem(
-      STALE_CHUNK_RELOAD_AT_KEY,
-      String(now),
-    );
-  } catch {}
+    const storage = (win as unknown as { sessionStorage?: Storage })
+      .sessionStorage;
+    if (!storage) return "unavailable";
+    storage.setItem(STALE_CHUNK_RELOAD_AT_KEY, String(now));
+    return true;
+  } catch {
+    return "unavailable";
+  }
 }
 
-/**
- * Last resort when a stale lazy chunk fails to load for the *current* route —
- * an old tab whose hashed chunk filenames no longer exist after a deploy — and
- * there is no fresh cross-route navigation to recover to. A single guarded
- * reload pulls a fresh index.html plus chunk manifest. A sessionStorage cooldown
- * prevents a reload loop when the chunk is genuinely unreachable (e.g. offline),
- * letting the error surface to Sentry as before in that case.
- *
- * Returns true when a reload was triggered.
- */
+/** The recorded exhaustion for this page session, if recovery ever gave up. */
+export function readStaleChunkRecoveryExhausted(
+  win: Window | undefined = typeof window === "undefined" ? undefined : window,
+): StaleChunkRecoveryExhausted | undefined {
+  if (!win) return undefined;
+  return (win as unknown as Record<string, unknown>)[
+    STALE_CHUNK_EXHAUSTED_KEY
+  ] as StaleChunkRecoveryExhausted | undefined;
+}
+
+// Recorded on the window as well as dispatched: the first failing chunk is
+// usually the route module at hydration, before error capture has installed.
+function reportStaleChunkRecoveryExhausted(
+  win: Window,
+  reason: StaleChunkRecoveryExhaustedReason,
+): void {
+  if (readStaleChunkRecoveryExhausted(win)) return;
+  const detail: StaleChunkRecoveryExhausted = { reason };
+  (win as unknown as Record<string, unknown>)[STALE_CHUNK_EXHAUSTED_KEY] =
+    detail;
+  if (typeof win.dispatchEvent !== "function") return;
+  if (typeof CustomEvent !== "function") return;
+  win.dispatchEvent(
+    new CustomEvent(STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT, { detail }),
+  );
+}
+
 export function reloadForStaleChunk(
   win: Window | undefined = typeof window === "undefined" ? undefined : window,
   now = Date.now(),
 ): boolean {
   if (!win?.location) return false;
-  // Desktop webviews intentionally stay open across deploys; a forced reload
-  // reads as a random tab refresh, matching recoverToIntendedNavigation().
-  if (isAgentNativeDesktop(win)) return false;
+  if (isAgentNativeDesktop(win)) {
+    reportStaleChunkRecoveryExhausted(win, "desktop");
+    return false;
+  }
   const lastReloadAt = readStaleChunkReloadAt(win);
   if (
     lastReloadAt > 0 &&
     now - lastReloadAt <= STALE_CHUNK_RELOAD_COOLDOWN_MS
   ) {
+    reportStaleChunkRecoveryExhausted(win, "cooldown");
     return false;
   }
   markStaleChunkReload(win, now);
-  hardNavigate(win, win.location.href);
+  hardNavigate(
+    win,
+    hasViteDevRecovery(win) === true
+      ? win.location.href
+      : withChunkRecoveryCacheBuster(win, win.location.href, now),
+  );
   return true;
 }
 
-/**
- * Recover when a caught error (e.g. a `React.lazy` rejection surfaced to an
- * error boundary) is a stale dynamic-import failure. No-op and returns false
- * for any other error so callers can fall through to their normal handling.
- */
 export function recoverFromStaleChunkError(
   error: unknown,
   win: Window | undefined = typeof window === "undefined" ? undefined : window,
@@ -191,6 +398,7 @@ function recoverToIntendedNavigation(
 ): boolean {
   const target = getFreshIntendedNavigation(state, win.location.href);
   const sameCurrentTarget =
+    isAgentNativeDesktop(win) &&
     !target &&
     state.intendedHref === win.location.href &&
     Date.now() - state.intendedAt <= INTENDED_NAV_MAX_AGE_MS
@@ -200,9 +408,6 @@ function recoverToIntendedNavigation(
   if (!recoveryTarget) return false;
   state.recovering = true;
   state.recoveryHref = recoveryTarget;
-  // Keep the desktop shell mounted, but replace only the route that failed to
-  // load. A current-page reload remains suppressed below when there is no
-  // intended cross-route destination to recover.
   if (isAgentNativeDesktop(win)) {
     hardNavigate(win, recoveryTarget);
     return true;
@@ -210,7 +415,12 @@ function recoverToIntendedNavigation(
   try {
     win.history.replaceState(win.history.state, "", recoveryTarget);
   } catch {}
-  hardNavigate(win, recoveryTarget);
+  hardNavigate(
+    win,
+    hasViteDevRecovery(win) === true
+      ? recoveryTarget
+      : withChunkRecoveryCacheBuster(win, recoveryTarget),
+  );
   return true;
 }
 
@@ -220,6 +430,12 @@ function recoverFromDynamicImportFailure(
   message: string,
 ): boolean {
   if (!isDynamicImportFailureMessage(message)) return false;
+  if (
+    hasViteDevRecovery(win) === true &&
+    isViteOptimizerFailureMessage(message)
+  ) {
+    return false;
+  }
   state.routeModuleFailureAt = Date.now();
   if (recoverToIntendedNavigation(win, state)) return true;
   return reloadForStaleChunk(win);
@@ -241,28 +457,22 @@ function patchHistoryMethod(
 }
 
 function patchReload(win: Window, state: RouteChunkRecoveryState): void {
-  const originalReload = win.location.reload.bind(win.location);
+  const originalReload = win.location.reload;
+  if (typeof originalReload !== "function") return;
+  const boundReload = originalReload.bind(win.location);
   const patchedReload = function patchedReload() {
-    if (
-      isAgentNativeDesktop(win) &&
-      Date.now() - state.routeModuleFailureAt <= 1_000
-    ) {
+    if (Date.now() - state.routeModuleFailureAt <= 1_000) {
+      if (state.recovering) return;
+      if (hasViteDevRecovery(win) !== true) {
+        if (recoverToIntendedNavigation(win, state)) {
+          return;
+        }
+      }
+      // reloadForStaleChunk reports a desktop window that cannot reload.
+      reloadForStaleChunk(win);
       return;
     }
-    if (
-      state.recoveryHref &&
-      Date.now() - state.routeModuleFailureAt <= 1_000
-    ) {
-      hardNavigate(win, state.recoveryHref);
-      return;
-    }
-    if (
-      Date.now() - state.routeModuleFailureAt <= 1_000 &&
-      recoverToIntendedNavigation(win, state)
-    ) {
-      return;
-    }
-    originalReload();
+    boundReload();
   };
 
   try {
@@ -296,13 +506,26 @@ export function installRouteChunkRecovery(
   if (installedTarget[INSTALL_KEY]) return;
   installedTarget[INSTALL_KEY] = true;
 
+  clearChunkRecoveryCacheBuster(win);
+
   const state = createRouteChunkRecoveryState();
+  recoveryStates.set(win, state);
 
   win.document.addEventListener(
     "click",
     (event) => {
       const href = intendedHrefFromClick(win, event);
       if (href) rememberIntendedNavigation(state, href);
+    },
+    true,
+  );
+
+  win.document.addEventListener(
+    "error",
+    (event) => {
+      if (isModuleAssetLoadFailure(event) && hasViteDevRecovery(win) !== true) {
+        reloadForStaleChunk(win);
+      }
     },
     true,
   );
@@ -329,14 +552,14 @@ export function installRouteChunkRecovery(
     }
   });
 
-  // React Router catches stale route-module import failures and reloads the
-  // current URL. Its console message is the only signal exposed before reload.
   const originalError = consoleRef.error.bind(consoleRef);
   try {
     consoleRef.error = (...args: unknown[]) => {
       if (args.some(isRouteModuleReloadMessage)) {
         state.routeModuleFailureAt = Date.now();
-        recoverToIntendedNavigation(win, state);
+        if (hasViteDevRecovery(win) !== true) {
+          recoverToIntendedNavigation(win, state);
+        }
       }
       originalError(...args);
     };

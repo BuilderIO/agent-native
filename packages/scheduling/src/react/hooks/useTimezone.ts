@@ -1,7 +1,3 @@
-/**
- * Timezone hook — resolves the viewer's IANA timezone with `localStorage`
- * persistence and a setter. Booker uses this to display slot times.
- */
 import { useCallback, useEffect, useState } from "react";
 
 const KEY = "scheduling.timezone";

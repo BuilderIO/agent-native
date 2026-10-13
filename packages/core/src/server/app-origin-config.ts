@@ -1,33 +1,91 @@
-import { getAppConfig } from "../app-config/index.js";
+import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
+import { safeJsonForHtml } from "../shared/agent-readable-resource.js";
+import { normalizeAppBasePath } from "./app-base-path.js";
 
-/**
- * Project this app's origins into the client shell.
- *
- * The browser needs these to build cross-frame and workspace-relative URLs.
- * Historically that was done by mirroring each key with a `VITE_` twin, because
- * Vite only inlines `VITE_`-prefixed variables into the bundle — so every
- * consumer ended up writing both spellings, and half of each chain was dead on
- * whichever side it happened to run.
- *
- * The mirror answered "how does this value reach the browser", never "what is
- * this value". This is that answer instead: one declared field on the server,
- * delivered through the same shell script Sentry and PostHog already use.
- *
- * Every value here is impersonal and identical for every visitor, which is what
- * makes it safe inside the CDN-cached SSR shell (`guard:ssr-cache-shell`).
- * Never add a per-user or per-request value to this object.
- */
+function workspaceAppMountConfigFromJson(
+  value: string | undefined,
+  workspaceAppId: string | undefined,
+): { paths?: string[]; currentPath?: string } | undefined {
+  if (!value?.trim()) return undefined;
+
+  try {
+    const parsed: unknown = JSON.parse(value);
+    const entries = Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === "object" && "apps" in parsed
+        ? (parsed as { apps?: unknown }).apps
+        : null;
+    if (!Array.isArray(entries)) return undefined;
+
+    const paths: string[] = [];
+    let currentPath: string | undefined;
+    const hasWorkspaceAppId =
+      typeof workspaceAppId === "string" && workspaceAppId.trim().length > 0;
+    for (const entry of entries) {
+      if (!entry || typeof entry !== "object") continue;
+      const record = entry as Record<string, unknown>;
+      const id = typeof record.id === "string" ? record.id : undefined;
+      const rawPath =
+        typeof record.path === "string"
+          ? record.path
+          : id
+            ? `/${id}`
+            : undefined;
+      const normalized = normalizeAppBasePath(rawPath);
+      if (normalized) paths.push(normalized);
+      if (
+        hasWorkspaceAppId &&
+        id === workspaceAppId &&
+        currentPath === undefined
+      ) {
+        currentPath = normalized || (rawPath?.trim() ? "/" : undefined);
+      }
+    }
+    const uniquePaths = Array.from(new Set(paths));
+    return uniquePaths.length || currentPath
+      ? {
+          ...(uniquePaths.length ? { paths: uniquePaths } : {}),
+          ...(currentPath ? { currentPath } : {}),
+        }
+      : undefined;
+  } catch {
+    // coercion-ok: malformed manifests omit optional mount hints; the app base path remains authoritative.
+    return undefined;
+  }
+}
+
 export function resolvePublicAppOriginConfig(): {
+  appId?: string;
+  workspaceAppId?: string;
+  workspaceAppPath?: string;
+  appHomePath: string;
   appUrl?: string;
   workspaceGatewayUrl?: string;
   workspaceOAuthOrigin?: string;
   workspaceRuntime?: boolean;
+  workspaceAppMountPaths?: string[];
 } | null {
   const config = getAppConfig();
   const workspaceRuntime =
     config.workspace.isWorkspace === true ||
     typeof config.workspace.appsJson === "string";
+  const workspaceAppMountConfig = workspaceAppMountConfigFromJson(
+    config.workspace.appsJson,
+    config.app.workspaceId,
+  );
+  const configuredWorkspaceAppPath = config.app.basePath?.trim()
+    ? normalizeAppBasePath(config.app.basePath) || "/"
+    : undefined;
+  const workspaceAppPath =
+    workspaceAppMountConfig?.currentPath ??
+    (workspaceRuntime ? configuredWorkspaceAppPath : undefined);
   const resolved = {
+    ...(config.app.id ? { appId: config.app.id } : {}),
+    ...(config.app.workspaceId
+      ? { workspaceAppId: config.app.workspaceId }
+      : {}),
+    ...(workspaceAppPath ? { workspaceAppPath } : {}),
+    appHomePath: resolveAppHomePath(config.app, config.workspace),
     ...(config.app.url ? { appUrl: config.app.url } : {}),
     ...(config.workspace.gatewayUrl
       ? { workspaceGatewayUrl: config.workspace.gatewayUrl }
@@ -36,6 +94,9 @@ export function resolvePublicAppOriginConfig(): {
       ? { workspaceOAuthOrigin: config.workspace.oauthOrigin }
       : {}),
     ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
+    ...(workspaceAppMountConfig?.paths
+      ? { workspaceAppMountPaths: workspaceAppMountConfig.paths }
+      : {}),
   };
   return Object.keys(resolved).length > 0 ? resolved : null;
 }
@@ -47,7 +108,7 @@ export function getAppOriginClientConfigScript(): string | null {
   return [
     "<script data-agent-native-app-origin-config>",
     "window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,",
-    JSON.stringify(config),
+    safeJsonForHtml(config),
     ");",
     "</script>",
   ].join("");

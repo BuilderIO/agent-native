@@ -1,27 +1,28 @@
-import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-let sqlite: Database.Database;
+import { createTestPglite } from "../../a2a/test-pglite.js";
+
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
-      sqlite.exec(input);
+      await pglite.exec(input);
       return { rows: [], rowsAffected: 0 };
     }
-    const stmt = sqlite.prepare(input.sql);
+    const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
     if (/^\s*select/i.test(input.sql)) {
-      return { rows: stmt.all(...args), rowsAffected: 0 };
+      return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
-    const info = stmt.run(...args);
+    const info = await stmt.run(...args);
     return { rows: [], rowsAffected: info.changes };
   }),
 };
 
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => rawClient,
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
 }));
 
 const {
@@ -32,17 +33,54 @@ const {
   __resetObservationalMemoryTableCache,
 } = await import("./store.js");
 
-beforeEach(() => {
-  sqlite = new Database(":memory:");
+beforeEach(async () => {
+  pglite = await createTestPglite();
   __resetObservationalMemoryTableCache();
 });
 
-afterEach(() => {
-  sqlite.close();
+afterEach(async () => {
+  await pglite.close();
   vi.clearAllMocks();
 });
 
 describe("observational-memory store", () => {
+  it("widens legacy timestamp columns before writing millisecond epochs", async () => {
+    await pglite.exec(`
+      CREATE TABLE observational_memory (
+        id TEXT PRIMARY KEY,
+        thread_id TEXT NOT NULL,
+        tier TEXT NOT NULL,
+        text TEXT NOT NULL,
+        token_estimate INTEGER NOT NULL DEFAULT 0,
+        source_start_index INTEGER,
+        source_end_index INTEGER,
+        source_message_count INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        visibility TEXT NOT NULL DEFAULT 'private'
+      )
+    `);
+
+    const entry = await insertObservationalMemory({
+      threadId: "legacy-thread",
+      tier: "observation",
+      text: "legacy schema can store millisecond timestamps",
+      tokenEstimate: 9,
+      ownerEmail: "alice@example.com",
+    });
+
+    const rows = await listObservationalMemory({
+      threadId: "legacy-thread",
+      ownerEmail: "alice@example.com",
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].createdAt).toBe(entry.createdAt);
+    expect(rows[0].updatedAt).toBe(entry.updatedAt);
+    expect(entry.createdAt).toBeGreaterThan(2_147_483_647);
+  });
+
   it("creates the table lazily and round-trips an observation entry", async () => {
     const entry = await insertObservationalMemory({
       threadId: "t1",
@@ -217,7 +255,6 @@ describe("observational-memory store", () => {
       sourceEndIndex: 19,
       ownerEmail: "alice@example.com",
     });
-    // A different owner's larger range must NOT bleed into alice's accounting.
     await insertObservationalMemory({
       threadId: "t1",
       tier: "observation",

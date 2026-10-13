@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const assertAccessMock = vi.hoisted(() => vi.fn());
+const accessFilterMock = vi.hoisted(() => vi.fn(() => ({ op: "access" })));
 const getDbMock = vi.hoisted(() => vi.fn());
 const extractRenderedDesignSystemFromUrlMock = vi.hoisted(() => vi.fn());
 const styleBriefFromRenderedDesignMock = vi.hoisted(() => vi.fn());
@@ -10,17 +11,48 @@ const schemaMock = vi.hoisted(() => ({
   assetLibraries: {
     id: "assetLibraries.id",
   },
+  assetLibraryShares: "assetLibraryShares",
   assetCollections: {
     id: "assetCollections.id",
   },
 }));
+const libraryAccessMock = vi.hoisted(() =>
+  vi.fn(async () => ({ role: "owner", canApprove: true })),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
+  accessFilter: accessFilterMock,
   assertAccess: assertAccessMock,
+}));
+const deleteDraftMock = vi.hoisted(() => vi.fn(async () => true));
+const unrestrictedScope = vi.hoisted(() => ({
+  unrestricted: true,
+  approvableLibraryIds: new Set<string>(),
+  ownRunIds: new Set<string>(),
+  callerEmail: "viewer@example.test",
+}));
+
+vi.mock("../server/lib/library-access.js", () => ({
+  assertCanDraft: libraryAccessMock,
+  assertCanApprove: libraryAccessMock,
+  assertCanDraftAuthoredBy: libraryAccessMock,
+  assertCanDeleteAsset: libraryAccessMock,
+  draftScopeForLibrary: vi.fn(async () => unrestrictedScope),
+  resolveDraftReadScope: vi.fn(async () => unrestrictedScope),
+  unrestrictedDraftReadScope: vi.fn(() => unrestrictedScope),
+  assertCanUseAssets: vi.fn(),
+  assertCanUseRuns: vi.fn(),
+  canReadDraftAsset: vi.fn(() => true),
+  canReadRun: vi.fn(() => true),
+  draftReadFilter: vi.fn(() => undefined),
+  runReadFilter: vi.fn(() => undefined),
+  sessionReadFilter: vi.fn(() => undefined),
+  canReadSession: vi.fn(() => true),
+  deleteDraftAssetIfUnchanged: deleteDraftMock,
 }));
 
 vi.mock("@agent-native/creative-context/server", () => ({
@@ -29,6 +61,7 @@ vi.mock("@agent-native/creative-context/server", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...conditions) => ({ op: "and", conditions })),
   eq: vi.fn((column, value) => ({ op: "eq", column, value })),
 }));
 
@@ -88,6 +121,7 @@ function createDb({
 describe("import-style-from-url", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
     updateSetCalls.length = 0;
     assertAccessMock.mockResolvedValue(undefined);
     extractRenderedDesignSystemFromUrlMock.mockResolvedValue({
@@ -135,6 +169,12 @@ describe("import-style-from-url", () => {
       rendered: true,
       sourceUrl: "https://example.com/",
     });
+    expect(accessFilterMock).toHaveBeenCalledWith(
+      schemaMock.assetLibraries,
+      schemaMock.assetLibraryShares,
+      undefined,
+      "editor",
+    );
     expect(savedBrief).toEqual(
       expect.objectContaining({
         mood: "calm",

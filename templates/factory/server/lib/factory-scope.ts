@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import type { getDb } from "../db/index.js";
 import {
+  factoryAuditEvents,
   factoryDefinitions,
   factoryGraphVersions,
   triageConfig,
@@ -123,7 +124,6 @@ export function legacyFactoryConfigRowId(orgId: string): string {
   return orgId;
 }
 
-/** Row id to use when persisting poll cursors — follows the loaded config row. */
 export function triageConfigUpdateRowId(
   config: { id: string } | null | undefined,
   orgId: string,
@@ -158,8 +158,6 @@ export async function requireExistingFactory(
   orgId: string,
   factoryId: string,
 ): Promise<void> {
-  // product-feedback is virtual until first save and cannot be deleted, so a
-  // missing definition row is not a deletion fence.
   if (factoryId === DEFAULT_FACTORY_ID) return;
   const row = (
     await db
@@ -252,6 +250,13 @@ export function orgFactoryFeedbackFilter(
   return orgFactoryFilter(triageFeedback, orgId, factoryId);
 }
 
+export function orgFactoryAuditEventFilter(
+  orgId: string,
+  factoryId: string,
+): SQL {
+  return orgFactoryFilter(factoryAuditEvents, orgId, factoryId);
+}
+
 export function resolveAutomationFactoryId(
   meta: Record<string, unknown> | object | undefined,
 ): string {
@@ -271,7 +276,7 @@ function readFrontmatterFactoryId(content: string): string | undefined {
   const match = content.slice(4, end).match(/^factoryId:\s*(.*)$/m);
   const value = match?.[1]?.trim();
   if (!value) return undefined;
-  return value.replace(/^(\"|')|((\"|')$)/g, "");
+  return value.replace(/^("|')|(("|')$)/g, "");
 }
 
 export function readAutomationFactoryId(
@@ -297,6 +302,21 @@ export function factoryAutomationJobPath(
   return `jobs/factories/${factoryId}/${automationName}.md`;
 }
 
+export function factoryAutomationJobPrefix(factoryId: string): string {
+  return `jobs/factories/${factoryId}/`;
+}
+
+export function factoryAutomationJobPrefixes(factoryId: string): string[] {
+  if (factoryId === DEFAULT_FACTORY_ID) {
+    return ["jobs/factory-", factoryAutomationJobPrefix(factoryId)];
+  }
+  return [factoryAutomationJobPrefix(factoryId)];
+}
+
+export function factoryAutomationRunHistoryKey(path: string): string {
+  return path.replace(/^jobs\//, "").replace(/\.md$/, "");
+}
+
 export function legacyFactoryAutomationJobPath(automationName: string): string {
   return `jobs/${automationName}.md`;
 }
@@ -305,7 +325,6 @@ export function isLegacyFactoryAutomationPath(path: string): boolean {
   return /^jobs\/factory-[^/]+\.md$/.test(path);
 }
 
-/** Scheduler trigger names keep the nested path; role allowlists use the leaf. */
 export function factoryAutomationLeafName(nameOrPath: string): string {
   const withoutJobsPrefix = nameOrPath
     .replace(/^jobs\//, "")
@@ -315,7 +334,7 @@ export function factoryAutomationLeafName(nameOrPath: string): string {
 }
 
 export function readFactoryIdFromAutomationPath(path: string): string | null {
-  const match = path.match(/^jobs\/factories\/([^/]+)\/factory-[^/]+\.md$/);
+  const match = path.match(/^jobs\/factories\/([^/]+)\/[^/]+\.md$/);
   return match?.[1] ?? null;
 }
 
@@ -381,7 +400,7 @@ function readFrontmatterField(
     .match(new RegExp(`^${key}:\\s*(.*)$`, "m"));
   const value = match?.[1]?.trim();
   if (!value) return undefined;
-  return value.replace(/^(\"|')|((\"|')$)/g, "");
+  return value.replace(/^("|')|(("|')$)/g, "");
 }
 
 export function readAutomationDisplayName(content: string): string | null {
@@ -443,6 +462,7 @@ export function patchAutomationResource(
     enabled?: boolean;
     schedule?: string;
     model?: string | null;
+    reasoningEffort?: string | null;
     displayName?: string;
   },
 ): string {
@@ -467,6 +487,13 @@ export function patchAutomationResource(
       patch.model?.trim() ?? "",
     );
   }
+  if (patch.reasoningEffort !== undefined) {
+    next = setAutomationFrontmatterField(
+      next,
+      "reasoningEffort",
+      patch.reasoningEffort?.trim() ?? "",
+    );
+  }
   if (patch.displayName !== undefined) {
     next = setAutomationFrontmatterField(
       next,
@@ -488,4 +515,8 @@ export function readAutomationSchedule(content: string): string | null {
 
 export function readAutomationModel(content: string): string | null {
   return readFrontmatterField(content, "model")?.trim() || null;
+}
+
+export function readAutomationReasoningEffort(content: string): string | null {
+  return readFrontmatterField(content, "reasoningEffort")?.trim() || null;
 }

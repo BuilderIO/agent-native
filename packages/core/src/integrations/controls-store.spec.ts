@@ -1,4 +1,3 @@
-import Database from "better-sqlite3";
 import {
   afterAll,
   beforeAll,
@@ -9,32 +8,32 @@ import {
   vi,
 } from "vitest";
 
-let sqlite: Database.Database;
+import { createTestPglite } from "../a2a/test-pglite.js";
 
-async function executeSqlite(
+let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+
+async function executePglite(
   input: string | { sql: string; args?: unknown[] },
 ) {
   if (typeof input === "string") {
-    sqlite.exec(input);
+    await pglite.exec(input);
     return { rows: [], rowsAffected: 0 };
   }
-  const statement = sqlite.prepare(input.sql);
   const args = input.args ?? [];
-  if (statement.reader) {
-    return { rows: statement.all(...args), rowsAffected: 0 };
-  }
-  const result = statement.run(...args);
-  return { rows: [], rowsAffected: result.changes };
+  const result = await pglite.query(input.sql, args);
+  return {
+    rows: Array.from(result.rows ?? []),
+    rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+  };
 }
 
 const db = {
-  execute: vi.fn(executeSqlite),
+  execute: vi.fn(executePglite),
 };
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => db,
-  intType: () => "INTEGER",
-  isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
 }));
 
 vi.mock("../db/migrations.js", () => ({
@@ -60,9 +59,9 @@ const incoming = {
   },
 };
 
-beforeAll(() => {
-  sqlite = new Database(":memory:");
-  sqlite.exec(`CREATE TABLE integration_controls (
+beforeAll(async () => {
+  pglite = await createTestPglite();
+  await pglite.exec(`CREATE TABLE integration_controls (
     id TEXT PRIMARY KEY,
     action TEXT NOT NULL,
     owner_email TEXT NOT NULL,
@@ -75,25 +74,25 @@ beforeAll(() => {
     approval_key TEXT,
     incoming_json TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
-    expires_at INTEGER NOT NULL,
-    created_at INTEGER NOT NULL,
-    claimed_at INTEGER
+    expires_at BIGINT NOT NULL,
+    created_at BIGINT NOT NULL,
+    claimed_at BIGINT
   )`);
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   controls._resetIntegrationControlsStoreForTests();
   db.execute.mockReset();
-  db.execute.mockImplementation(executeSqlite);
-  sqlite.exec("DELETE FROM integration_controls");
+  db.execute.mockImplementation(executePglite);
+  await pglite.exec("DELETE FROM integration_controls");
 });
 
-afterAll(() => {
-  sqlite.close();
+afterAll(async () => {
+  await pglite.close();
 });
 
 describe("integration action controls", () => {
-  it("adds the api_app_id column to a legacy SQLite table", async () => {
+  it("adds the api_app_id column to a legacy PGlite table", async () => {
     await controls.createIntegrationControl({
       action: "approve",
       ownerEmail: "owner@example.com",
@@ -105,9 +104,11 @@ describe("integration action controls", () => {
       incoming,
     });
 
-    const columns = sqlite
-      .prepare("PRAGMA table_info(integration_controls)")
-      .all() as Array<{ name: string }>;
+    const columns = (await pglite
+      .prepare(
+        "SELECT column_name AS name FROM information_schema.columns WHERE table_name = 'integration_controls'",
+      )
+      .all()) as Array<{ name: string }>;
     expect(columns.map((column) => column.name)).toContain("api_app_id");
   });
 
@@ -125,14 +126,14 @@ describe("integration action controls", () => {
     ).resolves.toMatch(/^ctl_/);
   });
 
-  it("rethrows SQLite migration failures unrelated to duplicate columns", async () => {
+  it("rethrows PGlite migration failures unrelated to duplicate columns", async () => {
     const migrationError = new Error("database is locked");
     db.execute.mockImplementation(async (input) => {
       const sql = typeof input === "string" ? input : input.sql;
       if (sql.includes("ALTER TABLE integration_controls ADD COLUMN")) {
         throw migrationError;
       }
-      return executeSqlite(input);
+      return executePglite(input);
     });
 
     await expect(

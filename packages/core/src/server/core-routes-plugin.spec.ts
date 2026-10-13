@@ -1,4 +1,4 @@
-import type { H3Event } from "h3";
+import { createApp, defineEventHandler, type H3Event } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -7,6 +7,7 @@ import {
   unregisterFileUploadProvider,
 } from "../file-upload/index.js";
 import type { FileUploadProvider } from "../file-upload/types.js";
+import { EMBED_SESSION_COOKIE } from "../shared/embed-auth.js";
 import {
   BUILDER_CONNECT_PARAM,
   createBuilderConnectState,
@@ -34,7 +35,388 @@ import {
   readLegacyCoreRouteInitSettings,
   shouldRunCoreRouteBootDatabaseWork,
   ensureS3FileUploadProvider,
+  mountApplicationStateRoutes,
+  mountMcpConnectRoutes,
+  matchesSavedHostedAgentProbe,
+  stripRemoteAgentAuth,
+  createPublicRemoteAgentsHandler,
+  createOpenAiAppsChallengeHandler,
+  createOAuthPopupWaitingHandler,
 } from "./core-routes-plugin.js";
+import { signEmbedSessionToken } from "./embed-session.js";
+import type { H3AppShim } from "./framework-request-handler.js";
+import { createSecurityHeadersMiddleware } from "./security-headers.js";
+
+describe("mountApplicationStateRoutes", () => {
+  it("registers the compose matcher before generic application state", () => {
+    const routes: string[] = [];
+
+    const app = {
+      use(path: string, _handler: unknown) {
+        routes.push(path);
+      },
+    } as H3AppShim;
+
+    mountApplicationStateRoutes({}, "/_agent-native", app);
+
+    expect(routes).toEqual([
+      "/_agent-native/application-state/compose",
+      "/_agent-native/application-state",
+    ]);
+  });
+});
+
+describe("mountMcpConnectRoutes", () => {
+  const request = (path: string) =>
+    new Request(`https://mail.example.test${path}`, {
+      headers: { host: "mail.example.test", "x-forwarded-proto": "https" },
+    });
+
+  it("still serves the identity route when the connect flows are off", async () => {
+    const app = createApp();
+    mountMcpConnectRoutes(app, {
+      connect: false,
+      serverName: undefined,
+      appId: "mail",
+      appName: "Mail",
+    });
+
+    for (const prefix of ["/_agent-native/mcp", "/mcp"]) {
+      const identity = await app.fetch(request(`${prefix}/connect/identity`));
+      expect(identity.status).toBe(200);
+      expect(await identity.json()).toMatchObject({
+        serverName: expect.stringMatching(/agent-native-mail$/),
+        mcpUrl: "https://mail.example.test/mcp",
+        connect: false,
+      });
+      expect((await app.fetch(request(`${prefix}/connect`))).status).toBe(404);
+    }
+  });
+});
+
+describe("OpenAI plugin domain challenge", () => {
+  const path = "/.well-known/openai-apps-challenge";
+
+  it("returns the configured token as uncached plain text", async () => {
+    const app = createApp();
+    app.use(
+      path,
+      createOpenAiAppsChallengeHandler(() => "challenge-token"),
+    );
+
+    const response = await app.fetch(
+      new Request(`https://example.test${path}`),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/plain");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).toBe("challenge-token");
+  });
+
+  it("does not expose a challenge until a token is configured", async () => {
+    const app = createApp();
+    app.use(
+      path,
+      createOpenAiAppsChallengeHandler(() => undefined),
+    );
+
+    const response = await app.fetch(
+      new Request(`https://example.test${path}`),
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).not.toContain("challenge");
+  });
+
+  it("rejects methods other than GET", async () => {
+    const app = createApp();
+    app.use(
+      path,
+      createOpenAiAppsChallengeHandler(() => "challenge-token"),
+    );
+
+    const response = await app.fetch(
+      new Request(`https://example.test${path}`, { method: "POST" }),
+    );
+
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("GET");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+});
+
+describe("OAuth popup waiting route", () => {
+  it("serves an inert public HTML document with restrictive framing policy", async () => {
+    const app = createApp();
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+
+    const response = await app.fetch(
+      new Request("http://example.test/_agent-native/oauth/popup"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    expect(response.headers.get("content-security-policy")).toBe(
+      "default-src 'none'; frame-ancestors 'none'",
+    );
+    expect(response.headers.get("cross-origin-opener-policy")).toBe(
+      "unsafe-none",
+    );
+    expect(await response.text()).not.toContain("script");
+  });
+
+  it("notifies the same-origin opener after a workspace OAuth return", async () => {
+    const app = createApp();
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+
+    const response = await app.fetch(
+      new Request(
+        "http://example.test/_agent-native/oauth/popup?complete=workspace-connection",
+      ),
+    );
+
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("content-security-policy")).toBe(
+      "default-src 'none'; script-src 'unsafe-inline'; frame-ancestors 'none'",
+    );
+    expect(await response.text()).toContain(
+      'postMessage({type:"agent-native:workspace-connection-complete"},window.location.origin)',
+    );
+  });
+
+  it("persists a popup completion before notifying the opener", async () => {
+    const app = createApp();
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+    const completionId = "8d1bd7cf-419e-4ff0-8545-19dedb819154";
+
+    const response = await app.fetch(
+      new Request(
+        `http://example.test/_agent-native/oauth/popup?complete=workspace-connection&resume=${completionId}`,
+      ),
+    );
+    const html = await response.text();
+
+    expect(html).toContain(
+      `localStorage.setItem("agent-native:mcp-connection-completion:${completionId}","1")`,
+    );
+    expect(html).toContain(
+      `postMessage({type:"agent-native:workspace-connection-complete",completionId:"${completionId}"},window.location.origin)`,
+    );
+    expect(html.indexOf("localStorage.setItem")).toBeLessThan(
+      html.indexOf("postMessage"),
+    );
+  });
+
+  it("stays reachable from the framework pages that open it", async () => {
+    const app = createApp();
+    app.use(createSecurityHeadersMiddleware());
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+    app.use(
+      "/settings",
+      defineEventHandler(() => new Response("<!doctype html>")),
+    );
+
+    const opener = await app.fetch(new Request("http://example.test/settings"));
+    const popup = await app.fetch(
+      new Request("http://example.test/_agent-native/oauth/popup"),
+    );
+
+    // A popup whose COOP differs from its opener's is moved to a new
+    // browsing-context group, unless the opener allows popups and the popup
+    // opts out with `unsafe-none`. A severed popup never reaches the provider
+    // and the opener reports it closed ("allow popups"). Changing either
+    // header alone reintroduces that; change them together.
+    const openerPolicy = opener.headers.get("cross-origin-opener-policy");
+    const popupPolicy = popup.headers.get("cross-origin-opener-policy");
+    expect(popupPolicy).toBe("unsafe-none");
+    expect([null, "unsafe-none", "same-origin-allow-popups"]).toContain(
+      openerPolicy,
+    );
+  });
+
+  it("stays navigable when opened from an embedded app session", async () => {
+    const previousSecret = process.env.OAUTH_STATE_SECRET;
+    process.env.OAUTH_STATE_SECRET = "oauth-popup-embed-test-secret";
+    try {
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        targetPath: "/_agent-native/oauth/popup",
+        ttlSeconds: 60,
+      });
+      const app = createApp();
+      app.use(createSecurityHeadersMiddleware());
+      app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+
+      const popup = await app.fetch(
+        new Request("http://example.test/_agent-native/oauth/popup", {
+          headers: { cookie: `${EMBED_SESSION_COOKIE}=${token}` },
+        }),
+      );
+
+      // The embed session's strict COOP belongs to the framed document, not
+      // to the top-level popup it opens.
+      expect(popup.headers.get("cross-origin-opener-policy")).toBe(
+        "unsafe-none",
+      );
+    } finally {
+      if (previousSecret === undefined) {
+        delete process.env.OAUTH_STATE_SECRET;
+      } else {
+        process.env.OAUTH_STATE_SECRET = previousSecret;
+      }
+    }
+  });
+
+  it("rejects writes", async () => {
+    const app = createApp();
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+
+    const response = await app.fetch(
+      new Request("http://example.test/_agent-native/oauth/popup", {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(405);
+  });
+});
+
+describe("public remote-agent discovery", () => {
+  it("does not expose hosted-agent credential wiring", () => {
+    const publicAgent = stripRemoteAgentAuth({
+      id: "foundry",
+      name: "Foundry",
+      url: "https://agent.example.test",
+      color: "#000",
+      cardUrl: "https://agent.example.test/card",
+      auth: {
+        type: "oauth-client-credentials",
+        tokenUrl: "https://login.example.test/token",
+        clientId: "client-id",
+        clientSecretRef: "FOUNDRY_SECRET",
+      },
+      kind: {
+        provider: "anthropic-managed-agents",
+        agentId: "agt_01",
+        environmentId: "env_01",
+        credentialRef: "ANTHROPIC_API_KEY",
+      },
+    });
+
+    expect(publicAgent).toEqual({
+      id: "foundry",
+      name: "Foundry",
+      url: "https://agent.example.test",
+      color: "#000",
+      cardUrl: "https://agent.example.test/card",
+    });
+    expect("auth" in publicAgent).toBe(false);
+    expect("kind" in publicAgent).toBe(false);
+  });
+
+  it("omits hosted-agent auth from the HTTP listing response", async () => {
+    const app = createApp();
+    app.use(
+      "/_agent-native/agents",
+      createPublicRemoteAgentsHandler(async () => [
+        {
+          id: "foundry",
+          name: "Foundry",
+          description: "Hosted agent",
+          url: "https://agent.example.test",
+          color: "#000",
+          cardUrl: "https://agent.example.test/card",
+          auth: {
+            type: "bearer",
+            credentialRef: "FOUNDRY_SECRET",
+          },
+        },
+      ]),
+    );
+
+    const response = await app.fetch(
+      new Request("http://example.test/_agent-native/agents"),
+    );
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      agents: Array<Record<string, unknown>>;
+    };
+    expect(payload.agents).toEqual([
+      {
+        id: "foundry",
+        name: "Foundry",
+        description: "Hosted agent",
+        url: "https://agent.example.test",
+        color: "#000",
+        cardUrl: "https://agent.example.test/card",
+      },
+    ]);
+    expect(payload.agents[0]).not.toHaveProperty("auth");
+  });
+});
+
+describe("hosted-agent probes", () => {
+  it("only accepts credentials for the matching saved connection", () => {
+    const auth = {
+      type: "bearer" as const,
+      credentialRef: "FOUNDRY_TOKEN",
+    };
+    expect(
+      matchesSavedHostedAgentProbe(
+        {
+          url: "https://agent.example.test",
+          cardUrl: "https://agent.example.test/card",
+          auth,
+        },
+        {
+          url: "https://agent.example.test",
+          cardUrl: "https://agent.example.test/card",
+          auth,
+        },
+      ),
+    ).toBe(true);
+    expect(
+      matchesSavedHostedAgentProbe(
+        {
+          url: "https://agent.example.test",
+          cardUrl: "https://agent.example.test/card",
+          auth,
+        },
+        {
+          url: "https://attacker.example.test",
+          cardUrl: "https://attacker.example.test/card",
+          auth,
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it("matches a saved managed-agent provider reference", () => {
+    const kind = {
+      provider: "anthropic-managed-agents" as const,
+      agentId: "agt_01",
+      environmentId: "env_01",
+      credentialRef: "ANTHROPIC_API_KEY",
+    };
+    expect(
+      matchesSavedHostedAgentProbe(
+        { url: "https://api.anthropic.com", kind },
+        { url: "https://api.anthropic.com", kind },
+      ),
+    ).toBe(true);
+    expect(
+      matchesSavedHostedAgentProbe(
+        { url: "https://api.anthropic.com", kind },
+        {
+          url: "https://api.anthropic.com",
+          kind: { ...kind, agentId: "agt_other" },
+        },
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("readLegacyCoreRouteInitSettings", () => {
   it("starts independent setting reads in parallel and isolates failures", async () => {
@@ -94,6 +476,12 @@ describe("shouldRunCoreRouteBootDatabaseWork", () => {
         NETLIFY: "true",
       }),
     ).toBe(false);
+    expect(
+      shouldRunCoreRouteBootDatabaseWork({
+        NODE_ENV: "",
+        NETLIFY_FUNCTION_NAME: "docs",
+      }),
+    ).toBe(false);
   });
 
   it("keeps boot database work for local production and development", () => {
@@ -108,6 +496,13 @@ describe("shouldRunCoreRouteBootDatabaseWork", () => {
       shouldRunCoreRouteBootDatabaseWork({
         NODE_ENV: "development",
         NETLIFY: "true",
+        NETLIFY_DEV: "true",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRunCoreRouteBootDatabaseWork({
+        NODE_ENV: "development",
+        VERCEL: "1",
       }),
     ).toBe(true);
   });
@@ -167,6 +562,26 @@ describe("getFrameworkEnvKeys", () => {
     expect(keys).toContain("RESEND_API_KEY");
     expect(keys).toContain("SENDGRID_API_KEY");
     expect(keys).toContain("EMAIL_FROM");
+  });
+
+  it("marks non-credential flags and addresses as non-secret", () => {
+    const byKey = new Map(
+      getFrameworkEnvKeys().map((entry) => [entry.key, entry]),
+    );
+
+    expect(byKey.get("ENABLE_BUILDER")?.secret).toBe(false);
+    expect(byKey.get("AGENT_ENGINE_PREFER_BYO_KEY")?.secret).toBe(false);
+    expect(byKey.get("EMAIL_FROM")?.secret).toBe(false);
+  });
+
+  it("leaves API key entries as secret by default", () => {
+    const byKey = new Map(
+      getFrameworkEnvKeys().map((entry) => [entry.key, entry]),
+    );
+
+    expect(byKey.get("RESEND_API_KEY")?.secret).toBeUndefined();
+    expect(byKey.get("SENDGRID_API_KEY")?.secret).toBeUndefined();
+    expect(byKey.get("ANTHROPIC_API_KEY")?.secret).toBeUndefined();
   });
 });
 
@@ -248,9 +663,6 @@ describe("resolveLegacyToolsRedirect", () => {
 
   it("falls through when path is outside APP_BASE_PATH", () => {
     process.env.APP_BASE_PATH = "/dispatch";
-    // /tools without the /dispatch prefix is outside this app's base path,
-    // so stripAppBasePath leaves it unchanged and the helper still matches.
-    // The redirect target is built relative to the configured base path.
     expect(resolveLegacyToolsRedirect("/tools/abc", "")).toBe(
       "/dispatch/extensions/abc",
     );
@@ -540,6 +952,78 @@ describe("buildBuilderWaitlistFormPayload", () => {
     });
   });
 
+  it("maps the design make-real waitlist to a supported Design category", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        pageUrl: "https://design.agent-native.com/design/abc",
+        source: "design_make_real_dialog",
+        useCase: "design_make_real_waitlist",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "reader@example.com",
+        source: "design_make_real_dialog",
+        useCase: "design_publish_app",
+      },
+      _meta: {
+        source: "design_make_real_dialog",
+        useCase: "design_publish_app",
+      },
+    });
+  });
+
+  it("maps the Design Systems page waitlist to a supported Design category", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        pageUrl: "https://design.agent-native.com/design-systems",
+        source: "design_systems_page",
+        useCase: "design_system_workflows_waitlist",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "reader@example.com",
+        source: "design_systems_page",
+        useCase: "design_publish_app",
+      },
+      _meta: {
+        source: "design_systems_page",
+        useCase: "design_publish_app",
+      },
+    });
+  });
+
+  it("maps the Design Systems empty-state waitlist to a supported category", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        pageUrl: "https://design.agent-native.com/design-systems",
+        source: "design_systems_empty_state",
+        useCase: "design_system_waitlist",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "reader@example.com",
+        source: "design_systems_empty_state",
+        useCase: "design_publish_app",
+      },
+      _meta: {
+        source: "design_systems_empty_state",
+        useCase: "design_publish_app",
+      },
+    });
+  });
+
   it("falls back to the default use case for unknown waitlist values", () => {
     const event = createMockEvent(
       "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
@@ -714,7 +1198,6 @@ describe("checkBuilderWaitlistRateLimit", () => {
 });
 
 describe("AVATAR_RASTER_MIME", () => {
-  // Accepted raster types
   it("accepts data:image/png", () => {
     expect(AVATAR_RASTER_MIME.test("data:image/png;base64,iVBORw0KGgo=")).toBe(
       true,
@@ -745,7 +1228,6 @@ describe("AVATAR_RASTER_MIME", () => {
     );
   });
 
-  // Rejected types — SVG is the primary stored-XSS vector
   it("rejects data:image/svg+xml (stored-XSS risk)", () => {
     expect(
       AVATAR_RASTER_MIME.test(
@@ -806,24 +1288,21 @@ describe("resolveAvatarEmailParam", () => {
 
 describe("runDbHealthProbe", () => {
   it("reports db:true when SELECT 1 succeeds", async () => {
-    let ran: string | undefined;
+    const queries: unknown[] = [];
     const result = await runDbHealthProbe(() => ({
-      execute: async (sql: string) => {
-        ran = sql;
+      execute: async (sql: unknown) => {
+        queries.push(sql);
         return { rows: [], rowsAffected: 0 };
       },
     }));
-    expect(ran).toBe("SELECT 1");
+    expect(queries[0]).toBe("SELECT 1");
     expect(result.ok).toBe(true);
     expect(result.db).toBe(true);
     expect(result.ms).toBeGreaterThanOrEqual(0);
+    expect(result.database).not.toHaveProperty("authTokenConfigured");
   });
 
   it("answers within a deadline when the query HANGS, and says so distinctly", async () => {
-    // The docs site's health route hung 20-40s on an unbounded `SELECT 1`
-    // until the CDN 502'd. Its keep-warm cron then failed every minute, the
-    // function stayed permanently cold, and every cache miss paid a ~10x cold
-    // start. The contract says "always resolves"; this pins it.
     vi.useFakeTimers();
     try {
       const probe = runDbHealthProbe(() => ({
@@ -833,9 +1312,6 @@ describe("runDbHealthProbe", () => {
       const result = await probe;
       expect(result.ok).toBe(true);
       expect(result.db).toBe(false);
-      // A hang is NOT the same as "no database" — folding them together is the
-      // coercion this repo bans, and it is why nobody could tell the docs site
-      // apart from an app that simply has no DB.
       expect(result.dbTimedOut).toBe(true);
     } finally {
       vi.useRealTimers();
@@ -853,40 +1329,21 @@ describe("runDbHealthProbe", () => {
   });
 
   it("omits pressure unless asked, so the warm cron pays nothing for it", async () => {
-    const ran: string[] = [];
+    const queries: unknown[] = [];
     const result = await runDbHealthProbe(() => ({
-      execute: async (sql: string) => {
-        ran.push(sql);
+      execute: async (sql: unknown) => {
+        queries.push(sql);
         return { rows: [], rowsAffected: 0 };
       },
     }));
-    expect(ran).toEqual(["SELECT 1"]);
+    expect(queries).toEqual([
+      "SELECT 1",
+      {
+        sql: "SELECT value FROM public.settings WHERE key = ?",
+        args: ["framework.database_identity"],
+      },
+    ]);
     expect(result.pressure).toBeUndefined();
-  });
-
-  // This suite's dialect is sqlite, which has no pg_stat_activity. The probe
-  // must report that as unmeasured rather than running the query anyway — and
-  // the monitor must not read unmeasured as healthy. The measured path is
-  // covered in db-pressure.spec.ts.
-  it("reports pressure as unmeasured on a dialect that cannot answer", async () => {
-    const ran: string[] = [];
-    const result = await runDbHealthProbe(
-      () => ({
-        execute: async (sql: string) => {
-          ran.push(sql);
-          return { rows: [], rowsAffected: 0 };
-        },
-      }),
-      { pressure: true },
-    );
-    expect(ran).toEqual(["SELECT 1"]);
-    expect(result.pressure).toEqual({
-      measured: false,
-      reason: "dialect sqlite has no pg_stat_activity",
-    });
-    // Pressure never moves `ready`. Folding it in would page every uptime
-    // monitor on a warning and teach everyone to mute the route.
-    expect(result.ready).toBe(true);
   });
 
   it("says pressure is unmeasured when the database is unreachable", async () => {
@@ -902,5 +1359,103 @@ describe("runDbHealthProbe", () => {
       measured: false,
       reason: "database unreachable",
     });
+  });
+});
+
+describe("runDbHealthProbe: database identity", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const settingsRowExec = (row: Record<string, unknown> | null) => () => ({
+    execute: async (sql: unknown) => {
+      if (sql === "SELECT 1") return { rows: [], rowsAffected: 0 };
+      return {
+        rows: row ? [{ value: JSON.stringify(row) }] : [],
+        rowsAffected: 0,
+      };
+    },
+  });
+
+  it("omits identity entirely when the database is unreachable", async () => {
+    const result = await runDbHealthProbe(() => ({
+      execute: async () => {
+        throw new Error("connection refused");
+      },
+    }));
+    expect(result.database.identity).toBeUndefined();
+    expect(result.database.identityMismatch).toBeUndefined();
+  });
+
+  it("reports unrecorded when db is healthy but nothing has been written yet", async () => {
+    const result = await runDbHealthProbe(settingsRowExec(null));
+    expect(result.database.identity).toEqual({ state: "unrecorded" });
+    expect(result.database.identityMismatch).toBe(false);
+  });
+
+  it("reports no mismatch when the recorded app matches the running app", async () => {
+    vi.stubEnv("APP_ID", "chat");
+    const result = await runDbHealthProbe(
+      settingsRowExec({ app: "chat", recordedAt: "2026-08-19T00:00:00.000Z" }),
+    );
+    expect(result.database.identity).toEqual({
+      state: "recorded",
+      app: "chat",
+      recordedAt: "2026-08-19T00:00:00.000Z",
+    });
+    expect(result.database.identityMismatch).toBe(false);
+  });
+
+  it("reports a mismatch when the recorded app differs from the running app", async () => {
+    vi.stubEnv("APP_ID", "chat");
+    const result = await runDbHealthProbe(
+      settingsRowExec({
+        app: "factory",
+        recordedAt: "2026-08-19T00:00:00.000Z",
+      }),
+    );
+    expect(result.database.identity).toMatchObject({
+      state: "recorded",
+      app: "factory",
+    });
+    expect(result.database.identityMismatch).toBe(true);
+  });
+
+  it("does not claim a mismatch when the runtime cannot derive its own app identity", async () => {
+    vi.stubEnv("APP_ID", "");
+    const result = await runDbHealthProbe(
+      settingsRowExec({ app: "crm", recordedAt: "2026-09-03T17:29:04.800Z" }),
+    );
+    expect(result.database.identity).toMatchObject({
+      state: "recorded",
+      app: "crm",
+    });
+    expect(result.database.runningApp).toBeNull();
+    expect(result.database.identityMismatch).toBe(false);
+  });
+
+  it("reports unreadable, not unrecorded, for a malformed stored value", async () => {
+    const result = await runDbHealthProbe(settingsRowExec({ app: 42 }));
+    expect(result.database.identity?.state).toBe("unreadable");
+    expect(result.database.identityMismatch).toBe(false);
+  });
+
+  it("times out the identity read instead of hanging the probe", async () => {
+    vi.useFakeTimers();
+    try {
+      const probe = runDbHealthProbe(() => ({
+        execute: async (sql: unknown) => {
+          if (sql === "SELECT 1") return { rows: [], rowsAffected: 0 };
+          return new Promise(() => {});
+        },
+      }));
+      await vi.advanceTimersByTimeAsync(6_000);
+      const result = await probe;
+      expect(result.db).toBe(true);
+      expect(result.database.identity).toEqual({ state: "timeout" });
+      expect(result.database.identityMismatch).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

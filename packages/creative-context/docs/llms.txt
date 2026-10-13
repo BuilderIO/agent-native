@@ -11,7 +11,7 @@ for every generated artifact.
 - Structured corpus data lives in the app's existing SQL database. Large and
   private binaries live in private blob storage and SQL stores only handles.
 - PostgreSQL installations use pgvector in the same `DATABASE_URL` database.
-  SQLite keeps lexical and caption search; visual search fails with explicit
+  PGlite keeps lexical and caption search; visual search fails with explicit
   PostgreSQL setup guidance. No additional database or vector service exists.
 - Imports are inventory-first, incremental, leased, resumable, idempotent, and
   versioned. Context packs pin immutable item versions for reproducibility.
@@ -60,10 +60,10 @@ app rechecks the signed caller against its own item and pack access. Responses
 are opaque, size-limited, strictly validated, and fail closed on timeout or
 malformation. Context mode `off` never calls the remote deployment.
 
-Google Slides imports use the workspace's existing Google OAuth client and a
-separate workspace-connection callback at
-`/_agent-native/connections/oauth/google_drive/callback`; it requests offline
-Drive metadata plus read-only Slides consent without changing Google sign-in.
+Google Slides imports use the workspace's existing Google OAuth client and the
+shared callback at `/_agent-native/google/callback`; state selects the final
+workspace connection route. It requests offline Drive metadata plus read-only
+Slides consent without changing Google sign-in.
 Figma and Notion Connect buttons use workspace-owned OAuth apps configured with `FIGMA_CLIENT_ID` /
 `FIGMA_CLIENT_SECRET` and `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET`. Register
 `/_agent-native/connections/oauth/{provider}/callback` on the deployed app

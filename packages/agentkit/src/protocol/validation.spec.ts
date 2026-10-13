@@ -1,0 +1,849 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  AGENTKIT_PROTOCOL_VERSION,
+  AgentProtocolValidationError,
+  MAX_AGENT_REQUEST_ATTACHMENTS,
+  MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS,
+  createAgentProtocolEnvelope,
+  isAgentEvent,
+  parseAgentCapabilities,
+  parseAgentApprovalResponse,
+  parseAgentConnectionRequest,
+  parseAgentConnectionResponse,
+  parseAgentEvent,
+  parseAgentEventSequence,
+  parseAgentProtocolEnvelope,
+  parseAgentQueuedMessage,
+  parseInvokeActionInput,
+  parseQueueMessageInput,
+  parseSteerQueuedMessageResult,
+  parseSubmitFeedbackInput,
+  parseResumeRunInput,
+  parseAgentThreadSnapshot,
+  parseStartRunInput,
+  persistableFilePart,
+  isPersistableAttachmentUrl,
+} from "./index.js";
+
+const event = {
+  id: "event-1",
+  threadId: "thread-1",
+  runId: "run-1",
+  sequence: 1,
+  occurredAt: "2026-08-29T00:00:00.000Z",
+  type: "tool.delta",
+  toolCallId: "tool-1",
+  outputTextDelta: "12 passed",
+} as const;
+
+describe("AgentKit protocol validation", () => {
+  it("requires an explicit provider-neutral approval decision", () => {
+    expect(
+      parseAgentApprovalResponse({
+        decision: "deny",
+        optionIds: ["stop"],
+      }),
+    ).toEqual({ decision: "deny", optionIds: ["stop"] });
+    expect(() =>
+      parseAgentApprovalResponse({ optionIds: ["approve"] }),
+    ).toThrow("approvalResponse.decision");
+  });
+
+  it("rejects a resume entry without a resolved or cancelled status", () => {
+    expect(() =>
+      parseResumeRunInput({
+        threadId: "thread-1",
+        runId: "run-1",
+        resume: [{ interruptId: "approval-1", status: "maybe" }],
+      }),
+    ).toThrow("resumeRun.resume[0].status");
+  });
+
+  it("rejects a resume with no interrupt resolutions", () => {
+    expect(() =>
+      parseResumeRunInput({ threadId: "thread-1", runId: "run-1", resume: [] }),
+    ).toThrow("resumeRun.resume");
+  });
+
+  it("validates an already-removed queued steer result", () => {
+    expect(parseSteerQueuedMessageResult({ alreadyRemoved: true })).toEqual({
+      alreadyRemoved: true,
+    });
+    expect(() =>
+      parseSteerQueuedMessageResult({ alreadyRemoved: true, runId: "run-1" }),
+    ).toThrow("alreadyRemoved");
+  });
+
+  it("keeps custom choice responses distinct from predefined option ids", () => {
+    expect(
+      parseAgentApprovalResponse({
+        decision: "approve",
+        optionIds: ["brief"],
+        other: "Include a decision table",
+      }),
+    ).toEqual({
+      decision: "approve",
+      optionIds: ["brief"],
+      other: "Include a decision table",
+    });
+    expect(() =>
+      parseAgentApprovalResponse({ decision: "approve", other: "" }),
+    ).toThrow("approvalResponse.other");
+  });
+
+  it("accepts typed connection requests without accepting agent-authored authority", () => {
+    expect(
+      parseAgentConnectionRequest({
+        id: "connection-1",
+        provider: "slack",
+        reason: "grant",
+        status: "requested",
+        appId: "dispatch",
+      }),
+    ).toMatchObject({ provider: "slack", reason: "grant" });
+    expect(
+      parseAgentConnectionResponse({
+        status: "connected",
+        connectionId: "workspace-connection-1",
+      }),
+    ).toMatchObject({ status: "connected" });
+    expect(() =>
+      parseAgentConnectionRequest({
+        id: "connection-1",
+        provider: "slack",
+        reason: "connect",
+        status: "requested",
+        url: "https://agent-authored.example/connect",
+      }),
+    ).toThrow("connectionRequest.url");
+    expect(() =>
+      parseAgentConnectionRequest({
+        id: "connection-1",
+        provider: "slack",
+        reason: "connect",
+        status: "requested",
+        scopes: ["admin"],
+      }),
+    ).toThrow("connectionRequest.scopes");
+  });
+
+  it("rejects a replay sequence gap before returning a cursor-safe batch", () => {
+    const replay = [
+      event,
+      { ...event, id: "event-2", sequence: 2, type: "run.completed" },
+    ];
+    expect(
+      parseAgentEventSequence(replay, {
+        threadId: "thread-1",
+        runId: "run-1",
+      }),
+    ).toEqual(replay);
+    expect(() =>
+      parseAgentEventSequence([{ ...event, id: "event-3", sequence: 3 }], {
+        afterSequence: 1,
+      }),
+    ).toThrow("must be contiguous; expected 2");
+  });
+
+  it("accepts versioned envelopes and first-class lifecycle events", () => {
+    const envelope = createAgentProtocolEnvelope("event", event, "request-1");
+
+    expect(
+      parseAgentProtocolEnvelope(envelope, (payload, path) =>
+        parseAgentEvent(payload, path),
+      ),
+    ).toEqual(envelope);
+    expect(isAgentEvent(event)).toBe(true);
+  });
+
+  it("validates delegable task lifecycle events", () => {
+    expect(
+      parseAgentEvent({
+        ...event,
+        type: "task.updated",
+        task: {
+          id: "task-1",
+          title: "Verify dashboard",
+          status: "running",
+          progress: { completed: 1, total: 3 },
+        },
+      }),
+    ).toMatchObject({ type: "task.updated" });
+    expect(() =>
+      parseAgentEvent({
+        ...event,
+        type: "task.updated",
+        task: {
+          id: "task-1",
+          title: "Verify dashboard",
+          status: "running",
+          progress: { completed: 4, total: 3 },
+        },
+      }),
+    ).toThrow("completed no greater than total");
+  });
+
+  it("validates task-group, annotation, and widget lifecycle events", () => {
+    expect(
+      parseAgentEvent({
+        ...event,
+        type: "task-group.completed",
+        taskGroup: {
+          id: "group-1",
+          title: "Release review",
+          status: "completed",
+          runId: "run-1",
+          taskIds: ["task-1", "task-2"],
+          source: { id: "plan-1", kind: "plan", label: "Release plan" },
+        },
+      }),
+    ).toMatchObject({ type: "task-group.completed" });
+    expect(
+      parseAgentEvent({
+        ...event,
+        type: "annotation.updated",
+        annotation: {
+          id: "annotation-1",
+          kind: "source",
+          label: "Updated source",
+        },
+      }),
+    ).toMatchObject({ type: "annotation.updated" });
+    expect(
+      parseAgentEvent({
+        ...event,
+        type: "annotation.removed",
+        annotationId: "annotation-1",
+      }),
+    ).toMatchObject({ type: "annotation.removed" });
+    expect(
+      parseAgentEvent({
+        ...event,
+        type: "widget.removed",
+        widgetId: "widget-1",
+      }),
+    ).toMatchObject({ type: "widget.removed" });
+    expect(() =>
+      parseAgentEvent({
+        ...event,
+        type: "task-group.updated",
+        taskGroup: {
+          id: "group-1",
+          status: "running",
+          taskIds: ["task-1", "task-1"],
+        },
+      }),
+    ).toThrow("must be unique within the task group");
+  });
+
+  it("validates multi-agent identity, lifecycle, and off-surface activity", () => {
+    expect(
+      parseAgentEvent({
+        ...event,
+        type: "agent.registered",
+        agent: {
+          id: "agent-planck",
+          name: "Planck",
+          kind: "subagent",
+          status: "working",
+          origin: {
+            id: "app-dispatch",
+            kind: "app",
+            label: "Dispatch",
+            uri: "/dispatch",
+          },
+        },
+      }),
+    ).toMatchObject({ type: "agent.registered" });
+    expect(
+      parseAgentEvent({
+        ...event,
+        type: "agent.interaction",
+        interaction: {
+          id: "interaction-1",
+          kind: "delegated",
+          agentId: "agent-primary",
+          targetAgentId: "agent-planck",
+          scope: "workspace",
+          object: {
+            id: "task-release",
+            kind: "task",
+            label: "Release review",
+          },
+        },
+      }),
+    ).toMatchObject({ type: "agent.interaction" });
+    expect(
+      parseAgentEvent({
+        ...event,
+        type: "activity.started",
+        activity: {
+          id: "activity-1",
+          kind: "read",
+          label: "Read framework contracts",
+          status: "running",
+          agentId: "agent-planck",
+          scope: "external",
+          source: {
+            id: "app-agent-native",
+            kind: "app",
+            label: "Agent-Native",
+          },
+        },
+      }),
+    ).toMatchObject({ type: "activity.started" });
+
+    expect(() =>
+      parseAgentEvent({
+        ...event,
+        type: "agent.updated",
+        agent: { id: "agent-planck", name: "Planck", status: "busy" },
+      }),
+    ).toThrow("unsupported participant status");
+    expect(() =>
+      parseAgentEvent({
+        ...event,
+        type: "agent.interaction",
+        interaction: {
+          id: "interaction-1",
+          kind: "started",
+          agentId: "agent-planck",
+          scope: "somewhere",
+        },
+      }),
+    ).toThrow("unsupported work scope");
+  });
+
+  it("fails loudly for incompatible protocol versions", () => {
+    expect(() =>
+      parseAgentProtocolEnvelope({
+        protocol: "agentkit",
+        version: AGENTKIT_PROTOCOL_VERSION + 1,
+        kind: "event",
+        payload: event,
+      }),
+    ).toThrow(AgentProtocolValidationError);
+  });
+
+  it("validates run inputs at a transport boundary", () => {
+    expect(
+      parseStartRunInput({
+        threadId: "thread-1",
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            parts: [{ type: "text", text: "Inspect the workspace" }],
+          },
+        ],
+        options: { model: "frontier", reasoningEffort: "high" },
+      }).threadId,
+    ).toBe("thread-1");
+  });
+
+  it("rejects malformed standard capabilities while preserving extensions", () => {
+    expect(
+      parseAgentCapabilities({
+        protocolVersion: AGENTKIT_PROTOCOL_VERSION,
+        connectionRequests: true,
+        feedback: true,
+        multiAgentActivity: true,
+        widgets: true,
+        "x-host-preview": { version: 2 },
+      }),
+    ).toMatchObject({
+      connectionRequests: true,
+      feedback: true,
+      widgets: true,
+    });
+    expect(() => parseAgentCapabilities({ widgets: "yes" })).toThrow(
+      AgentProtocolValidationError,
+    );
+    expect(() => parseAgentCapabilities({ widgtes: true })).toThrow(
+      "unknown capabilities must use an x- namespace",
+    );
+  });
+
+  it("validates queue and action commands before they reach a backend", () => {
+    expect(
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        text: "Run checks",
+        attachments: [{ type: "file", name: "brief.md", fileId: "file-1" }],
+        options: { model: "model-1", reasoningEffort: "high" },
+      }),
+    ).toMatchObject({
+      text: "Run checks",
+      options: { model: "model-1", reasoningEffort: "high" },
+    });
+    expect(
+      parseAgentQueuedMessage({
+        id: "queued-1",
+        threadId: "thread-1",
+        text: "Run checks",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        options: { model: "model-1", reasoningEffort: "high" },
+      }).options,
+    ).toEqual({ model: "model-1", reasoningEffort: "high" });
+    expect(
+      parseInvokeActionInput({
+        invocation: {
+          id: "action-1",
+          action: "dashboard.publish",
+          threadId: "thread-1",
+        },
+      }).invocation.action,
+    ).toBe("dashboard.publish");
+    expect(() =>
+      parseQueueMessageInput({ threadId: "thread-1", text: 42 }),
+    ).toThrow(AgentProtocolValidationError);
+  });
+
+  it("keeps inline image bytes request-only and allows URL references in queues", () => {
+    const inlineAttachment = {
+      type: "image",
+      name: "reference.png",
+      contentType: "image/png",
+      data: "data:image/png;base64,iVBORw==",
+      referenceUrl: "https://files.example.test/original.png",
+    } as const;
+    expect(
+      parseStartRunInput({
+        threadId: "thread-1",
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            parts: [{ type: "text", text: "Describe this" }],
+          },
+        ],
+        requestAttachments: [inlineAttachment],
+      }).requestAttachments,
+    ).toEqual([inlineAttachment]);
+    expect(() =>
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        text: "Describe this",
+        requestAttachments: [inlineAttachment],
+      }),
+    ).toThrow("inline image data cannot be persisted in a queue");
+    expect(
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        text: "Describe this",
+        requestAttachments: [
+          {
+            type: "image",
+            name: "reference.png",
+            contentType: "image/png",
+            url: "https://files.example.test/optimized.png",
+            referenceUrl: "https://files.example.test/original.png",
+          },
+        ],
+      }).requestAttachments,
+    ).toHaveLength(1);
+  });
+
+  it("rejects data URLs in durable queue attachment references", () => {
+    const dataUrl = "data:image/png;base64,iVBORw==";
+    expect(() =>
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        text: "Inspect this",
+        requestAttachments: [
+          { type: "image", name: "screen.png", url: dataUrl },
+        ],
+      }),
+    ).toThrow("queueMessage.requestAttachments[0].url");
+    expect(() =>
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        text: "Inspect this",
+        requestAttachments: [
+          {
+            type: "image",
+            name: "screen.png",
+            url: "https://files.example.test/screen.png",
+            referenceUrl: dataUrl,
+          },
+        ],
+      }),
+    ).toThrow("queueMessage.requestAttachments[0].referenceUrl");
+    expect(() =>
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        text: "Inspect this",
+        attachments: [{ type: "file", name: "screen.png", url: dataUrl }],
+      }),
+    ).toThrow("queueMessage.attachments[0].url");
+    expect(() =>
+      parseAgentQueuedMessage({
+        id: "queued-1",
+        threadId: "thread-1",
+        text: "Inspect this",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        attachments: [{ type: "file", name: "screen.png", url: dataUrl }],
+      }),
+    ).toThrow("queuedMessage.attachments[0].url");
+    expect(() =>
+      parseAgentQueuedMessage({
+        id: "queued-2",
+        threadId: "thread-1",
+        text: "Inspect this",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        requestAttachments: [
+          {
+            type: "image",
+            name: "screen.png",
+            url: "https://files.example.test/screen.png",
+            referenceUrl: dataUrl,
+          },
+        ],
+      }),
+    ).toThrow("queuedMessage.requestAttachments[0].referenceUrl");
+    expect(() =>
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        text: "Inspect this",
+        attachments: [
+          {
+            type: "file",
+            name: "screen.png",
+            fileId: "file-1",
+            data: dataUrl,
+          },
+        ],
+      }),
+    ).toThrow("inline file data cannot be persisted in a queue");
+  });
+
+  it("bounds request attachment count and aggregate inline image data", () => {
+    const requestAttachment = (index: number) => ({
+      type: "image",
+      name: `image-${index}.png`,
+      url: `https://files.example.test/image-${index}.png`,
+    });
+    expect(() =>
+      parseStartRunInput({
+        threadId: "thread-1",
+        messages: [],
+        requestAttachments: Array.from(
+          { length: MAX_AGENT_REQUEST_ATTACHMENTS + 1 },
+          (_, index) => requestAttachment(index),
+        ),
+      }),
+    ).toThrow("expected at most");
+
+    expect(() =>
+      parseStartRunInput({
+        threadId: "thread-1",
+        messages: [],
+        requestAttachments: Array.from({ length: 3 }, (_, index) => ({
+          type: "image",
+          name: `image-${index}.png`,
+          data: `data:image/png;base64,${"A".repeat(
+            Math.ceil(MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS / 3),
+          )}`,
+        })),
+      }),
+    ).toThrow("aggregate inline image data exceeds");
+  });
+
+  it("keeps reading legacy queued messages with more attachments than current writes allow", () => {
+    const attachments = Array.from(
+      { length: MAX_AGENT_REQUEST_ATTACHMENTS + 1 },
+      (_, index) => ({
+        type: "file",
+        name: `file-${index}.pdf`,
+        url: `https://files.example.test/file-${index}.pdf`,
+      }),
+    );
+    const queued = {
+      id: "queued-legacy-many-attachments",
+      threadId: "thread-1",
+      text: "Read these files",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      attachments,
+      requestAttachments: attachments.map((attachment) => ({
+        type: "image",
+        name: attachment.name,
+        url: attachment.url,
+      })),
+    };
+
+    expect(parseAgentQueuedMessage(queued).attachments).toHaveLength(
+      MAX_AGENT_REQUEST_ATTACHMENTS + 1,
+    );
+    expect(() => parseQueueMessageInput(queued)).toThrow("expected at most");
+  });
+
+  it("validates optional feedback trace identifiers and sequence numbers", () => {
+    expect(
+      parseSubmitFeedbackInput({
+        threadId: "thread-1",
+        messageId: "message-1",
+        runId: "run-1",
+        messageSeq: 0,
+        value: "negative",
+        reason: "The answer missed a detail.",
+      }),
+    ).toMatchObject({ runId: "run-1", messageSeq: 0 });
+    expect(() =>
+      parseSubmitFeedbackInput({
+        threadId: "thread-1",
+        messageId: "message-1",
+        messageSeq: -1,
+        value: "positive",
+      }),
+    ).toThrow("submitFeedback.messageSeq");
+  });
+
+  it("stores inline file bytes only as a named omission marker", () => {
+    const marker = persistableFilePart({
+      type: "file",
+      name: "photo.png",
+      mediaType: "image/png",
+      url: "data:image/png;base64,SGVsbG8=",
+    });
+    expect(marker).toEqual({
+      type: "file",
+      name: "photo.png",
+      mediaType: "image/png",
+      omitted: "inline-bytes",
+    });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        url: "data:image/png;base64,SGVsbG8=",
+        fileId: "file-1",
+      }),
+    ).toEqual({ type: "file", name: "photo.png", fileId: "file-1" });
+    for (const fileId of [
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+      "_9j_4AAQSkZJRgABAQAAAQABAAD",
+      "AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYx",
+      "77u/PHN2Zy8+",
+    ]) {
+      expect(
+        persistableFilePart({
+          type: "file",
+          name: "photo.png",
+          mediaType: "image/png",
+          fileId,
+        }),
+      ).toEqual({
+        type: "file",
+        name: "photo.png",
+        mediaType: "image/png",
+        omitted: "inline-bytes",
+      });
+    }
+    for (const fileId of [
+      "4b1f4cc034da4c8c8fe4a5d20fa87a32",
+      "AbCDef0123456789_-AbCDef0123456789",
+    ]) {
+      expect(
+        persistableFilePart({ type: "file", name: "photo.png", fileId }),
+      ).toEqual({ type: "file", name: "photo.png", fileId });
+    }
+    const durable = {
+      type: "file" as const,
+      name: "photo.png",
+      url: "https://storage.example.test/photo.png",
+    };
+    expect(persistableFilePart(durable)).toEqual(durable);
+    expect(
+      persistableFilePart({
+        ...durable,
+        data: "data:image/png;base64,INLINE_BYTES",
+      }),
+    ).toEqual(durable);
+
+    expect(isPersistableAttachmentUrl(durable.url)).toBe(true);
+    expect(isPersistableAttachmentUrl("AQID")).toBe(false);
+    const localS3 = {
+      type: "file" as const,
+      name: "photo.png",
+      url: "http://minio.example.test:9000/bucket/photo.png",
+    };
+    expect(persistableFilePart(localS3)).toEqual(localS3);
+    const signedReference = {
+      ...durable,
+      url: "https://storage.example.test/photo.png?signature=fake-signature",
+    };
+    expect(persistableFilePart(signedReference)).toEqual({
+      type: "file",
+      name: "photo.png",
+      omitted: "unsafe-url",
+    });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        fileId: "4b1f4cc0-34da-4c8c-8fe4-a5d20fa87a32",
+      }),
+    ).toEqual({
+      type: "file",
+      name: "photo.png",
+      fileId: "4b1f4cc0-34da-4c8c-8fe4-a5d20fa87a32",
+    });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        mediaType: "image/png",
+        url: "AQID",
+      }),
+    ).toEqual({
+      type: "file",
+      name: "photo.png",
+      mediaType: "image/png",
+      omitted: "unsafe-url",
+    });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        url: "https://storage.example.test/photo.png?token=secret",
+      }),
+    ).toEqual({
+      type: "file",
+      name: "photo.png",
+      omitted: "unsafe-url",
+    });
+
+    const snapshot = {
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      messages: [{ id: "message-1", role: "user", parts: [marker] }],
+    };
+    expect(parseAgentThreadSnapshot(snapshot).messages[0]?.parts).toEqual([
+      marker,
+    ]);
+    expect(
+      parseAgentThreadSnapshot({
+        ...snapshot,
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            parts: [
+              persistableFilePart({
+                type: "file",
+                name: "photo.png",
+                url: "AQID",
+              }),
+            ],
+          },
+        ],
+      }).messages[0]?.parts,
+    ).toEqual([{ type: "file", name: "photo.png", omitted: "unsafe-url" }]);
+    expect(() =>
+      parseAgentThreadSnapshot({
+        ...snapshot,
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            parts: [{ ...marker, omitted: "everything" }],
+          },
+        ],
+      }),
+    ).toThrow("unsupported omission marker");
+  });
+
+  it("validates rich snapshots as one internally consistent projection", () => {
+    const snapshot = {
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      messages: [],
+      runs: [
+        {
+          id: "run-1",
+          threadId: "thread-1",
+          status: "running",
+          lastSequence: 1,
+        },
+      ],
+      activeRunIds: ["run-1"],
+      events: [{ ...event, type: "run.started" }],
+      taskGroups: [
+        {
+          id: "group-1",
+          title: "Release review",
+          status: "running",
+          taskIds: ["task-1"],
+        },
+      ],
+    };
+
+    expect(parseAgentThreadSnapshot(snapshot)).toMatchObject({
+      activeRunIds: ["run-1"],
+    });
+    expect(
+      parseAgentThreadSnapshot({
+        ...snapshot,
+        runs: [{ ...snapshot.runs[0], lastSequence: 4 }],
+        events: [
+          { ...event, type: "run.started" },
+          {
+            ...event,
+            id: "event-omitted-range",
+            sequence: 2,
+            type: "x-agent-native.persisted-event-omission-range",
+            payload: { lastSequence: 3 },
+          },
+          {
+            ...event,
+            id: "event-completed",
+            sequence: 4,
+            type: "run.completed",
+          },
+        ],
+      }).events,
+    ).toHaveLength(3);
+    expect(() =>
+      parseAgentThreadSnapshot({
+        ...snapshot,
+        events: [
+          { ...event, type: "run.started" },
+          {
+            ...event,
+            id: "event-omitted-range",
+            sequence: 2,
+            type: "x-agent-native.persisted-event-omission-range",
+            payload: { lastSequence: 259 },
+          },
+        ],
+      }),
+    ).toThrow("must cover at most 256 event sequences");
+    expect(() =>
+      parseAgentThreadSnapshot({
+        ...snapshot,
+        activeRunIds: ["run-missing"],
+      }),
+    ).toThrow("must reference a run included in the snapshot");
+    expect(() =>
+      parseAgentThreadSnapshot({
+        ...snapshot,
+        events: [event, { ...event, id: "event-2", sequence: 1 }],
+      }),
+    ).toThrow("must be contiguous within each run");
+    expect(() =>
+      parseAgentThreadSnapshot({
+        ...snapshot,
+        events: [event, { ...event, id: "event-2", sequence: 3 }],
+      }),
+    ).toThrow("expected 2");
+    expect(() =>
+      parseAgentThreadSnapshot({
+        ...snapshot,
+        runs: [{ ...snapshot.runs[0], threadId: "thread-2" }],
+      }),
+    ).toThrow("must match the snapshot thread");
+  });
+});

@@ -1,7 +1,9 @@
 import { getDbExec } from "../db/client.js";
+import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { getUserSetting } from "../settings/user-settings.js";
 import { createTtlCache } from "../shared/ttl-cache.js";
 import { setActiveOrgId } from "./active-org.js";
+import { CROSS_APP_ORG_FEDERATION_FLAG } from "./feature-flags.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 
@@ -14,74 +16,54 @@ export interface AutoJoinDomainResult {
   activeOrgId: string | null;
 }
 
-/**
- * Negative cache for "no org has this email domain as its `allowed_domain`".
- *
- * `resolveOrgContext` calls this function on EVERY authenticated request for
- * any account that holds no membership in a domain-matched org — which is every
- * solo user and every user in a team org that never configured domain matching.
- * The probe finds nothing, changes no state, and runs again on the next
- * request: production showed 318k of these, ~64% of all authenticated requests,
- * with no fixed point because not-joining an org is not a state the user can
- * leave.
- *
- * Keyed on the DOMAIN, not the email, so one entry covers every account at that
- * domain. Only a SUCCESSFUL zero-row read is cached — a failed probe stays on
- * the uncached path so an unreadable `organizations` table never masquerades as
- * "no matching org". Invalidated whenever `allowed_domain` is written, so
- * correctness does not rest on the TTL.
- */
+type DomainMatch = { orgId: string; federated: boolean };
+
 const NO_DOMAIN_MATCH_TTL_MS = 60_000;
 const noDomainMatchCache = createTtlCache<true>({
   ttlMs: NO_DOMAIN_MATCH_TTL_MS,
   maxEntries: 512,
 });
 
-/**
- * Call after any write that could make a domain start matching an org —
- * `organizations.allowed_domain` updates and org creation. Clears every domain
- * rather than one: the caller knows which org changed, not which domains a
- * stale negative was recorded for.
- */
 export function invalidateDomainMatchCache(): void {
   noDomainMatchCache.clear();
 }
 
-/** Test seam — the cache is module state, so suites must be able to clear it. */
 export function __resetDomainMatchCacheForTests(): void {
   noDomainMatchCache.clear();
 }
 
+export async function hasAutoJoinDomainMatch(
+  rawEmail: string,
+): Promise<boolean> {
+  const email = rawEmail.trim().toLowerCase();
+  const domain = email.split("@")[1]?.toLowerCase();
+  if (!domain || isFreeEmailProvider(domain)) return false;
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT 1 FROM organizations
+            WHERE LOWER(allowed_domain) = ?
+            LIMIT 1`,
+      args: [domain],
+    });
+    return rows.length > 0;
+  } catch (error) {
+    const candidate = error as { code?: unknown; message?: unknown };
+    if (
+      candidate.code === "42P01" ||
+      /no such table: ["'`]?organizations|relation ["'`]?organizations["'`]? does not exist/i.test(
+        String(candidate.message ?? error),
+      )
+    ) {
+      return false;
+    }
+    throw error;
+  }
+}
+
 export interface AutoJoinDomainOptions {
-  /**
-   * The signup hook should not clobber an org selected by an invite flow, but
-   * request-time org resolution may need to move an existing account from a
-   * personal workspace into its newly matched company org. `"never"` joins
-   * without touching `active-org-id` — the caller decides activation itself.
-   */
   activateJoinedOrg?: "if-missing" | "always" | "never";
 }
 
-/**
- * Auto-join a newly-signed-up user into every org whose `allowed_domain`
- * matches their email domain.
- *
- * Called from the Better Auth `user.create.after` hook so that e.g. a new
- * `@builder.io` signup lands inside the existing Builder.io org on first
- * page load instead of starting in Personal and having to find the join
- * CTA. The org's owner opts into this by setting
- * `organizations.allowed_domain` — the column already gated the manual
- * "Join your team" UI in the picker; we use the same opt-in to drive
- * automatic join.
- *
- * Idempotent — skips orgs the user is already a member of and, by default,
- * never overwrites an existing `active-org-id` setting.
- *
- * Safe to call when the org tables don't exist (some templates don't use
- * the org module): it swallows the "no such table" error and returns
- * empty. Never throws — the caller is a signup hook and we don't want to
- * block a user from creating their account because of an org-tier issue.
- */
 export async function autoJoinDomainMatchingOrgs(
   rawEmail: string,
   options: AutoJoinDomainOptions = {},
@@ -92,9 +74,6 @@ export async function autoJoinDomainMatchingOrgs(
   const domain = email.split("@")[1]?.toLowerCase();
   if (!domain) return { joined: [], activeOrgId: null };
 
-  // `org/handlers.ts` REFUSES to set `allowed_domain` to a free provider, so no
-  // org can ever match `gmail.com` — every consumer-email account was probing
-  // for a row that is structurally impossible to exist.
   if (isFreeEmailProvider(domain)) return { joined: [], activeOrgId: null };
 
   if (noDomainMatchCache.get(domain)) {
@@ -103,10 +82,11 @@ export async function autoJoinDomainMatchingOrgs(
 
   const db = getDbExec();
 
-  let matches: Array<{ orgId: string }> = [];
+  let matches: DomainMatch[] = [];
   try {
     const res = await db.execute({
-      sql: `SELECT o.id AS "orgId"
+      sql: `SELECT o.id AS "orgId", o.identity_authority AS "identityAuthority",
+                   o.identity_id AS "identityId"
             FROM organizations o
             WHERE LOWER(o.allowed_domain) = ?
               AND NOT EXISTS (
@@ -114,18 +94,19 @@ export async function autoJoinDomainMatchingOrgs(
                 FROM org_members m
                 WHERE m.org_id = o.id
                   AND LOWER(m.email) = ?
+                  AND m.federation_removal_pending_at IS NULL
               )
             ORDER BY o.created_at ASC`,
       args: [domain, email],
     });
     matches = res.rows.map((r: any) => ({
       orgId: String(r.orgId ?? r.org_id),
+      federated: Boolean(
+        String(r.identityAuthority ?? r.identity_authority ?? "").trim() &&
+        String(r.identityId ?? r.identity_id ?? "").trim(),
+      ),
     }));
   } catch {
-    // Template without org tables (or `allowed_domain` column not yet
-    // migrated). Not fatal — return empty. Deliberately NOT cached: this branch
-    // cannot tell "no org matches" from "the table was unreadable", and caching
-    // it would let one blip answer every later request for a minute.
     return { joined: [], activeOrgId: null };
   }
 
@@ -135,7 +116,29 @@ export async function autoJoinDomainMatchingOrgs(
   }
 
   const joined: AutoJoinDomainResult["joined"] = [];
+  let federationSkipped = false;
+  let federationUnavailable = false;
+  let localJoinAttempted = false;
   for (const m of matches) {
+    if (m.federated) {
+      try {
+        if (
+          await evaluateFeatureFlagStrict(CROSS_APP_ORG_FEDERATION_FLAG.key, {
+            userEmail: email,
+            userKey: email,
+            orgId: m.orgId,
+          })
+        ) {
+          federationSkipped = true;
+          continue;
+        }
+      } catch {
+        federationSkipped = true;
+        federationUnavailable = true;
+        continue;
+      }
+    }
+    localJoinAttempted = true;
     try {
       await db.execute({
         sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, 'member', ?)`,
@@ -150,9 +153,10 @@ export async function autoJoinDomainMatchingOrgs(
     }
   }
 
-  // Set active-org-id to the first match only if the user doesn't already have
-  // one, unless the caller is request-time org resolution intentionally moving
-  // an existing account into its newly matched company org.
+  if (federationSkipped && !localJoinAttempted && !federationUnavailable) {
+    noDomainMatchCache.set(domain, true);
+  }
+
   let activeOrgId: string | null = null;
   if (joined[0] && options.activateJoinedOrg !== "never") {
     try {

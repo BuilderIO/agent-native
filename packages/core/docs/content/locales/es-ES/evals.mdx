@@ -250,6 +250,18 @@ Agréguelo al proceso que se ejecuta antes de una implementación:
 
 Una regresión que deja a cualquier anotador por debajo del umbral falla el paso y bloquea el despliegue. Una aplicación sin archivos de evaluación sale de `0`, por lo que la adopción de evaluaciones es una opción de suscripción por aplicación.
 
+## Desde una traza de producción {#from-trace}
+
+Cuando una ejecución real sorprende — falló en producción después de funcionar en una demo, o llamó a la herramienta equivocada — promocione esa traza completada a un caso de CI en lugar de inventar un prompt.
+
+```bash
+agent-native eval promote <runId> --write evals/from-trace.eval.ts
+```
+
+Ese comando persiste una fila `EvalDataset` (el mismo helper que el panel y la acción `promote-trace-eval`) y escribe un fixture `defineEval` que la puerta `agent-native eval` ya descubre. Los scorers por defecto son `usesTool(...)` para cada herramienta exitosa, más un `--must-contain` opcional. Las ejecuciones truncadas, abortadas o sin mensaje de usuario fallan cerradas.
+
+La acción alojada y `POST /_agent-native/observability/traces/:runId/promote` no escriben el árbol de la app. Use `--write` para que CI bloquee el caso. El detalle de traza del panel Observability tiene **Promote to eval**.
+
 ## ¿Qué sigue?
 
 - [**Observability**](/docs/observability): puntuación post hoc de tiradas de producción reales (la capa complementaria)

@@ -2,6 +2,7 @@ import { type RouteConfig, index, route } from "@react-router/dev/routes";
 
 export default [
   index("./routes/_index.tsx"),
+  route("home", "./routes/home.tsx"),
   route("accounts", "./routes/accounts.tsx"),
   route("people", "./routes/people.tsx"),
   route("opportunities", "./routes/opportunities.tsx"),
@@ -13,6 +14,7 @@ export default [
   route("views", "./routes/views.tsx"),
   route("dashboard", "./routes/dashboard.tsx"),
   route("ask", "./routes/ask.tsx"),
+  route("ask/:threadId", "./routes/ask.$threadId.tsx"),
   route("setup", "./routes/setup.tsx"),
   route("settings/*", "./routes/settings.tsx"),
   route("agent", "./routes/agent.tsx"),

@@ -3,10 +3,6 @@ import { createContext, useContext } from "react";
 const AGENT_CHAT_PATH = "/_agent-native/agent-chat";
 const FRAMEWORK_PREFIX = "/_agent-native/";
 
-// Surface tabs keep every opened app mounted and merely hide the inactive ones,
-// so several chat shells run at once. A single process-wide base would let the
-// last shell to mount steer another shell's agent turns and action calls into
-// its own app server, under that app's session.
 const relayBaseByAppId = new Map<string, string>();
 const activeRelayAppIds = new Set<string>();
 
@@ -26,8 +22,10 @@ export function setDesktopChatRelayBase(
   apiUrl: string | null | undefined,
 ): void {
   const base = resolveDesktopChatRelayBase(apiUrl);
-  if (base) relayBaseByAppId.set(appId, base);
-  else {
+  if (base) {
+    relayBaseByAppId.set(appId, base);
+    noBaseBackoffAttempts.clear();
+  } else {
     relayBaseByAppId.delete(appId);
     activeRelayAppIds.delete(appId);
   }
@@ -71,15 +69,9 @@ function relayRequest(
     typeof Request !== "undefined" && input instanceof Request
       ? new Request(relayUrl, input)
       : relayUrl;
-  // The relayed URL still starts with /_agent-native/, so the patched global
-  // fetch would prefix it a second time.
   return (originalFetch ?? window.fetch)(relayInput, init);
 }
 
-/**
- * Fetch bound to one app's relay base. Requests already carry their app, so
- * they stay correct no matter how many shells are mounted.
- */
 export function createDesktopChatRelayFetch(appId: string): typeof fetch {
   return (input, init) => {
     const requestUrl = resolveRequestUrl(input);
@@ -94,6 +86,46 @@ export function createDesktopChatRelayFetch(appId: string): typeof fetch {
     }
     return relayRequest(base, requestUrl, input, init);
   };
+}
+
+export class DesktopChatRelayUnavailableError extends Error {
+  constructor(pathname: string) {
+    super(
+      `Desktop chat relay has no app mounted; refusing to route ${pathname} to file://.`,
+    );
+    this.name = "DesktopChatRelayUnavailableError";
+  }
+}
+
+const NO_BASE_BACKOFF_BASE_MS = 250;
+const NO_BASE_BACKOFF_MAX_MS = 10_000;
+const noBaseBackoffAttempts = new Map<string, number>();
+
+function rejectUnavailable(
+  pathname: string,
+  signal?: AbortSignal | null,
+): Promise<Response> {
+  const attempts = noBaseBackoffAttempts.get(pathname) ?? 0;
+  noBaseBackoffAttempts.set(pathname, attempts + 1);
+  const delay = Math.min(
+    NO_BASE_BACKOFF_BASE_MS * 2 ** attempts,
+    NO_BASE_BACKOFF_MAX_MS,
+  );
+  return new Promise((_resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      reject(new DesktopChatRelayUnavailableError(pathname));
+    }, delay);
+    function onAbort() {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export const DesktopChatRelayAppContext = createContext<string | null>(null);
@@ -114,12 +146,11 @@ export function installDesktopChatFetchRelay(): void {
   originalFetch = window.fetch.bind(window);
   window.fetch = (input, init) => {
     const requestUrl = resolveRequestUrl(input);
-    if (
-      !requestUrl ||
-      !requestUrl.pathname.startsWith(FRAMEWORK_PREFIX) ||
-      relayBaseByAppId.size === 0
-    ) {
+    if (!requestUrl || !requestUrl.pathname.startsWith(FRAMEWORK_PREFIX)) {
       return originalFetch!(input, init);
+    }
+    if (relayBaseByAppId.size === 0) {
+      return rejectUnavailable(requestUrl.pathname, init?.signal);
     }
 
     const bases = [...relayBaseByAppId.entries()];

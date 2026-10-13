@@ -3,8 +3,10 @@ import os from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
+import { parseDocument } from "yaml";
 
-import { workspacifyApp } from "./workspacify.js";
+import { WORKSPACE_SKILLS } from "./workspace-skill-policy.js";
+import { ensureNodePtyBuildDependency, workspacifyApp } from "./workspacify.js";
 
 const tmpRoots: string[] = [];
 
@@ -54,6 +56,13 @@ function appCoreVersion(appDir: string): string {
   return pkg.dependencies["@agent-native/core"];
 }
 
+function appDependencyVersion(appDir: string, name: string): string {
+  const pkg = JSON.parse(
+    fs.readFileSync(path.join(appDir, "package.json"), "utf-8"),
+  );
+  return pkg.dependencies[name];
+}
+
 describe("workspacifyApp core pinning", () => {
   it("inherits the version the workspace root already pins", () => {
     const { root, appDir } = makeWorkspace("0.120.3");
@@ -86,6 +95,231 @@ describe("workspacifyApp core pinning", () => {
     }
   });
 
+  it("resolves AgentKit as a framework dependency", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    const pkgPath = path.join(appDir, "package.json");
+    fs.writeFileSync(
+      pkgPath,
+      JSON.stringify(
+        {
+          name: "chat",
+          dependencies: {
+            "@agent-native/core": "workspace:*",
+            "@agent-native/agentkit": "workspace:*",
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    workspacifyApp({
+      appDir,
+      appName: "chat",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+      coreDependencyVersion: "0.131.4",
+      agentKitDependencyVersion: "0.1.0",
+    });
+
+    expect(appDependencyVersion(appDir, "@agent-native/agentkit")).toBe(
+      "0.1.0",
+    );
+  });
+
+  it("inherits the AgentKit version already pinned by the workspace root", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    const rootPackagePath = path.join(root, "package.json");
+    fs.writeFileSync(
+      rootPackagePath,
+      JSON.stringify(
+        {
+          name: "ws",
+          dependencies: { "@agent-native/agentkit": "^0.2.1" },
+        },
+        null,
+        2,
+      ),
+    );
+    const appPackagePath = path.join(appDir, "package.json");
+    fs.writeFileSync(
+      appPackagePath,
+      JSON.stringify(
+        {
+          name: "chat",
+          dependencies: {
+            "@agent-native/core": "workspace:*",
+            "@agent-native/agentkit": "workspace:*",
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    workspacifyApp({
+      appDir,
+      appName: "chat",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+      coreDependencyVersion: "0.131.4",
+      agentKitDependencyVersion: "^0.3.0",
+    });
+
+    expect(appDependencyVersion(appDir, "@agent-native/agentkit")).toBe(
+      "^0.2.1",
+    );
+  });
+
+  it("resolves OTel to its published release, not the workspace protocol", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    fs.writeFileSync(
+      path.join(appDir, "package.json"),
+      JSON.stringify(
+        {
+          name: "chat",
+          dependencies: {
+            "@agent-native/core": "workspace:*",
+            "@agent-native/otel": "workspace:*",
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    workspacifyApp({
+      appDir,
+      appName: "chat",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+      coreDependencyVersion: "0.131.4",
+      otelDependencyVersion: "latest",
+    });
+
+    expect(appDependencyVersion(appDir, "@agent-native/otel")).toBe("latest");
+  });
+
+  it("adds node-gyp to workspaces that install node-pty on Linux", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    fs.writeFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "packages:\n  - packages/*\n  - apps/*\n",
+    );
+    fs.writeFileSync(
+      path.join(appDir, "package.json"),
+      JSON.stringify(
+        { name: "mail", dependencies: { "node-pty": "^1.1.0" } },
+        null,
+        2,
+      ),
+    );
+
+    workspacifyApp({
+      appDir,
+      appName: "mail",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+    });
+
+    const workspaceYaml = fs.readFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "utf8",
+    );
+    expect(workspaceYaml).toContain("node-pty@*:");
+    expect(workspaceYaml).toContain("node-gyp: ^12.4.0");
+  });
+
+  it("preserves long file URLs while adding node-pty package extensions", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-workspacify-"));
+    tmpRoots.push(root);
+    const workspacePath = path.join(root, "pnpm-workspace.yaml");
+    const url = `file:///tmp/${"nested/".repeat(12)}agent-native-toolkit-0.198.2.tgz`;
+    fs.writeFileSync(
+      workspacePath,
+      `overrides:\n  "@agent-native/toolkit": ${JSON.stringify(url)}\n`,
+    );
+
+    ensureNodePtyBuildDependency(root);
+
+    const updated = parseDocument(fs.readFileSync(workspacePath, "utf8"));
+    expect(updated.errors).toHaveLength(0);
+    expect(updated.getIn(["overrides", "@agent-native/toolkit"])).toBe(url);
+  });
+
+  it("detects optional node-pty dependencies", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    fs.writeFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "packages:\n  - packages/*\n  - apps/*\n",
+    );
+    fs.writeFileSync(
+      path.join(appDir, "package.json"),
+      JSON.stringify(
+        { name: "mail", optionalDependencies: { "node-pty": "^1.0.0" } },
+        null,
+        2,
+      ),
+    );
+
+    workspacifyApp({
+      appDir,
+      appName: "mail",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+    });
+
+    expect(
+      fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf8"),
+    ).toContain("node-pty@*:");
+  });
+
+  it("merges existing packageExtensions YAML without duplicate keys", () => {
+    const sources = [
+      "packageExtensions:\n  'node-pty@*':\n    dependencies:\n      node-gyp: '^12.4.0'\n",
+      "packageExtensions: {}\n",
+      'packageExtensions: {"other@1": {dependencies: {dep: "^1"}}}\n',
+      "packageExtensions: # preserve this map\n  other@1:\n    dependencies:\n      dep: '^1'\n",
+    ];
+
+    for (const source of sources) {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-workspacify-"));
+      tmpRoots.push(root);
+      const workspacePath = path.join(root, "pnpm-workspace.yaml");
+      fs.writeFileSync(workspacePath, source);
+
+      ensureNodePtyBuildDependency(root);
+      ensureNodePtyBuildDependency(root);
+
+      const updated = fs.readFileSync(workspacePath, "utf8");
+      expect(updated.match(/node-pty@\*/g)).toHaveLength(1);
+      const document = parseDocument(updated);
+      expect(document.errors).toHaveLength(0);
+      expect(
+        document.getIn([
+          "packageExtensions",
+          "node-pty@*",
+          "dependencies",
+          "node-gyp",
+        ]),
+      ).toBe("^12.4.0");
+    }
+  });
+
+  it("surfaces malformed or missing workspace YAML", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-workspacify-"));
+    tmpRoots.push(root);
+
+    expect(() => ensureNodePtyBuildDependency(root)).toThrow(
+      "pnpm-workspace.yaml",
+    );
+    fs.writeFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "packageExtensions: [\n",
+    );
+    expect(() => ensureNodePtyBuildDependency(root)).toThrow("Cannot update");
+  });
+
   it("links inherited skills and removes template copies while preserving app skills", () => {
     const { root, appDir } = makeWorkspace(undefined);
     const workspaceSkillsDir = path.join(root, ".agents", "skills");
@@ -110,6 +344,17 @@ describe("workspacifyApp core pinning", () => {
       path.join(appSkillsDir, "feature-flags", "SKILL.md"),
       "copied optional skill\n",
     );
+    for (const skill of [
+      "build-an-app",
+      "client-side-routing",
+      "reliable-mutations",
+    ]) {
+      fs.mkdirSync(path.join(appSkillsDir, skill), { recursive: true });
+      fs.writeFileSync(
+        path.join(appSkillsDir, skill, "SKILL.md"),
+        `${skill}\n`,
+      );
+    }
     fs.mkdirSync(path.join(appSkillsDir, "call-coach"), { recursive: true });
     fs.writeFileSync(
       path.join(appSkillsDir, "call-coach", "SKILL.md"),
@@ -130,8 +375,152 @@ describe("workspacifyApp core pinning", () => {
       fs.readFileSync(path.join(appSkillsDir, "actions", "SKILL.md"), "utf8"),
     ).toBe("workspace actions\n");
     expect(fs.existsSync(path.join(appSkillsDir, "feature-flags"))).toBe(false);
+    for (const skill of [
+      "build-an-app",
+      "client-side-routing",
+      "reliable-mutations",
+    ]) {
+      expect(fs.existsSync(path.join(appSkillsDir, skill))).toBe(false);
+    }
     expect(
       fs.existsSync(path.join(appSkillsDir, "call-coach", "SKILL.md")),
     ).toBe(true);
+  });
+
+  it("inherits the workspace skill set into Chat apps", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    const workspaceSkillsDir = path.join(root, ".agents", "skills");
+    for (const skill of WORKSPACE_SKILLS) {
+      fs.mkdirSync(path.join(workspaceSkillsDir, skill), { recursive: true });
+      fs.writeFileSync(
+        path.join(workspaceSkillsDir, skill, "SKILL.md"),
+        `workspace ${skill}\n`,
+      );
+    }
+
+    const appSkillsDir = path.join(appDir, ".agents", "skills");
+    for (const skill of [
+      "build-an-app",
+      "client-side-routing",
+      "performance",
+      "reliable-mutations",
+    ]) {
+      fs.mkdirSync(path.join(appSkillsDir, skill), { recursive: true });
+      fs.writeFileSync(
+        path.join(appSkillsDir, skill, "SKILL.md"),
+        `standalone ${skill}\n`,
+      );
+    }
+
+    workspacifyApp({
+      appDir,
+      appName: "roomwise",
+      templateName: "chat",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+    });
+
+    for (const skill of WORKSPACE_SKILLS) {
+      const skillPath = path.join(appSkillsDir, skill);
+      expect(fs.lstatSync(skillPath).isSymbolicLink()).toBe(true);
+      expect(fs.readFileSync(path.join(skillPath, "SKILL.md"), "utf8")).toBe(
+        `workspace ${skill}\n`,
+      );
+    }
+  });
+
+  it("keeps Factory-only review skills when workspacifying", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    const workspaceSkillsDir = path.join(root, ".agents", "skills");
+    fs.mkdirSync(path.join(workspaceSkillsDir, "actions"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(workspaceSkillsDir, "actions", "SKILL.md"),
+      "workspace actions\n",
+    );
+
+    const appSkillsDir = path.join(appDir, ".agents", "skills");
+    for (const skill of ["review-latest-feedback", "review-prs", "actions"]) {
+      fs.mkdirSync(path.join(appSkillsDir, skill), { recursive: true });
+      fs.writeFileSync(
+        path.join(appSkillsDir, skill, "SKILL.md"),
+        `factory ${skill}\n`,
+      );
+    }
+
+    workspacifyApp({
+      appDir,
+      appName: "factory",
+      templateName: "factory",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+    });
+
+    for (const skill of ["review-latest-feedback", "review-prs"]) {
+      expect(
+        fs.lstatSync(path.join(appSkillsDir, skill)).isSymbolicLink(),
+      ).toBe(false);
+      expect(
+        fs.readFileSync(path.join(appSkillsDir, skill, "SKILL.md"), "utf8"),
+      ).toBe(`factory ${skill}\n`);
+    }
+    expect(
+      fs.lstatSync(path.join(appSkillsDir, "actions")).isSymbolicLink(),
+    ).toBe(true);
+    expect(
+      fs.readFileSync(path.join(appSkillsDir, "actions", "SKILL.md"), "utf8"),
+    ).toBe("workspace actions\n");
+  });
+
+  it("gives a Builder Code starter app its own agent-chat appId", () => {
+    const { root, appDir } = makeWorkspace("0.131.4");
+    const pluginPath = path.join(appDir, "server", "plugins", "agent-chat.ts");
+    fs.mkdirSync(path.dirname(pluginPath), { recursive: true });
+    fs.writeFileSync(
+      pluginPath,
+      'export default createAgentChatPlugin({\n  appId: "chat",\n  finalResponseGuard: guard,\n});\n',
+    );
+
+    workspacifyApp({
+      appDir,
+      appName: "mail",
+      templateName: "builder-code-starter",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+    });
+
+    expect(fs.readFileSync(pluginPath, "utf8")).toBe(
+      'export default createAgentChatPlugin({\n  appId: "mail",\n  finalResponseGuard: guard,\n});\n',
+    );
+  });
+
+  it("keeps the Builder Code starter's own skills when workspacifying", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    fs.mkdirSync(path.join(root, ".agents", "skills", "actions"), {
+      recursive: true,
+    });
+    const appSkillsDir = path.join(appDir, ".agents", "skills");
+    for (const skill of ["internationalization", "authentication"]) {
+      fs.mkdirSync(path.join(appSkillsDir, skill), { recursive: true });
+      fs.writeFileSync(
+        path.join(appSkillsDir, skill, "SKILL.md"),
+        `starter ${skill}\n`,
+      );
+    }
+
+    workspacifyApp({
+      appDir,
+      appName: "mail",
+      templateName: "builder-code-starter",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+    });
+
+    for (const skill of ["internationalization", "authentication"]) {
+      expect(
+        fs.readFileSync(path.join(appSkillsDir, skill, "SKILL.md"), "utf8"),
+      ).toBe(`starter ${skill}\n`);
+    }
   });
 });

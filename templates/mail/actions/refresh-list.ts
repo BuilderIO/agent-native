@@ -4,7 +4,7 @@ import { z } from "zod";
 
 export default defineAction({
   description:
-    "Refresh the email list displayed in the UI. Triggers the UI to refetch from Gmail. Call this after any backend change (archive, trash, star, mark-read, send, etc.).",
+    "Ask the UI to reread the local inbox store after a change the framework cannot observe. This only refreshes the displayed data; it does not contact Gmail. Use sync-inbox to advance Gmail synchronization in bounded steps.",
   schema: z.object({}),
   http: false,
   run: async () => {

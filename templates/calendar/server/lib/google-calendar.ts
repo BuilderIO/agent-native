@@ -2,6 +2,7 @@ import { getDbExec } from "@agent-native/core/db";
 import {
   saveOAuthTokens,
   deleteOAuthTokens,
+  listOAuthAccounts,
   listOAuthAccountsByOwner,
 } from "@agent-native/core/oauth-tokens";
 import {
@@ -16,15 +17,24 @@ import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-c
 
 import type {
   CalendarEvent,
+  GoogleCalendarSource,
   GoogleAuthStatus,
   UpdateEventScope,
 } from "../../shared/api.js";
+import {
+  createGoogleAccountEventId,
+  createGoogleCalendarCanonicalKey,
+  createGoogleCalendarSourceKey,
+} from "../../shared/google-calendar-sources.js";
 import { getGoogleEventColorHex } from "../../shared/google-event-colors.js";
+import { isCalendarTimezone } from "../../shared/timezone.js";
 import {
   createOAuth2Client,
   oauth2GetUserInfo,
   calendarListEvents,
+  calendarListCalendars,
   calendarFreeBusy,
+  calendarGetCalendar,
   calendarGetEvent,
   calendarInsertEvent,
   calendarDeleteEvent,
@@ -64,14 +74,31 @@ async function resolveManagedCalendarClient(): Promise<ManagedCalendarClient | n
   return { email: credential.accountId, accessToken: credential.accessToken };
 }
 
+/**
+ * A workspace connection can be registered and marked "connected" while its
+ * token still can't be resolved (revoked, mid-authorization, misconfigured
+ * credential). Callers that only need a yes/no read of connection status must
+ * see that as "not connected", not as a thrown error — otherwise a single
+ * flaky managed-token resolution turns every read action (list-events
+ * included) into a 500 instead of the same not-connected state the UI already
+ * shows.
+ */
+async function resolveManagedCalendarClientOrNull(): Promise<ManagedCalendarClient | null> {
+  try {
+    return await resolveManagedCalendarClient();
+  } catch {
+    // coercion-ok: null is the same typed "not connected" result callers
+    // already get for "no managed connection configured" - isConnected and
+    // getConnectedAccounts never distinguish it from a genuine read success.
+    return null;
+  }
+}
+
 const SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
-  "https://www.googleapis.com/auth/directory.readonly",
-  "https://www.googleapis.com/auth/contacts.readonly",
-  "https://www.googleapis.com/auth/contacts.other.readonly",
 ];
 
 interface GoogleTokens {
@@ -267,6 +294,11 @@ function mapAttendees(event: any): CalendarEvent["attendees"] {
     organizer: attendee.organizer || undefined,
     self: attendee.self || undefined,
     optional: attendee.optional === true ? true : undefined,
+    additionalGuests:
+      typeof attendee.additionalGuests === "number" &&
+      attendee.additionalGuests > 0
+        ? attendee.additionalGuests
+        : undefined,
   }));
 }
 
@@ -408,14 +440,6 @@ function isPermanentRefreshError(message: string): boolean {
   return PERMANENT_REFRESH_ERRORS.some((code) => m.includes(code));
 }
 
-/**
- * Get a valid access token for a Google account, refreshing if expired.
- *
- * Throws on refresh failure rather than returning a stale token. Callers
- * that aggregate across accounts should catch and translate to a per-
- * account error so UIs can prompt a reconnect instead of silently
- * showing empty results.
- */
 async function getValidAccessToken(
   accountId: string,
   tokens: GoogleTokens,
@@ -443,8 +467,6 @@ async function getValidAccessToken(
       `No usable OAuth tokens for ${accountId} — please reconnect.`,
     );
   }
-  // Refresh when the token is expired (with a 5-minute buffer) or when the
-  // record has a refresh token but no access token at all.
   if (
     !tokens.access_token ||
     (tokens.expiry_date && tokens.expiry_date < Date.now() + 5 * 60 * 1000)
@@ -484,8 +506,6 @@ async function getValidAccessToken(
       throw lastRefreshError;
     } catch (err: any) {
       if (isPermanentRefreshError(err?.message || "")) {
-        // Drop the dead row so isOAuthConnected returns false and the UI
-        // surfaces the connect banner instead of a stale-token illusion.
         await deleteOAuthTokens("google", accountId);
         throw err;
       }
@@ -517,7 +537,8 @@ export async function getAuthUrl(
   const uri =
     redirectUri ||
     (origin ? `${origin}/_agent-native/google/callback` : undefined);
-  const oauth2 = createOAuth2Client(clientId, clientSecret, uri ?? "");
+  if (!uri) throw new Error("Google OAuth redirect URI is required.");
+  const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
   return oauth2.generateAuthUrl({
     access_type: "offline",
     scope: SCOPES,
@@ -537,10 +558,10 @@ export async function exchangeCode(
   const uri =
     redirectUri ||
     (origin ? `${origin}/_agent-native/google/callback` : undefined);
-  const oauth2 = createOAuth2Client(clientId, clientSecret, uri ?? "");
+  if (!uri) throw new Error("Google OAuth redirect URI is required.");
+  const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
   const tokens = await oauth2.getToken(code);
 
-  // Get user email
   const userInfo = await oauth2GetUserInfo(tokens.access_token);
   const email = userInfo.email;
   if (!email) throw new Error("Google returned no email address");
@@ -552,6 +573,8 @@ export async function exchangeCode(
     { ...tokens, ...(photoUrl ? { photoUrl } : {}) } as Record<string, unknown>,
     owner ?? email,
   );
+  invalidateAccountTimezoneCache(email);
+  if (owner) invalidateAccountTimezoneCache(owner);
 
   return email;
 }
@@ -587,7 +610,7 @@ async function getBetterAuthUserImage(
   if (!email) return undefined;
   try {
     const { rows } = await getDbExec().execute({
-      sql: 'SELECT image FROM "user" WHERE email = ? LIMIT 1',
+      sql: 'SELECT image FROM "user" WHERE email = $1 LIMIT 1',
       args: [email],
     });
     return optionalString(rows[0]?.image);
@@ -614,6 +637,131 @@ export async function getClient(
     email,
   );
   return { accessToken };
+}
+
+const accountTimezoneCache = new Map<
+  string,
+  { value: string | null; expiresAt: number }
+>();
+const ACCOUNT_TIMEZONE_CACHE_TTL_MS = 60 * 60 * 1000;
+const ACCOUNT_TIMEZONE_CACHE_MAX_ENTRIES = 500;
+
+// Only cache confirmed outcomes (has/doesn't have a resolvable time zone).
+// A thrown error (token refresh, network, provider failure) is never cached
+// — it's indistinguishable from a real "no time zone" answer, and caching it
+// would silently disable a peer's working-hours filter for the TTL even
+// right after they reconnect.
+function cacheAccountTimezone(key: string, value: string | null): void {
+  if (
+    !accountTimezoneCache.has(key) &&
+    accountTimezoneCache.size >= ACCOUNT_TIMEZONE_CACHE_MAX_ENTRIES
+  ) {
+    const oldestKey = accountTimezoneCache.keys().next().value;
+    if (oldestKey !== undefined) accountTimezoneCache.delete(oldestKey);
+  }
+  accountTimezoneCache.set(key, {
+    value,
+    expiresAt: Date.now() + ACCOUNT_TIMEZONE_CACHE_TTL_MS,
+  });
+}
+
+const accountTimezoneEpoch = new Map<string, number>();
+
+export function invalidateAccountTimezoneCache(email: string): void {
+  const key = email.trim().toLowerCase();
+  accountTimezoneCache.delete(key);
+  accountTimezoneEpoch.set(key, (accountTimezoneEpoch.get(key) ?? 0) + 1);
+}
+
+const accountTimezoneInFlight = new Map<string, Promise<string | null>>();
+
+export async function getGoogleAccountTimezone(
+  email: string | undefined,
+): Promise<string | null> {
+  if (!email) return null;
+  const key = email.trim().toLowerCase();
+  const cached = accountTimezoneCache.get(key);
+  if (cached) {
+    if (cached.expiresAt > Date.now()) return cached.value;
+    accountTimezoneCache.delete(key);
+  }
+
+  const inFlight = accountTimezoneInFlight.get(key);
+  if (inFlight) return inFlight;
+
+  const epoch = accountTimezoneEpoch.get(key) ?? 0;
+  const lookup = resolveGoogleAccountTimezone(key, email, epoch).finally(() => {
+    accountTimezoneInFlight.delete(key);
+  });
+  accountTimezoneInFlight.set(key, lookup);
+  return lookup;
+}
+
+async function resolveGoogleAccountTimezone(
+  key: string,
+  email: string,
+  epoch: number,
+): Promise<string | null> {
+  let accounts: Awaited<ReturnType<typeof listOAuthAccountsByOwner>>;
+  try {
+    accounts = (await listOAuthAccountsByOwner("google", email)).filter(
+      (account) => hasCalendarScope(account.tokens),
+    );
+  } catch {
+    // coercion-ok: deliberately not the same as "confirmed no account" —
+    // this is never cached (see cacheAccountTimezone), so the caller
+    // (getEligibleHostAvailability) re-checks on the next request instead
+    // of a lookup failure being treated as a stable negative result.
+    return null;
+  }
+
+  if (accounts.length === 0) {
+    if ((accountTimezoneEpoch.get(key) ?? 0) === epoch) {
+      cacheAccountTimezone(key, null);
+    }
+    return null;
+  }
+
+  const account =
+    accounts.find((a) => a.accountId.trim().toLowerCase() === key) ??
+    accounts[0];
+
+  let accessToken: string;
+  try {
+    const tokens = account.tokens as unknown as GoogleTokens;
+    accessToken = await getValidAccessToken(account.accountId, tokens, email);
+  } catch {
+    // coercion-ok: same reasoning as the lookup catch above.
+    return null;
+  }
+
+  let timezone: string | null = null;
+  let resolved = false;
+  for (let attempt = 0; attempt < 2 && !resolved; attempt++) {
+    try {
+      const calendar = await calendarGetCalendar(accessToken, "primary");
+      timezone = isCalendarTimezone(calendar?.timeZone)
+        ? calendar.timeZone
+        : null;
+      resolved = true;
+    } catch {
+      // coercion-ok: retried once above; the final failure after both
+      // attempts is handled distinctly (never cached) by the
+      // `if (!resolved)` branch right after this loop.
+    }
+  }
+  if (!resolved) {
+    // coercion-ok: deliberately not the same as "confirmed no timezone" —
+    // this is never cached (see cacheAccountTimezone), so the caller
+    // (getEligibleHostAvailability) re-checks on the next request instead
+    // of a lookup failure being treated as a stable negative result.
+    return null;
+  }
+
+  if ((accountTimezoneEpoch.get(key) ?? 0) === epoch) {
+    cacheAccountTimezone(key, timezone);
+  }
+  return timezone;
 }
 
 export interface GoogleAccountSelection {
@@ -645,7 +793,6 @@ export async function getDefaultAccountSelection(
   return { ownerEmail, accountEmail: account.accountId };
 }
 
-/** Resolve one connected Google account beneath its signed-in owner. */
 export async function getClientForAccount({
   ownerEmail,
   accountEmail,
@@ -679,17 +826,6 @@ export async function getClientForAccount({
   return { accessToken };
 }
 
-/**
- * Get OAuth credentials. When `forEmail` is provided, returns only that
- * user's credentials (multi-user mode). Otherwise returns an empty array.
- *
- * Refresh failures are swallowed per-account — the signature preserves
- * the "empty array means no usable client" contract that existing
- * callers rely on for graceful "no Google account connected" fallbacks.
- * Callers that need to surface "all your tokens are dead" to the UI
- * should use `getClientsWithErrors` directly (already wired into
- * `listEvents` and `listOverlayEvents`).
- */
 export async function getClients(
   forEmail?: string,
 ): Promise<Array<{ email: string; accessToken: string }>> {
@@ -697,13 +833,6 @@ export async function getClients(
   return clients;
 }
 
-/**
- * Same as `getClients`, but also returns per-account refresh errors so
- * callers can distinguish "no accounts connected" (empty errors) from
- * "all accounts failed to refresh" (errors populated). Event fetches use
- * this to return a 502 with the underlying reason instead of silently
- * rendering an empty calendar.
- */
 export async function getClientsWithErrors(forEmail?: string): Promise<{
   clients: Array<{ email: string; accessToken: string }>;
   errors: Array<{ email: string; error: string }>;
@@ -754,12 +883,6 @@ export async function getClientsWithErrors(forEmail?: string): Promise<{
   return { clients, errors };
 }
 
-/**
- * Resolve a caller's connected Google accounts without refreshing tokens. This
- * is intentionally separate from `getClientsWithErrors`: callers that accept
- * an account filter must reject an unowned requested account before they do
- * provider work for any account.
- */
 export async function getOwnedAccountEmails(
   forEmail?: string,
 ): Promise<string[]> {
@@ -791,7 +914,14 @@ export async function getClientsForAccountsWithErrors(
     (account) => hasCalendarScope(account.tokens),
   );
   if (accounts.length === 0) {
-    const managed = await resolveManagedCalendarClient();
+    let managed: ManagedCalendarClient | null = null;
+    let managedError: string | undefined;
+    try {
+      managed = await resolveManagedCalendarClient();
+    } catch (err: any) {
+      managedError =
+        err?.message || "Workspace Google Calendar connection failed";
+    }
     if (!managed) {
       if (accountEmails?.length) {
         throw new Error(
@@ -800,7 +930,9 @@ export async function getClientsForAccountsWithErrors(
       }
       return {
         clients: [],
-        errors: [],
+        errors: managedError
+          ? [{ email: "workspace", error: managedError }]
+          : [],
         requestedAccounts: [],
         resolvedAccounts: [],
       };
@@ -875,11 +1007,167 @@ export async function getClientsForAccountsWithErrors(
   };
 }
 
+function asCalendarAccessRole(
+  value: unknown,
+): GoogleCalendarSource["accessRole"] | null {
+  return value === "freeBusyReader" ||
+    value === "reader" ||
+    value === "writer" ||
+    value === "owner"
+    ? value
+    : null;
+}
+
+const CALENDAR_ACCESS_RANK = {
+  freeBusyReader: 0,
+  reader: 1,
+  writer: 2,
+  owner: 3,
+} as const;
+
+function compareCalendarSourcePaths(
+  a: GoogleCalendarSource,
+  b: GoogleCalendarSource,
+): number {
+  const role =
+    CALENDAR_ACCESS_RANK[b.accessRole] - CALENDAR_ACCESS_RANK[a.accessRole];
+  if (role !== 0) return role;
+  if (a.primary !== b.primary) return a.primary ? -1 : 1;
+  return a.accountEmail.localeCompare(b.accountEmail);
+}
+
+function compareCalendarEventSources(
+  a: CalendarEvent,
+  b: CalendarEvent,
+): number {
+  const writable =
+    Number(b.calendarReadOnly === false) - Number(a.calendarReadOnly === false);
+  if (writable !== 0) return writable;
+
+  const primary =
+    Number(b.calendarPrimary === true) - Number(a.calendarPrimary === true);
+  if (primary !== 0) return primary;
+
+  const access =
+    (CALENDAR_ACCESS_RANK[b.calendarAccessRole ?? "freeBusyReader"] ?? -1) -
+    (CALENDAR_ACCESS_RANK[a.calendarAccessRole ?? "freeBusyReader"] ?? -1);
+  if (access !== 0) return access;
+
+  return (a.accountEmail ?? "").localeCompare(b.accountEmail ?? "");
+}
+
+export async function resolveGoogleCalendarSource(
+  ownerEmail: string,
+  sourceKey: string,
+): Promise<GoogleCalendarSource> {
+  const discovered = await listGoogleCalendars(ownerEmail);
+  const source = discovered.calendars
+    .flatMap((candidate) =>
+      (candidate.sourcePaths ?? [candidate]).map((path) => ({
+        ...candidate,
+        ...path,
+        readOnly:
+          path.primary !== true ||
+          (path.accessRole !== "owner" && path.accessRole !== "writer"),
+      })),
+    )
+    .find((candidate) => candidate.sourceKey === sourceKey);
+  if (!source) {
+    throw new Error(
+      "Google Calendar source is not connected or no longer available",
+    );
+  }
+  return source;
+}
+
+export async function listGoogleCalendars(forEmail?: string): Promise<{
+  calendars: GoogleCalendarSource[];
+  errors: Array<{ email: string; error: string }>;
+}> {
+  const { clients, errors: refreshErrors } =
+    await getClientsForAccountsWithErrors(forEmail);
+  const errors = [...refreshErrors];
+  const results = await mapWithConcurrency(clients, async (client) => {
+    try {
+      const items: any[] = [];
+      let pageToken: string | undefined;
+      do {
+        const response = await calendarListCalendars(client.accessToken, {
+          maxResults: 250,
+          pageToken,
+        });
+        items.push(...(response.items ?? []));
+        pageToken =
+          typeof response.nextPageToken === "string"
+            ? response.nextPageToken
+            : undefined;
+      } while (pageToken);
+      return items
+        .filter((item) => typeof item.id === "string" && item.id.length > 0)
+        .flatMap((item): GoogleCalendarSource[] => {
+          const accessRole = asCalendarAccessRole(item.accessRole);
+          if (!accessRole) return [];
+          return [
+            {
+              sourceKey: createGoogleCalendarSourceKey({
+                accountEmail: client.email,
+                calendarId: item.id,
+              }),
+              canonicalKey: createGoogleCalendarCanonicalKey(item.id),
+              accountEmail: client.email,
+              calendarId: item.id,
+              name: item.summaryOverride || item.summary || item.id,
+              color: item.backgroundColor || undefined,
+              selected: item.selected === true,
+              primary: item.primary === true,
+              accessRole,
+              readOnly:
+                item.primary !== true ||
+                (accessRole !== "owner" && accessRole !== "writer"),
+            },
+          ];
+        });
+    } catch (error: any) {
+      errors.push({
+        email: client.email,
+        error: error?.message || "Unable to list Google calendars",
+      });
+      return [];
+    }
+  });
+  return {
+    calendars: Array.from(
+      results.flat().reduce((byCalendar, source) => {
+        const paths = byCalendar.get(source.calendarId) ?? [];
+        paths.push(source);
+        byCalendar.set(source.calendarId, paths);
+        return byCalendar;
+      }, new Map<string, GoogleCalendarSource[]>()),
+    )
+      .map(([, paths]) => {
+        const sortedPaths = [...paths].sort(compareCalendarSourcePaths);
+        const selected = sortedPaths[0]!;
+        return {
+          ...selected,
+          primary: sortedPaths.some((path) => path.primary),
+          sourcePaths: sortedPaths.map((path) => ({
+            sourceKey: path.sourceKey,
+            accountEmail: path.accountEmail,
+            accessRole: path.accessRole,
+            primary: path.primary,
+          })),
+        };
+      })
+      .sort((a, b) => a.sourceKey.localeCompare(b.sourceKey)),
+    errors: errors.sort((a, b) => a.email.localeCompare(b.email)),
+  };
+}
+
 export async function isConnected(forEmail?: string): Promise<boolean> {
   if (!forEmail) return false;
   const accounts = await listOAuthAccountsByOwner("google", forEmail);
   if (accounts.some((account) => hasCalendarScope(account.tokens))) return true;
-  return Boolean(await resolveManagedCalendarClient());
+  return Boolean(await resolveManagedCalendarClientOrNull());
 }
 
 export async function getConnectedAccounts(
@@ -890,7 +1178,7 @@ export async function getConnectedAccounts(
     (account) => hasCalendarScope(account.tokens),
   );
   if (accounts.length > 0) return accounts.map((a) => a.accountId);
-  const managed = await resolveManagedCalendarClient();
+  const managed = await resolveManagedCalendarClientOrNull();
   return managed ? [managed.email] : [];
 }
 
@@ -930,7 +1218,7 @@ export async function getAuthStatus(
   );
 
   if (oauthAccounts.length === 0) {
-    const managed = await resolveManagedCalendarClient();
+    const managed = await resolveManagedCalendarClientOrNull();
     return managed
       ? { connected: true, accounts: [{ email: managed.email, shared: true }] }
       : { connected: false, accounts: [] };
@@ -978,57 +1266,175 @@ export async function getAuthStatus(
 }
 
 export async function disconnect(email?: string): Promise<void> {
+  let owner: string | null = null;
+  if (email) {
+    const accounts = await listOAuthAccounts("google");
+    owner = accounts.find((a) => a.accountId === email)?.owner ?? null;
+  }
+
   await deleteOAuthTokens("google", email);
+  if (email) invalidateAccountTimezoneCache(email);
+  if (owner) invalidateAccountTimezoneCache(owner);
 }
 
 export async function listEvents(
   timeMin: string,
   timeMax: string,
   forEmail?: string,
-  options: { accountEmails?: string[]; maxResults?: number } = {},
+  options: {
+    accountEmails?: string[];
+    calendarSourceKeys?: string[];
+    maxResults?: number;
+  } = {},
 ): Promise<{
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
 }> {
   const { clients, errors: refreshErrors } =
     await getClientsForAccountsWithErrors(forEmail, options.accountEmails);
-  // Seed with refresh failures so a fully-dead connection (every account's
-  // refresh_token revoked or invalidated by a GOOGLE_CLIENT_ID rotation)
-  // reaches the caller — otherwise the result is indistinguishable from
-  // "calendar is empty" and the user sees no error.
   const errors: Array<{ email: string; error: string }> = [...refreshErrors];
   if (clients.length === 0) return { events: [], errors };
+  const hasMultipleOwnedAccounts =
+    clients.length > 1 || (await getOwnedAccountEmails(forEmail)).length > 1;
+
+  const requestedSourceKeys = Array.from(
+    new Set((options.calendarSourceKeys ?? []).filter(Boolean)),
+  );
+  let selectedSourcesByAccount = new Map<string, GoogleCalendarSource[]>();
+  if (requestedSourceKeys.length > 0) {
+    const discovered = await listGoogleCalendars(forEmail);
+    errors.push(...discovered.errors);
+    const discoveredByKey = new Map<
+      string,
+      {
+        source: GoogleCalendarSource;
+        paths: Array<
+          Pick<
+            GoogleCalendarSource,
+            "sourceKey" | "accountEmail" | "accessRole" | "primary"
+          >
+        >;
+      }
+    >();
+    for (const source of discovered.calendars) {
+      const paths = source.sourcePaths ?? [source];
+      discoveredByKey.set(source.sourceKey, { source, paths });
+      for (const path of paths) {
+        if (path.sourceKey !== source.sourceKey) {
+          discoveredByKey.set(path.sourceKey, { source, paths: [path] });
+        }
+      }
+    }
+    const invalid = requestedSourceKeys.filter(
+      (sourceKey) => !discoveredByKey.has(sourceKey),
+    );
+    if (invalid.length > 0) {
+      throw new Error(
+        `Google Calendar source is not connected or no longer available: ${invalid.join(", ")}`,
+      );
+    }
+    for (const sourceKey of requestedSourceKeys) {
+      const { source, paths } = discoveredByKey.get(sourceKey)!;
+      for (const path of paths) {
+        const accountKey = path.accountEmail.trim().toLowerCase();
+        selectedSourcesByAccount.set(accountKey, [
+          ...(selectedSourcesByAccount.get(accountKey) ?? []),
+          {
+            ...source,
+            sourceKey: path.sourceKey,
+            accountEmail: path.accountEmail,
+            accessRole: path.accessRole,
+            primary: path.primary,
+            readOnly:
+              path.primary !== true ||
+              (path.accessRole !== "owner" && path.accessRole !== "writer"),
+          },
+        ]);
+      }
+    }
+    const availableAccounts = new Set(
+      clients.map((client) => client.email.trim().toLowerCase()),
+    );
+    const excluded = Array.from(selectedSourcesByAccount.keys()).filter(
+      (accountEmail) => !availableAccounts.has(accountEmail),
+    );
+    if (excluded.length > 0) {
+      throw new Error(
+        `Google Calendar source account was not selected: ${excluded.join(", ")}`,
+      );
+    }
+  }
 
   const allResults = await mapWithConcurrency(
     clients,
     async ({ email, accessToken }) => {
       try {
+        const sources = selectedSourcesByAccount.size
+          ? (selectedSourcesByAccount.get(email.trim().toLowerCase()) ?? [])
+          : [undefined];
         const events: any[] = [];
-        let pageToken: string | undefined;
-        do {
-          const response = await calendarListEvents(accessToken, "primary", {
-            timeMin,
-            timeMax,
-            singleEvents: true,
-            orderBy: "startTime",
-            maxResults: options.maxResults ?? 2500,
-            pageToken,
-            eventTypes: LIST_EVENT_TYPES,
-          });
-          events.push(...(response.items || []));
-          pageToken =
-            typeof response.nextPageToken === "string"
-              ? response.nextPageToken
-              : undefined;
-        } while (pageToken);
+        for (const source of sources) {
+          if (source?.accessRole === "freeBusyReader") {
+            errors.push({
+              email,
+              error: `Google Calendar source ${source.name} (${source.calendarId}) only grants free/busy access; detailed events were not read`,
+            });
+            continue;
+          }
+          try {
+            let pageToken: string | undefined;
+            do {
+              const response = await calendarListEvents(
+                accessToken,
+                source?.calendarId ?? "primary",
+                {
+                  timeMin,
+                  timeMax,
+                  singleEvents: true,
+                  orderBy: "startTime",
+                  maxResults: options.maxResults ?? 2500,
+                  pageToken,
+                  eventTypes: LIST_EVENT_TYPES,
+                },
+              );
+              events.push(
+                ...(response.items || []).map((event: any) => ({
+                  ...event,
+                  __calendarSource: source,
+                })),
+              );
+              pageToken =
+                typeof response.nextPageToken === "string"
+                  ? response.nextPageToken
+                  : undefined;
+            } while (pageToken);
+          } catch (error: any) {
+            errors.push({
+              email,
+              error: source
+                ? `Unable to read Google Calendar source ${source.name} (${source.calendarId}): ${error?.message || "Unknown provider error"}`
+                : error?.message || "Unable to load Google Calendar events",
+            });
+          }
+        }
 
         return events.map((event: any) => {
-          // Find the current user's RSVP status from attendees
+          const calendarSource = event.__calendarSource as
+            | GoogleCalendarSource
+            | undefined;
           const selfAttendee = event.attendees?.find(
             (a: any) => a.self === true,
           );
           return {
-            id: `google-${event.id}`,
+            id:
+              calendarSource && !calendarSource.primary
+                ? `google-${calendarSource.sourceKey}-${event.id}`
+                : hasMultipleOwnedAccounts
+                  ? createGoogleAccountEventId({
+                      accountEmail: email,
+                      googleEventId: event.id,
+                    })
+                  : `google-${event.id}`,
             title: event.summary || "Untitled",
             titleIsGenerated: !event.summary,
             description: event.description || "",
@@ -1042,6 +1448,14 @@ export async function listEvents(
             googleEventId: event.id || undefined,
             htmlLink: event.htmlLink || undefined,
             accountEmail: email,
+            calendarSourceKey: calendarSource?.sourceKey,
+            canonicalKey: calendarSource?.canonicalKey,
+            calendarId: calendarSource?.calendarId,
+            calendarName: calendarSource?.name,
+            calendarColor: calendarSource?.color,
+            calendarAccessRole: calendarSource?.accessRole,
+            calendarPrimary: calendarSource?.primary,
+            calendarReadOnly: calendarSource?.readOnly,
             responseStatus: selfAttendee?.responseStatus,
             transparency: event.transparency || undefined,
             ...mapColor(event),
@@ -1095,7 +1509,21 @@ export async function listEvents(
     },
   );
 
-  return { events: allResults.flat(), errors };
+  const events = allResults.flat();
+  const dedupedEvents = new Map<string, CalendarEvent>();
+  for (const event of events) {
+    const key =
+      event.canonicalKey && event.googleEventId
+        ? `${event.canonicalKey}:${event.googleEventId}`
+        : event.googleEventId && event.accountEmail
+          ? `google-account:${event.accountEmail.toLowerCase()}:${event.googleEventId}`
+          : event.id;
+    const existing = dedupedEvents.get(key);
+    if (!existing || compareCalendarEventSources(event, existing) < 0) {
+      dedupedEvents.set(key, event);
+    }
+  }
+  return { events: Array.from(dedupedEvents.values()), errors };
 }
 
 export async function getFreeBusy(
@@ -1173,12 +1601,20 @@ export async function getFreeBusy(
         ?.map((error) => error.reason || error.domain)
         .filter(Boolean)
         .join(", ");
+      const missingCalendarError = calendar
+        ? undefined
+        : "Calendar was omitted from the Google free/busy response";
+      const error = calendarError || missingCalendarError;
       normalized[id] = {
         busy: calendar?.busy ?? [],
-        errors: calendar?.errors,
+        errors:
+          calendar?.errors ||
+          (missingCalendarError
+            ? [{ reason: missingCalendarError }]
+            : undefined),
       };
-      if (calendarError) {
-        calendarErrors.push({ email: id, error: calendarError });
+      if (error) {
+        calendarErrors.push({ email: id, error });
       }
     }
 
@@ -1208,8 +1644,23 @@ export async function listOverlayEvents(
   errors: Array<{ email: string; error: string }>;
   accountErrors: Array<{ email: string; error: string }>;
 }> {
-  const { clients, errors: refreshErrors } =
-    await getClientsForAccountsWithErrors(forEmail, options.accountEmails);
+  let clients: Array<{ email: string; accessToken: string }>;
+  let refreshErrors: Array<{ email: string; error: string }>;
+  try {
+    const resolved = await getClientsForAccountsWithErrors(
+      forEmail,
+      options.accountEmails,
+    );
+    clients = resolved.clients;
+    refreshErrors = resolved.errors;
+  } catch (error: any) {
+    const message = error?.message || "Unable to load overlay calendars";
+    return {
+      events: [],
+      errors: overlayEmails.map((email) => ({ email, error: message })),
+      accountErrors: [{ email: forEmail ?? "google", error: message }],
+    };
+  }
   const errors: Array<{ email: string; error: string }> = [];
   if (clients.length === 0) {
     const message =
@@ -1260,6 +1711,8 @@ export async function listOverlayEvents(
             eventType: event.eventType || "default",
             accountEmail: client.email,
             overlayEmail,
+            calendarPrimary: false,
+            calendarReadOnly: true,
             ...mapColor(event),
             attendees: mapAttendees(event),
             organizer: mapOrganizer(event),
@@ -1290,18 +1743,42 @@ export async function listOverlayEvents(
 export async function getEvent(
   googleEventId: string,
   account: GoogleAccountSelection,
+  options: { calendarSourceKey?: string; signal?: AbortSignal } = {},
 ): Promise<CalendarEvent> {
+  let calendarSource: GoogleCalendarSource | undefined;
+  if (options.calendarSourceKey) {
+    calendarSource = await resolveGoogleCalendarSource(
+      account.ownerEmail,
+      options.calendarSourceKey,
+    );
+    if (
+      !calendarSource ||
+      calendarSource.accountEmail.trim().toLowerCase() !==
+        account.accountEmail.trim().toLowerCase()
+    ) {
+      throw new Error(
+        "Google Calendar source is not connected or no longer available",
+      );
+    }
+    if (calendarSource.accessRole === "freeBusyReader") {
+      throw new Error("Google Calendar source only grants free/busy access");
+    }
+  }
   const client = await getClientForAccount(account);
+  options.signal?.throwIfAborted();
 
   const event = await calendarGetEvent(
     client.accessToken,
-    "primary",
+    calendarSource?.calendarId ?? "primary",
     googleEventId,
+    options.signal,
   );
   const selfAttendee = event.attendees?.find((a: any) => a.self === true);
 
   return {
-    id: `google-${event.id}`,
+    id: calendarSource
+      ? `google-${calendarSource.sourceKey}-${event.id}`
+      : `google-${event.id}`,
     title: event.summary || "Untitled",
     titleIsGenerated: !event.summary,
     description: event.description || "",
@@ -1315,6 +1792,14 @@ export async function getEvent(
     googleEventId: event.id || undefined,
     htmlLink: event.htmlLink || undefined,
     accountEmail: account.accountEmail,
+    calendarSourceKey: calendarSource?.sourceKey,
+    canonicalKey: calendarSource?.canonicalKey,
+    calendarId: calendarSource?.calendarId,
+    calendarName: calendarSource?.name,
+    calendarColor: calendarSource?.color,
+    calendarAccessRole: calendarSource?.accessRole,
+    calendarPrimary: calendarSource?.primary,
+    calendarReadOnly: calendarSource?.readOnly,
     responseStatus: selfAttendee?.responseStatus || undefined,
     transparency: event.transparency || undefined,
     ...mapColor(event),
@@ -1400,6 +1885,9 @@ export async function createEvent(
       ...(a.comment ? { comment: a.comment } : {}),
       ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
       ...(a.optional === true ? { optional: true } : {}),
+      ...(a.additionalGuests !== undefined
+        ? { additionalGuests: a.additionalGuests }
+        : {}),
     }));
   }
 
@@ -1518,6 +2006,7 @@ export async function updateEvent(
     account: GoogleAccountSelection;
     sendUpdates?: "all" | "none";
     addGoogleMeet?: boolean;
+    removeGoogleMeet?: boolean;
     scope?: UpdateEventScope;
   },
 ): Promise<{
@@ -1590,6 +2079,9 @@ export async function updateEvent(
       ...(a.comment ? { comment: a.comment } : {}),
       ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
       ...(a.optional === true ? { optional: true } : { optional: false }),
+      ...(a.additionalGuests !== undefined
+        ? { additionalGuests: a.additionalGuests }
+        : {}),
     }));
   }
   if (eventPatch.recurrence !== undefined) {
@@ -1601,11 +2093,10 @@ export async function updateEvent(
   applyEventPatchOptions(requestBody, eventPatch);
   if (options?.addGoogleMeet) {
     requestBody.conferenceData = createGoogleMeetRequest();
+  } else if (options?.removeGoogleMeet) {
+    requestBody.conferenceData = null;
   }
 
-  // Google validates status events as complete resources during updates. A
-  // partial PATCH can reject otherwise valid working-location changes because
-  // required eventType/start/end fields are absent from the request body.
   const response = eventPatch.workingLocationProperties
     ? await calendarUpdateEvent(
         client.accessToken,
@@ -1621,7 +2112,8 @@ export async function updateEvent(
         },
         {
           sendUpdates: options?.sendUpdates,
-          conferenceDataVersion: options?.addGoogleMeet ? 1 : undefined,
+          conferenceDataVersion:
+            options?.addGoogleMeet || options?.removeGoogleMeet ? 1 : undefined,
           supportsAttachments:
             eventPatch.attachments !== undefined ? true : undefined,
         },
@@ -1633,7 +2125,8 @@ export async function updateEvent(
         requestBody,
         {
           sendUpdates: options?.sendUpdates,
-          conferenceDataVersion: options?.addGoogleMeet ? 1 : undefined,
+          conferenceDataVersion:
+            options?.addGoogleMeet || options?.removeGoogleMeet ? 1 : undefined,
           supportsAttachments:
             eventPatch.attachments !== undefined ? true : undefined,
         },
@@ -1651,6 +2144,10 @@ export async function updateEvent(
       organizer: a.organizer || undefined,
       self: a.self || undefined,
       optional: a.optional === true ? true : undefined,
+      additionalGuests:
+        typeof a.additionalGuests === "number" && a.additionalGuests > 0
+          ? a.additionalGuests
+          : undefined,
     })),
   };
 }
@@ -1678,7 +2175,6 @@ export async function deleteEvent(
     return;
   }
 
-  // For "all" or "thisAndFollowing", find the master recurring event
   const instance = await calendarGetEvent(
     client.accessToken,
     "primary",
@@ -1696,9 +2192,7 @@ export async function deleteEvent(
     return;
   }
 
-  // "thisAndFollowing" — truncate the recurrence rule on the master event
   if (recurringEventId === googleEventId) {
-    // This IS the master event, just delete the whole series
     await calendarDeleteEvent(
       client.accessToken,
       "primary",
@@ -1717,21 +2211,17 @@ export async function deleteEvent(
   const isAllDay =
     !instance.originalStartTime?.dateTime && !instance.start?.dateTime;
 
-  // Compute UNTIL value (day before this instance)
   const cutoff = new Date(instanceStart);
   cutoff.setDate(cutoff.getDate() - 1);
 
   let untilStr: string;
   if (isAllDay) {
-    // All-day: UNTIL=YYYYMMDD
     untilStr = cutoff.toISOString().slice(0, 10).replace(/-/g, "");
   } else {
-    // Timed: UNTIL=YYYYMMDDTHHMMSSZ (end of the cutoff day in UTC)
     cutoff.setUTCHours(23, 59, 59, 0);
     untilStr = cutoff.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
   }
 
-  // Get the master event's recurrence rules and truncate
   const master = await calendarGetEvent(
     client.accessToken,
     "primary",
@@ -1740,7 +2230,6 @@ export async function deleteEvent(
   const recurrence: string[] = master.recurrence || [];
   const updatedRecurrence = recurrence.map((rule: string) => {
     if (rule.startsWith("RRULE:")) {
-      // Remove any existing UNTIL or COUNT
       let updated = rule.replace(/;(UNTIL|COUNT)=[^;]*/g, "");
       updated += `;UNTIL=${untilStr}`;
       return updated;
@@ -1756,8 +2245,6 @@ export async function deleteEvent(
     { sendUpdates },
   );
 
-  // Truncating the master does not remove materialized exceptions after the
-  // cutoff, so remove those exceptions as well.
   const instanceStartMs = Date.parse(instanceStart);
   const exceptionIds = new Set<string>([googleEventId]);
   let pageToken: string | undefined;
@@ -1801,17 +2288,11 @@ export async function deleteEvent(
         sendUpdates,
       );
     } catch (error) {
-      // A generated occurrence may already be gone once the master is trimmed.
       if (!isGoogleEventAbsentError(error)) throw error;
     }
   }
 }
 
-/**
- * Remove an event from the current user's calendar without deleting it for others.
- * Calls the DELETE API endpoint which removes it from this user's calendar view
- * without cancelling or affecting other attendees.
- */
 export async function removeEventFromCalendar(
   googleEventId: string,
   account: GoogleAccountSelection,
@@ -1835,7 +2316,6 @@ export async function removeEventFromCalendar(
     return;
   }
 
-  // For "all" or "thisAndFollowing", find the base recurring event
   const instance = await calendarGetEvent(
     client.accessToken,
     "primary",
@@ -1853,8 +2333,6 @@ export async function removeEventFromCalendar(
     return;
   }
 
-  // "thisAndFollowing" — delete each instance from this one onward
-  // For non-organizers we can only delete instance by instance; delete this one
   await calendarDeleteEvent(
     client.accessToken,
     "primary",
@@ -1863,7 +2341,6 @@ export async function removeEventFromCalendar(
   );
 }
 
-/** RSVP a single event instance without overwriting the full attendee list. */
 async function rsvpSingleEvent(
   accessToken: string,
   eventId: string,
@@ -1871,6 +2348,7 @@ async function rsvpSingleEvent(
   accountEmail: string,
   comment?: string,
   sendUpdates?: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   await calendarPatchEvent(
     accessToken,
@@ -1887,22 +2365,21 @@ async function rsvpSingleEvent(
       attendeesOmitted: true,
     },
     { sendUpdates: sendUpdates ?? "none" },
+    signal,
   );
 }
 
-/**
- * Update the current user's RSVP status for an event.
- * Supports recurring event scopes: "single", "all", or "thisAndFollowing".
- */
 export async function rsvpEvent(
   googleEventId: string,
-  responseStatus: "accepted" | "declined" | "tentative",
+  responseStatus: "accepted" | "declined" | "tentative" | "needsAction",
   account: GoogleAccountSelection,
   scope: "single" | "all" | "thisAndFollowing" = "single",
   comment?: string,
   sendUpdates?: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   const client = await getClientForAccount(account);
+  signal?.throwIfAborted();
 
   if (scope === "single") {
     await rsvpSingleEvent(
@@ -1912,21 +2389,21 @@ export async function rsvpEvent(
       account.accountEmail,
       comment,
       sendUpdates,
+      signal,
     );
     return;
   }
 
-  // For "all" or "thisAndFollowing", we need the base recurring event ID.
   const instance = await calendarGetEvent(
     client.accessToken,
     "primary",
     googleEventId,
+    signal,
   );
+  signal?.throwIfAborted();
   const recurringEventId = instance.recurringEventId || googleEventId;
 
   if (scope === "all") {
-    // RSVP the base recurring event — Google propagates to all instances
-    // that don't have individual overrides.
     await rsvpSingleEvent(
       client.accessToken,
       recurringEventId,
@@ -1934,32 +2411,34 @@ export async function rsvpEvent(
       account.accountEmail,
       comment,
       sendUpdates,
+      signal,
     );
     return;
   }
 
-  // "thisAndFollowing": RSVP this instance and all future instances.
-  // Get the start time of the current instance to use as the cutoff.
   const instanceStart =
     instance.start?.dateTime ||
     instance.start?.date ||
     new Date().toISOString();
 
-  // Fetch all future instances of this recurring event
-  const futureEvents = await calendarListEvents(client.accessToken, "primary", {
-    timeMin: instanceStart,
-    singleEvents: true,
-    orderBy: "startTime",
-    maxResults: 250,
-  });
+  const futureEvents = await calendarListEvents(
+    client.accessToken,
+    "primary",
+    {
+      timeMin: instanceStart,
+      singleEvents: true,
+      orderBy: "startTime",
+      maxResults: 250,
+    },
+    signal,
+  );
+  signal?.throwIfAborted();
 
-  // Filter to only instances of the same recurring series
   const futureInstances = (futureEvents.items || []).filter(
     (e: any) =>
       e.recurringEventId === recurringEventId || e.id === recurringEventId,
   );
 
-  // RSVP each instance (including the current one)
   await Promise.all(
     futureInstances.map((e: any) =>
       rsvpSingleEvent(
@@ -1969,6 +2448,7 @@ export async function rsvpEvent(
         account.accountEmail,
         comment,
         sendUpdates,
+        signal,
       ),
     ),
   );

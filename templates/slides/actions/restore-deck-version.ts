@@ -6,8 +6,19 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import {
+  createDeckVersionSnapshot,
+  deckVersionChangeGroupFromAction,
+  deckVersionChatContextFromAction,
+  deckVersionContentSignature,
+} from "../server/lib/deck-versions.js";
 import { getDeckUrl } from "./_app-url.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
+import { isAgentPatchCaller } from "./patch-deck.js";
 
 export default defineAction({
   description:
@@ -16,7 +27,8 @@ export default defineAction({
     deckId: z.string().describe("Deck ID"),
     versionId: z.string().describe("Version snapshot ID to restore"),
   }),
-  run: async ({ deckId, versionId }) => {
+  http: { method: "POST" },
+  run: async ({ deckId, versionId }, ctx) => {
     const access = await assertAccess("deck", deckId, "editor");
     const current = access.resource;
     const ownerEmail = current.ownerEmail as string;
@@ -38,38 +50,73 @@ export default defineAction({
       throw new Error(`Deck version not found: ${versionId}`);
     }
 
-    await createDeckVersionSnapshot(
-      {
-        id: current.id,
-        title: current.title,
-        data: current.data,
-        ownerEmail,
-      },
-      { force: true, label: "Before restore" },
-    );
-
     const data = JSON.parse(version.data);
-    const now = new Date().toISOString();
+    const now = nextDeckRevision(current.updatedAt);
     const title = version.title || data?.title || current.title || "Untitled";
     data.title = title;
-    data.updatedAt = now;
 
     const designSystemId =
       typeof data.designSystemId === "string" && data.designSystemId
         ? data.designSystemId
         : null;
 
-    await db
-      .update(schema.decks)
-      .set({
+    if (
+      current.title === title &&
+      current.designSystemId === designSystemId &&
+      deckVersionContentSignature(current.data) ===
+        deckVersionContentSignature(data)
+    ) {
+      if (isAgentPatchCaller(ctx?.caller)) {
+        throw new Error(
+          "Nothing was written: the selected deck version already matches the current deck. Re-read with get-deck before retrying.",
+        );
+      }
+      return {
+        id: deckId,
         title,
-        data: JSON.stringify(data),
-        designSystemId,
-        updatedAt: now,
-      })
-      .where(eq(schema.decks.id, deckId));
+        slideCount: Array.isArray(data?.slides) ? data.slides.length : 0,
+        restoredVersionId: versionId,
+        updatedAt: current.updatedAt,
+        url: getDeckUrl(deckId),
+        applied: false,
+      };
+    }
 
-    notifyClients(deckId);
+    data.updatedAt = now;
+
+    await db.transaction(async (tx: any) => {
+      await createDeckVersionSnapshot(
+        {
+          id: current.id,
+          title: current.title,
+          data: current.data,
+          ownerEmail,
+        },
+        {
+          force: true,
+          chatContext: deckVersionChatContextFromAction(ctx),
+          label: "Before restore",
+          db: tx,
+        },
+      );
+      const updateResult = await tx
+        .update(schema.decks)
+        .set({
+          title,
+          data: JSON.stringify(data),
+          designSystemId,
+          updatedAt: now,
+        })
+        .where(deckRevisionWhere(schema.decks, deckId, current.updatedAt));
+      assertDeckWriteApplied(updateResult, deckId, "deck restore");
+    });
+
+    const agentChangeId = deckVersionChangeGroupFromAction(ctx);
+    if (agentChangeId) {
+      await notifyClients(deckId, { agentChangeId });
+    } else {
+      await notifyClients(deckId);
+    }
     await writeAppState("refresh-signal", {
       ts: now,
       source: "restore-deck-version",
@@ -82,6 +129,7 @@ export default defineAction({
       restoredVersionId: versionId,
       updatedAt: now,
       url: getDeckUrl(deckId),
+      appUrl: getDeckUrl(deckId),
     };
   },
 });

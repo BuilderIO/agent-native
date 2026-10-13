@@ -1,27 +1,55 @@
 import {
-  createAuthPlugin,
   isInBackgroundFunctionRuntime,
   markDefaultPluginProvided,
 } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
-const authPlugin = createAuthPlugin({
+import {
+  ANALYTICS_ANALYSIS_AGENT_CONTEXT_ENDPOINT,
+  ANALYTICS_DASHBOARD_AGENT_CONTEXT_ENDPOINT,
+} from "../../shared/resource-agent-access.js";
+import {
+  SESSION_REPLAY_AGENT_CONTEXT_ENDPOINT,
+  SESSION_REPLAY_AGENT_DIAGNOSTICS_ENDPOINT,
+  SESSION_REPLAY_AGENT_EVENTS_ENDPOINT,
+} from "../../shared/session-replay-agent-access.js";
+
+const authPlugin = createToolkitAuthPlugin({
+  workspaceAppPublicPaths: ["/"],
   publicPaths: [
+    // Agent-readable context links: fetched with no session cookie, so the
+    // gate must not 401 before each handler verifies its scoped token. One
+    // by one: a `/api/session-replay` prefix would also expose recordings.
+    ANALYTICS_DASHBOARD_AGENT_CONTEXT_ENDPOINT,
+    ANALYTICS_ANALYSIS_AGENT_CONTEXT_ENDPOINT,
+    SESSION_REPLAY_AGENT_CONTEXT_ENDPOINT,
+    SESSION_REPLAY_AGENT_EVENTS_ENDPOINT,
+    SESSION_REPLAY_AGENT_DIAGNOSTICS_ENDPOINT,
     "/track",
     "/api/analytics/track",
     "/api/analytics/replay",
-    // Public uptime status pages: the SSR route `/status/<slug>` and its
-    // matching unauthenticated read action. The action only ever returns the
-    // sanitized projection of a PUBLISHED page (see actions/get-public-status-page.ts
-    // and server/lib/status-pages.ts `getPublicStatusPage`).
     "/status",
     "/_agent-native/actions/get-public-status-page",
   ],
-  // These browser-ingest routes validate their public key and payload at the
-  // handler boundary. Allow their preflights even when the deployment-wide
-  // CORS allowlist is intentionally empty.
+  publicPathsWithQueryToken: [
+    {
+      path: "/api/session-replay/recordings/:recordingId/manifest",
+      queryParam: "agent_access",
+    },
+    {
+      path: "/api/session-replay/recordings/:recordingId/chunks/:seq",
+      queryParam: "agent_access",
+    },
+    {
+      path: "/api/session-replay/recordings/:recordingId/chunks",
+      queryParam: "agent_access",
+    },
+  ],
   publicCorsPaths: ["/track", "/api/analytics/track", "/api/analytics/replay"],
   marketing: {
     appName: "Analytics",
+    learnMoreUrl:
+      "https://agent-native.com/apps/analytics?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Your AI agent queries your data sources, builds dashboards, and answers business questions alongside you.",
     features: [
@@ -33,12 +61,8 @@ const authPlugin = createAuthPlugin({
 });
 
 export default async (nitroApp: any): Promise<void> => {
-  // Keep the custom slot marked so runtime discovery cannot mount a second
-  // default auth plugin while this worker is registering its internal routes.
   markDefaultPluginProvided(nitroApp, "auth");
   if (isInBackgroundFunctionRuntime()) {
-    // Background functions authenticate their signed processor routes locally;
-    // Better Auth would perform an unnecessary database initialization here.
     console.info(
       "[auth] Skipping Better Auth setup in durable background runtime",
     );

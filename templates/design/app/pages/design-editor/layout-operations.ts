@@ -3,10 +3,6 @@ import type {
   DesignHotkeyDistributeAxis,
 } from "@/hooks/useDesignHotkeys";
 
-/**
- * Generic rect shape shared by the alignment/distribute/tidy pure helpers.
- * Works for overview screen frames and in-screen layer nodes.
- */
 export interface AlignableRect {
   id: string;
   x: number;
@@ -33,6 +29,14 @@ export function mergeAuthoredAndLiveRect(args: {
     width: resolve(args.authored.width, args.live?.width),
     height: resolve(args.authored.height, args.live?.height),
   };
+}
+
+export function authoredPxLength(value: string | undefined): number | null {
+  const match = /^(-?(?:\d+\.?\d*|\.\d+))(px)?$/i.exec(value?.trim() ?? "");
+  if (!match) return null;
+  const parsed = Number.parseFloat(match[1]!);
+  if (!Number.isFinite(parsed)) return null;
+  return match[2] || parsed === 0 ? parsed : null;
 }
 
 export function computeAlignedPositions(
@@ -109,12 +113,9 @@ export function computeDistributedPositions(
   return next;
 }
 
-/** One screen's own frame box plus the footprint its responsive row occupies. */
 export interface ReflowCandidate {
   id: string;
-  /** Resolved frame geometry, including screens with no persisted entry yet. */
   geometry: { x: number; y: number; width: number; height: number };
-  /** Space actually painted, breakpoint frames included. */
   footprint: AlignableRect;
 }
 
@@ -131,16 +132,6 @@ function footprintsOverlap(rects: readonly AlignableRect[]): boolean {
   );
 }
 
-/**
- * Re-packs a board whose responsive rows have grown into each other, returning
- * complete geometry per screen — including screens that had no persisted entry
- * and were positioned by `getInitialFrameGeometry`. Returning only the moved
- * x/y would drop those screens at the write-back, which is exactly the
- * default-layout board that needs the reflow most.
- *
- * Empty when there is nothing to do, so a deliberately arranged,
- * non-overlapping board is never rearranged.
- */
 export function computeOverlapReflowGeometry(
   candidates: readonly ReflowCandidate[],
 ): Map<string, { x: number; y: number; width: number; height: number }> {
@@ -156,9 +147,6 @@ export function computeOverlapReflowGeometry(
   for (const candidate of candidates) {
     const position = positions.get(candidate.id);
     if (!position) continue;
-    // Translate by the footprint's delta rather than adopting the packed origin
-    // as the frame origin. A rotated group's AABB origin is not its frame
-    // origin, so assigning it directly shifts the frame by the rotation offset.
     result.set(candidate.id, {
       ...candidate.geometry,
       x: candidate.geometry.x + (position.x - candidate.footprint.x),
@@ -212,12 +200,6 @@ export function computeTidyPositions(
   return next;
 }
 
-/**
- * Which axis sibling rects already flow along, measured from how they are
- * separated: a stack of full-width rows spans wider than it is tall, so a
- * union-box comparison calls a vertical list a `row`. Ties (grids, mutually
- * overlapping shapes) fall back to that box comparison. Exported for tests.
- */
 export function inferFlowAxisFromRects(
   rects: readonly { x: number; y: number; width: number; height: number }[],
 ): "row" | "column" {
@@ -255,10 +237,6 @@ export function inferAutoLayoutFromChildren(
   if (children.length === 0) {
     return { direction: "column", gap: 10, padding: 0 };
   }
-  // Live Figma defaults a one-item Shift+A wrapper to vertical flow even
-  // when the item itself is much wider than it is tall. With no relationship
-  // between multiple children to infer, use that stable default rather than
-  // allowing the selected child's aspect ratio to choose the axis.
   if (children.length === 1) {
     return { direction: "column", gap: 10, padding: 0 };
   }

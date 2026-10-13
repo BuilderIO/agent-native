@@ -1,11 +1,3 @@
-/**
- * Tests for the shared capture-sanitize helpers.
- *
- * These helpers are used by both create-design-state and capture-design-state
- * to strip XSS vectors from arbitrary caller-supplied markup before persisting
- * it into design_state rows.
- */
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -49,6 +41,25 @@ describe("sanitizeMarkup", () => {
     expect(sanitizeMarkup(input)).not.toContain("javascript:");
   });
 
+  it("strips entity-encoded executable URL schemes", () => {
+    const input =
+      '<a href="javascript&colon;alert(1)">link</a>' +
+      '<img src="&#x6a;avascript&colon;alert(2)">' +
+      '<button formaction="java&#x09;script:alert(3)">submit</button>';
+    const result = sanitizeMarkup(input);
+
+    expect(result).toBe("<a>link</a><img><button>submit</button>");
+  });
+
+  it("keeps URL attributes whose decoded schemes are allow-listed", () => {
+    const input =
+      '<a href="https://example.test/docs?a=1&amp;b=2">docs</a>' +
+      '<img src="/assets/logo.png">' +
+      '<form action="mailto:hello@example.test"><button>mail</button></form>';
+
+    expect(sanitizeMarkup(input)).toBe(input);
+  });
+
   it("strips data: src", () => {
     const input = '<img src="data:text/html,<script>alert(1)</script>">';
     expect(sanitizeMarkup(input)).not.toContain('src="data:');
@@ -83,7 +94,6 @@ describe("sanitizeCaptureData", () => {
     const result = sanitizeCaptureData(input) as Record<string, unknown>;
     expect(result.domHtml).not.toContain("onmouseover");
     expect(result.domHtml).toContain("<div");
-    // Plain string left untouched
     expect(result.route).toBe("/dashboard");
   });
 

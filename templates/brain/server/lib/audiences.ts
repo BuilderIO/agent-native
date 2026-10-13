@@ -3,24 +3,11 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, eq, gte, inArray, ne, or } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import { nanoid, nowIso } from "./brain.js";
 import type { BrainAudienceAssignment } from "./search-index-contracts.js";
-
-export const SLACK_PRIVATE_AUDIENCE_TTL_MS = 15 * 60 * 1000;
-
-export function isAudienceMembershipFresh(
-  kind: BrainAudienceAssignment["kind"],
-  lastSyncedAt: string,
-  nowMs = Date.now(),
-) {
-  return (
-    kind !== "slack-private-channel" ||
-    Date.parse(lastSyncedAt) >= nowMs - SLACK_PRIVATE_AUDIENCE_TTL_MS
-  );
-}
 
 async function sha256(value: string) {
   const digest = await crypto.subtle.digest(
@@ -465,26 +452,6 @@ export function assertSingleEvidenceTenant(
   return Array.from(tenantKeys)[0]!;
 }
 
-export async function replaceAudienceUserMembers(
-  audienceId: string,
-  members: Array<{ email: string; upstreamPrincipalHash?: string }>,
-  options: { previousAclHash?: string } = {},
-) {
-  const db = getDb();
-  const invalidations: DeferredAudienceInvalidation[] = [];
-  const result = await db.transaction((tx) =>
-    replaceAudienceUserMembersMutation(
-      audienceId,
-      members,
-      options,
-      tx as unknown as BrainDb,
-      invalidations,
-    ),
-  );
-  await flushAudienceInvalidations(invalidations);
-  return result;
-}
-
 async function replaceAudienceUserMembersMutation(
   audienceId: string,
   members: Array<{ email: string; upstreamPrincipalHash?: string }>,
@@ -591,9 +558,6 @@ export async function listAccessibleAudienceIds(sourceIds?: string[]) {
       : undefined,
   );
   if (!principalFilter) return [];
-  const slackFreshnessCutoff = new Date(
-    Date.now() - SLACK_PRIVATE_AUDIENCE_TTL_MS,
-  ).toISOString();
   const rows = await getDb()
     .selectDistinct({
       id: schema.brainAudiences.id,
@@ -607,10 +571,6 @@ export async function listAccessibleAudienceIds(sourceIds?: string[]) {
     .where(
       and(
         eq(schema.brainAudiences.membershipState, "current"),
-        or(
-          ne(schema.brainAudiences.kind, "slack-private-channel"),
-          gte(schema.brainAudiences.lastSyncedAt, slackFreshnessCutoff),
-        ),
         eq(schema.brainAudienceMembers.status, "active"),
         principalFilter,
       ),

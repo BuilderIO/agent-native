@@ -1,12 +1,12 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
-  AppProviders,
   createAgentNativeQueryClient,
   useDbSync,
 } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript } from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
@@ -74,19 +74,31 @@ function SyncBridge() {
   return null;
 }
 
+function AppContent() {
+  return (
+    <>
+      <SyncBridge />
+      <CrmCommandMenu />
+      <CrmLayout>
+        <Outlet />
+      </CrmLayout>
+    </>
+  );
+}
+
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
     <AppToolkitProvider>
-      <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
-        <SyncBridge />
-        <CrmCommandMenu />
-        <CrmLayout>
-          <Outlet />
-        </CrmLayout>
+      <AppProviders
+        queryClient={queryClient}
+        skeletonLayout="dashboard"
+        i18n={{ catalog: i18nCatalog }}
+      >
+        <AppContent />
       </AppProviders>
     </AppToolkitProvider>
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/toolkit/app/shared";

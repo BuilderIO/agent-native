@@ -1,10 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-/**
- * Constraints assert Figma parity (doc-quoted). Breakpoints assert Design's
- * OWN Framer-model contract from .agents/skills/responsive-breakpoints — they
- * are deliberately not a Figma concept, so parity is not the bar there.
- */
+import { e2eBaseURL } from "./base-url";
+import { expandAllLayers } from "./helpers";
 
 const PAGE_W = 1440;
 const PAGE_H = 900;
@@ -110,15 +107,7 @@ async function openEditor(page: Page, designId: string): Promise<void> {
     .locator("iframe[data-design-preview-iframe]")
     .first()
     .waitFor({ timeout: 30_000 });
-  await page.waitForTimeout(2500);
-  for (let i = 0; i < 5; i += 1) {
-    await page
-      .getByRole("button", { name: "Expand layer" })
-      .first()
-      .click()
-      .catch(() => {});
-    await page.waitForTimeout(250);
-  }
+  await expandAllLayers(page);
   await page.waitForTimeout(500);
 }
 
@@ -129,8 +118,6 @@ async function rendered(page: Page, id: string) {
   });
 }
 
-/** Resize the parent through the inspector, isolating constraints from the
- *  broken resize handles. */
 async function setWidth(page: Page, value: string): Promise<void> {
   const input = page
     .getByText("W", { exact: true })
@@ -155,10 +142,10 @@ test.beforeEach(async ({ page }, testInfo) => {
   baseURL =
     (testInfo.project.use.baseURL as string | undefined) ??
     process.env.E2E_BASE_URL ??
-    `http://127.0.0.1:${process.env.E2E_PORT ?? 9333}`;
+    e2eBaseURL();
 });
 
-test.describe("constraints (Figma parity)", () => {
+test.describe("constraints", () => {
   test("a child defaults to Top and Left constraints", async ({ page }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
@@ -186,7 +173,7 @@ test.describe("constraints (Figma parity)", () => {
     });
     expect(
       text,
-      `Figma: "By default, constraints are set to Top and Left". Panel reads "${text}".`,
+      `The default constraints should include Top and Left. Panel reads "${text}".`,
     ).toMatch(/Left/i);
     expect(text).toMatch(/Top/i);
   });
@@ -205,14 +192,14 @@ test.describe("constraints (Figma parity)", () => {
 
     const after = await rendered(page, "child");
     const parentAfter = await rendered(page, "parent");
-    test.skip(
-      Math.abs(parentAfter.width - parentBefore.width) < 1,
-      "the parent did not actually resize, so constraints are untestable here",
-    );
+    expect(
+      Math.abs(parentAfter.width - parentBefore.width),
+      `precondition: the parent must actually resize for this constraint to be testable. ` +
+        `width went ${parentBefore.width} -> ${parentAfter.width}.`,
+    ).toBeGreaterThanOrEqual(1);
     expect(
       Math.round(after.left - parentAfter.left),
-      `Figma: Top+Left "will stay in the same position relative to the top left corner of ` +
-        `its parent frame". Offset went ${Math.round(before.left - parentBefore.left)} → ` +
+      `Top+Left should preserve the child offset from its parent. Offset went ${Math.round(before.left - parentBefore.left)} → ` +
         `${Math.round(after.left - parentAfter.left)}.`,
     ).toBe(Math.round(before.left - parentBefore.left));
   });
@@ -225,13 +212,11 @@ test.describe("constraints (Figma parity)", () => {
     await layerRow(page, "Child").click();
     await page.waitForTimeout(1500);
     const opened = await openConstraints(page);
-    test.skip(!opened, "no Constraints control to set Scale with");
+    expect(opened, "no Constraints control to set Scale with").toBe(true);
 
-    const scaleOption = page
-      .getByRole("option", { name: /Scale/i })
-      .or(page.getByRole("menuitem", { name: /Scale/i }));
-    const hasScale = await scaleOption.count();
-    test.skip(hasScale === 0, "no Scale constraint option exposed");
+    await page.getByRole("combobox", { name: "Horizontal" }).first().click();
+    const scaleOption = page.getByRole("option", { name: /Scale/i });
+    await expect(scaleOption.first()).toBeVisible({ timeout: 10_000 });
     await scaleOption.first().click();
     await page.waitForTimeout(1500);
 
@@ -247,8 +232,7 @@ test.describe("constraints (Figma parity)", () => {
     const parentAfter = await rendered(page, "parent");
     expect(
       childAfter.width / parentAfter.width,
-      `Figma: Scale "will define the layer's size and position as a percentage of the ` +
-        `frame's dimensions" — 70px in a 100px frame becomes 140px in a 200px frame. ` +
+      `Scale should preserve the child's proportion of the parent. ` +
         `Ratio went ${ratio.toFixed(3)} → ${(childAfter.width / parentAfter.width).toFixed(3)}.`,
     ).toBeCloseTo(ratio, 2);
   });
@@ -262,12 +246,12 @@ test.describe("constraints (Figma parity)", () => {
     await page.waitForTimeout(1500);
     expect(
       await page.locator('button[aria-label="Constraints"]').count(),
-      `Figma: "It's not possible to apply constraints to layers ... in an auto layout frame."`,
+      `Constraints should be hidden for children of auto-layout frames.`,
     ).toBe(0);
   });
 });
 
-test.describe("breakpoints (Design's Framer model, not Figma)", () => {
+test.describe("breakpoints", () => {
   test("add-breakpoint records the width in the design's breakpointSet", async ({
     page,
   }) => {
@@ -391,24 +375,56 @@ test.describe("breakpoints (Design's Framer model, not Figma)", () => {
 
   test("the default device set is a desktop base plus mobile only", async ({
     page,
-  }) => {
-    const id = await newDesign(page);
+  }, testInfo) => {
+    const created = await postAction(page, "create-design", {
+      title: "generated default device fixture",
+      projectType: "prototype",
+    });
+    const id = created?.id ?? created?.data?.id;
+    if (!id) throw new Error("create-design returned no id");
+
+    const generated = await postAction(page, "generate-design", {
+      designId: id,
+      prompt: "Create a responsive constraints test fixture.",
+      files: [
+        {
+          filename: "index.html",
+          content: FIXTURE,
+          fileType: "html",
+        },
+      ],
+    });
+    expect(generated.savedFiles).toHaveLength(1);
+
     const record = await designRecord(page, id);
     const data =
       typeof record.data === "string"
         ? JSON.parse(record.data || "{}")
         : (record.data ?? {});
-    const widths = (data.breakpointSet?.breakpoints ?? []).map(
-      (b: any) => b.widthPx,
+    const screen = (record.files ?? []).find(
+      (file: any) => file.filename === "index.html",
     );
-    test.skip(
-      widths.length === 0,
-      "create-design injects no breakpointSet; the documented default applies to generate-design",
-    );
-    expect(
-      widths,
-      `skill: the default injected set is "a Desktop base plus a single Mobile (390) ` +
-        `breakpoint frame ... never an auto-added tablet". Got ${JSON.stringify(widths)}.`,
-    ).not.toContain(810);
+    expect(screen, "generate-design must save index.html").toBeDefined();
+    expect(data.canvasFrames?.[screen.id]?.width).toBe(1440);
+
+    const breakpoints = data.breakpointSet?.breakpoints ?? [];
+    await testInfo.attach("generated-device-defaults", {
+      body: JSON.stringify(
+        {
+          designId: id,
+          screenId: screen.id,
+          primaryFrame: data.canvasFrames?.[screen.id],
+          breakpoints,
+        },
+        null,
+        2,
+      ),
+      contentType: "application/json",
+    });
+    expect(breakpoints).toHaveLength(1);
+    expect(breakpoints[0]).toMatchObject({
+      label: "Mobile",
+      widthPx: 390,
+    });
   });
 });

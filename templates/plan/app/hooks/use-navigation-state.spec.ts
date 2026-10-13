@@ -49,7 +49,7 @@ describe("useNavigationState", () => {
     expect(mocks.useQuery).toHaveBeenCalledOnce();
     expect(mocks.useQuery.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({
-        queryKey: ["navigate-command"],
+        queryKey: ["navigate-command", "test-tab"],
         retry: false,
         structuralSharing: false,
       }),

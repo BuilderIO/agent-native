@@ -9,14 +9,9 @@
 
 import { createHash, randomUUID } from "node:crypto";
 
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  isUniqueViolation,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec, isUniqueViolation, retryOnDdlRace } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import type { SecretScope } from "../secrets/register.js";
 import {
   deleteAppSecret,
@@ -46,7 +41,6 @@ export interface IntegrationTokenBundle {
   expiresAt?: number;
 }
 
-/** Safe-to-return installation metadata. No secret reference or token value. */
 export interface IntegrationInstallation {
   id: string;
   platform: string;
@@ -82,7 +76,6 @@ interface RawInstallation extends IntegrationInstallation {
 export interface InstallationActor {
   userEmail: string;
   orgId?: string | null;
-  /** Must come from a verified active organization membership. */
   isOrgAdmin?: boolean;
 }
 
@@ -125,7 +118,7 @@ export interface IntegrationInstallationUpdate {
 }
 
 function createSql(): string {
-  const integer = intType();
+  const integer = "BIGINT";
   return `CREATE TABLE IF NOT EXISTS ${TABLE} (
     id TEXT PRIMARY KEY,
     platform TEXT NOT NULL,
@@ -177,10 +170,10 @@ const INDEXES = [
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const client = getDbExec();
       const ddl = createSql();
-      if (isPostgres()) {
+      {
         await ensureTableExists(TABLE, ddl);
         for (const [name, sql] of INDEXES) {
           await ensureIndexExists(name, sql);
@@ -195,6 +188,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw error;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }
@@ -486,7 +480,6 @@ export async function upsertIntegrationInstallation(
   return toSafeInstallation(stored);
 }
 
-/** List installations visible to the owner or active organization member. */
 export async function listIntegrationInstallations(
   actor: InstallationActor,
   platform?: string,
@@ -513,7 +506,6 @@ export async function listIntegrationInstallations(
   );
 }
 
-/** Read one installation through owner/org visibility scoping. */
 export async function getIntegrationInstallation(
   id: string,
   actor: InstallationActor,
@@ -529,7 +521,6 @@ export async function getIntegrationInstallation(
   return toSafeInstallation(row);
 }
 
-/** Update non-secret installation metadata after an owner/admin access check. */
 export async function updateIntegrationInstallation(
   id: string,
   actor: InstallationActor,
@@ -588,7 +579,6 @@ export async function updateIntegrationInstallation(
   return updated ? toSafeInstallation(updated) : null;
 }
 
-/** Delete the encrypted token bundle and retain disconnected audit metadata. */
 export async function disconnectIntegrationInstallation(
   id: string,
   actor: InstallationActor,
@@ -614,13 +604,6 @@ export async function disconnectIntegrationInstallation(
   return updated ? toSafeInstallation(updated) : null;
 }
 
-/**
- * Resolve credentials for a verified provider webhook/runtime path.
- *
- * This is intentionally separate from every user-facing list/read helper.
- * Callers must first authenticate the provider webhook (or run inside a
- * trusted OAuth callback) and must never log or return the result.
- */
 export async function resolveIntegrationTokenBundle(
   platform: string,
   installationKey: string,
@@ -644,7 +627,6 @@ export async function resolveIntegrationTokenBundle(
   }
 }
 
-/** Safe metadata lookup for a verified provider event. */
 export async function getActiveIntegrationInstallationByKey(
   platform: string,
   installationKey: string,
@@ -654,7 +636,6 @@ export async function getActiveIntegrationInstallationByKey(
   return toSafeInstallation(row);
 }
 
-/** Resolve a connected installation by workspace or enterprise tenant id. */
 export async function getActiveIntegrationInstallationForTenant(
   platform: string,
   tenantId: string,
@@ -676,15 +657,6 @@ export async function getActiveIntegrationInstallationForTenant(
     : null;
 }
 
-/**
- * Every connected installation for a tenant, newest first.
- *
- * A workspace can legitimately have several apps of the same platform
- * connected at once (e.g. a product-specific Slack app alongside a generic
- * one). Callers that cannot name an app id must see that ambiguity rather
- * than receive an arbitrary winner — picking the most recently updated row
- * silently sends as whichever app happened to reconnect last.
- */
 export async function listActiveIntegrationInstallationsForTenant(
   platform: string,
   tenantId: string,

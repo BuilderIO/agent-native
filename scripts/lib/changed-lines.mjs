@@ -1,28 +1,19 @@
-/**
- * changed-lines.mjs
- *
- * Diff-scoped guard support. Some rules describe a habit we want to stop, not
- * a backlog we can clear — the repo already has thousands of `?? []` sites and
- * hundreds of raw colors. A guard that fails on all of them is a guard someone
- * turns off. These helpers let a guard fail only on lines this branch ADDED,
- * so the tenth instance cannot ship while the first nine stay a separate,
- * schedulable cleanup.
- */
-
 import { execFileSync } from "node:child_process";
+import path from "node:path";
 
 const DIFF_BASE_ENV = ["GUARD_DIFF_BASE", "GITHUB_BASE_REF"];
 
-/**
- * Exit code a guard uses for "I could not run", as distinct from 0 (checked,
- * clean) and 1 (checked, violations). Without a third code every diff-scoped
- * guard has to pick between lying about a pass and failing the build on a
- * shallow clone, and all four picked the lie. `run-guards.ts` renders this as
- * SKIPPED and refuses to print "All checks passed" when any guard used it.
- */
 export const GUARD_EXIT_COULD_NOT_RUN = 2;
 
-/** Resolve the ref to diff against: explicit env, then origin/main, then main. */
+export function execGuardCommand(command, args, options = {}) {
+  try {
+    return execFileSync(command, args, options);
+  } catch {
+    console.error(`guard command could not run: ${command} ${args.join(" ")}`);
+    process.exit(GUARD_EXIT_COULD_NOT_RUN);
+  }
+}
+
 export function resolveDiffBase(cwd) {
   for (const name of DIFF_BASE_ENV) {
     const value = process.env[name];
@@ -36,11 +27,6 @@ export function resolveDiffBase(cwd) {
   return null;
 }
 
-/**
- * Lines added on this branch, as `{ [absolutePath]: Set<lineNumber> }`.
- * Returns null when the diff cannot be computed — callers must treat that as
- * "cannot tell", never as "nothing changed".
- */
 export function addedLines(cwd, { includeWorkingTree = true } = {}) {
   const base = resolveDiffBase(cwd);
   if (!base) return null;
@@ -78,14 +64,10 @@ export function requireAddedLines(cwd, guardName, options) {
   process.exit(GUARD_EXIT_COULD_NOT_RUN);
 }
 
-/**
- * Extensions a guard is expected to inspect. A binary diff for one of these is
- * a guard that cannot see the file, not a file with nothing in it.
- */
 const SOURCE_EXTENSIONS =
   /\.(?:tsx?|jsx?|mjs|cjs|mdx?|css|scss|json|ya?ml|html|sh)$/i;
 
-export function parseUnifiedDiff(diff, cwd) {
+export function parseUnifiedDiff(diff, cwd, pathApi = path) {
   const result = new Map();
   let file = null;
   let line = 0;
@@ -106,8 +88,14 @@ export function parseUnifiedDiff(diff, cwd) {
     }
     if (raw.startsWith("+++ ")) {
       const target = raw.slice(4).trim();
+      const path = target.replace(/^b\//, "");
+      // Keys are native absolute paths so a guard can look one up with a
+      // path.join/path.resolve result; a "/"-joined key never matches on Windows.
+      // Prototypes are throwaway design artifacts, not shipped code, so the diff-scoped guards don't police them.
       file =
-        target === "/dev/null" ? null : `${cwd}/${target.replace(/^b\//, "")}`;
+        target === "/dev/null" || path.startsWith("prototypes/")
+          ? null
+          : pathApi.resolve(cwd, path);
       continue;
     }
     const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(raw);

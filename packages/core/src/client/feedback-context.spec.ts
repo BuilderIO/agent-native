@@ -54,7 +54,6 @@ describe("getFeedbackClientContext", () => {
     expect(context.pageUrl).toBe(
       "http://localhost:3000/inbox?token=%3Credacted%3E&utm=ok#section",
     );
-    // happy-dom has no desktop/Tauri markers, so the surface resolves to web.
     expect(context.clientSurface).toBe("web");
   });
 
@@ -85,5 +84,23 @@ describe("getFeedbackClientContext", () => {
     const context = getFeedbackClientContext({ chatSessionId: "same-thread" });
 
     expect(context.chatSessionIds).toEqual(["same-thread"]);
+  });
+
+  it("uses an explicit message run id over the currently active run", () => {
+    sessionStorage.setItem(
+      "agent-chat-active-run",
+      JSON.stringify({
+        threadId: "same-thread",
+        runId: "active-run",
+        lastSeq: 1,
+      }),
+    );
+
+    const context = getFeedbackClientContext({
+      chatSessionId: "same-thread",
+      activeRunId: "message-run",
+    });
+
+    expect(context.activeRunId).toBe("message-run");
   });
 });

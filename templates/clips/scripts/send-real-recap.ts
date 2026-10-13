@@ -1,7 +1,7 @@
 /**
  * Send the monthly recap for a real account using live Clips data.
  *
- * Talks to the database directly with a read-only driver instead of booting
+ * Talks to the Postgres database directly with a read-only connection instead of booting
  * the app, so it cannot run a migration against a shared database. Copy is
  * composed exactly as the worker composes it, so this sends the real thing.
  *
@@ -115,7 +115,6 @@ async function main(args: string[]): Promise<void> {
            and first_seen_at >= ${startAt} and first_seen_at < ${endAt}
          group by agent_label order by n desc, agent_label asc`
     ).map((row) => ({
-      // "Agent" is the agent-views fallback label, not a product name.
       agentLabel: row.agent_label === "Agent" ? null : row.agent_label,
       sessions: row.n,
     }));

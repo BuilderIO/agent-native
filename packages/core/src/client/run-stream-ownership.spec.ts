@@ -22,7 +22,6 @@ describe("run stream ownership", () => {
     const other = createRunStreamToken("other");
 
     expect(claimRunStream(THREAD, RUN, reconnect)).toBe(true);
-    // The second reader is the one that used to render a duplicate turn.
     expect(claimRunStream(THREAD, RUN, other)).toBe(false);
     expect(ownsRunStream(THREAD, RUN, reconnect)).toBe(true);
     expect(ownsRunStream(THREAD, RUN, other)).toBe(false);
@@ -49,8 +48,6 @@ describe("run stream ownership", () => {
     claimRunStream(THREAD, RUN, reconnect);
 
     expect(preemptRunStream(THREAD, RUN, adapter)).toBe(true);
-    // The displaced reader must observe the loss without waiting for a poll —
-    // this is what stops it writing a second copy of the turn into the UI.
     expect(ownsRunStream(THREAD, RUN, reconnect)).toBe(false);
     expect(ownsRunStream(THREAD, RUN, adapter)).toBe(true);
   });
@@ -67,11 +64,23 @@ describe("run stream ownership", () => {
     claimRunStream(THREAD, RUN, reconnect);
     preemptRunStream(THREAD, RUN, adapter);
 
-    // A late unmount of the displaced reader must not free the successor's
-    // claim, or a third reader could attach beside the adapter.
     releaseRunStream(THREAD, RUN, reconnect);
     expect(ownsRunStream(THREAD, RUN, adapter)).toBe(true);
     expect(claimRunStream(THREAD, RUN, reconnect)).toBe(false);
+  });
+
+  it("keeps one owner across background continuation run ids in one turn", () => {
+    const reconnect = createRunStreamToken("reconnect");
+    const adapter = createRunStreamToken("adapter");
+    const turn = "turn-1";
+
+    claimRunStream(THREAD, "run-a", reconnect, turn);
+    expect(preemptRunStream(THREAD, "run-b", adapter, turn)).toBe(true);
+    expect(ownsRunStream(THREAD, "run-a", reconnect, turn)).toBe(false);
+    expect(ownsRunStream(THREAD, "run-b", adapter, turn)).toBe(true);
+
+    releaseRunStream(THREAD, "run-a", reconnect, turn);
+    expect(claimRunStream(THREAD, "run-c", reconnect, turn)).toBe(false);
   });
 
   it("frees the run for the next reader once the owner releases", () => {

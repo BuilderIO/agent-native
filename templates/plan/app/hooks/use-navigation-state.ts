@@ -6,12 +6,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { isPlanChatPath } from "@/lib/chat-route";
 import { prewarmPlanRoutePath } from "@/lib/route-prewarm";
 import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
   view: string;
   planId?: string;
+  editionId?: string;
   localPlanSlug?: string;
   localPlanPath?: string;
   path?: string;
@@ -23,8 +25,8 @@ export function useNavigationState() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const lastProcessedDedupKeyRef = useRef<string | null>(null);
+  const stateKey = (key: string) => `${key}:${TAB_ID}`;
 
-  // Sync current route to application state
   useEffect(() => {
     const state: NavigationState = {
       view: viewForPath(location.pathname),
@@ -33,7 +35,10 @@ export function useNavigationState() {
     const planMatch =
       location.pathname.match(/^\/plans\/([^/]+)/) ??
       location.pathname.match(/^\/recaps\/([^/]+)/);
-    if (localPlanMatch) {
+    const editionMatch = location.pathname.match(/^\/editions\/([^/]+)/);
+    if (editionMatch) {
+      state.editionId = decodeURIComponent(editionMatch[1] ?? "");
+    } else if (localPlanMatch) {
       const slug = decodeURIComponent(localPlanMatch[1] ?? "");
       state.planId = `local-${slug}`;
       state.localPlanSlug = slug;
@@ -43,31 +48,33 @@ export function useNavigationState() {
       state.planId = decodeURIComponent(planMatch[1] ?? "");
     }
 
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      keepalive: true,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Request-Source": TAB_ID,
+    fetch(
+      agentNativePath(
+        `/_agent-native/application-state/${stateKey("navigation")}`,
+      ),
+      {
+        method: "PUT",
+        keepalive: true,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Request-Source": TAB_ID,
+        },
+        body: JSON.stringify(state),
       },
-      body: JSON.stringify(state),
-    }).catch(() => {});
+    ).catch(() => {});
   }, [location.pathname, location.search]);
 
-  // Listen for one-shot navigate commands from the agent. useDbSync
-  // invalidates this exact key when the shared SSE/poll transport receives an
-  // app-state:navigate event, so this stays idle between real commands instead
-  // of charging the host for a request every two seconds.
   const { data: navCommand } = useQuery({
-    queryKey: ["navigate-command"],
+    queryKey: ["navigate-command", TAB_ID],
     queryFn: async () => {
       const res = await fetch(
-        agentNativePath("/_agent-native/application-state/navigate"),
+        agentNativePath(
+          `/_agent-native/application-state/${stateKey("navigate")}`,
+        ),
       );
       if (!res.ok) return null;
       const data = await res.json();
       if (data) {
-        // Return with a timestamp to ensure uniqueness
         return { ...data, _ts: Date.now() };
       }
       return null;
@@ -88,22 +95,26 @@ export function useNavigationState() {
         localPlanPath: cmd.localPlanPath,
       });
     const deleteCommand = () =>
-      fetch(agentNativePath("/_agent-native/application-state/navigate"), {
-        method: "DELETE",
-        headers: {
-          "X-Agent-Native-CSRF": "1",
-          "X-Request-Source": TAB_ID,
+      fetch(
+        agentNativePath(
+          `/_agent-native/application-state/${stateKey("navigate")}`,
+        ),
+        {
+          method: "DELETE",
+          headers: {
+            "X-Agent-Native-CSRF": "1",
+            "X-Request-Source": TAB_ID,
+          },
         },
-      }).catch(() => {});
+      ).catch(() => {});
 
     if (lastProcessedDedupKeyRef.current === dedupKey) {
       deleteCommand();
-      qc.setQueryData(["navigate-command"], null);
+      qc.setQueryData(["navigate-command", TAB_ID], null);
       return;
     }
     lastProcessedDedupKeyRef.current = dedupKey;
 
-    // Delete the one-shot command AFTER reading it.
     deleteCommand();
     const path = planNavigateCommandPath(cmd);
     void prewarmPlanRoutePath(path);
@@ -117,14 +128,12 @@ export function useNavigationState() {
     } else {
       window.setTimeout(commitNavigation, 0);
     }
-    qc.setQueryData(["navigate-command"], null);
+    qc.setQueryData(["navigate-command", TAB_ID], null);
   }, [navCommand, navigate, qc]);
 }
 
 function viewForPath(pathname: string): string {
   const normalizedPathname = pathname.replace(/\/+$/, "") || "/";
-  // Recaps are a kind of plan; both detail routes map to the "plan" view so the
-  // agent's navigation/selection state is the same surface regardless of route.
   if (
     normalizedPathname.startsWith("/plans/") ||
     normalizedPathname.startsWith("/recaps/") ||
@@ -132,7 +141,7 @@ function viewForPath(pathname: string): string {
   ) {
     return "plan";
   }
-  if (normalizedPathname === "/chat") {
+  if (isPlanChatPath(normalizedPathname)) {
     return "chat";
   }
   if (
@@ -142,6 +151,8 @@ function viewForPath(pathname: string): string {
   ) {
     return "plans";
   }
+  if (normalizedPathname.startsWith("/editions/")) return "edition";
+  if (normalizedPathname.startsWith("/editions")) return "editions";
   if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/team")) return "settings";
   return "plans";
@@ -160,6 +171,9 @@ function pathForCommand(command: NavigationState): string {
     return `${path}?${new URLSearchParams({
       path: command.localPlanPath,
     }).toString()}`;
+  }
+  if (command.editionId) {
+    return `/editions/${encodeURIComponent(command.editionId)}`;
   }
   if (command.planId) {
     return `/plans/${encodeURIComponent(command.planId)}`;
@@ -192,6 +206,9 @@ function pathForView(view?: string): string {
     case "plan":
     case "plans":
       return "/plans";
+    case "edition":
+    case "editions":
+      return "/editions";
     case "extensions":
       return "/extensions";
     case "settings":
@@ -207,8 +224,6 @@ function routerPath(path: string): string {
   const basePath = appBasePath();
   if (!basePath) return path;
   let result = path;
-  // React Router is already scoped to the app basename. Strip mounted URLs so
-  // navigate() receives router-local paths and does not duplicate the prefix.
   for (let i = 0; i < 4; i += 1) {
     if (result === basePath) return "/";
     if (result.startsWith(`${basePath}/`)) {

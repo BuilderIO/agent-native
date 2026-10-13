@@ -73,7 +73,7 @@ describe("dedicated first-party Analytics BigQuery backfill", () => {
     const query = buildPageKeyQuery(
       {
         name: "org",
-        predicate: "org_id = ?",
+        predicate: "org_id = $1",
         predicateArgs: [scope.orgId],
         lookbackStart: "2026-06-09T00:00:00.000Z",
         excludedEventNames: ["http.response"],
@@ -95,8 +95,8 @@ describe("dedicated first-party Analytics BigQuery backfill", () => {
 
     expect(query.sql).toContain("SELECT received_at, id");
     expect(query.sql).toContain("event_name IS DISTINCT FROM 'http.response'");
-    expect(query.sql).toContain("(received_at, id) <= (?, ?)");
-    expect(query.sql).toContain("(received_at, id) > (?, ?)");
+    expect(query.sql).toContain("(received_at, id) <= ($3, $4)");
+    expect(query.sql).toContain("(received_at, id) > ($5, $6)");
     expect(query.sql).not.toContain("SELECT *");
     expect(query.sql).not.toContain("WHERE id IN");
     expect(query.args).toEqual([
@@ -114,7 +114,7 @@ describe("dedicated first-party Analytics BigQuery backfill", () => {
     const query = buildHydrationQuery(["event-1", "event-2"]);
 
     expect(query.sql).toContain("SELECT id, public_key_id, event_name");
-    expect(query.sql).toContain("WHERE id IN (?, ?)");
+    expect(query.sql).toContain("WHERE id IN ($1, $2)");
     expect(query.args).toEqual(["event-1", "event-2"]);
   });
 

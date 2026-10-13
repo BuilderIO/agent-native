@@ -1,5 +1,24 @@
-import { IconArrowBackUp } from "@tabler/icons-react";
-import { type ReactNode } from "react";
+import {
+  IconAdjustmentsHorizontal,
+  IconArrowBackUp,
+  IconArrowsDiagonalMinimize2,
+  IconBorderBottom,
+  IconBorderLeft,
+  IconBorderRight,
+  IconBorderTop,
+  IconBoxModel2,
+  IconBoxPadding,
+  IconCheck,
+  IconChevronDown,
+  IconLayoutDistributeHorizontal,
+  IconLayoutDistributeVertical,
+} from "@tabler/icons-react";
+import {
+  Fragment,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  useState,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -12,6 +31,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -19,6 +43,13 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import {
+  INSPECTOR_GRID_ACTION_PAIR_SPAN,
+  INSPECTOR_GRID_PAIR_GUTTER_SPAN,
+  INSPECTOR_GRID_PAIR_SPAN,
+  InspectorGrid,
+  InspectorGridCell,
+} from "../edit-panel/inspector-grid";
 import type {
   AlignmentHorizontal,
   AlignmentMatrixValue,
@@ -31,6 +62,7 @@ import {
   IconFlowNormal,
   IconFlowVertical,
   IconGap,
+  IconGapVertical,
   IconPaddingHorizontal,
   IconPaddingVertical,
   IconSizingFill,
@@ -41,13 +73,32 @@ import {
   IconSizingRemove,
   IconSizingVariable,
 } from "./design-icons";
-import { ScrubInput, type ScrubInputChangeMeta } from "./ScrubInput";
+import {
+  MotionKeyframeDiamond,
+  motionPropertyHasKeyframe,
+  type MotionKeyframeCssProperty,
+} from "./MotionKeyframeDiamond";
+import {
+  ScrubInput,
+  type ScrubInputChangeMeta,
+  type ScrubInputProps,
+} from "./ScrubInput";
 
 export type AutoLayoutDirection = "horizontal" | "vertical";
 export type AutoLayoutWrap = "nowrap" | "wrap";
 export type AutoLayoutSizing = "hug" | "fill" | "fixed";
 export type AutoLayoutSizingAxis = "horizontal" | "vertical";
 export type AutoLayoutGridTrackSizing = "fill" | "hug" | "fixed" | "custom";
+
+const PADDING_MOTION_PROPERTIES: Record<
+  keyof AutoLayoutPadding,
+  MotionKeyframeCssProperty
+> = {
+  top: "padding-top",
+  right: "padding-right",
+  bottom: "padding-bottom",
+  left: "padding-left",
+};
 
 export interface AutoLayoutGridValue {
   columns: number;
@@ -56,7 +107,6 @@ export interface AutoLayoutGridValue {
   rowSizing: AutoLayoutGridTrackSizing;
   columnSize?: number;
   rowSize?: number;
-  /** Exact authored values, retained for non-uniform/custom templates. */
   columnTemplate?: string;
   rowTemplate?: string;
   columnGap: number;
@@ -65,19 +115,14 @@ export interface AutoLayoutGridValue {
   rowsMixed?: boolean;
   columnGapMixed?: boolean;
   rowGapMixed?: boolean;
+  columnSizingUnknown?: boolean;
+  rowSizingUnknown?: boolean;
 }
 
-/** Round to one decimal place — matches the `precision={1}` ScrubInput fields
- * advertise (e.g. X/Y position, stroke weight) so W/H commit sub-pixel values
- * like Figma instead of silently flooring to whole pixels. */
 function roundToOneDecimal(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-/**
- * The active flow option. "normal" represents block / normal-flow layout for
- * non-flex containers; the other four map to flex direction + wrap state.
- */
 export type AutoLayoutFlow = "normal" | "vertical" | "horizontal" | "grid";
 type ResolvedAutoLayoutFlow = AutoLayoutFlow | "mixed";
 
@@ -88,6 +133,58 @@ export interface AutoLayoutPadding {
   left: number;
 }
 
+export type AutoLayoutMargin = AutoLayoutPadding;
+export type AutoLayoutSidesMixed = Partial<
+  Record<keyof AutoLayoutPadding, boolean>
+>;
+export type AutoLayoutMarginTextValues = Partial<
+  Record<keyof AutoLayoutPadding, string>
+>;
+
+const OPPOSITE_PADDING_SIDE: Record<
+  keyof AutoLayoutPadding,
+  keyof AutoLayoutPadding
+> = {
+  top: "bottom",
+  right: "left",
+  bottom: "top",
+  left: "right",
+};
+
+type PaddingChangeMeta = {
+  source: ScrubInputChangeMeta["source"];
+  phase: ScrubInputChangeMeta["phase"];
+  altKey?: boolean;
+};
+
+export function mirrorPaddingChange(
+  padding: AutoLayoutPadding,
+  side: keyof AutoLayoutPadding,
+  meta?: PaddingChangeMeta,
+): AutoLayoutPadding {
+  return mirrorSpacingChange(padding, side, meta);
+}
+
+export function mirrorMarginChange(
+  margin: AutoLayoutMargin,
+  side: keyof AutoLayoutPadding,
+  meta?: PaddingChangeMeta,
+): AutoLayoutMargin {
+  return mirrorSpacingChange(margin, side, meta);
+}
+
+function mirrorSpacingChange(
+  spacing: AutoLayoutPadding,
+  side: keyof AutoLayoutPadding,
+  meta?: PaddingChangeMeta,
+): AutoLayoutPadding {
+  if (!meta?.altKey) return spacing;
+  return {
+    ...spacing,
+    [OPPOSITE_PADDING_SIDE[side]]: spacing[side],
+  };
+}
+
 export interface AutoLayoutMatrixValue {
   direction: AutoLayoutDirection;
   wrap: AutoLayoutWrap;
@@ -96,36 +193,22 @@ export interface AutoLayoutMatrixValue {
   gap: number;
   padding: AutoLayoutPadding;
   paddingLinked: boolean;
+  margin?: AutoLayoutMargin;
+  marginMixed?: AutoLayoutSidesMixed;
+  marginTextValues?: AutoLayoutMarginTextValues;
   clipContent?: boolean;
   clipContentMixed?: boolean;
   resolvedSize?: {
-    horizontal?: number;
-    vertical?: number;
+    horizontal?: number | null;
+    vertical?: number | null;
   };
   mixedSize?: {
     horizontal?: boolean;
     vertical?: boolean;
   };
-  /**
-   * Set when a multi-selection has differing `gap` values across elements.
-   * Mirrors the edit-panel `MIXED_VALUE`/`isMixedValue` sentinel pattern used
-   * for other fields: rather than silently coercing an unparseable "Mixed"
-   * CSS value down to `0` (which reads as "no gap" and would clobber every
-   * selected element's real gap the moment the user touches the field), the
-   * Gap ScrubInput renders the "Mixed" placeholder instead of a numeric 0.
-   * Optional so existing single-selection callers are unaffected.
-   */
   gapMixed?: boolean;
   gapModeMixed?: boolean;
-  /** Explicit CSS-grid tracks. Grid is a separate flow, never flex-wrap. */
   grid?: AutoLayoutGridValue;
-  /**
-   * Per-side mixed flags for `padding`, same rationale as `gapMixed`. Each
-   * side is independent because a multi-selection can have matching top/bottom
-   * padding but differing left/right (or any other combination) — collapsing
-   * to one boolean would either over- or under-report "Mixed" for the linked
-   * 2-field view. Optional so existing single-selection callers are unaffected.
-   */
   paddingMixed?: {
     top?: boolean;
     right?: boolean;
@@ -136,31 +219,12 @@ export interface AutoLayoutMatrixValue {
     horizontal: AutoLayoutSizing;
     vertical: AutoLayoutSizing;
   };
-  /**
-   * Currently-set min/max constraints per axis, in px. `null` means the
-   * constraint is not set (the design editor shows the "Add min/max…" menu item instead of
-   * a sub-row). Optional so existing callers are unaffected.
-   */
   childMinMax?: {
     horizontal?: { min?: number | null; max?: number | null };
     vertical?: { min?: number | null; max?: number | null };
   };
-  /**
-   * Optional layout-mode hint. When "block" the control renders the
-   * normal-flow (non-flex) state — the first flow icon is active and gap is
-   * treated as disabled. Defaults to flex when omitted so existing callers are
-   * unaffected.
-   */
   display?: "flex" | "grid" | "block";
-  /** True when a multi-selection disagrees on display/direction/wrap. No flow
-   * segment is shown as active and the row explicitly says Mixed until the
-   * user chooses one common flow. */
   flowMixed?: boolean;
-  /**
-   * When true, the gap mode is "Auto" (CSS `justify-content: space-between`).
-   * When false or omitted, gap mode is "Fixed" (a numeric gap value).
-   * Drives the checked state of the Fixed/Auto items in the gap dropdown.
-   */
   spaceBetween?: boolean;
 }
 
@@ -180,6 +244,13 @@ export interface AutoLayoutMatrixLabels {
   paddingRight: string;
   paddingBottom: string;
   paddingLeft: string;
+  margin: string;
+  linkMargin: string;
+  unlinkMargin: string;
+  marginTop: string;
+  marginRight: string;
+  marginBottom: string;
+  marginLeft: string;
   childSizing: string;
   hug: string;
   fill: string;
@@ -206,14 +277,6 @@ export interface AutoLayoutMatrixProps {
   onDirectionChange: (direction: AutoLayoutDirection) => void;
   onWrapChange: (wrap: AutoLayoutWrap) => void;
   onAlignmentChange: (alignment: AlignmentMatrixValue) => void;
-  /**
-   * `meta` forwards the originating ScrubInput's gesture metadata
-   * (phase "preview" per drag tick / "commit" on release) so consumers can
-   * route preview ticks to the live style fast path and only persist on
-   * commit — same contract as `onChildSizeChange`. Dropping it forces every
-   * scrub tick down the slow full-persist path (B5-14: padding scrubs showed
-   * nothing until reselect).
-   */
   onGapChange: (gap: number, meta?: ScrubInputChangeMeta) => void;
   onGridChange?: (
     grid: AutoLayoutGridValue,
@@ -221,70 +284,50 @@ export interface AutoLayoutMatrixProps {
   ) => void;
   onPaddingChange: (
     padding: AutoLayoutPadding,
-    meta?: ScrubInputChangeMeta,
+    meta: ScrubInputChangeMeta | undefined,
+    changedSides: Array<keyof AutoLayoutPadding>,
   ) => void;
   onPaddingLinkedChange: (linked: boolean) => void;
+  onMarginChange?: (
+    margin: AutoLayoutMargin,
+    meta: ScrubInputChangeMeta | undefined,
+    changedSides: Array<keyof AutoLayoutMargin>,
+  ) => void;
   onClipContentChange?: (clipContent: boolean) => void;
+  clipContentSupported?: boolean;
   onDistribute?: (axis: DistributionAxis) => void;
   onGapModeChange?: (mode: "fixed" | "auto", axis: DistributionAxis) => void;
   onChildSizingChange: (
     axis: AutoLayoutSizingAxis,
     sizing: AutoLayoutSizing,
   ) => void;
-  /**
-   * Invoked when the user directly edits the resolved size (scrub or type) in
-   * fixed-sizing mode. `value` is the new size in CSS pixels. Optional —
-   * when omitted the resolved-size display is read-only (mode-picker only).
-   * `meta` forwards the originating ScrubInput's gesture-coalescing metadata
-   * (see `SizingFieldProps.onSizeChange`).
-   */
   onChildSizeChange?: (
     axis: AutoLayoutSizingAxis,
     value: number,
     meta?: ScrubInputChangeMeta,
   ) => void;
-  /**
-   * Set or clear a min/max constraint on an axis. `value === null` clears it.
-   * Optional — when omitted the "Add min/max…" rows and constraint sub-rows are
-   * hidden, so existing callers are unaffected.
-   */
   onChildMinMaxChange?: (
     axis: AutoLayoutSizingAxis,
     kind: "min" | "max",
     value: number | null,
-    /** Scrub gesture meta — see onPaddingChange. Absent for remove (null). */
     meta?: ScrubInputChangeMeta,
   ) => void;
-  /**
-   * Invoked when the user picks "Apply variable…". Optional — when omitted the
-   * variable row is still shown but disabled (placeholder), matching the design editor when
-   * no variable collections exist.
-   */
   onApplyVariable?: (axis: AutoLayoutSizingAxis) => void;
-  /**
-   * Optional atomic Flow callback. Inspector hosts that persist code should
-   * use this to commit display + direction + wrap in one source/history step.
-   * Without it, the component falls back to the individual callbacks for
-   * backwards compatibility.
-   */
   onFlowChange?: (flow: AutoLayoutFlow) => void;
-  /**
-   * Emitted when the user picks a flow that changes the layout mode between
-   * normal-flow (block) and flex. Pass this so selecting the first ("normal")
-   * flow icon can turn auto layout off, and selecting a flex flow can turn it
-   * on. Optional — when omitted the control still works in pure-flex mode.
-   */
   onDisplayChange?: (display: "flex" | "grid" | "block") => void;
   availableChildSizing?: Partial<
     Record<AutoLayoutSizingAxis, AutoLayoutSizing[]>
   >;
   showChildLayoutControls?: boolean;
+  showSizingControls?: boolean;
   labels?: Partial<AutoLayoutMatrixLabels>;
+  showMotionKeyframes?: boolean;
+  motionKeyframedProperties?: readonly string[];
+  onToggleMotionKeyframe?: (cssProperty: MotionKeyframeCssProperty) => void;
   disabled?: boolean;
   className?: string;
 }
 
-/** Default English labels for the auto-layout matrix and SizingField. */
 export const DEFAULT_AUTO_LAYOUT_LABELS: AutoLayoutMatrixLabels = {
   title: "Auto layout", // i18n-ignore fallback component label
   alignment: "Alignment", // i18n-ignore fallback component label
@@ -301,6 +344,13 @@ export const DEFAULT_AUTO_LAYOUT_LABELS: AutoLayoutMatrixLabels = {
   paddingRight: "Right", // i18n-ignore fallback component label
   paddingBottom: "Bottom", // i18n-ignore fallback component label
   paddingLeft: "Left", // i18n-ignore fallback component label
+  margin: "Margin", // i18n-ignore fallback component label
+  linkMargin: "Link margin sides", // i18n-ignore fallback component label
+  unlinkMargin: "Unlink margin sides", // i18n-ignore fallback component label
+  marginTop: "Top margin", // i18n-ignore fallback component label
+  marginRight: "Right margin", // i18n-ignore fallback component label
+  marginBottom: "Bottom margin", // i18n-ignore fallback component label
+  marginLeft: "Left margin", // i18n-ignore fallback component label
   childSizing: "Child sizing", // i18n-ignore fallback component label
   hug: "Hug", // i18n-ignore fallback component label
   fill: "Fill", // i18n-ignore fallback component label
@@ -324,7 +374,6 @@ export const DEFAULT_AUTO_LAYOUT_LABELS: AutoLayoutMatrixLabels = {
 
 const SIZING_OPTIONS: AutoLayoutSizing[] = ["hug", "fill", "fixed"];
 
-/** Derive the active flow option from display + direction + wrap state. */
 function getFlowOption(value: AutoLayoutMatrixValue): ResolvedAutoLayoutFlow {
   if (value.flowMixed) return "mixed";
   if (value.display === "block") return "normal";
@@ -342,7 +391,9 @@ export function AutoLayoutMatrix({
   onGridChange,
   onPaddingChange,
   onPaddingLinkedChange,
+  onMarginChange,
   onClipContentChange,
+  clipContentSupported = true,
   onDistribute,
   onGapModeChange,
   onChildSizingChange,
@@ -353,42 +404,22 @@ export function AutoLayoutMatrix({
   onChildSizeChange,
   availableChildSizing,
   showChildLayoutControls = true,
+  showSizingControls = true,
   labels,
+  showMotionKeyframes = false,
+  motionKeyframedProperties = [],
+  onToggleMotionKeyframe,
   disabled = false,
   className,
 }: AutoLayoutMatrixProps) {
   const copy = { ...DEFAULT_AUTO_LAYOUT_LABELS, ...labels };
 
-  // Show left/top as the representative value when padding is linked.
-  // Averaging the two sides would silently destroy asymmetric padding on the
-  // next edit — the onChange handler sets both sides to the same number, so
-  // whatever is displayed becomes the new value for both sides. Using the
-  // left/top value means scrubbing up/down from the current value preserves
-  // the user's intent without a silent lossy round-trip through the average.
-  const horizontalPaddingValue = value.padding.left;
-  const verticalPaddingValue = value.padding.top;
-  // The linked view shows one field per axis representing both sides, so it
-  // must report "Mixed" whenever *either* side of that axis differs across
-  // the selection — otherwise a selection with equal left/right but mixed
-  // top/bottom (or vice versa) would silently show a real-looking number.
-  const horizontalPaddingMixed = Boolean(
-    value.paddingMixed?.left || value.paddingMixed?.right,
-  );
-  const verticalPaddingMixed = Boolean(
-    value.paddingMixed?.top || value.paddingMixed?.bottom,
-  );
-
   const activeFlow = getFlowOption(value);
-  const activeFlowLabel = {
-    normal: "Normal flow" /* i18n-ignore design inspector label */,
-    vertical: copy.vertical,
-    horizontal: copy.horizontal,
-    grid: "Grid" /* i18n-ignore design inspector label */,
-    mixed: "Mixed" /* i18n-ignore design mixed value */,
-  }[activeFlow];
   const isBlock = activeFlow === "normal";
+  const canResizeToFit =
+    (availableChildSizing?.horizontal ?? SIZING_OPTIONS).includes("hug") &&
+    (availableChildSizing?.vertical ?? SIZING_OPTIONS).includes("hug");
 
-  /** Apply a flow choice, coordinating display + direction + wrap. */
   const selectFlow = (flow: AutoLayoutFlow) => {
     if (onFlowChange) {
       onFlowChange(flow);
@@ -398,7 +429,6 @@ export function AutoLayoutMatrix({
       onDisplayChange?.("block");
       return;
     }
-    // Grid is a distinct layout model; horizontal/vertical use flexbox.
     onDisplayChange?.(flow === "grid" ? "grid" : "flex");
     if (flow === "vertical") {
       onDirectionChange("vertical");
@@ -413,27 +443,30 @@ export function AutoLayoutMatrix({
 
   return (
     <TooltipProvider delayDuration={250}>
-      <div className={cn("space-y-3", className)}>
+      <div className={cn("space-y-2", className)}>
         {/* ── Flow ── */}
         {showChildLayoutControls ? (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <ControlLabel>
-                {"Flow" /* i18n-ignore design inspector label */}
-              </ControlLabel>
-              {/* The icon highlight alone does not say which flow is active,
-                  so a Tailwind-named layer reads as "flex" and nothing else. */}
-              <span className="!text-[11px] text-muted-foreground">
-                {value.flowMixed
-                  ? "Mixed" /* i18n-ignore design mixed value */
-                  : activeFlowLabel}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5">
+          <InspectorGrid
+            className="design-sidebar-property-grid items-center"
+            layout="label-field-action"
+          >
+            <InspectorGridCell span={28}>
+              <div className="flex min-h-3 items-center justify-between">
+                <ControlLabel>
+                  {"Flow" /* i18n-ignore design inspector label */}
+                </ControlLabel>
+                {value.flowMixed ? (
+                  <span className="!text-[11px] text-muted-foreground">
+                    {"Mixed" /* i18n-ignore design mixed value */}
+                  </span>
+                ) : null}
+              </div>
+            </InspectorGridCell>
+            <InspectorGridCell span={24}>
               {/* 4-segment flow bar: normal / vertical / horizontal / grid */}
               <div
                 data-flow-value={activeFlow}
-                className="flex h-7 flex-1 items-center gap-0.5 rounded-md bg-[var(--design-editor-control-bg)] p-0.5"
+                className="flex h-6 w-full items-center gap-0.5 rounded-md bg-[var(--design-editor-control-bg)] p-0.5"
               >
                 <FlowButton
                   label={"Normal flow" /* i18n-ignore design inspector label */}
@@ -468,6 +501,8 @@ export function AutoLayoutMatrix({
                   <IconFlowGrid className="size-4" />
                 </FlowButton>
               </div>
+            </InspectorGridCell>
+            <InspectorGridCell span={4} className="flex justify-center">
               {/* Swap axis: flips between horizontal/vertical flex flow
                   without forcing a specific direction. Previously this
                   unconditionally called selectFlow("horizontal"), silently
@@ -492,7 +527,7 @@ export function AutoLayoutMatrix({
                         activeFlow === "vertical" ? "horizontal" : "vertical",
                       )
                     }
-                    className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+                    className="size-6 shrink-0 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
                   >
                     <IconArrowBackUp className="size-4" />
                   </Button>
@@ -501,119 +536,177 @@ export function AutoLayoutMatrix({
                   {"Swap flow direction" /* i18n-ignore inspector tooltip */}
                 </TooltipContent>
               </Tooltip>
-            </div>
-          </div>
+            </InspectorGridCell>
+          </InspectorGrid>
         ) : null}
 
         {/* ── Resizing ── */}
-        <div className="space-y-1.5">
-          <ControlLabel>
-            {"Resizing" /* i18n-ignore design inspector label */}
-          </ControlLabel>
-          <div className="grid grid-cols-[1fr_1fr_auto] items-start gap-1.5">
-            <SizingField
-              axis="W"
-              sizingAxis="horizontal"
-              value={value.childSizing.horizontal}
-              resolvedSize={value.resolvedSize?.horizontal}
-              mixed={Boolean(value.mixedSize?.horizontal)}
-              minMax={value.childMinMax?.horizontal}
-              options={resolveSizingOptions(
-                availableChildSizing?.horizontal,
-                value.childSizing.horizontal,
-              )}
-              labels={copy}
-              disabled={disabled}
-              onChange={(next) => onChildSizingChange("horizontal", next)}
-              onSizeChange={
-                onChildSizeChange
-                  ? (px, meta) => onChildSizeChange("horizontal", px, meta)
-                  : undefined
-              }
-              onMinMaxChange={onChildMinMaxChange}
-              onApplyVariable={onApplyVariable}
-            />
-            <SizingField
-              axis="H"
-              sizingAxis="vertical"
-              value={value.childSizing.vertical}
-              resolvedSize={value.resolvedSize?.vertical}
-              mixed={Boolean(value.mixedSize?.vertical)}
-              minMax={value.childMinMax?.vertical}
-              options={resolveSizingOptions(
-                availableChildSizing?.vertical,
-                value.childSizing.vertical,
-              )}
-              labels={copy}
-              disabled={disabled}
-              onChange={(next) => onChildSizingChange("vertical", next)}
-              onSizeChange={
-                onChildSizeChange
-                  ? (px, meta) => onChildSizeChange("vertical", px, meta)
-                  : undefined
-              }
-              onMinMaxChange={onChildMinMaxChange}
-              onApplyVariable={onApplyVariable}
-            />
-            {/* Resize-to-fit icon button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  disabled={disabled}
-                  aria-label={
-                    "Resize to fit" /* i18n-ignore inspector tooltip */
-                  }
-                  onClick={() => {
-                    onChildSizingChange("horizontal", "hug");
-                    onChildSizingChange("vertical", "hug");
-                  }}
-                  className="size-7 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
-                >
-                  <IconResizeToFitMini />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {"Resize to fit" /* i18n-ignore inspector tooltip */}
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        </div>
-
-        {showChildLayoutControls && !isBlock ? (
-          <div className="grid grid-cols-[78px_1fr] items-start gap-3">
-            <div className="space-y-1.5">
+        {showSizingControls ? (
+          <InspectorGrid
+            className="design-sidebar-property-grid items-start"
+            layout="label-action-pair"
+          >
+            <InspectorGridCell span={28}>
               <div className="flex items-center justify-between gap-2">
                 <ControlLabel>
-                  {"Alignment" /* i18n-ignore design inspector label */}
+                  {"Resizing" /* i18n-ignore design inspector label */}
                 </ControlLabel>
-                {value.alignmentMixed ? (
-                  <span className="!text-[11px] text-muted-foreground">
-                    {"Mixed" /* i18n-ignore design mixed value */}
-                  </span>
-                ) : null}
+                <span
+                  aria-hidden="true"
+                  className="flex items-center gap-0.5 text-[9px] text-muted-foreground/70"
+                >
+                  <kbd className="rounded border border-border/60 px-1 font-mono">
+                    F
+                  </kbd>
+                  <kbd className="rounded border border-border/60 px-1 font-mono">
+                    H
+                  </kbd>
+                </span>
               </div>
-              <CompactAlignmentMatrix
-                value={value.alignment}
-                mixed={value.alignmentMixed}
-                onChange={onAlignmentChange}
-                direction={value.direction}
+            </InspectorGridCell>
+            <InspectorGridCell span={11}>
+              <SizingField
+                axis="W"
+                sizingAxis="horizontal"
+                value={value.childSizing.horizontal}
+                resolvedSize={value.resolvedSize?.horizontal}
+                mixed={Boolean(value.mixedSize?.horizontal)}
+                minMax={value.childMinMax?.horizontal}
+                options={resolveSizingOptions(
+                  availableChildSizing?.horizontal,
+                  value.childSizing.horizontal,
+                )}
+                labels={copy}
                 disabled={disabled}
-                onDistribute={onDistribute}
+                onChange={(next) => onChildSizingChange("horizontal", next)}
+                onSizeChange={
+                  onChildSizeChange
+                    ? (px, meta) => onChildSizeChange("horizontal", px, meta)
+                    : undefined
+                }
+                onMinMaxChange={onChildMinMaxChange}
+                onApplyVariable={onApplyVariable}
               />
-            </div>
+            </InspectorGridCell>
+            <InspectorGridCell span={1} ariaHidden />
+            <InspectorGridCell span={11}>
+              <SizingField
+                axis="H"
+                sizingAxis="vertical"
+                value={value.childSizing.vertical}
+                resolvedSize={value.resolvedSize?.vertical}
+                mixed={Boolean(value.mixedSize?.vertical)}
+                minMax={value.childMinMax?.vertical}
+                options={resolveSizingOptions(
+                  availableChildSizing?.vertical,
+                  value.childSizing.vertical,
+                )}
+                labels={copy}
+                disabled={disabled}
+                onChange={(next) => onChildSizingChange("vertical", next)}
+                onSizeChange={
+                  onChildSizeChange
+                    ? (px, meta) => onChildSizeChange("vertical", px, meta)
+                    : undefined
+                }
+                onMinMaxChange={onChildMinMaxChange}
+                onApplyVariable={onApplyVariable}
+              />
+            </InspectorGridCell>
+            <InspectorGridCell span={1} ariaHidden />
+            <InspectorGridCell span={4} className="flex justify-center">
+              {canResizeToFit ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      disabled={disabled}
+                      aria-label={
+                        "Resize to fit" /* i18n-ignore inspector tooltip */
+                      }
+                      onClick={() => {
+                        onChildSizingChange("horizontal", "hug");
+                        onChildSizingChange("vertical", "hug");
+                      }}
+                      className="size-6 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+                    >
+                      <IconArrowsDiagonalMinimize2 className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {"Resize to fit" /* i18n-ignore inspector tooltip */}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
+            </InspectorGridCell>
+          </InspectorGrid>
+        ) : null}
 
-            {activeFlow === "grid" && value.grid ? (
-              <GridControls
-                value={value.grid}
-                onChange={onGridChange}
-                disabled={disabled}
-              />
-            ) : (
-              <div className="space-y-1.5">
-                <ControlLabel>{copy.gap}</ControlLabel>
+        {showChildLayoutControls &&
+        !isBlock &&
+        activeFlow === "grid" &&
+        value.grid ? (
+          <GridControls
+            value={value.grid}
+            onChange={onGridChange}
+            alignment={value.alignment}
+            alignmentMixed={value.alignmentMixed}
+            onAlignmentChange={onAlignmentChange}
+            direction={value.direction}
+            disabled={disabled}
+          />
+        ) : null}
+
+        {showChildLayoutControls && !isBlock && activeFlow !== "grid" ? (
+          <InspectorGrid className="items-start" layout="pair-flow">
+            <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+              <div className="design-sidebar-property-group">
+                <div className="flex items-center justify-between gap-2">
+                  <ControlLabel>
+                    {"Alignment" /* i18n-ignore design inspector label */}
+                  </ControlLabel>
+                  {value.alignmentMixed ? (
+                    <span className="!text-[11px] text-muted-foreground">
+                      {"Mixed" /* i18n-ignore design mixed value */}
+                    </span>
+                  ) : null}
+                </div>
+                <CompactAlignmentMatrix
+                  value={value.alignment}
+                  mixed={value.alignmentMixed}
+                  onChange={onAlignmentChange}
+                  direction={value.direction}
+                  disabled={disabled}
+                  onDistribute={onDistribute}
+                />
+              </div>
+            </InspectorGridCell>
+
+            <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+              <div className="design-sidebar-property-group">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-1">
+                    <ControlLabel>{copy.gap}</ControlLabel>
+                    {showMotionKeyframes && onToggleMotionKeyframe ? (
+                      <MotionKeyframeDiamond
+                        cssProperty="gap"
+                        hasKeyframe={motionPropertyHasKeyframe(
+                          motionKeyframedProperties,
+                          "gap",
+                        )}
+                        onToggle={() => onToggleMotionKeyframe("gap")}
+                      />
+                    ) : null}
+                  </div>
+                  <kbd
+                    aria-hidden="true"
+                    className="rounded border border-border/60 px-1 font-mono text-[9px] text-muted-foreground/70"
+                  >
+                    A
+                  </kbd>
+                </div>
                 <GapField
                   value={value.gap}
                   mixed={value.gapMixed}
@@ -634,152 +727,81 @@ export function AutoLayoutMatrix({
                       onCheckedChange={(checked) =>
                         onWrapChange(checked === true ? "wrap" : "nowrap")
                       }
-                      className="size-3.5 rounded-[3px]"
+                      className="size-3.5 rounded-[3px] [&_svg]:size-3"
                     />
                     <span>{copy.wrap}</span>
                   </label>
                 ) : null}
               </div>
-            )}
-          </div>
+            </InspectorGridCell>
+          </InspectorGrid>
         ) : null}
 
         {/* ── Padding ── */}
         {showChildLayoutControls ? (
-          <div className="space-y-1.5">
-            <ControlLabel>{copy.padding}</ControlLabel>
-            {value.paddingLinked ? (
-              /* Default linked state: 2 compact fields + link toggle */
-              <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-1.5">
-                <PaddingField
-                  icon={IconPaddingHorizontal}
-                  ariaLabel={copy.paddingLeft + " / " + copy.paddingRight}
-                  value={horizontalPaddingValue}
-                  mixed={horizontalPaddingMixed}
-                  onChange={(next, meta) =>
-                    onPaddingChange(
-                      {
-                        top: value.padding.top,
-                        bottom: value.padding.bottom,
-                        left: next,
-                        right: next,
-                      },
-                      meta,
-                    )
-                  }
-                  disabled={disabled}
-                />
-                <PaddingField
-                  icon={IconPaddingVertical}
-                  ariaLabel={copy.paddingTop + " / " + copy.paddingBottom}
-                  value={verticalPaddingValue}
-                  mixed={verticalPaddingMixed}
-                  onChange={(next, meta) =>
-                    onPaddingChange(
-                      {
-                        top: next,
-                        bottom: next,
-                        left: value.padding.left,
-                        right: value.padding.right,
-                      },
-                      meta,
-                    )
-                  }
-                  disabled={disabled}
-                />
-                <PaddingLinkButton
-                  linked
-                  disabled={disabled}
-                  linkLabel={copy.linkPadding}
-                  unlinkLabel={copy.unlinkPadding}
-                  onToggle={() => onPaddingLinkedChange(false)}
-                />
-              </div>
-            ) : (
-              /* Unlinked state: expand to 4 separate T / R / B / L fields */
-              <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-1.5">
-                <div className="col-span-2 grid grid-cols-2 gap-1.5">
-                  <PaddingField
-                    icon={IconPaddingTopMini}
-                    ariaLabel={copy.paddingTop}
-                    value={value.padding.top}
-                    mixed={value.paddingMixed?.top}
-                    onChange={(next, meta) =>
-                      onPaddingChange({ ...value.padding, top: next }, meta)
-                    }
-                    disabled={disabled}
-                  />
-                  <PaddingField
-                    icon={IconPaddingRightMini}
-                    ariaLabel={copy.paddingRight}
-                    value={value.padding.right}
-                    mixed={value.paddingMixed?.right}
-                    onChange={(next, meta) =>
-                      onPaddingChange({ ...value.padding, right: next }, meta)
-                    }
-                    disabled={disabled}
-                  />
-                  <PaddingField
-                    icon={IconPaddingBottomMini}
-                    ariaLabel={copy.paddingBottom}
-                    value={value.padding.bottom}
-                    mixed={value.paddingMixed?.bottom}
-                    onChange={(next, meta) =>
-                      onPaddingChange({ ...value.padding, bottom: next }, meta)
-                    }
-                    disabled={disabled}
-                  />
-                  <PaddingField
-                    icon={IconPaddingLeftMini}
-                    ariaLabel={copy.paddingLeft}
-                    value={value.padding.left}
-                    mixed={value.paddingMixed?.left}
-                    onChange={(next, meta) =>
-                      onPaddingChange({ ...value.padding, left: next }, meta)
-                    }
-                    disabled={disabled}
-                  />
-                </div>
-                <PaddingLinkButton
-                  linked={false}
-                  disabled={disabled}
-                  linkLabel={copy.linkPadding}
-                  unlinkLabel={copy.unlinkPadding}
-                  onToggle={() => onPaddingLinkedChange(true)}
-                />
-              </div>
-            )}
-          </div>
+          <FourSideSpacingProperties
+            label={copy.padding}
+            value={value.padding}
+            mixed={value.paddingMixed}
+            linked={value.paddingLinked}
+            linkLabel={copy.linkPadding}
+            unlinkLabel={copy.unlinkPadding}
+            sideLabels={{
+              top: copy.paddingTop,
+              right: copy.paddingRight,
+              bottom: copy.paddingBottom,
+              left: copy.paddingLeft,
+            }}
+            onLinkedChange={onPaddingLinkedChange}
+            onChange={onPaddingChange}
+            showMotionKeyframes={showMotionKeyframes}
+            motionKeyframedProperties={motionKeyframedProperties}
+            onToggleMotionKeyframe={onToggleMotionKeyframe}
+            mirrorOppositeOnAlt
+            disabled={disabled}
+          />
+        ) : null}
+
+        {showChildLayoutControls && value.margin ? (
+          <MarginProperties
+            value={value.margin}
+            mixed={value.marginMixed}
+            textValues={value.marginTextValues}
+            labels={copy}
+            onChange={(margin, meta, changedSides) =>
+              onMarginChange?.(margin, meta, changedSides)
+            }
+            disabled={disabled}
+          />
         ) : null}
 
         {/* ── Clip content ── */}
-        {showChildLayoutControls ? (
-          <label className="flex h-6 cursor-pointer items-center gap-2 !text-[11px] text-foreground">
-            <Checkbox
-              checked={
-                value.clipContentMixed
-                  ? "indeterminate"
-                  : Boolean(value.clipContent)
-              }
-              disabled={disabled}
-              onCheckedChange={(checked) =>
-                onClipContentChange?.(checked === true)
-              }
-              className="size-3.5 rounded-[3px]"
-            />
-            <span>{copy.clipContent}</span>
-          </label>
+        {showChildLayoutControls && clipContentSupported ? (
+          <InspectorGrid>
+            <InspectorGridCell span={28}>
+              <label className="flex h-6 cursor-pointer items-center gap-2 !text-[11px] text-foreground">
+                <Checkbox
+                  checked={
+                    value.clipContentMixed
+                      ? "indeterminate"
+                      : Boolean(value.clipContent)
+                  }
+                  disabled={disabled}
+                  onCheckedChange={(checked) =>
+                    onClipContentChange?.(checked === true)
+                  }
+                  className="size-3.5 rounded-[3px] [&_svg]:size-3"
+                />
+                <span>{copy.clipContent}</span>
+              </label>
+            </InspectorGridCell>
+          </InspectorGrid>
         ) : null}
       </div>
     </TooltipProvider>
   );
 }
 
-// ─────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────
-
-/** Keep the current value selectable even if it's not in the available list. */
 function resolveSizingOptions(
   available: AutoLayoutSizing[] | undefined,
   current: AutoLayoutSizing,
@@ -803,84 +825,324 @@ const ALIGNMENT_CELLS: Array<{
   { horizontal: "right", vertical: "bottom" },
 ];
 
-// ─────────────────────────────────────────────────
-// Sub-components
-// ─────────────────────────────────────────────────
-
 function GridControls({
   value,
   onChange,
+  alignment,
+  alignmentMixed,
+  onAlignmentChange,
+  direction,
   disabled,
 }: {
   value: AutoLayoutGridValue;
   onChange?: (value: AutoLayoutGridValue, meta?: ScrubInputChangeMeta) => void;
+  alignment: AlignmentMatrixValue;
+  alignmentMixed?: boolean;
+  onAlignmentChange: (alignment: AlignmentMatrixValue) => void;
+  direction: AutoLayoutDirection;
   disabled: boolean;
 }) {
+  const locked = disabled || !onChange;
   const update = (
     patch: Partial<AutoLayoutGridValue>,
     meta?: ScrubInputChangeMeta,
   ) => onChange?.({ ...value, ...patch }, meta);
 
   return (
-    <div className="space-y-1.5">
-      <ControlLabel>
-        {"Grid" /* i18n-ignore design inspector label */}
-      </ControlLabel>
-      <div className="grid grid-cols-2 gap-1.5">
-        <GridNumberField
-          label={"Columns" /* i18n-ignore design inspector label */}
-          value={value.columns}
-          mixed={value.columnsMixed}
-          min={1}
-          max={24}
-          onChange={(columns, meta) => update({ columns }, meta)}
-          disabled={disabled || !onChange}
-        />
-        <GridNumberField
-          label={"Rows" /* i18n-ignore design inspector label */}
-          value={value.rows}
-          mixed={value.rowsMixed}
-          min={1}
-          max={24}
-          onChange={(rows, meta) => update({ rows }, meta)}
-          disabled={disabled || !onChange}
-        />
-        <GridTrackPicker
-          label={"Column sizing" /* i18n-ignore design inspector label */}
-          value={value.columnSizing}
-          fixedSize={value.columnSize}
-          disabled={disabled || !onChange}
-          onChange={(columnSizing) => update({ columnSizing })}
-          onFixedSizeChange={(columnSize, meta) => update({ columnSize }, meta)}
-        />
-        <GridTrackPicker
-          label={"Row sizing" /* i18n-ignore design inspector label */}
-          value={value.rowSizing}
-          fixedSize={value.rowSize}
-          disabled={disabled || !onChange}
-          onChange={(rowSizing) => update({ rowSizing })}
-          onFixedSizeChange={(rowSize, meta) => update({ rowSize }, meta)}
-        />
-        <GridNumberField
-          label={"Column gap" /* i18n-ignore design inspector label */}
-          value={value.columnGap}
-          mixed={value.columnGapMixed}
-          min={0}
-          unit="px"
-          onChange={(columnGap, meta) => update({ columnGap }, meta)}
-          disabled={disabled || !onChange}
-        />
-        <GridNumberField
-          label={"Row gap" /* i18n-ignore design inspector label */}
-          value={value.rowGap}
-          mixed={value.rowGapMixed}
-          min={0}
-          unit="px"
-          onChange={(rowGap, meta) => update({ rowGap }, meta)}
-          disabled={disabled || !onChange}
-        />
-      </div>
+    <div className="design-sidebar-property-group">
+      <InspectorGrid className="items-center">
+        <InspectorGridCell span={12}>
+          <ControlLabel>
+            {"Grid" /* i18n-ignore design inspector label */}
+          </ControlLabel>
+        </InspectorGridCell>
+        <InspectorGridCell span={16}>
+          <div className="flex items-center justify-between gap-1.5">
+            <ControlLabel>
+              {"Gap" /* i18n-ignore design inspector label */}
+            </ControlLabel>
+            <GridAdvancedPopover
+              value={value}
+              update={update}
+              alignment={alignment}
+              alignmentMixed={alignmentMixed}
+              onAlignmentChange={onAlignmentChange}
+              direction={direction}
+              disabled={locked}
+            />
+          </div>
+        </InspectorGridCell>
+      </InspectorGrid>
+      <InspectorGrid className="items-start">
+        <InspectorGridCell span={12}>
+          <GridTrackMatrix
+            columns={value.columns}
+            rows={value.rows}
+            mixed={Boolean(value.columnsMixed || value.rowsMixed)}
+            disabled={
+              locked ||
+              Boolean(value.columnSizingUnknown || value.rowSizingUnknown) ||
+              value.columnSizing === "custom" ||
+              value.rowSizing === "custom"
+            }
+            onChange={(columns, rows, meta) => update({ columns, rows }, meta)}
+          />
+        </InspectorGridCell>
+        <InspectorGridCell span={16}>
+          <div className="design-sidebar-property-group">
+            <GridGapField
+              icon={IconGap}
+              label={"Column gap" /* i18n-ignore design inspector label */}
+              value={value.columnGap}
+              mixed={value.columnGapMixed}
+              disabled={locked}
+              onChange={(columnGap, meta) => update({ columnGap }, meta)}
+            />
+            <GridGapField
+              icon={IconGapVertical}
+              label={"Row gap" /* i18n-ignore design inspector label */}
+              value={value.rowGap}
+              mixed={value.rowGapMixed}
+              disabled={locked}
+              onChange={(rowGap, meta) => update({ rowGap }, meta)}
+            />
+          </div>
+        </InspectorGridCell>
+      </InspectorGrid>
     </div>
+  );
+}
+
+const GRID_MATRIX_MAX = 6;
+
+function gridMatrixExtent(count: number): number {
+  return Math.min(GRID_MATRIX_MAX, Math.max(3, Math.round(count) + 1));
+}
+
+function GridTrackMatrix({
+  columns,
+  rows,
+  mixed,
+  disabled,
+  onChange,
+}: {
+  columns: number;
+  rows: number;
+  mixed: boolean;
+  disabled: boolean;
+  onChange: (columns: number, rows: number, meta: ScrubInputChangeMeta) => void;
+}) {
+  const [hovered, setHovered] = useState<{
+    columns: number;
+    rows: number;
+  } | null>(null);
+  const shown = hovered ?? { columns, rows };
+  const columnCount = gridMatrixExtent(Math.max(shown.columns, columns));
+  const rowCount = gridMatrixExtent(Math.max(shown.rows, rows));
+
+  return (
+    <div
+      className={cn(
+        "relative w-full max-w-[96px] select-none",
+        disabled && "pointer-events-none opacity-40",
+      )}
+      onPointerLeave={() => setHovered(null)}
+    >
+      <div
+        className="grid overflow-hidden rounded-md border border-border/70 bg-[var(--design-editor-control-bg)]"
+        style={{
+          gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
+        }}
+      >
+        {Array.from({ length: columnCount * rowCount }, (_, index) => {
+          const cellColumn = (index % columnCount) + 1;
+          const cellRow = Math.floor(index / columnCount) + 1;
+          const covered =
+            cellColumn <= shown.columns && cellRow <= shown.rows && !mixed;
+          return (
+            <button
+              key={`${cellColumn}:${cellRow}`}
+              type="button"
+              disabled={disabled}
+              aria-label={
+                `${cellColumn} × ${cellRow}` /* i18n-ignore design inspector label */
+              }
+              className={cn(
+                "aspect-square border-[0.5px] border-border/50",
+                covered
+                  ? "bg-[var(--design-editor-accent-color)]/25"
+                  : "bg-transparent hover:bg-foreground/10",
+              )}
+              onPointerEnter={() =>
+                setHovered({ columns: cellColumn, rows: cellRow })
+              }
+              onClick={() => {
+                setHovered(null);
+                onChange(cellColumn, cellRow, {
+                  source: "commit",
+                  phase: "commit",
+                });
+              }}
+            />
+          );
+        })}
+      </div>
+      <span
+        className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-sm bg-[var(--design-editor-panel-bg)]/90 px-1 !text-[10px] tabular-nums text-foreground"
+        data-grid-track-readout
+      >
+        {mixed
+          ? "Mixed" /* i18n-ignore design mixed value */
+          : `${Math.round(shown.columns)} × ${Math.round(shown.rows)}`}
+      </span>
+    </div>
+  );
+}
+
+function GridGapField({
+  icon,
+  label,
+  value,
+  mixed,
+  disabled,
+  onChange,
+}: {
+  icon: (props: { className?: string }) => ReactNode;
+  label: string;
+  value: number;
+  mixed?: boolean;
+  disabled: boolean;
+  onChange: (value: number, meta: ScrubInputChangeMeta) => void;
+}) {
+  return (
+    <ScrubInput
+      label={label}
+      ariaLabel={label}
+      tooltipLabel={label}
+      icon={icon}
+      value={value}
+      mixed={mixed}
+      onChange={onChange}
+      unit="px"
+      min={0}
+      step={1}
+      precision={0}
+      disabled={disabled}
+      className="min-w-0 gap-0 rounded-md bg-[var(--design-editor-control-bg)]"
+      labelClassName="h-6 w-6 shrink-0 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
+      inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
+    />
+  );
+}
+
+function GridAdvancedPopover({
+  value,
+  update,
+  alignment,
+  alignmentMixed,
+  onAlignmentChange,
+  direction,
+  disabled,
+}: {
+  value: AutoLayoutGridValue;
+  update: (
+    patch: Partial<AutoLayoutGridValue>,
+    meta?: ScrubInputChangeMeta,
+  ) => void;
+  alignment: AlignmentMatrixValue;
+  alignmentMixed?: boolean;
+  onAlignmentChange: (alignment: AlignmentMatrixValue) => void;
+  direction: AutoLayoutDirection;
+  disabled: boolean;
+}) {
+  const settingsLabel = "Grid settings" /* i18n-ignore inspector tooltip */;
+  return (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              disabled={disabled}
+              aria-label={settingsLabel}
+              className="size-6 shrink-0 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+            >
+              <IconAdjustmentsHorizontal className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{settingsLabel}</TooltipContent>
+      </Tooltip>
+      <PopoverContent align="end" sideOffset={6} className="w-56 space-y-2 p-3">
+        <div className="grid grid-cols-2 gap-1.5">
+          <GridNumberField
+            label={"Columns" /* i18n-ignore design inspector label */}
+            value={value.columns}
+            mixed={value.columnsMixed}
+            min={1}
+            max={24}
+            onChange={(columns, meta) => update({ columns }, meta)}
+            disabled={
+              disabled ||
+              Boolean(value.columnSizingUnknown) ||
+              value.columnSizing === "custom"
+            }
+          />
+          <GridNumberField
+            label={"Rows" /* i18n-ignore design inspector label */}
+            value={value.rows}
+            mixed={value.rowsMixed}
+            min={1}
+            max={24}
+            onChange={(rows, meta) => update({ rows }, meta)}
+            disabled={
+              disabled ||
+              Boolean(value.rowSizingUnknown) ||
+              value.rowSizing === "custom"
+            }
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          <GridTrackPicker
+            label={"Column sizing" /* i18n-ignore design inspector label */}
+            value={value.columnSizing}
+            fixedSize={value.columnSize}
+            disabled={
+              disabled ||
+              Boolean(value.columnsMixed && value.columnSizingUnknown)
+            }
+            onChange={(columnSizing) => update({ columnSizing })}
+            onFixedSizeChange={(columnSize, meta) =>
+              update({ columnSize }, meta)
+            }
+          />
+          <GridTrackPicker
+            label={"Row sizing" /* i18n-ignore design inspector label */}
+            value={value.rowSizing}
+            fixedSize={value.rowSize}
+            disabled={
+              disabled || Boolean(value.rowsMixed && value.rowSizingUnknown)
+            }
+            onChange={(rowSizing) => update({ rowSizing })}
+            onFixedSizeChange={(rowSize, meta) => update({ rowSize }, meta)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <ControlLabel>
+            {"Cell alignment" /* i18n-ignore design inspector label */}
+          </ControlLabel>
+          <CompactAlignmentMatrix
+            value={alignment}
+            mixed={alignmentMixed}
+            onChange={onAlignmentChange}
+            direction={direction}
+            disabled={disabled}
+          />
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -917,9 +1179,9 @@ function GridNumberField({
       step={1}
       precision={0}
       disabled={disabled}
-      className="min-w-0 gap-0 rounded-md bg-[var(--design-editor-control-bg)]"
-      labelClassName="h-7 w-6 justify-center overflow-hidden px-1 !text-[9px] text-muted-foreground [&>svg]:hidden"
-      inputClassName="h-7 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
+      className="w-full min-w-0 gap-0 rounded-md bg-[var(--design-editor-control-bg)]"
+      labelClassName="h-6 max-w-[56px] justify-start overflow-hidden px-1.5 !text-[10px] text-muted-foreground [&>svg]:hidden"
+      inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
     />
   );
 }
@@ -940,53 +1202,51 @@ function GridTrackPicker({
   onFixedSizeChange: (value: number, meta: ScrubInputChangeMeta) => void;
 }) {
   return (
-    <div className="flex min-w-0 rounded-md bg-[var(--design-editor-control-bg)]">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
+    <div className="min-w-0 space-y-1">
+      <span className="block truncate !text-[10px] text-muted-foreground">
+        {label}
+      </span>
+      <div className="flex h-6 w-full min-w-0 rounded-md bg-[var(--design-editor-control-bg)]">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={disabled}
+              aria-label={label}
+              className="h-6 min-w-0 flex-1 justify-start rounded-md px-2 !text-[11px] font-normal capitalize"
+            >
+              {value}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            {(["fill", "hug", "fixed", "custom"] as const).map((option) => (
+              <DropdownMenuItem key={option} onSelect={() => onChange(option)}>
+                <span className="capitalize">{option}</span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {value === "fixed" ? (
+          <ScrubInput
+            label={label}
+            ariaLabel={`${label} size`}
+            value={fixedSize}
+            onChange={onFixedSizeChange}
+            unit="px"
+            min={0}
+            precision={0}
             disabled={disabled}
-            aria-label={label}
-            className="h-7 min-w-0 flex-1 justify-start rounded-md px-2 !text-[11px] font-normal capitalize"
-          >
-            {value}
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
-          {(["fill", "hug", "fixed", "custom"] as const).map((option) => (
-            <DropdownMenuItem key={option} onSelect={() => onChange(option)}>
-              <span className="capitalize">{option}</span>
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-      {value === "fixed" ? (
-        <ScrubInput
-          label={label}
-          ariaLabel={`${label} size`}
-          value={fixedSize}
-          onChange={onFixedSizeChange}
-          unit="px"
-          min={0}
-          precision={0}
-          disabled={disabled}
-          className="w-14 min-w-0 gap-0"
-          labelClassName="hidden"
-          inputClassName="h-7 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
-        />
-      ) : null}
+            className="h-6 w-14 min-w-0 gap-0"
+            labelClassName="hidden"
+            inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
+          />
+        ) : null}
+      </div>
     </div>
   );
 }
 
-/**
- * Compact 3×3 alignment grid (no border box). Inactive cells show a faint dot;
- * the active cell shows accent bars oriented by flow — horizontal bars for a
- * vertical flow, vertical bars for a horizontal flow (editor convention).
- * When `onDistribute` is provided, two distribute buttons (H + V) are rendered
- * below the grid, matching the design editor's inspector layout.
- */
 function CompactAlignmentMatrix({
   value,
   mixed = false,
@@ -1006,7 +1266,7 @@ function CompactAlignmentMatrix({
     <div
       className={cn("space-y-1", disabled && "pointer-events-none opacity-40")}
     >
-      <div className={cn("grid w-fit grid-cols-3 rounded-md")}>
+      <div className="grid w-full max-w-[92px] grid-cols-3 rounded-md bg-[var(--design-editor-control-bg)] p-1">
         {ALIGNMENT_CELLS.map((cell) => {
           const active =
             !mixed &&
@@ -1026,7 +1286,7 @@ function CompactAlignmentMatrix({
                 })
               }
               className={cn(
-                "flex size-[22px] items-center justify-center rounded-[3px] transition-colors",
+                "flex h-4 min-w-0 w-full items-center justify-center rounded-[3px] transition-colors",
                 "hover:bg-[var(--design-editor-control-bg)]",
               )}
             >
@@ -1063,7 +1323,7 @@ function CompactAlignmentMatrix({
                   "disabled:pointer-events-none disabled:opacity-40",
                 )}
               >
-                <IconDistributeH />
+                <IconLayoutDistributeHorizontal className="size-3.5" />
               </button>
             </TooltipTrigger>
             <TooltipContent>
@@ -1087,7 +1347,7 @@ function CompactAlignmentMatrix({
                   "disabled:pointer-events-none disabled:opacity-40",
                 )}
               >
-                <IconDistributeV />
+                <IconLayoutDistributeVertical className="size-3.5" />
               </button>
             </TooltipTrigger>
             <TooltipContent>
@@ -1102,7 +1362,6 @@ function CompactAlignmentMatrix({
   );
 }
 
-/** Accent bars showing items packed toward the active edge, oriented by flow. */
 function AlignmentBars({
   horizontal,
   vertical,
@@ -1113,8 +1372,6 @@ function AlignmentBars({
   direction: AutoLayoutDirection;
 }) {
   const accent = "var(--design-editor-accent-color, #18a0fb)";
-  // Vertical flow → children stack vertically → render horizontal bars.
-  // Horizontal flow → children sit in a row → render vertical bars.
   const stack = direction === "vertical";
   const box = 14;
   const pad = 2.5;
@@ -1123,10 +1380,7 @@ function AlignmentBars({
   const shortLength = 3.5;
   const gap = 1.5;
 
-  // Position the group of two bars toward the active edge.
-  const total = stack
-    ? thickness * 2 + gap // height when bars are horizontal
-    : thickness * 2 + gap; // width when bars are vertical
+  const total = stack ? thickness * 2 + gap : thickness * 2 + gap;
 
   const along = (h: AlignmentHorizontal | AlignmentVertical, size: number) => {
     if (h === "left" || h === "top") return pad;
@@ -1140,7 +1394,6 @@ function AlignmentBars({
     <svg viewBox="0 0 14 14" width={14} height={14} aria-hidden="true">
       {bars.map((len, i) => {
         if (stack) {
-          // Horizontal bars: vary X by horizontal align, stack along Y.
           const y = along(vertical, total) + i * (thickness + gap);
           const x = along(horizontal, len);
           return (
@@ -1155,7 +1408,6 @@ function AlignmentBars({
             />
           );
         }
-        // Vertical bars: vary Y by vertical align, distribute along X.
         const x = along(horizontal, total) + i * (thickness + gap);
         const y = along(vertical, len);
         return (
@@ -1174,16 +1426,14 @@ function AlignmentBars({
   );
 }
 
-/** Small uppercase muted section label, 11px. */
 function ControlLabel({ children }: { children: ReactNode }) {
   return (
-    <span className="block !text-[11px] font-medium text-muted-foreground">
+    <span className="design-sidebar-field-label block text-muted-foreground">
       {children}
     </span>
   );
 }
 
-/** A single segment in the flow segmented control. */
 function FlowButton({
   label,
   active,
@@ -1226,10 +1476,6 @@ function FlowButton({
   );
 }
 
-/**
- * Gap field: [icon] value [▾] with a sliders icon to the right.
- * The chevron dropdown offers Fixed (numeric gap) vs Auto (space-between).
- */
 function GapField({
   value,
   mixed = false,
@@ -1243,9 +1489,7 @@ function GapField({
   gapModeMixed = false,
 }: {
   value: number;
-  /** Set for a multi-selection with differing gap values — see AutoLayoutMatrixValue.gapMixed. */
   mixed?: boolean;
-  /** Forwards ScrubInput's gesture meta — see AutoLayoutMatrixProps.onGapChange. */
   onGapChange: (gap: number, meta?: ScrubInputChangeMeta) => void;
   onDistribute?: (axis: DistributionAxis) => void;
   onGapModeChange?: (mode: "fixed" | "auto", axis: DistributionAxis) => void;
@@ -1255,136 +1499,397 @@ function GapField({
   gapMode?: "fixed" | "auto";
   gapModeMixed?: boolean;
 }) {
+  const handleShortcut = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (
+      disabled ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      event.shiftKey ||
+      event.key.toLowerCase() !== "a"
+    ) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (onGapModeChange) {
+      onGapModeChange("auto", direction);
+    } else {
+      onDistribute?.(direction);
+    }
+  };
+
   return (
-    <div className="flex items-center gap-1.5">
-      {/* [gap-icon] value [▾] in one control surface */}
-      <div
-        className={cn(
-          "flex h-7 min-w-0 flex-1 items-center rounded-md bg-[var(--design-editor-control-bg)]",
-          disabled && "opacity-40",
-        )}
-      >
-        <ScrubInput
-          label={label}
-          ariaLabel={label}
-          tooltipLabel={label}
-          icon={IconGap}
-          value={value}
-          mixed={mixed}
-          onChange={(next, meta) => onGapChange(next, meta)}
-          unit="px"
-          min={0}
-          step={1}
-          precision={1}
-          disabled={disabled}
-          className="min-w-0 flex-1 gap-0"
-          labelClassName="h-7 w-6 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
-          inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
-        />
-        {onDistribute != null ? (
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={
-                      gapModeMixed
-                        ? "Gap mode: Mixed" /* i18n-ignore inspector tooltip */
-                        : "Gap mode" /* i18n-ignore inspector tooltip */
-                    }
-                    disabled={disabled}
-                    className={cn(
-                      "flex h-7 w-6 shrink-0 items-center justify-center rounded-r-md",
-                      "text-muted-foreground hover:text-foreground",
-                      "disabled:pointer-events-none disabled:opacity-40",
-                      "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
-                    )}
-                  >
-                    <ChevronDownMini />
-                  </button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>
-                {"Gap mode" /* i18n-ignore inspector tooltip */}
-              </TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent
-              align="end"
-              className="min-w-[110px] text-[12px]"
-              sideOffset={4}
-            >
-              <DropdownMenuCheckboxItem
-                checked={!gapModeMixed && gapMode !== "auto"}
-                className="text-[12px]"
-                onSelect={() => onGapModeChange?.("fixed", direction)}
-              >
-                {"Fixed" /* i18n-ignore design gap mode label */}
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={!gapModeMixed && gapMode === "auto"}
-                className="text-[12px]"
-                onSelect={() => {
-                  if (onGapModeChange) {
-                    onGapModeChange("auto", direction);
-                    return;
-                  }
-                  onDistribute?.(direction);
-                }}
-              >
-                {"Auto" /* i18n-ignore design gap mode label */}
-              </DropdownMenuCheckboxItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
-      </div>
-      {/* Sliders / advanced spacing icon (the design editor's tune control) */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
+    <InspectorGrid
+      className="items-center"
+      layout="field-action"
+      onKeyDown={handleShortcut}
+    >
+      <InspectorGridCell span={24}>
+        {/* [gap-icon] value [▾] in one control surface */}
+        <div
+          className={cn(
+            "flex h-6 w-full min-w-0 items-center rounded-md bg-[var(--design-editor-control-bg)]",
+            disabled && "opacity-40",
+          )}
+        >
+          <ScrubInput
+            label={label}
+            ariaLabel={label}
+            tooltipLabel={label}
+            icon={IconGap}
+            value={value}
+            mixed={mixed}
+            onChange={(next, meta) => onGapChange(next, meta)}
+            unit="px"
+            min={0}
+            step={1}
+            precision={1}
             disabled={disabled}
-            aria-label={
-              "Advanced gap settings" /* i18n-ignore inspector tooltip */
-            }
-            onClick={() => onDistribute?.(direction)}
-            className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
-          >
-            <IconSlidersMini />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          {"Advanced gap settings" /* i18n-ignore inspector tooltip */}
-        </TooltipContent>
-      </Tooltip>
+            className="min-w-0 flex-1 gap-0"
+            labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
+            inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
+          />
+          {onDistribute != null ? (
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={
+                        gapModeMixed
+                          ? "Gap mode: Mixed" /* i18n-ignore inspector tooltip */
+                          : "Gap mode" /* i18n-ignore inspector tooltip */
+                      }
+                      disabled={disabled}
+                      className={cn(
+                        "flex h-6 w-6 shrink-0 items-center justify-center rounded-r-md",
+                        "text-muted-foreground hover:text-foreground",
+                        "disabled:pointer-events-none disabled:opacity-40",
+                        "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
+                      )}
+                    >
+                      <IconChevronDown className="size-2 opacity-70" />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {"Gap mode" /* i18n-ignore inspector tooltip */}
+                </TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent
+                align="end"
+                className="min-w-[110px] text-[12px]"
+                sideOffset={4}
+              >
+                <DropdownMenuCheckboxItem
+                  checked={!gapModeMixed && gapMode !== "auto"}
+                  className="text-[12px]"
+                  onSelect={() => onGapModeChange?.("fixed", direction)}
+                >
+                  {"Fixed" /* i18n-ignore design gap mode label */}
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={!gapModeMixed && gapMode === "auto"}
+                  className="text-[12px]"
+                  onSelect={() => {
+                    if (onGapModeChange) {
+                      onGapModeChange("auto", direction);
+                      return;
+                    }
+                    onDistribute?.(direction);
+                  }}
+                >
+                  {"Auto" /* i18n-ignore design gap mode label */}
+                </DropdownMenuCheckboxItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+        </div>
+      </InspectorGridCell>
+      {/* Sliders / advanced spacing icon (the design editor's tune control) */}
+      <InspectorGridCell span={4} className="flex justify-center">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              disabled={disabled}
+              aria-label={
+                "Advanced gap settings" /* i18n-ignore inspector tooltip */
+              }
+              onClick={() => onDistribute?.(direction)}
+              className="size-6 shrink-0 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+            >
+              <IconAdjustmentsHorizontal className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {"Advanced gap settings" /* i18n-ignore inspector tooltip */}
+          </TooltipContent>
+        </Tooltip>
+      </InspectorGridCell>
+    </InspectorGrid>
+  );
+}
+
+interface FourSideSpacingPropertiesProps {
+  label: string;
+  value: AutoLayoutPadding;
+  mixed?: AutoLayoutSidesMixed;
+  textValues?: AutoLayoutMarginTextValues;
+  linked: boolean;
+  linkLabel: string;
+  unlinkLabel: string;
+  sideLabels: Record<keyof AutoLayoutPadding, string>;
+  min?: number;
+  disabled: boolean;
+  onLinkedChange: (linked: boolean) => void;
+  onChange: (
+    value: AutoLayoutPadding,
+    meta: ScrubInputChangeMeta | undefined,
+    changedSides: Array<keyof AutoLayoutPadding>,
+  ) => void;
+  mirrorOppositeOnAlt?: boolean;
+  showMotionKeyframes?: boolean;
+  motionKeyframedProperties?: readonly string[];
+  onToggleMotionKeyframe?: (cssProperty: MotionKeyframeCssProperty) => void;
+}
+
+function FourSideSpacingProperties({
+  label,
+  value,
+  mixed,
+  textValues,
+  linked,
+  linkLabel,
+  unlinkLabel,
+  sideLabels,
+  min = 0,
+  disabled,
+  onLinkedChange,
+  onChange,
+  showMotionKeyframes = false,
+  motionKeyframedProperties = [],
+  onToggleMotionKeyframe,
+  mirrorOppositeOnAlt = false,
+}: FourSideSpacingPropertiesProps) {
+  const horizontalValue = value.left;
+  const verticalValue = value.top;
+  const horizontalMixed = Boolean(mixed?.left || mixed?.right);
+  const verticalMixed = Boolean(mixed?.top || mixed?.bottom);
+
+  const update = (
+    side: keyof AutoLayoutPadding,
+    next: AutoLayoutPadding,
+    meta?: PaddingChangeMeta,
+  ) => {
+    const changedSides = new Set<keyof AutoLayoutPadding>([side]);
+    if (linked || (mirrorOppositeOnAlt && meta?.altKey)) {
+      changedSides.add(OPPOSITE_PADDING_SIDE[side]);
+    }
+    onChange(
+      mirrorOppositeOnAlt ? mirrorSpacingChange(next, side, meta) : next,
+      meta,
+      [...changedSides],
+    );
+  };
+
+  return (
+    <div className="design-sidebar-property-group">
+      <ControlLabel>{label}</ControlLabel>
+      {linked ? (
+        <InspectorGrid className="items-center" layout="action-pair">
+          <InspectorGridCell span={11}>
+            <SpacingField
+              icon={IconPaddingHorizontal}
+              ariaLabel={sideLabels.left + " / " + sideLabels.right}
+              value={horizontalValue}
+              textValue={textValues?.left}
+              mixed={horizontalMixed}
+              min={min}
+              onChange={(next, meta) =>
+                update("left", { ...value, left: next, right: next }, meta)
+              }
+              motionKeyframeDiamond={renderMotionKeyframeDiamond(
+                ["padding-left", "padding-right"],
+                showMotionKeyframes,
+                motionKeyframedProperties,
+                onToggleMotionKeyframe,
+              )}
+              disabled={disabled}
+            />
+          </InspectorGridCell>
+          <InspectorGridCell span={1} ariaHidden />
+          <InspectorGridCell span={11}>
+            <SpacingField
+              icon={IconPaddingVertical}
+              ariaLabel={sideLabels.top + " / " + sideLabels.bottom}
+              value={verticalValue}
+              textValue={textValues?.top}
+              mixed={verticalMixed}
+              min={min}
+              onChange={(next, meta) =>
+                update("top", { ...value, top: next, bottom: next }, meta)
+              }
+              motionKeyframeDiamond={renderMotionKeyframeDiamond(
+                ["padding-top", "padding-bottom"],
+                showMotionKeyframes,
+                motionKeyframedProperties,
+                onToggleMotionKeyframe,
+              )}
+              disabled={disabled}
+            />
+          </InspectorGridCell>
+          <InspectorGridCell span={1} ariaHidden />
+          <InspectorGridCell span={4} className="flex justify-center">
+            <SpacingLinkButton
+              linked
+              disabled={disabled}
+              linkLabel={linkLabel}
+              unlinkLabel={unlinkLabel}
+              onToggle={() => onLinkedChange(false)}
+            />
+          </InspectorGridCell>
+        </InspectorGrid>
+      ) : (
+        <InspectorGrid className="items-center" layout="field-action">
+          <InspectorGridCell span={24}>
+            <InspectorGrid className="items-center" layout="pair">
+              {(
+                [
+                  ["top", IconBorderTop],
+                  ["right", IconBorderRight],
+                  ["bottom", IconBorderBottom],
+                  ["left", IconBorderLeft],
+                ] as const
+              ).map(([side, icon], index) => (
+                <Fragment key={side}>
+                  {index % 2 === 1 ? (
+                    <InspectorGridCell
+                      span={INSPECTOR_GRID_PAIR_GUTTER_SPAN}
+                      ariaHidden
+                    />
+                  ) : null}
+                  <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
+                    <SpacingField
+                      icon={icon}
+                      ariaLabel={sideLabels[side]}
+                      value={value[side]}
+                      textValue={textValues?.[side]}
+                      mixed={mixed?.[side]}
+                      min={min}
+                      onChange={(next, meta) =>
+                        update(side, { ...value, [side]: next }, meta)
+                      }
+                      motionKeyframeDiamond={renderMotionKeyframeDiamond(
+                        [PADDING_MOTION_PROPERTIES[side]],
+                        showMotionKeyframes,
+                        motionKeyframedProperties,
+                        onToggleMotionKeyframe,
+                      )}
+                      disabled={disabled}
+                    />
+                  </InspectorGridCell>
+                </Fragment>
+              ))}
+            </InspectorGrid>
+          </InspectorGridCell>
+          <InspectorGridCell span={4} className="flex justify-center">
+            <SpacingLinkButton
+              linked={false}
+              disabled={disabled}
+              linkLabel={linkLabel}
+              unlinkLabel={unlinkLabel}
+              onToggle={() => onLinkedChange(true)}
+            />
+          </InspectorGridCell>
+        </InspectorGrid>
+      )}
     </div>
   );
 }
 
-/** A compact padding field: [icon] value. */
-function PaddingField({
+export function MarginProperties({
+  value,
+  mixed,
+  textValues,
+  labels,
+  onChange,
+  disabled = false,
+}: {
+  value: AutoLayoutMargin;
+  mixed?: AutoLayoutSidesMixed;
+  textValues?: AutoLayoutMarginTextValues;
+  labels?: Partial<AutoLayoutMatrixLabels>;
+  onChange: (
+    margin: AutoLayoutMargin,
+    meta: ScrubInputChangeMeta | undefined,
+    changedSides: Array<keyof AutoLayoutMargin>,
+  ) => void;
+  disabled?: boolean;
+}) {
+  const copy = { ...DEFAULT_AUTO_LAYOUT_LABELS, ...labels };
+  const [linked, setLinked] = useState(() => {
+    const sides = ["top", "right", "bottom", "left"] as const;
+    if (sides.some((side) => mixed?.[side])) return false;
+    const first = textValues?.top ?? String(value.top);
+    return sides.every(
+      (side) => (textValues?.[side] ?? String(value[side])) === first,
+    );
+  });
+
+  return (
+    <FourSideSpacingProperties
+      label={copy.margin}
+      value={value}
+      mixed={mixed}
+      textValues={textValues}
+      linked={linked}
+      linkLabel={copy.linkMargin}
+      unlinkLabel={copy.unlinkMargin}
+      sideLabels={{
+        top: copy.marginTop,
+        right: copy.marginRight,
+        bottom: copy.marginBottom,
+        left: copy.marginLeft,
+      }}
+      min={-999}
+      disabled={disabled}
+      onLinkedChange={setLinked}
+      onChange={onChange}
+      mirrorOppositeOnAlt
+    />
+  );
+}
+
+function SpacingField({
   icon: Icon,
   ariaLabel,
   value,
+  textValue,
   mixed = false,
+  min = 0,
   onChange,
+  motionKeyframeDiamond,
   disabled,
 }: {
   icon: (props: { className?: string }) => ReactNode;
   ariaLabel: string;
   value: number;
-  /** Set for a multi-selection with differing padding on this side — see AutoLayoutMatrixValue.paddingMixed. */
+  textValue?: string;
   mixed?: boolean;
-  /** Forwards ScrubInput's gesture meta — see AutoLayoutMatrixProps.onPaddingChange. */
+  min?: number;
   onChange: (value: number, meta?: ScrubInputChangeMeta) => void;
+  motionKeyframeDiamond?: ReactNode;
   disabled: boolean;
 }) {
   return (
     <div
       className={cn(
-        "flex h-7 min-w-0 items-center rounded-md bg-[var(--design-editor-control-bg)]",
+        "flex h-6 min-w-0 items-center rounded-md bg-[var(--design-editor-control-bg)]",
         disabled && "opacity-40",
       )}
     >
@@ -1394,23 +1899,44 @@ function PaddingField({
         tooltipLabel={ariaLabel}
         icon={Icon}
         value={value}
+        textValue={textValue}
         mixed={mixed}
         onChange={(next, meta) => onChange(next, meta)}
         unit="px"
-        min={0}
+        min={min}
         step={1}
         precision={1}
         disabled={disabled}
-        className="min-w-0 flex-1 gap-0"
-        labelClassName="h-7 w-6 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
+        className="w-full min-w-0 flex-1 gap-0"
+        labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
         inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
       />
+      {motionKeyframeDiamond}
     </div>
   );
 }
 
-/** Link / unlink padding toggle button. */
-function PaddingLinkButton({
+function renderMotionKeyframeDiamond(
+  properties: readonly MotionKeyframeCssProperty[],
+  enabled: boolean,
+  keyframedProperties: readonly string[],
+  onToggle?: (cssProperty: MotionKeyframeCssProperty) => void,
+) {
+  if (!enabled || !onToggle || properties.length === 0) return undefined;
+  return (
+    <MotionKeyframeDiamond
+      cssProperty={properties[0]!}
+      keyframeProperties={properties}
+      hasKeyframe={properties.some((property) =>
+        motionPropertyHasKeyframe(keyframedProperties, property),
+      )}
+      onToggle={() => properties.forEach((property) => onToggle(property))}
+      className="mr-1"
+    />
+  );
+}
+
+function SpacingLinkButton({
   linked,
   disabled,
   linkLabel,
@@ -1434,13 +1960,17 @@ function PaddingLinkButton({
           aria-label={linked ? unlinkLabel : linkLabel}
           onClick={onToggle}
           className={cn(
-            "size-7 shrink-0 rounded-md hover:bg-[var(--design-editor-control-bg)]",
+            "size-6 shrink-0 rounded-md hover:bg-[var(--design-editor-control-bg)]",
             linked
               ? "text-[var(--design-editor-accent-color,hsl(var(--primary)))] hover:text-[var(--design-editor-accent-color,hsl(var(--primary)))]"
               : "text-muted-foreground hover:text-foreground",
           )}
         >
-          {linked ? <IconPaddingLinked /> : <IconPaddingUnlinked />}
+          {linked ? (
+            <IconBoxPadding className="size-4" />
+          ) : (
+            <IconBoxModel2 className="size-4" />
+          )}
         </Button>
       </TooltipTrigger>
       <TooltipContent>{linked ? unlinkLabel : linkLabel}</TooltipContent>
@@ -1454,56 +1984,28 @@ interface SizingFieldMinMax {
 }
 
 export interface SizingFieldProps {
-  /** Display letter ("W" / "H"). */
   axis: string;
-  /** Logical axis used by min/max + variable callbacks. */
   sizingAxis: AutoLayoutSizingAxis;
   value: AutoLayoutSizing;
-  resolvedSize?: number;
+  resolvedSize?: number | null;
   mixed?: boolean;
-  /** Currently-set min/max constraints (px). */
   minMax?: SizingFieldMinMax;
   options?: AutoLayoutSizing[];
-  /** Optional label overrides; English defaults are used for any omitted key. */
+  autoMode?: { active: boolean; label: string; onSelect: () => void };
+  showAdvancedOptions?: boolean;
   labels?: Partial<AutoLayoutMatrixLabels>;
   disabled: boolean;
   onChange: (value: AutoLayoutSizing) => void;
-  /**
-   * Invoked when the user directly scrubs or types a new pixel value while in
-   * "fixed" sizing mode. When omitted the numeric display is read-only and the
-   * entire trigger is a mode-picker dropdown (legacy behaviour).
-   *
-   * `meta` mirrors the same `ScrubInputChangeMeta` the X/Y position fields
-   * already forward to `onStyleChange` (see `ScrubStyleInput` in
-   * EditPanel.tsx) — in particular `meta.phase`, which lets the caller
-   * coalesce a whole scrub-drag gesture (many "preview" ticks + one final
-   * "commit") into a single undo step instead of one per tick. Callers that
-   * ignore the second argument keep today's every-tick-commits behavior.
-   */
   onSizeChange?: (px: number, meta?: ScrubInputChangeMeta) => void;
   onMinMaxChange?: (
     axis: AutoLayoutSizingAxis,
     kind: "min" | "max",
     value: number | null,
-    /** Scrub gesture meta — same contract as onSizeChange. Absent for
-     * remove (null) and the discrete add-constraint seed. */
     meta?: ScrubInputChangeMeta,
   ) => void;
   onApplyVariable?: (axis: AutoLayoutSizingAxis) => void;
 }
 
-/**
- * design-editor sizing field. Trigger renders `[axis | value | mode ▾]`; the menu
- * is the full design resizing dropdown:
- *   Fixed · Hug contents · Fill container
- *   ──────────────────────
- *   Add min … · Add max …
- *   ──────────────────────
- *   Apply variable …
- * "Add min/max" reveals an inline number input; set constraints render as a
- * small sub-row below the trigger with a remove (×). Hug/Fill rows are gated by
- * the `options` list (per-axis availability); Fixed is always present.
- */
 export function SizingField({
   axis,
   sizingAxis,
@@ -1512,6 +2014,8 @@ export function SizingField({
   mixed = false,
   minMax,
   options = SIZING_OPTIONS,
+  autoMode,
+  showAdvancedOptions = true,
   labels: labelOverrides,
   disabled,
   onChange,
@@ -1530,27 +2034,46 @@ export function SizingField({
   const canHug = options.includes("hug");
   const canFill = options.includes("fill");
 
-  // design rule: when Fixed, show ONLY the numeric value + chevron (no word).
-  // When Hug / Fill, show value + the mode word.
-  const showWord = value !== "fixed";
+  const showWord = Boolean(autoMode?.active) || value !== "fixed";
+  const modeLabel = autoMode?.active ? autoMode.label : labels[value];
+  const sizeText = mixed
+    ? "Mixed"
+    : resolvedSize == null
+      ? ""
+      : String(roundToOneDecimal(resolvedSize));
 
   const addMinLabel = isWidth ? labels.addMinWidth : labels.addMinHeight;
   const addMaxLabel = isWidth ? labels.addMaxWidth : labels.addMaxHeight;
   const minLabel = isWidth ? labels.minWidth : labels.minHeight;
   const maxLabel = isWidth ? labels.maxWidth : labels.maxHeight;
 
-  // Whether we're in editable fixed mode (ScrubInput shown for size).
   const isEditableFixed = value === "fixed" && onSizeChange != null;
 
+  const handleShortcut = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (
+      disabled ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      event.shiftKey
+    ) {
+      return;
+    }
+    const key = event.key.toLowerCase();
+    const next =
+      key === "f" && canFill ? "fill" : key === "h" && canHug ? "hug" : null;
+    if (!next) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onChange(next);
+  };
+
   const openEditor = (kind: "min" | "max") => {
-    // Commit immediately so the shown row always reflects real state and
-    // persists across selection changes, remounts, and parent re-renders.
-    const seed = Math.max(0, Math.round(resolvedSize ?? 0));
+    const seed = Math.max(0, roundToOneDecimal(resolvedSize ?? 0));
     const seedValue = kind === "min" ? seed : seed || 1;
     onMinMaxChange?.(sizingAxis, kind, seedValue);
   };
 
-  // Shared dropdown content (mode picker menu).
   const dropdownContent = (
     <DropdownMenuContent
       align="start"
@@ -1561,14 +2084,14 @@ export function SizingField({
       <SizingMenuItem
         icon={<IconSizingFixed />}
         label={labels.fixed}
-        active={value === "fixed"}
+        active={!autoMode?.active && value === "fixed"}
         onSelect={() => onChange("fixed")}
       />
       {canHug ? (
         <SizingMenuItem
           icon={<IconSizingHug />}
           label={labels.hugContents}
-          active={value === "hug"}
+          active={!autoMode?.active && value === "hug"}
           onSelect={() => onChange("hug")}
         />
       ) : null}
@@ -1576,13 +2099,21 @@ export function SizingField({
         <SizingMenuItem
           icon={<IconSizingFill />}
           label={labels.fillContainer}
-          active={value === "fill"}
+          active={!autoMode?.active && value === "fill"}
           onSelect={() => onChange("fill")}
+        />
+      ) : null}
+      {autoMode ? (
+        <SizingMenuItem
+          icon={<IconSizingFixed />}
+          label={autoMode.label}
+          active={autoMode.active}
+          onSelect={autoMode.onSelect}
         />
       ) : null}
 
       {/* ── Min / Max ── */}
-      {onMinMaxChange ? (
+      {showAdvancedOptions && onMinMaxChange ? (
         <>
           <DropdownMenuSeparator />
           <SizingMenuItem
@@ -1603,29 +2134,27 @@ export function SizingField({
       ) : null}
 
       {/* ── Variable ── */}
-      <DropdownMenuSeparator />
-      <SizingMenuItem
-        icon={<IconSizingVariable />}
-        label={labels.applyVariable}
-        disabled={!onApplyVariable}
-        onSelect={() => onApplyVariable?.(sizingAxis)}
-      />
+      {showAdvancedOptions ? (
+        <>
+          <DropdownMenuSeparator />
+          <SizingMenuItem
+            icon={<IconSizingVariable />}
+            label={labels.applyVariable}
+            disabled={!onApplyVariable}
+            onSelect={() => onApplyVariable?.(sizingAxis)}
+          />
+        </>
+      ) : null}
     </DropdownMenuContent>
   );
 
   return (
-    <div className="flex min-w-0 flex-col gap-1">
+    <div className="flex min-w-0 flex-col gap-1" onKeyDown={handleShortcut}>
       {isEditableFixed ? (
-        /*
-         * Editable fixed mode: split the trigger into two zones —
-         *   [axis letter | ScrubInput (numeric) | ▾ mode-picker caret]
-         * The ScrubInput occupies the center and lets the user type or
-         * drag-to-scrub the size in px. The chevron opens the mode dropdown.
-         */
         <DropdownMenu>
           <div
             className={cn(
-              "flex h-7 w-full items-center overflow-hidden rounded-md",
+              "flex h-6 w-full items-center overflow-hidden rounded-md",
               "bg-[var(--design-editor-control-bg)] !text-[11px]",
               disabled && "pointer-events-none opacity-40",
             )}
@@ -1647,7 +2176,7 @@ export function SizingField({
               precision={1}
               disabled={disabled}
               className="min-w-0 flex-1 gap-0"
-              labelClassName="h-7 w-5 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground"
+              labelClassName="h-6 w-5 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground"
               inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
             />
             {/* Caret opens the mode picker */}
@@ -1656,40 +2185,36 @@ export function SizingField({
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    aria-label={`${axis} sizing mode — ${labels[value]}`}
+                    aria-label={`${axis} sizing mode — ${modeLabel}`}
                     disabled={disabled}
                     className={cn(
-                      "flex h-7 w-6 shrink-0 items-center justify-center rounded-r-md",
+                      "flex h-6 w-6 shrink-0 items-center justify-center rounded-r-md",
                       "text-muted-foreground hover:text-foreground",
                       "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
                     )}
                   >
-                    <ChevronDownMini />
+                    <IconChevronDown className="size-2 opacity-70" />
                   </button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent>
-                {`${axis} · ${labels[value]} — click to change sizing mode`}
+                {`${axis} · ${modeLabel} — click to change sizing mode`}
               </TooltipContent>
             </Tooltip>
           </div>
           {dropdownContent}
         </DropdownMenu>
       ) : (
-        /*
-         * Non-editable / hug / fill mode: keep the original single-button
-         * dropdown trigger showing [axis | resolved size | mode word | ▾].
-         */
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  aria-label={`${axis} ${mixed ? "Mixed" : Math.round(resolvedSize ?? 0)} ${labels[value]}`}
+                  aria-label={`${axis} ${sizeText} ${modeLabel}`}
                   disabled={disabled}
                   className={cn(
-                    "flex h-7 w-full items-center gap-1 overflow-hidden rounded-md px-1.5",
+                    "flex h-6 w-full items-center gap-1 overflow-hidden rounded-md px-1.5",
                     "bg-[var(--design-editor-control-bg)] !text-[11px]",
                     "hover:bg-[var(--design-editor-panel-raised-bg)]",
                     "disabled:pointer-events-none disabled:opacity-40",
@@ -1705,22 +2230,22 @@ export function SizingField({
                       mixed ? "text-muted-foreground" : "text-foreground",
                     )}
                   >
-                    {mixed ? "Mixed" : Math.round(resolvedSize ?? 0)}
+                    {sizeText}
                   </span>
                   {/* Mode word (Hug/Fill only) */}
                   {showWord ? (
                     <span className="shrink-0 truncate text-muted-foreground">
-                      {labels[value]}
+                      {modeLabel}
                     </span>
                   ) : null}
                   {/* Caret */}
                   <span className="flex shrink-0 items-center text-muted-foreground">
-                    <ChevronDownMini />
+                    <IconChevronDown className="size-2 opacity-70" />
                   </span>
                 </button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent>{`${axis} · ${labels[value]} — click to change sizing mode`}</TooltipContent>
+            <TooltipContent>{`${axis} · ${modeLabel} — click to change sizing mode`}</TooltipContent>
           </Tooltip>
           {dropdownContent}
         </DropdownMenu>
@@ -1730,6 +2255,7 @@ export function SizingField({
       {hasMin ? (
         <ConstraintSubRow
           label={minLabel}
+          icon={IconSizingMin}
           value={minValue ?? 0}
           disabled={disabled}
           removeLabel={labels.removeConstraint}
@@ -1744,6 +2270,7 @@ export function SizingField({
       {hasMax ? (
         <ConstraintSubRow
           label={maxLabel}
+          icon={IconSizingMax}
           value={maxValue ?? 0}
           disabled={disabled}
           removeLabel={labels.removeConstraint}
@@ -1759,7 +2286,6 @@ export function SizingField({
   );
 }
 
-/** A single icon + label row in the sizing menu, with an active checkmark. */
 function SizingMenuItem({
   icon,
   label,
@@ -1775,6 +2301,7 @@ function SizingMenuItem({
 }) {
   return (
     <DropdownMenuItem
+      data-design-sizing-menu-item={label}
       disabled={disabled}
       onSelect={onSelect}
       className="gap-2 pl-2 pr-2 text-[12px]"
@@ -1784,15 +2311,15 @@ function SizingMenuItem({
       </span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
       <span className="flex size-3.5 shrink-0 items-center justify-center text-[var(--design-editor-accent-color,hsl(var(--primary)))]">
-        {active ? <CheckMini /> : null}
+        {active ? <IconCheck className="size-3" /> : null}
       </span>
     </DropdownMenuItem>
   );
 }
 
-/** Inline min/max constraint editor row with a remove (×) affordance. */
 function ConstraintSubRow({
   label,
+  icon,
   value,
   disabled,
   removeLabel,
@@ -1800,10 +2327,10 @@ function ConstraintSubRow({
   onRemove,
 }: {
   label: string;
+  icon: NonNullable<ScrubInputProps["icon"]>;
   value: number;
   disabled: boolean;
   removeLabel: string;
-  /** Forwards ScrubInput's gesture meta — see AutoLayoutMatrixProps.onChildMinMaxChange. */
   onChange: (value: number, meta?: ScrubInputChangeMeta) => void;
   onRemove: () => void;
 }) {
@@ -1817,15 +2344,19 @@ function ConstraintSubRow({
       <ScrubInput
         label={label}
         ariaLabel={label}
+        icon={icon}
+        prefix="icon"
         value={value}
-        onChange={(next, meta) => onChange(Math.max(0, Math.round(next)), meta)}
+        onChange={(next, meta) =>
+          onChange(Math.max(0, roundToOneDecimal(next)), meta)
+        }
         unit="px"
         min={0}
         step={1}
         precision={1}
         disabled={disabled}
         className="min-w-0 flex-1 gap-0"
-        labelClassName="hidden"
+        labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground [&>span]:sr-only"
         inputClassName="h-5 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
       />
       <Tooltip>
@@ -1838,235 +2369,15 @@ function ConstraintSubRow({
             className={cn(
               "flex h-6 w-5 shrink-0 items-center justify-center rounded-r-md",
               "text-muted-foreground hover:text-foreground",
+              "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
               "disabled:pointer-events-none disabled:opacity-40",
             )}
           >
-            <IconSizingRemove />
+            <IconSizingRemove className="size-3" />
           </button>
         </TooltipTrigger>
         <TooltipContent>{removeLabel}</TooltipContent>
       </Tooltip>
     </div>
-  );
-}
-
-/** Small check glyph for the active menu row. */
-function CheckMini() {
-  return (
-    <svg
-      viewBox="0 0 14 14"
-      width={12}
-      height={12}
-      fill="none"
-      aria-hidden="true"
-    >
-      <path
-        d="M2.5 7.5 L5.5 10.5 L11.5 3.5"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-// ─────────────────────────────────────────────────
-// Inline SVG glyphs (Tabler-weight, 24px viewBox)
-// ─────────────────────────────────────────────────
-
-/** Minimal downward chevron — matches the design caret weight. */
-function ChevronDownMini() {
-  return (
-    <svg
-      viewBox="0 0 8 8"
-      width={8}
-      height={8}
-      fill="none"
-      aria-hidden="true"
-      className="opacity-70"
-    >
-      <path
-        d="M1.5 3 L4 5.5 L6.5 3"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-/** Resize-to-fit diagonal arrows. */
-function IconResizeToFitMini() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={16}
-      height={16}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M9 4 H5 a1 1 0 0 0 -1 1 V9" />
-      <path d="M15 4 H19 a1 1 0 0 1 1 1 V9" />
-      <path d="M9 20 H5 a1 1 0 0 1 -1 -1 V15" />
-      <path d="M15 20 H19 a1 1 0 0 0 1 -1 V15" />
-    </svg>
-  );
-}
-
-/** Sliders / tune icon for advanced gap settings. */
-function IconSlidersMini() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={16}
-      height={16}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <line x1="8" y1="4" x2="8" y2="20" />
-      <line x1="16" y1="4" x2="16" y2="20" />
-      <circle cx="8" cy="9" r="2.2" fill="var(--design-editor-panel-bg)" />
-      <circle cx="16" cy="15" r="2.2" fill="var(--design-editor-panel-bg)" />
-    </svg>
-  );
-}
-
-/** Padding linked (all four sides) glyph. */
-function IconPaddingLinked() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={16}
-      height={16}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="4" y="4" width="16" height="16" rx="2" />
-      <rect x="9" y="9" width="6" height="6" rx="1" />
-    </svg>
-  );
-}
-
-/** Padding unlinked glyph (dashed inner frame). */
-function IconPaddingUnlinked() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={16}
-      height={16}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="4" y="4" width="16" height="16" rx="2" strokeDasharray="3 2.5" />
-      <rect x="9" y="9" width="6" height="6" rx="1" />
-    </svg>
-  );
-}
-
-/** Per-side padding glyphs — frame with one thick edge. */
-function IconPaddingTopMini({ className }: { className?: string }) {
-  return <PaddingSideGlyph className={className} side="top" />;
-}
-function IconPaddingRightMini({ className }: { className?: string }) {
-  return <PaddingSideGlyph className={className} side="right" />;
-}
-function IconPaddingBottomMini({ className }: { className?: string }) {
-  return <PaddingSideGlyph className={className} side="bottom" />;
-}
-function IconPaddingLeftMini({ className }: { className?: string }) {
-  return <PaddingSideGlyph className={className} side="left" />;
-}
-
-type PaddingSide = "top" | "right" | "bottom" | "left";
-
-/** Inset line for each side, matching IconPaddingHorizontal/Vertical. */
-const PADDING_EDGE: Record<PaddingSide, [number, number, number, number]> = {
-  top: [8, 7.5, 16, 7.5],
-  right: [16.5, 8, 16.5, 16],
-  bottom: [8, 16.5, 16, 16.5],
-  left: [7.5, 8, 7.5, 16],
-};
-
-function PaddingSideGlyph({
-  side,
-  className,
-}: {
-  side: PaddingSide;
-  className?: string;
-}) {
-  const [x1, y1, x2, y2] = PADDING_EDGE[side];
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={cn("size-3.5", className)}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="3.5" y="3.5" width="17" height="17" rx="1.5" />
-      <line x1={x1} y1={y1} x2={x2} y2={y2} />
-    </svg>
-  );
-}
-
-/** Distribute spacing (space-between) along each axis. */
-function IconDistributeH() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={14}
-      height={14}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <line x1="3" y1="4" x2="3" y2="20" />
-      <line x1="21" y1="4" x2="21" y2="20" />
-      <rect x="8" y="7" width="8" height="10" rx="1" />
-    </svg>
-  );
-}
-
-function IconDistributeV() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={14}
-      height={14}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <line x1="4" y1="3" x2="20" y2="3" />
-      <line x1="4" y1="21" x2="20" y2="21" />
-      <rect x="7" y="8" width="10" height="8" rx="1" />
-    </svg>
   );
 }
