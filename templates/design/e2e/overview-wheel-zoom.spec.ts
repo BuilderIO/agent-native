@@ -1,14 +1,7 @@
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
+import { type Page } from "@playwright/test";
 
-import { e2eBaseURL } from "./base-url";
 import { appPath } from "./helpers";
-
-const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
+import { expect, test, type App } from "./rails";
 
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Wheel zoom</title></head>
@@ -17,224 +10,195 @@ const SCREEN_HTML = `<!doctype html>
   <h1 data-agent-native-node-id="hero" style="position:absolute;left:40px;top:48px">Hero</h1>
 </main></body></html>`;
 
-async function action(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const response = await request.post(
-    `${BASE_URL}/_agent-native/actions/${name}`,
-    { data: input },
-  );
-  if (!response.ok()) {
-    throw new Error(`${name}: ${response.status()} ${await response.text()}`);
-  }
-  return response.json();
-}
+test.use({ viewport: { width: 1600, height: 1000 } });
 
-async function createDesign(request: APIRequestContext) {
-  const created = await action(request, "create-design", {
-    title: `Wheel zoom QA ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-  const file = await action(request, "create-file", {
-    designId,
-    filename: "index.html",
-    content: SCREEN_HTML,
-    fileType: "html",
-  });
-  const fileId = file.id ?? file.data?.id;
-  if (!fileId) throw new Error("create-file returned no id");
-  await action(request, "update-design", {
-    id: designId,
-    dataOperations: [
-      {
-        op: "set",
-        path: ["screenMetadata", fileId],
-        value: { sourceType: "inline", width: 1280, height: 900 },
+async function openScreenAtOrigin(app: App) {
+  const id = await app.seed(SCREEN_HTML);
+  const { files } = await app.savedRecord(id);
+  const fileId = files.find((file) => file.filename === "index.html")!.id;
+  const response = await app.page.request.post(
+    appPath("/_agent-native/actions/update-design"),
+    {
+      data: {
+        id,
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", fileId],
+            value: { sourceType: "inline", width: 1280, height: 900 },
+          },
+          {
+            op: "set",
+            path: ["canvasFrames", fileId],
+            value: { x: 0, y: 0, width: 1280, height: 900, z: 0 },
+          },
+        ],
       },
-      {
-        op: "set",
-        path: ["canvasFrames", fileId],
-        value: { x: 0, y: 0, width: 1280, height: 900, z: 0 },
-      },
-    ],
-  });
-  return { designId, fileId };
+    },
+  );
+  expect(response.ok()).toBe(true);
+  await app.open(id);
+  await settledCamera(app.page);
 }
 
 async function worldScale(page: Page) {
   return page.evaluate(() => {
     const world = document.querySelector<HTMLElement>(
       "[data-multi-screen-canvas-world]",
-    );
-    if (!world) return null;
+    )!;
     const transform = getComputedStyle(world).transform;
-    if (!transform || transform === "none") return 1;
-    return new DOMMatrixReadOnly(transform).a;
+    return transform === "none" ? 1 : new DOMMatrixReadOnly(transform).a;
   });
 }
 
-async function openOverview(page: Page, designId: string) {
-  await page.goto(appPath(`/design/${designId}?view=overview`), {
-    waitUntil: "domcontentloaded",
-  });
+async function cardBox(page: Page) {
+  return (await page.locator("[data-screen-card]").first().boundingBox())!;
+}
+
+/** Waits until the canvas transform and the screen card stop changing, then returns both. */
+async function settledCamera(page: Page) {
+  let previous = "";
   await expect
-    .poll(async () => page.locator("[data-screen-shell]").count(), {
-      timeout: 40_000,
-    })
-    .toBeGreaterThan(0);
-  await page.waitForTimeout(2500);
+    .poll(
+      async () => {
+        const now = JSON.stringify([
+          await worldScale(page),
+          await cardBox(page),
+        ]);
+        const stable = now === previous;
+        previous = now;
+        return stable;
+      },
+      { intervals: [150], message: "the canvas never stopped moving" },
+    )
+    .toBe(true);
+  return { scale: await worldScale(page), card: await cardBox(page) };
 }
 
-async function screenContentPoint(page: Page) {
-  const box = await page.locator("[data-screen-card]").first().boundingBox();
-  if (!box) throw new Error("no screen card rendered");
+async function pointOverScreen(page: Page) {
+  const box = await cardBox(page);
   return {
-    x: box.x + Math.min(box.width, 400) / 2,
-    y: box.y + Math.min(box.height, 400) / 2,
+    x: Math.round(box.x + Math.min(box.width, 400) / 2),
+    y: Math.round(box.y + Math.min(box.height, 400) / 2),
   };
 }
 
-test.use({ viewport: { width: 1600, height: 1000 } });
+async function ctrlWheel(page: Page, deltaY: number) {
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, deltaY);
+  await page.keyboard.up("Control");
+}
 
-test("Ctrl+wheel over screen content zooms the canvas", async ({
-  page,
-  request,
+test("Ctrl+wheel over screen content zooms the canvas about the cursor", async ({
+  app,
 }) => {
-  const { designId } = await createDesign(request);
-  const pageErrors: string[] = [];
-  page.on("pageerror", (error) => pageErrors.push(String(error)));
-  try {
-    await openOverview(page, designId);
-    const before = await worldScale(page);
-    expect(before).not.toBeNull();
+  const page = app.page;
+  await openScreenAtOrigin(app);
+  const before = await settledCamera(page);
+  const cursor = await pointOverScreen(page);
+  await page.mouse.move(cursor.x, cursor.y);
 
-    const point = await screenContentPoint(page);
-    await page.mouse.move(point.x, point.y);
-    await page.keyboard.down("Control");
-    await page.mouse.wheel(0, -100);
-    await page.keyboard.up("Control");
-    await page.waitForTimeout(600);
+  await ctrlWheel(page, -100);
 
-    const after = await worldScale(page);
-    expect(after).not.toBeNull();
-    expect(after!).toBeGreaterThan(before!);
-    expect(pageErrors).toEqual([]);
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
+  await expect.poll(() => worldScale(page)).not.toBe(before.scale);
+  const after = await settledCamera(page);
+  expect(after.scale / before.scale).toBeCloseTo(1.1, 3);
+  const anchoredX = cursor.x - (cursor.x - before.card.x) * 1.1;
+  const anchoredY = cursor.y - (cursor.y - before.card.y) * 1.1;
+  expect(
+    Math.abs(after.card.x - anchoredX),
+    `card x ${after.card.x}, anchored at ${anchoredX}`,
+  ).toBeLessThanOrEqual(1);
+  expect(
+    Math.abs(after.card.y - anchoredY),
+    `card y ${after.card.y}, anchored at ${anchoredY}`,
+  ).toBeLessThanOrEqual(1);
 });
 
 test("one mouse notch moves zoom by a notch-sized step, not the pinch curve", async ({
-  page,
-  request,
+  app,
 }) => {
-  const { designId } = await createDesign(request);
-  try {
-    await openOverview(page, designId);
-    const before = await worldScale(page);
+  const page = app.page;
+  await openScreenAtOrigin(app);
+  const before = await settledCamera(page);
+  const cursor = await pointOverScreen(page);
+  await page.mouse.move(cursor.x, cursor.y);
 
-    const point = await screenContentPoint(page);
-    await page.mouse.move(point.x, point.y);
-    await page.keyboard.down("Control");
-    await page.mouse.wheel(0, -66.7);
-    await page.keyboard.up("Control");
-    await page.waitForTimeout(600);
+  await ctrlWheel(page, -66.7);
 
-    const after = await worldScale(page);
-    const ratio = after! / before!;
-    expect(ratio).toBeGreaterThan(1);
-    expect(ratio).toBeLessThan(1.2);
-    expect(ratio).toBeCloseTo(Math.pow(1.1, 66.7 / 100), 2);
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
+  await expect.poll(() => worldScale(page)).not.toBe(before.scale);
+  const after = await settledCamera(page);
+  expect(after.scale / before.scale).toBeCloseTo(Math.pow(1.1, 66.7 / 100), 2);
 });
 
 test("a wheel burst over screen content does not log a scroll Intervention", async ({
-  page,
-  request,
+  app,
 }) => {
-  const { designId } = await createDesign(request);
+  const page = app.page;
   const interventions: string[] = [];
   page.on("console", (message) => {
-    const text = message.text();
-    if (text.toLowerCase().includes("intervention")) interventions.push(text);
+    if (message.text().toLowerCase().includes("intervention"))
+      interventions.push(message.text());
   });
-  try {
-    await openOverview(page, designId);
-    const point = await screenContentPoint(page);
-    await page.mouse.move(point.x, point.y);
-    for (let i = 0; i < 12; i += 1) await page.mouse.wheel(0, 60);
-    await page.keyboard.down("Control");
-    for (let i = 0; i < 12; i += 1) await page.mouse.wheel(0, -60);
-    await page.keyboard.up("Control");
-    await page.waitForTimeout(600);
+  await openScreenAtOrigin(app);
+  const before = await settledCamera(page);
+  const cursor = await pointOverScreen(page);
+  await page.mouse.move(cursor.x, cursor.y);
 
-    expect(interventions).toEqual([]);
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
+  for (let notch = 0; notch < 12; notch += 1) await page.mouse.wheel(0, 60);
+  await expect
+    .poll(async () => Math.round((await cardBox(page)).y))
+    .toBe(Math.round(before.card.y - 720));
+  const panned = await settledCamera(page);
+  expect(panned.scale, "a plain wheel pans without zooming").toBe(before.scale);
+  expect(panned.card.x).toBe(before.card.x);
+  await page.keyboard.down("Control");
+  for (let notch = 0; notch < 12; notch += 1) await page.mouse.wheel(0, -60);
+  await page.keyboard.up("Control");
+  await expect.poll(() => worldScale(page)).not.toBe(before.scale);
+  const zoomed = await settledCamera(page);
+
+  expect(zoomed.scale / before.scale).toBeCloseTo(
+    Math.pow(1.1, (12 * 60) / 100),
+    2,
+  );
+  expect(interventions).toEqual([]);
 });
 
 test("the zoom percentage input updates the overview canvas scale", async ({
-  page,
-  request,
+  app,
 }) => {
-  const { designId } = await createDesign(request);
-  try {
-    await openOverview(page, designId);
-    const zoomControl = page.getByRole("button", { name: /^\d+%$/ }).first();
-    await zoomControl.click();
-    const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
-    await zoomInput.fill("25%");
-    await zoomInput.press("Enter");
-    await expect(zoomControl).toHaveText("25%");
-    await expect
-      .poll(() => new URL(page.url()).searchParams.get("zoom"))
-      .toBe("25");
+  const page = app.page;
+  await openScreenAtOrigin(app);
+  const zoomControl = page.getByRole("button", { name: /^\d+%$/ }).first();
+  await zoomControl.click();
+  const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
+  await zoomInput.fill("25%");
+  await zoomInput.press("Enter");
 
-    await expect
-      .poll(async () => {
-        const scale = await worldScale(page);
-        return scale !== null && Math.abs(scale - 0.25) <= 0.005;
-      })
-      .toBe(true);
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
+  await expect(zoomControl).toHaveText("25%");
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("zoom"))
+    .toBe("25");
+  await expect.poll(() => worldScale(page)).toBe(0.25);
 });
 
 test("clearing the zoom percentage keeps the current overview scale", async ({
-  page,
-  request,
+  app,
 }) => {
-  const { designId } = await createDesign(request);
-  try {
-    await openOverview(page, designId);
-    const before = await worldScale(page);
-    const beforeZoomQuery = new URL(page.url()).searchParams.get("zoom");
-    const beforeZoomLabel = Math.round(before! * 100);
-    const zoomControl = page.getByRole("button", { name: /^\d+%$/ }).first();
-    await zoomControl.click();
-    const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
-    await zoomInput.fill("");
-    await zoomInput.press("Enter");
+  const page = app.page;
+  await openScreenAtOrigin(app);
+  const before = await settledCamera(page);
+  const beforeZoomQuery = new URL(page.url()).searchParams.get("zoom");
+  const zoomControl = page.getByRole("button", { name: /^\d+%$/ }).first();
+  await zoomControl.click();
+  const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
+  await zoomInput.fill("");
+  await zoomInput.press("Enter");
 
-    await expect(zoomInput).toHaveValue(String(beforeZoomLabel));
-    await expect
-      .poll(() => new URL(page.url()).searchParams.get("zoom"))
-      .toBe(beforeZoomQuery);
-    await expect
-      .poll(async () => {
-        const scale = await worldScale(page);
-        return scale !== null && Math.abs(scale - before!) <= 0.005;
-      })
-      .toBe(true);
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
+  await expect(zoomInput).toHaveValue(String(Math.round(before.scale * 100)));
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("zoom"))
+    .toBe(beforeZoomQuery);
+  expect((await settledCamera(page)).scale).toBe(before.scale);
 });

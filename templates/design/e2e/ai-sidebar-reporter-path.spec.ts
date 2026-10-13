@@ -3,10 +3,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { assertNoInlineImageBytes } from "@agent-native/core/testing";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 import enUS from "../app/i18n/en-US";
 import { appPath, designFrame, gotoEditor, selectByText } from "./helpers";
+import { expect, test } from "./rails";
 import {
   CANARY_SESSION_ID,
   INLINE_BYTES_CANARIES,
@@ -1181,6 +1182,7 @@ test("Design editor sidebar sends uploaded PNG bytes to model vision input", asy
 });
 
 test("Design editor shows an error for invalid exact canvas dimensions", async ({
+  app,
   page,
 }) => {
   const created = await action(page, "create-design", {
@@ -1190,6 +1192,7 @@ test("Design editor shows an error for invalid exact canvas dimensions", async (
   const designId = created.id ?? created.data?.id ?? created.design?.id;
   if (typeof designId !== "string")
     throw new Error(`create-design returned no id: ${JSON.stringify(created)}`);
+  app.adopt(designId);
   const imagePath = path.resolve(
     import.meta.dirname,
     "fixtures",
@@ -1198,6 +1201,7 @@ test("Design editor shows an error for invalid exact canvas dimensions", async (
   const dataUrl = `data:image/png;base64,${(await readFile(imagePath)).toString("base64")}`;
   await page.addInitScript(
     ({ id, imageDataUrl }) => {
+      if (window !== window.top) return;
       sessionStorage.setItem(
         `design.pending-generation.${id}`,
         JSON.stringify({
@@ -1239,7 +1243,6 @@ test("Design editor shows an error for invalid exact canvas dimensions", async (
       { exact: true },
     ),
   ).toBeVisible({ timeout: 30_000 });
-  expect(agentChatRequests).toBe(0);
   await expect
     .poll(() =>
       page.evaluate(
@@ -1248,10 +1251,17 @@ test("Design editor shows an error for invalid exact canvas dimensions", async (
       ),
     )
     .toBeNull();
-  await page.screenshot({
-    path: test.info().outputPath("invalid-canvas-dimensions.png"),
-    fullPage: true,
-  });
+  await app.settled();
+  expect(
+    agentChatRequests,
+    "the rejected prompt must never reach the agent",
+  ).toBe(0);
+  // Opening the editor creates only the board file; no screen may be generated.
+  const saved = await app.savedRecord(designId);
+  expect({
+    files: saved.files.map((file) => file.filename),
+    canvasFrames: saved.data?.canvasFrames ?? {},
+  }).toStrictEqual({ files: ["__board__.html"], canvasFrames: {} });
 });
 
 test("Design chat hydrates a 2.3 MB HTTPS upload into model vision input", async ({

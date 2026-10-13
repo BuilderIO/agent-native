@@ -1,10 +1,11 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { type Locator, type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
 import { appPath, cdpScreenshot, expandAllLayers, gotoEditor } from "./helpers";
+import { expect, test } from "./rails";
 
 const CHROME_FIXTURE = `<!doctype html>
 <html lang="en">
@@ -82,22 +83,6 @@ async function postAction(
     );
   }
   return response.json();
-}
-
-async function createChromeFixture(page: Page): Promise<string> {
-  const created = await postAction(page, "create-design", {
-    title: "Chrome geometry",
-    projectType: "prototype",
-  });
-  const designId = created?.id ?? created?.data?.id;
-  if (!designId) throw new Error("create-design returned no id");
-  await postAction(page, "create-file", {
-    designId,
-    filename: "index.html",
-    content: CHROME_FIXTURE,
-    fileType: "html",
-  });
-  return designId;
 }
 
 async function readGeometry(
@@ -447,10 +432,11 @@ async function assertLeftPanelWidth(page: Page): Promise<void> {
 }
 
 test("keeps Design chrome geometry stable at compact and wide inspector widths", async ({
+  app,
   page,
 }) => {
   await mkdir(ARTIFACT_DIR, { recursive: true });
-  const designId = await createChromeFixture(page);
+  const designId = await app.seed(CHROME_FIXTURE, { title: "Chrome geometry" });
   await gotoEditor(page, designId);
   await page.getByRole("tab", { name: "Design", exact: true }).click();
   await expandAllLayers(page);
@@ -488,7 +474,9 @@ test("keeps Design chrome geometry stable at compact and wide inspector widths",
     page.locator('[data-design-chrome-region="left-shell"]'),
   );
   const leftHeaderGeometry = await readGeometry(
-    page.locator('[data-design-chrome-region="left-header"]'),
+    page
+      .locator('[data-design-chrome-region="left-header"]')
+      .filter({ visible: true }),
   );
   const zoneGeometry = await readGeometry(
     page.locator("[data-design-top-bar-inspector-zone]"),

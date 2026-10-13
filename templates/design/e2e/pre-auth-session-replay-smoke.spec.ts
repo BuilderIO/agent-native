@@ -2,7 +2,9 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
 
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import type { BrowserContext, Page } from "@playwright/test";
+
+import { expect, test } from "./rails";
 
 interface ReplayPayload {
   replayId?: string;

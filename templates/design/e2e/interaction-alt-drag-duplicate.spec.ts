@@ -1,12 +1,9 @@
 import {
-  expect,
-  test,
   type APIRequestContext,
   type Locator,
   type Page,
 } from "@playwright/test";
 
-import { e2eBaseURL } from "./base-url";
 import {
   appPath,
   canvasZoom,
@@ -14,10 +11,15 @@ import {
   designFrame,
   expandAllLayers,
   gotoEditor,
-  installBridge,
 } from "./helpers";
-
-const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
+import {
+  expect,
+  expectOnlyChanged,
+  styleOf,
+  test,
+  type App,
+  type SavedNode,
+} from "./rails";
 
 async function action(
   request: APIRequestContext,
@@ -25,7 +27,7 @@ async function action(
   input: Record<string, unknown>,
 ) {
   const response = await request.post(
-    `${BASE_URL}/_agent-native/actions/${name}`,
+    appPath(`/_agent-native/actions/${name}`),
     { data: input },
   );
   if (!response.ok()) {
@@ -47,7 +49,7 @@ async function readCanvasFrames(
   designId: string,
 ): Promise<Record<string, CanvasFrameGeometry>> {
   const response = await request.get(
-    `${BASE_URL}/_agent-native/actions/get-design`,
+    appPath("/_agent-native/actions/get-design"),
     { params: { id: designId, includeFileContent: "false" } },
   );
   if (!response.ok()) {
@@ -64,30 +66,26 @@ async function readCanvasFrames(
   return data.canvasFrames as Record<string, CanvasFrameGeometry>;
 }
 
-async function createDesign(
-  request: APIRequestContext,
-  html: string,
-  fileCount = 1,
-) {
-  const created = await action(request, "create-design", {
-    title: `Alt-drag duplicate interaction ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-  const fileIds: string[] = [];
-  for (let index = 0; index < fileCount; index += 1) {
-    const file = await action(request, "create-file", {
-      designId,
-      filename: index === 0 ? "index.html" : `screen-${index + 1}.html`,
-      content: html,
-      fileType: "html",
-    });
-    const fileId = file.id ?? file.data?.id;
-    if (!fileId) throw new Error("create-file returned no id");
-    fileIds.push(fileId);
-  }
-  await action(request, "update-design", {
+async function createDesign(app: App, html: string, fileCount = 1) {
+  const extraFiles = Object.fromEntries(
+    Array.from({ length: fileCount - 1 }, (_, index) => [
+      `screen-${index + 2}.html`,
+      html,
+    ]),
+  );
+  const designId = await app.seed(html, { files: extraFiles });
+  const record = await (
+    await app.page.request.get(
+      appPath(`/_agent-native/actions/get-design?id=${designId}`),
+    )
+  ).json();
+  const fileIds: string[] = ["index.html", ...Object.keys(extraFiles)].map(
+    (filename) =>
+      record.files.find(
+        (file: { filename: string }) => file.filename === filename,
+      ).id,
+  );
+  await action(app.page.request, "update-design", {
     id: designId,
     dataOperations: fileIds.flatMap((fileId, index) => [
       {
@@ -190,13 +188,14 @@ function boardHtml(
 }
 
 async function createDesignWithBoard(
-  request: APIRequestContext,
+  app: App,
   options: {
     rootOverflow?: "visible" | "hidden";
     rootLayout?: "auto" | "plain";
   } = {},
 ) {
-  const { designId } = await createDesign(request, NAMED_HTML);
+  const { designId } = await createDesign(app, NAMED_HTML);
+  const request = app.page.request;
   const board = await action(request, "create-file", {
     designId,
     filename: "__board__.html",
@@ -225,7 +224,9 @@ async function fileContent(
   filename: string,
 ): Promise<string> {
   const response = await request.get(
-    `${BASE_URL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+    appPath(
+      `/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+    ),
   );
   if (!response.ok()) {
     throw new Error(
@@ -432,12 +433,6 @@ async function layerNames(page: Page): Promise<string[]> {
     .evaluateAll((nodes) =>
       nodes.map((node) => node.getAttribute("title") ?? ""),
     );
-}
-
-async function dumpTrace(page: Page) {
-  return page
-    .evaluate(() => (window as any).__designTrace?.dump?.() ?? null)
-    .catch(() => null);
 }
 
 async function dragBoardLayerCopyToEmptyCanvas(
@@ -690,611 +685,316 @@ async function expectBoardCopyAfterReload(
   };
 }
 
+function childrenOf(nodes: Map<string, SavedNode>, parent: string) {
+  return [...nodes.values()]
+    .filter((node) => node.parent === parent)
+    .sort((a, b) => a.index - b.index)
+    .map((node) => node.id);
+}
+
+function bodyId(nodes: Map<string, SavedNode>) {
+  return [...nodes.values()].find((node) => node.tag === "body")!.id;
+}
+
+function idsNamed(nodes: Map<string, SavedNode>, layerName: string) {
+  return [...nodes.values()]
+    .filter((node) => node.attrs["data-agent-native-layer-name"] === layerName)
+    .map((node) => node.id);
+}
+
+function expectNear(
+  actual: string | number | undefined,
+  expected: number,
+  label: string,
+  tolerance = 2,
+) {
+  expect(
+    Math.abs(parseFloat(String(actual)) - expected),
+    `${label} ${actual}`,
+  ).toBeLessThanOrEqual(tolerance);
+}
+
+async function openSingleScreen(app: App, html: string) {
+  const { designId } = await createDesign(app, html);
+  await app.open(designId);
+  await app.zoomToFit();
+  await app.settled();
+  return designId;
+}
+
+async function altDragDesign(
+  app: App,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+) {
+  const start = await app.pagePoint(from.x, from.y);
+  const end = await app.pagePoint(to.x, to.y);
+  await app.page.mouse.move(start.x, start.y);
+  await app.page.keyboard.down("Alt");
+  await app.page.mouse.down();
+  await app.page.mouse.move(end.x, end.y, { steps: 16 });
+  await app.page.mouse.up();
+  await app.page.keyboard.up("Alt");
+}
+
+/** Indexes of the selected rows among the Layers rows named `name`, top row (frontmost layer) first. */
+async function selectedRowsNamed(page: Page, name: string) {
+  return page
+    .getByRole("tree", { name: "Layers" })
+    .locator('[role="treeitem"]')
+    .filter({
+      has: page.locator(`[data-layer-row-button] span[title="${name}"]`),
+    })
+    .evaluateAll((rows) =>
+      rows.flatMap((row, index) =>
+        row.getAttribute("aria-selected") === "true" ? [index] : [],
+      ),
+    );
+}
+
 test.describe("alt-drag duplicate (single-screen editor)", () => {
-  test("alt-drag inside a screen preserves a non-center grab offset; original stays, copy keeps the identical name, and copy is selected", async ({
-    page,
-    request,
+  test("alt-drag inside a screen copies the layer directly above the original at the grab offset, selects the copy, and one undo restores the document and selection", async ({
+    app,
   }) => {
-    const { designId } = await createDesign(request, NAMED_HTML);
-    try {
-      await gotoEditor(page, designId);
-      const zoom = await canvasZoom(page);
-      const frame = designFrame(page);
-      const rect = frame.locator('[data-agent-native-node-id="rect"]');
-      await expect(rect).toBeVisible();
-      const before = (await rect.boundingBox())!;
+    const designId = await openSingleScreen(app, SCREEN_WITH_TWO_ELEMENTS_HTML);
+    const start = await app.pagePoint(215, 105);
+    await app.page.mouse.click(start.x, start.y);
+    await expect.poll(() => app.selectedLayers()).toEqual(["Widget"]);
+    const before = await app.savedNodes(designId);
 
-      await page.mouse.click(
-        before.x + before.width / 2,
-        before.y + before.height / 2,
-      );
-      await page.waitForTimeout(200);
+    await altDragDesign(app, { x: 215, y: 105 }, { x: 435, y: 245 });
 
-      const grabOffset = {
-        x: before.width * 0.75,
-        y: before.height * 0.25,
-      };
-      const start = {
-        x: before.x + grabOffset.x,
-        y: before.y + grabOffset.y,
-      };
-      const dx = 220 * zoom;
-      const dy = 140 * zoom;
-      const release = { x: start.x + dx, y: start.y + dy };
-      await page.mouse.move(start.x, start.y);
-      await page.keyboard.down("Alt");
-      await page.mouse.down();
-      await page.mouse.move(release.x, release.y, { steps: 16 });
-      await page.mouse.up();
-      await page.keyboard.up("Alt");
+    await expect
+      .poll(
+        async () => idsNamed(await app.savedNodes(designId), "Widget").length,
+      )
+      .toBe(2);
+    await app.settled();
+    const after = await app.savedNodes(designId);
+    const copy = idsNamed(after, "Widget").find((id) => id !== "rect")!;
+    expect(
+      childrenOf(after, bodyId(after)),
+      "the copy sits directly above the original",
+    ).toEqual(["rect", copy, "other"]);
+    const {
+      left,
+      top,
+      background: _copyBackground,
+      ...copyRest
+    } = styleOf(after.get(copy));
+    const {
+      left: _left,
+      top: _top,
+      background: _background,
+      ...rectRest
+    } = styleOf(before.get("rect"));
+    expect(copyRest).toEqual(rectRest);
+    expectNear(left, 300, "copy left");
+    expectNear(top, 220, "copy top");
+    await expect(app.node(copy)).toHaveCSS(
+      "background-color",
+      "rgb(51, 170, 119)",
+    );
+    expectOnlyChanged(before, after, [copy]);
+    await expandAllLayers(app.page);
+    await expect
+      .poll(
+        () => selectedRowsNamed(app.page, "Widget"),
+        "the copy (top Widget row) is selected",
+      )
+      .toEqual([0]);
 
-      const nodes = frame.locator("body > [data-agent-native-node-id]");
-      await expect(nodes).toHaveCount(2, { timeout: 10_000 });
-
-      const originalAfter = await frame
-        .locator('[data-agent-native-node-id="rect"]')
-        .boundingBox();
-      expect(originalAfter).not.toBeNull();
-      expect(Math.round(originalAfter!.x)).toBe(Math.round(before.x));
-      expect(Math.round(originalAfter!.y)).toBe(Math.round(before.y));
-
-      const allIds = await frame
-        .locator("body > [data-agent-native-node-id]")
-        .evaluateAll((els) =>
-          els.map((el) => el.getAttribute("data-agent-native-node-id")),
-        );
-      const copyId = allIds.find((id) => id !== "rect");
-      expect(copyId).toBeTruthy();
-      const copyBox = await frame
-        .locator(`[data-agent-native-node-id="${copyId}"]`)
-        .boundingBox();
-      expect(copyBox).not.toBeNull();
-      expect(copyBox!.x).toBeCloseTo(release.x - grabOffset.x, -1);
-      expect(copyBox!.y).toBeCloseTo(release.y - grabOffset.y, -1);
-
-      const names = await layerNames(page);
-      const widgetCount = names.filter((n) => n === "Widget").length;
-      if (widgetCount !== 2) {
-        const trace = await dumpTrace(page);
-        test.info().annotations.push({
-          type: "trace",
-          description: JSON.stringify({ names, trace }),
-        });
-      }
-      expect(names.filter((n) => n === "Widget")).toHaveLength(2);
-
-      const selectionTrace = await dumpTrace(page);
-      const selectionMatches = [
-        ...(selectionTrace ?? "").matchAll(
-          /\[select:selection-changed\] \{"layers":\[[^\]]*\],"element":"((?:[^"\\]|\\.)*)"/g,
-        ),
-      ];
-      const lastSelection =
-        selectionMatches[selectionMatches.length - 1]?.[1] ?? null;
-      if (!lastSelection || !lastSelection.includes(copyId!)) {
-        test.info().annotations.push({
-          type: "trace",
-          description: JSON.stringify({
-            copyId,
-            lastSelection,
-            selectionTrace,
-          }),
-        });
-      }
-      expect(lastSelection).toContain(copyId);
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(async () => idsNamed(await app.savedNodes(designId), "Widget"))
+      .toEqual(["rect"]);
+    await app.settled();
+    const undone = await app.savedNodes(designId);
+    expectOnlyChanged(before, undone, []);
+    expect(childrenOf(undone, bodyId(undone))).toEqual(["rect", "other"]);
+    await expect.poll(() => app.selectedLayers()).toEqual(["Widget"]);
   });
 
   test("alt-drag on an unnamed (tag-fallback-named) element: copy keeps the same computed name, not literal 'Copy'", async ({
-    page,
-    request,
+    app,
   }) => {
-    const { designId } = await createDesign(request, UNNAMED_HTML);
-    try {
-      await gotoEditor(page, designId);
-      const frame = designFrame(page);
-      const plain = frame.locator('[data-agent-native-node-id="plain"]');
-      await expect(plain).toBeVisible();
-      const before = (await plain.boundingBox())!;
-      await page.mouse.click(
-        before.x + before.width / 2,
-        before.y + before.height / 2,
-      );
-      await page.waitForTimeout(200);
+    const designId = await openSingleScreen(app, UNNAMED_HTML);
+    const centre = await app.pagePoint(200, 160);
+    await app.page.mouse.click(centre.x, centre.y);
+    const namesBefore = await layerNames(app.page);
+    expect(namesBefore).toHaveLength(1);
+    const before = await app.savedNodes(designId);
 
-      const namesBefore = await layerNames(page);
-      expect(namesBefore).toHaveLength(1);
-      const originalName = namesBefore[0]!;
+    await altDragDesign(app, { x: 200, y: 160 }, { x: 400, y: 310 });
 
-      await page.mouse.move(
-        before.x + before.width / 2,
-        before.y + before.height / 2,
-      );
-      await page.keyboard.down("Alt");
-      await page.mouse.down();
-      await page.mouse.move(
-        before.x + before.width / 2 + 200,
-        before.y + before.height / 2 + 150,
-        {
-          steps: 16,
-        },
-      );
-      await page.mouse.up();
-      await page.keyboard.up("Alt");
-      await expect
-        .poll(async () => (await layerNames(page)).length, {
-          timeout: 10_000,
-        })
-        .toBe(2);
-
-      const namesAfter = await layerNames(page);
-      if (
-        namesAfter.length !== 2 ||
-        namesAfter.some((n) => n !== originalName)
-      ) {
-        const trace = await dumpTrace(page);
-        test.info().annotations.push({
-          type: "trace",
-          description: JSON.stringify({ originalName, namesAfter, trace }),
-        });
-      }
-      expect(namesAfter).toHaveLength(2);
-      for (const name of namesAfter) {
-        expect(name).toBe(originalName);
-        expect(name.toLowerCase()).not.toContain("copy");
-      }
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
-  });
-
-  test("alt-drag inserts the copy directly above the original in DOM order (z-order)", async ({
-    page,
-    request,
-  }) => {
-    const { designId } = await createDesign(
-      request,
-      SCREEN_WITH_TWO_ELEMENTS_HTML,
-    );
-    try {
-      await gotoEditor(page, designId);
-      const frame = designFrame(page);
-      const rect = frame.locator('[data-agent-native-node-id="rect"]');
-      await expect(rect).toBeVisible();
-      const before = (await rect.boundingBox())!;
-      await page.mouse.click(
-        before.x + before.width / 2,
-        before.y + before.height / 2,
-      );
-      await page.waitForTimeout(200);
-
-      await page.mouse.move(
-        before.x + before.width / 2,
-        before.y + before.height / 2,
-      );
-      await page.keyboard.down("Alt");
-      await page.mouse.down();
-      await page.mouse.move(
-        before.x + before.width / 2 + 250,
-        before.y + before.height / 2,
-        {
-          steps: 16,
-        },
-      );
-      await page.mouse.up();
-      await page.keyboard.up("Alt");
-      const bodyLocator = frame.locator("body > [data-agent-native-node-id]");
-      await expect.poll(() => bodyLocator.count(), { timeout: 10_000 }).toBe(3);
-
-      const bodyOrder = await bodyLocator.evaluateAll((els) =>
-        els.map((el) => el.getAttribute("data-agent-native-node-id")),
-      );
-      const rectIndex = bodyOrder.indexOf("rect");
-      const otherIndex = bodyOrder.indexOf("other");
-      expect(rectIndex).toBeGreaterThan(-1);
-      expect(otherIndex).toBeGreaterThan(-1);
-      const copyIndex = bodyOrder.findIndex(
-        (id) => id !== "rect" && id !== "other",
-      );
-      if (copyIndex !== rectIndex + 1) {
-        const trace = await dumpTrace(page);
-        test.info().annotations.push({
-          type: "trace",
-          description: JSON.stringify({ bodyOrder, trace }),
-        });
-      }
-      expect(copyIndex).toBe(rectIndex + 1);
-      expect(copyIndex).toBeLessThan(otherIndex);
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
-  });
-
-  test("one undo after alt-drag removes the copy and restores selection to the original", async ({
-    page,
-    request,
-  }) => {
-    const { designId } = await createDesign(request, NAMED_HTML);
-    try {
-      await gotoEditor(page, designId);
-      const frame = designFrame(page);
-      const rect = frame.locator('[data-agent-native-node-id="rect"]');
-      await expect(rect).toBeVisible();
-      const before = (await rect.boundingBox())!;
-      await page.mouse.click(
-        before.x + before.width / 2,
-        before.y + before.height / 2,
-      );
-      await page.waitForTimeout(200);
-
-      const originalLayerNodeId = await page
-        .getByRole("tree", { name: "Layers" })
-        .locator('[aria-selected="true"] [data-layer-row-button]')
-        .getAttribute("data-layer-node-id");
-      expect(originalLayerNodeId).toBeTruthy();
-
-      await page.mouse.move(
-        before.x + before.width / 2,
-        before.y + before.height / 2,
-      );
-      await page.keyboard.down("Alt");
-      await page.mouse.down();
-      await page.mouse.move(
-        before.x + before.width / 2 + 200,
-        before.y + before.height / 2 + 150,
-        {
-          steps: 16,
-        },
-      );
-      await page.mouse.up();
-      await page.keyboard.up("Alt");
-      await expect(
-        frame.locator("body > [data-agent-native-node-id]"),
-      ).toHaveCount(2);
-
-      await page.keyboard.press("ControlOrMeta+z");
-      await page.waitForTimeout(800);
-
-      const afterUndo = frame.locator("body > [data-agent-native-node-id]");
-      if ((await afterUndo.count()) !== 1) {
-        const trace = await dumpTrace(page);
-        test.info().annotations.push({
-          type: "trace",
-          description: JSON.stringify({ trace }),
-        });
-      }
-      await expect(afterUndo).toHaveCount(1);
-      const restored = await afterUndo.first().boundingBox();
-      expect(Math.round(restored!.x)).toBe(Math.round(before.x));
-      expect(Math.round(restored!.y)).toBe(Math.round(before.y));
-
-      const selectedRow = page
-        .getByRole("tree", { name: "Layers" })
-        .locator('[aria-selected="true"] [data-layer-row-button]');
-      await expect(selectedRow).toHaveAttribute(
-        "data-layer-node-id",
-        originalLayerNodeId!,
-      );
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
+    await expect.poll(async () => (await layerNames(app.page)).length).toBe(2);
+    await app.settled();
+    const after = await app.savedNodes(designId);
+    const copy = childrenOf(after, bodyId(after)).find((id) => id !== "plain")!;
+    expect(
+      after.get(copy)?.attrs,
+      "no stored name, so the copy computes the same fallback",
+    ).not.toHaveProperty("data-agent-native-layer-name");
+    expectNear(styleOf(after.get(copy)).left, 300, "copy left");
+    expectNear(styleOf(after.get(copy)).top, 250, "copy top");
+    expectOnlyChanged(before, after, [copy]);
+    expect(await layerNames(app.page)).toEqual([
+      namesBefore[0],
+      namesBefore[0],
+    ]);
   });
 });
 
 test.describe("alt-drag duplicate (overview)", () => {
   test("alt-drag from inside a screen to outside it drops the copy on the board, does not duplicate in place", async ({
-    page,
-    request,
+    app,
   }) => {
-    const { designId, fileIds } = await createDesign(request, NAMED_HTML);
-    try {
-      await openOverview(page, designId, 1);
-      const dropPoint = await zoomOutToBoardDropPoint(page);
-      if (!dropPoint) throw new Error("no unobstructed board drop point");
-      const contains = (rect: {
-        left: number;
-        top: number;
-        right: number;
-        bottom: number;
-      }) =>
-        dropPoint.x >= rect.left &&
-        dropPoint.x <= rect.right &&
-        dropPoint.y >= rect.top &&
-        dropPoint.y <= rect.bottom;
-      expect(dropPoint.x).toBeGreaterThan(dropPoint.canvasBounds.left);
-      expect(dropPoint.x).toBeLessThan(dropPoint.canvasBounds.right);
-      expect(dropPoint.y).toBeGreaterThan(dropPoint.canvasBounds.top);
-      expect(dropPoint.y).toBeLessThan(dropPoint.canvasBounds.bottom);
-      expect(dropPoint.iframeBounds.some(contains)).toBe(false);
-      expect(dropPoint.shellBounds.some(contains)).toBe(false);
-      const iframe = page.locator("iframe[data-screen-iframe-id]").first();
-      await expect(iframe).toBeVisible();
-      const source = iframe
-        .contentFrame()
-        .locator('[data-agent-native-node-id="rect"]');
-      await expect(source).toBeVisible();
-      const sourceBox = (await source.boundingBox())!;
-      const sourceX = sourceBox.x + sourceBox.width / 2;
-      const sourceY = sourceBox.y + sourceBox.height / 2;
+    const page = app.page;
+    const { designId } = await createDesign(app, NAMED_HTML);
+    await openOverview(page, designId, 1);
+    const dropPoint = await zoomOutToBoardDropPoint(page);
+    if (!dropPoint) throw new Error("no unobstructed board drop point");
+    await app.settled();
+    const source = page
+      .locator("iframe[data-screen-iframe-id]")
+      .first()
+      .contentFrame()
+      .locator('[data-agent-native-node-id="rect"]');
+    const sourceBox = (await source.boundingBox())!;
+    const grab = {
+      x: sourceBox.x + sourceBox.width / 2,
+      y: sourceBox.y + sourceBox.height / 2,
+    };
+    await page.mouse.click(grab.x, grab.y);
+    await expect.poll(() => app.selectedLayers()).toEqual(["Widget"]);
+    const screenBefore = await app.savedNodes(designId);
+    const boardBefore = await app.savedNodes(designId, "__board__.html");
 
-      await page.mouse.dblclick(sourceX, sourceY);
-      await page.waitForTimeout(500);
-      await page.mouse.click(sourceX, sourceY);
-      await page.waitForTimeout(500);
+    await page.keyboard.down("Alt");
+    await page.mouse.down();
+    await page.mouse.move(dropPoint.x, dropPoint.y, { steps: 24 });
+    await page.mouse.up();
+    await page.keyboard.up("Alt");
 
-      await page.mouse.move(sourceX, sourceY);
-      await page.keyboard.down("Alt");
-      await page.mouse.down();
-      await page.mouse.move(dropPoint.x, dropPoint.y, { steps: 24 });
-      await page.waitForTimeout(300);
-      await page.mouse.up();
-      await page.keyboard.up("Alt");
-
-      const readInsideScreen = () =>
-        page.evaluate(() => {
-          const frame = document.querySelector<HTMLIFrameElement>(
-            "iframe[data-screen-iframe-id]",
-          );
-          return Array.from(
-            frame?.contentDocument?.querySelectorAll(
-              "body > [data-agent-native-node-id]",
-            ) ?? [],
-          ).map((el) => ({
-            id: el.getAttribute("data-agent-native-node-id"),
-            left: (el as HTMLElement).style.left,
-            top: (el as HTMLElement).style.top,
-          }));
-        });
-      const readBoardCopyCount = () =>
-        page.evaluate(() => {
-          const boardIframe = document.querySelector<HTMLIFrameElement>(
-            "[data-board-surface-layer] iframe",
-          );
-          return (
-            boardIframe?.contentDocument?.querySelectorAll(
-              "body > [data-agent-native-node-id]",
-            ).length ?? -1
-          );
-        });
-
-      let insideScreenCount = -1;
-      let boardCopyCount = -1;
-      await expect
-        .poll(
-          async () => {
-            insideScreenCount = (await readInsideScreen()).length;
-            boardCopyCount = await readBoardCopyCount();
-            return insideScreenCount === 1 && boardCopyCount > 0;
-          },
-          { timeout: 10_000 },
-        )
-        .toBe(true);
-      const warningVisible = await page
-        .locator("text=/can.?t (reorder|duplicate|drop)/i")
+    await expect
+      .poll(
+        async () =>
+          idsNamed(await app.savedNodes(designId, "__board__.html"), "Widget")
+            .length,
+      )
+      .toBe(1);
+    await app.settled();
+    const boardAfter = await app.savedNodes(designId, "__board__.html");
+    const [copy] = idsNamed(boardAfter, "Widget");
+    expect(boardAfter.get(copy)?.parent).toBe(bodyId(boardAfter));
+    expect(styleOf(boardAfter.get(copy))).toMatchObject({
+      position: "absolute",
+      width: "200px",
+      height: "120px",
+    });
+    expectOnlyChanged(boardBefore, boardAfter, [copy]);
+    expectOnlyChanged(screenBefore, await app.savedNodes(designId), []);
+    const copyBox = (await page
+      .locator("[data-board-surface-layer] iframe")
+      .first()
+      .contentFrame()
+      .locator(`[data-agent-native-node-id="${copy}"]`)
+      .boundingBox())!;
+    expectNear(copyBox.x + copyBox.width / 2, dropPoint.x, "copy centre x", 5);
+    expectNear(copyBox.y + copyBox.height / 2, dropPoint.y, "copy centre y", 5);
+    await expect(
+      page.locator("text=/can.?t (reorder|duplicate|drop)/i"),
+    ).toHaveCount(0);
+    await expect(
+      page.locator("[data-board-object-selection-box]"),
+      "the board copy is selected",
+    ).toHaveCount(1);
+    await expect(
+      page
+        .locator("iframe[data-screen-iframe-id]")
         .first()
-        .isVisible();
-
-      if (insideScreenCount !== 1 || warningVisible) {
-        const trace = await dumpTrace(page);
-        test.info().annotations.push({
-          type: "trace",
-          description: JSON.stringify({
-            insideScreenCount,
-            warningVisible,
-            trace,
-          }),
-        });
-      }
-      expect(insideScreenCount).toBe(1);
-      expect(warningVisible).toBe(false);
-      expect(boardCopyCount).toBeGreaterThan(0);
-
-      const boardIframe = page
-        .locator("[data-board-surface-layer] iframe")
-        .first();
-      await expect(boardIframe).toBeVisible();
-      const boardFrame = boardIframe.contentFrame();
-      const boardCopy = boardFrame.locator(
-        "body > [data-agent-native-node-id]",
-      );
-      await expect(boardCopy).toHaveCount(1);
-      const copyId = await boardCopy.getAttribute("data-agent-native-node-id");
-      expect(copyId).toBeTruthy();
-      const copyBox = await boardCopy.boundingBox();
-      expect(copyBox).not.toBeNull();
-
-      await page.keyboard.press("Escape");
-      await expect
-        .poll(
-          async () => {
-            const entries = await page.evaluate(
-              () => (window as any).__designTrace?.entries?.() ?? [],
-            );
-            const selectionEntries = entries.filter(
-              (entry: { event?: string; data?: { hasSelection?: boolean } }) =>
-                entry.event === "selection-changed",
-            );
-            return selectionEntries.at(-1)?.data?.hasSelection ?? null;
-          },
-          { timeout: 10_000 },
-        )
-        .toBe(false);
-      const clickPoint = {
-        x: copyBox!.x + copyBox!.width / 2,
-        y: copyBox!.y + copyBox!.height / 2,
-      };
-      await expect
-        .poll(
-          () =>
-            page.evaluate(
-              ({ x, y }) =>
-                Boolean(
-                  document
-                    .elementFromPoint(x, y)
-                    ?.closest("[data-board-surface-layer]"),
-                ),
-              clickPoint,
-            ),
-          { timeout: 10_000 },
-        )
-        .toBe(true);
-      await page.mouse.click(clickPoint.x, clickPoint.y);
-      const readSelectedSelector = async () => {
-        const entries = await page.evaluate(
-          () => (window as any).__designTrace?.entries?.() ?? [],
-        );
-        const selectionEntries = entries.filter(
-          (entry: { event?: string; data?: { hasSelection?: boolean } }) =>
-            entry.event === "selection-changed" &&
-            entry.data?.hasSelection === true,
-        );
-        return selectionEntries.at(-1)?.data?.element ?? null;
-      };
-      await expect
-        .poll(readSelectedSelector, { timeout: 10_000 })
-        .toContain(copyId!);
-      const selectedSelector = await readSelectedSelector();
-      expect(selectedSelector).toContain(copyId!);
-      await expect(
-        page.locator("[data-board-object-selection-box]"),
-      ).toHaveCount(1);
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
+        .contentFrame()
+        .getByText(/^\d+ × \d+$/),
+      "the original in the screen no longer shows selection chrome",
+    ).toBeHidden();
   });
 
-  test("alt-drag a board object (frame) copies it and leaves the original untouched", async ({
-    page,
-    request,
+  test("alt-drag a screen by its label copies it by the drag offset, named after the screen, and leaves the original untouched", async ({
+    app,
   }) => {
-    const { designId, fileIds } = await createDesign(request, NAMED_HTML, 1);
-    try {
-      await openOverview(page, designId, 1);
-      await page.locator("[data-frame-label]").first().click({ force: true });
-      const dragSurface = page.locator("[data-frame-drag-surface]");
-      await expect(dragSurface).toBeVisible();
-      const box = (await dragSurface.boundingBox())!;
-      const view = page.viewportSize()!;
-      const start = {
-        x: (Math.max(box.x, 0) + Math.min(box.x + box.width, view.width)) / 2,
-        y: (Math.max(box.y, 0) + Math.min(box.y + box.height, view.height)) / 2,
-      };
-      const beforeFrames = await readCanvasFrames(request, designId);
-      const sourceFrame = beforeFrames[fileIds[0]!];
-      if (!sourceFrame) throw new Error("Source frame has no saved geometry");
-
-      await page.mouse.move(start.x, start.y);
-      await page.keyboard.down("Alt");
-      await page.mouse.down();
-      await page.mouse.move(start.x + 220, start.y + 140, { steps: 12 });
-      await expect(
-        page.locator("[data-duplicate-preview-ghost]"),
-      ).toBeVisible();
-      await page.mouse.up();
-      await page.keyboard.up("Alt");
-
-      await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
-        timeout: 20_000,
-      });
-      let afterFrames: Record<string, CanvasFrameGeometry> = {};
-      let copyId = "";
-      await expect
-        .poll(
-          async () => {
-            afterFrames = await readCanvasFrames(request, designId);
-            copyId =
-              Object.keys(afterFrames).find((id) => id !== fileIds[0]) ?? "";
-            const copyFrame = afterFrames[copyId];
-            return Boolean(
-              copyFrame &&
-              copyFrame.x > sourceFrame.x &&
-              copyFrame.y > sourceFrame.y,
-            );
-          },
-          { timeout: 20_000 },
-        )
-        .toBe(true);
-      expect(Object.keys(afterFrames)).toHaveLength(2);
-      expect(afterFrames[fileIds[0]!]).toEqual(sourceFrame);
-      expect(copyId).toBeTruthy();
-      expect(afterFrames[copyId]!.x).toBeGreaterThan(sourceFrame.x);
-      expect(afterFrames[copyId]!.y).toBeGreaterThan(sourceFrame.y);
-
-      const copyTitle = page.locator(
-        `[data-frame-id="${copyId}"] [data-frame-title]`,
-      );
-      await expect(copyTitle).toHaveAttribute("title", "index-copy.html");
-      await expect(copyTitle).toHaveText("Index copy");
-      await expect(
-        page
-          .getByRole("tree", { name: "Layers" })
-          .locator('[role="treeitem"][aria-level="1"][aria-selected="true"]')
-          .filter({ hasText: "Index copy" }),
-      ).toHaveCount(1);
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
-  });
-
-  test("known-failing: alt-dragging a multi-frame selection via [data-frame-label] — is the left shell really intercepting?", async ({
-    page,
-    request,
-  }) => {
-    const { designId } = await createDesign(request, NAMED_HTML, 2);
-    try {
-      await openOverview(page, designId, 2);
-      const label = page.locator("[data-frame-label]").first();
-      await expect(label).toBeVisible();
-      const labelBox = (await label.boundingBox())!;
-
-      const shell = page.locator('[data-design-chrome-region="left-shell"]');
-      const shellVisible = await shell.isVisible().catch(() => false);
-      const shellBox = shellVisible ? await shell.boundingBox() : null;
-
-      const overlapsShell =
-        shellBox !== null &&
-        labelBox.x < shellBox.x + shellBox.width &&
-        labelBox.x + labelBox.width > shellBox.x;
-
-      const elementAtPoint = await page.evaluate(
-        ({ x, y }) => {
-          const el = document.elementFromPoint(x, y);
-          if (!el) return null;
-          return {
-            tag: el.tagName,
-            attrs: Array.from(el.attributes).map((a) => `${a.name}=${a.value}`),
-          };
+    const page = app.page;
+    const { designId, fileIds } = await createDesign(app, NAMED_HTML, 1);
+    await openOverview(page, designId, 1);
+    await app.settled();
+    await page.locator("[data-frame-label]").first().click();
+    const dragSurface = page.locator("[data-frame-drag-surface]");
+    await expect(dragSurface).toBeVisible();
+    let previous = "";
+    await expect
+      .poll(
+        async () => {
+          const now = JSON.stringify(await dragSurface.boundingBox());
+          const stable = now === previous;
+          previous = now;
+          return stable;
         },
-        {
-          x: labelBox.x + labelBox.width / 2,
-          y: labelBox.y + labelBox.height / 2,
-        },
-      );
+        { message: "the camera never settled after selecting the screen" },
+      )
+      .toBe(true);
+    const zoom = await canvasZoom(page);
+    const box = (await dragSurface.boundingBox())!;
+    const view = page.viewportSize()!;
+    const start = {
+      x: (Math.max(box.x, 0) + Math.min(box.x + box.width, view.width)) / 2,
+      y: (Math.max(box.y, 0) + Math.min(box.y + box.height, view.height)) / 2,
+    };
+    const beforeFrames = await readCanvasFrames(app.page.request, designId);
+    const sourceFrame = beforeFrames[fileIds[0]!]!;
+    const sourceNodes = await app.savedNodes(designId);
 
-      let clickThrew = false;
-      try {
-        await label.click({ timeout: 3000 });
-      } catch {
-        clickThrew = true;
-      }
+    await page.mouse.move(start.x, start.y);
+    await page.keyboard.down("Alt");
+    await page.mouse.down();
+    await page.mouse.move(start.x + 220, start.y + 140, { steps: 12 });
+    await expect(page.locator("[data-duplicate-preview-ghost]")).toBeVisible();
+    await page.mouse.up();
+    await page.keyboard.up("Alt");
 
-      if (clickThrew && !overlapsShell) {
-        const trace = await dumpTrace(page);
-        test.info().annotations.push({
-          type: "trace",
-          description: JSON.stringify({
-            note: "click failed without geometric overlap",
-            trace,
-          }),
-        });
-      }
-
-      expect(clickThrew).toBe(false);
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
+    await expect
+      .poll(
+        async () =>
+          Object.keys(await readCanvasFrames(app.page.request, designId))
+            .length,
+      )
+      .toBe(2);
+    await app.settled();
+    const afterFrames = await readCanvasFrames(app.page.request, designId);
+    const copyId = Object.keys(afterFrames).find((id) => id !== fileIds[0])!;
+    expect(
+      afterFrames[fileIds[0]!],
+      "the original screen did not move",
+    ).toEqual(sourceFrame);
+    expect({
+      width: afterFrames[copyId]!.width,
+      height: afterFrames[copyId]!.height,
+    }).toEqual({
+      width: sourceFrame.width,
+      height: sourceFrame.height,
+    });
+    expectNear(afterFrames[copyId]!.x, sourceFrame.x + 220 / zoom, "copy x");
+    expectNear(afterFrames[copyId]!.y, sourceFrame.y + 140 / zoom, "copy y");
+    expectOnlyChanged(sourceNodes, await app.savedNodes(designId), []);
+    const copyTitle = page.locator(
+      `[data-frame-id="${copyId}"] [data-frame-title]`,
+    );
+    await expect(
+      page.locator(`[data-frame-id="${fileIds[0]}"] [data-frame-title]`),
+    ).toHaveText("Home");
+    await expect(
+      copyTitle,
+      "a copy of the screen shown as Home is named after Home",
+    ).toHaveText("Home copy");
   });
 });
 
@@ -1302,163 +1002,154 @@ test.describe("alt-drag board auto-layout frames to empty board", () => {
   test.use({ viewport: { width: 1600, height: 1000 } });
 
   test("copies a root auto-layout Frame as a selected board-root layer and preserves its original", async ({
+    app,
     page,
     request,
   }) => {
-    const designId = await createDesignWithBoard(request);
-    try {
-      const result = await dragBoardLayerCopyToEmptyCanvas(
-        page,
-        request,
-        designId,
-        "root-frame",
-      );
-      expect(result.sourceTreeBefore.name).toBe("Frame");
-      expect(
-        result.sourceTreeBefore.children.map((child) => child.name),
-      ).toEqual(["Frame 2", "Frame 3"]);
+    const designId = await createDesignWithBoard(app);
+    const result = await dragBoardLayerCopyToEmptyCanvas(
+      page,
+      request,
+      designId,
+      "root-frame",
+    );
+    expect(result.sourceTreeBefore.name).toBe("Frame");
+    expect(result.sourceTreeBefore.children.map((child) => child.name)).toEqual(
+      ["Frame 2", "Frame 3"],
+    );
 
-      const reloaded = await expectBoardCopyAfterReload(
-        page,
-        request,
-        designId,
-        result.copyId,
-      );
-      await expect(reloaded.copy).toBeVisible();
-      expect(await readLayerTree(reloaded.original)).toEqual(
-        result.originalTreeBefore,
-      );
-      expect(await readLayerTree(reloaded.copy)).toEqual(result.copyTree);
-      expect(childNodeIds(reloaded.html, result.copyId)).toEqual(
-        result.copyTree.children.map((child) => child.id),
-      );
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
+    const reloaded = await expectBoardCopyAfterReload(
+      page,
+      request,
+      designId,
+      result.copyId,
+    );
+    await expect(reloaded.copy).toBeVisible();
+    expect(await readLayerTree(reloaded.original)).toEqual(
+      result.originalTreeBefore,
+    );
+    expect(await readLayerTree(reloaded.copy)).toEqual(result.copyTree);
+    expect(childNodeIds(reloaded.html, result.copyId)).toEqual(
+      result.copyTree.children.map((child) => child.id),
+    );
   });
 
   test("copies nested Frame 2 to the board root with a fresh, unclipped subtree while its source stays nested", async ({
+    app,
     page,
     request,
   }) => {
-    const designId = await createDesignWithBoard(request);
-    try {
-      const result = await dragBoardLayerCopyToEmptyCanvas(
-        page,
-        request,
-        designId,
-        "frame-2",
-      );
-      expect(result.sourceTreeBefore.name).toBe("Frame 2");
-      expect(
-        result.sourceTreeBefore.children.map((child) => child.name),
-      ).toEqual(["Frame 2 child A", "Frame 2 child B"]);
+    const designId = await createDesignWithBoard(app);
+    const result = await dragBoardLayerCopyToEmptyCanvas(
+      page,
+      request,
+      designId,
+      "frame-2",
+    );
+    expect(result.sourceTreeBefore.name).toBe("Frame 2");
+    expect(result.sourceTreeBefore.children.map((child) => child.name)).toEqual(
+      ["Frame 2 child A", "Frame 2 child B"],
+    );
 
-      const reloaded = await expectBoardCopyAfterReload(
-        page,
-        request,
-        designId,
-        result.copyId,
-      );
-      const nestedOriginal = reloaded.original.locator(
-        '[data-agent-native-node-id="frame-2"]',
-      );
-      await expect(reloaded.copy).toBeVisible();
-      for (const child of result.copyTree.children) {
-        await expect(
-          reloaded.copy.locator(`[data-agent-native-node-id="${child.id}"]`),
-        ).toBeVisible();
-      }
-      expect(await readLayerTree(reloaded.original)).toEqual(
-        result.originalTreeBefore,
-      );
-      expect(await readLayerTree(nestedOriginal)).toEqual(
-        result.sourceTreeBefore,
-      );
-      expect(await readLayerTree(reloaded.copy)).toEqual(result.copyTree);
-      expect(childNodeIds(reloaded.html, "root-frame")).toEqual([
-        "frame-2",
-        "frame-3",
-      ]);
-      expect(childNodeIds(reloaded.html, result.copyId)).toEqual(
-        result.copyTree.children.map((child) => child.id),
-      );
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
+    const reloaded = await expectBoardCopyAfterReload(
+      page,
+      request,
+      designId,
+      result.copyId,
+    );
+    const nestedOriginal = reloaded.original.locator(
+      '[data-agent-native-node-id="frame-2"]',
+    );
+    await expect(reloaded.copy).toBeVisible();
+    for (const child of result.copyTree.children) {
+      await expect(
+        reloaded.copy.locator(`[data-agent-native-node-id="${child.id}"]`),
+      ).toBeVisible();
     }
+    expect(await readLayerTree(reloaded.original)).toEqual(
+      result.originalTreeBefore,
+    );
+    expect(await readLayerTree(nestedOriginal)).toEqual(
+      result.sourceTreeBefore,
+    );
+    expect(await readLayerTree(reloaded.copy)).toEqual(result.copyTree);
+    expect(childNodeIds(reloaded.html, "root-frame")).toEqual([
+      "frame-2",
+      "frame-3",
+    ]);
+    expect(childNodeIds(reloaded.html, result.copyId)).toEqual(
+      result.copyTree.children.map((child) => child.id),
+    );
   });
 
   test("copies a deeply nested flow child through a plain clipped board frame to the board root", async ({
+    app,
     page,
     request,
   }) => {
-    const designId = await createDesignWithBoard(request, {
+    const designId = await createDesignWithBoard(app, {
       rootOverflow: "hidden",
       rootLayout: "plain",
     });
-    try {
-      const result = await dragBoardLayerCopyToEmptyCanvas(
-        page,
-        request,
-        designId,
-        "frame-2-child-a",
-        { overflow: "hidden", display: "block" },
-      );
-      expect(result.sourceTreeBefore.name).toBe("Frame 2 child A");
+    const result = await dragBoardLayerCopyToEmptyCanvas(
+      page,
+      request,
+      designId,
+      "frame-2-child-a",
+      { overflow: "hidden", display: "block" },
+    );
+    expect(result.sourceTreeBefore.name).toBe("Frame 2 child A");
 
-      const reloaded = await expectBoardCopyAfterReload(
-        page,
-        request,
-        designId,
-        result.copyId,
-      );
-      await expect(reloaded.copy).toBeVisible();
-      expect(
-        await reloaded.original.evaluate((element) => ({
-          overflow: getComputedStyle(element).overflow,
-          display: getComputedStyle(element).display,
-        })),
-      ).toEqual({ overflow: "hidden", display: "block" });
-      expect(
-        await reloaded.copy.evaluate((element) => element.parentElement),
-      ).toBeTruthy();
-      expect(
-        await reloaded.copy.evaluate(
-          (element) => element.parentElement === element.ownerDocument.body,
+    const reloaded = await expectBoardCopyAfterReload(
+      page,
+      request,
+      designId,
+      result.copyId,
+    );
+    await expect(reloaded.copy).toBeVisible();
+    expect(
+      await reloaded.original.evaluate((element) => ({
+        overflow: getComputedStyle(element).overflow,
+        display: getComputedStyle(element).display,
+      })),
+    ).toEqual({ overflow: "hidden", display: "block" });
+    expect(
+      await reloaded.copy.evaluate((element) => element.parentElement),
+    ).toBeTruthy();
+    expect(
+      await reloaded.copy.evaluate(
+        (element) => element.parentElement === element.ownerDocument.body,
+      ),
+    ).toBe(true);
+    expect(
+      await reloaded.original
+        .locator('[data-agent-native-node-id="frame-2-child-a"]')
+        .evaluate((element) =>
+          element.parentElement?.getAttribute("data-agent-native-node-id"),
         ),
-      ).toBe(true);
-      expect(
-        await reloaded.original
-          .locator('[data-agent-native-node-id="frame-2-child-a"]')
-          .evaluate((element) =>
-            element.parentElement?.getAttribute("data-agent-native-node-id"),
-          ),
-      ).toBe("frame-2");
-      expect(
-        await readLayerTree(
-          reloaded.original.locator(
-            '[data-agent-native-node-id="frame-2-child-a"]',
-          ),
+    ).toBe("frame-2");
+    expect(
+      await readLayerTree(
+        reloaded.original.locator(
+          '[data-agent-native-node-id="frame-2-child-a"]',
         ),
-      ).toEqual(result.sourceTreeBefore);
-      expect(await readLayerTree(reloaded.copy)).toEqual(result.copyTree);
-      expect(
-        await reloaded.copy.evaluate((element) => ({
-          left: (element as HTMLElement).style.left,
-          top: (element as HTMLElement).style.top,
-        })),
-      ).toEqual(result.copyPosition);
-      expect(result.copyBox.x).toBeCloseTo(
-        result.dropPoint.x - result.grabOffset.x,
-        -1,
-      );
-      expect(result.copyBox.y).toBeCloseTo(
-        result.dropPoint.y - result.grabOffset.y,
-        -1,
-      );
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
+      ),
+    ).toEqual(result.sourceTreeBefore);
+    expect(await readLayerTree(reloaded.copy)).toEqual(result.copyTree);
+    expect(
+      await reloaded.copy.evaluate((element) => ({
+        left: (element as HTMLElement).style.left,
+        top: (element as HTMLElement).style.top,
+      })),
+    ).toEqual(result.copyPosition);
+    expect(result.copyBox.x).toBeCloseTo(
+      result.dropPoint.x - result.grabOffset.x,
+      -1,
+    );
+    expect(result.copyBox.y).toBeCloseTo(
+      result.dropPoint.y - result.grabOffset.y,
+      -1,
+    );
   });
 });
 
@@ -1466,439 +1157,376 @@ test.describe("absolute child exit from a plain frame", () => {
   test.use({ viewport: { width: 1600, height: 1000 } });
 
   test("moves an absolute child into empty parent space directly after its exited frame", async ({
+    app,
     page,
     request,
   }) => {
     const { designId } = await createDesign(
-      request,
+      app,
       PLAIN_FRAME_WITH_ABSOLUTE_CHILD_HTML,
     );
-    try {
-      await gotoEditor(page, designId);
-      const frame = designFrame(page);
-      const child = frame.locator(
-        '[data-agent-native-node-id="absolute-child"]',
-      );
-      const exitFrame = frame.locator(
-        '[data-agent-native-node-id="exit-frame"]',
-      );
-      const laterSibling = frame.locator(
-        '[data-agent-native-node-id="later-sibling"]',
-      );
-      await expect(child).toBeVisible();
-      const [childBox, frameBox, laterBox] = await Promise.all([
-        child.boundingBox(),
-        exitFrame.boundingBox(),
-        laterSibling.boundingBox(),
-      ]);
-      if (!childBox || !frameBox || !laterBox) {
-        throw new Error("plain-frame exit fixture nodes need rendered bounds");
-      }
-      const zoom = await canvasZoom(page);
-      const grabOffset = { x: childBox.width / 2, y: childBox.height / 2 };
-      const start = {
-        x: childBox.x + grabOffset.x,
-        y: childBox.y + grabOffset.y,
-      };
-      const release = {
-        x: frameBox.x + frameBox.width + 48 * zoom,
-        y: frameBox.y + frameBox.height / 2,
-      };
-      expect(release.x).toBeLessThan(laterBox.x);
-      const expectedPosition = {
-        x: frameBox.x + frameBox.width,
-        y: release.y - grabOffset.y,
-      };
+    await gotoEditor(page, designId);
+    const frame = designFrame(page);
+    const child = frame.locator('[data-agent-native-node-id="absolute-child"]');
+    const exitFrame = frame.locator('[data-agent-native-node-id="exit-frame"]');
+    const laterSibling = frame.locator(
+      '[data-agent-native-node-id="later-sibling"]',
+    );
+    await expect(child).toBeVisible();
+    const [childBox, frameBox, laterBox] = await Promise.all([
+      child.boundingBox(),
+      exitFrame.boundingBox(),
+      laterSibling.boundingBox(),
+    ]);
+    if (!childBox || !frameBox || !laterBox) {
+      throw new Error("plain-frame exit fixture nodes need rendered bounds");
+    }
+    const zoom = await canvasZoom(page);
+    const grabOffset = { x: childBox.width / 2, y: childBox.height / 2 };
+    const start = {
+      x: childBox.x + grabOffset.x,
+      y: childBox.y + grabOffset.y,
+    };
+    const release = {
+      x: frameBox.x + frameBox.width + 48 * zoom,
+      y: frameBox.y + frameBox.height / 2,
+    };
+    expect(release.x).toBeLessThan(laterBox.x);
+    const expectedPosition = {
+      x: frameBox.x + frameBox.width,
+      y: release.y - grabOffset.y,
+    };
 
-      await page.mouse.move(start.x, start.y);
-      await page.mouse.down();
-      await page.mouse.move(start.x + 8, start.y + 6, { steps: 2 });
-      await page.mouse.move(release.x, release.y, { steps: 16 });
-      await page.mouse.up();
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x + 8, start.y + 6, { steps: 2 });
+    await page.mouse.move(release.x, release.y, { steps: 16 });
+    await page.mouse.up();
 
-      const bodyRoots = frame.locator("body > [data-agent-native-node-id]");
-      await expect(bodyRoots).toHaveCount(3, { timeout: 15_000 });
-      const order = await bodyRoots.evaluateAll((nodes) =>
-        nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
-      );
-      expect(order).toEqual(["exit-frame", "absolute-child", "later-sibling"]);
-      await expect
-        .poll(() => child.evaluate((element) => element.parentElement?.tagName))
-        .toBe("BODY");
-      const movedBox = await child.boundingBox();
-      expect(movedBox).not.toBeNull();
-      expect(movedBox!.x).toBeCloseTo(expectedPosition.x, -1);
-      expect(movedBox!.y).toBeCloseTo(expectedPosition.y, -1);
-      const savedInlinePosition = await child.evaluate((element) => ({
+    const bodyRoots = frame.locator("body > [data-agent-native-node-id]");
+    await expect(bodyRoots).toHaveCount(3, { timeout: 15_000 });
+    const order = await bodyRoots.evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
+    );
+    expect(order).toEqual(["exit-frame", "absolute-child", "later-sibling"]);
+    await expect
+      .poll(() => child.evaluate((element) => element.parentElement?.tagName))
+      .toBe("BODY");
+    const movedBox = await child.boundingBox();
+    expect(movedBox).not.toBeNull();
+    expect(movedBox!.x).toBeCloseTo(expectedPosition.x, -1);
+    expect(movedBox!.y).toBeCloseTo(expectedPosition.y, -1);
+    const savedInlinePosition = await child.evaluate((element) => ({
+      left: (element as HTMLElement).style.left,
+      top: (element as HTMLElement).style.top,
+    }));
+
+    await expect
+      .poll(() => fileContent(request, designId, "index.html"))
+      .toContain('data-agent-native-node-id="absolute-child"');
+    await gotoEditor(page, designId);
+    const reloadedFrame = designFrame(page);
+    const reloadedChild = reloadedFrame.locator(
+      '[data-agent-native-node-id="absolute-child"]',
+    );
+    await expect(
+      reloadedFrame.locator("body > [data-agent-native-node-id]"),
+    ).toHaveCount(3);
+    await expect
+      .poll(() =>
+        reloadedChild.evaluate((element) => element.parentElement?.tagName),
+      )
+      .toBe("BODY");
+    expect(
+      await reloadedChild.evaluate((element) => ({
         left: (element as HTMLElement).style.left,
         top: (element as HTMLElement).style.top,
-      }));
-
-      await expect
-        .poll(() => fileContent(request, designId, "index.html"))
-        .toContain('data-agent-native-node-id="absolute-child"');
-      await gotoEditor(page, designId);
-      const reloadedFrame = designFrame(page);
-      const reloadedChild = reloadedFrame.locator(
-        '[data-agent-native-node-id="absolute-child"]',
+      })),
+    ).toEqual(savedInlinePosition);
+    const persisted = await fileContent(request, designId, "index.html");
+    const persistedOrder = await page.evaluate((html) => {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      return Array.from(doc.body.children).map((node) =>
+        node.getAttribute("data-agent-native-node-id"),
       );
-      await expect(
-        reloadedFrame.locator("body > [data-agent-native-node-id]"),
-      ).toHaveCount(3);
-      await expect
-        .poll(() =>
-          reloadedChild.evaluate((element) => element.parentElement?.tagName),
-        )
-        .toBe("BODY");
-      expect(
-        await reloadedChild.evaluate((element) => ({
-          left: (element as HTMLElement).style.left,
-          top: (element as HTMLElement).style.top,
-        })),
-      ).toEqual(savedInlinePosition);
-      const persisted = await fileContent(request, designId, "index.html");
-      const persistedOrder = await page.evaluate((html) => {
-        const doc = new DOMParser().parseFromString(html, "text/html");
-        return Array.from(doc.body.children).map((node) =>
-          node.getAttribute("data-agent-native-node-id"),
-        );
-      }, persisted);
-      expect(persistedOrder).toEqual(order);
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
+    }, persisted);
+    expect(persistedOrder).toEqual(order);
   });
 
   test("keeps an absolute child directly after its exited frame in a plain receiver", async ({
+    app,
     page,
     request,
   }) => {
     const { designId } = await createDesign(
-      request,
+      app,
       PLAIN_OUTER_WITH_ABSOLUTE_CHILD_HTML,
     );
-    try {
-      await gotoEditor(page, designId);
-      const frame = designFrame(page);
-      const outer = frame.locator('[data-agent-native-node-id="outer-frame"]');
-      const exitFrame = frame.locator(
-        '[data-agent-native-node-id="exit-frame"]',
+    await gotoEditor(page, designId);
+    const frame = designFrame(page);
+    const outer = frame.locator('[data-agent-native-node-id="outer-frame"]');
+    const exitFrame = frame.locator('[data-agent-native-node-id="exit-frame"]');
+    const child = frame.locator('[data-agent-native-node-id="absolute-child"]');
+    const laterSibling = frame.locator(
+      '[data-agent-native-node-id="later-sibling"]',
+    );
+    await expect(child).toBeVisible();
+    await expandAllLayers(page);
+    const childRow = page
+      .getByRole("tree", { name: "Layers" })
+      .locator("[data-layer-row-button]")
+      .filter({ has: page.locator('span[title="Absolute child"]') })
+      .first();
+    await childRow.click({ force: true });
+    await expect(
+      childRow.locator('xpath=ancestor::*[@role="treeitem"][1]'),
+    ).toHaveAttribute("aria-selected", "true");
+    const [outerBox, childBox, laterBox] = await Promise.all([
+      outer.boundingBox(),
+      child.boundingBox(),
+      laterSibling.boundingBox(),
+    ]);
+    if (!outerBox || !childBox || !laterBox) {
+      throw new Error("absolute-child exit fixture nodes need rendered bounds");
+    }
+    const zoom = await canvasZoom(page);
+    const grabOffset = { x: childBox.width / 2, y: childBox.height / 2 };
+    const start = {
+      x: childBox.x + grabOffset.x,
+      y: childBox.y + grabOffset.y,
+    };
+    const release = {
+      x: outerBox.x + 380 * zoom,
+      y: outerBox.y + 100 * zoom,
+    };
+    expect(release.x).toBeLessThan(laterBox.x);
+    const beforeDrop = await fileContent(request, designId, "index.html");
+
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x + 8, start.y + 6, { steps: 2 });
+    await page.mouse.move(release.x, release.y, { steps: 16 });
+    expect(await fileContent(request, designId, "index.html")).toBe(beforeDrop);
+    await page.mouse.up();
+
+    const directChildren = () =>
+      outer.evaluate((element) =>
+        Array.from(element.children).map((child) =>
+          child.getAttribute("data-agent-native-node-id"),
+        ),
       );
-      const child = frame.locator(
-        '[data-agent-native-node-id="absolute-child"]',
-      );
-      const laterSibling = frame.locator(
+    await expect
+      .poll(directChildren)
+      .toEqual(["exit-frame", "absolute-child", "later-sibling"]);
+    await expect
+      .poll(() =>
+        child.evaluate((element) =>
+          element.parentElement?.getAttribute("data-agent-native-node-id"),
+        ),
+      )
+      .toBe("outer-frame");
+    const movedBox = await child.boundingBox();
+    expect(movedBox).not.toBeNull();
+    expect(movedBox!.x).toBeCloseTo(release.x - grabOffset.x, -1);
+    expect(movedBox!.y).toBeCloseTo(release.y - grabOffset.y, -1);
+    const overlapProof = await child.evaluate((element) => {
+      const childBox = element.getBoundingClientRect();
+      const later = element.ownerDocument.querySelector<HTMLElement>(
         '[data-agent-native-node-id="later-sibling"]',
       );
-      await expect(child).toBeVisible();
-      await expandAllLayers(page);
-      const childRow = page
-        .getByRole("tree", { name: "Layers" })
-        .locator("[data-layer-row-button]")
-        .filter({ has: page.locator('span[title="Absolute child"]') })
-        .first();
-      await childRow.click({ force: true });
-      await expect(
-        childRow.locator('xpath=ancestor::*[@role="treeitem"][1]'),
-      ).toHaveAttribute("aria-selected", "true");
-      const [outerBox, childBox, laterBox] = await Promise.all([
-        outer.boundingBox(),
-        child.boundingBox(),
-        laterSibling.boundingBox(),
-      ]);
-      if (!outerBox || !childBox || !laterBox) {
-        throw new Error(
-          "absolute-child exit fixture nodes need rendered bounds",
-        );
-      }
-      const zoom = await canvasZoom(page);
-      const grabOffset = { x: childBox.width / 2, y: childBox.height / 2 };
-      const start = {
-        x: childBox.x + grabOffset.x,
-        y: childBox.y + grabOffset.y,
-      };
-      const release = {
-        x: outerBox.x + 380 * zoom,
-        y: outerBox.y + 100 * zoom,
-      };
-      expect(release.x).toBeLessThan(laterBox.x);
-      const beforeDrop = await fileContent(request, designId, "index.html");
-
-      await page.mouse.move(start.x, start.y);
-      await page.mouse.down();
-      await page.mouse.move(start.x + 8, start.y + 6, { steps: 2 });
-      await page.mouse.move(release.x, release.y, { steps: 16 });
-      expect(await fileContent(request, designId, "index.html")).toBe(
-        beforeDrop,
+      if (!later) return { hitNodeId: null, laterFound: false };
+      const laterBox = later.getBoundingClientRect();
+      const x =
+        (Math.max(childBox.left, laterBox.left) +
+          Math.min(childBox.right, laterBox.right)) /
+        2;
+      const y =
+        (Math.max(childBox.top, laterBox.top) +
+          Math.min(childBox.bottom, laterBox.bottom)) /
+        2;
+      const shields = Array.from(
+        element.ownerDocument.querySelectorAll<HTMLElement>(
+          '[data-agent-native-edit-overlay="shield"]',
+        ),
       );
-      await page.mouse.up();
+      const pointerEvents = shields.map((shield) => shield.style.pointerEvents);
+      shields.forEach((shield) => {
+        shield.style.pointerEvents = "none";
+      });
+      let hit: Element | null = null;
+      try {
+        hit = element.ownerDocument.elementFromPoint(x, y);
+      } finally {
+        shields.forEach((shield, index) => {
+          shield.style.pointerEvents = pointerEvents[index] ?? "";
+        });
+      }
+      return {
+        hitNodeId: hit?.getAttribute("data-agent-native-node-id") ?? null,
+        hitTag: hit?.tagName ?? null,
+        hitClass: hit?.getAttribute("class") ?? null,
+        hitHtml: hit?.outerHTML ?? null,
+        point: { x, y },
+        childBox: {
+          left: childBox.left,
+          right: childBox.right,
+          top: childBox.top,
+          bottom: childBox.bottom,
+        },
+        laterBox: {
+          left: laterBox.left,
+          right: laterBox.right,
+          top: laterBox.top,
+          bottom: laterBox.bottom,
+        },
+        viewport: {
+          width: element.ownerDocument.documentElement.clientWidth,
+          height: element.ownerDocument.documentElement.clientHeight,
+        },
+      };
+    });
+    expect(overlapProof.hitNodeId, JSON.stringify(overlapProof)).toBe(
+      "later-sibling",
+    );
 
-      const directChildren = () =>
-        outer.evaluate((element) =>
+    const persistedChildren = async () => {
+      const html = await fileContent(request, designId, "index.html");
+      return page.evaluate((source) => {
+        const document = new DOMParser().parseFromString(source, "text/html");
+        const persistedOuter = document.querySelector<HTMLElement>(
+          '[data-agent-native-node-id="outer-frame"]',
+        );
+        return Array.from(persistedOuter?.children ?? []).map((child) =>
+          child.getAttribute("data-agent-native-node-id"),
+        );
+      }, html);
+    };
+    await expect
+      .poll(persistedChildren)
+      .toEqual(["exit-frame", "absolute-child", "later-sibling"]);
+    const savedHtml = await fileContent(request, designId, "index.html");
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(() => fileContent(request, designId, "index.html"))
+      .toBe(beforeDrop);
+    await expect
+      .poll(() =>
+        child.evaluate((element) =>
+          element.parentElement?.getAttribute("data-agent-native-node-id"),
+        ),
+      )
+      .toBe("exit-frame");
+
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(() => fileContent(request, designId, "index.html"))
+      .toBe(savedHtml);
+    await expect
+      .poll(directChildren)
+      .toEqual(["exit-frame", "absolute-child", "later-sibling"]);
+
+    await gotoEditor(page, designId);
+    const reloadedFrame = designFrame(page);
+    const reloadedOuter = reloadedFrame.locator(
+      '[data-agent-native-node-id="outer-frame"]',
+    );
+    await expect
+      .poll(() =>
+        reloadedOuter.evaluate((element) =>
           Array.from(element.children).map((child) =>
             child.getAttribute("data-agent-native-node-id"),
           ),
-        );
-      await expect
-        .poll(directChildren)
-        .toEqual(["exit-frame", "absolute-child", "later-sibling"]);
-      await expect
-        .poll(() =>
-          child.evaluate((element) =>
+        ),
+      )
+      .toEqual(["exit-frame", "absolute-child", "later-sibling"]);
+    await expect
+      .poll(() =>
+        reloadedFrame
+          .locator('[data-agent-native-node-id="absolute-child"]')
+          .evaluate((element) =>
             element.parentElement?.getAttribute("data-agent-native-node-id"),
           ),
-        )
-        .toBe("outer-frame");
-      const movedBox = await child.boundingBox();
-      expect(movedBox).not.toBeNull();
-      expect(movedBox!.x).toBeCloseTo(release.x - grabOffset.x, -1);
-      expect(movedBox!.y).toBeCloseTo(release.y - grabOffset.y, -1);
-      const overlapProof = await child.evaluate((element) => {
-        const childBox = element.getBoundingClientRect();
-        const later = element.ownerDocument.querySelector<HTMLElement>(
-          '[data-agent-native-node-id="later-sibling"]',
-        );
-        if (!later) return { hitNodeId: null, laterFound: false };
-        const laterBox = later.getBoundingClientRect();
-        const x =
-          (Math.max(childBox.left, laterBox.left) +
-            Math.min(childBox.right, laterBox.right)) /
-          2;
-        const y =
-          (Math.max(childBox.top, laterBox.top) +
-            Math.min(childBox.bottom, laterBox.bottom)) /
-          2;
-        const shields = Array.from(
-          element.ownerDocument.querySelectorAll<HTMLElement>(
-            '[data-agent-native-edit-overlay="shield"]',
-          ),
-        );
-        const pointerEvents = shields.map(
-          (shield) => shield.style.pointerEvents,
-        );
-        shields.forEach((shield) => {
-          shield.style.pointerEvents = "none";
-        });
-        let hit: Element | null = null;
-        try {
-          hit = element.ownerDocument.elementFromPoint(x, y);
-        } finally {
-          shields.forEach((shield, index) => {
-            shield.style.pointerEvents = pointerEvents[index] ?? "";
-          });
-        }
-        return {
-          hitNodeId: hit?.getAttribute("data-agent-native-node-id") ?? null,
-          hitTag: hit?.tagName ?? null,
-          hitClass: hit?.getAttribute("class") ?? null,
-          hitHtml: hit?.outerHTML ?? null,
-          point: { x, y },
-          childBox: {
-            left: childBox.left,
-            right: childBox.right,
-            top: childBox.top,
-            bottom: childBox.bottom,
-          },
-          laterBox: {
-            left: laterBox.left,
-            right: laterBox.right,
-            top: laterBox.top,
-            bottom: laterBox.bottom,
-          },
-          viewport: {
-            width: element.ownerDocument.documentElement.clientWidth,
-            height: element.ownerDocument.documentElement.clientHeight,
-          },
-        };
-      });
-      expect(overlapProof.hitNodeId, JSON.stringify(overlapProof)).toBe(
-        "later-sibling",
-      );
-
-      const persistedChildren = async () => {
-        const html = await fileContent(request, designId, "index.html");
-        return page.evaluate((source) => {
-          const document = new DOMParser().parseFromString(source, "text/html");
-          const persistedOuter = document.querySelector<HTMLElement>(
-            '[data-agent-native-node-id="outer-frame"]',
-          );
-          return Array.from(persistedOuter?.children ?? []).map((child) =>
-            child.getAttribute("data-agent-native-node-id"),
-          );
-        }, html);
-      };
-      await expect
-        .poll(persistedChildren)
-        .toEqual(["exit-frame", "absolute-child", "later-sibling"]);
-      const savedHtml = await fileContent(request, designId, "index.html");
-
-      await page.keyboard.press("ControlOrMeta+z");
-      await expect
-        .poll(() => fileContent(request, designId, "index.html"))
-        .toBe(beforeDrop);
-      await expect
-        .poll(() =>
-          child.evaluate((element) =>
-            element.parentElement?.getAttribute("data-agent-native-node-id"),
-          ),
-        )
-        .toBe("exit-frame");
-
-      await page.keyboard.press("ControlOrMeta+Shift+z");
-      await expect
-        .poll(() => fileContent(request, designId, "index.html"))
-        .toBe(savedHtml);
-      await expect
-        .poll(directChildren)
-        .toEqual(["exit-frame", "absolute-child", "later-sibling"]);
-
-      await gotoEditor(page, designId);
-      const reloadedFrame = designFrame(page);
-      const reloadedOuter = reloadedFrame.locator(
-        '[data-agent-native-node-id="outer-frame"]',
-      );
-      await expect
-        .poll(() =>
-          reloadedOuter.evaluate((element) =>
-            Array.from(element.children).map((child) =>
-              child.getAttribute("data-agent-native-node-id"),
-            ),
-          ),
-        )
-        .toEqual(["exit-frame", "absolute-child", "later-sibling"]);
-      await expect
-        .poll(() =>
-          reloadedFrame
-            .locator('[data-agent-native-node-id="absolute-child"]')
-            .evaluate((element) =>
-              element.parentElement?.getAttribute("data-agent-native-node-id"),
-            ),
-        )
-        .toBe("outer-frame");
-      expect(await fileContent(request, designId, "index.html")).toBe(
-        savedHtml,
-      );
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
+      )
+      .toBe("outer-frame");
+    expect(await fileContent(request, designId, "index.html")).toBe(savedHtml);
   });
 
   test("preserves selected sibling order when dragging absolute layers out together", async ({
-    page,
-    request,
+    app,
   }) => {
-    const { designId } = await createDesign(
-      request,
+    const designId = await openSingleScreen(
+      app,
       PLAIN_OUTER_WITH_ABSOLUTE_CHILD_HTML,
     );
-    try {
-      await gotoEditor(page, designId);
-      const frame = designFrame(page);
-      const outer = frame.locator('[data-agent-native-node-id="outer-frame"]');
-      const child = frame.locator(
-        '[data-agent-native-node-id="absolute-child"]',
-      );
-      const peer = frame.locator('[data-agent-native-node-id="absolute-peer"]');
-      const exitFrame = frame.locator(
-        '[data-agent-native-node-id="exit-frame"]',
-      );
-      const [childBox, peerBox, outerBox] = await Promise.all([
-        child.boundingBox(),
-        peer.boundingBox(),
-        outer.boundingBox(),
+    const childCentre = await app.pagePoint(200, 176);
+    const grab = await app.pagePoint(295, 176);
+    await app.page.mouse.click(childCentre.x, childCentre.y);
+    await app.page.keyboard.down("Shift");
+    await app.page.mouse.click(grab.x, grab.y);
+    await app.page.keyboard.up("Shift");
+    await expect
+      .poll(() => app.selectedLayers())
+      .toEqual(["Absolute peer", "Absolute child"]);
+    const before = await app.savedNodes(designId);
+    expect(childrenOf(before, "exit-frame")).toEqual([
+      "absolute-child",
+      "absolute-peer",
+    ]);
+    const beforeDrop = await app.savedHtml(designId);
+
+    // The release keeps every edge of the pair clear of the snap lines of the frames around it.
+    const release = await app.pagePoint(585, 355);
+    await app.page.mouse.move(grab.x, grab.y);
+    await app.page.mouse.down();
+    await app.page.mouse.move(grab.x + 8, grab.y + 6, { steps: 2 });
+    await app.page.mouse.move(release.x, release.y, { steps: 16 });
+    expect(await app.savedHtml(designId)).toBe(beforeDrop);
+    await app.page.mouse.up();
+
+    await expect
+      .poll(async () =>
+        childrenOf(await app.savedNodes(designId), "outer-frame"),
+      )
+      .toEqual([
+        "exit-frame",
+        "absolute-child",
+        "absolute-peer",
+        "later-sibling",
       ]);
-      if (!childBox || !peerBox || !outerBox) {
-        throw new Error("absolute sibling group fixture needs rendered bounds");
-      }
-      const grab = {
-        x: peerBox.x + peerBox.width / 2,
-        y: peerBox.y + peerBox.height / 2,
-      };
-      const zoom = await canvasZoom(page);
-      const release = {
-        x: outerBox.x + 380 * zoom,
-        y: outerBox.y + 100 * zoom,
-      };
-      const beforeDrop = await fileContent(request, designId, "index.html");
-
-      await page.mouse.click(
-        childBox.x + childBox.width / 2,
-        childBox.y + childBox.height / 2,
-      );
-      await page.keyboard.down("Shift");
-      await page.mouse.click(grab.x, grab.y);
-      await page.keyboard.up("Shift");
-      await expect(page.getByText("2 selected", { exact: true })).toBeVisible();
-      await page.mouse.move(grab.x, grab.y);
-      await page.mouse.down();
-      await page.mouse.move(grab.x + 8, grab.y + 6, { steps: 2 });
-      await page.mouse.move(release.x, release.y, { steps: 16 });
-      expect(await fileContent(request, designId, "index.html")).toBe(
-        beforeDrop,
-      );
-      await page.mouse.up();
-
-      const directChildren = () =>
-        outer.evaluate((element) =>
-          Array.from(element.children).map((node) =>
-            node.getAttribute("data-agent-native-node-id"),
-          ),
-        );
-      await expect
-        .poll(directChildren)
-        .toEqual([
-          "exit-frame",
-          "absolute-child",
-          "absolute-peer",
-          "later-sibling",
-        ]);
-      for (const layer of [child, peer]) {
-        await expect
-          .poll(() =>
-            layer.evaluate((element) =>
-              element.parentElement?.getAttribute("data-agent-native-node-id"),
-            ),
-          )
-          .toBe("outer-frame");
-      }
-
-      const persistedChildren = async () => {
-        const html = await fileContent(request, designId, "index.html");
-        return page.evaluate((source) => {
-          const doc = new DOMParser().parseFromString(source, "text/html");
-          return Array.from(
-            doc.querySelector('[data-agent-native-node-id="outer-frame"]')
-              ?.children ?? [],
-          ).map((node) => node.getAttribute("data-agent-native-node-id"));
-        }, html);
-      };
-      await expect
-        .poll(persistedChildren)
-        .toEqual([
-          "exit-frame",
-          "absolute-child",
-          "absolute-peer",
-          "later-sibling",
-        ]);
-      await gotoEditor(page, designId);
-      await expect
-        .poll(() =>
-          designFrame(page)
-            .locator('[data-agent-native-node-id="outer-frame"]')
-            .evaluate((element) =>
-              Array.from(element.children).map((node) =>
-                node.getAttribute("data-agent-native-node-id"),
-              ),
-            ),
-        )
-        .toEqual([
-          "exit-frame",
-          "absolute-child",
-          "absolute-peer",
-          "later-sibling",
-        ]);
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
+    await app.settled();
+    const after = await app.savedNodes(designId);
+    expect(childrenOf(after, "exit-frame")).toEqual([]);
+    for (const [id, left, top, color] of [
+      ["absolute-child", 330, 229, "rgb(37, 99, 235)"],
+      ["absolute-peer", 460, 229, "rgb(124, 58, 237)"],
+    ] as const) {
+      const {
+        left: savedLeft,
+        top: savedTop,
+        background: _background,
+        ...rest
+      } = styleOf(after.get(id));
+      const {
+        left: _left,
+        top: _top,
+        background: _backgroundBefore,
+        ...restBefore
+      } = styleOf(before.get(id));
+      expect(rest, `${id} keeps its other styles`).toEqual(restBefore);
+      expectNear(savedLeft, left, `${id} saved left`);
+      expectNear(savedTop, top, `${id} saved top`);
+      await expect(app.node(id)).toHaveCSS("background-color", color);
     }
+    expectOnlyChanged(before, after, ["absolute-child", "absolute-peer"]);
+    const child = await app.designRect("absolute-child");
+    const peer = await app.designRect("absolute-peer");
+    expectNear(child.x, 430, "child rendered x");
+    expectNear(child.y, 329, "child rendered y");
+    expectNear(peer.x, 560, "peer rendered x");
+    expectNear(peer.y, 329, "peer rendered y");
+    expect([child.width, child.height, peer.width, peer.height]).toEqual([
+      120, 52, 50, 52,
+    ]);
   });
 });

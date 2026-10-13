@@ -1,95 +1,57 @@
-import { expect, test } from "@playwright/test";
-
-import {
-  appPath,
-  designFrame,
-  enterDirectMode,
-  expandAllLayers,
-  gotoEditor,
-} from "./helpers";
+import { expandAllLayers } from "./helpers";
+import { expect, expectOnlyChanged, test } from "./rails";
 
 const FRAME_FIXTURE = `<!doctype html><html><body style="margin:0">
 <div data-agent-native-node-id="fill-probe" data-agent-native-layer-name="Fill probe" data-an-primitive="frame" style="position:absolute;left:20px;top:20px;width:180px;height:120px;background:#1a1d24"></div>
 </body></html>`;
 
-async function createDesign(page: import("@playwright/test").Page) {
-  const createdResponse = await page.request.post(
-    appPath("/_agent-native/actions/create-design"),
-    {
-      data: {
-        title: `Fill Escape ${Date.now()}`,
-        projectType: "prototype",
-      },
-    },
-  );
-  if (!createdResponse.ok()) throw new Error(await createdResponse.text());
-  const created = await createdResponse.json();
-  if (typeof created.id !== "string") throw new Error("Missing design id");
-  const fileResponse = await page.request.post(
-    appPath("/_agent-native/actions/create-file"),
-    {
-      data: {
-        designId: created.id,
-        filename: "index.html",
-        content: FRAME_FIXTURE,
-        fileType: "html",
-      },
-    },
-  );
-  if (!fileResponse.ok()) throw new Error(await fileResponse.text());
-  return created.id as string;
-}
-
-test("Fill Hex Enter applies color and one Escape closes the picker", async ({
-  page,
+test("Fill Hex Enter applies and saves the colour, and one Escape closes the picker without undoing it", async ({
+  app,
 }) => {
-  const designId = await createDesign(page);
-  try {
-    await gotoEditor(page, designId);
-    await enterDirectMode(page);
-    await expandAllLayers(page);
+  const id = await app.seed(FRAME_FIXTURE);
+  await app.open(id);
+  await app.settled();
+  const page = app.page;
+  const before = await app.savedNodes(id);
+  await expandAllLayers(page);
+  await page
+    .getByRole("tree", { name: "Layers" })
+    .getByRole("button", { name: "Fill probe", exact: true })
+    .click();
+  await expect.poll(() => app.selectedLayers()).toEqual(["Fill probe"]);
 
-    const layers = page.getByRole("tree", { name: "Layers" });
-    await layers
-      .getByRole("button", { name: "Fill probe", exact: true })
-      .click();
-    await expect(
-      layers.locator('[role="treeitem"][aria-selected="true"]'),
-    ).toContainText("Fill probe");
-
-    const fill = page
-      .getByRole("heading", { name: "Fill", exact: true })
-      .locator("xpath=ancestor::section");
-    await fill.getByRole("button", { name: "Open color picker" }).click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
-    const solidTab = dialog.getByRole("button", {
-      name: "Solid",
-      exact: true,
-    });
-    await solidTab.hover();
-    const solidTooltip = page
+  await page
+    .getByRole("heading", { name: "Fill", exact: true })
+    .locator("xpath=ancestor::section")
+    .getByRole("button", { name: "Open color picker" })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Solid", exact: true }).hover();
+  await expect(
+    page
       .locator('[data-agent-native-tooltip="true"]')
-      .filter({ hasText: "Solid" });
-    await expect(solidTooltip).toBeVisible();
-    const hex = page.getByRole("textbox", { name: "Hex", exact: true });
-    await expect(hex).toBeVisible();
+      .filter({ hasText: "Solid" }),
+  ).toBeVisible();
+  const hex = page.getByRole("textbox", { name: "Hex", exact: true });
+  await hex.fill("3B82F6");
+  await hex.press("Enter");
+  await page.keyboard.press("Escape");
 
-    await hex.fill("3B82F6");
-    await hex.press("Enter");
-    await page.keyboard.press("Escape");
-
-    const target = designFrame(page).locator(
-      '[data-agent-native-node-id="fill-probe"]',
-    );
-    await expect(target).toHaveCSS("background-color", "rgb(59, 130, 246)");
-    await expect(dialog).toBeHidden();
-    await expect(target).toHaveCSS("background-color", "rgb(59, 130, 246)");
-  } finally {
-    const response = await page.request.post(
-      appPath("/_agent-native/actions/delete-design"),
-      { data: { id: designId } },
-    );
-    if (!response.ok()) throw new Error(await response.text());
-  }
+  await expect(dialog).toBeHidden();
+  const probe = app.node("fill-probe");
+  await expect(probe).toHaveCSS("background-color", "rgb(59, 130, 246)");
+  await app.settled();
+  const after = await app.savedNodes(id);
+  const savedColor = await page.evaluate((style) => {
+    const declarations = document.createElement("div").style;
+    declarations.cssText = style;
+    return declarations.backgroundColor;
+  }, after.get("fill-probe")!.attrs.style);
+  expect(savedColor, "the saved fill").toBe("rgb(59, 130, 246)");
+  expectOnlyChanged(before, after, ["fill-probe"]);
+  await expect(probe, "Escape closed the picker without reverting").toHaveCSS(
+    "background-color",
+    "rgb(59, 130, 246)",
+  );
 });

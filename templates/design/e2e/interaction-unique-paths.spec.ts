@@ -1,1035 +1,487 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
-import { e2eBaseURL } from "./base-url";
 import {
-  appPath,
-  canvasZoom,
-  createFixtureDesign,
-  designFrame,
-  enterDirectMode,
-  gotoEditor,
-  installBridge,
-  selectByText,
-  waitForBridge,
-} from "./helpers";
+  childrenOf,
+  expect,
+  expectOnlyChanged,
+  styleOf,
+  test,
+  type App,
+  type SavedNode,
+} from "./rails";
 
-const MOD = process.platform === "darwin" ? "Meta" : "Control";
+const ROW_HTML = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:40px;font-family:system-ui;background:#ffffff">
+  <div data-agent-native-node-id="row" data-agent-native-layer-name="Row" style="display:flex;gap:16px;width:640px">
+    <button data-agent-native-node-id="alpha" data-agent-native-layer-name="Alpha Button" style="width:120px;height:44px">Alpha Button</button>
+    <button data-agent-native-node-id="beta" data-agent-native-layer-name="Beta Button" style="width:120px;height:44px">Beta Button</button>
+    <button data-agent-native-node-id="gamma" data-agent-native-layer-name="Gamma Button" style="width:120px;height:44px">Gamma Button</button>
+  </div>
+  <section data-agent-native-node-id="card" data-agent-native-layer-name="Card" style="margin-top:40px;width:400px;height:160px;background:#eef2ff"></section>
+</body></html>`;
 
-const FREE_DRAG_HTML = `<!doctype html>
-<html>
-  <head><meta charset="utf-8"><title>Free-drag fixture</title></head>
-  <body style="margin:0;min-height:900px;background:#0f1115">
-    <div data-agent-native-node-id="free-box" data-agent-native-layer-name="Free Box"
-         style="position:absolute;left:80px;top:80px;width:120px;height:80px;background:#6366f1;color:#fff;display:flex;align-items:center;justify-content:center">Free Box</div>
-  </body>
-</html>`;
+const FREE_HTML = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;position:relative;width:900px;height:600px;background:#ffffff">
+  <div data-agent-native-node-id="box" data-agent-native-layer-name="Free Box" style="position:absolute;left:80px;top:80px;width:120px;height:80px;background:#6366f1"></div>
+</body></html>`;
 
-async function createFreeDragFixture(page: Page): Promise<string> {
-  const res = await page.request.post(
-    `${e2eBaseURL()}/_agent-native/actions/create-design`,
-    { data: { title: "E2E free-drag fixture", projectType: "prototype" } },
-  );
-  const created = await res.json();
-  const id: string = created?.id ?? created?.data?.id ?? created?.design?.id;
-  await page.request.post(`${e2eBaseURL()}/_agent-native/actions/create-file`, {
-    data: {
-      designId: id,
-      filename: "index.html",
-      content: FREE_DRAG_HTML,
-      fileType: "html",
-    },
-  });
+const MEASURE_HTML = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;position:relative;width:900px;height:600px;background:#ffffff">
+  <div data-agent-native-node-id="near" data-agent-native-layer-name="Near" style="position:absolute;left:80px;top:80px;width:120px;height:80px;margin-right:24px;background:#6366f1"></div>
+  <div data-agent-native-node-id="far" data-agent-native-layer-name="Far" style="position:absolute;left:210px;top:80px;width:120px;height:80px;background:#f59e0b"></div>
+</body></html>`;
+
+const PROPERTIES_HTML = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;position:relative;width:900px;height:600px;background:#ffffff">
+  <div data-agent-native-node-id="source" data-agent-native-layer-name="Source" style="position:absolute;left:80px;top:80px;width:160px;height:100px;box-sizing:border-box;background:#22c55e;border:2px solid #14532d;border-radius:12px;opacity:0.8"></div>
+  <div data-agent-native-node-id="target" data-agent-native-layer-name="Target" style="position:absolute;left:400px;top:240px;width:120px;height:60px;box-sizing:border-box;background:#e5e7eb"></div>
+</body></html>`;
+
+async function openSeeded(
+  app: App,
+  html: string,
+  files?: Record<string, string>,
+) {
+  const id = await app.seed(html, { files });
+  await app.open(id);
+  await app.zoomToFit();
   return id;
 }
 
-async function showAltHoverMeasurement(page: Page): Promise<Locator> {
-  await selectByText(page, "Alpha Button");
-  const betaBox = (await (await frameNode(page, "Beta Button")).boundingBox())!;
-  const measurementOverlay = designFrame(page).locator(
-    "[data-agent-native-measurement-overlay]",
-  );
-  await page.mouse.move(betaBox.x - 20, betaBox.y - 20);
-  await page.keyboard.down("Alt");
-  await page.mouse.move(
-    betaBox.x + betaBox.width / 2,
-    betaBox.y + betaBox.height / 2,
-  );
-  await expect(measurementOverlay).toHaveCSS("display", "block");
-  return measurementOverlay;
+async function centerOf(app: App, nodeId: string) {
+  const rect = await app.designRect(nodeId);
+  return app.pagePoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
 }
 
-let designId: string;
+async function clickNode(app: App, nodeId: string, name: string) {
+  const point = await centerOf(app, nodeId);
+  await app.page.mouse.click(point.x, point.y);
+  await expect.poll(() => app.selectedLayers()).toStrictEqual([name]);
+}
 
-test.describe.serial("rare-but-real unique paths", () => {
-  test.beforeEach(async ({ page }, testInfo) => {
-    designId = await createFixtureDesign(page, `E2E Unique ${testInfo.title}`);
-    await gotoEditor(page, designId);
-  });
-
-  test("Alt-drag inside the Layers panel duplicates a layer without touching the canvas", async ({
-    page,
-  }) => {
-    await openLayerSearch(page, "Button");
-    const target = layerRowButton(page, "Beta Button").first();
-    const sourceRow = layerRowButton(page, "Alpha Button");
-    await expect(sourceRow).toBeVisible();
-    await expect(target).toBeVisible();
-    await sourceRow.click();
-    await expect(layerRow(page, "Alpha Button")).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    const before = await topLevelLayerNodeIds(page);
-    const beforeCount = before.length;
-
-    const sourceLayerNodeId =
-      await sourceRow.getAttribute("data-layer-node-id");
-    expect(sourceLayerNodeId).toBeTruthy();
-    const sourceBox = (await sourceRow.boundingBox())!;
-    const targetBox = (await target.boundingBox())!;
-    const beforeHtml = await getFileHtml(page);
-    const persistedNodeCount = (html: string) =>
-      [...html.matchAll(/data-agent-native-node-id=/g)].length;
-    const beforePersistedNodeCount = persistedNodeCount(beforeHtml);
-
-    await page.mouse.move(
-      sourceBox.x + sourceBox.width / 2,
-      sourceBox.y + sourceBox.height / 2,
-    );
-    await page.keyboard.down("Alt");
-    await page.mouse.down();
-    await page.mouse.move(
-      targetBox.x + targetBox.width / 2,
-      targetBox.y + targetBox.height + 2,
-      { steps: 8 },
-    );
-    await page.mouse.up();
-    await page.keyboard.up("Alt");
-    await expect
-      .poll(async () => persistedNodeCount(await getFileHtml(page)), {
-        timeout: 15_000,
-        message: "the Alt-drag duplicate must persist before undo",
-      })
-      .toBeGreaterThan(beforePersistedNodeCount);
-    await expect
-      .poll(async () => (await topLevelLayerNodeIds(page)).length)
-      .toBeGreaterThan(beforeCount);
-
-    const after = await topLevelLayerNodeIds(page);
-    expect(
-      after.length,
-      `alt-drag in the layers panel from ${JSON.stringify(before)} should add at least one node; got ${JSON.stringify(after)}`,
-    ).toBeGreaterThan(beforeCount);
-    expect(sourceLayerNodeId).toBeTruthy();
-    expect(
-      after,
-      "the original Alpha Button row must still exist after an alt-drag duplicate",
-    ).toContain(sourceLayerNodeId);
-
-    await page.keyboard.press(`${MOD}+z`);
-    await expect
-      .poll(async () => persistedNodeCount(await getFileHtml(page)), {
-        timeout: 15_000,
-        message: "undo must remove the persisted Alt-drag duplicate",
-      })
-      .toBe(beforePersistedNodeCount);
-    await expect
-      .poll(() => topLevelLayerNodeIds(page))
-      .toHaveLength(beforeCount);
-    const undone = await topLevelLayerNodeIds(page);
-    expect(undone.length).toBe(beforeCount);
-  });
-
-  test("a marquee needs only intersection over a shape but full enclosure over a top-level screen", async ({
-    page,
-  }) => {
-    await page.goto(appPath(`/design/${designId}?view=overview`), {
-      waitUntil: "domcontentloaded",
-    });
-    await expect(page.locator("[data-screen-card]").first()).toBeVisible({
-      timeout: 20_000,
-    });
-    const card = (await page
-      .locator("[data-screen-card]")
-      .first()
-      .boundingBox())!;
-
-    await page.mouse.move(card.x + card.width - 20, card.y - 40);
-    await page.mouse.down();
-    await page.mouse.move(card.x + card.width + 40, card.y + 40, {
-      steps: 8,
-    });
-    await page.mouse.up();
-    await page.waitForTimeout(200);
-
-    const partialSelected = await page
-      .locator("[data-frame-selection-box]")
-      .count();
-    expect(
-      partialSelected,
-      "a marquee that only clips a screen's edge must not select it (top-level frames require full enclosure)",
-    ).toBe(0);
-
-    await page.mouse.move(card.x - 40, card.y - 40);
-    await page.mouse.down();
-    await page.mouse.move(card.x + card.width + 40, card.y + card.height + 40, {
-      steps: 8,
-    });
-    await page.mouse.up();
-    await page.waitForTimeout(200);
-    const fullSelected = await page
-      .locator("[data-frame-selection-box]")
-      .count();
-    expect(
-      fullSelected,
-      "fully enclosing the screen with the marquee must select it",
-    ).toBeGreaterThan(0);
-  });
-
-  test("Cmd+A is scope-sensitive: inside a container it selects siblings, otherwise it selects screens", async ({
-    page,
-  }) => {
-    await selectByTextDeep(page, "Alpha Button");
-    await expandAllLayersLocal(page);
-    await expect
-      .poll(() => countSelectedLayerRows(page), {
-        message:
-          "precondition: the button click must select exactly one layer row",
-      })
-      .toBe(1);
-    await page.keyboard.press("ControlOrMeta+a");
-    await page.waitForTimeout(200);
-    const selectedInScope = await countSelectedLayerRows(page);
-    expect(
-      selectedInScope,
-      "Cmd+A with a child selected must select that child's siblings, not every screen",
-    ).toBeGreaterThan(1);
-
-    await page.keyboard.press("Escape");
-    await page.keyboard.press("Escape");
-    await page.mouse.click(20, 20);
-    await page.keyboard.press("ControlOrMeta+a");
-    await page.waitForTimeout(200);
-    const overviewSelected = await page
-      .locator("[data-frame-selection-box]")
-      .count();
-    expect(
-      overviewSelected,
-      "Cmd+A with nothing selected at the top level must select the top-level screens",
-    ).toBeGreaterThan(0);
-  });
-
-  test("Cmd+D twice repeats the offset of a manual move made after the first duplicate", async ({
-    page,
-  }) => {
-    const freeDesignId = await createFreeDragFixture(page);
-    await gotoEditor(page, freeDesignId);
-    await selectByText(page, "Free Box");
-    await installBridge(page);
-
-    await page.evaluate(() => ((window as any).__bridge = []));
-    await page.keyboard.press("ControlOrMeta+d");
-    const dup1 = await boxFromNextSelect(page);
-
-    await page.mouse.move(
-      dup1.box.x + dup1.box.width / 2,
-      dup1.box.y + dup1.box.height / 2,
-    );
-    await page.mouse.down();
-    await page.mouse.move(
-      dup1.box.x + dup1.box.width / 2 + 40,
-      dup1.box.y + dup1.box.height / 2 + 25,
-      { steps: 8 },
-    );
-    await page.mouse.up();
-    await page.waitForTimeout(150);
-    const movedBox = (await designFrame(page)
-      .locator(`[data-agent-native-node-id="${dup1.nodeId}"]`)
-      .first()
-      .boundingBox())!;
-
-    await page.evaluate(() => ((window as any).__bridge = []));
-    await page.keyboard.press("ControlOrMeta+d");
-    const dup2 = await boxFromNextSelect(page);
-
-    const dxManual = movedBox.x - dup1.box.x;
-    const dyManual = movedBox.y - dup1.box.y;
-    const dxRepeat = dup2.box.x - movedBox.x;
-    const dyRepeat = dup2.box.y - movedBox.y;
-    expect(
-      Math.abs(dxRepeat - dxManual),
-      `repeat-duplicate offset (${dxRepeat},${dyRepeat}) should match the manual move offset (${dxManual},${dyManual})`,
-    ).toBeLessThan(6);
-    expect(Math.abs(dyRepeat - dyManual)).toBeLessThan(6);
-  });
-
-  test("holding Space through the drop keeps the current parent; a normal drag can still reparent", async ({
-    page,
-  }) => {
-    await selectByTextDeep(page, "Alpha Button");
-    const target = await frameNode(page, "Alpha Button");
-    const box = (await target.boundingBox())!;
-    const sectionBox = (await (
-      await frameNode(page, "Fixture Card Title")
-    ).boundingBox())!;
-    const beforeHtml = await getFileHtml(page);
-    const beforeParentTag = parentTagNameOf(beforeHtml, "e2e-alpha-button");
-    const beforeLiveParent = await liveParentSignature(page, "Alpha Button");
-
-    await page.evaluate(() => {
-      document.body.dataset.editorDragStarted = "false";
-      window.addEventListener(
-        "message",
-        (event: MessageEvent) => {
-          if (
-            event.data?.type === "agent-native:editor-drag-state" &&
-            event.data.active === true
-          ) {
-            document.body.dataset.editorDragStarted = "true";
-          }
-        },
-        true,
-      );
-    });
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2 + 8, box.y + box.height / 2, {
-      steps: 2,
-    });
-    await expect(page.locator("body")).toHaveAttribute(
-      "data-editor-drag-started",
-      "true",
-    );
-    await page.keyboard.down("Space");
-    await page.mouse.move(
-      sectionBox.x + sectionBox.width / 2,
-      sectionBox.y + sectionBox.height / 2,
-      { steps: 20 },
-    );
-    await page.mouse.up();
-    await page.keyboard.up("Space");
-
-    const html = await getFileHtml(page);
-    const afterParentTag = parentTagNameOf(html, "e2e-alpha-button");
-    expect(
-      afterParentTag,
-      `Alpha Button must stay in its original auto-layout parent. before-parent=${beforeParentTag} after-parent=${afterParentTag}`,
-    ).toBe(beforeParentTag);
-    const afterLiveParent = await liveParentSignature(page, "Alpha Button");
-    expect(
-      afterLiveParent,
-      `Alpha Button's live parent must remain unchanged after the Space-held drop; before=${beforeLiveParent} after=${afterLiveParent}`,
-    ).toBe(beforeLiveParent);
-
-    await layerRowButton(page, "Alpha Button").click();
-    await page.waitForTimeout(100);
-    const restoredTargetBox = (await (
-      await frameNode(page, "Alpha Button")
-    ).boundingBox())!;
-    await enterDirectMode(page);
-    const currentSectionBox = (await designFrame(page)
-      .locator("section")
-      .first()
-      .boundingBox())!;
-    await page.mouse.move(
-      restoredTargetBox.x + restoredTargetBox.width / 2,
-      restoredTargetBox.y + restoredTargetBox.height / 2,
-    );
-    await page.mouse.down();
-    await page.mouse.move(
-      restoredTargetBox.x + restoredTargetBox.width / 2 + 10,
-      restoredTargetBox.y + restoredTargetBox.height / 2,
-      { steps: 5 },
-    );
-    await page.mouse.move(
-      currentSectionBox.x + currentSectionBox.width / 2,
-      currentSectionBox.y + currentSectionBox.height / 2,
-      { steps: 20 },
-    );
-    await page.waitForTimeout(400);
-    await page.mouse.up();
-
-    await expect
-      .poll(
-        async () => {
-          const movedHtml = await getFileHtml(page);
-          const movedAlphaIdx = movedHtml.indexOf(
-            'data-agent-native-node-id="e2e-alpha-button"',
-          );
-          const movedSectionOpen = movedHtml.indexOf("<section");
-          const movedSectionClose = movedHtml.indexOf(
-            "</section>",
-            movedSectionOpen,
-          );
-          return (
-            movedSectionOpen > 0 &&
-            movedSectionClose > 0 &&
-            movedAlphaIdx > movedSectionOpen &&
-            movedAlphaIdx < movedSectionClose
-          );
-        },
-        {
-          message:
-            "a subsequent ordinary drag must reparent Alpha Button into the section",
-        },
-      )
-      .toBe(true);
-  });
-
-  test("click-dragging across multiple eye icons in the Layers panel toggles visibility for the whole run", async ({
-    page,
-  }) => {
-    await openLayerSearch(page, "Button");
-    const rowA = layerRow(page, "Alpha Button");
-    const rowB = layerRow(page, "Beta Button");
-    const lockA = rowA
-      .locator(
-        'button[aria-label="Lock layer"], button[aria-label="Unlock layer"]',
-      )
-      .first();
-    const lockB = rowB
-      .locator(
-        'button[aria-label="Lock layer"], button[aria-label="Unlock layer"]',
-      )
-      .first();
-    const centerOf = async (locator: Locator) => {
-      const box = (await locator.boundingBox())!;
-      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-    };
-
-    await rowA.hover();
-    const start = await centerOf(lockA);
-    await page.mouse.move(start.x, start.y);
-    await page.mouse.down();
-    const rowBBox = (await rowB.boundingBox())!;
-    await page.mouse.move(
-      rowBBox.x + rowBBox.width / 2,
-      rowBBox.y + rowBBox.height / 2,
-      { steps: 6 },
-    );
-    await lockB.hover({ force: true });
-    await page.mouse.up();
-    await page.waitForTimeout(200);
-
-    const alphaLocked = await isLayerLocked(page, "Alpha Button");
-    const betaLocked = await isLayerLocked(page, "Beta Button");
-    expect(
-      alphaLocked && betaLocked,
-      `a continuous drag across both lock icons should lock both rows; got Alpha locked=${alphaLocked}, Beta locked=${betaLocked}`,
-    ).toBe(true);
-  });
-
-  test("Alt-hovering another object while one is selected shows a measurement overlay between them", async ({
-    page,
-  }) => {
-    const beta = await frameNode(page, "Beta Button");
-    await beta.evaluate((element) => {
-      // Shrink the fixture row's gap so Beta overlaps Alpha's margin hit region.
-      (element as HTMLElement).style.marginLeft = "-8px";
-    });
-    await selectByText(page, "Alpha Button");
-    const betaBox = (await beta.boundingBox())!;
-    const measurementOverlay = designFrame(page).locator(
-      "[data-agent-native-measurement-overlay]",
-    );
-    const spacingRegion = designFrame(page).locator(
-      '[data-agent-native-spacing-region="margin"][data-spacing-key="margin:right"]',
-    );
-    await expect(spacingRegion).toBeVisible();
-    const spacingRegionBox = (await spacingRegion.boundingBox())!;
-    const spacingLeft = Math.max(spacingRegionBox.x, betaBox.x);
-    const spacingRight = Math.min(
-      spacingRegionBox.x + spacingRegionBox.width,
-      betaBox.x + betaBox.width,
-    );
-    const spacingTop = Math.max(spacingRegionBox.y, betaBox.y);
-    const spacingBottom = Math.min(
-      spacingRegionBox.y + spacingRegionBox.height,
-      betaBox.y + betaBox.height,
-    );
-    expect(spacingRight).toBeGreaterThan(spacingLeft);
-    expect(spacingBottom).toBeGreaterThan(spacingTop);
-    const spacingPoint = {
-      x: (spacingLeft + spacingRight) / 2,
-      y: (spacingTop + spacingBottom) / 2,
-    };
-    await designFrame(page)
-      .locator("body")
-      .evaluate((body) => {
-        type AltSpacingEvent = {
-          spacingKey: string;
-          display: string;
-          x: number;
-          y: number;
-        };
-        const tracedWindow = body.ownerDocument.defaultView as
-          | (Window & { __testAltSpacingEvents?: AltSpacingEvent[] })
-          | null;
-        if (!tracedWindow) throw new Error("preview window is unavailable");
-        tracedWindow.__testAltSpacingEvents = [];
-        body.ownerDocument.addEventListener(
-          "pointermove",
-          (event) => {
-            if (!(event instanceof PointerEvent) || !event.altKey) return;
-            const target = event.target;
-            if (!(target instanceof Element)) return;
-            const spacingRegion = target.closest(
-              "[data-agent-native-spacing-region]",
-            );
-            const spacingKey = spacingRegion?.getAttribute("data-spacing-key");
-            if (!spacingKey) return;
-            const x = event.clientX;
-            const y = event.clientY;
-            const measurementOverlay =
-              body.ownerDocument.querySelector<HTMLElement>(
-                "[data-agent-native-measurement-overlay]",
-              );
-            tracedWindow.requestAnimationFrame(() => {
-              tracedWindow.__testAltSpacingEvents?.push({
-                spacingKey,
-                display: measurementOverlay?.style.display ?? "missing",
-                x,
-                y,
-              });
-            });
-          },
-          true,
-        );
-      });
-    await page.mouse.move(
-      betaBox.x + betaBox.width / 2,
-      betaBox.y + betaBox.height / 2,
-      { steps: 5 },
-    );
-    await expect(measurementOverlay).toHaveCSS("display", "none");
-
-    await page.mouse.move(
-      betaBox.x + betaBox.width / 2,
-      betaBox.y + betaBox.height / 2,
-    );
-    await expect(measurementOverlay).toHaveCSS("display", "none");
-    await page.keyboard.down("Alt");
-    await page.mouse.move(spacingPoint.x, spacingPoint.y, { steps: 2 });
-    await expect(measurementOverlay).toHaveCSS("display", "block");
-    const readAltSpacingEvents = () =>
-      designFrame(page)
-        .locator("body")
-        .evaluate(
-          (body) =>
-            (
-              body.ownerDocument.defaultView as
-                | (Window & {
-                    __testAltSpacingEvents?: Array<{
-                      spacingKey: string;
-                      display: string;
-                      x: number;
-                      y: number;
-                    }>;
-                  })
-                | null
-            )?.__testAltSpacingEvents ?? [],
-        );
-    await expect
-      .poll(async () => (await readAltSpacingEvents()).length)
-      .toBeGreaterThan(0);
-    const altSpacingEvents = await readAltSpacingEvents();
-    expect(altSpacingEvents).not.toHaveLength(0);
-    expect(
-      altSpacingEvents.every((event) => event.display === "block"),
-      `measurement overlay should remain visible after spacing hits: ${JSON.stringify(altSpacingEvents)}`,
-    ).toBe(true);
-    await page.waitForTimeout(160);
-    await expect(measurementOverlay).toHaveCSS("display", "block");
-    await expect(measurementOverlay.locator("div")).not.toHaveCount(0);
-    await page.keyboard.up("Alt");
-    await expect(measurementOverlay).toHaveCSS("display", "none");
-  });
-
-  test("Alt-hover measurements clear on preview iframe focus loss without pointer movement", async ({
-    page,
-  }) => {
-    const measurementOverlay = await showAltHoverMeasurement(page);
-    await page
-      .locator("iframe[data-design-preview-iframe]")
-      .last()
-      .evaluate((iframe) => iframe.dispatchEvent(new FocusEvent("blur")));
-    await expect(measurementOverlay).toHaveCSS("display", "none");
-    await page.keyboard.up("Alt");
-  });
-
-  test("Alt-hover measurements clear on host window blur without pointer movement", async ({
-    page,
-  }) => {
-    const measurementOverlay = await showAltHoverMeasurement(page);
-    await page.evaluate(() => window.dispatchEvent(new Event("blur")));
-    await expect(measurementOverlay).toHaveCSS("display", "none");
-    await page.keyboard.up("Alt");
-  });
-
-  test("Ctrl-dragging a child overrides auto-layout resistance and drags it out cleanly", async ({
-    page,
-  }) => {
-    await selectByTextDeep(page, "Alpha Button");
-    const box = (await (await frameNode(page, "Alpha Button")).boundingBox())!;
-    const dropTarget = (await (
-      await frameNode(page, "Variant CTA")
-    ).boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.keyboard.down("Control");
-    await page.mouse.down();
-    await page.mouse.move(
-      dropTarget.x + dropTarget.width / 2,
-      dropTarget.y + dropTarget.height / 2,
-      { steps: 10 },
-    );
-    await page.mouse.up();
-    await page.keyboard.up("Control");
-    const alphaOutsideRow = async () => {
-      const html = await getFileHtml(page);
-      const rowOpen = html.indexOf('style="display:flex;flex-direction:row');
-      const rowClose = html.indexOf("</div>", rowOpen);
-      const alphaIdx = html.indexOf(
-        'data-agent-native-node-id="e2e-alpha-button"',
-      );
-      return {
-        valid: rowOpen >= 0 && rowClose >= 0 && alphaIdx >= 0,
-        outside: alphaIdx < rowOpen || alphaIdx > rowClose,
-      };
-    };
-    await expect
-      .poll(alphaOutsideRow, {
-        timeout: 10_000,
-        message:
-          "Ctrl-drag should persist the child outside the flex row against normal auto-layout drag resistance",
-      })
-      .toMatchObject({ valid: true, outside: true });
-  });
-
-  test("paste-properties (Cmd+Opt+C / Cmd+Opt+V) copies style only, leaving position and size alone", async ({
-    page,
-  }) => {
-    await selectByTextDeep(page, "Beta Button");
-    await expect(layerRow(page, "Beta Button")).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    await page.keyboard.press(`${MOD}+Alt+c`);
-    const beta = await frameNode(page, "Beta Button");
-    await beta.evaluate((element) => {
-      const rect = element.getBoundingClientRect();
-      document.dispatchEvent(
-        new MouseEvent("contextmenu", {
-          bubbles: true,
-          cancelable: true,
-          button: 2,
-          buttons: 2,
-          clientX: rect.left + rect.width / 2,
-          clientY: rect.top + rect.height / 2,
-        }),
-      );
-    });
-    await waitForBridge(page, "element-contextmenu");
-    const contextMenu = page.getByRole("menu").last();
-    await contextMenu.getByRole("menuitem", { name: "Copy/Paste as" }).hover();
-    await expect(
-      page.getByRole("menuitem", { name: /Paste properties/ }),
-    ).toBeEnabled();
-    await page.keyboard.press("Escape");
-    await selectByTextDeep(page, "Alpha Button");
-    await expect(layerRow(page, "Alpha Button")).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    const beforeBox = (await (
-      await frameNode(page, "Alpha Button")
-    ).boundingBox())!;
-    await page.keyboard.press(`${MOD}+Alt+v`);
-    await expect
-      .poll(
-        async () =>
-          await (
-            await frameNode(page, "Alpha Button")
-          ).evaluate((element) => getComputedStyle(element).backgroundColor),
-        {
-          timeout: 15_000,
-          message:
-            "paste-properties should apply the copied fill color (#22c55e) onto the target",
-        },
-      )
-      .toBe("rgb(34, 197, 94)");
-    const afterBox = (await (
-      await frameNode(page, "Alpha Button")
-    ).boundingBox())!;
-    const bg = await (
-      await frameNode(page, "Alpha Button")
-    ).evaluate((el) => getComputedStyle(el).backgroundColor);
-
-    expect(
-      Math.abs(afterBox.x - beforeBox.x) < 2 &&
-        Math.abs(afterBox.y - beforeBox.y) < 2,
-      "paste-properties must not move the target's position",
-    ).toBe(true);
-    expect(bg).toBe("rgb(34, 197, 94)");
-  });
-
-  test("Shift+H / Shift+V flip the selection about its own bounding box", async ({
-    page,
-  }) => {
-    await selectByText(page, "Alpha Button");
-    const before = await elementScale(page, "Alpha Button");
-    await page.keyboard.press("Shift+h");
-    await page.waitForTimeout(150);
-    const afterH = await elementScale(page, "Alpha Button");
-    expect(
-      afterH[0],
-      `Shift+H should flip horizontally (scaleX sign should flip from ${before[0]})`,
-    ).toBe(-before[0]);
-    expect(afterH[1]).toBe(before[1]);
-
-    await page.keyboard.press("Shift+v");
-    await page.waitForTimeout(150);
-    const afterV = await elementScale(page, "Alpha Button");
-    expect(afterV[1]).toBe(-before[1]);
-  });
-
-  test("dragging the rotate handle with Shift held snaps rotation to 15-degree increments", async ({
-    page,
-  }) => {
-    await page.goto(appPath(`/design/${designId}?view=overview`), {
-      waitUntil: "domcontentloaded",
-    });
-    await expect(page.locator("[data-screen-card]").first()).toBeVisible({
-      timeout: 20_000,
-    });
-    await page.locator("[data-frame-label]").first().click();
-    const handle = page.locator("[data-rotate-handle]").first();
-    await expect(
-      handle,
-      "required rotate handle must render for a top-level screen frame",
-    ).toHaveCount(1);
-    const box = await handle.boundingBox();
-    if (!box) throw new Error("rotate handle has no bounding box");
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.keyboard.down("Shift");
-    await page.mouse.down();
-    await page.mouse.move(
-      box.x + box.width / 2 + 45,
-      box.y + box.height / 2 + 30,
-      {
-        steps: 12,
-      },
-    );
-    await page.mouse.up();
-    await page.keyboard.up("Shift");
-
-    const frameShell = page.locator("[data-frame-shell]").first();
-    const readRotation = () =>
-      frameShell.evaluate((el) => {
-        const t = getComputedStyle(el).transform;
-        if (!t || t === "none") return 0;
-        const m = new DOMMatrix(t);
-        return Math.round((Math.atan2(m.b, m.a) * 180) / Math.PI);
-      });
-    const rotation = await readRotation();
-    expect(
-      Math.abs(rotation % 15) < 1 || Math.abs((rotation % 15) - 15) < 1,
-      `Shift-constrained rotation should land on a 15-degree increment, got ${rotation} deg`,
-    ).toBe(true);
-
-    await page.keyboard.press(`${MOD}+z`);
-    await expect.poll(readRotation, { timeout: 15_000 }).toBe(0);
-    await expect(page.getByText(/Skipped an undo/)).toHaveCount(0);
-
-    await page.keyboard.press(`${MOD}+Shift+z`);
-    await expect.poll(readRotation, { timeout: 15_000 }).toBe(rotation);
-  });
-
-  test("arrow keys reorder a flex-row child instead of nudging its x/y position", async ({
-    page,
-  }) => {
-    await selectByText(page, "Alpha Button");
-    const before = await getFileHtml(page);
-    const beforeAlpha = before.indexOf(
-      'data-agent-native-node-id="e2e-alpha-button"',
-    );
-    const beforeBeta = before.indexOf(
-      'data-agent-native-node-id="e2e-beta-button"',
-    );
-    expect(
-      beforeAlpha,
-      "Alpha Button sentinel must exist before reorder",
-    ).toBeGreaterThanOrEqual(0);
-    expect(
-      beforeBeta,
-      "Beta Button sentinel must exist before reorder",
-    ).toBeGreaterThanOrEqual(0);
-    expect(beforeAlpha).toBeLessThan(beforeBeta);
-
-    await page.keyboard.press("ArrowRight");
-    await expect
-      .poll(
-        async () => {
-          const html = await getFileHtml(page);
-          const alpha = html.indexOf(
-            'data-agent-native-node-id="e2e-alpha-button"',
-          );
-          const beta = html.indexOf(
-            'data-agent-native-node-id="e2e-beta-button"',
-          );
-          return alpha >= 0 && beta >= 0 && alpha > beta;
-        },
-        {
-          timeout: 15_000,
-          message: "ArrowRight reorder must persist before the assertion",
-        },
-      )
-      .toBe(true);
-
-    const after = await getFileHtml(page);
-    const afterAlpha = after.indexOf(
-      'data-agent-native-node-id="e2e-alpha-button"',
-    );
-    const afterBeta = after.indexOf(
-      'data-agent-native-node-id="e2e-beta-button"',
-    );
-    expect(
-      afterAlpha,
-      "Alpha Button sentinel must exist after reorder",
-    ).toBeGreaterThanOrEqual(0);
-    expect(
-      afterBeta,
-      "Beta Button sentinel must exist after reorder",
-    ).toBeGreaterThanOrEqual(0);
-    expect(
-      afterAlpha > afterBeta,
-      "ArrowRight on a flex-row child must reorder it past its sibling in DOM order, not translate it via left/top",
-    ).toBe(true);
-    const alphaBox = await (
-      await frameNode(page, "Alpha Button")
-    ).evaluate((el) => ({
-      left: (el as HTMLElement).style.left,
-      top: (el as HTMLElement).style.top,
-    }));
-    expect(
-      alphaBox.left,
-      "a flow reorder must not also write an explicit left offset onto the child",
-    ).toBe("");
-  });
-});
-
-function layerTree(page: Page) {
-  return page.getByRole("tree", { name: "Layers" });
+async function dragBy(
+  app: App,
+  from: { x: number; y: number },
+  designDx: number,
+  designDy: number,
+) {
+  const { scale } = await app.pagePoint(0, 0);
+  await app.page.mouse.move(from.x, from.y);
+  await app.page.mouse.down();
+  await app.page.mouse.move(
+    from.x + designDx * scale,
+    from.y + designDy * scale,
+    { steps: 12 },
+  );
+  await app.page.mouse.up();
+  await app.settled();
 }
 
 function layerRowButton(page: Page, name: string): Locator {
-  return layerTree(page)
-    .locator("[data-layer-row-button][data-layer-node-id]")
-    .filter({ has: page.locator(`span[title="${cssString(name)}"]`) })
-    .first();
-}
-
-function layerRow(page: Page, name: string): Locator {
-  return layerRowButton(page, name).locator(
-    'xpath=ancestor::*[@role="treeitem"][1]',
-  );
-}
-
-function cssString(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
-async function visibleLayerNames(page: Page): Promise<string[]> {
-  return layerTree(page)
-    .locator("[data-layer-row-button][data-layer-node-id]")
-    .evaluateAll((nodes) =>
-      nodes
-        .map((node) => (node.textContent ?? "").trim())
-        .filter((name) => name.length > 0),
-    );
-}
-
-async function topLevelLayerNodeIds(page: Page): Promise<string[]> {
-  return layerTree(page)
-    .locator("[data-layer-row-button][data-layer-node-id]")
-    .evaluateAll((nodes) =>
-      nodes.map((node) => node.getAttribute("data-layer-node-id")!),
-    );
-}
-
-async function countSelectedLayerRows(page: Page): Promise<number> {
-  return layerTree(page)
-    .locator('[role="treeitem"][aria-selected="true"]')
-    .count();
-}
-
-async function isLayerHidden(page: Page, name: string): Promise<boolean> {
-  const button = layerRow(page, name).locator(
-    'button[aria-label="Show layer"]',
-  );
-  return (await button.count()) > 0;
-}
-
-async function isLayerLocked(page: Page, name: string): Promise<boolean> {
-  const button = layerRow(page, name).locator(
-    'button[aria-label="Unlock layer"]',
-  );
-  return (await button.count()) > 0;
-}
-
-async function expandAllLayersLocal(page: Page): Promise<void> {
-  await page
+  return page
     .getByRole("tree", { name: "Layers" })
-    .getByRole("treeitem")
-    .first()
-    .waitFor({ timeout: 30_000 });
-  for (let depth = 0; depth < 6; depth += 1) {
-    const expand = page.getByRole("button", { name: "Expand layer" }).first();
-    if ((await expand.count()) === 0) return;
-    await expand.click({ timeout: 5_000 });
-    await page.waitForTimeout(200);
-  }
+    .locator("[data-layer-row-button][data-layer-node-id]")
+    .filter({ has: page.locator(`span[title="${name}"]`) });
 }
 
-async function openLayerSearch(page: Page, query: string): Promise<void> {
+async function searchLayers(page: Page, query: string) {
+  await page
+    .getByRole("button", { name: "Search layers...", exact: true })
+    .click();
   const input = page.getByPlaceholder("Search layers...");
-  if (!(await input.isVisible().catch(() => false))) {
-    await page
-      .getByRole("button", { name: "Search layers...", exact: true })
-      .click();
-    await expect(input).toBeVisible();
-  }
   await input.fill(query);
-  await page.waitForTimeout(200);
+  await expect(layerRowButton(page, "Alpha Button")).toBeVisible();
 }
 
-async function frameNode(page: Page, text: string): Promise<Locator> {
-  await enterDirectMode(page);
-  const frame = designFrame(page);
-  const candidates = frame.locator("[data-agent-native-node-id]", {
-    hasText: text,
-  });
-  const count = await candidates.count();
-  let bestIndex = 0;
-  let bestArea = Number.POSITIVE_INFINITY;
-  for (let index = 0; index < count; index += 1) {
-    const candidate = candidates.nth(index);
-    const box = await candidate.boundingBox().catch(() => null);
-    if (!box || box.width <= 0 || box.height <= 0) continue;
-    const tag = await candidate.evaluate((el) => el.tagName);
-    if (tag === "SPAN") continue;
-    const area = box.width * box.height;
-    if (area < bestArea) {
-      bestArea = area;
-      bestIndex = index;
-    }
-  }
-  if (count === 0) {
-    throw new Error(
-      `frameNode: no element found matching text ${JSON.stringify(text)}`,
-    );
-  }
-  const node = candidates.nth(bestIndex);
-  await node.scrollIntoViewIfNeeded();
-  return node;
+function newIds(before: Map<string, unknown>, after: Map<string, unknown>) {
+  return [...after.keys()].filter((id) => !before.has(id));
 }
 
-async function selectByTextDeep(page: Page, text: string): Promise<void> {
-  await enterDirectMode(page);
-  await installBridge(page);
-  await page.evaluate(() => ((window as any).__bridge = []));
-  const box = (await (await frameNode(page, text)).boundingBox())!;
-  await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
-  const message = await waitForBridge(page, "element-select");
-  expect(String(message?.payload?.componentName ?? "")).toBe(text);
-  await page.keyboard.press("Escape");
-  await page.waitForTimeout(100);
-}
+test("Alt-dragging a layer row between two siblings in the Layers panel saves one copy there, and undo removes it", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, ROW_HTML);
+  await searchLayers(page, "Button");
+  const alphaRow = layerRowButton(page, "Alpha Button");
+  await alphaRow.click();
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Alpha Button"]);
+  const before = await app.savedNodes(id);
+  const alphaRendered = await app.designRect("alpha");
+  // The panel lists the row's children top-first (Gamma, Beta, Alpha); this drops between Gamma and Beta.
+  const source = (await alphaRow.boundingBox())!;
+  const gamma = (await layerRowButton(page, "Gamma Button").boundingBox())!;
 
-async function boxFromNextSelect(page: Page): Promise<{
-  nodeId: string;
-  box: { x: number; y: number; width: number; height: number };
-}> {
-  const sel = await waitForBridge(page, "element-select");
-  const payload = sel?.payload ?? sel;
-  const nodeId: string | undefined =
-    payload?.sourceId || payload?.nodeId || payload?.id;
-  if (!nodeId) {
-    throw new Error(
-      `element-select payload carried no nodeId: ${JSON.stringify(payload)}`,
-    );
-  }
-  const box = await designFrame(page)
-    .locator(`[data-agent-native-node-id="${nodeId}"]`)
-    .first()
-    .boundingBox();
-  if (!box) throw new Error(`no bounding box for duplicated node ${nodeId}`);
-  return { nodeId, box };
-}
-
-async function elementScale(
-  page: Page,
-  text: string,
-): Promise<[number, number]> {
-  const node = await frameNode(page, text);
-  const raw = await node.evaluate((el) => (el as HTMLElement).style.scale);
-  if (!raw || raw === "none") return [1, 1];
-  const parts = raw
-    .trim()
-    .split(/\s+/)
-    .map(Number)
-    .filter((n) => Number.isFinite(n));
-  const sx = parts[0] ?? 1;
-  const sy = parts[1] ?? sx;
-  return [sx, sy];
-}
-
-async function getFileHtml(page: Page): Promise<string> {
-  const baseUrl = e2eBaseURL();
-  const res = await page.request.get(
-    `${baseUrl.replace(/\/$/, "")}/_agent-native/actions/get-design?id=${designId}`,
+  await page.mouse.move(
+    source.x + source.width / 2,
+    source.y + source.height / 2,
   );
-  if (!res.ok()) throw new Error(`get-design failed: ${res.status()}`);
-  const body = await res.json();
-  const files: any[] = body?.files ?? body?.data?.files ?? [];
-  const file = files.find((f) => f.filename === "index.html");
-  if (typeof file?.content !== "string") {
-    throw new Error("index.html has no content");
-  }
-  return file.content;
-}
-
-function parentTagNameOf(html: string, nodeIdAttr: string): string | null {
-  const tagRe = /<([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>|<\/([a-zA-Z][a-zA-Z0-9]*)>/g;
-  const stack: string[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = tagRe.exec(html))) {
-    if (match[1]) {
-      const tag = match[1].toLowerCase();
-      const attrs = match[2] ?? "";
-      if (attrs.includes(`data-agent-native-node-id="${nodeIdAttr}"`)) {
-        return stack.length > 0 ? stack[stack.length - 1]! : null;
-      }
-      const selfClosing = /\/\s*$/.test(attrs) || /\/>$/.test(match[0]);
-      if (!selfClosing) stack.push(tag);
-    } else if (match[3]) {
-      const tag = match[3].toLowerCase();
-      for (let index = stack.length - 1; index >= 0; index -= 1) {
-        if (stack[index] === tag) {
-          stack.length = index;
-          break;
-        }
-      }
-    }
-  }
-  return null;
-}
-
-async function liveParentSignature(page: Page, text: string): Promise<string> {
-  const node = await frameNode(page, text);
-  return node.evaluate((el) => {
-    const parent = el.parentElement;
-    return parent
-      ? `${parent.tagName}|${parent.getAttribute("data-agent-native-node-id") ?? ""}|${parent.getAttribute("style") ?? ""}`
-      : "(no parent)";
+  await page.keyboard.down("Alt");
+  await page.mouse.down();
+  await page.mouse.move(gamma.x + gamma.width / 2, gamma.y + gamma.height + 2, {
+    steps: 8,
   });
-}
+  await page.mouse.up();
+  await page.keyboard.up("Alt");
+  await app.settled();
+
+  const after = await app.savedNodes(id);
+  const added = newIds(before, after);
+  expect(added, "exactly one copy is saved").toHaveLength(1);
+  const copy = after.get(added[0]!)!;
+  expect(childrenOf(after, "row")).toStrictEqual([
+    "alpha",
+    "beta",
+    added[0],
+    "gamma",
+  ]);
+  expect({
+    tag: copy.tag,
+    text: copy.text,
+    style: styleOf(copy),
+  }).toStrictEqual({
+    tag: "button",
+    text: "Alpha Button",
+    style: styleOf(before.get("alpha")),
+  });
+  expectOnlyChanged(before, after, added);
+  expect(await app.designRect("alpha")).toStrictEqual(alphaRendered);
+
+  await page.keyboard.press("ControlOrMeta+z");
+  await app.settled();
+  const undone = await app.savedNodes(id);
+  expect(childrenOf(undone, "row")).toStrictEqual(["alpha", "beta", "gamma"]);
+  expectOnlyChanged(before, undone, []);
+});
+
+test("a marquee that only clips a screen's corner selects nothing, and one that encloses the screen selects only that screen", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, FREE_HTML, { "two.html": FREE_HTML });
+  const framesBefore = (await app.savedRecord(id)).data?.canvasFrames;
+  const home = (await page
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
+    .first()
+    .boundingBox())!;
+  await expect.poll(() => app.selectedLayers()).toStrictEqual([]);
+
+  await page.mouse.move(home.x + home.width - 30, home.y - 60);
+  await page.mouse.down();
+  await page.mouse.move(home.x + home.width - 10, home.y + 30, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(() => app.selectedLayers()).toStrictEqual([]);
+  await expect(page.locator("[data-frame-selection-box]")).toHaveCount(0);
+
+  await page.mouse.move(home.x - 30, home.y - 60);
+  await page.mouse.down();
+  await page.mouse.move(home.x + home.width + 10, home.y + home.height + 30, {
+    steps: 8,
+  });
+  await page.mouse.up();
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Home"]);
+  await expect(page.locator("[data-frame-selection-box]")).toHaveCount(1);
+  await app.settled();
+  expect((await app.savedRecord(id)).data?.canvasFrames).toStrictEqual(
+    framesBefore,
+  );
+});
+
+test("Cmd+A with a child selected selects exactly that child's siblings", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, ROW_HTML);
+  await clickNode(app, "alpha", "Alpha Button");
+  const before = await app.savedNodes(id);
+
+  await page.keyboard.press("ControlOrMeta+a");
+
+  await expect
+    .poll(async () => (await app.selectedLayers()).sort())
+    .toStrictEqual(["Alpha Button", "Beta Button", "Gamma Button"]);
+  await app.settled();
+  expectOnlyChanged(before, await app.savedNodes(id), []);
+});
+
+test("Cmd+D after moving the first duplicate repeats that move for the next duplicate", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, FREE_HTML);
+  await clickNode(app, "box", "Free Box");
+  const before = await app.savedNodes(id);
+  const position = (nodes: Map<string, SavedNode>, nodeId: string) => {
+    const style = styleOf(nodes.get(nodeId));
+    return { left: parseFloat(style.left!), top: parseFloat(style.top!) };
+  };
+
+  await page.keyboard.press("ControlOrMeta+d");
+  await app.settled();
+  const afterFirst = await app.savedNodes(id);
+  const firstCopies = newIds(before, afterFirst);
+  expect(firstCopies).toHaveLength(1);
+  const first = firstCopies[0]!;
+  expect(position(afterFirst, first)).toStrictEqual({ left: 80, top: 80 });
+
+  // Far enough that the drop lands on empty screen, not inside the original box.
+  await dragBy(app, await centerOf(app, first), 200, 40);
+  const moved = await app.savedNodes(id);
+  expect(
+    moved.get(first)?.parent,
+    "the moved duplicate stays a sibling of the original",
+  ).toBe(moved.get("box")?.parent);
+  const manual = {
+    dx: position(moved, first).left - 80,
+    dy: position(moved, first).top - 80,
+  };
+  expect(
+    manual.dx,
+    "precondition: the drag moved the first duplicate",
+  ).toBeGreaterThan(100);
+
+  await page.keyboard.press("ControlOrMeta+d");
+  await app.settled();
+  const after = await app.savedNodes(id);
+  const secondCopies = newIds(moved, after);
+  expect(secondCopies).toHaveLength(1);
+  const second = secondCopies[0]!;
+  expect(after.get(second)?.parent).toBe(after.get("box")?.parent);
+  expect({
+    dx: position(after, second).left - position(after, first).left,
+    dy: position(after, second).top - position(after, first).top,
+  }).toStrictEqual(manual);
+  expect(styleOf(after.get("box"))).toStrictEqual(styleOf(before.get("box")));
+  expectOnlyChanged(moved, after, [second]);
+  expect(
+    manual,
+    "the first duplicate lands where the pointer dropped it",
+  ).toStrictEqual({ dx: 200, dy: 40 });
+});
+
+test("dragging down the Layers panel's eye column hides every layer the drag crosses, and only those", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, ROW_HTML);
+  await searchLayers(page, "Button");
+  const before = await app.savedNodes(id);
+  const gammaRow = layerRowButton(page, "Gamma Button");
+  const betaRow = layerRowButton(page, "Beta Button");
+  await gammaRow.hover();
+  const gammaEye = gammaRow
+    .locator('xpath=ancestor::*[@role="treeitem"][1]')
+    .getByRole("button", { name: "Hide layer" });
+  await expect(gammaEye).toBeVisible();
+  const eye = (await gammaEye.boundingBox())!;
+  const beta = (await betaRow.boundingBox())!;
+
+  await page.mouse.move(eye.x + eye.width / 2, eye.y + eye.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(eye.x + eye.width / 2, beta.y + beta.height / 2, {
+    steps: 6,
+  });
+  await page.mouse.up();
+  await app.settled();
+
+  const after = await app.savedNodes(id);
+  expect(
+    childrenOf(after, "row"),
+    "the drag must not reorder the rows it crosses",
+  ).toStrictEqual(["alpha", "beta", "gamma"]);
+  expect({
+    gamma: after.get("gamma")?.attrs,
+    beta: after.get("beta")?.attrs,
+  }).toStrictEqual({
+    gamma: {
+      ...before.get("gamma")?.attrs,
+      "data-agent-native-hidden": "true",
+    },
+    beta: { ...before.get("beta")?.attrs, "data-agent-native-hidden": "true" },
+  });
+  expectOnlyChanged(before, after, ["gamma", "beta"]);
+  await expect(app.node("gamma")).toBeHidden();
+  await expect(app.node("beta")).toBeHidden();
+  await expect(app.node("alpha")).toBeVisible();
+});
+
+test("Alt-hovering a sibling that sits inside the selection's margin shows their 10px gap and keeps it while the pointer moves", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, MEASURE_HTML);
+  await clickNode(app, "near", "Near");
+  const before = await app.savedNodes(id);
+  const overlay = page
+    .locator(
+      'iframe[data-design-preview-iframe][data-screen-iframe-id]:not([data-screen-iframe-id*="::bp-"])',
+    )
+    .contentFrame()
+    .locator("[data-agent-native-measurement-overlay]");
+  // x=215 is inside Far and inside Near's 24px right-margin hit region (200-224).
+  const insideBoth = await app.pagePoint(215, 120);
+  const insideFar = await app.pagePoint(220, 120);
+  await page.mouse.move(insideBoth.x, insideBoth.y, { steps: 4 });
+  await expect(overlay).toHaveCSS("display", "none");
+
+  await page.keyboard.down("Alt");
+  await page.mouse.move(insideBoth.x + 1, insideBoth.y, { steps: 2 });
+  await expect(overlay).toHaveCSS("display", "block");
+  await expect(overlay).toHaveText("10");
+  await page.mouse.move(insideFar.x, insideFar.y, { steps: 4 });
+  await expect(overlay).toHaveCSS("display", "block");
+  await expect(overlay).toHaveText("10");
+  await page.keyboard.up("Alt");
+
+  await expect(overlay).toHaveCSS("display", "none");
+  await app.settled();
+  expectOnlyChanged(before, await app.savedNodes(id), []);
+});
+
+test("paste properties copies the source's fill, border, radius and opacity onto the target and keeps the target's position and size", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, PROPERTIES_HTML);
+  await clickNode(app, "source", "Source");
+  await page.keyboard.press("ControlOrMeta+Alt+c");
+  await clickNode(app, "target", "Target");
+  const before = await app.savedNodes(id);
+  const targetRendered = await app.designRect("target");
+
+  await page.keyboard.press("ControlOrMeta+Alt+v");
+  await app.settled();
+
+  await expect
+    .poll(() =>
+      app.node("target").evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          background: style.backgroundColor,
+          border: `${style.borderTopWidth} ${style.borderTopStyle} ${style.borderTopColor}`,
+          radius: style.borderTopLeftRadius,
+          opacity: style.opacity,
+        };
+      }),
+    )
+    .toStrictEqual({
+      background: "rgb(34, 197, 94)",
+      border: "2px solid rgb(20, 83, 45)",
+      radius: "12px",
+      opacity: "0.8",
+    });
+  expect(await app.designRect("target")).toStrictEqual(targetRendered);
+  const after = await app.savedNodes(id);
+  const saved = styleOf(after.get("target"));
+  expect({
+    left: saved.left,
+    top: saved.top,
+    width: saved.width,
+    height: saved.height,
+  }).toStrictEqual({
+    left: "400px",
+    top: "240px",
+    width: "120px",
+    height: "60px",
+  });
+  // The source authored no text styles, so none may be pinned onto the target.
+  const typography = [
+    "color",
+    "font-family",
+    "font-size",
+    "font-weight",
+    "letter-spacing",
+    "line-height",
+    "text-align",
+  ];
+  expect(
+    Object.keys(saved).filter((property) => typography.includes(property)),
+  ).toStrictEqual([]);
+  expectOnlyChanged(before, after, ["target"]);
+});
+
+test("Shift+H then Shift+V mirror a box in place", async ({ app, page }) => {
+  const id = await openSeeded(app, FREE_HTML);
+  await clickNode(app, "box", "Free Box");
+  const before = await app.savedNodes(id);
+  const rendered = await app.designRect("box");
+
+  await page.keyboard.press("Shift+h");
+  await app.settled();
+  const flippedH = await app.savedNodes(id);
+  expect(styleOf(flippedH.get("box"))).toStrictEqual({
+    ...styleOf(before.get("box")),
+    scale: "-1 1",
+  });
+  expect(await app.designRect("box")).toStrictEqual(rendered);
+
+  await page.keyboard.press("Shift+v");
+  await app.settled();
+  const after = await app.savedNodes(id);
+  expect(styleOf(after.get("box"))).toStrictEqual({
+    ...styleOf(before.get("box")),
+    scale: "-1 -1",
+  });
+  expect(await app.designRect("box")).toStrictEqual(rendered);
+  expectOnlyChanged(before, after, ["box"]);
+});
+
+test("Shift-dragging a screen's rotate handle saves a 15-degree step, and undo and redo restore it", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, FREE_HTML);
+  const fileId = (await app.savedRecord(id)).files.find(
+    (file) => file.filename === "index.html",
+  )!.id;
+  const savedRotation = async () =>
+    (
+      (await app.savedRecord(id)).data?.canvasFrames as Record<
+        string,
+        { rotation?: number }
+      >
+    )[fileId]?.rotation ?? 0;
+  await page.locator("[data-frame-label]").first().click();
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Home"]);
+  const handle = page.locator("[data-rotate-handle]").first();
+  await expect(handle).toHaveCount(1);
+  const shell = (await page
+    .locator("[data-frame-shell]")
+    .first()
+    .boundingBox())!;
+  const grip = (await handle.boundingBox())!;
+  const center = {
+    x: shell.x + shell.width / 2,
+    y: shell.y + shell.height / 2,
+  };
+  const start = { x: grip.x + grip.width / 2, y: grip.y + grip.height / 2 };
+  // Sweep the pointer 35 degrees clockwise around the screen's centre; Shift snaps that to 30.
+  const sweep = (35 * Math.PI) / 180;
+  const end = {
+    x:
+      center.x +
+      (start.x - center.x) * Math.cos(sweep) -
+      (start.y - center.y) * Math.sin(sweep),
+    y:
+      center.y +
+      (start.x - center.x) * Math.sin(sweep) +
+      (start.y - center.y) * Math.cos(sweep),
+  };
+  expect(await savedRotation()).toBe(0);
+
+  await page.mouse.move(start.x, start.y);
+  await page.keyboard.down("Shift");
+  await page.mouse.down();
+  await page.mouse.move(end.x, end.y, { steps: 16 });
+  await page.mouse.up();
+  await page.keyboard.up("Shift");
+  await app.settled();
+  expect(await savedRotation()).toBe(30);
+
+  await page.keyboard.press("ControlOrMeta+z");
+  await app.settled();
+  expect(await savedRotation()).toBe(0);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await app.settled();
+  expect(await savedRotation()).toBe(30);
+});

@@ -1,6 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
-
-import { cdpScreenshot, gotoEditor, readSeedDesignId } from "./helpers";
+import { FIXTURE_HTML } from "./global-setup";
+import { cdpScreenshot } from "./helpers";
+import { expect, test, type App } from "./rails";
 
 interface Rect {
   x: number;
@@ -37,12 +37,13 @@ interface InteractEntrySnapshot {
 const actionLabels = ["Edit", "Annotate", "Exit responsive preview"];
 
 async function enterInteractAndSampleImmediately(
-  page: Page,
+  app: App,
   width: number,
   height: number,
 ): Promise<InteractEntrySnapshot> {
+  const page = app.page;
   await page.setViewportSize({ width, height });
-  await gotoEditor(page, await readSeedDesignId());
+  await app.open(await app.seed(FIXTURE_HTML));
 
   const fullView = page.locator("[data-frame-full-view]").last();
   await expect(fullView).toHaveCount(1);
@@ -174,9 +175,10 @@ async function enterInteractAndSampleImmediately(
 }
 
 test("Interact actions clear the right rail at Tiana's 1751×897 viewport", async ({
+  app,
   page,
 }, testInfo) => {
-  const snapshot = await enterInteractAndSampleImmediately(page, 1751, 897);
+  const snapshot = await enterInteractAndSampleImmediately(app, 1751, 897);
 
   expect(snapshot.screenShellCount).toBe(1);
   expect(snapshot.bottomToolbarCount).toBe(0);
@@ -207,9 +209,10 @@ test("Interact actions clear the right rail at Tiana's 1751×897 viewport", asyn
 });
 
 test("Interact height input is unclipped at Damian's 1456×410 viewport", async ({
+  app,
   page,
 }, testInfo) => {
-  const snapshot = await enterInteractAndSampleImmediately(page, 1456, 410);
+  const snapshot = await enterInteractAndSampleImmediately(app, 1456, 410);
 
   expect(snapshot.screenShellCount).toBe(1);
   expect(snapshot.bottomToolbarCount).toBe(0);

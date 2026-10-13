@@ -7,9 +7,9 @@ import {
   startDesignConnectBridge,
   type DesignConnectBridge,
 } from "@agent-native/core/testing";
-import { expect, test } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
+import { App, expect, test } from "./rails";
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const AUTH_STATE_PATH = process.env.E2E_AUTH_DIR
@@ -44,8 +44,12 @@ test("signing in after opening a scoped Visual Edit link keeps the editor role",
   const ownerContext = await browser.newContext({
     storageState: AUTH_STATE_PATH,
   });
-  const signedInContext = await browser.newContext();
   const signedInViewerContext = await browser.newContext();
+  // The visitor who opens the scoped link gets its own failure watcher; the default page stays unused.
+  const visitorContext = await browser.newContext();
+  const page = await visitorContext.newPage();
+  const visitor = new App(page);
+  await visitor.attach();
   let targetServer: Server | null = null;
   let bridge: DesignConnectBridge | null = null;
   let designId: string | undefined;
@@ -123,12 +127,14 @@ test("signing in after opening a scoped Visual Edit link keeps the editor role",
       expect(login.status(), await login.text()).toBe(200);
     }
 
-    const page = await signedInContext.newPage();
     await page.goto(new URL(opened.embedStartUrl!, BASE_URL).toString());
     await expect(page).toHaveURL(
       new RegExp(`/visual-edit/${designId}(?:\\?|$)`),
     );
     await expect(page.locator("[data-design-editor]")).toBeVisible();
+    await expect(
+      page.locator("[data-screen-shell]").first().locator("[data-frame-title]"),
+    ).toBeVisible();
     expect(
       await page.evaluate(() =>
         sessionStorage.getItem("agent-native:embed-auth-token"),
@@ -268,6 +274,7 @@ test("signing in after opening a scoped Visual Edit link keeps the editor role",
     );
     expect(ownerUpdate.status(), await ownerUpdate.text()).toBe(200);
     expect((await ownerUpdate.json()).url).toContain("ownerEdit=1");
+    await visitor.teardown(test.info());
   } finally {
     if (designId) {
       const deletion = await ownerContext.request.post(
@@ -281,7 +288,7 @@ test("signing in after opening a scoped Visual Edit link keeps the editor role",
       }
     }
     await ownerContext.close();
-    await signedInContext.close();
+    await visitorContext.close();
     await signedInViewerContext.close();
     await closeServer(bridge?.server ?? null);
     await closeServer(targetServer);
