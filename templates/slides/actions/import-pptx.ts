@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
   getRequestUserEmail,
@@ -33,6 +33,7 @@ import {
   assertHumanReadableDeckTitle,
   resolveImportedDeckTitle,
 } from "../shared/deck-title.js";
+import { SOURCE_IMPORT_NO_WRITE_ERROR_CODE } from "../shared/source-import-errors.js";
 import { getDeckUrl } from "./_app-url.js";
 import { trackDeckCreated } from "./_deck-tracking.js";
 import {
@@ -194,8 +195,9 @@ export async function importPptxBufferToDeck(args: {
     0,
   );
   if (imagesSkipped > 0) {
-    throw new Error(
+    fail(
       `Source-faithful PPTX import could not preserve ${imagesSkipped} image(s). No deck was written. Retry with browser-renderable images or use a PDF export for page-faithful preservation.`,
+      { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
     );
   }
   const sourceImport = buildSourceImportMetadata({

@@ -12,6 +12,7 @@ vi.mock("react-dom", () => ({
   flushSync: (callback: () => void) => callback(),
 }));
 
+import { SOURCE_IMPORT_NO_WRITE_ERROR_CODE } from "../../shared/source-import-errors";
 import {
   describeUploadedFilesForAgent,
   getUploadedImageAgentOptions,
@@ -1338,6 +1339,56 @@ describe("startDeckGeneration", () => {
       expect.objectContaining({
         message: "The import stopped before returning a result.",
       }),
+    );
+  });
+
+  it("deletes an empty source deck after an explicit no-write import failure", async () => {
+    mockCallAction.mockReset().mockRejectedValue(
+      Object.assign(new Error("No slides were written."), {
+        errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+      }),
+    );
+    const deck = {
+      id: "deck-source-no-write",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const deleteDeck = vi.fn();
+    const onSetupFailure = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Improve this presentation",
+        files: [
+          {
+            path: "/uploads/source.pptx",
+            originalName: "source.pptx",
+            filename: "source.pptx",
+            type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            size: 1024,
+          },
+        ],
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck,
+        navigate: vi.fn(),
+        agentSubmit: vi.fn(),
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+        onSetupFailure,
+      }),
+    ).resolves.toBe("failed");
+
+    expect(deleteDeck).toHaveBeenCalledWith(deck.id);
+    expect(onSetupFailure).toHaveBeenCalledWith(
+      "Improve this presentation",
+      expect.any(Array),
+      expect.objectContaining({ message: "No slides were written." }),
     );
   });
 

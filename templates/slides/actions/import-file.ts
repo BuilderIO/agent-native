@@ -1,6 +1,6 @@
 import path from "path";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { MAX_TOOL_RESULT_IMAGE_BASE64_CHARS } from "@agent-native/core/agent/tool-result-images";
 import { writeAppState } from "@agent-native/core/application-state";
 import { startBuilderDesignSystemIndex } from "@agent-native/core/server";
@@ -46,6 +46,7 @@ import {
   normalizeSlideTransition,
   type SlideTransitionType,
 } from "../shared/slide-transitions.js";
+import { SOURCE_IMPORT_NO_WRITE_ERROR_CODE } from "../shared/source-import-errors.js";
 import {
   assertDeckWriteApplied,
   deckRevisionWhere,
@@ -274,8 +275,9 @@ export default defineAction({
           tablesDegraded,
         });
         if (imagesSkipped > 0) {
-          throw new Error(
+          fail(
             `Source-faithful PPTX import could not preserve ${imagesSkipped} image(s). No slides were written. Retry with browser-renderable images or use a PDF export for page-faithful preservation.`,
+            { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
           );
         }
         const aspectRatio =

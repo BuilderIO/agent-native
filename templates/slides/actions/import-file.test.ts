@@ -918,6 +918,28 @@ describe("import-file PDF source extraction", () => {
     });
   });
 
+  it("returns a typed no-write failure when source images cannot be preserved", async () => {
+    const db = pptxDeckHarness([]);
+    mockUploadPptxSlideImages.mockResolvedValue({
+      urls: {},
+      imageSkippedCount: 1,
+    });
+
+    await expect(
+      action.run({
+        filePath: "themed.pptx",
+        format: "pptx",
+        deckId: "deck-1",
+        importIntoDeck: true,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "source_import_no_write",
+      message: expect.stringContaining("No slides were written"),
+    });
+
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
   it("does not restyle an existing deck's theme when appending slides onto it", async () => {
     const db = pptxDeckHarness([{ id: "existing", content: "Existing" }], {
       theme: {

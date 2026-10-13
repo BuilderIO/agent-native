@@ -6,6 +6,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: (...args: unknown[]) => mockCallAction(...args),
 }));
 
+import { SOURCE_IMPORT_NO_WRITE_ERROR_CODE } from "../../shared/source-import-errors";
 import {
   IMPORT_ACTION_TIMEOUT_MS,
   importUploadedDeckIntoDeck,
@@ -149,5 +150,25 @@ describe("importUploadedDeckIntoDeck", () => {
 
     expect(onImportStarted).toHaveBeenCalledOnce();
     expect(onImportResultKnown).not.toHaveBeenCalled();
+  });
+
+  it("marks an explicit no-write action failure as a known empty import", async () => {
+    mockCallAction.mockRejectedValue(
+      Object.assign(new Error("No slides were written."), {
+        errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+      }),
+    );
+    const onImportResultKnown = vi.fn();
+
+    await expect(
+      importUploadedDeckIntoDeck([pptxFile], "deck-1", {
+        onImportResultKnown,
+      }),
+    ).rejects.toThrow("No slides were written.");
+
+    expect(onImportResultKnown).toHaveBeenCalledWith({
+      slideCount: 0,
+      imagesSkipped: 0,
+    });
   });
 });

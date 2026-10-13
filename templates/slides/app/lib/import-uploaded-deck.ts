@@ -2,6 +2,8 @@ import { callAction } from "@agent-native/core/client/hooks";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 
+import { SOURCE_IMPORT_NO_WRITE_ERROR_CODE } from "../../shared/source-import-errors";
+
 export type ImportedSourceDeck = {
   file: UploadedFile;
   format: "pdf" | "pptx";
@@ -63,8 +65,9 @@ export async function importUploadedDeckIntoDeck(
   if (!format) return null;
 
   options.onImportStarted?.();
-  const result = actionResultRecord(
-    await callAction(
+  let actionResult: unknown;
+  try {
+    actionResult = await callAction(
       format === "pptx" ? "import-pptx" : "import-file",
       format === "pptx"
         ? { filePath: file.path, deckId }
@@ -75,8 +78,19 @@ export async function importUploadedDeckIntoDeck(
             importIntoDeck: true,
           },
       { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
-    ),
-  );
+    );
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "errorCode" in error &&
+      error.errorCode === SOURCE_IMPORT_NO_WRITE_ERROR_CODE
+    ) {
+      options.onImportResultKnown?.({ slideCount: 0, imagesSkipped: 0 });
+    }
+    throw error;
+  }
+  const result = actionResultRecord(actionResult);
   if (result.imported !== true || result.deckId !== deckId) {
     throw new Error(
       `The ${format.toUpperCase()} source deck was not imported into the target deck, so no source-preserving improvement was started.`,
