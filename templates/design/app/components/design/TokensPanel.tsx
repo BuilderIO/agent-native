@@ -68,6 +68,33 @@ interface ImportDesignTokensResult {
   resolvedCssVars?: Record<string, string>;
 }
 
+export function getTokenImportStatus(result: {
+  importedCount: number;
+  rejectedCount?: number;
+  skippedCount?: number;
+}): {
+  key:
+    | "designEditor.tokens.importedCount"
+    | "designEditor.tokens.importedWithSkipped"
+    | "designEditor.tokens.noTokensFound";
+  values?: { count: number; skipped?: number };
+} {
+  const skippedCount = (result.skippedCount ?? 0) + (result.rejectedCount ?? 0);
+  if (skippedCount > 0) {
+    return {
+      key: "designEditor.tokens.importedWithSkipped",
+      values: { count: result.importedCount, skipped: skippedCount },
+    };
+  }
+  if (result.importedCount === 0) {
+    return { key: "designEditor.tokens.noTokensFound" };
+  }
+  return {
+    key: "designEditor.tokens.importedCount",
+    values: { count: result.importedCount },
+  };
+}
+
 interface TokenImportFile {
   filename: string;
   content: string;
@@ -405,24 +432,8 @@ function ImportTokensPopover({
     setStatus(t("designEditor.tokens.importing"));
     try {
       const result = await importer();
-      const skippedCount =
-        (result.skippedCount ?? 0) + (result.rejectedCount ?? 0);
-      if (result.importedCount === 0) {
-        setStatus(t("designEditor.tokens.noTokensFound"));
-      } else if (skippedCount > 0) {
-        setStatus(
-          t("designEditor.tokens.importedWithSkipped", {
-            count: result.importedCount,
-            skipped: skippedCount,
-          }),
-        );
-      } else {
-        setStatus(
-          t("designEditor.tokens.importedCount", {
-            count: result.importedCount,
-          }),
-        );
-      }
+      const status = getTokenImportStatus(result);
+      setStatus(status.values ? t(status.key, status.values) : t(status.key));
       if (result.importedCount > 0) {
         setText("");
       }
@@ -586,7 +597,6 @@ function TokenCreateOption({
 const TOKEN_IMPORT_ACCEPT = [
   ".css",
   ".scss",
-  ".sass",
   ".less",
   ".json",
   ".ts",

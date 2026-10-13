@@ -170,6 +170,29 @@ Primary color: #f97316
     expect(result.resolvedCssVars["--radius-lg"]).toBe("16px");
   });
 
+  it("validates pasted CSS without stripping pseudo-class selectors", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: `:root {
+  --color-accent: #2563eb;
+}
+button:focus-visible {
+  outline-color: var(--color-accent);
+}`,
+    });
+
+    expect(result.filesAnalyzed).toEqual(["pasted-tokens.txt"]);
+    expect(result.tokens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          cssVar: "--color-accent",
+          value: "#2563eb",
+        }),
+      ]),
+    );
+  });
+
   it("imports token files with filenames preserved", async () => {
     const result = await action.run({
       designId: "design_1",
@@ -305,6 +328,27 @@ Bad radius: 12px} body { color: red
     expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({});
   });
 
+  it("keeps an earlier valid token when a later duplicate is invalid", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: `Accent color: #2563eb
+:root {
+  --color-accent: #GGGGGG;
+}`,
+    });
+
+    expect(result.tokens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          cssVar: "--color-accent",
+          value: "#2563eb",
+        }),
+      ]),
+    );
+    expect(result.rejectedCount).toBeGreaterThan(0);
+  });
+
   it("rejects malformed colors, markup, URL payloads, and oversized values", async () => {
     const longValue = "a".repeat(301);
     const result = await action.run({
@@ -341,7 +385,7 @@ Bad radius: 12px} body { color: red
       files: [
         {
           filename: "tokens.json",
-          content: '{"colors":{"accent":"#2563eb"',
+          content: 'Primary color: #2563eb\n{"colors":{"accent":"#2563eb"',
         },
       ],
     });
@@ -349,5 +393,37 @@ Bad radius: 12px} body { color: red
     expect(result.importedCount).toBe(0);
     expect(result.skippedCount).toBe(1);
     expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({});
+  });
+
+  it("does not mine named lines from malformed pasted CSS", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: `Primary color: #2563eb
+:root {
+  --color-broken: #GGGGGG;`,
+    });
+
+    expect(result.importedCount).toBe(0);
+    expect(result.skippedCount).toBe(1);
+    expect(result.tokens).toEqual([]);
+    expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({});
+  });
+
+  it("reports unsupported indented Sass files as skipped", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "tokens.sass",
+          content: "$accent: #2563eb\n:root\n  --color-accent: $accent",
+        },
+      ],
+    });
+
+    expect(result.filesAnalyzed).toEqual([]);
+    expect(result.importedCount).toBe(0);
+    expect(result.skippedCount).toBe(1);
   });
 });

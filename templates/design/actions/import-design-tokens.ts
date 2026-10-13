@@ -353,6 +353,8 @@ function isValidImportFile(file: {
   const isJsonFile = filename.endsWith(".json");
   const isPastedJson = isPastedInput && looksLikePastedJson(file.content);
 
+  if (filename.endsWith(".sass")) return false;
+
   if (isJsonFile || isPastedJson) {
     try {
       JSON.parse(file.content);
@@ -362,25 +364,37 @@ function isValidImportFile(file: {
     }
   }
 
-  const isStylesheet = /\.(css|scss|sass|less)$/.test(filename);
-  if (!isStylesheet && !(isPastedInput && looksLikePastedCss(file.content))) {
+  const isStylesheet = /\.(css|scss|less)$/.test(filename);
+  const isPastedStylesheet = isPastedInput && looksLikePastedCss(file.content);
+  if (!isStylesheet && !isPastedStylesheet) {
     return true;
   }
 
-  const css = isPastedInput
-    ? file.content
-        .split(/\r?\n/)
-        .filter((line) => !TOKEN_LABEL_LINE.test(line.trim()))
-        .join("\n")
-    : file.content;
+  const cssCandidates = isPastedStylesheet
+    ? [
+        file.content,
+        file.content
+          .split(/\r?\n/)
+          .filter((line) => {
+            const trimmed = line.trim();
+            const isRuleStart = /\{\s*(?:\/\*.*?\*\/\s*)?$/.test(trimmed);
+            return !TOKEN_LABEL_LINE.test(trimmed) || isRuleStart;
+          })
+          .join("\n"),
+      ]
+    : [file.content];
 
-  try {
-    postcss.parse(css);
-    return true;
-  } catch (error) {
-    if (error instanceof Error && error.name === "CssSyntaxError") return false;
-    throw error;
+  for (const css of cssCandidates) {
+    try {
+      postcss.parse(css);
+      return true;
+    } catch (error) {
+      if (!(error instanceof Error && error.name === "CssSyntaxError")) {
+        throw error;
+      }
+    }
   }
+  return false;
 }
 
 function isValidImportedToken(token: ImportedDesignToken): boolean {
@@ -422,7 +436,7 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
     addLooseTextSignals(state, file.filename, file.content);
   }
 
-  const tokens: ImportedDesignToken[] = parseNamedLines(accepted);
+  const tokens: ImportedDesignToken[] = parseNamedLines(validFiles);
 
   for (const [cssVar, value] of Object.entries(state.cssCustomProperties)) {
     const normalized = normalizeValue(value);
@@ -492,14 +506,12 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
     });
   });
 
-  const candidates = uniqueTokenList(tokens);
+  const rejectedCount = tokens.filter(
+    (token) => !isValidImportedToken(token),
+  ).length;
+  const candidates = uniqueTokenList(tokens.filter(isValidImportedToken));
   const imported: ImportedDesignToken[] = [];
-  let rejectedCount = 0;
   for (const token of candidates) {
-    if (!isValidImportedToken(token)) {
-      rejectedCount++;
-      continue;
-    }
     if (imported.length === 120) break;
     imported.push(token);
   }

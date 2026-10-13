@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getTokenImportStatus,
   isColorValue,
   normalizeCssVarName,
   snapshotImportFiles,
@@ -62,5 +63,20 @@ describe("snapshotImportFiles", () => {
 
     expect(snapshotImportFiles(input)).toEqual([selectedFile]);
     expect(input.files).toHaveLength(0);
+  });
+});
+
+describe("getTokenImportStatus", () => {
+  it("shows skipped counts when no tokens were imported", () => {
+    expect(
+      getTokenImportStatus({
+        importedCount: 0,
+        rejectedCount: 2,
+        skippedCount: 1,
+      }),
+    ).toEqual({
+      key: "designEditor.tokens.importedWithSkipped",
+      values: { count: 0, skipped: 3 },
+    });
   });
 });
