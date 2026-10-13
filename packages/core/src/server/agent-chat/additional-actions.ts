@@ -82,9 +82,9 @@ const strictAjvOptions = {
   validateFormats: false,
 } as const;
 const strictAjv = new Ajv(strictAjvOptions);
-const strictAjv2020 = new Ajv2020(strictAjvOptions);
-
 const validateAnyObject = strictAjv.compile({ type: "object" });
+// allErrors reports every failure; the model needs the first few.
+const MAX_REPORTED_INPUT_ERRORS = 10;
 
 // The keywords app schemas may use, by the shape of their value. Every other
 // key in a schema is refused by name rather than ignored. Ajv's identifier scan
@@ -227,6 +227,7 @@ export async function resolveAppAdditionalActions(
   const schemaBudget: SchemaBudget = {
     remaining: MAX_TOTAL_SCHEMA_JSON_CHARS,
     expandedRemaining: MAX_TOTAL_SCHEMA_EXPANDED_NODES,
+    compilers: {},
   };
   for (const name of names.slice(0, MAX_ADDITIONAL_ACTIONS)) {
     const entry: unknown = entries[name];
@@ -284,26 +285,34 @@ function prepareActionEntry(
   principal: { ownerEmail: string; orgId: string | null },
   schemaBudget: SchemaBudget,
 ): ActionEntry | string {
-  const description = cleanText(entry.tool.description, MAX_DESCRIPTION_CHARS);
+  // Read each field once: a getter could return one value to the checks and
+  // another to the copy the model and dispatcher use.
+  const {
+    title: rawTitle,
+    description: rawDescription,
+    parameters: rawParameters,
+    ...tool
+  } = entry.tool;
+  if (typeof rawDescription !== "string") return "has no tool description";
+  const description = cleanText(rawDescription, MAX_DESCRIPTION_CHARS);
   if (!description) return "has an empty tool description";
   const title =
-    typeof entry.tool.title === "string"
-      ? cleanText(entry.tool.title, MAX_TITLE_CHARS)
+    typeof rawTitle === "string"
+      ? cleanText(rawTitle, MAX_TITLE_CHARS)
       : undefined;
   let validate: ValidateFunction = validateAnyObject;
   let expandedSize = 1;
   let parameters: Record<string, unknown> | undefined;
-  if (entry.tool.parameters !== undefined) {
-    const checked = checkParameterSchema(entry.tool.parameters, schemaBudget);
+  if (rawParameters !== undefined) {
+    const checked = checkParameterSchema(rawParameters, schemaBudget);
     if (typeof checked === "string") return checked;
     ({ schema: parameters, expanded: expandedSize } = checked);
     try {
-      validate = compileStrict(parameters);
+      validate = compileStrict(parameters, schemaBudget.compilers);
     } catch (error) {
       return `has a tool schema that does not compile: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
-  const { title: _untrustedTitle, ...tool } = entry.tool;
   const run = entry.run;
   const access = entry.access;
   const maxInputUnits = Math.floor(MAX_VALIDATION_WORK / expandedSize);
@@ -311,12 +320,15 @@ function prepareActionEntry(
     if (!inputFitsUnits(input, maxInputUnits)) {
       return `arguments are too large to validate against this tool's schema; send less data`;
     }
-    return validate(input)
-      ? null
-      : strictAjv.errorsText(validate.errors, {
-          dataVar: "input",
-          separator: "; ",
-        });
+    if (validate(input)) return null;
+    const errors = validate.errors ?? [];
+    const shown = strictAjv.errorsText(
+      errors.slice(0, MAX_REPORTED_INPUT_ERRORS),
+      { dataVar: "input", separator: "; " },
+    );
+    return errors.length > MAX_REPORTED_INPUT_ERRORS
+      ? `${shown}; and ${errors.length - MAX_REPORTED_INPUT_ERRORS} more`
+      : shown;
   };
   const prepared: ActionEntry = {
     ...entry,
@@ -440,6 +452,10 @@ function checkParameterSchema(
 interface SchemaBudget {
   remaining: number;
   expandedRemaining: number;
+  // Ajv keeps every schema it compiles in instance-wide state that
+  // removeSchema does not clear, so each request compiles in its own
+  // instances, which are freed with that request's validators.
+  compilers: { draft7?: Ajv; draft2020?: Ajv2020 };
 }
 
 interface SchemaWalk {
@@ -564,22 +580,34 @@ function rejectSchemaKeywords(
         ? rejectEach(value, root, walk)
         : `has a tool schema whose "${keyword}" is not an array`;
     } else if (SCHEMA_MAP_KEYWORDS.has(keyword)) {
-      rejection = isPlainRecord(value)
-        ? rejectEach(
-            // `dependencies` maps a property to a schema or to required names.
-            Object.values(value).filter(
-              (child) => !(keyword === "dependencies" && Array.isArray(child)),
-            ),
-            root,
-            walk,
-          )
-        : `has a tool schema whose "${keyword}" is not an object`;
+      if (!isPlainRecord(value)) {
+        rejection = `has a tool schema whose "${keyword}" is not an object`;
+      } else {
+        // `dependencies` maps a property to a schema or to required names,
+        // which are counted like `required`.
+        const children: unknown[] = [];
+        for (const child of Object.values(value)) {
+          if (keyword === "dependencies" && Array.isArray(child)) {
+            walk.expanded += countJsonNodes(child);
+          } else {
+            children.push(child);
+          }
+        }
+        rejection =
+          walk.expanded > walk.limit
+            ? "too-expanded"
+            : rejectEach(children, root, walk);
+      }
     } else if (keyword === "$ref") {
       rejection = rejectRef(value, root, walk);
     } else if (keyword === "$schema" && schema !== root) {
       rejection = 'has a tool schema that sets "$schema" below its root';
-    } else if (keyword === "enum" || keyword === "const") {
-      // Each listed value is compared against the input.
+    } else if (
+      keyword === "enum" ||
+      keyword === "const" ||
+      keyword === "required"
+    ) {
+      // Each listed value is compared against, or looked up in, the input.
       walk.expanded += countJsonNodes(value);
       if (walk.expanded > walk.limit) return "too-expanded";
     } else if (!VALUE_KEYWORDS.has(keyword)) {
@@ -678,25 +706,22 @@ function inputFitsUnits(input: unknown, maxUnits: number): boolean {
   return true;
 }
 
-function compileStrict(schema: Record<string, unknown>): ValidateFunction {
+function compileStrict(
+  schema: Record<string, unknown>,
+  compilers: SchemaBudget["compilers"],
+): ValidateFunction {
   const declared = schema.$schema;
   const dialect =
     typeof declared === "string" ? declared.replace(/#$/, "") : undefined;
   const ajv =
     dialect === "https://json-schema.org/draft/2020-12/schema"
-      ? strictAjv2020
-      : strictAjv;
-  // Each request compiles a fresh copy; Ajv keeps every compiled schema in a
-  // strong cache, so drop it once the validator exists.
-  try {
-    const validate = ajv.compile(schema);
-    if ((validate as { $async?: unknown }).$async) {
-      throw new Error("the schema validates asynchronously");
-    }
-    return validate;
-  } finally {
-    ajv.removeSchema(schema);
+      ? (compilers.draft2020 ??= new Ajv2020(strictAjvOptions))
+      : (compilers.draft7 ??= new Ajv(strictAjvOptions));
+  const validate = ajv.compile(schema);
+  if ((validate as { $async?: unknown }).$async) {
+    throw new Error("the schema validates asynchronously");
   }
+  return validate;
 }
 
 function cleanText(value: string, maxChars: number): string {

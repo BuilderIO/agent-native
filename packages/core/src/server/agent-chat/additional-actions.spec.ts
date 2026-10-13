@@ -445,6 +445,112 @@ describe("resolveAppAdditionalActions", () => {
       }
     });
 
+    it("counts required and dependency names toward the expansion limit", async () => {
+      // Ajv looks up every listed name in every validated object.
+      const names = Array.from({ length: 5_100 }, (_, i) => `n${i}`);
+      const resolver = () => ({
+        "required-names": entry("x", {
+          tool: {
+            description: "x",
+            parameters: { type: "object", required: names },
+          },
+        }),
+      });
+      const dependencyResolver = () => ({
+        "dependency-names": entry("x", {
+          tool: {
+            description: "x",
+            parameters: {
+              type: "object",
+              dependencies: { a: names },
+            } as never,
+          },
+        }),
+      });
+
+      for (const [name, r] of [
+        ["required-names", resolver],
+        ["dependency-names", dependencyResolver],
+      ] as const) {
+        const added = await resolveAppAdditionalActions(
+          config({ resolver: r }),
+          alice,
+          {},
+        );
+        expect(added, name).toEqual({});
+        expect(
+          vi
+            .mocked(console.warn)
+            .mock.calls.some(
+              ([message]) =>
+                String(message).includes(`"${name}"`) &&
+                String(message).includes("expands to more than"),
+            ),
+          name,
+        ).toBe(true);
+      }
+    });
+
+    it("reads each tool field once, so a getter cannot swap in an unchecked schema", async () => {
+      let reads = 0;
+      const tool = {
+        description: "x",
+        get parameters() {
+          reads += 1;
+          return reads === 1
+            ? undefined
+            : {
+                type: "object",
+                properties: { s: { type: "string", pattern: "^(a+)+$" } },
+              };
+        },
+      };
+      const added = await resolveAppAdditionalActions(
+        config({
+          resolver: () => ({
+            "changing-schema": entry("x", { tool: tool as never }),
+          }),
+        }),
+        alice,
+        {},
+      );
+
+      expect(added["changing-schema"].tool.parameters).toBeUndefined();
+      expect(reads).toBe(1);
+    });
+
+    it("compiles each request's schemas in that request's own Ajv instances", async () => {
+      const { default: Ajv } = await import("ajv");
+      const instances = new Set<unknown>();
+      const compile = Ajv.prototype.compile;
+      vi.spyOn(Ajv.prototype, "compile").mockImplementation(function (
+        this: InstanceType<typeof Ajv>,
+        ...args: Parameters<typeof compile>
+      ) {
+        instances.add(this);
+        return compile.apply(this, args);
+      } as typeof compile);
+      const resolver = () => ({
+        "per-request": entry("x", {
+          tool: {
+            description: "x",
+            parameters: {
+              type: "object",
+              properties: { a: { type: "string" } },
+            },
+          },
+        }),
+      });
+
+      for (let i = 0; i < 3; i += 1) {
+        await resolveAppAdditionalActions(config({ resolver }), alice, {});
+      }
+
+      // Ajv keeps every compiled schema in instance-wide state, so a shared
+      // instance would grow with every request.
+      expect(instances.size).toBe(3);
+    });
+
     it("shows the model the checked copy of the schema, not the app's object", async () => {
       const parameters = {
         type: "object" as const,
@@ -824,6 +930,37 @@ describe("resolveAppAdditionalActions", () => {
       await expect(asAlice(() => strict.run({ count: 3 }))).resolves.toEqual({
         count: 3,
       });
+    });
+
+    it("reports only the first validation errors", async () => {
+      const added = await resolveAppAdditionalActions(
+        config({
+          resolver: () => ({
+            "closed-tool": entry("x", {
+              tool: {
+                description: "x",
+                parameters: {
+                  type: "object",
+                  properties: {},
+                  additionalProperties: false,
+                } as never,
+              },
+            }),
+          }),
+        }),
+        alice,
+        {},
+      );
+      const input = Object.fromEntries(
+        Array.from({ length: 500 }, (_, i) => [`k${i}`, i]),
+      );
+
+      const error = await asAlice(() => added["closed-tool"]!.run(input)).catch(
+        (caught: unknown) => caught as Error,
+      );
+
+      expect(error.message).toContain("and 490 more");
+      expect(error.message.length).toBeLessThan(2_000);
     });
 
     it("refuses arguments too large to validate against a large schema", async () => {
