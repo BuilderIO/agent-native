@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   nativeCatalogDefinitionKey,
+  nativeCatalogOptionKey,
   nativeCatalogPresetKey,
   nativeCatalogPropertyKey,
 } from "../app/components/design/inspector/native-catalog-display";
@@ -33,6 +34,22 @@ import {
   GUIDED_FLUID_PARTICLES_PRESETS,
 } from "./native-effect-owned-au-guided-fluid-particles";
 import {
+  SOURCE_REACTION_DIFFUSION_EFFECT,
+  SOURCE_REACTION_DIFFUSION_PRESETS,
+} from "./native-effect-owned-av-source-reaction-diffusion";
+import {
+  TEMPORAL_FLOW_TRAIL_EFFECT,
+  TEMPORAL_FLOW_TRAIL_PRESETS,
+} from "./native-effect-owned-aw-temporal-flow-trail";
+import {
+  SPRING_LIQUIFY_EFFECT,
+  SPRING_LIQUIFY_PRESETS,
+} from "./native-effect-owned-ax-spring-liquify";
+import {
+  COORDINATE_PIXEL_SORT_EFFECT,
+  COORDINATE_PIXEL_SORT_PRESETS,
+} from "./native-effect-owned-ay-coordinate-pixel-sort";
+import {
   POINTER_EFFECT_DEFINITIONS,
   POINTER_EFFECT_PRESETS,
 } from "./native-effect-pointer-catalog";
@@ -48,14 +65,14 @@ import { parseEffectsFromHtml, validateEffectDocument } from "./native-effects";
 
 describe("Design-owned catalog", () => {
   it("registers unique independently authored definitions and valid original recipes", () => {
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(338);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(340);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((item) => item.id)).size,
-    ).toBe(338);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(390);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(782);
+    ).toBe(340);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(394);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(790);
     expect(new Set(NATIVE_EFFECT_PRESETS.map((item) => item.id)).size).toBe(
-      782,
+      790,
     );
     for (const definition of NATIVE_EFFECT_LATEST_DEFINITIONS) {
       expect(definition.provenance?.origin).toBe("design-original");
@@ -77,6 +94,51 @@ describe("Design-owned catalog", () => {
         definition.id,
       ).toEqual([]);
     }
+  });
+
+  it("registers AV through AY with localized controls and pinned predecessor versions", () => {
+    const newVersions = [
+      [SOURCE_REACTION_DIFFUSION_EFFECT, SOURCE_REACTION_DIFFUSION_PRESETS],
+      [TEMPORAL_FLOW_TRAIL_EFFECT, TEMPORAL_FLOW_TRAIL_PRESETS],
+      [SPRING_LIQUIFY_EFFECT, SPRING_LIQUIFY_PRESETS],
+      [COORDINATE_PIXEL_SORT_EFFECT, COORDINATE_PIXEL_SORT_PRESETS],
+    ] as const;
+    for (const [definition, presets] of newVersions) {
+      expect(
+        NATIVE_EFFECT_LATEST_DEFINITIONS.find(
+          (item) => item.id === definition.id,
+        ),
+      ).toBe(definition);
+      expect(nativeEffectAnimationCapability(definition)).toBe("animated");
+      expect(nativeCatalogDefinitionKey(definition)).not.toBeNull();
+      expect(planEffectGraph(definition).errors).toEqual([]);
+      for (const property of Object.values(definition.properties))
+        expect(
+          nativeCatalogPropertyKey(definition, property.label),
+        ).not.toBeNull();
+      for (const property of Object.values(definition.properties))
+        if (property.type === "enum")
+          for (const option of property.options)
+            expect(nativeCatalogOptionKey(definition, option)).not.toBeNull();
+      expect(
+        NATIVE_EFFECT_PRESETS.filter(
+          (preset) =>
+            preset.definitionId === definition.id &&
+            preset.definitionVersion === definition.version,
+        ),
+      ).toEqual(presets);
+      for (const preset of presets)
+        expect(nativeCatalogPresetKey(preset)).not.toBeNull();
+    }
+    for (const definition of [
+      TEMPORAL_FLOW_TRAIL_EFFECT,
+      COORDINATE_PIXEL_SORT_EFFECT,
+    ])
+      expect(
+        NATIVE_EFFECT_DEFINITION_CATALOG.filter(
+          (item) => item.id === definition.id,
+        ).map((item) => item.version),
+      ).toEqual([1, 2]);
   });
 
   it("registers AQ in the normal layer and backdrop library with localized controls", () => {
