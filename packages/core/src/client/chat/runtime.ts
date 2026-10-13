@@ -3221,6 +3221,59 @@ function boundaryToolResultPartsToOmit(
   return partsToOmit;
 }
 
+function assertUnambiguousKeyOnlyApprovedHistory(
+  sources: readonly StructuredHistorySourceMessage[],
+  approvedToolCalls: readonly string[],
+  approvedToolCallAskIds: readonly string[],
+): void {
+  if (!approvedToolCalls.length || approvedToolCallAskIds.length > 0) return;
+  const approvedKeys = new Set(approvedToolCalls);
+  const callCountsByKey = new Map<
+    string,
+    { history: Map<string, number>; supplemental: Set<string> }
+  >();
+  for (const { message, parts, priority } of sources) {
+    if (message.role !== "assistant") continue;
+    for (const part of parts) {
+      if (
+        part.type !== "tool-call" ||
+        !part.approval ||
+        !approvedKeys.has(part.approval.approvalKey)
+      ) {
+        continue;
+      }
+      let calls = callCountsByKey.get(part.approval.approvalKey);
+      if (!calls) {
+        calls = { history: new Map(), supplemental: new Set() };
+        callCountsByKey.set(part.approval.approvalKey, calls);
+      }
+      if (priority) {
+        calls.supplemental.add(part.toolCallId);
+      } else {
+        calls.history.set(
+          part.toolCallId,
+          (calls.history.get(part.toolCallId) ?? 0) + 1,
+        );
+      }
+    }
+  }
+  for (const calls of callCountsByKey.values()) {
+    const historyCallCount = [...calls.history.values()].reduce(
+      (count, occurrences) => count + occurrences,
+      0,
+    );
+    const supplementalCallCount = [...calls.supplemental].filter(
+      (toolCallId) => !calls.history.has(toolCallId),
+    ).length;
+    if (historyCallCount + supplementalCallCount > 1) {
+      throw approvedToolHistoryError(
+        "approved_tool_call_history_ambiguous",
+        422,
+      );
+    }
+  }
+}
+
 function nativeStructuredHistoryFromMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
@@ -3247,6 +3300,11 @@ function nativeStructuredHistoryFromMessages(
     currentPrompt,
     supplementalMessages,
     currentAttachmentUrls,
+  );
+  assertUnambiguousKeyOnlyApprovedHistory(
+    sources.messages,
+    approvedToolCalls,
+    approvedToolCallAskIds,
   );
   const boundaryResultsToOmit = boundaryToolResultPartsToOmit(
     messages,

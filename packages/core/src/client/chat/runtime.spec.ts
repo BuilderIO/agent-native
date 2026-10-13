@@ -5973,10 +5973,11 @@ describe("createAgentNativeChatRuntime", () => {
     );
   });
 
-  it("preserves only the approved oversized input from reloaded message history", async () => {
-    const approvedInput = { payload: "x".repeat(70 * 1024) };
-    const otherInput = { payload: "y".repeat(70 * 1024) };
+  it("preserves only the selected oversized input when reloaded history repeats its approval key", async () => {
+    const approvedInput = { payload: "x".repeat(78 * 1024) };
     const approvalKey = `send-large-data:${JSON.stringify(approvedInput)}`;
+    const approvalAskId = "selected-reloaded-large-approval";
+    const siblingApprovalAskId = "completed-sibling-large-approval";
     const fetchMock = vi
       .fn()
       .mockResolvedValue(sseResponse([{ type: "done" }]));
@@ -5993,6 +5994,7 @@ describe("createAgentNativeChatRuntime", () => {
       prompt: "Approve sending the data",
       metadata: {
         agentNativeApprovedToolCalls: [approvalKey],
+        agentNativeApprovedToolCallAskIds: [approvalAskId],
         agentNativeContinuationTurnId: "prior-turn",
         agentNativeInternalContinuation: true,
       },
@@ -6005,7 +6007,8 @@ describe("createAgentNativeChatRuntime", () => {
               type: "tool-call",
               toolCallId: "call-other-large",
               toolName: "send-large-data",
-              input: otherInput,
+              input: approvedInput,
+              approval: { approvalKey, askId: siblingApprovalAskId },
             },
           ],
         },
@@ -6019,6 +6022,7 @@ describe("createAgentNativeChatRuntime", () => {
               toolName: "send-large-data",
               result: "An earlier call completed.",
               approvalPause: false,
+              approvalAskId: siblingApprovalAskId,
             },
           ],
         },
@@ -6031,7 +6035,7 @@ describe("createAgentNativeChatRuntime", () => {
               toolCallId: "call-approved-large",
               toolName: "send-large-data",
               input: approvedInput,
-              approval: { approvalKey },
+              approval: { approvalKey, askId: approvalAskId },
             },
           ],
         },
@@ -6045,6 +6049,7 @@ describe("createAgentNativeChatRuntime", () => {
               toolName: "send-large-data",
               result: "The action paused before execution.",
               approvalPause: true,
+              approvalAskId,
             },
           ],
         },
@@ -6064,6 +6069,7 @@ describe("createAgentNativeChatRuntime", () => {
       }>
     ).flatMap((message) => message.content);
     expect(request.approvedToolCalls).toEqual([approvalKey]);
+    expect(request.approvedToolCallAskIds).toEqual([approvalAskId]);
     expect(parts).toContainEqual(
       expect.objectContaining({
         type: "tool-call",
@@ -6071,7 +6077,103 @@ describe("createAgentNativeChatRuntime", () => {
         input: approvedInput,
       }),
     );
-    expect(JSON.stringify(request)).not.toContain(otherInput.payload);
+    expect(parts).not.toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        id: "call-other-large",
+        input: approvedInput,
+      }),
+    );
+    expect(
+      new TextEncoder().encode(JSON.stringify(request.structuredHistory))
+        .byteLength,
+    ).toBeLessThanOrEqual(256 * 1024);
+  });
+
+  it("rejects key-only oversized replay when reloaded history repeats its approval key", async () => {
+    const input = { payload: "x".repeat(78 * 1024) };
+    const approvalKey = `send-large-data:${JSON.stringify(input)}`;
+    const fetchMock = vi.fn();
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-reloaded-ambiguous-large-approval",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      id: "thread-reloaded-ambiguous-large-approval",
+      threadId: "thread-reloaded-ambiguous-large-approval",
+    });
+
+    await expect(
+      session.startTurn({
+        prompt: "Approve sending the data",
+        metadata: {
+          agentNativeApprovedToolCalls: [approvalKey],
+          agentNativeContinuationTurnId: "prior-turn",
+          agentNativeInternalContinuation: true,
+        },
+        messages: [
+          {
+            id: "completed-sibling-call",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-completed-sibling",
+                toolName: "send-large-data",
+                input,
+                approval: { approvalKey, askId: "completed-sibling-ask" },
+              },
+            ],
+          },
+          {
+            id: "completed-sibling-result",
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "call-completed-sibling",
+                toolName: "send-large-data",
+                result: "The earlier action completed.",
+                approvalPause: false,
+                approvalAskId: "completed-sibling-ask",
+              },
+            ],
+          },
+          {
+            id: "pending-call",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-pending-large",
+                toolName: "send-large-data",
+                input,
+                approval: { approvalKey, askId: "pending-large-ask" },
+              },
+            ],
+          },
+          {
+            id: "pending-result",
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "call-pending-large",
+                toolName: "send-large-data",
+                result: "The action paused before execution.",
+                approvalPause: true,
+                approvalAskId: "pending-large-ask",
+              },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "approved_tool_call_history_ambiguous",
+      status: 422,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("replays the approved call when its paused result was not streamed", async () => {

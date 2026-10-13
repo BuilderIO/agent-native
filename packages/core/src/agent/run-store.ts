@@ -38,7 +38,7 @@ import {
 } from "./engine/credential-errors.js";
 import {
   isConsistentToolCallInputFingerprint,
-  isRedactedToolCallInput,
+  isUnavailableToolCallInput,
   toolCallInputFingerprint,
 } from "./tool-call-journal.js";
 import { CONTINUATION_REASONS, isContinuationTerminalReason } from "./types.js";
@@ -2944,7 +2944,7 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
           value.inputFingerprint as string | undefined,
           value.inputStoredFingerprint as string | undefined,
         ) &&
-        (!isRedactedToolCallInput(value.input) ||
+        (!isUnavailableToolCallInput(value.input) ||
           value.inputFingerprint !== undefined) &&
         (type === "tool_start"
           ? Object.hasOwn(value, "input")

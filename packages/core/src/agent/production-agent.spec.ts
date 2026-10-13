@@ -3835,93 +3835,102 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
-  it("fails closed when an approved call's input was redacted from history", async () => {
-    const engine = engineWithUncalledStream();
-    const runAction = vi.fn(async () => "sent");
-    const resolveApproval = vi.spyOn(
-      toolApprovalStore,
-      "resolveAgentToolApprovalTurnId",
-    );
-    const consumeApproval = vi.spyOn(
-      toolApprovalStore,
-      "consumeAgentToolApproval",
-    );
-    const handler = createProductionAgentHandler({
-      systemPrompt: "Test",
-      engine,
-      actions: {
-        "send-email": {
-          ...actionEntry({ readOnly: false }),
-          needsApproval: true,
-          run: runAction,
+  it.each([
+    [
+      "redacted after inline-byte scrubbing",
+      { attachment: "[inline image/png data omitted]" },
+    ],
+    ["omitted from structured history", null],
+  ])(
+    "fails closed when an approved call input is %s",
+    async (_reason, historyInput) => {
+      const engine = engineWithUncalledStream();
+      const runAction = vi.fn(async () => "sent");
+      const resolveApproval = vi.spyOn(
+        toolApprovalStore,
+        "resolveAgentToolApprovalTurnId",
+      );
+      const consumeApproval = vi.spyOn(
+        toolApprovalStore,
+        "consumeAgentToolApproval",
+      );
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine,
+        actions: {
+          "send-email": {
+            ...actionEntry({ readOnly: false }),
+            needsApproval: true,
+            run: runAction,
+          },
         },
-      },
-    });
-    const approvalKey = approvalKeyForHistory(
-      'send-email:{"attachment":"data:image/png;base64,INLINE"}',
-    );
-    const event = mockEvent(
-      new Request("http://app.example.com/_agent-native/agent-chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          message: "Approved. Continue.",
-          threadId: "thread-redacted-approval",
-          turnId: "turn-redacted-approval",
-          approvedToolCalls: [approvalKey],
-          approvedToolCallAskIds: ["ask-redacted-approval"],
-          structuredHistory: [
-            {
-              role: "assistant",
-              content: [
-                {
-                  type: "tool-call",
-                  id: "call-redacted-approval",
-                  name: "send-email",
-                  input: { attachment: "[inline image/png data omitted]" },
-                  approvalKey,
-                  approvalAskId: "ask-redacted-approval",
-                },
-              ],
-            },
-            {
-              role: "user",
-              content: [
-                {
-                  type: "tool-result",
-                  toolCallId: "call-redacted-approval",
-                  content: "Awaiting human approval.",
-                  approvalPause: true,
-                  approvalAskId: "ask-redacted-approval",
-                },
-              ],
-            },
-          ],
+      });
+      const approvalKey = approvalKeyForHistory(
+        'send-email:{"attachment":"data:image/png;base64,INLINE"}',
+      );
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "Approved. Continue.",
+            threadId: "thread-redacted-approval",
+            turnId: "turn-redacted-approval",
+            approvedToolCalls: [approvalKey],
+            approvedToolCallAskIds: ["ask-redacted-approval"],
+            structuredHistory: [
+              {
+                role: "assistant",
+                content: [
+                  {
+                    type: "tool-call",
+                    id: "call-redacted-approval",
+                    name: "send-email",
+                    ...(historyInput !== null ? { input: historyInput } : {}),
+                    approvalKey,
+                    approvalAskId: "ask-redacted-approval",
+                  },
+                ],
+              },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "tool-result",
+                    toolCallId: "call-redacted-approval",
+                    content: "Awaiting human approval.",
+                    approvalPause: true,
+                    approvalAskId: "ask-redacted-approval",
+                  },
+                ],
+              },
+            ],
+          }),
         }),
-      }),
-    );
-
-    try {
-      const result = await runWithRequestContext(
-        { userEmail: "alice@example.com", orgId: "acme", run: {} },
-        () => handler(event),
       );
 
-      expect(event.res.status).toBe(422);
-      expect(result).toEqual({
-        error: "The agent run failed.",
-        code: "approved_tool_call_input_unavailable",
-        retryable: false,
-      });
-      expect(resolveApproval).not.toHaveBeenCalled();
-      expect(consumeApproval).not.toHaveBeenCalled();
-      expect(engine.stream).not.toHaveBeenCalled();
-      expect(runAction).not.toHaveBeenCalled();
-    } finally {
-      resolveApproval.mockRestore();
-      consumeApproval.mockRestore();
-    }
-  });
+      try {
+        const result = await runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        );
+
+        expect(event.res.status).toBe(422);
+        expect(result).toEqual({
+          error: "The agent run failed.",
+          code: "approved_tool_call_input_unavailable",
+          retryable: false,
+        });
+        expect(resolveApproval).not.toHaveBeenCalled();
+        expect(consumeApproval).not.toHaveBeenCalled();
+        expect(engine.stream).not.toHaveBeenCalled();
+        expect(runAction).not.toHaveBeenCalled();
+      } finally {
+        resolveApproval.mockRestore();
+        consumeApproval.mockRestore();
+      }
+    },
+  );
 
   it("fails explicitly when an approved call is missing from structured history", async () => {
     const engine = engineWithUncalledStream();

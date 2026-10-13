@@ -374,7 +374,7 @@ import {
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
 import {
   findCompletedJournalEntry,
-  isRedactedToolCallInput,
+  isUnavailableToolCallInput,
 } from "./tool-call-journal.js";
 import {
   redactSensitiveFields,
@@ -5028,7 +5028,10 @@ export function findApprovedStructuredToolCall(
         if (!callId || !name) continue;
         calls.set(callId, {
           name,
-          input: part.input ?? part.args ?? {},
+          input:
+            part.input !== undefined
+              ? part.input
+              : (part.args ?? { omitted: "tool-input" }),
           ...(part.approvalKey ? { approvalKey: part.approvalKey } : {}),
           ...(part.approvalAskId ? { approvalAskId: part.approvalAskId } : {}),
         });
@@ -11035,7 +11038,7 @@ export function createProductionAgentHandler(
     }
     if (
       exactApprovedToolCall &&
-      isRedactedToolCallInput(exactApprovedToolCall.input)
+      isUnavailableToolCallInput(exactApprovedToolCall.input)
     ) {
       setResponseStatus(event, 422);
       return {
