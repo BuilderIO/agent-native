@@ -491,7 +491,7 @@ describe("resolveAppAdditionalActions", () => {
       }
     });
 
-    it("accepts 2020-12 array keywords only where they are enforced", async () => {
+    it("accepts dialect-specific array keywords only where they are enforced", async () => {
       const tuple = {
         type: "object" as const,
         properties: {
@@ -510,6 +510,22 @@ describe("resolveAppAdditionalActions", () => {
             "draft-07-tuple": entry("x", {
               tool: { description: "x", parameters: tuple as never },
             }),
+            "draft-2020-additional-items": entry("x", {
+              tool: {
+                description: "x",
+                parameters: {
+                  $schema: "https://json-schema.org/draft/2020-12/schema",
+                  type: "object",
+                  properties: {
+                    xs: {
+                      type: "array",
+                      prefixItems: [{ type: "number" }],
+                      additionalItems: false,
+                    },
+                  },
+                } as never,
+              },
+            }),
             "draft-2020-tuple": entry("x", {
               run,
               tool: {
@@ -527,8 +543,14 @@ describe("resolveAppAdditionalActions", () => {
       );
 
       expect(Object.keys(added)).toEqual(["draft-2020-tuple"]);
-      expect(String(vi.mocked(console.warn).mock.calls[0]?.[0])).toMatch(
+      const warnings = vi
+        .mocked(console.warn)
+        .mock.calls.map(([message]) => String(message));
+      expect(warnings[0]).toMatch(
         /"draft-07-tuple".*"prefixItems".*would not be enforced/,
+      );
+      expect(warnings[1]).toMatch(
+        /"draft-2020-additional-items".*"additionalItems".*draft 2020-12 does not enforce/,
       );
       const tool = added["draft-2020-tuple"]!;
       await expect(asAlice(() => tool.run({ xs: ["x"] }))).rejects.toThrow(
@@ -1030,6 +1052,44 @@ describe("resolveAppAdditionalActions", () => {
 
       expect(error.message).toContain("and 490 more");
       expect(error.message.length).toBeLessThan(2_000);
+    });
+
+    it("charges long strings for every length check a schema runs on them", async () => {
+      const run = vi.fn(async () => "ran");
+      const added = await resolveAppAdditionalActions(
+        config({
+          resolver: () => ({
+            "many-length-checks": entry("x", {
+              run,
+              tool: {
+                description: "x",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    s: {
+                      allOf: Array.from({ length: 1_000 }, () => ({
+                        minLength: 1,
+                      })),
+                    },
+                  },
+                } as never,
+              },
+            }),
+          }),
+        }),
+        alice,
+        {},
+      );
+      const tool = added["many-length-checks"]!;
+
+      // Each of the 1,000 checks scans the whole string.
+      await expect(
+        asAlice(() => tool.run({ s: "x".repeat(600_000) })),
+      ).rejects.toThrow(/too large to validate/);
+      expect(run).not.toHaveBeenCalled();
+      await expect(
+        asAlice(() => tool.run({ s: "x".repeat(1_000) })),
+      ).resolves.toBe("ran");
     });
 
     it("refuses arguments too large to validate against a large schema", async () => {

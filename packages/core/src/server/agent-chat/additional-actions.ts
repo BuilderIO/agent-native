@@ -66,8 +66,9 @@ const MAX_TOTAL_SCHEMA_EXPANDED_NODES = 20_000;
 // per input value, so a call is refused before Ajv runs when the product of the
 // two passes this. Ajv validates synchronously; nothing can interrupt it.
 const MAX_VALIDATION_WORK = 20_000_000;
-// Long strings cost length checks in proportion to their length.
-const INPUT_STRING_CHARS_PER_UNIT = 32;
+// Every length check scans the whole string, so a few characters cost as much
+// as one value.
+const INPUT_STRING_CHARS_PER_UNIT = 4;
 // C0/C1 controls other than tab and newline, zero-width characters, and bidi
 // overrides: invisible in logs and tool lists, but read by the model.
 const HIDDEN_TEXT_PATTERN = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F​-‏‪-‮⁠-⁩﻿]/g;
@@ -163,13 +164,14 @@ const VALUE_KEYWORDS = new Set([
   "writeOnly",
 ]);
 
-// Schemas without a 2020-12 `$schema` compile as draft-07, which ignores these
-// keywords instead of enforcing them.
+// Each dialect ignores the other's array keywords instead of enforcing them:
+// schemas without a 2020-12 `$schema` compile as draft-07.
 const DRAFT_2020_ONLY_KEYWORDS = new Set([
   "maxContains",
   "minContains",
   "prefixItems",
 ]);
+const DRAFT_07_ONLY_KEYWORDS = new Set(["additionalItems"]);
 const DRAFT_2020_DIALECT = "https://json-schema.org/draft/2020-12/schema";
 
 // Insertion-ordered, so the oldest key is evicted first once the cap is hit.
@@ -589,8 +591,14 @@ function rejectSchemaKeywords(
   }
   for (const [keyword, value] of Object.entries(schema)) {
     let rejection: string | null = null;
-    if (!walk.draft2020 && DRAFT_2020_ONLY_KEYWORDS.has(keyword)) {
-      rejection = `has a tool schema that uses "${keyword}" without "$schema": "${DRAFT_2020_DIALECT}", so it would not be enforced`;
+    if (
+      walk.draft2020
+        ? DRAFT_07_ONLY_KEYWORDS.has(keyword)
+        : DRAFT_2020_ONLY_KEYWORDS.has(keyword)
+    ) {
+      rejection = walk.draft2020
+        ? `has a tool schema that uses "${keyword}", which draft 2020-12 does not enforce`
+        : `has a tool schema that uses "${keyword}" without "$schema": "${DRAFT_2020_DIALECT}", so it would not be enforced`;
     } else if (keyword === "items" && Array.isArray(value)) {
       rejection = rejectEach(value, root, walk);
     } else if (SCHEMA_KEYWORDS.has(keyword)) {
