@@ -133,10 +133,10 @@ const syntheticData = vi.hoisted(() => {
         },
       ],
       scanSummary: {
-        unsafeEntriesOmitted: 0,
-        unsafeFieldsOmitted: 0,
-        truncatedFields: 0,
-        unresolvedTrackingCallSites: 0,
+        unsafeEntriesOmitted: 1,
+        unsafeFieldsOmitted: 2,
+        truncatedFields: 3,
+        unresolvedTrackingCallSites: 4,
       },
     },
   };
@@ -204,8 +204,8 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v11";
-const BASELINE_GIT_REVISION = "d0caebd20464a2a00ad417c78943d81438d9333a";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v12";
+const BASELINE_GIT_REVISION = "1999aef1ad68dcf9d44423fa95df1a7acb67e8c5";
 const BASELINE_HARNESS_PATH =
   "templates/analytics/evals/synthetic-production-path/production-path.spec.ts";
 const CANDIDATE_HARNESS_REVISION_ENV = "ANALYTICS_EVAL_HARNESS_REVISION";
@@ -270,6 +270,30 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     id: "full-workspace-roster-excludes-active-only-source",
     prompt:
       "Find the catalog reference for a full workspace member roster. Do not use active workspace members as a filtered subset. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.organization_member_roles",
+  },
+  {
+    id: "long-exclusion-clause-excludes-active-only-source",
+    prompt:
+      "Find the catalog reference for workspace users with no counts by role and region and product area and subscription plan and final request category and exclude internal test trial accounts and active members. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.organization_member_roles",
+  },
+  {
+    id: "negated-removal-keeps-active-members",
+    prompt:
+      "Find the catalog reference for workspace users; do not exclude inactive internal trial accounts and active members. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.active_organization_member_roles",
+  },
+  {
+    id: "not-to-exclude-keeps-active-members",
+    prompt:
+      "Find the catalog reference for workspace members; not to exclude active members. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.active_organization_member_roles",
+  },
+  {
+    id: "later-independent-exclusion-excludes-active-members",
+    prompt:
+      "Find the catalog reference for workspace users; do not exclude internal test trial accounts and exclude active members. Metadata only; do not report live counts or values.",
     expectedTable: "fixture_warehouse.organization_member_roles",
   },
   {
@@ -867,33 +891,60 @@ async function makeRows(
   const rows: PrivacySafeEvalRow[] = [];
   for (const testCase of SYNTHETIC_CASES) {
     for (const run of [1, 2]) {
-      const { report, output, receipt } = await runOnce(testCase);
-      const rank = expectedCandidateRank(output, testCase.expectedTable);
-      const counts = actionCounts(output);
-      const reasonCode = reasonForRun(testCase, output, receipt);
-      const successful = report.results[0]?.passed === true;
-      rows.push({
-        case_id: testCase.id,
-        phase,
-        git_revision: gitRevision,
-        code_revision: revision,
-        harness_revision: currentHarnessRevision,
-        fixture_revision: FIXTURE_REVISION,
-        run,
-        score: successful ? 1 : 0,
-        reason_code: reasonCode,
-        expected_rank: rank,
-        hit_at_5: rank !== null && rank <= 5,
-        find_data_calls: counts.findDataCalls,
-        other_action_calls: counts.otherActionCalls,
-        failed_action_calls: counts.failedActionCalls,
-        completed: output.ok,
-        aborted: !output.ok && /abort|timeout/i.test(output.error ?? ""),
-        input_tokens: output.usage?.inputTokens ?? 0,
-        output_tokens: output.usage?.outputTokens ?? 0,
-        llm_calls: output.usage?.llmCalls ?? 0,
-        latency_ms: Math.max(0, Math.round(output.durationMs)),
-      });
+      try {
+        const { report, output, receipt } = await runOnce(testCase);
+        const rank = expectedCandidateRank(output, testCase.expectedTable);
+        const counts = actionCounts(output);
+        const reasonCode = reasonForRun(testCase, output, receipt);
+        const successful =
+          reasonCode === "rank_1" && report.results[0]?.passed === true;
+        rows.push({
+          case_id: testCase.id,
+          phase,
+          git_revision: gitRevision,
+          code_revision: revision,
+          harness_revision: currentHarnessRevision,
+          fixture_revision: FIXTURE_REVISION,
+          run,
+          score: successful ? 1 : 0,
+          reason_code: reasonCode,
+          expected_rank: rank,
+          hit_at_5: rank !== null && rank <= 5,
+          find_data_calls: counts.findDataCalls,
+          other_action_calls: counts.otherActionCalls,
+          failed_action_calls: counts.failedActionCalls,
+          completed: output.ok,
+          aborted: !output.ok && /abort|timeout/i.test(output.error ?? ""),
+          input_tokens: output.usage?.inputTokens ?? 0,
+          output_tokens: output.usage?.outputTokens ?? 0,
+          llm_calls: output.usage?.llmCalls ?? 0,
+          latency_ms: Math.max(0, Math.round(output.durationMs)),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        rows.push({
+          case_id: testCase.id,
+          phase,
+          git_revision: gitRevision,
+          code_revision: revision,
+          harness_revision: currentHarnessRevision,
+          fixture_revision: FIXTURE_REVISION,
+          run,
+          score: 0,
+          reason_code: "production_path_failed",
+          expected_rank: null,
+          hit_at_5: false,
+          find_data_calls: 0,
+          other_action_calls: 0,
+          failed_action_calls: 0,
+          completed: false,
+          aborted: /abort|timeout/i.test(message),
+          input_tokens: 0,
+          output_tokens: 0,
+          llm_calls: 0,
+          latency_ms: 0,
+        });
+      }
     }
   }
   return rows;
@@ -909,13 +960,15 @@ describe("Analytics synthetic production-path retrieval harness", () => {
     actualGitRevision = currentGitRevision();
     gitRevision = process.env.ANALYTICS_EVAL_GIT_REVISION ?? actualGitRevision;
     assertEvalProvenance(phase, actualGitRevision, gitRevision);
-    if (phase === "before") {
-      await assertBaselineSourceIntegrity();
-      await assertBaselineHarnessIntegrity(
-        process.env[CANDIDATE_HARNESS_REVISION_ENV] ?? "",
-      );
-    } else {
-      await assertCandidateSourceIntegrity(gitRevision);
+    if (process.env.ANALYTICS_EVAL_EMIT_CSV === "1") {
+      if (phase === "before") {
+        await assertBaselineSourceIntegrity();
+        await assertBaselineHarnessIntegrity(
+          process.env[CANDIDATE_HARNESS_REVISION_ENV] ?? "",
+        );
+      } else {
+        await assertCandidateSourceIntegrity(gitRevision);
+      }
     }
     generateActionRegistryForProject(ANALYTICS_PROJECT_ROOT);
   });
@@ -933,6 +986,10 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       "not-excluding-active-members",
       "exclude-everyone-but-active-members",
       "full-workspace-roster-excludes-active-only-source",
+      "long-exclusion-clause-excludes-active-only-source",
+      "negated-removal-keeps-active-members",
+      "not-to-exclude-keeps-active-members",
+      "later-independent-exclusion-excludes-active-members",
       "nonpositive-count-instruction-keeps-member-rows",
       "negated-counts-keep-positive-monthly-trend",
       "negated-counts-preserve-role-detail",
@@ -965,6 +1022,12 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       ).toThrow("Before-phase output requires the pinned baseline");
     }
     const rows = await makeRows(gitRevision, phase);
+    const csv = renderPrivacySafeEvalCsv(rows);
+    if (process.env.ANALYTICS_EVAL_EMIT_CSV === "1") {
+      process.stdout.write(
+        `ANALYTICS_PRODUCTION_PATH_CSV_BEGIN\n${csv}\nANALYTICS_PRODUCTION_PATH_CSV_END\n`,
+      );
+    }
     expect(rows).toHaveLength(SYNTHETIC_CASES.length * 2);
     expect(rows.every((row) => row.phase === phase)).toBe(true);
     expect(
@@ -1002,7 +1065,6 @@ describe("Analytics synthetic production-path retrieval harness", () => {
         ),
       );
     }
-    const csv = renderPrivacySafeEvalCsv(rows);
     const [header, ...body] = csv.split("\n");
     expect(header).toBe(CSV_COLUMNS.join(","));
     expect(body).toHaveLength(rows.length);
@@ -1016,11 +1078,6 @@ describe("Analytics synthetic production-path retrieval harness", () => {
     expect(rows.every((row) => row.fixture_revision === FIXTURE_REVISION)).toBe(
       true,
     );
-    if (process.env.ANALYTICS_EVAL_EMIT_CSV === "1") {
-      process.stdout.write(
-        `ANALYTICS_PRODUCTION_PATH_CSV_BEGIN\n${csv}\nANALYTICS_PRODUCTION_PATH_CSV_END\n`,
-      );
-    }
   });
 
   it("runs the real Analytics production loop with fixture storage, guard, identity, and usage", async () => {
@@ -1061,6 +1118,15 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       expect.any(Object),
     );
     expect(storage.availableEmbeddingFamilies).toHaveBeenCalled();
+    expect(getToolResult(output)?.sourceIndexScanCoverage).toEqual({
+      unsafeEntriesOmitted: 1,
+      unsafeFieldsOmitted: 2,
+      truncatedFields: 3,
+      unresolvedTrackingCallSites: 4,
+    });
+    expect(getToolResult(output)?.guidance).toContain(
+      "1 entry was omitted by safety checks; 2 fields were omitted by safety checks; 3 fields were truncated; 4 tracking call sites have unresolved event names",
+    );
   });
 
   it("rejects attempts to serialize unapproved transcript or tool fields", () => {

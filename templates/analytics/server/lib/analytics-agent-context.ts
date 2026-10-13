@@ -277,6 +277,16 @@ function candidateName(candidate: AnalyticsQueryCatalogCandidate): string {
     : `${candidate.dashboardTitle}: ${candidate.panelTitle}`;
 }
 
+function candidateStableKey(candidate: AnalyticsQueryCatalogCandidate): string {
+  return candidate.kind === "data-dictionary"
+    ? `dict:${candidate.origin}:${candidate.id}`
+    : `panel:${candidate.origin}:${candidate.dashboardId}:${candidate.panelId}`;
+}
+
+function compareStableKeys(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function candidateEmbeddingKey(
   family: EmbeddingFamily,
   content: string,
@@ -419,18 +429,15 @@ async function rankWithEmbeddings(
       lexicalScore: candidate.score,
       scope: candidateScopeCompatibility(candidate, request),
       trust: candidateTrustTier(candidate),
-      name: candidateName(candidate),
+      stableKey: candidateStableKey(candidate),
     }))
     .sort((left, right) => {
-      const sameKind = left.candidate.kind === right.candidate.kind;
-      const trustDifference = right.trust - left.trust;
       return (
         right.scope - left.scope ||
-        (sameKind ? trustDifference : 0) ||
+        right.trust - left.trust ||
         right.similarity - left.similarity ||
         right.lexicalScore - left.lexicalScore ||
-        trustDifference ||
-        left.name.localeCompare(right.name)
+        compareStableKeys(left.stableKey, right.stableKey)
       );
     });
 }

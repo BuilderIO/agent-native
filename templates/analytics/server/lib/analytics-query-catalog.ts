@@ -593,9 +593,11 @@ function activeMemberPhrasePolarity(search: string): {
   const activeMemberPhrase =
     /\b(?<!non[- ])(?:active\s+(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)|(?:(?:workspace|organization|org|team)\s+)?(?:users?|members?)\s+(?:who\s+)?(?:are\s+)?active)\b/gi;
   const negativeInstructionBeforePhrase =
-    /\b(?:no|not|never|don't|do\s+not|cannot|can't|exclude|excluding|except|without|remove|omit|skip)\b(?:\s+[\p{L}\p{N}'-]+){0,4}\s*$/iu;
-  const negatedRemovalBeforePhrase =
-    /\b(?:do\s+not|don't|never|cannot|can't|not)\s+(?:exclud(?:e|ing|ed|es)|skip(?:ped|ping|s)?|omit(?:ted|ting|s)?|remov(?:e|ing|ed|es)|filter(?:s|ed|ing)?(?:\s+out)?|leav(?:e|ing)\s+out)\b(?:\s+[\p{L}\p{N}'-]+){0,4}\s*$/iu;
+    /\b(?:no|not|never|don't|do\s+not|cannot|can't|without)\b(?:\s+[\p{L}\p{N}'-]+){0,4}\s*$/iu;
+  const removalInstruction =
+    /\b(?:exclud(?:e|ing|ed|es)|skip(?:ped|ping|s)?|omit(?:ted|ting|s)?|remov(?:e|ing|ed|es)|filter(?:s|ed|ing)?(?:\s+out)?|leav(?:e|ing)\s+out)\b/giu;
+  const negatedRemovalOperatorBefore =
+    /\b(?:(?:do|does|did)\s+not|don't|doesn't|didn't|never|cannot|can't|not(?:\s+to)?|without)\s*$/iu;
   const exclusionExceptionBeforePhrase =
     /\b(?:exclud(?:e|ing|ed|es)|skip(?:ped|ping|s)?|omit(?:ted|ting|s)?|remov(?:e|ing|ed|es)|filter(?:s|ed|ing)?(?:\s+out)?|leav(?:e|ing)\s+out)\b[^;.!?]*\b(?:but|except(?:\s+for)?|other\s+than|aside\s+from|apart\s+from)\s*$/iu;
   const negativeInstructionAfterPhrase =
@@ -612,12 +614,13 @@ function activeMemberPhrasePolarity(search: string): {
       ? prefix.slice((lastContinuation.index ?? 0) + lastContinuation[0].length)
       : prefix;
     if (exclusionExceptionBeforePhrase.test(scopedPrefix)) return false;
-    if (
-      negativeInstructionBeforePhrase.test(scopedPrefix) &&
-      !negatedRemovalBeforePhrase.test(scopedPrefix)
-    ) {
-      return true;
+    const removals = Array.from(scopedPrefix.matchAll(removalInstruction));
+    const lastRemoval = removals[removals.length - 1];
+    if (lastRemoval) {
+      const beforeRemoval = scopedPrefix.slice(0, lastRemoval.index ?? 0);
+      return !negatedRemovalOperatorBefore.test(beforeRemoval);
     }
+    if (negativeInstructionBeforePhrase.test(scopedPrefix)) return true;
     const end = (match.index ?? 0) + match[0].length;
     return negativeInstructionAfterPhrase.test(intent.slice(end));
   };

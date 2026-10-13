@@ -494,6 +494,9 @@ describe("analytics query catalog", () => {
 
   it.each([
     "do not exclude active members",
+    "do not exclude inactive internal trial accounts and active members",
+    "not to exclude active members",
+    "without excluding active members",
     "do not skip active members",
     "not excluding active members",
     "exclude everyone but active members",
@@ -539,6 +542,9 @@ describe("analytics query catalog", () => {
     "exclude active workspace members",
     "not including active members",
     "exclude all members including active members",
+    "workspace users with no counts by role and region and product area and subscription plan and final request category and exclude internal test trial accounts and active members",
+    "do not exclude internal test trial accounts and exclude active members",
+    "do not exclude internal test trial accounts, but exclude active members",
     "show all members; do not include active workspace users in a separate subset",
     "all workspace members; active members are excluded",
   ])(

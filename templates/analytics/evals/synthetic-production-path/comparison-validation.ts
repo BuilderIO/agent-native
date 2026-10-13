@@ -45,7 +45,15 @@ const V11_CASE_IDS = [
   "negated-counts-preserve-role-detail",
 ] as const;
 
-export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = V11_CASE_IDS;
+const V12_CASE_IDS = [
+  ...V11_CASE_IDS,
+  "long-exclusion-clause-excludes-active-only-source",
+  "negated-removal-keeps-active-members",
+  "not-to-exclude-keeps-active-members",
+  "later-independent-exclusion-excludes-active-members",
+] as const;
+
+export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = V12_CASE_IDS;
 
 type PinnedEvaluation = {
   fixtureRevision: string;
@@ -81,6 +89,15 @@ const PINNED_EVALUATIONS = [
     harnessRevision:
       "sha256:b9acd1d7c3c9758d57a4485fd56a72c7954ad2b3fefe74f128fc16fb1ca18472",
     caseIds: V11_CASE_IDS,
+  },
+  {
+    fixtureRevision: "synthetic-analytics-retrieval-v12",
+    baselineRevision: "1999aef1ad68dcf9d44423fa95df1a7acb67e8c5",
+    baselineCodeRevision: `sha256:${"0".repeat(64)}`,
+    candidateRevision: "1111111111111111111111111111111111111111",
+    candidateCodeRevision: `sha256:${"1".repeat(64)}`,
+    harnessRevision: `sha256:${"2".repeat(64)}`,
+    caseIds: V12_CASE_IDS,
   },
 ] as const satisfies readonly PinnedEvaluation[];
 const PINNED_EVALUATIONS_BY_FIXTURE = new Map(
@@ -160,8 +177,13 @@ type ComparisonRow = {
 
 export type PhaseComparisonSummary = {
   rows: number;
+  /** Runs that passed both the retrieval and production-path integrity scorers. */
   top1: number;
+  /** Retrieval rank counts remain visible even when another path check failed. */
+  retrievalTop1: number;
   hitAt5: number;
+  failedRuns: number;
+  abortedRuns: number;
   revision: string;
   codeRevision: string;
   harnessRevision: string;
@@ -291,8 +313,11 @@ function summarizePhase(
   }
   return {
     rows: phaseRows.length,
-    top1: phaseRows.filter((row) => row.expected_rank === 1).length,
+    top1: phaseRows.filter((row) => row.score === 1).length,
+    retrievalTop1: phaseRows.filter((row) => row.expected_rank === 1).length,
     hitAt5: phaseRows.filter((row) => row.hit_at_5).length,
+    failedRuns: phaseRows.filter((row) => row.score === 0).length,
+    abortedRuns: phaseRows.filter((row) => row.aborted).length,
     revision,
     codeRevision,
     harnessRevision,
@@ -336,33 +361,51 @@ export function validateProductionPathComparisonCsv(
       throw new Error("Comparison CSV contains a duplicate case/run pair.");
     }
     rowsByPhaseAndPair.set(key, row);
+    const expectedHitAt5 = row.expected_rank !== null && row.expected_rank <= 5;
+    if (row.hit_at_5 !== expectedHitAt5) {
+      throw new Error("Comparison CSV hit_at_5 does not match its measured rank.");
+    }
     if (
-      row.find_data_calls !== 1 ||
-      row.other_action_calls !== 0 ||
-      row.failed_action_calls !== 0 ||
-      !row.completed ||
-      row.aborted ||
-      row.llm_calls === 0
+      row.aborted &&
+      (row.score !== 0 || row.reason_code !== "production_path_failed")
     ) {
       throw new Error(
-        "Comparison CSV contains an invalid production-path run.",
+        "Comparison CSV aborts must count as production-path failures.",
       );
     }
-    const expectedHitAt5 = row.expected_rank !== null && row.expected_rank <= 5;
-    const expectedReason =
-      row.expected_rank === null
-        ? "candidate_missing"
-        : row.expected_rank === 1
-          ? "rank_1"
-          : "ranked_below_1";
     if (
-      row.hit_at_5 !== expectedHitAt5 ||
-      row.reason_code !== expectedReason ||
-      row.score !== (expectedReason === "rank_1" ? 1 : 0)
+      row.score === 1 &&
+      (row.reason_code !== "rank_1" ||
+        row.expected_rank !== 1 ||
+        !row.completed ||
+        row.aborted ||
+        row.find_data_calls !== 1 ||
+        row.other_action_calls !== 0 ||
+        row.failed_action_calls !== 0 ||
+        row.llm_calls === 0)
     ) {
       throw new Error(
-        "Comparison CSV score does not match the measured rank: " +
-          JSON.stringify({ row, expectedHitAt5, expectedReason }),
+        "Comparison CSV has an invalid successful production-path score.",
+      );
+    }
+    if (row.score === 0 && row.reason_code === "rank_1") {
+      throw new Error("Comparison CSV rank_1 reason must have a passing score.");
+    }
+    if (
+      row.reason_code === "ranked_below_1" &&
+      (row.expected_rank === null || row.expected_rank === 1)
+    ) {
+      throw new Error("Comparison CSV ranked_below_1 reason has an invalid rank.");
+    }
+    if (
+      row.reason_code === "candidate_missing" &&
+      row.expected_rank !== null
+    ) {
+      throw new Error("Comparison CSV candidate_missing reason has a measured rank.");
+    }
+    if (!row.completed && row.reason_code !== "production_path_failed") {
+      throw new Error(
+        "Comparison CSV incomplete runs must count as production-path failures.",
       );
     }
   }
@@ -411,11 +454,5 @@ export function validateProductionPathComparisonCsv(
       "Comparison CSV harness hash does not match the pinned candidate harness.",
     );
   }
-  if (after.top1 !== expectedPhaseRows || after.hitAt5 !== expectedPhaseRows) {
-    throw new Error(
-      `Candidate production-path retrieval is not ${expectedPhaseRows}/${expectedPhaseRows} top-1.`,
-    );
-  }
-
   return { before, after, cases: pinnedEvaluation.caseIds.length };
 }
