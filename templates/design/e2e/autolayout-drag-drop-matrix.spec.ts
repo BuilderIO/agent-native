@@ -1136,60 +1136,53 @@ test.describe("auto-layout drag/drop matrix", () => {
     ]);
   });
 
-  test("horizontal nowrap first, middle, and end slots expose a held marker and persist", async ({
-    app,
-    page,
-    request,
-  }) => {
-    test.setTimeout(150_000);
-    const cells = [
-      {
-        name: "H-1 first",
-        source: "h-last",
-        target: "h-first",
-        targetEdge: "leading" as const,
-        expected: ["h-last", "h-first", "h-middle"],
-      },
-      {
-        name: "H-2 middle",
-        source: "h-first",
-        target: "h-middle",
-        targetEdge: "center" as const,
-        expected: ["h-middle", "h-first", "h-last"],
-      },
-      {
-        name: "H-3 end",
-        source: "h-first",
-        target: "h-last",
-        targetEdge: "trailing" as const,
-        expected: ["h-middle", "h-last", "h-first"],
-      },
-    ];
-    for (const cell of cells) {
-      await test.step(cell.name, async () => {
-        const design = await createDesign(app);
-        await gotoEditor(page, design.id);
-        const result = await dragHeld(
-          page,
-          design.primaryId,
-          cell.source,
-          cell.target,
-          { axis: "horizontal", targetEdge: cell.targetEdge },
-        );
-        expect(result.during.display).toBe("block");
-        expect(result.during.height).toBeGreaterThan(result.during.width);
-        expect(await fileHtml(request, design.id, design.primaryId)).toContain(
-          'data-agent-native-node-id="hrow"',
-        );
-        await assertReloadedOrder(
-          page,
-          design.primaryId,
-          "hrow",
-          cell.expected,
-        );
-      });
-    }
-  });
+  const horizontalSlotCells = [
+    {
+      slot: "first",
+      source: "h-last",
+      target: "h-first",
+      targetEdge: "leading" as const,
+      expected: ["h-last", "h-first", "h-middle"],
+    },
+    {
+      slot: "middle",
+      source: "h-first",
+      target: "h-middle",
+      targetEdge: "center" as const,
+      expected: ["h-middle", "h-first", "h-last"],
+    },
+    {
+      slot: "end",
+      source: "h-first",
+      target: "h-last",
+      targetEdge: "trailing" as const,
+      expected: ["h-middle", "h-last", "h-first"],
+    },
+  ];
+
+  for (const cell of horizontalSlotCells) {
+    test(`horizontal nowrap ${cell.slot} slot exposes a held marker and persists`, async ({
+      app,
+      page,
+      request,
+    }) => {
+      const design = await createDesign(app);
+      await gotoEditor(page, design.id);
+      const result = await dragHeld(
+        page,
+        design.primaryId,
+        cell.source,
+        cell.target,
+        { axis: "horizontal", targetEdge: cell.targetEdge },
+      );
+      expect(result.during.display).toBe("block");
+      expect(result.during.height).toBeGreaterThan(result.during.width);
+      expect(await fileHtml(request, design.id, design.primaryId)).toContain(
+        'data-agent-native-node-id="hrow"',
+      );
+      await assertReloadedOrder(page, design.primaryId, "hrow", cell.expected);
+    });
+  }
 
   test("vertical center and trailing insertion keep held guides and exact reload geometry", async ({
     app,
