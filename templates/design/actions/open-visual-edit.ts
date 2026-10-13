@@ -575,17 +575,14 @@ export default defineAction({
       let createdDesign = false;
       let publicReadOnly = false;
       if (!designId) {
-        const design = await createDesignAction.run(
-          {
-            title: args.title ?? `${new URL(devServerUrl).host} visual edit`,
-            description:
-              args.description ??
-              "URL-backed localhost screens prepared by visual-edit.",
-            projectType: "prototype",
-            creationMethod: "import_url",
-          },
-          ctx,
-        );
+        const design = await createDesignAction.run({
+          title: args.title ?? `${new URL(devServerUrl).host} visual edit`,
+          description:
+            args.description ??
+            "URL-backed localhost screens prepared by visual-edit.",
+          projectType: "prototype",
+          creationMethod: "import_url",
+        });
         designId = design.id;
         createdDesign = true;
         if (args.publicReadOnly && isLoopbackUrl(devServerUrl)) {
