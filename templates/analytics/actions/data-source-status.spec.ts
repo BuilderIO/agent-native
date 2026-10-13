@@ -402,8 +402,8 @@ describe("data-source-status", () => {
   });
 
   it("does not describe optional-only credentials as configured credentials", async () => {
-    mocks.hasCredential.mockImplementation(async (key: string) =>
-      key === "ANALYTICS_BIGQUERY_EVENTS_TABLE",
+    mocks.hasCredential.mockImplementation(
+      async (key: string) => key === "ANALYTICS_BIGQUERY_EVENTS_TABLE",
     );
     mocks.workspaceSummaryByProvider.bigquery = {
       ...mocks.workspaceSummary,
