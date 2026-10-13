@@ -2453,9 +2453,13 @@ export default defineAction({
           const candidateFilename = sql<string>`left(${schema.designFiles.filename}, ${DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS + 1})`;
           const candidateContentBytes = sql<number>`octet_length(left(${schema.designFiles.content}, ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1}))`;
           const preferredCandidatePriority = sql<number>`case
-            when ${schema.designFiles.filename} ~* '\\.(css|scss|less)$' then 0
-            when ${schema.designFiles.filename} ~* '\\.json$' then 1
-            else 2
+            when ${schema.designFiles.filename} ~* '\\.(css|scss|less)$'
+              and ${schema.designFiles.filename} ~* '(token|theme|global|variable|design[-_]?system|tailwind|color|palette)' then 0
+            when ${schema.designFiles.filename} ~* '\\.(css|scss|less)$' then 1
+            when ${schema.designFiles.filename} ~* '\\.json$'
+              and ${schema.designFiles.filename} ~* '(token|theme|global|variable|design[-_]?system|tailwind|color|palette)' then 2
+            when ${schema.designFiles.filename} ~* '\\.json$' then 3
+            else 4
           end`;
           const boundedFilename = sql`char_length(${candidateFilename}) <= ${DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS}`;
           const htmlCandidates = await tx

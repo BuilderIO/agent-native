@@ -289,13 +289,15 @@ describe("import-design-tokens", () => {
       "css|scss|less|json|md|mdx|txt",
     );
     const fileOrder = mockOrderBy.mock.calls[1] as
-      | { column?: { strings?: string[] } }[]
+      | { kind?: string; column?: { strings?: string[] } }[]
       | undefined;
     expect(fileOrder?.[0]?.column?.strings?.join("")).toContain("case");
     expect(fileOrder?.[0]?.column?.strings?.join("")).toContain(
       "css|scss|less",
     );
     expect(fileOrder?.[0]?.column?.strings?.join("")).toContain("json");
+    expect(fileOrder?.[0]?.column?.strings?.join("")).toContain("token|theme");
+    expect(fileOrder?.[1]?.kind).toBe("asc");
     expect(fileOrder?.[1]?.column?.strings?.join("")).toContain(
       "octet_length(left(",
     );
@@ -341,11 +343,12 @@ describe("import-design-tokens", () => {
     });
 
     const preferredOrder = mockOrderBy.mock.calls[1] as
-      | { column?: { strings?: string[] } }[]
+      | { kind?: string; column?: { strings?: string[] } }[]
       | undefined;
     expect(preferredOrder?.[0]?.column?.strings?.join("")).toContain(
       "css|scss|less",
     );
+    expect(preferredOrder?.[1]?.kind).toBe("asc");
     expect(preferredOrder?.[1]?.column?.strings?.join("")).toContain(
       "octet_length(left(",
     );
@@ -358,6 +361,77 @@ describe("import-design-tokens", () => {
       }),
     );
     expect(result.omittedFileCount).toBe(2);
+  });
+
+  it("keeps a named token stylesheet and HTML screen under the file cap", async () => {
+    const primaryContent = `:root { --spacing-primary: 8px; }${" ".repeat(80)}`;
+    const primaryStylesheet = {
+      id: "primary",
+      filename: "tokens.css",
+      content: primaryContent,
+    };
+    const smallStylesheets = Array.from(
+      { length: DESIGN_TOKEN_IMPORT_MAX_FILES - 1 },
+      (_, index) => ({
+        id: `component-${index}`,
+        filename: `component-${index}.css`,
+        content: `:root { --spacing-component-${index}: 1px; }`,
+      }),
+    );
+    const screen = {
+      id: "screen",
+      filename: "screen.html",
+      content: "<main>Screen</main>",
+    };
+    const rankedCandidates = [primaryStylesheet, ...smallStylesheets];
+    mockWhere
+      .mockResolvedValueOnce([{ fileCount: rankedCandidates.length + 1 }])
+      .mockResolvedValueOnce([
+        {
+          id: screen.id,
+          filename: screen.filename,
+          contentBytes: new TextEncoder().encode(screen.content).length,
+        },
+      ])
+      .mockResolvedValueOnce(
+        rankedCandidates.map(({ id, filename, content }) => ({
+          id,
+          filename,
+          contentBytes: new TextEncoder().encode(content).length,
+        })),
+      )
+      .mockResolvedValueOnce(
+        [...rankedCandidates, screen].map(({ id, content }) => ({
+          id,
+          content,
+        })),
+      );
+
+    const result = await action.run({
+      designId: "design_1",
+      source: "current-design",
+    });
+
+    const preferredOrder = mockOrderBy.mock.calls[1] as
+      | { kind?: string; column?: { strings?: string[] } }[]
+      | undefined;
+    expect(preferredOrder?.[0]?.column?.strings?.join("")).toContain(
+      "token|theme|global|variable",
+    );
+    expect(preferredOrder?.[1]?.kind).toBe("asc");
+    expect(preferredOrder?.[1]?.column?.strings?.join("")).toContain(
+      "octet_length(left(",
+    );
+    expect(result.filesAnalyzed).toHaveLength(DESIGN_TOKEN_IMPORT_MAX_FILES);
+    expect(result.filesAnalyzed).toContain("tokens.css");
+    expect(result.filesAnalyzed).toContain("screen.html");
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--spacing-primary",
+        value: "8px",
+      }),
+    );
+    expect(result.omittedFileCount).toBe(1);
   });
 
   it("filters oversized current-design candidates before the row limit", async () => {
