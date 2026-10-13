@@ -107,9 +107,7 @@ export default defineAction({
       content = await parsePlanMdxFolder(args.mdx, {
         allowStoredLegacyDefaults: previousContent != null,
         salvageInvalidBlocks: args.kind === "recap",
-        ...(args.kind === "recap" || previousContent != null
-          ? { validateAuthoringChangesAgainst: previousContent ?? null }
-          : {}),
+        validateAuthoringChangesAgainst: previousContent ?? null,
       });
       if (args.kind === "recap") {
         assertRecapWireframesHaveContent(content);

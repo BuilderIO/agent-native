@@ -222,6 +222,31 @@ describe("import-visual-plan-source stored legacy defaults", () => {
     });
   });
 
+  it("rejects missing required fields in fresh ordinary imports", async () => {
+    await expect(
+      runAction({
+        kind: "plan",
+        mdx: {
+          "plan.mdx": [
+            "---",
+            'title: "New authored plan"',
+            'kind: "plan"',
+            "version: 2",
+            "---",
+            "",
+            '<Checklist id="missing-items" />',
+            "",
+            '<QuestionForm id="questions" questions={[]} />',
+          ].join("\n"),
+        },
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 422,
+      message: expect.stringContaining("checklist blocks require data.items"),
+    });
+    expect(insertMock).not.toHaveBeenCalled();
+  });
+
   it("keeps hosted replacements strict when the stored content is null", async () => {
     state.content = null;
 
