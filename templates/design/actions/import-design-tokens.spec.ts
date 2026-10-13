@@ -29,6 +29,11 @@ vi.mock("drizzle-orm", () => ({
   asc: vi.fn((column) => ({ kind: "asc", column })),
   eq: vi.fn(() => ({ kind: "eq" })),
   inArray: vi.fn((column, values) => ({ kind: "inArray", column, values })),
+  notInArray: vi.fn((column, values) => ({
+    kind: "notInArray",
+    column,
+    values,
+  })),
   isNull: vi.fn(() => ({ kind: "isNull" })),
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
@@ -305,6 +310,41 @@ describe("import-design-tokens", () => {
     expect(result.omittedFileCount).toBe(1);
   });
 
+  it("does not count unsupported design assets as import omissions", async () => {
+    mockWhere
+      .mockResolvedValueOnce([{ fileCount: 2 }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: "tokens",
+          filename: "tokens.css",
+          contentBytes: 10,
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { id: "tokens", content: ":root { --spacing-gap: 8px; }" },
+      ]);
+
+    const result = await action.run({
+      designId: "design_1",
+      source: "current-design",
+    });
+
+    const countFilter = mockWhere.mock.calls[0]?.[0] as {
+      conditions?: { strings?: string[] }[];
+    };
+    expect(countFilter.conditions?.[1]?.strings?.join("")).toContain(
+      "css|scss|less|json|md|mdx|txt|html?|tsx?",
+    );
+    const fallbackFilter = mockWhere.mock.calls[3]?.[0] as {
+      conditions?: { strings?: string[] }[];
+    };
+    expect(fallbackFilter.conditions?.[2]?.strings?.join("")).toContain("tsx?");
+    expect(result.filesAnalyzed).toEqual(["tokens.css"]);
+    expect(result.omittedFileCount).toBe(1);
+  });
+
   it("prioritizes token stylesheets over small notes before the file cap", async () => {
     const stylesheet = {
       id: "tokens-css",
@@ -545,6 +585,7 @@ describe("import-design-tokens", () => {
       .mockResolvedValueOnce([{ fileCount: DESIGN_TOKEN_IMPORT_MAX_FILES + 2 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce(oversizedCandidates)
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         { id: "small", filename: "tokens.md", contentBytes: 10 },
       ])
@@ -560,14 +601,14 @@ describe("import-design-tokens", () => {
     const preferredFilter = mockWhere.mock.calls[2]?.[0] as {
       conditions?: { strings?: string[]; values?: { strings?: string[] }[] }[];
     };
-    const fallbackFilter = mockWhere.mock.calls[3]?.[0] as {
+    const fallbackFilter = mockWhere.mock.calls[4]?.[0] as {
       conditions?: { strings?: string[] }[];
     };
     expect(
       preferredFilter.conditions?.[2]?.values?.[0]?.strings?.join(""),
     ).toContain("octet_length(left(");
-    expect(fallbackFilter.conditions?.[3]?.strings?.join("")).toContain("!~*");
-    expect(mockWhere.mock.calls[4]?.[0]).toMatchObject({
+    expect(fallbackFilter.conditions?.[4]?.strings?.join("")).toContain("!~*");
+    expect(mockWhere.mock.calls[5]?.[0]).toMatchObject({
       kind: "inArray",
       values: ["small"],
     });
@@ -579,6 +620,71 @@ describe("import-design-tokens", () => {
         value: "#2563eb",
       }),
     );
+  });
+
+  it("continues preferred selection past the initial file cap", async () => {
+    const makeCss = (name: string, bytes: number) => {
+      const declaration = `:root { --spacing-${name}: 1px; }`;
+      return declaration + " ".repeat(bytes - declaration.length);
+    };
+    const primary = Array.from(
+      { length: DESIGN_TOKEN_IMPORT_MAX_FILES },
+      (_, index) => ({
+        id: `primary-${index}`,
+        filename: `tokens-${index}.css`,
+        content: makeCss(`primary-${index}`, 26_000),
+      }),
+    );
+    const later = {
+      id: "later",
+      filename: "app.css",
+      content: makeCss("later", 10_000),
+    };
+    const firstPage = primary.map(({ id, filename, content }) => ({
+      id,
+      filename,
+      contentBytes: new TextEncoder().encode(content).length,
+    }));
+    const selectedBeforeContinuation = primary.slice(
+      0,
+      Math.floor(DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES / 26_000),
+    );
+    const selected = [...selectedBeforeContinuation, later];
+
+    mockWhere
+      .mockResolvedValueOnce([{ fileCount: primary.length + 1 }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(firstPage)
+      .mockResolvedValueOnce([
+        {
+          id: later.id,
+          filename: later.filename,
+          contentBytes: new TextEncoder().encode(later.content).length,
+        },
+      ])
+      .mockResolvedValueOnce(
+        selected.map(({ id, content }) => ({ id, content })),
+      );
+
+    const result = await action.run({
+      designId: "design_1",
+      source: "current-design",
+    });
+
+    expect(mockWhere.mock.calls[3]?.[0]).toMatchObject({
+      kind: "and",
+      conditions: expect.arrayContaining([
+        expect.objectContaining({ kind: "notInArray" }),
+      ]),
+    });
+    expect(result.filesAnalyzed).toContain("app.css");
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--spacing-later",
+        value: "1px",
+      }),
+    );
+    expect(result.omittedFileCount).toBe(1);
   });
 
   it("bounds pasted text by UTF-8 bytes before action execution", () => {
@@ -683,6 +789,19 @@ button:focus-visible {
     );
   });
 
+  it("does not strip an incomplete CSS line that resembles a prose label", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: "Primary color: #2563eb {\n  --color-accent: #2563eb;",
+    });
+
+    expect(result.filesAnalyzed).toEqual([]);
+    expect(result.tokens).toEqual([]);
+    expect(result.skippedCount).toBe(1);
+    expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({});
+  });
+
   it("imports token files with filenames preserved", async () => {
     const result = await action.run({
       designId: "design_1",
@@ -740,6 +859,40 @@ button:focus-visible {
           expect.objectContaining({ value: "#ffffff", type: "color" }),
           expect.objectContaining({ value: "#000000", type: "color" }),
         ]),
+      );
+    },
+  );
+
+  it.each([
+    ["a CSS file", "files"],
+    ["pasted CSS", "paste"],
+  ] as const)(
+    "preserves multiline custom-property values in %s",
+    async (_label, source) => {
+      const css = [
+        ":root {",
+        "  --spacing-multiline: calc(",
+        "    8px +",
+        "    4px",
+        "  );",
+        "}",
+      ].join("\n");
+      const result = await action.run(
+        source === "files"
+          ? {
+              designId: "design_1",
+              source,
+              files: [{ filename: "theme.css", content: css }],
+            }
+          : { designId: "design_1", source, text: css },
+      );
+
+      expect(result.tokens).toContainEqual(
+        expect.objectContaining({
+          cssVar: "--spacing-multiline",
+          value: "calc( 8px + 4px )",
+          type: "spacing",
+        }),
       );
     },
   );
@@ -854,6 +1007,25 @@ font-family: 'Inter;
     expect(result.rejectedCount).toBe(1);
     expect(result.tokens).not.toContainEqual(
       expect.objectContaining({ cssVar: "--color-inline-panel" }),
+    );
+  });
+
+  it("does not re-expose rejected style content from overlapping HTML ranges", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "screen.html",
+          content:
+            '<style style="first" style="second">:root { --color-leaked: #123456; font-family: "Inter; }</style>',
+        },
+      ],
+    });
+
+    expect(result.rejectedCount).toBe(2);
+    expect(result.tokens).not.toContainEqual(
+      expect.objectContaining({ cssVar: "--color-leaked" }),
     );
   });
 
@@ -1664,6 +1836,39 @@ Bad radius: 12px} body { color: red
     );
   });
 
+  it("accepts valid color functions containing substitutions", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: `:root {
+  --color-rgb-channels: rgb(var(--channels));
+  --color-rgb-fallback: rgb(var(--channels, 0 0 0));
+  --color-hsl-channel: hsl(var(--hue) 50% 50%);
+  --color-mix-substitution: color-mix(in srgb, var(--color-base), red);
+  --color-invalid-rgb-substitution: rgb(var(--channels) nope);
+  --color-invalid-rgb-fallback: rgb(var(--channels, nope));
+  --color-invalid-rgb-word: rgb(not-a-color);
+}`,
+    });
+
+    expect(result.tokens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ cssVar: "--color-rgb-channels" }),
+        expect.objectContaining({ cssVar: "--color-rgb-fallback" }),
+        expect.objectContaining({ cssVar: "--color-hsl-channel" }),
+        expect.objectContaining({ cssVar: "--color-mix-substitution" }),
+      ]),
+    );
+    expect(result.tokens).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ cssVar: "--color-invalid-rgb-substitution" }),
+        expect.objectContaining({ cssVar: "--color-invalid-rgb-fallback" }),
+        expect.objectContaining({ cssVar: "--color-invalid-rgb-word" }),
+      ]),
+    );
+    expect(result.rejectedCount).toBe(3);
+  });
+
   it("rejects malformed colors, markup, URL payloads, and oversized values", async () => {
     const longValue = "a".repeat(301);
     const result = await action.run({
@@ -1700,11 +1905,15 @@ Bad radius: 12px} body { color: red
   --custom-image-set: image-set("https://example.com/image.png" 1x);
   --custom-prefixed-image-set: -webkit-image-set("https://example.com/image.png" 1x);
   --custom-escaped-image-set: image-set("https\\3a //example.com/image.png" 1x);
+  --custom-root-relative-image: image("/api/action");
+  --custom-root-relative-image-set: image-set("/api/action" 1x);
+  --custom-relative-image-set: image-set("../image.png" 1x);
+  --custom-filename-image-set: image-set("theme.png" 2x);
 }`,
     });
 
     expect(result.importedCount).toBe(0);
-    expect(result.rejectedCount).toBe(7);
+    expect(result.rejectedCount).toBe(11);
     expect(result.tokens).toEqual([]);
   });
 

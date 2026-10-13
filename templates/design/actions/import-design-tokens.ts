@@ -12,7 +12,7 @@ import {
 } from "@agent-native/core/server/design-token-utils";
 import { assertAccess } from "@agent-native/core/sharing";
 import * as csstree from "css-tree";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { parse as parseHtml } from "parse5";
 import postcss from "postcss";
@@ -316,6 +316,81 @@ function addLooseTextSignals(
   }
 }
 
+function addCssCustomPropertiesFromRoot(
+  state: ReturnType<typeof createCodeAnalysisState>,
+  root: postcss.Root | postcss.Document,
+): void {
+  if (root.type === "document") {
+    root.nodes.forEach((child) => addCssCustomPropertiesFromRoot(state, child));
+    return;
+  }
+
+  root.walkDecls((declaration) => {
+    if (!declaration.prop.startsWith("--")) return;
+
+    const name = declaration.prop.slice(2);
+    const value = normalizeCssCustomPropertyWhitespace(declaration.value);
+    state.cssCustomProperties[declaration.prop] = value;
+    if (
+      /color|bg|background|text|border|accent|primary|secondary|surface|muted|foreground/i.test(
+        name,
+      )
+    ) {
+      state.colors[declaration.prop] = value;
+    } else if (/spacing|gap|padding|margin|space/i.test(name)) {
+      state.spacing[declaration.prop] = value;
+    } else if (/radius|rounded/i.test(name)) {
+      state.borderRadius[declaration.prop] = value;
+    }
+  });
+}
+
+function normalizeCssCustomPropertyWhitespace(value: string): string {
+  let normalized = "";
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+  let pendingWhitespace = false;
+
+  for (const char of value) {
+    if (quote) {
+      normalized += char;
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+
+    if (char === "'" || char === '"') {
+      if (pendingWhitespace && normalized) normalized += " ";
+      pendingWhitespace = false;
+      quote = char;
+      normalized += char;
+    } else if (/\s/.test(char)) {
+      pendingWhitespace = true;
+    } else {
+      if (pendingWhitespace && normalized) normalized += " ";
+      pendingWhitespace = false;
+      normalized += char;
+    }
+  }
+
+  return normalized.trim();
+}
+
+function addStylesheetCustomProperties(
+  state: ReturnType<typeof createCodeAnalysisState>,
+  filename: string,
+  content: string,
+): void {
+  const lowerFilename = filename.toLowerCase();
+  const root = lowerFilename.endsWith(".less")
+    ? postcssLess.parse(content)
+    : lowerFilename.endsWith(".scss")
+      ? postcssScss.parse(content)
+      : postcss.parse(content);
+  addCssCustomPropertiesFromRoot(state, root);
+}
+
 const MAX_TOKEN_LABEL_LINE_LENGTH = 220;
 const TOKEN_LABEL_LINE =
   /^(?:[-*]\s*)?(?:\*\*)?([A-Za-z][\w\s/().&'’.-]{1,64}?)(?:\*\*)?\s*[:=]\s*(.+?)\s*$/;
@@ -583,10 +658,13 @@ function pastedStylesheetCssCandidate(content: string): string | null {
 
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.trim();
+    const openingBraceCount = (line.match(/{/g) ?? []).length;
+    const closingBraceCount = (line.match(/}/g) ?? []).length;
     if (
       !quote &&
       !inBlockComment &&
       depth === 0 &&
+      openingBraceCount === closingBraceCount &&
       isProseTokenLabelLine(line)
     ) {
       changed = true;
@@ -1088,6 +1166,10 @@ function prepareHtmlImport(content: string): {
   let cursor = 0;
   sourceRanges.sort((left, right) => left.start - right.start);
   for (const range of sourceRanges) {
+    if (range.start < cursor) {
+      cursor = Math.max(cursor, range.end);
+      continue;
+    }
     proseContent += content.slice(cursor, range.start) + "\n";
     cursor = range.end;
   }
@@ -2080,6 +2162,13 @@ function isValidCssColor(value: string): boolean {
   if (csstree.lexer.matchType("color", normalized).matched) return true;
 
   if (isValidRelativeCssColor(normalized)) return true;
+  if (
+    functionName !== "var" &&
+    hasValidCssMathFunctionSyntax(normalized) &&
+    isValidCssColorWithSubstitutions(normalized)
+  ) {
+    return true;
+  }
 
   const args = readSingleCssFunctionArguments(normalized, "var");
   if (args === null) return false;
@@ -2088,6 +2177,108 @@ function isValidCssColor(value: string): boolean {
   return (
     fallbackParts.length === 0 || isValidCssColor(fallbackParts.join(", "))
   );
+}
+
+function isValidCssColorWithSubstitutions(value: string): boolean {
+  const ranges: { end: number; fallback?: string; start: number }[] = [];
+  let valid = true;
+
+  csstree.tokenize(value, (type, start, end) => {
+    if (!valid || type !== csstree.tokenTypes.Function) return;
+    const name = csstree.ident
+      .decode(value.slice(start, end - 1))
+      .toLowerCase();
+    if (!["var", "env", "attr"].includes(name)) return;
+
+    const functionValue = readCssFunctionAt(value, end);
+    if (
+      !functionValue ||
+      !isValidCssSubstitutionFunction(name, functionValue.args)
+    ) {
+      valid = false;
+      return;
+    }
+    const parts = splitCssFunctionArguments(functionValue.args);
+    ranges.push({
+      start,
+      end: functionValue.end,
+      ...(parts.length > 1
+        ? { fallback: parts.slice(1).join(",").trim() }
+        : {}),
+    });
+  });
+
+  if (!valid || ranges.length === 0) return false;
+
+  const outermostRanges: { end: number; fallback?: string; start: number }[] =
+    [];
+  for (const range of ranges.sort((left, right) => left.start - right.start)) {
+    const parent = outermostRanges[outermostRanges.length - 1];
+    if (parent && range.start < parent.end) continue;
+    outermostRanges.push(range);
+  }
+  if (outermostRanges.length > 5) return false;
+
+  const replacements = ["0", "0 0 0", "red"];
+  const hasValidReplacement = (
+    index: number,
+    values: string[],
+    fixedIndex = -1,
+    fixedValue = "",
+  ): boolean => {
+    if (index === outermostRanges.length) {
+      let candidate = value;
+      for (
+        let rangeIndex = outermostRanges.length - 1;
+        rangeIndex >= 0;
+        rangeIndex -= 1
+      ) {
+        const range = outermostRanges[rangeIndex]!;
+        candidate =
+          candidate.slice(0, range.start) +
+          values[rangeIndex] +
+          candidate.slice(range.end);
+      }
+      return csstree.lexer.matchType("color", candidate).matched !== null;
+    }
+
+    if (index === fixedIndex) {
+      values[index] = fixedValue;
+      return hasValidReplacement(index + 1, values, fixedIndex, fixedValue);
+    }
+
+    for (const replacement of replacements) {
+      values[index] = replacement;
+      if (hasValidReplacement(index + 1, values, fixedIndex, fixedValue)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  for (const [index, range] of outermostRanges.entries()) {
+    if (
+      range.fallback !== undefined &&
+      !hasCssSubstitutionFunction(range.fallback) &&
+      !hasValidReplacement(0, [], index, range.fallback)
+    ) {
+      return false;
+    }
+  }
+
+  return hasValidReplacement(0, []);
+}
+
+function hasCssSubstitutionFunction(value: string): boolean {
+  let found = false;
+  csstree.tokenize(value, (type, start, end) => {
+    if (type !== csstree.tokenTypes.Function) return;
+    const name = csstree.ident
+      .decode(value.slice(start, end - 1))
+      .toLowerCase();
+    if (["var", "env", "attr"].includes(name)) found = true;
+  });
+  return found;
 }
 
 function isValidRelativeCssColor(value: string): boolean {
@@ -2235,10 +2426,7 @@ function hasUnsafeCssValueFunction(value: string): boolean {
 
       csstree.walk(node, (child) => {
         if (child.type !== "String") return;
-        const source = csstree.string.decode(child.value).trim();
-        if (/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(source)) {
-          unsafe = true;
-        }
+        unsafe = true;
       });
     });
   } catch (error) {
@@ -2328,9 +2516,40 @@ function tokensFromFiles(
         : file.filename;
     analyzeCodeFile(state, analysisFilename, file.content);
     addLooseTextSignals(state, file.filename, file.content);
+    if (/\.(css|scss|less)$/.test(file.filename.toLowerCase())) {
+      addStylesheetCustomProperties(state, file.filename, file.content);
+    } else if (
+      file.filename.toLowerCase() === "pasted-tokens.txt" &&
+      looksLikePastedCss(file.content)
+    ) {
+      const tokenListCandidate = pastedTokenListCssCandidate(file.content);
+      const stylesheetCandidate = pastedStylesheetCssCandidate(file.content);
+      const candidates = [
+        file.content,
+        ...(tokenListCandidate ? [tokenListCandidate] : []),
+        ...(stylesheetCandidate ? [stylesheetCandidate] : []),
+      ];
+      let extracted = false;
+      for (const candidate of candidates) {
+        try {
+          addStylesheetCustomProperties(state, "pasted.css", candidate);
+          extracted = true;
+          break;
+        } catch (error) {
+          if (!(error instanceof Error) || error.name !== "CssSyntaxError") {
+            throw error;
+          }
+        }
+      }
+      if (!extracted) {
+        // guard:allow-bare-error — invariant: a validated CSS candidate must remain parseable.
+        throw new Error("Validated pasted CSS could not be parsed");
+      }
+    }
     for (const stylesheet of file.embeddedStylesheets) {
       analyzeCodeFile(state, "embedded-style.css", stylesheet);
       addLooseTextSignals(state, "embedded-style.css", stylesheet);
+      addStylesheetCustomProperties(state, "embedded-style.css", stylesheet);
     }
   }
 
@@ -2446,10 +2665,16 @@ export default defineAction({
     if (source === "current-design") {
       const result = await db.transaction(
         async (tx) => {
+          const currentDesignCandidateFilename = sql`${schema.designFiles.filename} ~* '\\.(css|scss|less|json|md|mdx|txt|html?|tsx?|jsx?|mjs|cjs|mts|cts|vue|svelte|astro|yaml|yml|toml)$'`;
           const countRows = await tx
             .select({ fileCount: sql<number>`count(*)::int` })
             .from(schema.designFiles)
-            .where(eq(schema.designFiles.designId, designId));
+            .where(
+              and(
+                eq(schema.designFiles.designId, designId),
+                currentDesignCandidateFilename,
+              ),
+            );
           const candidateFilename = sql<string>`left(${schema.designFiles.filename}, ${DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS + 1})`;
           const candidateContentBytes = sql<number>`octet_length(left(${schema.designFiles.content}, ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1}))`;
           const preferredCandidatePriority = sql<number>`case
@@ -2532,6 +2757,58 @@ export default defineAction({
             preferredCandidates.slice(primaryPreferredCandidates.length),
           );
           if (
+            preferredCandidates.length >= DESIGN_TOKEN_IMPORT_MAX_FILES &&
+            selected.length < DESIGN_TOKEN_IMPORT_MAX_FILES &&
+            totalBytes < DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES
+          ) {
+            let candidatesExhausted = false;
+            while (
+              !candidatesExhausted &&
+              selected.length < DESIGN_TOKEN_IMPORT_MAX_FILES &&
+              totalBytes < DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES
+            ) {
+              const availableSlots =
+                DESIGN_TOKEN_IMPORT_MAX_FILES - selected.length;
+              const additionalCandidates = await tx
+                .select({
+                  id: schema.designFiles.id,
+                  filename: candidateFilename,
+                  contentBytes: candidateContentBytes,
+                })
+                .from(schema.designFiles)
+                .where(
+                  and(
+                    eq(schema.designFiles.designId, designId),
+                    boundedFilename,
+                    sql`${candidateContentBytes} <= ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES - totalBytes}`,
+                    sql`${schema.designFiles.filename} ~* '\\.(css|scss|less|json|md|mdx|txt)$'`,
+                    ...(selected.length > 0
+                      ? [
+                          notInArray(
+                            schema.designFiles.id,
+                            selected.map(({ id }) => id),
+                          ),
+                        ]
+                      : []),
+                  ),
+                )
+                .orderBy(
+                  asc(preferredCandidatePriority),
+                  asc(candidateContentBytes),
+                  asc(schema.designFiles.filename),
+                  asc(schema.designFiles.id),
+                )
+                .limit(availableSlots);
+              if (additionalCandidates.length === 0) break;
+
+              const previousSelectionLength = selected.length;
+              addCandidates(additionalCandidates);
+              candidatesExhausted =
+                additionalCandidates.length < availableSlots;
+              if (selected.length === previousSelectionLength) break;
+            }
+          }
+          if (
             selected.length < DESIGN_TOKEN_IMPORT_MAX_FILES &&
             totalBytes < DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES
           ) {
@@ -2546,6 +2823,7 @@ export default defineAction({
                 and(
                   eq(schema.designFiles.designId, designId),
                   boundedFilename,
+                  currentDesignCandidateFilename,
                   sql`${candidateContentBytes} <= ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES - totalBytes}`,
                   sql`${schema.designFiles.filename} !~* '\\.(css|scss|less|json|md|mdx|txt|html?)$'`,
                 ),
