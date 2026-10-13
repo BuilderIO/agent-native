@@ -39,15 +39,23 @@ describe("importUploadedDeckIntoDeck", () => {
       slideCount: 8,
     });
     const onImportStarted = vi.fn();
+    const onImportResultKnown = vi.fn();
 
     await expect(
-      importUploadedDeckIntoDeck([pptxFile], "deck-1", { onImportStarted }),
+      importUploadedDeckIntoDeck([pptxFile], "deck-1", {
+        onImportStarted,
+        onImportResultKnown,
+      }),
     ).resolves.toMatchObject({
       format: "pptx",
       slideCount: 8,
       file: pptxFile,
     });
     expect(onImportStarted).toHaveBeenCalledOnce();
+    expect(onImportResultKnown).toHaveBeenCalledWith({
+      slideCount: 8,
+      imagesSkipped: 0,
+    });
     expect(mockCallAction).toHaveBeenCalledWith(
       "import-pptx",
       {
@@ -102,5 +110,44 @@ describe("importUploadedDeckIntoDeck", () => {
     await expect(
       importUploadedDeckIntoDeck([pptxFile], "deck-1"),
     ).rejects.toThrow("could not preserve 2 image(s)");
+  });
+
+  it("reports a resolved empty import before rejecting it", async () => {
+    mockCallAction.mockResolvedValue({
+      imported: true,
+      deckId: "deck-1",
+      slideCount: 0,
+    });
+    const onImportStarted = vi.fn();
+    const onImportResultKnown = vi.fn();
+
+    await expect(
+      importUploadedDeckIntoDeck([pptxFile], "deck-1", {
+        onImportStarted,
+        onImportResultKnown,
+      }),
+    ).rejects.toThrow("contained no importable slides");
+
+    expect(onImportStarted).toHaveBeenCalledOnce();
+    expect(onImportResultKnown).toHaveBeenCalledWith({
+      slideCount: 0,
+      imagesSkipped: 0,
+    });
+  });
+
+  it("leaves an import result unknown when the action fails", async () => {
+    mockCallAction.mockRejectedValue(new Error("import failed"));
+    const onImportStarted = vi.fn();
+    const onImportResultKnown = vi.fn();
+
+    await expect(
+      importUploadedDeckIntoDeck([pptxFile], "deck-1", {
+        onImportStarted,
+        onImportResultKnown,
+      }),
+    ).rejects.toThrow("import failed");
+
+    expect(onImportStarted).toHaveBeenCalledOnce();
+    expect(onImportResultKnown).not.toHaveBeenCalled();
   });
 });

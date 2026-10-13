@@ -1341,6 +1341,58 @@ describe("startDeckGeneration", () => {
     );
   });
 
+  it("deletes a source deck when a completed import contains no slides", async () => {
+    mockCallAction.mockReset().mockResolvedValue({
+      imported: true,
+      deckId: "deck-empty-source-import",
+      slideCount: 0,
+    });
+    const deck = {
+      id: "deck-empty-source-import",
+      title: "Untitled Deck",
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+      slides: [],
+    };
+    const deleteDeck = vi.fn();
+    const onSetupFailure = vi.fn();
+
+    await expect(
+      startDeckGeneration({
+        session: { user: "owner@example.com" },
+        prompt: "Improve this presentation",
+        files: [
+          {
+            path: "/uploads/source.pptx",
+            originalName: "source.pptx",
+            filename: "source.pptx",
+            type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            size: 1024,
+          },
+        ],
+        designSystems: [],
+        createDeck: vi.fn(() => deck),
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck,
+        navigate: vi.fn(),
+        agentSubmit: vi.fn(),
+        onPromptClosed: vi.fn(),
+        onUnauthenticated: vi.fn(),
+        onPersistenceFailure: vi.fn(),
+        onSetupFailure,
+      }),
+    ).resolves.toBe("failed");
+
+    expect(deleteDeck).toHaveBeenCalledWith(deck.id);
+    expect(onSetupFailure).toHaveBeenCalledWith(
+      "Improve this presentation",
+      expect.any(Array),
+      expect.objectContaining({
+        message: expect.stringContaining("no importable slides"),
+      }),
+    );
+  });
+
   it("reads source deck references before importing or persisting", async () => {
     mockCallAction.mockReset();
     mockCallAction.mockImplementation(async (name: string) => {

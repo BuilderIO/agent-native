@@ -13,6 +13,10 @@ export const IMPORT_ACTION_TIMEOUT_MS = 5 * 60 * 1000;
 
 export interface ImportUploadedDeckOptions {
   onImportStarted?: () => void;
+  onImportResultKnown?: (result: {
+    slideCount: number;
+    imagesSkipped: number;
+  }) => void;
 }
 
 function sourceFormat(file: UploadedFile): "pdf" | "pptx" | null {
@@ -80,19 +84,32 @@ export async function importUploadedDeckIntoDeck(
   }
 
   const slideCount = result.slideCount;
-  if (typeof slideCount !== "number" || !Number.isInteger(slideCount)) {
+  if (
+    typeof slideCount !== "number" ||
+    !Number.isInteger(slideCount) ||
+    slideCount < 0
+  ) {
     throw new Error(
       `The ${format.toUpperCase()} import did not report a reliable slide count, so no source-preserving improvement was started.`,
     );
   }
+  const imagesSkipped = result.imagesSkipped ?? 0;
+  if (
+    typeof imagesSkipped !== "number" ||
+    !Number.isInteger(imagesSkipped) ||
+    imagesSkipped < 0
+  ) {
+    throw new Error(
+      `The ${format.toUpperCase()} import did not report a reliable image count, so no source-preserving improvement was started.`,
+    );
+  }
+  options.onImportResultKnown?.({ slideCount, imagesSkipped });
   if (slideCount < 1) {
     throw new Error(
       `The ${format.toUpperCase()} source deck contained no importable slides.`,
     );
   }
 
-  const imagesSkipped =
-    typeof result.imagesSkipped === "number" ? result.imagesSkipped : 0;
   if (imagesSkipped > 0) {
     throw new Error(
       `The ${format.toUpperCase()} source deck could not preserve ${imagesSkipped} image(s), so Slides stopped before restyling it. Re-export the deck with browser-renderable images, or upload a PDF for source-faithful page preservation.`,

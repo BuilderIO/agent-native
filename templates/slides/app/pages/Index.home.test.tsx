@@ -1442,7 +1442,7 @@ describe("Slides prompt-led home", () => {
     });
   });
 
-  it("preserves a source deck when import reports skipped images", async () => {
+  it("removes an incomplete source deck when import reports skipped images", async () => {
     const uploadedFile = {
       path: "/uploads/source.pptx",
       originalName: "source.pptx",
@@ -1489,8 +1489,120 @@ describe("Slides prompt-led home", () => {
       { filePath: uploadedFile.path, deckId: "new-deck" },
       expect.objectContaining({ timeoutMs: expect.any(Number) }),
     );
-    expect(deleteDeck).not.toHaveBeenCalled();
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
     expect(agentSubmit).not.toHaveBeenCalled();
+  });
+
+  it("removes an empty source deck when import reports no slides", async () => {
+    const uploadedSource = {
+      path: "/uploads/source.pptx",
+      originalName: "source.pptx",
+      filename: "source.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 32,
+    };
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "import-pptx") {
+        return { imported: true, deckId: "new-deck", slideCount: 0 };
+      }
+      if (action === "get-deck-reference-context") {
+        return {
+          agentContext: "Loaded reference deck context",
+          designSystemId: null,
+          linkedDesignSystemStatus: "none",
+        };
+      }
+      if (action === "get-design-system") {
+        return { agentContext: "Loaded design system context" };
+      }
+      return undefined;
+    });
+    const ensureDeckPersisted = vi.fn().mockResolvedValue({ persisted: true });
+    const deleteDeck = vi.fn();
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({ ensureDeckPersisted, deleteDeck });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Improve this presentation";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [uploadedSource],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(agentSubmit).not.toHaveBeenCalled();
+  });
+
+  it("removes an imported source deck if the agent cannot accept the prompt", async () => {
+    const uploadedSource = {
+      path: "/uploads/source.pptx",
+      originalName: "source.pptx",
+      filename: "source.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 32,
+    };
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "import-pptx") {
+        return { imported: true, deckId: "new-deck", slideCount: 3 };
+      }
+      if (action === "get-deck-reference-context") {
+        return {
+          agentContext: "Loaded reference deck context",
+          designSystemId: null,
+          linkedDesignSystemStatus: "none",
+        };
+      }
+      if (action === "get-design-system") {
+        return { agentContext: "Loaded design system context" };
+      }
+      return undefined;
+    });
+    agentSubmit.mockResolvedValueOnce({
+      delivered: false,
+      reason: "agent_unavailable",
+    });
+    const ensureDeckPersisted = vi.fn().mockResolvedValue({ persisted: true });
+    const deleteDeck = vi.fn();
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({ ensureDeckPersisted, deleteDeck });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Improve this presentation";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [uploadedSource],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(agentSubmit).toHaveBeenCalledOnce();
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
   });
 
   it("checks attached references before importing source slides", async () => {
