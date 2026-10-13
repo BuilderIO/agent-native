@@ -415,6 +415,7 @@ import {
   isCrossScreenDropPlacement,
   isCrossScreenGridPlacement,
   isCrossScreenHitTestAnchorRect,
+  isCrossScreenHitTestOrigin,
   isFinitePoint,
   isPointerInsideSourceIframe,
   isPortableStyleSnapshot,
@@ -3250,6 +3251,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             guideRect: isCrossScreenHitTestAnchorRect(ev.data.guideRect)
               ? ev.data.guideRect
               : undefined,
+            absoluteOrigin: isCrossScreenHitTestOrigin(ev.data.absoluteOrigin)
+              ? ev.data.absoluteOrigin
+              : undefined,
           };
           if (
             options.preview &&
@@ -3828,7 +3832,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             placement,
             dropMode,
             gridPlacement,
-            anchorRect,
+            absoluteOrigin,
           }) => {
             if (!isCurrentDrop()) {
               finishCommittedDrop();
@@ -3880,7 +3884,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               targetAnchorPlacement: placement,
               targetDropMode: dropMode,
               targetGridPlacement: gridPlacement,
-              targetAnchorRect: anchorRect,
+              targetAbsoluteOrigin: absoluteOrigin,
               targetCanvasPoint: lastBoardPoint,
               targetLocalPoint,
               targetOutsideBoardContentBounds,
@@ -3972,6 +3976,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           dropMode,
           gridPlacement,
           anchorRect,
+          absoluteOrigin,
         }) => {
           if (!isCurrentDrop()) {
             finishCommittedDrop();
@@ -3988,6 +3993,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             dropMode,
             gridPlacement,
             anchorRect,
+            absoluteOrigin,
           };
           let pathFrameAtRelease: Awaited<
             ReturnType<typeof resolveCrossScreenPathFrameHitAtRelease>
@@ -4051,7 +4057,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             targetAnchorPlacement,
             targetDropMode: resolvedHit.dropMode,
             targetGridPlacement: resolvedHit.gridPlacement,
-            targetAnchorRect: resolvedHit.anchorRect,
+            targetAbsoluteOrigin: resolvedHit.absoluteOrigin,
             targetCanvasPoint: lastBoardPoint,
             targetLocalPoint: targetLocalPoint ?? undefined,
             sourcePointerOffset: payload.sourcePointerOffset,

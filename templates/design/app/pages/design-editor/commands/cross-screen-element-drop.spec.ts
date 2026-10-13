@@ -398,21 +398,21 @@ describe("shouldAbsolutePlaceOnEmptyScreen", () => {
 });
 
 describe("absolutePlacePointForDrop", () => {
-  it("uses the pointer on an empty screen even when a stale anchor rect is present", () => {
+  it("uses the pointer on an empty screen even when a stale absolute origin is present", () => {
     expect(
       absolutePlacePointForDrop({
         placeAbsoluteOnEmptyScreen: true,
-        targetAnchorRect: { left: 180, top: 240 },
+        targetAbsoluteOrigin: { left: 180, top: 240 },
         targetLocalPoint: { x: 180, y: 240 },
       }),
     ).toEqual({ x: 180, y: 240 });
   });
 
-  it("subtracts the anchor origin when placing into a positioned container", () => {
+  it("subtracts the absolute origin when placing into a container", () => {
     expect(
       absolutePlacePointForDrop({
         placeAbsoluteOnEmptyScreen: false,
-        targetAnchorRect: { left: 100, top: 50 },
+        targetAbsoluteOrigin: { left: 100, top: 50 },
         targetLocalPoint: { x: 180, y: 240 },
       }),
     ).toEqual({ x: 80, y: 190 });
@@ -771,7 +771,7 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
             row: 2,
             rowEnd: 3,
           },
-          targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+          targetAbsoluteOrigin: { left: 100, top: 50 },
           targetLocalPoint: { x: 240, y: 300 },
           sourcePointerOffset: { x: 10, y: 12 },
           duplicate: true,
@@ -846,7 +846,7 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
         targetAnchorSelector: '[data-agent-native-node-id="frame-1"]',
         targetAnchorPlacement: "inside",
         targetDropMode: "absolute-container",
-        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetAbsoluteOrigin: { left: 100, top: 50 },
         targetLocalPoint: { x: 240, y: 300 },
         sourcePointerOffset: { x: 10, y: 12 },
         targetAnchorProvenance: { uniqueNodeId: "frame-1" },
@@ -998,7 +998,7 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
         targetAnchorProvenance: { uniqueNodeId: "frame-1" },
         targetAnchorPlacement: "inside",
         targetDropMode: "absolute-container",
-        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetAbsoluteOrigin: { left: 100, top: 50 },
         targetLocalPoint: { x: 240, y: 300 },
         sourcePointerOffset: { x: 10, y: 12 },
         duplicate: true,
@@ -1043,7 +1043,7 @@ describe("runCrossScreenElementDrop duplicate routing", () => {
         targetAnchorProvenance: { uniqueNodeId: "frame-1" },
         targetAnchorPlacement: "inside",
         targetDropMode: "absolute-container",
-        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetAbsoluteOrigin: { left: 100, top: 50 },
         targetLocalPoint: { x: 240, y: 300 },
         duplicate: true,
         sourceCloneHtml,
@@ -1294,7 +1294,7 @@ describe("runCrossScreenElementDrop shader publication preflight", () => {
         targetAnchorProvenance: { uniqueNodeId: "frame-1" },
         targetAnchorPlacement: "inside",
         targetDropMode: "absolute-container",
-        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetAbsoluteOrigin: { left: 100, top: 50 },
         targetLocalPoint: { x: 240, y: 300 },
         duplicate: true,
         sourceCloneHtml:
@@ -3098,7 +3098,7 @@ describe("runCrossScreenElementDrop — portable style capture failure", () => {
         targetAnchorSelector: "body",
         targetAnchorPlacement: "inside",
         targetDropMode: "absolute-container",
-        targetAnchorRect: { left: 100, top: 50, width: 400, height: 300 },
+        targetAbsoluteOrigin: { left: 100, top: 50 },
         targetLocalPoint: { x: 240, y: 300 },
         styleSnapshotCaptureFailed: true,
       },

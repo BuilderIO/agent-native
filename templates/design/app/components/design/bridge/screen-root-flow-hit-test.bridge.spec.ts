@@ -620,7 +620,7 @@ describe("Screen-root auto-layout hit testing", () => {
         anchorNodeId: "column",
         placement: "before",
         axis: "y",
-        dropMode: "flow-insert",
+        dropMode: "absolute-container",
       });
       expect(packets[4]).toMatchObject({
         correlationId: "reverse-column-fallback",
@@ -751,7 +751,7 @@ describe("Screen-root auto-layout hit testing", () => {
     }
   });
 
-  it("uses a fitting board-root flow slot when the direct auto-layout receiver is too small", async () => {
+  it("drops beside a too-small auto-layout receiver on a freeform board root, keeping the release point", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage({
@@ -792,7 +792,7 @@ describe("Screen-root auto-layout hit testing", () => {
         anchorNodeId: "root-flow",
         placement: "before",
         axis: "y",
-        dropMode: "flow-insert",
+        dropMode: "absolute-container",
       });
     } finally {
       await browser.close();
@@ -1067,7 +1067,7 @@ describe("Screen-root auto-layout hit testing", () => {
         correlationId: "transient-copy",
         anchorNodeId: "",
         placement: "inside",
-        dropMode: "flow-insert",
+        dropMode: "absolute-container",
       });
       expect(packet.pendingNodeId).toBeUndefined();
     } finally {
