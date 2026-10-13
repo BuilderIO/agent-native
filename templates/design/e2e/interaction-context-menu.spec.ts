@@ -270,7 +270,7 @@ test.describe("interaction: right-click canvas context menu", () => {
         .first();
       await rowButton.click({ button: "right" });
       const rowMenu = page.getByRole("menu").last();
-      const rename = rowMenu.getByRole("menuitem", { name: /^Rename layer/ });
+      const rename = rowMenu.getByRole("menuitem", { name: /^Rename/ });
       await expect(rename).toBeVisible();
       await rename.click();
       const renameInput = page.getByRole("textbox", { name: /rename/i });
