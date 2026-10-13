@@ -14,6 +14,8 @@ export interface DtcgToken {
   value: string;
   /** Absent when the DTCG token has no `$type`; the caller guesses one. */
   type?: DesignTokenType;
+  /** CSS variables this token's value points at through `var()`. */
+  references?: string[];
 }
 
 export function toKebab(value: string): string {
@@ -247,9 +249,8 @@ export function parseDtcgTokens(content: string): DtcgToken[] | null {
   const byPath = new Map(raw.map((token) => [token.path.join("."), token]));
 
   // References become `var(--…)` so the imported tokens keep their links.
-  // Each token's targets are recorded so references to tokens that end up
-  // left out can be dropped instead of emitted as dangling vars.
-  const references = new Map<string, Set<string>>();
+  // Each token records its targets so a token whose target ends up left out
+  // can be dropped instead of emitted as a dangling var.
   let currentRefs = new Set<string>();
   const resolve = (value: Json): Json => {
     if (typeof value !== "string") return value;
@@ -266,11 +267,14 @@ export function parseDtcgTokens(content: string): DtcgToken[] | null {
   for (const token of raw) {
     const cssVar = cssVarForPath(token.path);
     currentRefs = new Set();
-    references.set(cssVar, currentRefs);
     const value = resolve(token.value);
     if (value === undefined) continue;
+    const withRefs = () =>
+      currentRefs.size > 0 ? { references: [...currentRefs] } : {};
     const push = (formatted: string | null, type?: DesignTokenType) => {
-      if (formatted) tokens.push({ cssVar, value: formatted, type });
+      if (formatted) {
+        tokens.push({ cssVar, value: formatted, type, ...withRefs() });
+      }
     };
 
     switch (token.type) {
@@ -318,11 +322,11 @@ export function parseDtcgTokens(content: string): DtcgToken[] | null {
           const formatted =
             partValue === undefined ? null : part.format(partValue);
           if (formatted) {
-            references.set(`${cssVar}-${part.type}`, currentRefs);
             tokens.push({
               cssVar: `${cssVar}-${part.type}`,
               value: formatted,
               type: part.type,
+              ...withRefs(),
             });
           }
         }
@@ -334,20 +338,23 @@ export function parseDtcgTokens(content: string): DtcgToken[] | null {
         break;
     }
   }
-  return withoutDanglingReferences(tokens, references);
+  return withoutDanglingReferences(tokens, (token) => token.references);
 }
 
-function withoutDanglingReferences(
-  tokens: DtcgToken[],
-  references: Map<string, Set<string>>,
-): DtcgToken[] {
+/**
+ * Drops tokens whose `var()` targets are not in the list, repeating until
+ * stable so chains of references go too. Callers that trim the list further
+ * (caps, safety filters) run it again on the result.
+ */
+export function withoutDanglingReferences<T extends { cssVar: string }>(
+  tokens: T[],
+  referencesOf: (token: T) => string[] | undefined,
+): T[] {
   let kept = tokens;
   for (;;) {
     const emitted = new Set(kept.map((token) => token.cssVar));
     const next = kept.filter((token) =>
-      [...(references.get(token.cssVar) ?? [])].every((target) =>
-        emitted.has(target),
-      ),
+      (referencesOf(token) ?? []).every((target) => emitted.has(target)),
     );
     if (next.length === kept.length) return next;
     kept = next;

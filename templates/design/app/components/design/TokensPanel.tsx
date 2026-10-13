@@ -375,7 +375,7 @@ function AddTokenMenu({
   disabled,
 }: {
   onPick: (type: MenuTokenType) => void;
-  /** While the token list loads, a draft's default name could collide. */
+  /** Until the token list has loaded, a draft's default name could collide. */
   disabled: boolean;
 }) {
   const t = useT();
@@ -853,7 +853,7 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
           onImport={importTokens}
           isPending={importMutation.isPending}
         />
-        <AddTokenMenu onPick={startTokenDraft} disabled={isLoading} />
+        <AddTokenMenu onPick={startTokenDraft} disabled={!data} />
       </LeftPanelHeader>
 
       {searchOpen && (

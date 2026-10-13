@@ -262,6 +262,30 @@ Primary color: #f97316
     });
   });
 
+  it("drops a DTCG alias whose target falls past the import cap", async () => {
+    const spacing = Object.fromEntries(
+      Array.from({ length: 130 }, (_, i) => [`s${i}`, { $value: `${i}px` }]),
+    );
+    const result = await action.run({
+      designId: "design_1",
+      source: "files",
+      files: [
+        {
+          filename: "tokens.json",
+          content: JSON.stringify({
+            alias: { $type: "dimension", $value: "{space.s129}" },
+            space: { $type: "dimension", ...spacing },
+          }),
+        },
+      ],
+    });
+
+    const vars = result.tokens.map((token) => token.cssVar);
+    expect(vars).not.toContain("--alias");
+    expect(vars).not.toContain("--space-s129");
+    expect(vars).toContain("--space-s0");
+  });
+
   it("can extract tokens from the current design files", async () => {
     mockWhere.mockResolvedValueOnce([
       {

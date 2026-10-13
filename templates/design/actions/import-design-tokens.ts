@@ -27,7 +27,11 @@ import {
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
-import { parseDtcgTokens, toKebab } from "../server/lib/dtcg-tokens.js";
+import {
+  parseDtcgTokens,
+  toKebab,
+  withoutDanglingReferences,
+} from "../server/lib/dtcg-tokens.js";
 import {
   guessTokenType,
   isMotionValue,
@@ -251,6 +255,7 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
 
   const tokens: ImportedDesignToken[] = [];
   const declared = new Map<ImportedDesignToken, DesignTokenType>();
+  const references = new Map<ImportedDesignToken, string[]>();
   const looseFiles: { filename: string; content: string }[] = [];
   for (const file of accepted) {
     const dtcgTokens = parseDtcgTokens(file.content);
@@ -268,6 +273,7 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
       };
       tokens.push(imported);
       if (token.type) declared.set(imported, token.type);
+      if (token.references) references.set(imported, token.references);
     }
   }
 
@@ -347,7 +353,11 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
     });
   });
 
-  const finalTokens = uniqueTokenList(tokens).slice(0, 120);
+  // The cap and dedupe can drop a DTCG reference's target, so prune again.
+  const finalTokens = withoutDanglingReferences(
+    uniqueTokenList(tokens).slice(0, 120),
+    (token) => references.get(token),
+  );
   // Only a type the file declared (DTCG `$type`) is saved; guessed types are
   // recomputed on read so a better guess later still applies.
   const declaredTypes: Record<string, DesignTokenType> = {};

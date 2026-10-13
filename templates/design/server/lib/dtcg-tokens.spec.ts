@@ -59,7 +59,12 @@ describe("parseDtcgTokens", () => {
 
     expect(tokens).toEqual([
       { cssVar: "--base-blue", value: "#2563eb", type: "color" },
-      { cssVar: "--accent", value: "var(--base-blue)", type: "color" },
+      {
+        cssVar: "--accent",
+        value: "var(--base-blue)",
+        type: "color",
+        references: ["--base-blue"],
+      },
     ]);
   });
 
@@ -81,7 +86,12 @@ describe("parseDtcgTokens", () => {
 
     expect(tokens).toEqual([
       { cssVar: "--brand", value: "#2563eb", type: "color" },
-      { cssVar: "--accent", value: "var(--brand)", type: "color" },
+      {
+        cssVar: "--accent",
+        value: "var(--brand)",
+        type: "color",
+        references: ["--brand"],
+      },
     ]);
   });
 
