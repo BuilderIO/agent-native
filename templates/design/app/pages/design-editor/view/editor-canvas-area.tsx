@@ -462,7 +462,6 @@ export function renderEditorCanvasArea({
       }
       canFrameSelection={
         canEditDesign &&
-        viewMode === "single" &&
         selectedLayerIds.filter(
           (layerId) =>
             !layerId.startsWith("__") &&
@@ -482,7 +481,6 @@ export function renderEditorCanvasArea({
       canFlipVertical={canEditDesign && Boolean(selectedElement)}
       canAddAutoLayout={
         canEditDesign &&
-        viewMode === "single" &&
         selectedLayerIds.filter(
           (layerId) =>
             !layerId.startsWith("__") &&
