@@ -82,6 +82,7 @@ vi.mock("../server/db/index.js", () => {
   };
 });
 
+import { DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES } from "../shared/design-token-import-limits.js";
 import action from "./import-design-tokens.js";
 
 describe("import-design-tokens", () => {
@@ -340,6 +341,29 @@ Bad radius: 12px} body { color: red
     expect(result.skippedCount).toBe(1);
     expect(result.tokens).toEqual([]);
     expect(JSON.parse(designStore.row.data).tweakSelections).toEqual({});
+  });
+
+  it("classifies long hyphenated pasted text without backtracking regexes", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: `Header\n${"\n".repeat(20_000)}{${"a-".repeat(40_000)}}`,
+    });
+
+    expect(result.importedCount).toBe(0);
+    expect(result.tokens).toEqual([]);
+  });
+
+  it("omits oversized paste input before stylesheet classification", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: `${"a".repeat(DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1)}{ --color-accent: #fff; }`,
+    });
+
+    expect(result.importedCount).toBe(0);
+    expect(result.omittedFileCount).toBe(1);
+    expect(result.filesAnalyzed).toEqual([]);
   });
 
   it("rejects invalid color functions but keeps CSS variable references", async () => {

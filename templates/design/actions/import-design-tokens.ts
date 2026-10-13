@@ -514,23 +514,154 @@ function looksLikePastedJson(content: string): boolean {
   );
 }
 
+function isCssPropertyNameCharacter(char: string | undefined): boolean {
+  if (!char) return false;
+  const code = char.charCodeAt(0);
+  return (
+    char === "-" ||
+    char === "_" ||
+    (code >= 48 && code <= 57) ||
+    (code >= 65 && code <= 90) ||
+    (code >= 97 && code <= 122)
+  );
+}
+
+function startsCssPropertyDeclaration(
+  content: string,
+  start: number,
+  end: number,
+): boolean {
+  let index = start;
+  while (
+    index < end &&
+    (content[index] === " " ||
+      content[index] === "\t" ||
+      content[index] === "\r")
+  ) {
+    index += 1;
+  }
+
+  if (content.startsWith("--", index)) {
+    index += 2;
+    const nameStart = index;
+    while (index < end && isCssPropertyNameCharacter(content[index])) {
+      index += 1;
+    }
+    if (index === nameStart) return false;
+  } else {
+    const first = content[index];
+    const isLetter =
+      first !== undefined &&
+      ((first >= "a" && first <= "z") || (first >= "A" && first <= "Z"));
+    if (first !== "-" && !isLetter) return false;
+    index += 1;
+    while (index < end && isCssPropertyNameCharacter(content[index])) {
+      index += 1;
+    }
+  }
+
+  while (
+    index < end &&
+    (content[index] === " " ||
+      content[index] === "\t" ||
+      content[index] === "\r")
+  ) {
+    index += 1;
+  }
+  return content[index] === ":";
+}
+
 function looksLikePastedCss(content: string): boolean {
   if (
-    /(?:^|\n)\s*--[\w-]+\s*:/m.test(content) ||
-    /(?:^|\n)\s*:root\s*\{/m.test(content)
+    /^[ \t]*--[\w-]+[ \t]*:/m.test(content) ||
+    /^[ \t]*:root[ \t]*\{/m.test(content)
   ) {
     return true;
   }
 
   if (
-    /^\s*(?:export\s+default\b|module\.exports\s*=|(?:const|let|var)\s+\w+\s*=)/m.test(
+    /^[ \t]*(?:export[ \t]+default\b|module\.exports[ \t]*=|(?:const|let|var)[ \t]+\w+[ \t]*=)/m.test(
       content,
     )
   ) {
     return false;
   }
 
-  return /\{[^{}]*\b(?:--[\w-]+|[-a-z][\w-]*)\s*:/i.test(content);
+  let blockDepth = 0;
+  let segmentStart = 0;
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+  let inBlockComment = false;
+
+  for (let index = 0; index < content.length; index += 1) {
+    const char = content[index]!;
+    const next = content[index + 1];
+
+    if (inBlockComment) {
+      if (char === "*" && next === "/") {
+        inBlockComment = false;
+        segmentStart = index + 2;
+        index += 1;
+      }
+      continue;
+    }
+
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      if (
+        blockDepth > 0 &&
+        startsCssPropertyDeclaration(content, segmentStart, index)
+      ) {
+        return true;
+      }
+      inBlockComment = true;
+      index += 1;
+      continue;
+    }
+
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+
+    if (char === "{") {
+      if (
+        blockDepth > 0 &&
+        startsCssPropertyDeclaration(content, segmentStart, index)
+      ) {
+        return true;
+      }
+      blockDepth += 1;
+      segmentStart = index + 1;
+      continue;
+    }
+
+    if (char === "}" || char === ";" || char === "\n" || char === "\r") {
+      if (
+        blockDepth > 0 &&
+        startsCssPropertyDeclaration(content, segmentStart, index)
+      ) {
+        return true;
+      }
+      if (char === "}") blockDepth = Math.max(0, blockDepth - 1);
+      segmentStart = index + 1;
+    }
+  }
+
+  return (
+    blockDepth > 0 &&
+    startsCssPropertyDeclaration(content, segmentStart, content.length)
+  );
 }
 
 function stripScssLessLineComments(content: string): string {
@@ -756,8 +887,13 @@ function tokensFromFiles(files: { filename: string; content: string }[]) {
       omittedFileCount += files.length - index;
       break;
     }
+    const remainingBytes = DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES - totalBytes;
+    if (file.content.length > remainingBytes) {
+      omittedFileCount += files.length - index;
+      break;
+    }
     const size = new TextEncoder().encode(file.content).byteLength;
-    if (totalBytes + size > DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES) {
+    if (size > remainingBytes) {
       omittedFileCount += files.length - index;
       break;
     }
