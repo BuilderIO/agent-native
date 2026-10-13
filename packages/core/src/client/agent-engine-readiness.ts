@@ -510,10 +510,10 @@ async function ensureStoreReadiness(
         return ensureStoreReadiness(store);
       }
       if (nextState === "unavailable" && store.state === "configured") {
-        // A failed refresh is not evidence that the last confirmed readiness
-        // changed. Keep the UI decision stable and leave the cache expired so
-        // the hook's retry performs another probe.
+        // Keep the cache expired so the hook retries, and publish the failure
+        // so the composer can explain why dispatch is temporarily blocked.
         store.resolvedAt = 0;
+        publish(store, "unavailable");
         return nextState;
       }
       store.resolvedAt = Date.now();
