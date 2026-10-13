@@ -247,17 +247,26 @@ export function parseDtcgTokens(content: string): DtcgToken[] | null {
   const byPath = new Map(raw.map((token) => [token.path.join("."), token]));
 
   // References become `var(--…)` so the imported tokens keep their links.
+  // Each token's targets are recorded so references to tokens that end up
+  // left out can be dropped instead of emitted as dangling vars.
+  const references = new Map<string, Set<string>>();
+  let currentRefs = new Set<string>();
   const resolve = (value: Json): Json => {
     if (typeof value !== "string") return value;
     const match = value.match(REFERENCE);
     if (!match) return value;
     const target = byPath.get(match[1]);
-    return target ? `var(${cssVarForPath(target.path)})` : undefined;
+    if (!target) return undefined;
+    const targetVar = cssVarForPath(target.path);
+    currentRefs.add(targetVar);
+    return `var(${targetVar})`;
   };
 
   const tokens: DtcgToken[] = [];
   for (const token of raw) {
     const cssVar = cssVarForPath(token.path);
+    currentRefs = new Set();
+    references.set(cssVar, currentRefs);
     const value = resolve(token.value);
     if (value === undefined) continue;
     const push = (formatted: string | null, type?: DesignTokenType) => {
@@ -304,10 +313,12 @@ export function parseDtcgTokens(content: string): DtcgToken[] | null {
       case "typography":
         if (!isRecord(value)) break;
         for (const part of TYPOGRAPHY_PARTS) {
+          currentRefs = new Set();
           const partValue = resolve(value[part.key]);
           const formatted =
             partValue === undefined ? null : part.format(partValue);
           if (formatted) {
+            references.set(`${cssVar}-${part.type}`, currentRefs);
             tokens.push({
               cssVar: `${cssVar}-${part.type}`,
               value: formatted,
@@ -323,5 +334,22 @@ export function parseDtcgTokens(content: string): DtcgToken[] | null {
         break;
     }
   }
-  return tokens;
+  return withoutDanglingReferences(tokens, references);
+}
+
+function withoutDanglingReferences(
+  tokens: DtcgToken[],
+  references: Map<string, Set<string>>,
+): DtcgToken[] {
+  let kept = tokens;
+  for (;;) {
+    const emitted = new Set(kept.map((token) => token.cssVar));
+    const next = kept.filter((token) =>
+      [...(references.get(token.cssVar) ?? [])].every((target) =>
+        emitted.has(target),
+      ),
+    );
+    if (next.length === kept.length) return next;
+    kept = next;
+  }
 }

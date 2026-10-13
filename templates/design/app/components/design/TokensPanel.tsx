@@ -655,16 +655,16 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
   ) => {
     const requestDesignId = designId;
     const type = options?.type;
-    applyMutation.mutate(
-      { designId, edits: [{ cssVar, value, ...(type ? { type } : {}) }] },
-      {
-        onError: (error) => {
-          if (designIdRef.current !== requestDesignId) return;
-          options?.onError?.(
-            error instanceof Error ? error : new Error(String(error)),
-          );
-        },
-        onSuccess: (result) => {
+    // mutateAsync, not mutate(vars, callbacks): per-call callbacks only fire
+    // for the latest call, so an earlier save failing while a newer one is in
+    // flight would skip its rollback.
+    applyMutation
+      .mutateAsync({
+        designId,
+        edits: [{ cssVar, value, ...(type ? { type } : {}) }],
+      })
+      .then(
+        (result) => {
           if (designIdRef.current !== requestDesignId) return;
           void refetch();
           const r = result as { resolvedCssVars?: Record<string, string> };
@@ -672,8 +672,13 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
             onTokensApplied(r.resolvedCssVars);
           }
         },
-      },
-    );
+        (error: unknown) => {
+          if (designIdRef.current !== requestDesignId) return;
+          options?.onError?.(
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        },
+      );
   };
 
   const commitTokenColor = async (cssVar: string, value: string) => {

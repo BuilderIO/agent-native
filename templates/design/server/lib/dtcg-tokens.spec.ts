@@ -63,6 +63,28 @@ describe("parseDtcgTokens", () => {
     ]);
   });
 
+  it("drops tokens that reference a token which was left out", () => {
+    const tokens = parseDtcgTokens(
+      JSON.stringify({
+        border: {
+          base: {
+            $type: "border",
+            $value: { color: "#000", width: "1px", style: "solid" },
+          },
+        },
+        line: { $type: "color", $value: "{border.base}" },
+        chained: { $type: "color", $value: "{line}" },
+        brand: { $type: "color", $value: "#2563eb" },
+        accent: { $type: "color", $value: "{brand}" },
+      }),
+    );
+
+    expect(tokens).toEqual([
+      { cssVar: "--brand", value: "#2563eb", type: "color" },
+      { cssVar: "--accent", value: "var(--brand)", type: "color" },
+    ]);
+  });
+
   it("formats shadows and expands typography composites", () => {
     const tokens = parseDtcgTokens(
       JSON.stringify({
