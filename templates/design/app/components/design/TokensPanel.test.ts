@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS,
   DESIGN_TOKEN_IMPORT_MAX_FILES,
   DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES,
 } from "../../../shared/design-token-import-limits";
@@ -133,32 +134,75 @@ describe("readImportFiles", () => {
     expect(result.omittedFileCount).toBe(1);
   });
 
-  it("does not read files beyond the cumulative byte budget", async () => {
+  it("skips an oversized file and continues with later smaller files", async () => {
     let readCount = 0;
+    const content = ":root { --color-accent: #2563eb; }";
     const files = [
       {
         name: "too-large.css",
         size: DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1,
         text: async () => {
           readCount += 1;
-          return "large";
+          return "too large to read";
         },
       },
       {
-        name: "also-omitted.css",
-        size: 1,
+        name: "smaller.css",
+        size: content.length,
         text: async () => {
           readCount += 1;
-          return "small";
+          return content;
         },
       },
     ] as File[];
 
     const result = await readImportFiles(files);
 
-    expect(readCount).toBe(0);
-    expect(result.files).toEqual([]);
-    expect(result.omittedFileCount).toBe(2);
+    expect(readCount).toBe(1);
+    expect(result).toEqual({
+      files: [{ filename: "smaller.css", content }],
+      omittedFileCount: 1,
+    });
+  });
+
+  it("omits overlong submitted file names and paths, then continues", async () => {
+    let readCount = 0;
+    const content = ":root { --color-accent: #2563eb; }";
+    const files = [
+      {
+        name: "n".repeat(DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS + 1),
+        size: 1,
+        text: async () => {
+          readCount += 1;
+          return "should not be read";
+        },
+      },
+      {
+        name: "tokens.css",
+        webkitRelativePath: `${"nested/".repeat(40)}tokens.css`,
+        size: 1,
+        text: async () => {
+          readCount += 1;
+          return "should not be read";
+        },
+      },
+      {
+        name: "later.css",
+        size: content.length,
+        text: async () => {
+          readCount += 1;
+          return content;
+        },
+      },
+    ] as File[];
+
+    const result = await readImportFiles(files);
+
+    expect(readCount).toBe(1);
+    expect(result).toEqual({
+      files: [{ filename: "later.css", content }],
+      omittedFileCount: 2,
+    });
   });
 
   it("counts a failed file read and continues with readable files", async () => {
@@ -210,5 +254,37 @@ describe("readImportFiles", () => {
     expect(exactLimitResult.omittedFileCount).toBe(0);
     expect(decodedOverLimitResult.files).toEqual([]);
     expect(decodedOverLimitResult.omittedFileCount).toBe(1);
+  });
+
+  it("continues after decoded content exceeds the remaining byte budget", async () => {
+    const prefix = "x".repeat(DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES - 64);
+    const content = ":root { --color-accent: #2563eb; }";
+    const files = [
+      {
+        name: "prefix.txt",
+        size: prefix.length,
+        text: async () => prefix,
+      },
+      {
+        name: "decoded-over-budget.txt",
+        size: 25,
+        text: async () => "�".repeat(25),
+      },
+      {
+        name: "later.css",
+        size: content.length,
+        text: async () => content,
+      },
+    ] as File[];
+
+    const result = await readImportFiles(files);
+
+    expect(result).toEqual({
+      files: [
+        { filename: "prefix.txt", content: prefix },
+        { filename: "later.css", content },
+      ],
+      omittedFileCount: 1,
+    });
   });
 });

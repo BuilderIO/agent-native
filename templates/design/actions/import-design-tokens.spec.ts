@@ -274,10 +274,15 @@ describe("import-design-tokens", () => {
     const candidateFilter = mockWhere.mock.calls[1]?.[0] as {
       conditions?: { strings?: string[] }[];
     };
+    const filePriority = mockOrderBy.mock.calls[0]?.[0] as {
+      strings?: string[];
+    };
     expect(metadataSelection?.filename?.strings?.join("")).toContain("left(");
     expect(candidateFilter.conditions?.[1]?.strings?.join("")).toContain(
       "char_length(left(",
     );
+    expect(filePriority.strings?.join("")).toContain("~*");
+    expect(filePriority.strings?.join("")).toContain("css|scss|less|json");
     expect(result.filesAnalyzed).toEqual(["tokens.css"]);
     expect(result.omittedFileCount).toBe(1);
   });
@@ -311,6 +316,38 @@ describe("import-design-tokens", () => {
       values: ["first"],
     });
     expect(result.filesAnalyzed).toEqual(["first.css"]);
+    expect(result.omittedFileCount).toBe(1);
+  });
+
+  it("continues past an oversized current-design file", async () => {
+    mockWhere
+      .mockResolvedValueOnce([{ fileCount: 2 }])
+      .mockResolvedValueOnce([
+        {
+          id: "large",
+          filename: "a-large.css",
+          contentBytes: DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1,
+        },
+        {
+          id: "small",
+          filename: "z-tokens.scss",
+          contentBytes: 10,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { id: "small", content: "$gap: 8px; :root { --spacing-gap: $gap; }" },
+      ]);
+
+    const result = await action.run({
+      designId: "design_1",
+      source: "current-design",
+    });
+
+    expect(mockWhere.mock.calls[2]?.[0]).toMatchObject({
+      kind: "inArray",
+      values: ["small"],
+    });
+    expect(result.filesAnalyzed).toEqual(["z-tokens.scss"]);
     expect(result.omittedFileCount).toBe(1);
   });
 
@@ -840,11 +877,14 @@ Bad radius: 12px} body { color: red
   --custom-escaped-url: u\\72 l("https://example.com/x");
   --custom-nested-escaped-url: var(--missing, u\\72 l("https://example.com/y"));
   --custom-escaped-expression: e\\78 pression(alert(1));
+  --custom-image: image("https://example.com/image.png");
+  --custom-image-set: image-set("https://example.com/image.png" 1x);
+  --custom-prefixed-image-set: -webkit-image-set("https://example.com/image.png" 1x);
 }`,
     });
 
     expect(result.importedCount).toBe(0);
-    expect(result.rejectedCount).toBe(3);
+    expect(result.rejectedCount).toBe(6);
     expect(result.tokens).toEqual([]);
   });
 
@@ -987,6 +1027,21 @@ Bad radius: 12px} body { color: red
     });
   });
 
+  it("imports brace-wrapped pasted token notes as prose", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: "{ Primary color: #2563eb }",
+    });
+
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--color-primary",
+        value: "#2563eb",
+      }),
+    );
+  });
+
   it("imports pasted token labels with parentheses and apostrophes", async () => {
     const result = await action.run({
       designId: "design_1",
@@ -1071,6 +1126,22 @@ Primary color: #2563eb
           value: "#2563eb",
         }),
       ]),
+    );
+  });
+
+  it("imports pasted token notes after a numbered prose heading", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      source: "paste",
+      text: `[1] Brand palette
+Primary color: #2563eb`,
+    });
+
+    expect(result.tokens).toContainEqual(
+      expect.objectContaining({
+        cssVar: "--color-primary",
+        value: "#2563eb",
+      }),
     );
   });
 

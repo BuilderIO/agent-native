@@ -317,7 +317,11 @@ function parseNamedLines(
       const line = rawLine.trim();
       if (!line || line.length > MAX_TOKEN_LABEL_LINE_LENGTH) continue;
 
-      const match = line.match(TOKEN_LABEL_LINE);
+      const namedLine =
+        line.startsWith("{") && line.endsWith("}")
+          ? line.slice(1, -1).trim()
+          : line;
+      const match = namedLine.match(TOKEN_LABEL_LINE);
       if (!match) continue;
 
       const label = match[1].replace(/\*\*/g, "").trim();
@@ -543,7 +547,16 @@ function pastedStylesheetCssCandidate(content: string): string | null {
 
 function looksLikePastedJson(content: string): boolean {
   const trimmed = content.trim();
-  if (trimmed.startsWith("{")) return true;
+  if (trimmed.startsWith("{")) {
+    try {
+      JSON.parse(trimmed);
+      return true;
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+    }
+
+    return /^\{\s*(?:"[^\"]*"\s*:|})/.test(trimmed);
+  }
   if (!trimmed.startsWith("[")) return false;
 
   try {
@@ -554,6 +567,9 @@ function looksLikePastedJson(content: string): boolean {
   }
 
   const [firstLine = "", ...remainingLines] = trimmed.split(/\r?\n/);
+  if (/^\[[^\]\r\n]{1,80}\][ \t]+\S/.test(firstLine.trim())) {
+    return false;
+  }
   const firstLineLooksLikeJsonArray = /^\[\s*(?:\{|\[|")/.test(firstLine);
   const isNoteWithTokenList =
     /^\[[^\]\r\n]{1,80}\]$/.test(firstLine.trim()) &&
@@ -940,6 +956,32 @@ function hasUnsafeCssValueFunction(value: string): boolean {
     unsafe =
       name.toLowerCase() === "url" || name.toLowerCase() === "expression";
   });
+  if (unsafe) return true;
+
+  try {
+    csstree.walk(csstree.parse(value, { context: "value" }), (node) => {
+      if (node.type !== "Function") return;
+      const functionName = csstree.ident.decode(node.name).toLowerCase();
+      if (
+        !/^(?:image|image-set|-(?:webkit|moz|ms|o)-image-set)$/.test(
+          functionName,
+        )
+      )
+        return;
+
+      csstree.walk(node, (child) => {
+        if (child.type !== "String") return;
+        const source = csstree.string.decode(child.value).trim();
+        if (/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(source)) {
+          unsafe = true;
+        }
+      });
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "SyntaxError") return true;
+    throw error;
+  }
+
   return unsafe;
 }
 
@@ -977,14 +1019,10 @@ function tokensFromFiles(
       break;
     }
     const remainingBytes = DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES - totalBytes;
-    if (file.content.length > remainingBytes) {
-      omittedFileCount += files.length - index;
-      break;
-    }
     const size = new TextEncoder().encode(file.content).byteLength;
-    if (size > remainingBytes) {
-      omittedFileCount += files.length - index;
-      break;
+    if (file.content.length > remainingBytes || size > remainingBytes) {
+      omittedFileCount += 1;
+      continue;
     }
     totalBytes += size;
     accepted.push(file);
@@ -1140,6 +1178,10 @@ export default defineAction({
               ),
             )
             .orderBy(
+              sql<number>`case when ${schema.designFiles.filename} ~* '\\.(css|scss|less|json)$' then 0 else 1 end`,
+              asc(
+                sql<number>`octet_length(left(${schema.designFiles.content}, ${DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES + 1}))`,
+              ),
               asc(schema.designFiles.filename),
               asc(schema.designFiles.id),
             )
@@ -1153,7 +1195,7 @@ export default defineAction({
               candidate.contentBytes >
               DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES - totalBytes
             ) {
-              break;
+              continue;
             }
             selected.push(candidate);
             totalBytes += candidate.contentBytes;

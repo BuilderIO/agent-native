@@ -40,6 +40,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
+  DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS,
   DESIGN_TOKEN_IMPORT_MAX_FILES,
   DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES,
 } from "../../../shared/design-token-import-limits";
@@ -687,14 +688,22 @@ export async function readImportFiles(
   let contentBytes = 0;
   let omittedFileCount = selectedFiles.length - selected.length;
 
-  for (const [index, file] of selected.entries()) {
+  for (const file of selected) {
+    const filename =
+      (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
+      file.name;
+    if (filename.length > DESIGN_TOKEN_IMPORT_MAX_FILENAME_CHARS) {
+      omittedFileCount += 1;
+      continue;
+    }
+
     if (
       !Number.isSafeInteger(file.size) ||
       file.size < 0 ||
       readBytes + file.size > DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES
     ) {
-      omittedFileCount += selected.length - index;
-      break;
+      omittedFileCount += 1;
+      continue;
     }
 
     let content: string;
@@ -704,18 +713,17 @@ export async function readImportFiles(
       omittedFileCount += 1;
       continue;
     }
+    readBytes += file.size;
+
     const encodedSize = encoder.encode(content).byteLength;
     if (contentBytes + encodedSize > DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES) {
-      omittedFileCount += selected.length - index;
-      break;
+      omittedFileCount += 1;
+      continue;
     }
 
-    readBytes += file.size;
     contentBytes += encodedSize;
     files.push({
-      filename:
-        (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
-        file.name,
+      filename,
       content,
     });
   }

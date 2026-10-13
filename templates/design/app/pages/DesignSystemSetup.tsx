@@ -1417,7 +1417,7 @@ function DesignSystemSetupContent() {
                   ref={codeInputRef}
                   type="file"
                   multiple
-                  accept=".css,.scss,.less,.ts,.tsx,.js,.jsx,.json,.html,.svg,.xml,.md,.markdown,.mdx,.txt"
+                  accept=".css,.scss,.sass,.less,.ts,.tsx,.js,.jsx,.json,.html,.svg,.xml,.md,.markdown,.mdx,.txt"
                   onChange={handleCodeUpload}
                   className="hidden"
                 />
