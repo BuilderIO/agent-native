@@ -577,6 +577,23 @@ describe("native multipass texture bindings", () => {
       new DOMRect(50, 20, 8.25, 8.25),
     );
     document.body.append(authoredTarget);
+    const sharedImage = document.createElement("img");
+    sharedImage.dataset.agentNativeNodeId = "shared-static-image";
+    sharedImage.src =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Y6kQAAAAASUVORK5CYII=";
+    let sharedImageUrl = sharedImage.src;
+    Object.defineProperties(sharedImage, {
+      currentSrc: { get: () => sharedImageUrl },
+      complete: { value: true },
+      naturalWidth: { value: 2 },
+      naturalHeight: { value: 2 },
+      offsetWidth: { value: 8.25 },
+      offsetHeight: { value: 8.25 },
+    });
+    vi.spyOn(sharedImage, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(50, 20, 8.25, 8.25),
+    );
+    document.body.append(sharedImage);
     for (const root of [document.documentElement, document.body]) {
       Object.defineProperties(root, {
         offsetWidth: { configurable: true, value: 400 },
@@ -1400,6 +1417,156 @@ describe("native multipass texture bindings", () => {
       ).rejects.toMatchObject({
         code: "input-authored-appearance-unavailable",
       });
+      const sharedBinding = {
+        nodeId: "shared-static-image",
+        capture: "content" as const,
+      };
+      const ownerEncoder = device.createCommandEncoder();
+      await authoredRunner.authoredInputTexture(
+        mounted,
+        "shared-image",
+        sharedBinding,
+        0,
+        false,
+        ownerEncoder,
+        authoredDependencies.complete,
+        authoredDependencies.active,
+      );
+      expect([
+        ...(
+          mounted as typeof mounted & { authoredInputs: Map<string, unknown> }
+        ).authoredInputs.keys(),
+      ]).toContain("shared-image");
+      const ownerInput = (
+        mounted as typeof mounted & {
+          authoredInputs: Map<
+            string,
+            { provider: { replaySafety: () => Promise<string> } }
+          >;
+        }
+      ).authoredInputs.get("shared-image")!;
+      vi.spyOn(ownerInput.provider, "replaySafety").mockResolvedValue(
+        "immutable",
+      );
+      const ownerTexture = await authoredRunner.authoredInputTexture(
+        mounted,
+        "shared-image",
+        sharedBinding,
+        0,
+        false,
+        ownerEncoder,
+        authoredDependencies.complete,
+        authoredDependencies.active,
+      );
+      const borrower = {
+        ...mounted,
+        instance: { ...mounted.instance, id: "shared-image-borrower" },
+        authoredInputs: new Map(),
+      };
+      internal.mounts.set(borrower.instance.id, borrower as never);
+      const borrowerEncoder = device.createCommandEncoder();
+      const compositionsBeforeBorrow = composeAppearance.mock.calls.length;
+      const borrowedTexture = await authoredRunner.authoredInputTexture(
+        borrower,
+        "shared-image",
+        sharedBinding,
+        0,
+        false,
+        borrowerEncoder,
+        authoredDependencies.complete,
+        authoredDependencies.active,
+      );
+      expect(borrowedTexture).toBe(ownerTexture);
+      expect(composeAppearance.mock.calls).toHaveLength(
+        compositionsBeforeBorrow,
+      );
+      const reuseProbe = internal as typeof internal & {
+        authoredInputCaptureCurrent(
+          mount: object,
+          resource: string,
+          capture: object,
+          sourceEpoch: number,
+          phase?: "submission" | "committed",
+        ): boolean;
+        releaseAuthoredInput(mount: object, resource: string): void;
+        settleStatelessFrames(encoder: object, submitted: boolean): void;
+        statelessTextureLeases: Map<FakeTexture, number>;
+        authoredInputReuse: WeakMap<HTMLElement, Map<string, unknown>>;
+        renderEpoch: number;
+      };
+      const borrowerInput = (
+        borrower as typeof borrower & {
+          authoredInputs: Map<
+            string,
+            {
+              capturedSourceEpoch: number;
+              provider: { authoredSourceEpoch(): number };
+            }
+          >;
+        }
+      ).authoredInputs.get("shared-image")!;
+      expect(
+        reuseProbe.authoredInputCaptureCurrent(
+          borrower,
+          "shared-image",
+          borrowerInput,
+          borrowerInput.capturedSourceEpoch,
+        ),
+      ).toBe(true);
+      expect(reuseProbe.statelessTextureLeases.has(ownerTexture)).toBe(true);
+      const borrowedAuthoredEpoch =
+        borrowerInput.provider.authoredSourceEpoch();
+      const authoredEpochRead = vi.spyOn(
+        borrowerInput.provider,
+        "authoredSourceEpoch",
+      );
+      authoredEpochRead.mockReturnValue(borrowedAuthoredEpoch + 1);
+      expect(
+        reuseProbe.authoredInputCaptureCurrent(
+          borrower,
+          "shared-image",
+          borrowerInput,
+          borrowerInput.capturedSourceEpoch,
+        ),
+      ).toBe(false);
+      authoredEpochRead.mockRestore();
+      reuseProbe.renderEpoch += 1;
+      expect(
+        reuseProbe.authoredInputCaptureCurrent(
+          borrower,
+          "shared-image",
+          borrowerInput,
+          borrowerInput.capturedSourceEpoch,
+        ),
+      ).toBe(false);
+      expect(
+        reuseProbe.authoredInputCaptureCurrent(
+          borrower,
+          "shared-image",
+          borrowerInput,
+          borrowerInput.capturedSourceEpoch,
+          "committed",
+        ),
+      ).toBe(true);
+      reuseProbe.renderEpoch -= 1;
+      sharedImageUrl = "data:image/png;base64,changed";
+      expect(
+        reuseProbe.authoredInputCaptureCurrent(
+          borrower,
+          "shared-image",
+          borrowerInput,
+          borrowerInput.capturedSourceEpoch,
+        ),
+      ).toBe(false);
+      reuseProbe.releaseAuthoredInput(mounted, "shared-image");
+      expect(reuseProbe.statelessTextureLeases.has(ownerTexture)).toBe(true);
+      reuseProbe.settleStatelessFrames(borrowerEncoder, false);
+      expect(reuseProbe.statelessTextureLeases.has(ownerTexture)).toBe(false);
+      reuseProbe.releaseAuthoredInput(borrower, "shared-image");
+      internal.mounts.delete(borrower.instance.id);
+      expect(reuseProbe.authoredInputReuse.get(sharedImage)?.size).toBe(1);
+      await internal.renderInternal(0, false);
+      expect(reuseProbe.authoredInputReuse.get(sharedImage)).toBeUndefined();
       composeAppearance.mockRestore();
       renderBackdrop.mockRestore();
       internal.mounts.delete("authored-backdrop");

@@ -439,7 +439,22 @@ type AuthoredInputCapture = {
   provider: NativeSceneProvider;
   surface: CompositionSurface;
   capturedSourceEpoch: number | null;
+  capturedAuthoredEpoch: number | null;
   replaySafety: "immutable" | "dynamic" | "unknown";
+  borrowed?: AuthoredInputReuse;
+  borrowedImages?: readonly { source: HTMLImageElement; url: string }[];
+};
+type AuthoredInputReuse = {
+  key: string;
+  owner: Mount;
+  resource: string;
+  capture: AuthoredInputCapture;
+  texture: GPUTexture;
+  sourceEpoch: number;
+  authoredEpoch: number;
+  images: readonly { source: HTMLImageElement; url: string }[];
+  deviceEpoch: number;
+  renderEpoch: number;
 };
 type Mount = {
   instance: EffectInstance;
@@ -1565,6 +1580,11 @@ class NativeShaderRuntime {
     NativeStatelessComputeFrame[]
   >();
   private statelessRetirements = new Set<Promise<void>>();
+  private authoredInputReuse = new WeakMap<
+    HTMLElement,
+    Map<string, AuthoredInputReuse>
+  >();
+  private authoredInputReuseEpoch = -1;
   private activeMounts = new Set<Mount>();
   private renderWallSamples: number[] = [];
   private rafIntervalSamples: number[] = [];
@@ -3588,6 +3608,8 @@ class NativeShaderRuntime {
     const input = mount.authoredInputs.get(resource);
     if (!input) return;
     mount.authoredInputs.delete(resource);
+    input.borrowed = undefined;
+    input.borrowedImages = undefined;
     input.provider.dispose();
     const surface = input.surface;
     const textures = new Set<GPUTexture>([
@@ -8663,17 +8685,58 @@ class NativeShaderRuntime {
           sourceDownsamples: 0,
         },
         capturedSourceEpoch: null,
+        capturedAuthoredEpoch: null,
         replaySafety: "unknown",
       };
       mount.authoredInputs.set(resource, capture);
     }
     capture.provider.setDensity(ratio);
+    if (this.authoredInputReuseEpoch !== renderEpoch) {
+      this.authoredInputReuse = new WeakMap();
+      this.authoredInputReuseEpoch = renderEpoch;
+    }
+    const reuseKey = this.authoredInputReuseKey(capture, epoch, renderEpoch);
+    const reuse = this.authoredInputReuse.get(target)?.get(reuseKey);
+    if (
+      reuse &&
+      reuse.owner !== mount &&
+      this.authoredInputReuseCurrent(reuse) &&
+      !capture.provider.needsContinuousFrames() &&
+      capture.provider.sourceEpoch?.() !== undefined &&
+      capture.provider.authoredSourceEpoch?.() !== undefined
+    ) {
+      const release = this.retainStatelessTextures(
+        this.device!,
+        new Set([reuse.texture]),
+      );
+      const device = this.device!;
+      const frames = this.statelessFrames.get(encoder) ?? [];
+      frames.push({
+        abandon: release,
+        retire: async () => {
+          try {
+            await device.queue.onSubmittedWorkDone();
+          } finally {
+            release();
+          }
+        },
+      });
+      this.statelessFrames.set(encoder, frames);
+      capture.borrowed = reuse;
+      capture.borrowedImages = reuse.images;
+      capture.replaySafety = "immutable";
+      capture.capturedSourceEpoch = capture.provider.sourceEpoch!();
+      capture.capturedAuthoredEpoch = capture.provider.authoredSourceEpoch!();
+      return reuse.texture;
+    }
     const readStableScene = async (): Promise<{
       scene: NativeSourceRecord[];
       sourceEpoch: number;
+      authoredEpoch: number;
     }> => {
       const before = capture.provider.sourceEpoch?.();
-      if (before === undefined)
+      const authoredBefore = capture.provider.authoredSourceEpoch?.();
+      if (before === undefined || authoredBefore === undefined)
         throw new NativeSourceError(
           "input-authored-source-stale",
           `Authored input ${binding.nodeId} has no source revision.`,
@@ -8682,12 +8745,15 @@ class NativeShaderRuntime {
         undefined,
         "dependency-refresh",
       );
-      if (capture.provider.sourceEpoch?.() !== before)
+      if (
+        capture.provider.sourceEpoch?.() !== before ||
+        capture.provider.authoredSourceEpoch?.() !== authoredBefore
+      )
         throw new NativeSourceError(
           "input-authored-source-stale",
           `Authored input ${binding.nodeId} changed during source read.`,
         );
-      return { scene, sourceEpoch: before };
+      return { scene, sourceEpoch: before, authoredEpoch: authoredBefore };
     };
     let read = await readStableScene();
     let scene = read.scene;
@@ -8755,20 +8821,148 @@ class NativeShaderRuntime {
       this.mounts.get(mount.instance.id) !== mount ||
       mount.authoredInputs.get(resource) !== capture ||
       this.authoredInputTarget(binding.nodeId) !== target ||
-      capture.provider.sourceEpoch?.() !== read.sourceEpoch
+      capture.provider.sourceEpoch?.() !== read.sourceEpoch ||
+      capture.provider.authoredSourceEpoch?.() !== read.authoredEpoch
     )
       throw new NativeSourceError(
         "input-authored-source-stale",
         `Authored input ${binding.nodeId} changed during capture.`,
       );
     capture.replaySafety = await capture.provider.replaySafety(scene);
-    if (capture.provider.sourceEpoch?.() !== read.sourceEpoch)
+    if (
+      capture.provider.sourceEpoch?.() !== read.sourceEpoch ||
+      capture.provider.authoredSourceEpoch?.() !== read.authoredEpoch
+    )
       throw new NativeSourceError(
         "input-authored-source-stale",
         `Authored input ${binding.nodeId} changed during replay classification.`,
       );
     capture.capturedSourceEpoch = read.sourceEpoch;
+    capture.capturedAuthoredEpoch = read.authoredEpoch;
+    capture.borrowed = undefined;
+    capture.borrowedImages = undefined;
+    if (
+      capture.replaySafety === "immutable" &&
+      binding.capture === "content" &&
+      scene.length === 1 &&
+      scene.every(
+        (record) =>
+          record.kind === "image" &&
+          record.source instanceof HTMLImageElement &&
+          !!record.imageSourceUrl &&
+          (record.source.currentSrc || record.source.src) ===
+            record.imageSourceUrl,
+      )
+    ) {
+      const images = scene.map((record) => ({
+        source: record.source as HTMLImageElement,
+        url: record.imageSourceUrl!,
+      }));
+      const entry: AuthoredInputReuse = {
+        key: reuseKey,
+        owner: mount,
+        resource,
+        capture,
+        texture,
+        sourceEpoch: read.sourceEpoch,
+        authoredEpoch: read.authoredEpoch,
+        images,
+        deviceEpoch: epoch,
+        renderEpoch,
+      };
+      if (this.authoredInputReuseCurrent(entry)) {
+        let entries = this.authoredInputReuse.get(target);
+        if (!entries) {
+          entries = new Map();
+          this.authoredInputReuse.set(target, entries);
+        }
+        entries.set(reuseKey, entry);
+      }
+    }
     return texture;
+  }
+
+  private authoredInputReuseKey(
+    capture: AuthoredInputCapture,
+    deviceEpoch: number,
+    renderEpoch: number,
+  ): string {
+    const target = capture.target;
+    const rect = target.getBoundingClientRect();
+    const { width, height, pixelRatio, outputExtent } = capture.surface;
+    return [
+      capture.capture,
+      width,
+      height,
+      pixelRatio,
+      outputExtent?.left ?? 0,
+      outputExtent?.top ?? 0,
+      outputExtent?.right ?? 0,
+      outputExtent?.bottom ?? 0,
+      outputExtent?.sourceWidth ?? width,
+      outputExtent?.sourceHeight ?? height,
+      "linear",
+      target.offsetWidth,
+      target.offsetHeight,
+      rect.x,
+      rect.y,
+      rect.width,
+      rect.height,
+      this.colorPresented,
+      this.dynamicRangePresented,
+      this.workingFormat,
+      deviceEpoch,
+      renderEpoch,
+    ].join(":");
+  }
+
+  private authoredInputReuseCurrent(reuse: AuthoredInputReuse): boolean {
+    return (
+      this.deviceEpoch === reuse.deviceEpoch &&
+      this.renderEpoch === reuse.renderEpoch &&
+      this.mounts.get(reuse.owner.instance.id) === reuse.owner &&
+      reuse.owner.authoredInputs.get(reuse.resource) === reuse.capture &&
+      reuse.capture.replaySafety === "immutable" &&
+      reuse.capture.surface.resourceTextures.get("source") === reuse.texture &&
+      reuse.capture.provider.sourceEpoch?.() === reuse.sourceEpoch &&
+      reuse.capture.provider.authoredSourceEpoch?.() === reuse.authoredEpoch &&
+      this.authoredInputReuseKey(
+        reuse.capture,
+        reuse.deviceEpoch,
+        reuse.renderEpoch,
+      ) === reuse.key &&
+      reuse.images.every(
+        ({ source, url }) =>
+          source.isConnected && (source.currentSrc || source.src) === url,
+      ) &&
+      this.textureBytes.has(reuse.texture) &&
+      !this.statelessTextureDestruction.has(reuse.texture)
+    );
+  }
+
+  private authoredInputCaptureCurrent(
+    mount: Mount,
+    resource: string,
+    capture: AuthoredInputCapture,
+    sourceEpoch: number,
+    phase: "submission" | "committed" = "submission",
+  ): boolean {
+    return (
+      mount.authoredInputs.get(resource) === capture &&
+      capture.capturedSourceEpoch === sourceEpoch &&
+      capture.provider.sourceEpoch?.() === sourceEpoch &&
+      capture.capturedAuthoredEpoch !== null &&
+      capture.provider.authoredSourceEpoch?.() ===
+        capture.capturedAuthoredEpoch &&
+      (!capture.borrowedImages ||
+        capture.borrowedImages.every(
+          ({ source, url }) =>
+            source.isConnected && (source.currentSrc || source.src) === url,
+        )) &&
+      (phase === "committed" ||
+        !capture.borrowed ||
+        this.authoredInputReuseCurrent(capture.borrowed))
+    );
   }
 
   private async linearResourcePipeline(
@@ -9037,10 +9231,7 @@ class NativeShaderRuntime {
         "The effect source changed while preparing its GPU graph.",
       );
     for (const [name, { capture, sourceEpoch }] of inputEpochs)
-      if (
-        mount.authoredInputs.get(name) !== capture ||
-        capture.provider.sourceEpoch?.() !== sourceEpoch
-      )
+      if (!this.authoredInputCaptureCurrent(mount, name, capture, sourceEpoch))
         throw new NativeSourceError(
           "input-authored-source-stale",
           `Authored input ${capture.nodeId} changed while preparing its GPU graph.`,
@@ -11567,9 +11758,12 @@ class NativeShaderRuntime {
             { capture, sourceEpoch },
           ] of mount.pendingGraphInputEpochs)
             if (
-              mount.authoredInputs.get(name) !== capture ||
-              capture.capturedSourceEpoch !== sourceEpoch ||
-              capture.provider.sourceEpoch?.() !== sourceEpoch
+              !this.authoredInputCaptureCurrent(
+                mount,
+                name,
+                capture,
+                sourceEpoch,
+              )
             )
               throw new NativeSourceError(
                 "input-authored-source-stale",
@@ -12373,13 +12567,16 @@ class NativeShaderRuntime {
         ],
         renderWallMs: 0,
       });
-    if (this.mounts.size === 0)
+    if (this.mounts.size === 0) {
+      this.authoredInputReuse = new WeakMap();
+      this.authoredInputReuseEpoch = -1;
       return {
         time,
         rendered: 0,
         failures: [...this.scanFailures],
         renderWallMs: 0,
       };
+    }
     while (this.running) await this.running;
     if (this.disposed)
       throw new NativeSourceError("runtime-disposed", "runtime-disposed");
@@ -12643,6 +12840,11 @@ class NativeShaderRuntime {
       throw error;
     } finally {
       this.mountedBenchmarkRenderMetrics = null;
+      this.authoredInputReuse = new WeakMap();
+      this.authoredInputReuseEpoch = -1;
+      for (const mount of this.mounts.values())
+        for (const capture of mount.authoredInputs.values())
+          capture.borrowed = undefined;
       // Dependency textures remain pinned until every parent encoder has submitted.
       this.activeMounts.clear();
       this.running = null;
@@ -14816,9 +15018,13 @@ class NativeShaderRuntime {
         for (const [name, { capture, sourceEpoch }] of entry.inputEpochs)
           if (
             !frozenSource &&
-            (mount.authoredInputs.get(name) !== capture ||
-              capture.capturedSourceEpoch !== sourceEpoch ||
-              capture.provider.sourceEpoch?.() !== sourceEpoch)
+            !this.authoredInputCaptureCurrent(
+              mount,
+              name,
+              capture,
+              sourceEpoch,
+              "committed",
+            )
           )
             throw new NativeSourceError(
               "composition-preview-stale",
@@ -14888,8 +15094,13 @@ class NativeShaderRuntime {
             (!frozenSource &&
               [...inputEpochs].some(
                 ([name, { capture, sourceEpoch: epoch }]) =>
-                  mount.authoredInputs.get(name) !== capture ||
-                  capture.provider.sourceEpoch?.() !== epoch,
+                  !this.authoredInputCaptureCurrent(
+                    mount,
+                    name,
+                    capture,
+                    epoch,
+                    "committed",
+                  ),
               )),
         ) ||
         (scene &&
@@ -16632,6 +16843,8 @@ class NativeShaderRuntime {
       new NativeMountedBenchmarkError("benchmark-aborted"),
     );
     this.disposed = true;
+    this.authoredInputReuse = new WeakMap();
+    this.authoredInputReuseEpoch = -1;
     this.clearIdleSourcePoll();
     document.documentElement.removeAttribute(
       "data-an-native-source-idle-diagnostic",

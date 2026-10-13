@@ -44,6 +44,7 @@ Read the relevant skill before deeper work in that area.
 | `present-design-variants` | Generate 2-5 variants for the user to pick and refine |
 | `view-screen` | Re-read the current design or selected file when context is stale |
 | `get-shader` / `validate-native-shader` / `edit-native-shader` | Read, CPU-validate, approve, and edit native v2 effects |
+| `native-shader-draft-foreground` | Preview or clear unsaved native WGSL drafts; read bounded GPU diagnostics |
 | `navigate` | Move the UI to a design, file, or panel |
 | `export-png` | Export screen as PNG |
 | `export-html` / `export-zip` / `export-coding-handoff` / `export-design-as-figma-svg` | Export a finished design |
@@ -64,11 +65,10 @@ Read the relevant skill before deeper work in that area.
   calling a design "ready".
 - Treat `data-agent-native-locked="true"` as authoritative — see
   `design-generation` for locked-subtree rules.
-- Use `apply-visual-edit` with `intent.kind="booleanSubtract"` for two or more
-  consecutive sibling rectangles or ellipses with absolute pixel geometry and
-  solid fills. The first layer in source order supplies the result paint; the original
-  operands remain editable under the Subtract layer. Other shapes, custom
-  markup, non-solid paints, and non-sibling selections are not converted.
+- Use `apply-visual-edit` `booleanSubtract` for two or more consecutive sibling
+  rectangles or ellipses with absolute pixel geometry and solid fills. The first
+  source layer supplies paint; operands remain editable under Subtract. Other
+  shapes, custom markup, non-solid paints, and non-siblings do not convert.
 - Source modes: `inline`, `localhost`, and `fusion` (`full-app-build`). Public
   `/design/:id` is read-only; `/visual-edit/:id` allows DOM-only localhost
   edits. Source writes and snapshot publishing require editor access.

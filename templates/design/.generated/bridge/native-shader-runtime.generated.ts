@@ -17256,6 +17256,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       this.graphPipelines = new NativePipelineCache(32);
       this.statelessFrames = /* @__PURE__ */ new Map();
       this.statelessRetirements = /* @__PURE__ */ new Set();
+      this.authoredInputReuse = /* @__PURE__ */ new WeakMap();
+      this.authoredInputReuseEpoch = -1;
       this.activeMounts = /* @__PURE__ */ new Set();
       this.renderWallSamples = [];
       this.rafIntervalSamples = [];
@@ -18022,13 +18024,16 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             ],
             renderWallMs: 0
           });
-        if (this.mounts.size === 0)
+        if (this.mounts.size === 0) {
+          this.authoredInputReuse = /* @__PURE__ */ new WeakMap();
+          this.authoredInputReuseEpoch = -1;
           return {
             time,
             rendered: 0,
             failures: [...this.scanFailures],
             renderWallMs: 0
           };
+        }
         while (this.running) await this.running;
         if (this.disposed)
           throw new NativeSourceError("runtime-disposed", "runtime-disposed");
@@ -18244,6 +18249,11 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           throw error;
         } finally {
           this.mountedBenchmarkRenderMetrics = null;
+          this.authoredInputReuse = /* @__PURE__ */ new WeakMap();
+          this.authoredInputReuseEpoch = -1;
+          for (const mount of this.mounts.values())
+            for (const capture of mount.authoredInputs.values())
+              capture.borrowed = void 0;
           this.activeMounts.clear();
           this.running = null;
         }
@@ -19185,7 +19195,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
                 \`Native effect \${mount.instance.id} has no current committed preview frame.\`
               );
             for (const [name, { capture, sourceEpoch }] of entry.inputEpochs)
-              if (!frozenSource && (mount.authoredInputs.get(name) !== capture || capture.capturedSourceEpoch !== sourceEpoch || capture.provider.sourceEpoch?.() !== sourceEpoch))
+              if (!frozenSource && !this.authoredInputCaptureCurrent(
+                mount,
+                name,
+                capture,
+                sourceEpoch,
+                "committed"
+              ))
                 throw new NativeSourceError(
                   "composition-preview-stale",
                   \`Authored input \${name} changed after the visible frame committed.\`
@@ -19236,7 +19252,13 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               sourceEpoch,
               inputEpochs
             }) => this.mounts.get(mount.instance.id) !== mount || mount.outputTexture !== output || mount.frameCount !== frameCount || !scene && (mount.committedInstancePayload !== instancePayload?.payload || mount.committedDefinitionHash !== instancePayload?.definitionHash || mount.committedLocalTime !== instancePayload?.localTime) || mount.target.getAttribute("data-an-native-status") !== "ready" || !frozenSource && mount.provider?.sourceEpoch?.() !== sourceEpoch || !frozenSource && [...inputEpochs].some(
-              ([name, { capture, sourceEpoch: epoch }]) => mount.authoredInputs.get(name) !== capture || capture.provider.sourceEpoch?.() !== epoch
+              ([name, { capture, sourceEpoch: epoch }]) => !this.authoredInputCaptureCurrent(
+                mount,
+                name,
+                capture,
+                epoch,
+                "committed"
+              )
             )
           ) || scene && (scene.surface.resourceTextures.get("source") !== frozenSource || scene.committedInstancePayloads !== scenePayloads))
             throw new NativeSourceError(
@@ -21046,6 +21068,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       const input = mount.authoredInputs.get(resource);
       if (!input) return;
       mount.authoredInputs.delete(resource);
+      input.borrowed = void 0;
+      input.borrowedImages = void 0;
       input.provider.dispose();
       const surface = input.surface;
       const textures = /* @__PURE__ */ new Set([
@@ -24829,14 +24853,47 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             sourceDownsamples: 0
           },
           capturedSourceEpoch: null,
+          capturedAuthoredEpoch: null,
           replaySafety: "unknown"
         };
         mount.authoredInputs.set(resource, capture);
       }
       capture.provider.setDensity(ratio);
+      if (this.authoredInputReuseEpoch !== renderEpoch) {
+        this.authoredInputReuse = /* @__PURE__ */ new WeakMap();
+        this.authoredInputReuseEpoch = renderEpoch;
+      }
+      const reuseKey = this.authoredInputReuseKey(capture, epoch, renderEpoch);
+      const reuse = this.authoredInputReuse.get(target)?.get(reuseKey);
+      if (reuse && reuse.owner !== mount && this.authoredInputReuseCurrent(reuse) && !capture.provider.needsContinuousFrames() && capture.provider.sourceEpoch?.() !== void 0 && capture.provider.authoredSourceEpoch?.() !== void 0) {
+        const release = this.retainStatelessTextures(
+          this.device,
+          /* @__PURE__ */ new Set([reuse.texture])
+        );
+        const device = this.device;
+        const frames = this.statelessFrames.get(encoder) ?? [];
+        frames.push({
+          abandon: release,
+          retire: async () => {
+            try {
+              await device.queue.onSubmittedWorkDone();
+            } finally {
+              release();
+            }
+          }
+        });
+        this.statelessFrames.set(encoder, frames);
+        capture.borrowed = reuse;
+        capture.borrowedImages = reuse.images;
+        capture.replaySafety = "immutable";
+        capture.capturedSourceEpoch = capture.provider.sourceEpoch();
+        capture.capturedAuthoredEpoch = capture.provider.authoredSourceEpoch();
+        return reuse.texture;
+      }
       const readStableScene = async () => {
         const before = capture.provider.sourceEpoch?.();
-        if (before === void 0)
+        const authoredBefore = capture.provider.authoredSourceEpoch?.();
+        if (before === void 0 || authoredBefore === void 0)
           throw new NativeSourceError(
             "input-authored-source-stale",
             \`Authored input \${binding.nodeId} has no source revision.\`
@@ -24845,12 +24902,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           void 0,
           "dependency-refresh"
         );
-        if (capture.provider.sourceEpoch?.() !== before)
+        if (capture.provider.sourceEpoch?.() !== before || capture.provider.authoredSourceEpoch?.() !== authoredBefore)
           throw new NativeSourceError(
             "input-authored-source-stale",
             \`Authored input \${binding.nodeId} changed during source read.\`
           );
-        return { scene: scene2, sourceEpoch: before };
+        return { scene: scene2, sourceEpoch: before, authoredEpoch: authoredBefore };
       };
       let read = await readStableScene();
       let scene = read.scene;
@@ -24903,19 +24960,93 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         "source",
         this.colorPresented === "srgb" && this.dynamicRangePresented === "sdr" && scene.length > 1 ? "srgb-css-linear" : "linear"
       );
-      if (this.deviceEpoch !== epoch || this.renderEpoch !== renderEpoch || this.mounts.get(mount.instance.id) !== mount || mount.authoredInputs.get(resource) !== capture || this.authoredInputTarget(binding.nodeId) !== target || capture.provider.sourceEpoch?.() !== read.sourceEpoch)
+      if (this.deviceEpoch !== epoch || this.renderEpoch !== renderEpoch || this.mounts.get(mount.instance.id) !== mount || mount.authoredInputs.get(resource) !== capture || this.authoredInputTarget(binding.nodeId) !== target || capture.provider.sourceEpoch?.() !== read.sourceEpoch || capture.provider.authoredSourceEpoch?.() !== read.authoredEpoch)
         throw new NativeSourceError(
           "input-authored-source-stale",
           \`Authored input \${binding.nodeId} changed during capture.\`
         );
       capture.replaySafety = await capture.provider.replaySafety(scene);
-      if (capture.provider.sourceEpoch?.() !== read.sourceEpoch)
+      if (capture.provider.sourceEpoch?.() !== read.sourceEpoch || capture.provider.authoredSourceEpoch?.() !== read.authoredEpoch)
         throw new NativeSourceError(
           "input-authored-source-stale",
           \`Authored input \${binding.nodeId} changed during replay classification.\`
         );
       capture.capturedSourceEpoch = read.sourceEpoch;
+      capture.capturedAuthoredEpoch = read.authoredEpoch;
+      capture.borrowed = void 0;
+      capture.borrowedImages = void 0;
+      if (capture.replaySafety === "immutable" && binding.capture === "content" && scene.length === 1 && scene.every(
+        (record5) => record5.kind === "image" && record5.source instanceof HTMLImageElement && !!record5.imageSourceUrl && (record5.source.currentSrc || record5.source.src) === record5.imageSourceUrl
+      )) {
+        const images = scene.map((record5) => ({
+          source: record5.source,
+          url: record5.imageSourceUrl
+        }));
+        const entry = {
+          key: reuseKey,
+          owner: mount,
+          resource,
+          capture,
+          texture,
+          sourceEpoch: read.sourceEpoch,
+          authoredEpoch: read.authoredEpoch,
+          images,
+          deviceEpoch: epoch,
+          renderEpoch
+        };
+        if (this.authoredInputReuseCurrent(entry)) {
+          let entries = this.authoredInputReuse.get(target);
+          if (!entries) {
+            entries = /* @__PURE__ */ new Map();
+            this.authoredInputReuse.set(target, entries);
+          }
+          entries.set(reuseKey, entry);
+        }
+      }
       return texture;
+    }
+    authoredInputReuseKey(capture, deviceEpoch, renderEpoch) {
+      const target = capture.target;
+      const rect = target.getBoundingClientRect();
+      const { width, height, pixelRatio, outputExtent } = capture.surface;
+      return [
+        capture.capture,
+        width,
+        height,
+        pixelRatio,
+        outputExtent?.left ?? 0,
+        outputExtent?.top ?? 0,
+        outputExtent?.right ?? 0,
+        outputExtent?.bottom ?? 0,
+        outputExtent?.sourceWidth ?? width,
+        outputExtent?.sourceHeight ?? height,
+        "linear",
+        target.offsetWidth,
+        target.offsetHeight,
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height,
+        this.colorPresented,
+        this.dynamicRangePresented,
+        this.workingFormat,
+        deviceEpoch,
+        renderEpoch
+      ].join(":");
+    }
+    authoredInputReuseCurrent(reuse) {
+      return this.deviceEpoch === reuse.deviceEpoch && this.renderEpoch === reuse.renderEpoch && this.mounts.get(reuse.owner.instance.id) === reuse.owner && reuse.owner.authoredInputs.get(reuse.resource) === reuse.capture && reuse.capture.replaySafety === "immutable" && reuse.capture.surface.resourceTextures.get("source") === reuse.texture && reuse.capture.provider.sourceEpoch?.() === reuse.sourceEpoch && reuse.capture.provider.authoredSourceEpoch?.() === reuse.authoredEpoch && this.authoredInputReuseKey(
+        reuse.capture,
+        reuse.deviceEpoch,
+        reuse.renderEpoch
+      ) === reuse.key && reuse.images.every(
+        ({ source, url }) => source.isConnected && (source.currentSrc || source.src) === url
+      ) && this.textureBytes.has(reuse.texture) && !this.statelessTextureDestruction.has(reuse.texture);
+    }
+    authoredInputCaptureCurrent(mount, resource, capture, sourceEpoch, phase = "submission") {
+      return mount.authoredInputs.get(resource) === capture && capture.capturedSourceEpoch === sourceEpoch && capture.provider.sourceEpoch?.() === sourceEpoch && capture.capturedAuthoredEpoch !== null && capture.provider.authoredSourceEpoch?.() === capture.capturedAuthoredEpoch && (!capture.borrowedImages || capture.borrowedImages.every(
+        ({ source, url }) => source.isConnected && (source.currentSrc || source.src) === url
+      )) && (phase === "committed" || !capture.borrowed || this.authoredInputReuseCurrent(capture.borrowed));
     }
     async linearResourcePipeline(pass, reads, output, mount) {
       const device = this.device;
@@ -25135,7 +25266,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "The effect source changed while preparing its GPU graph."
         );
       for (const [name, { capture, sourceEpoch }] of inputEpochs)
-        if (mount.authoredInputs.get(name) !== capture || capture.provider.sourceEpoch?.() !== sourceEpoch)
+        if (!this.authoredInputCaptureCurrent(mount, name, capture, sourceEpoch))
           throw new NativeSourceError(
             "input-authored-source-stale",
             \`Authored input \${capture.nodeId} changed while preparing its GPU graph.\`
@@ -27118,7 +27249,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               name,
               { capture, sourceEpoch: sourceEpoch2 }
             ] of mount.pendingGraphInputEpochs)
-              if (mount.authoredInputs.get(name) !== capture || capture.capturedSourceEpoch !== sourceEpoch2 || capture.provider.sourceEpoch?.() !== sourceEpoch2)
+              if (!this.authoredInputCaptureCurrent(
+                mount,
+                name,
+                capture,
+                sourceEpoch2
+              ))
                 throw new NativeSourceError(
                   "input-authored-source-stale",
                   \`Authored input \${capture.nodeId} changed before GPU submission.\`
@@ -29237,6 +29373,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         new NativeMountedBenchmarkError("benchmark-aborted")
       );
       this.disposed = true;
+      this.authoredInputReuse = /* @__PURE__ */ new WeakMap();
+      this.authoredInputReuseEpoch = -1;
       this.clearIdleSourcePoll();
       document.documentElement.removeAttribute(
         "data-an-native-source-idle-diagnostic"
