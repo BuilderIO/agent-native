@@ -248,12 +248,9 @@ export function relevanceTerms(search: string): string[] {
 }
 
 export function semanticScopeForSearch(value: string): string {
-  const terms = new Set(searchTerms(value));
+  const intent = stripNonPositiveInstructions(value);
+  const terms = new Set(searchTerms(intent));
   const has = (...values: string[]) => values.some((term) => terms.has(term));
-  const isActiveProductUserQuery =
-    has("builder") &&
-    has("product") &&
-    has("user", "person", "people", "member");
   if (
     ((has("agent") && has("native")) || has("analytics", "analytic")) &&
     has("user", "person", "people", "member")
@@ -274,23 +271,23 @@ export function semanticScopeForSearch(value: string): string {
       "adoption",
       "action",
     ) ||
-    (has("active") && !isActiveProductUserQuery)
+    has("active")
   ) {
     return "product_activity";
   }
   const asksForMembershipRows =
     /\b(?:role|roles|permission|permissions|access|roster|list|row|rows|record|records|who|which)\b/i.test(
-      value,
+      intent,
     );
   const asksForAggregate =
     /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution)\b/i.test(
-      value,
+      intent,
     );
   if (
     asksForMembershipRows &&
     !asksForAggregate &&
     has("organization", "org", "company", "workspace", "team") &&
-    (has("user", "person", "people", "member") || /\bwho\b/i.test(value))
+    (has("user", "person", "people", "member") || /\bwho\b/i.test(intent))
   ) {
     return "membership_roster";
   }
@@ -314,6 +311,16 @@ export function semanticScopeForSearch(value: string): string {
   }
   if (has("user", "person", "people", "profile", "seat")) return "person";
   return "unknown";
+}
+
+function stripNonPositiveInstructions(value: string): string {
+  return value
+    .replace(/(?:^|[;.!?])\s*metadata only\b/gi, " ")
+    .replace(
+      /(?:^|[;.!?])\s*(?:please\s+)?(?:do\s+not|don't|never|avoid)\s+(?:report|return|show|include|provide|display)\s+(?:any\s+)?(?:live\s+)?(?:counts?|values?|results?|metrics?|numbers?)\b[^;.!?]*/gi,
+      " ",
+    )
+    .trim();
 }
 
 export function semanticScopeCompatibility(

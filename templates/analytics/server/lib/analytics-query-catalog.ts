@@ -398,8 +398,14 @@ function hasMembershipRoleField(candidate: AnalyticsQueryCatalogCandidate) {
     .join(" ")
     .toLowerCase()
     .replace(/[_-]+/g, " ");
-  return /\b(?:roles?|permissions?|authorization)\b|\baccess\s+(?:level|role|scope|grant|permission|policy)\b/.test(
+  return /\b(?:roles?|permissions?|authorization)\b|\baccess\s+(?:level|role|scope|grant|permission|policy|control)\b/.test(
     searchable,
+  );
+}
+
+function requestsMembershipRoleDetail(search: string): boolean {
+  return /\b(?:roles?|permissions?|authorization)\b|\baccess\s+(?:level|role|scope|grant|permission|policy|control)\b|\bby\s+access\b/i.test(
+    search,
   );
 }
 
@@ -440,9 +446,9 @@ function hasMembershipRosterEvidence(
     /\b(?:organization|org|workspace|team)\s+id\b/.test(columns);
   if (candidate.kind === "dashboard-panel") {
     const queryText = dashboardQueryText(candidate);
-    const hasUserKey = /\b(?:user|member|person)_id\b/.test(queryText);
+    const hasUserKey = /\b(?:user|member|person)\s+id\b/.test(queryText);
     const hasOrganizationKey =
-      /\b(?:organization|org|workspace|team)_id\b/.test(queryText);
+      /\b(?:organization|org|workspace|team)\s+id\b/.test(queryText);
     return (
       !hasAggregateShape(candidate) &&
       hasUserKey &&
@@ -574,7 +580,7 @@ function rosterCandidateSupportsRequestedDetail(
   ) {
     return false;
   }
-  const requestsRoleDetail = /\b(?:roles?|permissions?|access)\b/i.test(search);
+  const requestsRoleDetail = requestsMembershipRoleDetail(search);
   if (requestsRoleDetail) {
     return (
       hasMembershipRosterEvidence(candidate) &&
@@ -1003,9 +1009,7 @@ export function rankAnalyticsQueryCatalogPage(args: {
   const hasFullQueryCoverage = (candidate: AnalyticsQueryCatalogCandidate) =>
     requestedTerms.size > 1 && hasExactQueryCoverage(candidate);
   const rosterRequest = isMembershipRosterRequest(args.search);
-  const requestsRoleDetail = /\b(?:roles?|permissions?|access)\b/i.test(
-    args.search,
-  );
+  const requestsRoleDetail = requestsMembershipRoleDetail(args.search);
   const roleBreakdownRequest =
     !rosterRequest && requestedScope === "membership" && requestsRoleDetail;
   // Strong definitions and proven panels outrank generic hits before coverage.

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   BASELINE_REVISION,
   CSV_PATH,
+  FIXTURE_REVISION,
   computeSyntheticBenchmark,
   renderSyntheticBenchmarkCsv,
   summarizeSyntheticBenchmark,
@@ -20,12 +21,9 @@ describe("SYNTHETIC Analytics retrieval benchmark", () => {
   it("covers aliases, panel SQL, trust, roster grain, activity, and aggregates", () => {
     const rows = computeSyntheticBenchmark();
 
-    expect(
-      rows.every(
-        (row) =>
-          row.dbtSchemaRevision === "000d5e351b5be91166610a4acf1b10fea565fcff",
-      ),
-    ).toBe(true);
+    expect(rows.every((row) => row.fixtureRevision === FIXTURE_REVISION)).toBe(
+      true,
+    );
 
     expect(rows.map((row) => row.caseId)).toEqual([
       "dictionary-alias-mrr",
@@ -65,5 +63,11 @@ describe("SYNTHETIC Analytics retrieval benchmark", () => {
     expect(
       new Set(computeSyntheticBenchmark().map((row) => row.baselineRevision)),
     ).toEqual(new Set([BASELINE_REVISION]));
+  });
+
+  it("keeps production model names and policies out of synthetic output", () => {
+    expect(renderSyntheticBenchmarkCsv()).not.toMatch(
+      /dbt_(?:mart|intermediate)|@builder\.io|users\.organizations/i,
+    );
   });
 });

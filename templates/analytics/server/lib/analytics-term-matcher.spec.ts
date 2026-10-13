@@ -84,7 +84,7 @@ describe("Analytics term matching", () => {
       "product_activity",
     );
     expect(semanticScopeForSearch("active Builder product users")).toBe(
-      "product_user",
+      "product_activity",
     );
     expect(semanticScopeForSearch("Builder users in organizations")).toBe(
       "membership",
@@ -105,13 +105,21 @@ describe("Analytics term matching", () => {
     ).toBe("product_activity");
     expect(
       semanticScopeForSearch("Builder.io product monthly active user count"),
-    ).toBe("product_user");
+    ).toBe("product_activity");
     expect(semanticScopeForSearch("monthly active users by region")).toBe(
       "product_activity",
     );
     expect(semanticScopeForSearch("who has access to the workspace")).toBe(
       "membership_roster",
     );
+    expect(
+      semanticScopeForSearch(
+        "Find the current user roster by organization with roles. Metadata only; do not report live counts or values.",
+      ),
+    ).toBe("membership_roster");
+    expect(
+      semanticScopeForSearch("how many members have access per workspace"),
+    ).toBe("membership");
     expect(semanticScopeForSearch("Agent-Native Analytics users")).toBe(
       "analytics_user",
     );

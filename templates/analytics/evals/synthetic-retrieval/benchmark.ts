@@ -5,7 +5,7 @@ import { rankAnalyticsQueryCatalog } from "../../server/lib/analytics-query-cata
 
 export const BENCHMARK_TITLE = "SYNTHETIC: Analytics retrieval benchmark";
 export const BASELINE_REVISION = "8ff15a5577e6530316d59c4e4b2aa751a8f56a63";
-export const DBT_SCHEMA_REVISION = "000d5e351b5be91166610a4acf1b10fea565fcff";
+export const FIXTURE_REVISION = "synthetic-retrieval-fixtures-v2";
 export const CSV_PATH = fileURLToPath(
   new URL("./SYNTHETIC-analytics-retrieval.csv", import.meta.url),
 );
@@ -39,7 +39,7 @@ export type SyntheticBenchmarkRow = {
   query: string;
   expectedCandidateId: string;
   baselineRevision: string;
-  dbtSchemaRevision: string;
+  fixtureRevision: string;
   baselineTopCandidateId: string;
   baselineCandidateIds: string;
   baselineExpectedRank: string;
@@ -187,12 +187,13 @@ export const SYNTHETIC_CASES: SyntheticCase[] = [
     dictionaryEntries: [
       {
         id: "synthetic-monthly-user-count",
-        metric: "Organization Monthly User Count",
+        metric: "Workspace Monthly Member Count",
         definition:
-          "Daily-built per date month and organization. Completed months use the last calendar day; the current month is partial through today. The main user count excludes members with @builder.io addresses; the internal-user count records them and is not a staff roster. Organization ID may identify a child workspace.",
-        table: "dbt_mart.aggregate_monthly_users_per_org",
-        columnsUsed: "date_month, org_id, user_count, internal_user_count",
-        grain: "One row per date_month per org_id",
+          "Refreshed daily. Completed periods use their final day; the current period is partial through today. The standard count excludes users from a synthetic sandbox domain; a separate sandbox count is not a staff roster. A workspace key may refer to a nested workspace.",
+        table: "synthetic_workspace_member_period_counts",
+        columnsUsed:
+          "period_month, workspace_key, member_count, sandbox_member_count",
+        grain: "One row per period_month per workspace_key",
         semanticScope: "membership",
         sourceKind: "dbt",
         sourceIndex: true,
@@ -200,12 +201,12 @@ export const SYNTHETIC_CASES: SyntheticCase[] = [
       },
       {
         id: "synthetic-user-organization-role-bridge",
-        metric: "Organization User Roles",
+        metric: "Workspace Member Roles",
         definition:
-          "One row per users.organizations array element, including the organization role.",
-        table: "dbt_intermediate.user_organization_role",
-        columnsUsed: "user_id, organization_id, organization_role",
-        grain: "One row per users.organizations array element",
+          "One row per synthetic user-workspace membership, including the assigned role.",
+        table: "synthetic_workspace_member_roles",
+        columnsUsed: "user_id, workspace_id, role_code",
+        grain: "One row per user_id per workspace_id",
         semanticScope: "membership",
         sourceKind: "dbt",
         sourceIndex: true,
@@ -225,10 +226,10 @@ export const SYNTHETIC_CASES: SyntheticCase[] = [
         id: "synthetic-organization-user-membership",
         metric: "Organization User Role Membership",
         definition:
-          "One row per users.organizations array element, including the organization role.",
-        table: "dbt_intermediate.user_organization_role",
-        columnsUsed: "user_id, organization_id, organization_role",
-        grain: "One row per users.organizations array element",
+          "One row per synthetic user-workspace membership, including the assigned role.",
+        table: "synthetic_workspace_member_roles",
+        columnsUsed: "user_id, workspace_id, role_code",
+        grain: "One row per user_id per workspace_id",
         semanticScope: "membership",
         sourceKind: "dbt",
         sourceIndex: true,
@@ -256,12 +257,13 @@ export const SYNTHETIC_CASES: SyntheticCase[] = [
     dictionaryEntries: [
       {
         id: "synthetic-monthly-user-count",
-        metric: "Organization Monthly User Count",
+        metric: "Workspace Monthly Member Count",
         definition:
-          "Daily-built per date month and organization. Completed months use the last calendar day; the current month is partial through today. The main user count excludes members with @builder.io addresses; the internal-user count records them and is not a staff roster. Organization ID may identify a child workspace.",
-        table: "dbt_mart.aggregate_monthly_users_per_org",
-        columnsUsed: "date_month, org_id, user_count, internal_user_count",
-        grain: "One row per date_month per org_id",
+          "Refreshed daily. Completed periods use their final day; the current period is partial through today. The standard count excludes users from a synthetic sandbox domain; a separate sandbox count is not a staff roster. A workspace key may refer to a nested workspace.",
+        table: "synthetic_workspace_member_period_counts",
+        columnsUsed:
+          "period_month, workspace_key, member_count, sandbox_member_count",
+        grain: "One row per period_month per workspace_key",
         semanticScope: "membership",
         sourceKind: "dbt",
         sourceIndex: true,
@@ -269,12 +271,12 @@ export const SYNTHETIC_CASES: SyntheticCase[] = [
       },
       {
         id: "synthetic-user-organization-role-bridge",
-        metric: "Organization User Roles",
+        metric: "Workspace Member Roles",
         definition:
-          "One row per users.organizations array element, including the organization role.",
-        table: "dbt_intermediate.user_organization_role",
-        columnsUsed: "user_id, organization_id, organization_role",
-        grain: "One row per users.organizations array element",
+          "One row per synthetic user-workspace membership, including the assigned role.",
+        table: "synthetic_workspace_member_roles",
+        columnsUsed: "user_id, workspace_id, role_code",
+        grain: "One row per user_id per workspace_id",
         semanticScope: "membership",
         sourceKind: "dbt",
         sourceIndex: true,
@@ -356,7 +358,7 @@ export function computeSyntheticBenchmark(): SyntheticBenchmarkRow[] {
       query: testCase.query,
       expectedCandidateId: testCase.expectedCandidateId,
       baselineRevision: BASELINE_REVISION,
-      dbtSchemaRevision: DBT_SCHEMA_REVISION,
+      fixtureRevision: FIXTURE_REVISION,
       baselineTopCandidateId: baselineIds[0] ?? "",
       baselineCandidateIds: baselineIds.join(";"),
       baselineExpectedRank: baselineRank,
@@ -385,7 +387,7 @@ export function renderSyntheticBenchmarkCsv(
     "query",
     "expectedCandidateId",
     "baselineRevision",
-    "dbtSchemaRevision",
+    "fixtureRevision",
     "baselineTopCandidateId",
     "baselineCandidateIds",
     "baselineExpectedRank",
@@ -403,7 +405,7 @@ export function renderSyntheticBenchmarkCsv(
     "query",
     "expected_candidate_id",
     "baseline_revision",
-    "dbt_schema_revision",
+    "fixture_revision",
     "baseline_top_candidate_id",
     "baseline_candidate_ids",
     "baseline_expected_rank",

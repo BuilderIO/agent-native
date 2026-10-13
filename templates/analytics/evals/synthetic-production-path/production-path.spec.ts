@@ -71,16 +71,16 @@ const syntheticData = vi.hoisted(() => {
           id: "fixture-organization-member-roles",
           metric: "Organization Member Roles",
           definition:
-            "One row per member-to-organization association, including the assigned organization role.",
+            "One row per synthetic user-to-organization membership, including the assigned role.",
           source: "fixture_warehouse",
           sourceKind: "code",
           entryType: "model",
           status: "active",
           semanticScope: "membership",
-          grain: "One row per member_key per organization_key",
+          grain: "One row per user_id per organization_id",
           primaryEntity: "organization membership",
           table: "fixture_warehouse.organization_member_roles",
-          columnsUsed: "member_key, organization_key, role_code",
+          columnsUsed: "user_id, organization_id, role_code",
           sourcePath: "fixtures/models/organization_member_roles.sql",
         },
         {
@@ -172,7 +172,7 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v2";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v3";
 const BASELINE_GIT_REVISION = "8ff15a5577e6530316d59c4e4b2aa751a8f56a63";
 const ACTION_ALLOWLIST = ["find-data"] as const;
 const ANALYTICS_PROJECT_ROOT = path.resolve(
@@ -194,7 +194,7 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
   {
     id: "current-organization-role-roster",
     prompt:
-      "Find the catalog reference for the current user roster by organization with assigned roles. Metadata only; do not report live counts or values.",
+      "Find the catalog reference for the current user roster by organization. Metadata only; do not report live counts or values.",
     expectedTable: "fixture_warehouse.organization_member_roles",
   },
   {
@@ -214,6 +214,12 @@ const SYNTHETIC_CASES: readonly SyntheticCase[] = [
     prompt:
       "Find the catalog reference for Builder.io product users. Metadata only; do not report live counts or values.",
     expectedTable: "fixture_warehouse.builder_product_users",
+  },
+  {
+    id: "active-builder-product-users-map-to-activity",
+    prompt:
+      "Find the catalog reference for Builder.io product users active in the last 30 days. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.product_activity_events",
   },
 ];
 
@@ -677,6 +683,7 @@ describe("Analytics synthetic production-path retrieval harness", () => {
       "monthly-organization-user-count",
       "active-product-users-map-to-activity",
       "builder-product-users-map-to-identities",
+      "active-builder-product-users-map-to-activity",
     ]);
     expect(
       SYNTHETIC_CASES.every(

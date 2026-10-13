@@ -93,6 +93,7 @@ describe("analytics query catalog", () => {
           metric: "Builder.io product monthly active user count",
           definition: "Generated model metadata for monthly active users",
           table: "product_user_dimension",
+          semanticScope: "product_activity",
           sourceIndex: true,
           approved: false,
           aiGenerated: true,
@@ -102,6 +103,7 @@ describe("analytics query catalog", () => {
           metric: "Builder.io user count",
           definition: "Reviewed definition for Builder.io user count",
           table: "product_user_dimension",
+          semanticScope: "product_activity",
           approved: true,
         },
       ],
@@ -372,6 +374,32 @@ describe("analytics query catalog", () => {
 
     expect(results[0]).toMatchObject({
       id: "approved-monthly-workspace-user-count",
+      approved: true,
+    });
+  });
+
+  it("keeps aggregates for access-count questions without a role dimension", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "how many members have access per workspace",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "approved-workspace-member-count",
+          metric: "Workspace Member Count",
+          definition: "A count of members per workspace and month.",
+          table: "workspace_member_monthly_counts",
+          columnsUsed: "workspace_id, month, member_count",
+          grain: "One row per workspace and month",
+          semanticScope: "membership",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      id: "approved-workspace-member-count",
       approved: true,
     });
   });
@@ -692,6 +720,36 @@ describe("analytics query catalog", () => {
     });
 
     expect(results).toEqual([]);
+  });
+
+  it("uses a dashboard panel with normalized membership keys as a role roster", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "workspace-membership-dashboard",
+          title: "Workspace Membership",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "membership-roster",
+                title: "Workspace User Roles",
+                sql: "SELECT user_id, workspace_id, role FROM workspace_membership",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      kind: "dashboard-panel",
+      dashboardId: "workspace-membership-dashboard",
+      panelId: "membership-roster",
+    });
   });
 
   it("uses one transitive trust and scope order across catalog kinds", () => {
