@@ -248,7 +248,7 @@ describe("compileSourceIndex", () => {
         ")",
         "select exploded_users.user_id,",
         "  exploded_users.name,",
-        "  exploded_users.organization as organization_id,",
+        "  exploded_users.organization as `organization_id`,",
         "  case when orgs.type = 'root' then true else false end as organization_is_root,",
         '  coalesce(lookup_user_role(exploded_users.organization_roles, orgs.org_id), "missing") as organization_role,',
         "  orgs.subscription",
@@ -300,16 +300,36 @@ describe("compileSourceIndex", () => {
     expect(byMetric.get("model:user_organization_role")).toMatchObject({
       grain:
         "Expanded grain: one row per user-organization array entry from UNNEST(organizations)",
+      sqlProjectedColumns:
+        "name, organization_id, organization_is_root, organization_role, subscription, user_id",
+      inferredMembershipKeys: ["user_id", "organization_id"],
     });
+    expect(byMetric.get("model:user_organization_role")).not.toHaveProperty(
+      "columnsUsed",
+    );
     expect(byMetric.get("model:user_id_to_org_id")).toMatchObject({
       grain:
         "Same row grain as user_organization_role: Expanded grain: one row per user-organization array entry from UNNEST(organizations)",
       dependencies: "ref:user_organization_role",
+      sqlProjectedColumns: "is_root_org, organization_id, user_id",
+      inferredMembershipKeys: ["user_id", "organization_id"],
     });
+    expect(byMetric.get("model:user_id_to_org_id")).not.toHaveProperty(
+      "columnsUsed",
+    );
     expect(byMetric.get("model:customer_items")).not.toHaveProperty("grain");
     expect(
       byMetric.get("model:user_organization_duplicate_source"),
     ).not.toHaveProperty("grain");
+    expect(
+      byMetric.get("model:user_organization_duplicate_source"),
+    ).toMatchObject({ sqlProjectedColumns: "organization_id, user_id" });
+    expect(
+      byMetric.get("model:user_organization_duplicate_source"),
+    ).not.toHaveProperty("columnsUsed");
+    expect(
+      byMetric.get("model:user_organization_duplicate_source"),
+    ).not.toHaveProperty("inferredMembershipKeys");
     expect(
       byMetric.get("model:user_organization_user_only"),
     ).not.toHaveProperty("grain");
@@ -368,12 +388,33 @@ describe("compileSourceIndex", () => {
     expect(byMetric.get("model:user_organization_grouped")).not.toHaveProperty(
       "grain",
     );
+    expect(byMetric.get("model:user_organization_grouped")).toMatchObject({
+      sqlProjectedColumns: "user_id",
+    });
+    expect(byMetric.get("model:user_organization_grouped")).not.toHaveProperty(
+      "columnsUsed",
+    );
+    expect(byMetric.get("model:user_organization_grouped")).not.toHaveProperty(
+      "inferredMembershipKeys",
+    );
     expect(
       byMetric.get("model:user_organization_aggregate"),
     ).not.toHaveProperty("grain");
     expect(
+      byMetric.get("model:user_organization_aggregate"),
+    ).not.toHaveProperty("columnsUsed");
+    expect(
       byMetric.get("model:user_organization_computed_key"),
     ).not.toHaveProperty("grain");
+    expect(byMetric.get("model:user_organization_computed_key")).toMatchObject({
+      sqlProjectedColumns: "organization_id, user_id",
+    });
+    expect(
+      byMetric.get("model:user_organization_computed_key"),
+    ).not.toHaveProperty("columnsUsed");
+    expect(
+      byMetric.get("model:user_organization_computed_key"),
+    ).not.toHaveProperty("inferredMembershipKeys");
     expect(
       byMetric.get("model:user_organization_count_passthrough"),
     ).not.toHaveProperty("grain");

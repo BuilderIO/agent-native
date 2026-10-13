@@ -525,6 +525,7 @@ export default {
   },
   dataStatus: {
     connected: "Conectado",
+    configuredUnverified: "Configurado · sin verificar",
     notConnected: "No conectado",
     needsReauth: "Requiere reautenticación",
     error: "Error",

@@ -318,7 +318,7 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-analytics-retrieval-v15";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v16";
 const STALE_INDEX_CASE_ID = "stale-generated-index-yields-to-current-source";
 const APPROVED_STALE_INDEX_CASE_ID =
   "approved-stale-generated-entry-yields-to-current-roster";
@@ -660,6 +660,7 @@ const SOURCE_FILES = [
   new URL("../../server/lib/analytics-agent-context.ts", import.meta.url),
   new URL("../../server/lib/data-dictionary-context.ts", import.meta.url),
   new URL("../../server/lib/source-index-store.ts", import.meta.url),
+  new URL("../../server/lib/source-index-schema.ts", import.meta.url),
   new URL("../../server/plugins/agent-chat.ts", import.meta.url),
   new URL(
     "../../../../packages/core/src/agent/production-agent.ts",

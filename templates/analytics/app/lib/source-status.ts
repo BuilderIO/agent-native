@@ -18,6 +18,7 @@ export const SOURCE_HEALTH_SOURCES = [
 export type SourceHealthId = (typeof SOURCE_HEALTH_SOURCES)[number]["id"];
 export type SourceHealthState =
   | "connected"
+  | "configured"
   | "not_connected"
   | "needs_reauth"
   | "error";
@@ -44,14 +45,17 @@ export function sourceHealthState(
 
   if (statuses.has("error")) return "error";
   if (statuses.has("needs_reauth")) return "needs_reauth";
-  if (
-    provider?.configured === true ||
-    connection?.grantState === "connected" ||
-    statuses.has("connected")
-  ) {
+  if (connection?.grantState === "connected" || statuses.has("connected")) {
     return "connected";
   }
   if (data.workspaceConnections?.available === false) return "error";
   if (provider?.configured === null) return "error";
+  if (
+    provider?.configured === true ||
+    connection?.grantState === "granted" ||
+    statuses.has("checking")
+  ) {
+    return "configured";
+  }
   return "not_connected";
 }

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const SAFE_ID = /^[a-z0-9][a-z0-9_-]{0,119}$/;
 const SAFE_SOURCE = /^[a-z0-9][a-z0-9_-]{0,79}$/;
+const SAFE_COLUMN = /^[A-Za-z_][A-Za-z0-9_$-]{0,119}$/;
 const GIT_REVISION = /^[a-f0-9]{7,64}$/i;
 export const SOURCE_INDEX_KINDS = ["dbt", "code", "sigma"] as const;
 export const SOURCE_INDEX_ENTRY_TYPES = [
@@ -17,6 +18,7 @@ const SENSITIVE_TEXT_FIELDS = [
   "definition",
   "table",
   "columnsUsed",
+  "sqlProjectedColumns",
   "dependencies",
   "joinPattern",
   "commonQuestions",
@@ -72,6 +74,12 @@ export const sourceIndexEntrySchema = z
     semanticModel: z.string().trim().min(1).max(160).optional(),
     table: z.string().trim().max(600).optional(),
     columnsUsed: z.string().trim().max(10_000).optional(),
+    sqlProjectedColumns: z.string().trim().max(10_000).optional(),
+    inferredMembershipKeys: z
+      .array(z.string().regex(SAFE_COLUMN))
+      .min(2)
+      .max(8)
+      .optional(),
     dependencies: z.string().trim().max(4_000).optional(),
     joinPattern: z.string().trim().max(4_000).optional(),
     commonQuestions: z.string().trim().max(2_000).optional(),
@@ -129,6 +137,15 @@ export const sourceIndexBundleSchema = z
           ctx.addIssue({
             code: "custom",
             path: ["entries", index, field],
+            message: "must not contain personal, secret, or URL-like text",
+          });
+        }
+      }
+      for (const column of entry.inferredMembershipKeys ?? []) {
+        if (SENSITIVE_TEXT.test(column)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["entries", index, "inferredMembershipKeys"],
             message: "must not contain personal, secret, or URL-like text",
           });
         }

@@ -122,6 +122,8 @@ export type AnalyticsQueryCatalogCandidate =
       action?: string;
       table?: string;
       columnsUsed?: string;
+      sqlProjectedColumns?: string;
+      inferredMembershipKeys?: string[];
       queryTemplate?: string;
       knownGotchas?: string;
       commonQuestions?: string;
@@ -299,6 +301,7 @@ function candidateTextFields(
       candidate.definition,
       candidate.table,
       candidate.columnsUsed,
+      candidate.sqlProjectedColumns,
       candidate.grain,
       candidate.primaryEntity,
       candidate.semanticModel,
@@ -425,6 +428,26 @@ function hasOrganizationIdentityKey(columns: string): boolean {
   return /\b(?:organization|org|workspace|team)\s+id\b/.test(columns);
 }
 
+function hasInferredMembershipIdentityKeys(
+  candidate: AnalyticsQueryCatalogCandidate,
+): boolean {
+  if (
+    candidate.kind !== "data-dictionary" ||
+    candidate.origin !== "source-index" ||
+    candidate.sourceKind !== "dbt"
+  ) {
+    return false;
+  }
+  return (
+    (candidate.inferredMembershipKeys ?? []).some((key) =>
+      /^(?:user|member|person)_id$/i.test(key),
+    ) &&
+    (candidate.inferredMembershipKeys ?? []).some((key) =>
+      /^(?:organization|org|workspace|team)_id$/i.test(key),
+    )
+  );
+}
+
 function isStaleGeneratedSourceIndexEntry(
   candidate: AnalyticsQueryCatalogCandidate,
 ): boolean {
@@ -469,7 +492,9 @@ function hasMembershipRosterEvidence(
       ? (candidate.columnsUsed ?? "").toLowerCase().replace(/[_-]+/g, " ")
       : "";
   const hasMembershipKeys =
-    hasMembershipIdentityKey(columns) && hasOrganizationIdentityKey(columns);
+    (hasMembershipIdentityKey(columns) &&
+      hasOrganizationIdentityKey(columns)) ||
+    hasInferredMembershipIdentityKeys(candidate);
   if (candidate.kind === "dashboard-panel") {
     const queryText = dashboardQueryText(candidate);
     const hasUserKey = hasMembershipIdentityKey(queryText);
@@ -911,6 +936,7 @@ function dictionaryCandidates(
       { value: entry.definition, weight: 12 },
       { value: entry.table, weight: 8 },
       { value: entry.columnsUsed, weight: 6 },
+      { value: entry.sqlProjectedColumns, weight: 4 },
       { value: entry.queryTemplate, weight: 5 },
       { value: entry.source, weight: 5 },
       { value: entry.action, weight: 5 },
@@ -972,6 +998,17 @@ function dictionaryCandidates(
         ...(text(entry.table) ? { table: text(entry.table) } : {}),
         ...(text(entry.columnsUsed)
           ? { columnsUsed: text(entry.columnsUsed) }
+          : {}),
+        ...(text(entry.sqlProjectedColumns)
+          ? { sqlProjectedColumns: text(entry.sqlProjectedColumns) }
+          : {}),
+        ...(isSourceIndex &&
+        entrySourceKind === "dbt" &&
+        Array.isArray(entry.inferredMembershipKeys) &&
+        entry.inferredMembershipKeys.every(
+          (key): key is string => typeof key === "string",
+        )
+          ? { inferredMembershipKeys: entry.inferredMembershipKeys }
           : {}),
         ...(text(entry.queryTemplate)
           ? { queryTemplate: text(entry.queryTemplate) }

@@ -493,6 +493,7 @@ export default {
   },
   dataStatus: {
     connected: "已連線",
+    configuredUnverified: "已設定 · 未驗證",
     notConnected: "未連線",
     needsReauth: "需要重新授權",
     error: "錯誤",

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { mergeDataDictionaryEntry } from "./data-dictionary-overlays.js";
 
 describe("data dictionary overlays", () => {
@@ -10,6 +11,8 @@ describe("data dictionary overlays", () => {
       sourceIndexAgeDays: 90,
       sourceIndexStaleAfterDays: 30,
       sourceIndexGeneratedAt: "2000-01-01T00:00:00.000Z",
+      sqlProjectedColumns: "user_id, organization_id",
+      inferredMembershipKeys: ["user_id", "organization_id"],
     };
     const overlay = {
       id: generated.id,
@@ -17,6 +20,8 @@ describe("data dictionary overlays", () => {
       sourceIndexStale: false,
       sourceIndexAgeDays: 0,
       sourceIndexStaleAfterDays: 36_500,
+      sqlProjectedColumns: "account_id AS user_id",
+      inferredMembershipKeys: ["account_id", "organization_id"],
     };
 
     expect(mergeDataDictionaryEntry(generated, overlay)).toMatchObject({
@@ -26,6 +31,8 @@ describe("data dictionary overlays", () => {
       sourceIndexAgeDays: 90,
       sourceIndexStaleAfterDays: 30,
       sourceIndexGeneratedAt: "2000-01-01T00:00:00.000Z",
+      sqlProjectedColumns: "user_id, organization_id",
+      inferredMembershipKeys: ["user_id", "organization_id"],
     });
   });
 });

@@ -515,6 +515,7 @@ export default {
   },
   dataStatus: {
     connected: "연결됨",
+    configuredUnverified: "구성됨 · 확인되지 않음",
     notConnected: "연결 안 됨",
     needsReauth: "재인증 필요",
     error: "오류",

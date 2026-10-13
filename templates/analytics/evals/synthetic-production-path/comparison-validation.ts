@@ -64,7 +64,14 @@ const V14_CASE_IDS = [
   "stale-generated-index-yields-to-current-source",
 ] as const;
 
-export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = V14_CASE_IDS;
+const V15_CASE_IDS = [
+  ...V14_CASE_IDS,
+  "approved-stale-generated-entry-yields-to-current-roster",
+] as const;
+
+const V16_CASE_IDS = V15_CASE_IDS;
+
+export const SYNTHETIC_PRODUCTION_PATH_CASE_IDS = V16_CASE_IDS;
 
 type PinnedEvaluation = {
   fixtureRevision: string;
@@ -75,6 +82,7 @@ type PinnedEvaluation = {
   harnessRevision: string;
   caseIds: readonly string[];
   staleIndexMarker?: boolean;
+  staleIndexCaseIds?: readonly string[];
 };
 
 const PINNED_EVALUATIONS = [
@@ -138,6 +146,24 @@ const PINNED_EVALUATIONS = [
       "sha256:04428dd484b504b646a93e1b6b35151fcc344568c8c1cd7780fa498822df8a93",
     caseIds: V14_CASE_IDS,
     staleIndexMarker: true,
+    staleIndexCaseIds: ["stale-generated-index-yields-to-current-source"],
+  },
+  {
+    fixtureRevision: "synthetic-analytics-retrieval-v15",
+    baselineRevision: "a93e6112f4a32520802becf310b325c03f4c1054",
+    baselineCodeRevision:
+      "sha256:64a2ed8f2ad572beeca5d9b1bfc95529db522d7f60a4cd5acbe00a9c8fcd56fd",
+    candidateRevision: "a6e35b5aff93c7c709f14e746e28129896a8bd74",
+    candidateCodeRevision:
+      "sha256:16456ce51a222cfefb0fd8a72c92756649df7a9961a7ad9b7af357e6a2c257e5",
+    harnessRevision:
+      "sha256:bd8b74ba4410ed17eb63ee11e46c844adbb927e253604f21178570af20965a52",
+    caseIds: V15_CASE_IDS,
+    staleIndexMarker: true,
+    staleIndexCaseIds: [
+      "stale-generated-index-yields-to-current-source",
+      "approved-stale-generated-entry-yields-to-current-roster",
+    ],
   },
 ] as const satisfies readonly PinnedEvaluation[];
 const PINNED_EVALUATIONS_BY_FIXTURE = new Map(
@@ -439,7 +465,7 @@ export function validateProductionPathComparisonCsv(
       row.stale_index_marked &&
       (!pinnedEvaluation.staleIndexMarker ||
         row.phase !== "after" ||
-        row.case_id !== "stale-generated-index-yields-to-current-source")
+        !pinnedEvaluation.staleIndexCaseIds?.includes(row.case_id))
     ) {
       throw new Error(
         "Comparison CSV stale-index markers must match the pinned candidate case.",
@@ -588,26 +614,45 @@ export function validateProductionPathComparisonCsv(
   }
 
   if (pinnedEvaluation.staleIndexMarker) {
-    const staleCaseRows = rows.filter(
-      (row) => row.case_id === "stale-generated-index-yields-to-current-source",
-    );
-    if (
-      staleCaseRows
-        .filter((row) => row.phase === "before")
-        .some((row) => row.stale_index_marked) ||
-      staleCaseRows.filter((row) => row.phase === "after").length !== 2 ||
-      staleCaseRows
-        .filter((row) => row.phase === "after")
-        .some((row) => !row.stale_index_marked)
-    ) {
-      throw new Error(
-        "Comparison CSV must record stale-index marking only for both candidate runs.",
-      );
+    for (const caseId of pinnedEvaluation.staleIndexCaseIds ?? []) {
+      const staleCaseRows = rows.filter((row) => row.case_id === caseId);
+      if (
+        staleCaseRows
+          .filter((row) => row.phase === "before")
+          .some((row) => row.stale_index_marked) ||
+        staleCaseRows.filter((row) => row.phase === "after").length !== 2 ||
+        staleCaseRows
+          .filter((row) => row.phase === "after")
+          .some((row) => !row.stale_index_marked)
+      ) {
+        throw new Error(
+          "Comparison CSV must record stale-index marking only for both candidate runs.",
+        );
+      }
     }
   }
 
   const before = summarizePhase("before", rows);
   const after = summarizePhase("after", rows);
+  const hasCompletedProductionPath = (phase: Phase) =>
+    rows.some(
+      (row) =>
+        row.phase === phase &&
+        row.completed &&
+        !row.aborted &&
+        row.find_data_calls === 1 &&
+        row.other_action_calls === 0 &&
+        row.failed_action_calls === 0 &&
+        row.llm_calls > 0,
+    );
+  if (
+    !hasCompletedProductionPath("before") ||
+    !hasCompletedProductionPath("after")
+  ) {
+    throw new Error(
+      "Comparison CSV must include a completed production-path run in each phase.",
+    );
+  }
   const expectedPhaseRows = pinnedEvaluation.caseIds.length * 2;
   if (before.rows !== expectedPhaseRows || after.rows !== expectedPhaseRows) {
     throw new Error(

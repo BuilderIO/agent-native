@@ -90,6 +90,8 @@ export interface SourceIndexEntry {
   semanticModel?: string;
   table?: string;
   columnsUsed?: string;
+  sqlProjectedColumns?: string;
+  inferredMembershipKeys?: string[];
   dependencies?: string;
   joinPattern?: string;
   commonQuestions?: string;
@@ -171,6 +173,7 @@ interface ModelDoc {
   explicitGrain?: string;
   inferredGrain?: string;
   inferredGrainKeyCandidates?: string[][];
+  sqlProjectedColumns?: string[];
   passThroughModel?: string;
   passThroughColumns?: string[] | "*";
   semanticModelEnabled?: boolean;
@@ -2016,6 +2019,7 @@ function mergeModel(target: ModelDoc, source: ModelDoc): void {
   target.description ??= source.description;
   target.explicitGrain ??= source.explicitGrain;
   target.inferredGrain ??= source.inferredGrain;
+  target.sqlProjectedColumns ??= source.sqlProjectedColumns;
   target.passThroughModel ??= source.passThroughModel;
   target.semanticModelEnabled ??= source.semanticModelEnabled;
   target.semanticModelName ??= source.semanticModelName;
@@ -2221,19 +2225,21 @@ function directProjection(projection: string):
 
   let expression = value;
   let outputColumn: string | undefined;
+  const outputIdentifier = String.raw`(?:${SQL_IDENTIFIER}|\x60[A-Za-z_][A-Za-z0-9_$-]*\x60)`;
   const explicitAlias = value.match(
-    new RegExp(String.raw`^(.+?)\s+as\s+(${SQL_IDENTIFIER})$`, "i"),
+    new RegExp(String.raw`^(.+?)\s+as\s+(${outputIdentifier})$`, "i"),
   );
   const implicitAlias = explicitAlias
     ? undefined
-    : value.match(new RegExp(String.raw`^(.+?)\s+(${SQL_IDENTIFIER})$`, "i"));
+    : value.match(new RegExp(String.raw`^(.+?)\s+(${outputIdentifier})$`, "i"));
   const alias = explicitAlias ?? implicitAlias;
   if (alias) {
     expression = alias[1]!.trim();
-    outputColumn = alias[2]!.toLowerCase();
+    outputColumn = alias[2]!.replaceAll("`", "").toLowerCase();
   }
-  if (!SQL_COLUMN_REFERENCE.test(expression)) return undefined;
-  const inputColumn = expression
+  const normalizedExpression = expression.replace(/`([^`]+)`/g, "$1");
+  if (!SQL_COLUMN_REFERENCE.test(normalizedExpression)) return undefined;
+  const inputColumn = normalizedExpression
     .split(".")
     .pop()!
     .trim()
@@ -2243,6 +2249,34 @@ function directProjection(projection: string):
     inputColumn,
     outputColumn: outputColumn ?? inputColumn,
   };
+}
+
+function projectedOutputColumn(projection: string): string | undefined {
+  const direct = directProjection(projection);
+  if (direct)
+    return direct.outputColumn === "*" ? undefined : direct.outputColumn;
+
+  const outputIdentifier = String.raw`(?:${SQL_IDENTIFIER}|\x60[A-Za-z_][A-Za-z0-9_$-]*\x60)`;
+  const alias = projection
+    .trim()
+    .match(new RegExp(String.raw`^(.+?)\s+as\s+(${outputIdentifier})$`, "i"));
+  if (!alias) return undefined;
+
+  const outputColumn = safeIdentifier(alias[2]!.replaceAll("`", ""));
+  if (!outputColumn) return undefined;
+  return outputColumn.toLowerCase();
+}
+
+function projectedColumnsFromSql(sql: string): string[] {
+  const selectList = finalSelectList(sqlWithoutComments(sql));
+  if (!selectList) return [];
+  return [
+    ...new Set(
+      splitTopLevelSqlList(selectList)
+        .map(projectedOutputColumn)
+        .filter((column): column is string => Boolean(column)),
+    ),
+  ].sort((a, b) => a.localeCompare(b));
 }
 
 function hasRowReducingSql(source: string): boolean {
@@ -2997,6 +3031,18 @@ function modelEntries(
   const definition = boundedExcerpt(fullDefinition, 5_000, scanSummary);
   const columnNames = columns.map((column) => column.name);
   const columnsUsed = boundedList(columnNames, 10_000, ", ", scanSummary);
+  const sqlProjectedColumns = boundedList(
+    model.sqlProjectedColumns ?? [],
+    10_000,
+    ", ",
+    scanSummary,
+  );
+  const inferredMembershipKeys = model.inferredGrainKeyCandidates?.find(
+    (candidate) => {
+      const keys = new Set(candidate.map((column) => column.toLowerCase()));
+      return keys.has("user_id") && keys.has("organization_id");
+    },
+  );
   const modelGotchas = [
     ...[...model.tests].sort().map((test) => `model: ${test}`),
     ...columns.flatMap((column) =>
@@ -3018,6 +3064,8 @@ function modelEntries(
       table: model.name,
       ...(declaredGrain ? { grain: declaredGrain } : {}),
       ...(columnsUsed ? { columnsUsed } : {}),
+      ...(sqlProjectedColumns ? { sqlProjectedColumns } : {}),
+      ...(inferredMembershipKeys ? { inferredMembershipKeys } : {}),
       ...(dependencies.length
         ? {
             dependencies: boundedList(dependencies, 4_000, "; ", scanSummary),
@@ -3160,6 +3208,7 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
     }
     const inferredGrain = inferUnnestedMembershipGrain(sql, modelName);
     const passThrough = extractPassThroughModel(sql, dependencies);
+    const sqlProjectedColumns = projectedColumnsFromSql(sql);
     const model: ModelDoc = {
       name: modelName,
       ...(relativePath ? { sourcePath: relativePath } : {}),
@@ -3167,6 +3216,7 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
       tests: new Set(),
       dependencies: new Set(dependencies),
       grainHints: [],
+      ...(sqlProjectedColumns.length ? { sqlProjectedColumns } : {}),
       ...(inferredGrain ? { inferredGrain } : {}),
       ...(inferredGrain
         ? { inferredGrainKeyCandidates: [["user_id", "organization_id"]] }

@@ -496,6 +496,7 @@ export default {
   },
   dataStatus: {
     connected: "已连接",
+    configuredUnverified: "已配置 · 未验证",
     notConnected: "未连接",
     needsReauth: "需要重新授权",
     error: "错误",

@@ -15,7 +15,16 @@ read credentials or call an embedding provider. The action allowlist contains
 only `find-data`; warehouse and connected-data actions are unavailable to the
 loop.
 
-## Current v14 comparison (candidate snapshot `ba536105`)
+## Diagnostic-only v15 artifact (not a valid comparison)
+
+The preserved v15 CSV is not valid evidence: all 46 baseline rows failed
+before `find-data` ran, so it measured a broken evaluation path rather than
+baseline retrieval. The comparison validator now rejects any artifact that
+has no completed production-path run in either phase. Keep this CSV only as a
+record of the harness failure; use a comparison whose baseline and candidate
+both complete the production path.
+
+## Historical v14 comparison (candidate snapshot `ba536105`)
 
 The checked-in v14 artifact runs twenty-two synthetic cases twice in each
 phase through the same production agent loop. The baseline is `origin/main` at

@@ -79,6 +79,8 @@ describe("sourceIndexDictionaryEntries", () => {
           sourceKind: "dbt",
           semanticScope: "unknown",
           table: "users",
+          sqlProjectedColumns: "user_id, organization_id",
+          inferredMembershipKeys: ["user_id", "organization_id"],
         },
       ],
     });
@@ -86,6 +88,10 @@ describe("sourceIndexDictionaryEntries", () => {
     expect(sourceIndexDictionaryEntries(bundle)[0]).not.toHaveProperty(
       "semanticScope",
     );
+    expect(sourceIndexDictionaryEntries(bundle)[0]).toMatchObject({
+      sqlProjectedColumns: "user_id, organization_id",
+      inferredMembershipKeys: ["user_id", "organization_id"],
+    });
   });
 
   it("defaults index entries to active and preserves deprecated status", () => {

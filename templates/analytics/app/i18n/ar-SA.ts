@@ -515,6 +515,7 @@ export default {
   },
   dataStatus: {
     connected: "متصل",
+    configuredUnverified: "تم الإعداد · غير متحقق",
     notConnected: "غير متصل",
     needsReauth: "يلزم إعادة المصادقة",
     error: "خطأ",

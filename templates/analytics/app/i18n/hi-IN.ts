@@ -511,6 +511,7 @@ export default {
   },
   dataStatus: {
     connected: "जुड़ा हुआ",
+    configuredUnverified: "कॉन्फ़िगर किया गया · सत्यापित नहीं",
     notConnected: "कनेक्ट नहीं है",
     needsReauth: "पुनः प्रमाणीकरण आवश्यक है",
     error: "त्रुटि",

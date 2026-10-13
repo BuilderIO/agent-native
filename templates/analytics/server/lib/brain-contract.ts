@@ -29,6 +29,7 @@ export interface IndexSchedule {
 
 export type BrainSourceStatus =
   | "connected"
+  | "configured"
   | "not-connected"
   | "needs-reauth"
   | "error";

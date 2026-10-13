@@ -75,6 +75,25 @@ function renderEntry(
   if (action) lines.push(`  - query action: ${action}`);
   const columns = compact(entry.columnsUsed, 360);
   if (columns) lines.push(`  - columns: ${columns}`);
+  const sqlProjectedColumns = compact(entry.sqlProjectedColumns, 360);
+  if (sqlProjectedColumns) {
+    lines.push(
+      `  - SQL projected columns (inferred; verify against schema): ${sqlProjectedColumns}`,
+    );
+  }
+  const inferredMembershipKeys = Array.isArray(entry.inferredMembershipKeys)
+    ? compact(
+        entry.inferredMembershipKeys
+          .filter((key): key is string => typeof key === "string")
+          .join(", "),
+        240,
+      )
+    : compact(entry.inferredMembershipKeys, 240);
+  if (inferredMembershipKeys) {
+    lines.push(
+      `  - membership row keys inferred from structural dbt SQL analysis: ${inferredMembershipKeys}`,
+    );
+  }
   const cuts = compact(entry.cuts, 240);
   if (cuts) lines.push(`  - standard cuts: ${cuts}`);
   const template = compact(entry.queryTemplate, 240);

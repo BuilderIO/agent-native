@@ -142,6 +142,12 @@ export function sourceIndexDictionaryEntries(
     ...(entry.semanticModel ? { semanticModel: entry.semanticModel } : {}),
     table: entry.table ?? "",
     columnsUsed: entry.columnsUsed ?? "",
+    ...(entry.sqlProjectedColumns
+      ? { sqlProjectedColumns: entry.sqlProjectedColumns }
+      : {}),
+    ...(entry.inferredMembershipKeys
+      ? { inferredMembershipKeys: entry.inferredMembershipKeys }
+      : {}),
     dependencies: entry.dependencies ?? "",
     joinPattern: entry.joinPattern ?? "",
     commonQuestions: entry.commonQuestions ?? "",

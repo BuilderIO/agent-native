@@ -19,7 +19,7 @@ function statusData(
 }
 
 describe("sourceHealthState", () => {
-  it("reports configured provider credentials as connected", () => {
+  it("reports stored provider credentials as configured but unverified", () => {
     expect(
       sourceHealthState(
         "bigquery",
@@ -36,7 +36,76 @@ describe("sourceHealthState", () => {
           ],
         }),
       ),
+    ).toBe("configured");
+  });
+
+  it("reports a verified workspace grant as connected", () => {
+    expect(
+      sourceHealthState(
+        "bigquery",
+        statusData({
+          providers: [
+            {
+              provider: "bigquery",
+              label: "BigQuery",
+              configured: false,
+              configuredKeys: [],
+              missingRequiredKeys: [],
+              optionalKeys: [],
+            },
+          ],
+          workspaceConnections: {
+            appId: "analytics",
+            available: true,
+            error: null,
+            providers: [
+              {
+                provider: "bigquery",
+                grantState: "connected",
+                connectionCount: 1,
+                grantedConnectionCount: 1,
+                activeConnectionCount: 1,
+                hasWorkspaceConnection: true,
+                hasGrantedWorkspaceConnection: true,
+                hasActiveWorkspaceConnection: true,
+                statuses: ["connected"],
+              },
+            ],
+          },
+        }),
+      ),
     ).toBe("connected");
+  });
+
+  it("preserves configured credentials when the workspace grant is not yet active", () => {
+    expect(
+      sourceHealthState(
+        "amplitude",
+        statusData({
+          providers: [
+            {
+              provider: "amplitude",
+              label: "Amplitude",
+              configured: true,
+              configuredKeys: ["AMPLITUDE_API_KEY"],
+              missingRequiredKeys: [],
+              optionalKeys: [],
+              workspaceConnection: {
+                provider: "amplitude",
+                grantState: "granted",
+                connectionCount: 1,
+                grantedConnectionCount: 1,
+                activeConnectionCount: 0,
+                hasWorkspaceConnection: true,
+                hasGrantedWorkspaceConnection: true,
+                hasActiveWorkspaceConnection: false,
+                statuses: ["checking"],
+              },
+            },
+          ],
+        }),
+      ),
+    ).toBe("configured");
   });
 
   it("reads granted dbt and Sigma workspace connections", () => {
@@ -108,6 +177,29 @@ describe("sourceHealthState", () => {
               label: "Amplitude",
               configured: false,
               configuredKeys: [],
+              missingRequiredKeys: [],
+              optionalKeys: [],
+            },
+          ],
+          workspaceConnections: {
+            appId: "analytics",
+            available: false,
+            error: "unavailable",
+            providers: [],
+          },
+        }),
+      ),
+    ).toBe("error");
+    expect(
+      sourceHealthState(
+        "amplitude",
+        statusData({
+          providers: [
+            {
+              provider: "amplitude",
+              label: "Amplitude",
+              configured: true,
+              configuredKeys: ["AMPLITUDE_API_KEY"],
               missingRequiredKeys: [],
               optionalKeys: [],
             },

@@ -524,6 +524,7 @@ export default {
   },
   dataStatus: {
     connected: "接続済み",
+    configuredUnverified: "設定済み・未確認",
     notConnected: "未接続",
     needsReauth: "再認証が必要",
     error: "エラー",

@@ -44,6 +44,16 @@ const V14_COMPARISON_CSV = fileURLToPath(
     import.meta.url,
   ),
 );
+const V15_COMPARISON_CSV = fileURLToPath(
+  new URL(
+    "./SYNTHETIC-analytics-production-path-v15-before-after.csv",
+    import.meta.url,
+  ),
+);
+const STALE_INDEX_CASE_IDS = new Set([
+  "stale-generated-index-yields-to-current-source",
+  "approved-stale-generated-entry-yields-to-current-roster",
+]);
 const CSV_COLUMNS = [
   "case_id",
   "phase",
@@ -93,6 +103,7 @@ function makeComparisonCsv(): string {
     1,
     4,
     1,
+    null,
   ];
   for (const phase of ["before", "after"] as const) {
     for (const [
@@ -137,8 +148,7 @@ function makeComparisonCsv(): string {
           llm_calls: 2,
           latency_ms: 20 + run,
           stale_index_marked:
-            phase === "after" &&
-            caseId === "stale-generated-index-yields-to-current-source",
+            phase === "after" && STALE_INDEX_CASE_IDS.has(caseId),
         };
         rows.push(
           CSV_COLUMNS.map((column) =>
@@ -156,19 +166,19 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     const result = validateProductionPathComparisonCsv(makeComparisonCsv());
 
     expect(result).toMatchObject({
-      cases: 22,
+      cases: 23,
       before: {
-        rows: 44,
+        rows: 46,
         top1: 8,
         hitAt5: 22,
         staleIndexMarked: 0,
         harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
       },
       after: {
-        rows: 44,
-        top1: 44,
-        hitAt5: 44,
-        staleIndexMarked: 2,
+        rows: 46,
+        top1: 46,
+        hitAt5: 46,
+        staleIndexMarked: 4,
         harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
       },
     });
@@ -383,10 +393,10 @@ describe("Analytics synthetic production-path comparison artifact", () => {
 
     const result = validateProductionPathComparisonCsv(rows.join("\n"));
     expect(result.after).toMatchObject({
-      rows: 44,
-      top1: 43,
-      retrievalTop1: 43,
-      hitAt5: 43,
+      rows: 46,
+      top1: 45,
+      retrievalTop1: 45,
+      hitAt5: 45,
       failedRuns: 1,
       abortedRuns: 1,
     });
@@ -404,9 +414,9 @@ describe("Analytics synthetic production-path comparison artifact", () => {
 
     const result = validateProductionPathComparisonCsv(rows.join("\n"));
     expect(result.after).toMatchObject({
-      top1: 43,
-      retrievalTop1: 43,
-      hitAt5: 43,
+      top1: 45,
+      retrievalTop1: 45,
+      hitAt5: 45,
       failedRuns: 1,
       abortedRuns: 0,
     });
@@ -508,7 +518,7 @@ describe("Analytics synthetic production-path comparison artifact", () => {
     });
   });
 
-  it("validates the current v14 comparison and explicit stale-index signal", async () => {
+  it("preserves the historical v14 comparison and stale-index signal", async () => {
     const csv = await readFile(V14_COMPARISON_CSV, "utf8");
     const result = validateProductionPathComparisonCsv(csv);
 
@@ -522,9 +532,11 @@ describe("Analytics synthetic production-path comparison artifact", () => {
         failedRuns: 36,
         abortedRuns: 0,
         staleIndexMarked: 0,
-        revision: PRODUCTION_PATH_BASELINE_REVISION,
-        codeRevision: PRODUCTION_PATH_BASELINE_CODE_REVISION,
-        harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
+        revision: "0fb4de3ed8bd4e317543575c9b188b93db392d26",
+        codeRevision:
+          "sha256:16768496b83db90ba30f74df6ea49f934c1ee11e6ba3fb8d1c7f65ee089e44ac",
+        harnessRevision:
+          "sha256:04428dd484b504b646a93e1b6b35151fcc344568c8c1cd7780fa498822df8a93",
       },
       after: {
         rows: 44,
@@ -534,10 +546,19 @@ describe("Analytics synthetic production-path comparison artifact", () => {
         failedRuns: 0,
         abortedRuns: 0,
         staleIndexMarked: 2,
-        revision: PRODUCTION_PATH_CANDIDATE_REVISION,
-        codeRevision: PRODUCTION_PATH_CANDIDATE_CODE_REVISION,
-        harnessRevision: PRODUCTION_PATH_HARNESS_REVISION,
+        revision: "ba53610515501c3f8657168c2c7346a713ac03df",
+        codeRevision:
+          "sha256:70424c4be93310ac67c21eaf3af6d68e10c18d87e495bce2653c5c40b409e07c",
+        harnessRevision:
+          "sha256:04428dd484b504b646a93e1b6b35151fcc344568c8c1cd7780fa498822df8a93",
       },
     });
+  });
+
+  it("rejects the v15 artifact whose baseline never completed the production path", async () => {
+    const csv = await readFile(V15_COMPARISON_CSV, "utf8");
+    expect(() => validateProductionPathComparisonCsv(csv)).toThrow(
+      "completed production-path run in each phase",
+    );
   });
 });
