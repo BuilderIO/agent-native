@@ -33,7 +33,10 @@ import {
   assertHumanReadableDeckTitle,
   resolveImportedDeckTitle,
 } from "../shared/deck-title.js";
-import { SOURCE_IMPORT_NO_WRITE_ERROR_CODE } from "../shared/source-import-errors.js";
+import {
+  InvalidPptxSourceError,
+  SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+} from "../shared/source-import-errors.js";
 import { getDeckUrl } from "./_app-url.js";
 import { trackDeckCreated } from "./_deck-tracking.js";
 import {
@@ -430,19 +433,10 @@ async function parsePptxBeforeDeckWrite(
   try {
     return await parsePptx(fileBuffer);
   } catch (error) {
-    if (hasTypedImportError(error)) throw error;
+    if (!(error instanceof InvalidPptxSourceError)) throw error;
     fail(
       "Slides could not read this PowerPoint file. No slides were written to the deck.",
       { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
     );
   }
-}
-
-function hasTypedImportError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const typedError = error as { errorCode?: unknown; statusCode?: unknown };
-  return (
-    typeof typedError.errorCode === "string" ||
-    typeof typedError.statusCode === "number"
-  );
 }

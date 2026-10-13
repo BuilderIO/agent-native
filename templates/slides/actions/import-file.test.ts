@@ -157,7 +157,10 @@ vi.mock("./patch-deck.js", () => ({
   withDeckLock: (_deckId: string, fn: () => unknown) => fn(),
 }));
 
-import { SOURCE_IMPORT_NO_WRITE_ERROR_CODE } from "../shared/source-import-errors.js";
+import {
+  InvalidPptxSourceError,
+  SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+} from "../shared/source-import-errors.js";
 import action from "./import-file";
 
 beforeEach(() => {
@@ -798,7 +801,9 @@ describe("import-file PDF source extraction", () => {
   });
 
   it("returns a typed no-write failure when a source PPTX cannot be parsed", async () => {
-    mockParsePptx.mockRejectedValue(new Error("Invalid PPTX archive"));
+    mockParsePptx.mockRejectedValue(
+      new InvalidPptxSourceError(new Error("Invalid PPTX: broken archive")),
+    );
 
     await expect(
       action.run({
@@ -831,6 +836,23 @@ describe("import-file PDF source extraction", () => {
         importIntoDeck: true,
       }),
     ).rejects.toBe(typedError);
+
+    expect(mockUploadPptxSlideImages).not.toHaveBeenCalled();
+    expect(mockGetDb).not.toHaveBeenCalled();
+  });
+
+  it("preserves unexpected PPTX parser failures", async () => {
+    const parserError = new Error("Unexpected parser failure");
+    mockParsePptx.mockRejectedValue(parserError);
+
+    await expect(
+      action.run({
+        filePath: "source.pptx",
+        format: "pptx",
+        deckId: "deck-1",
+        importIntoDeck: true,
+      }),
+    ).rejects.toBe(parserError);
 
     expect(mockUploadPptxSlideImages).not.toHaveBeenCalled();
     expect(mockGetDb).not.toHaveBeenCalled();

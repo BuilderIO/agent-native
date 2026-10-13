@@ -21,7 +21,10 @@ vi.mock("../server/handlers/import/pptx-parser.js", () => ({
   parsePptx: (...args: unknown[]) => mocks.parsePptx(...args),
 }));
 
-import { SOURCE_IMPORT_NO_WRITE_ERROR_CODE } from "../shared/source-import-errors.js";
+import {
+  InvalidPptxSourceError,
+  SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+} from "../shared/source-import-errors.js";
 import { importPptxBufferToDeck } from "./import-pptx";
 
 beforeEach(() => {
@@ -30,7 +33,9 @@ beforeEach(() => {
 
 describe("importPptxBufferToDeck parse failures", () => {
   it("returns a typed no-write failure before database access or image uploads", async () => {
-    mocks.parsePptx.mockRejectedValue(new Error("Invalid PPTX archive"));
+    mocks.parsePptx.mockRejectedValue(
+      new InvalidPptxSourceError(new Error("Invalid PPTX: broken archive")),
+    );
 
     await expect(
       importPptxBufferToDeck({
@@ -59,6 +64,21 @@ describe("importPptxBufferToDeck parse failures", () => {
         deckId: "deck-1",
       }),
     ).rejects.toBe(typedError);
+
+    expect(mocks.getDb).not.toHaveBeenCalled();
+    expect(mocks.uploadPptxSlideImages).not.toHaveBeenCalled();
+  });
+
+  it("preserves unexpected parser errors", async () => {
+    const parserError = new Error("Unexpected parser failure");
+    mocks.parsePptx.mockRejectedValue(parserError);
+
+    await expect(
+      importPptxBufferToDeck({
+        fileBuffer: Buffer.from("invalid PPTX"),
+        deckId: "deck-1",
+      }),
+    ).rejects.toBe(parserError);
 
     expect(mocks.getDb).not.toHaveBeenCalled();
     expect(mocks.uploadPptxSlideImages).not.toHaveBeenCalled();

@@ -46,7 +46,10 @@ import {
   normalizeSlideTransition,
   type SlideTransitionType,
 } from "../shared/slide-transitions.js";
-import { SOURCE_IMPORT_NO_WRITE_ERROR_CODE } from "../shared/source-import-errors.js";
+import {
+  InvalidPptxSourceError,
+  SOURCE_IMPORT_NO_WRITE_ERROR_CODE,
+} from "../shared/source-import-errors.js";
 import {
   assertDeckWriteApplied,
   deckRevisionWhere,
@@ -238,7 +241,7 @@ export default defineAction({
       try {
         presentation = await parsePptx(fileBuffer);
       } catch (error) {
-        if (importIntoDeck && !hasTypedImportError(error)) {
+        if (importIntoDeck && error instanceof InvalidPptxSourceError) {
           fail(
             "Slides could not read this PowerPoint file. No slides were written to the deck.",
             { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
@@ -1030,13 +1033,4 @@ function safeParseDeckData(raw: string): Record<string, unknown> {
 
 function stripTags(html: string): string {
   return html.replace(/<[^>]+>/g, "");
-}
-
-function hasTypedImportError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const typedError = error as { errorCode?: unknown; statusCode?: unknown };
-  return (
-    typeof typedError.errorCode === "string" ||
-    typeof typedError.statusCode === "number"
-  );
 }
