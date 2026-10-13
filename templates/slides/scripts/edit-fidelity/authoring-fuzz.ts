@@ -398,32 +398,46 @@ function browserSessionNavigationRequestKind(method: string, pathname: string) {
   return null;
 }
 
+type BrowserSessionNavigationRequestIdentity =
+  | {
+      status: "identified";
+      kind: "poll" | "heartbeat";
+      sessionId: string;
+    }
+  | { status: "invalid"; reason: "malformed-registration" };
+
 export function browserSessionNavigationRequestIdentity(
   method: string,
   pathname: string,
   postData: string | null,
-) {
+): BrowserSessionNavigationRequestIdentity | null {
   const kind = browserSessionNavigationRequestKind(method, pathname);
   if (!kind) return null;
   const claimSessionId = browserSessionClaimId(pathname);
   if (kind === "poll")
-    return claimSessionId ? { kind, sessionId: claimSessionId } : null;
-  if (postData === null) return null;
+    return claimSessionId
+      ? { status: "identified", kind, sessionId: claimSessionId }
+      : null;
+  if (postData === null) {
+    return { status: "invalid", reason: "malformed-registration" };
+  }
 
   let body: unknown;
   try {
     body = JSON.parse(postData);
   } catch {
-    return null;
+    return { status: "invalid", reason: "malformed-registration" };
   }
-  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { status: "invalid", reason: "malformed-registration" };
+  }
   const record = body as Record<string, unknown>;
   const sessionRecord = record.session;
   if (
     "sessionId" in record &&
     (typeof record.sessionId !== "string" || !record.sessionId)
   ) {
-    return null;
+    return { status: "invalid", reason: "malformed-registration" };
   }
   if (
     sessionRecord !== undefined &&
@@ -431,7 +445,7 @@ export function browserSessionNavigationRequestIdentity(
       typeof sessionRecord !== "object" ||
       Array.isArray(sessionRecord))
   ) {
-    return null;
+    return { status: "invalid", reason: "malformed-registration" };
   }
   const nestedSessionId =
     sessionRecord && typeof sessionRecord === "object"
@@ -441,13 +455,15 @@ export function browserSessionNavigationRequestIdentity(
     nestedSessionId !== undefined &&
     (typeof nestedSessionId !== "string" || !nestedSessionId)
   ) {
-    return null;
+    return { status: "invalid", reason: "malformed-registration" };
   }
   const sessionIds = [record.sessionId, nestedSessionId].filter(
     (value): value is string => typeof value === "string" && value.length > 0,
   );
-  if (!sessionIds.length || new Set(sessionIds).size !== 1) return null;
-  return { kind, sessionId: sessionIds[0] };
+  if (!sessionIds.length || new Set(sessionIds).size !== 1) {
+    return { status: "invalid", reason: "malformed-registration" };
+  }
+  return { status: "identified", kind, sessionId: sessionIds[0] };
 }
 
 type OutgoingBrowserSessionNavigationAbort = {
@@ -2172,12 +2188,8 @@ export async function runAuthoringFuzz(
     const requestUrl = new URL(request.url());
     const startedAt = Date.now();
     const requestSequence = ++requestEventSequence;
-    let requestFrame: any = null;
-    try {
-      requestFrame = request.frame();
-    } catch {
-      // Service-worker requests have no source frame and cannot be outgoing-page aborts.
-    }
+    const requestFrame =
+      request.serviceWorker() === null ? request.frame() : null;
     const requestSourceIsMainFrame = requestFrame === page.mainFrame();
     const isMainFrameNavigationRequest =
       requestSourceIsMainFrame && request.isNavigationRequest();
@@ -2231,6 +2243,8 @@ export async function runAuthoringFuzz(
         requestUrl.pathname,
         request.postData(),
       );
+      const identifiedSession =
+        sessionIdentity?.status === "identified" ? sessionIdentity : null;
       reloadNavigationRequests.set(request, {
         startedAt,
         settledAt: null,
@@ -2246,8 +2260,8 @@ export async function runAuthoringFuzz(
         requestSourceIsMainFrame,
         requestFrameUrl,
         outgoingDocumentUrl: outgoingDocumentUrlAtReload,
-        outgoingRequestKind: sessionIdentity?.kind ?? null,
-        requestSessionId: sessionIdentity?.sessionId ?? null,
+        outgoingRequestKind: identifiedSession?.kind ?? null,
+        requestSessionId: identifiedSession?.sessionId ?? null,
         mainFrameNavigationStartedAt,
         mainFrameNavigationRequestSequence,
         requestStartedBeforeMainFrameCommit:
@@ -6237,18 +6251,16 @@ export async function runAuthoringFuzz(
         reloadNavigationStartedAt,
       );
       for (const [request, startedAt] of watchedRequests.entries()) {
-        let requestFrame: any = null;
-        try {
-          requestFrame = request.frame();
-        } catch {
-          // Service-worker requests have no source frame.
-        }
+        const requestFrame =
+          request.serviceWorker() === null ? request.frame() : null;
         const requestUrl = new URL(request.url());
         const sessionIdentity = browserSessionNavigationRequestIdentity(
           request.method(),
           requestUrl.pathname,
           request.postData(),
         );
+        const identifiedSession =
+          sessionIdentity?.status === "identified" ? sessionIdentity : null;
         reloadNavigationRequests.set(request, {
           startedAt,
           settledAt: null,
@@ -6265,8 +6277,8 @@ export async function runAuthoringFuzz(
           requestSourceIsMainFrame: requestFrame === page.mainFrame(),
           requestFrameUrl: requestFrame ? requestFrame.url() : null,
           outgoingDocumentUrl: outgoingDocumentUrlAtReload,
-          outgoingRequestKind: sessionIdentity?.kind ?? null,
-          requestSessionId: sessionIdentity?.sessionId ?? null,
+          outgoingRequestKind: identifiedSession?.kind ?? null,
+          requestSessionId: identifiedSession?.sessionId ?? null,
           mainFrameNavigationStartedAt: null,
           mainFrameNavigationRequestSequence: null,
           requestStartedBeforeMainFrameCommit: false,
