@@ -1800,15 +1800,13 @@ function removeSupersededAgentKitMessagePrefixes(
   messages: unknown,
   agentKit: Record<string, unknown>,
   previousAgentKit: Record<string, unknown>,
+  incomingAgentKit: Record<string, unknown>,
 ): unknown[] | undefined {
-  if (!Array.isArray(messages) || !Array.isArray(previousAgentKit.messages)) {
-    return undefined;
-  }
+  if (!Array.isArray(messages)) return undefined;
   const completedMessagesByRun = new Map<string, Set<string>>();
-  const events = [
-    ...(Array.isArray(previousAgentKit.events) ? previousAgentKit.events : []),
-    ...(Array.isArray(agentKit.events) ? agentKit.events : []),
-  ];
+  const events = [previousAgentKit, incomingAgentKit, agentKit].flatMap(
+    (snapshot) => (Array.isArray(snapshot.events) ? snapshot.events : []),
+  );
   for (const event of events) {
     const messageId = event?.message?.id;
     if (
@@ -1826,49 +1824,59 @@ function removeSupersededAgentKitMessagePrefixes(
   }
   if (completedMessagesByRun.size === 0) return messages;
 
-  const previousMessagesById = new Map<string, unknown>();
-  for (const message of previousAgentKit.messages) {
-    const id = snapshotEntryId(message, "message");
-    if (id) previousMessagesById.set(id, message);
-  }
+  const runningRunSnapshots = [previousAgentKit, incomingAgentKit].flatMap(
+    (snapshot) =>
+      Array.isArray(snapshot.runs)
+        ? snapshot.runs.flatMap((run: any) =>
+            run?.status === "running" &&
+            typeof run.id === "string" &&
+            typeof run.activeMessageId === "string" &&
+            typeof run.lastSequence === "number" &&
+            Number.isSafeInteger(run.lastSequence)
+              ? [{ run, messages: snapshot.messages }]
+              : [],
+          )
+        : [],
+  );
   const removedIds = new Set<string>();
   for (const run of Array.isArray(agentKit.runs) ? agentKit.runs : []) {
-    const previousRun = Array.isArray(previousAgentKit.runs)
-      ? previousAgentKit.runs.find(
-          (candidate: any) => candidate?.id === run?.id,
-        )
-      : undefined;
     if (
       run?.status !== "completed" ||
       typeof run.id !== "string" ||
       typeof run.activeMessageId !== "string" ||
-      typeof previousRun?.activeMessageId !== "string" ||
-      previousRun.activeMessageId === run.activeMessageId ||
-      previousRun.status !== "running" ||
-      typeof previousRun.lastSequence !== "number" ||
-      !Number.isSafeInteger(previousRun.lastSequence) ||
       typeof run.lastSequence !== "number" ||
-      !Number.isSafeInteger(run.lastSequence) ||
-      run.lastSequence <= previousRun.lastSequence ||
-      !completedMessagesByRun.get(run.id)?.has(run.activeMessageId) ||
-      completedMessagesByRun.get(run.id)?.has(previousRun.activeMessageId)
+      !Number.isSafeInteger(run.lastSequence)
     ) {
       continue;
     }
-    const completionEvent = (
-      Array.isArray(agentKit.events) ? agentKit.events : []
-    ).find(
-      (event: any) =>
-        event?.type === "message.completed" &&
-        event.runId === run.id &&
-        event.message?.role === "assistant" &&
-        event.message?.id === run.activeMessageId &&
-        typeof event.sequence === "number" &&
-        Number.isSafeInteger(event.sequence) &&
-        event.sequence > previousRun.lastSequence &&
-        event.sequence <= run.lastSequence,
-    );
-    if (!completionEvent) continue;
+    const staleRunningSnapshot = runningRunSnapshots
+      .filter(
+        ({ run: candidateRun }) =>
+          candidateRun.id === run.id &&
+          candidateRun.activeMessageId !== run.activeMessageId &&
+          candidateRun.lastSequence < run.lastSequence &&
+          !completedMessagesByRun
+            .get(run.id)
+            ?.has(candidateRun.activeMessageId),
+      )
+      .sort((left, right) => right.run.lastSequence - left.run.lastSequence)[0];
+    if (
+      !staleRunningSnapshot ||
+      !completedMessagesByRun.get(run.id)?.has(run.activeMessageId) ||
+      !events.some(
+        (event: any) =>
+          event?.type === "message.completed" &&
+          event.runId === run.id &&
+          event.message?.role === "assistant" &&
+          event.message?.id === run.activeMessageId &&
+          typeof event.sequence === "number" &&
+          Number.isSafeInteger(event.sequence) &&
+          event.sequence > staleRunningSnapshot.run.lastSequence &&
+          event.sequence <= run.lastSequence,
+      )
+    ) {
+      continue;
+    }
 
     const completedIndex = messages.findIndex(
       (entry) =>
@@ -1879,24 +1887,38 @@ function removeSupersededAgentKitMessagePrefixes(
     const completedText = snapshotAssistantText(messages[completedIndex]);
     if (completedText === undefined) continue;
 
-    let lastUserIndex = -1;
-    for (let index = completedIndex - 1; index >= 0; index--) {
-      if (messages[index]?.role === "user") {
-        lastUserIndex = index;
-        break;
+    const lastUserIndexBefore = (messageIndex: number) => {
+      for (let index = messageIndex - 1; index >= 0; index--) {
+        if (messages[index]?.role === "user") return index;
       }
+      return -1;
+    };
+    const lastUserIndex = lastUserIndexBefore(completedIndex);
+    if (
+      lastUserIndex === -1 ||
+      lastUserIndexBefore(
+        messages.findIndex(
+          (entry) =>
+            snapshotEntryId(entry, "message") ===
+            staleRunningSnapshot.run.activeMessageId,
+        ),
+      ) !== lastUserIndex
+    ) {
+      continue;
     }
-    if (lastUserIndex === -1) continue;
 
-    const candidateId = previousRun.activeMessageId;
-    const candidate = previousMessagesById.get(candidateId);
+    const candidateId = staleRunningSnapshot.run.activeMessageId;
+    const candidate = Array.isArray(staleRunningSnapshot.messages)
+      ? staleRunningSnapshot.messages.find(
+          (entry: unknown) => snapshotEntryId(entry, "message") === candidateId,
+        )
+      : undefined;
     const candidateIndex = messages.findIndex(
       (entry) => snapshotEntryId(entry, "message") === candidateId,
     );
     const candidateText = snapshotAssistantText(candidate);
     if (
       candidateIndex <= lastUserIndex ||
-      candidateIndex >= completedIndex ||
       candidateText === undefined ||
       candidateText.length === 0 ||
       candidateText.length >= completedText.length ||
@@ -3500,6 +3522,7 @@ function mergeAgentKitHistory(
     merged.messages,
     merged,
     previous,
+    next,
   );
   if (messages) merged.messages = messages;
   delete merged._snapshotDelta;

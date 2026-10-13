@@ -2149,6 +2149,76 @@ describe("mergeThreadDataForClientSave", () => {
     expect(merged.agentKit.messages).toEqual([prompt, earlierReply, completed]);
   });
 
+  it("does not restore a superseded prefix from a late running snapshot", () => {
+    const prompt = {
+      id: "user-1",
+      role: "user",
+      parts: [{ type: "text", text: "Explain this result" }],
+    };
+    const earlierReply = {
+      id: "assistant-earlier",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "The result" }],
+    };
+    const partial = {
+      id: "assistant-partial",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "The result shows" }],
+    };
+    const completed = {
+      id: "assistant-completed",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "The result shows a clear increase." }],
+    };
+    const run = (
+      status: "running" | "completed",
+      lastSequence: number,
+      activeMessageId: string,
+    ) => ({
+      id: "run-1",
+      status,
+      lastSequence,
+      activeMessageId,
+    });
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          messages: [prompt, earlierReply, completed],
+          runs: [run("completed", 856, completed.id)],
+          events: [
+            {
+              id: "run-1:852",
+              runId: "run-1",
+              sequence: 852,
+              type: "message.completed",
+              message: { id: completed.id, role: "assistant" },
+            },
+          ],
+        },
+      },
+      {
+        agentKit: {
+          messages: [prompt, earlierReply, partial],
+          runs: [run("running", 168, partial.id)],
+        },
+      },
+    );
+
+    expect(merged.agentKit.messages).toEqual([prompt, earlierReply, completed]);
+    expect(merged.agentKit.runs).toEqual([
+      expect.objectContaining({
+        id: "run-1",
+        status: "completed",
+        lastSequence: 856,
+        activeMessageId: completed.id,
+      }),
+    ]);
+  });
+
   it("keeps a prefix that has its own completion event", () => {
     const prompt = {
       id: "user-1",
